@@ -163,12 +163,13 @@ export function BuildingScene({
   const volume = useMemo(() => interpolateVolume(
     sensors, samples, definition, bounds, freshness, 11,
   ), [sensors, samples, definition, bounds, freshness]);
-  const heatDomain = colorDomain ?? { min: volume.min, max: volume.max };
-  const clouds = useMemo(() => createVolumeClouds(volume, definition, 24, heatDomain), [volume, definition, heatDomain]);
+  const heatMin = colorDomain?.min ?? volume.min;
+  const heatMax = colorDomain?.max ?? volume.max;
+  const clouds = useMemo(() => createVolumeClouds(
+    volume, definition, 24, { min: heatMin, max: heatMax },
+  ), [volume, definition, heatMin, heatMax]);
   const flows = useMemo(() => estimateVolumeFlows(volume, definition, 11), [volume, definition]);
   const allValues = volume.anchors.map((anchor) => anchor.value);
-  const heatMin = heatDomain.min;
-  const heatMax = heatDomain.max;
   const project = (point: Point3D) => projectPoint3D(point, bounds, camera, {
     width: VIEW_WIDTH, height: VIEW_HEIGHT, padding: 72,
   });
@@ -211,8 +212,10 @@ export function BuildingScene({
   };
   const endPointer = (event: ReactPointerEvent<SVGSVGElement>) => {
     if (dragRef.current?.pointerId !== event.pointerId) return;
+    const moved = dragRef.current.moved;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
     dragRef.current = null;
+    if (moved) window.setTimeout(() => { suppressClickRef.current = false; }, 0);
   };
   const onWheel = (event: WheelEvent<SVGSVGElement>) => {
     event.preventDefault();
@@ -273,8 +276,8 @@ export function BuildingScene({
               ? t("twin.estimateUnavailable", { metric: metricLabel })
               : t("building.noSpatial", { metric: metricLabel })}</desc>
           <defs>
-            <marker id={markerId} markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" className="building-arrow-head" /></marker>
-            <marker id={`${markerId}-vertical`} markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0 0L10 5L0 10Z" className="vertical-arrow-head" /></marker>
+            <marker id={markerId} markerWidth="9" markerHeight="9" refX="8" refY="4.5" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0L9 4.5L0 9Z" className="building-arrow-head" /></marker>
+            <marker id={`${markerId}-vertical`} markerWidth="9" markerHeight="9" refX="8" refY="4.5" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0L9 4.5L0 9Z" className="vertical-arrow-head" /></marker>
             <filter id={`${markerId}-shadow`} x="-80%" y="-80%" width="260%" height="260%"><feDropShadow dx="0" dy="4" stdDeviation="5" floodOpacity=".24" /></filter>
             <filter id={`${markerId}-cloud-soften`} x="-35%" y="-35%" width="170%" height="170%"><feGaussianBlur stdDeviation="7" /></filter>
             {projectedClouds.map(({ blob }) => (

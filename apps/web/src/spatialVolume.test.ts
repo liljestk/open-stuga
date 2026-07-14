@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MeasurementDefinition, MeasurementSample, Sensor } from "@climate-twin/contracts";
 import { createDemoState } from "./domain";
 import { definitionFor } from "./measurements";
-import { configuredSpatialMaxSampleAgeMs, isSpatialSampleFresh } from "./spatialFreshness";
+import { configuredSpatialMaxSampleAgeMs, configuredSpatialReplayMaxSampleAgeMs, isSpatialSampleFresh } from "./spatialFreshness";
 import {
   createVolumeClouds, estimateVolumeFlows, interpolateVolume, projectPoint3D,
   type VolumeBounds,
@@ -67,15 +67,34 @@ describe("3D scalar volume", () => {
     expect(estimateVolumeFlows(volume, definition)).toHaveLength(0);
   });
 
-  it("does not infer vertical vectors without measurements at distinct z levels", () => {
+  it("does not infer vertical vectors from small mounting-height differences", () => {
     const state = createDemoState();
     const definition = definitionFor(state.measurementDefinitions, "temperature");
-    const sensors = state.sensors.slice(0, 4).map((sensor, index) => ({ ...sensor, z: 1.4, x: 120 + index * 220 }));
+    const sensors = state.sensors.slice(0, 4).map((sensor, index) => ({ ...sensor, z: 1.2 + index * .08, x: 120 + index * 220 }));
     const samples = Object.fromEntries(sensors.map((sensor, index) => [sensor.id, sample(sensor, definition, 31 - index * 2)]));
     const volume = interpolateVolume(sensors, samples, definition, bounds, freshness);
 
-    expect(volume.distinctZCount).toBe(1);
+    expect(volume.distinctZCount).toBeGreaterThan(1);
+    expect(volume.verticalSupport).toBe(false);
     expect(estimateVolumeFlows(volume, definition).every((vector) => !vector.hasVerticalComponent)).toBe(true);
+  });
+
+  it("caps extreme volume grids and masks blobs outside nearby sensor support", () => {
+    const state = createDemoState();
+    const definition = definitionFor(state.measurementDefinitions, "temperature");
+    const sensors = state.sensors.slice(0, 3).map((sensor, index) => ({
+      ...sensor, x: 30 + index * 12, y: 20 + index * 10, z: 1 + index * .8,
+    }));
+    const samples = Object.fromEntries(sensors.map((sensor, index) => [sensor.id, sample(sensor, definition, 26 - index)]));
+    const extremeBounds = { width: 10_000, depth: 20, minZ: 0, maxZ: 100 };
+    const volume = interpolateVolume(sensors, samples, definition, extremeBounds, freshness, 1_000);
+    const blobs = createVolumeClouds(volume, definition, 24);
+
+    expect(volume.columns).toBeLessThanOrEqual(14);
+    expect(volume.rows).toBeLessThanOrEqual(12);
+    expect(volume.layers).toBeLessThanOrEqual(9);
+    expect(volume.cells.length).toBeLessThanOrEqual(14 * 12 * 9);
+    expect(blobs.every((blob) => blob.x < extremeBounds.width * .55)).toBe(true);
   });
 
   it("suppresses clouds and vectors for no data or a non-spatial definition", () => {
@@ -97,6 +116,7 @@ describe("3D scalar volume", () => {
 describe("spatial sample freshness", () => {
   it("uses an overridable positive age configuration", () => {
     expect(configuredSpatialMaxSampleAgeMs()).toBeGreaterThan(0);
+    expect(configuredSpatialReplayMaxSampleAgeMs()).toBeGreaterThan(configuredSpatialMaxSampleAgeMs());
   });
 
   it("rejects stale-quality, over-age, and future-skewed samples against the active clock", () => {
