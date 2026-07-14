@@ -199,14 +199,19 @@ export function TwinDashboard(props: TwinDashboardProps) {
   const houseParameters = state.staticParameters.filter((parameter) => parameter.houseId === houseId);
   const inspectorSamples = useMemo<Record<string, MeasurementSample>>(() => {
     if (!selectedSensor) return {};
-    const samples = { ...(state.latestMeasurements[selectedSensor.id] ?? {}) };
+    const samples: Record<string, MeasurementSample> = { ...(state.latestMeasurements[selectedSensor.id] ?? {}) };
     if (replayActive) {
       delete samples[definition.id];
       const replaySample = displayedSamples[selectedSensor.id];
       if (replaySample) samples[definition.id] = replaySample;
     }
-    return samples;
-  }, [selectedSensor?.id, state.latestMeasurements, displayedSamples, replayActive, definition.id]);
+    return Object.fromEntries(Object.keys(samples).map((measurementId) => {
+      const sample = samples[measurementId]!;
+      return [measurementId, isSpatialSampleFresh(sample, spatialFreshness)
+        ? sample
+        : { ...sample, quality: "stale" as const }];
+    }));
+  }, [selectedSensor?.id, state.latestMeasurements, displayedSamples, replayActive, definition.id, spatialFreshness]);
 
   const changeRange = (next: TimeRange) => {
     setRange(next);
@@ -308,7 +313,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
         </div>
       </section>
 
-      <ReplayControls active={replayActive} playing={replayPlaying} timestamp={replayTimestamp} min={replayMin} max={replayMax} speed={replaySpeed} onActive={setReplayActive} onPlaying={changeReplayPlaying} onTimestamp={setReplayTimestamp} onSpeed={setReplaySpeed} />
+      <ReplayControls active={replayActive} playing={replayPlaying} timestamp={replayTimestamp} min={replayMin} max={replayMax} speed={replaySpeed} timeZone={house.timezone} onActive={setReplayActive} onPlaying={changeReplayPlaying} onTimestamp={setReplayTimestamp} onSpeed={setReplaySpeed} />
 
       <div className="lower-grid">
         <TrendChart

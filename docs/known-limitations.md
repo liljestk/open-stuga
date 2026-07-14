@@ -41,9 +41,10 @@ system described in the roadmap.
   independently. Callers must inspect `unavailable`, timestamps, station
   provenance, and `stale`; an empty forecast/warning array is not sufficient
   quality information by itself.
-- The FMI product set does not cover every outdoor influence. Radar/lightning,
-  UV, pollen, air quality, flood/fire, road/soil, and hyperlocal property data
-  need separately licensed and validated adapters.
+- The selected FMI product set does not cover every outdoor influence.
+  Radar/lightning, a standalone UV-index series, pollen, air quality,
+  flood/fire, road/soil, and hyperlocal property data need separately licensed
+  and validated adapters. CAP can still contain official UV advisories.
 - FMI and the standard OSM tile service are best-effort external services with
   attribution, request/caching, and privacy obligations. Opening the map sends
   tile requests from the browser; browser geolocation itself is disabled.

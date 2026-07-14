@@ -172,6 +172,8 @@ values.
 | `ALERT_WEBHOOK_BEARER_TOKEN` | empty | optional destination bearer token |
 | `CORS_ORIGIN` | empty | explicit browser origin for a split-origin deployment |
 | `VITE_API_BASE_URL` | empty | compile-time web API base; empty uses same-origin `/api/v1` and `/api/v2` |
+| `VITE_SPATIAL_MAX_SAMPLE_AGE_MS` | `900000` | live sample age limit for 2D/3D clouds and gradient vectors |
+| `VITE_SPATIAL_REPLAY_MAX_SAMPLE_AGE_MS` | `5400000` | wider replay age limit for downsampled stored history |
 | `APP_PORT` | `8080` | host port for the Compose web service |
 | `BIND_ADDRESS` | `127.0.0.1` | host address for Compose; use a deliberate LAN address only after access controls are reviewed |
 

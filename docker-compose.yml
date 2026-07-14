@@ -38,6 +38,8 @@ services:
       target: web
       args:
         VITE_API_BASE_URL: ""
+        VITE_SPATIAL_MAX_SAMPLE_AGE_MS: ${VITE_SPATIAL_MAX_SAMPLE_AGE_MS:-900000}
+        VITE_SPATIAL_REPLAY_MAX_SAMPLE_AGE_MS: ${VITE_SPATIAL_REPLAY_MAX_SAMPLE_AGE_MS:-5400000}
     init: true
     restart: unless-stopped
     depends_on:

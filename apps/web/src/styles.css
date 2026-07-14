@@ -181,9 +181,9 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); }
 .placement-cursor { color: var(--pine); pointer-events: none; }
 .placement-cursor circle { fill: rgb(255 255 255 / .85); stroke: currentColor; stroke-width: 3; }
 .placement-cursor line { stroke: currentColor; stroke-width: 2; }
-.heat-legend { position: absolute; left: 16px; bottom: 14px; display: grid; grid-template-columns: auto 112px auto; align-items: center; gap: 3px 7px; padding: 8px 10px; border: 1px solid rgb(255 255 255 / .72); border-radius: 9px; background: rgb(255 255 255 / .88); box-shadow: 0 4px 14px rgb(13 39 31 / .08); backdrop-filter: blur(9px); font-size: 9px; color: var(--muted); }
+.heat-legend { position: absolute; left: 16px; bottom: 14px; display: grid; grid-template-columns: auto 112px auto; align-items: center; gap: 3px 7px; padding: 8px 10px; border: 1px solid rgb(255 255 255 / .72); border-radius: 9px; background: rgb(255 255 255 / .88); box-shadow: 0 4px 14px rgb(13 39 31 / .08); backdrop-filter: blur(9px); font-size: 11px; color: var(--muted); }
 .heat-legend-title { grid-column: 1 / -1; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.heat-legend strong { color: var(--ink); font-size: 10px; }
+.heat-legend strong { color: var(--ink); font-size: 11px; }
 .heat-legend strong:last-child { grid-column: 3; text-align: right; }
 .heat-gradient { grid-column: 2; grid-row: 2 / 4; width: 112px; height: 7px; border-radius: 8px; background: linear-gradient(90deg, hsl(220 76% 55%), hsl(125 70% 58%), hsl(15 76% 55%)); }
 .heat-gradient.humidity { background: linear-gradient(90deg, hsl(188 72% 62%), hsl(210 72% 52%), hsl(230 72% 44%)); }
@@ -197,7 +197,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); }
 .building-scene-controls { min-height: 52px; padding: 8px 13px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
 .building-scene-controls > div { min-width: 0; display: grid; gap: 2px; }
 .building-scene-controls strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.building-scene-controls label { min-width: 185px; display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 10px; font-weight: 600; }
+.building-scene-controls label { min-width: 185px; display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 11px; font-weight: 600; }
 .building-scene-controls input[type="range"] { min-height: 24px; height: 24px; padding: 0; border: 0; accent-color: var(--pine); background: transparent; }
 .building-orbit-controls { display: flex !important; align-items: center; justify-content: flex-end; gap: 5px !important; flex-wrap: wrap; }
 .building-orbit-controls .secondary-button { min-width: 31px; min-height: 31px; height: 31px; padding: 0 8px; justify-content: center; }
@@ -221,7 +221,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); }
 .building-floor-label { pointer-events: none; }
 .building-floor-label rect { fill: rgb(255 255 255 / .94); stroke: var(--line-strong); filter: drop-shadow(0 3px 8px rgb(13 39 31 / .1)); }
 .building-floor-label text { fill: var(--ink); font-size: 11px; font-weight: 700; }
-.building-floor-label .sub-label { fill: var(--muted); font-size: 8.5px; font-weight: 500; }
+.building-floor-label .sub-label { fill: var(--muted); font-size: 11px; font-weight: 500; }
 .building-observation { color: var(--blue); pointer-events: none; }
 .building-observation.warning { color: var(--orange); }
 .building-observation.critical { color: var(--red); }
@@ -236,8 +236,8 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); }
 .building-sensor.stale { opacity: .58; }
 .building-sensor.stale .building-sensor-core { fill: var(--muted); }
 .building-sensor:hover .building-sensor-ring, .building-sensor:focus-visible .building-sensor-ring { r: 24; stroke: var(--pine); stroke-width: 4; }
-.building-sensor-value { fill: #fff; font-family: "Manrope", sans-serif; font-size: 9px; font-weight: 800; }
-.building-sensor-name { fill: var(--ink); font-size: 10px; font-weight: 700; paint-order: stroke; stroke: rgb(255 255 255 / .94); stroke-width: 4px; stroke-linejoin: round; }
+.building-sensor-value { fill: #fff; font-family: "Manrope", sans-serif; font-size: 11px; font-weight: 800; }
+.building-sensor-name { fill: var(--ink); font-size: 11px; font-weight: 700; paint-order: stroke; stroke: rgb(255 255 255 / .94); stroke-width: 4px; stroke-linejoin: round; }
 .vertical-gradient line { stroke: var(--orange); stroke-width: 3; stroke-dasharray: 7 6; vector-effect: non-scaling-stroke; }
 .building-flow-path { fill: none; stroke: var(--pine); stroke-width: 2.5; stroke-dasharray: 7 7; opacity: .82; vector-effect: non-scaling-stroke; }
 .building-volume-vector.has-z .building-flow-path { stroke: var(--orange); }
@@ -249,12 +249,12 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); }
 .vertical-gradient rect { fill: rgb(255 255 255 / .94); stroke: var(--line-strong); }
 .vertical-gradient text { fill: var(--ink); font-size: 9.5px; font-weight: 700; }
 .vertical-gradient .sub-label { fill: var(--muted); font-size: 7.8px; font-weight: 500; }
-.building-legend { min-height: 38px; padding: 7px 13px; display: flex; align-items: center; gap: 18px; border-top: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: 9.5px; }
+.building-legend { min-height: 38px; padding: 7px 13px; display: flex; align-items: center; gap: 18px; border-top: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: 11px; }
 .building-legend span { display: inline-flex; align-items: center; gap: 7px; }
 .building-legend .heat-gradient { width: 78px; height: 7px; }
 .vertical-key { width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: 50%; color: var(--orange); background: var(--orange-soft); font-style: normal; font-size: 14px; font-weight: 800; }
 .volume-vector-key { width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: 50%; color: var(--pine); background: var(--pine-soft); font-style: normal; font-size: 14px; font-weight: 800; }
-.building-help { margin: 0; padding: 0 13px 9px; color: var(--muted); background: var(--panel); font-size: 9px; }
+.building-help { margin: 0; padding: 0 13px 9px; color: var(--muted); background: var(--panel); font-size: 11px; }
 
 .sensor-inspector { padding: 20px 17px; border-left: 1px solid var(--line); background: var(--panel); }
 .sensor-heading { display: flex; gap: 11px; align-items: center; padding-bottom: 17px; border-bottom: 1px solid var(--line); }

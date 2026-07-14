@@ -106,10 +106,10 @@ function visibility(value: number | undefined, units: UnitSystem, locale: string
     : `${decimal(value / 1000, locale)} km`;
 }
 
-function distance(value: number, units: UnitSystem, locale: string): { value: string; unit: string } {
+function distance(value: number, units: UnitSystem, locale: string): { distance: string; unit: string } {
   return units === "imperial"
-    ? { value: decimal(value * 0.621371, locale), unit: "mi" }
-    : { value: decimal(value, locale), unit: "km" };
+    ? { distance: decimal(value * 0.621371, locale), unit: "mi" }
+    : { distance: decimal(value, locale), unit: "km" };
 }
 
 function percent(value: number | undefined, locale: string): string | null {
@@ -138,8 +138,9 @@ export function IntegrationsPage({ integration, house, houses, units, onHouse, o
     setLatitude(house.location ? String(house.location.latitude) : "");
     setLongitude(house.location ? String(house.location.longitude) : "");
     setLocationLabel(house.location?.label ?? "");
-    setLocationFeedback(null);
   }, [house.id, house.location?.label, house.location?.latitude, house.location?.longitude]);
+
+  useEffect(() => { setLocationFeedback(null); }, [house.id]);
 
   useEffect(() => {
     if (!house.location) {

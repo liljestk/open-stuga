@@ -28,7 +28,7 @@ export function configuredSpatialReplayMaxSampleAgeMs(): number {
 export function isSpatialSampleFresh(
   sample: MeasurementSample | undefined,
   options: SpatialFreshnessOptions,
-): sample is MeasurementSample {
+): boolean {
   if (!sample || sample.quality === "stale") return false;
   const timestampMs = Date.parse(sample.timestamp);
   if (!Number.isFinite(timestampMs) || !Number.isFinite(options.referenceTimeMs)) return false;

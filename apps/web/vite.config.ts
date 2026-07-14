@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  // Keep one documented environment file at the workspace root.
+  envDir: "../..",
   server: {
     port: 5173,
     proxy: {

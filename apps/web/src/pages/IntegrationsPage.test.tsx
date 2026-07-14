@@ -111,6 +111,7 @@ describe("FMI weather integration", () => {
     expect(screen.getByText("Global solar radiation")).not.toBeNull();
     expect(screen.getByText("Thunderstorm probability")).not.toBeNull();
     expect(screen.getByText("short-range forecast supplement")).not.toBeNull();
+    expect(screen.getByText("Observation station Harbour, 8.5 km away")).not.toBeNull();
 
     const forecastTable = screen.getByRole("table");
     expect(within(forecastTable).getByText("11.8 °C")).not.toBeNull();
@@ -128,7 +129,7 @@ describe("FMI weather integration", () => {
     const secondHouse: House = { ...houseWithoutLocation, id: "house-lake", name: "Lake house" };
     const onHouse = vi.fn();
     const onLocationChange = vi.fn().mockResolvedValue(undefined);
-    renderPage({ house: noLocation, houses: [noLocation, secondHouse], onHouse, onLocationChange });
+    const rendered = renderPage({ house: noLocation, houses: [noLocation, secondHouse], onHouse, onLocationChange });
 
     await user.click(screen.getByRole("button", { name: "Map for choosing the house location" }));
     expect((screen.getByRole("spinbutton", { name: "Latitude" }) as HTMLInputElement).value).toBe("61.500000");
@@ -137,6 +138,12 @@ describe("FMI weather integration", () => {
     await user.click(screen.getByRole("button", { name: "Save location" }));
 
     await waitFor(() => expect(onLocationChange).toHaveBeenCalledWith({ latitude: 61.5, longitude: 25.25, label: "Summer home" }));
+    expect(screen.getByText("House location saved. Weather data is updating.")).not.toBeNull();
+    rendered.rerender(<I18nProvider><IntegrationsPage {...rendered.props} house={{
+      ...noLocation,
+      location: { latitude: 61.5, longitude: 25.25, label: "Summer home" },
+    }} /></I18nProvider>);
+    expect(screen.getByText("House location saved. Weather data is updating.")).not.toBeNull();
     await user.selectOptions(screen.getByRole("combobox", { name: "House" }), secondHouse.id);
     expect(onHouse).toHaveBeenCalledWith(secondHouse.id);
   });

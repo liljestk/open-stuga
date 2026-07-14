@@ -46,7 +46,7 @@ describe("TwinDashboard replay timing", () => {
       expect(Number(slider.value)).toBe(minimum + 4 * 60_000);
 
       const speed = screen.getByLabelText("Replay speed") as HTMLSelectElement;
-      expect(within(speed).getByRole("option", { name: "4 min/s" })).not.toBeNull();
+      expect(within(speed).getByRole("option", { name: "4 minutes per second" })).not.toBeNull();
       fireEvent.change(speed, { target: { value: "12" } });
       act(() => vi.advanceTimersByTime(1_000));
       expect(Number(slider.value)).toBe(minimum + 16 * 60_000);
