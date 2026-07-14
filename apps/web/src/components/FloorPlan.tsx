@@ -6,6 +6,8 @@ import { useI18n, type TranslationKey } from "../i18n";
 import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue } from "../measurements";
 import { createCloudLobes, estimateFieldFlows, heatColor, interpolateHeat } from "../spatialField";
 import { configuredSpatialMaxSampleAgeMs, isSpatialSampleFresh } from "../spatialFreshness";
+import { cardinalDirection, normalizeDegrees } from "../outdoorContext";
+import { OutdoorConditionsBadge, type OutdoorVisualizationState } from "./OutdoorConditionsBadge";
 
 export { heatColor, interpolateHeat } from "../spatialField";
 
@@ -23,6 +25,7 @@ interface FloorPlanProps {
   observationPlacement: boolean;
   referenceTimeMs?: number;
   maxSampleAgeMs?: number;
+  outdoor?: OutdoorVisualizationState;
   onSensorSelect: (sensorId: string) => void;
   onSensorMove: (sensorId: string, point: Point) => void;
   onFloorChange: (floor: Floor) => void;
@@ -38,6 +41,7 @@ export function FloorPlan({
   floor, sensors, samples, observations, definition, colorDomain, units, viewMode, selectedSensorId, editing,
   observationPlacement, onSensorSelect, onSensorMove, onFloorChange, onObservationPoint, onCancelObservationPlacement,
   referenceTimeMs, maxSampleAgeMs,
+  outdoor,
 }: FloorPlanProps) {
   const { locale, t } = useI18n();
   const metricLabel = measurementLabel(definition, locale);
@@ -215,6 +219,29 @@ export function FloorPlan({
 
   const legendMin = formatMeasurement(visualDomain.min, definition, units);
   const legendMax = formatMeasurement(visualDomain.max, definition, units);
+  const outdoorContext = !outdoor?.replayActive ? outdoor?.context ?? null : null;
+  const outdoorPath = outdoorContext?.sourcePoint && outdoorContext.inwardTarget
+    ? {
+      from: { x: outdoorContext.sourcePoint.x * renderWidth, y: outdoorContext.sourcePoint.y * renderHeight },
+      to: { x: outdoorContext.inwardTarget.x * renderWidth, y: outdoorContext.inwardTarget.y * renderHeight },
+    }
+    : null;
+  const outdoorArrowLabel = outdoorContext?.windFromCardinal && outdoorContext.windFromDegrees !== null && outdoorContext.windwardEdge
+    ? t("outdoor.windArrowAria", {
+      direction: t(`outdoor.cardinal.${outdoorContext.windFromCardinal}` as TranslationKey),
+      degrees: Math.round(outdoorContext.windFromDegrees),
+      edge: t(`outdoor.edge.${outdoorContext.windwardEdge}` as TranslationKey),
+    })
+    : null;
+  const edgeLabels = outdoor?.orientationDegrees === undefined ? [] : ([
+    { edge: "top", x: renderWidth / 2, y: 25, bearing: outdoor.orientationDegrees },
+    { edge: "right", x: renderWidth - 25, y: renderHeight / 2, bearing: outdoor.orientationDegrees + 90 },
+    { edge: "bottom", x: renderWidth / 2, y: renderHeight - 17, bearing: outdoor.orientationDegrees + 180 },
+    { edge: "left", x: 25, y: renderHeight / 2, bearing: outdoor.orientationDegrees + 270 },
+  ] as const).map((item) => {
+    const bearing = normalizeDegrees(item.bearing);
+    return { ...item, bearing, cardinal: cardinalDirection(bearing) };
+  });
 
   return (
     <div className="floor-plan-wrap">
@@ -252,6 +279,7 @@ export function FloorPlan({
             <clipPath id={`${fieldId}-clip`}><rect x="0" y="0" width={renderWidth} height={renderHeight} rx="20" /></clipPath>
             <filter id={`${fieldId}-soften`} x="-25%" y="-25%" width="150%" height="150%"><feGaussianBlur stdDeviation="7" /></filter>
             <marker id={`${fieldId}-arrow`} markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" className="flow-arrow-head" /></marker>
+            <marker id={`${fieldId}-outdoor-arrow`} markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0L12 6L0 12Z" className="outdoor-wind-arrow-head" /></marker>
             <filter id={`${fieldId}-sensor-shadow`} x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="0" dy="5" stdDeviation="6" floodOpacity=".22" /></filter>
             {clouds.map((cloud) => (
               <radialGradient key={`${cloud.id}-gradient`} id={`${fieldId}-${cloud.id}`}>
@@ -279,6 +307,28 @@ export function FloorPlan({
               {floor.walls.map((wall) => <line key={wall.id} x1={wall.from.x * renderScale} y1={wall.from.y * renderScale} x2={wall.to.x * renderScale} y2={wall.to.y * renderScale} />)}
               {wallStart && <circle cx={wallStart.x * renderScale} cy={wallStart.y * renderScale} r="8" className="wall-start" />}
             </g>
+            {edgeLabels.length > 0 && (
+              <g className="outdoor-edge-labels" aria-hidden="true">
+                {edgeLabels.map((item) => (
+                  <text key={item.edge} x={item.x} y={item.y} textAnchor="middle">
+                    {t(`outdoor.cardinal.${item.cardinal}` as TranslationKey)} {Math.round(item.bearing)}°
+                  </text>
+                ))}
+              </g>
+            )}
+            {outdoorPath && outdoorArrowLabel && (
+              <g
+                className="outdoor-wind-vector floor-outdoor-wind"
+                role="img"
+                aria-label={outdoorArrowLabel}
+                data-windward-edge={outdoorContext?.windwardEdge ?? undefined}
+                data-plan-wind-from={outdoorContext?.planWindFromDegrees?.toFixed(2)}
+              >
+                <title>{outdoorArrowLabel}</title>
+                <circle cx={outdoorPath.from.x} cy={outdoorPath.from.y} r="8" className="outdoor-wind-source" />
+                <path d={`M${outdoorPath.from.x} ${outdoorPath.from.y}L${outdoorPath.to.x} ${outdoorPath.to.y}`} className="outdoor-wind-path" markerEnd={`url(#${fieldId}-outdoor-arrow)`} />
+              </g>
+            )}
             <g className="flow-layer" aria-label={t("twin.flow")}>
               {flows.map(({ id, from, to, difference }, index) => {
                 const fromX = from.x;
@@ -359,6 +409,7 @@ export function FloorPlan({
             </g>
           </g>
         </svg>
+        {outdoor && <OutdoorConditionsBadge outdoor={outdoor} units={units} showCompass />}
         {clouds.length > 0 && <div className="heat-legend" aria-label={`${t("twin.estimatedField", { metric: metricLabel })}: ${legendMin} – ${legendMax}`}>
           <strong className="heat-legend-title">{t("twin.estimatedField", { metric: metricLabel })}</strong>
           <span>{t("twin.heatLegendLow")}</span>

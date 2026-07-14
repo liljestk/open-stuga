@@ -196,8 +196,10 @@ should omit forecast bands and handle the API's `FORECAST_UNSUPPORTED` response.
 ### House location and FMI weather
 
 `House.location` is an optional WGS84 object with finite `latitude` and
-`longitude` decimal degrees plus an optional display `label`. Set or replace it
-with `PATCH /api/v1/houses/{id}`; set `location` to `null` to remove it:
+`longitude` decimal degrees plus an optional display `label`.
+`House.orientationDegrees` is independently optional and is the clockwise
+true-north bearing of the floor plan's top edge, in the range `[0, 360)`.
+Set or replace either property with `PATCH /api/v1/houses/{id}`:
 
 ```json
 {
@@ -205,9 +207,17 @@ with `PATCH /api/v1/houses/{id}`; set `location` to `null` to remove it:
     "latitude": 60.2055,
     "longitude": 24.6559,
     "label": "Espoo"
-  }
+  },
+  "orientationDegrees": 0
 }
 ```
+
+Set either property to `null` to clear only that property. Unknown orientation
+must remain absent/null rather than defaulting to `0`; otherwise downstream
+clients would falsely label the top plan edge as north-facing. FMI wind bearing
+is a wind-from direction. A client maps it to the plan with
+`normalize(windFromDegrees - orientationDegrees)` and should omit directional
+geometry whenever either bearing is unavailable.
 
 Request outdoor context with
 `GET /api/v1/houses/{id}/weather?hours=48`; the horizon defaults to 48 and is

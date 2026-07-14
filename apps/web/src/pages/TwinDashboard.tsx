@@ -9,6 +9,9 @@ import { clamp, round, type ClimateState, type TimeRange, type ViewMode } from "
 import { useI18n, type TranslationKey } from "../i18n";
 import { definitionFor, displayUnit, enabledDefinitions, formatMeasurement, formatMeasurementDelta, measurementDomain, measurementLabel, measurementValue, samplesAt } from "../measurements";
 import { configuredSpatialMaxSampleAgeMs, configuredSpatialReplayMaxSampleAgeMs, isSpatialSampleFresh } from "../spatialFreshness";
+import { createOutdoorBoundaryContext } from "../outdoorContext";
+import { useHouseWeather } from "../useHouseWeather";
+import type { OutdoorVisualizationState } from "../components/OutdoorConditionsBadge";
 
 interface TwinDashboardProps {
   state: ClimateState;
@@ -58,6 +61,29 @@ export function TwinDashboard(props: TwinDashboardProps) {
   const [parameterValue, setParameterValue] = useState("");
   const [parameterUnit, setParameterUnit] = useState("");
   const replayBatchRef = useRef("");
+  const houseWeather = useHouseWeather(house, !replayActive);
+  const outdoorContext = useMemo(
+    () => createOutdoorBoundaryContext(house, houseWeather.weather),
+    [house, houseWeather.weather],
+  );
+  const outdoor = useMemo<OutdoorVisualizationState>(() => ({
+    context: replayActive ? null : outdoorContext,
+    loading: !replayActive && houseWeather.loading,
+    unavailable: !replayActive && !houseWeather.loading && !outdoorContext
+      && Boolean(houseWeather.error || houseWeather.weather),
+    refreshFailed: !replayActive && Boolean(outdoorContext && houseWeather.error),
+    hasLocation: Boolean(house.location),
+    replayActive,
+    timeZone: house.timezone,
+    ...(house.orientationDegrees === undefined ? {} : { orientationDegrees: house.orientationDegrees }),
+    ...(houseWeather.weather?.attribution ? { attribution: houseWeather.weather.attribution } : {}),
+    ...(houseWeather.weather?.observationStation ? {
+      station: {
+        name: houseWeather.weather.observationStation.name,
+        distanceKm: houseWeather.weather.observationStation.distanceKm,
+      },
+    } : {}),
+  }), [house.location, house.orientationDegrees, house.timezone, houseWeather.error, houseWeather.loading, houseWeather.weather, outdoorContext, replayActive]);
 
   useEffect(() => {
     if (replayActive) return;
@@ -294,6 +320,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
               floor={floor} sensors={floorSensors} samples={displayedSamples} observations={floorObservations} definition={definition} colorDomain={houseColorDomain} units={units}
               viewMode="plan" selectedSensorId={selectedSensor?.id ?? null} editing={editing} observationPlacement={observationPlacement}
               referenceTimeMs={spatialReferenceTimeMs} maxSampleAgeMs={spatialMaxSampleAgeMs}
+              outdoor={outdoor}
               onSensorSelect={props.onSensorSelect} onSensorMove={props.onSensorMove} onFloorChange={props.onFloorChange} onObservationPoint={placeObservation}
               onCancelObservationPlacement={() => setObservationPlacement(false)}
             />
@@ -302,6 +329,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
               house={house} sensors={houseSensors} samples={displayedSamples} observations={houseObservations} definition={definition} colorDomain={houseColorDomain} units={units}
               activeFloorId={floorId} selectedSensorId={selectedSensor?.id ?? null} onFloorSelect={props.onFloor}
               referenceTimeMs={spatialReferenceTimeMs} maxSampleAgeMs={spatialMaxSampleAgeMs}
+              outdoor={outdoor}
               onSensorSelect={(sensorId) => props.onSensorSelect(sensorId)}
             />
           )}

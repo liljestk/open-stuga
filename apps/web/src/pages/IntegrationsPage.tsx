@@ -5,6 +5,7 @@ import {
   CircleDot,
   CloudRain,
   CloudSun,
+  Compass,
   Database,
   Droplets,
   ExternalLink,
@@ -29,7 +30,7 @@ import type {
   IntegrationStatus,
   UnitSystem,
 } from "@climate-twin/contracts";
-import { api } from "../api";
+import { api, type HouseGeoreferencePatch } from "../api";
 import { HouseLocationMap } from "../components/HouseLocationMap";
 import { useI18n } from "../i18n";
 
@@ -39,7 +40,7 @@ interface IntegrationsPageProps {
   houses: House[];
   units: UnitSystem;
   onHouse: (houseId: string) => void;
-  onLocationChange: (location: HouseLocation | null) => Promise<void>;
+  onGeoreferenceChange: (patch: HouseGeoreferencePatch) => Promise<void>;
 }
 
 type Feedback = { kind: "success" | "error"; message: string } | null;
@@ -120,13 +121,14 @@ function code(value: number | undefined, locale: string): string | null {
   return finite(value) ? decimal(value, locale, 0) : null;
 }
 
-export function IntegrationsPage({ integration, house, houses, units, onHouse, onLocationChange }: IntegrationsPageProps) {
+export function IntegrationsPage({ integration, house, houses, units, onHouse, onGeoreferenceChange }: IntegrationsPageProps) {
   const { locale, t } = useI18n();
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<"success" | "failure" | null>(null);
   const [latitude, setLatitude] = useState("");
   const [longitude, setLongitude] = useState("");
   const [locationLabel, setLocationLabel] = useState("");
+  const [orientation, setOrientation] = useState("");
   const [savingLocation, setSavingLocation] = useState(false);
   const [locationFeedback, setLocationFeedback] = useState<Feedback>(null);
   const [weather, setWeather] = useState<HouseWeather | null>(null);
@@ -139,6 +141,10 @@ export function IntegrationsPage({ integration, house, houses, units, onHouse, o
     setLongitude(house.location ? String(house.location.longitude) : "");
     setLocationLabel(house.location?.label ?? "");
   }, [house.id, house.location?.label, house.location?.latitude, house.location?.longitude]);
+
+  useEffect(() => {
+    setOrientation(house.orientationDegrees === undefined ? "" : String(house.orientationDegrees));
+  }, [house.id, house.orientationDegrees]);
 
   useEffect(() => { setLocationFeedback(null); }, [house.id]);
 
@@ -172,6 +178,21 @@ export function IntegrationsPage({ integration, house, houses, units, onHouse, o
     return { latitude: parsedLatitude, longitude: parsedLongitude, ...(label ? { label } : {}) };
   }, [latitude, locationLabel, longitude]);
 
+  const draftOrientation = useMemo<number | null>(() => {
+    if (!orientation.trim()) return null;
+    const parsed = Number(orientation);
+    return Number.isInteger(parsed) && parsed >= 0 && parsed <= 359 ? parsed : null;
+  }, [orientation]);
+  const lowestFloor = useMemo(() => house.floors.reduce<(typeof house.floors)[number] | undefined>((lowest, floor) => (
+    !lowest || floor.elevation < lowest.elevation ? floor : lowest
+  ), undefined), [house.floors]);
+  const orientationDirection = draftOrientation === null
+    ? null
+    : [t("orientation.north"), t("orientation.east"), t("orientation.south"), t("orientation.west")][Math.round(draftOrientation / 90) % 4];
+  const orientationExplanation = draftOrientation === null
+    ? t("orientation.unknownExplanation")
+    : t("orientation.knownExplanation", { degrees: draftOrientation, direction: orientationDirection ?? "" });
+
   const testConnection = async () => {
     setTesting(true);
     setResult(null);
@@ -190,7 +211,7 @@ export function IntegrationsPage({ integration, house, houses, units, onHouse, o
     setSavingLocation(true);
     setLocationFeedback(null);
     try {
-      await onLocationChange(draftLocation);
+      await onGeoreferenceChange({ location: draftLocation });
       setLocationFeedback({ kind: "success", message: t("weather.locationSaved") });
     } catch {
       setLocationFeedback({ kind: "error", message: t("weather.locationSaveError") });
@@ -203,7 +224,7 @@ export function IntegrationsPage({ integration, house, houses, units, onHouse, o
     setSavingLocation(true);
     setLocationFeedback(null);
     try {
-      await onLocationChange(null);
+      await onGeoreferenceChange({ location: null });
       setLatitude("");
       setLongitude("");
       setLocationLabel("");
@@ -212,6 +233,37 @@ export function IntegrationsPage({ integration, house, houses, units, onHouse, o
       setLocationFeedback({ kind: "success", message: t("weather.locationRemoved") });
     } catch {
       setLocationFeedback({ kind: "error", message: t("weather.locationSaveError") });
+    } finally {
+      setSavingLocation(false);
+    }
+  };
+
+  const saveOrientation = async () => {
+    if (draftOrientation === null) {
+      setLocationFeedback({ kind: "error", message: t("orientation.invalid") });
+      return;
+    }
+    setSavingLocation(true);
+    setLocationFeedback(null);
+    try {
+      await onGeoreferenceChange({ orientationDegrees: draftOrientation });
+      setLocationFeedback({ kind: "success", message: t("orientation.saved") });
+    } catch {
+      setLocationFeedback({ kind: "error", message: t("orientation.saveError") });
+    } finally {
+      setSavingLocation(false);
+    }
+  };
+
+  const clearOrientation = async () => {
+    setSavingLocation(true);
+    setLocationFeedback(null);
+    try {
+      await onGeoreferenceChange({ orientationDegrees: null });
+      setOrientation("");
+      setLocationFeedback({ kind: "success", message: t("orientation.cleared") });
+    } catch {
+      setLocationFeedback({ kind: "error", message: t("orientation.saveError") });
     } finally {
       setSavingLocation(false);
     }
@@ -339,7 +391,17 @@ export function IntegrationsPage({ integration, house, houses, units, onHouse, o
           <section className="panel weather-location-card" aria-labelledby="weather-location-title">
             <div className="panel-header"><div><span className="eyebrow">{house.name}</span><h3 id="weather-location-title">{t("weather.locationTitle")}</h3></div><span className="weather-card-icon"><MapPin size={20} aria-hidden="true" /></span></div>
             <p className="weather-card-description">{t("weather.locationDescription")}</p>
-            <HouseLocationMap value={draftLocation} onChange={updateFromMap} ariaLabel={t("weather.mapLabel")} markerLabel={t("weather.markerLabel", { house: house.name })} />
+            <HouseLocationMap
+              value={draftLocation}
+              onChange={updateFromMap}
+              ariaLabel={t("weather.mapLabel")}
+              markerLabel={t("weather.markerLabel", { house: house.name })}
+              {...(draftOrientation !== null ? { orientationDegrees: draftOrientation } : {})}
+              {...(lowestFloor ? { floor: lowestFloor } : {})}
+              northLabel={t("orientation.northShort")}
+              planTopLabel={t("orientation.planTopShort")}
+              notToScaleLabel={t("orientation.notToScale")}
+            />
             <p className="weather-map-hint">{t("weather.mapHint")}</p>
             <div className="weather-location-fields">
               <label className="field"><span>{t("weather.latitude")}</span><input type="number" min={-90} max={90} step="any" inputMode="decimal" value={latitude} onChange={(event) => { setLatitude(event.target.value); setLocationFeedback(null); }} required /></label>
@@ -350,6 +412,22 @@ export function IntegrationsPage({ integration, house, houses, units, onHouse, o
               <button type="button" className="primary-button" disabled={savingLocation || !draftLocation} onClick={() => void saveLocation()}>{savingLocation ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <MapPin size={16} aria-hidden="true" />}{savingLocation ? t("common.saving") : t("weather.saveLocation")}</button>
               {house.location && <button type="button" className="secondary-button" disabled={savingLocation} onClick={() => void removeLocation()}><Trash2 size={16} aria-hidden="true" />{t("weather.removeLocation")}</button>}
             </div>
+            <fieldset className="house-orientation-fieldset">
+              <legend><Compass size={15} aria-hidden="true" />{t("orientation.title")}</legend>
+              <p>{t("orientation.description")}</p>
+              <div className="house-orientation-inputs">
+                <label className="field"><span>{t("orientation.degrees")}</span><input type="number" min={0} max={359} step={1} inputMode="numeric" value={orientation} placeholder={t("orientation.unknown")} onChange={(event) => { setOrientation(event.target.value); setLocationFeedback(null); }} /></label>
+                <label className="house-orientation-range"><span>{t("orientation.rotate")}</span><input type="range" min={0} max={359} step={1} value={draftOrientation ?? 0} onChange={(event) => { setOrientation(event.target.value); setLocationFeedback(null); }} /></label>
+              </div>
+              <div className="house-orientation-presets" role="group" aria-label={t("orientation.presets")}>
+                {([[0, "N"], [90, "E"], [180, "S"], [270, "W"]] as const).map(([degrees, label]) => <button key={degrees} type="button" className={draftOrientation === degrees ? "active" : ""} aria-pressed={draftOrientation === degrees} onClick={() => { setOrientation(String(degrees)); setLocationFeedback(null); }}>{label}<small>{degrees}{"\u00b0"}</small></button>)}
+              </div>
+              <p className="house-orientation-explanation" role="status" aria-live="polite"><Compass size={15} aria-hidden="true" /><span>{orientationExplanation}</span></p>
+              <div className="weather-location-actions">
+                <button type="button" className="secondary-button" disabled={savingLocation || draftOrientation === null} onClick={() => void saveOrientation()}>{savingLocation ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Compass size={16} aria-hidden="true" />}{t("orientation.save")}</button>
+                <button type="button" className="secondary-button" disabled={savingLocation || (draftOrientation === null && house.orientationDegrees === undefined)} onClick={() => void clearOrientation()}>{t("orientation.clear")}</button>
+              </div>
+            </fieldset>
             {locationFeedback && <p className={`weather-feedback ${locationFeedback.kind}`} role="status">{locationFeedback.kind === "success" ? <Check size={15} aria-hidden="true" /> : <TriangleAlert size={15} aria-hidden="true" />}{locationFeedback.message}</p>}
           </section>
 

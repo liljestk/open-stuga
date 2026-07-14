@@ -104,8 +104,10 @@ implying otherwise.
 The shared TypeScript contracts define the stable domain vocabulary:
 
 - `House` contains floors and may contain a WGS84 `location` used only for
-  house-scoped outdoor context; a `Floor` contains dimensions, walls, rooms,
-  and an optional background drawing.
+  house-scoped outdoor context. Its optional `orientationDegrees` is the
+  clockwise true-north bearing of the floor plan's top edge; absence means
+  unknown. A `Floor` contains dimensions, walls, rooms, and an optional
+  background drawing.
 - `Sensor` has floor-local `(x, y)` placement and an absolute metre-based `z`
   height, plus room, model, tags, enabled state, and optional Home Assistant
   entity bindings keyed by measurement ID. Floor elevation uses the same
@@ -133,6 +135,10 @@ The shared TypeScript contracts define the stable domain vocabulary:
   provider/attribution, fetch and forecast issue times, selected observation
   station, current values, hourly forecast, CAP warnings, stale state, and a
   list of independently unavailable upstream parts.
+- `OutdoorBoundaryContext` is a web-side derived view. It normalizes FMI's
+  wind-from bearing against `House.orientationDegrees`, exposes a windward plan
+  edge and inward vector, and preserves the weather timestamp/stale state. It
+  never creates indoor measurements.
 
 SQLite is the intermediate source of truth for this MVP. Metric samples use an
 entity-attribute-value table keyed by sensor, metric, timestamp, and source;
@@ -179,6 +185,11 @@ for retention and backup guidance.
   Other metrics remain available as positioned markers and history. These cues
   are sparse-sample estimates, never measured airflow or a building-physics
   simulation.
+- **Outdoor boundary:** the live 2D/3D views can render current FMI temperature,
+  humidity, and wind around the oriented plan. Directional geometry is omitted
+  when orientation or wind direction is unknown. It is kept outside the indoor
+  interpolation pipeline and hidden during historical replay so current
+  outside conditions cannot be mistaken for historical inputs.
 
 ## Module boundaries
 

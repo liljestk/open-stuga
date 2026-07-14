@@ -10,7 +10,7 @@ This is contextual weather data, not a certified alarm or building-control
 input. Preserve timestamps, provenance, missing-value state, and official
 warning text whenever the data is displayed or exported.
 
-## Set a house location
+## Locate and orient a house
 
 Open **Integrations**, select a house, then click the map or drag its marker.
 Latitude and longitude can also be entered directly. An optional label such as
@@ -26,6 +26,14 @@ The public `House.location` shape is:
   "label": "Espoo"
 }
 ```
+
+`House.orientationDegrees` is independent and optional. It is the true-north
+bearing, measured clockwise, of the **top edge of the floor plan**: `0` means
+the plan top faces north, `90` east, `180` south, and `270` west. Leave it
+unknown until it has been measured; Climate Twin does not silently assume
+north. The map then displays a rotated schematic of the lowest floor with a
+fixed north indicator. That footprint is an orientation aid, not a scaled or
+survey-accurate map overlay.
 
 Coordinates are decimal degrees in WGS84 (`EPSG:4326`): latitude must be
 between -90 and 90 and longitude between -180 and 180. This location is
@@ -48,13 +56,40 @@ Content-Type: application/json
     "latitude": 60.2055,
     "longitude": 24.6559,
     "label": "Espoo"
-  }
+  },
+  "orientationDegrees": 0
 }
 ```
 
 Set `location` to `null` to remove it. Updating or removing a location clears
 that house's in-memory weather cache. `POST /api/v1/houses` also accepts the
-same optional location object.
+same optional location object and orientation. Set `orientationDegrees` to
+`null` to return it to unknown. The two properties can be patched separately;
+removing the map location does not erase the orientation.
+
+## Outdoor context in the Twin view
+
+The live Twin view periodically loads the house's current FMI observation and
+shows outside temperature, relative humidity, wind speed, gust, source
+direction, observation time, station provenance, and stale state when those
+fields are available. Missing values remain visibly unavailable rather than
+being replaced with zero.
+
+FMI wind direction is the direction the wind comes **from**. With a known house
+orientation, Climate Twin converts it into plan coordinates as
+`windFrom - orientationDegrees` (normalized to 0–359 degrees). The resulting
+arrow starts at the windward plan edge and points inward in the 2D and 3D
+views. If orientation or wind direction is unknown, the numeric outside values
+remain available but the wall-relative arrow is withheld. Current live weather
+is not overlaid on historical replay.
+
+This overlay is a structured external boundary condition only. It is not added
+as a synthetic indoor sensor, interpolation anchor, or measurement-history
+row. The current wall model does not identify an exterior envelope, openings,
+materials, outward normals, or room adjacency, so the UI reports a windward
+**plan edge** rather than claiming that a specific wall segment is affected.
+Quantifying how wind changes indoor temperature or humidity needs a separately
+calibrated building-physics model and supporting building data.
 
 ## Retrieve house weather
 

@@ -98,7 +98,7 @@ export function App() {
           houses={state.houses}
           units={units}
           onHouse={chooseHouse}
-          onLocationChange={(location) => climate.setHouseLocation(house.id, location)}
+          onGeoreferenceChange={(patch) => climate.setHouseGeoreference(house.id, patch)}
         />
       )}
       {page === "developer" && <DeveloperPage />}

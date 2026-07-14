@@ -3,7 +3,7 @@ import type {
   AlertRule,
   ConnectionState,
   Floor,
-  HouseLocation,
+  House,
   ManualObservation,
   MeasurementSample,
   MockScenario,
@@ -11,7 +11,7 @@ import type {
   StaticParameter,
   TelemetryEvent,
 } from "@climate-twin/contracts";
-import { api, subscribeToEvents, subscribeToMeasurementEvents } from "./api";
+import { api, subscribeToEvents, subscribeToMeasurementEvents, type HouseGeoreferencePatch } from "./api";
 import { createDemoState, nextMockReading, snapshotToReadings, type ClimateState, type TimeRange } from "./domain";
 import { appendHistory, enabledDefinitions, legacyForecastSamples, readingSamples, upsertLatest } from "./measurements";
 
@@ -232,18 +232,25 @@ export function useClimateData() {
     if (apiAvailable.current) void api.updateSensor(sensorId, patch).catch(() => undefined);
   }, []);
 
-  const setHouseLocation = useCallback(async (houseId: string, location: HouseLocation | null) => {
-    const saved = apiAvailable.current ? await api.updateHouseLocation(houseId, location) : null;
+  const setHouseGeoreference = useCallback(async (houseId: string, patch: HouseGeoreferencePatch) => {
+    const saved = apiAvailable.current ? await api.updateHouseGeoreference(houseId, patch) : null;
     setState((current) => {
       const existing = current.houses.find((house) => house.id === houseId);
       if (!existing) return current;
       const hadLocation = Boolean(existing.location);
-      let nextHouse = saved;
-      if (!nextHouse && location) {
-        nextHouse = { ...existing, location, updatedAt: new Date().toISOString() };
-      } else if (!nextHouse) {
-        const { location: _removedLocation, ...withoutLocation } = existing;
-        nextHouse = { ...withoutLocation, updatedAt: new Date().toISOString() };
+      let nextHouse: House;
+      if (saved) {
+        nextHouse = saved;
+      } else {
+        nextHouse = { ...existing, updatedAt: new Date().toISOString() };
+        if (Object.prototype.hasOwnProperty.call(patch, "location")) {
+          if (patch.location === null) delete nextHouse.location;
+          else if (patch.location !== undefined) nextHouse.location = patch.location;
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, "orientationDegrees")) {
+          if (patch.orientationDegrees === null) delete nextHouse.orientationDegrees;
+          else if (patch.orientationDegrees !== undefined) nextHouse.orientationDegrees = patch.orientationDegrees;
+        }
       }
       const configuredDelta = Number(Boolean(nextHouse.location)) - Number(hadLocation);
       return {
@@ -329,7 +336,7 @@ export function useClimateData() {
   }, []);
 
   return {
-    state, loading, connection, scenario, saveState, selectHouse, loadSeries, updateSensor, updateFloor, setHouseLocation,
+    state, loading, connection, scenario, saveState, selectHouse, loadSeries, updateSensor, updateFloor, setHouseGeoreference,
     saveLayout, runScenario, createRule, acknowledgeAlert, createObservation, createStaticParameter,
   };
 }

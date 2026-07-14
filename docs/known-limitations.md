@@ -51,6 +51,18 @@ system described in the roadmap.
 - Weather values are not persisted as sensor history and must not directly
   drive safety-critical HVAC, freeze protection, shutters, or alarms. See
   [FMI weather and house location](weather.md).
+- House orientation is a user-supplied bearing for the top of the plan, not a
+  surveyed building transform. When it is unknown, wall-relative wind arrows
+  are deliberately omitted. The map footprint is schematic and not to scale.
+- The visualisation can identify a windward rectangular **plan edge**, not a
+  verified exterior wall segment. Walls do not yet carry envelope/interior
+  classification, outward normals, openings, adjacency, material conductance,
+  airtightness, or calibrated scale. Irregular footprints need that topology
+  before the system can make wall-level claims.
+- The outdoor arrow is a current external boundary cue. FMI values are not
+  injected into the indoor interpolation, and there is no pressure, heat-loss,
+  infiltration, moisture-transport, or CFD model that predicts their effect on
+  rooms. Live outdoor context is withheld during historical replay.
 
 ## Alerts and delivery
 

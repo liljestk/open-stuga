@@ -17,6 +17,7 @@ const leaflet = vi.hoisted(() => {
     getLatLng: vi.fn(() => ({ lat: 60.17, lng: 24.94 })),
     on: vi.fn(),
     removeFrom: vi.fn(),
+    setIcon: vi.fn(),
     setLatLng: vi.fn(),
   };
   marker.addTo.mockImplementation(() => marker);
@@ -24,12 +25,13 @@ const leaflet = vi.hoisted(() => {
     Object.assign(marker.options, options);
     return marker;
   });
-  return { map, marker, markerFactory, state };
+  const divIconFactory = vi.fn((options) => options);
+  return { divIconFactory, map, marker, markerFactory, state };
 });
 
 vi.mock("leaflet", () => ({
   default: {
-    divIcon: vi.fn((options) => options),
+    divIcon: leaflet.divIconFactory,
     latLng: vi.fn((latitude, longitude) => ({ lat: latitude, lng: longitude })),
     map: vi.fn(() => leaflet.map),
     marker: leaflet.markerFactory,
@@ -70,5 +72,53 @@ describe("HouseLocationMap", () => {
     expect(leaflet.state.markerElement?.getAttribute("aria-label")).toBe("Lake house location");
     expect(leaflet.marker.options).toMatchObject({ title: "Lake house location", alt: "Lake house location" });
     expect(leaflet.markerFactory).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses a neutral pin while orientation is unknown", async () => {
+    render(
+      <HouseLocationMap
+        value={{ latitude: 60.17, longitude: 24.94 }}
+        onChange={vi.fn()}
+        ariaLabel="House location map"
+        markerLabel="House location"
+      />,
+    );
+
+    await waitFor(() => expect(leaflet.divIconFactory).toHaveBeenCalled());
+    const icon = leaflet.divIconFactory.mock.calls.at(-1)?.[0] as { html: string };
+    expect(icon.html).toContain("house-location-marker");
+    expect(icon.html).not.toContain("house-footprint-rotator");
+  });
+
+  it("renders a fixed-pixel floor footprint with a rotated plan top and fixed north indicator", async () => {
+    render(
+      <HouseLocationMap
+        value={{ latitude: 60.17, longitude: 24.94 }}
+        onChange={vi.fn()}
+        ariaLabel="House location map"
+        markerLabel="House location, plan top west"
+        orientationDegrees={270}
+        floor={{
+          width: 12,
+          height: 8,
+          walls: [
+            { id: "top", from: { x: 0, y: 0 }, to: { x: 12, y: 0 } },
+            { id: "left", from: { x: 0, y: 0 }, to: { x: 0, y: 8 } },
+          ],
+        }}
+        northLabel="N"
+        planTopLabel="TOP"
+        notToScaleLabel="not to scale"
+      />,
+    );
+
+    await waitFor(() => expect(leaflet.divIconFactory).toHaveBeenCalled());
+    const icon = leaflet.divIconFactory.mock.calls.at(-1)?.[0] as { html: string; iconSize: number[] };
+    expect(icon.iconSize).toEqual([112, 112]);
+    expect(icon.html).toContain("rotate(270deg)");
+    expect(icon.html).toContain("house-footprint-walls");
+    expect(icon.html).toContain("house-plan-top-edge");
+    expect(icon.html).toContain("house-map-north");
+    expect(icon.html).toContain("not to scale");
   });
 });

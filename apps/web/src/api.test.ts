@@ -47,6 +47,21 @@ describe("house weather API client", () => {
     expect(options).toMatchObject({ method: "PATCH", body: JSON.stringify({ location: house.location }) });
   });
 
+  it("patches orientation without resending or clearing location", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ house: { ...house, orientationDegrees: 270 } }),
+    } as Response);
+
+    await expect(api.updateHouseGeoreference(house.id, { orientationDegrees: 270 })).resolves.toMatchObject({ orientationDegrees: 270 });
+
+    const [, options] = fetchMock.mock.calls[0]!;
+    expect(options).toMatchObject({ method: "PATCH", body: JSON.stringify({ orientationDegrees: 270 }) });
+    expect(String(options?.body)).not.toContain("location");
+  });
+
   it("requests a 48-hour house forecast and unwraps the weather response", async () => {
     const weather: HouseWeather = {
       houseId: house.id,

@@ -12,6 +12,7 @@ import {
   clampCameraOrbit, createVolumeClouds, estimateVolumeFlows, interpolateVolume, projectPoint3D,
   type CameraOrbit, type Point3D, type ProjectedPoint3D, type VolumeBounds, type VolumeCloudBlob,
 } from "../spatialVolume";
+import { OutdoorConditionsBadge, type OutdoorVisualizationState } from "./OutdoorConditionsBadge";
 
 interface BuildingSceneProps {
   house: House;
@@ -25,6 +26,7 @@ interface BuildingSceneProps {
   selectedSensorId: string | null;
   referenceTimeMs?: number;
   maxSampleAgeMs?: number;
+  outdoor?: OutdoorVisualizationState;
   onFloorSelect: (floorId: string) => void;
   onSensorSelect: (sensorId: string, floorId: string) => void;
 }
@@ -119,7 +121,7 @@ function projectedCloud(
 
 export function BuildingScene({
   house, sensors, samples, observations, definition, colorDomain, units, activeFloorId, selectedSensorId,
-  referenceTimeMs, maxSampleAgeMs, onFloorSelect, onSensorSelect,
+  referenceTimeMs, maxSampleAgeMs, outdoor, onFloorSelect, onSensorSelect,
 }: BuildingSceneProps) {
   const { locale, t } = useI18n();
   const metricLabel = measurementLabel(definition, locale);
@@ -173,6 +175,33 @@ export function BuildingScene({
   const project = (point: Point3D) => projectPoint3D(point, bounds, camera, {
     width: VIEW_WIDTH, height: VIEW_HEIGHT, padding: 72,
   });
+  const outdoorContext = !outdoor?.replayActive ? outdoor?.context ?? null : null;
+  const outdoorWindWorld = outdoorContext?.sourceVector && outdoorContext.windwardEdge
+    ? (() => {
+      const vector = outdoorContext.sourceVector!;
+      const halfWidth = bounds.width / 2;
+      const halfDepth = bounds.depth / 2;
+      const xScale = Math.abs(vector.x) < 1e-9 ? Number.POSITIVE_INFINITY : halfWidth / Math.abs(vector.x);
+      const yScale = Math.abs(vector.y) < 1e-9 ? Number.POSITIVE_INFINITY : halfDepth / Math.abs(vector.y);
+      const edgeScale = Math.min(xScale, yScale);
+      const center = { x: halfWidth, y: halfDepth };
+      const z = bounds.minZ + (bounds.maxZ - bounds.minZ) * .46;
+      return {
+        source: { x: center.x + vector.x * edgeScale * 1.28, y: center.y + vector.y * edgeScale * 1.28, z },
+        target: { x: center.x + vector.x * edgeScale * .91, y: center.y + vector.y * edgeScale * .91, z },
+      };
+    })()
+    : null;
+  const outdoorWindProjected = outdoorWindWorld
+    ? { source: project(outdoorWindWorld.source), target: project(outdoorWindWorld.target) }
+    : null;
+  const outdoorArrowLabel = outdoorContext?.windFromCardinal && outdoorContext.windFromDegrees !== null && outdoorContext.windwardEdge
+    ? t("outdoor.windArrowAria", {
+      direction: t(`outdoor.cardinal.${outdoorContext.windFromCardinal}` as TranslationKey),
+      degrees: Math.round(outdoorContext.windFromDegrees),
+      edge: t(`outdoor.edge.${outdoorContext.windwardEdge}` as TranslationKey),
+    })
+    : null;
 
   const projectedClouds = clouds.map((cloud) => projectedCloud(cloud, project))
     .sort((a, b) => a.center.depth - b.center.depth);
@@ -278,6 +307,7 @@ export function BuildingScene({
           <defs>
             <marker id={markerId} markerWidth="9" markerHeight="9" refX="8" refY="4.5" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0L9 4.5L0 9Z" className="building-arrow-head" /></marker>
             <marker id={`${markerId}-vertical`} markerWidth="9" markerHeight="9" refX="8" refY="4.5" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0L9 4.5L0 9Z" className="vertical-arrow-head" /></marker>
+            <marker id={`${markerId}-outdoor`} markerWidth="12" markerHeight="12" refX="10" refY="6" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0L12 6L0 12Z" className="outdoor-wind-arrow-head" /></marker>
             <filter id={`${markerId}-shadow`} x="-80%" y="-80%" width="260%" height="260%"><feDropShadow dx="0" dy="4" stdDeviation="5" floodOpacity=".24" /></filter>
             <filter id={`${markerId}-cloud-soften`} x="-35%" y="-35%" width="170%" height="170%"><feGaussianBlur stdDeviation="7" /></filter>
             {projectedClouds.map(({ blob }) => (
@@ -320,6 +350,27 @@ export function BuildingScene({
               );
             })}
           </g>
+
+          {outdoorWindWorld && outdoorWindProjected && outdoorArrowLabel && (
+            <g
+              className="outdoor-wind-vector building-outdoor-wind"
+              role="img"
+              aria-label={outdoorArrowLabel}
+              data-windward-edge={outdoorContext?.windwardEdge ?? undefined}
+              data-source-x={outdoorWindWorld.source.x.toFixed(2)}
+              data-source-y={outdoorWindWorld.source.y.toFixed(2)}
+              data-target-x={outdoorWindWorld.target.x.toFixed(2)}
+              data-target-y={outdoorWindWorld.target.y.toFixed(2)}
+            >
+              <title>{outdoorArrowLabel}</title>
+              <circle cx={outdoorWindProjected.source.x} cy={outdoorWindProjected.source.y} r="7" className="outdoor-wind-source" />
+              <path
+                d={`M${outdoorWindProjected.source.x.toFixed(1)} ${outdoorWindProjected.source.y.toFixed(1)}L${outdoorWindProjected.target.x.toFixed(1)} ${outdoorWindProjected.target.y.toFixed(1)}`}
+                className="outdoor-wind-path"
+                markerEnd={`url(#${markerId}-outdoor)`}
+              />
+            </g>
+          )}
 
           <g className="building-clouds building-volume-clouds" filter={`url(#${markerId}-cloud-soften)`} aria-hidden="true">
             {projectedClouds.map(({ blob, center, radiusX, radiusY, angle }) => (
@@ -410,6 +461,7 @@ export function BuildingScene({
           </g>
 
         </svg>
+        {outdoor && <OutdoorConditionsBadge outdoor={outdoor} units={units} />}
       </div>
       <div className="building-legend" aria-live="polite">
         <span>{!definition.spatialInterpolation

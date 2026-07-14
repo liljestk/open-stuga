@@ -16,7 +16,8 @@ The included demo starts with a two-floor house, ten virtual sensors, temperatur
   lightweight forecasts
 - Home Assistant WebSocket ingestion plus a mock scenario generator
 - Manual leak/condensation/mould/maintenance observations and static metadata
-- Per-house map location plus FMI observations, point forecasts, official CAP
+- Per-house map location and true-north floor-plan orientation, plus FMI
+  observations, directional wind context, point forecasts, official CAP
   warnings, provenance, and partial/stale-data state
 - Threshold alerts and configurable outbound webhooks for Home Assistant, OpenWearable, DayOps, or another receiver
 - Versioned REST API, OpenAPI description, and a local stdio MCP server
@@ -70,11 +71,17 @@ See [Home Assistant setup](docs/home-assistant.md), [architecture](docs/architec
 ## Outdoor weather
 
 Open **Integrations**, select the house on the map (or enter WGS84 coordinates),
-and save it. Climate Twin then retrieves house-scoped observations, forecasts,
+set which true-north bearing the top of its floor plan faces, and save both
+parts. Climate Twin then retrieves house-scoped observations, forecasts,
 and official warnings from the Finnish Meteorological Institute through
 `GET /api/v1/houses/{id}/weather?hours=48`. FMI's selected public endpoints do
 not require an API key. The API caches results and exposes station/product
 provenance, partial failures, and stale fallback explicitly.
+
+The live Twin view shows the current outside temperature, humidity, and wind.
+When orientation is known, it also maps wind direction to a windward plan edge
+in 2D and 3D. This is an external boundary cue, not a heat-transfer or airflow
+simulation.
 
 The map loads attributed tiles directly from OpenStreetMap, which is an external
 browser request; FMI requests are server-side. See [FMI weather and house

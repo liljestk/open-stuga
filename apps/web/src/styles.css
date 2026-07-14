@@ -192,6 +192,37 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); }
 .flow-legend > span:last-child { display: grid; gap: 1px; }
 .flow-legend strong { font-size: 11px; }
 .flow-legend small { color: var(--muted); font-size: 11px; line-height: 1.25; }
+.outdoor-wind-vector { pointer-events: none; }
+.outdoor-wind-path { fill: none; stroke: var(--blue); stroke-width: 5; stroke-linecap: round; opacity: .96; vector-effect: non-scaling-stroke; filter: drop-shadow(0 2px 3px rgb(36 83 155 / .28)); }
+.outdoor-wind-arrow-head { fill: var(--blue); }
+.outdoor-wind-source { fill: var(--panel); stroke: var(--blue); stroke-width: 4; vector-effect: non-scaling-stroke; }
+.outdoor-edge-labels text { fill: var(--blue); font-family: "Manrope", sans-serif; font-size: 16px; font-weight: 800; letter-spacing: .035em; paint-order: stroke; stroke: rgb(255 255 255 / .9); stroke-width: 5px; stroke-linejoin: round; }
+.outdoor-context-card { position: absolute; z-index: 8; top: 12px; left: 12px; width: min(286px, calc(100% - 24px)); display: grid; gap: 8px; padding: 11px 12px; border: 1px solid rgb(63 118 211 / .3); border-radius: 12px; color: var(--ink); background: rgb(255 255 255 / .94); box-shadow: 0 8px 24px rgb(13 39 31 / .13); backdrop-filter: blur(10px); pointer-events: none; }
+.outdoor-context-card.stale, .outdoor-context-card.warning { border-color: rgb(170 116 33 / .44); }
+.outdoor-context-card.compact { width: auto; max-width: min(286px, calc(100% - 24px)); grid-template-columns: auto 1fr; align-items: center; gap: 8px; }
+.outdoor-context-card.compact.muted { color: var(--muted); }
+.outdoor-context-card.compact.warning > svg { color: var(--yellow); }
+.outdoor-context-card.compact span, .outdoor-context-heading > span { min-width: 0; display: grid; gap: 1px; }
+.outdoor-context-card strong { font-family: "Manrope", sans-serif; font-size: 11px; }
+.outdoor-context-card small { color: var(--muted); font-size: 8.5px; line-height: 1.35; }
+.outdoor-context-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.outdoor-context-heading > b { padding: 2px 6px; border-radius: 9px; color: var(--yellow); background: var(--yellow-soft); font-size: 7px; letter-spacing: .045em; text-transform: uppercase; }
+.outdoor-context-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+.outdoor-context-values > span { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 4px; padding: 6px; border-radius: 8px; background: var(--panel-soft); }
+.outdoor-context-values > span > svg { grid-row: 1 / span 3; color: var(--blue); }
+.outdoor-context-values b { min-width: 0; overflow: hidden; font-family: "Manrope", sans-serif; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.outdoor-context-values small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outdoor-boundary-note { margin: 0; display: flex; align-items: flex-start; gap: 5px; color: var(--blue); font-size: 8.5px; font-weight: 700; line-height: 1.35; }
+.outdoor-boundary-note svg { flex: 0 0 auto; }
+.outdoor-boundary-note.setup { color: var(--yellow); }
+.outdoor-boundary-note.warning { color: var(--yellow); }
+.outdoor-compass { display: flex; align-items: center; gap: 7px; }
+.outdoor-compass-dial { position: relative; width: 31px; height: 31px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--panel-soft); }
+.outdoor-compass-dial i { position: absolute; inset: 4px; display: grid; place-items: start center; color: var(--red); font-size: 16px; font-style: normal; transform-origin: center; }
+.outdoor-compass-dial b { font-size: 7px; transform: translateY(7px); }
+.outdoor-model-note { padding-top: 6px; border-top: 1px solid var(--line); }
+.outdoor-provenance { display: grid; gap: 2px; color: var(--muted-2) !important; }
+.outdoor-provenance span { display: block; }
 
 .building-scene { min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: #f2f6f4; }
 .building-scene-controls { min-height: 52px; padding: 8px 13px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
@@ -204,7 +235,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); }
 .building-scene-controls .building-zoom { min-width: 145px; margin-left: 5px; }
 .building-zoom input { width: 92px; }
 .building-orbit-controls .building-reset { min-width: auto; padding-inline: 10px; }
-.building-viewport { min-width: 0; flex: 1; overflow: hidden; overscroll-behavior: contain; background-color: #edf3f0; background-image: radial-gradient(rgb(23 79 67 / .08) .7px, transparent .7px); background-size: 17px 17px; }
+.building-viewport { position: relative; min-width: 0; flex: 1; overflow: hidden; overscroll-behavior: contain; background-color: #edf3f0; background-image: radial-gradient(rgb(23 79 67 / .08) .7px, transparent .7px); background-size: 17px 17px; }
 .building-svg { width: 100%; height: 100%; min-height: 520px; display: block; cursor: grab; touch-action: none; user-select: none; font-family: "DM Sans", sans-serif; }
 .building-svg:active { cursor: grabbing; }
 .building-floor { cursor: pointer; outline: none; }
@@ -445,6 +476,16 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); }
 .house-location-marker-wrap { border: 0; background: transparent; }
 .house-location-marker { position: relative; display: block; width: 27px; height: 27px; margin: 1px; transform: rotate(-45deg); border: 3px solid #fff; border-radius: 50% 50% 50% 0; background: var(--pine); box-shadow: 0 4px 12px rgb(7 42 34 / .35); }
 .house-location-marker::after { position: absolute; width: 7px; height: 7px; inset: 7px; content: ""; border-radius: 50%; background: #fff; }
+.house-orientation-marker-wrap { border: 0; background: transparent; }
+.house-orientation-marker { position: relative; display: block; width: 112px; height: 112px; pointer-events: none; filter: drop-shadow(0 4px 6px rgb(7 42 34 / .28)); }
+.house-footprint-rotator { position: absolute; width: 72px; height: 72px; left: 20px; top: 19px; display: block; transform-origin: 50% 50%; border: 1px solid rgb(255 255 255 / .8); border-radius: 9px; background: rgb(255 255 255 / .82); transition: transform 160ms ease-out; }
+.house-footprint-rotator svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.house-footprint-walls { fill: none; stroke: var(--pine); stroke-width: 2.1; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.house-plan-top-edge { fill: none; stroke: var(--orange); stroke-width: 4.2; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.house-plan-top-label { position: absolute; left: 50%; top: 1px; translate: -50% 0; padding: 1px 3px; border-radius: 3px; color: #fff; background: var(--orange); font: 700 6px/1.2 "Manrope", sans-serif; letter-spacing: .06em; white-space: nowrap; }
+.house-map-north { position: absolute; z-index: 2; left: 6px; top: 4px; width: 20px; height: 31px; display: grid; justify-items: center; color: #142e27; font: 800 9px/1 "Manrope", sans-serif; }
+.house-map-north i { width: 0; height: 0; margin-top: 2px; border-right: 5px solid transparent; border-bottom: 13px solid #142e27; border-left: 5px solid transparent; }
+.house-map-not-scale { position: absolute; left: 50%; bottom: 0; translate: -50% 0; padding: 2px 4px; border-radius: 4px; color: #233e36; background: rgb(255 255 255 / .88); font: 600 6px/1.2 "Manrope", sans-serif; letter-spacing: .02em; white-space: nowrap; }
 .weather-preview { display: grid; align-content: start; gap: 14px; }
 .weather-preview-heading { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
 .weather-preview-heading h3 { margin: 4px 0 0; font-family: "Manrope", sans-serif; font-size: 15px; }
@@ -486,6 +527,21 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); }
 .weather-location-fields .field small { color: var(--muted-2); font-size: 8.5px; font-weight: 500; }
 .weather-location-label { grid-column: 1 / -1; }
 .weather-location-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
+.house-orientation-fieldset { min-width: 0; display: grid; gap: 10px; margin: 16px 0 0; padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel-soft); }
+.house-orientation-fieldset legend { display: inline-flex; align-items: center; gap: 6px; padding: 0 5px; color: var(--ink); font-family: "Manrope", sans-serif; font-size: 11px; font-weight: 750; }
+.house-orientation-fieldset > p:first-of-type { margin: 0; color: var(--muted); font-size: 9.5px; line-height: 1.5; }
+.house-orientation-inputs { display: grid; grid-template-columns: minmax(135px, .65fr) minmax(170px, 1.35fr); align-items: end; gap: 12px; }
+.house-orientation-inputs .field { display: grid; gap: 5px; }
+.house-orientation-inputs .field > span, .house-orientation-range > span { color: var(--muted); font-size: 9.5px; font-weight: 650; }
+.house-orientation-range { min-width: 0; display: grid; gap: 9px; padding-bottom: 8px; }
+.house-orientation-range input { width: 100%; accent-color: var(--pine); cursor: pointer; }
+.house-orientation-presets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+.house-orientation-presets button { min-height: 31px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--ink); background: var(--panel); font: 750 10px/1 "Manrope", sans-serif; cursor: pointer; }
+.house-orientation-presets button:hover, .house-orientation-presets button.active { border-color: var(--pine); color: var(--pine); background: var(--pine-soft); }
+.house-orientation-presets button small { color: var(--muted); font-size: 7px; }
+.house-orientation-explanation { display: flex; align-items: flex-start; gap: 7px; margin: 0; padding: 9px 10px; border-radius: 9px; color: var(--pine); background: var(--pine-soft); font-size: 9px; line-height: 1.45; }
+.house-orientation-explanation svg { flex: 0 0 auto; margin-top: 1px; }
+.house-orientation-fieldset .weather-location-actions { margin-top: 0; }
 .weather-feedback { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; padding: 9px 10px; border-radius: 9px; font-size: 10px; }
 .weather-feedback.success { color: var(--pine); background: var(--pine-soft); }
 .weather-feedback.error { color: var(--red); background: var(--red-soft); }
@@ -673,6 +729,7 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
   .weather-location-card .house-location-map { height: 300px; min-height: 300px; }
   .weather-location-fields { grid-template-columns: 1fr; }
   .weather-location-label { grid-column: auto; }
+  .house-orientation-inputs { grid-template-columns: 1fr; }
   .weather-location-actions > button { flex: 1 1 150px; }
   .weather-current-hero { grid-template-columns: auto 1fr; }
   .weather-current-hero > div:nth-last-child(-n+2) { padding-top: 4px; }
@@ -687,6 +744,7 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .flow-particle, .building-flow-particle, .vertical-flow-particle { display: none; }
   .building-volume-cloud { transition: none; }
+  .outdoor-context-card .spin { animation: none !important; }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -700,6 +758,8 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
   .walls line { stroke: #b7c7c0; }
   .sensor-label { fill: #eef4f1; stroke: rgb(20 29 26 / .9); }
   .heat-legend, .flow-legend, .chart-tooltip { border-color: rgb(255 255 255 / .08); background: rgb(23 32 29 / .91); }
+  .outdoor-context-card { border-color: rgb(142 184 255 / .34); background: rgb(23 32 29 / .94); }
+  .outdoor-edge-labels text { stroke: rgb(20 29 26 / .92); }
   .building-scene, .building-viewport { background-color: #151f1b; }
   .floor-surface { fill: #19241f; stroke: #43564e; }
   .floor-slab-side { fill: #25332e; stroke: #52655d; }

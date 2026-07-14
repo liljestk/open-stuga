@@ -143,7 +143,9 @@ enabling test scenarios in the instance used for real alerts.
 
 No weather API key or environment variable is required. In **Integrations**,
 select a house, choose its WGS84 point on the map (or enter latitude/longitude),
-add an optional non-address label, and save. The page then loads FMI
+add an optional non-address label, and save. Set the true-north bearing of the
+top edge of the floor plan so directional wind can be aligned with the house;
+leave it unknown if it has not been measured. The page then loads FMI
 observations, point forecasts, and official warnings for that location.
 
 The map is a direct browser connection to OpenStreetMap; the FMI requests are

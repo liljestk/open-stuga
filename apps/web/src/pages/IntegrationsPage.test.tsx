@@ -90,7 +90,7 @@ function renderPage(overrides: Partial<React.ComponentProps<typeof IntegrationsP
     houses: [house],
     units: "metric",
     onHouse: vi.fn(),
-    onLocationChange: vi.fn().mockResolvedValue(undefined),
+    onGeoreferenceChange: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
   return { ...render(<I18nProvider><IntegrationsPage {...props} /></I18nProvider>), props };
@@ -128,8 +128,8 @@ describe("FMI weather integration", () => {
     const noLocation: House = houseWithoutLocation;
     const secondHouse: House = { ...houseWithoutLocation, id: "house-lake", name: "Lake house" };
     const onHouse = vi.fn();
-    const onLocationChange = vi.fn().mockResolvedValue(undefined);
-    const rendered = renderPage({ house: noLocation, houses: [noLocation, secondHouse], onHouse, onLocationChange });
+    const onGeoreferenceChange = vi.fn().mockResolvedValue(undefined);
+    const rendered = renderPage({ house: noLocation, houses: [noLocation, secondHouse], onHouse, onGeoreferenceChange });
 
     await user.click(screen.getByRole("button", { name: "Map for choosing the house location" }));
     expect((screen.getByRole("spinbutton", { name: "Latitude" }) as HTMLInputElement).value).toBe("61.500000");
@@ -137,7 +137,7 @@ describe("FMI weather integration", () => {
     await user.type(screen.getByRole("textbox", { name: /Location label/ }), "Summer home");
     await user.click(screen.getByRole("button", { name: "Save location" }));
 
-    await waitFor(() => expect(onLocationChange).toHaveBeenCalledWith({ latitude: 61.5, longitude: 25.25, label: "Summer home" }));
+    await waitFor(() => expect(onGeoreferenceChange).toHaveBeenCalledWith({ location: { latitude: 61.5, longitude: 25.25, label: "Summer home" } }));
     expect(screen.getByText("House location saved. Weather data is updating.")).not.toBeNull();
     rendered.rerender(<I18nProvider><IntegrationsPage {...rendered.props} house={{
       ...noLocation,
@@ -146,6 +146,26 @@ describe("FMI weather integration", () => {
     expect(screen.getByText("House location saved. Weather data is updating.")).not.toBeNull();
     await user.selectOptions(screen.getByRole("combobox", { name: "House" }), secondHouse.id);
     expect(onHouse).toHaveBeenCalledWith(secondHouse.id);
+  });
+
+  it("saves and clears plan orientation independently from location", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "houseWeather").mockResolvedValue(weather);
+    const onGeoreferenceChange = vi.fn().mockResolvedValue(undefined);
+    renderPage({ house: { ...house, orientationDegrees: 90 }, onGeoreferenceChange });
+
+    expect(screen.getByText(/90.*\(east\)/)).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: /^W\s*270/ }));
+    expect(screen.getByText(/270.*\(west\)/)).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Save orientation" }));
+    await waitFor(() => expect(onGeoreferenceChange).toHaveBeenCalledWith({ orientationDegrees: 270 }));
+
+    await user.click(screen.getByRole("button", { name: "Remove location" }));
+    await waitFor(() => expect(onGeoreferenceChange).toHaveBeenCalledWith({ location: null }));
+    expect(onGeoreferenceChange).not.toHaveBeenCalledWith(expect.objectContaining({ location: null, orientationDegrees: expect.anything() }));
+
+    await user.click(screen.getByRole("button", { name: "Clear orientation" }));
+    await waitFor(() => expect(onGeoreferenceChange).toHaveBeenCalledWith({ orientationDegrees: null }));
   });
 
   it("does not report no active warnings when FMI warning data is unavailable", async () => {

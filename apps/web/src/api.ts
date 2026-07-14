@@ -18,6 +18,12 @@ import type {
   TelemetryEvent,
 } from "@climate-twin/contracts";
 
+/** Independent, nullable updates for a house's real-world placement. */
+export interface HouseGeoreferencePatch {
+  location?: HouseLocation | null;
+  orientationDegrees?: number | null;
+}
+
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") || "/api/v1";
 export const API_V2_BASE = API_BASE.replace(/\/v1$/, "/v2");
 
@@ -49,6 +55,14 @@ function list<T>(value: unknown, keys: string[]): T[] {
   return [];
 }
 
+async function updateHouseGeoreference(houseId: string, patch: HouseGeoreferencePatch): Promise<House> {
+  const response = await request<House | { house: House }>(`/houses/${encodeURIComponent(houseId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+  return "house" in response ? response.house : response;
+}
+
 export const api = {
   houses: async () => list<House>(await request<unknown>("/houses"), ["houses", "data"]),
   sensors: async (houseId: string) => list<Sensor>(await request<unknown>(`/sensors?houseId=${encodeURIComponent(houseId)}`), ["sensors", "data"]),
@@ -61,13 +75,8 @@ export const api = {
     await request<unknown>(`/forecast?sensorId=${encodeURIComponent(sensorId)}&horizonMinutes=${horizonMinutes}`),
     ["forecast", "points", "data"],
   ),
-  updateHouseLocation: async (houseId: string, location: HouseLocation | null) => {
-    const response = await request<House | { house: House }>(`/houses/${encodeURIComponent(houseId)}`, {
-      method: "PATCH",
-      body: JSON.stringify({ location }),
-    });
-    return "house" in response ? response.house : response;
-  },
+  updateHouseGeoreference,
+  updateHouseLocation: (houseId: string, location: HouseLocation | null) => updateHouseGeoreference(houseId, { location }),
   houseWeather: async (houseId: string, hours = 48) => {
     const response = await request<HouseWeather | { weather: HouseWeather }>(
       `/houses/${encodeURIComponent(houseId)}/weather?hours=${hours}`,
