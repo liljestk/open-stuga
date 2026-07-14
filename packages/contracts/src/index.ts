@@ -93,6 +93,7 @@ export interface House {
   /**
    * Clockwise compass bearing of the floor plan's top/up direction.
    * 0 = north, 90 = east, 180 = south, and 270 = west.
+   * Omitted until the user confirms the plan's real-world orientation.
    */
   orientationDegrees?: number;
   floors: Floor[];

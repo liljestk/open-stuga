@@ -216,6 +216,8 @@ describe("Climate Twin API v1", () => {
       .send({ orientationDegrees: "90" })
       .expect(400)
       .expect(({ body }) => expect(body.error.code).toBe("INVALID_FIELD"));
+    expect(() => runtime.database.updateHouse("house-oriented", { orientationDegrees: Number.NaN }))
+      .toThrow("finite compass bearing");
     expect(runtime.database.getHouse("house-oriented")?.orientationDegrees).toBe(89.5);
 
     const cleared = await request(runtime.app).patch("/api/v1/houses/house-oriented")
