@@ -52,7 +52,7 @@ system described in the roadmap.
   drive safety-critical HVAC, freeze protection, shutters, or alarms. See
   [FMI weather and house location](weather.md).
 - House orientation is a user-supplied bearing for the top of the plan, not a
-  surveyed building transform. When it is unknown, wall-relative wind arrows
+  surveyed building transform. When it is unknown, plan-relative wind arrows
   are deliberately omitted. The map footprint is schematic and not to scale.
 - The visualisation can identify a windward rectangular **plan edge**, not a
   verified exterior wall segment. Walls do not yet carry envelope/interior

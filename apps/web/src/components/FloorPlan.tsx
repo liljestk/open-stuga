@@ -6,7 +6,7 @@ import { useI18n, type TranslationKey } from "../i18n";
 import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue } from "../measurements";
 import { createCloudLobes, estimateFieldFlows, heatColor, interpolateHeat } from "../spatialField";
 import { configuredSpatialMaxSampleAgeMs, isSpatialSampleFresh } from "../spatialFreshness";
-import { cardinalDirection, normalizeDegrees } from "../outdoorContext";
+import { cardinalDirection, normalizeDegrees, windPathOnRectangle } from "../outdoorContext";
 import { OutdoorConditionsBadge, type OutdoorVisualizationState } from "./OutdoorConditionsBadge";
 
 export { heatColor, interpolateHeat } from "../spatialField";
@@ -220,12 +220,9 @@ export function FloorPlan({
   const legendMin = formatMeasurement(visualDomain.min, definition, units);
   const legendMax = formatMeasurement(visualDomain.max, definition, units);
   const outdoorContext = !outdoor?.replayActive ? outdoor?.context ?? null : null;
-  const outdoorPath = outdoorContext?.sourcePoint && outdoorContext.inwardTarget
-    ? {
-      from: { x: outdoorContext.sourcePoint.x * renderWidth, y: outdoorContext.sourcePoint.y * renderHeight },
-      to: { x: outdoorContext.inwardTarget.x * renderWidth, y: outdoorContext.inwardTarget.y * renderHeight },
-    }
-    : null;
+  const outdoorPath = outdoorContext?.planWindFromDegrees === null || outdoorContext?.planWindFromDegrees === undefined
+    ? null
+    : windPathOnRectangle(outdoorContext.planWindFromDegrees, renderWidth, renderHeight);
   const outdoorArrowLabel = outdoorContext?.windFromCardinal && outdoorContext.windFromDegrees !== null && outdoorContext.windwardEdge
     ? t("outdoor.windArrowAria", {
       direction: t(`outdoor.cardinal.${outdoorContext.windFromCardinal}` as TranslationKey),
@@ -325,8 +322,8 @@ export function FloorPlan({
                 data-plan-wind-from={outdoorContext?.planWindFromDegrees?.toFixed(2)}
               >
                 <title>{outdoorArrowLabel}</title>
-                <circle cx={outdoorPath.from.x} cy={outdoorPath.from.y} r="8" className="outdoor-wind-source" />
-                <path d={`M${outdoorPath.from.x} ${outdoorPath.from.y}L${outdoorPath.to.x} ${outdoorPath.to.y}`} className="outdoor-wind-path" markerEnd={`url(#${fieldId}-outdoor-arrow)`} />
+                <circle cx={outdoorPath.sourcePoint.x} cy={outdoorPath.sourcePoint.y} r="8" className="outdoor-wind-source" />
+                <path d={`M${outdoorPath.sourcePoint.x} ${outdoorPath.sourcePoint.y}L${outdoorPath.inwardTarget.x} ${outdoorPath.inwardTarget.y}`} className="outdoor-wind-path" markerEnd={`url(#${fieldId}-outdoor-arrow)`} />
               </g>
             )}
             <g className="flow-layer" aria-label={t("twin.flow")}>

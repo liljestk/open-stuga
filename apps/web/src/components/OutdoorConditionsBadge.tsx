@@ -72,6 +72,8 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
   const { locale, t } = useI18n();
   const { context } = outdoor;
 
+  if (!outdoor.hasLocation) return null;
+
   if (outdoor.replayActive) {
     return (
       <aside className="outdoor-context-card compact muted" aria-label={t("outdoor.replayHidden")}>
@@ -80,8 +82,6 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
       </aside>
     );
   }
-
-  if (!outdoor.hasLocation) return null;
 
   if (!context && outdoor.loading) {
     return (

@@ -54,6 +54,53 @@ export function windwardPlanEdge(planWindFromDegrees: number): PlanEdge {
 }
 
 /**
+ * Build an incoming arrow against the facade side that most directly faces
+ * the wind. Distances are fractions of the rectangle's shorter dimension, so
+ * the vector keeps its angle on non-square floor plans.
+ */
+export function windPathOnRectangle(
+  planWindFromDegrees: number,
+  width: number,
+  height: number,
+  inset = 0.22,
+  outset = 0,
+): {
+  sourcePoint: Point;
+  inwardTarget: Point;
+  windwardEdge: PlanEdge;
+} {
+  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
+    throw new RangeError("Plan dimensions must be positive and finite");
+  }
+  if (!Number.isFinite(inset) || inset < 0 || inset > 0.5
+    || !Number.isFinite(outset) || outset < 0 || outset > 0.5) {
+    throw new RangeError("Inset and outset must be between 0 and 0.5");
+  }
+
+  const sourceVector = windSourceVector(planWindFromDegrees);
+  const windwardEdge = windwardPlanEdge(planWindFromDegrees);
+  const boundaryPoint = windwardEdge === "top"
+    ? { x: width / 2, y: 0 }
+    : windwardEdge === "right"
+      ? { x: width, y: height / 2 }
+      : windwardEdge === "bottom"
+        ? { x: width / 2, y: height }
+        : { x: 0, y: height / 2 };
+  const scale = Math.min(width, height);
+  return {
+    sourcePoint: {
+      x: boundaryPoint.x + sourceVector.x * outset * scale,
+      y: boundaryPoint.y + sourceVector.y * outset * scale,
+    },
+    inwardTarget: {
+      x: boundaryPoint.x - sourceVector.x * inset * scale,
+      y: boundaryPoint.y - sourceVector.y * inset * scale,
+    },
+    windwardEdge,
+  };
+}
+
+/**
  * Find a boundary source point and a short target inside a normalized plan.
  * `inset` is the arrow depth in normalized plan units.
  */
@@ -61,19 +108,7 @@ export function windPathOnUnitPlan(planWindFromDegrees: number, inset = 0.22): {
   sourcePoint: Point;
   inwardTarget: Point;
 } {
-  if (!Number.isFinite(inset) || inset < 0 || inset > 0.5) {
-    throw new RangeError("Inset must be between 0 and 0.5");
-  }
-  const sourceVector = windSourceVector(planWindFromDegrees);
-  const edgeScale = 0.5 / Math.max(Math.abs(sourceVector.x), Math.abs(sourceVector.y));
-  const sourcePoint = {
-    x: 0.5 + sourceVector.x * edgeScale,
-    y: 0.5 + sourceVector.y * edgeScale,
-  };
-  const inwardTarget = {
-    x: sourcePoint.x - sourceVector.x * inset,
-    y: sourcePoint.y - sourceVector.y * inset,
-  };
+  const { sourcePoint, inwardTarget } = windPathOnRectangle(planWindFromDegrees, 1, 1, inset);
   return { sourcePoint, inwardTarget };
 }
 

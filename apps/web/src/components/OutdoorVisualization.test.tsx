@@ -159,6 +159,24 @@ describe("outdoor boundary visualization", () => {
     expect(view.container.querySelector(".building-volume-flows .outdoor-wind-path")).toBeNull();
   });
 
+  it("keeps an oblique wind vector aligned on a rectangular plan", () => {
+    localStorage.setItem("climate-twin-locale", "en");
+    const demo = createDemoState();
+    const house: House = {
+      ...demo.houses[0]!, location: { latitude: 60.17, longitude: 24.94 }, orientationDegrees: 0,
+    };
+    const response = weather(house, 60);
+    const view = floorView(house, outdoorState(house, response));
+    const arrow = view.container.querySelector<SVGGElement>(".floor-outdoor-wind")!;
+    const path = arrow.querySelector("path")!.getAttribute("d")!;
+    const values = path.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+    const [sourceX, sourceY, targetX, targetY] = values;
+    expect(arrow.dataset.windwardEdge).toBe("right");
+    expect(sourceX).toBeGreaterThan(targetX!);
+    expect(sourceY).toBeLessThan(targetY!);
+    expect(Math.abs((targetX! - sourceX!) / (targetY! - sourceY!))).toBeCloseTo(Math.tan(Math.PI / 3), 5);
+  });
+
   it("announces a retained observation when a refresh fails", () => {
     localStorage.setItem("climate-twin-locale", "en");
     const demo = createDemoState();

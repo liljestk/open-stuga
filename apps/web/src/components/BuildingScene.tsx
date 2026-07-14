@@ -8,6 +8,7 @@ import { formatMeasurement, formatMeasurementDelta, measurementGradient, measure
 import {
   configuredSpatialMaxSampleAgeMs, isSpatialSampleFresh, type SpatialFreshnessOptions,
 } from "../spatialFreshness";
+import { windPathOnRectangle } from "../outdoorContext";
 import {
   clampCameraOrbit, createVolumeClouds, estimateVolumeFlows, interpolateVolume, projectPoint3D,
   type CameraOrbit, type Point3D, type ProjectedPoint3D, type VolumeBounds, type VolumeCloudBlob,
@@ -178,17 +179,11 @@ export function BuildingScene({
   const outdoorContext = !outdoor?.replayActive ? outdoor?.context ?? null : null;
   const outdoorWindWorld = outdoorContext?.sourceVector && outdoorContext.windwardEdge
     ? (() => {
-      const vector = outdoorContext.sourceVector!;
-      const halfWidth = bounds.width / 2;
-      const halfDepth = bounds.depth / 2;
-      const xScale = Math.abs(vector.x) < 1e-9 ? Number.POSITIVE_INFINITY : halfWidth / Math.abs(vector.x);
-      const yScale = Math.abs(vector.y) < 1e-9 ? Number.POSITIVE_INFINITY : halfDepth / Math.abs(vector.y);
-      const edgeScale = Math.min(xScale, yScale);
-      const center = { x: halfWidth, y: halfDepth };
+      const path = windPathOnRectangle(outdoorContext.planWindFromDegrees!, bounds.width, bounds.depth, 0.1, 0.14);
       const z = bounds.minZ + (bounds.maxZ - bounds.minZ) * .46;
       return {
-        source: { x: center.x + vector.x * edgeScale * 1.28, y: center.y + vector.y * edgeScale * 1.28, z },
-        target: { x: center.x + vector.x * edgeScale * .91, y: center.y + vector.y * edgeScale * .91, z },
+        source: { ...path.sourcePoint, z },
+        target: { ...path.inwardTarget, z },
       };
     })()
     : null;

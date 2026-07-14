@@ -5,6 +5,7 @@ import {
   createOutdoorBoundaryContext,
   normalizeDegrees,
   planRelativeWindFrom,
+  windPathOnRectangle,
   windPathOnUnitPlan,
   windSourceVector,
   windwardPlanEdge,
@@ -73,6 +74,17 @@ describe("outdoor plan geometry", () => {
     expect(westPath.sourcePoint.x).toBeCloseTo(0);
     expect(westPath.sourcePoint.y).toBeCloseTo(0.5);
     expect(westPath.inwardTarget.x).toBeGreaterThan(westPath.sourcePoint.x);
+  });
+
+  it("preserves an oblique bearing on a non-square plan", () => {
+    const path = windPathOnRectangle(60, 200, 100);
+    expect(path.windwardEdge).toBe("right");
+    expect(path.sourcePoint).toEqual({ x: 200, y: 50 });
+    const dx = path.inwardTarget.x - path.sourcePoint.x;
+    const dy = path.inwardTarget.y - path.sourcePoint.y;
+    expect(dx).toBeLessThan(0);
+    expect(dy).toBeGreaterThan(0);
+    expect(Math.abs(dx / dy)).toBeCloseTo(Math.tan(Math.PI / 3), 10);
   });
 });
 

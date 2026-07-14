@@ -80,7 +80,7 @@ orientation, Climate Twin converts it into plan coordinates as
 `windFrom - orientationDegrees` (normalized to 0–359 degrees). The resulting
 arrow starts at the windward plan edge and points inward in the 2D and 3D
 views. If orientation or wind direction is unknown, the numeric outside values
-remain available but the wall-relative arrow is withheld. Current live weather
+remain available but the plan-relative arrow is withheld. Current live weather
 is not overlaid on historical replay.
 
 This overlay is a structured external boundary condition only. It is not added
