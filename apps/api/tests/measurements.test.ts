@@ -223,6 +223,15 @@ describe("registry-driven measurements API", () => {
     expect(v1.body.servers).toEqual([{ url: "/api/v1", description: "Legacy climate tuple API" }]);
     expect(v1.body.paths).toHaveProperty("/houses");
     expect(v1.body.paths).not.toHaveProperty("/measurements");
+    expect(v1.body.components.schemas.House.required).not.toContain("orientationDegrees");
+    expect(v1.body.components.schemas.House.properties.orientationDegrees).toMatchObject({
+      type: "number", minimum: 0, exclusiveMaximum: 360,
+    });
+    expect(v1.body.components.schemas.HouseCreate.properties.orientationDegrees).not.toHaveProperty("default");
+    expect(v1.body.components.schemas.HousePatch.properties.orientationDegrees.oneOf).toEqual([
+      { type: "number", minimum: 0, exclusiveMaximum: 360 },
+      { type: "null" },
+    ]);
 
     const v2 = await request(runtime.app).get("/api/v2/openapi.json").expect(200);
     expect(v2.body.servers).toEqual([{ url: "/api/v2", description: "Registry-driven measurements API" }]);
@@ -259,10 +268,13 @@ describe("legacy measurement migration", () => {
       const migrated = new ClimateDatabase(path, false);
       expect((migrated.db.prepare("SELECT COUNT(*) AS count FROM measurement_samples").get() as { count: number }).count).toBe(2);
       expect((migrated.db.prepare("SELECT value FROM metadata WHERE key = 'measurement_eav_v2'").get() as { value: string }).value).toBe("complete");
+      expect(migrated.getHouse("house")).not.toHaveProperty("orientationDegrees");
+      expect(migrated.updateHouse("house", { orientationDegrees: 225 })?.orientationDegrees).toBe(225);
       migrated.close();
 
       const reopened = new ClimateDatabase(path, false);
       expect((reopened.db.prepare("SELECT COUNT(*) AS count FROM measurement_samples").get() as { count: number }).count).toBe(2);
+      expect(reopened.getHouse("house")?.orientationDegrees).toBe(225);
       reopened.close();
     } finally {
       rmSync(directory, { recursive: true, force: true });

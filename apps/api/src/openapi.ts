@@ -30,11 +30,11 @@ const combinedOpenApiDocument = {
     "/measurements/forecast": { get: { servers: [{ url: "/api/v2" }], tags: ["Measurements"], operationId: "forecastMeasurement", parameters: [{ name: "sensorId", in: "query", required: true, schema: { type: "string" } }, { name: "metric", in: "query", required: true, schema: { type: "string" } }, { name: "hours", in: "query", schema: { type: "integer", minimum: 1, maximum: 168, default: 12 } }], responses: { "200": { description: "Generic forecast", content: { "application/json": { schema: { type: "object", required: ["forecast"], properties: { forecast: { type: "array", items: { $ref: "#/components/schemas/MeasurementForecastPoint" } } } } } } }, "422": { description: "FORECAST_UNSUPPORTED" } } } },
     "/houses": {
       get: { tags: ["Digital twin"], operationId: "listHouses", responses: { "200": { description: "Houses", content: { "application/json": { schema: { type: "object", required: ["houses"], properties: { houses: { type: "array", items: { $ref: "#/components/schemas/House" } } } } } } } } },
-      post: { tags: ["Digital twin"], operationId: "createHouse", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/HouseCreate" } } } }, responses: { "201": { description: "Created house", content: { "application/json": { schema: { type: "object", required: ["house"], properties: { house: { $ref: "#/components/schemas/House" } } } } } }, "400": { description: "Malformed house or location" }, "422": { description: "Location is outside WGS84 bounds or its label is too long" } } },
+      post: { tags: ["Digital twin"], operationId: "createHouse", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/HouseCreate" } } } }, responses: { "201": { description: "Created house", content: { "application/json": { schema: { type: "object", required: ["house"], properties: { house: { $ref: "#/components/schemas/House" } } } } } }, "400": { description: "Malformed house, location, or orientation" }, "422": { description: "Location is outside WGS84 bounds, its label is too long, or orientation is outside [0, 360)" } } },
     },
     "/houses/{id}": {
       get: { tags: ["Digital twin"], operationId: "getHouse", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "House", content: { "application/json": { schema: { type: "object", required: ["house"], properties: { house: { $ref: "#/components/schemas/House" } } } } } }, "404": { $ref: "#/components/responses/NotFound" } } },
-      patch: { tags: ["Digital twin"], operationId: "updateHouse", description: "Partially updates house metadata, layout, and/or WGS84 location. Set location to null to remove it; changing or removing it invalidates the in-memory weather cache.", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/HousePatch" } } } }, responses: { "200": { description: "Updated house", content: { "application/json": { schema: { type: "object", required: ["house"], properties: { house: { $ref: "#/components/schemas/House" } } } } } }, "400": { description: "Malformed patch or location" }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Layout would orphan or exclude an existing sensor" }, "422": { description: "Location is outside WGS84 bounds or its label is too long" } } },
+      patch: { tags: ["Digital twin"], operationId: "updateHouse", description: "Partially updates house metadata, layout, WGS84 location, and/or the floor plan's compass orientation. Set location or orientationDegrees to null to clear it; changing or removing location invalidates the in-memory weather cache.", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/HousePatch" } } } }, responses: { "200": { description: "Updated house", content: { "application/json": { schema: { type: "object", required: ["house"], properties: { house: { $ref: "#/components/schemas/House" } } } } } }, "400": { description: "Malformed patch, location, or orientation" }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Layout would orphan or exclude an existing sensor" }, "422": { description: "Location is outside WGS84 bounds, its label is too long, or orientation is outside [0, 360)" } } },
       delete: { tags: ["Digital twin"], operationId: "deleteHouse", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "204": { description: "Deleted" } } },
     },
     "/houses/{id}/weather": {
@@ -212,6 +212,7 @@ const combinedOpenApiDocument = {
           name: { type: "string" },
           timezone: { type: "string", description: "IANA timezone used for display and calendar grouping; weather timestamps remain UTC ISO 8601." },
           location: { $ref: "#/components/schemas/HouseLocation" },
+          orientationDegrees: { type: "number", minimum: 0, exclusiveMaximum: 360, description: "Confirmed clockwise compass bearing of the floor plan's top/up direction: 0=north, 90=east, 180=south, 270=west. Omitted while unknown." },
           floors: { type: "array", items: { $ref: "#/components/schemas/Floor" } },
           createdAt: { type: "string", format: "date-time", readOnly: true },
           updatedAt: { type: "string", format: "date-time", readOnly: true },
@@ -225,6 +226,7 @@ const combinedOpenApiDocument = {
           name: { type: "string" },
           timezone: { type: "string" },
           location: { $ref: "#/components/schemas/HouseLocation" },
+          orientationDegrees: { type: "number", minimum: 0, exclusiveMaximum: 360, description: "Confirmed clockwise compass bearing of the floor plan's top/up direction. Omit while unknown." },
           floors: { type: "array", items: { $ref: "#/components/schemas/Floor" } },
         },
       },
@@ -235,6 +237,7 @@ const combinedOpenApiDocument = {
           name: { type: "string" },
           timezone: { type: "string" },
           location: { oneOf: [{ $ref: "#/components/schemas/HouseLocation" }, { type: "null" }] },
+          orientationDegrees: { oneOf: [{ type: "number", minimum: 0, exclusiveMaximum: 360 }, { type: "null" }], description: "Confirmed clockwise compass bearing of the floor plan's top/up direction. Set null to return to unknown." },
           floors: { type: "array", items: { $ref: "#/components/schemas/Floor" } },
         },
       },

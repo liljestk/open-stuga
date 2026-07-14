@@ -90,6 +90,11 @@ export interface House {
   name: string;
   timezone: string;
   location?: HouseLocation;
+  /**
+   * Clockwise compass bearing of the floor plan's top/up direction.
+   * 0 = north, 90 = east, 180 = south, and 270 = west.
+   */
+  orientationDegrees?: number;
   floors: Floor[];
   createdAt: string;
   updatedAt: string;

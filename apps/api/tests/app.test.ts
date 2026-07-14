@@ -184,6 +184,55 @@ describe("Climate Twin API v1", () => {
     expect(clearedStatus.body.weather.configuredHouses).toBe(0);
   });
 
+  it("persists floor-plan compass orientation and validates its half-open bearing range", async () => {
+    const seeded = await request(runtime.app).get("/api/v1/houses/house-main").expect(200);
+    expect(seeded.body.house).not.toHaveProperty("orientationDegrees");
+
+    const created = await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-oriented",
+      name: "Oriented house",
+      timezone: "Europe/Helsinki",
+      orientationDegrees: 271.25,
+      floors: [{ id: "main", name: "Main", width: 10, height: 8, elevation: 0, walls: [], rooms: [] }],
+    }).expect(201);
+    expect(created.body.house.orientationDegrees).toBe(271.25);
+    expect(runtime.database.getHouse("house-oriented")?.orientationDegrees).toBe(271.25);
+
+    const updated = await request(runtime.app).patch("/api/v1/houses/house-oriented")
+      .send({ orientationDegrees: 89.5 })
+      .expect(200);
+    expect(updated.body.house.orientationDegrees).toBe(89.5);
+    expect(runtime.database.getHouse("house-oriented")?.orientationDegrees).toBe(89.5);
+
+    await request(runtime.app).patch("/api/v1/houses/house-oriented")
+      .send({ orientationDegrees: 360 })
+      .expect(422)
+      .expect(({ body }) => expect(body.error.code).toBe("INVALID_ORIENTATION"));
+    await request(runtime.app).patch("/api/v1/houses/house-oriented")
+      .send({ orientationDegrees: -0.01 })
+      .expect(422)
+      .expect(({ body }) => expect(body.error.code).toBe("INVALID_ORIENTATION"));
+    await request(runtime.app).patch("/api/v1/houses/house-oriented")
+      .send({ orientationDegrees: "90" })
+      .expect(400)
+      .expect(({ body }) => expect(body.error.code).toBe("INVALID_FIELD"));
+    expect(runtime.database.getHouse("house-oriented")?.orientationDegrees).toBe(89.5);
+
+    const cleared = await request(runtime.app).patch("/api/v1/houses/house-oriented")
+      .send({ orientationDegrees: null })
+      .expect(200);
+    expect(cleared.body.house).not.toHaveProperty("orientationDegrees");
+    expect(runtime.database.getHouse("house-oriented")).not.toHaveProperty("orientationDegrees");
+
+    const defaulted = await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-default-orientation",
+      name: "Default orientation",
+      timezone: "UTC",
+      floors: [{ id: "main", name: "Main", width: 1, height: 1, elevation: 0, walls: [], rooms: [] }],
+    }).expect(201);
+    expect(defaulted.body.house).not.toHaveProperty("orientationDegrees");
+  });
+
   it("protects ingestion when configured and stores valid readings", async () => {
     const reading = { sensorId: "sensor-01", temperature: 21.75, humidity: 48.2, battery: 91 };
     await request(runtime.app).post("/api/v1/readings").send(reading).expect(401);

@@ -481,6 +481,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       name: requiredString(body, "name"),
       timezone: requiredString(body, "timezone"),
       ...(body.location !== undefined ? { location: houseLocationValue(body.location) } : {}),
+      ...(body.orientationDegrees !== undefined ? { orientationDegrees: requiredNumber(body, "orientationDegrees") } : {}),
       floors: body.floors as Floor[],
     });
     status.refreshWeatherConfiguration();
@@ -509,10 +510,19 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   });
   app.patch(`${prefix}/houses/:id`, (request, response) => {
     const body = bodyObject(request.body);
-    const patch: { name?: string; timezone?: string; floors?: Floor[]; location?: HouseLocation | null } = {};
+    const patch: {
+      name?: string;
+      timezone?: string;
+      orientationDegrees?: number | null;
+      floors?: Floor[];
+      location?: HouseLocation | null;
+    } = {};
     if (body.name !== undefined) patch.name = requiredString(body, "name");
     if (body.timezone !== undefined) patch.timezone = requiredString(body, "timezone");
     if (body.location !== undefined) patch.location = houseLocationValue(body.location, true);
+    if (body.orientationDegrees !== undefined) {
+      patch.orientationDegrees = body.orientationDegrees === null ? null : requiredNumber(body, "orientationDegrees");
+    }
     if (body.floors !== undefined) {
       if (!Array.isArray(body.floors)) throw new HttpError(400, "INVALID_FIELD", "floors must be an array");
       patch.floors = body.floors as Floor[];

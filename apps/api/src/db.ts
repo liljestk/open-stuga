@@ -23,6 +23,7 @@ interface HouseRow {
   name: string;
   timezone: string;
   location_json: string | null;
+  orientation_degrees: number | null;
   floors_json: string;
   created_at: string;
   updated_at: string;
@@ -164,6 +165,7 @@ function houseFromRow(row: HouseRow): House {
     name: row.name,
     timezone: row.timezone,
     ...(row.location_json ? { location: parseJson<HouseLocation>(row.location_json) } : {}),
+    ...(row.orientation_degrees !== null ? { orientationDegrees: row.orientation_degrees } : {}),
     floors: parseJson<Floor[]>(row.floors_json),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -314,6 +316,7 @@ export class ClimateDatabase {
         name TEXT NOT NULL,
         timezone TEXT NOT NULL,
         location_json TEXT,
+        orientation_degrees REAL CHECK (orientation_degrees >= 0 AND orientation_degrees < 360),
         floors_json TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -452,6 +455,9 @@ export class ClimateDatabase {
     const houseColumns = this.db.prepare("PRAGMA table_info(houses)").all() as unknown as Array<{ name: string }>;
     if (!houseColumns.some((column) => column.name === "location_json")) {
       this.db.exec("ALTER TABLE houses ADD COLUMN location_json TEXT");
+    }
+    if (!houseColumns.some((column) => column.name === "orientation_degrees")) {
+      this.db.exec("ALTER TABLE houses ADD COLUMN orientation_degrees REAL CHECK (orientation_degrees >= 0 AND orientation_degrees < 360)");
     }
     const sensorColumns = this.db.prepare("PRAGMA table_info(sensors)").all() as unknown as Array<{ name: string }>;
     if (!sensorColumns.some((column) => column.name === "measurement_entity_ids_json")) {
@@ -601,8 +607,8 @@ export class ClimateDatabase {
     this.db.exec("BEGIN");
     try {
       this.db.prepare(`INSERT INTO houses
-        (id, name, timezone, location_json, floors_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .run("house-main", "My climate twin", "Europe/Helsinki", null, JSON.stringify(floors), now, now);
+        (id, name, timezone, location_json, orientation_degrees, floors_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run("house-main", "My climate twin", "Europe/Helsinki", null, null, JSON.stringify(floors), now, now);
       const sensorStatement = this.db.prepare(`INSERT INTO sensors
         (id, house_id, floor_id, name, room, model, x, y, z, temperature_entity_id, humidity_entity_id, battery_entity_id, tags_json, enabled)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
@@ -652,25 +658,36 @@ export class ClimateDatabase {
     return row ? houseFromRow(row) : null;
   }
 
-  createHouse(input: Pick<House, "name" | "timezone" | "floors"> & { id?: string; location?: HouseLocation }): House {
+  createHouse(input: Pick<House, "name" | "timezone" | "floors"> & {
+    id?: string;
+    location?: HouseLocation;
+    orientationDegrees?: number;
+  }): House {
     this.validateFloorDefinitions(input.floors);
     if (input.location) this.validateHouseLocation(input.location);
+    if (input.orientationDegrees !== undefined) this.validateHouseOrientation(input.orientationDegrees);
     const timestamp = new Date().toISOString();
     const house: House = {
       id: input.id ?? randomUUID(), name: input.name, timezone: input.timezone,
-      ...(input.location ? { location: input.location } : {}), floors: input.floors,
+      ...(input.location ? { location: input.location } : {}),
+      ...(input.orientationDegrees !== undefined ? { orientationDegrees: input.orientationDegrees } : {}),
+      floors: input.floors,
       createdAt: timestamp, updatedAt: timestamp,
     };
     this.db.prepare(`INSERT INTO houses
-      (id, name, timezone, location_json, floors_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      (id, name, timezone, location_json, orientation_degrees, floors_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(house.id, house.name, house.timezone, house.location ? JSON.stringify(house.location) : null,
+        house.orientationDegrees ?? null,
         JSON.stringify(house.floors), house.createdAt, house.updatedAt);
     return house;
   }
 
   updateHouse(
     id: string,
-    patch: Partial<Pick<House, "name" | "timezone" | "floors">> & { location?: HouseLocation | null },
+    patch: Partial<Pick<House, "name" | "timezone" | "floors">> & {
+      location?: HouseLocation | null;
+      orientationDegrees?: number | null;
+    },
   ): House | null {
     return this.immediateTransaction(() => {
       const current = this.getHouse(id);
@@ -681,13 +698,17 @@ export class ClimateDatabase {
       if (patch.name !== undefined) next.name = patch.name;
       if (patch.timezone !== undefined) next.timezone = patch.timezone;
       if (patch.floors !== undefined) next.floors = patch.floors;
+      if (patch.orientationDegrees === null) delete next.orientationDegrees;
+      else if (patch.orientationDegrees !== undefined) next.orientationDegrees = patch.orientationDegrees;
       if (patch.location === null) delete next.location;
       else if (patch.location !== undefined) next.location = patch.location;
       if (next.location) this.validateHouseLocation(next.location);
+      if (next.orientationDegrees !== undefined) this.validateHouseOrientation(next.orientationDegrees);
       this.validateFloorDefinitions(next.floors);
       this.validateHouseLayoutForSensors(id, next.floors);
-      this.db.prepare("UPDATE houses SET name = ?, timezone = ?, location_json = ?, floors_json = ?, updated_at = ? WHERE id = ?")
+      this.db.prepare("UPDATE houses SET name = ?, timezone = ?, location_json = ?, orientation_degrees = ?, floors_json = ?, updated_at = ? WHERE id = ?")
         .run(next.name, next.timezone, next.location ? JSON.stringify(next.location) : null,
+          next.orientationDegrees ?? null,
           JSON.stringify(next.floors), next.updatedAt, id);
       return next;
     });
@@ -781,6 +802,16 @@ export class ClimateDatabase {
     }
     if (location.label !== undefined && (typeof location.label !== "string" || location.label.trim().length > 200)) {
       throw new ClimateDataValidationError(422, "INVALID_LOCATION_LABEL", "House location label must be at most 200 characters");
+    }
+  }
+
+  private validateHouseOrientation(orientationDegrees: number): void {
+    if (!Number.isFinite(orientationDegrees) || orientationDegrees < 0 || orientationDegrees >= 360) {
+      throw new ClimateDataValidationError(
+        422,
+        "INVALID_ORIENTATION",
+        "House orientationDegrees must be a finite compass bearing from 0 (inclusive) to 360 (exclusive)",
+      );
     }
   }
 
