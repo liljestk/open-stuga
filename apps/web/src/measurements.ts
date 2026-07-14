@@ -204,12 +204,48 @@ export function measurementDomain(definition: MeasurementDefinition, values: num
 
 export function measurementColor(value: number, min: number, max: number, definition: MeasurementDefinition): string {
   const progress = clampValue((value - min) / Math.max(max - min, Number.EPSILON), 0, 1);
-  switch (definition.colorScale) {
-    case "thermal": return `hsl(${220 - progress * 205} 76% ${61 - Math.abs(progress - .5) * 12}%)`;
-    case "humidity": return `hsl(${188 + progress * 42} 72% ${62 - progress * 18}%)`;
-    case "air-quality": return `hsl(${145 - progress * 135} ${62 + progress * 12}% ${47 + Math.abs(progress - .5) * 8}%)`;
-    default: return `hsl(${205 + progress * 75} 64% ${61 - progress * 16}%)`;
-  }
+  // Each ramp changes in luminance as well as hue. The blue–neutral–vermilion
+  // thermal ramp avoids the red/green confusion of a conventional heat map.
+  const ramps: Record<MeasurementDefinition["colorScale"], readonly string[]> = {
+    thermal: ["#2166ac", "#f2ebdd", "#b54122"],
+    humidity: ["#d8f0f6", "#2a84b8", "#123d75"],
+    "air-quality": ["#e7f1f8", "#d29b00", "#8c2d04"],
+    sequential: ["#e7e0f3", "#7b6ab5", "#3f285f"],
+  };
+  return interpolateColorRamp(ramps[definition.colorScale], progress);
+}
+
+export function measurementComparisonColor(
+  definition: MeasurementDefinition,
+  indoorValues: number[],
+  outsideValue: number | undefined,
+): { color: string; domain: { min: number; max: number } } | null {
+  if (outsideValue == null || !Number.isFinite(outsideValue)) return null;
+  const domain = measurementDomain(
+    definition,
+    [...indoorValues.filter(Number.isFinite), outsideValue],
+  );
+  return domain
+    ? { color: measurementColor(outsideValue, domain.min, domain.max, definition), domain }
+    : null;
+}
+
+function interpolateColorRamp(stops: readonly string[], progress: number): string {
+  const position = progress * (stops.length - 1);
+  const index = Math.min(Math.floor(position), stops.length - 2);
+  const amount = position - index;
+  const from = hexChannels(stops[index]!);
+  const to = hexChannels(stops[index + 1]!);
+  const channels = from.map((channel, channelIndex) => Math.round(channel + (to[channelIndex]! - channel) * amount));
+  return `rgb(${channels.join(" ")})`;
+}
+
+function hexChannels(color: string): [number, number, number] {
+  return [
+    Number.parseInt(color.slice(1, 3), 16),
+    Number.parseInt(color.slice(3, 5), 16),
+    Number.parseInt(color.slice(5, 7), 16),
+  ];
 }
 
 export function measurementGradient(definition: MeasurementDefinition): string {

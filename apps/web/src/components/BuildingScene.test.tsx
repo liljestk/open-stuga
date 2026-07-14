@@ -202,6 +202,7 @@ describe("BuildingScene", () => {
     const svg = container.querySelector<SVGSVGElement>(".building-svg")!;
     const sensor = container.querySelector<SVGGElement>(".building-sensor")!;
     const initialYaw = svg.dataset.cameraYaw;
+    const initialPitch = svg.dataset.cameraPitch;
     const initialTransform = sensor.getAttribute("transform");
 
     await user.click(screen.getByRole("button", { name: "Rotate view right" }));
@@ -218,9 +219,20 @@ describe("BuildingScene", () => {
     pointer("pointermove", 500, 290);
     pointer("pointerup", 500, 290);
     expect(svg.dataset.cameraYaw).not.toBe(buttonYaw);
+    expect(svg.dataset.cameraPitch).not.toBe(initialPitch);
+
+    const yawAfterDiagonalDrag = svg.dataset.cameraYaw;
+    const pitchAfterDiagonalDrag = svg.dataset.cameraPitch;
+    pointer("pointerdown", 500, 290);
+    pointer("pointermove", 500, 520);
+    pointer("pointerup", 500, 520);
+    expect(svg.dataset.cameraYaw).toBe(yawAfterDiagonalDrag);
+    expect(svg.dataset.cameraPitch).not.toBe(pitchAfterDiagonalDrag);
+    expect(Number(svg.dataset.cameraPitch)).toBeLessThan(0);
 
     await user.click(screen.getByRole("button", { name: "Reset view" }));
     expect(svg.dataset.cameraYaw).toBe(initialYaw);
+    expect(svg.dataset.cameraPitch).toBe(initialPitch);
     expect(svg.dataset.cameraZoom).toBe("1.00");
   });
 });
@@ -245,12 +257,12 @@ describe("TwinDashboard whole-building replay", () => {
       </I18nProvider>,
     );
 
-    const region = screen.getByRole("region", { name: "Climate map" });
+    const region = screen.getByRole("region", { name: "Your home, at a glance" });
     expect(within(region).getAllByText("No data yet")).toHaveLength(2);
     expect(region.textContent).toContain(`0 of ${demo.sensors.length}`);
   });
 
-  it("loads every enabled house sensor exactly once in isometric mode", async () => {
+  it("loads every airflow driver for every enabled house sensor in isometric replay", async () => {
     const user = userEvent.setup();
     const demo = createDemoState();
     const house = demo.houses[0]!;
@@ -278,12 +290,13 @@ describe("TwinDashboard whole-building replay", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Play replay" }));
-    await waitFor(() => expect(onLoadSeries).toHaveBeenCalledTimes(enabledHouseSensors.length));
-    expect(onLoadSeries.mock.calls.map(([sensorId]) => sensorId).sort()).toEqual(enabledHouseSensors.map((sensor) => sensor.id).sort());
-    expect(onLoadSeries.mock.calls.filter(([sensorId]) => sensorId === selectedSensor.id)).toHaveLength(1);
-    expect(onLoadSeries.mock.calls.every(([, metric, range, forecastSupported]) => (
-      metric === "temperature" && range === "24h" && forecastSupported === true
-    ))).toBe(true);
+    await waitFor(() => expect(onLoadSeries).toHaveBeenCalledTimes(enabledHouseSensors.length * 3));
+    for (const metric of ["temperature", "humidity", "co2"]) {
+      expect(onLoadSeries.mock.calls.filter(([, loadedMetric]) => loadedMetric === metric).map(([sensorId]) => sensorId).sort())
+        .toEqual(enabledHouseSensors.map((sensor) => sensor.id).sort());
+    }
+    expect(onLoadSeries.mock.calls.filter(([sensorId]) => sensorId === selectedSensor.id)).toHaveLength(3);
+    expect(onLoadSeries.mock.calls.every(([, , range, forecastSupported]) => range === "24h" && forecastSupported === true)).toBe(true);
   });
 
   it("clamps an active replay when asynchronously loaded history changes its bounds", async () => {
@@ -347,6 +360,11 @@ describe("TwinDashboard whole-building replay", () => {
 
     expect(screen.queryByLabelText("Sensor floor")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Edit layout" }));
+    expect(screen.queryByRole("combobox", { name: "Metric" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Replay" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Room thermal model" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Available measurements" })).toBeNull();
+    expect(screen.getByText(/Drag this sensor on the plan.*arrow keys/i)).not.toBeNull();
     await user.selectOptions(screen.getByLabelText("Sensor floor"), targetFloor.id);
     const mountingHeight = screen.getByLabelText(/^Mounting height/) as HTMLInputElement;
     await user.clear(mountingHeight);

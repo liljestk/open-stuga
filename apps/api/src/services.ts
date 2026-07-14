@@ -23,10 +23,19 @@ export class RuntimeStatus {
     this.#database = database;
     this.value = {
       homeAssistant: {
-        configured: Boolean(config.haUrl && config.haToken && config.haEntityMapFile),
+          configured: Boolean(config.haUrl && config.haToken),
         connected: false,
         lastEventAt: null,
         mappedEntities: 0,
+        error: null,
+      },
+      tpLink: {
+        configured: Boolean(config.tpLinkHost && config.tpLinkUsername && config.tpLinkPassword),
+        connected: false,
+        lastPollAt: null,
+        mappedDevices: 0,
+        discoveredDevices: 0,
+        hubModel: null,
         error: null,
       },
       webhook: {
@@ -35,10 +44,14 @@ export class RuntimeStatus {
         error: null,
       },
       mock: {
-        enabled: config.mockEnabled,
+        enabled: config.mockEnabled && !database.isRealDataMode(),
         intervalMs: config.mockIntervalMs,
+        mode: database.isRealDataMode() ? "real" : "demo",
+        activatedAt: database.realDataModeActivatedAt(),
       },
       weather: {
+        policy: "automatic",
+        availableProviders: ["fmi", "open-meteo"],
         provider: "fmi",
         configuredHouses: this.configuredWeatherHouses(),
         lastSuccessAt: null,
@@ -59,6 +72,17 @@ export class RuntimeStatus {
     this.#bus.publish({ type: "integration", data: structuredClone(this.value) });
   }
 
+  refreshDataMode(): void {
+    const mode = this.#database.isRealDataMode() ? "real" : "demo";
+    const enabled = this.value.mock.enabled && mode === "demo";
+    const activatedAt = this.#database.realDataModeActivatedAt();
+    if (this.value.mock.mode === mode && this.value.mock.enabled === enabled && this.value.mock.activatedAt === activatedAt) return;
+    this.value.mock.mode = mode;
+    this.value.mock.enabled = enabled;
+    this.value.mock.activatedAt = activatedAt;
+    this.changed();
+  }
+
   private configuredWeatherHouses(): number {
     return this.#database.listHouses().filter((house) => house.location !== undefined).length;
   }
@@ -73,6 +97,29 @@ function compare(value: number, operator: AlertRule["operator"], threshold: numb
   }
 }
 
+function ruleApplies(rule: AlertRule, sample: MeasurementSample): boolean {
+  return rule.enabled
+    && rule.metric === sample.metric
+    && (rule.sensorId === null || rule.sensorId === sample.sensorId);
+}
+
+/** Live senders may lead the server clock by at most five minutes. */
+export const LIVE_TIMESTAMP_FUTURE_SKEW_MS = 5 * 60_000;
+
+function validateLiveTimestamp(timestamp: string, nowMs: number): void {
+  const timestampMs = Date.parse(timestamp);
+  if (!Number.isFinite(timestampMs)) {
+    throw new MeasurementValidationError("INVALID_TIMESTAMP", 400, "Measurement timestamp must be an ISO date-time");
+  }
+  if (timestampMs > nowMs + LIVE_TIMESTAMP_FUTURE_SKEW_MS) {
+    throw new MeasurementValidationError(
+      "TIMESTAMP_TOO_FAR_IN_FUTURE",
+      422,
+      "Measurement timestamp cannot be more than five minutes ahead of the server clock",
+    );
+  }
+}
+
 export class AlertEngine {
   readonly #conditionSince = new Map<string, number>();
 
@@ -84,39 +131,56 @@ export class AlertEngine {
   ) {}
 
   evaluateSample(sample: MeasurementSample): AlertEvent[] {
+    if (sample.quality === "stale") return [];
     const timestampMs = Date.parse(sample.timestamp);
     const nowMs = Number.isFinite(timestampMs) ? timestampMs : Date.now();
     const created: AlertEvent[] = [];
     for (const rule of this.database.listAlertRules()) {
-      if (!rule.enabled || rule.metric !== sample.metric || (rule.sensorId !== null && rule.sensorId !== sample.sensorId)) continue;
-      const key = `${rule.id}:${sample.sensorId}`;
-      const active = this.database.activeAlert(rule.id, sample.sensorId);
-      if (!compare(sample.value, rule.operator, rule.threshold)) {
-        this.#conditionSince.delete(key);
-        if (active) {
-          const resolved = this.database.resolveAlert(active.id, sample.timestamp);
-          if (resolved) this.bus.publish({ type: "alert", data: resolved });
-        }
-        continue;
-      }
-      if (active) continue;
-      const since = this.#conditionSince.get(key) ?? nowMs;
-      this.#conditionSince.set(key, since);
-      if (nowMs - since < rule.durationSeconds * 1_000) continue;
-      const event = this.database.createAlertEvent({
-        ruleId: rule.id,
-        sensorId: sample.sensorId,
-        metric: rule.metric,
-        value: sample.value,
-        threshold: rule.threshold,
-        severity: rule.severity,
-        startedAt: new Date(since).toISOString(),
-      });
-      created.push(event);
-      this.bus.publish({ type: "alert", data: event });
-      if (rule.webhookEnabled) void this.deliverWebhook(event, rule);
+      const event = this.evaluateRule(rule, sample, nowMs);
+      if (event) created.push(event);
     }
     return created;
+  }
+
+  private evaluateRule(rule: AlertRule, sample: MeasurementSample, nowMs: number): AlertEvent | null {
+    if (!ruleApplies(rule, sample)) return null;
+    const key = `${rule.id}:${sample.sensorId}`;
+    const active = this.database.activeAlert(rule.id, sample.sensorId);
+    if (!compare(sample.value, rule.operator, rule.threshold)) {
+      this.resolveActiveAlert(key, active, sample.timestamp);
+      return null;
+    }
+    if (active) return null;
+    const since = this.#conditionSince.get(key) ?? nowMs;
+    this.#conditionSince.set(key, since);
+    if (nowMs - since < rule.durationSeconds * 1_000) return null;
+    const event = this.createAlert(rule, sample, since);
+    this.bus.publish({ type: "alert", data: event });
+    // Demo/replay values may exercise local alert UI, but must never cross
+    // into a real outbound automation or escalation channel.
+    if (rule.webhookEnabled && sample.source !== "mock" && sample.source !== "replay") {
+      this.deliverWebhook(event, rule);
+    }
+    return event;
+  }
+
+  private resolveActiveAlert(key: string, active: AlertEvent | null, timestamp: string): void {
+    this.#conditionSince.delete(key);
+    if (!active) return;
+    const resolved = this.database.resolveAlert(active.id, timestamp);
+    if (resolved) this.bus.publish({ type: "alert", data: resolved });
+  }
+
+  private createAlert(rule: AlertRule, sample: MeasurementSample, since: number): AlertEvent {
+    return this.database.createAlertEvent({
+      ruleId: rule.id,
+      sensorId: sample.sensorId,
+      metric: rule.metric,
+      value: sample.value,
+      threshold: rule.threshold,
+      severity: rule.severity,
+      startedAt: new Date(since).toISOString(),
+    });
   }
 
   evaluate(reading: Reading): AlertEvent[] {
@@ -125,6 +189,10 @@ export class AlertEngine {
       ...this.evaluateSample({ ...shared, metric: "temperature", value: reading.temperature, canonicalUnit: "°C" }),
       ...this.evaluateSample({ ...shared, metric: "humidity", value: reading.humidity, canonicalUnit: "%" }),
     ];
+  }
+
+  reset(): void {
+    this.#conditionSince.clear();
   }
 
   private async deliverWebhook(event: AlertEvent, rule: AlertRule): Promise<void> {
@@ -168,9 +236,62 @@ export class MeasurementValidationError extends Error {
   }
 }
 
+type TelemetrySource = MeasurementSample["source"] | Reading["source"];
+const DEMO_TELEMETRY_SOURCES = new Set<TelemetrySource>(["mock", "replay"]);
+
+function demoDataWasDisabled(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown };
+  return candidate.code === "DEMO_DATA_DISABLED"
+    || (typeof candidate.message === "string" && candidate.message.includes("DEMO_DATA_DISABLED"));
+}
+
+/** Coordinates the irreversible boundary between the bundled demo and real telemetry. */
+export class DataModeCoordinator {
+  readonly #activatedListeners = new Set<() => void>();
+  #observedRealMode: boolean;
+
+  constructor(private readonly database: ClimateDatabase) {
+    this.#observedRealMode = database.isRealDataMode();
+  }
+
+  get isRealMode(): boolean {
+    return this.database.isRealDataMode();
+  }
+
+  activate(): void {
+    this.database.activateRealDataMode();
+    this.synchronize();
+  }
+
+  synchronize(): boolean {
+    if (!this.isRealMode || this.#observedRealMode) return this.isRealMode;
+    this.#observedRealMode = true;
+    for (const listener of this.#activatedListeners) listener();
+    return true;
+  }
+
+  prepareSources(sources: TelemetrySource[]): void {
+    const hasDemo = sources.some((source) => DEMO_TELEMETRY_SOURCES.has(source));
+    const hasReal = sources.some((source) => !DEMO_TELEMETRY_SOURCES.has(source));
+    if (hasDemo && hasReal) {
+      throw new MeasurementValidationError("MIXED_DATA_MODES", 409, "Demo and real telemetry cannot be ingested in the same batch");
+    }
+    if (hasDemo && this.synchronize()) {
+      throw new MeasurementValidationError("DEMO_DATA_DISABLED", 409, "Demo telemetry is permanently disabled after a real integration or real sample is accepted");
+    }
+    if (hasReal && !this.isRealMode) this.activate();
+  }
+
+  onActivated(listener: () => void): () => void {
+    this.#activatedListeners.add(listener);
+    return () => this.#activatedListeners.delete(listener);
+  }
+}
+
 function samplesFromReading(database: ClimateDatabase, reading: Reading): MeasurementSample[] {
   const values: Record<string, number> = {
-    ...(reading.measurements ?? {}),
+    ...reading.measurements,
     temperature: reading.temperature,
     humidity: reading.humidity,
   };
@@ -188,55 +309,93 @@ function samplesFromReading(database: ClimateDatabase, reading: Reading): Measur
   });
 }
 
+type StoredMeasurementDefinition = NonNullable<ReturnType<ClimateDatabase["getMeasurementDefinition"]>>;
+
+interface MeasurementIngestOptions {
+  allowDisabledSensors?: boolean;
+  publish?: boolean;
+  evaluateAlerts?: boolean;
+  deduplicateAcrossSources?: boolean;
+}
+
 export class MeasurementService {
   constructor(
     private readonly database: ClimateDatabase,
     private readonly bus: TelemetryBus,
     private readonly alertEngine: AlertEngine,
+    private readonly dataMode: DataModeCoordinator,
   ) {}
 
   ingest(sample: MeasurementSample): MeasurementSample | null {
     return this.ingestBatch([sample])[0] ?? null;
   }
 
-  ingestBatch(samples: MeasurementSample[]): MeasurementSample[] {
+  ingestBatch(
+    samples: MeasurementSample[],
+    options: MeasurementIngestOptions = {},
+  ): MeasurementSample[] {
+    const nowMs = Date.now();
     const sensors = new Map<string, Sensor>();
-    const definitions = new Map<string, NonNullable<ReturnType<ClimateDatabase["getMeasurementDefinition"]>>>();
+    const definitions = new Map<string, StoredMeasurementDefinition>();
     for (const sample of samples) {
-      let sensor = sensors.get(sample.sensorId);
-      if (!sensor) {
-        sensor = this.database.getSensor(sample.sensorId) ?? undefined;
-        if (!sensor) throw new MeasurementValidationError("UNKNOWN_SENSOR", 404, `Unknown sensor: ${sample.sensorId}`);
-        if (!sensor.enabled) throw new MeasurementValidationError("SENSOR_DISABLED", 409, `Sensor is disabled: ${sample.sensorId}`);
-        sensors.set(sensor.id, sensor);
-      }
-      let definition = definitions.get(sample.metric);
-      if (!definition) {
-        definition = this.database.getMeasurementDefinition(sample.metric) ?? undefined;
-        if (!definition) throw new MeasurementValidationError("UNKNOWN_METRIC", 404, `Unknown measurement metric: ${sample.metric}`);
-        if (!definition.enabled) throw new MeasurementValidationError("METRIC_DISABLED", 409, `Measurement metric is disabled: ${sample.metric}`);
-        definitions.set(definition.id, definition);
-      }
-      if (!Number.isFinite(sample.value)) throw new MeasurementValidationError("INVALID_VALUE", 400, "Measurement value must be finite");
-      if (definition.validMin !== null && sample.value < definition.validMin) {
-        throw new MeasurementValidationError("OUT_OF_RANGE", 422, `${sample.metric} must be at least ${definition.validMin} ${definition.unit}`);
-      }
-      if (definition.validMax !== null && sample.value > definition.validMax) {
-        throw new MeasurementValidationError("OUT_OF_RANGE", 422, `${sample.metric} must be at most ${definition.validMax} ${definition.unit}`);
-      }
-      if (sample.canonicalUnit !== definition.unit) {
-        throw new MeasurementValidationError("UNIT_MISMATCH", 422, `${sample.metric} canonicalUnit must be ${definition.unit}`);
-      }
-      if (!Number.isFinite(Date.parse(sample.timestamp))) {
-        throw new MeasurementValidationError("INVALID_TIMESTAMP", 400, "Measurement timestamp must be an ISO date-time");
-      }
+      this.validateSensor(sample, sensors, Boolean(options.allowDisabledSensors));
+      const definition = this.measurementDefinition(sample.metric, definitions);
+      this.validateSample(sample, definition, nowMs);
     }
-    const inserted = this.database.insertMeasurementSamples(samples);
+    this.dataMode.prepareSources(samples.map((sample) => sample.source));
+    const inserted = options.deduplicateAcrossSources === undefined
+      ? this.database.insertMeasurementSamples(samples)
+      : this.database.insertMeasurementSamples(samples, { deduplicateAcrossSources: options.deduplicateAcrossSources });
     for (const sample of inserted) {
-      this.bus.publishMeasurement(sample);
-      this.alertEngine.evaluateSample(sample);
+      if (options.publish !== false) this.bus.publishMeasurement(sample);
+      if (options.evaluateAlerts !== false) this.alertEngine.evaluateSample(sample);
     }
     return inserted;
+  }
+
+  private validateSensor(
+    sample: MeasurementSample,
+    sensors: Map<string, Sensor>,
+    allowDisabled: boolean,
+  ): void {
+    if (sensors.has(sample.sensorId)) return;
+    const sensor = this.database.getSensor(sample.sensorId);
+    if (!sensor) throw new MeasurementValidationError("UNKNOWN_SENSOR", 404, `Unknown sensor: ${sample.sensorId}`);
+    if (!sensor.enabled && !allowDisabled) {
+      throw new MeasurementValidationError("SENSOR_DISABLED", 409, `Sensor is disabled: ${sample.sensorId}`);
+    }
+    sensors.set(sensor.id, sensor);
+  }
+
+  private measurementDefinition(
+    metric: string,
+    definitions: Map<string, StoredMeasurementDefinition>,
+  ): StoredMeasurementDefinition {
+    const cached = definitions.get(metric);
+    if (cached) return cached;
+    const definition = this.database.getMeasurementDefinition(metric);
+    if (!definition) throw new MeasurementValidationError("UNKNOWN_METRIC", 404, `Unknown measurement metric: ${metric}`);
+    if (!definition.enabled) {
+      throw new MeasurementValidationError("METRIC_DISABLED", 409, `Measurement metric is disabled: ${metric}`);
+    }
+    definitions.set(definition.id, definition);
+    return definition;
+  }
+
+  private validateSample(sample: MeasurementSample, definition: StoredMeasurementDefinition, nowMs: number): void {
+    if (!Number.isFinite(sample.value)) {
+      throw new MeasurementValidationError("INVALID_VALUE", 400, "Measurement value must be finite");
+    }
+    if (definition.validMin !== null && sample.value < definition.validMin) {
+      throw new MeasurementValidationError("OUT_OF_RANGE", 422, `${sample.metric} must be at least ${definition.validMin} ${definition.unit}`);
+    }
+    if (definition.validMax !== null && sample.value > definition.validMax) {
+      throw new MeasurementValidationError("OUT_OF_RANGE", 422, `${sample.metric} must be at most ${definition.validMax} ${definition.unit}`);
+    }
+    if (sample.canonicalUnit !== definition.unit) {
+      throw new MeasurementValidationError("UNIT_MISMATCH", 422, `${sample.metric} canonicalUnit must be ${definition.unit}`);
+    }
+    validateLiveTimestamp(sample.timestamp, nowMs);
   }
 }
 
@@ -245,6 +404,7 @@ export class TelemetryService {
     private readonly database: ClimateDatabase,
     private readonly bus: TelemetryBus,
     private readonly alertEngine: AlertEngine,
+    private readonly dataMode: DataModeCoordinator,
   ) {}
 
   ingest(reading: Reading): Reading {
@@ -253,27 +413,14 @@ export class TelemetryService {
   }
 
   ingestBatch(readings: Reading[]): Reading[] {
+    const nowMs = Date.now();
     const validated = new Map<string, Sensor>();
     for (const reading of readings) {
-      let sensor = validated.get(reading.sensorId);
-      if (!sensor) {
-        sensor = this.database.getSensor(reading.sensorId) ?? undefined;
-        if (!sensor) throw new TelemetryValidationError("UNKNOWN_SENSOR", 404, `Unknown sensor: ${reading.sensorId}`);
-        if (!sensor.enabled) throw new TelemetryValidationError("SENSOR_DISABLED", 409, `Sensor is disabled: ${reading.sensorId}`);
-        validated.set(sensor.id, sensor);
-      }
-      for (const [metric, value] of Object.entries({
-        ...(reading.measurements ?? {}), temperature: reading.temperature, humidity: reading.humidity,
-      })) {
-        const definition = this.database.getMeasurementDefinition(metric);
-        if (!definition) throw new MeasurementValidationError("UNKNOWN_METRIC", 404, `Unknown measurement metric: ${metric}`);
-        if (!definition.enabled) throw new MeasurementValidationError("METRIC_DISABLED", 409, `Measurement metric is disabled: ${metric}`);
-        if (!Number.isFinite(value)) throw new MeasurementValidationError("INVALID_VALUE", 400, `${metric} must be finite`);
-        if (definition.validMin !== null && value < definition.validMin || definition.validMax !== null && value > definition.validMax) {
-          throw new MeasurementValidationError("OUT_OF_RANGE", 422, `${metric} is outside its registered valid range`);
-        }
-      }
+      this.validateSensor(reading, validated);
+      validateLiveTimestamp(reading.timestamp, nowMs);
+      this.validateMeasurements(reading);
     }
+    this.dataMode.prepareSources(readings.map((reading) => reading.source));
     const inserted = this.database.insertReadings(readings);
     for (const reading of inserted) {
       this.bus.publish({ type: "reading", data: reading });
@@ -285,11 +432,37 @@ export class TelemetryService {
     return inserted;
   }
 
+  private validateSensor(reading: Reading, validated: Map<string, Sensor>): void {
+    if (validated.has(reading.sensorId)) return;
+    const sensor = this.database.getSensor(reading.sensorId);
+    if (!sensor) throw new TelemetryValidationError("UNKNOWN_SENSOR", 404, `Unknown sensor: ${reading.sensorId}`);
+    if (!sensor.enabled) throw new TelemetryValidationError("SENSOR_DISABLED", 409, `Sensor is disabled: ${reading.sensorId}`);
+    validated.set(sensor.id, sensor);
+  }
+
+  private validateMeasurements(reading: Reading): void {
+    const values = { ...reading.measurements, temperature: reading.temperature, humidity: reading.humidity };
+    for (const [metric, value] of Object.entries(values)) this.validateMeasurement(metric, value);
+  }
+
+  private validateMeasurement(metric: string, value: number): void {
+    const definition = this.database.getMeasurementDefinition(metric);
+    if (!definition) throw new MeasurementValidationError("UNKNOWN_METRIC", 404, `Unknown measurement metric: ${metric}`);
+    if (!definition.enabled) throw new MeasurementValidationError("METRIC_DISABLED", 409, `Measurement metric is disabled: ${metric}`);
+    if (!Number.isFinite(value)) throw new MeasurementValidationError("INVALID_VALUE", 400, `${metric} must be finite`);
+    if (definition.validMin !== null && value < definition.validMin
+      || definition.validMax !== null && value > definition.validMax) {
+      throw new MeasurementValidationError("OUT_OF_RANGE", 422, `${metric} is outside its registered valid range`);
+    }
+  }
+
   /** Maintains the v1 tuple projection after independently ingesting canonical samples. */
   ingestLegacyProjection(reading: Reading): boolean {
     const sensor = this.database.getSensor(reading.sensorId);
     if (!sensor) throw new TelemetryValidationError("UNKNOWN_SENSOR", 404, `Unknown sensor: ${reading.sensorId}`);
     if (!sensor.enabled) throw new TelemetryValidationError("SENSOR_DISABLED", 409, `Sensor is disabled: ${reading.sensorId}`);
+    validateLiveTimestamp(reading.timestamp, Date.now());
+    this.dataMode.prepareSources([reading.source]);
     const inserted = this.database.insertLegacyReading(reading);
     if (inserted) this.bus.publish({ type: "reading", data: reading });
     return inserted;
@@ -425,18 +598,38 @@ export class MockEngine {
     private readonly database: ClimateDatabase,
     private readonly telemetry: TelemetryService,
     private readonly config: AppConfig,
+    private readonly dataMode: DataModeCoordinator,
   ) {}
 
   get scenario(): MockScenario["id"] { return this.#scenario; }
 
   setScenario(scenario: MockScenario["id"]): void {
+    this.dataMode.prepareSources(["mock"]);
     this.#scenario = scenario;
     this.#tick = 0;
   }
 
   start(): void {
-    if (this.#timer || !this.config.mockEnabled) return;
-    this.#timer = setInterval(() => this.generate(), this.config.mockIntervalMs);
+    if (this.#timer || !this.config.mockEnabled || this.dataMode.isRealMode) return;
+    this.#timer = setInterval(() => {
+      if (this.dataMode.synchronize()) {
+        this.stop();
+        return;
+      }
+      try {
+        this.generate();
+      } catch (error) {
+        // A second process can latch the shared database after the coordinator
+        // check but before the insert. Both service errors and SQLite trigger
+        // aborts are expected shutdown signals for this timer.
+        if (demoDataWasDisabled(error)) {
+          this.dataMode.synchronize();
+          this.stop();
+          return;
+        }
+        throw error;
+      }
+    }, this.config.mockIntervalMs);
     this.#timer.unref();
   }
 
@@ -446,6 +639,7 @@ export class MockEngine {
   }
 
   generate(): Reading[] {
+    this.dataMode.prepareSources(["mock"]);
     this.#tick += 1;
     const now = new Date().toISOString();
     const generated: Reading[] = [];
@@ -529,6 +723,15 @@ export class ReplayEngine {
   stop(): ReplayState {
     if (this.#timer) clearTimeout(this.#timer);
     this.#timer = null;
+    return this.state;
+  }
+
+  reset(): ReplayState {
+    this.stop();
+    this.#readings = [];
+    this.#index = 0;
+    this.#from = null;
+    this.#to = null;
     return this.state;
   }
 

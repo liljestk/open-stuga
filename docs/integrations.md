@@ -1,6 +1,6 @@
-# API, FMI weather, MCP, Home Assistant alerts, DayOps, and OpenWearable
+# API, weather, MCP, Home Assistant alerts, DayOps, and OpenWearable
 
-Climate Twin exposes one domain through three transports:
+Stuga's local edition exposes one domain through three transports:
 
 - REST under `/api/v1` for the original temperature/humidity compatibility
   contract and `/api/v2` for registered sparse measurements;
@@ -8,13 +8,29 @@ Climate Twin exposes one domain through three transports:
   `/api/v2/measurements/events` for per-metric live updates;
 - a local stdio MCP server for trusted agent/tool hosts.
 
+The optional hosted edition adds a separate tenant-scoped HTTP surface. Its
+machine-readable OpenAPI document is `/api/openapi.json`, and
+`/api/hosted-routes.json` records which operations are equivalent, hosted-only,
+local-only, or intentionally not exposed. Tenant selection, membership, and
+API-token administration are hosted HTTP operations; they are deliberately not
+added to the trusted local stdio MCP. See [Cloudflare hosting and multi-tenant
+operations](cloudflare-hosting.md).
+
 Outbound alert webhooks can target Home Assistant or an integration relay. The
 MVP has one configured webhook destination, so a relay is required to fan out to
 Home Assistant, DayOps, and OpenWearable simultaneously.
 
-House-scoped outdoor context is a v1 resource backed by FMI open data. The API
-stores an optional WGS84 house location and performs FMI WFS/CAP requests
-server-side; the location picker uses attributed OpenStreetMap tiles.
+House-scoped outdoor context is a v1 resource with automatic provider routing.
+Finnish homes use FMI open data; other homes use Open-Meteo worldwide modelled
+weather. The API stores each home's optional WGS84 weather location, IANA
+timezone, and independent precise map placement. Provider, geocoding, and
+timezone requests are server-side; the explicitly loaded shared home map uses
+attributed OpenStreetMap tiles.
+
+The Setup home selector scopes location, timezone, map placement, and
+orientation edits. Direct TP-Link and Home Assistant credentials/configuration
+remain global to the API process; the current data model does not create a
+separate adapter instance per home.
 
 ## REST API v1 compatibility
 
@@ -43,12 +59,13 @@ Major groups are:
 | Health/schema | `GET /health`, `GET /openapi.json` |
 | Digital twin | `/houses`, `/houses/{id}`, `/houses/{id}/layout`, `/sensors`, `/sensors/snapshots` |
 | Weather | `GET /houses/{id}/weather` after setting `House.location` |
+| Location discovery | `GET /locations/search`, `GET /locations/defaults` |
 | Telemetry | `POST /readings`, `GET /readings/latest`, `GET /history`, `GET /forecast` |
 | Live | `GET /stream` |
 | Alerts | `/alert-rules`, `/alert-events`, `/alert-events/{id}/acknowledge` |
 | Context | `/observations`, `/parameters` |
 | Assets | `/assets`, `/assets/{id}` |
-| Integrations | `/integrations/status`, `/integrations/home-assistant/setup` |
+| Integrations | `/integrations/status`, `/integrations/discover`, `/integrations/home-assistant/config`, `/integrations/tp-link/config`, and adapter setup/test routes |
 | Testing | `/mock/scenarios`, `/mock/scenario`, `/mock/tick`, `/replay` |
 
 Prefix every route in the table with `/api/v1`.
@@ -139,12 +156,14 @@ curl --request POST http://localhost:8080/api/v2/measurements \
 
 The batch limit is 1,000. Values must be finite, the sensor and enabled metric
 must exist, the canonical unit must exactly match the definition, and the value
-must fall within its valid range. A retry of the same
+must fall within its valid range. Live timestamps may be at most five minutes
+ahead of the server clock to accommodate ordinary device clock skew. A retry of the same
 sensor/metric/timestamp/source is idempotent; another metric at the same time is
 a separate sample.
 
 | Query | Response envelope |
 | --- | --- |
+| `POST /api/v2/measurements/import` | `{ "accepted": 100, "ignoredDuplicates": 5 }` |
 | `GET /api/v2/measurements/snapshot?houseId=house-main` | `{ "snapshot": [{ "sensorId": "...", "measurements": { "co2": sample } }] }` |
 | `GET /api/v2/measurements/history?sensorId=sensor-01&metric=co2&from=...&to=...&limit=20000` | `{ "samples": [...] }` |
 | `GET /api/v2/measurements/forecast?sensorId=sensor-01&metric=co2&hours=12` | `{ "forecast": [...] }` |
@@ -153,6 +172,13 @@ Snapshot entries are maps because sensors need not expose the same metrics and
 their latest timestamps can differ. History selects one sensor and one metric.
 Forecasts are available only where the definition sets `forecastSupported`;
 unsupported metrics return `FORECAST_UNSUPPORTED` rather than invented bands.
+
+The dedicated historical import route accepts `{ "samples": [...] }` batches
+of up to 10,000. It forces `source: "import"`, accepts archived sensors, and
+deduplicates by sensor/metric/timestamp across all sources. Imported samples do
+not publish live SSE events, evaluate alerts, or deliver webhooks. The guided
+browser workflow sends smaller retry-safe batches and refreshes the house after
+completion.
 
 ### Live v2 events
 
@@ -186,6 +212,20 @@ metric's v2 samples and retains each sample's timestamp/source/quality while
 labeling replayed presentation as replay. Replay remains a test/visualisation
 path and must not deliver real notifications by default.
 
+The database begins in `demo` mode. Saving Home Assistant or TP-Link credentials,
+accepting any `home-assistant`, `tp-link`, `api`, or `import` telemetry, or
+persisting a fresh provider outdoor value,
+atomically changes it to permanent `real` mode. That transition purges rows with
+`mock`/`replay` provenance, synthetic outdoor boundaries, and alert events whose
+source cannot otherwise be proven; it also resets in-memory alert duration state
+and any active replay. Mixed real/demo batches and later demo writes fail with
+HTTP 409 (`MIXED_DATA_MODES` or `DEMO_DATA_DISABLED`). The current mode and
+activation timestamp are exposed under `IntegrationStatus.mock`.
+Clients must not assume demo mode while that status is unavailable. The bundled
+web client keeps telemetry empty until the API positively confirms demo mode and
+therefore does not fall back to synthetic values when a real installation is
+temporarily unreachable.
+
 Map surfaces and forecasts follow the definition flags. When
 `spatialInterpolation` is false, clients should render positioned markers and
 history without a continuous surface. When `forecastSupported` is false, clients
@@ -193,37 +233,78 @@ should omit forecast bands and handle the API's `FORECAST_UNSUPPORTED` response.
 
 ## REST API v1 details
 
-### House location and FMI weather
+### House map placement, location discovery, and weather
 
-`House.location` is an optional WGS84 object with finite `latitude` and
-`longitude` decimal degrees plus an optional display `label`.
-`House.orientationDegrees` is independently optional and is the clockwise
+`House.location` is the optional weather lookup reference: a WGS84 object with
+finite `latitude` and `longitude` decimal degrees plus an optional display
+`label`, `countryCode`, and discovery provenance (`source`, `confidence`,
+`discoveredAt`, and `userOverridden`). `House.timezone` is an IANA timezone and
+controls local display independently for each home. `House.mapPlacement`
+independently gives the precise WGS84
+centre used to draw the house, the positive `metersPerPlanUnit` conversion from
+local floor-plan units to real-world metres, and an optional
+`footprintFloorId`. When supplied, that floor provides the map footprint.
+`House.orientationDegrees` remains independently optional and is the clockwise
 true-north bearing of the floor plan's top edge, in the range `[0, 360)`.
-Set or replace either property with `PATCH /api/v1/houses/{id}`:
+Set or replace these properties with `PATCH /api/v1/houses/{id}`:
 
 ```json
 {
   "location": {
     "latitude": 60.2055,
     "longitude": 24.6559,
-    "label": "Espoo"
+    "label": "Espoo",
+    "countryCode": "FI",
+    "source": "place-search",
+    "confidence": "high",
+    "discoveredAt": "2026-07-14T08:00:00.000Z",
+    "userOverridden": false
+  },
+  "timezone": "Europe/Helsinki",
+  "mapPlacement": {
+    "latitude": 60.2056,
+    "longitude": 24.6561,
+    "metersPerPlanUnit": 0.05,
+    "footprintFloorId": "floor-ground"
   },
   "orientationDegrees": 0
 }
 ```
 
-Set either property to `null` to clear only that property. Unknown orientation
-must remain absent/null rather than defaulting to `0`; otherwise downstream
-clients would falsely label the top plan edge as north-facing. FMI wind bearing
-is a wind-from direction. A client maps it to the plan with
+Set any property to `null` to clear only that property. Unknown orientation must
+remain absent/null rather than defaulting to `0`; otherwise downstream clients
+would falsely label the top plan edge as north-facing. Moving or clearing
+`mapPlacement` does not change `location`, invalidate its weather cache, or
+purge retained weather history. A change to `location` retains its existing
+weather cache/history invalidation semantics.
+
+`GET /api/v1/locations/search?q=Espoo&language=en` performs an explicit
+Open-Meteo place search and returns sanitized suggestions with coordinates,
+country/region, confidence, and IANA timezone. It does not mutate a home.
+`GET /api/v1/locations/defaults?latitude=60.2055&longitude=24.6559` resolves a
+timezone for explicitly supplied coordinates. The web client invokes the latter
+after the user approves device geolocation and persists a result only through a
+separate house patch. Manual fields remain a supported fallback.
+
+The shared map can show all houses that have either `mapPlacement` or the legacy
+`location`. Precisely placed houses render as true geographic footprints that
+scale with map zoom; location-only legacy houses fall back to pins. Houses are
+not grouped into properties/sites and surveyed parcel boundaries are not
+modeled, so a shared view may span multiple properties.
+
+Weather wind bearing is a wind-from direction. A client maps it to the plan with
 `normalize(windFromDegrees - orientationDegrees)` and should omit directional
 geometry whenever either bearing is unavailable.
 
 Request outdoor context with
 `GET /api/v1/houses/{id}/weather?hours=48`; the horizon defaults to 48 and is
-bounded to 1–240 hours. The response combines a recent station observation,
-FMI edited/HARMONIE point forecasts, and active CAP warnings that geometrically
-cover the house. No FMI API key or weather environment variable is required.
+bounded to 1–240 hours (the Open-Meteo adapter currently caps returned forecast
+hours at 168). Automatic routing selects FMI for Finnish locations and
+Open-Meteo elsewhere. FMI responses combine a recent station observation,
+edited/HARMONIE point forecasts, and active CAP warnings that geometrically
+cover the house. Open-Meteo responses contain modelled current and `best_match`
+hourly forecast values; official warnings are not available through that
+adapter. Neither provider requires a weather API key or environment variable.
 
 Consumers must preserve `provider`, `attribution`, `fetchedAt`,
 `forecastIssuedAt`, `observationStation`, `stale`, and `unavailable`. Upstream
@@ -232,9 +313,23 @@ can return an older in-memory result with `stale: true`. A missing house locatio
 returns `HOUSE_LOCATION_REQUIRED`, and no usable upstream or cached result
 returns `WEATHER_UNAVAILABLE`.
 
-See [FMI weather and house location](weather.md) for every requested product and
-field, station-distance caveats, caching, CC BY 4.0 attribution, FMI request
-limits, CAP semantics, and OpenStreetMap privacy/usage requirements.
+New clients must also inspect `componentStatus`. In particular, an empty warning
+array is authoritative only when the warnings component is available, covered,
+fresh, and sets `emptyResultIsAuthoritative: true`. Open-Meteo marks warnings
+`not-applicable` and `outside-coverage`; stale FMI warning state is likewise not
+authoritative.
+
+With background services enabled, a non-overlapping monitor refreshes every
+located home for 48 hours. Concurrency is bounded to two, scheduled cycles use
+jitter, and failures back off independently per home. A revision/location fence
+prevents an old in-flight response from being persisted after a home is moved.
+Only fresh current temperature is retained as an outdoor boundary; forecasts
+and stale fallbacks are not stored as observations.
+
+See [Outdoor weather and home location](weather.md) for requested fields,
+station/model caveats, caching, background refresh, CC BY 4.0 attribution,
+provider limits, warning authority, discovery consent, and OpenStreetMap
+privacy/usage requirements.
 
 ### Spatial coordinates for multi-floor views
 
@@ -353,7 +448,7 @@ node apps/api/dist/mcp-server.js
 ```
 
 Set its working directory to the repository and provide `DATABASE_PATH` pointing
-to the same Climate Twin database.
+to the same Stuga database.
 
 Generic client configuration (replace the absolute paths):
 
@@ -382,26 +477,111 @@ An MCP client's executable can similarly be `docker` with arguments `compose`,
 `exec`, `-T`, `api`, `node`, `apps/api/dist/mcp-server.js` and the repository as
 its working directory.
 
-Available compatibility and measurement tools are:
+The trusted local stdio server currently exposes 58 tools. They operate on
+the configured local SQLite database; they do not expose raw credentials,
+binary asset downloads, SSE streams, or hosted tenant administration.
+
+### Homes, location, weather, and modelling
 
 | Tool | Behaviour |
 | --- | --- |
-| `list_houses` | house and floor layouts |
-| `list_sensors` | sensor discovery, optionally scoped to a house |
-| `get_sensor_snapshot` | placement plus latest reading |
-| `query_history` | one sensor and bounded ISO date range |
-| `forecast_sensor` | 1–168 hour linear baseline |
-| `list_active_alerts` | unresolved alert events |
-| `list_observations` | manual incident and maintenance context |
-| `list_static_parameters` | house/floor/room/sensor context |
-| `create_observation` | writes a manual observation |
-| `list_measurement_definitions` | registered metrics, units, ranges, and spatial/forecast capabilities |
-| `query_measurement_history` | one sensor and registered metric over a bounded ISO date range |
-| `forecast_measurement` | forecast for a sensor/metric when its definition supports forecasting |
+| <code>list_houses</code> | Privacy-safe compact house and floor summaries |
+| <code>get_house</code> | One selected house with location, map placement, orientation, and floor layout |
+| <code>create_house</code> | Create a house with a validated floor layout |
+| <code>update_house</code> | Update house metadata, location, placement, orientation, or floors |
+| <code>replace_house_layout</code> | Replace all validated floors for one house |
+| <code>replace_house_floor</code> | Replace one existing floor |
+| <code>delete_house</code> | Permanently delete a house and dependent local data; requires <code>confirm=true</code> |
+| <code>search_locations</code> | Search Open-Meteo place and timezone suggestions on explicit request |
+| <code>resolve_coordinate_defaults</code> | Resolve an IANA timezone for explicit WGS84 coordinates |
+| <code>get_house_weather</code> | Fetch provider-neutral conditions, forecasts, and warning coverage; optional persistence has an explicit real-data confirmation gate |
+| <code>run_thermal_simulation</code> | Fit and run the experimental first-order room thermal model |
 
-`create_observation` mutates household data. MCP process access is the authorization
-boundary in this MVP, so only a trusted host should launch it. Agent policies
-should require user confirmation before adding critical incidents or notes.
+### Sensors and measurement data
+
+| Tool | Behaviour |
+| --- | --- |
+| <code>list_sensors</code> | List configured sensors, optionally for one house |
+| <code>create_sensor</code> | Create and place a sensor with optional integration bindings |
+| <code>update_sensor</code> | Atomically update sensor metadata, placement, state, or bindings |
+| <code>delete_sensor</code> | Permanently delete a sensor and dependent data; requires <code>confirm=true</code> |
+| <code>list_measurement_definitions</code> | List built-in and custom metric definitions and capabilities |
+| <code>create_measurement_definition</code> | Create a custom numeric metric definition |
+| <code>update_measurement_definition</code> | Update mutable fields of a metric definition |
+| <code>disable_measurement_definition</code> | Disable a metric without deleting history or alert rules |
+| <code>ingest_measurements</code> | Validate and ingest registry samples with normal live events and alert evaluation |
+| <code>import_measurements</code> | Duplicate-safe historical import without live events or alert evaluation |
+| <code>ingest_readings</code> | Ingest v1 temperature/humidity tuples and optional registry projections |
+| <code>get_measurement_snapshot</code> | Latest independently timestamped sample for every metric and sensor |
+| <code>query_measurement_history</code> | Bounded history for any registered sensor metric |
+| <code>forecast_measurement</code> | Forecast a metric whose definition enables forecasting |
+| <code>get_sensor_snapshot</code> | One sensor, its placement, and latest v1 reading |
+| <code>query_history</code> | Bounded durable v1 sensor history |
+| <code>forecast_sensor</code> | Bounded v1 temperature/humidity baseline forecast |
+
+### Alerts, observations, and static context
+
+| Tool | Behaviour |
+| --- | --- |
+| <code>list_active_alerts</code> | List unresolved alert events |
+| <code>list_alert_rules</code> | List configured alert rules |
+| <code>create_alert_rule</code> | Create a metric threshold rule |
+| <code>update_alert_rule</code> | Update mutable rule fields |
+| <code>delete_alert_rule</code> | Permanently delete a rule; requires <code>confirm=true</code> |
+| <code>list_alert_events</code> | List recent alert events, optionally unresolved only |
+| <code>acknowledge_alert</code> | Acknowledge an alert at the current server time |
+| <code>list_observations</code> | List manual incident, maintenance, ventilation, and note observations |
+| <code>create_observation</code> | Record a manual observation |
+| <code>delete_observation</code> | Permanently delete an observation; requires <code>confirm=true</code> |
+| <code>list_static_parameters</code> | List house, floor, room, and sensor context |
+| <code>upsert_static_parameter</code> | Create or update static context |
+| <code>delete_static_parameter</code> | Permanently delete static context; requires <code>confirm=true</code> |
+
+### Trusted assets
+
+| Tool | Behaviour |
+| --- | --- |
+| <code>list_assets</code> | List floor-plan and 3D asset metadata without binary content |
+| <code>get_asset_metadata</code> | Get metadata for one asset without binary content |
+| <code>upload_asset</code> | Upload a trusted PNG, JPEG, WebP, glTF, or GLB asset up to 10 MiB decoded |
+| <code>delete_asset</code> | Permanently delete an asset; requires <code>confirm=true</code> |
+
+### Local integrations and devices
+
+| Tool | Behaviour |
+| --- | --- |
+| <code>get_integration_status</code> | Get redacted integration and data-mode status for this MCP process |
+| <code>discover_integrations</code> | Run best-effort LAN discovery for Home Assistant and TP-Link hubs |
+| <code>get_home_assistant_setup</code> | Get Home Assistant setup guidance without credentials |
+| <code>test_home_assistant_connection</code> | Report redacted Home Assistant state visible to this process |
+| <code>get_tp_link_setup</code> | Get direct H100/H200 setup and mapping guidance without credentials |
+| <code>list_tp_link_devices</code> | List sanitized TP-Link child devices cached in this process |
+| <code>test_tp_link_connection</code> | Report redacted TP-Link state visible to this process |
+
+### Demo data and replay
+
+| Tool | Behaviour |
+| --- | --- |
+| <code>list_mock_scenarios</code> | List bundled scenarios and the current demo/real-data state |
+| <code>select_mock_scenario</code> | Select a scenario unless the database has entered real-data mode |
+| <code>generate_mock_tick</code> | Persist one mock tick unless the database has entered real-data mode |
+| <code>get_replay_status</code> | Get replay state for this process's in-memory event bus |
+| <code>start_replay</code> | Start bounded replay on this process's event bus |
+| <code>stop_replay</code> | Stop replay on this process's event bus |
+
+Every tool returns the same result in structured content and as JSON text.
+Mutating tools carry MCP annotations so clients can distinguish read-only,
+idempotent, destructive, and open-world operations. Permanent deletes require
+<code>confirm=true</code>. Persisting a weather observation requires
+<code>persistObservation=true</code> together with
+<code>confirmRealDataPersistence=true</code> because the one-way real-data latch
+can purge demo telemetry.
+
+The stdio process itself is the authorization boundary, so only a trusted host
+should launch it. Agent policies should require user confirmation for writes
+appropriate to their risk. Credentials cannot be configured through MCP, and
+connection and replay status are process-local: the MCP process cannot inspect
+a separately running API process's WebSocket, TP-Link poller, or event bus.
 
 ## Send alerts to Home Assistant
 
@@ -411,7 +591,7 @@ recommends keeping it local-only and treating the ID like a password. One YAML
 shape is:
 
 ```yaml
-alias: Climate Twin alert notification
+alias: Stuga alert notification
 triggers:
   - trigger: webhook
     webhook_id: !secret climate_twin_webhook_id
@@ -424,7 +604,7 @@ conditions:
 actions:
   - action: persistent_notification.create
     data:
-      title: "Climate Twin: {{ trigger.json.event.severity }}"
+      title: "Stuga: {{ trigger.json.event.severity }}"
       message: >-
         {{ trigger.json.rule.name }} at {{ trigger.json.event.sensorId }}:
         {{ trigger.json.event.value }} (threshold
@@ -433,7 +613,7 @@ mode: queued
 max: 10
 ```
 
-Set the Climate Twin environment to the corresponding local URL:
+Set the Stuga environment to the corresponding local URL:
 
 ```dotenv
 ALERT_WEBHOOK_URL=http://homeassistant.local:8123/api/webhook/replace-with-secret-id
@@ -442,7 +622,7 @@ ALERT_WEBHOOK_BEARER_TOKEN=
 
 Home Assistant webhook triggers authenticate by possession of the unguessable
 ID, so leave the bearer token empty for this route. Enable `webhookEnabled` on
-the desired Climate Twin alert rules.
+the desired Stuga alert rules.
 
 The MVP posts once when a rule creates an alert, with a 10-second timeout:
 
@@ -498,7 +678,7 @@ Recommended patterns:
 1. **Read-only consumer:** query v2 measurement snapshot/history/forecast plus
    v1 alert events and observations; subscribe to the v2 measurement stream
    while online. Keep v1 reading routes only for existing clients.
-2. **Alert relay:** set the single Climate Twin webhook to a local relay. Validate
+2. **Alert relay:** set the single Stuga webhook to a local relay. Validate
    its bearer token, persist/deduplicate by `event.id`, then transform and fan out
    to Home Assistant, DayOps, and OpenWearable with destination-specific auth.
 3. **Context writer:** record a verified maintenance/leak outcome through

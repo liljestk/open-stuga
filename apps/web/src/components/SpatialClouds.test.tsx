@@ -8,6 +8,7 @@ import { createCloudLobes, estimateFieldFlows, interpolateHeat, MAX_SPATIAL_FIEL
 import styles from "../styles.css?raw";
 import { BuildingScene } from "./BuildingScene";
 import { FloorPlan } from "./FloorPlan";
+import type { ClimateSampleMatrix } from "../airflowSimulation";
 
 const REFERENCE_TIME_MS = Date.parse("2026-07-14T10:00:00.000Z");
 const MAX_SAMPLE_AGE_MS = 15 * 60_000;
@@ -32,6 +33,7 @@ function renderFloor(
   sensors: Sensor[],
   samples: Record<string, MeasurementSample>,
   definition: MeasurementDefinition,
+  climateSamples?: ClimateSampleMatrix,
 ) {
   const state = createDemoState();
   const floor = state.houses[0]!.floors.find((item) => item.id === sensors[0]?.floorId)
@@ -39,7 +41,7 @@ function renderFloor(
   return render(
     <I18nProvider>
       <FloorPlan
-        floor={floor} sensors={sensors} samples={samples} observations={[]} definition={definition}
+        floor={floor} sensors={sensors} samples={samples} {...(climateSamples ? { climateSamples } : {})} observations={[]} definition={definition}
         units="metric" viewMode="plan" selectedSensorId={null} editing={false} observationPlacement={false}
         referenceTimeMs={REFERENCE_TIME_MS} maxSampleAgeMs={MAX_SAMPLE_AGE_MS}
         onSensorSelect={vi.fn()} onSensorMove={vi.fn()} onFloorChange={vi.fn()}
@@ -53,13 +55,14 @@ function renderBuilding(
   sensors: Sensor[],
   samples: Record<string, MeasurementSample>,
   definition: MeasurementDefinition,
+  climateSamples?: ClimateSampleMatrix,
 ) {
   const state = createDemoState();
   const house = state.houses[0]!;
   return render(
     <I18nProvider>
       <BuildingScene
-        house={house} sensors={sensors} samples={samples} observations={[]} definition={definition}
+        house={house} sensors={sensors} samples={samples} {...(climateSamples ? { climateSamples } : {})} observations={[]} definition={definition}
         units="metric" activeFloorId={house.floors[0]!.id} selectedSensorId={null}
         onFloorSelect={vi.fn()} onSensorSelect={vi.fn()}
       />
@@ -99,6 +102,39 @@ function setReducedMotion(matches: boolean) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("estimated spatial clouds and flows", () => {
+  it("uses one coupled temperature-humidity airflow estimate in both views", () => {
+    const state = createDemoState();
+    const definition = definitionFor(state.measurementDefinitions, "temperature");
+    const climateSamples: ClimateSampleMatrix = Object.fromEntries(state.sensors.map((sensor, sensorIndex) => [sensor.id, {
+      temperature: {
+        sensorId: sensor.id, metric: "temperature", value: 18.5 + sensorIndex * .7, canonicalUnit: "°C",
+        timestamp: "2026-07-14T10:00:00.000Z", source: "mock" as const, quality: "good" as const,
+      },
+      humidity: {
+        sensorId: sensor.id, metric: "humidity", value: 38 + sensorIndex * 3.2, canonicalUnit: "%",
+        timestamp: "2026-07-14T10:00:00.000Z", source: "mock" as const, quality: "good" as const,
+      },
+      co2: {
+        sensorId: sensor.id, metric: "co2", value: 480 + sensorIndex * 65, canonicalUnit: "ppm",
+        timestamp: "2026-07-14T10:00:00.000Z", source: "mock" as const, quality: "good" as const,
+      },
+    }]));
+    const activeSamples = Object.fromEntries(Object.entries(climateSamples).map(([sensorId, samples]) => [sensorId, samples.temperature!]));
+    const floorId = state.houses[0]!.floors[0]!.id;
+    const floorSensors = state.sensors.filter((sensor) => sensor.floorId === floorId);
+
+    const floorView = renderFloor(floorSensors, activeSamples, definition, climateSamples);
+    expect(floorView.container.querySelectorAll(".simulated-flow-path").length).toBeGreaterThan(0);
+    expect(floorView.container.querySelector(".gradient-flow-layer")).toBeNull();
+    expect(floorView.container.querySelector(".simulated-airflow-layer")?.getAttribute("aria-label")).toMatch(/sensor-constrained indoor flow simulation/i);
+    floorView.unmount();
+
+    const buildingView = renderBuilding(state.sensors, activeSamples, definition, climateSamples);
+    expect(buildingView.container.querySelectorAll(".simulated-building-flow-path").length).toBeGreaterThan(0);
+    expect(buildingView.container.querySelector(".building-gradient-flows")).toBeNull();
+    expect(buildingView.container.querySelector(".building-simulated-airflow")?.getAttribute("aria-label")).toMatch(/sensor-constrained indoor flow simulation/i);
+  });
+
   it("renders layered 2D clouds and accessible high-to-low flow estimates", () => {
     const state = createDemoState();
     const floor = state.houses[0]!.floors[0]!;

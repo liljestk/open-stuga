@@ -1,6 +1,6 @@
 import {
   useEffect, useId, useMemo, useRef, useState,
-  type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent,
+  type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent,
 } from "react";
 import type { House, ManualObservation, MeasurementDefinition, MeasurementSample, Sensor, UnitSystem } from "@climate-twin/contracts";
 import { useI18n, type TranslationKey } from "../i18n";
@@ -9,16 +9,24 @@ import {
   configuredSpatialMaxSampleAgeMs, isSpatialSampleFresh, type SpatialFreshnessOptions,
 } from "../spatialFreshness";
 import { windPathOnRectangle } from "../outdoorContext";
+import { simulateBuildingAirflow, type ClimateSampleMatrix } from "../airflowSimulation";
 import {
   clampCameraOrbit, createVolumeClouds, estimateVolumeFlows, interpolateVolume, projectPoint3D,
   type CameraOrbit, type Point3D, type ProjectedPoint3D, type VolumeBounds, type VolumeCloudBlob,
 } from "../spatialVolume";
-import { OutdoorConditionsBadge, type OutdoorVisualizationState } from "./OutdoorConditionsBadge";
+import {
+  formatOutdoorHumidity,
+  formatOutdoorTemperature,
+  formatOutdoorWindSpeed,
+  OutdoorConditionsBadge,
+  type OutdoorVisualizationState,
+} from "./OutdoorConditionsBadge";
 
 interface BuildingSceneProps {
   house: House;
   sensors: Sensor[];
   samples: Record<string, MeasurementSample>;
+  climateSamples?: ClimateSampleMatrix;
   observations: ManualObservation[];
   definition: MeasurementDefinition;
   colorDomain?: { min: number; max: number } | null;
@@ -57,6 +65,19 @@ function points(projected: ProjectedPoint3D[]): string {
   return projected.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
 }
 
+function smoothProjectedAirflowPath(projected: ProjectedPoint3D[]): string {
+  if (projected.length < 2) return "";
+  if (projected.length === 2) return `M${projected[0]!.x.toFixed(1)} ${projected[0]!.y.toFixed(1)}L${projected[1]!.x.toFixed(1)} ${projected[1]!.y.toFixed(1)}`;
+  let path = `M${projected[0]!.x.toFixed(1)} ${projected[0]!.y.toFixed(1)}`;
+  for (let index = 1; index < projected.length - 1; index += 1) {
+    const current = projected[index]!;
+    const next = projected[index + 1]!;
+    path += `Q${current.x.toFixed(1)} ${current.y.toFixed(1)} ${((current.x + next.x) / 2).toFixed(1)} ${((current.y + next.y) / 2).toFixed(1)}`;
+  }
+  const last = projected.at(-1)!;
+  return `${path}L${last.x.toFixed(1)} ${last.y.toFixed(1)}`;
+}
+
 function svgToken(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "-");
 }
@@ -90,7 +111,7 @@ function buildingBounds(house: House, sensors: Sensor[]): VolumeBounds {
     minZ: Math.min(minFloor, ...sensors.map((sensor) => sensor.z)),
     maxZ: Math.max(
       minFloor + 1,
-      top ? top.elevation + Math.max(DEFAULT_CEILING_HEIGHT_METRES, topSensorHeight + .7) : 1,
+      top ? top.elevation + Math.max(top.ceilingHeight ?? DEFAULT_CEILING_HEIGHT_METRES, topSensorHeight + .7) : 1,
       ...sensors.map((sensor) => sensor.z + .4),
     ),
   };
@@ -121,7 +142,7 @@ function projectedCloud(
 }
 
 export function BuildingScene({
-  house, sensors, samples, observations, definition, colorDomain, units, activeFloorId, selectedSensorId,
+  house, sensors, samples, climateSamples, observations, definition, colorDomain, units, activeFloorId, selectedSensorId,
   referenceTimeMs, maxSampleAgeMs, outdoor, onFloorSelect, onSensorSelect,
 }: BuildingSceneProps) {
   const { locale, t } = useI18n();
@@ -171,16 +192,43 @@ export function BuildingScene({
   const clouds = useMemo(() => createVolumeClouds(
     volume, definition, 24, { min: heatMin, max: heatMax },
   ), [volume, definition, heatMin, heatMax]);
-  const flows = useMemo(() => estimateVolumeFlows(volume, definition, 11), [volume, definition]);
+  const gradientFlows = useMemo(() => estimateVolumeFlows(volume, definition, 11), [volume, definition]);
   const allValues = volume.anchors.map((anchor) => anchor.value);
   const project = (point: Point3D) => projectPoint3D(point, bounds, camera, {
     width: VIEW_WIDTH, height: VIEW_HEIGHT, padding: 72,
   });
   const outdoorContext = !outdoor?.replayActive ? outdoor?.context ?? null : null;
+  const airflow = useMemo(() => climateSamples ? simulateBuildingAirflow({
+    house,
+    sensors,
+    samples: climateSamples,
+    freshness,
+    outdoor: outdoorContext,
+  }, 14) : null, [climateSamples, house, sensors, freshness, outdoorContext]);
+  const airflowPaths = airflow?.paths ?? [];
+  const activeGradientFlows = airflowPaths.length ? [] : gradientFlows;
+  const airflowSupport = airflow
+    ? t(`twin.airflowSupport.${airflow.evidence.support}` as TranslationKey)
+    : t("twin.airflowSupport.low");
+  const airflowDriver = airflow?.evidence.windDriven
+    ? t("twin.airflowDriverBuoyancyWind")
+    : t("twin.airflowDriverBuoyancy");
+  const airflowDescription = airflow ? t("twin.airflowDescription", {
+    temperature: airflow.evidence.temperatureSensors,
+    humidity: airflow.evidence.humiditySensors,
+    tracer: airflow.evidence.tracerSensors,
+    driver: airflowDriver,
+  }) : "";
+  const airflowAria = airflow ? t("twin.airflowAria", {
+    support: airflowSupport,
+    temperature: airflow.evidence.temperatureSensors,
+    humidity: airflow.evidence.humiditySensors,
+    tracer: airflow.evidence.tracerSensors,
+  }) : "";
   const outdoorWindWorld = outdoorContext?.sourceVector && outdoorContext.windwardEdge
     ? (() => {
-      const path = windPathOnRectangle(outdoorContext.planWindFromDegrees!, bounds.width, bounds.depth, 0.1, 0.14);
-      const z = bounds.minZ + (bounds.maxZ - bounds.minZ) * .46;
+      const path = windPathOnRectangle(outdoorContext.planWindFromDegrees!, bounds.width, bounds.depth, 0.025, 0.14);
+      const z = bounds.minZ + (bounds.maxZ - bounds.minZ) * .72;
       return {
         source: { ...path.sourcePoint, z },
         target: { ...path.inwardTarget, z },
@@ -197,6 +245,72 @@ export function BuildingScene({
       edge: t(`outdoor.edge.${outdoorContext.windwardEdge}` as TranslationKey),
     })
     : null;
+  const outdoorTemperature = outdoorContext
+    ? formatOutdoorTemperature(outdoorContext.conditions.temperatureC, units, locale)
+    : null;
+  const outdoorHumidity = outdoorContext
+    ? formatOutdoorHumidity(outdoorContext.conditions.relativeHumidityPercent, locale)
+    : null;
+  const outdoorTemperatureColor = outdoor?.conditionColors?.temperature;
+  const outdoorHumidityColor = outdoor?.conditionColors?.humidity;
+  const activeOutdoorColor = definition.id === "temperature"
+    ? outdoorTemperatureColor
+    : definition.id === "humidity"
+      ? outdoorHumidityColor
+      : undefined;
+  const activeOutdoorStyle = activeOutdoorColor
+    ? ({ "--outdoor-active-color": activeOutdoorColor } as CSSProperties)
+    : undefined;
+  const outdoorTemperatureStyle = outdoorTemperatureColor
+    ? ({ "--outdoor-condition-color": outdoorTemperatureColor } as CSSProperties)
+    : undefined;
+  const outdoorHumidityStyle = outdoorHumidityColor
+    ? ({ "--outdoor-condition-color": outdoorHumidityColor } as CSSProperties)
+    : undefined;
+  const outdoorWindSpeed = outdoorContext
+    ? formatOutdoorWindSpeed(outdoorContext.conditions.windSpeedMps, units, locale)
+    : null;
+  const outdoorWindDirection = outdoorContext?.windFromCardinal && outdoorContext.windFromDegrees !== null
+    ? `${t(`outdoor.cardinal.${outdoorContext.windFromCardinal}` as TranslationKey)} ${Math.round(outdoorContext.windFromDegrees)}°`
+    : null;
+  const outdoorShellLabel = [
+    t("outdoor.shellLabel"),
+    outdoorTemperature && t("outdoor.temperatureAria", { value: outdoorTemperature }),
+    outdoorHumidity && t("outdoor.humidityAria", { value: outdoorHumidity }),
+    outdoorWindSpeed && t("outdoor.windSpeedAria", { value: outdoorWindSpeed }),
+    outdoorWindDirection && t("outdoor.windFromAria", { value: outdoorWindDirection }),
+  ].filter(Boolean).join(". ");
+  const outdoorShellWorld = outdoorContext ? (() => {
+    const padding = Math.min(bounds.width, bounds.depth) * .14;
+    const bottomZ = bounds.minZ - .12;
+    const topZ = bounds.maxZ + .4;
+    const footprint = [
+      { x: -padding, y: -padding },
+      { x: bounds.width + padding, y: -padding },
+      { x: bounds.width + padding, y: bounds.depth + padding },
+      { x: -padding, y: bounds.depth + padding },
+    ];
+    return {
+      bottom: footprint.map((point) => ({ ...point, z: bottomZ })),
+      top: footprint.map((point) => ({ ...point, z: topZ })),
+    };
+  })() : null;
+  const outdoorShellProjected = outdoorShellWorld ? {
+    bottom: outdoorShellWorld.bottom.map(project),
+    top: outdoorShellWorld.top.map(project),
+  } : null;
+  const outdoorShellRail = outdoorShellProjected ? (() => {
+    const anchor = outdoorShellProjected.top.reduce((highest, point) => point.y < highest.y ? point : highest);
+    return {
+      anchor,
+      x: Math.max(330, Math.min(VIEW_WIDTH - 430, anchor.x - 209)),
+      y: Math.max(28, Math.min(VIEW_HEIGHT - 66, anchor.y - 72)),
+    };
+  })() : null;
+  const outdoorWindLabelPosition = outdoorWindProjected ? {
+    x: Math.max(165, Math.min(VIEW_WIDTH - 165, outdoorWindProjected.source.x)),
+    y: Math.max(28, Math.min(VIEW_HEIGHT - 24, outdoorWindProjected.source.y - 20)),
+  } : null;
 
   const projectedClouds = clouds.map((cloud) => projectedCloud(cloud, project))
     .sort((a, b) => a.center.depth - b.center.depth);
@@ -282,7 +396,7 @@ export function BuildingScene({
           <button type="button" className="secondary-button" aria-label={t("building.tiltDown")} onClick={() => rotateCamera(0, -.13)}>↓</button>
           <label className="building-zoom"><span>{t("building.zoom")}</span><input aria-label={t("building.zoom")} type="range" min="0.55" max="1.75" step="0.05" value={camera.zoom} onChange={(event) => changeCamera({ zoom: Number(event.target.value) })} /></label>
           <button type="button" className="secondary-button building-reset" onClick={() => setCamera(DEFAULT_CAMERA)}>{t("building.resetView")}</button>
-          <output className="sr-only building-camera-state" aria-live="polite">{t("building.cameraState", {
+          <output className="sr-only building-camera-state">{t("building.cameraState", {
             yaw: Math.round(camera.yaw * 180 / Math.PI), pitch: Math.round(camera.pitch * 180 / Math.PI), zoom: camera.zoom.toFixed(2),
           })}</output>
         </div>
@@ -294,14 +408,18 @@ export function BuildingScene({
           data-camera-yaw={camera.yaw.toFixed(3)} data-camera-pitch={camera.pitch.toFixed(3)} data-camera-zoom={camera.zoom.toFixed(2)}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPointer} onPointerCancel={endPointer} onWheel={onWheel}
         >
-          <desc>{allValues.length
-            ? t("building.volumeDescription", { metric: metricLabel })
+          <desc>{airflowPaths.length
+            ? t("building.airflowVolumeDescription", { metric: metricLabel })
+            : allValues.length
+              ? t("building.volumeDescription", { metric: metricLabel })
             : definition.spatialInterpolation
               ? t("twin.estimateUnavailable", { metric: metricLabel })
               : t("building.noSpatial", { metric: metricLabel })}</desc>
           <defs>
             <marker id={markerId} markerWidth="9" markerHeight="9" refX="8" refY="4.5" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0L9 4.5L0 9Z" className="building-arrow-head" /></marker>
             <marker id={`${markerId}-vertical`} markerWidth="9" markerHeight="9" refX="8" refY="4.5" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0L9 4.5L0 9Z" className="vertical-arrow-head" /></marker>
+            <marker id={`${markerId}-airflow`} markerWidth="9" markerHeight="9" refX="8" refY="4.5" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0L9 4.5L0 9Z" className="simulated-flow-arrow-head" /></marker>
+            <marker id={`${markerId}-airflow-vertical`} markerWidth="9" markerHeight="9" refX="8" refY="4.5" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0L9 4.5L0 9Z" className="simulated-flow-arrow-head" /></marker>
             <marker id={`${markerId}-outdoor`} markerWidth="12" markerHeight="12" refX="10" refY="6" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0L12 6L0 12Z" className="outdoor-wind-arrow-head" /></marker>
             <filter id={`${markerId}-shadow`} x="-80%" y="-80%" width="260%" height="260%"><feDropShadow dx="0" dy="4" stdDeviation="5" floodOpacity=".24" /></filter>
             <filter id={`${markerId}-cloud-soften`} x="-35%" y="-35%" width="170%" height="170%"><feGaussianBlur stdDeviation="7" /></filter>
@@ -313,6 +431,47 @@ export function BuildingScene({
               </radialGradient>
             ))}
           </defs>
+
+          {outdoorShellProjected && outdoorShellRail && (
+            <g className={`building-outdoor-shell ${activeOutdoorColor ? "compared" : ""} ${outdoorContext?.stale ? "stale" : ""}`} style={activeOutdoorStyle} role="img" aria-label={outdoorShellLabel}>
+              <polygon points={points(outdoorShellProjected.top)} className="building-outdoor-shell-face" />
+              <polygon points={points(outdoorShellProjected.bottom)} className="building-outdoor-shell-outline building-outdoor-shell-bottom" />
+              <polygon points={points(outdoorShellProjected.top)} className="building-outdoor-shell-outline building-outdoor-shell-top" />
+              {outdoorShellProjected.top.map((point, index) => (
+                <line
+                  key={index}
+                  x1={point.x}
+                  y1={point.y}
+                  x2={outdoorShellProjected.bottom[index]!.x}
+                  y2={outdoorShellProjected.bottom[index]!.y}
+                  className="building-outdoor-shell-edge"
+                />
+              ))}
+              <line
+                x1={outdoorShellRail.anchor.x}
+                y1={outdoorShellRail.anchor.y}
+                x2={outdoorShellRail.x + 209}
+                y2={outdoorShellRail.y + 53}
+                className="building-outdoor-shell-connector"
+              />
+              <g transform={`translate(${outdoorShellRail.x} ${outdoorShellRail.y})`} className="building-outdoor-shell-rail">
+                <g className="outdoor-shell-chip building-shell-title">
+                  <rect width="132" height="52" rx="26" />
+                  <text x="66" y="31" textAnchor="middle"><tspan className="outdoor-shell-chip-label">{t("outdoor.shellLabel")}</tspan></text>
+                </g>
+                <g transform="translate(140 0)" className={`outdoor-shell-chip building-temperature-chip ${outdoorTemperatureColor ? "condition-color" : ""}`} style={outdoorTemperatureStyle}>
+                  <rect width="136" height="52" rx="26" />
+                  <text x="68" y="18" textAnchor="middle"><tspan className="outdoor-shell-chip-label">{t("outdoor.shellTemperature")}</tspan></text>
+                  <text x="68" y="38" textAnchor="middle"><tspan className="outdoor-shell-chip-value">{outdoorTemperature ?? t("common.noData")}</tspan></text>
+                </g>
+                <g transform="translate(284 0)" className={`outdoor-shell-chip building-humidity-chip ${outdoorHumidityColor ? "condition-color" : ""}`} style={outdoorHumidityStyle}>
+                  <rect width="136" height="52" rx="26" />
+                  <text x="68" y="18" textAnchor="middle"><tspan className="outdoor-shell-chip-label">{t("outdoor.shellHumidity")}</tspan></text>
+                  <text x="68" y="38" textAnchor="middle"><tspan className="outdoor-shell-chip-value">{outdoorHumidity ?? t("common.noData")}</tspan></text>
+                </g>
+              </g>
+            </g>
+          )}
 
           <g className="building-floors">
             {orderedFloors.map(({ floor, floorSensors, average }) => {
@@ -358,12 +517,19 @@ export function BuildingScene({
               data-target-y={outdoorWindWorld.target.y.toFixed(2)}
             >
               <title>{outdoorArrowLabel}</title>
+              <circle cx={outdoorWindProjected.source.x} cy={outdoorWindProjected.source.y} r="14" className="outdoor-wind-source-halo" />
               <circle cx={outdoorWindProjected.source.x} cy={outdoorWindProjected.source.y} r="7" className="outdoor-wind-source" />
               <path
                 d={`M${outdoorWindProjected.source.x.toFixed(1)} ${outdoorWindProjected.source.y.toFixed(1)}L${outdoorWindProjected.target.x.toFixed(1)} ${outdoorWindProjected.target.y.toFixed(1)}`}
                 className="outdoor-wind-path"
                 markerEnd={`url(#${markerId}-outdoor)`}
               />
+              {outdoorWindLabelPosition && (
+                <text x={outdoorWindLabelPosition.x} y={outdoorWindLabelPosition.y} textAnchor="middle" className="outdoor-wind-label building-outdoor-wind-label">
+                  <tspan className="outdoor-wind-label-source">{t("outdoor.shellWind")}</tspan>
+                  <tspan>{` · ${outdoorWindSpeed ?? t("common.noData")}${outdoorWindDirection ? ` · ${outdoorWindDirection}` : ""}`}</tspan>
+                </text>
+              )}
             </g>
           )}
 
@@ -379,8 +545,33 @@ export function BuildingScene({
             ))}
           </g>
 
-          <g className="building-volume-flows" aria-label={t("twin.flow")}>
-            {flows.map((flow, index) => {
+          {airflowPaths.length > 0 && <g className="building-volume-flows building-simulated-airflow" role="img" aria-label={airflowAria}>
+            <title>{airflowAria}</title>
+            {airflowPaths.map((flow) => {
+              const projected = flow.points.map((point) => project(point));
+              const path = smoothProjectedAirflowPath(projected);
+              const fromPoint = flow.points[0]!;
+              const toPoint = flow.points.at(-1)!;
+              return (
+                <g
+                  key={flow.id}
+                  className={`building-volume-vector volume-flow-vector simulated-volume-flow ${flow.hasVerticalComponent ? "has-z" : "planar"}`}
+                  aria-hidden="true"
+                  data-floor-id={flow.floorId}
+                  data-from-z={fromPoint.z.toFixed(3)} data-to-z={toPoint.z.toFixed(3)}
+                  data-from-x={fromPoint.x.toFixed(2)} data-to-x={toPoint.x.toFixed(2)} data-from-y={fromPoint.y.toFixed(2)} data-to-y={toPoint.y.toFixed(2)}
+                  data-dx={(toPoint.x - fromPoint.x).toFixed(3)} data-dy={(toPoint.y - fromPoint.y).toFixed(3)} data-dz={(toPoint.z - fromPoint.z).toFixed(3)}
+                  data-relative-speed={flow.relativeSpeed.toFixed(3)} data-support={flow.support.toFixed(3)}
+                >
+                  <path d={path} className="building-flow-path simulated-building-flow-path" markerEnd={`url(#${markerId}-airflow${flow.hasVerticalComponent ? "-vertical" : ""})`} />
+                  {!reducedMotion && <circle r="4.5" className="building-flow-particle simulated-flow-particle"><animateMotion dur="3.4s" repeatCount="indefinite" path={path} /></circle>}
+                </g>
+              );
+            })}
+          </g>}
+
+          {activeGradientFlows.length > 0 && <g className="building-volume-flows building-gradient-flows" aria-label={t("twin.flow")}>
+            {activeGradientFlows.map((flow, index) => {
               const from = project(flow.from);
               const to = project(flow.to);
               const path = `M${from.x.toFixed(1)} ${from.y.toFixed(1)}L${to.x.toFixed(1)} ${to.y.toFixed(1)}`;
@@ -405,7 +596,7 @@ export function BuildingScene({
                 </g>
               );
             })}
-          </g>
+          </g>}
 
           <g className="building-observations">
             {observations.filter((observation) => observation.x != null && observation.y != null).map((observation) => {
@@ -458,15 +649,16 @@ export function BuildingScene({
         </svg>
         {outdoor && <OutdoorConditionsBadge outdoor={outdoor} units={units} />}
       </div>
-      <div className="building-legend" aria-live="polite">
+      <div className="building-legend">
         <span>{!definition.spatialInterpolation
           ? t("building.noSpatial", { metric: metricLabel })
           : allValues.length > 0
             ? <><i className="heat-gradient" style={{ background: measurementGradient(definition) }} aria-hidden="true" />{t("twin.estimatedField", { metric: metricLabel })}: {formatMeasurement(heatMin, definition, units)} – {formatMeasurement(heatMax, definition, units)}</>
             : t("common.noData")}</span>
-        {definition.spatialInterpolation && flows.length > 0 && <span><i className="volume-vector-key" aria-hidden="true">↗</i>{t("building.xyzGradient")}</span>}
+        {airflowPaths.length > 0 && <span className="building-airflow-key"><i className="volume-vector-key simulated" aria-hidden="true">↝</i><span><strong>{t("twin.airflow")}</strong><small>{airflowDescription}</small></span></span>}
+        {airflowPaths.length === 0 && definition.spatialInterpolation && activeGradientFlows.length > 0 && <span><i className="volume-vector-key" aria-hidden="true">↗</i>{t("building.xyzGradient")}</span>}
       </div>
-      <p className="building-help">{t("building.help")}</p>
+      <p className="building-help">{airflowPaths.length ? t("building.airflowHelp") : t("building.help")}</p>
     </div>
   );
 }

@@ -1,6 +1,6 @@
-# Climate Twin architecture
+# Stuga architecture
 
-Climate Twin is a local-first digital twin for observing environmental
+Stuga is a local-first digital twin for observing environmental
 measurements across one or more homes. Temperature and relative humidity are the
 initial use case, not the storage model: a registry describes CO2 and other
 finite numeric scalar measurements. TP-Link/Tapo equipment and Home Assistant
@@ -25,46 +25,66 @@ integrations do not depend on a particular sensor vendor or a fixed metric list.
 ```mermaid
 flowchart LR
     subgraph Home[Home network]
-        S[Tapo T310 / T315 sensors] -->|Sub-GHz| H[Tapo H200 hub]
+        S[Tapo T310 / T315 sensors] -->|Sub-GHz| H[Tapo H100 / H200 hub]
         H -->|local LAN polling| HA[Home Assistant\nTP-Link Smart Home integration]
     end
 
-    subgraph Twin[Climate Twin]
+    subgraph Twin[Stuga]
         HAB[Home Assistant adapter] --> N[Normalizer and validation]
+        TPL[Direct TP-Link adapter\npython-kasa helper] --> N
         M[Mock / replay adapter] --> N
         I[Versioned ingest API] --> N
         N --> DB[(SQLite history)]
         N --> A[Alert evaluator]
         DB --> P[Forecast service]
         DB --> Q[Query service]
-        DB --> WX[House weather service\n10 min memory cache]
+        DB --> WM[Bounded multi-home\nweather monitor]
+        WM --> WX[House weather service\n10 min response cache]
+        WX --> ODB[(Outdoor boundary history)]
+        DB --> PHY[Effective thermal model]
+        ODB --> PHY
         N --> E[Live event stream]
         A --> E
         A --> W[Outbound webhook adapter]
         Q --> API[REST APIs /api/v1 + /api/v2]
         P --> API
         WX --> API
+        API --> LD[Location discovery]
         API --> UI[2D digital-twin web app]
         E --> UI
         MCP[MCP stdio server] --> Q
     end
 
     HA -->|WebSocket state changes| HAB
+    H -->|local LAN polling| TPL
     W --> HA2[Home Assistant automation webhook]
     W --> EXT[DayOps / OpenWearable adapter]
     WX -->|HTTPS WFS + CAP| FMI[Finnish Meteorological Institute]
+    WX -->|HTTPS forecast API| OM[Open-Meteo]
+    LD -->|HTTPS geocoding + timezone| OM
     UI -->|attributed HTTPS tiles| OSM[OpenStreetMap tile service]
     CLIENT[Other clients] --> API
 ```
 
-The browser does not talk to Home Assistant, TP-Link, or FMI directly. The API
-owns credentials, normalisation, retention, alert evaluation, FMI retrieval,
-weather caching, and reconnect logic. The location picker's attributed map
-tiles are the one direct third-party browser flow; browser geolocation remains
-disabled. See [FMI weather and house location](weather.md) for that privacy
-boundary.
+The browser does not talk to Home Assistant, TP-Link, FMI, or Open-Meteo
+directly. The API owns credentials, normalisation, retention, alert evaluation,
+provider selection, weather/location-service retrieval, caching, and reconnect
+logic. The location picker's attributed OpenStreetMap tiles are the one direct
+third-party browser flow and are loaded only after an explicit action. Browser
+geolocation is requested only after **Use this device's location**; the selected
+coordinates then flow through the API. See
+[Outdoor weather and home location](weather.md) for those privacy boundaries.
 In the default Docker deployment an Nginx web service serves the static app and
 reverse-proxies `/api/*` to the API, including the server-sent event stream.
+
+The web information architecture separates configuration from monitoring.
+**Overview** is the multi-home entry point; Twin, Outdoor, Sensors, and Alerts
+are operational views scoped to the selected home. **Set up** has four
+deep-linkable, keyboard-operable sections: **Overview** for readiness,
+**Homes** for placement/orientation, **Connections** for the shared TP-Link and
+Home Assistant adapters, and **Weather** for each home's location/timezone and
+automatic-provider summary. Current conditions, warnings, and the 48-hour
+forecast belong on Outdoor rather than crowding Setup.
 
 ## Data flow
 
@@ -72,39 +92,48 @@ reverse-proxies `/api/*` to the API, including the server-sent event stream.
 sequenceDiagram
     participant T as T310/T315
     participant H as H200
+    participant D as Stuga direct adapter
     participant HA as Home Assistant
-    participant B as Climate Twin HA adapter
+    participant B as Stuga HA adapter
     participant DB as SQLite
     participant SSE as /api/v2/measurements/events
     participant UI as Web app
 
     T->>H: device measurement
-    HA->>H: local poll (currently every 5 s)
-    H-->>HA: hub and child sensor states
-    HA-->>B: state_changed over WebSocket
-    B->>B: entity-map lookup, unit normalization, validation
-    B->>DB: append sparse metric sample
+    par Direct path
+        D->>H: local poll (configurable, 10 s default)
+        H-->>D: hub and child sensor states
+        D->>D: child-device map, unit normalization, validation
+        D->>DB: append temperature/humidity samples
+    and Home Assistant path
+        HA->>H: local poll (currently every 5 s)
+        H-->>HA: hub and child sensor states
+        HA-->>B: state_changed over WebSocket
+        B->>B: entity-map lookup, unit normalization, validation
+        B->>DB: append sparse metric sample
+    end
     B-->>SSE: measurement event
     SSE-->>UI: update current values and map
     UI->>DB: metric history request through /api/v2
     DB-->>UI: samples + supported forecast through /api/v2
 ```
 
-"Near real-time" is deliberately not called "instantaneous." Home Assistant's
-official TP-Link integration is a **local polling** integration and currently
-polls devices every five seconds. End-to-end freshness is therefore the device
-sampling delay plus that polling interval, network/processing time, and browser
-delivery. Climate Twin can stream a Home Assistant state change immediately
-after receiving it, but cannot make the upstream sensor or integration update
-more frequently. The UI must display timestamps and stale state rather than
-implying otherwise.
+"Near real-time" is deliberately not called "instantaneous." Both TP-Link
+paths poll locally: Stuga's direct interval defaults to ten seconds and
+Home Assistant's official integration currently polls every five seconds.
+End-to-end freshness is the device sampling delay plus the chosen polling path,
+network/processing time, and browser delivery. Stuga cannot make the
+upstream sensor update more frequently. The UI must display timestamps and
+stale state rather than implying otherwise.
 
 ## Domain and storage model
 
 The shared TypeScript contracts define the stable domain vocabulary:
 
-- `House` contains floors and may contain a WGS84 `location` used only for
-  house-scoped outdoor context. Its optional `orientationDegrees` is the
+- `House` contains floors, an IANA timezone, and may contain a WGS84 `location`
+  used only for house-scoped outdoor context. Location metadata can retain its
+  country code, discovery source/confidence/time, and whether a user overrode
+  the suggestion. Its optional `orientationDegrees` is the
   clockwise true-north bearing of the floor plan's top edge; absence means
   unknown. A `Floor` contains dimensions, walls, rooms, and an optional
   background drawing.
@@ -131,12 +160,20 @@ The shared TypeScript contracts define the stable domain vocabulary:
 - `MeasurementForecastPoint` includes one registered metric's point estimate
   and low/high bounds so uncertainty can be rendered instead of hidden. A
   definition may explicitly opt out of forecasting.
-- `HouseWeather` is a non-persisted FMI context view with the request location,
-  provider/attribution, fetch and forecast issue times, selected observation
-  station, current values, hourly forecast, CAP warnings, stale state, and a
-  list of independently unavailable upstream parts.
-- `OutdoorBoundaryContext` is a web-side derived view. It normalizes FMI's
-  wind-from bearing against `House.orientationDegrees`, exposes a windward plan
+- `HouseWeather` is a provider-neutral response view with the request location,
+  provider/attribution, fetch and forecast issue times, optional observation
+  station, current values, hourly forecast, warnings, stale state, and a list of
+  independently unavailable upstream parts. Per-component status distinguishes
+  availability, coverage, and whether an empty result is authoritative.
+- `OutdoorTemperatureSample` stores only fresh observed outdoor temperature in
+  a separate boundary table keyed by house and an opaque location digest.
+  Location changes erase old boundary rows. Forecasts and stale fallbacks are
+  not observations and are not inserted.
+- `ThermalModelV1`, `ThermalCalibrationResult`, and `ThermalSimulationPoint`
+  keep fitted parameters, quality gates, observations, simulation, and signed
+  residuals explicit. Simulated values never become measurement samples.
+- `OutdoorBoundaryContext` is a web-side derived view. It normalizes the
+  provider's wind-from bearing against `House.orientationDegrees`, exposes a windward plan
   edge and inward vector, and preserves the weather timestamp/stale state. It
   never creates indoor measurements.
 
@@ -148,8 +185,11 @@ temperature/humidity samples during migration, so reopening the database does
 not duplicate them. A single writer with
 WAL mode is a good fit for a home deployment and makes backup a file-level
 operation after a checkpoint or a SQLite online backup. House location metadata
-is stored with the house; fetched weather values remain in process memory and
-are not added to measurement history. All stored timestamps are UTC ISO-8601;
+is stored with the house. Fresh provider current-temperature values are retained in a
+location-isolated outdoor-boundary table for physics calibration, while the
+full weather response cache remains in process memory. Outdoor boundaries are
+not added to indoor measurement history and follow the same configured
+retention horizon. All stored timestamps are UTC ISO-8601;
 a house timezone controls display and calendar grouping.
 
 Retention is configured with `RETENTION_DAYS`. Sample count grows per metric:
@@ -178,14 +218,20 @@ for retention and backup guidance.
 - **Spatial view:** only definitions with `spatialInterpolation` enabled produce
   an estimated field. The 2D plan renders a floor field as soft hotspot clouds;
   the orbitable 3D view interpolates a bounded XYZ volume across fresh positioned
-  samples and depth-sorts its translucent blobs. Dashed vectors follow the
-  strongest supported high-to-low scalar gradients, including vertical and
-  diagonal components only when sensor-height coverage supports them. Regions
-  far from a reporting sensor are masked rather than confidently extrapolated.
-  Other metrics remain available as positioned markers and history. These cues
-  are sparse-sample estimates, never measured airflow or a building-physics
-  simulation.
-- **Outdoor boundary:** the live 2D/3D views can render current FMI temperature,
+  samples and depth-sorts its translucent blobs. When a floor has at least two
+  fresh temperature anchors, both views share a separate coarse normalized
+  velocity estimate from `airflowSimulation.ts`: paired temperature/RH becomes
+  virtual-temperature buoyancy, walls block faces, modeled doors permit
+  crossing, supported windward windows can receive weak fresh-wind leakage
+  forcing, and pressure projection reduces divergence. CO2 affects passive
+  tracer seed placement but never forces the air. Without enough driver data,
+  dashed vectors retain the prior high-to-low scalar-gradient fallback and are
+  labelled accordingly. Regions far from a reporting sensor are masked rather
+  than confidently extrapolated. Plan dimensions are not guaranteed metres, so
+  flow direction is relative and animation speed is fixed. See
+  [Sensor-constrained indoor flow](airflow-simulation.md); neither layer is
+  measured airflow or calibrated CFD.
+- **Outdoor boundary:** the live 2D/3D views can render current provider temperature,
   humidity, and wind around the oriented plan. Directional geometry is omitted
   when orientation or wind direction is unknown. It is kept outside the indoor
   interpolation pipeline and hidden during historical replay so current
@@ -195,13 +241,13 @@ for retention and backup guidance.
 
 | Module | Owns | Must not own |
 | --- | --- | --- |
-| Source adapters | Home Assistant, mock, replay, API ingestion | UI layout or database-specific queries |
+| Source adapters | Direct TP-Link, Home Assistant, mock, replay, API ingestion | UI layout or database-specific queries |
 | Measurement registry | stable IDs, labels, units, ranges, display and capability metadata | sensor samples or site-specific thresholds |
 | Normalizer | entity mapping, canonical units, validation, quality | vendor credentials or forecast policy |
 | Repository | schema, transactions, retention queries | HTTP or visualisation |
 | Alert engine | rule evaluation and event lifecycle | delivery-specific secrets |
 | Forecast service | features, forecast output, uncertainty | presenting forecasts as facts |
-| Weather adapter | FMI WFS/CAP retrieval, source mapping, station/warning provenance, bounded cache | browser map tiles or indoor measurement history |
+| Weather adapters and monitor | automatic FMI/Open-Meteo routing, source mapping, warning authority, bounded cache/concurrency, jitter, per-home backoff, stale-write fencing | browser map tiles or indoor measurement history |
 | REST/SSE transport | versioning, validation, errors, live fan-out | Home Assistant device protocol |
 | MCP server | tool schemas and domain-service calls | direct database access |
 | Web app | accessible interaction and rendering | secrets or authoritative storage |
@@ -219,7 +265,8 @@ The compatibility health endpoint is `GET /api/v1/health`; integration status is
 exposed by the versioned API. Operationally important signals are connection state, last
 Home Assistant event time, mapped entity count, ingest/validation errors,
 database errors, SSE clients, alert delivery attempts, forecast age, configured
-weather locations, last successful FMI fetch, and FMI error state.
+weather locations, selected provider, last successful weather fetch, component
+coverage/availability, and weather error state.
 
 Recommended failure behaviour:
 
@@ -233,6 +280,13 @@ Recommended failure behaviour:
    with a stable event ID.
 5. Mark each metric sample and its UI representation stale independently after
    a configured freshness threshold.
+
+The production weather monitor runs only with background services enabled. It
+refreshes located homes in non-overlapping cycles with concurrency two, startup
+and interval jitter, and independent exponential backoff per home. It rechecks
+the home revision and location key before persistence so an in-flight response
+cannot write after that home is moved. Manual Outdoor requests share the same
+provider service and bounded cache.
 
 The Home Assistant adapter fetches initial mapped states and resumes the event
 stream with capped reconnect backoff. Generic measurement mappings ingest each
@@ -266,10 +320,16 @@ locale/configuration data rather than source-code strings.
   documents the WFS download interface and stored queries.
 - [FMI CAP warning guide](https://www.ilmatieteenlaitos.fi/varoitusten-latauspalvelun-pikaohje)
   documents the current-warning Atom feeds and CAP 1.2 profile.
+- [Open-Meteo weather API](https://open-meteo.com/en/docs) documents the
+  worldwide modelled current and hourly fields and best-match model selection.
+- [Open-Meteo geocoding API](https://open-meteo.com/en/docs/geocoding-api)
+  documents the place search used for suggested home defaults.
+- [Open-Meteo licence](https://open-meteo.com/en/license) documents attribution
+  and licensing for Open-Meteo output.
 - [OpenStreetMap tile policy](https://operations.osmfoundation.org/policies/tiles/)
   documents attribution, identification, caching, and privacy obligations for
   the standard map tiles.
 
 Product and integration behaviour was checked on 2026-07-14; verify upstream
-documentation again when upgrading Home Assistant, sensor firmware, FMI
-products, or the map layer.
+documentation again when upgrading Home Assistant, sensor firmware, FMI or
+Open-Meteo products, or the map layer.

@@ -8,11 +8,14 @@
 **/node_modules
 **/dist
 **/coverage
+**/__pycache__
+*.py[cod]
 .tmp-runtime
 data
 *.sqlite
 *.sqlite-*
 config/home-assistant.entities.json
+config/tp-link.devices.json
 *.pem
 *.key
 *.p12

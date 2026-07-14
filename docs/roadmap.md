@@ -45,8 +45,10 @@ disconnect scenarios have automated integration tests and operational runbooks.
 
 ## Stage 2 — author the digital twin
 
-- Multi-house CRUD and an accessible floor/room/wall editor with snapping,
-  scale, coordinate system, undo/redo, validation, and draft/publish lifecycle.
+- Multi-house CRUD and typed floor management (basement, ground, upper, attic,
+  mezzanine, and outdoor) are available in the layout editor. Continue the
+  accessible room/wall editor with snapping, scale, coordinate system,
+  undo/redo, validation, and draft/publish lifecycle.
 - Safe raster/SVG floor-plan import with calibration and image sanitization.
 - Sensor placement history, labels/QR workflow, snapping, undo/redo, and a bulk
   entity-map assistant (basic pointer and keyboard placement are in the MVP).
@@ -122,6 +124,10 @@ thresholds, forbid coverage regressions in critical validation/alert code, and
 pair coverage with mutation/property tests for risky logic.
 
 ## Versioning principles
+
+Product releases follow the dedicated [pre-1.0 versioning policy](versioning.md).
+Every feature pull request carries a release bump and changelog entry; CI checks
+that runtime, workspace, and lockfile versions agree.
 
 - `/api/v1` remains the flat temperature/humidity compatibility contract;
   changes are additive unless correcting a security flaw. `/api/v2` owns sparse

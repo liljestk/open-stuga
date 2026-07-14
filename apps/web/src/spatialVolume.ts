@@ -72,6 +72,17 @@ export interface ProjectedPoint3D {
   depth: number;
 }
 
+function anchorLevel(value: number, minimum: number, maximum: number): VolumeCloudBlob["level"] {
+  if (maximum === minimum) return "level";
+  return value === maximum ? "high" : "low";
+}
+
+function normalizedLevel(value: number): VolumeCloudBlob["level"] {
+  if (value > .58) return "high";
+  if (value < .42) return "low";
+  return "level";
+}
+
 function safeBounds(bounds: VolumeBounds): VolumeBounds {
   return {
     width: Math.max(1, bounds.width),
@@ -212,7 +223,7 @@ export function createVolumeClouds(
       value: anchor.value,
       color: measurementColor(anchor.value, colorDomain.min, colorDomain.max, definition),
       opacity: .38,
-      level: anchorMax === anchorMin ? "level" : anchor.value === anchorMax ? "high" : "low",
+      level: anchorLevel(anchor.value, anchorMin, anchorMax),
     }));
   }
 
@@ -256,7 +267,7 @@ export function createVolumeClouds(
       value: cell.value,
       color: measurementColor(cell.value, colorDomain.min, colorDomain.max, definition),
       opacity: (.19 + prominence * .13) * (.62 + cell.confidence * .38),
-      level: normalized > .58 ? "high" : normalized < .42 ? "low" : "level",
+      level: normalizedLevel(normalized),
     };
   });
 }
@@ -287,6 +298,48 @@ function sampleVolume(volume: SpatialVolume, x: number, y: number, z: number): n
   return plane(z0) * (1 - tz) + plane(z1) * tz;
 }
 
+function estimateVolumeFlowAt(
+  volume: SpatialVolume,
+  column: number,
+  row: number,
+  layer: number,
+  pathLength: number,
+  minimumDifference: number,
+): VolumeFlowEstimate | null {
+  const current = cellAt(volume, column, row, layer);
+  const gradientX = (cellAt(volume, column + 1, row, layer).value
+    - cellAt(volume, column - 1, row, layer).value) * volume.columns / 2;
+  const gradientY = (cellAt(volume, column, row + 1, layer).value
+    - cellAt(volume, column, row - 1, layer).value) * volume.rows / 2;
+  const gradientZ = volume.verticalSupport
+    ? (cellAt(volume, column, row, layer + 1).value
+      - cellAt(volume, column, row, layer - 1).value) * volume.layers / 2
+    : 0;
+  const strength = Math.hypot(gradientX, gradientY, gradientZ);
+  if (strength <= Number.EPSILON || current.confidence < .3) return null;
+
+  const height = volume.maxZ - volume.minZ;
+  const directionX = -gradientX / strength;
+  const directionY = -gradientY / strength;
+  const directionZ = -gradientZ / strength;
+  const toX = Math.max(0, Math.min(volume.width, current.x + directionX * pathLength * volume.width));
+  const toY = Math.max(0, Math.min(volume.depth, current.y + directionY * pathLength * volume.depth));
+  const toZ = Math.max(volume.minZ, Math.min(volume.maxZ, current.z + directionZ * pathLength * height));
+  if (pointConfidence({ x: toX, y: toY, z: toZ }, volume.anchors, volume) < .22) return null;
+  const toValue = sampleVolume(volume, toX, toY, toZ);
+  const difference = current.value - toValue;
+  if (difference < minimumDifference) return null;
+
+  return {
+    id: `${column}-${row}-${layer}`,
+    from: { x: current.x, y: current.y, z: current.z, value: current.value },
+    to: { x: toX, y: toY, z: toZ, value: toValue },
+    difference,
+    strength,
+    hasVerticalComponent: Math.abs(toZ - current.z) > height * .025,
+  };
+}
+
 export function estimateVolumeFlows(
   volume: SpatialVolume,
   definition: MeasurementDefinition,
@@ -294,7 +347,6 @@ export function estimateVolumeFlows(
 ): VolumeFlowEstimate[] {
   if (!definition.spatialInterpolation || volume.sampleCount < 3 || !volume.cells.length
     || volume.columns < 3 || volume.rows < 3 || volume.layers < 3 || maximumVectors < 1) return [];
-  const height = volume.maxZ - volume.minZ;
   const pathLength = .24;
   const minimumDifference = Math.max(10 ** -definition.precision * .2, definition.interpolationDelta * .16);
   const candidates: VolumeFlowEstimate[] = [];
@@ -302,32 +354,15 @@ export function estimateVolumeFlows(
   for (let layer = 1; layer < volume.layers - 1; layer += 1) {
     for (let row = 1; row < volume.rows - 1; row += 1) {
       for (let column = 1; column < volume.columns - 1; column += 1) {
-        const current = cellAt(volume, column, row, layer);
-        const gradientX = (cellAt(volume, column + 1, row, layer).value - cellAt(volume, column - 1, row, layer).value) * volume.columns / 2;
-        const gradientY = (cellAt(volume, column, row + 1, layer).value - cellAt(volume, column, row - 1, layer).value) * volume.rows / 2;
-        const gradientZ = volume.verticalSupport
-          ? (cellAt(volume, column, row, layer + 1).value - cellAt(volume, column, row, layer - 1).value) * volume.layers / 2
-          : 0;
-        const strength = Math.hypot(gradientX, gradientY, gradientZ);
-        if (strength <= Number.EPSILON || current.confidence < .3) continue;
-        const directionX = -gradientX / strength;
-        const directionY = -gradientY / strength;
-        const directionZ = -gradientZ / strength;
-        const toX = Math.max(0, Math.min(volume.width, current.x + directionX * pathLength * volume.width));
-        const toY = Math.max(0, Math.min(volume.depth, current.y + directionY * pathLength * volume.depth));
-        const toZ = Math.max(volume.minZ, Math.min(volume.maxZ, current.z + directionZ * pathLength * height));
-        if (pointConfidence({ x: toX, y: toY, z: toZ }, volume.anchors, volume) < .22) continue;
-        const toValue = sampleVolume(volume, toX, toY, toZ);
-        const difference = current.value - toValue;
-        if (difference < minimumDifference) continue;
-        candidates.push({
-          id: `${column}-${row}-${layer}`,
-          from: { x: current.x, y: current.y, z: current.z, value: current.value },
-          to: { x: toX, y: toY, z: toZ, value: toValue },
-          difference,
-          strength,
-          hasVerticalComponent: Math.abs(toZ - current.z) > height * .025,
-        });
+        const candidate = estimateVolumeFlowAt(
+          volume,
+          column,
+          row,
+          layer,
+          pathLength,
+          minimumDifference,
+        );
+        if (candidate) candidates.push(candidate);
       }
     }
   }
@@ -375,7 +410,10 @@ export function projectPoint3D(
 export function clampCameraOrbit(camera: CameraOrbit): CameraOrbit {
   return {
     yaw: Math.atan2(Math.sin(camera.yaw), Math.cos(camera.yaw)),
-    pitch: Math.max(.12, Math.min(1.38, camera.pitch)),
+    // A complete orbit needs both hemispheres: +PI/2 is directly above the
+    // building and -PI/2 is directly below it. This projection does not use a
+    // look-at up vector, so the poles are stable and do not need an epsilon.
+    pitch: Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.pitch)),
     zoom: Math.max(.55, Math.min(1.75, camera.zoom)),
   };
 }

@@ -36,13 +36,23 @@ ENV NODE_ENV=production \
     PORT=8787 \
     API_HOST=0.0.0.0 \
     DATABASE_PATH=/app/data/climate-twin.sqlite \
-    HA_ENTITY_MAP_FILE=/app/config/home-assistant.entities.json
+    INTEGRATION_SECRETS_FILE=/app/data/integration-secrets.json \
+    HA_ENTITY_MAP_FILE=/app/config/home-assistant.entities.json \
+    TP_LINK_DEVICE_MAP_FILE=/app/config/tp-link.devices.json \
+    TP_LINK_PYTHON=/opt/tp-link-python/bin/python
 
 WORKDIR /app
 
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/apps/api/package.json ./apps/api/package.json
 COPY --from=build --chown=node:node /app/apps/api/dist ./apps/api/dist
+COPY --from=build --chown=node:node /app/apps/api/python ./apps/api/python
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 python3-venv \
+  && python3 -m venv /opt/tp-link-python \
+  && /opt/tp-link-python/bin/pip install --no-cache-dir -r /app/apps/api/python/requirements.txt \
+  && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /app/data /app/config && chown -R node:node /app/data /app/config
 

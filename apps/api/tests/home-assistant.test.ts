@@ -92,9 +92,11 @@ describe("Home Assistant normalization and state cache", () => {
     });
 
     const config: AppConfig = {
-      port: 0, apiHost: "127.0.0.1", databasePath: ":memory:", assetDirectory: temporaryDirectory,
+      port: 0, apiHost: "127.0.0.1", databasePath: ":memory:", integrationSecretsFile: join(temporaryDirectory, "secrets.json"), assetDirectory: temporaryDirectory,
       mockEnabled: false, mockIntervalMs: 2_000, retentionDays: 730, ingestApiKey: null,
       haUrl: `http://127.0.0.1:${address.port}`, haToken: "test-token", haEntityMapFile: mappingPath,
+      tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null, tpLinkDeviceMapFile: null,
+      tpLinkPollIntervalMs: 10_000, tpLinkPython: "python", tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
       alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
     };
     runtime = createApi({ config, startBackground: false });
@@ -160,9 +162,11 @@ describe("Home Assistant normalization and state cache", () => {
     });
 
     const genericConfig: AppConfig = {
-      port: 0, apiHost: "127.0.0.1", databasePath: ":memory:", assetDirectory: temporaryDirectory,
+      port: 0, apiHost: "127.0.0.1", databasePath: ":memory:", integrationSecretsFile: join(temporaryDirectory, "secrets.json"), assetDirectory: temporaryDirectory,
       mockEnabled: false, mockIntervalMs: 2_000, retentionDays: 730, ingestApiKey: null,
       haUrl: `http://127.0.0.1:${address.port}`, haToken: "test-token", haEntityMapFile: mappingPath,
+      tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null, tpLinkDeviceMapFile: null,
+      tpLinkPollIntervalMs: 10_000, tpLinkPython: "python", tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
       alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
     };
     runtime = createApi({ config: genericConfig, startBackground: false });

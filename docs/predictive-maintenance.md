@@ -1,6 +1,6 @@
 # Predictive maintenance and forecasting
 
-Climate Twin supports forecasts as decision support, not as proof of a defect.
+Stuga supports forecasts as decision support, not as proof of a defect.
 Temperature, relative humidity, and CO2 can reveal useful patterns, while the
 registry can add other numeric evidence later. None of these alone proves hidden
 water, mould, structural moisture, indoor-air quality, equipment condition,

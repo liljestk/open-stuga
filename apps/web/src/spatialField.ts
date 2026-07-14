@@ -60,6 +60,17 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+function anchorLevel(value: number, minimum: number, maximum: number): CloudLobe["level"] {
+  if (maximum === minimum) return "level";
+  return value === maximum ? "high" : "low";
+}
+
+function normalizedLevel(value: number): CloudLobe["level"] {
+  if (value > .58) return "high";
+  if (value < .42) return "low";
+  return "level";
+}
+
 function reportingPoints(
   sensors: Sensor[],
   samples: Record<string, MeasurementSample>,
@@ -175,7 +186,7 @@ export function createCloudLobes(
       value: anchor.value,
       color: heatColor(anchor.value, colorDomain.min, colorDomain.max, definition),
       opacity: .34,
-      level: anchorMax === anchorMin ? "level" : anchor.value === anchorMax ? "high" : "low",
+      level: anchorLevel(anchor.value, anchorMin, anchorMax),
     }));
   }
   const supportedCells = field.cells.filter((cell) => cell.confidence >= MIN_CONFIDENT_CLOUD_COVERAGE);
@@ -222,7 +233,7 @@ export function createCloudLobes(
       value: cell.value,
       color: heatColor(cell.value, colorDomain.min, colorDomain.max, definition),
       opacity: (.24 + prominence * .14) * (.55 + cell.confidence * .45),
-      level: normalized > .58 ? "high" : normalized < .42 ? "low" : "level",
+      level: normalizedLevel(normalized),
     };
   });
 }
@@ -248,6 +259,53 @@ function sampleField(field: SpatialField, x: number, y: number): { value: number
   return { value: bilinear("value"), confidence: bilinear("confidence") };
 }
 
+function cellAt(field: SpatialField, column: number, row: number): HeatCell {
+  return field.cells[row * field.columns + column]!;
+}
+
+function hasFlowSupport(field: SpatialField, column: number, row: number): boolean {
+  return cellAt(field, column, row).confidence >= MIN_CONFIDENT_FLOW_COVERAGE
+    && cellAt(field, column + 1, row).confidence >= MIN_CONFIDENT_CLOUD_COVERAGE
+    && cellAt(field, column - 1, row).confidence >= MIN_CONFIDENT_CLOUD_COVERAGE
+    && cellAt(field, column, row + 1).confidence >= MIN_CONFIDENT_CLOUD_COVERAGE
+    && cellAt(field, column, row - 1).confidence >= MIN_CONFIDENT_CLOUD_COVERAGE;
+}
+
+function estimateFlowAt(
+  field: SpatialField,
+  column: number,
+  row: number,
+  pathLength: number,
+  minimumDifference: number,
+): FieldFlowEstimate | null {
+  if (!hasFlowSupport(field, column, row)) return null;
+  const current = cellAt(field, column, row);
+  const cellWidth = field.width / field.columns;
+  const cellHeight = field.height / field.rows;
+  const gradientX = (cellAt(field, column + 1, row).value - cellAt(field, column - 1, row).value)
+    / (2 * cellWidth);
+  const gradientY = (cellAt(field, column, row + 1).value - cellAt(field, column, row - 1).value)
+    / (2 * cellHeight);
+  const strength = Math.hypot(gradientX, gradientY);
+  if (strength <= Number.EPSILON) return null;
+
+  const from = { x: current.x + current.width / 2, y: current.y + current.height / 2, value: current.value };
+  const toX = clamp(from.x - gradientX / strength * pathLength, 0, field.width);
+  const toY = clamp(from.y - gradientY / strength * pathLength, 0, field.height);
+  const destination = sampleField(field, toX, toY);
+  if (destination.confidence < MIN_CONFIDENT_CLOUD_COVERAGE) return null;
+  const difference = from.value - destination.value;
+  if (difference < minimumDifference) return null;
+
+  return {
+    id: `${column}-${row}`,
+    from,
+    to: { x: toX, y: toY, value: destination.value },
+    difference,
+    strength,
+  };
+}
+
 export function estimateFieldFlows(
   field: SpatialField,
   definition: MeasurementDefinition,
@@ -258,34 +316,11 @@ export function estimateFieldFlows(
   const cellHeight = field.height / field.rows;
   const pathLength = Math.max(Math.min(field.width, field.height) * .2, Math.max(cellWidth, cellHeight) * 2.8);
   const minimumDifference = Math.max(10 ** -definition.precision * .2, definition.interpolationDelta * .18);
-  const cell = (column: number, row: number) => field.cells[row * field.columns + column]!;
   const candidates: FieldFlowEstimate[] = [];
   for (let row = 1; row < field.rows - 1; row += 1) {
     for (let column = 1; column < field.columns - 1; column += 1) {
-      const current = cell(column, row);
-      if (current.confidence < MIN_CONFIDENT_FLOW_COVERAGE
-        || cell(column + 1, row).confidence < MIN_CONFIDENT_CLOUD_COVERAGE
-        || cell(column - 1, row).confidence < MIN_CONFIDENT_CLOUD_COVERAGE
-        || cell(column, row + 1).confidence < MIN_CONFIDENT_CLOUD_COVERAGE
-        || cell(column, row - 1).confidence < MIN_CONFIDENT_CLOUD_COVERAGE) continue;
-      const gradientX = (cell(column + 1, row).value - cell(column - 1, row).value) / (2 * cellWidth);
-      const gradientY = (cell(column, row + 1).value - cell(column, row - 1).value) / (2 * cellHeight);
-      const strength = Math.hypot(gradientX, gradientY);
-      if (strength <= Number.EPSILON) continue;
-      const from = { x: current.x + current.width / 2, y: current.y + current.height / 2, value: current.value };
-      const toX = Math.max(0, Math.min(field.width, from.x - gradientX / strength * pathLength));
-      const toY = Math.max(0, Math.min(field.height, from.y - gradientY / strength * pathLength));
-      const destination = sampleField(field, toX, toY);
-      if (destination.confidence < MIN_CONFIDENT_CLOUD_COVERAGE) continue;
-      const difference = from.value - destination.value;
-      if (difference < minimumDifference) continue;
-      candidates.push({
-        id: `${column}-${row}`,
-        from,
-        to: { x: toX, y: toY, value: destination.value },
-        difference,
-        strength,
-      });
+      const candidate = estimateFlowAt(field, column, row, pathLength, minimumDifference);
+      if (candidate) candidates.push(candidate);
     }
   }
   candidates.sort((a, b) => b.strength - a.strength || b.difference - a.difference);

@@ -4,7 +4,7 @@ import { createDemoState } from "./domain";
 import { definitionFor } from "./measurements";
 import { configuredSpatialMaxSampleAgeMs, configuredSpatialReplayMaxSampleAgeMs, isSpatialSampleFresh } from "./spatialFreshness";
 import {
-  createVolumeClouds, estimateVolumeFlows, interpolateVolume, projectPoint3D,
+  clampCameraOrbit, createVolumeClouds, estimateVolumeFlows, interpolateVolume, projectPoint3D,
   type VolumeBounds,
 } from "./spatialVolume";
 
@@ -55,6 +55,21 @@ describe("3D scalar volume", () => {
 
     expect(Math.hypot(first.x - rotated.x, first.y - rotated.y)).toBeGreaterThan(30);
     expect(first.depth).not.toBeCloseTo(rotated.depth, 3);
+  });
+
+  it("allows a complete camera orbit from directly above to directly below", () => {
+    const above = clampCameraOrbit({ yaw: 0, pitch: Math.PI, zoom: 1 });
+    const below = clampCameraOrbit({ yaw: 0, pitch: -Math.PI, zoom: 1 });
+
+    expect(above.pitch).toBeCloseTo(Math.PI / 2, 8);
+    expect(below.pitch).toBeCloseTo(-Math.PI / 2, 8);
+
+    const point = { x: 850, y: 120, z: 4.7 };
+    const viewport = { width: 1100, height: 720 };
+    const projectedAbove = projectPoint3D(point, bounds, above, viewport);
+    const projectedBelow = projectPoint3D(point, bounds, below, viewport);
+    expect(projectedAbove.y).not.toBeCloseTo(projectedBelow.y, 3);
+    expect(projectedAbove.depth).toBeCloseTo(-projectedBelow.depth, 8);
   });
 
   it("keeps one local cloud but does not invent a vector from one fresh sample", () => {

@@ -1,6 +1,6 @@
 {
   "name": "@climate-twin/web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,16 +8,18 @@
     "build": "tsc -b && vite build --configLoader runner",
     "preview": "vite preview --configLoader runner",
     "test": "vitest run --configLoader runner",
+    "test:coverage": "vitest run --coverage --coverage.reporter=text --coverage.reporter=lcov --configLoader runner",
     "test:watch": "vitest --configLoader runner",
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@climate-twin/contracts": "0.1.0",
+    "@climate-twin/contracts": "0.2.0",
     "@vitejs/plugin-react": "^4.4.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "read-excel-file": "^9.3.1"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
@@ -26,6 +28,7 @@
     "@types/leaflet": "^1.9.21",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
+    "@vitest/coverage-v8": "^4.1.10",
     "jsdom": "^25.0.1",
     "vite": "^6.1.0",
     "vitest": "^4.1.10"

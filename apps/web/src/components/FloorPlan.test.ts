@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { MeasurementDefinition, MeasurementSample, Sensor } from "@climate-twin/contracts";
 import { BUILTIN_MEASUREMENTS } from "../measurements";
-import { floorRenderScale, interpolateHeat } from "./FloorPlan";
+import {
+  clampPlanElementWidth,
+  defaultFloorGridSize,
+  defaultPlanElementWidth,
+  floorGridSize,
+  floorRenderScale,
+  interpolateHeat,
+  isValidRoomPolygon,
+  nearestWallOpeningPlacement,
+  nearestWallPlacement,
+  planElementWidthBounds,
+  roomRectanglePoints,
+  snapPointToGrid,
+} from "./FloorPlan";
 
 const sensors: Sensor[] = [
   { id: "cold", houseId: "home", floorId: "ground", name: "Cold", room: "A", model: "T310", x: 100, y: 100, z: 1, tags: [], enabled: true },
@@ -57,5 +70,80 @@ describe("interpolateHeat", () => {
 
     expect(result.cells).toEqual([]);
     expect(result).toMatchObject({ min: 0, max: 500 });
+  });
+});
+
+describe("floor-plan grid", () => {
+  it("chooses useful grid sizes for both drawing-unit and metre-scale floors", () => {
+    expect(defaultFloorGridSize({ width: 1000, height: 640 })).toBe(25);
+    expect(defaultFloorGridSize({ width: 14, height: 10 })).toBe(.5);
+    expect(floorGridSize({ width: 14, height: 10 }, "fine")).toBe(.25);
+    expect(floorGridSize({ width: 14, height: 10 }, "coarse")).toBe(1);
+  });
+
+  it("snaps to exact grid intersections, clamps to boundaries, and avoids float noise", () => {
+    expect(snapPointToGrid({ x: .26, y: .31 }, { width: 14, height: 10 }, .1)).toEqual({ x: .3, y: .3 });
+    expect(snapPointToGrid({ x: 13.99, y: 9.99 }, { width: 14, height: 10 }, .5)).toEqual({ x: 14, y: 10 });
+    expect(snapPointToGrid({ x: -1, y: 12 }, { width: 14, height: 10 }, .5)).toEqual({ x: 0, y: 10 });
+  });
+
+  it("creates normalized rectangular room polygons from either drag direction", () => {
+    expect(roomRectanglePoints({ x: 8, y: 7 }, { x: 2, y: 3 })).toEqual([
+      { x: 2, y: 3 }, { x: 8, y: 3 }, { x: 8, y: 7 }, { x: 2, y: 7 },
+    ]);
+  });
+
+  it("keeps architectural symbol defaults independent of grid density and bounds edits", () => {
+    const floor = { width: 14, height: 10 };
+    expect(defaultPlanElementWidth(floor, "door")).toBe(.875);
+    expect(defaultPlanElementWidth(floor, "window")).toBeCloseTo(1.16666666667, 10);
+    expect(defaultPlanElementWidth(floor, "fireplace")).toBe(1);
+    expect(defaultPlanElementWidth(floor, "vent")).toBe(.56);
+    expect(floorGridSize(floor, "fine")).not.toBe(floorGridSize(floor, "coarse"));
+
+    const bounds = planElementWidthBounds(floor, "door");
+    expect(clampPlanElementWidth(floor, "door", 0)).toBe(bounds.min);
+    expect(clampPlanElementWidth(floor, "door", 100)).toBe(bounds.max);
+  });
+
+  it("rejects collapsed and self-intersecting room polygons", () => {
+    expect(isValidRoomPolygon([{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 3 }, { x: 0, y: 3 }])).toBe(true);
+    expect(isValidRoomPolygon([{ x: 0, y: 0 }, { x: 4, y: 3 }, { x: 0, y: 3 }, { x: 4, y: 0 }])).toBe(false);
+    expect(isValidRoomPolygon([{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 4, y: 0 }])).toBe(false);
+    expect(isValidRoomPolygon([{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 3 }, { x: 0, y: 0 }])).toBe(false);
+  });
+
+  it("projects openings to the closest wall and preserves its angle", () => {
+    const walls = [
+      { id: "horizontal", from: { x: 0, y: 2 }, to: { x: 10, y: 2 } },
+      { id: "vertical", from: { x: 8, y: 0 }, to: { x: 8, y: 10 } },
+    ];
+    expect(nearestWallPlacement({ x: 4, y: 2.2 }, walls, 10)).toMatchObject({
+      wallId: "horizontal", position: { x: 4, y: 2 }, rotationDegrees: 0,
+    });
+    expect(nearestWallPlacement({ x: 8.1, y: 6 }, walls, 10)).toMatchObject({
+      wallId: "vertical", position: { x: 8, y: 6 }, rotationDegrees: 90,
+    });
+    expect(nearestWallPlacement({ x: 4, y: 9 }, walls, 10, 5)).toBeNull();
+  });
+
+  it("keeps an opening's full width inside a wall and distinguishes short walls", () => {
+    const wall = { id: "wall", from: { x: 0, y: 2 }, to: { x: 10, y: 2 } };
+    expect(nearestWallOpeningPlacement({ x: 0, y: 2 }, [wall], 10, 4)).toMatchObject({
+      failure: null,
+      placement: { wallId: "wall", position: { x: 2, y: 2 } },
+    });
+    expect(nearestWallOpeningPlacement({ x: 10, y: 2 }, [wall], 10, 4)).toMatchObject({
+      failure: null,
+      placement: { wallId: "wall", position: { x: 8, y: 2 } },
+    });
+    expect(nearestWallOpeningPlacement({ x: 1, y: 2 }, [{ ...wall, to: { x: 1, y: 2 } }], 10, 2)).toEqual({
+      placement: null,
+      failure: "wall-too-short",
+    });
+    expect(nearestWallOpeningPlacement({ x: 5, y: 20 }, [wall], 10, 2)).toEqual({
+      placement: null,
+      failure: "no-wall",
+    });
   });
 });

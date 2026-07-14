@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { loadConfig } from "./config.js";
 import { createApi } from "./app.js";
+import { shutdownHttpServer } from "./http-shutdown.js";
 
 const config = loadConfig();
 const runtime = createApi({ config, startBackground: true });
@@ -8,16 +9,22 @@ const server = createServer(runtime.app);
 
 server.listen(config.port, config.apiHost, () => {
   // Do not log configuration: it may contain integration credentials.
-  console.log(`Climate Twin API listening on http://${config.apiHost}:${config.port}/api/v1`);
+  console.log(`Stuga API listening on http://${config.apiHost}:${config.port}/api/v1`);
 });
 
+let shutdownPromise: Promise<void> | null = null;
+
 function shutdown(): void {
-  server.close(() => {
-    runtime.close();
-    process.exit(0);
-  });
-  setTimeout(() => process.exit(1), 10_000).unref();
+  if (shutdownPromise) return;
+  shutdownPromise = shutdownHttpServer(server, runtime)
+    .then(({ forced }) => process.exit(forced ? 1 : 0))
+    .catch(() => {
+      // Avoid logging configuration or exception details that might include
+      // integration context during an emergency shutdown.
+      console.error("Stuga API shutdown failed");
+      process.exit(1);
+    });
 }
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.once("SIGINT", shutdown);
+process.once("SIGTERM", shutdown);

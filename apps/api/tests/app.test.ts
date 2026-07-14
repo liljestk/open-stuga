@@ -8,6 +8,7 @@ const config: AppConfig = {
   port: 0,
   apiHost: "127.0.0.1",
   databasePath: ":memory:",
+  integrationSecretsFile: "integration-secrets.test.json",
   assetDirectory: ".",
   mockEnabled: false,
   mockIntervalMs: 25,
@@ -16,6 +17,13 @@ const config: AppConfig = {
   haUrl: null,
   haToken: null,
   haEntityMapFile: null,
+  tpLinkHost: null,
+  tpLinkUsername: null,
+  tpLinkPassword: null,
+  tpLinkDeviceMapFile: null,
+  tpLinkPollIntervalMs: 10_000,
+  tpLinkPython: "python",
+  tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
   alertWebhookUrl: null,
   alertWebhookBearerToken: null,
   corsOrigin: "http://localhost:5173",
@@ -35,6 +43,8 @@ describe("Climate Twin API v1", () => {
   it("binds to loopback by default and honors an explicit API host", () => {
     expect(loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" }).apiHost).toBe("127.0.0.1");
     expect(loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", API_HOST: "0.0.0.0" }).apiHost).toBe("0.0.0.0");
+    expect(loadConfig({ NODE_ENV: "production", DATABASE_PATH: ":memory:" }).mockEnabled).toBe(true);
+    expect(loadConfig({ NODE_ENV: "production", DATABASE_PATH: ":memory:", MOCK_ENABLED: "false" }).mockEnabled).toBe(false);
   });
 
   it("boots with one digital twin, ten positioned sensors, and durable seed history", async () => {
@@ -112,6 +122,40 @@ describe("Climate Twin API v1", () => {
     }).expect(200).expect(({ body }) => expect(body).toMatchObject({ houseId: "house-main", floorId: "floor-upper", z: -100 }));
   });
 
+  it("creates, uniquely assigns, and clears direct TP-Link child-device bindings", async () => {
+    const created = await request(runtime.app).post("/api/v1/sensors").send({
+      id: "sensor-direct",
+      houseId: "house-main",
+      floorId: "floor-ground",
+      name: "Direct sensor",
+      room: "Living room",
+      model: "Tapo T315",
+      x: 1,
+      y: 1,
+      z: 1.2,
+      tpLinkDeviceId: "  child-direct  ",
+      tags: [],
+      enabled: true,
+    }).expect(201);
+    expect(created.body.sensor.tpLinkDeviceId).toBe("child-direct");
+    expect(runtime.database.getSensor("sensor-direct")?.tpLinkDeviceId).toBe("child-direct");
+
+    await request(runtime.app).patch("/api/v1/sensors/sensor-02").send({ tpLinkDeviceId: "child-direct" })
+      .expect(409)
+      .expect(({ body }) => expect(body.error.code).toBe("TP_LINK_DEVICE_ALREADY_MAPPED"));
+    expect(runtime.database.getSensor("sensor-02")).not.toHaveProperty("tpLinkDeviceId");
+
+    const cleared = await request(runtime.app).patch("/api/v1/sensors/sensor-direct")
+      .send({ tpLinkDeviceId: null })
+      .expect(200);
+    expect(cleared.body.sensor).not.toHaveProperty("tpLinkDeviceId");
+    expect(runtime.database.getSensor("sensor-direct")).not.toHaveProperty("tpLinkDeviceId");
+
+    await request(runtime.app).patch("/api/v1/sensors/sensor-02").send({ tpLinkDeviceId: "child-direct" })
+      .expect(200)
+      .expect(({ body }) => expect(body.sensor.tpLinkDeviceId).toBe("child-direct"));
+  });
+
   it("rejects layout changes that orphan or exclude sensors while allowing negative elevations", async () => {
     const original = await request(runtime.app).get("/api/v1/houses/house-main").expect(200);
     const floors = original.body.house.floors as Array<Record<string, unknown>>;
@@ -126,9 +170,85 @@ describe("Climate Twin API v1", () => {
       .expect(200).expect(({ body }) => expect(body.elevation).toBe(-8));
     expect(runtime.database.getSensor("sensor-10")?.z).toBe(5.5);
 
-    await request(runtime.app).put("/api/v1/houses/house-main/floors/floor-upper").send({ ...upper, width: 5 })
+    await request(runtime.app).put("/api/v1/houses/house-main/floors/floor-upper").send({ ...upper, width: 5, walls: [], rooms: [] })
       .expect(409).expect(({ body }) => expect(body.error.code).toBe("LAYOUT_EXCLUDES_SENSOR"));
     expect(runtime.database.getHouse("house-main")?.floors.find((floor) => floor.id === "floor-upper")?.width).toBe(14);
+  });
+
+  it("round-trips architectural plan elements and rejects invalid wall attachments", async () => {
+    const floor = {
+      id: "main", name: "Main", width: 10, height: 8, elevation: 0,
+      walls: [{ id: "north", from: { x: 0, y: 0 }, to: { x: 10, y: 0 } }],
+      rooms: [{ id: "living", name: "Living room", kind: "living", points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 8 }, { x: 0, y: 8 }] }],
+      planElements: [
+        { id: "door-1", kind: "door", position: { x: 4, y: 0 }, rotationDegrees: 0, width: 1, wallId: "north" },
+        { id: "vent-1", kind: "vent", position: { x: 5, y: 4 }, rotationDegrees: 90, width: .5 },
+      ],
+    };
+    const created = await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-elements", name: "Element house", timezone: "Europe/Helsinki", floors: [floor],
+    }).expect(201);
+    expect(created.body.house.floors[0].planElements).toEqual(floor.planElements);
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-invalid-element", name: "Invalid", timezone: "UTC",
+      floors: [{ ...floor, planElements: [{ ...floor.planElements[0], wallId: "missing" }] }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_PLAN_ELEMENT_WALL"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-unattached-opening", name: "Unattached opening", timezone: "UTC",
+      floors: [{
+        ...floor,
+        planElements: [{ id: "window-1", kind: "window", position: { x: 4, y: 0 }, rotationDegrees: 0, width: 1 }],
+      }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_PLAN_ELEMENT_WALL"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-invalid-rooms", name: "Invalid rooms", timezone: "UTC",
+      floors: [{ ...floor, rooms: "not-an-array" }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_ROOMS"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-crossed-room", name: "Crossed room", timezone: "UTC",
+      floors: [{
+        ...floor,
+        rooms: [{
+          ...floor.rooms[0],
+          points: [{ x: 0, y: 0 }, { x: 5, y: 4 }, { x: 0, y: 3 }, { x: 4, y: 0 }],
+        }],
+      }],
+    }).expect(400).expect(({ body }) => {
+      expect(body.error.code).toBe("INVALID_ROOM_GEOMETRY");
+      expect(body.error.message).toContain("cannot self-intersect");
+    });
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-misaligned-opening", name: "Misaligned", timezone: "UTC",
+      floors: [{ ...floor, planElements: [{ ...floor.planElements[0], position: { x: 4, y: 2 } }] }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_PLAN_ELEMENT_ALIGNMENT"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-attached-vent", name: "Attached vent", timezone: "UTC",
+      floors: [{ ...floor, planElements: [{ ...floor.planElements[1], wallId: "north" }] }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_PLAN_ELEMENT_WALL"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-duplicate-room-name", name: "Duplicate rooms", timezone: "UTC",
+      floors: [{
+        ...floor,
+        rooms: [...floor.rooms, { ...floor.rooms[0], id: "living-duplicate", name: "  LIVING ROOM  " }],
+      }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("DUPLICATE_ROOM_NAME"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-opening-too-wide", name: "Oversized opening", timezone: "UTC",
+      floors: [{ ...floor, planElements: [{ ...floor.planElements[0], position: { x: 5, y: 0 }, width: 11 }] }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_PLAN_ELEMENT_FIT"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-opening-no-clearance", name: "Opening without clearance", timezone: "UTC",
+      floors: [{ ...floor, planElements: [{ ...floor.planElements[0], position: { x: .25, y: 0 }, width: 1 }] }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_PLAN_ELEMENT_FIT"));
   });
 
   it("authors and isolates a second house, floor, and positioned sensor", async () => {
@@ -158,7 +278,12 @@ describe("Climate Twin API v1", () => {
   it("persists optional house locations and reports the real weather configuration count", async () => {
     const initialStatus = await request(runtime.app).get("/api/v1/integrations/status").expect(200);
     expect(initialStatus.body.weather).toEqual({
-      provider: "fmi", configuredHouses: 0, lastSuccessAt: null, error: null,
+      policy: "automatic",
+      availableProviders: ["fmi", "open-meteo"],
+      provider: "fmi",
+      configuredHouses: 0,
+      lastSuccessAt: null,
+      error: null,
     });
 
     const located = await request(runtime.app).patch("/api/v1/houses/house-main").send({
@@ -182,6 +307,38 @@ describe("Climate Twin API v1", () => {
     expect(cleared.body.house).not.toHaveProperty("location");
     const clearedStatus = await request(runtime.app).get("/api/v1/integrations/status").expect(200);
     expect(clearedStatus.body.weather.configuredHouses).toBe(0);
+  });
+
+  it("validates new IANA timezones while keeping legacy invalid values readable and repairable", async () => {
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-invalid-timezone",
+      name: "Invalid timezone",
+      timezone: "Mars/Olympus_Mons",
+      floors: [],
+    }).expect(422).expect(({ body }) => expect(body.error.code).toBe("INVALID_TIMEZONE"));
+
+    runtime.database.db.prepare("UPDATE houses SET timezone = ? WHERE id = ?")
+      .run("Legacy/Unresolvable", "house-main");
+    await request(runtime.app).get("/api/v1/houses/house-main").expect(200).expect(({ body }) => {
+      expect(body.house.timezone).toBe("Legacy/Unresolvable");
+    });
+
+    await request(runtime.app).patch("/api/v1/houses/house-main")
+      .send({ name: "Legacy timezone house" })
+      .expect(200)
+      .expect(({ body }) => expect(body.house.timezone).toBe("Legacy/Unresolvable"));
+    await request(runtime.app).patch("/api/v1/houses/house-main")
+      .send({ timezone: "Legacy/Unresolvable" })
+      .expect(200);
+    await request(runtime.app).patch("/api/v1/houses/house-main")
+      .send({ timezone: "Also/Invalid" })
+      .expect(422)
+      .expect(({ body }) => expect(body.error.code).toBe("INVALID_TIMEZONE"));
+
+    await request(runtime.app).patch("/api/v1/houses/house-main")
+      .send({ timezone: "America/New_York" })
+      .expect(200)
+      .expect(({ body }) => expect(body.house.timezone).toBe("America/New_York"));
   });
 
   it("persists floor-plan compass orientation and validates its half-open bearing range", async () => {
@@ -249,11 +406,29 @@ describe("Climate Twin API v1", () => {
     expect(latest.body.readings[0].temperature).toBe(21.75);
   });
 
+  it("allows small sender clock skew but rejects readings too far in the future", async () => {
+    const now = Date.now();
+    await request(runtime.app).post("/api/v1/readings").set("x-api-key", "test-ingest-key").send({
+      sensorId: "sensor-01",
+      timestamp: new Date(now + 6 * 60_000).toISOString(),
+      temperature: 21,
+      humidity: 45,
+    }).expect(422).expect(({ body }) => expect(body.error.code).toBe("TIMESTAMP_TOO_FAR_IN_FUTURE"));
+
+    await request(runtime.app).post("/api/v1/readings").set("x-api-key", "test-ingest-key").send({
+      sensorId: "sensor-01",
+      timestamp: new Date(now + 4 * 60_000).toISOString(),
+      temperature: 21,
+      humidity: 45,
+    }).expect(201);
+  });
+
   it("prevalidates batches atomically and reports unknown or disabled sensors as 4xx", async () => {
     const before = runtime.database.getLatestReading("sensor-01");
+    const timestamp = new Date(Date.now() - 60_000).toISOString();
     await request(runtime.app).post("/api/v1/readings").set("x-api-key", "test-ingest-key").send([
-      { sensorId: "sensor-01", timestamp: "2099-01-01T00:00:00Z", temperature: 33, humidity: 44 },
-      { sensorId: "missing-sensor", timestamp: "2099-01-01T00:00:00Z", temperature: 33, humidity: 44 },
+      { sensorId: "sensor-01", timestamp, temperature: 33, humidity: 44 },
+      { sensorId: "missing-sensor", timestamp, temperature: 33, humidity: 44 },
     ]).expect(404).expect(({ body }) => expect(body.error.code).toBe("UNKNOWN_SENSOR"));
     expect(runtime.database.getLatestReading("sensor-01")?.timestamp).toBe(before?.timestamp);
 
@@ -266,7 +441,7 @@ describe("Climate Twin API v1", () => {
   it("deduplicates reading identity without publishing or evaluating duplicates", async () => {
     let readingEvents = 0;
     const unsubscribe = runtime.bus.subscribe((event) => { if (event.type === "reading") readingEvents += 1; });
-    const reading = { sensorId: "sensor-01", timestamp: "2090-01-01T00:00:00Z", temperature: 22, humidity: 50 };
+    const reading = { sensorId: "sensor-01", timestamp: new Date().toISOString(), temperature: 22, humidity: 50 };
     const first = await request(runtime.app).post("/api/v1/readings").set("x-api-key", "test-ingest-key")
       .send({ readings: [reading, reading] }).expect(201);
     expect(first.body.readings).toHaveLength(1);
@@ -280,28 +455,50 @@ describe("Climate Twin API v1", () => {
   });
 
   it("uses chronological latest readings and retains newest limited history in ascending order", async () => {
-    for (const [year, temperature] of [[2097, 17], [2099, 19], [2098, 18]] as const) {
+    const base = Date.now();
+    for (const [offsetMs, temperature] of [[60_000, 17], [180_000, 19], [120_000, 18]] as const) {
       await request(runtime.app).post("/api/v1/readings").set("x-api-key", "test-ingest-key").send({
-        sensorId: "sensor-01", timestamp: `${year}-01-01T00:00:00Z`, temperature, humidity: 50,
+        sensorId: "sensor-01", timestamp: new Date(base + offsetMs).toISOString(), temperature, humidity: 50,
       }).expect(201);
     }
     const latest = await request(runtime.app).get("/api/v1/readings/latest?sensorId=sensor-01").expect(200);
     expect(latest.body.readings[0].temperature).toBe(19);
     const history = await request(runtime.app).get("/api/v1/readings").query({
-      sensorId: "sensor-01", from: "2090-01-01T00:00:00Z", to: "2100-01-01T00:00:00Z", limit: 2,
+      sensorId: "sensor-01", from: new Date(base).toISOString(), to: new Date(base + 240_000).toISOString(), limit: 2,
     }).expect(200);
     expect(history.body.readings.map((reading: { temperature: number }) => reading.temperature)).toEqual([18, 19]);
   });
 
-  it("creates, publishes, acknowledges, and resolves immediate alert events", async () => {
+  it("requires a positive bounded integer alert duration on create and update", async () => {
+    const rule = {
+      name: "Validated duration", sensorId: "sensor-01", metric: "humidity", operator: "gte",
+      threshold: 70, severity: "warning", enabled: true, webhookEnabled: false,
+    };
+    for (const durationSeconds of [undefined, null, 0, -1, 1.5, "10", 31_536_001]) {
+      await request(runtime.app).post("/api/v1/alert-rules").send({ ...rule, durationSeconds })
+        .expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_FIELD"));
+    }
+
+    const created = await request(runtime.app).post("/api/v1/alert-rules")
+      .send({ ...rule, durationSeconds: 1 }).expect(201);
+    await request(runtime.app).patch(`/api/v1/alert-rules/${String(created.body.id)}`)
+      .send({ durationSeconds: 0 })
+      .expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_FIELD"));
+    expect(runtime.database.getAlertRule(String(created.body.id))?.durationSeconds).toBe(1);
+  });
+
+  it("creates, publishes, acknowledges, and resolves sustained alert events", async () => {
+    const base = Date.now() - 5_000;
     const ruleResponse = await request(runtime.app).post("/api/v1/alert-rules").send({
       name: "Test humidity", sensorId: "sensor-01", metric: "humidity", operator: "gte",
-      threshold: 70, durationSeconds: 0, severity: "critical", enabled: true, webhookEnabled: false,
+      threshold: 70, durationSeconds: 1, severity: "critical", enabled: true, webhookEnabled: false,
     }).expect(201);
     expect(ruleResponse.body.id).toBeTypeOf("string");
 
     await request(runtime.app).post("/api/v1/readings").set("x-api-key", "test-ingest-key")
-      .send({ sensorId: "sensor-01", temperature: 21, humidity: 81 }).expect(201);
+      .send({ sensorId: "sensor-01", timestamp: new Date(base).toISOString(), temperature: 21, humidity: 81 }).expect(201);
+    await request(runtime.app).post("/api/v1/readings").set("x-api-key", "test-ingest-key")
+      .send({ sensorId: "sensor-01", timestamp: new Date(base + 1_500).toISOString(), temperature: 21, humidity: 81 }).expect(201);
     const active = await request(runtime.app).get("/api/v1/alert-events?active=true").expect(200);
     expect(active.body.events).toHaveLength(1);
     expect(active.body.events[0]).toMatchObject({ sensorId: "sensor-01", severity: "critical", resolvedAt: null });
@@ -311,7 +508,7 @@ describe("Climate Twin API v1", () => {
     expect(acknowledged.body.event.acknowledgedAt).toBeTypeOf("string");
 
     await request(runtime.app).post("/api/v1/readings").set("authorization", "Bearer test-ingest-key")
-      .send({ sensorId: "sensor-01", temperature: 21, humidity: 45 }).expect(201);
+      .send({ sensorId: "sensor-01", timestamp: new Date(base + 2_500).toISOString(), temperature: 21, humidity: 45 }).expect(201);
     const noLongerActive = await request(runtime.app).get("/api/v1/alert-events?active=true").expect(200);
     expect(noLongerActive.body.events).toHaveLength(0);
   });
@@ -375,6 +572,7 @@ describe("Climate Twin API v1", () => {
     expect(openapi.body.paths["/events"]).toBeDefined();
     expect(openapi.body.paths["/snapshot"]).toBeDefined();
     expect(openapi.body.paths["/readings"].get).toBeDefined();
+    expect(openapi.body.paths["/integrations/tp-link/devices"].get.operationId).toBe("listTpLinkDevices");
     expect(openapi.body.paths["/sensors/{id}"].patch.requestBody.content["application/json"].schema.$ref).toContain("SensorPatch");
     const sensorCoordinates = openapi.body.components.schemas.SensorInput.properties;
     expect(sensorCoordinates.x.minimum).toBe(0);
@@ -382,11 +580,28 @@ describe("Climate Twin API v1", () => {
     expect(sensorCoordinates.z.minimum).toBeUndefined();
     expect(openapi.body.components.schemas.Floor.properties.elevation.minimum).toBeUndefined();
     expect(openapi.body.components.schemas.Floor.properties.elevation.description).toContain("vertical");
+    expect(openapi.body.components.schemas.Floor.properties.rooms.items.properties.points.minItems).toBe(3);
+    const planElementVariants = openapi.body.components.schemas.Floor.properties.planElements.items.oneOf;
+    expect(planElementVariants).toHaveLength(2);
+    expect(planElementVariants[0].properties.kind.enum).toEqual(["door", "window"]);
+    expect(planElementVariants[0].required).toContain("wallId");
+    expect(planElementVariants[1].properties.kind.enum).toEqual(["fireplace", "vent"]);
+    expect(planElementVariants[1].not.required).toEqual(["wallId"]);
     expect(openapi.body.components.schemas.SensorInput.properties.z.description).toContain("Floor.elevation");
+    expect(openapi.body.components.schemas.SensorInput.properties.tpLinkDeviceId.oneOf).toContainEqual({ type: "null" });
+    expect(openapi.body.components.schemas.SensorPatch.properties.tpLinkDeviceId.description).toContain("clear");
+    expect(openapi.body.components.schemas.TpLinkDiscoveredDevice.required).toContain("mappedSensorId");
+    expect(openapi.body.components.schemas.HouseWeather.properties.provider.enum).toEqual(["fmi", "open-meteo"]);
+    expect(openapi.body.components.schemas.HouseWeather.properties.componentStatus.$ref).toContain("WeatherComponentStatuses");
+    expect(openapi.body.components.schemas.WeatherComponentStatus.required).toContain("emptyResultIsAuthoritative");
+    expect(openapi.body.components.schemas.HouseCreate.properties.timezone.description).toContain("IANA");
 
     const setup = await request(runtime.app).get("/api/v1/integrations/home-assistant/setup").expect(200);
     expect(JSON.stringify(setup.body)).not.toContain("test-ingest-key");
     expect(setup.body.entityMapSchema.entities[0]).toHaveProperty("temperature");
+    const tpLinkSetup = await request(runtime.app).get("/api/v1/integrations/tp-link/setup").expect(200);
+    expect(tpLinkSetup.body.sensorPatchSchema).toEqual({ tpLinkDeviceId: "hub-child-device-id" });
+    expect(tpLinkSetup.body.notes.join(" ")).toContain("optional legacy fallback");
   });
 
   it("opens an SSE stream with an immediate integration state event", async () => {

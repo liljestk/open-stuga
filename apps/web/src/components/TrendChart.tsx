@@ -3,6 +3,7 @@ import type { MeasurementDefinition, MeasurementForecastPoint, MeasurementSample
 import { type TimeRange } from "../domain";
 import { displayUnit, formatMeasurement, measurementDomain, measurementLabel, measurementValue, toDisplayValue } from "../measurements";
 import { useI18n } from "../i18n";
+import { formatInTimeZone } from "../dateTime";
 
 interface TrendChartProps {
   sensor: Sensor | null;
@@ -12,6 +13,7 @@ interface TrendChartProps {
   units: UnitSystem;
   range: TimeRange;
   onRange: (range: TimeRange) => void;
+  timeZone?: string;
 }
 
 interface PlotPoint { timestamp: number; value: number; low?: number; high?: number; kind: "history" | "forecast" }
@@ -20,7 +22,7 @@ const width = 780;
 const height = 250;
 const margin = { top: 20, right: 22, bottom: 34, left: 62 };
 
-export function TrendChart({ sensor, history, forecast, definition, units, range, onRange }: TrendChartProps) {
+export function TrendChart({ sensor, history, forecast, definition, units, range, onRange, timeZone }: TrendChartProps) {
   const { locale, t } = useI18n();
   const [focused, setFocused] = useState<PlotPoint | null>(null);
   const now = Date.now();
@@ -82,7 +84,7 @@ export function TrendChart({ sensor, history, forecast, definition, units, range
           </g>
           <g className="chart-axis" aria-hidden="true">
             {yTicks.map((tick, index) => <text key={`axis-y-${index}-${tick}`} x={margin.left - 10} y={y(tick) + 4} textAnchor="end">{toDisplayValue(tick, definition, units).toFixed(definition.precision)}</text>)}
-            {xTicks.map((tick, index) => <text key={`axis-x-${index}-${tick}`} x={x(tick)} y={height - 10} textAnchor={tick === timeMin ? "start" : tick === timeMax ? "end" : "middle"}>{new Intl.DateTimeFormat(locale, range === "7d" ? { weekday: "short", hour: "2-digit" } : { hour: "2-digit", minute: "2-digit" }).format(tick)}</text>)}
+            {xTicks.map((tick, index) => <text key={`axis-x-${index}-${tick}`} x={x(tick)} y={height - 10} textAnchor={tick === timeMin ? "start" : tick === timeMax ? "end" : "middle"}>{formatInTimeZone(tick, locale, timeZone, range === "7d" ? { weekday: "short", hour: "2-digit" } : { hour: "2-digit", minute: "2-digit" })}</text>)}
             <text x="7" y="15">{unit}</text>
           </g>
           {confidence && <polygon points={confidence} className="confidence-area" aria-hidden="true" />}
@@ -95,14 +97,14 @@ export function TrendChart({ sensor, history, forecast, definition, units, range
                 key={`${point.kind}-${point.timestamp}-${index}`}
                 cx={x(point.timestamp)} cy={y(point.value)} r="8" className={point.kind}
                 role="img" tabIndex={0}
-                aria-label={`${new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(point.timestamp)}, ${formatMeasurement(point.value, definition, units)}, ${point.kind === "history" ? t("chart.observed") : t("chart.predicted")}`}
+                aria-label={`${formatInTimeZone(point.timestamp, locale, timeZone, { dateStyle: "medium", timeStyle: "short" })}, ${formatMeasurement(point.value, definition, units)}, ${point.kind === "history" ? t("chart.observed") : t("chart.predicted")}`}
                 onFocus={() => setFocused(point)} onBlur={() => setFocused(null)} onMouseEnter={() => setFocused(point)} onMouseLeave={() => setFocused(null)}
               />
             ))}
           </g>
           {focused && <g className="chart-focus" aria-hidden="true"><line x1={x(focused.timestamp)} x2={x(focused.timestamp)} y1={margin.top} y2={height - margin.bottom} /><circle cx={x(focused.timestamp)} cy={y(focused.value)} r="4" /></g>}
         </svg>
-        {focused && <div className="chart-tooltip" role="status"><strong>{focusValue}</strong><span>{new Intl.DateTimeFormat(locale, { weekday: "short", hour: "2-digit", minute: "2-digit" }).format(focused.timestamp)} · {focused.kind === "history" ? t("chart.observed") : t("chart.predicted")}</span></div>}
+        {focused && <div className="chart-tooltip" role="status"><strong>{focusValue}</strong><span>{formatInTimeZone(focused.timestamp, locale, timeZone, { weekday: "short", hour: "2-digit", minute: "2-digit" })} · {focused.kind === "history" ? t("chart.observed") : t("chart.predicted")}</span></div>}
       </div>
       {!definition.forecastSupported && <p className="chart-capability-note">{t("chart.forecastUnsupported", { metric: metricLabel })}</p>}
     </section>

@@ -53,6 +53,19 @@ export function windwardPlanEdge(planWindFromDegrees: number): PlanEdge {
   return edges[Math.floor((normalizeDegrees(planWindFromDegrees) + 45) / 90) % edges.length]!;
 }
 
+function edgeBoundaryPoint(edge: PlanEdge, width: number, height: number): Point {
+  switch (edge) {
+    case "top":
+      return { x: width / 2, y: 0 };
+    case "right":
+      return { x: width, y: height / 2 };
+    case "bottom":
+      return { x: width / 2, y: height };
+    case "left":
+      return { x: 0, y: height / 2 };
+  }
+}
+
 /**
  * Build an incoming arrow against the facade side that most directly faces
  * the wind. Distances are fractions of the rectangle's shorter dimension, so
@@ -79,13 +92,7 @@ export function windPathOnRectangle(
 
   const sourceVector = windSourceVector(planWindFromDegrees);
   const windwardEdge = windwardPlanEdge(planWindFromDegrees);
-  const boundaryPoint = windwardEdge === "top"
-    ? { x: width / 2, y: 0 }
-    : windwardEdge === "right"
-      ? { x: width, y: height / 2 }
-      : windwardEdge === "bottom"
-        ? { x: width / 2, y: height }
-        : { x: 0, y: height / 2 };
+  const boundaryPoint = edgeBoundaryPoint(windwardEdge, width, height);
   const scale = Math.min(width, height);
   return {
     sourcePoint: {

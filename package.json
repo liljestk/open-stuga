@@ -1,6 +1,6 @@
 {
   "name": "climate-twin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "license": "MIT",
   "description": "A local-first digital twin for extensible whole-home environmental telemetry.",
@@ -14,7 +14,14 @@
     "dev:web": "npm run dev --workspace @climate-twin/web",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "test:coverage:cloudflare": "npm run test:coverage --prefix cloudflare",
+    "test:coverage:python": "python -m pytest apps/api/python_tests --cov=apps/api/python --cov-report=term-missing --cov-report=xml:apps/api/coverage-python.xml --cov-fail-under=80",
+    "sonar:scan": "npx --yes --package=@sonar/scan@4.3.8 sonar",
+    "sonar:gate": "npm run test:coverage && npm run test:coverage:cloudflare && npm run test:coverage:python && npm run sonar:scan",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "version:check": "node scripts/check-version.mjs",
+    "version:check-pr": "node scripts/check-version.mjs --require-base-bump",
     "mcp": "npm run mcp --workspace @climate-twin/api"
   },
   "engines": {

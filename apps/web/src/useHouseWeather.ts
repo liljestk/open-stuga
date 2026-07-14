@@ -103,8 +103,10 @@ export function useHouseWeather(
     const request = { key, houseId: house.id };
     active.current = request;
     setState({ key, weather: cache.current.get(key) ?? null, loading: true, error: null });
-    void load(request);
-    const timer = window.setInterval(() => void load(request), HOUSE_WEATHER_REFRESH_MS);
+    load(request);
+    const timer = window.setInterval(() => {
+      load(request);
+    }, HOUSE_WEATHER_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [house?.id, key, load]);
 

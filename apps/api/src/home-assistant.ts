@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import WebSocket from "ws";
 import type { MeasurementSample, Reading } from "@climate-twin/contracts";
@@ -24,13 +24,9 @@ export interface HomeAssistantEntityMapping {
   measurements?: Record<string, HomeAssistantMeasurementMapping>;
 }
 
-interface MappingFile {
-  entities: HomeAssistantEntityMapping[];
-}
-
 interface EntityTarget {
   sensorId: string;
-  metric: string | "battery";
+  metric: string;
   expectedUnit?: string;
   scale?: number;
   offset?: number;
@@ -98,54 +94,91 @@ function websocketUrl(url: string): string {
   return parsed.toString();
 }
 
-export function loadEntityMappings(path: string): HomeAssistantEntityMapping[] {
-  const parsed = JSON.parse(readFileSync(resolve(path), "utf8")) as Partial<MappingFile>;
-  if (!Array.isArray(parsed.entities)) throw new Error("Home Assistant entity map must contain an entities array");
-  const mappings = parsed.entities.map((entry, index) => {
-    if (!entry || typeof entry.sensorId !== "string" || !entry.sensorId.trim()) {
-      throw new Error(`Invalid Home Assistant entity mapping at index ${index}`);
+function validateMeasurementBinding(metric: string, binding: unknown, index: number): void {
+  if (!/^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/.test(metric)
+    || ["__proto__", "constructor", "prototype"].includes(metric)) {
+    throw new Error(`Invalid measurement id ${metric} at index ${index}`);
+  }
+  if (typeof binding === "string") {
+    if (!binding.trim()) throw new Error(`Invalid ${metric} measurement mapping at index ${index}`);
+    return;
+  }
+  if (!binding || typeof binding !== "object" || Array.isArray(binding)) {
+    throw new Error(`Invalid ${metric} measurement mapping at index ${index}`);
+  }
+  const candidate = binding as Partial<HomeAssistantMeasurementBinding>;
+  if (typeof candidate.entityId !== "string" || !candidate.entityId.trim()
+    || candidate.unit !== undefined && (typeof candidate.unit !== "string" || !candidate.unit.trim())
+    || candidate.scale !== undefined && !Number.isFinite(candidate.scale)
+    || candidate.offset !== undefined && !Number.isFinite(candidate.offset)) {
+    throw new Error(`Invalid ${metric} measurement mapping at index ${index}`);
+  }
+}
+
+function validateMeasurementMappings(value: unknown, index: number): void {
+  if (value === undefined) return;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid measurements mapping at index ${index}`);
+  }
+  for (const [metric, binding] of Object.entries(value)) {
+    validateMeasurementBinding(metric, binding, index);
+  }
+}
+
+function validateEntityMapping(value: unknown, index: number): HomeAssistantEntityMapping {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid Home Assistant entity mapping at index ${index}`);
+  }
+  const entry = value as Partial<HomeAssistantEntityMapping>;
+  if (typeof entry.sensorId !== "string" || !entry.sensorId.trim()) {
+    throw new Error(`Invalid Home Assistant entity mapping at index ${index}`);
+  }
+  for (const key of ["temperature", "humidity", "battery"] as const) {
+    const entityId = entry[key];
+    if (entityId !== undefined && (typeof entityId !== "string" || !entityId.trim())) {
+      throw new Error(`Invalid ${key} mapping at index ${index}`);
     }
-    for (const key of ["temperature", "humidity", "battery"] as const) {
-      if (entry[key] !== undefined && (typeof entry[key] !== "string" || !entry[key].trim())) {
-        throw new Error(`Invalid ${key} mapping at index ${index}`);
-      }
-    }
-    if (entry.measurements !== undefined) {
-      if (!entry.measurements || typeof entry.measurements !== "object" || Array.isArray(entry.measurements)) {
-        throw new Error(`Invalid measurements mapping at index ${index}`);
-      }
-      for (const [metric, binding] of Object.entries(entry.measurements)) {
-        if (!/^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/.test(metric) || ["__proto__", "constructor", "prototype"].includes(metric)) {
-          throw new Error(`Invalid measurement id ${metric} at index ${index}`);
-        }
-        if (typeof binding === "string") {
-          if (!binding.trim()) throw new Error(`Invalid ${metric} measurement mapping at index ${index}`);
-          continue;
-        }
-        if (!binding || typeof binding !== "object" || typeof binding.entityId !== "string" || !binding.entityId.trim()
-          || binding.unit !== undefined && (typeof binding.unit !== "string" || !binding.unit.trim())
-          || binding.scale !== undefined && !Number.isFinite(binding.scale)
-          || binding.offset !== undefined && !Number.isFinite(binding.offset)) {
-          throw new Error(`Invalid ${metric} measurement mapping at index ${index}`);
-        }
-      }
-    }
-    if (!entry.temperature && !entry.humidity && !entry.battery && Object.keys(entry.measurements ?? {}).length === 0) {
-      throw new Error(`Home Assistant entity mapping at index ${index} has no entities`);
-    }
-    return entry as HomeAssistantEntityMapping;
-  });
+  }
+  validateMeasurementMappings(entry.measurements, index);
+  if (!entry.temperature && !entry.humidity && !entry.battery
+    && Object.keys(entry.measurements ?? {}).length === 0) {
+    throw new Error(`Home Assistant entity mapping at index ${index} has no entities`);
+  }
+  return entry as HomeAssistantEntityMapping;
+}
+
+function mappedEntityIds(mapping: HomeAssistantEntityMapping): string[] {
+  const measurements = Object.values(mapping.measurements ?? {}).map((binding) => (
+    typeof binding === "string" ? binding : binding.entityId
+  ));
+  return [mapping.temperature, mapping.humidity, mapping.battery, ...measurements]
+    .filter((entityId): entityId is string => Boolean(entityId));
+}
+
+function assertUniqueEntityIds(mappings: HomeAssistantEntityMapping[]): void {
   const entityIds = new Set<string>();
   for (const mapping of mappings) {
-    const configured = [mapping.temperature, mapping.humidity, mapping.battery,
-      ...Object.values(mapping.measurements ?? {}).map((binding) => typeof binding === "string" ? binding : binding.entityId)];
-    for (const entityId of configured) {
-      if (!entityId) continue;
+    for (const entityId of mappedEntityIds(mapping)) {
       const normalized = entityId.trim();
       if (entityIds.has(normalized)) throw new Error(`Home Assistant entity ${normalized} is mapped more than once`);
       entityIds.add(normalized);
     }
   }
+}
+
+function parseHaMessage(raw: string): HaMessage | null {
+  try {
+    return JSON.parse(raw) as HaMessage;
+  } catch {
+    return null;
+  }
+}
+
+export function loadEntityMappings(path: string): HomeAssistantEntityMapping[] {
+  const parsed = JSON.parse(readFileSync(resolve(path), "utf8")) as { entities?: unknown };
+  if (!Array.isArray(parsed.entities)) throw new Error("Home Assistant entity map must contain an entities array");
+  const mappings = parsed.entities.map(validateEntityMapping);
+  assertUniqueEntityIds(mappings);
   return mappings;
 }
 
@@ -168,26 +201,9 @@ export class HomeAssistantBridge {
   start(): void {
     if (this.#running) return;
     this.#running = true;
-    if (!this.status.value.homeAssistant.configured || !this.config.haEntityMapFile) return;
+    if (!this.status.value.homeAssistant.configured) return;
     try {
-      const mappings = loadEntityMappings(this.config.haEntityMapFile);
-      for (const mapping of mappings) {
-        const sensorId = mapping.sensorId.trim();
-        if (mapping.temperature) this.registerEntity(mapping.temperature, { sensorId, metric: "temperature", legacy: true });
-        if (mapping.humidity) this.registerEntity(mapping.humidity, { sensorId, metric: "humidity", legacy: true });
-        if (mapping.battery) this.registerEntity(mapping.battery, { sensorId, metric: "battery", legacy: true });
-        for (const [metric, configured] of Object.entries(mapping.measurements ?? {})) {
-          const binding = typeof configured === "string" ? { entityId: configured } : configured;
-          this.registerEntity(binding.entityId, {
-            sensorId,
-            metric,
-            ...(binding.unit !== undefined ? { expectedUnit: binding.unit.trim() } : {}),
-            ...(binding.scale !== undefined ? { scale: binding.scale } : {}),
-            ...(binding.offset !== undefined ? { offset: binding.offset } : {}),
-            legacy: false,
-          });
-        }
-      }
+      for (const mapping of this.configuredMappings()) this.registerMapping(mapping);
       this.status.value.homeAssistant.mappedEntities = this.#entities.size;
       this.status.value.homeAssistant.error = null;
       this.status.changed();
@@ -195,6 +211,29 @@ export class HomeAssistantBridge {
     } catch (error) {
       this.status.value.homeAssistant.error = error instanceof Error ? error.message : "Could not load entity mappings";
       this.status.changed();
+    }
+  }
+
+  private configuredMappings(): HomeAssistantEntityMapping[] {
+    const path = this.config.haEntityMapFile;
+    return path && existsSync(path) ? loadEntityMappings(path) : [];
+  }
+
+  private registerMapping(mapping: HomeAssistantEntityMapping): void {
+    const sensorId = mapping.sensorId.trim();
+    if (mapping.temperature) this.registerEntity(mapping.temperature, { sensorId, metric: "temperature", legacy: true });
+    if (mapping.humidity) this.registerEntity(mapping.humidity, { sensorId, metric: "humidity", legacy: true });
+    if (mapping.battery) this.registerEntity(mapping.battery, { sensorId, metric: "battery", legacy: true });
+    for (const [metric, configured] of Object.entries(mapping.measurements ?? {})) {
+      const binding = typeof configured === "string" ? { entityId: configured } : configured;
+      this.registerEntity(binding.entityId, {
+        sensorId,
+        metric,
+        ...(binding.unit !== undefined ? { expectedUnit: binding.unit.trim() } : {}),
+        ...(binding.scale !== undefined ? { scale: binding.scale } : {}),
+        ...(binding.offset !== undefined ? { offset: binding.offset } : {}),
+        legacy: false,
+      });
     }
   }
 
@@ -211,6 +250,16 @@ export class HomeAssistantBridge {
     this.#socket?.close();
     this.#socket = null;
     this.status.value.homeAssistant.connected = false;
+  }
+
+  restart(): void {
+    this.stop();
+    this.#attempt = 0;
+    this.#entities.clear();
+    this.#cache.clear();
+    this.status.value.homeAssistant.mappedEntities = 0;
+    this.status.value.homeAssistant.error = null;
+    this.start();
   }
 
   private connect(): void {
@@ -232,56 +281,72 @@ export class HomeAssistantBridge {
   }
 
   private onMessage(raw: string): void {
-    let message: HaMessage;
-    try {
-      message = JSON.parse(raw) as HaMessage;
-    } catch {
-      return;
+    const message = parseHaMessage(raw);
+    if (!message) return;
+    switch (message.type) {
+      case "auth_required":
+        this.#socket?.send(JSON.stringify({ type: "auth", access_token: this.config.haToken }));
+        break;
+      case "auth_ok":
+        this.handleAuthenticated();
+        break;
+      case "auth_invalid":
+        this.status.value.homeAssistant.error = "Home Assistant rejected the access token";
+        this.status.changed();
+        this.#socket?.close();
+        break;
+      case "result":
+        this.handleResult(message);
+        break;
+      case "event":
+        this.handleEvent(message);
+        break;
     }
-    if (message.type === "auth_required") {
-      this.#socket?.send(JSON.stringify({ type: "auth", access_token: this.config.haToken }));
-      return;
-    }
-    if (message.type === "auth_ok") {
-      this.#attempt = 0;
-      this.status.value.homeAssistant.connected = true;
-      this.status.value.homeAssistant.error = null;
-      this.status.changed();
-      this.#socket?.send(JSON.stringify({ id: 1, type: "get_states" }));
-      this.#socket?.send(JSON.stringify({ id: 2, type: "subscribe_events", event_type: "state_changed" }));
-      return;
-    }
-    if (message.type === "auth_invalid") {
-      this.status.value.homeAssistant.error = "Home Assistant rejected the access token";
-      this.status.changed();
-      this.#socket?.close();
-      return;
-    }
-    if (message.type === "result" && message.id === 1) {
+  }
+
+  private handleAuthenticated(): void {
+    this.#attempt = 0;
+    this.status.value.homeAssistant.connected = true;
+    this.status.value.homeAssistant.error = null;
+    this.status.changed();
+    this.#socket?.send(JSON.stringify({ id: 1, type: "get_states" }));
+    this.#socket?.send(JSON.stringify({ id: 2, type: "subscribe_events", event_type: "state_changed" }));
+  }
+
+  private handleResult(message: HaMessage): void {
+    if (message.id === 1) {
       if (!message.success || !Array.isArray(message.result)) {
         this.status.value.homeAssistant.error = "Home Assistant initial state request failed";
         this.status.changed();
         return;
       }
-      const climateUpdates = new Map<string, string>();
-      for (const state of message.result) {
-        const updated = this.applyState(state);
-        if (!updated || updated.metric === "battery") continue;
-        this.ingestMeasurementUpdate(updated);
-        if (updated.metric === "temperature" || updated.metric === "humidity") {
-          const previous = climateUpdates.get(updated.sensorId);
-          if (!previous || Date.parse(updated.timestamp) > Date.parse(previous)) climateUpdates.set(updated.sensorId, updated.timestamp);
-        }
-      }
-      for (const [sensorId, timestamp] of climateUpdates) this.ingestCachedClimate(sensorId, timestamp);
+      this.ingestInitialStates(message.result);
       return;
     }
-    if (message.type === "result" && message.id === 2 && !message.success) {
+    if (message.id === 2 && !message.success) {
       this.status.value.homeAssistant.error = "Home Assistant rejected the state_changed subscription";
       this.status.changed();
-      return;
     }
-    if (message.type !== "event" || message.event?.event_type !== "state_changed") return;
+  }
+
+  private ingestInitialStates(states: HaState[]): void {
+    const climateUpdates = new Map<string, string>();
+    for (const state of states) {
+      const updated = this.applyState(state);
+      if (!updated || updated.metric === "battery") continue;
+      this.ingestMeasurementUpdate(updated);
+      if (updated.metric === "temperature" || updated.metric === "humidity") {
+        const previous = climateUpdates.get(updated.sensorId);
+        if (!previous || Date.parse(updated.timestamp) > Date.parse(previous)) {
+          climateUpdates.set(updated.sensorId, updated.timestamp);
+        }
+      }
+    }
+    for (const [sensorId, timestamp] of climateUpdates) this.ingestCachedClimate(sensorId, timestamp);
+  }
+
+  private handleEvent(message: HaMessage): void {
+    if (message.event?.event_type !== "state_changed") return;
     const entityId = message.event.data?.entity_id;
     const newState = message.event.data?.new_state;
     if (!entityId || !newState) return;

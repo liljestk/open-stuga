@@ -1,11 +1,12 @@
 # Security, privacy, and retention
 
-Climate Twin is local-first, not automatically trusted-by-LAN. Environmental
+Stuga is local-first, not automatically trusted-by-LAN. Environmental
 traces such as temperature, humidity, and CO2 can reveal occupancy,
 shower/sleep patterns, ventilation habits, room use, incidents, and building
 weaknesses. Floor plans and manually recorded leaks add more sensitive household
 context. A precise house latitude/longitude is also sensitive: it can identify
-the property and is sent to FMI when house weather is requested.
+the property and is sent to the selected weather provider when house weather is
+requested.
 
 ## Default security boundary
 
@@ -22,21 +23,38 @@ authentication.
 
 ## Secrets
 
-- Put `HA_TOKEN`, `INGEST_API_KEY`, and `ALERT_WEBHOOK_BEARER_TOKEN` only in the
-  private `.env` or a container/orchestrator secret store.
+- The guided setup sends Home Assistant and TP-Link credentials to the local
+  API and stores them outside SQLite in `INTEGRATION_SECRETS_FILE`. The API never
+  returns them. The file is written atomically with owner-only mode where the
+  platform supports it, but it is not application-level encrypted. Protect the
+  host account, disk, backups, and Docker data volume.
+- These integration credentials configure the API process, not an individual
+  home. The Setup home selector scopes home metadata; it is not an authorization
+  or credential boundary between homes.
+- Environment variables remain advanced overrides. Put `HA_TOKEN`,
+  `TP_LINK_USERNAME`, `TP_LINK_PASSWORD`, `INGEST_API_KEY`, and
+  `ALERT_WEBHOOK_BEARER_TOKEN` only in the private `.env`, the protected
+  integration secrets file, or a container/orchestrator secret store.
 - Never put a token in entity maps, floor-plan files, browser environment
   variables prefixed `VITE_`, URLs, source control, screenshots, or support
   bundles.
 - Use a dedicated non-admin Home Assistant user where possible. Delete its token
   when the integration is removed and rotate it after suspected exposure.
+- Prefer a dedicated least-privilege TP-Link account if the platform supports
+  the required hub access. Rotate its password after suspected exposure.
 - Give outbound webhook credentials access only to the receiving endpoint.
 - Prevent secrets from being emitted in normal or debug logs; redact headers and
   WebSocket authentication messages.
 
-The FMI WFS and CAP endpoints used by the weather adapter do not require an API
-key. Do not add a weather credential to browser code or expose unrelated FMI
-commercial-service credentials. House coordinates are data, not credentials,
-but logs and support bundles should still redact or coarsen them.
+The FMI and Open-Meteo endpoints used by the weather/location adapters do not
+require an API key. Do not add a weather credential to browser code or expose
+unrelated commercial-service credentials. House coordinates and place-search
+text are data, not credentials, but logs and support bundles should still redact
+or coarsen them.
+Outdoor-boundary rows use an opaque location digest, are deleted when house
+coordinates change or are cleared, and follow normal sample retention. The
+digest is pseudonymisation, not encryption; protect the SQLite database and its
+backups as location-sensitive data.
 
 `.dockerignore` excludes local `.env` files and runtime data from image build
 context. That is defense in depth, not a substitute for checking commits and
@@ -48,12 +66,15 @@ Recommended flows are narrowly scoped:
 
 | Source | Destination | Purpose |
 | --- | --- | --- |
-| Climate Twin API | Home Assistant `8123/tcp` | authenticated WebSocket state events |
-| User browser | Climate Twin web/API port | UI, `/api/v1`, and `/api/v2` |
+| Stuga API | Home Assistant `8123/tcp` | authenticated WebSocket state events |
+| Stuga API | H100/H200 local address | authenticated direct local polling |
+| User browser | Stuga web/API port | UI, `/api/v1`, and `/api/v2` |
 | User browser | `tile.openstreetmap.org:443` | attributed location-picker tiles only |
-| Climate Twin API | `opendata.fmi.fi:443` | WFS observation and point-forecast requests |
-| Climate Twin API | `alerts.fmi.fi:443` | official CAP warning feed |
-| Climate Twin API | configured webhook host | alert delivery only |
+| Stuga API | `opendata.fmi.fi:443` | WFS observation and point-forecast requests |
+| Stuga API | `alerts.fmi.fi:443` | official CAP warning feed |
+| Stuga API | `api.open-meteo.com:443` | worldwide weather and coordinate-to-timezone defaults |
+| Stuga API | `geocoding-api.open-meteo.com:443` | user-initiated place search |
+| Stuga API | configured webhook host | alert delivery only |
 | Home Assistant | H200 local address | official TP-Link local polling |
 
 Block unsolicited inbound traffic to the API from guest/IoT networks. Do not
@@ -62,14 +83,22 @@ webhook destinations in a more hostile deployment to reduce server-side request
 forgery and data-exfiltration risk.
 
 The production CSP permits map images only from the exact HTTPS
-`tile.openstreetmap.org` origin; FMI is server-to-server and is not allowed in
-browser `connect-src`. Browser geolocation stays disabled. OSM tile requests
-nevertheless reveal the browser IP address, the Climate Twin origin in the
-policy-required `Referer`, and tile coordinates that identify the viewed area.
-Use API-entered coordinates and do not open the map-enabled page when that
-third-party request is unacceptable, or replace the tile layer with an approved
-self-hosted/private service. Keep visible OSM attribution and follow its tile
-usage and privacy policies.
+`tile.openstreetmap.org` origin; FMI and Open-Meteo are server-to-server and are
+not allowed in browser `connect-src`. The map is not loaded until an explicit
+user action. OSM tile requests then reveal the browser IP address, the Climate
+Twin origin in the policy-required `Referer`, and tile coordinates that identify
+the viewed area. Use manual/API-entered coordinates and do not load the map when
+that third-party request is unacceptable, or replace the tile layer with an
+approved self-hosted/private service. Keep visible OSM attribution and follow
+its tile usage and privacy policies.
+
+**Use this device's location** is also explicit. Only that click invokes the
+browser geolocation permission prompt; approval sends the selected coordinates
+to the local API for persistence and server-side timezone/weather lookup.
+Stuga does not retain device movement history. A place search sends its
+text and UI language to the local API and Open-Meteo geocoding, but saves no
+result until the user reviews and applies one. Manual fields remain available
+under **Advanced** when neither disclosure is acceptable.
 
 The Compose services run with `no-new-privileges`; the API uses a non-root user,
 and only its data volume is writable. Keep Docker, Node.js, Nginx, Home Assistant,
@@ -105,10 +134,11 @@ Collect the least data needed for the stated use case:
 
 - Use room labels rather than occupant names.
 - Store only the house-location precision needed for useful weather. Prefer a
-  town/area label over a street address; the label is not sent as a geocoding
-  query.
+  town/area search and label over a street address. Search text is sent to
+  Open-Meteo geocoding, while a later display-label edit is stored locally.
 - Avoid putting medical, personal, or security-system facts in free-form notes.
-- Store only mapped Home Assistant entities, not the whole event bus.
+- Store only mapped Home Assistant entities or TP-Link children, not an entire
+  device/event inventory.
 - Keep raw high-frequency metric samples only for a justified window; retain
   aggregates longer if that meets the analytical purpose.
 - Exclude token values, Home Assistant event context, IP addresses, and device
@@ -169,9 +199,11 @@ If a token or dataset is exposed:
 
 - [ ] The user can see exactly which entities and houses are included.
 - [ ] The destination and purpose are documented.
-- [ ] The user understands that FMI receives the saved coordinate during
-      forecast requests and OSM receives browser tile requests when the map is
-      opened.
+- [ ] The user understands that FMI or Open-Meteo receives the saved coordinate
+      during weather requests, place-search text goes to Open-Meteo geocoding,
+      and OSM receives browser tile requests only when the map is loaded.
+- [ ] Device geolocation was explicitly requested and approved, or manual/place
+      search was used instead; unnecessary browser permission has been revoked.
 - [ ] Only the minimum event fields leave the host.
 - [ ] Transport is authenticated and encrypted outside the loopback/LAN trust
       boundary.

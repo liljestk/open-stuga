@@ -2,7 +2,7 @@
 
 ## Deployment assumptions
 
-Climate Twin is local-first and binds to a configurable port. Do not expose it directly to the public internet. Put authentication and TLS at a trusted reverse proxy or private access layer before allowing remote access.
+Stuga's default edition is local-first and binds to a configurable port. Do not expose its local API directly to the public internet. Put authentication and TLS at a trusted reverse proxy or private access layer before allowing remote access. The optional Cloudflare hosted edition has a separate tenant-aware API and Access boundary; see the [hosting guide](docs/cloudflare-hosting.md).
 
 ## Secrets
 

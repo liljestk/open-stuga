@@ -30,7 +30,7 @@ import {
 } from "./measurements";
 
 export type ViewMode = "plan" | "isometric";
-export type AppPage = "twin" | "alerts" | "integrations" | "developer";
+export type AppPage = "overview" | "twin" | "outdoor" | "sensors" | "alerts" | "integrations" | "developer";
 export type TimeRange = "6h" | "24h" | "7d";
 
 export interface ClimateState {
@@ -60,9 +60,11 @@ const now = new Date();
 const groundFloor: Floor = {
   id: DEMO_GROUND_ID,
   name: "Ground floor",
+  type: "ground",
   width: 1000,
   height: 640,
   elevation: 0,
+  ceilingHeight: 2.8,
   walls: [
     { id: "g-o1", from: { x: 50, y: 45 }, to: { x: 950, y: 45 } },
     { id: "g-o2", from: { x: 950, y: 45 }, to: { x: 950, y: 590 } },
@@ -85,9 +87,11 @@ const groundFloor: Floor = {
 const upperFloor: Floor = {
   id: DEMO_UPPER_ID,
   name: "Upper floor",
+  type: "upper",
   width: 1000,
   height: 640,
   elevation: 3,
+  ceilingHeight: 2.6,
   walls: [
     { id: "u-o1", from: { x: 50, y: 45 }, to: { x: 950, y: 45 } },
     { id: "u-o2", from: { x: 950, y: 45 }, to: { x: 950, y: 590 } },
@@ -281,9 +285,10 @@ export function createDemoState(): ClimateState {
     }],
     integration: {
       homeAssistant: { configured: false, connected: false, lastEventAt: null, mappedEntities: 0, error: null },
+      tpLink: { configured: false, connected: false, lastPollAt: null, mappedDevices: 0, discoveredDevices: 0, hubModel: null, error: null },
       webhook: { configured: false, lastDeliveryAt: null, error: null },
-      mock: { enabled: true, intervalMs: 2000 },
-      weather: { provider: "fmi", configuredHouses: 0, lastSuccessAt: null, error: null },
+      mock: { enabled: true, intervalMs: 2000, mode: "demo", activatedAt: null },
+      weather: { policy: "automatic", availableProviders: ["fmi", "open-meteo"], provider: "fmi", configuredHouses: 0, lastSuccessAt: null, error: null },
     },
     scenarios: [
       { id: "normal", label: "Normal day", description: "Stable indoor conditions" },

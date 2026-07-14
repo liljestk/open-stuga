@@ -23,11 +23,37 @@ function renderDashboard(state: ClimateState) {
   return {
     ...view,
     sensor,
+    onFloorChange: props.onFloorChange,
+    onSensorUpdate: props.onSensorUpdate,
     rerenderState(nextState: ClimateState) {
       view.rerender(<I18nProvider><TwinDashboard state={nextState} {...props} /></I18nProvider>);
     },
   };
 }
+
+describe("TwinDashboard room geometry", () => {
+  it("keeps room geometry edits separate from sensor room assignments", () => {
+    const state = createDemoState();
+    const floor = state.houses[0]!.floors[0]!;
+    const room = floor.rooms.find((candidate) => state.sensors.some((sensor) => sensor.floorId === floor.id && sensor.room === candidate.name))!;
+    const view = renderDashboard(state);
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit layout" }));
+    fireEvent.pointerDown(screen.getByRole("button", { name: `Room: ${room.name}` }));
+    const roomName = screen.getByLabelText("Name");
+    fireEvent.focus(roomName);
+    fireEvent.change(roomName, { target: { value: "Renamed room geometry" } });
+    fireEvent.blur(roomName, { target: { value: "Renamed room geometry" } });
+
+    expect(view.onFloorChange).toHaveBeenCalled();
+    expect(view.onSensorUpdate).not.toHaveBeenCalled();
+
+    const changesBeforeDelete = view.onFloorChange.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Delete room" }));
+    expect(view.onFloorChange.mock.calls.length).toBeGreaterThan(changesBeforeDelete);
+    expect(view.onSensorUpdate).not.toHaveBeenCalled();
+  });
+});
 
 describe("TwinDashboard replay timing", () => {
   it("starts first play at the beginning and advances at the selected minutes-per-second rate", () => {

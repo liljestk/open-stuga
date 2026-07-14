@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import type {
   AlertEvent,
@@ -8,21 +8,36 @@ import type {
   Floor,
   House,
   HouseLocation,
+  HouseMapPlacement,
   ManualObservation,
   MeasurementDefinition,
   MeasurementSample,
+  OutdoorTemperatureSample,
   Reading,
   Sensor,
   StaticParameter,
+  Wall,
 } from "@climate-twin/contracts";
 
 type JsonValue = string | number | boolean;
+const MIN_SEED_OUTDOOR_READINGS = 48;
+const DEMO_TELEMETRY_SOURCES = new Set<MeasurementSample["source"]>(["mock", "replay"]);
+
+export interface DemoTelemetryPurgeResult {
+  activated: boolean;
+  activatedAt: string;
+  readings: number;
+  measurementSamples: number;
+  outdoorTemperatureSamples: number;
+  alertEvents: number;
+}
 
 interface HouseRow {
   id: string;
   name: string;
   timezone: string;
   location_json: string | null;
+  map_placement_json: string | null;
   orientation_degrees: number | null;
   floors_json: string;
   created_at: string;
@@ -42,6 +57,7 @@ interface SensorRow {
   temperature_entity_id: string | null;
   humidity_entity_id: string | null;
   battery_entity_id: string | null;
+  tp_link_device_id: string | null;
   measurement_entity_ids_json?: string | null;
   tags_json: string;
   enabled: number;
@@ -135,6 +151,17 @@ interface StaticParameterRow {
   label: string;
 }
 
+interface OutdoorTemperatureRow {
+  house_id: string;
+  location_key: string;
+  timestamp: string;
+  temperature_c: number;
+  source: OutdoorTemperatureSample["source"];
+  fetched_at: string;
+  station_id: string | null;
+  station_name: string | null;
+}
+
 export interface AssetRecord {
   id: string;
   houseId: string;
@@ -155,8 +182,54 @@ export class ClimateDataValidationError extends Error {
   }
 }
 
+export type SensorUpdate = Partial<Omit<Sensor, "id" | "tpLinkDeviceId">> & {
+  /** Set null to remove a persisted direct TP-Link child-device binding. */
+  tpLinkDeviceId?: string | null;
+};
+
 function parseJson<T>(value: string): T {
   return JSON.parse(value) as T;
+}
+
+type LayoutPoint = { x: number; y: number };
+
+function roomPolygonSelfIntersects(points: LayoutPoint[], coordinateScale: number): boolean {
+  const linearTolerance = Math.max(1, coordinateScale) * 1e-10;
+  const crossTolerance = Math.max(1, coordinateScale * coordinateScale) * 1e-10;
+  const cross = (a: LayoutPoint, b: LayoutPoint, c: LayoutPoint) => (
+    (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+  );
+  const onSegment = (a: LayoutPoint, b: LayoutPoint, point: LayoutPoint) => (
+    Math.abs(cross(a, b, point)) <= crossTolerance
+    && point.x >= Math.min(a.x, b.x) - linearTolerance
+    && point.x <= Math.max(a.x, b.x) + linearTolerance
+    && point.y >= Math.min(a.y, b.y) - linearTolerance
+    && point.y <= Math.max(a.y, b.y) + linearTolerance
+  );
+  const segmentsIntersect = (a: LayoutPoint, b: LayoutPoint, c: LayoutPoint, d: LayoutPoint) => {
+    const abC = cross(a, b, c);
+    const abD = cross(a, b, d);
+    const cdA = cross(c, d, a);
+    const cdB = cross(c, d, b);
+    const crossesProperly = ((abC > crossTolerance && abD < -crossTolerance) || (abC < -crossTolerance && abD > crossTolerance))
+      && ((cdA > crossTolerance && cdB < -crossTolerance) || (cdA < -crossTolerance && cdB > crossTolerance));
+    return crossesProperly
+      || onSegment(a, b, c)
+      || onSegment(a, b, d)
+      || onSegment(c, d, a)
+      || onSegment(c, d, b);
+  };
+
+  for (let firstIndex = 0; firstIndex < points.length; firstIndex += 1) {
+    const firstNext = (firstIndex + 1) % points.length;
+    for (let secondIndex = firstIndex + 1; secondIndex < points.length; secondIndex += 1) {
+      const secondNext = (secondIndex + 1) % points.length;
+      // Consecutive edges are expected to meet at their shared vertex.
+      if (firstNext === secondIndex || secondNext === firstIndex) continue;
+      if (segmentsIntersect(points[firstIndex]!, points[firstNext]!, points[secondIndex]!, points[secondNext]!)) return true;
+    }
+  }
+  return false;
 }
 
 function houseFromRow(row: HouseRow): House {
@@ -165,6 +238,7 @@ function houseFromRow(row: HouseRow): House {
     name: row.name,
     timezone: row.timezone,
     ...(row.location_json ? { location: parseJson<HouseLocation>(row.location_json) } : {}),
+    ...(row.map_placement_json ? { mapPlacement: parseJson<HouseMapPlacement>(row.map_placement_json) } : {}),
     ...(row.orientation_degrees !== null ? { orientationDegrees: row.orientation_degrees } : {}),
     floors: parseJson<Floor[]>(row.floors_json),
     createdAt: row.created_at,
@@ -186,6 +260,7 @@ function sensorFromRow(row: SensorRow): Sensor {
     ...(row.temperature_entity_id ? { temperatureEntityId: row.temperature_entity_id } : {}),
     ...(row.humidity_entity_id ? { humidityEntityId: row.humidity_entity_id } : {}),
     ...(row.battery_entity_id ? { batteryEntityId: row.battery_entity_id } : {}),
+    ...(row.tp_link_device_id ? { tpLinkDeviceId: row.tp_link_device_id } : {}),
     tags: parseJson<string[]>(row.tags_json),
     enabled: row.enabled === 1,
   };
@@ -293,6 +368,26 @@ function parameterFromRow(row: StaticParameterRow): StaticParameter {
   };
 }
 
+function outdoorTemperatureFromRow(row: OutdoorTemperatureRow): OutdoorTemperatureSample {
+  return {
+    houseId: row.house_id,
+    locationKey: row.location_key,
+    timestamp: row.timestamp,
+    temperatureC: row.temperature_c,
+    source: row.source,
+    fetchedAt: row.fetched_at,
+    stationId: row.station_id,
+    stationName: row.station_name,
+  };
+}
+
+/** Opaque stable key prevents old-location weather entering a new calibration. */
+export function outdoorLocationKey(location?: HouseLocation): string {
+  if (!location) return "unlocated";
+  const normalized = `${location.latitude.toFixed(6)},${location.longitude.toFixed(6)}`;
+  return `geo:${createHash("sha256").update(normalized).digest("hex").slice(0, 24)}`;
+}
+
 export class ClimateDatabase {
   readonly db: DatabaseSync;
 
@@ -301,8 +396,90 @@ export class ClimateDatabase {
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
     this.migrate();
-    if (seed) this.seed();
+    const realDataMode = this.isRealDataMode();
+    // Never seed a database that has crossed the one-way boundary, including
+    // partially restored databases whose seed metadata is missing.
+    if (seed && !realDataMode) this.seed();
+    if (realDataMode) this.purgeSourceLabelledDemoTelemetry();
     this.backfillLegacyMeasurements();
+    if (seed && !realDataMode) this.backfillSeedOutdoorTemperature();
+    // A persisted real-data latch is authoritative even if a database was
+    // modified outside the application while it was stopped.
+    if (this.isRealDataMode()) this.purgeSourceLabelledDemoTelemetry();
+  }
+
+  isRealDataMode(): boolean {
+    return (this.db.prepare("SELECT value FROM metadata WHERE key = 'data_mode'").get() as { value: string } | undefined)?.value === "real";
+  }
+
+  realDataModeActivatedAt(): string | null {
+    if (!this.isRealDataMode()) return null;
+    return (this.db.prepare("SELECT value FROM metadata WHERE key = 'real_data_mode_activated_at'").get() as { value: string } | undefined)?.value ?? null;
+  }
+
+  /**
+   * Permanently latches this database into real-data mode and removes every
+   * persisted value that could have been produced by the demo runtime.
+   */
+  activateRealDataMode(): DemoTelemetryPurgeResult {
+    return this.immediateTransaction(() => {
+      const currentMode = (this.db.prepare("SELECT value FROM metadata WHERE key = 'data_mode'").get() as { value: string } | undefined)?.value;
+      const existingActivatedAt = (this.db.prepare(
+        "SELECT value FROM metadata WHERE key = 'real_data_mode_activated_at'",
+      ).get() as { value: string } | undefined)?.value;
+      if (currentMode === "real") {
+        const activatedAt = existingActivatedAt ?? new Date().toISOString();
+        if (!existingActivatedAt) {
+          this.db.prepare("INSERT OR IGNORE INTO metadata(key, value) VALUES ('real_data_mode_activated_at', ?)").run(activatedAt);
+        }
+        return {
+          activated: false,
+          activatedAt,
+          readings: 0,
+          measurementSamples: 0,
+          outdoorTemperatureSamples: 0,
+          alertEvents: 0,
+        };
+      }
+
+      const activatedAt = existingActivatedAt ?? new Date().toISOString();
+      const measurementSamples = Number(this.db.prepare(
+        "DELETE FROM measurement_samples WHERE source IN ('mock', 'replay')",
+      ).run().changes);
+      const readings = Number(this.db.prepare(
+        "DELETE FROM readings WHERE source IN ('mock', 'replay')",
+      ).run().changes);
+      const outdoorTemperatureSamples = Number(this.db.prepare(
+        "DELETE FROM outdoor_temperature_samples WHERE source = 'mock'",
+      ).run().changes);
+      // Alert events have no source column. Clear them at the one-way boundary
+      // so an event or active condition derived from mock samples cannot cross it.
+      const alertEvents = Number(this.db.prepare("DELETE FROM alert_events").run().changes);
+      this.db.prepare(`INSERT INTO metadata(key, value) VALUES ('data_mode', 'real')
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run();
+      this.db.prepare("INSERT OR IGNORE INTO metadata(key, value) VALUES ('real_data_mode_activated_at', ?)").run(activatedAt);
+      return { activated: true, activatedAt, readings, measurementSamples, outdoorTemperatureSamples, alertEvents };
+    });
+  }
+
+  private purgeSourceLabelledDemoTelemetry(): void {
+    this.immediateTransaction(() => {
+      this.db.prepare("DELETE FROM measurement_samples WHERE source IN ('mock', 'replay')").run();
+      this.db.prepare("DELETE FROM readings WHERE source IN ('mock', 'replay')").run();
+      this.db.prepare("DELETE FROM outdoor_temperature_samples WHERE source = 'mock'").run();
+    });
+  }
+
+  private prepareTelemetrySources(sources: Array<MeasurementSample["source"] | Reading["source"]>): void {
+    const hasDemo = sources.some((source) => DEMO_TELEMETRY_SOURCES.has(source));
+    const hasReal = sources.some((source) => !DEMO_TELEMETRY_SOURCES.has(source));
+    if (hasDemo && hasReal) {
+      throw new ClimateDataValidationError(409, "MIXED_DATA_MODES", "Demo and real telemetry cannot be ingested in the same batch");
+    }
+    if (hasDemo && this.isRealDataMode()) {
+      throw new ClimateDataValidationError(409, "DEMO_DATA_DISABLED", "Demo telemetry is permanently disabled after a real integration or real sample is accepted");
+    }
+    if (hasReal && !this.isRealDataMode()) this.activateRealDataMode();
   }
 
   migrate(): void {
@@ -316,6 +493,7 @@ export class ClimateDatabase {
         name TEXT NOT NULL,
         timezone TEXT NOT NULL,
         location_json TEXT,
+        map_placement_json TEXT,
         orientation_degrees REAL CHECK (orientation_degrees >= 0 AND orientation_degrees < 360),
         floors_json TEXT NOT NULL,
         created_at TEXT NOT NULL,
@@ -334,6 +512,7 @@ export class ClimateDatabase {
         temperature_entity_id TEXT,
         humidity_entity_id TEXT,
         battery_entity_id TEXT,
+        tp_link_device_id TEXT,
         measurement_entity_ids_json TEXT,
         tags_json TEXT NOT NULL,
         enabled INTEGER NOT NULL CHECK (enabled IN (0, 1))
@@ -451,10 +630,56 @@ export class ClimateDatabase {
         size INTEGER NOT NULL,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS outdoor_temperature_samples (
+        house_id TEXT NOT NULL REFERENCES houses(id) ON DELETE CASCADE,
+        location_key TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        temperature_c REAL NOT NULL,
+        source TEXT NOT NULL,
+        fetched_at TEXT NOT NULL,
+        station_id TEXT,
+        station_name TEXT,
+        PRIMARY KEY(house_id, location_key, timestamp, source)
+      );
+      CREATE INDEX IF NOT EXISTS idx_outdoor_temperature_house_location_time
+        ON outdoor_temperature_samples(house_id, location_key, timestamp);
+      CREATE TRIGGER IF NOT EXISTS prevent_demo_reading_insert_in_real_mode
+        BEFORE INSERT ON readings
+        WHEN NEW.source IN ('mock', 'replay')
+          AND EXISTS (SELECT 1 FROM metadata WHERE key = 'data_mode' AND value = 'real')
+        BEGIN SELECT RAISE(ABORT, 'DEMO_DATA_DISABLED'); END;
+      CREATE TRIGGER IF NOT EXISTS prevent_demo_reading_update_in_real_mode
+        BEFORE UPDATE OF source ON readings
+        WHEN NEW.source IN ('mock', 'replay')
+          AND EXISTS (SELECT 1 FROM metadata WHERE key = 'data_mode' AND value = 'real')
+        BEGIN SELECT RAISE(ABORT, 'DEMO_DATA_DISABLED'); END;
+      CREATE TRIGGER IF NOT EXISTS prevent_demo_measurement_insert_in_real_mode
+        BEFORE INSERT ON measurement_samples
+        WHEN NEW.source IN ('mock', 'replay')
+          AND EXISTS (SELECT 1 FROM metadata WHERE key = 'data_mode' AND value = 'real')
+        BEGIN SELECT RAISE(ABORT, 'DEMO_DATA_DISABLED'); END;
+      CREATE TRIGGER IF NOT EXISTS prevent_demo_measurement_update_in_real_mode
+        BEFORE UPDATE OF source ON measurement_samples
+        WHEN NEW.source IN ('mock', 'replay')
+          AND EXISTS (SELECT 1 FROM metadata WHERE key = 'data_mode' AND value = 'real')
+        BEGIN SELECT RAISE(ABORT, 'DEMO_DATA_DISABLED'); END;
+      CREATE TRIGGER IF NOT EXISTS prevent_demo_outdoor_insert_in_real_mode
+        BEFORE INSERT ON outdoor_temperature_samples
+        WHEN NEW.source = 'mock'
+          AND EXISTS (SELECT 1 FROM metadata WHERE key = 'data_mode' AND value = 'real')
+        BEGIN SELECT RAISE(ABORT, 'DEMO_DATA_DISABLED'); END;
+      CREATE TRIGGER IF NOT EXISTS prevent_demo_outdoor_update_in_real_mode
+        BEFORE UPDATE OF source ON outdoor_temperature_samples
+        WHEN NEW.source = 'mock'
+          AND EXISTS (SELECT 1 FROM metadata WHERE key = 'data_mode' AND value = 'real')
+        BEGIN SELECT RAISE(ABORT, 'DEMO_DATA_DISABLED'); END;
     `);
     const houseColumns = this.db.prepare("PRAGMA table_info(houses)").all() as unknown as Array<{ name: string }>;
     if (!houseColumns.some((column) => column.name === "location_json")) {
       this.db.exec("ALTER TABLE houses ADD COLUMN location_json TEXT");
+    }
+    if (!houseColumns.some((column) => column.name === "map_placement_json")) {
+      this.db.exec("ALTER TABLE houses ADD COLUMN map_placement_json TEXT");
     }
     if (!houseColumns.some((column) => column.name === "orientation_degrees")) {
       this.db.exec("ALTER TABLE houses ADD COLUMN orientation_degrees REAL CHECK (orientation_degrees >= 0 AND orientation_degrees < 360)");
@@ -463,6 +688,11 @@ export class ClimateDatabase {
     if (!sensorColumns.some((column) => column.name === "measurement_entity_ids_json")) {
       this.db.exec("ALTER TABLE sensors ADD COLUMN measurement_entity_ids_json TEXT");
     }
+    if (!sensorColumns.some((column) => column.name === "tp_link_device_id")) {
+      this.db.exec("ALTER TABLE sensors ADD COLUMN tp_link_device_id TEXT");
+    }
+    this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_sensors_tp_link_device
+      ON sensors(tp_link_device_id) WHERE tp_link_device_id IS NOT NULL`);
     const insertDefinition = this.db.prepare(`INSERT OR IGNORE INTO measurement_definitions
       (id, labels_json, unit, precision, valid_min, valid_max, display_min, display_max, interpolation_delta,
        color_scale, builtin, enabled, spatial_interpolation, forecast_supported)
@@ -470,6 +700,7 @@ export class ClimateDatabase {
     insertDefinition.run("temperature", JSON.stringify({ en: "Temperature", fi: "Lämpötila" }), "°C", 1, -80, 100, 15, 30, 2, "thermal");
     insertDefinition.run("humidity", JSON.stringify({ en: "Humidity", fi: "Ilmankosteus" }), "%", 0, 0, 100, 20, 80, 10, "humidity");
     insertDefinition.run("co2", JSON.stringify({ en: "Carbon dioxide", fi: "Hiilidioksidi" }), "ppm", 0, 0, 10_000, 400, 2_000, 250, "air-quality");
+    this.migrateOutdoorLocationKeys();
     this.migrateSensorMeasurementBindings();
     const readingIdentityMigration = this.db.prepare("SELECT value FROM metadata WHERE key = 'reading_identity_v1'").get();
     if (!readingIdentityMigration) {
@@ -488,6 +719,37 @@ export class ClimateDatabase {
         throw error;
       }
     }
+  }
+
+  private migrateOutdoorLocationKeys(): void {
+    const migrated = this.db.prepare("SELECT value FROM metadata WHERE key = 'outdoor_location_keys_v2'").get();
+    if (migrated) return;
+    this.immediateTransaction(() => {
+      const houses = this.db.prepare("SELECT id, location_json FROM houses").all() as unknown as Array<{
+        id: string;
+        location_json: string | null;
+      }>;
+      const rekey = this.db.prepare(`UPDATE OR REPLACE outdoor_temperature_samples
+        SET location_key = ? WHERE house_id = ? AND location_key = ?`);
+      const prune = this.db.prepare(`DELETE FROM outdoor_temperature_samples
+        WHERE house_id = ? AND location_key <> ?`);
+      for (const house of houses) {
+        let location: HouseLocation | undefined;
+        try {
+          location = house.location_json ? JSON.parse(house.location_json) as HouseLocation : undefined;
+        } catch {
+          location = undefined;
+        }
+        const allowedKey = outdoorLocationKey(location);
+        if (location) {
+          const legacyKey = `${location.latitude.toFixed(6)},${location.longitude.toFixed(6)}`;
+          rekey.run(allowedKey, house.id, legacyKey);
+        }
+        // Removes precise historical coordinates and every superseded location.
+        prune.run(house.id, allowedKey);
+      }
+      this.db.prepare("INSERT INTO metadata(key, value) VALUES ('outdoor_location_keys_v2', 'complete')").run();
+    });
   }
 
   private backfillLegacyMeasurements(): void {
@@ -509,6 +771,45 @@ export class ClimateDatabase {
       this.db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  /**
+   * Gives the bundled demo an explicitly synthetic outdoor boundary so the physics UI is testable.
+   * It is never used for a geolocated house and is labelled `mock` in every result.
+   */
+  private backfillSeedOutdoorTemperature(): void {
+    const migrated = this.db.prepare("SELECT value FROM metadata WHERE key = 'seed_outdoor_temperature_v1'").get();
+    if (migrated) return;
+    const house = this.getHouse("house-main");
+    const existing = house
+      ? this.db.prepare("SELECT 1 FROM outdoor_temperature_samples WHERE house_id = ? LIMIT 1").get(house.id)
+      : null;
+    if (house && !house.location && !existing) {
+      const readings = this.db.prepare(`SELECT timestamp, temperature FROM readings
+        WHERE sensor_id = 'sensor-01' AND source = 'mock' ORDER BY timestamp ASC, id ASC`)
+        .all() as unknown as Array<{ timestamp: string; temperature: number }>;
+      if (readings.length > MIN_SEED_OUTDOOR_READINGS) {
+        const tauHours = 8;
+        const liftC = 16;
+        const insert = this.db.prepare(`INSERT OR IGNORE INTO outdoor_temperature_samples
+          (house_id, location_key, timestamp, temperature_c, source, fetched_at, station_id, station_name)
+          VALUES (?, ?, ?, ?, 'mock', ?, NULL, ?)`);
+        let lastOutdoorC = readings[0]?.temperature ?? 0;
+        for (let index = 0; index < readings.length - 1; index += 1) {
+          const current = readings[index];
+          const next = readings[index + 1];
+          if (!current || !next) continue;
+          const dtHours = (Date.parse(next.timestamp) - Date.parse(current.timestamp)) / 3_600_000;
+          if (!(dtHours > 0)) continue;
+          const memory = Math.exp(-dtHours / tauHours);
+          lastOutdoorC = (next.temperature - memory * current.temperature) / (1 - memory) - liftC;
+          insert.run(house.id, outdoorLocationKey(), current.timestamp, lastOutdoorC, current.timestamp, "Synthetic demo boundary");
+        }
+        const latest = readings.at(-1);
+        if (latest) insert.run(house.id, outdoorLocationKey(), latest.timestamp, lastOutdoorC, latest.timestamp, "Synthetic demo boundary");
+      }
+    }
+    this.db.prepare("INSERT INTO metadata(key, value) VALUES ('seed_outdoor_temperature_v1', 'complete')").run();
   }
 
   private migrateSensorMeasurementBindings(): void {
@@ -550,9 +851,11 @@ export class ClimateDatabase {
       {
         id: "floor-ground",
         name: "Ground floor",
+        type: "ground",
         width: 14,
         height: 10,
         elevation: 0,
+        ceilingHeight: 2.8,
         walls: [
           { id: "g-n", from: { x: 0, y: 0 }, to: { x: 14, y: 0 } },
           { id: "g-e", from: { x: 14, y: 0 }, to: { x: 14, y: 10 } },
@@ -570,9 +873,11 @@ export class ClimateDatabase {
       {
         id: "floor-upper",
         name: "Upper floor",
+        type: "upper",
         width: 14,
         height: 10,
         elevation: 3,
+        ceilingHeight: 2.6,
         walls: [
           { id: "u-n", from: { x: 0, y: 0 }, to: { x: 14, y: 0 } },
           { id: "u-e", from: { x: 14, y: 0 }, to: { x: 14, y: 10 } },
@@ -607,8 +912,8 @@ export class ClimateDatabase {
     this.db.exec("BEGIN");
     try {
       this.db.prepare(`INSERT INTO houses
-        (id, name, timezone, location_json, orientation_degrees, floors_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run("house-main", "My climate twin", "Europe/Helsinki", null, null, JSON.stringify(floors), now, now);
+        (id, name, timezone, location_json, map_placement_json, orientation_degrees, floors_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run("house-main", "My home", "Europe/Helsinki", null, null, null, JSON.stringify(floors), now, now);
       const sensorStatement = this.db.prepare(`INSERT INTO sensors
         (id, house_id, floor_id, name, room, model, x, y, z, temperature_entity_id, humidity_entity_id, battery_entity_id, tags_json, enabled)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
@@ -661,22 +966,27 @@ export class ClimateDatabase {
   createHouse(input: Pick<House, "name" | "timezone" | "floors"> & {
     id?: string;
     location?: HouseLocation;
+    mapPlacement?: HouseMapPlacement;
     orientationDegrees?: number;
   }): House {
     this.validateFloorDefinitions(input.floors);
+    this.validateHouseTimezone(input.timezone);
     if (input.location) this.validateHouseLocation(input.location);
+    if (input.mapPlacement) this.validateHouseMapPlacement(input.mapPlacement, input.floors);
     if (input.orientationDegrees !== undefined) this.validateHouseOrientation(input.orientationDegrees);
     const timestamp = new Date().toISOString();
     const house: House = {
       id: input.id ?? randomUUID(), name: input.name, timezone: input.timezone,
       ...(input.location ? { location: input.location } : {}),
+      ...(input.mapPlacement ? { mapPlacement: input.mapPlacement } : {}),
       ...(input.orientationDegrees !== undefined ? { orientationDegrees: input.orientationDegrees } : {}),
       floors: input.floors,
       createdAt: timestamp, updatedAt: timestamp,
     };
     this.db.prepare(`INSERT INTO houses
-      (id, name, timezone, location_json, orientation_degrees, floors_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      (id, name, timezone, location_json, map_placement_json, orientation_degrees, floors_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(house.id, house.name, house.timezone, house.location ? JSON.stringify(house.location) : null,
+        house.mapPlacement ? JSON.stringify(house.mapPlacement) : null,
         house.orientationDegrees ?? null,
         JSON.stringify(house.floors), house.createdAt, house.updatedAt);
     return house;
@@ -686,30 +996,44 @@ export class ClimateDatabase {
     id: string,
     patch: Partial<Pick<House, "name" | "timezone" | "floors">> & {
       location?: HouseLocation | null;
+      mapPlacement?: HouseMapPlacement | null;
       orientationDegrees?: number | null;
     },
   ): House | null {
     return this.immediateTransaction(() => {
       const current = this.getHouse(id);
       if (!current) return null;
-      // Apply optional fields explicitly so a nullable location patch never leaks
-      // `null` into the public House contract (absence is represented by omission).
+      // Apply nullable optional fields explicitly so `null` never leaks into
+      // the public House contract (absence is represented by omission).
       const next: House = { ...current, id, updatedAt: new Date().toISOString() };
       if (patch.name !== undefined) next.name = patch.name;
-      if (patch.timezone !== undefined) next.timezone = patch.timezone;
+      if (patch.timezone !== undefined) {
+        // A legacy database may contain a timezone accepted by an older build.
+        // Preserve that value when an unrelated full-form update echoes it, but
+        // validate every newly introduced timezone.
+        if (patch.timezone !== current.timezone) this.validateHouseTimezone(patch.timezone);
+        next.timezone = patch.timezone;
+      }
       if (patch.floors !== undefined) next.floors = patch.floors;
       if (patch.orientationDegrees === null) delete next.orientationDegrees;
       else if (patch.orientationDegrees !== undefined) next.orientationDegrees = patch.orientationDegrees;
       if (patch.location === null) delete next.location;
       else if (patch.location !== undefined) next.location = patch.location;
+      if (patch.mapPlacement === null) delete next.mapPlacement;
+      else if (patch.mapPlacement !== undefined) next.mapPlacement = patch.mapPlacement;
       if (next.location) this.validateHouseLocation(next.location);
       if (next.orientationDegrees !== undefined) this.validateHouseOrientation(next.orientationDegrees);
       this.validateFloorDefinitions(next.floors);
+      if (next.mapPlacement) this.validateHouseMapPlacement(next.mapPlacement, next.floors);
       this.validateHouseLayoutForSensors(id, next.floors);
-      this.db.prepare("UPDATE houses SET name = ?, timezone = ?, location_json = ?, orientation_degrees = ?, floors_json = ?, updated_at = ? WHERE id = ?")
+      this.db.prepare("UPDATE houses SET name = ?, timezone = ?, location_json = ?, map_placement_json = ?, orientation_degrees = ?, floors_json = ?, updated_at = ? WHERE id = ?")
         .run(next.name, next.timezone, next.location ? JSON.stringify(next.location) : null,
+          next.mapPlacement ? JSON.stringify(next.mapPlacement) : null,
           next.orientationDegrees ?? null,
           JSON.stringify(next.floors), next.updatedAt, id);
+      if (patch.location !== undefined && outdoorLocationKey(current.location) !== outdoorLocationKey(next.location)) {
+        this.db.prepare("DELETE FROM outdoor_temperature_samples WHERE house_id = ?").run(id);
+      }
       return next;
     });
   }
@@ -743,17 +1067,22 @@ export class ClimateDatabase {
     const sensor: Sensor = { ...input, id: input.id ?? randomUUID() };
     return this.immediateTransaction(() => {
       this.validateSensorPlacement(sensor);
+      this.validateTpLinkDeviceBinding(sensor);
       this.writeSensor(sensor, true);
       return sensor;
     });
   }
 
-  updateSensor(id: string, patch: Partial<Omit<Sensor, "id">>): Sensor | null {
+  updateSensor(id: string, patch: SensorUpdate): Sensor | null {
     return this.immediateTransaction(() => {
       const current = this.getSensor(id);
       if (!current) return null;
-      const sensor: Sensor = { ...current, ...patch, id };
+      const { tpLinkDeviceId, ...fields } = patch;
+      const sensor: Sensor = { ...current, ...fields, id };
+      if (tpLinkDeviceId === null) delete sensor.tpLinkDeviceId;
+      else if (tpLinkDeviceId !== undefined) sensor.tpLinkDeviceId = tpLinkDeviceId;
       this.validateSensorPlacement(sensor);
+      this.validateTpLinkDeviceBinding(sensor);
       this.writeSensor(sensor, false);
       return sensor;
     });
@@ -790,6 +1119,123 @@ export class ClimateDatabase {
       if (!Number.isFinite(floor.elevation)) {
         throw new ClimateDataValidationError(400, "INVALID_FLOOR_ELEVATION", `Floor ${floor.id} elevation must be finite`);
       }
+      if (floor.type !== undefined && !["basement", "ground", "upper", "attic", "mezzanine", "outdoor"].includes(floor.type)) {
+        throw new ClimateDataValidationError(400, "INVALID_FLOOR_TYPE", `Floor ${floor.id} has an unsupported type`);
+      }
+      if (floor.ceilingHeight !== undefined && (!Number.isFinite(floor.ceilingHeight) || floor.ceilingHeight <= 0)) {
+        throw new ClimateDataValidationError(400, "INVALID_CEILING_HEIGHT", `Floor ${floor.id} ceilingHeight must be a positive finite number`);
+      }
+      const pointIsValid = (point: { x: number; y: number } | null | undefined) => Boolean(
+        point && Number.isFinite(point.x) && Number.isFinite(point.y)
+        && point.x >= 0 && point.x <= floor.width && point.y >= 0 && point.y <= floor.height,
+      );
+      if (!Array.isArray(floor.walls)) {
+        throw new ClimateDataValidationError(400, "INVALID_WALLS", `Floor ${floor.id} walls must be an array`);
+      }
+      const wallsById = new Map<string, Wall>();
+      for (const wall of floor.walls) {
+        if (!wall || typeof wall.id !== "string" || wall.id.trim() === "" || wallsById.has(wall.id)) {
+          throw new ClimateDataValidationError(400, "INVALID_WALL_ID", `Floor ${floor.id} walls must have unique non-empty ids`);
+        }
+        if (!pointIsValid(wall.from) || !pointIsValid(wall.to)
+          || (Math.abs(wall.from.x - wall.to.x) < 1e-10 && Math.abs(wall.from.y - wall.to.y) < 1e-10)) {
+          throw new ClimateDataValidationError(400, "INVALID_WALL_GEOMETRY", `Floor ${floor.id} walls must have distinct in-bounds endpoints`);
+        }
+        wallsById.set(wall.id, wall);
+      }
+      if (!Array.isArray(floor.rooms)) {
+        throw new ClimateDataValidationError(400, "INVALID_ROOMS", `Floor ${floor.id} rooms must be an array`);
+      }
+      const roomIds = new Set<string>();
+      const roomNames = new Set<string>();
+      for (const room of floor.rooms) {
+        if (!room || typeof room.id !== "string" || room.id.trim() === "" || roomIds.has(room.id)) {
+          throw new ClimateDataValidationError(400, "INVALID_ROOM_ID", `Floor ${floor.id} rooms must have unique non-empty ids`);
+        }
+        roomIds.add(room.id);
+        if (typeof room.name !== "string" || room.name.trim() === "") {
+          throw new ClimateDataValidationError(400, "INVALID_ROOM_NAME", `Floor ${floor.id} rooms must have non-empty names`);
+        }
+        const normalizedRoomName = room.name.trim().normalize("NFKC").toLowerCase();
+        if (roomNames.has(normalizedRoomName)) {
+          throw new ClimateDataValidationError(400, "DUPLICATE_ROOM_NAME", `Floor ${floor.id} room names must be unique, ignoring case`);
+        }
+        roomNames.add(normalizedRoomName);
+        if (!Array.isArray(room.points) || room.points.length < 3 || !room.points.every(pointIsValid)) {
+          throw new ClimateDataValidationError(400, "INVALID_ROOM_GEOMETRY", `Floor ${floor.id} room polygons need at least three in-bounds points`);
+        }
+        const distinctPoints = new Set(room.points.map((point) => `${point.x}:${point.y}`));
+        const doubledArea = Math.abs(room.points.reduce((area, point, index) => {
+          const next = room.points[(index + 1) % room.points.length]!;
+          return area + point.x * next.y - next.x * point.y;
+        }, 0));
+        if (distinctPoints.size !== room.points.length || doubledArea < 1e-10) {
+          throw new ClimateDataValidationError(400, "INVALID_ROOM_GEOMETRY", `Floor ${floor.id} room polygons must use distinct vertices and enclose a non-zero area`);
+        }
+        if (roomPolygonSelfIntersects(room.points, Math.max(floor.width, floor.height))) {
+          throw new ClimateDataValidationError(400, "INVALID_ROOM_GEOMETRY", `Floor ${floor.id} room polygons cannot self-intersect`);
+        }
+      }
+      if (floor.planElements !== undefined) {
+        if (!Array.isArray(floor.planElements)) {
+          throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENTS", `Floor ${floor.id} planElements must be an array`);
+        }
+        const elementIds = new Set<string>();
+        for (const element of floor.planElements) {
+          if (!element || typeof element.id !== "string" || element.id.trim() === "" || elementIds.has(element.id)) {
+            throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_ID", `Floor ${floor.id} plan elements must have unique non-empty ids`);
+          }
+          elementIds.add(element.id);
+          if (!["door", "window", "fireplace", "vent"].includes(element.kind)) {
+            throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_KIND", `Floor ${floor.id} has an unsupported plan element kind`);
+          }
+          if (!element.position || !Number.isFinite(element.position.x) || !Number.isFinite(element.position.y)
+            || element.position.x < 0 || element.position.x > floor.width || element.position.y < 0 || element.position.y > floor.height) {
+            throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_POSITION", `Floor ${floor.id} plan element positions must be within its extent`);
+          }
+          if (!Number.isFinite(element.rotationDegrees) || element.rotationDegrees < 0 || element.rotationDegrees >= 360) {
+            throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_ROTATION", `Floor ${floor.id} plan element rotations must be from 0 (inclusive) to 360 (exclusive)`);
+          }
+          if (element.width !== undefined && (!Number.isFinite(element.width) || element.width <= 0)) {
+            throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_WIDTH", `Floor ${floor.id} plan element widths must be positive finite numbers`);
+          }
+          const isOpening = element.kind === "door" || element.kind === "window";
+          if (isOpening && (typeof element.wallId !== "string" || !wallsById.has(element.wallId))) {
+            throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_WALL", `Floor ${floor.id} doors and windows must reference an existing wall`);
+          }
+          if (!isOpening && element.wallId !== undefined) {
+            throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_WALL", `Floor ${floor.id} fireplaces and vents cannot be attached as wall openings`);
+          }
+          if (isOpening) {
+            const wall = wallsById.get(element.wallId!);
+            if (!wall) continue;
+            const dx = wall.to.x - wall.from.x;
+            const dy = wall.to.y - wall.from.y;
+            const lengthSquared = dx * dx + dy * dy;
+            const progress = Math.max(0, Math.min(1, ((element.position.x - wall.from.x) * dx + (element.position.y - wall.from.y) * dy) / lengthSquared));
+            const projectedX = wall.from.x + progress * dx;
+            const projectedY = wall.from.y + progress * dy;
+            const tolerance = Math.max(floor.width, floor.height, 1) * 1e-7;
+            const wallAngle = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+            const rotationDelta = ((element.rotationDegrees - wallAngle) % 180 + 180) % 180;
+            if (Math.hypot(element.position.x - projectedX, element.position.y - projectedY) > tolerance
+              || Math.min(rotationDelta, 180 - rotationDelta) > 1e-6) {
+              throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_ALIGNMENT", `Floor ${floor.id} doors and windows must lie on and align with their wall`);
+            }
+            if (element.width !== undefined) {
+              const wallLength = Math.sqrt(lengthSquared);
+              const halfWidth = element.width / 2;
+              const distanceFromStart = progress * wallLength;
+              const distanceFromEnd = wallLength - distanceFromStart;
+              if (element.width > wallLength + tolerance
+                || distanceFromStart + tolerance < halfWidth
+                || distanceFromEnd + tolerance < halfWidth) {
+                throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_FIT", `Floor ${floor.id} door and window widths must fit fully within their wall`);
+              }
+            }
+          }
+        }
+      }
     }
   }
 
@@ -802,6 +1248,56 @@ export class ClimateDatabase {
     }
     if (location.label !== undefined && (typeof location.label !== "string" || location.label.trim().length > 200)) {
       throw new ClimateDataValidationError(422, "INVALID_LOCATION_LABEL", "House location label must be at most 200 characters");
+    }
+    if (location.countryCode !== undefined && !/^[A-Z]{2}$/.test(location.countryCode)) {
+      throw new ClimateDataValidationError(422, "INVALID_LOCATION_COUNTRY", "House location countryCode must be a two-letter uppercase code");
+    }
+    if (location.source !== undefined && !["manual", "place-search", "browser-geolocation", "home-assistant", "map-placement"].includes(location.source)) {
+      throw new ClimateDataValidationError(422, "INVALID_LOCATION_SOURCE", "House location source is not supported");
+    }
+    if (location.confidence !== undefined && !["high", "medium", "low"].includes(location.confidence)) {
+      throw new ClimateDataValidationError(422, "INVALID_LOCATION_CONFIDENCE", "House location confidence is not supported");
+    }
+    if (location.discoveredAt !== undefined && !Number.isFinite(Date.parse(location.discoveredAt))) {
+      throw new ClimateDataValidationError(422, "INVALID_LOCATION_DISCOVERED_AT", "House location discoveredAt must be an ISO date-time");
+    }
+    if (location.userOverridden !== undefined && typeof location.userOverridden !== "boolean") {
+      throw new ClimateDataValidationError(422, "INVALID_LOCATION_OVERRIDE", "House location userOverridden must be a boolean");
+    }
+  }
+
+  private validateHouseTimezone(timezone: string): void {
+    if (typeof timezone !== "string" || timezone.length > 100) {
+      throw new ClimateDataValidationError(422, "INVALID_TIMEZONE", "House timezone must be a valid IANA timezone name");
+    }
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format(0);
+    } catch {
+      throw new ClimateDataValidationError(422, "INVALID_TIMEZONE", "House timezone must be a valid IANA timezone name");
+    }
+  }
+
+  private validateHouseMapPlacement(mapPlacement: HouseMapPlacement, floors: Floor[]): void {
+    if (!Number.isFinite(mapPlacement.latitude) || mapPlacement.latitude < -90 || mapPlacement.latitude > 90) {
+      throw new ClimateDataValidationError(422, "INVALID_MAP_PLACEMENT_LATITUDE", "Map placement latitude must be between -90 and 90");
+    }
+    if (!Number.isFinite(mapPlacement.longitude) || mapPlacement.longitude < -180 || mapPlacement.longitude > 180) {
+      throw new ClimateDataValidationError(422, "INVALID_MAP_PLACEMENT_LONGITUDE", "Map placement longitude must be between -180 and 180");
+    }
+    if (!Number.isFinite(mapPlacement.metersPerPlanUnit) || mapPlacement.metersPerPlanUnit <= 0) {
+      throw new ClimateDataValidationError(422, "INVALID_MAP_PLACEMENT_SCALE", "Map placement metersPerPlanUnit must be a positive finite number");
+    }
+    if (mapPlacement.footprintFloorId !== undefined) {
+      if (typeof mapPlacement.footprintFloorId !== "string" || mapPlacement.footprintFloorId.trim() === "") {
+        throw new ClimateDataValidationError(422, "INVALID_MAP_PLACEMENT_FLOOR", "Map placement footprintFloorId must be a non-empty floor id");
+      }
+      if (!floors.some((floor) => floor.id === mapPlacement.footprintFloorId)) {
+        throw new ClimateDataValidationError(
+          422,
+          "MAP_PLACEMENT_FLOOR_NOT_FOUND",
+          `Map placement footprint floor ${mapPlacement.footprintFloorId} does not exist in this house`,
+        );
+      }
     }
   }
 
@@ -849,6 +1345,26 @@ export class ClimateDatabase {
     }
   }
 
+  private validateTpLinkDeviceBinding(sensor: Sensor): void {
+    if (sensor.tpLinkDeviceId === undefined) return;
+    if (!sensor.tpLinkDeviceId.trim() || sensor.tpLinkDeviceId !== sensor.tpLinkDeviceId.trim()) {
+      throw new ClimateDataValidationError(
+        400,
+        "INVALID_TP_LINK_DEVICE_ID",
+        "tpLinkDeviceId must be a non-empty trimmed string",
+      );
+    }
+    const existing = this.db.prepare("SELECT id FROM sensors WHERE tp_link_device_id = ? AND id <> ?")
+      .get(sensor.tpLinkDeviceId, sensor.id) as unknown as { id: string } | undefined;
+    if (existing) {
+      throw new ClimateDataValidationError(
+        409,
+        "TP_LINK_DEVICE_ALREADY_MAPPED",
+        `TP-Link child device ${sensor.tpLinkDeviceId} is already mapped to sensor ${existing.id}`,
+      );
+    }
+  }
+
   private writeSensor(sensor: Sensor, insert: boolean): void {
     const bindings: Record<string, string> = { ...(sensor.measurementEntityIds ?? {}) };
     if (sensor.temperatureEntityId) bindings.temperature ??= sensor.temperatureEntityId;
@@ -860,17 +1376,18 @@ export class ClimateDatabase {
     }
     const values = [sensor.houseId, sensor.floorId, sensor.name, sensor.room, sensor.model, sensor.x, sensor.y, sensor.z,
       sensor.temperatureEntityId ?? null, sensor.humidityEntityId ?? null, sensor.batteryEntityId ?? null,
+      sensor.tpLinkDeviceId ?? null,
       null,
       JSON.stringify(sensor.tags), sensor.enabled ? 1 : 0, sensor.id];
     if (insert) {
       this.db.prepare(`INSERT INTO sensors
-        (house_id, floor_id, name, room, model, x, y, z, temperature_entity_id, humidity_entity_id, battery_entity_id,
+        (house_id, floor_id, name, room, model, x, y, z, temperature_entity_id, humidity_entity_id, battery_entity_id, tp_link_device_id,
          measurement_entity_ids_json, tags_json, enabled, id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(...values);
     } else {
       this.db.prepare(`UPDATE sensors SET house_id = ?, floor_id = ?, name = ?, room = ?, model = ?, x = ?, y = ?, z = ?,
-        temperature_entity_id = ?, humidity_entity_id = ?, battery_entity_id = ?, measurement_entity_ids_json = ?,
+        temperature_entity_id = ?, humidity_entity_id = ?, battery_entity_id = ?, tp_link_device_id = ?, measurement_entity_ids_json = ?,
         tags_json = ?, enabled = ? WHERE id = ?`)
         .run(...values);
     }
@@ -941,17 +1458,23 @@ export class ClimateDatabase {
     return { ...current, enabled: false };
   }
 
-  private insertMeasurementSample(sample: MeasurementSample): boolean {
+  private insertMeasurementSample(sample: MeasurementSample, deduplicateAcrossSources = false): boolean {
+    if (deduplicateAcrossSources && this.db.prepare(`SELECT 1 FROM measurement_samples
+      WHERE sensor_id = ? AND metric = ? AND timestamp = ? LIMIT 1`)
+      .get(sample.sensorId, sample.metric, sample.timestamp)) return false;
     const result = this.db.prepare(`INSERT OR IGNORE INTO measurement_samples
       (sensor_id, metric, value, canonical_unit, timestamp, source, quality) VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run(sample.sensorId, sample.metric, sample.value, sample.canonicalUnit, sample.timestamp, sample.source, sample.quality);
     return Number(result.changes) > 0;
   }
 
-  insertMeasurementSamples(samples: MeasurementSample[]): MeasurementSample[] {
+  insertMeasurementSamples(samples: MeasurementSample[], options: { deduplicateAcrossSources?: boolean } = {}): MeasurementSample[] {
+    this.prepareTelemetrySources(samples.map((sample) => sample.source));
     return this.immediateTransaction(() => {
       const inserted: MeasurementSample[] = [];
-      for (const sample of samples) if (this.insertMeasurementSample(sample)) inserted.push(sample);
+      for (const sample of samples) {
+        if (this.insertMeasurementSample(sample, options.deduplicateAcrossSources)) inserted.push(sample);
+      }
       return inserted;
     });
   }
@@ -983,8 +1506,133 @@ export class ClimateDatabase {
     return rows.map(measurementSampleFromRow);
   }
 
-  insertReading(reading: Reading): boolean {
-    const inserted = this.insertLegacyReading(reading);
+  /**
+   * Bounded, quality-weighted temperature buckets for synchronous thermal fitting.
+   * Aggregation happens in SQLite so dense 2-10 second telemetry never enters the
+   * Node calibration loop or consumes the raw-row limit before covering 7 days.
+   */
+  thermalTemperatureHistory(
+    sensorId: string,
+    from: string,
+    to: string,
+    bucketMinutes = 5,
+    limit = 5_000,
+  ): MeasurementSample[] {
+    if (!Number.isInteger(bucketMinutes) || bucketMinutes < 1 || bucketMinutes > 60) {
+      throw new ClimateDataValidationError(400, "INVALID_BUCKET_SIZE", "Thermal bucket size must be 1 to 60 minutes");
+    }
+    if (!Number.isInteger(limit) || limit < 1 || limit > 20_000) {
+      throw new ClimateDataValidationError(400, "INVALID_LIMIT", "Thermal history limit must be 1 to 20000");
+    }
+    const bucketSeconds = bucketMinutes * 60;
+    const rows = this.db.prepare(`WITH source_rows AS (
+        SELECT
+          CAST(CAST(strftime('%s', timestamp) AS INTEGER) / ? AS INTEGER) * ? AS bucket_epoch,
+          value,
+          canonical_unit,
+          source,
+          quality,
+          CASE quality WHEN 'estimated' THEN 0.25 ELSE 1.0 END AS sample_weight
+        FROM measurement_samples
+        WHERE sensor_id = ? AND metric = 'temperature' AND timestamp >= ? AND timestamp <= ?
+          AND quality <> 'stale' AND source <> 'replay'
+      ), recent_buckets AS (
+        SELECT
+          bucket_epoch,
+          SUM(value * sample_weight) / SUM(sample_weight) AS value,
+          MAX(canonical_unit) AS canonical_unit,
+          MIN(source) AS source,
+          MAX(CASE WHEN quality = 'good' THEN 1 ELSE 0 END) AS has_good
+        FROM source_rows
+        WHERE bucket_epoch IS NOT NULL
+        GROUP BY bucket_epoch
+        ORDER BY bucket_epoch DESC
+        LIMIT ?
+      )
+      SELECT bucket_epoch, value, canonical_unit, source, has_good
+      FROM recent_buckets ORDER BY bucket_epoch ASC`)
+      .all(bucketSeconds, bucketSeconds, sensorId, from, to, limit) as unknown as Array<{
+        bucket_epoch: number;
+        value: number;
+        canonical_unit: string;
+        source: MeasurementSample["source"];
+        has_good: number;
+      }>;
+    return rows.map((row) => ({
+      sensorId,
+      metric: "temperature",
+      value: row.value,
+      canonicalUnit: row.canonical_unit,
+      timestamp: new Date(row.bucket_epoch * 1_000).toISOString(),
+      source: row.source,
+      quality: row.has_good ? "good" : "estimated",
+    }));
+  }
+
+  upsertOutdoorTemperatureSample(sample: OutdoorTemperatureSample): OutdoorTemperatureSample {
+    if (![sample.temperatureC, Date.parse(sample.timestamp), Date.parse(sample.fetchedAt)].every(Number.isFinite)) {
+      throw new ClimateDataValidationError(400, "INVALID_OUTDOOR_SAMPLE", "Outdoor temperature and timestamps must be finite");
+    }
+    if (!this.getHouse(sample.houseId)) {
+      throw new ClimateDataValidationError(404, "HOUSE_NOT_FOUND", `House ${sample.houseId} does not exist`);
+    }
+    if (sample.source === "mock" && this.isRealDataMode()) {
+      throw new ClimateDataValidationError(409, "DEMO_DATA_DISABLED", "Synthetic outdoor samples are permanently disabled in real-data mode");
+    }
+    if (sample.source !== "mock" && !this.isRealDataMode()) this.activateRealDataMode();
+    this.db.prepare(`INSERT INTO outdoor_temperature_samples
+      (house_id, location_key, timestamp, temperature_c, source, fetched_at, station_id, station_name)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(house_id, location_key, timestamp, source) DO UPDATE SET
+        temperature_c = excluded.temperature_c,
+        fetched_at = excluded.fetched_at,
+        station_id = excluded.station_id,
+        station_name = excluded.station_name`)
+      .run(sample.houseId, sample.locationKey, sample.timestamp, sample.temperatureC, sample.source,
+        sample.fetchedAt, sample.stationId, sample.stationName);
+    return sample;
+  }
+
+  /**
+   * Persist a live boundary only while its opaque location key still matches
+   * the house's current weather location. The check happens before the
+   * irreversible real-data latch in `upsertOutdoorTemperatureSample`.
+   */
+  upsertCurrentOutdoorTemperatureSample(sample: OutdoorTemperatureSample): OutdoorTemperatureSample {
+    const house = this.getHouse(sample.houseId);
+    if (!house) {
+      throw new ClimateDataValidationError(404, "HOUSE_NOT_FOUND", `House ${sample.houseId} does not exist`);
+    }
+    if (sample.locationKey !== outdoorLocationKey(house.location)) {
+      throw new ClimateDataValidationError(
+        409,
+        "WEATHER_REQUEST_SUPERSEDED",
+        "House location changed while weather was loading; the old-location observation was discarded",
+      );
+    }
+    return this.upsertOutdoorTemperatureSample(sample);
+  }
+
+  outdoorTemperatureHistory(
+    houseId: string,
+    locationKey: string,
+    from: string,
+    to: string,
+    limit = 20_000,
+  ): OutdoorTemperatureSample[] {
+    const rows = this.db.prepare(`SELECT house_id, location_key, timestamp, temperature_c, source, fetched_at,
+      station_id, station_name FROM (
+        SELECT rowid, house_id, location_key, timestamp, temperature_c, source, fetched_at, station_id, station_name
+        FROM outdoor_temperature_samples
+        WHERE house_id = ? AND location_key = ? AND timestamp >= ? AND timestamp <= ?
+        ORDER BY timestamp DESC, rowid DESC LIMIT ?
+      ) ORDER BY timestamp ASC, rowid ASC`)
+      .all(houseId, locationKey, from, to, limit) as unknown as OutdoorTemperatureRow[];
+    return rows.map(outdoorTemperatureFromRow);
+  }
+
+  private insertReading(reading: Reading): boolean {
+    const inserted = this.insertLegacyReadingUnchecked(reading);
     if (inserted) {
       const values: Record<string, number> = {
         ...(reading.measurements ?? {}),
@@ -1009,6 +1657,11 @@ export class ClimateDatabase {
   }
 
   insertLegacyReading(reading: Reading): boolean {
+    this.prepareTelemetrySources([reading.source]);
+    return this.insertLegacyReadingUnchecked(reading);
+  }
+
+  private insertLegacyReadingUnchecked(reading: Reading): boolean {
     const result = this.db.prepare(`INSERT OR IGNORE INTO readings
       (sensor_id, timestamp, temperature, humidity, battery, source, quality) VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run(reading.sensorId, reading.timestamp, reading.temperature, reading.humidity, reading.battery, reading.source, reading.quality);
@@ -1016,6 +1669,7 @@ export class ClimateDatabase {
   }
 
   insertReadings(readings: Reading[]): Reading[] {
+    this.prepareTelemetrySources(readings.map((reading) => reading.source));
     const inserted: Reading[] = [];
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -1075,7 +1729,16 @@ export class ClimateDatabase {
         if (changes < batchSize) return deleted;
       }
     };
-    return deleteBatches("measurement_samples") + deleteBatches("readings");
+    const outdoorStatement = this.db.prepare(`DELETE FROM outdoor_temperature_samples WHERE rowid IN (
+      SELECT rowid FROM outdoor_temperature_samples WHERE timestamp < ? ORDER BY timestamp, rowid LIMIT ?
+    )`);
+    let outdoorDeleted = 0;
+    while (true) {
+      const changes = Number(outdoorStatement.run(timestamp, batchSize).changes);
+      outdoorDeleted += changes;
+      if (changes < batchSize) break;
+    }
+    return deleteBatches("measurement_samples") + deleteBatches("readings") + outdoorDeleted;
   }
 
   listAlertRules(): AlertRule[] {

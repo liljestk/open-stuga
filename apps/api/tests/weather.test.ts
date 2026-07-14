@@ -5,9 +5,12 @@ import { createApi, type ApiRuntime } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
 import {
   currentObservation,
+  FmiWeatherProvider,
+  fmiWarningCoverage,
   parseCapWarnings,
   parseFmiTimeSeries,
   readTextWithByteLimit,
+  WeatherRequestSupersededError,
   WeatherService,
   WeatherUnavailableError,
   type FmiTimeSeries,
@@ -18,6 +21,7 @@ const config: AppConfig = {
   port: 0,
   apiHost: "127.0.0.1",
   databasePath: ":memory:",
+  integrationSecretsFile: "integration-secrets.test.json",
   assetDirectory: ".",
   mockEnabled: false,
   mockIntervalMs: 25,
@@ -26,6 +30,13 @@ const config: AppConfig = {
   haUrl: null,
   haToken: null,
   haEntityMapFile: null,
+  tpLinkHost: null,
+  tpLinkUsername: null,
+  tpLinkPassword: null,
+  tpLinkDeviceMapFile: null,
+  tpLinkPollIntervalMs: 10_000,
+  tpLinkPython: "python",
+  tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
   alertWebhookUrl: null,
   alertWebhookBearerToken: null,
   corsOrigin: null,
@@ -57,7 +68,86 @@ function weather(overrides: Partial<HouseWeather> = {}): HouseWeather {
   };
 }
 
+function forecastXml(latitude: number, longitude: number): string {
+  return `<FeatureCollection><member><PointTimeSeriesObservation>
+    <observedProperty href="https://opendata.fmi.fi/meta?param=Temperature" />
+    <resultTime><TimeInstant><timePosition>2026-07-14T10:00:00Z</timePosition></TimeInstant></resultTime>
+    <featureOfInterest><SF_SpatialSamplingFeature><sampledFeature><LocationCollection><member><Location>
+      <identifier>forecast-grid</identifier><name>Forecast grid</name>
+    </Location></member></LocationCollection></sampledFeature>
+    <shape><Point><name>Forecast point</name><pos>${latitude} ${longitude}</pos></Point></shape>
+    </SF_SpatialSamplingFeature></featureOfInterest>
+    <result><MeasurementTimeseries><point><MeasurementTVP>
+      <time>2026-07-14T11:00:00Z</time><value>18.5</value>
+    </MeasurementTVP></point></MeasurementTimeseries></result>
+  </PointTimeSeriesObservation></member></FeatureCollection>`;
+}
+
 describe("FMI weather parsing", () => {
+  it("classifies definitely outside warning coverage without treating the Finland envelope as proof of coverage", () => {
+    expect(fmiWarningCoverage(location)).toBe("unknown");
+    expect(fmiWarningCoverage({ ...location, countryCode: "FI" })).toBe("covered");
+    expect(fmiWarningCoverage({ ...location, countryCode: "SE" })).toBe("outside-coverage");
+    expect(fmiWarningCoverage({ latitude: 40.7128, longitude: -74.006, label: "New York" }))
+      .toBe("outside-coverage");
+    expect(fmiWarningCoverage({ latitude: -33.8688, longitude: 151.2093, label: "Sydney" }))
+      .toBe("outside-coverage");
+  });
+
+  it("marks warnings outside FMI coverage as non-authoritative and skips the CAP request", async () => {
+    const newYork = { latitude: 40.7128, longitude: -74.006, label: "New York" };
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      const xml = url.includes("fmi::observations::weather")
+        ? "<FeatureCollection />"
+        : forecastXml(newYork.latitude, newYork.longitude);
+      return new Response(xml, { status: 200, headers: { "content-type": "application/xml" } });
+    });
+    const provider = new FmiWeatherProvider({
+      fetchImpl: fetchImpl as typeof fetch,
+      now: () => new Date("2026-07-14T10:00:00Z"),
+    });
+
+    const result = await provider.fetch("house-new-york", newYork, 48);
+
+    expect(result.forecast).toHaveLength(1);
+    expect(result.warnings).toEqual([]);
+    expect(result.unavailable).toContain("warnings");
+    expect(result.componentStatus?.warnings).toMatchObject({
+      provider: "fmi",
+      availability: "not-applicable",
+      coverage: "outside-coverage",
+      emptyResultIsAuthoritative: false,
+      stale: false,
+    });
+    expect(fetchImpl.mock.calls.some(([input]) => String(input).includes("alerts.fmi.fi"))).toBe(false);
+  });
+
+  it("does not turn a failed CAP request into an authoritative empty warning result", async () => {
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("alerts.fmi.fi")) throw new Error("CAP unavailable");
+      const xml = url.includes("fmi::observations::weather")
+        ? "<FeatureCollection />"
+        : forecastXml(location.latitude, location.longitude);
+      return new Response(xml, { status: 200, headers: { "content-type": "application/xml" } });
+    });
+    const provider = new FmiWeatherProvider({
+      fetchImpl: fetchImpl as typeof fetch,
+      now: () => new Date("2026-07-14T10:00:00Z"),
+    });
+
+    const result = await provider.fetch("house-main", location, 48);
+
+    expect(result.warnings).toEqual([]);
+    expect(result.unavailable).toContain("warnings");
+    expect(result.componentStatus?.warnings).toMatchObject({
+      availability: "unavailable",
+      coverage: "unknown",
+      emptyResultIsAuthoritative: false,
+    });
+  });
+
   it("parses forecast points and observation-station shapes while omitting NaN values", () => {
     const xml = `
       <FeatureCollection>
@@ -369,6 +459,42 @@ describe("WeatherService", () => {
     await service.get(house, 48);
     expect(provider.fetch).toHaveBeenCalledTimes(4);
   });
+
+  it("rejects an invalidated in-flight result without updating cache or integration status", async () => {
+    const status: IntegrationStatus["weather"] = {
+      provider: "fmi", configuredHouses: 1, lastSuccessAt: null, error: null,
+    };
+    const onStatusChange = vi.fn();
+    let releaseOld: ((value: HouseWeather) => void) | undefined;
+    const replacementLocation = { latitude: 35.6762, longitude: 139.6503, label: "Tokyo" };
+    const provider: WeatherProvider = {
+      fetch: vi.fn()
+        .mockImplementationOnce(() => new Promise<HouseWeather>((resolve) => { releaseOld = resolve; }))
+        .mockImplementationOnce(async (houseId, requestedLocation) => weather({ houseId, location: requestedLocation })),
+    };
+    const service = new WeatherService(provider, status, onStatusChange);
+    const house: House = {
+      id: "house-main", name: "Home", timezone: "Europe/Helsinki", location, floors: [],
+      createdAt: "2026-07-14T00:00:00.000Z", updatedAt: "2026-07-14T00:00:00.000Z",
+    };
+
+    const pending = service.get(house, 48);
+    service.invalidate(house.id);
+    releaseOld?.(weather());
+
+    await expect(pending).rejects.toBeInstanceOf(WeatherRequestSupersededError);
+    expect(status).toEqual({ provider: "fmi", configuredHouses: 1, lastSuccessAt: null, error: null });
+    expect(onStatusChange).not.toHaveBeenCalled();
+
+    const replacement = await service.get({
+      ...house,
+      location: replacementLocation,
+      updatedAt: "2026-07-14T00:01:00.000Z",
+    }, 48);
+    expect(replacement.location).toEqual(replacementLocation);
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+    expect(onStatusChange).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("GET /api/v1/houses/:id/weather", () => {
@@ -403,5 +529,49 @@ describe("GET /api/v1/houses/:id/weather", () => {
     expect(second.body).toEqual(first.body);
     expect(provider.fetch).toHaveBeenCalledTimes(1);
     expect(provider.fetch).toHaveBeenCalledWith("house-main", location, 24);
+    await request(runtime.app).get("/api/v1/integrations/status").expect(200)
+      .expect(({ body }) => expect(body.mock).toMatchObject({ enabled: false, mode: "real" }));
+    expect(runtime.database.db.prepare(`SELECT source, temperature_c AS temperatureC
+      FROM outdoor_temperature_samples WHERE house_id = 'house-main' AND source = 'fmi-observation'`).all())
+      .toEqual([expect.objectContaining({ source: "fmi-observation", temperatureC: 20.5 })]);
+    expect((runtime.database.db.prepare("SELECT COUNT(*) AS count FROM readings WHERE source = 'mock'").get() as { count: number }).count).toBe(0);
+  });
+
+  it("discards an old-location response when the house changes while the request is in flight", async () => {
+    const firstLocation = { latitude: 60.1699, longitude: 24.9384, label: "Helsinki" };
+    const secondLocation = { latitude: 35.6762, longitude: 139.6503, label: "Tokyo" };
+    let releaseFirst: ((value: HouseWeather) => void) | undefined;
+    let signalStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+    const provider: WeatherProvider = {
+      fetch: vi.fn((houseId, requestedLocation) => {
+        if (requestedLocation.longitude === firstLocation.longitude) {
+          signalStarted?.();
+          return new Promise<HouseWeather>((resolve) => { releaseFirst = resolve; });
+        }
+        return Promise.resolve(weather({ houseId, location: requestedLocation }));
+      }),
+    };
+    runtime = createApi({ config, weatherProvider: provider, startBackground: false });
+    await request(runtime.app).patch("/api/v1/houses/house-main").send({ location: firstLocation }).expect(200);
+
+    const pendingResponse = request(runtime.app).get("/api/v1/houses/house-main/weather").then((response) => response);
+    await started;
+    await request(runtime.app).patch("/api/v1/houses/house-main").send({ location: secondLocation }).expect(200);
+    releaseFirst?.(weather({ location: firstLocation }));
+
+    const superseded = await pendingResponse;
+    expect(superseded.status).toBe(409);
+    expect(superseded.body.error.code).toBe("WEATHER_REQUEST_SUPERSEDED");
+    expect((runtime.database.db.prepare("SELECT COUNT(*) AS count FROM outdoor_temperature_samples").get() as { count: number }).count)
+      .toBe(0);
+    await request(runtime.app).get("/api/v1/integrations/status").expect(200).expect(({ body }) => {
+      expect(body.weather).toMatchObject({ lastSuccessAt: null, error: null });
+      expect(body.mock).toMatchObject({ mode: "demo" });
+    });
+
+    const current = await request(runtime.app).get("/api/v1/houses/house-main/weather").expect(200);
+    expect(current.body.weather.location).toEqual(secondLocation);
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
   });
 });

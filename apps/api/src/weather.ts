@@ -5,10 +5,14 @@ import type {
   HouseWeather,
   IntegrationStatus,
   OutdoorConditions,
+  WeatherComponentCoverage,
+  WeatherComponentStatus,
+  WeatherComponentStatuses,
   WeatherStation,
   WeatherWarning,
   WeatherWarningSeverity,
 } from "@climate-twin/contracts";
+import { SYSTEM_VERSION } from "./version.js";
 
 const FMI_WFS_URL = "https://opendata.fmi.fi/wfs";
 const FMI_WARNING_FEED = "https://alerts.fmi.fi/cap/feed/atom_en-GB.xml";
@@ -33,6 +37,15 @@ const OBSERVATION_MAX_PARAMETER_SKEW_MS = 30 * 60_000;
 const OBSERVATION_FUTURE_TOLERANCE_MS = 15 * 60_000;
 const DEFAULT_STALE_MAX_AGE_MS = 60 * 60_000;
 const DEFAULT_MAX_CACHE_ENTRIES = 128;
+// This is deliberately a broad superset of Finnish territory. Points outside
+// it are certainly outside FMI's national CAP-warning coverage; points inside
+// remain `unknown` unless an alert geometry explicitly contains the point.
+const FMI_WARNING_COVERAGE_ENVELOPE = {
+  minimumLatitude: 59,
+  maximumLatitude: 71,
+  minimumLongitude: 18,
+  maximumLongitude: 33,
+} as const;
 
 type XmlObject = Record<string, unknown>;
 
@@ -72,6 +85,41 @@ export class WeatherUnavailableError extends Error {
   constructor(message = "Weather data is temporarily unavailable") {
     super(message);
   }
+}
+
+/** An invalidated house snapshot must never update cache, status, or history. */
+export class WeatherRequestSupersededError extends Error {
+  constructor(message = "House metadata changed while weather was loading; request weather again") {
+    super(message);
+  }
+}
+
+export function fmiWarningCoverage(location: HouseLocation): WeatherComponentCoverage {
+  if (location.countryCode) return location.countryCode.toUpperCase() === "FI" ? "covered" : "outside-coverage";
+  const insideEnvelope = location.latitude >= FMI_WARNING_COVERAGE_ENVELOPE.minimumLatitude
+    && location.latitude <= FMI_WARNING_COVERAGE_ENVELOPE.maximumLatitude
+    && location.longitude >= FMI_WARNING_COVERAGE_ENVELOPE.minimumLongitude
+    && location.longitude <= FMI_WARNING_COVERAGE_ENVELOPE.maximumLongitude;
+  return insideEnvelope ? "unknown" : "outside-coverage";
+}
+
+function componentStatus(
+  product: string,
+  fetchedAt: string,
+  availability: WeatherComponentStatus["availability"],
+  coverage: WeatherComponentCoverage = "unknown",
+  emptyResultIsAuthoritative = false,
+): WeatherComponentStatus {
+  return {
+    provider: "fmi",
+    product,
+    attribution: ATTRIBUTION,
+    availability,
+    coverage,
+    emptyResultIsAuthoritative,
+    fetchedAt,
+    stale: false,
+  };
 }
 
 function xmlObject(value: unknown): XmlObject | null {
@@ -181,7 +229,7 @@ export function parseFmiTimeSeries(xml: string): FmiTimeSeries[] {
 }
 
 function normalizePrecipitation(value: number): number {
-  return value < 0 ? 0 : value;
+  return Math.max(0, value);
 }
 
 function applyForecastValue(target: OutdoorConditions, parameter: string, value: number): void {
@@ -240,13 +288,19 @@ function forecastFromSeries(series: FmiTimeSeries[]): { forecast: OutdoorConditi
       byTimestamp.set(entry.timestamp, point);
     }
   }
-  const issued = series.flatMap((item) => item.resultTime ? [item.resultTime] : []).sort().at(-1) ?? null;
+  const issued = series
+    .flatMap((item) => item.resultTime ? [item.resultTime] : [])
+    .sort((left, right) => left.localeCompare(right))
+    .at(-1) ?? null;
   return { forecast: [...byTimestamp.values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp)), issuedAt: issued };
 }
 
 function mergeForecasts(primary: OutdoorConditions[], supplemental: OutdoorConditions[]): OutdoorConditions[] {
   const merged = new Map(supplemental.map((point) => [point.timestamp, point]));
-  for (const point of primary) merged.set(point.timestamp, { ...(merged.get(point.timestamp) ?? {}), ...point });
+  for (const point of primary) {
+    const supplementalPoint = merged.get(point.timestamp);
+    merged.set(point.timestamp, supplementalPoint ? { ...supplementalPoint, ...point } : point);
+  }
   return [...merged.values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 }
 
@@ -489,7 +543,7 @@ export class FmiWeatherProvider implements WeatherProvider {
     let response: Response;
     try {
       response = await this.#fetch(url, {
-        headers: { Accept: "application/xml,text/xml;q=0.9", "User-Agent": "Climate-Twin/0.1 FMI weather adapter" },
+        headers: { Accept: "application/xml,text/xml;q=0.9", "User-Agent": `Climate-Twin/${SYSTEM_VERSION} FMI weather adapter` },
         signal: AbortSignal.timeout(this.#timeoutMs),
       });
     } catch {
@@ -571,6 +625,8 @@ export class FmiWeatherProvider implements WeatherProvider {
 
   async fetch(houseId: string, location: HouseLocation, hours: number): Promise<HouseWeather> {
     const now = this.#now();
+    const fetchedAt = now.toISOString();
+    const declaredWarningCoverage = fmiWarningCoverage(location);
     const [forecastResult, shortRangeResult, observationResult, warningResult] = await Promise.allSettled([
       this.#xml(this.#forecastUrl(location, hours, now), 8 * 1024 * 1024).then(parseFmiTimeSeries).then(forecastFromSeries),
       this.#xml(
@@ -578,7 +634,7 @@ export class FmiWeatherProvider implements WeatherProvider {
         4 * 1024 * 1024,
       ).then(parseFmiTimeSeries).then(forecastFromSeries),
       this.#observations(location, now),
-      this.#warnings(location),
+      declaredWarningCoverage === "outside-coverage" ? Promise.resolve([]) : this.#warnings(location),
     ]);
     const cutoff = now.getTime();
     const officialForecast = forecastResult.status === "fulfilled"
@@ -591,23 +647,46 @@ export class FmiWeatherProvider implements WeatherProvider {
     if (officialForecast.length === 0) unavailable.push("forecast");
     if (shortRangeForecast.length === 0) unavailable.push("short-range");
     if (observationResult.status === "rejected" || !observationResult.value.current) unavailable.push("observation");
-    if (warningResult.status === "rejected") unavailable.push("warnings");
+    if (warningResult.status === "rejected" || declaredWarningCoverage === "outside-coverage") unavailable.push("warnings");
     if (unavailable.includes("forecast") && unavailable.includes("observation") && unavailable.includes("warnings")) {
       throw new WeatherUnavailableError();
     }
+    const warnings = warningResult.status === "fulfilled" ? warningResult.value : [];
+    const warningCoverage: WeatherComponentCoverage = declaredWarningCoverage === "outside-coverage"
+      ? "outside-coverage"
+      : declaredWarningCoverage === "covered" || warnings.length > 0 ? "covered" : "unknown";
+    const componentStatusByName: WeatherComponentStatuses = {
+      observation: componentStatus(
+        OBSERVATION_QUERY,
+        fetchedAt,
+        observationResult.status === "fulfilled" && observationResult.value.current ? "available" : "unavailable",
+      ),
+      forecast: componentStatus(FORECAST_QUERY, fetchedAt, officialForecast.length > 0 ? "available" : "unavailable"),
+      "short-range": componentStatus(SHORT_RANGE_QUERY, fetchedAt, shortRangeForecast.length > 0 ? "available" : "unavailable"),
+      warnings: componentStatus(
+        FMI_WARNING_FEED,
+        fetchedAt,
+        declaredWarningCoverage === "outside-coverage"
+          ? "not-applicable"
+          : warningResult.status === "fulfilled" ? "available" : "unavailable",
+        warningCoverage,
+        warningResult.status === "fulfilled" && warningCoverage === "covered",
+      ),
+    };
     return {
       houseId,
       location,
       provider: "fmi",
       attribution: ATTRIBUTION,
-      fetchedAt: now.toISOString(),
+      fetchedAt,
       forecastIssuedAt: forecastResult.status === "fulfilled" ? forecastResult.value.issuedAt : null,
       stale: false,
       current: observationResult.status === "fulfilled" ? observationResult.value.current : null,
       observationStation: observationResult.status === "fulfilled" ? observationResult.value.station : null,
       forecast: mergeForecasts(officialForecast, shortRangeForecast),
-      warnings: warningResult.status === "fulfilled" ? warningResult.value : [],
+      warnings,
       unavailable,
+      componentStatus: componentStatusByName,
     };
   }
 }
@@ -619,9 +698,16 @@ interface WeatherCacheEntry {
   weather: HouseWeather;
 }
 
+interface WeatherInFlightEntry {
+  houseId: string;
+  generation: number;
+  promise: Promise<HouseWeather>;
+}
+
 export class WeatherService {
   readonly #cache = new Map<string, WeatherCacheEntry>();
-  readonly #inFlight = new Map<string, Promise<HouseWeather>>();
+  readonly #inFlight = new Map<string, WeatherInFlightEntry>();
+  readonly #houseGeneration = new Map<string, number>();
 
   constructor(
     private readonly provider: WeatherProvider,
@@ -633,14 +719,19 @@ export class WeatherService {
   ) {}
 
   invalidate(houseId: string): void {
+    this.#houseGeneration.set(houseId, this.#generation(houseId) + 1);
     for (const [key, entry] of this.#cache) {
       if (entry.houseId === houseId) this.#cache.delete(key);
+    }
+    for (const [key, entry] of this.#inFlight) {
+      if (entry.houseId === houseId) this.#inFlight.delete(key);
     }
   }
 
   async get(house: House, hours: number): Promise<HouseWeather> {
     if (!house.location) throw new WeatherUnavailableError("Set the house location before requesting weather");
     const key = `${house.id}:${house.location.latitude.toFixed(6)}:${house.location.longitude.toFixed(6)}:${hours}`;
+    const generation = this.#generation(house.id);
     const now = Date.now();
     const cached = this.#cache.get(key);
     if (cached && cached.expiresAt > now) {
@@ -648,29 +739,39 @@ export class WeatherService {
       return this.#forCurrentTime(cached.weather, now, false);
     }
     const pending = this.#inFlight.get(key);
-    if (pending) return pending;
-    const refresh = this.#refresh(house, hours, key, cached);
-    this.#inFlight.set(key, refresh);
+    if (pending?.generation === generation) return pending.promise;
+    const refresh = this.#refresh(house, hours, key, generation, cached);
+    this.#inFlight.set(key, { houseId: house.id, generation, promise: refresh });
     try {
       return await refresh;
     } finally {
-      if (this.#inFlight.get(key) === refresh) this.#inFlight.delete(key);
+      if (this.#inFlight.get(key)?.promise === refresh) this.#inFlight.delete(key);
     }
   }
 
-  async #refresh(house: House, hours: number, key: string, cached?: WeatherCacheEntry): Promise<HouseWeather> {
+  async #refresh(
+    house: House,
+    hours: number,
+    key: string,
+    generation: number,
+    cached?: WeatherCacheEntry,
+  ): Promise<HouseWeather> {
     try {
       const fetched = await this.provider.fetch(house.id, house.location as HouseLocation, hours);
+      this.#assertCurrent(house.id, generation);
       const cachedAt = Date.now();
       const weather = this.#forCurrentTime(fetched, cachedAt, false);
       this.#touch(key, { houseId: house.id, cachedAt, weather, expiresAt: cachedAt + this.cacheTtlMs });
       this.#trimCache();
+      this.status.provider = weather.provider;
       this.status.lastSuccessAt = weather.fetchedAt;
       this.status.error = null;
       this.onStatusChange();
       return weather;
     } catch (error) {
-      this.status.error = error instanceof Error ? error.message : "FMI weather request failed";
+      this.#assertCurrent(house.id, generation);
+      if (error instanceof WeatherRequestSupersededError) throw error;
+      this.status.error = error instanceof Error ? error.message : "Weather provider request failed";
       this.onStatusChange();
       const now = Date.now();
       if (cached && now - cached.cachedAt <= this.staleMaxAgeMs) {
@@ -690,10 +791,34 @@ export class WeatherService {
       return Number.isFinite(timestamp) && timestamp >= nowMs;
     });
     const warnings = weather.warnings.filter((warning) => warningIsUnexpired(warning, nowMs));
-    if (weather.stale === stale && forecast.length === weather.forecast.length && warnings.length === weather.warnings.length) {
+    const statuses = weather.componentStatus ? {
+      observation: { ...weather.componentStatus.observation, stale },
+      forecast: {
+        ...weather.componentStatus.forecast,
+        stale,
+        ...(forecast.length === 0 ? { availability: "unavailable" as const } : {}),
+      },
+      "short-range": { ...weather.componentStatus["short-range"], stale },
+      warnings: {
+        ...weather.componentStatus.warnings,
+        stale,
+        ...(stale ? { emptyResultIsAuthoritative: false } : {}),
+      },
+    } : undefined;
+    const statusesUnchanged = !statuses || Object.values(statuses).every((status) => status.stale === weather.stale);
+    if (weather.stale === stale && forecast.length === weather.forecast.length
+      && warnings.length === weather.warnings.length && statusesUnchanged) {
       return weather;
     }
-    return { ...weather, stale, forecast, warnings };
+    return { ...weather, stale, forecast, warnings, ...(statuses ? { componentStatus: statuses } : {}) };
+  }
+
+  #generation(houseId: string): number {
+    return this.#houseGeneration.get(houseId) ?? 0;
+  }
+
+  #assertCurrent(houseId: string, generation: number): void {
+    if (this.#generation(houseId) !== generation) throw new WeatherRequestSupersededError();
   }
 
   #touch(key: string, entry: WeatherCacheEntry): void {

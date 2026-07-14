@@ -1,20 +1,20 @@
-# TP-Link H200 and Home Assistant setup
+# TP-Link H100/H200 and Home Assistant setup
 
-Climate Twin's recommended physical-data path is:
+Stuga's recommended physical-data path is:
 
 ```text
-Tapo T310/T315 sensors -> Tapo H200 -> official Home Assistant
-TP-Link Smart Home integration -> Climate Twin
+Tapo T310/T315 sensors -> Tapo H100/H200 -> official Home Assistant
+TP-Link Smart Home integration -> Stuga
 ```
 
-The T310/T315 path supplies temperature and humidity. Climate Twin can map CO2
+The T310/T315 path supplies temperature and humidity. Stuga can map CO2
 and other numeric entities from additional Home Assistant devices to the same
 placed sensor or to their own sensor locations. Each mapped measurement is
 stored independently; it does not need to arrive at the same time as the Tapo
 entities.
 
 This is the current official Home Assistant path. Do not install a custom Tapo
-integration just for these devices. Home Assistant lists H200, T310, and T315 as
+integration just for these devices. Home Assistant lists H100, H200, T310, and T315 as
 supported by its built-in
 [TP-Link Smart Home integration](https://www.home-assistant.io/integrations/tplink/).
 It polls the hub locally over the LAN every five seconds. Tapo credentials may be
@@ -27,13 +27,13 @@ upgrading either one.
 
 ## 1. Commission the hub and sensors
 
-1. Put the H200 and Home Assistant on a network where they can reach each other.
+1. Put the H100/H200 and Home Assistant on a network where they can reach each other.
    Ethernet is preferable for the hub when available.
-2. Add the H200 to the Tapo mobile app and apply appropriate stable firmware.
-3. Pair each T310/T315 to the H200 in the Tapo app. TP-Link's current
+2. Add the H100/H200 to the Tapo mobile app and apply appropriate stable firmware.
+3. Pair each T310/T315 to the H100/H200 in the Tapo app. TP-Link's current
    [hub pairing guide](https://www.tp-link.com/us/support/faq/3118/) covers these
    models. Give each child device a unique physical name.
-4. Place a temporary label on each sensor with its intended Climate Twin ID,
+4. Place a temporary label on each sensor with its intended Stuga ID,
    `sensor-01` through `sensor-10`. This prevents entity-to-room swaps during
    installation.
 5. Wait for all three readings (temperature, humidity, and battery, if exposed)
@@ -48,28 +48,28 @@ later without changing the sensor ID or losing history.
 1. In Home Assistant open **Settings -> Devices & services**.
 2. If **TP-Link Smart Home** was discovered, select **Configure**. Otherwise use
    **Add integration**, choose **TP-Link Smart Home**, and follow the dialog.
-3. Enter the H200 host/IP if discovery did not find it. For Tapo devices, provide
+3. Enter the H100/H200 host/IP if discovery did not find it. For Tapo devices, provide
    the case-sensitive TP-Link account email and password when requested.
-4. Open the integration's H200 device and confirm its T310/T315 child devices and
+4. Open the integration's hub device and confirm its T310/T315 child devices and
    temperature/humidity entities are present.
-5. Create a DHCP reservation for the H200 so its address remains stable.
+5. Create a DHCP reservation for the H100/H200 so its address remains stable.
 
 The official integration notes two relevant network behaviours:
 
 - discovery does not work across subnets; add the hub by IP and allow local
-  traffic if Home Assistant and the H200 are separated by VLANs;
+  traffic if Home Assistant and the H100/H200 are separated by VLANs;
 - some firmware requires **Third-Party Compatibility** in the vendor app. Only
   enable this if the option exists and authentication fails; follow the exact
   troubleshooting steps on the official integration page.
 
-Do not expose the H200, Home Assistant, or Climate Twin API directly to the
+Do not expose the H100/H200, Home Assistant, or Stuga API directly to the
 internet. Permit only the necessary local connections through VLAN/firewall
 rules.
 
 ## 3. Record the exact entity IDs
 
 Friendly names are not stable identifiers. In Home Assistant use **Settings ->
-Devices & services -> Entities**, filter to the TP-Link integration or H200, and
+Devices & services -> Entities**, filter to the TP-Link integration or hub, and
 copy each exact `entity_id`. Depending on names and firmware, examples may look
 like:
 
@@ -83,7 +83,7 @@ sensor.living_room_co2
 Confirm the entity's unit and device class. Every measurement must have a finite
 numeric state. Temperature should use a temperature device class, humidity a
 relative-humidity device class, CO2 a carbon-dioxide concentration entity, and
-battery a percentage entity. Climate Twin maps by entity ID; it does not guess
+battery a percentage entity. Stuga maps by entity ID; it does not guess
 by friendly name.
 
 The bridge reads Home Assistant's `unit_of_measurement` attribute. Temperature
@@ -97,7 +97,7 @@ tools -> States** so mapping mistakes are visible before enabling automations.
 Current mapped states are fetched at startup and after reconnect; historical
 events missed during an outage are not backfilled.
 
-## 4. Create the Climate Twin entity map
+## 4. Create the Stuga entity map
 
 Copy the example and replace every placeholder with the IDs from your instance:
 
@@ -180,22 +180,29 @@ jq empty config/home-assistant.entities.json
 
 ## 5. Create a Home Assistant token
 
-Climate Twin uses Home Assistant's authenticated WebSocket API and subscribes to
+Stuga uses Home Assistant's authenticated WebSocket API and subscribes to
 `state_changed` events for mapped entities.
 
 1. Create a dedicated, non-administrator Home Assistant user for the bridge when
    your access policy permits it.
 2. Sign in as that user, open its profile, and create a **Long-Lived Access
-   Token** named `Climate Twin`.
-3. Copy it immediately into `HA_TOKEN` in your private `.env`; Home Assistant
-   does not display it again.
+   Token** named `Stuga`.
+3. Copy it immediately. Open Stuga **Set up**, select **Find devices**,
+   choose Home Assistant (or enter its local URL manually), paste the token, and
+   select **Save and connect**. Home Assistant does not display it again.
 
 Home Assistant documents long-lived tokens as valid for up to ten years. Treat
-one like a password: never commit it, paste it into the entity-map JSON, include
-it in a support bundle, or send it to the browser. Rotation means creating a new
-token, updating `.env`, restarting Climate Twin, and deleting the old token.
+one like a password: never commit it, paste it into the entity-map JSON, or
+include it in a support bundle. The setup form sends it only to the local API,
+clears the input after saving, and the API never returns it. Rotation means
+creating a new token, saving it again in **Set up**, and deleting the old token.
 
-Relevant environment values for a local run are:
+The API saves web-entered credentials outside SQLite in
+`INTEGRATION_SECRETS_FILE`. The file is owner-only where supported but is not
+application-level encrypted. Environment variables remain an advanced override
+and take precedence after restart:
+
+Relevant environment values for an administrator-managed local run are:
 
 ```dotenv
 HA_URL=http://homeassistant.local:8123
@@ -221,19 +228,21 @@ the protocol and token lifecycle.
 
 ## 6. Verify ingestion
 
-Start Climate Twin, then:
+Start Stuga, then:
 
 1. Open `GET /api/v1/integrations/status` or the integration status in the web
    app and confirm Home Assistant is configured and connected.
 2. Warm one sensor briefly without covering its ventilation openings.
 3. Within the upstream sampling/polling delay, confirm its Home Assistant state
-   changes and the matching Climate Twin tile updates.
+   changes and the matching Stuga tile updates.
 4. Query v2 history for each mapped metric and confirm a `home-assistant` sample
    was persisted with the entity's `last_updated` timestamp and expected unit.
-5. Check every sensor against its physical label before removing mock mode.
+5. Confirm `integrations/status` reports `mock.mode=real` and `mock.enabled=false`.
+   Saving the credentials already purged demo telemetry; the switch is one-way
+   for this database, even if the credentials are later removed.
 
 Home Assistant updates the TP-Link integration on a five-second polling cycle,
-so a state change is not expected to appear instantly. Climate Twin streams the
+so a state change is not expected to appear instantly. Stuga streams the
 event after Home Assistant publishes it.
 
 For every mapped sensor, the bridge requests Home Assistant's current states at
@@ -247,7 +256,7 @@ create duplicate climate readings.
 
 **Integration is not discovered**
 
-- Add the H200 by stable LAN IP.
+- Add the H100/H200 by stable LAN IP.
 - Confirm Home Assistant can route to the hub and that VLAN rules allow it.
 - Do not expect multicast discovery to cross subnets.
 
@@ -259,7 +268,7 @@ create duplicate climate readings.
 - Follow the official page's debug-logging procedure, then disable debug logging
   afterward because it is verbose and may contain sensitive context.
 
-**Home Assistant values update but Climate Twin does not**
+**Home Assistant values update but Stuga does not**
 
 - Verify `HA_URL` is reachable from the API container, not just from the host.
 - Verify the token belongs to an active user and has not been deleted.
@@ -269,7 +278,7 @@ create duplicate climate readings.
 
 **Only one of temperature/humidity changes**
 
-Climate Twin retains the latest complementary value until its entity next
+Stuga retains the latest complementary value until its entity next
 changes. At startup/reconnect it first refreshes all mapped current states, then
 subscribes to live state events. Because the entities are independently updated,
 the paired record is not guaranteed to be an atomic sample.
@@ -293,12 +302,12 @@ record exists only for v1 compatibility.
 
 For legacy climate readings, confirm both mapped temperature and humidity
 entities currently have numeric states. For a generic metric, only that mapped
-entity needs a valid numeric state. In both cases confirm the Climate Twin
+entity needs a valid numeric state. In both cases confirm the Stuga
 sensor ID exists/enabled and the entity map is mounted at the configured path.
 Restart the bridge after changing the map so its initial-state request includes
 the new mapping.
 
 **Entity IDs changed after renaming in Home Assistant**
 
-Update the map explicitly and restart Climate Twin. Preserve the Climate Twin
+Update the map explicitly and restart Stuga. Preserve the Stuga
 `sensorId`; changing that ID creates a different history identity.

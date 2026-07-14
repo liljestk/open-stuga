@@ -1,0 +1,8 @@
+{
+  "devices": [
+    {
+      "deviceId": "replace-with-t310-or-t315-device-id",
+      "sensorId": "sensor-01"
+    }
+  ]
+}

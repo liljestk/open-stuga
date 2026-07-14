@@ -1,6 +1,6 @@
-# Install and run Climate Twin
+# Install and run Stuga
 
-Climate Twin runs with mock sensors out of the box. Home Assistant is optional,
+Stuga runs with mock sensors out of the box. Home Assistant is optional,
 so the visualisation, history, alerts, and replay workflow can be evaluated
 before the physical sensors arrive. Temperature, relative humidity, and CO2 are
 built in; additional finite numeric scalar measurements can be registered later.
@@ -121,48 +121,155 @@ intervals.
    a marker/history series. If spatial/forecast capability flags are false, the
    correct result is no interpolated surface and no forecast.
 
-Mock data is synthetic and must never be mixed into an analysis as if it came
-from a calibrated physical device. Keep the source/quality indicator visible in
-exports and predictive experiments.
+Mock data is synthetic. Stuga prevents it from crossing into a real
+installation: saving Home Assistant or TP-Link credentials, or accepting the
+first non-demo API/import sample or fresh provider outdoor value, permanently latches
+the current database into real-data mode. The transition removes persisted mock/replay telemetry,
+synthetic outdoor boundaries, and existing alert events, stops mock generation
+and active replay, and blocks all future demo ingestion.
+
+## Use the Set up workspace
+
+**Set up** is split into four sections so routine monitoring stays out of the
+configuration flow:
+
+| Section | Purpose |
+| --- | --- |
+| **Overview** | readiness steps and a compact status summary |
+| **Homes** | select a home, load the map deliberately, place/calibrate its footprint, and set plan orientation |
+| **Connections** | discover and configure the process-wide direct TP-Link or Home Assistant source |
+| **Weather** | select a home, discover its location/timezone, and review automatic weather-provider configuration |
+
+The section is encoded in `/setup/{section}`, so browser Back/Forward and direct
+links retain context. Opening **Connections** starts one best-effort LAN
+discovery scan; a retry button and manual address fields remain available. The
+credential and manual-network controls are progressive disclosures for users
+who need them. TP-Link and Home Assistant settings remain shared by the API
+process: selecting a home in Setup does not create a per-home integration.
+
+Location setup is also discover-first. Search for a place, review its suggested
+coordinate and IANA timezone, then apply it; or choose **Use this device's
+location** and approve the browser permission prompt. Neither device location
+nor the OpenStreetMap view is accessed until the corresponding explicit action.
+Manual coordinates and timezone overrides remain under **Advanced**.
+
+## Connect a TP-Link hub directly
+
+After the mock workflow works:
+
+1. Follow [direct TP-Link H100/H200 setup](tp-link-direct.md).
+2. For local development, install
+   `apps/api/python/requirements.txt`; the Docker image already includes it.
+3. Open **Set up > Connections**, choose the discovered H100/H200 (or open the
+   manual connection fields), and enter the same account used by the Tapo app.
+4. Open **Sensors**, choose **Add sensor**, and select a discovered T310/T315.
+   Name it, choose its floor and room, and place it on the plan. The binding is
+   stored in SQLite and begins ingesting without another restart.
+5. Saving the hub credentials automatically and permanently disables and purges
+   demo telemetry for this database. No environment change or restart is needed.
+
+Home Assistant is not required for this path.
 
 ## Connect Home Assistant
 
 After the mock workflow works:
 
-1. Follow [TP-Link H200 and Home Assistant setup](home-assistant.md).
+1. Follow [TP-Link H100/H200 and Home Assistant setup](home-assistant.md).
 2. Copy `config/home-assistant.entities.example.json` to the untracked
    `config/home-assistant.entities.json` and replace all entity IDs.
-3. Set `HA_URL` and `HA_TOKEN` in `.env`.
-4. Set `MOCK_ENABLED=false` when physical-only operation is desired.
-5. Restart: `docker compose up -d` or restart the local API.
+3. Open **Set up > Connections**, choose the discovered Home Assistant instance
+   (or open the manual connection fields), and paste a long-lived access token.
+4. Saving the Home Assistant credentials automatically and permanently disables
+   and purges demo telemetry for this database. No environment change is needed.
+5. Restart only when changing environment-based entity maps or overrides.
 
-It is safe to keep mock mode available in a separate test deployment. Avoid
-enabling test scenarios in the instance used for real alerts.
+Keep demonstrations in a separate database or deployment. The real-data latch
+is intentionally one-way and `MOCK_ENABLED=true` cannot re-enable mock data in
+an installation that has accepted real telemetry.
+
+## Import existing measurement history
+
+Open **Sensors** and choose **Import history**. The guided flow accepts modern
+Excel workbooks (`.xlsx`), CSV, and TSV files up to 25 MB. It reads the file in
+the browser, guesses the header, date, sensor, and measurement columns, and lets
+you correct every match before saving anything. An example CSV is available on
+the first step.
+
+Files can use either of these familiar layouts:
+
+| One column per measurement | One measurement per row |
+| --- | --- |
+| `Date, Sensor, Temperature, Humidity` | `Date, Sensor, Measurement, Value, Unit` |
+
+Sensor values can be stable sensor IDs or unique sensor names. Dates with an
+explicit offset are preserved; dates without one use the selected house's time
+zone. Celsius, Fahrenheit, and kelvin temperature columns can be converted to
+the registry's canonical Celsius unit. Decimal commas and common Finnish or
+ISO-style dates are supported.
+
+The check step lists invalid rows before import and imports only the valid
+measurements you approve. Repeating an import is safe: an existing measurement
+for the same sensor, metric, and timestamp is skipped even if it originally
+came from another source. Historical imports do not emit live measurement
+events, evaluate alert rules, or deliver webhooks. Archived sensors can receive
+history without being restored.
+
+Imported history is real telemetry. The first accepted import permanently
+switches that database out of demo mode and removes bundled mock/replay data, as
+described in the first-run workflow above. If `INGEST_API_KEY` protects the
+ingestion routes, the same reverse-proxy/API-key policy must permit the browser
+request to `/api/v2/measurements/import`.
 
 ## Configure outdoor weather
 
-No weather API key or environment variable is required. In **Integrations**,
-select a house, choose its WGS84 point on the map (or enter latitude/longitude),
-add an optional non-address label, and save. Set the true-north bearing of the
-top edge of the floor plan so directional wind can be aligned with the house;
-leave it unknown if it has not been measured. The page then loads FMI
-observations, point forecasts, and official warnings for that location.
+No weather API key or environment variable is required.
 
-The map is a direct browser connection to OpenStreetMap; the FMI requests are
-made by the API. Read [FMI weather and house location](weather.md) before use for
-station/forecast semantics, service limits, attribution, partial/stale failure
-state, and the privacy implications of storing coordinates and loading tiles.
+1. Open **Set up > Weather** and select a home.
+2. Search for a place and review the suggested coordinate/timezone, or
+   explicitly choose **Use this device's location**. Apply the suggestion only
+   after confirming it represents the home. Use **Advanced** only when manual
+   coordinate or timezone correction is necessary.
+3. If the home already has a precise placement from **Set up > Homes**, it can
+   be reused as the weather reference. Set the true-north bearing of the top
+   floor-plan edge there when it is known; leave it unknown rather than guessing.
+4. Open the home-scoped **Outdoor** page for current conditions, warning status,
+   and the 48-hour forecast. Forecast navigation uses four 12-hour windows and
+   displays timestamps in that home's saved IANA timezone.
+
+Automatic routing uses FMI observations, forecasts, and official warnings for
+Finnish homes, and Open-Meteo modelled current conditions/hourly forecasts for
+other homes. Provider and attribution remain visible. Outside FMI's covered
+warning path, an empty warning list is not presented as proof that no warning
+exists.
+
+Each home stores its own location and timezone, so homes in different parts of
+the world can coexist. The background service refreshes located homes with
+bounded concurrency, jitter, and per-home failure backoff. Persisting the first
+fresh provider current-temperature value is a real-system connection and
+therefore permanently switches this database out of demo mode. Use a separate
+database if you only want to preview weather alongside mock indoor conditions.
+
+Place/timezone discovery and provider requests are made by the API through
+Open-Meteo or FMI. The map is a direct browser connection to OpenStreetMap and
+is not loaded until requested; browser geolocation likewise starts only from
+the explicit device-location action. Read
+[Outdoor weather and home location](weather.md) before use for provider
+semantics, service limits, attribution, partial/stale/coverage state, and the
+privacy implications of search text, coordinates, browser permission, and map
+tiles.
 
 ## Configuration reference
 
-Configuration is environment-based so images do not contain site-specific
-values.
+The guided setup stores integration credentials in a server-side, write-only
+secrets file. Environment variables remain available as advanced overrides and
+take precedence after restart.
 
 | Variable | Default/example | Purpose |
 | --- | --- | --- |
 | `PORT` | `8787` | API listen port; Compose fixes the container port to 8787 |
 | `API_HOST` | `127.0.0.1` | local API bind; Compose overrides this to its private container interface |
 | `DATABASE_PATH` | `./data/climate-twin.sqlite` | SQLite file; Compose uses `/app/data/climate-twin.sqlite` |
+| `INTEGRATION_SECRETS_FILE` | next to `DATABASE_PATH` | protected JSON file for credentials saved through the setup page; Compose uses `/app/data/integration-secrets.json` |
 | `MOCK_ENABLED` | `true` | start synthetic telemetry |
 | `MOCK_INTERVAL_MS` | `2000` | synthetic event interval |
 | `RETENTION_DAYS` | `730` | raw measurement/readings history retention target |
@@ -170,6 +277,12 @@ values.
 | `HA_URL` | `http://homeassistant.local:8123` | Home Assistant base URL |
 | `HA_TOKEN` | empty | private Home Assistant access token |
 | `HA_ENTITY_MAP_FILE` | `./config/home-assistant.entities.json` | mapping file path |
+| `TP_LINK_HOST` | empty | reserved LAN address or hostname of an H100/H200 hub |
+| `TP_LINK_USERNAME` | empty | TP-Link account email used for local hub authentication |
+| `TP_LINK_PASSWORD` | empty | TP-Link account password used for local hub authentication |
+| `TP_LINK_DEVICE_MAP_FILE` | `./config/tp-link.devices.json` | optional legacy child-device-to-sensor bootstrap map; in-app mappings are stored in SQLite |
+| `TP_LINK_POLL_INTERVAL_MS` | `10000` | direct local hub polling interval; minimum effective value is one second |
+| `TP_LINK_PYTHON` | `python` on Windows, `python3` elsewhere | Python 3.11+ executable for the direct bridge |
 | `ALERT_WEBHOOK_URL` | empty | optional outbound alert destination |
 | `ALERT_WEBHOOK_BEARER_TOKEN` | empty | optional destination bearer token |
 | `CORS_ORIGIN` | empty | explicit browser origin for a split-origin deployment |
@@ -192,8 +305,11 @@ on a network-exposed deployment.
 
 ### Language, timezone, and units
 
-Store samples in their registry-defined canonical units and UTC. The house
-timezone and user locale control display. Temperature can be displayed as °C or
+Store samples in their registry-defined canonical units and UTC. Each house's
+IANA timezone and the user locale control display, so one installation can
+render homes on different local calendars correctly. Place/device discovery
+suggests a timezone; a manual valid-IANA override remains available.
+Temperature can be displayed as °C or
 °F without changing stored values; other metrics retain their canonical unit
 (for example CO2 remains ppm). Sensor/room names, measurement labels, alert
 text, thresholds, and building parameters are data, not environment constants.
@@ -219,5 +335,5 @@ backup.
 ## Uninstall
 
 Stop the stack with `docker compose down`. Preserve or export the named volume
-if history is needed. Delete `.env` and revoke its Home Assistant token when the
-bridge is retired.
+if history is needed. Delete `.env`, revoke its Home Assistant token, and rotate
+TP-Link credentials if the corresponding bridge is retired or exposed.

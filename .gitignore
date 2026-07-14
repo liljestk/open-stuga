@@ -6,6 +6,8 @@ node_modules/
 # Build, test, and tool output
 dist/
 coverage/
+coverage-python.xml
+.coverage*
 playwright-report/
 test-results/
 *.tsbuildinfo
@@ -30,6 +32,9 @@ temp/
 .env.*
 !.env.example
 config/home-assistant.entities.json
+config/tp-link.devices.json
+__pycache__/
+*.py[cod]
 *.pem
 *.key
 *.p12

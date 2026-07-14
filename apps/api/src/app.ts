@@ -3,7 +3,9 @@ import express, { type NextFunction, type Request, type Response } from "express
 import type {
   AlertRule,
   Floor,
+  HouseWeather,
   HouseLocation,
+  HouseMapPlacement,
   ManualObservation,
   MeasurementDefinition,
   MeasurementSample,
@@ -13,18 +15,23 @@ import type {
   TelemetryEvent,
 } from "@climate-twin/contracts";
 import { loadConfig, type AppConfig } from "./config.js";
-import { ClimateDatabase, ClimateDataValidationError } from "./db.js";
+import { ClimateDatabase, ClimateDataValidationError, outdoorLocationKey, type SensorUpdate } from "./db.js";
 import { TelemetryBus } from "./events.js";
 import { HomeAssistantBridge } from "./home-assistant.js";
+import { TpLinkBridge } from "./tp-link.js";
+import { discoverHomeAssistant } from "./discovery.js";
+import { updateIntegrationSecrets } from "./integration-secrets.js";
 import { openApiV1Document, openApiV2Document } from "./openapi.js";
 import {
   FmiWeatherProvider,
+  WeatherRequestSupersededError,
   WeatherService,
   WeatherUnavailableError,
   type WeatherProvider,
 } from "./weather.js";
 import {
   AlertEngine,
+  DataModeCoordinator,
   forecast,
   forecastMeasurement,
   MeasurementService,
@@ -36,6 +43,11 @@ import {
   TelemetryValidationError,
   TelemetryService,
 } from "./services.js";
+import { runThermalSimulation } from "./thermal-simulation.js";
+import { SYSTEM_VERSION } from "./version.js";
+import { LocationDiscoveryService } from "./location-discovery.js";
+import { AutomaticWeatherProvider, OpenMeteoWeatherProvider } from "./open-meteo.js";
+import { WeatherMonitor } from "./weather-monitor.js";
 
 class HttpError extends Error {
   constructor(readonly status: number, readonly code: string, message: string, readonly details?: unknown) {
@@ -52,6 +64,34 @@ function requiredString(body: Record<string, unknown>, key: string): string {
   const value = body[key];
   if (typeof value !== "string" || !value.trim()) throw new HttpError(400, "INVALID_FIELD", `${key} must be a non-empty string`);
   return value.trim();
+}
+
+function credentialString(body: Record<string, unknown>, key: string, maximumLength: number, trim = false): string {
+  const value = body[key];
+  if (typeof value !== "string" || !value.trim() || value.length > maximumLength) {
+    throw new HttpError(400, "INVALID_FIELD", `${key} must be a non-empty string of at most ${maximumLength} characters`);
+  }
+  return trim ? value.trim() : value;
+}
+
+function homeAssistantUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) throw new Error();
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    throw new HttpError(400, "INVALID_FIELD", "url must be a valid HTTP or HTTPS Home Assistant address");
+  }
+}
+
+function networkHost(value: string): string {
+  const host = value.trim();
+  const hostnameOrIpv4 = /^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(host);
+  const ipv6 = host.includes(":") && /^[0-9A-Fa-f:]+$/.test(host);
+  if (host.length > 253 || (!hostnameOrIpv4 && !ipv6)) {
+    throw new HttpError(400, "INVALID_FIELD", "host must be an IP address or local network name without a URL scheme");
+  }
+  return host;
 }
 
 function optionalString(body: Record<string, unknown>, key: string): string | undefined {
@@ -85,7 +125,42 @@ function houseLocationValue(value: unknown, allowNull = false): HouseLocation | 
   const latitude = requiredNumber(body, "latitude");
   const longitude = requiredNumber(body, "longitude");
   const label = optionalString(body, "label")?.trim();
-  return { latitude, longitude, ...(label ? { label } : {}) };
+  const countryCode = optionalString(body, "countryCode")?.trim().toUpperCase();
+  const source = optionalString(body, "source")?.trim() as HouseLocation["source"];
+  const confidence = optionalString(body, "confidence")?.trim() as HouseLocation["confidence"];
+  const discoveredAt = optionalString(body, "discoveredAt")?.trim();
+  const userOverridden = optionalBoolean(body, "userOverridden");
+  return {
+    latitude,
+    longitude,
+    ...(label ? { label } : {}),
+    ...(countryCode ? { countryCode } : {}),
+    ...(source ? { source } : {}),
+    ...(confidence ? { confidence } : {}),
+    ...(discoveredAt ? { discoveredAt } : {}),
+    ...(userOverridden !== undefined ? { userOverridden } : {}),
+  };
+}
+
+function houseMapPlacementValue(value: unknown): HouseMapPlacement;
+function houseMapPlacementValue(value: unknown, allowNull: true): HouseMapPlacement | null;
+function houseMapPlacementValue(value: unknown, allowNull = false): HouseMapPlacement | null {
+  if (value === null && allowNull) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new HttpError(
+      400,
+      "INVALID_FIELD",
+      "mapPlacement must be an object with latitude, longitude, and metersPerPlanUnit",
+    );
+  }
+  const body = value as Record<string, unknown>;
+  const latitude = requiredNumber(body, "latitude");
+  const longitude = requiredNumber(body, "longitude");
+  const metersPerPlanUnit = requiredNumber(body, "metersPerPlanUnit");
+  const footprintFloorId = body.footprintFloorId === undefined
+    ? undefined
+    : requiredString(body, "footprintFloorId");
+  return { latitude, longitude, metersPerPlanUnit, ...(footprintFloorId ? { footprintFloorId } : {}) };
 }
 
 function enumValue<T extends string>(value: unknown, values: readonly T[], field: string): T {
@@ -110,6 +185,38 @@ function queryList(value: unknown): string[] {
 function safeInteger(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = Number(value);
   return Number.isInteger(parsed) ? Math.max(min, Math.min(max, parsed)) : fallback;
+}
+
+function alertDurationSeconds(value: unknown): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0 || value > 31_536_000) {
+    throw new HttpError(400, "INVALID_FIELD", "durationSeconds must be an integer from 1 to 31536000");
+  }
+  return value;
+}
+
+function optionalQueryNumber(value: unknown, field: string): number | null {
+  if (value === undefined) return null;
+  if (typeof value !== "string" || value.trim() === "" || !Number.isFinite(Number(value))) {
+    throw new HttpError(400, "INVALID_FIELD", `${field} must be a finite number`);
+  }
+  return Number(value);
+}
+
+export function persistWeatherObservation(database: ClimateDatabase, weather: HouseWeather, dataMode?: DataModeCoordinator): void {
+  if (weather.stale || !weather.current || !Number.isFinite(weather.current.temperatureC)) return;
+  database.upsertCurrentOutdoorTemperatureSample({
+    houseId: weather.houseId,
+    locationKey: outdoorLocationKey(weather.location),
+    timestamp: weather.current.timestamp,
+    temperatureC: weather.current.temperatureC as number,
+    source: weather.provider === "fmi" ? "fmi-observation" : "open-meteo-current",
+    fetchedAt: weather.fetchedAt,
+    stationId: weather.observationStation?.id ?? null,
+    stationName: weather.observationStation?.name ?? null,
+  });
+  // The repository performs the irreversible latch only after verifying the
+  // location key. Synchronize runtime listeners after that guarded write.
+  dataMode?.synchronize();
 }
 
 function keyMatches(provided: string, expected: string): boolean {
@@ -198,7 +305,7 @@ function validateMeasurementDefinition(definition: MeasurementDefinition): Measu
   return definition;
 }
 
-function parseMeasurementDefinition(value: unknown, current?: MeasurementDefinition): MeasurementDefinition {
+export function parseMeasurementDefinition(value: unknown, current?: MeasurementDefinition): MeasurementDefinition {
   const body = bodyObject(value);
   if ((current && body.id !== undefined) || body.builtin !== undefined) {
     throw new HttpError(409, "IMMUTABLE_FIELD", "Measurement definition id and builtin status cannot be changed");
@@ -227,7 +334,7 @@ function parseMeasurementDefinition(value: unknown, current?: MeasurementDefinit
   return validateMeasurementDefinition(definition);
 }
 
-function parseMeasurementSample(value: unknown, database: ClimateDatabase): MeasurementSample {
+export function parseMeasurementSample(value: unknown, database: ClimateDatabase): MeasurementSample {
   const body = bodyObject(value);
   const metric = measurementId(body.metric);
   const definition = database.getMeasurementDefinition(metric);
@@ -238,12 +345,12 @@ function parseMeasurementSample(value: unknown, database: ClimateDatabase): Meas
     value: requiredNumber(body, "value"),
     canonicalUnit,
     timestamp: dateValue(body.timestamp, new Date(), "timestamp"),
-    source: body.source === undefined ? "api" : enumValue(body.source, ["mock", "home-assistant", "api", "replay"] as const, "source"),
+    source: body.source === undefined ? "api" : enumValue(body.source, ["mock", "home-assistant", "tp-link", "api", "import", "replay"] as const, "source"),
     quality: body.quality === undefined ? "good" : enumValue(body.quality, ["good", "estimated", "stale"] as const, "quality"),
   };
 }
 
-function parseReading(value: unknown): Reading {
+export function parseReading(value: unknown): Reading {
   const body = bodyObject(value);
   const temperature = requiredNumber(body, "temperature");
   const humidity = requiredNumber(body, "humidity");
@@ -265,7 +372,7 @@ function parseReading(value: unknown): Reading {
   };
 }
 
-function parseAlertRule(value: unknown, database: ClimateDatabase): Omit<AlertRule, "id"> & { id?: string } {
+export function parseAlertRule(value: unknown, database: ClimateDatabase): Omit<AlertRule, "id"> & { id?: string } {
   const body = bodyObject(value);
   const sensorId = body.sensorId;
   if (sensorId !== null && sensorId !== undefined && typeof sensorId !== "string") throw new HttpError(400, "INVALID_FIELD", "sensorId must be a string or null");
@@ -280,16 +387,16 @@ function parseAlertRule(value: unknown, database: ClimateDatabase): Omit<AlertRu
     })(),
     operator: enumValue(body.operator, ["gt", "gte", "lt", "lte"] as const, "operator"),
     threshold: requiredNumber(body, "threshold"),
-    durationSeconds: safeInteger(body.durationSeconds, 0, 0, 31_536_000),
+    durationSeconds: alertDurationSeconds(body.durationSeconds),
     severity: enumValue(body.severity, ["info", "warning", "critical"] as const, "severity"),
     enabled: body.enabled === undefined ? true : optionalBoolean(body, "enabled") as boolean,
     webhookEnabled: body.webhookEnabled === undefined ? false : optionalBoolean(body, "webhookEnabled") as boolean,
   };
 }
 
-function parseSensorPatch(value: unknown): Partial<Omit<Sensor, "id">> {
+export function parseSensorPatch(value: unknown): SensorUpdate {
   const body = bodyObject(value);
-  const patch: Partial<Omit<Sensor, "id">> = {};
+  const patch: SensorUpdate = {};
   for (const key of ["houseId", "floorId", "name", "room", "model"] as const) {
     if (body[key] !== undefined) Object.assign(patch, { [key]: requiredString(body, key) });
   }
@@ -298,6 +405,9 @@ function parseSensorPatch(value: unknown): Partial<Omit<Sensor, "id">> {
   }
   for (const key of ["temperatureEntityId", "humidityEntityId", "batteryEntityId"] as const) {
     if (body[key] !== undefined) Object.assign(patch, { [key]: requiredString(body, key) });
+  }
+  if (body.tpLinkDeviceId !== undefined) {
+    patch.tpLinkDeviceId = body.tpLinkDeviceId === null ? null : requiredString(body, "tpLinkDeviceId");
   }
   if (body.measurementEntityIds !== undefined) patch.measurementEntityIds = measurementStringMap(body.measurementEntityIds, "measurementEntityIds");
   if (body.tags !== undefined) {
@@ -318,7 +428,11 @@ export interface ApiRuntime {
   replay: ReplayEngine;
   status: RuntimeStatus;
   homeAssistant: HomeAssistantBridge;
+  tpLink: TpLinkBridge;
   weather: WeatherService;
+  weatherMonitor: WeatherMonitor;
+  dataMode: DataModeCoordinator;
+  beginShutdown: () => void;
   close: () => void;
 }
 
@@ -326,30 +440,78 @@ export interface CreateApiOptions {
   config?: AppConfig;
   database?: ClimateDatabase;
   weatherProvider?: WeatherProvider;
+  locationDiscovery?: LocationDiscoveryService;
   startBackground?: boolean;
 }
 
 export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   const config = options.config ?? loadConfig();
   const database = options.database ?? new ClimateDatabase(config.databasePath);
+  const dataMode = new DataModeCoordinator(database);
+  if ((config.haUrl && config.haToken) || (config.tpLinkHost && config.tpLinkUsername && config.tpLinkPassword)) {
+    dataMode.activate();
+  }
   const bus = new TelemetryBus();
   const status = new RuntimeStatus(config, bus, database);
   const alertEngine = new AlertEngine(database, bus, config, status);
-  const telemetry = new TelemetryService(database, bus, alertEngine);
-  const measurements = new MeasurementService(database, bus, alertEngine);
-  const mock = new MockEngine(database, telemetry, config);
+  const telemetry = new TelemetryService(database, bus, alertEngine, dataMode);
+  const measurements = new MeasurementService(database, bus, alertEngine, dataMode);
+  const mock = new MockEngine(database, telemetry, config, dataMode);
   const replay = new ReplayEngine(database, bus);
   const homeAssistant = new HomeAssistantBridge(config, telemetry, measurements, database, status);
+  const tpLink = new TpLinkBridge(config, telemetry, database, status);
+  const locationDiscovery = options.locationDiscovery ?? new LocationDiscoveryService();
   const weather = new WeatherService(
-    options.weatherProvider ?? new FmiWeatherProvider(),
+    options.weatherProvider ?? new AutomaticWeatherProvider(
+      new FmiWeatherProvider(),
+      new OpenMeteoWeatherProvider(),
+    ),
     status.value.weather,
     () => status.changed(),
   );
+  const weatherMonitor = new WeatherMonitor({
+    houses: database,
+    weather,
+    persist: (result) => persistWeatherObservation(database, result, dataMode),
+  });
   const app = express();
+  dataMode.onActivated(() => {
+    mock.stop();
+    replay.reset();
+    alertEngine.reset();
+    status.refreshDataMode();
+  });
   // Keep the production build independent of the contracts package's TypeScript source export.
   const prefix = "/api/v1" as const;
   const v2Prefix = "/api/v2" as const;
   let retentionTimer: NodeJS.Timeout | null = null;
+  const activeEventStreams = new Set<(notifyClient?: boolean) => void>();
+  let shutdownStarted = false;
+  let closed = false;
+
+  const registerEventStream = (
+    request: Request,
+    response: Response,
+    dispose: () => void,
+  ): void => {
+    let active = true;
+    const closeStream = (notifyClient = false): void => {
+      if (!active) return;
+      active = false;
+      dispose();
+      activeEventStreams.delete(closeStream);
+      if (notifyClient && !response.destroyed && !response.writableEnded) {
+        response.write(": server shutting down\n\n");
+        response.end();
+      }
+    };
+    activeEventStreams.add(closeStream);
+    request.once("aborted", () => closeStream());
+    response.once("close", () => closeStream());
+    // A request accepted just before server.close() can reach this handler
+    // after shutdown has begun; do not let that late SSE stream block drain.
+    if (shutdownStarted) closeStream(true);
+  };
 
   app.disable("x-powered-by");
   app.use(express.json({ limit: "15mb" }));
@@ -380,10 +542,37 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   };
 
   app.get(`${prefix}/health`, (_request, response) => {
-    response.json({ status: "ok", apiVersion: "v1", database: "ready", uptimeSeconds: Math.round(process.uptime()) });
+    response.json({ status: "ok", systemVersion: SYSTEM_VERSION, apiVersion: "v1", database: "ready", uptimeSeconds: Math.round(process.uptime()) });
   });
   app.get(`${prefix}/openapi.json`, (_request, response) => response.json(openApiV1Document));
   app.get(`${v2Prefix}/openapi.json`, (_request, response) => response.json(openApiV2Document));
+  app.get(`${prefix}/locations/search`, async (request, response) => {
+    const query = typeof request.query.q === "string" ? request.query.q.trim() : "";
+    if (query.length < 2 || query.length > 120) {
+      throw new HttpError(400, "INVALID_LOCATION_QUERY", "q must contain between 2 and 120 characters");
+    }
+    const language = typeof request.query.language === "string" ? request.query.language : "en";
+    try {
+      response.json({ results: await locationDiscovery.search(query, language) });
+    } catch {
+      throw new HttpError(503, "LOCATION_DISCOVERY_UNAVAILABLE", "Location search is temporarily unavailable");
+    }
+  });
+  app.get(`${prefix}/locations/defaults`, async (request, response) => {
+    const latitude = optionalQueryNumber(request.query.latitude, "latitude");
+    const longitude = optionalQueryNumber(request.query.longitude, "longitude");
+    if (latitude === null || longitude === null) {
+      throw new HttpError(400, "INVALID_FIELD", "latitude and longitude are required");
+    }
+    try {
+      response.json(await locationDiscovery.defaultsForCoordinates(latitude, longitude));
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("valid WGS84")) {
+        throw new HttpError(422, "INVALID_COORDINATES", error.message);
+      }
+      throw new HttpError(503, "LOCATION_DISCOVERY_UNAVAILABLE", "Timezone discovery is temporarily unavailable");
+    }
+  });
 
   app.get(`${v2Prefix}/measurement-definitions`, (request, response) => {
     const includeDisabled = request.query.includeDisabled !== "false";
@@ -418,6 +607,23 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     if (input.length === 0 || input.length > 1_000) throw new HttpError(400, "INVALID_BATCH", "Submit between 1 and 1000 measurement samples");
     const samples = measurements.ingestBatch(input.map((item) => parseMeasurementSample(item, database)));
     response.status(201).json({ accepted: samples.length, samples });
+  });
+  app.post(`${v2Prefix}/measurements/import`, requireIngestKey, (request, response) => {
+    const candidate = request.body as unknown;
+    const input = candidate && typeof candidate === "object" && Array.isArray((candidate as Record<string, unknown>).samples)
+      ? (candidate as { samples: unknown[] }).samples
+      : [];
+    if (input.length === 0 || input.length > 10_000) {
+      throw new HttpError(400, "INVALID_BATCH", "Import between 1 and 10000 measurement samples at a time");
+    }
+    const submitted = input.map((item) => ({ ...parseMeasurementSample(item, database), source: "import" as const }));
+    const samples = measurements.ingestBatch(submitted, {
+      allowDisabledSensors: true,
+      publish: false,
+      evaluateAlerts: false,
+      deduplicateAcrossSources: true,
+    });
+    response.status(201).json({ accepted: samples.length, ignoredDuplicates: submitted.length - samples.length });
   });
   app.get(`${v2Prefix}/measurements/snapshot`, (request, response) => {
     const houseId = typeof request.query.houseId === "string" ? request.query.houseId : undefined;
@@ -462,14 +668,19 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     response.setHeader("connection", "keep-alive");
     response.flushHeaders();
     const write = (sample: MeasurementSample): void => {
+      if (response.destroyed || response.writableEnded) return;
       if (sensorFilter.size > 0 && !sensorFilter.has(sample.sensorId)) return;
       if (metricFilter.size > 0 && !metricFilter.has(sample.metric)) return;
       response.write(`event: measurement\ndata: ${JSON.stringify(sample)}\n\n`);
     };
     const unsubscribe = bus.subscribeMeasurements(write);
-    const heartbeat = setInterval(() => response.write(`event: heartbeat\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`), 15_000);
+    const heartbeat = setInterval(() => {
+      if (!response.destroyed && !response.writableEnded) {
+        response.write(`event: heartbeat\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`);
+      }
+    }, 15_000);
     heartbeat.unref();
-    request.on("close", () => { clearInterval(heartbeat); unsubscribe(); });
+    registerEventStream(request, response, () => { clearInterval(heartbeat); unsubscribe(); });
   });
 
   app.get(`${prefix}/houses`, (_request, response) => response.json({ houses: database.listHouses() }));
@@ -481,6 +692,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       name: requiredString(body, "name"),
       timezone: requiredString(body, "timezone"),
       ...(body.location !== undefined ? { location: houseLocationValue(body.location) } : {}),
+      ...(body.mapPlacement !== undefined ? { mapPlacement: houseMapPlacementValue(body.mapPlacement) } : {}),
       ...(body.orientationDegrees !== undefined ? { orientationDegrees: requiredNumber(body, "orientationDegrees") } : {}),
       floors: body.floors as Floor[],
     });
@@ -500,13 +712,65 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     }
     const hours = safeInteger(request.query.hours, 48, 1, 240);
     try {
-      response.json({ weather: await weather.get(house, hours) });
+      const result = await weather.get(house, hours);
+      const current = database.getHouse(house.id);
+      if (!current) throw new HttpError(404, "NOT_FOUND", "House not found");
+      if (current.updatedAt !== house.updatedAt
+        || outdoorLocationKey(current.location) !== outdoorLocationKey(result.location)) {
+        throw new WeatherRequestSupersededError();
+      }
+      persistWeatherObservation(database, result, dataMode);
+      response.json({ weather: result });
     } catch (error) {
+      if (error instanceof WeatherRequestSupersededError) {
+        throw new HttpError(409, "WEATHER_REQUEST_SUPERSEDED", error.message);
+      }
       if (error instanceof WeatherUnavailableError) {
         throw new HttpError(503, "WEATHER_UNAVAILABLE", error.message);
       }
       throw error;
     }
+  });
+  app.get(`${prefix}/houses/:id/thermal-simulation`, (request, response) => {
+    const house = database.getHouse(request.params.id as string);
+    if (!house) throw new HttpError(404, "NOT_FOUND", "House not found");
+    if (typeof request.query.sensorId !== "string" || !request.query.sensorId) {
+      throw new HttpError(400, "INVALID_FIELD", "sensorId is required");
+    }
+    const sensor = database.getSensor(request.query.sensorId);
+    if (!sensor) throw new HttpError(404, "UNKNOWN_SENSOR", "Sensor not found");
+    if (sensor.houseId !== house.id) {
+      throw new HttpError(409, "SENSOR_HOUSE_MISMATCH", "Sensor does not belong to the selected house");
+    }
+    const to = dateValue(request.query.to, new Date(), "to");
+    const from = dateValue(request.query.from, new Date(Date.parse(to) - 7 * 24 * 3_600_000), "from");
+    if (Date.parse(from) >= Date.parse(to)) throw new HttpError(400, "INVALID_RANGE", "from must be before to");
+    if (Date.parse(to) - Date.parse(from) > 14 * 24 * 3_600_000) {
+      throw new HttpError(400, "RANGE_TOO_LARGE", "thermal calibration range cannot exceed 14 days");
+    }
+    const horizonHours = safeInteger(request.query.horizonHours, 12, 0, 72);
+    const scenarioOutdoorTemperatureC = optionalQueryNumber(request.query.scenarioOutdoorTemperatureC, "scenarioOutdoorTemperatureC");
+    const boundaryPaddingMs = 2 * 3_600_000;
+    const indoorSamples = database.thermalTemperatureHistory(sensor.id, from, to, 5, 5_000);
+    const outdoorSamples = database.outdoorTemperatureHistory(
+      house.id,
+      outdoorLocationKey(house.location),
+      new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
+      new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
+      50_000,
+    );
+    const simulation = runThermalSimulation({
+      houseId: house.id,
+      sensorId: sensor.id,
+      roomLabel: sensor.room,
+      from,
+      to,
+      indoorSamples,
+      outdoorSamples,
+      horizonHours,
+      scenarioOutdoorTemperatureC,
+    });
+    response.json({ simulation });
   });
   app.patch(`${prefix}/houses/:id`, (request, response) => {
     const body = bodyObject(request.body);
@@ -516,10 +780,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       orientationDegrees?: number | null;
       floors?: Floor[];
       location?: HouseLocation | null;
+      mapPlacement?: HouseMapPlacement | null;
     } = {};
     if (body.name !== undefined) patch.name = requiredString(body, "name");
     if (body.timezone !== undefined) patch.timezone = requiredString(body, "timezone");
     if (body.location !== undefined) patch.location = houseLocationValue(body.location, true);
+    if (body.mapPlacement !== undefined) patch.mapPlacement = houseMapPlacementValue(body.mapPlacement, true);
     if (body.orientationDegrees !== undefined) {
       patch.orientationDegrees = body.orientationDegrees === null ? null : requiredNumber(body, "orientationDegrees");
     }
@@ -586,6 +852,9 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       ...(optionalString(body, "temperatureEntityId") !== undefined ? { temperatureEntityId: optionalString(body, "temperatureEntityId") as string } : {}),
       ...(optionalString(body, "humidityEntityId") !== undefined ? { humidityEntityId: optionalString(body, "humidityEntityId") as string } : {}),
       ...(optionalString(body, "batteryEntityId") !== undefined ? { batteryEntityId: optionalString(body, "batteryEntityId") as string } : {}),
+      ...(body.tpLinkDeviceId !== undefined && body.tpLinkDeviceId !== null
+        ? { tpLinkDeviceId: requiredString(body, "tpLinkDeviceId") }
+        : {}),
       ...(body.measurementEntityIds !== undefined ? { measurementEntityIds: measurementStringMap(body.measurementEntityIds, "measurementEntityIds") } : {}),
     });
     response.status(201).json({ sensor });
@@ -665,6 +934,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     response.setHeader("connection", "keep-alive");
     response.flushHeaders();
     const write = (event: TelemetryEvent): void => {
+      if (response.destroyed || response.writableEnded) return;
       if (filter.size > 0 && (event.type === "reading" || event.type === "alert")) {
         const data = event.data as Reading | { sensorId: string };
         if (!filter.has(data.sensorId)) return;
@@ -675,7 +945,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     const unsubscribe = bus.subscribe(write);
     const heartbeat = setInterval(() => write({ type: "heartbeat", data: { timestamp: new Date().toISOString() } }), 15_000);
     heartbeat.unref();
-    request.on("close", () => { clearInterval(heartbeat); unsubscribe(); });
+    registerEventStream(request, response, () => { clearInterval(heartbeat); unsubscribe(); });
   };
   app.get(`${prefix}/stream`, streamTelemetry);
   app.get(`${prefix}/events`, streamTelemetry);
@@ -696,7 +966,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       })() } : {}),
       ...(body.operator !== undefined ? { operator: enumValue(body.operator, ["gt", "gte", "lt", "lte"] as const, "operator") } : {}),
       ...(body.threshold !== undefined ? { threshold: requiredNumber(body, "threshold") } : {}),
-      ...(body.durationSeconds !== undefined ? { durationSeconds: safeInteger(body.durationSeconds, current.durationSeconds, 0, 31_536_000) } : {}),
+      ...(body.durationSeconds !== undefined ? { durationSeconds: alertDurationSeconds(body.durationSeconds) } : {}),
       ...(body.severity !== undefined ? { severity: enumValue(body.severity, ["info", "warning", "critical"] as const, "severity") } : {}),
       ...(body.enabled !== undefined ? { enabled: optionalBoolean(body, "enabled") as boolean } : {}),
       ...(body.webhookEnabled !== undefined ? { webhookEnabled: optionalBoolean(body, "webhookEnabled") as boolean } : {}),
@@ -815,22 +1085,71 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     response.status(204).end();
   });
 
-  app.get(`${prefix}/integrations/status`, (_request, response) => response.json(status.value));
+  app.get(`${prefix}/integrations/status`, (_request, response) => {
+    dataMode.synchronize();
+    response.json(status.value);
+  });
+  app.post(`${prefix}/integrations/discover`, async (_request, response) => {
+    const [homeAssistantResult, tpLinkResult] = await Promise.allSettled([
+      discoverHomeAssistant(),
+      tpLink.discoverHubs(),
+    ]);
+    const warnings: string[] = [];
+    if (homeAssistantResult.status === "rejected") warnings.push("Home Assistant discovery was unavailable. Enter its address manually.");
+    if (tpLinkResult.status === "rejected") warnings.push("TP-Link discovery was unavailable. Enter the hub address manually.");
+    response.json({
+      homeAssistant: homeAssistantResult.status === "fulfilled" ? homeAssistantResult.value : [],
+      tpLink: tpLinkResult.status === "fulfilled" ? tpLinkResult.value : [],
+      warnings,
+    });
+  });
+  app.put(`${prefix}/integrations/home-assistant/config`, (request, response) => {
+    const body = bodyObject(request.body);
+    const url = homeAssistantUrl(credentialString(body, "url", 2_048, true));
+    const token = credentialString(body, "token", 8_192);
+    updateIntegrationSecrets(config.integrationSecretsFile, { homeAssistant: { url, token } });
+    config.haUrl = url;
+    config.haToken = token;
+    status.value.homeAssistant.configured = true;
+    status.value.homeAssistant.error = null;
+    const wasRealMode = dataMode.isRealMode;
+    dataMode.activate();
+    if (wasRealMode) status.changed();
+    if (options.startBackground) homeAssistant.restart();
+    response.json({ ok: true, configured: true, integration: structuredClone(status.value) });
+  });
+  app.put(`${prefix}/integrations/tp-link/config`, (request, response) => {
+    const body = bodyObject(request.body);
+    const host = networkHost(credentialString(body, "host", 253, true));
+    const username = credentialString(body, "username", 320, true);
+    const password = credentialString(body, "password", 4_096);
+    updateIntegrationSecrets(config.integrationSecretsFile, { tpLink: { host, username, password } });
+    config.tpLinkHost = host;
+    config.tpLinkUsername = username;
+    config.tpLinkPassword = password;
+    status.value.tpLink.configured = true;
+    status.value.tpLink.error = null;
+    const wasRealMode = dataMode.isRealMode;
+    dataMode.activate();
+    if (wasRealMode) status.changed();
+    if (options.startBackground) tpLink.restart();
+    response.json({ ok: true, configured: true, integration: structuredClone(status.value) });
+  });
   app.post(`${prefix}/integrations/home-assistant/test`, (_request, response) => response.json({
     ok: status.value.homeAssistant.connected,
     message: status.value.homeAssistant.connected
       ? "Home Assistant is connected and streaming state changes."
       : status.value.homeAssistant.configured
         ? status.value.homeAssistant.error ?? "Home Assistant is configured but not connected yet."
-        : "Set HA_URL, HA_TOKEN, and HA_ENTITY_MAP_FILE in the API environment, then restart the service.",
+        : "Use the setup page to save the Home Assistant URL and token, or configure HA_URL and HA_TOKEN.",
   }));
   app.get(`${prefix}/integrations/home-assistant/setup`, (_request, response) => response.json({
     configured: status.value.homeAssistant.configured,
     steps: [
       "Create a Home Assistant long-lived access token for a dedicated local user.",
-      "Set HA_URL, HA_TOKEN, and HA_ENTITY_MAP_FILE in the API process environment.",
-      "Map each Climate Twin sensor to legacy climate keys and/or a measurements object keyed by registry id.",
-      "Restart the API and verify /api/v1/integrations/status reports connected=true.",
+      "Use the setup page to discover Home Assistant or enter its local URL, then save the token.",
+      "Map each Stuga sensor to legacy climate keys and/or a measurements object keyed by registry id.",
+      "Verify /api/v1/integrations/status reports connected=true.",
     ],
     entityMapSchema: {
       entities: [{
@@ -841,11 +1160,48 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     notes: [
       "All entity keys are optional, but each mapping needs at least one entity.",
       "Generic string bindings require the exact canonical unit; use {entityId, unit, scale, offset} for explicit conversions such as ppb to ppm.",
-      "HA_TOKEN is read from the environment and is never returned or stored in SQLite",
+      "Saved credentials are write-only through the API and stored in the protected integration secrets file, outside SQLite.",
+      "HA_URL and HA_TOKEN environment variables remain advanced overrides.",
+      "Saving a real integration permanently disables mock telemetry for this database and purges existing demo samples and mock-derived alert events.",
+    ],
+  }));
+  app.get(`${prefix}/integrations/tp-link/devices`, (_request, response) => response.json({
+    devices: tpLink.listDiscoveredDevices(),
+  }));
+  app.post(`${prefix}/integrations/tp-link/test`, (_request, response) => response.json({
+    ok: status.value.tpLink.connected,
+    message: status.value.tpLink.connected
+      ? `TP-Link ${status.value.tpLink.hubModel ?? "hub"} is connected; ${status.value.tpLink.discoveredDevices} child devices discovered and ${status.value.tpLink.mappedDevices} mapped.`
+      : status.value.tpLink.configured
+        ? status.value.tpLink.error ?? "TP-Link credentials are configured, but discovery has not connected yet."
+        : "Use the setup page to discover or enter the hub, then save the TP-Link account credentials.",
+  }));
+  app.get(`${prefix}/integrations/tp-link/setup`, (_request, response) => response.json({
+    configured: status.value.tpLink.configured,
+    supportedHubs: ["H100", "H200"],
+    supportedClimateSensors: ["T310", "T315"],
+    steps: [
+      "Install python-kasa from apps/api/python/requirements.txt (already included in the Docker image).",
+      "Use the setup page to discover the hub or enter its reserved LAN address, then save TP-Link account credentials.",
+      "Inspect /api/v1/integrations/tp-link/devices for discovered child devices.",
+      "Assign a discovered device by PATCHing its stable deviceId into a sensor's tpLinkDeviceId field.",
+    ],
+    sensorPatchSchema: { tpLinkDeviceId: "hub-child-device-id" },
+    deviceMapSchema: { devices: [{ deviceId: "hub-child-device-id", sensorId: "sensor-01" }] },
+    notes: [
+      "The helper polls the hub over the local LAN; credentials are passed through its process environment and are never returned or stored in SQLite.",
+      "Web-saved credentials live in the protected integration secrets file; TP_LINK_* environment variables remain advanced overrides.",
+      "TP_LINK_DEVICE_MAP_FILE remains supported as an optional legacy fallback; database sensor bindings take precedence.",
+      "Set tpLinkDeviceId to null to unassign a child device without deleting the sensor or its history.",
+      "Home Assistant and direct TP-Link bridges can run at the same time, but the same physical child should be mapped through only one path.",
+      "Saving a real integration permanently disables mock telemetry for this database and purges existing demo samples and mock-derived alert events.",
     ],
   }));
 
-  app.get(`${prefix}/mock/scenarios`, (_request, response) => response.json({ scenarios: MOCK_SCENARIOS, active: mock.scenario, enabled: config.mockEnabled }));
+  app.get(`${prefix}/mock/scenarios`, (_request, response) => {
+    dataMode.synchronize();
+    response.json({ scenarios: MOCK_SCENARIOS, active: mock.scenario, enabled: status.value.mock.enabled });
+  });
   app.put(`${prefix}/mock/scenario`, (request, response) => {
     const scenario = enumValue(bodyObject(request.body).scenario, MOCK_SCENARIOS.map((item) => item.id), "scenario");
     mock.setScenario(scenario);
@@ -903,6 +1259,10 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       response.status(409).json({ error: { code: "CONFLICT", message: "A resource with this identifier already exists" } });
       return;
     }
+    if (message.includes("DEMO_DATA_DISABLED")) {
+      response.status(409).json({ error: { code: "DEMO_DATA_DISABLED", message: "Demo telemetry is permanently disabled for this real-data database" } });
+      return;
+    }
     if (error instanceof SyntaxError) {
       response.status(400).json({ error: { code: "INVALID_JSON", message: "Request body is not valid JSON" } });
       return;
@@ -913,6 +1273,8 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   if (options.startBackground) {
     mock.start();
     homeAssistant.start();
+    tpLink.start();
+    weatherMonitor.start();
     const purge = (): void => {
       database.purgeReadingsBefore(new Date(Date.now() - config.retentionDays * 86_400_000).toISOString());
     };
@@ -921,14 +1283,31 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     retentionTimer.unref();
   }
 
+  const beginShutdown = (): void => {
+    if (shutdownStarted) return;
+    shutdownStarted = true;
+    mock.stop();
+    replay.stop();
+    homeAssistant.stop();
+    tpLink.stop();
+    weatherMonitor.stop();
+    if (retentionTimer) {
+      clearInterval(retentionTimer);
+      retentionTimer = null;
+    }
+    for (const closeStream of [...activeEventStreams]) closeStream(true);
+  };
+
+  const close = (): void => {
+    if (closed) return;
+    beginShutdown();
+    closed = true;
+    database.close();
+  };
+
   return {
-    app, database, bus, telemetry, measurements, mock, replay, status, homeAssistant, weather,
-    close: () => {
-      mock.stop();
-      replay.stop();
-      homeAssistant.stop();
-      if (retentionTimer) clearInterval(retentionTimer);
-      database.close();
-    },
+    app, database, bus, telemetry, measurements, mock, replay, status, homeAssistant, tpLink, weather, weatherMonitor, dataMode,
+    beginShutdown,
+    close,
   };
 }

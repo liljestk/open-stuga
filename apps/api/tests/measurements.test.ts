@@ -11,9 +11,11 @@ import type { AppConfig } from "../src/config.js";
 import { ClimateDatabase } from "../src/db.js";
 
 const config: AppConfig = {
-  port: 0, apiHost: "127.0.0.1", databasePath: ":memory:", assetDirectory: ".",
+  port: 0, apiHost: "127.0.0.1", databasePath: ":memory:", integrationSecretsFile: "integration-secrets.test.json", assetDirectory: ".",
   mockEnabled: false, mockIntervalMs: 25, retentionDays: 730, ingestApiKey: null,
   haUrl: null, haToken: null, haEntityMapFile: null,
+  tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null, tpLinkDeviceMapFile: null,
+  tpLinkPollIntervalMs: 10_000, tpLinkPython: "python", tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
   alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
 };
 
@@ -85,7 +87,7 @@ describe("registry-driven measurements API", () => {
 
     await request(runtime.app).post("/api/v1/alert-rules").send({
       id: "custom-alert", name: "Custom alert", sensorId: "sensor-01", metric: "alert_metric",
-      operator: "gte", threshold: 10, durationSeconds: 0, severity: "warning", enabled: true, webhookEnabled: false,
+      operator: "gte", threshold: 10, durationSeconds: 1, severity: "warning", enabled: true, webhookEnabled: false,
     }).expect(201);
     await request(runtime.app).patch("/api/v2/measurement-definitions/alert_metric").send({ unit: "unit-b" })
       .expect(409).expect(({ body }) => expect(body.error.code).toBe("UNIT_IMMUTABLE"));
@@ -130,17 +132,41 @@ describe("registry-driven measurements API", () => {
     expect(history.body.samples.map((sample: { value: number }) => sample.value)).toEqual([700, 900]);
   });
 
+  it("allows small sender clock skew but atomically rejects samples too far in the future", async () => {
+    const now = Date.now();
+    const valid = {
+      sensorId: "sensor-01", metric: "co2", value: 700, canonicalUnit: "ppm",
+      timestamp: new Date(now).toISOString(),
+    };
+    await request(runtime.app).post("/api/v2/measurements").send({ samples: [
+      valid,
+      { ...valid, value: 701, timestamp: new Date(now + 6 * 60_000).toISOString() },
+    ] }).expect(422).expect(({ body }) => expect(body.error.code).toBe("TIMESTAMP_TOO_FAR_IN_FUTURE"));
+    expect(runtime.database.measurementHistory(
+      "sensor-01", "co2", new Date(now - 1_000).toISOString(), new Date(now + 1_000).toISOString(),
+    )).toHaveLength(0);
+
+    await request(runtime.app).post("/api/v2/measurements").send({
+      ...valid, timestamp: new Date(now + 4 * 60_000).toISOString(),
+    }).expect(201);
+  });
+
   it("evaluates alerts only for the arriving metric and exposes explicit forecast capability", async () => {
+    const base = Date.now() - 5_000;
     await request(runtime.app).post("/api/v1/alert-rules").send({
       id: "co2-alert", name: "High CO2", sensorId: "sensor-01", metric: "co2", operator: "gte",
-      threshold: 800, durationSeconds: 0, severity: "warning", enabled: true, webhookEnabled: false,
+      threshold: 800, durationSeconds: 1, severity: "warning", enabled: true, webhookEnabled: false,
     }).expect(201);
     await request(runtime.app).post("/api/v2/measurements").send({
-      sensorId: "sensor-01", metric: "humidity", value: 99, canonicalUnit: "%", timestamp: "2026-07-14T11:00:00Z",
+      sensorId: "sensor-01", metric: "humidity", value: 99, canonicalUnit: "%", timestamp: new Date(base).toISOString(),
     }).expect(201);
     expect(runtime.database.listAlertEvents()).toHaveLength(0);
     await request(runtime.app).post("/api/v2/measurements").send({
-      sensorId: "sensor-01", metric: "co2", value: 900, canonicalUnit: "ppm", timestamp: "2026-07-14T11:01:00Z",
+      sensorId: "sensor-01", metric: "co2", value: 900, canonicalUnit: "ppm", timestamp: new Date(base + 1_000).toISOString(),
+    }).expect(201);
+    expect(runtime.database.listAlertEvents()).toHaveLength(0);
+    await request(runtime.app).post("/api/v2/measurements").send({
+      sensorId: "sensor-01", metric: "co2", value: 900, canonicalUnit: "ppm", timestamp: new Date(base + 2_500).toISOString(),
     }).expect(201);
     expect(runtime.database.listAlertEvents()).toEqual([expect.objectContaining({ metric: "co2", value: 900 })]);
 
@@ -154,6 +180,63 @@ describe("registry-driven measurements API", () => {
     }).expect(201);
     await request(runtime.app).get("/api/v2/measurements/forecast").query({ sensorId: "sensor-01", metric: "noise" })
       .expect(422).expect(({ body }) => expect(body.error.code).toBe("FORECAST_UNSUPPORTED"));
+  });
+
+  it("keeps stale-quality samples from starting or resolving alert state", async () => {
+    const base = Date.now() - 10_000;
+    const sample = (value: number, offsetMs: number, quality: "good" | "stale") => ({
+      sensorId: "sensor-01",
+      metric: "co2",
+      value,
+      canonicalUnit: "ppm",
+      timestamp: new Date(base + offsetMs).toISOString(),
+      quality,
+    });
+    await request(runtime.app).post("/api/v1/alert-rules").send({
+      id: "stale-alert", name: "High CO2", sensorId: "sensor-01", metric: "co2", operator: "gte",
+      threshold: 800, durationSeconds: 1, severity: "warning", enabled: true, webhookEnabled: false,
+    }).expect(201);
+
+    await request(runtime.app).post("/api/v2/measurements").send(sample(900, 0, "stale")).expect(201);
+    await request(runtime.app).post("/api/v2/measurements").send(sample(900, 2_000, "good")).expect(201);
+    expect(runtime.database.listAlertEvents()).toHaveLength(0);
+
+    await request(runtime.app).post("/api/v2/measurements").send(sample(900, 4_000, "good")).expect(201);
+    expect(runtime.database.listAlertEvents(200, true)).toHaveLength(1);
+    await request(runtime.app).post("/api/v2/measurements").send(sample(700, 5_000, "stale")).expect(201);
+    expect(runtime.database.listAlertEvents(200, true)).toHaveLength(1);
+
+    await request(runtime.app).post("/api/v2/measurements").send(sample(700, 6_000, "good")).expect(201);
+    expect(runtime.database.listAlertEvents(200, true)).toHaveLength(0);
+    expect(runtime.database.listAlertEvents()[0]?.resolvedAt).toBe(new Date(base + 6_000).toISOString());
+  });
+
+  it("imports historical samples without live alerts and safely ignores retried duplicates", async () => {
+    await request(runtime.app).post("/api/v1/alert-rules").send({
+      id: "import-alert", name: "High imported CO2", sensorId: "sensor-01", metric: "co2", operator: "gte",
+      threshold: 800, durationSeconds: 1, severity: "warning", enabled: true, webhookEnabled: false,
+    }).expect(201);
+    await request(runtime.app).post("/api/v2/measurements").send({
+      sensorId: "sensor-01", metric: "co2", value: 700, canonicalUnit: "ppm", timestamp: "2025-01-15T09:00:00Z",
+    }).expect(201);
+    await request(runtime.app).patch("/api/v1/sensors/sensor-01").send({ enabled: false }).expect(200);
+    const payload = { samples: [
+      { sensorId: "sensor-01", metric: "co2", value: 701, canonicalUnit: "ppm", timestamp: "2025-01-15T09:00:00Z" },
+      { sensorId: "sensor-01", metric: "co2", value: 950, canonicalUnit: "ppm", timestamp: "2025-01-15T10:00:00Z", source: "api", quality: "good" },
+    ] };
+
+    await request(runtime.app).post("/api/v2/measurements/import").send(payload).expect(201)
+      .expect(({ body }) => expect(body).toEqual({ accepted: 1, ignoredDuplicates: 1 }));
+    await request(runtime.app).post("/api/v2/measurements/import").send(payload).expect(201)
+      .expect(({ body }) => expect(body).toEqual({ accepted: 0, ignoredDuplicates: 2 }));
+
+    expect(runtime.database.listAlertEvents()).toHaveLength(0);
+    expect(runtime.database.measurementHistory(
+      "sensor-01", "co2", "2025-01-01T00:00:00Z", "2025-02-01T00:00:00Z",
+    )).toEqual([
+      expect.objectContaining({ value: 700, source: "api" }),
+      expect.objectContaining({ value: 950, source: "import" }),
+    ]);
   });
 
   it("emits realistic registered CO2 samples from the mock engine", () => {
@@ -237,6 +320,7 @@ describe("registry-driven measurements API", () => {
     expect(v2.body.servers).toEqual([{ url: "/api/v2", description: "Registry-driven measurements API" }]);
     expect(v2.body.paths).toHaveProperty("/measurement-definitions");
     expect(v2.body.paths).toHaveProperty("/measurements/history");
+    expect(v2.body.paths).toHaveProperty("/measurements/import");
     expect(v2.body.paths).not.toHaveProperty("/houses");
     expect(v2.body.paths["/measurements"].post.requestBody.content["application/json"].schema.oneOf)
       .toEqual(expect.arrayContaining([expect.objectContaining({ type: "array" })]));
@@ -268,13 +352,19 @@ describe("legacy measurement migration", () => {
       const migrated = new ClimateDatabase(path, false);
       expect((migrated.db.prepare("SELECT COUNT(*) AS count FROM measurement_samples").get() as { count: number }).count).toBe(2);
       expect((migrated.db.prepare("SELECT value FROM metadata WHERE key = 'measurement_eav_v2'").get() as { value: string }).value).toBe("complete");
+      expect((migrated.db.prepare("PRAGMA table_info(houses)").all() as Array<{ name: string }>).map((column) => column.name))
+        .toContain("map_placement_json");
       expect(migrated.getHouse("house")).not.toHaveProperty("orientationDegrees");
+      expect(migrated.getHouse("house")).not.toHaveProperty("mapPlacement");
       expect(migrated.updateHouse("house", { orientationDegrees: 225 })?.orientationDegrees).toBe(225);
+      const mapPlacement = { latitude: 60, longitude: 25, metersPerPlanUnit: 0.5, footprintFloorId: "floor" };
+      expect(migrated.updateHouse("house", { mapPlacement })?.mapPlacement).toEqual(mapPlacement);
       migrated.close();
 
       const reopened = new ClimateDatabase(path, false);
       expect((reopened.db.prepare("SELECT COUNT(*) AS count FROM measurement_samples").get() as { count: number }).count).toBe(2);
       expect(reopened.getHouse("house")?.orientationDegrees).toBe(225);
+      expect(reopened.getHouse("house")?.mapPlacement).toEqual(mapPlacement);
       reopened.close();
     } finally {
       rmSync(directory, { recursive: true, force: true });
