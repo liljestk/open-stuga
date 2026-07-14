@@ -107,8 +107,9 @@ intervals.
    unit, and available-sensor state follow the selected definition.
 3. In the 2D plan, verify the selected spatial metric shows soft hotspot clouds
    and dashed high-to-low gradient arrows. Switch to the 3D building view and
-   verify the same field is projected onto both floor slices with all ten
-   sensors visible, then inspect a sensor's floor and mounting height.
+   verify the field becomes an XYZ cloud with all ten sensors visible. Orbit and
+   zoom the camera, confirm diagonal/vertical vectors remain anchored in the
+   volume, then inspect a sensor's floor and mounting height.
 4. Select a sensor and inspect history for each available metric. Its timestamp,
    source, quality, and stale state should be metric-specific.
 5. Exercise a mock scenario such as shower, leak, cold front, or heating failure

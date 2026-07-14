@@ -100,12 +100,12 @@ system described in the roadmap.
   It does not yet verify file signatures or enforce image dimensions/model
   complexity, so accept trusted files only.
 - The working UI includes a responsive 2D floor editor and a generated,
-  whole-building stacked 3D projection. It renders all floors, sensor mounting
-  heights, observations, and estimated cross-floor gradients from structured
-  floor geometry. It assumes floors share the same horizontal origin and
-  orientation. Elevation and sensor `z` are metres; horizontal plans may use a
-  calibrated local coordinate system. The renderer applies vertical
-  exaggeration for legibility.
+  orbitable whole-building 3D projection. It renders all floors, sensor mounting
+  heights, observations, a sparse-sample XYZ cloud, and supported 3D scalar
+  gradients from structured floor geometry. It assumes floors share the same
+  horizontal origin and orientation. Elevation and sensor `z` are metres;
+  horizontal plans may use a calibrated local coordinate system. The renderer
+  uses an orthographic camera and vertical normalization for legibility.
 - The API can retain glTF/GLB assets, but importing, aligning, interactively
   rendering, or editing those models remains a roadmap capability. Essential
   controls and values continue to have non-3D representations.

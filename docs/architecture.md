@@ -170,12 +170,15 @@ for retention and backup guidance.
   forecast rather than fabricate one. See
   [Predictive maintenance](predictive-maintenance.md).
 - **Spatial view:** only definitions with `spatialInterpolation` enabled produce
-  an estimated surface. The 2D plan and each floor slice in the stacked 3D view
-  render that surface as soft hotspot clouds. Dashed arrows follow the strongest
-  estimated scalar gradients from higher toward lower values; cross-floor cues
-  compare adjacent floor averages. Other metrics remain available as positioned
-  markers and history. These cues are sparse-sample estimates, never measured
-  airflow or a building-physics simulation.
+  an estimated field. The 2D plan renders a floor field as soft hotspot clouds;
+  the orbitable 3D view interpolates a bounded XYZ volume across fresh positioned
+  samples and depth-sorts its translucent blobs. Dashed vectors follow the
+  strongest supported high-to-low scalar gradients, including vertical and
+  diagonal components only when sensor-height coverage supports them. Regions
+  far from a reporting sensor are masked rather than confidently extrapolated.
+  Other metrics remain available as positioned markers and history. These cues
+  are sparse-sample estimates, never measured airflow or a building-physics
+  simulation.
 
 ## Module boundaries
 

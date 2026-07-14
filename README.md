@@ -6,9 +6,9 @@ The included demo starts with a two-floor house, ten virtual sensors, temperatur
 
 ## What is included
 
-- Live 2D authoring and a stacked whole-building 3D view with every floor,
-  sensor height, soft hotspot clouds, and high-to-low estimated gradient cues
-  for every measurement that opts into spatial interpolation
+- Live 2D authoring and an orbitable whole-building 3D view with every floor,
+  sensor height, soft XYZ hotspot clouds, and 2D/3D high-to-low estimated
+  gradient cues for every measurement that opts into spatial interpolation
 - Floor-plan upload, wall drawing, and drag-to-place sensors
 - Registry-defined measurements with built-in temperature (°C), humidity (%),
   and CO2 (ppm), plus independently timestamped custom numeric samples
