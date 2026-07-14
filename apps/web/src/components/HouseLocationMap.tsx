@@ -16,6 +16,15 @@ interface HouseLocationMapProps {
 
 const FINLAND_CENTER: L.LatLngExpression = [64.5, 26];
 
+function updateMarkerLabel(marker: Marker, label: string) {
+  marker.options.title = label;
+  marker.options.alt = label;
+  const element = marker.getElement();
+  if (!element) return;
+  element.setAttribute("title", label);
+  element.setAttribute("aria-label", label);
+}
+
 export function HouseLocationMap({ value, onChange, ariaLabel, markerLabel }: HouseLocationMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -65,6 +74,7 @@ export function HouseLocationMap({ value, onChange, ariaLabel, markerLabel }: Ho
     const latLng = L.latLng(value.latitude, value.longitude);
     if (markerRef.current) {
       markerRef.current.setLatLng(latLng);
+      updateMarkerLabel(markerRef.current, markerLabel);
       map.panTo(latLng, { animate: false });
       return;
     }
@@ -81,6 +91,7 @@ export function HouseLocationMap({ value, onChange, ariaLabel, markerLabel }: Ho
         iconAnchor: [15, 38],
       }),
     }).addTo(map);
+    updateMarkerLabel(marker, markerLabel);
     marker.on("dragend", () => {
       const next = marker.getLatLng();
       onChangeRef.current({ latitude: next.lat, longitude: next.lng });

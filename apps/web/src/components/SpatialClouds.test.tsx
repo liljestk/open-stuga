@@ -111,7 +111,7 @@ describe("estimated spatial clouds and flows", () => {
     expectHighToLowFlowLabels(container, ".flow-path");
   });
 
-  it("renders 3D clouds with within-floor and vertical flow cues", () => {
+  it("renders volumetric 3D clouds with true XYZ flow cues", () => {
     const state = createDemoState();
     const definition = definitionFor(state.measurementDefinitions, "temperature");
     const groundId = state.houses[0]!.floors[0]!.id;
@@ -121,12 +121,13 @@ describe("estimated spatial clouds and flows", () => {
 
     expect(container.querySelectorAll(".building-cloud-lobe").length).toBeGreaterThan(1);
     expectHighToLowFlowLabels(container, ".building-flow-path");
-    const verticalFlows = [...container.querySelectorAll<SVGGElement>(".vertical-gradient")];
+    const verticalFlows = [...container.querySelectorAll<SVGGElement>(".volume-flow-vector.has-z")];
     expect(verticalFlows.length).toBeGreaterThan(0);
     verticalFlows.forEach((flow) => {
       expect(flow.getAttribute("role")).toBe("img");
       expect(flow.getAttribute("aria-label")).not.toBe("");
-      expect(flow.querySelector("line")?.getAttribute("marker-end")).toMatch(/^url\(#/);
+      expect(Math.abs(Number(flow.dataset.dz))).toBeGreaterThan(0);
+      expect(flow.querySelector("path")?.getAttribute("marker-end")).toMatch(/^url\(#/);
     });
   });
 
@@ -147,7 +148,7 @@ describe("estimated spatial clouds and flows", () => {
 
     const buildingView = renderBuilding(state.sensors, samples, definition);
     expect(buildingView.container.querySelectorAll(
-      ".building-cloud-lobe, .building-flow-path, .vertical-gradient",
+      ".building-cloud-lobe, .building-flow-path, .volume-flow-vector",
     )).toHaveLength(0);
   });
 
@@ -156,10 +157,15 @@ describe("estimated spatial clouds and flows", () => {
     const definition = definitionFor(state.measurementDefinitions, "temperature");
     const sensor = state.sensors[0]!;
     const samples = samplesFor([sensor], definition, () => 23);
-    const { container } = renderFloor([sensor], samples, definition);
+    const floorView = renderFloor([sensor], samples, definition);
 
-    expect(container.querySelectorAll(".heat-cloud-lobe")).toHaveLength(1);
-    expect(container.querySelectorAll(".flow-path")).toHaveLength(0);
+    expect(floorView.container.querySelectorAll(".heat-cloud-lobe")).toHaveLength(1);
+    expect(floorView.container.querySelectorAll(".flow-path")).toHaveLength(0);
+    floorView.unmount();
+
+    const buildingView = renderBuilding([sensor], samples, definition);
+    expect(buildingView.container.querySelectorAll(".volume-cloud")).toHaveLength(1);
+    expect(buildingView.container.querySelectorAll(".volume-flow-vector")).toHaveLength(0);
   });
 
   it("excludes stale, aged, and future-skewed readings while retaining quality-aware markers", () => {
@@ -278,7 +284,7 @@ describe("estimated spatial clouds and flows", () => {
     await waitFor(() => {
       expect(floorView.container.querySelectorAll(".flow-path").length).toBeGreaterThan(0);
       expect(buildingView.container.querySelectorAll(".building-flow-path").length).toBeGreaterThan(0);
-      expect(buildingView.container.querySelectorAll(".vertical-gradient").length).toBeGreaterThan(0);
+      expect(buildingView.container.querySelectorAll(".volume-flow-vector.has-z").length).toBeGreaterThan(0);
       expect(document.querySelectorAll(
         ".flow-particle, .building-flow-particle, .vertical-flow-particle",
       )).toHaveLength(0);

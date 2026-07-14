@@ -28,6 +28,11 @@ const OBSERVATION_PARAMETERS = [
   "t2m", "rh", "td", "ws_10min", "wg_10min", "wd_10min", "r_1h", "ri_10min",
   "snow_aws", "p_sea", "vis", "n_man", "wawa",
 ] as const;
+const OBSERVATION_MAX_AGE_MS = 90 * 60_000;
+const OBSERVATION_MAX_PARAMETER_SKEW_MS = 30 * 60_000;
+const OBSERVATION_FUTURE_TOLERANCE_MS = 15 * 60_000;
+const DEFAULT_STALE_MAX_AGE_MS = 60 * 60_000;
+const DEFAULT_MAX_CACHE_ENTRIES = 128;
 
 type XmlObject = Record<string, unknown>;
 
@@ -254,10 +259,13 @@ function haversineKm(first: HouseLocation, second: HouseLocation): number {
   return 6_371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function currentObservation(
+/** Selects the nearest station with a recent temperature and co-timed values. */
+export function currentObservation(
   series: FmiTimeSeries[],
   houseLocation: HouseLocation,
+  now = new Date(),
 ): { current: OutdoorConditions | null; station: WeatherStation | null } {
+  const nowMs = now.getTime();
   const groups = new Map<string, FmiTimeSeries[]>();
   for (const item of series) {
     if (!item.location || item.values.length === 0) continue;
@@ -266,22 +274,33 @@ function currentObservation(
   }
   const ranked = [...groups.entries()].map(([key, items]) => {
     const location = items[0]?.location;
-    return location ? { key, items, location, distanceKm: haversineKm(houseLocation, location) } : null;
+    const temperature = items
+      .filter((item) => item.parameter === "t2m")
+      .flatMap((item) => item.values)
+      .filter((entry) => {
+        const timestamp = Date.parse(entry.timestamp);
+        return timestamp >= nowMs - OBSERVATION_MAX_AGE_MS
+          && timestamp <= nowMs + OBSERVATION_FUTURE_TOLERANCE_MS;
+      })
+      .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))[0];
+    return location && temperature
+      ? { key, items, location, temperature, distanceKm: haversineKm(houseLocation, location) }
+      : null;
   }).filter((item): item is NonNullable<typeof item> => item !== null)
-    .filter((item) => item.items.some((seriesItem) => seriesItem.parameter === "t2m"))
     .sort((a, b) => a.distanceKm - b.distanceKm);
   const selected = ranked[0];
   if (!selected) return { current: null, station: null };
-  let timestamp = "";
-  const current: OutdoorConditions = { timestamp: "" };
+  const anchorMs = Date.parse(selected.temperature.timestamp);
+  const current: OutdoorConditions = { timestamp: selected.temperature.timestamp };
   for (const item of selected.items) {
-    const latest = item.values.slice().sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0];
-    if (!latest) continue;
-    applyObservationValue(current, item.parameter, latest.value);
-    if (latest.timestamp > timestamp) timestamp = latest.timestamp;
+    const closest = item.values.map((entry) => ({ entry, timestamp: Date.parse(entry.timestamp) }))
+      .filter(({ timestamp }) => timestamp <= nowMs + OBSERVATION_FUTURE_TOLERANCE_MS
+        && Math.abs(timestamp - anchorMs) <= OBSERVATION_MAX_PARAMETER_SKEW_MS)
+      .sort((a, b) => Math.abs(a.timestamp - anchorMs) - Math.abs(b.timestamp - anchorMs)
+        || b.timestamp - a.timestamp)[0]?.entry;
+    if (closest) applyObservationValue(current, item.parameter, closest.value);
   }
-  if (!timestamp) return { current: null, station: null };
-  current.timestamp = timestamp;
+  if (current.temperatureC === undefined) return { current: null, station: null };
   return {
     current,
     station: {
@@ -404,15 +423,48 @@ function parseCapFeed(xml: string): ParsedCapWarning[] {
   return parsed;
 }
 
-/** Selects active FMI CAP warnings whose polygon or circle contains the house. */
-export function parseCapWarnings(xml: string, location: HouseLocation): WeatherWarning[] {
+/** Selects unexpired FMI CAP warnings whose polygon or circle contains the house. */
+export function parseCapWarnings(xml: string, location: HouseLocation, now = new Date()): WeatherWarning[] {
   const unique = new Map<string, WeatherWarning>();
   for (const item of parseCapFeed(xml)) {
-    if (item.areas.some((area) => warningAreaMatches(location, area)) && !unique.has(item.warning.id)) {
+    if (warningIsUnexpired(item.warning, now.getTime())
+      && item.areas.some((area) => warningAreaMatches(location, area))
+      && !unique.has(item.warning.id)) {
       unique.set(item.warning.id, item.warning);
     }
   }
   return [...unique.values()];
+}
+
+function warningIsUnexpired(warning: WeatherWarning, nowMs: number): boolean {
+  if (!warning.expiresAt) return true;
+  const expiresAt = Date.parse(warning.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt > nowMs;
+}
+
+/** Reads a decoded response stream without ever accepting more than the limit. */
+export async function readTextWithByteLimit(response: Response, maximumBytes: number): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  let receivedBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      receivedBytes += value.byteLength;
+      if (receivedBytes > maximumBytes) {
+        await reader.cancel();
+        throw new WeatherUnavailableError("FMI response exceeded the configured size limit");
+      }
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    return chunks.join("");
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 export interface FmiWeatherProviderOptions {
@@ -448,11 +500,12 @@ export class FmiWeatherProvider implements WeatherProvider {
     if (Number.isFinite(declaredLength) && declaredLength > maximumBytes) {
       throw new WeatherUnavailableError("FMI response exceeded the configured size limit");
     }
-    const body = await response.text();
-    if (Buffer.byteLength(body, "utf8") > maximumBytes) {
-      throw new WeatherUnavailableError("FMI response exceeded the configured size limit");
+    try {
+      return await readTextWithByteLimit(response, maximumBytes);
+    } catch (error) {
+      if (error instanceof WeatherUnavailableError) throw error;
+      throw new WeatherUnavailableError("FMI response could not be read");
     }
-    return body;
   }
 
   #forecastUrl(
@@ -493,7 +546,7 @@ export class FmiWeatherProvider implements WeatherProvider {
   async #observations(location: HouseLocation, now: Date): Promise<ReturnType<typeof currentObservation>> {
     for (const radiusKm of [40, 120]) {
       const xml = await this.#xml(this.#observationUrl(location, now, radiusKm), 8 * 1024 * 1024);
-      const parsed = currentObservation(parseFmiTimeSeries(xml), location);
+      const parsed = currentObservation(parseFmiTimeSeries(xml), location, now);
       if (parsed.current) return parsed;
     }
     throw new WeatherUnavailableError("No recent FMI observation station data was found nearby");
@@ -507,7 +560,9 @@ export class FmiWeatherProvider implements WeatherProvider {
     }
     const unique = new Map<string, WeatherWarning>();
     for (const item of this.#warningCache.records) {
-      if (item.areas.some((area) => warningAreaMatches(location, area)) && !unique.has(item.warning.id)) {
+      if (warningIsUnexpired(item.warning, now)
+        && item.areas.some((area) => warningAreaMatches(location, area))
+        && !unique.has(item.warning.id)) {
         unique.set(item.warning.id, item.warning);
       }
     }
@@ -525,16 +580,21 @@ export class FmiWeatherProvider implements WeatherProvider {
       this.#observations(location, now),
       this.#warnings(location),
     ]);
+    const cutoff = now.getTime();
+    const officialForecast = forecastResult.status === "fulfilled"
+      ? forecastResult.value.forecast.filter((point) => Date.parse(point.timestamp) >= cutoff)
+      : [];
+    const shortRangeForecast = shortRangeResult.status === "fulfilled"
+      ? shortRangeResult.value.forecast.filter((point) => Date.parse(point.timestamp) >= cutoff)
+      : [];
     const unavailable: HouseWeather["unavailable"] = [];
-    if (forecastResult.status === "rejected" || forecastResult.value.forecast.length === 0) unavailable.push("forecast");
-    if (shortRangeResult.status === "rejected" || shortRangeResult.value.forecast.length === 0) unavailable.push("short-range");
+    if (officialForecast.length === 0) unavailable.push("forecast");
+    if (shortRangeForecast.length === 0) unavailable.push("short-range");
     if (observationResult.status === "rejected" || !observationResult.value.current) unavailable.push("observation");
     if (warningResult.status === "rejected") unavailable.push("warnings");
     if (unavailable.includes("forecast") && unavailable.includes("observation") && unavailable.includes("warnings")) {
       throw new WeatherUnavailableError();
     }
-    const officialForecast = forecastResult.status === "fulfilled" ? forecastResult.value.forecast : [];
-    const shortRangeForecast = shortRangeResult.status === "fulfilled" ? shortRangeResult.value.forecast : [];
     return {
       houseId,
       location,
@@ -553,33 +613,58 @@ export class FmiWeatherProvider implements WeatherProvider {
 }
 
 interface WeatherCacheEntry {
-  key: string;
+  houseId: string;
+  cachedAt: number;
   expiresAt: number;
   weather: HouseWeather;
 }
 
 export class WeatherService {
   readonly #cache = new Map<string, WeatherCacheEntry>();
+  readonly #inFlight = new Map<string, Promise<HouseWeather>>();
 
   constructor(
     private readonly provider: WeatherProvider,
     private readonly status: IntegrationStatus["weather"],
     private readonly onStatusChange: () => void,
     private readonly cacheTtlMs = 10 * 60_000,
+    private readonly staleMaxAgeMs = DEFAULT_STALE_MAX_AGE_MS,
+    private readonly maxCacheEntries = DEFAULT_MAX_CACHE_ENTRIES,
   ) {}
 
   invalidate(houseId: string): void {
-    this.#cache.delete(houseId);
+    for (const [key, entry] of this.#cache) {
+      if (entry.houseId === houseId) this.#cache.delete(key);
+    }
   }
 
   async get(house: House, hours: number): Promise<HouseWeather> {
     if (!house.location) throw new WeatherUnavailableError("Set the house location before requesting weather");
-    const key = `${house.location.latitude.toFixed(6)}:${house.location.longitude.toFixed(6)}:${hours}`;
-    const cached = this.#cache.get(house.id);
-    if (cached?.key === key && cached.expiresAt > Date.now()) return cached.weather;
+    const key = `${house.id}:${house.location.latitude.toFixed(6)}:${house.location.longitude.toFixed(6)}:${hours}`;
+    const now = Date.now();
+    const cached = this.#cache.get(key);
+    if (cached && cached.expiresAt > now) {
+      this.#touch(key, cached);
+      return this.#forCurrentTime(cached.weather, now, false);
+    }
+    const pending = this.#inFlight.get(key);
+    if (pending) return pending;
+    const refresh = this.#refresh(house, hours, key, cached);
+    this.#inFlight.set(key, refresh);
     try {
-      const weather = await this.provider.fetch(house.id, house.location, hours);
-      this.#cache.set(house.id, { key, weather, expiresAt: Date.now() + this.cacheTtlMs });
+      return await refresh;
+    } finally {
+      if (this.#inFlight.get(key) === refresh) this.#inFlight.delete(key);
+    }
+  }
+
+  async #refresh(house: House, hours: number, key: string, cached?: WeatherCacheEntry): Promise<HouseWeather> {
+    try {
+      const fetched = await this.provider.fetch(house.id, house.location as HouseLocation, hours);
+      const cachedAt = Date.now();
+      const weather = this.#forCurrentTime(fetched, cachedAt, false);
+      this.#touch(key, { houseId: house.id, cachedAt, weather, expiresAt: cachedAt + this.cacheTtlMs });
+      this.#trimCache();
       this.status.lastSuccessAt = weather.fetchedAt;
       this.status.error = null;
       this.onStatusChange();
@@ -587,8 +672,40 @@ export class WeatherService {
     } catch (error) {
       this.status.error = error instanceof Error ? error.message : "FMI weather request failed";
       this.onStatusChange();
-      if (cached?.key === key) return { ...cached.weather, stale: true };
+      const now = Date.now();
+      if (cached && now - cached.cachedAt <= this.staleMaxAgeMs) {
+        const weather = this.#forCurrentTime(cached.weather, now, true);
+        cached.weather = this.#forCurrentTime(cached.weather, now, false);
+        this.#touch(key, cached);
+        return weather;
+      }
+      if (cached) this.#cache.delete(key);
       throw error;
+    }
+  }
+
+  #forCurrentTime(weather: HouseWeather, nowMs: number, stale: boolean): HouseWeather {
+    const forecast = weather.forecast.filter((point) => {
+      const timestamp = Date.parse(point.timestamp);
+      return Number.isFinite(timestamp) && timestamp >= nowMs;
+    });
+    const warnings = weather.warnings.filter((warning) => warningIsUnexpired(warning, nowMs));
+    if (weather.stale === stale && forecast.length === weather.forecast.length && warnings.length === weather.warnings.length) {
+      return weather;
+    }
+    return { ...weather, stale, forecast, warnings };
+  }
+
+  #touch(key: string, entry: WeatherCacheEntry): void {
+    this.#cache.delete(key);
+    this.#cache.set(key, entry);
+  }
+
+  #trimCache(): void {
+    while (this.#cache.size > Math.max(1, this.maxCacheEntries)) {
+      const oldest = this.#cache.keys().next().value as string | undefined;
+      if (!oldest) break;
+      this.#cache.delete(oldest);
     }
   }
 }

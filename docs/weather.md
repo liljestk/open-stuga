@@ -116,8 +116,11 @@ and test stored queries when upgrading.
 
 An observation is not measured at the house. Climate Twin searches for recent
 stations within roughly 40 km and expands to 120 km if necessary, then selects
-the nearest station with a temperature series. `observationStation.distanceKm`
-makes that choice visible. Elevation, coast, terrain, vegetation, buildings,
+the nearest station with a temperature observation no more than 90 minutes
+old. Other fields are taken only within 30 minutes of that temperature, and
+the response timestamp is the temperature's source time.
+`observationStation.distanceKm` makes that choice visible. Elevation, coast,
+terrain, vegetation, buildings,
 urban heat, precipitation cells, and station maintenance can all make the
 house's actual conditions differ materially. Different stations also measure
 different parameters, and a field can be absent even when the observation
@@ -126,16 +129,17 @@ component succeeded.
 ## Cache and failure behaviour
 
 - A result is fresh in process memory for 10 minutes per house, coordinates,
-  and requested horizon. Only the most recent key is retained for each house,
-  so changing `hours` replaces that house's prior cached horizon.
+  and requested horizon. Recent horizons coexist in a bounded 128-entry LRU,
+  and concurrent identical requests share one FMI fetch.
 - The parsed CAP warning feed is shared for 10 minutes across houses.
 - Forecast, short-range supplement, observation, and warning retrievals settle
   independently. A usable response can therefore be partial and lists failed
   parts in `unavailable`.
 - If refresh fails after a previous result exists for the same key, Climate
-  Twin returns that previous object with `stale: true`. There is no durable
-  weather cache: restarting the API, changing the location, or changing the
-  horizon removes that fallback.
+  Twin can return it with `stale: true` for at most 60 minutes after retrieval.
+  Forecast points and warnings that have expired are removed before any cached
+  response is returned. There is no durable weather cache: restarting the API
+  or changing the location removes that fallback.
 - If no primary forecast, observation, or warning result is usable and no
   matching cached result exists, the endpoint returns 503. Callers should use
   bounded retries with jitter, not a rapid polling loop.

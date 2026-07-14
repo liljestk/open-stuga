@@ -35,7 +35,8 @@ system described in the roadmap.
   precipitation can differ substantially.
 - The 10-minute weather cache is process-local and not historical storage. A
   failed refresh can return the previous same-location/same-horizon response as
-  `stale`; restart, location change, or horizon change removes that fallback.
+  `stale` for up to 60 minutes; expired forecast points and warnings are
+  removed. Restart or location change removes that fallback.
 - Forecast, short-range supplement, observation, and warning sources can fail
   independently. Callers must inspect `unavailable`, timestamps, station
   provenance, and `stale`; an empty forecast/warning array is not sufficient

@@ -4,10 +4,13 @@ import request from "supertest";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
 import {
+  currentObservation,
   parseCapWarnings,
   parseFmiTimeSeries,
+  readTextWithByteLimit,
   WeatherService,
   WeatherUnavailableError,
+  type FmiTimeSeries,
   type WeatherProvider,
 } from "../src/weather.js";
 
@@ -161,7 +164,7 @@ describe("FMI weather parsing", () => {
       ${warning("cancelled", "Cancel", "60,24 60,25 61,25 61,24 60,24", "Cancelled warning")}
     </feed>`;
 
-    expect(parseCapWarnings(xml, location)).toEqual([
+    expect(parseCapWarnings(xml, location, new Date("2026-07-14T12:00:00Z"))).toEqual([
       expect.objectContaining({
         id: "inside",
         event: "Wind warning",
@@ -170,6 +173,81 @@ describe("FMI weather parsing", () => {
         web: null,
       }),
     ]);
+  });
+
+  it("excludes expired warnings", () => {
+    const xml = `<feed><entry><content><alert>
+      <identifier>expired</identifier><status>Actual</status><msgType>Alert</msgType>
+      <info><language>en-GB</language><event>Wind</event><severity>Moderate</severity>
+        <expires>2026-07-14T11:59:59Z</expires>
+        <area><areaDesc>Test area</areaDesc><polygon>60,24 60,25 61,25 61,24 60,24</polygon></area>
+      </info>
+    </alert></content></entry></feed>`;
+
+    expect(parseCapWarnings(xml, location, new Date("2026-07-14T12:00:00Z"))).toEqual([]);
+  });
+
+  it("selects a station with a recent temperature and anchors other fields to that time", () => {
+    const station = (
+      id: string,
+      name: string,
+      latitude: number,
+      longitude: number,
+      parameter: string,
+      values: FmiTimeSeries["values"],
+    ): FmiTimeSeries => ({
+      parameter,
+      resultTime: "2026-07-14T10:00:00Z",
+      location: { id, name, latitude, longitude },
+      values,
+    });
+    const series = [
+      station("near", "Near but stale", 60.17, 24.94, "t2m", [
+        { timestamp: "2026-07-14T08:00:00Z", value: 17 },
+      ]),
+      station("recent", "Recent station", 60.20, 24.98, "t2m", [
+        { timestamp: "2026-07-14T09:30:00Z", value: 19 },
+        { timestamp: "2026-07-14T09:50:00Z", value: 20 },
+      ]),
+      station("recent", "Recent station", 60.20, 24.98, "rh", [
+        { timestamp: "2026-07-14T09:40:00Z", value: 65 },
+      ]),
+      station("recent", "Recent station", 60.20, 24.98, "ws_10min", [
+        { timestamp: "2026-07-14T08:00:00Z", value: 99 },
+      ]),
+      station("recent", "Recent station", 60.20, 24.98, "vis", [
+        { timestamp: "2026-07-14T10:00:00Z", value: 20_000 },
+      ]),
+    ];
+
+    expect(currentObservation(series, location, new Date("2026-07-14T10:00:00Z"))).toEqual({
+      current: {
+        timestamp: "2026-07-14T09:50:00Z",
+        temperatureC: 20,
+        relativeHumidityPercent: 65,
+        visibilityMeters: 20_000,
+      },
+      station: expect.objectContaining({ id: "recent", name: "Recent station" }),
+    });
+  });
+
+  it("cancels a streamed response as soon as its byte limit is exceeded", async () => {
+    let pulls = 0;
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+        controller.enqueue(new TextEncoder().encode("1234"));
+        if (pulls === 10) controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+
+    await expect(readTextWithByteLimit(new Response(body), 5)).rejects.toThrow("size limit");
+    expect(cancelled).toBe(true);
+    expect(pulls).toBeLessThan(10);
   });
 });
 
@@ -180,7 +258,7 @@ describe("WeatherService", () => {
     let clock = 1_000;
     vi.spyOn(Date, "now").mockImplementation(() => clock);
     const provider: WeatherProvider = {
-      fetch: vi.fn().mockResolvedValueOnce(weather()).mockRejectedValueOnce(new WeatherUnavailableError("FMI offline")),
+      fetch: vi.fn().mockResolvedValueOnce(weather()).mockRejectedValue(new WeatherUnavailableError("FMI offline")),
     };
     const status: IntegrationStatus["weather"] = {
       provider: "fmi",
@@ -189,7 +267,7 @@ describe("WeatherService", () => {
       error: null,
     };
     const onStatusChange = vi.fn();
-    const service = new WeatherService(provider, status, onStatusChange, 100);
+    const service = new WeatherService(provider, status, onStatusChange, 100, 500);
     const house: House = {
       id: "house-main",
       name: "Home",
@@ -213,6 +291,83 @@ describe("WeatherService", () => {
     expect(provider.fetch).toHaveBeenCalledTimes(2);
     expect(status.error).toBe("FMI offline");
     expect(onStatusChange).toHaveBeenCalledTimes(2);
+
+    clock = 1_501;
+    await expect(service.get(house, 48)).rejects.toThrow("FMI offline");
+    expect(provider.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("removes expired forecast points and warnings from a stale fallback", async () => {
+    let clock = Date.parse("2026-07-14T10:00:00Z");
+    vi.spyOn(Date, "now").mockImplementation(() => clock);
+    const initial = weather({
+      forecast: [
+        { timestamp: "2026-07-14T10:05:00Z", temperatureC: 20 },
+        { timestamp: "2026-07-14T11:00:00Z", temperatureC: 21 },
+      ],
+      warnings: [
+        {
+          id: "expiring", event: "Wind", headline: "Wind", description: "",
+          severity: "moderate", urgency: "Expected", certainty: "Likely",
+          effectiveAt: null, onsetAt: null, expiresAt: "2026-07-14T10:05:00Z", areas: ["Uusimaa"], web: null,
+        },
+        {
+          id: "open-ended", event: "Flood", headline: "Flood", description: "",
+          severity: "minor", urgency: "Expected", certainty: "Possible",
+          effectiveAt: null, onsetAt: null, expiresAt: null, areas: ["Uusimaa"], web: null,
+        },
+      ],
+    });
+    const provider: WeatherProvider = {
+      fetch: vi.fn().mockResolvedValueOnce(initial).mockRejectedValue(new WeatherUnavailableError("FMI offline")),
+    };
+    const status: IntegrationStatus["weather"] = {
+      provider: "fmi", configuredHouses: 1, lastSuccessAt: null, error: null,
+    };
+    const service = new WeatherService(provider, status, vi.fn(), 5 * 60_000);
+    const house: House = {
+      id: "house-main", name: "Home", timezone: "Europe/Helsinki", location, floors: [],
+      createdAt: "2026-07-14T00:00:00.000Z", updatedAt: "2026-07-14T00:00:00.000Z",
+    };
+
+    await service.get(house, 48);
+    clock = Date.parse("2026-07-14T10:06:00Z");
+    const stale = await service.get(house, 48);
+
+    expect(stale.stale).toBe(true);
+    expect(stale.forecast.map((point) => point.timestamp)).toEqual(["2026-07-14T11:00:00Z"]);
+    expect(stale.warnings.map((warning) => warning.id)).toEqual(["open-ended"]);
+  });
+
+  it("coalesces identical requests and keeps alternating horizons in a bounded LRU", async () => {
+    const status: IntegrationStatus["weather"] = {
+      provider: "fmi", configuredHouses: 1, lastSuccessAt: null, error: null,
+    };
+    let release: ((value: HouseWeather) => void) | undefined;
+    const provider: WeatherProvider = {
+      fetch: vi.fn(() => new Promise<HouseWeather>((resolve) => { release = resolve; })),
+    };
+    const service = new WeatherService(provider, status, vi.fn(), 60_000, 60_000, 2);
+    const house: House = {
+      id: "house-main", name: "Home", timezone: "Europe/Helsinki", location, floors: [],
+      createdAt: "2026-07-14T00:00:00.000Z", updatedAt: "2026-07-14T00:00:00.000Z",
+    };
+
+    const first = service.get(house, 24);
+    const duplicate = service.get(house, 24);
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
+    release?.(weather());
+    await expect(Promise.all([first, duplicate])).resolves.toHaveLength(2);
+
+    const fetchMock = provider.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue(weather());
+    await service.get(house, 48);
+    await service.get(house, 24);
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+
+    await service.get(house, 72);
+    await service.get(house, 48);
+    expect(provider.fetch).toHaveBeenCalledTimes(4);
   });
 });
 

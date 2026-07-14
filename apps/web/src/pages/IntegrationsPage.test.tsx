@@ -140,4 +140,17 @@ describe("FMI weather integration", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "House" }), secondHouse.id);
     expect(onHouse).toHaveBeenCalledWith(secondHouse.id);
   });
+
+  it("does not report no active warnings when FMI warning data is unavailable", async () => {
+    vi.spyOn(api, "houseWeather").mockResolvedValue({
+      ...weather,
+      warnings: [],
+      unavailable: ["warnings"],
+    });
+    renderPage();
+
+    expect(await screen.findByText("FMI warning data is unavailable")).not.toBeNull();
+    expect(screen.getByText("Warnings could not be loaded for this update. This does not mean there are no active warnings.")).not.toBeNull();
+    expect(screen.queryByText("No active warnings for this location")).toBeNull();
+  });
 });

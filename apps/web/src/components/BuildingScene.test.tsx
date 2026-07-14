@@ -155,7 +155,7 @@ describe("BuildingScene", () => {
     expect(labels.some((label) => /Leak/i.test(label) && /Critical/i.test(label) && /Upper floor/i.test(label) && /Ceiling drip/i.test(label))).toBe(true);
   });
 
-  it("labels vertical gradients only between adjacent elevation-sorted floors", () => {
+  it("renders field-derived XYZ vectors instead of floor-average arrows", () => {
     const state = createDemoState();
     const house = state.houses[0]!;
     const upper = house.floors.find((floor) => floor.elevation > 0)!;
@@ -171,23 +171,21 @@ describe("BuildingScene", () => {
       value: floorTemperatures.get(sensor.floorId)!,
     }])) as Record<string, MeasurementSample>;
     const { container } = renderScene({ floors: [attic, ...house.floors], sensors, samples, observations: [] });
-    const labels = [...container.querySelectorAll<SVGGElement>(".vertical-gradient[role=img]")]
-      .map((item) => item.getAttribute("aria-label") ?? "");
+    const vectors = [...container.querySelectorAll<SVGGElement>(".volume-flow-vector")];
 
-    expect(labels).toHaveLength(2);
-    expect(labels.every((label) => label.includes("2.0"))).toBe(true);
-    expect(labels.some((label) => label.includes("Ground floor"))).toBe(true);
-    expect(labels.some((label) => label.includes("Upper floor"))).toBe(true);
-    expect(labels.some((label) => label.includes("4.0"))).toBe(false);
+    expect(container.querySelectorAll(".vertical-gradient")).toHaveLength(0);
+    expect(vectors.length).toBeGreaterThan(0);
+    expect(vectors.some((vector) => Math.abs(Number(vector.dataset.dz)) > .01)).toBe(true);
+    expect(vectors.every((vector) => Number(vector.dataset.dx) || Number(vector.dataset.dy) || Number(vector.dataset.dz))).toBe(true);
   });
 
-  it("suppresses equal and stale vertical gradients", () => {
+  it("suppresses unsupported vertical components for equal and stale cross-floor data", () => {
     const state = createDemoState();
     const equalSamples = Object.fromEntries(state.sensors.map((sensor) => [sensor.id, {
       ...state.latestMeasurements[sensor.id]!.temperature!, value: 21,
     }])) as Record<string, MeasurementSample>;
     const equal = renderScene({ samples: equalSamples, observations: [] });
-    expect(equal.container.querySelectorAll(".vertical-gradient")).toHaveLength(0);
+    expect(equal.container.querySelectorAll(".volume-flow-vector")).toHaveLength(0);
     equal.unmount();
 
     const staleUpperSamples = Object.fromEntries(state.sensors.map((sensor) => [sensor.id, {
@@ -195,7 +193,35 @@ describe("BuildingScene", () => {
       quality: sensor.floorId === state.houses[0]!.floors[1]!.id ? "stale" as const : "good" as const,
     }])) as Record<string, MeasurementSample>;
     const stale = renderScene({ samples: staleUpperSamples, observations: [] });
-    expect(stale.container.querySelectorAll(".vertical-gradient")).toHaveLength(0);
+    expect(stale.container.querySelectorAll(".volume-flow-vector.has-z")).toHaveLength(0);
+  });
+
+  it("changes projection when rotated by buttons and pointer drag, and resets the camera", async () => {
+    const user = userEvent.setup();
+    const { container } = renderScene();
+    const svg = container.querySelector<SVGSVGElement>(".building-svg")!;
+    const sensor = container.querySelector<SVGGElement>(".building-sensor")!;
+    const initialYaw = svg.dataset.cameraYaw;
+    const initialTransform = sensor.getAttribute("transform");
+
+    await user.click(screen.getByRole("button", { name: "Rotate view right" }));
+    expect(svg.dataset.cameraYaw).not.toBe(initialYaw);
+    expect(container.querySelector(".building-sensor")?.getAttribute("transform")).not.toBe(initialTransform);
+
+    const buttonYaw = svg.dataset.cameraYaw;
+    const pointer = (type: string, clientX: number, clientY: number) => {
+      const event = new MouseEvent(type, { bubbles: true, button: 0, clientX, clientY });
+      Object.defineProperty(event, "pointerId", { value: 7 });
+      fireEvent(svg, event);
+    };
+    pointer("pointerdown", 420, 250);
+    pointer("pointermove", 500, 290);
+    pointer("pointerup", 500, 290);
+    expect(svg.dataset.cameraYaw).not.toBe(buttonYaw);
+
+    await user.click(screen.getByRole("button", { name: "Reset view" }));
+    expect(svg.dataset.cameraYaw).toBe(initialYaw);
+    expect(svg.dataset.cameraZoom).toBe("1.00");
   });
 });
 

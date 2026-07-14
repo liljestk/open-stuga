@@ -288,6 +288,7 @@ export function IntegrationsPage({ integration, house, houses, units, onHouse, o
     if (source === "short-range") return t("weather.shortRangeForecast");
     return t("weather.warnings");
   };
+  const warningsUnavailable = weather?.unavailable.includes("warnings") ?? false;
 
   return (
     <>
@@ -387,7 +388,7 @@ export function IntegrationsPage({ integration, house, houses, units, onHouse, o
 
             <section className="panel weather-warnings-card" aria-labelledby="weather-warnings-title">
               <div className="panel-header"><div><span className="eyebrow">{t("weather.officialWarnings")}</span><h3 id="weather-warnings-title">{t("weather.warningsTitle")}</h3></div><TriangleAlert size={21} aria-hidden="true" /></div>
-              {weather.warnings.length ? <div className="weather-warning-list">{weather.warnings.map((warning) => <article key={warning.id} className={`weather-warning ${warning.severity}`}><div><span className="warning-severity">{warning.severity}</span><h4>{warning.headline || warning.event}</h4></div><p>{warning.description}</p><dl><div><dt>{t("weather.validity")}</dt><dd>{localDateTime(warning.onsetAt ?? warning.effectiveAt) ?? "—"} – {localDateTime(warning.expiresAt) ?? "—"}</dd></div>{warning.areas.length > 0 && <div><dt>{t("weather.areas")}</dt><dd>{warning.areas.join(", ")}</dd></div>}</dl>{warning.web && <a href={warning.web} target="_blank" rel="noreferrer">{t("weather.openWarning")}<ExternalLink size={13} aria-hidden="true" /></a>}</article>)}</div> : <div className="weather-no-warnings"><ShieldCheck size={20} aria-hidden="true" /><span><strong>{t("weather.noWarnings")}</strong><small>{t("weather.noWarningsDescription")}</small></span></div>}
+              {weather.warnings.length ? <div className="weather-warning-list">{weather.warnings.map((warning) => <article key={warning.id} className={`weather-warning ${warning.severity}`}><div><span className="warning-severity">{warning.severity}</span><h4>{warning.headline || warning.event}</h4></div><p>{warning.description}</p><dl><div><dt>{t("weather.validity")}</dt><dd>{localDateTime(warning.onsetAt ?? warning.effectiveAt) ?? "—"} – {localDateTime(warning.expiresAt) ?? "—"}</dd></div>{warning.areas.length > 0 && <div><dt>{t("weather.areas")}</dt><dd>{warning.areas.join(", ")}</dd></div>}</dl>{warning.web && <a href={warning.web} target="_blank" rel="noreferrer">{t("weather.openWarning")}<ExternalLink size={13} aria-hidden="true" /></a>}</article>)}</div> : warningsUnavailable ? <div className="weather-no-warnings unavailable" role="status"><TriangleAlert size={20} aria-hidden="true" /><span><strong>{t("weather.warningsUnavailable")}</strong><small>{t("weather.warningsUnavailableDescription")}</small></span></div> : <div className="weather-no-warnings"><ShieldCheck size={20} aria-hidden="true" /><span><strong>{t("weather.noWarnings")}</strong><small>{t("weather.noWarningsDescription")}</small></span></div>}
             </section>
 
             <footer className="weather-attribution"><Database size={16} aria-hidden="true" /><span>{weather.attribution}</span><a href="https://www.ilmatieteenlaitos.fi/avoin-data-avattavat-aineistot" target="_blank" rel="noreferrer">{t("weather.openFmi")}<ExternalLink size={13} aria-hidden="true" /></a></footer>

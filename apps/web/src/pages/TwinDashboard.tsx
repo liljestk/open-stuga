@@ -8,6 +8,7 @@ import { TrendChart } from "../components/TrendChart";
 import { clamp, round, type ClimateState, type TimeRange, type ViewMode } from "../domain";
 import { useI18n, type TranslationKey } from "../i18n";
 import { definitionFor, displayUnit, enabledDefinitions, formatMeasurement, formatMeasurementDelta, measurementDomain, measurementLabel, measurementValue, samplesAt } from "../measurements";
+import { configuredSpatialMaxSampleAgeMs, configuredSpatialReplayMaxSampleAgeMs, isSpatialSampleFresh } from "../spatialFreshness";
 
 interface TwinDashboardProps {
   state: ClimateState;
@@ -47,6 +48,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
   const [replayPlaying, setReplayPlaying] = useState(false);
   const [replayStartPending, setReplayStartPending] = useState(false);
   const [replaySpeed, setReplaySpeed] = useState(4);
+  const [liveSpatialClockMs, setLiveSpatialClockMs] = useState(() => Date.now());
   const [observationPlacement, setObservationPlacement] = useState(false);
   const [observationKind, setObservationKind] = useState<ManualObservation["kind"]>("leak");
   const [observationSeverity, setObservationSeverity] = useState<ManualObservation["severity"]>("warning");
@@ -56,6 +58,14 @@ export function TwinDashboard(props: TwinDashboardProps) {
   const [parameterValue, setParameterValue] = useState("");
   const [parameterUnit, setParameterUnit] = useState("");
   const replayBatchRef = useRef("");
+
+  useEffect(() => {
+    if (replayActive) return;
+    const update = () => setLiveSpatialClockMs(Date.now());
+    update();
+    const timer = window.setInterval(update, 30_000);
+    return () => window.clearInterval(timer);
+  }, [replayActive]);
 
   const houseSensors = useMemo(
     () => state.sensors.filter((sensor) => sensor.houseId === houseId && sensor.enabled),
@@ -95,6 +105,14 @@ export function TwinDashboard(props: TwinDashboardProps) {
   const replayMin = historyTimestamps.length ? Math.min(...historyTimestamps) : fallbackReplayBounds.minimum;
   const replayMax = historyTimestamps.length ? Math.max(...historyTimestamps) : fallbackReplayBounds.maximum;
   const [replayTimestamp, setReplayTimestamp] = useState(replayMax);
+  const spatialReferenceTimeMs = replayActive ? replayTimestamp : liveSpatialClockMs;
+  const spatialMaxSampleAgeMs = replayActive
+    ? configuredSpatialReplayMaxSampleAgeMs()
+    : configuredSpatialMaxSampleAgeMs();
+  const spatialFreshness = useMemo(() => ({
+    referenceTimeMs: spatialReferenceTimeMs,
+    maxSampleAgeMs: spatialMaxSampleAgeMs,
+  }), [spatialReferenceTimeMs, spatialMaxSampleAgeMs]);
 
   useEffect(() => {
     setReplayTimestamp((current) => replayActive ? clamp(current, replayMin, replayMax) : replayMax);
@@ -166,12 +184,12 @@ export function TwinDashboard(props: TwinDashboardProps) {
   const values = summarySensors.flatMap((sensor) => {
     const sample = displayedSamples[sensor.id];
     const value = measurementValue(sample, definition.id);
-    return sample?.quality !== "stale" && value != null ? [value] : [];
+    return isSpatialSampleFresh(sample, spatialFreshness) && value != null ? [value] : [];
   });
   const houseColorDomain = measurementDomain(definition, houseSensors.flatMap((sensor) => {
     const sample = displayedSamples[sensor.id];
     const value = measurementValue(sample, definition.id);
-    return sample?.quality !== "stale" && value != null ? [value] : [];
+    return isSpatialSampleFresh(sample, spatialFreshness) && value != null ? [value] : [];
   }));
   const average = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
   const spread = values.length ? Math.max(...values) - Math.min(...values) : null;
@@ -270,6 +288,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
             <FloorPlan
               floor={floor} sensors={floorSensors} samples={displayedSamples} observations={floorObservations} definition={definition} colorDomain={houseColorDomain} units={units}
               viewMode="plan" selectedSensorId={selectedSensor?.id ?? null} editing={editing} observationPlacement={observationPlacement}
+              referenceTimeMs={spatialReferenceTimeMs} maxSampleAgeMs={spatialMaxSampleAgeMs}
               onSensorSelect={props.onSensorSelect} onSensorMove={props.onSensorMove} onFloorChange={props.onFloorChange} onObservationPoint={placeObservation}
               onCancelObservationPlacement={() => setObservationPlacement(false)}
             />
@@ -277,6 +296,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
             <BuildingScene
               house={house} sensors={houseSensors} samples={displayedSamples} observations={houseObservations} definition={definition} colorDomain={houseColorDomain} units={units}
               activeFloorId={floorId} selectedSensorId={selectedSensor?.id ?? null} onFloorSelect={props.onFloor}
+              referenceTimeMs={spatialReferenceTimeMs} maxSampleAgeMs={spatialMaxSampleAgeMs}
               onSensorSelect={(sensorId) => props.onSensorSelect(sensorId)}
             />
           )}
