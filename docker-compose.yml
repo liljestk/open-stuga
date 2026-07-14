@@ -1,0 +1,56 @@
+name: climate-twin
+
+services:
+  api:
+    build:
+      context: .
+      target: api
+    init: true
+    restart: unless-stopped
+    environment:
+      PORT: "8787"
+      API_HOST: 0.0.0.0
+      DATABASE_PATH: /app/data/climate-twin.sqlite
+      MOCK_ENABLED: ${MOCK_ENABLED:-true}
+      MOCK_INTERVAL_MS: ${MOCK_INTERVAL_MS:-2000}
+      RETENTION_DAYS: ${RETENTION_DAYS:-730}
+      INGEST_API_KEY: ${INGEST_API_KEY:-}
+      HA_URL: ${HA_URL:-}
+      HA_TOKEN: ${HA_TOKEN:-}
+      HA_ENTITY_MAP_FILE: /app/config/home-assistant.entities.json
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      ALERT_WEBHOOK_BEARER_TOKEN: ${ALERT_WEBHOOK_BEARER_TOKEN:-}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+    expose:
+      - "8787"
+    volumes:
+      - climate-twin-data:/app/data
+      - ./config:/app/config:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        VITE_API_BASE_URL: ""
+    init: true
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8080}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  climate-twin-data:
+    name: climate-twin-data

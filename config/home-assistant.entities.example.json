@@ -1,0 +1,67 @@
+{
+  "entities": [
+    {
+      "sensorId": "sensor-01",
+      "temperature": "sensor.living_room_window_temperature",
+      "humidity": "sensor.living_room_window_humidity",
+      "battery": "sensor.living_room_window_battery",
+      "measurements": {
+        "co2": "sensor.living_room_co2"
+      }
+    },
+    {
+      "sensorId": "sensor-02",
+      "temperature": "sensor.living_room_hall_temperature",
+      "humidity": "sensor.living_room_hall_humidity",
+      "battery": "sensor.living_room_hall_battery"
+    },
+    {
+      "sensorId": "sensor-03",
+      "temperature": "sensor.kitchen_temperature",
+      "humidity": "sensor.kitchen_humidity",
+      "battery": "sensor.kitchen_battery"
+    },
+    {
+      "sensorId": "sensor-04",
+      "temperature": "sensor.utility_room_temperature",
+      "humidity": "sensor.utility_room_humidity",
+      "battery": "sensor.utility_room_battery"
+    },
+    {
+      "sensorId": "sensor-05",
+      "temperature": "sensor.entrance_temperature",
+      "humidity": "sensor.entrance_humidity",
+      "battery": "sensor.entrance_battery"
+    },
+    {
+      "sensorId": "sensor-06",
+      "temperature": "sensor.bedroom_window_temperature",
+      "humidity": "sensor.bedroom_window_humidity",
+      "battery": "sensor.bedroom_window_battery"
+    },
+    {
+      "sensorId": "sensor-07",
+      "temperature": "sensor.bedroom_hall_temperature",
+      "humidity": "sensor.bedroom_hall_humidity",
+      "battery": "sensor.bedroom_hall_battery"
+    },
+    {
+      "sensorId": "sensor-08",
+      "temperature": "sensor.office_temperature",
+      "humidity": "sensor.office_humidity",
+      "battery": "sensor.office_battery"
+    },
+    {
+      "sensorId": "sensor-09",
+      "temperature": "sensor.bathroom_temperature",
+      "humidity": "sensor.bathroom_humidity",
+      "battery": "sensor.bathroom_battery"
+    },
+    {
+      "sensorId": "sensor-10",
+      "temperature": "sensor.attic_access_temperature",
+      "humidity": "sensor.attic_access_humidity",
+      "battery": "sensor.attic_access_battery"
+    }
+  ]
+}
