@@ -12,6 +12,7 @@
 *.py[cod]
 .tmp-runtime
 data
+backups
 *.sqlite
 *.sqlite-*
 config/home-assistant.entities.json

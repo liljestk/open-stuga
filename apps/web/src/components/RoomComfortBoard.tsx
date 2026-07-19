@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, CloudOff, Droplets, Wind } from "lucide-react";
+import { Activity, AlertTriangle, ChevronDown, CloudOff, Droplets, Wind } from "lucide-react";
 import type { AlertEvent, MeasurementDefinition, Sensor, UnitSystem } from "@climate-twin/contracts";
 import { useMemo, type ReactNode } from "react";
 import { useI18n } from "../i18n";
@@ -167,38 +167,53 @@ export function RoomComfortBoard(props: Readonly<RoomComfortBoardProps>) {
   const co2Definition = definitionFor(props.definitions, "co2");
   const relativeTime = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
 
+  const roomCard = (room: RoomComfort) => {
+    const path = sparkline(room.temperatureTrend);
+    const ageMinutes = room.updatedAt ? Math.max(0, Math.round((now - Date.parse(room.updatedAt)) / 60_000)) : null;
+    const updated = ageMinutes === null ? t("decision.noRecentReading") : relativeTime.format(-ageMinutes, "minute");
+    return (
+      <button
+        type="button"
+        className={`room-comfort-card ${room.state}`}
+        key={room.key}
+        onClick={() => props.onOpenRoom(room.floorId, room.sensorId)}
+        aria-label={t("decision.openRoom", { room: room.room, status: t(`decision.state.${room.state}`) })}
+      >
+        <span className="room-card-topline"><strong>{room.room}</strong><span className={`comfort-state ${room.state}`}><ComfortStateIcon state={room.state} />{t(`decision.state.${room.state}`)}</span></span>
+        <span className="room-card-readings">
+          <span><b>{formattedReading(room.temperature, temperatureDefinition, props.units)}</b><small>{t("common.temperature")}</small></span>
+          <span><b>{formattedReading(room.humidity, humidityDefinition, props.units)}</b><small><Droplets size={11} aria-hidden="true" />{t("common.humidity")}</small></span>
+          <span><b>{formattedReading(room.co2, co2Definition, props.units)}</b><small><Wind size={11} aria-hidden="true" />{t("common.co2")}</small></span>
+        </span>
+        <span className="room-card-footer">
+          <span>{updated}</span>
+          {path ? <svg viewBox="0 0 96 30" aria-hidden="true"><path d={path} /></svg> : <span>{t("decision.trendPending")}</span>}
+        </span>
+      </button>
+    );
+  };
+
   let roomContent: ReactNode;
   if (rooms.length === 0) {
     roomContent = <div className="panel decision-empty"><CloudOff size={22} aria-hidden="true" />{t("decision.roomsEmpty")}</div>;
   } else {
+    const exceptionRooms = rooms.filter((room) => room.state !== "comfortable");
+    const comfortableRooms = rooms.filter((room) => room.state === "comfortable");
+    // Exceptions are never hidden behind a disclosure. Comfortable rooms fill
+    // the remaining glanceable slots and routine overflow stays on demand.
+    const visibleComfortableCount = Math.max(0, 4 - exceptionRooms.length);
+    const visibleRooms = [...exceptionRooms, ...comfortableRooms.slice(0, visibleComfortableCount)];
+    const remainingRooms = comfortableRooms.slice(visibleComfortableCount);
     roomContent = (
-      <div className="room-comfort-scroll">
-        {rooms.map((room) => {
-          const path = sparkline(room.temperatureTrend);
-          const ageMinutes = room.updatedAt ? Math.max(0, Math.round((now - Date.parse(room.updatedAt)) / 60_000)) : null;
-          const updated = ageMinutes === null ? t("decision.noRecentReading") : relativeTime.format(-ageMinutes, "minute");
-          return (
-            <button
-              type="button"
-              className={`room-comfort-card ${room.state}`}
-              key={room.key}
-              onClick={() => props.onOpenRoom(room.floorId, room.sensorId)}
-              aria-label={t("decision.openRoom", { room: room.room, status: t(`decision.state.${room.state}`) })}
-            >
-              <span className="room-card-topline"><strong>{room.room}</strong><span className={`comfort-state ${room.state}`}><ComfortStateIcon state={room.state} />{t(`decision.state.${room.state}`)}</span></span>
-              <span className="room-card-readings">
-                <span><b>{formattedReading(room.temperature, temperatureDefinition, props.units)}</b><small>{t("common.temperature")}</small></span>
-                <span><b>{formattedReading(room.humidity, humidityDefinition, props.units)}</b><small><Droplets size={11} aria-hidden="true" />{t("common.humidity")}</small></span>
-                <span><b>{formattedReading(room.co2, co2Definition, props.units)}</b><small><Wind size={11} aria-hidden="true" />{t("common.co2")}</small></span>
-              </span>
-              <span className="room-card-footer">
-                <span>{updated}</span>
-                {path ? <svg viewBox="0 0 96 30" aria-hidden="true"><path d={path} /></svg> : <span>{t("decision.trendPending")}</span>}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      <>
+        <div className="room-comfort-scroll">{visibleRooms.map(roomCard)}</div>
+        {remainingRooms.length > 0 && (
+          <details className="room-comfort-more">
+            <summary>{t("home.showMoreRooms", { count: remainingRooms.length })}<ChevronDown size={16} aria-hidden="true" /></summary>
+            <div className="room-comfort-scroll">{remainingRooms.map(roomCard)}</div>
+          </details>
+        )}
+      </>
     );
   }
 

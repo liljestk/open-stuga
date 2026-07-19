@@ -19,6 +19,12 @@ describe("Open-Meteo weather provider", () => {
     });
   });
 
+  it("omits null and empty upstream values instead of inventing zeroes", () => {
+    expect(openMeteoConditions({
+      time: "2026-07-14T12:00", temperature_2m: null, relative_humidity_2m: "", pressure_msl: undefined,
+    })).toEqual({ timestamp: "2026-07-14T12:00:00.000Z" });
+  });
+
   it("marks global forecasts available without claiming warning coverage", async () => {
     const now = new Date("2026-07-14T10:15:00.000Z");
     const hourlyTimes = Array.from({ length: 49 }, (_, index) => new Date(

@@ -4,6 +4,74 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+- Added independently toggleable experimental Air movement and Sensor support
+  overlays to both the 2D Home plan and 3D Home volume, with persisted view
+  preferences, sparse-data qualification, in-view placement markers, and
+  research-grounded suggestions for improving sensors and building inputs.
+- Added a local-only, failure-isolated experimental spatial-layer engine with a
+  separate state database, versioned house/property snapshots, sensor-quality
+  and psychrometric layers, graph-constrained propagation evidence, research
+  zone-activity evidence, and shared accessible 2D/3D presentation contracts.
+- Added property management with required house-to-property ownership,
+  user-drawn mapped areas, area equipment, targeted notes, and property-owned
+  maintenance that also works for land-only properties.
+- Added built-in local owner, administrator, and Guest accounts for one
+  workspace, with server-managed HttpOnly sessions, read-only Guest access,
+  least-privilege property, house, and area grants, and fail-closed historical
+  access.
+- Hardened live telemetry hydration and reconnects with subscribe-before-snapshot
+  buffering, bounded SSE backpressure, exact history truncation, chronological
+  downsampling, and provenance-safe real-data state transitions.
+- Added a durable, retrying outbox for alert notifications, with stable webhook
+  idempotency keys and revision/generation fences that prevent stale delivery
+  attempts from overwriting newer work.
+- Hardened Home Assistant, TP-Link, Telegram, and weather
+  integrations around validation, lifecycle cleanup, credential consistency,
+  bounded handshakes, and race-safe configuration changes.
+- Added native Telegram alert delivery with guided private-chat discovery,
+  write-only bot credentials, delivery testing, redacted health, and an
+  independent per-rule opt-in that keeps mock/replay data local.
+- Added a house-scoped Apple Notes bridge for iOS Shortcuts with revocable
+  Shortcut grants, operator-only device labels, idempotent note-to-maintenance
+  capture, dated generated snapshots, and explicit iCloud credential-sync,
+  retry, and platform/security limitations.
+- Added an Automations setup workspace with step-by-step Telegram and Apple
+  Notes onboarding, one-time secret handling, connection warnings, tests, and
+  disconnect/revocation controls.
+- Added house-scoped Activity and Maintenance workspaces, a prominent Home
+  quick-observation flow that does not require map placement, and explicit
+  observation-to-maintenance planning links.
+- Added revisioned maintenance tasks across local REST/MCP, SQLite, and the web
+  application, including planned versus due dates, trust basis, priority,
+  completion outcomes, independent verification, and conflict-safe editing.
+- Added an explicit observation resolution lifecycle: outcome notes such as
+  "Fixed leak", server-recorded resolution times, reopening, visually distinct
+  resolved markers, and revisioned actor attribution in local storage.
+- Protected observation floor membership and placed coordinates during layout
+  edits and concurrent writes, while retaining historical sensor provenance
+  without blocking later note or resolution updates.
+
+## 0.3.0 - 2026-07-15
+
+- Added a precise manual-observation time model with separate observed and
+  immutable recorded times, exact/approximate/date/date-range/unknown
+  precision, validity ranges, source provenance, and confidence.
+- Added optimistic observation updates and append-only revision snapshots to
+  the local SQLite REST/MCP surface, including channel actor attribution and
+  legacy backfills.
+- Expanded observation authoring and activity context so imprecise dates,
+  ongoing conditions, provenance, confidence, and revision metadata remain
+  visible instead of being flattened into one editable timestamp.
+- Unified Overview and Alerts around an explainable monitoring result: open
+  alerts remain blockers, while missing, stale, or aging sensor coverage can no
+  longer be presented as a healthy all-clear.
+- Added a persistent, visually distinct demo shell driven by the API-confirmed
+  data mode, while retaining the irreversible local real-data latch and keeping
+  scenario controls out of real installations.
+- Added a provider-neutral weather event broker that turns scheduled pulls and
+  accepted on-demand snapshots into deduplicated live SSE events after guarded
+  outdoor-boundary projection.
+
 ## 0.2.0 - 2026-07-14
 
 - Added multi-home setup, typed floor and sensor management, shared map
@@ -34,10 +102,6 @@ All notable Stuga releases are recorded here.
   integrations, measurements, alerts, observations, weather, replay, and
   simulation workflows, with structured schemas and redacted integration
   responses.
-- Added a tenant-isolated Cloudflare hosted edition with a Worker-hosted SPA
-  and API, D1 telemetry, private R2 assets, Cloudflare Access identity, scoped
-  bridge tokens, a machine-readable route manifest, and a guarded deployment
-  workflow. Local LAN discovery and the stdio MCP remain deliberately separate.
 - Added Home Pulse, prioritized room comfort, a moisture and ventilation coach,
   indoor/outdoor comparison, and a unified home activity timeline.
 - Added responsive portfolio, outdoor-weather, sensor-management, home-insight,

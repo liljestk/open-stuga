@@ -1,6 +1,10 @@
 import { createServer, type Server } from "node:http";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
+import type { TelemetryEvent } from "@climate-twin/contracts";
 import { loadConfig, type AppConfig } from "../src/config.js";
 import { createApi, type ApiRuntime } from "../src/app.js";
 
@@ -10,7 +14,7 @@ const config: AppConfig = {
   databasePath: ":memory:",
   integrationSecretsFile: "integration-secrets.test.json",
   assetDirectory: ".",
-  mockEnabled: false,
+  mockEnabled: true,
   mockIntervalMs: 25,
   retentionDays: 730,
   ingestApiKey: "test-ingest-key",
@@ -36,15 +40,246 @@ describe("Climate Twin API v1", () => {
     runtime = createApi({ config, startBackground: false });
   });
 
-  afterEach(() => {
-    runtime.close();
+  afterEach(async () => {
+    await runtime.close();
   });
 
   it("binds to loopback by default and honors an explicit API host", () => {
     expect(loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" }).apiHost).toBe("127.0.0.1");
     expect(loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", API_HOST: "0.0.0.0" }).apiHost).toBe("0.0.0.0");
-    expect(loadConfig({ NODE_ENV: "production", DATABASE_PATH: ":memory:" }).mockEnabled).toBe(true);
+    expect(loadConfig({ NODE_ENV: "production", DATABASE_PATH: ":memory:" }).mockEnabled).toBe(false);
     expect(loadConfig({ NODE_ENV: "production", DATABASE_PATH: ":memory:", MOCK_ENABLED: "false" }).mockEnabled).toBe(false);
+  });
+
+  it("rejects a required time-series archive that is disabled", () => {
+    expect(() => loadConfig({
+      NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
+      TIMESERIES_ENABLED: "false",
+      TIMESERIES_REQUIRED: "true",
+    })).toThrow("TIMESERIES_REQUIRED=true requires TIMESERIES_ENABLED=true");
+
+    const disabled = loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" });
+    expect(() => createApi({
+      config: { ...disabled, timeseriesEnabled: false, timeseriesRequired: true },
+      startBackground: false,
+    })).toThrow("timeseriesRequired=true requires timeseriesEnabled=true");
+  });
+
+  it("enables bounded SQLite hot retention only with a durable archive", () => {
+    expect(() => loadConfig({
+      NODE_ENV: "test", DATABASE_PATH: ":memory:", RETENTION_DAYS: "30",
+    })).toThrow("RETENTION_DAYS requires TIMESERIES_ENABLED=true");
+    expect(() => loadConfig({
+      NODE_ENV: "test", DATABASE_PATH: ":memory:", RETENTION_DAYS: "7", TIMESERIES_ENABLED: "true",
+    })).toThrow("RETENTION_DAYS must be 0 or at least 30");
+    expect(loadConfig({
+      NODE_ENV: "test", DATABASE_PATH: ":memory:", RETENTION_DAYS: "30", TIMESERIES_ENABLED: "true",
+    }).retentionDays).toBe(30);
+  });
+
+  it("loads database credentials from a file and validates TLS modes", () => {
+    const directory = mkdtempSync(join(tmpdir(), "stuga-timeseries-config-"));
+    const passwordPath = join(directory, "password");
+    const caPath = join(directory, "ca.pem");
+    try {
+      writeFileSync(passwordPath, "database-secret\n");
+      writeFileSync(caPath, "test-ca-pem\n");
+      expect(loadConfig({
+        NODE_ENV: "test", DATABASE_PATH: ":memory:",
+        TIMESERIES_PASSWORD_FILE: passwordPath,
+        TIMESERIES_SSL_MODE: "verify-full",
+        TIMESERIES_SSL_CA_FILE: caPath,
+      })).toMatchObject({
+        timeseriesPassword: "database-secret",
+        timeseriesSslMode: "verify-full",
+        timeseriesSslCa: "test-ca-pem\n",
+      });
+      expect(() => loadConfig({
+        NODE_ENV: "test", DATABASE_PATH: ":memory:",
+        TIMESERIES_PASSWORD: "inline", TIMESERIES_PASSWORD_FILE: passwordPath,
+      })).toThrow("Configure only one");
+      expect(() => loadConfig({
+        NODE_ENV: "test", DATABASE_PATH: ":memory:", TIMESERIES_SSL_MODE: "insecure",
+      })).toThrow("TIMESERIES_SSL_MODE");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("creates and reuses a high-entropy proxy credential file", () => {
+    const directory = mkdtempSync(join(tmpdir(), "stuga-proxy-secret-"));
+    const path = join(directory, "proxy-secret");
+    try {
+      const first = loadConfig({
+        NODE_ENV: "test", DATABASE_PATH: ":memory:", LOCAL_AUTH_PROXY_SECRET_FILE: path,
+      });
+      expect(first.localAuthProxySecret).toMatch(/^[a-f0-9]{64}$/);
+      expect(readFileSync(path, "utf8").trim()).toBe(first.localAuthProxySecret);
+      expect(loadConfig({
+        NODE_ENV: "test", DATABASE_PATH: ":memory:", LOCAL_AUTH_PROXY_SECRET_FILE: path,
+      }).localAuthProxySecret).toBe(first.localAuthProxySecret);
+      expect(() => loadConfig({
+        NODE_ENV: "test", DATABASE_PATH: ":memory:", LOCAL_AUTH_PROXY_SECRET: "too-short",
+      })).toThrow(/at least 32/);
+      expect(() => loadConfig({
+        NODE_ENV: "test", DATABASE_PATH: ":memory:",
+        LOCAL_AUTH_PROXY_SECRET: "x".repeat(32), LOCAL_AUTH_PROXY_SECRET_FILE: path,
+      })).toThrow(/only one/);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the starter inventory independent from mock telemetry", async () => {
+    const cleanRuntime = createApi({
+      config: { ...config, mockEnabled: false },
+      startBackground: false,
+    });
+    try {
+      expect(cleanRuntime.database.listHouses()).toMatchObject([{ id: "house-main", propertyId: "property-main" }]);
+      expect(cleanRuntime.database.listProperties()).toMatchObject([{ name: "My property" }]);
+    } finally {
+      await cleanRuntime.close();
+    }
+  });
+
+  it("does not cascade-delete real telemetry without immutable ownership lineage", async () => {
+    const sensor = runtime.database.listSensors()[0]!;
+    runtime.database.insertReadings([{
+      sensorId: sensor.id,
+      timestamp: "2026-07-18T09:00:00.000Z",
+      temperature: 21,
+      humidity: 45,
+      battery: 90,
+      source: "api",
+      quality: "good",
+    }]);
+
+    await request(runtime.app).delete(`/api/v1/sensors/${sensor.id}`).expect(409)
+      .expect(({ body }) => expect(body.error.code).toBe("TELEMETRY_LINEAGE_REQUIRED"));
+    expect(runtime.database.getSensor(sensor.id)).not.toBeNull();
+    expect(runtime.database.history([sensor.id], "2026-07-18T09:00:00.000Z", "2026-07-18T09:00:00.000Z"))
+      .toHaveLength(1);
+  });
+
+  it("keeps the optional spatial engine local and separately configurable", () => {
+    const testConfig = loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" });
+    expect(testConfig).toMatchObject({
+      spatialLayersEnabled: false,
+      spatialLayersDatabasePath: ":memory:",
+      spatialLayersIntervalMs: 60_000,
+      spatialLayersRetentionDays: 30,
+    });
+    expect(loadConfig({
+      NODE_ENV: "production",
+      DATABASE_PATH: ":memory:",
+      SPATIAL_LAYERS_ENABLED: "false",
+      SPATIAL_LAYERS_INTERVAL_MS: "30000",
+      SPATIAL_LAYERS_RETENTION_DAYS: "7",
+    })).toMatchObject({
+      spatialLayersEnabled: false,
+      spatialLayersDatabasePath: ":memory:",
+      spatialLayersIntervalMs: 30_000,
+      spatialLayersRetentionDays: 7,
+    });
+  });
+
+  it("treats Compose-style empty integration tuples as absent but rejects partial tuples", () => {
+    const empty = loadConfig({
+      NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
+      HA_URL: " ",
+      HA_TOKEN: "",
+      TP_LINK_HOST: "",
+      TP_LINK_USERNAME: " ",
+      TP_LINK_PASSWORD: "",
+      TELEGRAM_BOT_TOKEN: "",
+      TELEGRAM_CHAT_ID: "",
+    });
+    expect(empty).toMatchObject({
+      haUrl: null,
+      haToken: null,
+      tpLinkHost: null,
+      tpLinkUsername: null,
+      tpLinkPassword: null,
+      telegramBotToken: null,
+      telegramChatId: null,
+    });
+    expect(() => loadConfig({
+      NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
+      TELEGRAM_BOT_TOKEN: "configured",
+      TELEGRAM_CHAT_ID: "",
+    })).toThrow(/requires TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID/);
+  });
+
+  it("validates outbound webhook URLs and does not accept orphan credentials", () => {
+    expect(loadConfig({
+      NODE_ENV: "test", DATABASE_PATH: ":memory:", ALERT_WEBHOOK_URL: "http://127.0.0.1:9000/hooks/",
+    }).alertWebhookUrl).toBe("http://127.0.0.1:9000/hooks");
+    expect(() => loadConfig({
+      NODE_ENV: "test", DATABASE_PATH: ":memory:", ALERT_WEBHOOK_URL: "file:///tmp/hook",
+    })).toThrow(/valid HTTP\(S\) URL|must be an HTTP\(S\) URL/);
+    expect(() => loadConfig({
+      NODE_ENV: "test", DATABASE_PATH: ":memory:", ALERT_WEBHOOK_URL: "https://user:secret@example.test/hook",
+    })).toThrow(/without embedded credentials/);
+    expect(() => loadConfig({
+      NODE_ENV: "test", DATABASE_PATH: ":memory:", ALERT_WEBHOOK_BEARER_TOKEN: "secret",
+    })).toThrow(/requires ALERT_WEBHOOK_URL/);
+  });
+
+  it("rejects untrusted browser origins without blocking trusted or native clients", async () => {
+    const before = runtime.database.latestReadings().map((reading) => reading.timestamp);
+    const rejected = await request(runtime.app).post("/api/v1/mock/tick")
+      .set("Origin", "https://evil.example")
+      .set("Sec-Fetch-Site", "cross-site")
+      .type("form")
+      .send({ trigger: "cross-site" })
+      .expect(403);
+    expect(rejected.body.error.code).toBe("CROSS_SITE_REQUEST_REJECTED");
+    expect(runtime.database.latestReadings().map((reading) => reading.timestamp)).toEqual(before);
+
+    const preflight = await request(runtime.app).options("/api/v1/mock/tick")
+      .set("Origin", "https://evil.example")
+      .set("Access-Control-Request-Method", "POST")
+      .expect(403);
+    expect(preflight.headers["access-control-allow-origin"]).toBeUndefined();
+
+    await request(runtime.app).post("/api/v1/mock/tick")
+      .set("Host", "rebind.example:8787")
+      .set("Origin", "http://rebind.example:8787")
+      .set("Sec-Fetch-Site", "same-origin")
+      .expect(403)
+      .expect(({ body }) => expect(body.error.code).toBe("CROSS_SITE_REQUEST_REJECTED"));
+
+    await request(runtime.app).post("/api/v1/mock/tick")
+      .set("Host", "rebind.example:8787")
+      .set("Origin", "http://rebind.example:8787")
+      .set("Sec-Fetch-Site", "same-origin")
+      .set("Content-Type", "application/json")
+      .send('{"large-or-invalid"')
+      .expect(403)
+      .expect(({ body }) => expect(body.error.code).toBe("CROSS_SITE_REQUEST_REJECTED"));
+
+    await request(runtime.app).post("/api/v1/mock/tick")
+      .set("Host", "localhost:8787")
+      .set("Origin", "http://localhost:8787")
+      .set("Sec-Fetch-Site", "same-origin")
+      .expect(201);
+
+    const trusted = await request(runtime.app).post("/api/v1/mock/tick")
+      .set("Origin", config.corsOrigin!)
+      .set("Sec-Fetch-Site", "same-site")
+      .expect(201);
+    expect(trusted.headers["access-control-allow-origin"]).toBe(config.corsOrigin);
+
+    await request(runtime.app).options("/api/v1/mock/tick")
+      .set("Origin", config.corsOrigin!)
+      .set("Access-Control-Request-Method", "POST")
+      .expect(204)
+      .expect("Access-Control-Allow-Origin", config.corsOrigin!);
+    await request(runtime.app).post("/api/v1/mock/tick").expect(201);
   });
 
   it("boots with one digital twin, ten positioned sensors, and durable seed history", async () => {
@@ -95,6 +330,33 @@ describe("Climate Twin API v1", () => {
     })).expect(422).expect(({ body }) => expect(body.error.code).toBe("SENSOR_FLOOR_NOT_FOUND"));
     await request(runtime.app).post("/api/v1/sensors").send(sensor({ id: "not-finite", x: "NaN" }))
       .expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_FIELD"));
+  });
+
+  it("round-trips stable room ids while preserving legacy room-only clients", async () => {
+    const legacy = await request(runtime.app).post("/api/v1/sensors").send({
+      id: "legacy-room-client",
+      houseId: "house-main",
+      floorId: "floor-ground",
+      name: "Legacy room client",
+      room: "Kitchen",
+      model: "Test",
+      x: 10,
+      y: 2,
+      z: 1.4,
+      tags: [],
+      enabled: true,
+    }).expect(201);
+    expect(legacy.body.sensor).toMatchObject({ roomId: "kitchen", room: "Kitchen" });
+
+    await request(runtime.app).patch("/api/v1/sensors/legacy-room-client")
+      .send({ roomId: "living", room: "Kitchen" })
+      .expect(422)
+      .expect(({ body }) => expect(body.error.code).toBe("SENSOR_ROOM_LABEL_MISMATCH"));
+
+    await request(runtime.app).patch("/api/v1/sensors/legacy-room-client")
+      .send({ roomId: null, room: "Near the pantry" })
+      .expect(200)
+      .expect(({ body }) => expect(body.sensor).toMatchObject({ roomId: null, room: "Near the pantry" }));
   });
 
   it("moves a sensor across houses and floors atomically", async () => {
@@ -156,6 +418,35 @@ describe("Climate Twin API v1", () => {
       .expect(({ body }) => expect(body.sensor.tpLinkDeviceId).toBe("child-direct"));
   });
 
+  it("removes sensor-scoped static context when a sensor is permanently deleted", async () => {
+    runtime.database.saveParameter({
+      id: "sensor-context",
+      houseId: "house-main",
+      scopeType: "sensor",
+      scopeId: "sensor-01",
+      key: "installation_note",
+      value: "Mounted beside the window",
+      unit: null,
+      label: "Installation note",
+    });
+    runtime.database.saveParameter({
+      id: "room-context",
+      houseId: "house-main",
+      scopeType: "room",
+      scopeId: "sensor-01",
+      key: "room_note",
+      value: "Scope IDs may overlap sensor IDs",
+      unit: null,
+      label: "Room note",
+    });
+
+    await request(runtime.app).delete("/api/v1/sensors/sensor-01").expect(204);
+
+    expect(runtime.database.getSensor("sensor-01")).toBeNull();
+    expect(runtime.database.listParameters("house-main").map((parameter) => parameter.id)).toContain("room-context");
+    expect(runtime.database.listParameters("house-main").map((parameter) => parameter.id)).not.toContain("sensor-context");
+  });
+
   it("rejects layout changes that orphan or exclude sensors while allowing negative elevations", async () => {
     const original = await request(runtime.app).get("/api/v1/houses/house-main").expect(200);
     const floors = original.body.house.floors as Array<Record<string, unknown>>;
@@ -175,25 +466,106 @@ describe("Climate Twin API v1", () => {
     expect(runtime.database.getHouse("house-main")?.floors.find((floor) => floor.id === "floor-upper")?.width).toBe(14);
   });
 
-  it("round-trips architectural plan elements and rejects invalid wall attachments", async () => {
+  it("round-trips architectural plan elements and rejects invalid dimensions or wall attachments", async () => {
     const floor = {
-      id: "main", name: "Main", width: 10, height: 8, elevation: 0,
+      id: "main", name: "Main", type: "attic", width: 10, height: 8, elevation: 0, wallHeight: .9,
+      roof: { style: "gable", pitchDegrees: 35, ridgeAxis: "x", overhang: .4, eavesHeight: .9 },
       walls: [{ id: "north", from: { x: 0, y: 0 }, to: { x: 10, y: 0 } }],
       rooms: [{ id: "living", name: "Living room", kind: "living", points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 8 }, { x: 0, y: 8 }] }],
       planElements: [
-        { id: "door-1", kind: "door", position: { x: 4, y: 0 }, rotationDegrees: 0, width: 1, wallId: "north" },
-        { id: "vent-1", kind: "vent", position: { x: 5, y: 4 }, rotationDegrees: 90, width: .5 },
+        { id: "door-1", kind: "door", label: "Entry", position: { x: 4, y: 0 }, rotationDegrees: 0, width: 1, height: 2.1, wallId: "north", variant: "interior", state: "closed", openFraction: .8, stateBinding: { provider: "home-assistant", externalId: "binary_sensor.entry", connectionId: "house-elements" } },
+        { id: "vent-1", kind: "vent", position: { x: 5, y: 4 }, rotationDegrees: 90, width: .5, variant: "supply", state: "open", nominalFlowM3h: 45 },
+        { id: "fireplace-1", kind: "fireplace", position: { x: 3, y: 4 }, rotationDegrees: 0, width: 1, verticalExtent: "roof", chimneyHeightAboveRoof: .7 },
       ],
     };
     const created = await request(runtime.app).post("/api/v1/houses").send({
       id: "house-elements", name: "Element house", timezone: "Europe/Helsinki", floors: [floor],
     }).expect(201);
     expect(created.body.house.floors[0].planElements).toEqual(floor.planElements);
+    const persisted = await request(runtime.app).get("/api/v1/houses/house-elements").expect(200);
+    expect(persisted.body.house.floors[0].planElements).toEqual(floor.planElements);
+    expect(persisted.body.house.floors[0].roof).toEqual(floor.roof);
+    expect(persisted.body.house.floors[0].wallHeight).toBe(.9);
+    const refreshMappings = vi.spyOn(runtime.homeAssistant, "refreshMappings");
+    await request(runtime.app).patch("/api/v1/houses/house-elements").send({ floors: [floor] }).expect(200);
+    expect(refreshMappings).toHaveBeenCalledOnce();
+
+    await request(runtime.app).get("/api/v1/houses/house-elements/opening-states?at=2026-07-18T12:00:00.000Z").expect(200).expect(({ body }) => {
+      expect(body.snapshot.states).toEqual(expect.arrayContaining([
+        expect.objectContaining({ elementId: "door-1", state: "closed", openFraction: 0, source: "manual" }),
+        expect.objectContaining({ elementId: "vent-1", state: "open", openFraction: 1, source: "manual" }),
+      ]));
+    });
+    await request(runtime.app).post("/api/v1/houses/house-elements/opening-states").send({
+      floorId: "main", elementId: "door-1", state: "open", openFraction: .6, source: "manual", observedAt: "2026-07-18T12:01:00.000Z",
+    }).expect(201).expect(({ body }) => expect(body.observation).toMatchObject({ houseId: "house-elements", elementId: "door-1", state: "open", openFraction: .6, source: "manual" }));
+    await request(runtime.app).get("/api/v1/houses/house-elements/opening-states?at=2026-07-18T12:02:00.000Z").expect(200)
+      .expect(({ body }) => expect(body.snapshot.states.find((state: { elementId: string }) => state.elementId === "door-1"))
+        .toMatchObject({ state: "open", openFraction: .6, source: "manual", assumed: false }));
+    await request(runtime.app).post("/api/v1/houses/house-elements/opening-states").send({
+      floorId: "main", elementId: "door-1", state: "closed", source: "home-assistant", observedAt: "2026-07-18T12:03:00.000Z", externalId: "binary_sensor.entry",
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_FIELD"));
+    expect(() => runtime.database.recordOpeningStateObservation("house-elements", {
+      floorId: "main", elementId: "door-1", state: "open", source: "home-assistant",
+      observedAt: "2026-07-18T12:03:00.000Z", externalId: "binary_sensor.entry", connectionId: "another-house",
+    })).toThrow("configured sensor binding");
+    runtime.database.recordOpeningStateObservation("house-elements", {
+      floorId: "main", elementId: "door-1", state: "unknown", source: "home-assistant",
+      observedAt: "2026-07-18T12:03:00.000Z", externalId: "binary_sensor.entry", connectionId: "house-elements",
+    });
+    await request(runtime.app).get("/api/v1/houses/house-elements/opening-states?at=2026-07-18T12:02:00.000Z").expect(200)
+      .expect(({ body }) => expect(body.snapshot.states.find((state: { elementId: string }) => state.elementId === "door-1"))
+        .toMatchObject({ state: "open", source: "manual" }));
+    await request(runtime.app).get("/api/v1/houses/house-elements/opening-states?at=2026-07-18T12:04:00.000Z").expect(200)
+      .expect(({ body }) => expect(body.snapshot.states.find((state: { elementId: string }) => state.elementId === "door-1"))
+        .toMatchObject({ state: "closed", source: "manual" }));
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-invalid-wall-height", name: "Invalid wall", timezone: "UTC",
+      floors: [{ ...floor, wallHeight: 0 }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_WALL_HEIGHT"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-invalid-roof", name: "Invalid roof", timezone: "UTC",
+      floors: [{ ...floor, roof: { ...floor.roof, pitchDegrees: 82 } }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_ROOF_PITCH"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-invalid-chimney", name: "Invalid chimney", timezone: "UTC",
+      floors: [{ ...floor, planElements: [{ ...floor.planElements[2], chimneyHeightAboveRoof: 8 }] }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_CHIMNEY_HEIGHT"));
+
+    for (const [suffix, height] of [["zero", 0], ["negative", -1], ["not-finite", null]] as const) {
+      await request(runtime.app).post("/api/v1/houses").send({
+        id: `house-invalid-element-height-${suffix}`, name: "Invalid height", timezone: "UTC",
+        floors: [{ ...floor, planElements: [{ ...floor.planElements[1], height }] }],
+      }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_PLAN_ELEMENT_HEIGHT"));
+    }
 
     await request(runtime.app).post("/api/v1/houses").send({
       id: "house-invalid-element", name: "Invalid", timezone: "UTC",
       floors: [{ ...floor, planElements: [{ ...floor.planElements[0], wallId: "missing" }] }],
     }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_PLAN_ELEMENT_WALL"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-invalid-opening-state", name: "Invalid state", timezone: "UTC",
+      floors: [{ ...floor, planElements: [{ ...floor.planElements[0], state: "ajar" }] }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_OPENING_STATE"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-open-fixed-window", name: "Invalid fixed window", timezone: "UTC",
+      floors: [{ ...floor, planElements: [{ ...floor.planElements[0], kind: "window", variant: "fixed", state: "open" }] }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_OPENING_STATE"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-bound-open-passage", name: "Invalid open passage", timezone: "UTC",
+      floors: [{ ...floor, planElements: [{ ...floor.planElements[0], variant: "open-passage", state: undefined }] }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_OPENING_STATE_BINDING"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-invalid-vent-variant", name: "Invalid vent", timezone: "UTC",
+      floors: [{ ...floor, planElements: [{ ...floor.planElements[1], variant: "combustion" }] }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_PLAN_ELEMENT_VARIANT"));
 
     await request(runtime.app).post("/api/v1/houses").send({
       id: "house-unattached-opening", name: "Unattached opening", timezone: "UTC",
@@ -284,6 +656,13 @@ describe("Climate Twin API v1", () => {
       configuredHouses: 0,
       lastSuccessAt: null,
       error: null,
+      connections: [{
+        houseId: "house-main",
+        configured: false,
+        provider: "fmi",
+        lastSuccessAt: null,
+        error: null,
+      }],
     });
 
     const located = await request(runtime.app).patch("/api/v1/houses/house-main").send({
@@ -295,6 +674,12 @@ describe("Climate Twin API v1", () => {
     const configuredStatus = await request(runtime.app).get("/api/v1/integrations/status").expect(200);
     expect(configuredStatus.body.weather.configuredHouses).toBe(1);
     expect(configuredStatus.body.weather.lastSuccessAt).toBeNull();
+    expect(configuredStatus.body.weather.connections).toEqual([
+      expect.objectContaining({ houseId: "house-main", configured: true, lastSuccessAt: null, error: null }),
+    ]);
+    const scopedStatus = await request(runtime.app).get("/api/v1/integrations/status?houseId=house-main").expect(200);
+    expect(scopedStatus.body.weather).toMatchObject({ configuredHouses: 1, lastSuccessAt: null, error: null });
+    expect(scopedStatus.body.weather.connections).toHaveLength(1);
 
     await request(runtime.app).patch("/api/v1/houses/house-main")
       .send({ location: { latitude: 91, longitude: 24 } })
@@ -307,6 +692,9 @@ describe("Climate Twin API v1", () => {
     expect(cleared.body.house).not.toHaveProperty("location");
     const clearedStatus = await request(runtime.app).get("/api/v1/integrations/status").expect(200);
     expect(clearedStatus.body.weather.configuredHouses).toBe(0);
+    expect(clearedStatus.body.weather.connections).toEqual([
+      expect.objectContaining({ houseId: "house-main", configured: false, lastSuccessAt: null, error: null }),
+    ]);
   });
 
   it("validates new IANA timezones while keeping legacy invalid values readable and repairable", async () => {
@@ -585,8 +973,11 @@ describe("Climate Twin API v1", () => {
     expect(planElementVariants).toHaveLength(2);
     expect(planElementVariants[0].properties.kind.enum).toEqual(["door", "window"]);
     expect(planElementVariants[0].required).toContain("wallId");
+    expect(planElementVariants[0].properties.height).toMatchObject({ type: "number", exclusiveMinimum: 0 });
+    expect(planElementVariants[0].properties.height.description).toContain("metres");
     expect(planElementVariants[1].properties.kind.enum).toEqual(["fireplace", "vent"]);
     expect(planElementVariants[1].not.required).toEqual(["wallId"]);
+    expect(planElementVariants[1].properties.height).toMatchObject({ type: "number", exclusiveMinimum: 0 });
     expect(openapi.body.components.schemas.SensorInput.properties.z.description).toContain("Floor.elevation");
     expect(openapi.body.components.schemas.SensorInput.properties.tpLinkDeviceId.oneOf).toContainEqual({ type: "null" });
     expect(openapi.body.components.schemas.SensorPatch.properties.tpLinkDeviceId.description).toContain("clear");
@@ -594,6 +985,8 @@ describe("Climate Twin API v1", () => {
     expect(openapi.body.components.schemas.HouseWeather.properties.provider.enum).toEqual(["fmi", "open-meteo"]);
     expect(openapi.body.components.schemas.HouseWeather.properties.componentStatus.$ref).toContain("WeatherComponentStatuses");
     expect(openapi.body.components.schemas.WeatherComponentStatus.required).toContain("emptyResultIsAuthoritative");
+    expect(openapi.body.components.schemas.WeatherUpdateEvent.properties.type.const).toBe("weather.snapshot");
+    expect(openapi.body.paths["/events"].get.responses["200"].description).toContain("weather");
     expect(openapi.body.components.schemas.HouseCreate.properties.timezone.description).toContain("IANA");
 
     const setup = await request(runtime.app).get("/api/v1/integrations/home-assistant/setup").expect(200);
@@ -618,16 +1011,47 @@ describe("Climate Twin API v1", () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
+  it("publishes successful API mutations for other live clients", async () => {
+    const events: TelemetryEvent[] = [];
+    const unsubscribe = runtime.bus.subscribe((event) => events.push(event));
+
+    await request(runtime.app).patch("/api/v1/sensors/sensor-01").send({ name: "Updated sensor" }).expect(200);
+    expect(events).toContainEqual({
+      type: "mutation",
+      data: {
+        method: "PATCH",
+        resource: "/sensors/sensor-01",
+        occurredAt: expect.any(String),
+      },
+    });
+
+    const published = events.length;
+    await request(runtime.app).patch("/api/v1/sensors/sensor-01").send({ x: "invalid" }).expect(400);
+    expect(events).toHaveLength(published);
+    unsubscribe();
+  });
+
   it("generates selectable mock scenarios and can start a replay", async () => {
     await request(runtime.app).post("/api/v1/mock/scenario").send({ scenarioId: "shower" }).expect(200);
     const tick = await request(runtime.app).post("/api/v1/mock/tick").expect(201);
     expect(tick.body.readings).toHaveLength(10);
     expect(tick.body.readings.every((reading: { source: string }) => reading.source === "mock")).toBe(true);
 
+    let stopReplayMeasurement = () => undefined;
+    const replayMeasurement = new Promise<{ sensorId: string; source: string }>((resolve) => {
+      stopReplayMeasurement = runtime.bus.subscribeMeasurements((sample) => {
+        if (sample.source === "replay") resolve(sample);
+      });
+    });
     const replay = await request(runtime.app).post("/api/v1/replay").send({
       sensorIds: ["sensor-01"], from: new Date(Date.now() - 3_600_000).toISOString(), to: new Date().toISOString(), speed: 10_000,
     }).expect(202);
     expect(replay.body.replay.count).toBeGreaterThan(0);
+    await expect(Promise.race([
+      replayMeasurement,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Replay measurement timed out")), 1_000)),
+    ])).resolves.toMatchObject({ sensorId: "sensor-01", source: "replay" });
+    stopReplayMeasurement();
     await request(runtime.app).delete("/api/v1/replay").expect(200);
   });
 

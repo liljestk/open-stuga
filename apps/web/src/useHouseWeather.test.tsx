@@ -1,16 +1,17 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { House, HouseWeather } from "@climate-twin/contracts";
+import type { House, HouseWeather, WeatherUpdateEvent } from "@climate-twin/contracts";
 
 const mocks = vi.hoisted(() => ({ houseWeather: vi.fn() }));
 
 vi.mock("./api", () => ({ api: { houseWeather: mocks.houseWeather } }));
 
-import { HOUSE_WEATHER_REFRESH_MS, useHouseWeather } from "./useHouseWeather";
+import { HOUSE_WEATHER_REFRESH_MS, publishHouseWeatherUpdate, useHouseWeather } from "./useHouseWeather";
 
 function house(id: string, located = true, latitude = 60.17): House {
   return {
     id,
+    propertyId: "property-weather",
     name: id,
     timezone: "Europe/Helsinki",
     ...(located ? { location: { latitude, longitude: 24.94 } } : {}),
@@ -70,7 +71,7 @@ describe("useHouseWeather", () => {
 
     rerender({ selected: located, enabled: true });
     await waitFor(() => expect(result.current.weather?.houseId).toBe("located"));
-    expect(mocks.houseWeather).toHaveBeenCalledWith("located", 48);
+    expect(mocks.houseWeather).toHaveBeenCalledWith("located", 48, expect.any(AbortSignal));
   });
 
   it("ignores a previous house response that resolves after the active house", async () => {
@@ -118,6 +119,30 @@ describe("useHouseWeather", () => {
     expect(result.current.weather).toBe(saved);
     expect(result.current.loading).toBe(false);
     expect(result.current.error?.message).toBe("FMI temporarily unavailable");
+  });
+
+  it("does not let an older in-flight refresh overwrite a pushed weather snapshot", async () => {
+    const selected = house("live-weather");
+    const request = deferred<HouseWeather>();
+    mocks.houseWeather.mockReturnValueOnce(request.promise);
+    const { result } = renderHook(() => useHouseWeather(selected));
+    await waitFor(() => expect(mocks.houseWeather).toHaveBeenCalledOnce());
+    const pushed = weather(selected, 11);
+    const event: WeatherUpdateEvent = {
+      id: `weather-${"b".repeat(64)}`,
+      type: "weather.snapshot",
+      houseId: selected.id,
+      publishedAt: "2026-07-16T12:00:00.000Z",
+      trigger: "scheduled-refresh",
+      weather: pushed,
+    };
+
+    act(() => publishHouseWeatherUpdate(event));
+    expect(result.current.weather).toBe(pushed);
+
+    await act(async () => request.resolve(weather(selected, 2)));
+    expect(result.current.weather).toBe(pushed);
+    expect(result.current.error).toBeNull();
   });
 
   it("refreshes automatically every ten minutes", async () => {

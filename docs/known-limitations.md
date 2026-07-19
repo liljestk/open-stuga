@@ -57,6 +57,10 @@ system described in the roadmap.
   is process-local. Restarting the API resets that operational state. Provider
   quotas still need to be budgeted across the number of homes, replicas, manual
   refreshes, and other clients.
+- The provider-neutral weather broker and local weather SSE fan-out are also
+  process-local, not a durable event log. Identical cache replays coalesce and
+  events have stable IDs, but disconnected clients must reload the house weather
+  REST snapshot.
 - Forecast, short-range supplement, observation, and warning sources can fail
   or be inapplicable independently. Callers must inspect `componentStatus`,
   `unavailable`, timestamps, provider/station provenance, and `stale`; an empty
@@ -85,10 +89,10 @@ system described in the roadmap.
   user-supplied rather than surveyed; once calibrated, the footprint is drawn
   at geographic scale as the map zoom changes, but its accuracy is only as good
   as those inputs and the floor-plan geometry.
-- The shared map combines every precisely placed house and every legacy
-  weather-located house, with pins for legacy houses that lack calibrated map
-  placement. Stuga does not yet model property/site grouping or surveyed
-  parcel boundaries, so one view can span multiple unrelated properties.
+- A Property map combines that Property's precisely placed homes and legacy
+  weather-located homes, with pins for homes that lack calibrated map
+  placement. Stuga models Property membership but does not import authoritative
+  surveyed parcel boundaries; user-drawn areas remain contextual geometry.
 - The visualisation can identify a windward rectangular **plan edge**, not a
   verified exterior wall segment. Walls do not yet carry envelope/interior
   classification, outward normals, openings, adjacency, material conductance,
@@ -105,13 +109,54 @@ system described in the roadmap.
 
 ## Alerts and delivery
 
-- Sustained-duration state is in process memory and evaluated only when another
-  reading arrives. It resets on restart and does not fire on a wall-clock timer
-  while a value remains flat.
-- The MVP sends a new alert webhook once with a 10-second timeout. It has no
-  durable retry/dead-letter queue, signature, destination allowlist, or fan-out.
+- Sustained-duration state is persisted in SQLite and chronology-fenced, so it
+  survives API restarts. Evaluation remains sample-driven: a flat value does not
+  fire on a wall-clock timer until another reading arrives.
+- New webhook and Telegram notifications are persisted in a SQLite outbox and
+  retried with bounded exponential backoff. Delivery is at-least-once: a process
+  failure after the remote service accepts a request but before the local commit
+  can cause a duplicate. Webhooks carry a stable `Idempotency-Key`; receivers
+  should deduplicate it. Telegram has no equivalent idempotency facility.
+- Each row stores an immutable rendered payload and a one-way destination
+  credential reference. Rule retirement preserves its alert history and queue;
+  destination rotation abandons mismatched old work instead of rerouting it.
+  Legacy unbound queued rows are retained but fail closed rather than being
+  attached to whichever destination happens to be configured after migration.
+  A sensor referenced by alert history must be disabled instead of deleted.
+- The outbox currently has no maximum-attempt/dead-letter policy, webhook
+  signature, destination allowlist, or fan-out. A successful Bot API response
+  confirms acceptance by Telegram, not that the recipient read it. Mock and
+  replay samples are blocked from both external channels.
+- Telegram currently sends newly opened threshold alerts only. Maintenance due
+  reminders and task completion/verification notifications are not scheduled
+  or delivered automatically.
 - Only one outbound URL is configured. Multiple destinations need a relay.
+- Repeated open events are grouped for presentation, but there is not yet a
+  durable issue/incident lifecycle, snooze state, escalation policy, seasonal
+  baseline, or cross-sensor/weather correlation engine. Acknowledgement does not
+  resolve the event.
+- Overview and Alerts now withhold a monitoring all-clear when enabled sensors
+  are missing, stale, estimated-only, missing an enabled-rule/declared metric,
+  or depend on a disconnected TP-Link/Home Assistant source, and explain the
+  strongest blocker. TP-Link and Home Assistant connections are Home-scoped;
+  one installation can run independent connections for several Homes. This is monitoring
+  coverage, not full arrival/departure readiness: operating modes, water/window
+  state, asset checks, and inspection checklists are not yet modelled.
 - Stuga is not a certified safety/alarm system.
+
+## Apple Notes bridge
+
+- Apple does not publish a server API for the Apple Notes database. The bridge
+  runs only when the user invokes or schedules an iOS Shortcut; Stuga cannot
+  react invisibly to an arbitrary note edit.
+- Current documented Notes actions do not provide conflict-aware arbitrary
+  body replacement. Stuga creates dated generated snapshots and accepts
+  explicit note-to-task capture instead of overwriting a personal note.
+- A Notes checkbox is not treated as maintenance completion or verification.
+  Those lifecycle steps retain their required notes, server timestamps, and
+  optimistic revision checks in Stuga.
+- Personal automations are configured per Apple device. The Shortcut can sync
+  through iCloud, but its personal automation does not.
 
 ## Measurement registry and visualisation
 
@@ -136,22 +181,25 @@ system described in the roadmap.
 
 ## API, stream, MCP, and access
 
-- There is no general API user authentication or per-house authorization. The
-  optional ingestion key protects `POST /api/v1/readings` and
-  `POST /api/v2/measurements`. The local API
-  defaults to `127.0.0.1` and Compose keeps it behind the loopback-bound web
-  proxy; add a trusted authenticated gateway/VPN before widening either bind.
-- The credential setup routes share that same trust boundary. Anyone who can
-  reach the API can replace integration settings. Keep the default loopback
-  bind or place the whole application behind authenticated access before LAN or
-  internet exposure.
+- Built-in accounts protect browser REST and SSE access in one local workspace.
+  The API enforces owner/administrator roles and read-only Guest property,
+  house, and area grants. The optional ingestion key protects external machine
+  ingestion and is separate from browser sessions. Authentication does not
+  encrypt traffic; keep the default loopback bind or add TLS with a trusted VPN
+  or reverse proxy before widening it.
+- Credential setup and account/access administration require an owner or
+  administrator. A hidden client control is not an authorization boundary; all
+  role and grant checks must remain server-side.
 - Home Assistant mDNS and TP-Link broadcast discovery are best-effort. Guest
   Wi-Fi isolation, VLANs, firewalls, and Docker bridge networking can hide a
   device from a scan even when its manually entered address is routable.
-- Neither v1 nor v2 SSE has a durable event ID/resume cursor. Reconnecting
-  clients must refresh the relevant snapshot/history.
+- Neither v1 nor v2 SSE has a durable event ID/resume cursor. The bundled client
+  subscribes before hydrating, buffers intervening events, and refreshes the
+  relevant snapshot/history after reconnects. Other clients must do the same.
 - MCP authorization is the ability to launch the local stdio process and access
-  its database. `create_observation` mutates data.
+  its database; it does not use browser account sessions or Guest grants.
+  `create_observation` and `update_observation` mutate data. Their revision actor
+  identifies the trusted local channel rather than a browser account.
 - SQLite is the single-host store. Multi-process MCP/API access is appropriate
   for this scale but not a substitute for a multi-user database deployment.
 
@@ -190,19 +238,31 @@ system described in the roadmap.
 
 ## Data lifecycle and operations
 
-- High-frequency samples grow per metric. Ten sensors × three metrics every five
-  seconds produce about 15.6 million metric samples in a 30-day month. Tune
-  sampling intervals and `RETENTION_DAYS` for the host, monitor the database,
-  and add downsampling/rollups or a time-series repository before long
-  multi-year production retention.
-- Raw samples, compatibility readings, and outdoor temperature boundaries are
-  purged daily; other records and backups need an explicit user policy and
-  lifecycle.
-- There is no built-in online-backup/restore command or audit log yet. Stop the
-  API for simple file backups or use SQLite's online backup tooling.
-- Home Assistant configuration supports one base URL/token/map and direct
-  TP-Link configuration supports one hub account/host per API process. The
-  Setup home selector does not scope those credentials per home. Run separate
-  adapters/instances or add a relay for several source installations.
+- High-frequency samples grow per metric. Ten sensors times three metrics every
+  five seconds produce about 15.6 million metric samples in a 30-day month.
+  Compose now archives raw telemetry in TimescaleDB hypertables and maintains
+  5-minute, 1-hour, and 1-day measurement rollups, but disk growth still needs
+  monitoring and capacity headroom.
+- Raw samples are not deleted from TimescaleDB. `RETENTION_DAYS=0` keeps the
+  complete redundant SQLite copy; values of 30 or more enable guarded hot-copy
+  pruning only after the archive is caught up and clean. A full raw JSON export
+  after pruning is intentionally rejected; use the verified dual-database
+  backup until an archive-streaming export is added.
+- Observation revisions are append-only while an observation exists, but
+  permanent observation deletion also deletes its revision ledger. There is no
+  soft-delete/legal-hold workflow; export evidence before deletion.
+- Demo and real telemetry are separated by a persistent one-way database latch,
+  provenance checks, and a visually distinct browser shell. They do not occupy
+  independently addressable workspaces inside one local installation. Use
+  separate databases/installations and credentials when a demo must coexist
+  with production.
+- The backup CLI creates and verifies consistent SQLite snapshots and an
+  opt-in full TimescaleDB dump. Restoration remains an explicit operator
+  procedure, and each new recovery point still needs an isolated restore drill.
+  There is not yet a comprehensive operator audit log.
+- Home Assistant and direct TP-Link configuration are Home-scoped. Several
+  Homes may use independent credentials and local endpoints in one Stuga
+  installation. A Home Assistant connection remains one URL/token per Home;
+  direct TP-Link supports multiple named connections and mapped devices.
 
 Planned remedies and release gates are in [Modular roadmap](roadmap.md).

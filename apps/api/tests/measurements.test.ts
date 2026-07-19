@@ -4,11 +4,15 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
 import { ClimateDatabase } from "../src/db.js";
+import {
+  HybridTelemetryReader,
+  type ArchiveTelemetryReader,
+} from "../src/timeseries/read-facade.js";
 
 const config: AppConfig = {
   port: 0, apiHost: "127.0.0.1", databasePath: ":memory:", integrationSecretsFile: "integration-secrets.test.json", assetDirectory: ".",
@@ -23,7 +27,49 @@ describe("registry-driven measurements API", () => {
   let runtime: ApiRuntime;
 
   beforeEach(() => { runtime = createApi({ config, startBackground: false }); });
-  afterEach(() => runtime.close());
+  afterEach(async () => { await runtime.close(); });
+
+  it("serves regular history through the shared archive-plus-SQLite reader", async () => {
+    await runtime.close();
+    const database = new ClimateDatabase(":memory:", true);
+    const oldAt = "2035-01-01T10:00:00.000Z";
+    const overlapAt = "2035-01-01T10:30:00.000Z";
+    database.insertMeasurementSamples([{
+      sensorId: "sensor-01",
+      metric: "co2",
+      value: 800,
+      canonicalUnit: "ppm",
+      timestamp: overlapAt,
+      source: "api",
+      quality: "good",
+    }]);
+    const archive: ArchiveTelemetryReader = {
+      measurementHistory: vi.fn(async () => [
+        { sensorId: "sensor-01", metric: "co2", value: 700, canonicalUnit: "ppm", timestamp: oldAt, source: "api", quality: "good" },
+        { sensorId: "sensor-01", metric: "co2", value: -99, canonicalUnit: "ppm", timestamp: overlapAt, source: "api", quality: "good" },
+      ]),
+      legacyReadingHistory: vi.fn(async () => []),
+      outdoorTemperatureHistory: vi.fn(async () => []),
+    };
+    const telemetryReader = new HybridTelemetryReader({ local: database, archive, archivePhase: () => "ready" });
+    runtime = createApi({ config, database, telemetryReader, startBackground: false });
+
+    const history = await request(runtime.app).get("/api/v2/measurements/history").query({
+      sensorId: "sensor-01",
+      metric: "co2",
+      from: "2035-01-01T09:00:00.000Z",
+      to: "2035-01-01T11:00:00.000Z",
+    }).expect(200);
+
+    expect(archive.measurementHistory).toHaveBeenCalledOnce();
+    expect(history.body.samples.map((sample: { timestamp: string; value: number }) => ({
+      timestamp: sample.timestamp,
+      value: sample.value,
+    }))).toEqual([
+      { timestamp: oldAt, value: 700 },
+      { timestamp: overlapAt, value: 800 },
+    ]);
+  });
 
   it("seeds capabilities, validates custom definitions, and disables without orphaning data", async () => {
     const listed = await request(runtime.app).get("/api/v2/measurement-definitions").expect(200);
@@ -31,6 +77,9 @@ describe("registry-driven measurements API", () => {
       expect.objectContaining({ id: "temperature", unit: "°C", builtin: true, spatialInterpolation: true, forecastSupported: true }),
       expect.objectContaining({ id: "humidity", unit: "%", builtin: true }),
       expect.objectContaining({ id: "co2", unit: "ppm", colorScale: "air-quality", forecastSupported: true }),
+      expect.objectContaining({ id: "power", unit: "W", builtin: true, spatialInterpolation: false, forecastSupported: false }),
+      expect.objectContaining({ id: "energy", unit: "kWh", builtin: true, spatialInterpolation: false, forecastSupported: false }),
+      expect.objectContaining({ id: "electricity_price", unit: "€/kWh", builtin: true, spatialInterpolation: false, forecastSupported: false }),
     ]));
 
     const created = await request(runtime.app).post("/api/v2/measurement-definitions").send({
@@ -132,6 +181,21 @@ describe("registry-driven measurements API", () => {
     expect(history.body.samples.map((sample: { value: number }) => sample.value)).toEqual([700, 900]);
   });
 
+  it("loads alert rules once for each measurement or mock telemetry batch", () => {
+    const listAlertRules = vi.spyOn(runtime.database, "listAlertRules");
+    const timestamp = new Date(Date.now() - 60_000).toISOString();
+    runtime.measurements.ingestBatch([
+      { sensorId: "sensor-01", metric: "temperature", value: 20, canonicalUnit: "°C", timestamp, source: "mock", quality: "good" },
+      { sensorId: "sensor-01", metric: "humidity", value: 45, canonicalUnit: "%", timestamp, source: "mock", quality: "good" },
+      { sensorId: "sensor-01", metric: "co2", value: 800, canonicalUnit: "ppm", timestamp, source: "mock", quality: "good" },
+    ]);
+    expect(listAlertRules).toHaveBeenCalledTimes(1);
+
+    listAlertRules.mockClear();
+    expect(runtime.mock.generate()).toHaveLength(10);
+    expect(listAlertRules).toHaveBeenCalledTimes(1);
+  });
+
   it("allows small sender clock skew but atomically rejects samples too far in the future", async () => {
     const now = Date.now();
     const valid = {
@@ -209,6 +273,126 @@ describe("registry-driven measurements API", () => {
     await request(runtime.app).post("/api/v2/measurements").send(sample(700, 6_000, "good")).expect(201);
     expect(runtime.database.listAlertEvents(200, true)).toHaveLength(0);
     expect(runtime.database.listAlertEvents()[0]?.resolvedAt).toBe(new Date(base + 6_000).toISOString());
+  });
+
+  it("ignores out-of-order samples for durable alert state and preserves chronology", async () => {
+    const base = Date.now() - 20_000;
+    await request(runtime.app).post("/api/v1/alert-rules").send({
+      id: "ordered-alert", name: "Ordered CO2", sensorId: "sensor-01", metric: "co2", operator: "gte",
+      threshold: 800, durationSeconds: 1, severity: "warning", enabled: true,
+    }).expect(201);
+    const send = (value: number, offset: number) => request(runtime.app).post("/api/v2/measurements").send({
+      sensorId: "sensor-01", metric: "co2", value, canonicalUnit: "ppm", timestamp: new Date(base + offset).toISOString(),
+    }).expect(201);
+    await send(900, 0);
+    await send(900, 2_000);
+    const active = runtime.database.listAlertEvents(200, true)[0]!;
+    await send(700, -5_000);
+    expect(runtime.database.listAlertEvents(200, true)).toHaveLength(1);
+    await send(700, 3_000);
+    const resolved = runtime.database.getAlertEvent(active.id)!;
+    expect(Date.parse(resolved.resolvedAt!)).toBeGreaterThanOrEqual(Date.parse(resolved.startedAt));
+  });
+
+  it("isolates faulty live observers after commit and continues remaining subscribers", () => {
+    let observed = 0;
+    runtime.bus.subscribeMeasurements(() => { throw new Error("subscriber failed"); });
+    runtime.bus.subscribeMeasurements(() => { observed += 1; });
+    const sample = {
+      sensorId: "sensor-01", metric: "co2", value: 740, canonicalUnit: "ppm",
+      timestamp: new Date(Date.now() - 1_000).toISOString(), source: "api" as const, quality: "good" as const,
+    };
+    expect(() => runtime.measurements.ingest(sample)).not.toThrow();
+    expect(runtime.database.getLatestMeasurementSample("sensor-01", "co2")).toMatchObject({ value: 740 });
+    expect(observed).toBe(1);
+  });
+
+  it("downsamples long histories into validated UTC buckets without inventing provenance", async () => {
+    const base = Date.parse("2026-07-14T10:00:00.000Z");
+    for (const [seconds, value] of [[5, 600], [25, 900], [65, 1200]] as const) {
+      await request(runtime.app).post("/api/v2/measurements").send({
+        sensorId: "sensor-01", metric: "co2", value, canonicalUnit: "ppm",
+        timestamp: new Date(base + seconds * 1_000).toISOString(), source: "home-assistant",
+      }).expect(201);
+    }
+    const history = await request(runtime.app).get("/api/v2/measurements/history").query({
+      sensorId: "sensor-01", metric: "co2", from: new Date(base).toISOString(),
+      to: new Date(base + 120_000).toISOString(), bucketSeconds: 60,
+    }).expect(200);
+    expect(history.body).toMatchObject({ bucketSeconds: 60, truncated: false });
+    expect(history.body.samples).toEqual([
+      expect.objectContaining({ timestamp: "2026-07-14T10:00:00.000Z", value: 750, source: "api", quality: "estimated" }),
+      expect.objectContaining({ timestamp: "2026-07-14T10:01:00.000Z", value: 1200, source: "api", quality: "good" }),
+    ]);
+    await request(runtime.app).get("/api/v2/measurements/history").query({
+      sensorId: "sensor-01", metric: "co2", bucketSeconds: 0,
+    }).expect(400);
+  });
+
+  it("takes aggregate provenance from the chronologically latest row, not insertion order", () => {
+    const newer = "2026-07-14T10:00:50.000Z";
+    const older = "2026-07-14T10:00:10.000Z";
+    runtime.database.insertMeasurementSamples([{
+      sensorId: "sensor-01", metric: "co2", value: 900, canonicalUnit: "ppm", timestamp: newer,
+      source: "home-assistant", quality: "good",
+    }]);
+    runtime.database.insertMeasurementSamples([{
+      sensorId: "sensor-01", metric: "co2", value: 600, canonicalUnit: "ppm", timestamp: older,
+      source: "api", quality: "good",
+    }]);
+    runtime.database.insertReadings([{
+      sensorId: "sensor-02", timestamp: newer, temperature: 22, humidity: 45, battery: 91,
+      source: "home-assistant", quality: "good",
+    }]);
+    runtime.database.insertReadings([{
+      sensorId: "sensor-02", timestamp: older, temperature: 20, humidity: 40, battery: 40,
+      source: "api", quality: "good",
+    }]);
+
+    expect(runtime.database.measurementHistoryBucketed(
+      "sensor-01", "co2", "2026-07-14T10:00:00.000Z", "2026-07-14T10:01:00.000Z", 60,
+    )).toEqual([expect.objectContaining({ value: 750, source: "home-assistant", quality: "estimated" })]);
+    expect(runtime.database.historyBucketed(
+      ["sensor-02"], "2026-07-14T10:00:00.000Z", "2026-07-14T10:01:00.000Z", 60,
+    )).toEqual([expect.objectContaining({ temperature: 21, battery: 91, source: "home-assistant", quality: "estimated" })]);
+  });
+
+  it("reports history truncation only when an extra newest sample exists", async () => {
+    const timestamps = [
+      "2026-07-15T08:00:00.000Z",
+      "2026-07-15T08:01:00.000Z",
+      "2026-07-15T08:02:00.000Z",
+    ];
+    for (const [index, timestamp] of timestamps.entries()) {
+      await request(runtime.app).post("/api/v2/measurements").send({
+        sensorId: "sensor-01", metric: "co2", value: 600 + index, canonicalUnit: "ppm", timestamp,
+      }).expect(201);
+    }
+
+    const truncatedV2 = await request(runtime.app).get("/api/v2/measurements/history").query({
+      sensorId: "sensor-01", metric: "co2", from: timestamps[0], to: timestamps[2], limit: 2,
+    }).expect(200);
+    expect(truncatedV2.body.truncated).toBe(true);
+    expect(truncatedV2.body.samples.map((sample: { timestamp: string }) => sample.timestamp)).toEqual(timestamps.slice(1));
+
+    const exactV2 = await request(runtime.app).get("/api/v2/measurements/history").query({
+      sensorId: "sensor-01", metric: "co2", from: timestamps[1], to: timestamps[2], limit: 2,
+    }).expect(200);
+    expect(exactV2.body.truncated).toBe(false);
+
+    await request(runtime.app).post("/api/v1/readings").send({ readings: timestamps.map((timestamp, index) => ({
+      sensorId: "sensor-02", timestamp, temperature: 20 + index, humidity: 40 + index,
+    })) }).expect(201);
+    const truncatedV1 = await request(runtime.app).get("/api/v1/history").query({
+      sensorId: "sensor-02", from: timestamps[0], to: timestamps[2], limit: 2,
+    }).expect(200);
+    expect(truncatedV1.body.truncated).toBe(true);
+    expect(truncatedV1.body.series[0].readings.map((reading: { timestamp: string }) => reading.timestamp)).toEqual(timestamps.slice(1));
+
+    const exactV1 = await request(runtime.app).get("/api/v1/history").query({
+      sensorId: "sensor-02", from: timestamps[1], to: timestamps[2], limit: 2,
+    }).expect(200);
+    expect(exactV1.body.truncated).toBe(false);
   });
 
   it("imports historical samples without live alerts and safely ignores retried duplicates", async () => {

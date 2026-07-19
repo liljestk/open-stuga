@@ -1,0 +1,171 @@
+.energy-heading .page-heading-actions {
+  align-self: flex-start;
+}
+
+.energy-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.energy-summary-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.55rem 0.75rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.energy-summary-card > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+}
+
+.energy-summary-card strong {
+  overflow-wrap: anywhere;
+  font-size: clamp(1.25rem, 2.2vw, 1.8rem);
+  line-height: 1.15;
+}
+
+.energy-summary-card > small {
+  grid-column: 2;
+  color: var(--muted);
+}
+
+.energy-summary-icon,
+.energy-onboarding-icon {
+  display: inline-grid;
+  width: 2.35rem;
+  height: 2.35rem;
+  place-items: center;
+  border-radius: 0.75rem;
+  color: var(--action);
+  background: var(--action-soft);
+}
+
+.energy-onboarding {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: 1.25rem;
+}
+
+.energy-onboarding h2,
+.energy-onboarding p {
+  margin: 0;
+}
+
+.energy-source-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(14rem, 0.45fr);
+  align-items: end;
+  gap: 1rem;
+}
+
+.energy-source-controls .segmented {
+  align-self: center;
+}
+
+.energy-price-config {
+  margin-bottom: 1rem;
+  padding: 1.125rem;
+}
+
+.energy-price-config .energy-source-controls {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 1rem;
+}
+
+.energy-price-config .primary-button {
+  justify-self: start;
+}
+
+.energy-history-controls {
+  margin-bottom: 1rem;
+  padding: 1.125rem;
+}
+
+.energy-waiting {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0 0 1rem;
+  padding: 0.8rem 1rem;
+  border-radius: 0.8rem;
+  color: var(--yellow);
+  background: var(--yellow-soft);
+}
+
+.energy-source-list {
+  margin-top: 1rem;
+  padding: 1.125rem;
+}
+
+.energy-table-scroll {
+  overflow-x: auto;
+  margin-top: 0.85rem;
+}
+
+.energy-optimizer-windows { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
+.energy-optimizer-windows article { display: flex; gap: 10px; align-items: center; padding: 12px; border: 1px solid var(--border, #dfe2db); border-radius: 12px; }
+.energy-optimizer-windows article.best { border-color: var(--success, #2f765d); background: color-mix(in srgb, var(--success, #2f765d) 8%, transparent); }
+.energy-optimizer-windows span { display: grid; gap: 3px; }
+.energy-optimizer-baseline { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.energy-optimizer-baseline div { display: grid; gap: 3px; }
+.energy-optimizer-baseline dt { color: var(--text-muted, #68706a); font-size: .8rem; }
+.energy-optimizer-baseline dd { margin: 0; font-weight: 650; }
+.energy-optimizer-insights { list-style: none; padding: 0; display: grid; gap: 8px; }
+.energy-optimizer-insights li { display: grid; gap: 3px; padding: 10px 12px; border-left: 3px solid var(--accent, #617a68); background: var(--surface-muted, #f4f5f2); }
+@media (max-width: 800px) { .energy-optimizer-windows, .energy-optimizer-baseline { grid-template-columns: 1fr; } }
+
+.energy-table-scroll:focus-visible {
+  outline: 3px solid var(--action);
+  outline-offset: 3px;
+}
+
+.energy-table-scroll table {
+  min-width: 700px;
+}
+
+.energy-source-list th small {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+@media (max-width: 1050px) {
+  .energy-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .energy-summary-grid,
+  .energy-source-controls,
+  .energy-price-config .energy-source-controls,
+  .energy-onboarding {
+    grid-template-columns: 1fr;
+  }
+
+  .energy-summary-card {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .energy-onboarding .primary-button {
+    width: 100%;
+  }
+
+  .energy-onboarding,
+  .energy-history-controls,
+  .energy-source-list {
+    padding: 0.9rem;
+  }
+}

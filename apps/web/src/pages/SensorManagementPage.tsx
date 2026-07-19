@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useEffect,
   useId,
   useMemo,
@@ -11,20 +13,27 @@ import {
 import {
   Archive,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleDot,
+  Copy,
+  Database,
   Edit3,
   FileSpreadsheet,
   Home,
   LoaderCircle,
   MapPin,
   Plus,
+  Printer,
+  QrCode,
   RadioTower,
   RefreshCw,
   RotateCcw,
   Search,
+  Sparkles,
   ThermometerSun,
+  Trash2,
   TriangleAlert,
   X,
 } from "lucide-react";
@@ -34,14 +43,23 @@ import type {
   IntegrationStatus,
   MeasurementSample,
   Sensor,
+  SensorLabelDescriptor,
   TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
-import type { CreateSensorInput, HistoricalImportResult, SensorPatch } from "../api";
+import { api, type CreateSensorInput, type HistoricalImportResult, type SensorPatch } from "../api";
 import type { ClimateState } from "../domain";
 import { useI18n, type TranslationKey } from "../i18n";
-import { HistoricalImportWizard } from "../components/HistoricalImportWizard";
 import { formatInTimeZone } from "../dateTime";
+import { measurementLabel } from "../measurements";
 import { useNow } from "../useNow";
+import { integrationForHouse } from "../integrationScope";
+import { assessSensorCoverage, suggestSensorPlacement, type SensorCoverageAssessment, type SensorPlacementSuggestion } from "../experimentalSpatialLayers";
+import { configuredSpatialMaxSampleAgeMs } from "../spatialFreshness";
+import { useSpatialLayers } from "../useSpatialLayers";
+import { qrCodeMatrix } from "../qrCode";
+
+const HistoricalImportWizard = lazy(() => import("../components/HistoricalImportWizard")
+  .then((module) => ({ default: module.HistoricalImportWizard })));
 
 export interface SensorManagementPageProps {
   state: ClimateState;
@@ -51,10 +69,16 @@ export interface SensorManagementPageProps {
   tpLinkDevices: TpLinkDiscoveredDevice[];
   tpLinkDevicesLoading: boolean;
   tpLinkDevicesError: string | null;
+  requestedDevice?: { deviceId: string; connectionId: string | null } | null;
+  /** Compatibility for older embedders; ambiguous across multiple connections. */
+  requestedDeviceId?: string | null;
+  readOnly?: boolean;
+  onRequestedDeviceHandled?: () => void;
   onHouse: (houseId: string) => void;
   onRefreshDevices: () => Promise<void>;
   onCreateSensor: (sensor: CreateSensorInput) => Promise<Sensor>;
   onUpdateSensor: (sensorId: string, patch: SensorPatch) => Promise<Sensor>;
+  onDeleteSensor: (sensorId: string) => Promise<void>;
   onImportHistoricalData: (
     samples: MeasurementSample[],
     onProgress: (completed: number, total: number) => void,
@@ -64,11 +88,13 @@ export interface SensorManagementPageProps {
 type EditorMode = "closed" | "add" | "edit";
 type AddStep = 1 | 2 | 3 | 4;
 type SensorFilter = "all" | "live" | "waiting" | "unplaced" | "archived";
+type SensorStatus = Exclude<SensorFilter, "all">;
 type DraftSource = "tp-link" | "manual";
 
 interface SensorDraft {
   source: DraftSource;
   deviceId: string;
+  connectionId: string;
   name: string;
   model: string;
   houseId: string;
@@ -78,6 +104,7 @@ interface SensorDraft {
   y: string;
   height: string;
   enabled: boolean;
+  measurementEntityIds: Record<string, string>;
 }
 
 type DraftErrors = Partial<Record<"source" | "name" | "model" | "house" | "floor" | "room" | "x" | "y" | "height", string>>;
@@ -94,6 +121,20 @@ function rounded(value: number): number {
   return Number(value.toFixed(2));
 }
 
+function tpLinkDeviceSummary(device: TpLinkDiscoveredDevice, t: Translate, locale: string): string {
+  const hasPower = typeof device.power === "number" && Number.isFinite(device.power);
+  const hasEnergy = typeof device.energy === "number" && Number.isFinite(device.energy);
+  const kind = hasPower || hasEnergy ? t("sensors.energyEndpoint") : t("sensors.climateDevice");
+  const number = new Intl.NumberFormat(locale, { maximumFractionDigits: 3 });
+  return [
+    device.model,
+    kind,
+    device.deviceId,
+    hasPower ? t("sensors.devicePower", { value: number.format(device.power!) }) : null,
+    hasEnergy ? t("sensors.deviceEnergy", { value: number.format(device.energy!) }) : null,
+  ].filter((value): value is string => Boolean(value)).join(" · ");
+}
+
 function roomCenter(floor: Floor, roomName?: string): { x: number; y: number } {
   const normalized = roomName?.trim().toLocaleLowerCase();
   const room = (normalized
@@ -106,12 +147,18 @@ function roomCenter(floor: Floor, roomName?: string): { x: number; y: number } {
   };
 }
 
+function stableRoomId(floor: Floor, roomLabel: string): string | null {
+  const matches = floor.rooms.filter((room) => room.name === roomLabel);
+  return matches.length === 1 ? matches[0]!.id : null;
+}
+
 function initialDraft(house: House): SensorDraft {
   const floor = house.floors[0];
   const center = floor ? roomCenter(floor) : { x: 0, y: 0 };
   return {
     source: "tp-link",
     deviceId: "",
+    connectionId: "",
     name: "",
     model: "",
     houseId: house.id,
@@ -121,7 +168,42 @@ function initialDraft(house: House): SensorDraft {
     y: String(rounded(center.y)),
     height: "1.4",
     enabled: true,
+    measurementEntityIds: {},
   };
+}
+
+function sensorMeasurementEntityIds(sensor: Sensor): Record<string, string> {
+  return {
+    ...(sensor.temperatureEntityId ? { temperature: sensor.temperatureEntityId } : {}),
+    ...(sensor.humidityEntityId ? { humidity: sensor.humidityEntityId } : {}),
+    ...(sensor.measurementEntityIds ?? {}),
+  };
+}
+
+function normalizedMeasurementEntityIds(values: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(values).flatMap(([metric, entityId]) => {
+    const normalized = entityId.trim();
+    return normalized ? [[metric, normalized]] : [];
+  }));
+}
+
+function sameMeasurementEntityIds(first: Record<string, string>, second: Record<string, string>): boolean {
+  const firstEntries = Object.entries(first).sort(([left], [right]) => left.localeCompare(right));
+  const secondEntries = Object.entries(second).sort(([left], [right]) => left.localeCompare(right));
+  return firstEntries.length === secondEntries.length
+    && firstEntries.every(([metric, entityId], index) => {
+      const candidate = secondEntries[index];
+      return candidate?.[0] === metric && candidate[1] === entityId;
+    });
+}
+
+function isDemoSensor(sensor: Sensor): boolean {
+  return sensor.tags.some((tag) => ["seeded", "demo", "mock"].includes(tag.trim().toLocaleLowerCase()));
+}
+
+function hasRealBinding(sensor: Pick<Sensor, "tpLinkDeviceId" | "temperatureEntityId" | "humidityEntityId" | "measurementEntityIds">): boolean {
+  return Boolean(sensor.tpLinkDeviceId || sensor.temperatureEntityId || sensor.humidityEntityId
+    || Object.keys(sensor.measurementEntityIds ?? {}).length > 0);
 }
 
 function draftForSensor(sensor: Sensor, houses: House[]): SensorDraft {
@@ -130,6 +212,7 @@ function draftForSensor(sensor: Sensor, houses: House[]): SensorDraft {
   return {
     source: sensor.tpLinkDeviceId ? "tp-link" : "manual",
     deviceId: sensor.tpLinkDeviceId ?? "",
+    connectionId: sensor.tpLinkConnectionId ?? "",
     name: sensor.name,
     model: sensor.model,
     houseId: sensor.houseId,
@@ -139,6 +222,7 @@ function draftForSensor(sensor: Sensor, houses: House[]): SensorDraft {
     y: String(rounded(sensor.y)),
     height: String(rounded(sensor.z - (floor?.elevation ?? 0))),
     enabled: sensor.enabled,
+    measurementEntityIds: sensorMeasurementEntityIds(sensor),
   };
 }
 
@@ -176,6 +260,12 @@ function isLive(state: ClimateState, sensor: Sensor, houses: House[], now: numbe
   return timestamp !== null && timestamp <= now + 5 * 60_000 && now - timestamp <= 10 * 60_000;
 }
 
+function sensorStatus(state: ClimateState, sensor: Sensor, houses: House[], now: number): SensorStatus {
+  if (!sensor.enabled) return "archived";
+  if (isUnplaced(sensor, houses)) return "unplaced";
+  return isLive(state, sensor, houses, now) ? "live" : "waiting";
+}
+
 function validationErrors(draft: SensorDraft, houses: House[], t: Translate): DraftErrors {
   const errors: DraftErrors = {};
   const { house, floor } = draftContext(draft, houses);
@@ -202,9 +292,13 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim() ? error.message : fallback;
 }
 
+function deviceBindingKey(deviceId: string, connectionId?: string): string {
+  return connectionId ? `${connectionId}\u0000${deviceId}` : deviceId;
+}
+
 function availableForSensor(device: TpLinkDiscoveredDevice, sensorId: string | null, usedDeviceIds: Set<string>): boolean {
   if (sensorId && device.mappedSensorId === sensorId) return true;
-  return device.mappedSensorId === null && !usedDeviceIds.has(device.deviceId);
+  return device.mappedSensorId === null && !usedDeviceIds.has(deviceBindingKey(device.deviceId, device.connectionId));
 }
 
 export function SensorManagementPage({
@@ -215,18 +309,31 @@ export function SensorManagementPage({
   tpLinkDevices,
   tpLinkDevicesLoading,
   tpLinkDevicesError,
+  requestedDevice = null,
+  requestedDeviceId = null,
+  readOnly = false,
+  onRequestedDeviceHandled,
   onHouse,
   onRefreshDevices,
   onCreateSensor,
   onUpdateSensor,
+  onDeleteSensor,
   onImportHistoricalData,
 }: SensorManagementPageProps) {
   const { locale, t } = useI18n();
   const now = useNow();
+  const tpLinkStatus = useMemo(
+    () => integrationForHouse(integration, house.id).tpLink,
+    [house.id, integration],
+  );
   const formId = useId().replace(/:/g, "");
+  const pageHeadingRef = useRef<HTMLHeadingElement>(null);
   const editorHeadingRef = useRef<HTMLHeadingElement>(null);
   const editorOpenerRef = useRef<HTMLElement | null>(null);
   const importButtonRef = useRef<HTMLButtonElement>(null);
+  const detailsHeadingRef = useRef<HTMLHeadingElement>(null);
+  const detailsOpenerRef = useRef<HTMLElement | null>(null);
+  const detailsRequestGeneration = useRef(0);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<SensorFilter>("all");
   const [mode, setMode] = useState<EditorMode>("closed");
@@ -238,39 +345,108 @@ export function SensorManagementPage({
   const [pageFeedback, setPageFeedback] = useState<Feedback>(null);
   const [submitting, setSubmitting] = useState(false);
   const [rowBusyId, setRowBusyId] = useState<string | null>(null);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [detailsSensor, setDetailsSensor] = useState<Sensor | null>(null);
+  const [detailSamples, setDetailSamples] = useState<MeasurementSample[]>([]);
+  const [detailCursor, setDetailCursor] = useState<string | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
 
   const currentSensors = useMemo(
     () => state.sensors.filter((sensor) => sensor.houseId === house.id),
     [state.sensors, house.id],
   );
+  const currentSensorIds = useMemo(
+    () => new Set(currentSensors.map((sensor) => sensor.id)),
+    [currentSensors],
+  );
+  const visibleDetailsSensor = detailsSensor && currentSensorIds.has(detailsSensor.id)
+    ? currentSensors.find((sensor) => sensor.id === detailsSensor.id) ?? null
+    : null;
+  const demoSensors = useMemo(() => currentSensors.filter(isDemoSensor), [currentSensors]);
+  const hasExistingRealBoundSensor = useMemo(
+    () => currentSensors.some((sensor) => !isDemoSensor(sensor) && hasRealBinding(sensor)),
+    [currentSensors],
+  );
+  const enabledMeasurementDefinitions = useMemo(
+    () => state.measurementDefinitions.filter((definition) => definition.enabled),
+    [state.measurementDefinitions],
+  );
   const usedDeviceIds = useMemo(
-    () => new Set(state.sensors.flatMap((sensor) => sensor.tpLinkDeviceId ? [sensor.tpLinkDeviceId] : [])),
+    () => new Set(state.sensors.flatMap((sensor) => sensor.tpLinkDeviceId
+      ? [deviceBindingKey(sensor.tpLinkDeviceId, sensor.tpLinkConnectionId)] : [])),
     [state.sensors],
   );
-  const addableDevices = useMemo(
-    () => tpLinkDevices.filter((device) => availableForSensor(device, null, usedDeviceIds)),
-    [tpLinkDevices, usedDeviceIds],
+  const homeTpLinkDevices = useMemo(
+    () => tpLinkDevices.filter((device) => device.houseId === house.id),
+    [house.id, tpLinkDevices],
   );
+  const addableDevices = useMemo(
+    () => homeTpLinkDevices.filter((device) => availableForSensor(device, null, usedDeviceIds)),
+    [homeTpLinkDevices, usedDeviceIds],
+  );
+  const sensorStatuses = useMemo(
+    () => new Map(currentSensors.map((sensor) => [sensor.id, sensorStatus(state, sensor, houses, now)])),
+    [currentSensors, houses, now, state],
+  );
+  const statusCounts = useMemo(() => {
+    const counts: Record<SensorStatus, number> = { waiting: 0, unplaced: 0, live: 0, archived: 0 };
+    for (const status of sensorStatuses.values()) counts[status] += 1;
+    return counts;
+  }, [sensorStatuses]);
   const normalizedSearch = search.trim().toLocaleLowerCase(locale);
   const visibleSensors = useMemo(() => currentSensors.filter((sensor) => {
     const matchesSearch = !normalizedSearch || [sensor.name, sensor.room, sensor.model, sensor.id, sensor.tpLinkDeviceId ?? ""]
       .some((value) => value.toLocaleLowerCase(locale).includes(normalizedSearch));
     if (!matchesSearch) return false;
-    const unplaced = isUnplaced(sensor, houses);
-    const live = isLive(state, sensor, houses, now);
-    if (filter === "live") return live;
-    if (filter === "waiting") return sensor.enabled && !unplaced && !live;
-    if (filter === "unplaced") return unplaced;
-    if (filter === "archived") return !sensor.enabled;
+    if (filter !== "all") return sensorStatuses.get(sensor.id) === filter;
     return true;
-  }), [currentSensors, filter, houses, locale, normalizedSearch, now, state]);
+  }), [currentSensors, filter, locale, normalizedSearch, sensorStatuses]);
   const { house: draftHouse, floor: draftFloor } = draftContext(draft, houses);
   const editingSensor = editingSensorId ? state.sensors.find((sensor) => sensor.id === editingSensorId) ?? null : null;
-  const selectableDevices = tpLinkDevices.filter((device) => availableForSensor(device, editingSensorId, usedDeviceIds));
-  const currentBindingMissing = Boolean(draft.deviceId && !selectableDevices.some((device) => device.deviceId === draft.deviceId));
+  const selectableDevices = tpLinkDevices.filter((device) => device.houseId === draft.houseId
+    && availableForSensor(device, editingSensorId, usedDeviceIds));
+  const currentBindingMissing = Boolean(draft.deviceId && !selectableDevices.some((device) => device.deviceId === draft.deviceId
+    && (device.connectionId ?? "") === draft.connectionId));
+  const draftDevice = draft.deviceId ? tpLinkDevices.find((device) => device.deviceId === draft.deviceId
+    && (device.connectionId ?? "") === draft.connectionId) : undefined;
+  const energyOnlyDraft = Boolean(draftDevice
+    && (typeof draftDevice.power === "number" || typeof draftDevice.energy === "number")
+    && typeof draftDevice.temperature !== "number"
+    && typeof draftDevice.humidity !== "number");
+  const placementAnalysisEnabled = !energyOnlyDraft && (mode === "edit" || (mode === "add" && addStep === 3));
+  const placementLayerScope = useMemo(() => placementAnalysisEnabled && draftHouse
+    ? { kind: "house" as const, id: draftHouse.id }
+    : null, [draftHouse?.id, placementAnalysisEnabled]);
+  const placementLayers = useSpatialLayers({
+    scope: placementLayerScope,
+    enabled: placementAnalysisEnabled,
+  });
+  const placementCoverage = useMemo<SensorCoverageAssessment | null>(() => {
+    if (!placementAnalysisEnabled || !draftHouse) return null;
+    const sensors = state.sensors.filter((sensor) => sensor.houseId === draftHouse.id
+      && sensor.id !== editingSensorId
+      && !isUnplaced(sensor, houses));
+    return assessSensorCoverage({
+      house: draftHouse,
+      sensors,
+      samples: state.latestMeasurements,
+      freshness: { referenceTimeMs: now, maxSampleAgeMs: configuredSpatialMaxSampleAgeMs() },
+    });
+  }, [draftHouse, editingSensorId, houses, now, placementAnalysisEnabled, state.latestMeasurements, state.sensors]);
+  const placementSuggestion = useMemo<SensorPlacementSuggestion | null>(() => {
+    if (!draftFloor || !placementCoverage) return null;
+    const currentSnapshots = placementLayers.snapshots.filter((snapshot) => !placementLayers.staleLayerIds.includes(snapshot.layerId));
+    return suggestSensorPlacement({
+      floor: draftFloor,
+      roomName: draft.room,
+      coverage: placementCoverage,
+      spatialSnapshots: currentSnapshots,
+    });
+  }, [draft.room, draftFloor, placementCoverage, placementLayers.snapshots, placementLayers.staleLayerIds]);
 
   useEffect(() => {
     if (mode !== "closed") return;
@@ -291,6 +467,7 @@ export function SensorManagementPage({
   });
 
   const beginAdd = () => {
+    if (readOnly) return;
     editorOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const next = initialDraft(house);
     if (addableDevices.length === 0) next.source = "manual";
@@ -303,6 +480,7 @@ export function SensorManagementPage({
   };
 
   const beginEdit = (sensor: Sensor) => {
+    if (readOnly) return;
     editorOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setDraft(draftForSensor(sensor, houses));
     setMode("edit");
@@ -332,11 +510,58 @@ export function SensorManagementPage({
     window.setTimeout(() => importButtonRef.current?.focus(), 0);
   };
 
+  const loadSensorDetails = async (sensor: Sensor, cursor: string | null = null) => {
+    if (cursor && detailsLoading) return;
+    if (!cursor) detailsOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : pageHeadingRef.current;
+    const generation = ++detailsRequestGeneration.current;
+    setDetailsSensor(sensor);
+    if (!cursor) {
+      setDetailSamples([]);
+      setDetailCursor(null);
+    }
+    setDetailsLoading(true);
+    setDetailsError(null);
+    try {
+      const page = await api.sensorMeasurementPage(sensor.id, cursor);
+      if (detailsRequestGeneration.current !== generation) return;
+      setDetailSamples((current) => cursor ? [...current, ...page.samples] : page.samples);
+      setDetailCursor(page.nextCursor);
+    } catch (error) {
+      if (detailsRequestGeneration.current !== generation) return;
+      setDetailsError(errorMessage(error, t("sensors.detailsError")));
+    } finally {
+      if (detailsRequestGeneration.current === generation) setDetailsLoading(false);
+    }
+  };
+
+  const closeSensorDetails = () => {
+    const opener = detailsOpenerRef.current;
+    detailsOpenerRef.current = null;
+    detailsRequestGeneration.current += 1;
+    setDetailsSensor(null);
+    setDetailSamples([]);
+    setDetailCursor(null);
+    setDetailsError(null);
+    setDetailsLoading(false);
+    window.setTimeout(() => (opener?.isConnected ? opener : pageHeadingRef.current)?.focus(), 0);
+  };
+
+  useEffect(() => {
+    if (!visibleDetailsSensor) return;
+    const timer = window.setTimeout(() => detailsHeadingRef.current?.focus(), 0);
+    return () => window.clearTimeout(timer);
+  }, [visibleDetailsSensor?.id]);
+
+  useEffect(() => {
+    if (detailsSensor && !visibleDetailsSensor) closeSensorDetails();
+  }, [detailsSensor, visibleDetailsSensor]);
+
   const chooseSource = (source: DraftSource) => {
     setDraft((current) => ({
       ...current,
       source,
       deviceId: source === "manual" ? "" : current.deviceId,
+      connectionId: source === "manual" ? "" : current.connectionId,
     }));
     clearError("source");
     setEditorFeedback(null);
@@ -347,12 +572,39 @@ export function SensorManagementPage({
       ...current,
       source: "tp-link",
       deviceId: device.deviceId,
+      connectionId: device.connectionId ?? "",
       name: current.name.trim() || device.alias?.trim() || `${device.model} sensor`,
       model: device.model,
     }));
     clearError("source");
     setEditorFeedback(null);
   };
+
+  useEffect(() => {
+    const requested = requestedDevice ?? (requestedDeviceId ? { deviceId: requestedDeviceId, connectionId: null } : null);
+    if (readOnly || !requested || mode !== "closed") return;
+    const device = addableDevices.find((candidate) => candidate.deviceId === requested.deviceId
+      && (requested.connectionId === null || (candidate.connectionId ?? null) === requested.connectionId));
+    if (!device) {
+      if (!tpLinkDevicesLoading) onRequestedDeviceHandled?.();
+      return;
+    }
+    editorOpenerRef.current = pageHeadingRef.current;
+    setDraft({
+      ...initialDraft(house),
+      source: "tp-link",
+      deviceId: device.deviceId,
+      connectionId: device.connectionId ?? "",
+      name: device.alias?.trim() || `${device.model} sensor`,
+      model: device.model,
+    });
+    setMode("add");
+    setAddStep(2);
+    setEditingSensorId(null);
+    setErrors({});
+    setEditorFeedback(null);
+    onRequestedDeviceHandled?.();
+  }, [addableDevices, house, mode, onRequestedDeviceHandled, readOnly, requestedDevice, requestedDeviceId, tpLinkDevicesLoading]);
 
   const changeDraftHouse = (houseId: string) => {
     const nextHouse = houses.find((candidate) => candidate.id === houseId);
@@ -361,6 +613,8 @@ export function SensorManagementPage({
     setDraft((current) => ({
       ...current,
       houseId,
+      deviceId: houseId === current.houseId ? current.deviceId : "",
+      connectionId: houseId === current.houseId ? current.connectionId : "",
       floorId: nextFloor?.id ?? "",
       room: nextFloor?.rooms[0]?.name ?? current.room,
       x: String(rounded(center.x)),
@@ -423,7 +677,7 @@ export function SensorManagementPage({
 
   const submitAdd = async (event: FormEvent) => {
     event.preventDefault();
-    if (submitting) return;
+    if (readOnly || submitting) return;
     if (addStep < 4) {
       advanceAdd();
       return;
@@ -442,10 +696,12 @@ export function SensorManagementPage({
     setEditorFeedback(null);
     try {
       const placement = buildPlacement();
+      const measurementEntityIds = normalizedMeasurementEntityIds(draft.measurementEntityIds);
       const input: CreateSensorInput = {
         houseId: draft.houseId,
         floorId: draft.floorId,
         name: draft.name.trim(),
+        roomId: stableRoomId(placement.floor, draft.room.trim()),
         room: draft.room.trim(),
         model: draft.model.trim(),
         x: placement.x,
@@ -453,10 +709,28 @@ export function SensorManagementPage({
         z: placement.z,
         tags: [],
         enabled: true,
-        ...(draft.source === "tp-link" && draft.deviceId ? { tpLinkDeviceId: draft.deviceId } : {}),
+        ...(draft.source === "tp-link" && draft.deviceId ? {
+          tpLinkDeviceId: draft.deviceId,
+          ...(draft.connectionId ? { tpLinkConnectionId: draft.connectionId } : {}),
+        } : {}),
+        ...(Object.keys(measurementEntityIds).length > 0 ? { measurementEntityIds } : {}),
       };
       const saved = await onCreateSensor(input);
-      setPageFeedback({ kind: "success", message: t("sensors.added", { name: saved.name }) });
+      const offerDemoCleanup = integration.mock.mode === "real"
+        && demoSensors.length > 0
+        && !hasExistingRealBoundSensor
+        && hasRealBinding(saved);
+      if (offerDemoCleanup && window.confirm(t("sensors.cleanupConfirm", { count: demoSensors.length }))) {
+        const results = await Promise.allSettled(demoSensors.map((sensor) => onDeleteSensor(sensor.id)));
+        const selectedResultIndex = demoSensors.findIndex((sensor) => sensor.id === detailsSensor?.id);
+        if (selectedResultIndex >= 0 && results[selectedResultIndex]?.status === "fulfilled") closeSensorDetails();
+        const failed = results.filter((result) => result.status === "rejected").length;
+        setPageFeedback(failed > 0
+          ? { kind: "error", message: t("sensors.cleanupPartial", { name: saved.name, count: failed }) }
+          : { kind: "success", message: t("sensors.cleanupDone", { name: saved.name, count: demoSensors.length }) });
+      } else {
+        setPageFeedback({ kind: "success", message: t("sensors.added", { name: saved.name }) });
+      }
       setMode("closed");
       restoreEditorFocus();
       if (saved.houseId !== house.id) onHouse(saved.houseId);
@@ -469,7 +743,7 @@ export function SensorManagementPage({
 
   const submitEdit = async (event: FormEvent) => {
     event.preventDefault();
-    if (submitting || !editingSensor) return;
+    if (readOnly || submitting || !editingSensor) return;
     const nextErrors = validationErrors(draft, houses, t);
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
@@ -481,10 +755,14 @@ export function SensorManagementPage({
     setEditorFeedback(null);
     try {
       const placement = buildPlacement();
+      const measurementEntityIds = normalizedMeasurementEntityIds(draft.measurementEntityIds);
+      const existingMeasurementEntityIds = normalizedMeasurementEntityIds(sensorMeasurementEntityIds(editingSensor));
+      const measurementBindingsChanged = !sameMeasurementEntityIds(measurementEntityIds, existingMeasurementEntityIds);
       const patch = {
         houseId: draft.houseId,
         floorId: draft.floorId,
         name: draft.name.trim(),
+        roomId: stableRoomId(placement.floor, draft.room.trim()),
         room: draft.room.trim(),
         model: draft.model.trim(),
         x: placement.x,
@@ -493,6 +771,12 @@ export function SensorManagementPage({
         enabled: draft.enabled,
         tags: editingSensor.tags.filter((tag) => tag !== UNPLACED_TAG),
         tpLinkDeviceId: draft.deviceId || null,
+        ...((editingSensor.tpLinkConnectionId !== undefined || draft.connectionId)
+          ? { tpLinkConnectionId: draft.deviceId && draft.connectionId ? draft.connectionId : null }
+          : {}),
+        ...(measurementBindingsChanged ? {
+          measurementEntityIds,
+        } : {}),
       } as SensorPatch;
       const saved = await onUpdateSensor(editingSensor.id, patch);
       setPageFeedback({ kind: "success", message: t("sensors.updated", { name: saved.name }) });
@@ -508,7 +792,7 @@ export function SensorManagementPage({
   };
 
   const setArchived = async (sensor: Sensor, archived: boolean) => {
-    if (rowBusyId) return;
+    if (readOnly || rowBusyId) return;
     setRowBusyId(sensor.id);
     setPageFeedback(null);
     try {
@@ -525,8 +809,42 @@ export function SensorManagementPage({
     }
   };
 
+  const removeSensor = async (sensor: Sensor) => {
+    if (readOnly || rowBusyId || cleanupBusy || !window.confirm(t("sensors.deleteConfirm", { name: sensor.name }))) return;
+    setRowBusyId(sensor.id);
+    setPageFeedback(null);
+    try {
+      await onDeleteSensor(sensor.id);
+      if (detailsSensor?.id === sensor.id) closeSensorDetails();
+      setPageFeedback({ kind: "success", message: t("sensors.deletedFeedback", { name: sensor.name }) });
+      if (editingSensorId === sensor.id) cancelEditor();
+    } catch (error) {
+      setPageFeedback({ kind: "error", message: errorMessage(error, t("sensors.deleteError")) });
+    } finally {
+      setRowBusyId(null);
+    }
+  };
+
+  const removeDemoSensors = async () => {
+    if (readOnly || cleanupBusy || demoSensors.length === 0
+      || !window.confirm(t("sensors.cleanupConfirm", { count: demoSensors.length }))) return;
+    setCleanupBusy(true);
+    setPageFeedback(null);
+    try {
+      const results = await Promise.allSettled(demoSensors.map((sensor) => onDeleteSensor(sensor.id)));
+      const selectedResultIndex = demoSensors.findIndex((sensor) => sensor.id === detailsSensor?.id);
+      if (selectedResultIndex >= 0 && results[selectedResultIndex]?.status === "fulfilled") closeSensorDetails();
+      const failed = results.filter((result) => result.status === "rejected").length;
+      setPageFeedback(failed > 0
+        ? { kind: "error", message: t("sensors.demoCleanupPartial", { count: failed }) }
+        : { kind: "success", message: t("sensors.demoCleanupDone", { count: demoSensors.length }) });
+    } finally {
+      setCleanupBusy(false);
+    }
+  };
+
   const refreshDevices = async () => {
-    if (refreshing || tpLinkDevicesLoading) return;
+    if (readOnly || refreshing || tpLinkDevicesLoading) return;
     setRefreshing(true);
     setRefreshError(null);
     try {
@@ -619,23 +937,59 @@ export function SensorManagementPage({
     <label className="field sensor-binding-field">
       <span>{t("sensors.tpLinkBinding")}</span>
       <select
-        value={draft.deviceId}
+        value={draft.deviceId ? deviceBindingKey(draft.deviceId, draft.connectionId) : ""}
         onChange={(event) => {
           const deviceId = event.target.value;
-          setDraft((current) => ({ ...current, deviceId, source: deviceId ? "tp-link" : "manual" }));
+          const device = selectableDevices.find((candidate) => deviceBindingKey(candidate.deviceId, candidate.connectionId) === deviceId);
+          setDraft((current) => ({
+            ...current,
+            deviceId: device?.deviceId ?? "",
+            connectionId: device?.connectionId ?? "",
+            source: device ? "tp-link" : "manual",
+          }));
           clearError("source");
         }}
       >
         <option value="">{t("sensors.noBinding")}</option>
-        {currentBindingMissing && <option value={draft.deviceId}>{draft.deviceId}</option>}
+        {currentBindingMissing && <option value={deviceBindingKey(draft.deviceId, draft.connectionId)}>{draft.deviceId}</option>}
         {selectableDevices.map((device) => (
-          <option key={device.deviceId} value={device.deviceId}>
-            {device.alias || device.model} · {device.deviceId}
+          <option key={deviceBindingKey(device.deviceId, device.connectionId)} value={deviceBindingKey(device.deviceId, device.connectionId)}>
+            {device.alias || device.model} · {tpLinkDeviceSummary(device, t, locale)}
           </option>
         ))}
       </select>
       <small>{t("sensors.bindingHelp")}</small>
     </label>
+  );
+
+  const renderHomeAssistantBindings = () => (
+    <fieldset className="sensor-ha-bindings">
+      <legend>{t("sensors.haBindings")}</legend>
+      <p>{t("sensors.haBindingsHelp")}</p>
+      <div className="sensor-ha-binding-grid">
+        {enabledMeasurementDefinitions.map((definition) => {
+          const label = measurementLabel(definition, locale);
+          return (
+            <label className="field" key={definition.id}>
+              <span>{t("sensors.haEntityLabel", { measurement: label })}</span>
+              <input
+                aria-label={t("sensors.haEntityLabel", { measurement: label })}
+                autoCapitalize="none"
+                autoComplete="off"
+                spellCheck={false}
+                value={draft.measurementEntityIds[definition.id] ?? ""}
+                onChange={(event) => setDraft((current) => ({
+                  ...current,
+                  measurementEntityIds: { ...current.measurementEntityIds, [definition.id]: event.target.value },
+                }))}
+                placeholder={t("sensors.haEntityPlaceholder", { metric: definition.id })}
+              />
+              <small>{definition.id} · {definition.unit}</small>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
   );
 
   const renderLocationFields = () => draftFloor ? (
@@ -646,28 +1000,88 @@ export function SensorManagementPage({
         y={Number.isFinite(Number(draft.y)) ? Number(draft.y) : 0}
         label={t("sensors.placementMap", { floor: draftFloor.name })}
         description={t("sensors.placementHelp")}
+        coverage={placementCoverage}
+        suggestion={placementSuggestion}
         onChange={(point) => {
           setDraft((current) => ({ ...current, x: String(rounded(point.x)), y: String(rounded(point.y)) }));
           clearError("x");
           clearError("y");
         }}
       />
-      <div className="sensor-coordinate-fields">
-        <label className="field">
-          <span>{t("sensors.xPosition")}</span>
-          <input id={`${formId}-x`} type="number" min="0" max={draftFloor.width} step="0.1" required value={draft.x} onChange={(event) => { setDraft((current) => ({ ...current, x: event.target.value })); clearError("x"); }} {...fieldA11y("x")} />
-          {renderFieldError("x")}
-        </label>
-        <label className="field">
-          <span>{t("sensors.yPosition")}</span>
-          <input id={`${formId}-y`} type="number" min="0" max={draftFloor.height} step="0.1" required value={draft.y} onChange={(event) => { setDraft((current) => ({ ...current, y: event.target.value })); clearError("y"); }} {...fieldA11y("y")} />
-          {renderFieldError("y")}
-        </label>
-        <label className="field">
-          <span>{t("sensors.mountingHeight")}</span>
-          <span className="input-suffix"><input id={`${formId}-height`} type="number" min="0" step="0.1" required value={draft.height} onChange={(event) => { setDraft((current) => ({ ...current, height: event.target.value })); clearError("height"); }} {...fieldA11y("height")} /><span aria-hidden="true">m</span></span>
-          {renderFieldError("height")}
-        </label>
+      <div className="sensor-location-side">
+        {placementSuggestion && placementCoverage && (() => {
+          const recommendation = placementSuggestion.recommendation;
+          const target = recommendation.roomName ?? recommendation.floorName;
+          const suggestedHeight = rounded(Math.max(0, recommendation.z - draftFloor.elevation));
+          const usingSuggestion = Math.abs(Number(draft.x) - recommendation.x) < .01
+            && Math.abs(Number(draft.y) - recommendation.y) < .01
+            && Math.abs(Number(draft.height) - suggestedHeight) < .01;
+          return <section className="sensor-placement-suggestion" aria-labelledby={`${formId}-placement-suggestion-title`}>
+            <header>
+              <span className="sensor-suggestion-icon" aria-hidden="true"><Sparkles size={17} /></span>
+              <span><small>{t("spatial.experimental")}</small><strong id={`${formId}-placement-suggestion-title`}>{t("sensors.placementSuggestionTitle")}</strong></span>
+            </header>
+            <p>{t("spatial.suggestion.add-temperature-anchor", { room: target })}</p>
+            <div className="sensor-suggestion-evidence">
+              <span>{t("sensors.placementSuggestionPointSupport", { support: Math.round(placementSuggestion.coverageAtPoint * 100) })}</span>
+              <span>{t("spatial.coverage.support", { support: Math.round(placementCoverage.coverageScore * 100) })}</span>
+              <span>{t("spatial.coverage.evidence", {
+                fresh: placementCoverage.freshTemperatureSensors,
+                total: placementCoverage.enabledSensors,
+                paired: placementCoverage.pairedHumiditySensors,
+              })}</span>
+              {placementSuggestion.engineLayerCount > 0 && <span>{t("sensors.placementSuggestionEngineBasis", {
+                count: placementSuggestion.engineLayerCount,
+                support: Math.round((placementSuggestion.engineSupport ?? 0) * 100),
+              })}</span>}
+            </div>
+            <small className="sensor-suggestion-disclaimer">{t("spatial.suggestions.description")}</small>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={usingSuggestion}
+              onClick={() => {
+                setDraft((current) => ({
+                  ...current,
+                  x: String(rounded(recommendation.x)),
+                  y: String(rounded(recommendation.y)),
+                  height: String(suggestedHeight),
+                }));
+                clearError("x");
+                clearError("y");
+                clearError("height");
+              }}
+            >{usingSuggestion ? <Check size={15} aria-hidden="true" /> : <MapPin size={15} aria-hidden="true" />}{t(usingSuggestion ? "sensors.placementSuggestionSelected" : "sensors.placementSuggestionUse")}</button>
+          </section>;
+        })()}
+        <div className="sensor-coordinate-panel">
+        <div className="sensor-coordinate-heading">
+          <span className="sensor-coordinate-icon" aria-hidden="true"><MapPin size={17} /></span>
+          <span>
+            <strong>{t("sensors.position")}</strong>
+            <small>{t("sensors.positionValue", { x: draft.x || "\u2014", y: draft.y || "\u2014", height: draft.height || "\u2014" })}</small>
+          </span>
+        </div>
+        <div className="sensor-coordinate-fields">
+          <label className="field">
+            <span>{t("sensors.xPosition")}</span>
+            <input id={`${formId}-x`} type="number" min="0" max={draftFloor.width} step="0.1" required value={draft.x} onChange={(event) => { setDraft((current) => ({ ...current, x: event.target.value })); clearError("x"); }} {...fieldA11y("x")} />
+            <small className="sensor-coordinate-range" aria-hidden="true">0–{draftFloor.width}</small>
+            {renderFieldError("x")}
+          </label>
+          <label className="field">
+            <span>{t("sensors.yPosition")}</span>
+            <input id={`${formId}-y`} type="number" min="0" max={draftFloor.height} step="0.1" required value={draft.y} onChange={(event) => { setDraft((current) => ({ ...current, y: event.target.value })); clearError("y"); }} {...fieldA11y("y")} />
+            <small className="sensor-coordinate-range" aria-hidden="true">0–{draftFloor.height}</small>
+            {renderFieldError("y")}
+          </label>
+          <label className="field sensor-height-field">
+            <span>{t("sensors.mountingHeight")}</span>
+            <span className="input-suffix"><input id={`${formId}-height`} type="number" min="0" step="0.1" required value={draft.height} onChange={(event) => { setDraft((current) => ({ ...current, height: event.target.value })); clearError("height"); }} {...fieldA11y("height")} /><span aria-hidden="true">m</span></span>
+            {renderFieldError("height")}
+          </label>
+        </div>
+      </div>
       </div>
     </div>
   ) : <p className="sensor-empty-callout" role="alert"><TriangleAlert size={17} aria-hidden="true" />{t("sensors.noFloor")}</p>;
@@ -696,9 +1110,9 @@ export function SensorManagementPage({
             {draft.source === "tp-link" && (
               <div className="discovered-device-list" aria-label={t("sensors.availableDevices")}>
                 {addableDevices.map((device) => (
-                  <button key={device.deviceId} type="button" className={draft.deviceId === device.deviceId ? "selected" : ""} aria-pressed={draft.deviceId === device.deviceId} onClick={() => chooseDevice(device)}>
+                  <button key={deviceBindingKey(device.deviceId, device.connectionId)} type="button" className={draft.deviceId === device.deviceId && draft.connectionId === (device.connectionId ?? "") ? "selected" : ""} aria-pressed={draft.deviceId === device.deviceId && draft.connectionId === (device.connectionId ?? "")} onClick={() => chooseDevice(device)}>
                     <span className="device-radio"><span /></span>
-                    <span><strong>{device.alias || t("sensors.unnamedDevice")}</strong><small>{device.model} · {device.deviceId}</small></span>
+                    <span><strong>{device.alias || t("sensors.unnamedDevice")}</strong><small>{tpLinkDeviceSummary(device, t, locale)}</small></span>
                     <span className={`device-health ${device.status?.toLowerCase() === "online" ? "online" : ""}`}>{device.status || t("sensors.unknownStatus")}</span>
                   </button>
                 ))}
@@ -712,7 +1126,7 @@ export function SensorManagementPage({
             {errors.source && <p className="sensor-field-error source-error" id={`${formId}-source-error`} role="alert">{errors.source}</p>}
           </fieldset>
         )}
-        {addStep === 2 && <div className="sensor-editor-section">{renderDetailsFields()}</div>}
+        {addStep === 2 && <div className="sensor-editor-section">{renderDetailsFields()}{renderHomeAssistantBindings()}</div>}
         {addStep === 3 && <div className="sensor-editor-section"><p className="sensor-section-copy">{t("sensors.locationDescription")}</p>{renderLocationFields()}</div>}
         {addStep === 4 && (
           <div className="sensor-review">
@@ -723,6 +1137,7 @@ export function SensorManagementPage({
               <div><dt>{t("sensors.room")}</dt><dd>{draft.room.trim()}</dd></div>
               <div><dt>{t("sensors.position")}</dt><dd>{t("sensors.positionValue", { x: draft.x, y: draft.y, height: draft.height })}</dd></div>
               <div><dt>{t("sensors.tpLinkBinding")}</dt><dd>{draft.deviceId || t("sensors.noBinding")}</dd></div>
+              <div><dt>{t("sensors.haBindings")}</dt><dd>{Object.keys(normalizedMeasurementEntityIds(draft.measurementEntityIds)).length > 0 ? t("sensors.haBindingCount", { count: Object.keys(normalizedMeasurementEntityIds(draft.measurementEntityIds)).length }) : t("sensors.haNoBindings")}</dd></div>
             </dl>
             <p className="sensor-review-note"><Check size={16} aria-hidden="true" />{t("sensors.reviewNote")}</p>
           </div>
@@ -748,8 +1163,11 @@ export function SensorManagementPage({
       </header>
       <form onSubmit={submitEdit} className="sensor-edit-form" noValidate>
         <section aria-labelledby={`${formId}-details-title`}><h3 id={`${formId}-details-title`}>{t("sensors.detailsSection")}</h3>{renderDetailsFields()}</section>
-        <section aria-labelledby={`${formId}-location-title`}><h3 id={`${formId}-location-title`}>{t("sensors.locationSection")}</h3>{renderLocationFields()}</section>
-        <section aria-labelledby={`${formId}-connection-title`}><h3 id={`${formId}-connection-title`}>{t("sensors.connectionSection")}</h3>{renderBindingField()}<label className="sensor-toggle"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span><strong>{t("sensors.enabled")}</strong><small>{t("sensors.enabledHelp")}</small></span></label></section>
+        <details className="sensor-edit-advanced">
+          <summary><span><strong>{t("sensors.advancedEdit")}</strong><small>{t("sensors.locationSection")} · {t("sensors.connectionSection")}</small></span><ChevronDown size={16} aria-hidden="true" /></summary>
+          <section aria-labelledby={`${formId}-location-title`}><h3 id={`${formId}-location-title`}>{t("sensors.locationSection")}</h3>{renderLocationFields()}</section>
+          <section aria-labelledby={`${formId}-connection-title`}><h3 id={`${formId}-connection-title`}>{t("sensors.connectionSection")}</h3>{renderBindingField()}{renderHomeAssistantBindings()}<label className="sensor-toggle"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span><strong>{t("sensors.enabled")}</strong><small>{t("sensors.enabledHelp")}</small></span></label></section>
+        </details>
         {editorFeedback && <p className={`sensor-form-feedback ${editorFeedback.kind}`} role={editorFeedback.kind === "error" ? "alert" : "status"}>{editorFeedback.kind === "error" ? <TriangleAlert size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{editorFeedback.message}</p>}
         <div className="sensor-editor-actions"><button type="button" className="secondary-button" onClick={cancelEditor}>{t("common.cancel")}</button><span /><button type="submit" className="primary-button" disabled={submitting}>{submitting ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{submitting ? t("common.saving") : t("sensors.saveChanges")}</button></div>
       </form>
@@ -759,88 +1177,171 @@ export function SensorManagementPage({
   return (
     <>
       <header className="page-heading sensor-page-heading">
-        <div><span className="eyebrow"><RadioTower size={14} aria-hidden="true" />{t("sensors.eyebrow")}</span><h1>{t("sensors.title")}</h1><p>{t("sensors.description")}</p></div>
-        <div className="sensor-heading-actions">
-          <button ref={importButtonRef} type="button" className="secondary-button" disabled={currentSensors.length === 0 || mode !== "closed"} title={currentSensors.length === 0 ? t("historyImport.noSensors") : undefined} onClick={() => setImportOpen(true)}><FileSpreadsheet size={16} aria-hidden="true" />{t("historyImport.open")}</button>
-          <button type="button" className="primary-button" onClick={beginAdd} disabled={mode !== "closed"}><Plus size={16} aria-hidden="true" />{t("sensors.add")}</button>
-        </div>
+        <div><span className="eyebrow"><RadioTower size={14} aria-hidden="true" />{t("sensors.eyebrow")}</span><h1 ref={pageHeadingRef} tabIndex={-1}>{t("sensors.title")}</h1><p>{t("sensors.description")}</p></div>
+        {!readOnly && (currentSensors.length > 0 || demoSensors.length > 0) && <div className="sensor-heading-actions">
+          {demoSensors.length > 0 && <button type="button" className="secondary-button delete-action" onClick={() => void removeDemoSensors()} disabled={mode !== "closed" || cleanupBusy}>{cleanupBusy ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}{cleanupBusy ? t("sensors.removingDemoSensors") : t("sensors.removeDemoSensors", { count: demoSensors.length })}</button>}
+          {currentSensors.length > 0 && <button type="button" className="primary-button" onClick={beginAdd} disabled={mode !== "closed" || cleanupBusy}><Plus size={16} aria-hidden="true" />{t("sensors.add")}</button>}
+        </div>}
       </header>
 
-      <HistoricalImportWizard
-        open={importOpen}
-        house={house}
-        sensors={currentSensors}
-        definitions={state.measurementDefinitions.filter((definition) => definition.enabled)}
-        onClose={closeImport}
-        onImport={onImportHistoricalData}
-      />
+      {!readOnly && importOpen && <Suspense fallback={<output className="history-import-loading"><LoaderCircle className="spin" size={18} aria-hidden="true" />{t("common.loading")}</output>}>
+        <HistoricalImportWizard
+          open
+          house={house}
+          sensors={currentSensors}
+          definitions={state.measurementDefinitions.filter((definition) => definition.enabled)}
+          onClose={closeImport}
+          onImport={onImportHistoricalData}
+        />
+      </Suspense>}
 
       {pageFeedback && <p className={`sensor-page-feedback ${pageFeedback.kind}`} role={pageFeedback.kind === "error" ? "alert" : "status"}>{pageFeedback.kind === "error" ? <TriangleAlert size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{pageFeedback.message}<button type="button" className="icon-button small" onClick={() => setPageFeedback(null)} aria-label={t("common.close")}><X size={14} /></button></p>}
 
+      {!readOnly && tpLinkStatus.configured && <section
+        className={`sensor-discovery-watch ${tpLinkStatus.connected ? "active" : "waiting"}`}
+        role="region"
+        aria-label={t("sensors.discoveryStatus")}
+      >
+        <span className="sensor-discovery-watch-icon" aria-hidden="true">
+          {tpLinkDevicesLoading || refreshing ? <LoaderCircle className="spin" size={19} /> : <RadioTower size={19} />}
+        </span>
+        <span>
+          <strong>{t(tpLinkStatus.connected ? "sensors.discoveryWatchingTitle" : "sensors.discoveryPausedTitle")}</strong>
+          <small>{tpLinkStatus.connected
+            ? tpLinkStatus.lastPollAt
+              ? t("sensors.discoveryLastChecked", { time: formatInTimeZone(tpLinkStatus.lastPollAt, locale, house.timezone, { hour: "2-digit", minute: "2-digit", second: "2-digit" }) })
+              : t("sensors.discoveryStarting")
+            : t("sensors.discoveryPaused")}</small>
+        </span>
+        <button type="button" className="secondary-button" disabled={tpLinkDevicesLoading || refreshing} onClick={() => void refreshDevices()}>
+          <RefreshCw className={tpLinkDevicesLoading || refreshing ? "spin" : ""} size={15} aria-hidden="true" />{t("sensors.refreshDeviceList")}
+        </button>
+      </section>}
+
       <section className="sensor-overview" aria-label={t("sensors.overview") }>
-        <div><span className="sensor-overview-icon"><ThermometerSun size={18} aria-hidden="true" /></span><span><small>{t("sensors.total")}</small><strong>{currentSensors.length}</strong></span></div>
-        <div><span className="sensor-overview-icon live"><CircleDot size={18} aria-hidden="true" /></span><span><small>{t("sensors.live")}</small><strong>{currentSensors.filter((sensor) => isLive(state, sensor, houses, now)).length}</strong></span></div>
-        <div><span className="sensor-overview-icon unplaced"><MapPin size={18} aria-hidden="true" /></span><span><small>{t("sensors.unplaced")}</small><strong>{currentSensors.filter((sensor) => isUnplaced(sensor, houses)).length}</strong></span></div>
-        <div><span className="sensor-overview-icon archived"><Archive size={18} aria-hidden="true" /></span><span><small>{t("sensors.archived")}</small><strong>{currentSensors.filter((sensor) => !sensor.enabled).length}</strong></span></div>
+        <button type="button" className={filter === "waiting" ? "active" : ""} aria-pressed={filter === "waiting"} onClick={() => setFilter("waiting")}><span className="sensor-overview-icon waiting"><TriangleAlert size={18} aria-hidden="true" /></span><span><small>{t("sensors.waiting")}</small><strong>{statusCounts.waiting}</strong></span></button>
+        <button type="button" className={filter === "unplaced" ? "active" : ""} aria-pressed={filter === "unplaced"} onClick={() => setFilter("unplaced")}><span className="sensor-overview-icon unplaced"><MapPin size={18} aria-hidden="true" /></span><span><small>{t("sensors.unplaced")}</small><strong>{statusCounts.unplaced}</strong></span></button>
+        <button type="button" className={filter === "live" ? "active" : ""} aria-pressed={filter === "live"} onClick={() => setFilter("live")}><span className="sensor-overview-icon live"><CircleDot size={18} aria-hidden="true" /></span><span><small>{t("sensors.live")}</small><strong>{statusCounts.live}</strong></span></button>
+        <button type="button" className={filter === "archived" ? "active" : ""} aria-pressed={filter === "archived"} onClick={() => setFilter("archived")}><span className="sensor-overview-icon archived"><Archive size={18} aria-hidden="true" /></span><span><small>{t("sensors.archived")}</small><strong>{statusCounts.archived}</strong></span></button>
       </section>
 
-      {mode === "add" && renderAddEditor()}
-      {mode === "edit" && renderEditEditor()}
+      {!readOnly && mode === "add" && renderAddEditor()}
+      {!readOnly && mode === "edit" && renderEditEditor()}
+
+      {visibleDetailsSensor && <section id="sensor-details-panel" className="panel sensor-details-panel" aria-labelledby="sensor-details-title">
+        <header>
+          <div><span className="eyebrow">{t("sensors.dataAndLogs")}</span><h2 ref={detailsHeadingRef} id="sensor-details-title" tabIndex={-1}>{visibleDetailsSensor.name}</h2><small>{visibleDetailsSensor.id}</small></div>
+          <button type="button" className="icon-button" onClick={closeSensorDetails} aria-label={t("common.close")}><X size={17} /></button>
+        </header>
+        <div className="sensor-details-summary">
+          <span><Database size={15} aria-hidden="true" />{t("sensors.loadedRecords", { count: detailSamples.length })}</span>
+          <small>{t("sensors.newestFirst")}</small>
+        </div>
+        <SensorLabelCard sensor={visibleDetailsSensor} />
+        {detailsError && <p className="sensor-details-error" role="alert"><TriangleAlert size={15} aria-hidden="true" />{detailsError}</p>}
+        {detailSamples.length > 0 ? <div className="sensor-log-scroll" role="region" aria-labelledby="sensor-details-title" tabIndex={0}><table>
+          <thead><tr><th>{t("sensors.logTime")}</th><th>{t("sensors.logMetric")}</th><th>{t("sensors.logValue")}</th><th>{t("sensors.logSource")}</th><th>{t("sensors.logQuality")}</th></tr></thead>
+          <tbody>{detailSamples.map((sample, index) => <tr key={`${sample.timestamp}-${sample.metric}-${sample.source}-${index}`}>
+            <td>{formatInTimeZone(Date.parse(sample.timestamp), locale, house.timezone, { dateStyle: "short", timeStyle: "medium" })}</td>
+            <td>{state.measurementDefinitions.find((definition) => definition.id === sample.metric)
+              ? measurementLabel(state.measurementDefinitions.find((definition) => definition.id === sample.metric)!, locale)
+              : sample.metric}</td>
+            <td>{sample.value} {sample.canonicalUnit}</td><td>{sample.source}</td><td>{sample.quality}</td>
+          </tr>)}</tbody>
+        </table></div> : !detailsLoading && !detailsError ? <p className="sensor-details-empty">{t("sensors.noData")}</p> : null}
+        <footer>
+          {detailsLoading && <span role="status"><LoaderCircle className="spin" size={15} aria-hidden="true" />{t("sensors.loadingData")}</span>}
+          {!detailsLoading && detailCursor && <button type="button" className="secondary-button" onClick={() => void loadSensorDetails(visibleDetailsSensor, detailCursor)}>{t("sensors.loadMore")}</button>}
+          {!readOnly && <div className="sensor-details-actions">
+            <button type="button" className="secondary-button" disabled={mode !== "closed" || cleanupBusy} onClick={() => { beginEdit(visibleDetailsSensor); closeSensorDetails(); }}><Edit3 size={14} aria-hidden="true" />{t("sensors.editAction", { name: visibleDetailsSensor.name })}</button>
+            <button type="button" className="secondary-button archive-action" disabled={mode !== "closed" || cleanupBusy || rowBusyId === visibleDetailsSensor.id} onClick={() => void setArchived(visibleDetailsSensor, visibleDetailsSensor.enabled)}>{rowBusyId === visibleDetailsSensor.id ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : visibleDetailsSensor.enabled ? <Archive size={14} aria-hidden="true" /> : <RotateCcw size={14} aria-hidden="true" />}{visibleDetailsSensor.enabled ? t("sensors.archiveAction", { name: visibleDetailsSensor.name }) : t("sensors.restoreAction", { name: visibleDetailsSensor.name })}</button>
+            <button type="button" className="secondary-button delete-action" disabled={mode !== "closed" || cleanupBusy || rowBusyId === visibleDetailsSensor.id} onClick={() => void removeSensor(visibleDetailsSensor)}><Trash2 size={14} aria-hidden="true" />{t("sensors.deleteAction", { name: visibleDetailsSensor.name })}</button>
+          </div>}
+        </footer>
+      </section>}
 
       <div className="sensor-workspace">
-        <section className="panel sensor-list-panel" aria-labelledby="sensor-list-title">
+        {currentSensors.length === 0 ? <section className="panel sensor-help-card" aria-labelledby="sensor-zero-title">
+          <span className="sensor-help-icon"><ThermometerSun size={20} aria-hidden="true" /></span>
+          <div><span className="eyebrow">{t("sensors.inventory")}</span><h2 id="sensor-zero-title">{t("sensors.easySetup")}</h2><p>{t("sensors.easySetupHelp")}</p>{!readOnly && mode === "closed" && <button type="button" className="primary-button" onClick={beginAdd}><Plus size={15} aria-hidden="true" />{t("sensors.startSetup")}</button>}</div>
+        </section> : <section className="panel sensor-list-panel" aria-labelledby="sensor-list-title">
           <div className="sensor-list-header">
             <div><span className="eyebrow">{t("sensors.inventory")}</span><h2 id="sensor-list-title">{t("sensors.houseSensors", { house: house.name })}</h2></div>
-            <label className="sensor-house-picker"><span>{t("common.house")}</span><select value={house.id} onChange={(event) => onHouse(event.target.value)}>{houses.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>
           </div>
           <div className="sensor-list-controls">
-            <label className="sensor-search"><span className="sr-only">{t("sensors.search")}</span><Search size={16} aria-hidden="true" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("sensors.searchPlaceholder")} /></label>
-            <label className="sensor-filter"><span className="sr-only">{t("sensors.filter")}</span><select value={filter} onChange={(event) => setFilter(event.target.value as SensorFilter)}><option value="all">{t("sensors.filterAll")}</option><option value="live">{t("sensors.filterLive")}</option><option value="waiting">{t("sensors.filterWaiting")}</option><option value="unplaced">{t("sensors.filterUnplaced")}</option><option value="archived">{t("sensors.filterArchived")}</option></select></label>
+            <label className="field sensor-search-field"><span>{t("sensors.search")}</span><span className="sensor-search"><Search size={16} aria-hidden="true" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("sensors.searchPlaceholder")} /></span></label>
+            <label className="field sensor-filter"><span>{t("sensors.filter")}</span><select value={filter} onChange={(event) => setFilter(event.target.value as SensorFilter)}><option value="all">{t("sensors.filterAll")}</option><option value="live">{t("sensors.filterLive")}</option><option value="waiting">{t("sensors.filterWaiting")}</option><option value="unplaced">{t("sensors.filterUnplaced")}</option><option value="archived">{t("sensors.filterArchived")}</option></select></label>
           </div>
           {visibleSensors.length > 0 ? (
             <ul className="sensor-inventory-list">
               {visibleSensors.map((sensor) => {
                 const floor = sensorFloor(sensor, houses);
-                const unplaced = isUnplaced(sensor, houses);
-                const live = isLive(state, sensor, houses, now);
+                const status = sensorStatuses.get(sensor.id) ?? "waiting";
                 const lastTimestamp = latestSensorTimestamp(state, sensor.id);
                 const sensorTimeZone = houses.find((candidate) => candidate.id === sensor.houseId)?.timezone;
                 return (
                   <li key={sensor.id} className={!sensor.enabled ? "archived" : ""}>
                     <span className="sensor-list-glyph" aria-hidden="true"><span /><span /></span>
                     <div className="sensor-list-copy">
-                      <span className="sensor-list-name"><strong>{sensor.name}</strong>{!sensor.enabled ? <span className="sensor-status-badge archived">{t("sensors.archived")}</span> : live ? <span className="sensor-status-badge live">{t("sensors.live")}</span> : <span className="sensor-status-badge waiting">{t("sensors.waiting")}</span>}{unplaced && <span className="sensor-status-badge unplaced">{t("sensors.unplaced")}</span>}</span>
+                      <span className="sensor-list-name"><strong>{sensor.name}</strong>{isDemoSensor(sensor) && <span className="sensor-demo-badge">{t("sensors.demoBadge")}</span>}<span className={`sensor-status-badge ${status}`}>{t(`sensors.${status}`)}</span></span>
                       <span className="sensor-list-location"><Home size={13} aria-hidden="true" />{sensor.room} · {floor?.name ?? t("sensors.unknownFloor")}</span>
                       <small>{sensor.model}{sensor.tpLinkDeviceId ? ` · ${t("sensors.boundTo", { id: sensor.tpLinkDeviceId })}` : ` · ${t("sensors.manual")}`}{lastTimestamp ? ` · ${t("sensors.lastSeen", { time: formatInTimeZone(lastTimestamp, locale, sensorTimeZone, { dateStyle: "short", timeStyle: "short" }) })}` : ""}</small>
                     </div>
                     <div className="sensor-list-actions">
-                      <button type="button" className="secondary-button" disabled={mode !== "closed"} onClick={() => beginEdit(sensor)}><Edit3 size={14} aria-hidden="true" />{t("sensors.editAction", { name: sensor.name })}</button>
-                      <button type="button" className="secondary-button archive-action" disabled={mode !== "closed" || rowBusyId === sensor.id} onClick={() => void setArchived(sensor, sensor.enabled)}>{rowBusyId === sensor.id ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : sensor.enabled ? <Archive size={14} aria-hidden="true" /> : <RotateCcw size={14} aria-hidden="true" />}{sensor.enabled ? t("sensors.archiveAction", { name: sensor.name }) : t("sensors.restoreAction", { name: sensor.name })}</button>
+                      <button type="button" className="secondary-button" disabled={cleanupBusy} aria-expanded={visibleDetailsSensor?.id === sensor.id} aria-controls="sensor-details-panel" onClick={() => void loadSensorDetails(sensor)}><Database size={14} aria-hidden="true" />{t("sensors.detailsAction", { name: sensor.name })}</button>
                     </div>
                   </li>
                 );
               })}
             </ul>
           ) : <div className="sensor-list-empty"><Search size={22} aria-hidden="true" /><strong>{t("sensors.noMatches")}</strong><p>{t("sensors.noMatchesHelp")}</p></div>}
-        </section>
+        </section>}
 
-        <aside className="sensor-side-column">
-          <section className="panel sensor-discovery-card" aria-labelledby="sensor-discovery-title">
-            <div className="panel-header"><div><span className="eyebrow">TP-Link H100/H200</span><h2 id="sensor-discovery-title">{t("sensors.discovery")}</h2></div><span className={`sensor-bridge-mark ${integration.tpLink.connected ? "connected" : ""}`}><RadioTower size={19} aria-hidden="true" /></span></div>
-            <div className="sensor-bridge-status"><span className={`status-pulse ${integration.tpLink.connected ? "live" : ""}`} aria-hidden="true" /><span><strong>{integration.tpLink.connected ? t("common.connected") : t("common.notConnected")}</strong><small>{t("sensors.discoveryCount", { available: addableDevices.length, total: tpLinkDevices.length })}</small></span></div>
-            {(tpLinkDevicesError || refreshError) && <p className="sensor-discovery-error" role="alert"><TriangleAlert size={15} aria-hidden="true" />{refreshError || tpLinkDevicesError}</p>}
-            {(tpLinkDevicesLoading || refreshing) && <p className="sensor-discovery-loading" role="status"><LoaderCircle className="spin" size={15} aria-hidden="true" />{t("sensors.refreshing")}</p>}
-            <button type="button" className="secondary-button full-width" disabled={tpLinkDevicesLoading || refreshing} onClick={() => void refreshDevices()}><RefreshCw className={tpLinkDevicesLoading || refreshing ? "spin" : ""} size={15} aria-hidden="true" />{t("sensors.refreshDevices")}</button>
-          </section>
-          {mode === "closed" && (
-            <section className="panel sensor-help-card">
-              <span className="sensor-help-icon"><MapPin size={20} aria-hidden="true" /></span><div><h2>{t("sensors.easySetup")}</h2><p>{t("sensors.easySetupHelp")}</p><button type="button" className="secondary-button" onClick={beginAdd}><Plus size={15} aria-hidden="true" />{t("sensors.startSetup")}</button></div>
-            </section>
-          )}
-        </aside>
+        {!readOnly && <aside className="sensor-side-column">
+          {currentSensors.length > 0 && <details className="panel sensor-import-card">
+            <summary><span><FileSpreadsheet size={16} aria-hidden="true" /><strong>{t("historyImport.open")}</strong></span><ChevronDown size={16} aria-hidden="true" /></summary>
+            <button ref={importButtonRef} type="button" className="secondary-button full-width" disabled={mode !== "closed"} onClick={() => setImportOpen(true)}><FileSpreadsheet size={16} aria-hidden="true" />{t("historyImport.open")}</button>
+          </details>}
+          <details className="panel sensor-discovery-card" aria-labelledby="sensor-discovery-title">
+            <summary><span><RadioTower size={17} aria-hidden="true" /><strong id="sensor-discovery-title">{t("sensors.discovery")}</strong><small>{t("sensors.discoveryCount", { available: addableDevices.length, total: homeTpLinkDevices.length })}</small></span><ChevronDown size={16} aria-hidden="true" /></summary>
+            <div>
+              <div className="sensor-bridge-status"><span className={`status-pulse ${tpLinkStatus.connected ? "live" : ""}`} aria-hidden="true" /><span><strong>{tpLinkStatus.connected ? t("common.connected") : t("common.notConnected")}</strong><small>{t("sensors.tpLinkBridgeScope")}</small></span></div>
+              {(tpLinkDevicesError || refreshError) && <p className="sensor-discovery-error" role="alert"><TriangleAlert size={15} aria-hidden="true" />{refreshError || tpLinkDevicesError}</p>}
+              {(tpLinkDevicesLoading || refreshing) && <p className="sensor-discovery-loading" role="status"><LoaderCircle className="spin" size={15} aria-hidden="true" />{t("sensors.refreshing")}</p>}
+              <button type="button" className="secondary-button full-width" disabled={tpLinkDevicesLoading || refreshing} onClick={() => void refreshDevices()}><RefreshCw className={tpLinkDevicesLoading || refreshing ? "spin" : ""} size={15} aria-hidden="true" />{t("sensors.refreshDevices")}</button>
+            </div>
+          </details>
+        </aside>}
       </div>
     </>
   );
+}
+
+function SensorLabelCard({ sensor }: Readonly<{ sensor: Sensor }>) {
+  const { t } = useI18n();
+  const [label, setLabel] = useState<SensorLabelDescriptor | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setLabel(null); setError(null); setCopied(false);
+    void api.sensorLabel(sensor.id).then((value) => { if (active) setLabel(value); })
+      .catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : t("sensors.labelUnavailable")); });
+    return () => { active = false; };
+  }, [sensor.id, t]);
+  const matrix = useMemo(() => label ? qrCodeMatrix(label.setupUri) : null, [label]);
+  const copy = async () => {
+    if (!label || !navigator.clipboard?.writeText) return;
+    await navigator.clipboard.writeText(label.setupUri);
+    setCopied(true);
+  };
+  if (error) return <p className="sensor-details-error" role="alert"><TriangleAlert size={15} />{error}</p>;
+  if (!label || !matrix) return null;
+  return <section className="sensor-label-card" aria-labelledby="sensor-label-title">
+    <svg className="sensor-label-qr" viewBox={`-4 -4 ${matrix.length + 8} ${matrix.length + 8}`} role="img" aria-label={t("sensors.labelQrAria", { sensor: label.sensorName })} shapeRendering="crispEdges"><rect x="-4" y="-4" width={matrix.length + 8} height={matrix.length + 8} fill="white" />{matrix.flatMap((row, y) => row.map((dark, x) => dark ? <rect key={`${x}:${y}`} x={x} y={y} width="1" height="1" fill="black" /> : null))}</svg>
+    <div><span className="eyebrow"><QrCode size={14} aria-hidden="true" />{t("sensors.localSensorLabel")}</span><h3 id="sensor-label-title">{label.sensorName}</h3><p>{label.houseName}{label.roomName ? ` · ${label.roomName}` : ""}</p><code>{label.setupUri}</code><small>{t("sensors.labelHelp")}</small></div>
+    <div className="sensor-label-actions"><button type="button" className="secondary-button" onClick={() => void copy()}><Copy size={14} aria-hidden="true" />{copied ? t("sensors.labelCopied") : t("sensors.copyLabelUri")}</button><button type="button" className="primary-button" onClick={() => window.print()}><Printer size={14} aria-hidden="true" />{t("sensors.printLabel")}</button></div>
+  </section>;
 }
 
 function PlacementPicker({
@@ -849,6 +1350,8 @@ function PlacementPicker({
   y,
   label,
   description,
+  coverage,
+  suggestion,
   onChange,
 }: {
   floor: Floor;
@@ -856,6 +1359,8 @@ function PlacementPicker({
   y: number;
   label: string;
   description: string;
+  coverage?: SensorCoverageAssessment | null;
+  suggestion?: SensorPlacementSuggestion | null;
   onChange: (point: { x: number; y: number }) => void;
 }) {
   const descriptionId = useId();
@@ -868,9 +1373,14 @@ function PlacementPicker({
     if (!svg) return;
     const bounds = svg.getBoundingClientRect();
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    const scale = Math.min(bounds.width / safeWidth, bounds.height / safeHeight);
+    const renderedWidth = safeWidth * scale;
+    const renderedHeight = safeHeight * scale;
+    const offsetX = (bounds.width - renderedWidth) / 2;
+    const offsetY = (bounds.height - renderedHeight) / 2;
     onChange({
-      x: clamp((event.clientX - bounds.left) / bounds.width * floor.width, 0, floor.width),
-      y: clamp((event.clientY - bounds.top) / bounds.height * floor.height, 0, floor.height),
+      x: clamp((event.clientX - bounds.left - offsetX) / scale, 0, floor.width),
+      y: clamp((event.clientY - bounds.top - offsetY) / scale, 0, floor.height),
     });
   };
   const moveWithKeyboard = (event: KeyboardEvent<SVGSVGElement>) => {
@@ -901,6 +1411,18 @@ function PlacementPicker({
         <rect className="sensor-placement-base" x="0" y="0" width={safeWidth} height={safeHeight} rx={Math.min(safeWidth, safeHeight) * .025} />
         <g className="sensor-placement-rooms" aria-hidden="true">{floor.rooms.map((room) => room.points.length > 2 && <polygon key={room.id} points={room.points.map((point) => `${point.x},${point.y}`).join(" ")} />)}</g>
         <g className="sensor-placement-walls" aria-hidden="true">{floor.walls.map((wall) => <line key={wall.id} x1={wall.from.x} y1={wall.from.y} x2={wall.to.x} y2={wall.to.y} />)}</g>
+        {coverage && <g className="sensor-placement-coverage" aria-hidden="true">{coverage.regions.filter((region) => region.floorId === floor.id).map((region) => <ellipse
+          key={region.id}
+          cx={region.x}
+          cy={region.y}
+          rx={region.radiusX}
+          ry={region.radiusY}
+          style={{ opacity: .055 + region.support * .075 }}
+        />)}</g>}
+        {suggestion && <g className="sensor-placement-target" transform={`translate(${suggestion.recommendation.x} ${suggestion.recommendation.y})`} aria-hidden="true">
+          <circle r={pinRadius * 2.25} />
+          <path d={`M${-pinRadius * .8} 0H${pinRadius * .8}M0 ${-pinRadius * .8}V${pinRadius * .8}`} />
+        </g>}
         <g className="sensor-placement-pin" transform={`translate(${clamp(x, 0, floor.width)} ${clamp(y, 0, floor.height)})`} aria-hidden="true"><circle r={pinRadius * 1.8} /><circle r={pinRadius} /><path d={`M0 ${pinRadius * 2.7} L${-pinRadius * .7} ${pinRadius * 1.25} L${pinRadius * .7} ${pinRadius * 1.25}Z`} /></g>
       </svg>
       <p id={descriptionId}><MapPin size={14} aria-hidden="true" />{description}</p>

@@ -1,3 +1,496 @@
+import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH } from "@climate-twin/contracts";
+
+type OpenApiSchema = Record<string, unknown>;
+
+function jsonResponse(description: string, schema: OpenApiSchema): Record<string, unknown> {
+  return { description, content: { "application/json": { schema } } };
+}
+
+function jsonRequestBody(schema: OpenApiSchema): Record<string, unknown> {
+  return { required: true, content: { "application/json": { schema } } };
+}
+
+function spatialJsonResponse(description: string, schema: OpenApiSchema): Record<string, unknown> {
+  return jsonResponse(description, schema);
+}
+
+function spatialRequestBody(schema: OpenApiSchema): Record<string, unknown> {
+  return jsonRequestBody(schema);
+}
+
+const spatialScopeQueryParameters = [
+  { name: "layers", in: "query", description: "Comma-separated renderer-neutral layer ids.", schema: { type: "string" } },
+] as const;
+
+function spatialScopePaths(collection: "houses" | "properties", scopeLabel: "House" | "Property"): Record<string, unknown> {
+  const base = `/${collection}/{id}/layers`;
+  const pathParameters = [{ $ref: "#/components/parameters/Id" }];
+  const currentResponse = { $ref: "#/components/schemas/SpatialLayerCurrent" };
+  const overviewResponse = { $ref: "#/components/schemas/SpatialLayerConfigurationOverview" };
+  return {
+    [`${base}/current`]: {
+      parameters: pathParameters,
+      get: {
+        tags: ["Spatial layers"], operationId: `get${scopeLabel}SpatialLayersCurrent`, parameters: spatialScopeQueryParameters,
+        responses: { "200": spatialJsonResponse("Current versioned spatial layers and the exact topology used to render them.", currentResponse), "503": { description: "Optional engine unavailable" } },
+      },
+    },
+    [`${base}/history`]: {
+      parameters: pathParameters,
+      get: {
+        tags: ["Spatial layers"], operationId: `get${scopeLabel}SpatialLayersHistory`,
+        parameters: [
+          ...spatialScopeQueryParameters,
+          { $ref: "#/components/parameters/FromQuery" }, { $ref: "#/components/parameters/ToQuery" },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 20_000, default: 2_000 } },
+          { name: "includeSuperseded", in: "query", schema: { type: "boolean", default: false } },
+        ],
+        responses: { "200": spatialJsonResponse("Stored, replayable layer revisions.", { $ref: "#/components/schemas/SpatialLayerHistory" }), "503": { description: "Optional engine unavailable" } },
+      },
+    },
+    [`${base}/health`]: {
+      parameters: pathParameters,
+      get: {
+        tags: ["Spatial layers"], operationId: `get${scopeLabel}SpatialLayerHealth`,
+        responses: { "200": spatialJsonResponse("Per-engine model health and last-run state.", { $ref: "#/components/schemas/SpatialLayerHealth" }), "503": { description: "Optional engine unavailable" } },
+      },
+    },
+    [`${base}/config`]: {
+      parameters: pathParameters,
+      get: {
+        tags: ["Spatial layers"], operationId: `get${scopeLabel}SpatialLayerConfig`,
+        responses: { "200": spatialJsonResponse("Versioned configuration, assignments, and resolved topology.", overviewResponse), "503": { description: "Optional engine unavailable" } },
+      },
+      put: {
+        tags: ["Spatial layers"], operationId: `update${scopeLabel}SpatialLayerConfig`,
+        requestBody: spatialRequestBody({ $ref: "#/components/schemas/SpatialLayerConfigurationInput" }),
+        responses: { "200": spatialJsonResponse("New immutable configuration version.", overviewResponse), "409": { description: "Configuration version conflict" }, "503": { description: "Optional engine unavailable" } },
+      },
+    },
+    [`${base}/infer`]: {
+      parameters: pathParameters,
+      post: {
+        tags: ["Spatial layers"], operationId: `infer${scopeLabel}SpatialLayers`,
+        description: "Runs the selected engines in a disposable worker. Intended for explicit replay, calibration, and research use.",
+        requestBody: spatialRequestBody({ $ref: "#/components/schemas/SpatialLayerInferenceInput" }),
+        responses: { "200": spatialJsonResponse("Versioned inference snapshots.", { $ref: "#/components/schemas/SpatialLayerInferenceResult" }), "503": { description: "Optional engine unavailable" } },
+      },
+    },
+    [`${base}/ground-truth`]: {
+      parameters: pathParameters,
+      get: {
+        tags: ["Spatial layers"], operationId: `list${scopeLabel}SpatialLayerGroundTruth`,
+        responses: { "200": spatialJsonResponse("Evaluation labels kept separate from inferred output.", { type: "object", required: ["groundTruth"], properties: { groundTruth: { type: "array", items: { $ref: "#/components/schemas/SpatialGroundTruth" } } } }) },
+      },
+      post: {
+        tags: ["Spatial layers"], operationId: `create${scopeLabel}SpatialLayerGroundTruth`,
+        requestBody: spatialRequestBody({ $ref: "#/components/schemas/SpatialGroundTruthInput" }),
+        responses: { "201": spatialJsonResponse("Stored evaluation label.", { type: "object", required: ["groundTruth"], properties: { groundTruth: { $ref: "#/components/schemas/SpatialGroundTruth" } } }) },
+      },
+    },
+  };
+}
+
+function spatialHouseResourcePath(
+  resource: "bindings" | "calibrations" | "calibration-sessions" | "context-events",
+  label: string,
+  itemSchema: string,
+  inputSchema: string,
+  collectionKey: string,
+  itemKey: string,
+  createResponseSchema?: string,
+): Record<string, unknown> {
+  const responseCollection = { type: "object", additionalProperties: false, required: [collectionKey], properties: { [collectionKey]: { type: "array", items: { $ref: `#/components/schemas/${itemSchema}` } } } };
+  const responseItem = createResponseSchema
+    ? { $ref: `#/components/schemas/${createResponseSchema}` }
+    : { type: "object", additionalProperties: false, required: [itemKey], properties: { [itemKey]: { $ref: `#/components/schemas/${itemSchema}` } } };
+  return {
+    [`/houses/{id}/layers/${resource}`]: {
+      parameters: [{ $ref: "#/components/parameters/Id" }],
+      get: {
+        tags: ["Spatial layers"], operationId: `listHouseSpatial${label}`,
+        parameters: resource === "context-events" ? [{ $ref: "#/components/parameters/FromQuery" }, { $ref: "#/components/parameters/ToQuery" }] : [],
+        responses: { "200": spatialJsonResponse(`Stored spatial ${resource}.`, responseCollection), "503": { description: "Optional engine unavailable" } },
+      },
+      post: {
+        tags: ["Spatial layers"], operationId: `createHouseSpatial${label}`,
+        requestBody: spatialRequestBody({ $ref: `#/components/schemas/${inputSchema}` }),
+        responses: { "201": spatialJsonResponse(`Stored spatial ${resource.slice(0, -1)}.`, responseItem), "503": { description: "Optional engine unavailable" } },
+      },
+    },
+  };
+}
+
+const spatialLayerPaths = {
+  "/layer-engines": {
+    get: {
+      tags: ["Spatial layers"], operationId: "listSpatialLayerEngines",
+      responses: { "200": spatialJsonResponse("Installed stable, experimental, and research engine manifests.", { type: "object", required: ["enabled", "engines"], properties: { enabled: { type: "boolean" }, engines: { type: "array", items: { $ref: "#/components/schemas/SpatialLayerEngineManifest" } } } }) },
+    },
+  },
+  ...spatialScopePaths("houses", "House"),
+  ...spatialScopePaths("properties", "Property"),
+  ...spatialHouseResourcePath("bindings", "Bindings", "SpatialSensorBinding", "SpatialSensorBindingInput", "bindings", "binding"),
+  ...spatialHouseResourcePath("calibrations", "Calibrations", "SpatialSensorCalibration", "SpatialSensorCalibrationInput", "calibrations", "calibration"),
+  ...spatialHouseResourcePath("calibration-sessions", "CalibrationSessions", "SpatialCalibrationSession", "SpatialCalibrationSessionInput", "sessions", "session", "SpatialCalibrationSessionCreateResponse"),
+  ...spatialHouseResourcePath("context-events", "ContextEvents", "SpatialContextEvent", "SpatialContextEventInput", "events", "event"),
+  "/layers/events": {
+    get: {
+      tags: ["Spatial layers"], operationId: "streamSpatialLayerSnapshots",
+      parameters: [
+        { name: "scopeKind", in: "query", schema: { enum: ["house", "property"] }, description: "Supply together with scopeId." },
+        { name: "scopeId", in: "query", schema: { type: "string" }, description: "Supply together with scopeKind." },
+      ],
+      responses: { "200": { description: "Server-sent ready and spatial-layer-snapshot notifications. Authorization changes emit a final event before the stream closes.", content: { "text/event-stream": { schema: { type: "string" } } }, "x-sse-event-schemas": { authorization: { $ref: "#/components/schemas/StreamAuthorizationEvent" } } }, "503": { description: "Optional engine unavailable" } },
+    },
+  },
+} as const;
+
+const spatialLayerSchemas = {
+  Vector2: {
+    type: "object", additionalProperties: false, required: ["x", "y"],
+    properties: { x: { type: "number" }, y: { type: "number" } },
+  },
+  Vector3: {
+    type: "object", additionalProperties: false, required: ["x", "y", "z"],
+    properties: { x: { type: "number" }, y: { type: "number" }, z: { type: "number" } },
+  },
+  SpatialPartition: {
+    type: "object", additionalProperties: false, required: ["sourceDbId", "dataMode"],
+    properties: { sourceDbId: { type: "string" }, dataMode: { enum: ["demo", "real"] } },
+  },
+  SpatialScope: {
+    type: "object", additionalProperties: false, required: ["kind", "id"],
+    properties: { kind: { enum: ["house", "property"] }, id: { type: "string" } },
+  },
+  SpatialLayerEngineManifest: {
+    type: "object", additionalProperties: false,
+    required: ["id", "version", "maturity", "title", "description", "supportedScopes", "requiredMetrics", "producedLayerIds"],
+    properties: {
+      id: { type: "string" }, version: { type: "string" }, maturity: { enum: ["stable", "experimental", "research"] },
+      title: { type: "string" }, description: { type: "string" },
+      supportedScopes: { type: "array", items: { enum: ["house", "property"] } },
+      requiredMetrics: { type: "array", items: { enum: ["temperatureC", "relativeHumidityPct"] } },
+      producedLayerIds: { type: "array", items: { type: "string" } },
+      dependencies: { type: "array", items: { type: "string" } },
+    },
+  },
+  SpatialCoordinateFrame: {
+    type: "object", additionalProperties: false, required: ["id", "version", "kind", "unit"],
+    properties: {
+      id: { type: "string" }, version: { type: "string" },
+      kind: { enum: ["floor-plan-2d", "building-local-3d", "property-local-3d", "geographic"] },
+      unit: { enum: ["normalized", "m", "degrees"] }, origin: { $ref: "#/components/schemas/Vector3" },
+      floorId: { type: "string" }, rotationDegrees: { type: "number" },
+    },
+  },
+  SpatialZone: {
+    type: "object", additionalProperties: false, required: ["id", "name", "kind", "frameId", "centroid"],
+    properties: {
+      id: { type: "string" }, name: { type: "string" },
+      kind: { enum: ["indoor", "cellar", "attic", "crawlspace", "outdoor", "building", "unknown"] },
+      frameId: { type: "string" }, floorId: { type: "string" }, roomId: { type: "string" },
+      centroid: { $ref: "#/components/schemas/Vector3" }, polygon: { type: "array", items: { $ref: "#/components/schemas/Vector2" } },
+      elevationM: { type: "number" }, heightM: { type: "number" }, volumeM3: { type: "number" },
+      isEntryZone: { type: "boolean" }, tags: { type: "array", items: { type: "string" } },
+    },
+  },
+  SpatialConnection: {
+    type: "object", additionalProperties: false, required: ["id", "zoneAId", "zoneBId", "kind", "enabled"],
+    properties: {
+      id: { type: "string" }, zoneAId: { type: "string" }, zoneBId: { type: "string" },
+      kind: { enum: ["door", "open-passage", "stair", "vent", "window", "envelope-leakage", "site-link", "unknown"] },
+      enabled: { type: "boolean" }, normallyOpen: { type: "boolean" }, openingAreaM2: { type: "number" },
+      anchors: { type: "array", items: { $ref: "#/components/schemas/Vector3" } },
+      tags: { type: "array", items: { type: "string" } },
+    },
+  },
+  SpatialTopologySensorBinding: {
+    type: "object", additionalProperties: false,
+    required: ["sensorId", "zoneId", "frameId", "position", "role", "activeFrom"],
+    properties: {
+      sensorId: { type: "string" }, zoneId: { type: "string" }, frameId: { type: "string" },
+      position: { $ref: "#/components/schemas/Vector3" }, role: { enum: ["primary", "supporting", "outdoor"] },
+      activeFrom: { type: "string", format: "date-time" }, activeTo: { type: "string", format: "date-time" },
+      placementRisks: { type: "array", items: { enum: ["near-window", "near-exterior-wall", "near-radiator", "near-heat-pump", "direct-sunlight", "unknown"] } },
+    },
+  },
+  SpatialTopology: {
+    type: "object", additionalProperties: false, required: ["scope", "frames", "zones", "connections", "sensorBindings"],
+    properties: {
+      scope: { $ref: "#/components/schemas/SpatialScope" },
+      frames: { type: "array", items: { $ref: "#/components/schemas/SpatialCoordinateFrame" } },
+      zones: { type: "array", items: { $ref: "#/components/schemas/SpatialZone" } },
+      connections: { type: "array", items: { $ref: "#/components/schemas/SpatialConnection" } },
+      sensorBindings: { type: "array", items: { $ref: "#/components/schemas/SpatialTopologySensorBinding" } },
+    },
+  },
+  SpatialLayerMetric: {
+    type: "object", additionalProperties: false, required: ["value", "quality"],
+    properties: {
+      value: { type: ["number", "string", "boolean", "null"] }, unit: { type: "string" },
+      quality: { type: "number", minimum: 0, maximum: 1 }, label: { type: "string" },
+    },
+  },
+  SpatialLayerEvidence: {
+    type: "object", additionalProperties: false, required: ["score", "kind", "reasonCodes"],
+    properties: {
+      score: { type: "number" }, kind: { enum: ["observation", "inference", "quality"] },
+      reasonCodes: { type: "array", items: { type: "string" } },
+      details: { type: "object", additionalProperties: { type: ["number", "string", "boolean", "null"] } },
+    },
+  },
+  SpatialLayerStyle: {
+    type: "object", additionalProperties: false,
+    properties: {
+      emphasis: { type: "number" }, opacity: { type: "number" }, lineStyle: { enum: ["solid", "dashed", "dotted"] },
+      direction: { enum: ["a-to-b", "b-to-a", "both", "none"] },
+      palette: { enum: ["temperature", "humidity", "quality", "air", "activity", "neutral"] },
+    },
+  },
+  SpatialZoneLayerValue: {
+    type: "object", additionalProperties: false,
+    required: ["zoneId", "frameId", "metrics", "evidence", "reasonCodes"],
+    properties: {
+      zoneId: { type: "string" }, frameId: { type: "string" }, name: { type: "string" },
+      floorId: { type: "string" }, roomId: { type: "string" },
+      polygon: { type: "array", items: { $ref: "#/components/schemas/Vector2" } },
+      tags: { type: "array", items: { type: "string" } }, anchor: { $ref: "#/components/schemas/Vector3" },
+      metrics: { type: "object", additionalProperties: { $ref: "#/components/schemas/SpatialLayerMetric" } },
+      evidence: { type: "array", items: { $ref: "#/components/schemas/SpatialLayerEvidence" } },
+      reasonCodes: { type: "array", items: { type: "string" } }, style: { $ref: "#/components/schemas/SpatialLayerStyle" },
+    },
+  },
+  SpatialConnectionLayerValue: {
+    type: "object", additionalProperties: false,
+    required: ["connectionId", "fromZoneId", "toZoneId", "state", "metrics", "evidence", "reasonCodes"],
+    properties: {
+      connectionId: { type: "string" }, frameId: { type: "string" },
+      anchors: { type: "array", items: { $ref: "#/components/schemas/Vector3" } },
+      anchorRefs: { type: "array", items: { type: "object", additionalProperties: false, required: ["frameId", "position"], properties: { frameId: { type: "string" }, position: { $ref: "#/components/schemas/Vector3" } } } },
+      fromZoneId: { type: ["string", "null"] }, toZoneId: { type: ["string", "null"] },
+      state: { enum: ["directed", "bidirectional-evidence", "no-detectable-propagation", "uncertain", "insufficient-data"] },
+      metrics: { type: "object", additionalProperties: { $ref: "#/components/schemas/SpatialLayerMetric" } },
+      evidence: { type: "array", items: { $ref: "#/components/schemas/SpatialLayerEvidence" } },
+      reasonCodes: { type: "array", items: { type: "string" } }, style: { $ref: "#/components/schemas/SpatialLayerStyle" },
+    },
+  },
+  SpatialPointLayerValue: {
+    type: "object", additionalProperties: false,
+    required: ["pointId", "frameId", "position", "metrics", "evidence", "reasonCodes"],
+    properties: {
+      pointId: { type: "string" }, zoneId: { type: "string" }, frameId: { type: "string" },
+      position: { $ref: "#/components/schemas/Vector3" },
+      metrics: { type: "object", additionalProperties: { $ref: "#/components/schemas/SpatialLayerMetric" } },
+      evidence: { type: "array", items: { $ref: "#/components/schemas/SpatialLayerEvidence" } },
+      reasonCodes: { type: "array", items: { type: "string" } }, style: { $ref: "#/components/schemas/SpatialLayerStyle" },
+    },
+  },
+  SpatialLayerModel: {
+    type: "object", additionalProperties: false, required: ["id", "version", "maturity"],
+    properties: { id: { type: "string" }, version: { type: "string" }, maturity: { enum: ["stable", "experimental", "research"] } },
+  },
+  SpatialLayerSnapshot: {
+    type: "object", additionalProperties: false,
+    required: ["id", "partition", "scope", "coordinateFrames", "layerId", "model", "generatedAt", "windowStart", "windowEnd", "status", "configVersion", "inputDigest", "qualityScore", "warnings", "reasonCodes", "zones", "connections", "points", "revision", "supersedesSnapshotId", "createdAt"],
+    properties: {
+      id: { type: "string" }, partition: { $ref: "#/components/schemas/SpatialPartition" },
+      scope: { $ref: "#/components/schemas/SpatialScope" }, layerId: { type: "string" },
+      generatedAt: { type: "string", format: "date-time" }, windowStart: { type: "string", format: "date-time" }, windowEnd: { type: "string", format: "date-time" },
+      status: { enum: ["ready", "warming_up", "insufficient_data", "error"] }, model: { $ref: "#/components/schemas/SpatialLayerModel" },
+      coordinateFrames: { type: "array", items: { $ref: "#/components/schemas/SpatialCoordinateFrame" } }, inputDigest: { type: "string" },
+      configVersion: { type: "string" }, qualityScore: { type: "number", minimum: 0, maximum: 1 },
+      warnings: { type: "array", items: { type: "string" } }, reasonCodes: { type: "array", items: { type: "string" } },
+      zones: { type: "array", items: { $ref: "#/components/schemas/SpatialZoneLayerValue" } },
+      connections: { type: "array", items: { $ref: "#/components/schemas/SpatialConnectionLayerValue" } },
+      points: { type: "array", items: { $ref: "#/components/schemas/SpatialPointLayerValue" } },
+      metadata: { type: "object", additionalProperties: { type: ["number", "string", "boolean", "null"] } },
+      revision: { type: "integer", minimum: 1 }, supersedesSnapshotId: { type: ["string", "null"] },
+      createdAt: { type: "string", format: "date-time" },
+    },
+  },
+  SpatialLayerCurrent: {
+    type: "object", required: ["partition", "scope", "at", "topology", "layers", "warnings"],
+    properties: {
+      partition: { $ref: "#/components/schemas/SpatialPartition" }, scope: { $ref: "#/components/schemas/SpatialScope" }, at: { type: ["string", "null"], format: "date-time" },
+      topology: { $ref: "#/components/schemas/SpatialTopology" }, layers: { type: "array", items: { $ref: "#/components/schemas/SpatialLayerSnapshot" } }, warnings: { type: "array", items: { type: "string" } },
+    }, additionalProperties: false,
+  },
+  SpatialLayerHistory: {
+    type: "object", additionalProperties: false, required: ["partition", "scope", "from", "to", "layers"],
+    properties: { partition: { $ref: "#/components/schemas/SpatialPartition" }, scope: { $ref: "#/components/schemas/SpatialScope" }, from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" }, layers: { type: "array", items: { $ref: "#/components/schemas/SpatialLayerSnapshot" } } },
+  },
+  SpatialInferenceRun: {
+    type: "object", additionalProperties: false,
+    required: ["id", "partition", "scope", "engineId", "engineVersion", "bucketAt", "configVersion", "status", "startedAt", "finishedAt", "inputDigest", "snapshotIds", "errorCode", "errorMessage", "durationMs"],
+    properties: {
+      id: { type: "string" }, partition: { $ref: "#/components/schemas/SpatialPartition" }, scope: { $ref: "#/components/schemas/SpatialScope" },
+      engineId: { type: "string" }, engineVersion: { type: "string" }, bucketAt: { type: "string", format: "date-time" },
+      configVersion: { type: "integer", minimum: 0 }, status: { enum: ["running", "succeeded", "failed", "timed_out", "skipped"] },
+      startedAt: { type: "string", format: "date-time" }, finishedAt: { type: ["string", "null"], format: "date-time" },
+      inputDigest: { type: ["string", "null"] }, snapshotIds: { type: "array", items: { type: "string" } },
+      errorCode: { type: ["string", "null"] }, errorMessage: { type: ["string", "null"] }, durationMs: { type: ["integer", "null"], minimum: 0 },
+    },
+  },
+  SpatialEngineHealth: {
+    type: "object", additionalProperties: false,
+    required: ["scope", "engineId", "engineVersion", "enabled", "state", "latestRun", "latestSnapshotAt"],
+    properties: {
+      scope: { $ref: "#/components/schemas/SpatialScope" }, engineId: { type: "string" }, engineVersion: { type: "string" }, enabled: { type: "boolean" },
+      state: { enum: ["healthy", "learning_baseline", "degraded_sensor_data", "configuration_incomplete", "calibration_stale", "error", "disabled", "never_run"] },
+      latestRun: { oneOf: [{ $ref: "#/components/schemas/SpatialInferenceRun" }, { type: "null" }] },
+      latestSnapshotAt: { type: ["string", "null"], format: "date-time" },
+    },
+  },
+  SpatialLayerHealth: { type: "object", additionalProperties: false, required: ["partition", "scope", "engines"], properties: { partition: { $ref: "#/components/schemas/SpatialPartition" }, scope: { $ref: "#/components/schemas/SpatialScope" }, engines: { type: "array", items: { $ref: "#/components/schemas/SpatialEngineHealth" } } } },
+  SpatialConfigurationVersion: {
+    type: "object", additionalProperties: false, required: ["scope", "version", "config", "createdAt", "createdBy"],
+    properties: { scope: { $ref: "#/components/schemas/SpatialScope" }, version: { type: "integer", minimum: 0 }, config: { type: "object", additionalProperties: true }, createdAt: { type: "string", format: "date-time" }, createdBy: { type: ["string", "null"] } },
+  },
+  SpatialEngineAssignment: {
+    type: "object", additionalProperties: false, required: ["scope", "engineId", "engineVersion", "enabled", "layerIds", "configVersion", "updatedAt"],
+    properties: { scope: { $ref: "#/components/schemas/SpatialScope" }, engineId: { type: "string" }, engineVersion: { type: "string" }, enabled: { type: "boolean" }, layerIds: { type: "array", items: { type: "string" } }, configVersion: { type: "integer", minimum: 0 }, updatedAt: { type: "string", format: "date-time" } },
+  },
+  SpatialEngineAssignmentInput: {
+    type: "object", additionalProperties: false, required: ["engineId", "enabled"],
+    properties: { engineId: { type: "string" }, engineVersion: { type: "string" }, enabled: { type: "boolean" }, layerIds: { type: "array", items: { type: "string" } } },
+  },
+  SpatialLayerConfigurationOverview: { type: "object", additionalProperties: false, required: ["partition", "scope", "configuration", "assignments", "topology", "warnings"], properties: { partition: { $ref: "#/components/schemas/SpatialPartition" }, scope: { $ref: "#/components/schemas/SpatialScope" }, configuration: { $ref: "#/components/schemas/SpatialConfigurationVersion" }, assignments: { type: "array", items: { $ref: "#/components/schemas/SpatialEngineAssignment" } }, topology: { $ref: "#/components/schemas/SpatialTopology" }, warnings: { type: "array", items: { type: "string" } } } },
+  SpatialLayerConfigurationInput: { type: "object", additionalProperties: false, required: ["baseVersion", "config"], properties: { baseVersion: { type: "integer", minimum: 0 }, config: { type: "object", additionalProperties: true }, assignments: { type: "array", items: { $ref: "#/components/schemas/SpatialEngineAssignmentInput" } } } },
+  SpatialLayerInferenceInput: { type: "object", additionalProperties: false, properties: { bucketAt: { type: "string", format: "date-time" }, layers: { type: "array", items: { type: "string" } } } },
+  SpatialInferenceFailure: { type: "object", additionalProperties: false, required: ["engineId", "code", "message"], properties: { engineId: { type: "string" }, code: { type: "string" }, message: { type: "string" } } },
+  SpatialLayerInferenceResult: { type: "object", additionalProperties: false, required: ["scope", "bucketAt", "status", "snapshots", "failures"], properties: { scope: { $ref: "#/components/schemas/SpatialScope" }, bucketAt: { type: "string", format: "date-time" }, status: { enum: ["succeeded", "partial", "failed", "disabled"] }, snapshots: { type: "array", items: { $ref: "#/components/schemas/SpatialLayerSnapshot" } }, failures: { type: "array", items: { $ref: "#/components/schemas/SpatialInferenceFailure" } } } },
+  SpatialGroundTruthInput: { type: "object", additionalProperties: false, required: ["label"], properties: { id: { type: "string" }, startAt: { type: "string", format: "date-time" }, endAt: { type: ["string", "null"], format: "date-time" }, label: { type: "string" }, zoneId: { type: ["string", "null"] }, fromZoneId: { type: ["string", "null"] }, toZoneId: { type: ["string", "null"] }, source: { enum: ["user", "optional_sensor", "controlled_test"] }, note: { type: ["string", "null"] } } },
+  SpatialGroundTruth: { type: "object", additionalProperties: false, required: ["id", "scope", "startAt", "endAt", "label", "zoneId", "fromZoneId", "toZoneId", "source", "note", "createdAt", "createdBy"], properties: { id: { type: "string" }, scope: { $ref: "#/components/schemas/SpatialScope" }, startAt: { type: "string", format: "date-time" }, endAt: { type: ["string", "null"], format: "date-time" }, label: { type: "string" }, zoneId: { type: ["string", "null"] }, fromZoneId: { type: ["string", "null"] }, toZoneId: { type: ["string", "null"] }, source: { enum: ["user", "optional_sensor", "controlled_test"] }, note: { type: ["string", "null"] }, createdAt: { type: "string", format: "date-time" }, createdBy: { type: ["string", "null"] } } },
+  SpatialSensorBindingInput: { type: "object", additionalProperties: false, required: ["sensorId", "zoneId", "frameId", "position", "role"], properties: { id: { type: "string" }, sensorId: { type: "string" }, zoneId: { type: "string" }, frameId: { type: "string" }, position: { $ref: "#/components/schemas/Vector3" }, role: { enum: ["primary", "supporting", "outdoor"] }, activeFrom: { type: "string", format: "date-time" }, activeTo: { type: ["string", "null"], format: "date-time" }, placementRisks: { type: "array", items: { enum: ["near-window", "near-exterior-wall", "near-radiator", "near-heat-pump", "direct-sunlight", "unknown"] } } } },
+  SpatialSensorBinding: { type: "object", additionalProperties: false, required: ["id", "houseId", "sensorId", "zoneId", "frameId", "position", "role", "activeFrom", "createdAt"], properties: { id: { type: "string" }, houseId: { type: "string" }, sensorId: { type: "string" }, zoneId: { type: "string" }, frameId: { type: "string" }, position: { $ref: "#/components/schemas/Vector3" }, role: { enum: ["primary", "supporting", "outdoor"] }, activeFrom: { type: "string", format: "date-time" }, activeTo: { type: "string", format: "date-time" }, placementRisks: { type: "array", items: { enum: ["near-window", "near-exterior-wall", "near-radiator", "near-heat-pump", "direct-sunlight", "unknown"] } }, createdAt: { type: "string", format: "date-time" } } },
+  SpatialSensorCalibrationInput: { type: "object", additionalProperties: false, required: ["sensorId", "temperatureOffsetC", "humidityOffsetPct", "confidence", "method"], properties: { id: { type: "string" }, sensorId: { type: "string" }, validFrom: { type: "string", format: "date-time" }, validTo: { type: ["string", "null"], format: "date-time" }, temperatureOffsetC: { type: "number" }, humidityOffsetPct: { type: "number" }, responseLagSeconds: { type: ["number", "null"], minimum: 0 }, confidence: { type: "number", minimum: 0, maximum: 1 }, method: { enum: ["co-location", "manual", "factory", "estimated"] } } },
+  SpatialSensorCalibration: { type: "object", additionalProperties: false, required: ["id", "houseId", "sensorId", "validFrom", "temperatureOffsetC", "humidityOffsetPct", "confidence", "method", "createdAt"], properties: { id: { type: "string" }, houseId: { type: "string" }, sensorId: { type: "string" }, validFrom: { type: "string", format: "date-time" }, validTo: { type: "string", format: "date-time" }, temperatureOffsetC: { type: "number" }, humidityOffsetPct: { type: "number" }, responseLagSeconds: { type: "number", minimum: 0 }, confidence: { type: "number", minimum: 0, maximum: 1 }, method: { enum: ["co-location", "manual", "factory", "estimated"] }, createdAt: { type: "string", format: "date-time" } } },
+  SpatialCalibrationSessionInput: { type: "object", additionalProperties: false, required: ["kind"], properties: { id: { type: "string" }, kind: { enum: ["co-location", "controlled-propagation", "empty-house-baseline"] }, status: { enum: ["planned", "running", "completed", "cancelled"] }, startAt: { type: "string", format: "date-time" }, endAt: { type: ["string", "null"], format: "date-time" }, intervention: { type: "object", additionalProperties: true }, notes: { type: ["string", "null"] }, calibrations: { type: "array", items: { $ref: "#/components/schemas/SpatialSensorCalibrationInput" } } } },
+  SpatialCalibrationSession: { type: "object", additionalProperties: false, required: ["id", "houseId", "kind", "status", "startAt", "endAt", "intervention", "notes", "createdAt", "updatedAt"], properties: { id: { type: "string" }, houseId: { type: "string" }, kind: { enum: ["co-location", "controlled-propagation", "empty-house-baseline"] }, status: { enum: ["planned", "running", "completed", "cancelled"] }, startAt: { type: "string", format: "date-time" }, endAt: { type: ["string", "null"], format: "date-time" }, intervention: { type: "object", additionalProperties: true }, notes: { type: ["string", "null"] }, createdAt: { type: "string", format: "date-time" }, updatedAt: { type: "string", format: "date-time" } } },
+  SpatialCalibrationSessionCreateResponse: { type: "object", additionalProperties: false, required: ["session", "calibrations"], properties: { session: { $ref: "#/components/schemas/SpatialCalibrationSession" }, calibrations: { type: "array", items: { $ref: "#/components/schemas/SpatialSensorCalibration" } } } },
+  SpatialContextEventInput: { type: "object", additionalProperties: false, required: ["kind"], properties: { id: { type: "string" }, kind: { enum: ["door-open", "window-open", "hvac-change", "heat-pump-change", "extractor-change", "dehumidifier-change", "heater-change", "cooking", "shower", "sauna", "solar-gain", "rapid-weather-change", "persistent-environmental-source", "known-empty", "known-occupied"] }, startAt: { type: "string", format: "date-time" }, endAt: { type: ["string", "null"], format: "date-time" }, zoneIds: { type: "array", items: { type: "string" } }, strength: { type: "number", minimum: 0, maximum: 1 }, source: { type: "string" }, payload: { type: "object", additionalProperties: true } } },
+  SpatialContextEvent: { type: "object", additionalProperties: false, required: ["id", "houseId", "kind", "startAt", "source", "payload", "createdAt"], properties: { id: { type: "string" }, houseId: { type: "string" }, kind: { enum: ["door-open", "window-open", "hvac-change", "heat-pump-change", "extractor-change", "dehumidifier-change", "heater-change", "cooking", "shower", "sauna", "solar-gain", "rapid-weather-change", "persistent-environmental-source", "known-empty", "known-occupied"] }, startAt: { type: "string", format: "date-time" }, endAt: { type: "string", format: "date-time" }, zoneIds: { type: "array", items: { type: "string" } }, strength: { type: "number", minimum: 0, maximum: 1 }, source: { type: "string" }, payload: { type: "object", additionalProperties: true }, createdAt: { type: "string", format: "date-time" } } },
+} as const;
+
+const localAuthPaths = {
+  "/auth/setup": {
+    post: {
+      tags: ["Context"], operationId: "setupLocalOwner",
+      security: [],
+      description: "Creates the first local Owner. Restricted to loopback/private trusted proxy requests unless a bootstrap secret is configured.",
+      requestBody: spatialRequestBody({ $ref: "#/components/schemas/LocalAuthCredentials" }),
+      responses: { "201": spatialJsonResponse("Authenticated Owner session.", { $ref: "#/components/schemas/AppSession" }), "403": { description: "Setup request is neither local nor bootstrap-secret authorized" }, "409": { description: "Workspace is already initialized" }, "429": { description: "Authentication attempt rate limited" } },
+    },
+  },
+  "/auth/register": {
+    post: {
+      tags: ["Context"], operationId: "registerLocalInvitation",
+      security: [],
+      requestBody: spatialRequestBody({ $ref: "#/components/schemas/LocalInvitationRegistrationInput" }),
+      responses: { "201": spatialJsonResponse("Authenticated invited-member session.", { $ref: "#/components/schemas/AppSession" }), "404": { description: "Invitation is invalid or expired" }, "429": { description: "Authentication attempt rate limited" } },
+    },
+  },
+  "/auth/login": {
+    post: {
+      tags: ["Context"], operationId: "loginLocalMember",
+      security: [],
+      requestBody: spatialRequestBody({ $ref: "#/components/schemas/LocalAuthCredentials" }),
+      responses: { "200": spatialJsonResponse("Authenticated local session.", { $ref: "#/components/schemas/AppSession" }), "401": { description: "Invalid credentials" }, "429": { description: "Authentication attempt rate limited" } },
+    },
+  },
+  "/auth/logout": {
+    post: { tags: ["Context"], operationId: "logoutLocalMember", security: [{ localSession: [], csrfToken: [] }], responses: { "204": { description: "Session revoked and cookies cleared" } } },
+  },
+  "/tenant/members": {
+    get: {
+      tags: ["Context"], operationId: "listLocalWorkspaceMembers",
+      security: [{ localSession: [] }],
+      responses: { "200": spatialJsonResponse("Current members and outstanding invitations.", { $ref: "#/components/schemas/TenantMembersResponse" }) },
+    },
+    post: {
+      tags: ["Context"], operationId: "inviteLocalWorkspaceMember",
+      security: [{ localSession: [], csrfToken: [] }],
+      requestBody: spatialRequestBody({ $ref: "#/components/schemas/TenantMemberCreateInput" }),
+      responses: { "201": spatialJsonResponse("One-time invitation token and activation path.", { $ref: "#/components/schemas/TenantInvitationCreated" }), "409": { description: "Member already exists" } },
+    },
+  },
+  "/tenant/members/{email}/access": {
+    parameters: [{ name: "email", in: "path", required: true, schema: { type: "string", format: "email" } }],
+    put: {
+      tags: ["Context"], operationId: "updateLocalWorkspaceMemberAccess",
+      security: [{ localSession: [], csrfToken: [] }],
+      requestBody: spatialRequestBody({ type: "object", additionalProperties: false, required: ["grants"], properties: { grants: { type: "array", maxItems: 100, items: { $ref: "#/components/schemas/GuestAccessGrant" } } } }),
+      responses: { "200": spatialJsonResponse("Updated guest access grants.", { type: "object", required: ["member"], properties: { member: { $ref: "#/components/schemas/TenantMemberSummary" } } }), "404": { description: "Member not found" } },
+    },
+  },
+  "/tenant/members/{email}": {
+    parameters: [{ name: "email", in: "path", required: true, schema: { type: "string", format: "email" } }],
+    delete: { tags: ["Context"], operationId: "removeLocalWorkspaceMember", security: [{ localSession: [], csrfToken: [] }], responses: { "204": { description: "Member or invitation removed" }, "404": { description: "Member not found" } } },
+  },
+} as const;
+
+const localAuthSchemas = {
+  LocalAuthCredentials: {
+    type: "object", additionalProperties: false, required: ["email", "password"],
+    properties: { email: { type: "string", format: "email", maxLength: 320 }, password: { type: "string", minLength: 12, maxLength: 1024, writeOnly: true } },
+  },
+  LocalInvitationRegistrationInput: {
+    type: "object", additionalProperties: false, required: ["token", "password"],
+    properties: { token: { type: "string", minLength: 32, writeOnly: true }, password: { type: "string", minLength: 12, maxLength: 1024, writeOnly: true }, email: { type: "string", format: "email", maxLength: 320 } },
+  },
+  GuestAccessGrant: {
+    type: "object", additionalProperties: false, required: ["scopeType", "scopeId"],
+    properties: { scopeType: { enum: ["property", "house", "area"] }, scopeId: { type: "string", minLength: 1, maxLength: 200 } },
+  },
+  TenantMemberSummary: {
+    type: "object", additionalProperties: false, required: ["email", "role", "grants"],
+    properties: { email: { type: "string", format: "email" }, role: { enum: ["owner", "admin", "member", "guest"] }, joinedAt: { type: "string", format: "date-time" }, invitedAt: { type: "string", format: "date-time" }, expiresAt: { type: "string", format: "date-time" }, grants: { type: "array", maxItems: 100, items: { $ref: "#/components/schemas/GuestAccessGrant" } } },
+  },
+  TenantMembersResponse: {
+    type: "object", additionalProperties: false, required: ["members", "invitations"],
+    properties: { members: { type: "array", items: { $ref: "#/components/schemas/TenantMemberSummary" } }, invitations: { type: "array", items: { $ref: "#/components/schemas/TenantMemberSummary" } } },
+  },
+  TenantMemberCreateInput: {
+    type: "object", additionalProperties: false, required: ["email", "role"],
+    properties: { email: { type: "string", format: "email" }, role: { enum: ["admin", "member", "guest"] }, grants: { type: "array", maxItems: 100, items: { $ref: "#/components/schemas/GuestAccessGrant" } } },
+  },
+  TenantInvitationCreated: {
+    type: "object", additionalProperties: false, required: ["invitation", "registrationToken", "activationPath", "expiresAt"],
+    properties: { invitation: { $ref: "#/components/schemas/TenantMemberSummary" }, registrationToken: { type: "string", readOnly: true }, activationPath: { type: "string", description: "Client-side fragment path; the token is never placed in an HTTP query string." }, expiresAt: { type: "string", format: "date-time" } },
+  },
+  StreamAuthorizationEvent: {
+    type: "object", additionalProperties: false, required: ["status"],
+    properties: { status: { enum: ["changed", "expired"] } },
+    description: "Final non-sensitive SSE signal requiring clients to purge cached scoped data before reconnecting or signing in.",
+  },
+} as const;
+
+const operationalOrchestrationPaths = {
+  "/properties/{id}/energy-optimization": { get: { tags: ["Energy"], operationId: "getEnergyOptimization", parameters: [{ $ref: "#/components/parameters/Id" }, { name: "windowHours", in: "query", schema: { type: "integer", minimum: 1, maximum: 12, default: 2 } }], responses: { "200": { description: "Transparent, read-only energy optimization report", content: { "application/json": { schema: { type: "object", required: ["report"], properties: { report: { type: "object" } } } } } } } } },
+  "/notification-deliveries": { get: { tags: ["Alerts"], operationId: "listNotificationDeliveries", parameters: [{ name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 200 } }], responses: { "200": { description: "Redacted durable delivery ledger", content: { "application/json": { schema: { type: "object", required: ["deliveries"], properties: { deliveries: { type: "array", items: { type: "object" } } } } } } } } } },
+  "/notification-deliveries/{id}/retry": { post: { tags: ["Alerts"], operationId: "retryNotificationDelivery", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Dead-lettered delivery reset for retry", content: { "application/json": { schema: { type: "object", required: ["delivery"], properties: { delivery: { type: "object" } } } } } }, "409": { description: "Delivery is not retryable" } } } },
+  "/action-playbooks": {
+    get: { tags: ["Alerts"], operationId: "listActionPlaybooks", parameters: [{ name: "metric", in: "query", schema: { type: "string" } }, { name: "enabled", in: "query", schema: { type: "boolean" } }], responses: { "200": { description: "Reusable action playbooks", content: { "application/json": { schema: { type: "object", required: ["playbooks"], properties: { playbooks: { type: "array", items: { type: "object" } } } } } } } } },
+    post: { tags: ["Alerts"], operationId: "createActionPlaybook", requestBody: { required: true, content: { "application/json": { schema: { type: "object" } } } }, responses: { "201": { description: "Created playbook", content: { "application/json": { schema: { type: "object", required: ["playbook"], properties: { playbook: { type: "object" } } } } } } } },
+  },
+  "/action-playbooks/{id}": { patch: { tags: ["Alerts"], operationId: "updateActionPlaybook", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: { required: true, content: { "application/json": { schema: { type: "object" } } } }, responses: { "200": { description: "Updated playbook", content: { "application/json": { schema: { type: "object", required: ["playbook"], properties: { playbook: { type: "object" } } } } } } } } },
+  "/alerts/{id}/action-playbooks": { get: { tags: ["Alerts"], operationId: "listAlertActionPlaybooks", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Enabled playbooks matching an alert metric", content: { "application/json": { schema: { type: "object", required: ["playbooks"], properties: { playbooks: { type: "array", items: { type: "object" } } } } } } } } } },
+  "/action-runs": {
+    get: { tags: ["Alerts"], operationId: "listActionRuns", parameters: [{ name: "active", in: "query", schema: { type: "boolean" } }, { name: "sensorId", in: "query", schema: { type: "string" } }, { name: "alertEventId", in: "query", schema: { type: "string" } }], responses: { "200": { description: "Before/after action evidence", content: { "application/json": { schema: { type: "object", required: ["runs"], properties: { runs: { type: "array", items: { type: "object" } } } } } } } } },
+    post: { tags: ["Alerts"], operationId: "startActionRun", requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["playbookId", "sensorId"] } } } }, responses: { "201": { description: "Action started with a fresh baseline", content: { "application/json": { schema: { type: "object", required: ["run"], properties: { run: { type: "object" } } } } } } } },
+  },
+  "/action-runs/{id}/complete": { post: { tags: ["Alerts"], operationId: "completeActionRun", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Action completed and automatic verification scheduled", content: { "application/json": { schema: { type: "object", required: ["run"], properties: { run: { type: "object" } } } } } } } } },
+  "/action-runs/{id}/cancel": { post: { tags: ["Alerts"], operationId: "cancelActionRun", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: { content: { "application/json": { schema: { type: "object", properties: { note: { type: ["string", "null"] } } } } } }, responses: { "200": { description: "Action run cancelled", content: { "application/json": { schema: { type: "object", required: ["run"], properties: { run: { type: "object" } } } } } } } } },
+  "/data-export/preview": { get: { tags: ["Context"], operationId: "previewDataExport", parameters: [{ name: "privacyLevel", in: "query", schema: { enum: ["structure", "operations", "full"], default: "operations" } }, { name: "includeTelemetry", in: "query", schema: { type: "boolean", default: false } }], responses: { "200": { description: "Counts and sensitive categories before export", content: { "application/json": { schema: { type: "object", required: ["preview"], properties: { preview: { type: "object" } } } } } } } } },
+  "/data-export": { get: { tags: ["Context"], operationId: "downloadDataExport", parameters: [{ name: "privacyLevel", in: "query", schema: { enum: ["structure", "operations", "full"], default: "operations" } }, { name: "includeTelemetry", in: "query", schema: { type: "boolean", default: false } }], responses: { "200": { description: "Versioned, privacy-scoped streaming JSON export", content: { "application/json": { schema: { type: "object" } } } } } } },
+  "/backups/status": { get: { tags: ["Context"], operationId: "getBackupStatus", responses: { "200": { description: "Backup scheduler and isolated restore-drill status", content: { "application/json": { schema: { type: "object", required: ["backup"], properties: { backup: { type: "object" } } } } } } } } },
+  "/backups": { post: { tags: ["Context"], operationId: "requestBackup", responses: { "202": { description: "Atomic backup request accepted by the scheduler", content: { "application/json": { schema: { type: "object", required: ["backup"], properties: { backup: { type: "object" } } } } } } } } },
+  "/setup/doctor": { get: { tags: ["Integrations"], operationId: "runSetupDoctor", responses: { "200": { description: "Installation readiness checks", content: { "application/json": { schema: { type: "object", required: ["report"], properties: { report: { type: "object" } } } } } } } } },
+  "/sensors/{id}/label": { get: { tags: ["Digital twin"], operationId: "getSensorLabel", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Printable and QR-ready local sensor label descriptor", content: { "application/json": { schema: { type: "object", required: ["label"], properties: { label: { type: "object" } } } } } } } } },
+  "/setup/bulk-sensor-mappings": { post: { tags: ["Integrations"], operationId: "bulkMapSensors", requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["houseId", "mappings"], properties: { houseId: { type: "string" }, mappings: { type: "array", minItems: 1, maxItems: 100, items: { type: "object" } } } } } } }, responses: { "200": { description: "Atomically validated and saved sensor mappings", content: { "application/json": { schema: { type: "object", required: ["sensors"], properties: { sensors: { type: "array", items: { $ref: "#/components/schemas/Sensor" } } } } } } } } } },
+} as const;
+
 const combinedOpenApiDocument = {
   openapi: "3.1.0",
   info: {
@@ -9,10 +502,16 @@ const combinedOpenApiDocument = {
   tags: [
     { name: "Telemetry" }, { name: "Digital twin" }, { name: "Alerts" },
     { name: "Context" }, { name: "Weather" }, { name: "Physics" }, { name: "Integrations" }, { name: "Testing" }, { name: "Measurements" },
+    { name: "Spatial layers", description: "Optional local research engines that emit renderer-neutral, versioned 2D/3D semantic layers without mutating core climate state." },
   ],
+  security: [{ localSession: [] }],
   paths: {
-    "/health": { get: { operationId: "health", responses: { "200": { description: "Service health", content: { "application/json": { schema: { type: "object", required: ["status", "systemVersion", "apiVersion", "database", "uptimeSeconds"], properties: { status: { const: "ok" }, systemVersion: { type: "string" }, apiVersion: { const: "v1" }, database: { const: "ready" }, uptimeSeconds: { type: "integer" } } } } } } } } },
-    "/openapi.json": { get: { operationId: "openApiDocument", responses: { "200": { description: "OpenAPI 3.1 document", content: { "application/json": { schema: { type: "object" } } } } } } },
+    ...localAuthPaths,
+    ...spatialLayerPaths,
+    ...operationalOrchestrationPaths,
+    "/health": { get: { security: [], operationId: "health", responses: { "200": { description: "Service health", content: { "application/json": { schema: { type: "object", required: ["status", "systemVersion", "apiVersion", "database", "uptimeSeconds"], properties: { status: { const: "ok" }, systemVersion: { type: "string" }, apiVersion: { const: "v1" }, database: { const: "ready" }, uptimeSeconds: { type: "integer" } } } } } } } } },
+    "/openapi.json": { get: { security: [], operationId: "openApiDocument", responses: { "200": { description: "OpenAPI 3.1 document", content: { "application/json": { schema: { type: "object" } } } } } } },
+    "/session": { get: { security: [], tags: ["Context"], operationId: "localSession", responses: { "200": { description: "Current cookie session, or setupRequired state for a pristine database", content: { "application/json": { schema: { $ref: "#/components/schemas/AppSession" } } } }, "401": { description: "Authentication is initialized but no valid session cookie was supplied" } } } },
     "/locations/search": {
       get: {
         tags: ["Context"], operationId: "searchLocations",
@@ -65,17 +564,88 @@ const combinedOpenApiDocument = {
       },
     },
     "/measurements/snapshot": { get: { servers: [{ url: "/api/v2" }], tags: ["Measurements"], operationId: "measurementSnapshot", parameters: [{ name: "houseId", in: "query", schema: { type: "string" } }], responses: { "200": { description: "Latest sample for every sensor/metric pair", content: { "application/json": { schema: { type: "object", required: ["snapshot"], properties: { snapshot: { type: "array", items: { $ref: "#/components/schemas/MeasurementSnapshotEntry" } } } } } } } } } },
-    "/measurements/history": { get: { servers: [{ url: "/api/v2" }], tags: ["Measurements"], operationId: "measurementHistory", parameters: [{ name: "sensorId", in: "query", required: true, schema: { type: "string" } }, { name: "metric", in: "query", required: true, schema: { type: "string" } }, { name: "from", in: "query", schema: { type: "string", format: "date-time" } }, { name: "to", in: "query", schema: { type: "string", format: "date-time" } }, { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 50000 } }], responses: { "200": { description: "Ordered independent metric samples", content: { "application/json": { schema: { type: "object", required: ["samples"], properties: { samples: { type: "array", items: { $ref: "#/components/schemas/MeasurementSample" } } } } } } } } } },
-    "/measurements/events": { get: { servers: [{ url: "/api/v2" }], tags: ["Measurements"], operationId: "streamMeasurements", parameters: [{ name: "sensorId", in: "query", style: "form", explode: true, schema: { type: "array", items: { type: "string" } }, description: "Repeat or comma-separate sensor IDs." }, { name: "metric", in: "query", style: "form", explode: true, schema: { type: "array", items: { type: "string" } }, description: "Repeat or comma-separate metric IDs." }], responses: { "200": { description: "Server-sent `measurement` events", content: { "text/event-stream": {} } } } } },
+    "/measurements/history": { get: { servers: [{ url: "/api/v2" }], tags: ["Measurements"], operationId: "measurementHistory", parameters: [{ name: "sensorId", in: "query", required: true, schema: { type: "string" } }, { name: "metric", in: "query", required: true, schema: { type: "string" } }, { name: "from", in: "query", schema: { type: "string", format: "date-time" } }, { name: "to", in: "query", schema: { type: "string", format: "date-time" } }, { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 50000 } }, { name: "bucketSeconds", in: "query", description: "Optional UTC-aligned arithmetic-mean downsampling. Buckets retain the latest sample source and are marked estimated when combining values.", schema: { type: "integer", minimum: 1, maximum: 86400 } }], responses: { "200": { description: "Ordered raw or UTC-bucketed independent metric samples", content: { "application/json": { schema: { type: "object", required: ["samples", "from", "to", "bucketSeconds", "truncated"], properties: { samples: { type: "array", items: { $ref: "#/components/schemas/MeasurementSample" } }, from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" }, bucketSeconds: { type: ["integer", "null"], minimum: 1, maximum: 86400 }, truncated: { type: "boolean" } } } } } } } } },
+    "/sensors/{id}/measurements": { get: { servers: [{ url: "/api/v2" }], tags: ["Measurements"], operationId: "sensorMeasurementPage", parameters: [{ $ref: "#/components/parameters/Id" }, { name: "cursor", in: "query", schema: { type: "string" } }, { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 100 } }], responses: { "200": { description: "Newest-first cursor page across every metric for one sensor", content: { "application/json": { schema: { type: "object", required: ["samples", "nextCursor"], properties: { samples: { type: "array", items: { $ref: "#/components/schemas/MeasurementSample" } }, nextCursor: { type: ["string", "null"] } } } } } }, "400": { description: "Invalid cursor" }, "404": { description: "Sensor not found" } } } },
+    "/measurements/events": { get: { servers: [{ url: "/api/v2" }], tags: ["Measurements"], operationId: "streamMeasurements", parameters: [{ name: "sensorId", in: "query", style: "form", explode: true, schema: { type: "array", items: { type: "string" } }, description: "Repeat or comma-separate sensor IDs." }, { name: "metric", in: "query", style: "form", explode: true, schema: { type: "array", items: { type: "string" } }, description: "Repeat or comma-separate metric IDs." }], responses: { "200": { description: "Server-sent `measurement` events and a final authorization event when scoped access changes.", content: { "text/event-stream": {} }, "x-sse-event-schemas": { authorization: { $ref: "#/components/schemas/StreamAuthorizationEvent" } } } } } },
     "/measurements/forecast": { get: { servers: [{ url: "/api/v2" }], tags: ["Measurements"], operationId: "forecastMeasurement", parameters: [{ name: "sensorId", in: "query", required: true, schema: { type: "string" } }, { name: "metric", in: "query", required: true, schema: { type: "string" } }, { name: "hours", in: "query", schema: { type: "integer", minimum: 1, maximum: 168, default: 12 } }], responses: { "200": { description: "Generic forecast", content: { "application/json": { schema: { type: "object", required: ["forecast"], properties: { forecast: { type: "array", items: { $ref: "#/components/schemas/MeasurementForecastPoint" } } } } } } }, "422": { description: "FORECAST_UNSUPPORTED" } } } },
+    "/properties": {
+      get: { tags: ["Digital twin"], operationId: "listProperties", parameters: [{ $ref: "#/components/parameters/CollectionLimitQuery" }, { $ref: "#/components/parameters/CollectionOffsetQuery" }], responses: { "200": { description: "Managed properties", content: { "application/json": { schema: { type: "object", required: ["properties"], properties: { properties: { type: "array", items: { $ref: "#/components/schemas/Property" } } } } } } } } },
+      post: { tags: ["Digital twin"], operationId: "createProperty", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/PropertyInput" } } } }, responses: { "201": { description: "Created property", content: { "application/json": { schema: { type: "object", required: ["property"], properties: { property: { $ref: "#/components/schemas/Property" } } } } } }, "409": { description: "Property identifier conflict" }, "422": { description: "Invalid property metadata" } } },
+    },
+    "/properties/{id}": {
+      get: { tags: ["Digital twin"], operationId: "getProperty", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Property", content: { "application/json": { schema: { type: "object", required: ["property"], properties: { property: { $ref: "#/components/schemas/Property" } } } } } }, "404": { $ref: "#/components/responses/NotFound" } } },
+      patch: { tags: ["Digital twin"], operationId: "updateProperty", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/PropertyPatch" } } } }, responses: { "200": { description: "Updated property", content: { "application/json": { schema: { type: "object", required: ["property"], properties: { property: { $ref: "#/components/schemas/Property" } } } } } }, "404": { $ref: "#/components/responses/NotFound" }, "422": { description: "Invalid property metadata" } } },
+      delete: { tags: ["Digital twin"], operationId: "deleteProperty", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "204": { description: "Deleted" }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Property still contains resources" } } },
+    },
+    "/properties/{id}/electricity": {
+      get: { tags: ["Energy"], operationId: "getPropertyElectricity", parameters: [{ $ref: "#/components/parameters/Id" }, { $ref: "#/components/parameters/FromQuery" }, { $ref: "#/components/parameters/ToQuery" }], responses: { "200": { description: "Property price-source configuration, current quote, and raw/effective interval prices. Guest responses omit endpoint query data and detailed upstream errors.", content: { "application/json": { schema: { type: "object", required: ["config", "current", "prices"], additionalProperties: true } } } }, "404": { $ref: "#/components/responses/NotFound" } } },
+    },
+    "/properties/{id}/electricity/config": {
+      put: { tags: ["Energy"], operationId: "configurePropertyElectricity", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/PropertyElectricityConfigInput" } } } }, responses: { "200": { description: "Saved property electricity configuration", content: { "application/json": { schema: { type: "object", required: ["config"], additionalProperties: true } } } }, "400": { description: "Invalid source or contract details" }, "404": { $ref: "#/components/responses/NotFound" } } },
+    },
+    "/properties/{id}/electricity/refresh": {
+      post: { tags: ["Energy"], operationId: "refreshPropertyElectricity", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Fetched and stored raw source prices", content: { "application/json": { schema: { type: "object", required: ["config", "current", "prices"], additionalProperties: true } } } }, "404": { $ref: "#/components/responses/NotFound" }, "502": { description: "Configured price source failed" } } },
+    },
+    "/property-areas": {
+      get: { tags: ["Digital twin"], operationId: "listPropertyAreas", parameters: [{ $ref: "#/components/parameters/PropertyIdQuery" }, { $ref: "#/components/parameters/CollectionLimitQuery" }, { $ref: "#/components/parameters/CollectionOffsetQuery" }], responses: { "200": { description: "Mapped property areas", content: { "application/json": { schema: { type: "object", required: ["areas"], properties: { areas: { type: "array", items: { $ref: "#/components/schemas/PropertyArea" } } } } } } } } },
+      post: { tags: ["Digital twin"], operationId: "createPropertyArea", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/PropertyAreaInput" } } } }, responses: { "201": { description: "Created mapped area", content: { "application/json": { schema: { type: "object", required: ["area"], properties: { area: { $ref: "#/components/schemas/PropertyArea" } } } } } }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Area identifier conflict" }, "422": { description: "Invalid area or polygon" } } },
+    },
+    "/property-areas/{id}": {
+      get: { tags: ["Digital twin"], operationId: "getPropertyArea", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Mapped property area", content: { "application/json": { schema: { type: "object", required: ["area"], properties: { area: { $ref: "#/components/schemas/PropertyArea" } } } } } }, "404": { $ref: "#/components/responses/NotFound" } } },
+      patch: { tags: ["Digital twin"], operationId: "updatePropertyArea", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/PropertyAreaPatch" } } } }, responses: { "200": { description: "Updated mapped area", content: { "application/json": { schema: { type: "object", required: ["area"], properties: { area: { $ref: "#/components/schemas/PropertyArea" } } } } } }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Move is blocked because linked evidence requires its current house scope" }, "422": { description: "Invalid area or polygon" } } },
+      delete: { tags: ["Digital twin"], operationId: "deletePropertyArea", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "204": { description: "Deleted" }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Area is still referenced" } } },
+    },
+    "/area-equipment": {
+      get: { tags: ["Digital twin"], operationId: "listAreaEquipment", parameters: [{ $ref: "#/components/parameters/PropertyIdQuery" }, { $ref: "#/components/parameters/AreaIdQuery" }, { $ref: "#/components/parameters/CollectionLimitQuery" }, { $ref: "#/components/parameters/CollectionOffsetQuery" }], responses: { "200": { description: "Equipment installed in mapped areas", content: { "application/json": { schema: { type: "object", required: ["equipment"], properties: { equipment: { type: "array", items: { $ref: "#/components/schemas/AreaEquipment" } } } } } } } } },
+      post: { tags: ["Digital twin"], operationId: "createAreaEquipment", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/AreaEquipmentInput" } } } }, responses: { "201": { description: "Created equipment", content: { "application/json": { schema: { type: "object", required: ["equipment"], properties: { equipment: { $ref: "#/components/schemas/AreaEquipment" } } } } } }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Identifier or area scope conflict" }, "422": { description: "Invalid equipment" } } },
+    },
+    "/area-equipment/{id}": {
+      get: { tags: ["Digital twin"], operationId: "getAreaEquipment", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Area equipment", content: { "application/json": { schema: { type: "object", required: ["equipment"], properties: { equipment: { $ref: "#/components/schemas/AreaEquipment" } } } } } }, "404": { $ref: "#/components/responses/NotFound" } } },
+      patch: { tags: ["Digital twin"], operationId: "updateAreaEquipment", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/AreaEquipmentPatch" } } } }, responses: { "200": { description: "Updated equipment", content: { "application/json": { schema: { type: "object", required: ["equipment"], properties: { equipment: { $ref: "#/components/schemas/AreaEquipment" } } } } } }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Area scope conflict" }, "422": { description: "Invalid equipment" } } },
+      delete: { tags: ["Digital twin"], operationId: "deleteAreaEquipment", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "204": { description: "Deleted" }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Equipment is still referenced" } } },
+    },
+    "/property-notes": {
+      get: { tags: ["Context"], operationId: "listPropertyNotes", parameters: [{ $ref: "#/components/parameters/PropertyIdQuery" }, { $ref: "#/components/parameters/HouseIdQuery" }, { $ref: "#/components/parameters/AreaIdQuery" }, { $ref: "#/components/parameters/EquipmentIdQuery" }, { $ref: "#/components/parameters/CollectionLimitQuery" }, { $ref: "#/components/parameters/CollectionOffsetQuery" }], responses: { "200": { description: "Property and resource notes", content: { "application/json": { schema: { type: "object", required: ["notes"], properties: { notes: { type: "array", items: { $ref: "#/components/schemas/PropertyNote" } } } } } } } } },
+      post: { tags: ["Context"], operationId: "createPropertyNote", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/PropertyNoteInput" } } } }, responses: { "201": { description: "Created note", content: { "application/json": { schema: { type: "object", required: ["note"], properties: { note: { $ref: "#/components/schemas/PropertyNote" } } } } } }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Target scope conflict" }, "422": { description: "Invalid note or target" } } },
+    },
+    "/property-notes/{id}": {
+      get: { tags: ["Context"], operationId: "getPropertyNote", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Property note", content: { "application/json": { schema: { type: "object", required: ["note"], properties: { note: { $ref: "#/components/schemas/PropertyNote" } } } } } }, "404": { $ref: "#/components/responses/NotFound" } } },
+      patch: { tags: ["Context"], operationId: "updatePropertyNote", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/PropertyNotePatch" } } } }, responses: { "200": { description: "Updated note", content: { "application/json": { schema: { type: "object", required: ["note"], properties: { note: { $ref: "#/components/schemas/PropertyNote" } } } } } }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Target scope conflict" }, "422": { description: "Invalid note or target" } } },
+      delete: { tags: ["Context"], operationId: "deletePropertyNote", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "204": { description: "Deleted" }, "404": { $ref: "#/components/responses/NotFound" } } },
+    },
     "/houses": {
-      get: { tags: ["Digital twin"], operationId: "listHouses", responses: { "200": { description: "Houses", content: { "application/json": { schema: { type: "object", required: ["houses"], properties: { houses: { type: "array", items: { $ref: "#/components/schemas/House" } } } } } } } } },
-      post: { tags: ["Digital twin"], operationId: "createHouse", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/HouseCreate" } } } }, responses: { "201": { description: "Created house", content: { "application/json": { schema: { type: "object", required: ["house"], properties: { house: { $ref: "#/components/schemas/House" } } } } } }, "400": { description: "Malformed house, weather location, map placement, or orientation" }, "422": { description: "A timezone, coordinate, map scale, map footprint floor, location label, or orientation is invalid" } } },
+      get: { tags: ["Digital twin"], operationId: "listHouses", parameters: [{ $ref: "#/components/parameters/PropertyIdQuery" }], responses: { "200": { description: "Houses", content: { "application/json": { schema: { type: "object", required: ["houses"], properties: { houses: { type: "array", items: { $ref: "#/components/schemas/House" } } } } } } } } },
+      post: { tags: ["Digital twin"], operationId: "createHouse", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/HouseCreate" } } } }, responses: { "201": { description: "Created house", content: { "application/json": { schema: { type: "object", required: ["house"], properties: { house: { $ref: "#/components/schemas/House" } } } } } }, "400": { description: "Malformed house, weather location, map placement, or orientation" }, "404": { description: "Selected property does not exist" }, "409": { description: "House identifier already exists" }, "422": { description: "A property selection, timezone, coordinate, map scale, map footprint floor, location label, or orientation is invalid" } } },
     },
     "/houses/{id}": {
       get: { tags: ["Digital twin"], operationId: "getHouse", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "House", content: { "application/json": { schema: { type: "object", required: ["house"], properties: { house: { $ref: "#/components/schemas/House" } } } } } }, "404": { $ref: "#/components/responses/NotFound" } } },
-      patch: { tags: ["Digital twin"], operationId: "updateHouse", description: "Partially updates house metadata, layout, weather location, precise map placement, and/or the floor plan's compass orientation. Set location, mapPlacement, or orientationDegrees to null to clear it. Map placement is independent of weather location and does not invalidate outdoor-temperature history.", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/HousePatch" } } } }, responses: { "200": { description: "Updated house", content: { "application/json": { schema: { type: "object", required: ["house"], properties: { house: { $ref: "#/components/schemas/House" } } } } } }, "400": { description: "Malformed patch, weather location, map placement, or orientation" }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Layout would orphan or exclude an existing sensor" }, "422": { description: "A timezone, coordinate, map scale, map footprint floor, location label, or orientation is invalid" } } },
-      delete: { tags: ["Digital twin"], operationId: "deleteHouse", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "204": { description: "Deleted" } } },
+      patch: { tags: ["Digital twin"], operationId: "updateHouse", description: "Partially updates house metadata, layout, weather location, precise map placement, and/or the floor plan's compass orientation. Set location, mapPlacement, or orientationDegrees to null to clear it. Map placement is independent of weather location and does not invalidate outdoor-temperature history.", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/HousePatch" } } } }, responses: { "200": { description: "Updated house", content: { "application/json": { schema: { type: "object", required: ["house"], properties: { house: { $ref: "#/components/schemas/House" } } } } } }, "400": { description: "Malformed patch, weather location, map placement, or orientation" }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Layout would orphan or exclude an existing sensor, observation, or maintenance task" }, "422": { description: "A timezone, coordinate, map scale, map footprint floor, location label, or orientation is invalid" } } },
+      delete: { tags: ["Digital twin"], operationId: "deleteHouse", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "204": { description: "Deleted" }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "House still owns maintenance tasks or is referenced by a property note" } } },
+    },
+    "/houses/{id}/opening-states": {
+      get: {
+        tags: ["Physics"], operationId: "getOpeningStates",
+        description: "Returns the effective state of every door, window, and vent plus the bounded observation candidates used at the requested time. Stale or unknown contact readings fall back to the configured manual/default state.",
+        parameters: [{ $ref: "#/components/parameters/Id" }, { name: "at", in: "query", schema: { type: "string", format: "date-time" } }],
+        responses: { "200": { description: "Effective opening-state snapshot and observations", content: { "application/json": { schema: { type: "object", required: ["snapshot", "observations"], properties: { snapshot: { $ref: "#/components/schemas/OpeningStateSnapshot" }, observations: { type: "array", items: { $ref: "#/components/schemas/OpeningStateObservation" } } } } } } }, "404": { $ref: "#/components/responses/NotFound" } },
+      },
+      post: {
+        tags: ["Physics"], operationId: "recordOpeningState",
+        description: "Records a manual or generic API opening-state observation. Home Assistant and Tapo provenance is reserved for their authenticated local adapters.",
+        parameters: [{ $ref: "#/components/parameters/Id" }],
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/OpeningStateObservationInput" } } } },
+        responses: { "201": { description: "Recorded observation", content: { "application/json": { schema: { type: "object", required: ["observation"], properties: { observation: { $ref: "#/components/schemas/OpeningStateObservation" } } } } } }, "400": { description: "Invalid state, source, fraction, or validity interval" }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Observation id or configured binding conflict" } },
+      },
+    },
+    "/houses/{id}/electricity-price": {
+      get: {
+        tags: ["Energy"], operationId: "getHouseElectricityPrice", parameters: [{ $ref: "#/components/parameters/Id" }],
+        description: "Returns only the current effective Property price needed by Home consumption and running-cost views. A direct House grant is sufficient; Property contract, endpoint, source identity, and raw upstream price are never included.",
+        responses: {
+          "200": { description: "House-safe current effective electricity price", content: { "application/json": { schema: { type: "object", additionalProperties: false, required: ["current"], properties: { current: { oneOf: [{ $ref: "#/components/schemas/HomeElectricityPricePoint" }, { type: "null" }] } } } } } },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
     },
     "/houses/{id}/weather": {
       get: {
@@ -119,14 +689,14 @@ const combinedOpenApiDocument = {
       put: {
         tags: ["Digital twin"], operationId: "replaceHouseLayout", parameters: [{ $ref: "#/components/parameters/Id" }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["floors"], properties: { floors: { type: "array", items: { $ref: "#/components/schemas/Floor" } } } } } } },
-        responses: { "200": { description: "Updated house", content: { "application/json": { schema: { type: "object", required: ["house"], properties: { house: { $ref: "#/components/schemas/House" } } } } } }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Layout would orphan or exclude an existing sensor" } },
+        responses: { "200": { description: "Updated house", content: { "application/json": { schema: { type: "object", required: ["house"], properties: { house: { $ref: "#/components/schemas/House" } } } } } }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Layout would orphan or exclude an existing sensor, observation, or maintenance task" } },
       },
     },
     "/houses/{id}/floors/{floorId}": {
       put: {
         tags: ["Digital twin"], operationId: "replaceFloor", parameters: [{ $ref: "#/components/parameters/Id" }, { name: "floorId", in: "path", required: true, schema: { type: "string" } }],
         requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/Floor" } } } },
-        responses: { "200": { description: "Updated floor", content: { "application/json": { schema: { $ref: "#/components/schemas/Floor" } } } }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Floor change would orphan or exclude an existing sensor" } },
+        responses: { "200": { description: "Updated floor", content: { "application/json": { schema: { $ref: "#/components/schemas/Floor" } } } }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Floor change would orphan or exclude an existing sensor, observation, or maintenance task" } },
       },
     },
     "/sensors": {
@@ -150,10 +720,10 @@ const combinedOpenApiDocument = {
       },
     },
     "/readings/latest": { get: { tags: ["Telemetry"], operationId: "latestReadings", parameters: [{ $ref: "#/components/parameters/SensorIdsQuery" }], responses: { "200": { description: "Latest reading per sensor", content: { "application/json": { schema: { type: "object", required: ["readings"], properties: { readings: { type: "array", items: { $ref: "#/components/schemas/Reading" } } } } } } } } } },
-    "/history": { get: { tags: ["Telemetry"], operationId: "queryHistory", parameters: [{ $ref: "#/components/parameters/SensorIdsQuery" }, { $ref: "#/components/parameters/FromQuery" }, { $ref: "#/components/parameters/ToQuery" }, { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 50000, default: 20000 } }, { name: "forecastHours", in: "query", schema: { type: "integer", minimum: 0, maximum: 168, default: 0 } }], responses: { "200": { description: "Historical series", content: { "application/json": { schema: { type: "object", required: ["from", "to", "series", "truncated"], properties: { from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" }, series: { type: "array", items: { $ref: "#/components/schemas/HistorySeries" } }, truncated: { type: "boolean" } } } } } } } } },
+    "/history": { get: { tags: ["Telemetry"], operationId: "queryHistory", parameters: [{ $ref: "#/components/parameters/SensorIdsQuery" }, { $ref: "#/components/parameters/FromQuery" }, { $ref: "#/components/parameters/ToQuery" }, { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 50000, default: 20000 } }, { name: "bucketSeconds", in: "query", description: "Optional UTC-aligned arithmetic-mean downsampling for long ranges.", schema: { type: "integer", minimum: 1, maximum: 86400 } }, { name: "forecastHours", in: "query", schema: { type: "integer", minimum: 0, maximum: 168, default: 0 } }], responses: { "200": { description: "Historical raw or bucketed series", content: { "application/json": { schema: { type: "object", required: ["from", "to", "bucketSeconds", "series", "truncated"], properties: { from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" }, bucketSeconds: { type: ["integer", "null"], minimum: 1, maximum: 86400 }, series: { type: "array", items: { $ref: "#/components/schemas/HistorySeries" } }, truncated: { type: "boolean" } } } } } } } } },
     "/forecast": { get: { tags: ["Telemetry"], operationId: "forecast", parameters: [{ $ref: "#/components/parameters/SensorIdsQuery" }, { name: "hours", in: "query", schema: { type: "integer", minimum: 1, maximum: 168, default: 12 } }, { name: "horizonMinutes", in: "query", schema: { type: "integer", minimum: 0, maximum: 10080, default: 0 }, description: "Compatibility horizon; when greater than zero it takes precedence over hours." }], responses: { "200": { description: "Linear baseline forecasts with confidence bands", content: { "application/json": { schema: { type: "object", required: ["generatedAt", "model", "series"], properties: { generatedAt: { type: "string", format: "date-time" }, model: { const: "linear-v1" }, series: { type: "array", items: { type: "object", required: ["sensorId", "forecast"], properties: { sensorId: { type: "string" }, forecast: { type: "array", items: { $ref: "#/components/schemas/ForecastPoint" } } } } }, forecast: { type: "array", items: { $ref: "#/components/schemas/ForecastPoint" } } } } } } } } } },
-    "/stream": { get: { tags: ["Telemetry"], operationId: "streamTelemetry", parameters: [{ $ref: "#/components/parameters/SensorIdsQuery" }], responses: { "200": { description: "Server-sent reading, alert, integration, and heartbeat events", content: { "text/event-stream": {} } } } } },
-    "/events": { get: { tags: ["Telemetry"], operationId: "streamTelemetryCompatibility", parameters: [{ $ref: "#/components/parameters/SensorIdsQuery" }], responses: { "200": { description: "Web-compatible server-sent event stream", content: { "text/event-stream": {} } } } } },
+    "/stream": { get: { tags: ["Telemetry"], operationId: "streamTelemetry", parameters: [{ $ref: "#/components/parameters/SensorIdsQuery" }], responses: { "200": { description: "Server-sent reading, alert, integration, weather, and heartbeat events. Authorization changes emit a final event before closing. Weather snapshots carry a stable SSE id so consumers can deduplicate repeated delivery.", content: { "text/event-stream": {} }, "x-sse-event-schemas": { weather: { $ref: "#/components/schemas/WeatherUpdateEvent" }, authorization: { $ref: "#/components/schemas/StreamAuthorizationEvent" } } } } } },
+    "/events": { get: { tags: ["Telemetry"], operationId: "streamTelemetryCompatibility", parameters: [{ $ref: "#/components/parameters/SensorIdsQuery" }], responses: { "200": { description: "Web-compatible server-sent event stream including provider-neutral weather snapshots and final authorization changes.", content: { "text/event-stream": {} }, "x-sse-event-schemas": { weather: { $ref: "#/components/schemas/WeatherUpdateEvent" }, authorization: { $ref: "#/components/schemas/StreamAuthorizationEvent" } } } } } },
     "/alert-rules": {
       get: { tags: ["Alerts"], operationId: "listAlertRules", responses: { "200": { description: "Rules", content: { "application/json": { schema: { type: "object", required: ["rules"], properties: { rules: { type: "array", items: { $ref: "#/components/schemas/AlertRule" } } } } } } } } },
       post: { tags: ["Alerts"], operationId: "createAlertRule", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/AlertRuleInput" } } } }, responses: { "201": { description: "Created rule", content: { "application/json": { schema: { $ref: "#/components/schemas/AlertRule" } } } } } },
@@ -166,11 +736,181 @@ const combinedOpenApiDocument = {
     "/alert-events/{id}/acknowledge": { post: { tags: ["Alerts"], operationId: "acknowledgeAlert", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Acknowledged alert", content: { "application/json": { schema: { type: "object", required: ["event"], properties: { event: { $ref: "#/components/schemas/AlertEvent" } } } } } } } } },
     "/alerts": { get: { tags: ["Alerts"], operationId: "listAlertsCompatibility", parameters: [{ name: "active", in: "query", schema: { type: "boolean", default: false } }, { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 1000, default: 200 } }], responses: { "200": { description: "Web-compatible alert events", content: { "application/json": { schema: { type: "object", required: ["alerts"], properties: { alerts: { type: "array", items: { $ref: "#/components/schemas/AlertEvent" } } } } } } } } } },
     "/alerts/{id}/acknowledge": { post: { tags: ["Alerts"], operationId: "acknowledgeAlertCompatibility", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Acknowledged alert", content: { "application/json": { schema: { $ref: "#/components/schemas/AlertEvent" } } } } } } },
+    "/properties/{id}/energy-optimization": {
+      get: {
+        tags: ["Energy"], operationId: "getPropertyEnergyOptimization",
+        parameters: [{ $ref: "#/components/parameters/Id" }, { name: "windowHours", in: "query", schema: { type: "integer", minimum: 1, maximum: 12, default: 2 } }],
+        responses: { "200": jsonResponse("Read-only price and consumption optimization report.", { type: "object", additionalProperties: false, required: ["report"], properties: { report: { $ref: "#/components/schemas/EnergyOptimizationReport" } } }), "404": { $ref: "#/components/responses/NotFound" } },
+      },
+    },
+    "/notification-deliveries": {
+      get: {
+        tags: ["Alerts"], operationId: "listNotificationDeliveries",
+        parameters: [{ name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 200 } }],
+        responses: { "200": jsonResponse("Redacted durable notification delivery ledger.", { type: "object", additionalProperties: false, required: ["deliveries"], properties: { deliveries: { type: "array", items: { $ref: "#/components/schemas/NotificationDeliveryStatus" } } } }) },
+      },
+    },
+    "/notification-deliveries/{id}/retry": {
+      post: {
+        tags: ["Alerts"], operationId: "retryNotificationDelivery", parameters: [{ $ref: "#/components/parameters/Id" }],
+        responses: { "200": jsonResponse("Delivery returned to the durable outbox.", { type: "object", additionalProperties: false, required: ["delivery"], properties: { delivery: { $ref: "#/components/schemas/NotificationDeliveryStatus" } } }), "409": { description: "Delivery is not retryable" } },
+      },
+    },
+    "/action-playbooks": {
+      get: {
+        tags: ["Alerts"], operationId: "listActionPlaybooks",
+        parameters: [{ name: "metric", in: "query", schema: { type: "string" } }, { name: "enabled", in: "query", schema: { type: "boolean", default: false } }],
+        responses: { "200": jsonResponse("Reusable evidence-based response playbooks.", { type: "object", additionalProperties: false, required: ["playbooks"], properties: { playbooks: { type: "array", items: { $ref: "#/components/schemas/ActionPlaybook" } } } }) },
+      },
+      post: {
+        tags: ["Alerts"], operationId: "createActionPlaybook", requestBody: jsonRequestBody({ $ref: "#/components/schemas/ActionPlaybookInput" }),
+        responses: { "201": jsonResponse("Created action playbook.", { type: "object", additionalProperties: false, required: ["playbook"], properties: { playbook: { $ref: "#/components/schemas/ActionPlaybook" } } }), "400": { description: "Invalid playbook" } },
+      },
+    },
+    "/action-playbooks/{id}": {
+      patch: {
+        tags: ["Alerts"], operationId: "updateActionPlaybook", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: jsonRequestBody({ $ref: "#/components/schemas/ActionPlaybookPatch" }),
+        responses: { "200": jsonResponse("Updated action playbook.", { type: "object", additionalProperties: false, required: ["playbook"], properties: { playbook: { $ref: "#/components/schemas/ActionPlaybook" } } }), "404": { $ref: "#/components/responses/NotFound" } },
+      },
+    },
+    "/alerts/{id}/action-playbooks": {
+      get: {
+        tags: ["Alerts"], operationId: "listAlertActionPlaybooks", parameters: [{ $ref: "#/components/parameters/Id" }],
+        responses: { "200": jsonResponse("Enabled playbooks matching the alert metric.", { type: "object", additionalProperties: false, required: ["playbooks"], properties: { playbooks: { type: "array", items: { $ref: "#/components/schemas/ActionPlaybook" } } } }), "404": { $ref: "#/components/responses/NotFound" } },
+      },
+    },
+    "/action-runs": {
+      get: {
+        tags: ["Alerts"], operationId: "listActionRuns",
+        parameters: [{ name: "sensorId", in: "query", schema: { type: "string" } }, { name: "alertEventId", in: "query", schema: { type: "string" } }, { name: "active", in: "query", schema: { type: "boolean", default: false } }],
+        responses: { "200": jsonResponse("Durable before-and-after action evidence.", { type: "object", additionalProperties: false, required: ["runs"], properties: { runs: { type: "array", items: { $ref: "#/components/schemas/ActionRun" } } } }) },
+      },
+      post: {
+        tags: ["Alerts"], operationId: "startActionRun", requestBody: jsonRequestBody({ $ref: "#/components/schemas/ActionRunStartInput" }),
+        responses: { "201": jsonResponse("Started action run with a captured baseline.", { type: "object", additionalProperties: false, required: ["run"], properties: { run: { $ref: "#/components/schemas/ActionRun" } } }), "400": { description: "Invalid action run" } },
+      },
+    },
+    "/action-runs/{id}/complete": {
+      post: {
+        tags: ["Alerts"], operationId: "completeActionRun", parameters: [{ $ref: "#/components/parameters/Id" }],
+        responses: { "200": jsonResponse("Action marked complete and automatic verification scheduled.", { type: "object", additionalProperties: false, required: ["run"], properties: { run: { $ref: "#/components/schemas/ActionRun" } } }), "404": { $ref: "#/components/responses/NotFound" } },
+      },
+    },
+    "/action-runs/{id}/cancel": {
+      post: {
+        tags: ["Alerts"], operationId: "cancelActionRun", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: { required: false, content: { "application/json": { schema: { $ref: "#/components/schemas/ActionRunCancelInput" } } } },
+        responses: { "200": jsonResponse("Cancelled action run.", { type: "object", additionalProperties: false, required: ["run"], properties: { run: { $ref: "#/components/schemas/ActionRun" } } }), "404": { $ref: "#/components/responses/NotFound" } },
+      },
+    },
+    "/data-export/preview": {
+      get: {
+        tags: ["Context"], operationId: "previewDataExport", parameters: [{ name: "privacyLevel", in: "query", schema: { enum: ["structure", "operations", "full"], default: "operations" } }, { name: "includeTelemetry", in: "query", schema: { type: "boolean", default: false } }],
+        responses: { "200": jsonResponse("Counts and privacy-sensitive categories included by a prospective export.", { type: "object", additionalProperties: false, required: ["preview"], properties: { preview: { $ref: "#/components/schemas/DataExportPreview" } } }) },
+      },
+    },
+    "/data-export": {
+      get: {
+        tags: ["Context"], operationId: "exportData", parameters: [{ name: "privacyLevel", in: "query", schema: { enum: ["structure", "operations", "full"], default: "operations" } }, { name: "includeTelemetry", in: "query", schema: { type: "boolean", default: false } }],
+        responses: { "200": jsonResponse("Streaming, downloadable local data export.", { $ref: "#/components/schemas/DataExportBundle" }) },
+      },
+    },
+    "/backups/status": {
+      get: { tags: ["Context"], operationId: "getBackupStatus", responses: { "200": jsonResponse("Backup scheduler and restore-drill status.", { type: "object", additionalProperties: false, required: ["backup"], properties: { backup: { $ref: "#/components/schemas/BackupOperationStatus" } } }) } },
+    },
+    "/backups": {
+      post: { tags: ["Context"], operationId: "requestBackup", responses: { "202": jsonResponse("Verified backup requested.", { type: "object", additionalProperties: false, required: ["backup"], properties: { backup: { $ref: "#/components/schemas/BackupOperationStatus" } } }) } },
+    },
+    "/setup/doctor": {
+      get: { tags: ["Integrations"], operationId: "runSetupDoctor", responses: { "200": jsonResponse("Installation readiness report.", { type: "object", additionalProperties: false, required: ["report"], properties: { report: { $ref: "#/components/schemas/SetupDoctorReport" } } }) } },
+    },
+    "/sensors/{id}/label": {
+      get: { tags: ["Digital twin"], operationId: "getSensorLabel", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": jsonResponse("Printable sensor identity label descriptor.", { type: "object", additionalProperties: false, required: ["label"], properties: { label: { $ref: "#/components/schemas/SensorLabelDescriptor" } } }), "404": { $ref: "#/components/responses/NotFound" } } },
+    },
+    "/setup/bulk-sensor-mappings": {
+      post: { tags: ["Integrations"], operationId: "bulkUpdateSensorMappings", requestBody: jsonRequestBody({ $ref: "#/components/schemas/BulkSensorMappingsInput" }), responses: { "200": jsonResponse("All sensor bindings saved atomically.", { type: "object", additionalProperties: false, required: ["sensors"], properties: { sensors: { type: "array", items: { $ref: "#/components/schemas/Sensor" } } } }), "400": { description: "Invalid mapping table" } } },
+    },
     "/observations": {
       get: { tags: ["Context"], operationId: "listObservations", parameters: [{ $ref: "#/components/parameters/HouseIdQuery" }], responses: { "200": { description: "Manual observations", content: { "application/json": { schema: { type: "object", required: ["observations"], properties: { observations: { type: "array", items: { $ref: "#/components/schemas/ManualObservation" } } } } } } } } },
       post: { tags: ["Context"], operationId: "createObservation", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/ObservationInput" } } } }, responses: { "201": { description: "Created observation", content: { "application/json": { schema: { $ref: "#/components/schemas/ManualObservation" } } } } } },
     },
-    "/observations/{id}": { delete: { tags: ["Context"], operationId: "deleteObservation", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "204": { description: "Deleted" } } } },
+    "/observations/{id}": {
+      patch: {
+        tags: ["Context"], operationId: "updateObservation", parameters: [{ $ref: "#/components/parameters/Id" }],
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/ObservationPatch" } } } },
+        responses: {
+          "200": { description: "Updated observation", content: { "application/json": { schema: { $ref: "#/components/schemas/ManualObservation" } } } },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "409": { description: "baseRevision is stale" },
+          "422": { description: "Invalid time, lifecycle, or house/floor/sensor relationship" },
+        },
+      },
+      delete: {
+        tags: ["Context"], operationId: "deleteObservation", parameters: [{ $ref: "#/components/parameters/Id" }],
+        responses: {
+          "204": { description: "Permanently deleted" },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "409": { description: "Observation is linked to maintenance and must be explicitly unlinked first" },
+        },
+      },
+    },
+    "/observations/{id}/revisions": {
+      get: {
+        tags: ["Context"], operationId: "listObservationRevisions", parameters: [{ $ref: "#/components/parameters/Id" }],
+        responses: {
+          "200": { description: "Append-only observation revisions", content: { "application/json": { schema: { type: "object", required: ["revisions"], properties: { revisions: { type: "array", items: { $ref: "#/components/schemas/ObservationRevision" } } } } } } },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+    },
+    "/maintenance-tasks": {
+      get: {
+        tags: ["Context"], operationId: "listMaintenanceTasks",
+        parameters: [{ $ref: "#/components/parameters/PropertyIdQuery" }, { $ref: "#/components/parameters/HouseIdQuery" }, { $ref: "#/components/parameters/AreaIdQuery" }, { $ref: "#/components/parameters/EquipmentIdQuery" }, { $ref: "#/components/parameters/CollectionLimitQuery" }, { $ref: "#/components/parameters/CollectionOffsetQuery" }],
+        responses: { "200": { description: "Property, house, area, or equipment maintenance tasks", content: { "application/json": { schema: { type: "object", required: ["maintenanceTasks"], properties: { maintenanceTasks: { type: "array", items: { $ref: "#/components/schemas/MaintenanceTask" } } } } } } } },
+      },
+      post: {
+        tags: ["Context"], operationId: "createMaintenanceTask",
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/MaintenanceTaskInput" } } } },
+        responses: {
+          "201": { description: "Created maintenance task", content: { "application/json": { schema: { $ref: "#/components/schemas/MaintenanceTask" } } } },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "409": { description: "Maintenance id conflict or linked observation belongs to another house" },
+          "422": { description: "Invalid maintenance schedule or relationship" },
+        },
+      },
+    },
+    "/maintenance-tasks/{id}": {
+      get: {
+        tags: ["Context"], operationId: "getMaintenanceTask", parameters: [{ $ref: "#/components/parameters/Id" }],
+        responses: {
+          "200": { description: "Maintenance task", content: { "application/json": { schema: { $ref: "#/components/schemas/MaintenanceTask" } } } },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+      patch: {
+        tags: ["Context"], operationId: "updateMaintenanceTask", parameters: [{ $ref: "#/components/parameters/Id" }],
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/MaintenanceTaskPatch" } } } },
+        responses: {
+          "200": { description: "Updated maintenance task", content: { "application/json": { schema: { $ref: "#/components/schemas/MaintenanceTask" } } } },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "409": { description: "baseRevision is stale or an evidence link crosses house scope" },
+          "422": { description: "Invalid maintenance schedule or lifecycle transition" },
+        },
+      },
+      delete: {
+        tags: ["Context"], operationId: "deleteMaintenanceTask", parameters: [{ $ref: "#/components/parameters/Id" }],
+        responses: { "204": { description: "Permanently deleted" }, "404": { $ref: "#/components/responses/NotFound" } },
+      },
+    },
+    "/maintenance-tasks/{id}/revisions": {
+      get: {
+        tags: ["Context"], operationId: "listMaintenanceTaskRevisions", parameters: [{ $ref: "#/components/parameters/Id" }],
+        responses: {
+          "200": { description: "Append-only maintenance task revisions", content: { "application/json": { schema: { type: "object", required: ["revisions"], properties: { revisions: { type: "array", items: { $ref: "#/components/schemas/MaintenanceTaskRevision" } } } } } } },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+    },
     "/parameters": {
       get: { tags: ["Context"], operationId: "listStaticParameters", parameters: [{ $ref: "#/components/parameters/HouseIdQuery" }], responses: { "200": { description: "Static parameters", content: { "application/json": { schema: { type: "object", required: ["parameters"], properties: { parameters: { type: "array", items: { $ref: "#/components/schemas/StaticParameter" } } } } } } } } },
       post: { tags: ["Context"], operationId: "upsertStaticParameter", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/StaticParameterInput" } } } }, responses: { "200": { description: "Saved parameter", content: { "application/json": { schema: { type: "object", required: ["parameter"], properties: { parameter: { $ref: "#/components/schemas/StaticParameter" } } } } } } } },
@@ -188,12 +928,104 @@ const combinedOpenApiDocument = {
     "/integrations/status": { get: { tags: ["Integrations"], operationId: "integrationStatus", responses: { "200": { description: "Redacted integration status", content: { "application/json": { schema: { $ref: "#/components/schemas/IntegrationStatus" } } } } } } },
     "/integrations/discover": { post: { tags: ["Integrations"], operationId: "discoverIntegrations", responses: { "200": { description: "Best-effort LAN discovery results for Home Assistant and TP-Link H100/H200 hubs", content: { "application/json": { schema: { $ref: "#/components/schemas/IntegrationDiscoveryResult" } } } } } } },
     "/integrations/home-assistant/config": { put: { tags: ["Integrations"], operationId: "configureHomeAssistant", description: "Write-only server-side credential setup; responses never contain the saved URL or token.", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/HomeAssistantConfigInput" } } } }, responses: { "200": { description: "Credentials saved and connection started", content: { "application/json": { schema: { type: "object", required: ["ok", "configured", "integration"], properties: { ok: { const: true }, configured: { const: true }, integration: { $ref: "#/components/schemas/IntegrationStatus" } } } } } }, "400": { description: "Invalid URL or token" } } } },
+    "/integrations/home-assistant/config/{houseId}": {
+      patch: {
+        tags: ["Integrations"], operationId: "moveHouseHomeAssistant",
+        description: "Moves the saved write-only Home Assistant connection to another House without returning or re-entering credentials. Existing sensor entity mappings remain on the source House.",
+        parameters: [{ name: "houseId", in: "path", required: true, schema: { type: "string", minLength: 1 } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["houseId"], properties: { houseId: { type: "string", minLength: 1 } }, additionalProperties: false } } } },
+        responses: {
+          "200": { description: "Home Assistant connection moved", content: { "application/json": { schema: { type: "object", required: ["ok", "fromHouseId", "houseId", "integration"], properties: { ok: { const: true }, fromHouseId: { type: "string" }, houseId: { type: "string" }, integration: { $ref: "#/components/schemas/IntegrationStatus" } } } } } },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "409": { description: "The target House already has a Home Assistant assignment" },
+        },
+      },
+      delete: { tags: ["Integrations"], operationId: "disconnectHouseHomeAssistant", parameters: [{ name: "houseId", in: "path", required: true, schema: { type: "string", minLength: 1 } }], responses: { "200": { description: "House Home Assistant credentials deleted", content: { "application/json": { schema: { type: "object", required: ["ok", "integration"], properties: { ok: { const: true }, integration: { $ref: "#/components/schemas/IntegrationStatus" } } } } } }, "404": { $ref: "#/components/responses/NotFound" } } },
+    },
     "/integrations/home-assistant/setup": { get: { tags: ["Integrations"], operationId: "homeAssistantSetup", responses: { "200": { description: "Environment and entity-map setup help", content: { "application/json": { schema: { type: "object", required: ["configured", "steps", "entityMapSchema", "notes"], additionalProperties: true } } } } } } },
     "/integrations/home-assistant/test": { post: { tags: ["Integrations"], operationId: "homeAssistantStatusTest", responses: { "200": { description: "Status of the environment-configured bridge", content: { "application/json": { schema: { $ref: "#/components/schemas/IntegrationTestResult" } } } } } } },
-    "/integrations/tp-link/setup": { get: { tags: ["Integrations"], operationId: "tpLinkSetup", responses: { "200": { description: "Direct H100/H200 discovery and sensor-binding setup help", content: { "application/json": { schema: { type: "object", required: ["configured", "supportedHubs", "supportedClimateSensors", "steps", "sensorPatchSchema", "deviceMapSchema", "notes"], additionalProperties: true } } } } } } },
-    "/integrations/tp-link/config": { put: { tags: ["Integrations"], operationId: "configureTpLink", description: "Write-only server-side credential setup; responses never contain account credentials.", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/TpLinkConfigInput" } } } }, responses: { "200": { description: "Credentials saved and connection started", content: { "application/json": { schema: { type: "object", required: ["ok", "configured", "integration"], properties: { ok: { const: true }, configured: { const: true }, integration: { $ref: "#/components/schemas/IntegrationStatus" } } } } } }, "400": { description: "Invalid hub address or credentials" } } } },
-    "/integrations/tp-link/devices": { get: { tags: ["Integrations"], operationId: "listTpLinkDevices", responses: { "200": { description: "Sanitized child devices seen by the local hub bridge", content: { "application/json": { schema: { type: "object", required: ["devices"], properties: { devices: { type: "array", items: { $ref: "#/components/schemas/TpLinkDiscoveredDevice" } } } } } } } } } },
+    "/integrations/home-assistant/test-draft": { post: { tags: ["Integrations"], operationId: "testHomeAssistantDraft", description: "Temporarily verifies draft credentials and streaming permission without saving them or activating real-data mode.", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/HomeAssistantConfigInput" } } } }, responses: { "200": { description: "Non-persisting credential test result", content: { "application/json": { schema: { $ref: "#/components/schemas/IntegrationTestResult" } } } } } } },
+    "/integrations/tp-link/setup": { get: { tags: ["Integrations"], operationId: "tpLinkSetup", responses: { "200": { description: "Direct H100/H200 climate-child and capability-based energy-device setup help", content: { "application/json": { schema: { type: "object", required: ["configured", "supportedHubs", "supportedClimateSensors", "supportedEnergyDevices", "steps", "sensorPatchSchema", "deviceMapSchema", "notes"], additionalProperties: true } } } } } } },
+    "/integrations/tp-link/config": { put: { tags: ["Integrations"], operationId: "configureTpLink", description: "Creates or updates one house-scoped, write-only TP-Link connection; responses never contain account credentials.", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/TpLinkConfigInput" } } } }, responses: { "200": { description: "Credentials saved and house connection started", content: { "application/json": { schema: { type: "object", required: ["ok", "configured", "integration"], properties: { ok: { const: true }, configured: { const: true }, connectionId: { type: "string" }, houseId: { type: "string" }, integration: { $ref: "#/components/schemas/IntegrationStatus" } } } } } }, "400": { description: "Invalid device address or credentials" } } } },
+    "/integrations/tp-link/config/{connectionId}": {
+      patch: {
+        tags: ["Integrations"], operationId: "moveTpLinkConnection",
+        description: "Moves a saved write-only TP-Link connection to another House without returning or re-entering credentials. Direct sensor bindings on the source House are detached while sensor history and placement remain.",
+        parameters: [{ name: "connectionId", in: "path", required: true, schema: { type: "string", minLength: 1 } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["houseId"], properties: { houseId: { type: "string", minLength: 1 } }, additionalProperties: false } } } },
+        responses: {
+          "200": { description: "TP-Link connection moved", content: { "application/json": { schema: { type: "object", required: ["ok", "fromHouseId", "houseId", "detachedSensorIds", "integration"], properties: { ok: { const: true }, fromHouseId: { type: "string" }, houseId: { type: "string" }, detachedSensorIds: { type: "array", items: { type: "string" } }, integration: { $ref: "#/components/schemas/IntegrationStatus" } } } } } },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "409": { description: "The same physical TP-Link endpoint is already assigned to the target House" },
+        },
+      },
+      delete: { tags: ["Integrations"], operationId: "disconnectTpLinkConnection", parameters: [{ name: "connectionId", in: "path", required: true, schema: { type: "string", minLength: 1 } }], responses: { "200": { description: "House TP-Link connection deleted; affected sensors retain history and placement while their direct bindings are detached", content: { "application/json": { schema: { type: "object", required: ["ok", "detachedSensorIds", "integration"], properties: { ok: { const: true }, detachedSensorIds: { type: "array", items: { type: "string" } }, integration: { $ref: "#/components/schemas/IntegrationStatus" } } } } } }, "404": { $ref: "#/components/responses/NotFound" } } },
+    },
+    "/integrations/tp-link/devices": { get: { tags: ["Integrations"], operationId: "listTpLinkDevices", responses: { "200": { description: "Sanitized climate children or direct energy devices seen by the local bridge", content: { "application/json": { schema: { type: "object", required: ["devices"], properties: { devices: { type: "array", items: { $ref: "#/components/schemas/TpLinkDiscoveredDevice" } } } } } } } } } },
     "/integrations/tp-link/test": { post: { tags: ["Integrations"], operationId: "tpLinkStatusTest", responses: { "200": { description: "Status of the direct local TP-Link bridge", content: { "application/json": { schema: { $ref: "#/components/schemas/IntegrationTestResult" } } } } } } },
+    "/integrations/tp-link/test-draft": { post: { tags: ["Integrations"], operationId: "testTpLinkDraft", description: "Runs one isolated helper poll with draft credentials without saving or activating them.", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/TpLinkConfigInput" } } } }, responses: { "200": { description: "Non-persisting credential test result", content: { "application/json": { schema: { $ref: "#/components/schemas/IntegrationTestResult" } } } } } } },
+    "/integrations/telegram/discover": {
+      post: {
+        tags: ["Integrations"], operationId: "discoverTelegramChat",
+        description: "Verifies a write-only bot token and lists only private chats that have already sent the bot a message (normally /start).",
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/TelegramDiscoveryInput" } } } },
+        responses: {
+          "200": { description: "Verified bot and private-chat candidates", content: { "application/json": { schema: { $ref: "#/components/schemas/TelegramDiscoveryResult" } } } },
+          "400": { description: "Invalid token, or Telegram rejected the credentials" },
+          "503": { description: "Telegram is unavailable or rate limiting requests" },
+        },
+      },
+    },
+    "/integrations/telegram/config": {
+      put: {
+        tags: ["Integrations"], operationId: "configureTelegram",
+        description: "Verifies and stores a bot token and one private-chat identifier in the local secrets file. The token is write-only and never returned.",
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/TelegramConfigInput" } } } },
+        responses: {
+          "200": { description: "Telegram delivery configured", content: { "application/json": { schema: { $ref: "#/components/schemas/IntegrationConfigurationResult" } } } },
+          "400": { description: "Invalid credentials, chat identifier, or non-private chat" },
+          "503": { description: "Telegram is unavailable or rate limiting requests" },
+        },
+      },
+      delete: { tags: ["Integrations"], operationId: "disconnectTelegram", description: "Deletes the locally stored Telegram credentials.", responses: { "200": { description: "Telegram credentials deleted", content: { "application/json": { schema: { type: "object", required: ["ok", "integration"], properties: { ok: { const: true }, integration: { $ref: "#/components/schemas/IntegrationStatus" } } } } } } } },
+    },
+    "/integrations/telegram/test": {
+      post: { tags: ["Integrations"], operationId: "testTelegram", description: "Sends a protected test message to the configured private chat.", responses: { "200": { description: "Test message accepted by Telegram", content: { "application/json": { schema: { $ref: "#/components/schemas/IntegrationTestResult" } } } }, "409": { description: "Telegram is not configured" }, "503": { description: "Telegram is unavailable or rate limiting requests" } } },
+    },
+    "/integrations/telegram/setup": {
+      get: { tags: ["Integrations"], operationId: "telegramSetup", responses: { "200": { description: "Guided BotFather, private-chat pairing, security, and alert-rule setup metadata", content: { "application/json": { schema: { $ref: "#/components/schemas/TelegramSetup" } } } } } },
+    },
+    "/integrations/apple-notes/grants": {
+      get: { tags: ["Integrations"], operationId: "listAppleNotesGrants", description: "Lists redacted, house-scoped Shortcut grants. Raw bearer tokens are never returned.", responses: { "200": { description: "Active Apple Notes Shortcut grants", content: { "application/json": { schema: { type: "object", required: ["grants"], properties: { grants: { type: "array", items: { $ref: "#/components/schemas/AppleNotesGrantSummary" } } } } } } } } },
+      post: {
+        tags: ["Integrations"], operationId: "createAppleNotesGrant",
+        description: "Creates a house-scoped Shortcut grant and returns its bearer token exactly once. Only a token hash is persisted.",
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/AppleNotesGrantInput" } } } },
+        responses: { "201": { description: "Created grant with one-time bearer token", content: { "application/json": { schema: { $ref: "#/components/schemas/AppleNotesGrantCreated" } } } }, "404": { description: "House not found" } },
+      },
+    },
+    "/integrations/apple-notes/grants/{id}": {
+      delete: { tags: ["Integrations"], operationId: "revokeAppleNotesGrant", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Grant revoked", content: { "application/json": { schema: { type: "object", required: ["ok", "integration"], properties: { ok: { const: true }, integration: { $ref: "#/components/schemas/IntegrationStatus" } } } } } }, "404": { $ref: "#/components/responses/NotFound" } } },
+    },
+    "/integrations/apple-notes/setup": {
+      get: { tags: ["Integrations"], operationId: "appleNotesSetup", responses: { "200": { description: "Guided iOS Shortcuts bridge recipes, limitations, and endpoint metadata", content: { "application/json": { schema: { $ref: "#/components/schemas/AppleNotesSetup" } } } } } },
+    },
+    "/integrations/apple-notes/snapshot": {
+      get: {
+        tags: ["Integrations"], operationId: "appleNotesSnapshot", security: [{ notesGrant: [] }],
+        description: "Returns a generated, read-only maintenance snapshot for the grant's house. Stuga remains the source of truth.",
+        parameters: [{ name: "houseId", in: "query", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Generated maintenance snapshot", content: { "application/json": { schema: { $ref: "#/components/schemas/AppleNotesSnapshot" } } } }, "401": { description: "Missing or invalid Shortcut grant" }, "403": { description: "Grant is scoped to another house" }, "404": { description: "House not found" } },
+      },
+    },
+    "/integrations/apple-notes/capture": {
+      post: {
+        tags: ["Integrations"], operationId: "captureAppleNotesMaintenance", security: [{ notesGrant: [] }],
+        description: "Creates one maintenance task from a Shortcut command. Retrying an identical operationId is idempotent; reusing it with changed content is a conflict.",
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/AppleNotesMaintenanceCaptureInput" } } } },
+        responses: { "200": { description: "Identical command was already applied", content: { "application/json": { schema: { $ref: "#/components/schemas/AppleNotesMaintenanceCaptureResult" } } } }, "201": { description: "Maintenance task created", content: { "application/json": { schema: { $ref: "#/components/schemas/AppleNotesMaintenanceCaptureResult" } } } }, "401": { description: "Missing or invalid Shortcut grant" }, "403": { description: "Grant is scoped to another house" }, "409": { description: "operationId was reused with different content" }, "422": { description: "Invalid maintenance command" } },
+      },
+    },
     "/mock/scenarios": { get: { tags: ["Testing"], operationId: "listMockScenarios", responses: { "200": { description: "Scenarios", content: { "application/json": { schema: { type: "object", required: ["scenarios", "active", "enabled"], properties: { scenarios: { type: "array", items: { $ref: "#/components/schemas/MockScenario" } }, active: { $ref: "#/components/schemas/MockScenarioId" }, enabled: { type: "boolean" } } } } } } } } },
     "/mock/scenario": {
       put: { tags: ["Testing"], operationId: "selectMockScenario", requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["scenario"], properties: { scenario: { $ref: "#/components/schemas/MockScenarioId" } } } } } }, responses: { "200": { description: "Selected scenario", content: { "application/json": { schema: { type: "object", required: ["active"], properties: { active: { $ref: "#/components/schemas/MockScenarioId" } } } } } } } },
@@ -208,16 +1040,26 @@ const combinedOpenApiDocument = {
   },
   components: {
     securitySchemes: {
+      localSession: { type: "apiKey", in: "cookie", name: "stuga_session", description: "Opaque HttpOnly SameSite=Strict local session cookie." },
+      csrfToken: { type: "apiKey", in: "header", name: "X-CSRF-Token", description: "Session-bound token required together with the session cookie on unsafe methods." },
       ingestKey: { type: "apiKey", in: "header", name: "X-API-Key", description: "Optional, configured by INGEST_API_KEY." },
+      notesGrant: { type: "http", scheme: "bearer", bearerFormat: "opaque", description: "One-time, house-scoped Apple Notes Shortcut grant. The local server stores only its SHA-256 hash." },
     },
     parameters: {
       Id: { name: "id", in: "path", required: true, schema: { type: "string" } },
+      PropertyIdQuery: { name: "propertyId", in: "query", schema: { type: "string", maxLength: 200 }, description: "Optional property scope." },
       HouseIdQuery: { name: "houseId", in: "query", schema: { type: "string" }, description: "Optional house scope." },
+      AreaIdQuery: { name: "areaId", in: "query", schema: { type: "string", maxLength: 200 }, description: "Optional mapped-area scope." },
+      EquipmentIdQuery: { name: "equipmentId", in: "query", schema: { type: "string", maxLength: 200 }, description: "Optional equipment scope." },
+      CollectionLimitQuery: { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 500 }, description: "Maximum resources returned in this page." },
+      CollectionOffsetQuery: { name: "offset", in: "query", schema: { type: "integer", minimum: 0, maximum: 1_000_000, default: 0 }, description: "Zero-based resource offset." },
       SensorIdsQuery: { name: "sensorId", in: "query", style: "form", explode: true, schema: { type: "array", items: { type: "string" } }, description: "Repeat or comma-separate sensor IDs." },
       FromQuery: { name: "from", in: "query", schema: { type: "string", format: "date-time" } },
       ToQuery: { name: "to", in: "query", schema: { type: "string", format: "date-time" } },
     },
     schemas: {
+      ...localAuthSchemas,
+      ...spatialLayerSchemas,
       MeasurementDefinition: {
         type: "object",
         required: ["id", "labels", "unit", "precision", "validMin", "validMax", "displayMin", "displayMax", "interpolationDelta", "colorScale", "builtin", "enabled", "spatialInterpolation", "forecastSupported"],
@@ -263,7 +1105,7 @@ const combinedOpenApiDocument = {
       },
       MeasurementSampleInput: {
         type: "object",
-        description: "Canonical unit, timestamp, source, and quality are optional on ingestion and receive registry/API defaults when omitted.",
+        description: "Canonical unit, timestamp, and quality are optional on ingestion and receive registry/API defaults when omitted. Source provenance is assigned by the server and is not part of the public ingestion contract.",
         required: ["sensorId", "metric", "value"],
         properties: {
           sensorId: { type: "string" },
@@ -271,7 +1113,6 @@ const combinedOpenApiDocument = {
           value: { type: "number" },
           canonicalUnit: { type: "string", description: "Defaults to the registered canonical unit." },
           timestamp: { type: "string", format: "date-time", description: "Defaults to the server time. Live ingestion accepts at most five minutes of positive sender clock skew." },
-          source: { enum: ["mock", "home-assistant", "tp-link", "api", "import", "replay"], default: "api" },
           quality: { enum: ["good", "estimated", "stale"], default: "good" },
         },
       },
@@ -345,6 +1186,53 @@ const combinedOpenApiDocument = {
           y: { type: "number", description: "Depth coordinate in the floor plan's height coordinate system." },
         },
       },
+      OpeningStateBinding: {
+        type: "object",
+        required: ["provider", "externalId"],
+        additionalProperties: false,
+        description: "Provider-neutral contact-state binding. The element's configured state is retained as a safe fallback.",
+        properties: {
+          provider: { type: "string", enum: ["home-assistant", "tapo"] },
+          externalId: { type: "string", minLength: 1, maxLength: 255, description: "Home Assistant entity id or Tapo child-device id." },
+          connectionId: { type: "string", minLength: 1, maxLength: 255 },
+          invert: { type: "boolean", default: false },
+          staleAfterSeconds: { type: "number", minimum: 1, maximum: 2_592_000, default: 900 },
+        },
+      },
+      OpeningStateObservation: {
+        type: "object",
+        required: ["id", "houseId", "floorId", "elementId", "state", "source", "observedAt"],
+        properties: {
+          id: { type: "string" }, houseId: { type: "string" }, floorId: { type: "string" }, elementId: { type: "string" },
+          state: { type: "string", enum: ["open", "closed", "unknown"] },
+          openFraction: { type: "number", minimum: 0, maximum: 1 },
+          source: { type: "string", enum: ["manual", "home-assistant", "tapo", "api"] },
+          observedAt: { type: "string", format: "date-time" }, validUntil: { type: "string", format: "date-time" }, externalId: { type: "string" }, connectionId: { type: "string" },
+        },
+      },
+      OpeningStateObservationInput: {
+        type: "object",
+        required: ["floorId", "elementId", "state"],
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" }, floorId: { type: "string" }, elementId: { type: "string" },
+          state: { type: "string", enum: ["open", "closed", "unknown"] }, openFraction: { type: "number", minimum: 0, maximum: 1 },
+          source: { type: "string", enum: ["manual", "api"], default: "api" },
+          observedAt: { type: "string", format: "date-time" }, validUntil: { type: "string", format: "date-time" }, externalId: { type: "string" },
+        },
+      },
+      OpeningStateSnapshot: {
+        type: "object",
+        required: ["houseId", "at", "states"],
+        properties: {
+          houseId: { type: "string" }, at: { type: "string", format: "date-time" },
+          states: { type: "array", items: { type: "object", required: ["floorId", "elementId", "kind", "state", "openFraction", "source", "assumed"], properties: {
+            floorId: { type: "string" }, elementId: { type: "string" }, kind: { type: "string", enum: ["door", "window", "vent"] }, label: { type: "string" },
+            state: { type: "string", enum: ["open", "closed"] }, openFraction: { type: "number", minimum: 0, maximum: 1 }, source: { type: "string", enum: ["default", "manual", "home-assistant", "tapo", "api"] },
+            observedAt: { type: "string", format: "date-time" }, assumed: { type: "boolean" },
+          } } },
+        },
+      },
       HouseLocation: {
         type: "object",
         description: "House position in the WGS84 latitude/longitude coordinate reference system. This is outdoor-context metadata, separate from floor-local x/y/z coordinates.",
@@ -382,6 +1270,19 @@ const combinedOpenApiDocument = {
           height: { type: "number", exclusiveMinimum: 0 },
           elevation: { type: "number", description: "Absolute floor-plane height in metres in the house vertical coordinate system; sensor z values use the same vertical origin." },
           ceilingHeight: { type: "number", exclusiveMinimum: 0, description: "Clear room height in metres." },
+          wallHeight: { type: "number", exclusiveMinimum: 0, maximum: 20, description: "Exterior wall height above the floor plane in metres; falls back to ceilingHeight when omitted." },
+          roof: {
+            type: "object",
+            description: "Optional roof envelope attached to this level, normally an attic.",
+            required: ["style", "pitchDegrees", "ridgeAxis", "overhang", "eavesHeight"],
+            properties: {
+              style: { type: "string", enum: ["gable", "hip", "shed", "flat"] },
+              pitchDegrees: { type: "number", minimum: 0, maximum: 75 },
+              ridgeAxis: { type: "string", enum: ["x", "y"] },
+              overhang: { type: "number", minimum: 0, description: "Horizontal extension in floor-plan units." },
+              eavesHeight: { type: "number", minimum: 0, description: "Wall height from attic floor to eaves in metres." },
+            },
+          },
           walls: { type: "array", items: { type: "object", required: ["id", "from", "to"], properties: { id: { type: "string" }, from: { $ref: "#/components/schemas/Point" }, to: { $ref: "#/components/schemas/Point" } } } },
           rooms: { type: "array", items: { type: "object", required: ["id", "name", "points"], properties: { id: { type: "string" }, name: { type: "string" }, kind: { type: "string" }, points: { type: "array", minItems: 3, items: { $ref: "#/components/schemas/Point" } } } } },
           planElements: {
@@ -398,8 +1299,15 @@ const combinedOpenApiDocument = {
                     kind: { type: "string", enum: ["door", "window"] },
                     position: { $ref: "#/components/schemas/Point" },
                     rotationDegrees: { type: "number", minimum: 0, exclusiveMaximum: 360 },
-                    width: { type: "number", exclusiveMinimum: 0, description: "When present, the full width must fit within the referenced wall segment." },
-                    wallId: { type: "string", description: "Required wall attachment used for alignment and cascade deletion." },
+                     width: { type: "number", exclusiveMinimum: 0, description: "When present, the full width must fit within the referenced wall segment." },
+                     height: { type: "number", exclusiveMinimum: 0, description: "Physical opening height in metres, used by the 3D representation." },
+                     label: { type: "string", minLength: 1, maxLength: 120 },
+                     wallId: { type: "string", description: "Required wall attachment used for alignment and cascade deletion." },
+                     variant: { type: "string", enum: ["interior", "exterior", "sliding", "double", "open-passage", "fixed", "casement", "tilt-turn"], description: "Kind-specific door or window construction variant." },
+                     state: { type: "string", enum: ["open", "closed"], description: "Manual state and fallback whenever a linked contact sensor is missing, stale, or unknown. Doors and windows default closed." },
+                     openFraction: { type: "number", minimum: 0, maximum: 1, description: "Effective aperture while open." },
+                     bottomOffsetM: { type: "number", minimum: 0, description: "Bottom of the opening above the floor, in metres." },
+                     stateBinding: { $ref: "#/components/schemas/OpeningStateBinding" },
                   },
                 },
                 {
@@ -412,7 +1320,17 @@ const combinedOpenApiDocument = {
                     kind: { type: "string", enum: ["fireplace", "vent"] },
                     position: { $ref: "#/components/schemas/Point" },
                     rotationDegrees: { type: "number", minimum: 0, exclusiveMaximum: 360 },
-                    width: { type: "number", exclusiveMinimum: 0 },
+                     width: { type: "number", exclusiveMinimum: 0 },
+                     height: { type: "number", exclusiveMinimum: 0, description: "Physical fixture height in metres, used by the 3D representation." },
+                     label: { type: "string", minLength: 1, maxLength: 120 },
+                     verticalExtent: { type: "string", enum: ["level", "roof"], description: "A roof-reaching fireplace continues as a chimney through every higher floor." },
+                     chimneyHeightAboveRoof: { type: "number", minimum: 0, maximum: 5, description: "Fireplace chimney projection above the roof in metres; requires verticalExtent roof." },
+                     variant: { type: "string", enum: ["passive", "supply", "extract", "balanced", "transfer"], description: "Vent construction or operating mode; only supported for vents." },
+                     state: { type: "string", enum: ["open", "closed"], description: "Manual state and sensor fallback; passive and mechanical vents default open." },
+                     openFraction: { type: "number", minimum: 0, maximum: 1 },
+                     bottomOffsetM: { type: "number", minimum: 0, description: "Bottom of the vent above the floor, in metres." },
+                     nominalFlowM3h: { type: "number", minimum: 0, maximum: 100_000, description: "Optional design flow in cubic metres per hour." },
+                     stateBinding: { $ref: "#/components/schemas/OpeningStateBinding" },
                   },
                 },
               ],
@@ -421,11 +1339,98 @@ const combinedOpenApiDocument = {
           backgroundImage: { type: "string", description: "Optional trusted raster data URL used by the local floor-plan editor." },
         },
       },
+      AppSession: {
+        type: "object",
+        required: ["authenticated", "principal", "tenant", "availableTenants", "readOnly", "grants"],
+        additionalProperties: false,
+        properties: {
+          authenticated: { type: "boolean" },
+          principal: { type: "object", required: ["type", "email"], properties: { type: { type: "string" }, email: { type: ["string", "null"] } } },
+          tenant: { type: "object", required: ["id", "name", "role"], properties: { id: { type: "string" }, name: { type: "string" }, role: { enum: ["owner", "admin", "member", "guest", "service"] } } },
+          availableTenants: { type: "array", items: { type: "object", required: ["id", "name", "role"], additionalProperties: false, properties: { id: { type: "string" }, name: { type: "string" }, role: { enum: ["owner", "admin", "member", "guest", "service"] } } } },
+          readOnly: { type: "boolean" },
+          grants: { type: "array", maxItems: 100, items: { type: "object", required: ["scopeType", "scopeId"], properties: { scopeType: { enum: ["property", "house", "area"] }, scopeId: { type: "string" } } } },
+          csrfToken: { type: "string", readOnly: true, description: "Present only for authenticated local sessions." },
+          setupRequired: { type: "boolean", readOnly: true },
+        },
+      },
+      GeoCoordinate: {
+        type: "object", required: ["latitude", "longitude"], additionalProperties: false,
+        properties: { latitude: { type: "number", minimum: -90, maximum: 90 }, longitude: { type: "number", minimum: -180, maximum: 180 } },
+      },
+      Property: {
+        type: "object", required: ["id", "name", "description", "location", "createdAt", "updatedAt"], additionalProperties: false,
+        properties: {
+          id: { type: "string" }, name: { type: "string", minLength: 1, maxLength: 200 },
+          description: { type: ["string", "null"], maxLength: 5_000 },
+          location: { oneOf: [{ $ref: "#/components/schemas/HouseLocation" }, { type: "null" }] },
+          createdAt: { type: "string", format: "date-time", readOnly: true }, updatedAt: { type: "string", format: "date-time", readOnly: true },
+        },
+      },
+      PropertyInput: {
+        type: "object", required: ["name"], additionalProperties: false,
+        properties: { id: { type: "string", minLength: 1, maxLength: 200 }, name: { type: "string", minLength: 1, maxLength: 200 }, description: { type: ["string", "null"], maxLength: 5_000 }, location: { oneOf: [{ $ref: "#/components/schemas/HouseLocation" }, { type: "null" }] } },
+      },
+      PropertyPatch: {
+        type: "object", minProperties: 1, additionalProperties: false,
+        properties: { name: { type: "string", minLength: 1, maxLength: 200 }, description: { type: ["string", "null"], maxLength: 5_000 }, location: { oneOf: [{ $ref: "#/components/schemas/HouseLocation" }, { type: "null" }] } },
+      },
+      PropertyAreaKind: { enum: ["well", "beach", "garage", "plantation", "garden", "field", "forest", "shoreline", "dock", "road", "yard", "building", "other"] },
+      PropertyArea: {
+        type: "object", required: ["id", "propertyId", "name", "kind", "description", "polygon", "createdAt", "updatedAt"], additionalProperties: false,
+        properties: {
+          id: { type: "string" }, propertyId: { type: "string" }, name: { type: "string", minLength: 1, maxLength: 200 },
+          kind: { $ref: "#/components/schemas/PropertyAreaKind" }, description: { type: ["string", "null"], maxLength: 5_000 },
+          location: { $ref: "#/components/schemas/GeoCoordinate" },
+          polygon: { type: "array", oneOf: [{ maxItems: 0 }, { minItems: 3, maxItems: 500 }], items: { $ref: "#/components/schemas/GeoCoordinate" } },
+          createdAt: { type: "string", format: "date-time", readOnly: true }, updatedAt: { type: "string", format: "date-time", readOnly: true },
+        },
+      },
+      PropertyAreaInput: {
+        type: "object", required: ["propertyId", "name", "kind", "polygon"], additionalProperties: false,
+        properties: { id: { type: "string", minLength: 1, maxLength: 200 }, propertyId: { type: "string", minLength: 1, maxLength: 200 }, name: { type: "string", minLength: 1, maxLength: 200 }, kind: { $ref: "#/components/schemas/PropertyAreaKind" }, description: { type: ["string", "null"], maxLength: 5_000 }, location: { $ref: "#/components/schemas/GeoCoordinate" }, polygon: { type: "array", oneOf: [{ maxItems: 0 }, { minItems: 3, maxItems: 500 }], items: { $ref: "#/components/schemas/GeoCoordinate" } } },
+      },
+      PropertyAreaPatch: {
+        type: "object", minProperties: 1, additionalProperties: false,
+        properties: { propertyId: { type: "string", minLength: 1, maxLength: 200, description: "Moves the area aggregate, including equipment and scoped context, to this property." }, name: { type: "string", minLength: 1, maxLength: 200 }, kind: { $ref: "#/components/schemas/PropertyAreaKind" }, description: { type: ["string", "null"], maxLength: 5_000 }, location: { oneOf: [{ $ref: "#/components/schemas/GeoCoordinate" }, { type: "null" }] }, polygon: { type: "array", oneOf: [{ maxItems: 0 }, { minItems: 3, maxItems: 500 }], items: { $ref: "#/components/schemas/GeoCoordinate" } } },
+      },
+      AreaEquipment: {
+        type: "object", required: ["id", "propertyId", "areaId", "name", "kind", "manufacturer", "model", "serialNumber", "status", "notes", "createdAt", "updatedAt"], additionalProperties: false,
+        properties: {
+          id: { type: "string" }, propertyId: { type: "string" }, areaId: { type: "string" }, name: { type: "string", minLength: 1, maxLength: 200 }, kind: { type: "string", minLength: 1, maxLength: 200 },
+          manufacturer: { type: ["string", "null"], maxLength: 200 }, model: { type: ["string", "null"], maxLength: 200 }, serialNumber: { type: ["string", "null"], maxLength: 200 },
+          status: { enum: ["active", "out-of-service", "retired"] }, notes: { type: ["string", "null"], maxLength: 5_000 },
+          createdAt: { type: "string", format: "date-time", readOnly: true }, updatedAt: { type: "string", format: "date-time", readOnly: true },
+        },
+      },
+      AreaEquipmentInput: {
+        type: "object", required: ["areaId", "name", "kind"], additionalProperties: false,
+        properties: { id: { type: "string", minLength: 1, maxLength: 200 }, propertyId: { type: "string", minLength: 1, maxLength: 200 }, areaId: { type: "string", minLength: 1, maxLength: 200 }, name: { type: "string", minLength: 1, maxLength: 200 }, kind: { type: "string", minLength: 1, maxLength: 200 }, manufacturer: { type: ["string", "null"], maxLength: 200 }, model: { type: ["string", "null"], maxLength: 200 }, serialNumber: { type: ["string", "null"], maxLength: 200 }, status: { enum: ["active", "out-of-service", "retired"] }, notes: { type: ["string", "null"], maxLength: 5_000 } },
+      },
+      AreaEquipmentPatch: {
+        type: "object", minProperties: 1, additionalProperties: false,
+        properties: { areaId: { type: "string", minLength: 1, maxLength: 200 }, name: { type: "string", minLength: 1, maxLength: 200 }, kind: { type: "string", minLength: 1, maxLength: 200 }, manufacturer: { type: ["string", "null"], maxLength: 200 }, model: { type: ["string", "null"], maxLength: 200 }, serialNumber: { type: ["string", "null"], maxLength: 200 }, status: { enum: ["active", "out-of-service", "retired"] }, notes: { type: ["string", "null"], maxLength: 5_000 } },
+      },
+      PropertyNote: {
+        type: "object", required: ["id", "propertyId", "houseId", "areaId", "equipmentId", "kind", "text", "createdAt", "updatedAt"], additionalProperties: false,
+        properties: { id: { type: "string" }, propertyId: { type: "string" }, houseId: { type: ["string", "null"] }, areaId: { type: ["string", "null"] }, equipmentId: { type: ["string", "null"] }, kind: { enum: ["note", "inspection", "maintenance"] }, text: { type: "string", minLength: 1, maxLength: 5_000 }, createdAt: { type: "string", format: "date-time", readOnly: true }, updatedAt: { type: "string", format: "date-time", readOnly: true } },
+      },
+      PropertyNoteInput: {
+        type: "object", required: ["propertyId", "kind", "text"], additionalProperties: false,
+        description: "A note can target the property itself or at most one house, mapped area, or equipment item.",
+        properties: { id: { type: "string", minLength: 1, maxLength: 200 }, propertyId: { type: "string", minLength: 1, maxLength: 200 }, houseId: { type: ["string", "null"], minLength: 1, maxLength: 200 }, areaId: { type: ["string", "null"], minLength: 1, maxLength: 200 }, equipmentId: { type: ["string", "null"], minLength: 1, maxLength: 200 }, kind: { enum: ["note", "inspection", "maintenance"] }, text: { type: "string", minLength: 1, maxLength: 5_000 } },
+      },
+      PropertyNotePatch: {
+        type: "object", minProperties: 1, additionalProperties: false,
+        description: "Targets remain mutually exclusive; use null to remove a target.",
+        properties: { houseId: { type: ["string", "null"], minLength: 1, maxLength: 200 }, areaId: { type: ["string", "null"], minLength: 1, maxLength: 200 }, equipmentId: { type: ["string", "null"], minLength: 1, maxLength: 200 }, kind: { enum: ["note", "inspection", "maintenance"] }, text: { type: "string", minLength: 1, maxLength: 5_000 } },
+      },
       House: {
         type: "object",
-        required: ["id", "name", "timezone", "floors", "createdAt", "updatedAt"],
+        required: ["id", "propertyId", "name", "timezone", "floors", "createdAt", "updatedAt"],
         properties: {
           id: { type: "string" },
+          propertyId: { type: "string", description: "Managed property containing this house." },
           name: { type: "string" },
           timezone: { type: "string", description: "Timezone used for display and calendar grouping. New writes are validated as IANA time-zone identifiers; reads may expose an invalid historical value until it is corrected. Weather timestamps remain UTC ISO 8601." },
           location: { $ref: "#/components/schemas/HouseLocation" },
@@ -441,6 +1446,7 @@ const combinedOpenApiDocument = {
         required: ["name", "timezone", "floors"],
         properties: {
           id: { type: "string" },
+          propertyId: { type: "string", minLength: 1, description: "Managed property for this home. It may be omitted only when the workspace has zero or one property." },
           name: { type: "string" },
           timezone: { type: "string", maxLength: 100, description: "IANA time-zone identifier validated by the server." },
           location: { $ref: "#/components/schemas/HouseLocation" },
@@ -453,6 +1459,7 @@ const combinedOpenApiDocument = {
         type: "object",
         description: "Partial house update. Use location: null to remove weather metadata and mapPlacement: null to remove precise map placement.",
         properties: {
+          propertyId: { type: "string", minLength: 1, description: "Moves the home and its house-scoped notes and work to this property." },
           name: { type: "string" },
           timezone: { type: "string", maxLength: 100, description: "IANA time-zone identifier validated by the server when changed. An unchanged invalid historical value may be preserved." },
           location: { oneOf: [{ $ref: "#/components/schemas/HouseLocation" }, { type: "null" }] },
@@ -591,6 +1598,19 @@ const combinedOpenApiDocument = {
           componentStatus: { $ref: "#/components/schemas/WeatherComponentStatuses" },
         },
       },
+      WeatherUpdateEvent: {
+        type: "object",
+        description: "Provider-neutral snapshot accepted by the weather event broker after house/location fencing and durable projection. Downstream transports may deliver more than once, so consumers should deduplicate by id.",
+        required: ["id", "type", "houseId", "publishedAt", "trigger", "weather"],
+        properties: {
+          id: { type: "string", pattern: "^weather-[a-f0-9]{64}$" },
+          type: { const: "weather.snapshot" },
+          houseId: { type: "string" },
+          publishedAt: { type: "string", format: "date-time" },
+          trigger: { enum: ["scheduled-refresh", "on-demand"] },
+          weather: { $ref: "#/components/schemas/HouseWeather" },
+        },
+      },
       ThermalModelV1: {
         type: "object",
         description: "Effective first-order lumped model. Its fitted parameters are empirical and must not be interpreted as wall U-values, leakage, or material properties.",
@@ -650,13 +1670,16 @@ const combinedOpenApiDocument = {
       },
       Sensor: {
         type: "object",
-        required: ["id", "houseId", "floorId", "name", "room", "model", "x", "y", "z", "tags", "enabled"],
+        required: ["id", "houseId", "floorId", "name", "roomId", "room", "model", "x", "y", "z", "tags", "enabled"],
         properties: {
           id: { type: "string" }, houseId: { type: "string" }, floorId: { type: "string" },
-          name: { type: "string" }, room: { type: "string" }, model: { type: "string" },
+          name: { type: "string" },
+          roomId: { type: ["string", "null"], description: "Stable room relationship on floorId. Null means the legacy display label is not linked to floor-plan geometry." },
+          room: { type: "string", description: "Backwards-compatible display label, synchronized from the linked room name when roomId is non-null." },
+          model: { type: "string" },
           x: { type: "number" }, y: { type: "number" }, z: { type: "number" },
           temperatureEntityId: { type: "string" }, humidityEntityId: { type: "string" }, batteryEntityId: { type: "string" },
-          tpLinkDeviceId: { type: "string" }, measurementEntityIds: { type: "object", additionalProperties: { type: "string" } },
+          tpLinkDeviceId: { type: "string" }, tpLinkConnectionId: { type: "string" }, measurementEntityIds: { type: "object", additionalProperties: { type: "string" } },
           tags: { type: "array", items: { type: "string" } }, enabled: { type: "boolean" },
         },
       },
@@ -671,13 +1694,16 @@ const combinedOpenApiDocument = {
         required: ["houseId", "floorId", "name", "room", "model", "x", "y", "z"],
         properties: {
           id: { type: "string" }, houseId: { type: "string" }, floorId: { type: "string" },
-          name: { type: "string" }, room: { type: "string" }, model: { type: "string" },
+          name: { type: "string" },
+          roomId: { type: ["string", "null"], description: "Optional stable room id. Omit for legacy exact-name resolution; use null to retain an unlinked room label." },
+          room: { type: "string" }, model: { type: "string" },
           x: { type: "number", minimum: 0, description: "Floor-local position; must be less than or equal to the selected floor width." },
           y: { type: "number", minimum: 0, description: "Floor-local position; must be less than or equal to the selected floor height." },
           z: { type: "number", description: "Unbounded absolute sensor height in metres using the same vertical origin as Floor.elevation; it may be below or above the floor plane." },
           tags: { type: "array", items: { type: "string" } }, enabled: { type: "boolean", default: true },
           temperatureEntityId: { type: "string" }, humidityEntityId: { type: "string" }, batteryEntityId: { type: "string" },
-          tpLinkDeviceId: { oneOf: [{ type: "string" }, { type: "null" }], description: "Stable direct-hub child-device identifier. It must be unique when present." },
+          tpLinkDeviceId: { oneOf: [{ type: "string" }, { type: "null" }], description: "Stable direct-hub child-device identifier. It is unique within its house-scoped connection." },
+          tpLinkConnectionId: { oneOf: [{ type: "string" }, { type: "null" }], description: "House-scoped TP-Link connection that owns the device." },
           measurementEntityIds: { type: "object", additionalProperties: { type: "string" } },
         },
       },
@@ -686,13 +1712,16 @@ const combinedOpenApiDocument = {
         description: "Partial sensor update. A house/floor move and its coordinates are validated together before one atomic update.",
         properties: {
           houseId: { type: "string" }, floorId: { type: "string" },
-          name: { type: "string" }, room: { type: "string" }, model: { type: "string" },
+          name: { type: "string" },
+          roomId: { type: ["string", "null"], description: "Set a stable room relationship or clear it with null. When omitted, a changed legacy room label is resolved by exact name when possible." },
+          room: { type: "string" }, model: { type: "string" },
           x: { type: "number", minimum: 0, description: "Floor-local position; must be less than or equal to the resulting floor width." },
           y: { type: "number", minimum: 0, description: "Floor-local position; must be less than or equal to the resulting floor height." },
           z: { type: "number", description: "Unbounded absolute height in metres; negative and above-floor values are valid." },
           tags: { type: "array", items: { type: "string" } }, enabled: { type: "boolean" },
           temperatureEntityId: { type: "string" }, humidityEntityId: { type: "string" }, batteryEntityId: { type: "string" },
           tpLinkDeviceId: { oneOf: [{ type: "string" }, { type: "null" }], description: "Assign a direct TP-Link child device, or set null to clear the binding." },
+          tpLinkConnectionId: { oneOf: [{ type: "string" }, { type: "null" }], description: "Assign the owning house-scoped TP-Link connection, or set null to clear it." },
           measurementEntityIds: { type: "object", additionalProperties: { type: "string" } },
         },
       },
@@ -705,15 +1734,16 @@ const combinedOpenApiDocument = {
           durationSeconds: { type: "integer", minimum: 1, maximum: 31536000 },
           severity: { enum: ["info", "warning", "critical"] }, enabled: { type: "boolean", default: true },
           webhookEnabled: { type: "boolean", default: false },
+          telegramEnabled: { type: "boolean", default: false },
         },
       },
       AlertRule: {
         type: "object",
-        required: ["id", "name", "sensorId", "metric", "operator", "threshold", "durationSeconds", "severity", "enabled", "webhookEnabled"],
+        required: ["id", "name", "sensorId", "metric", "operator", "threshold", "durationSeconds", "severity", "enabled", "webhookEnabled", "telegramEnabled"],
         properties: {
           id: { type: "string" }, name: { type: "string" }, sensorId: { type: ["string", "null"] }, metric: { type: "string" },
           operator: { enum: ["gt", "gte", "lt", "lte"] }, threshold: { type: "number" }, durationSeconds: { type: "integer", minimum: 1, maximum: 31536000 },
-          severity: { enum: ["info", "warning", "critical"] }, enabled: { type: "boolean" }, webhookEnabled: { type: "boolean" },
+          severity: { enum: ["info", "warning", "critical"] }, enabled: { type: "boolean" }, webhookEnabled: { type: "boolean" }, telegramEnabled: { type: "boolean" },
         },
       },
       AlertRulePatch: {
@@ -722,7 +1752,7 @@ const combinedOpenApiDocument = {
           name: { type: "string" }, sensorId: { type: ["string", "null"] }, metric: { type: "string" },
           operator: { enum: ["gt", "gte", "lt", "lte"] }, threshold: { type: "number" },
           durationSeconds: { type: "integer", minimum: 1, maximum: 31536000 },
-          severity: { enum: ["info", "warning", "critical"] }, enabled: { type: "boolean" }, webhookEnabled: { type: "boolean" },
+          severity: { enum: ["info", "warning", "critical"] }, enabled: { type: "boolean" }, webhookEnabled: { type: "boolean" }, telegramEnabled: { type: "boolean" },
         },
       },
       AlertEvent: {
@@ -738,23 +1768,190 @@ const combinedOpenApiDocument = {
       ObservationInput: {
         type: "object",
         required: ["houseId", "floorId", "kind", "severity", "note"],
+        additionalProperties: false,
         properties: {
           id: { type: "string" }, houseId: { type: "string" }, floorId: { type: "string" }, sensorId: { type: ["string", "null"] },
           kind: { enum: ["leak", "condensation", "mould", "ventilation", "maintenance", "note"] },
           severity: { enum: ["info", "warning", "critical"] }, note: { type: "string" },
           x: { type: ["number", "null"] }, y: { type: ["number", "null"] },
-          occurredAt: { type: "string", format: "date-time", description: "Defaults to the server time." },
+          occurredAt: { type: "string", description: "Observed time. Use RFC3339 for exact/approximate or YYYY-MM-DD for date-only; omit for date-range/unknown." },
+          timePrecision: { enum: ["exact", "approximate", "date-only", "date-range", "unknown"], default: "exact" },
+          validFrom: { type: ["string", "null"], pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+          validTo: { type: ["string", "null"], pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+          source: { enum: ["owner", "caretaker", "contractor", "sensor", "imported-document", "automated-analysis", "unknown"], default: "unknown" },
+          sourceDetail: { type: ["string", "null"] },
+          confidence: { enum: ["confirmed", "probable", "uncertain", "awaiting-inspection"], default: "uncertain" },
+        },
+      },
+      ObservationPatch: {
+        type: "object",
+        required: ["baseRevision"],
+        minProperties: 2,
+        additionalProperties: false,
+        properties: {
+          baseRevision: { type: "integer", minimum: 1 },
+          floorId: { type: "string" }, sensorId: { type: ["string", "null"] },
+          kind: { enum: ["leak", "condensation", "mould", "ventilation", "maintenance", "note"] },
+          severity: { enum: ["info", "warning", "critical"] }, note: { type: "string" },
+          x: { type: ["number", "null"] }, y: { type: ["number", "null"] }, occurredAt: { type: "string" },
+          timePrecision: { enum: ["exact", "approximate", "date-only", "date-range", "unknown"] },
+          validFrom: { type: ["string", "null"], pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+          validTo: { type: ["string", "null"], pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+          source: { enum: ["owner", "caretaker", "contractor", "sensor", "imported-document", "automated-analysis", "unknown"] },
+          sourceDetail: { type: ["string", "null"] },
+          confidence: { enum: ["confirmed", "probable", "uncertain", "awaiting-inspection"] },
+          status: { enum: ["open", "resolved"] },
+          resolutionNote: {
+            type: ["string", "null"],
+            minLength: 1,
+            maxLength: MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH,
+          },
         },
       },
       ManualObservation: {
         type: "object",
-        required: ["id", "houseId", "floorId", "sensorId", "kind", "severity", "note", "x", "y", "occurredAt", "createdAt"],
+        required: ["id", "houseId", "floorId", "sensorId", "kind", "severity", "note", "x", "y", "occurredAt", "createdAt", "timePrecision", "validFrom", "validTo", "source", "sourceDetail", "confidence", "status", "resolutionNote", "resolvedAt", "revision", "updatedAt"],
+        additionalProperties: false,
         properties: {
           id: { type: "string" }, houseId: { type: "string" }, floorId: { type: "string" }, sensorId: { type: ["string", "null"] },
           kind: { enum: ["leak", "condensation", "mould", "ventilation", "maintenance", "note"] },
           severity: { enum: ["info", "warning", "critical"] }, note: { type: "string" },
           x: { type: ["number", "null"] }, y: { type: ["number", "null"] },
-          occurredAt: { type: "string", format: "date-time" }, createdAt: { type: "string", format: "date-time" },
+          occurredAt: { type: "string", description: "Observed time; empty only when timePrecision is unknown." },
+          createdAt: { type: "string", format: "date-time", readOnly: true, description: "Immutable server-recorded time." },
+          timePrecision: { enum: ["exact", "approximate", "date-only", "date-range", "unknown"] },
+          validFrom: { type: ["string", "null"] }, validTo: { type: ["string", "null"] },
+          source: { enum: ["owner", "caretaker", "contractor", "sensor", "imported-document", "automated-analysis", "unknown"] },
+          sourceDetail: { type: ["string", "null"] },
+          confidence: { enum: ["confirmed", "probable", "uncertain", "awaiting-inspection"] },
+          status: { enum: ["open", "resolved"], readOnly: true, description: "Lifecycle state. New observations are always open." },
+          resolutionNote: {
+            type: ["string", "null"],
+            maxLength: MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH,
+            readOnly: true,
+            description: "Required human-readable outcome while resolved.",
+          },
+          resolvedAt: { type: ["string", "null"], format: "date-time", readOnly: true, description: "Server-recorded resolution time; cleared on reopen." },
+          revision: { type: "integer", minimum: 1, readOnly: true },
+          updatedAt: { type: "string", format: "date-time", readOnly: true },
+        },
+      },
+      ObservationRevision: {
+        type: "object",
+        required: ["observationId", "revision", "changedAt", "actor", "changedFields", "snapshot"],
+        additionalProperties: false,
+        properties: {
+          observationId: { type: "string" }, revision: { type: "integer", minimum: 1 },
+          changedAt: { type: "string", format: "date-time" },
+          actor: { enum: ["local-rest", "local-mcp", "local-migration", "workspace-user", "system-service"] },
+          actorId: { type: ["string", "null"] }, actorLabel: { type: ["string", "null"] },
+          changedFields: { type: "array", uniqueItems: true, items: { enum: [
+            "floorId", "sensorId", "kind", "severity", "note", "x", "y", "occurredAt", "timePrecision",
+            "validFrom", "validTo", "source", "sourceDetail", "confidence", "status", "resolutionNote", "resolvedAt",
+          ] } },
+          snapshot: { $ref: "#/components/schemas/ManualObservation" },
+        },
+      },
+      MaintenanceTaskInput: {
+        type: "object",
+        required: ["title", "basis"],
+        anyOf: [
+          { required: ["propertyId"] },
+          { required: ["houseId"], properties: { houseId: { type: "string", minLength: 1, maxLength: 200 } } },
+        ],
+        additionalProperties: false,
+        description: "Create planned maintenance. Supply propertyId for property-only work, or a houseId from which propertyId can be derived. Floors and observation evidence require a house. Lifecycle timestamps and completion fields are server-owned.",
+        properties: {
+          id: { type: "string" },
+          propertyId: { type: "string", minLength: 1, maxLength: 200 },
+          houseId: { type: ["string", "null"], maxLength: 200 },
+          floorId: { type: ["string", "null"], maxLength: 200 },
+          areaId: { type: ["string", "null"], maxLength: 200 },
+          equipmentId: { type: ["string", "null"], maxLength: 200 },
+          title: { type: "string", minLength: 1, maxLength: 200 },
+          description: { type: ["string", "null"], maxLength: 5_000 },
+          basis: { enum: ["required", "scheduled", "condition-based", "predictive", "optional-improvement"] },
+          basisDetail: { type: ["string", "null"], maxLength: 5_000 },
+          priority: { enum: ["low", "normal", "high", "urgent"], default: "normal" },
+          plannedFor: { type: ["string", "null"], format: "date" },
+          dueBy: { type: ["string", "null"], format: "date", description: "Must be absent for predictive tasks." },
+          observationIds: { type: "array", maxItems: 100, default: [], items: { type: "string", minLength: 1, maxLength: 200 } },
+        },
+      },
+      MaintenanceTaskPatch: {
+        type: "object",
+        required: ["baseRevision"],
+        minProperties: 2,
+        additionalProperties: false,
+        description: "Optimistic maintenance edit. Completing requires completionNote; verifying a completed task requires verificationNote. Completion and verification timestamps are assigned by the server.",
+        properties: {
+          baseRevision: { type: "integer", minimum: 1 },
+          houseId: { type: ["string", "null"], maxLength: 200, description: "Reassign within the immutable property, or null for property-only work. Clear floorId and observationIds when removing the house." },
+          floorId: { type: ["string", "null"], maxLength: 200 },
+          areaId: { type: ["string", "null"], maxLength: 200 },
+          equipmentId: { type: ["string", "null"], maxLength: 200 },
+          title: { type: "string", minLength: 1, maxLength: 200 },
+          description: { type: ["string", "null"], maxLength: 5_000 },
+          basis: { enum: ["required", "scheduled", "condition-based", "predictive", "optional-improvement"] },
+          basisDetail: { type: ["string", "null"], maxLength: 5_000 },
+          priority: { enum: ["low", "normal", "high", "urgent"] },
+          plannedFor: { type: ["string", "null"], format: "date" },
+          dueBy: { type: ["string", "null"], format: "date" },
+          observationIds: { type: "array", maxItems: 100, items: { type: "string", minLength: 1, maxLength: 200 } },
+          status: { enum: ["planned", "in-progress", "completed", "verified", "cancelled"] },
+          completionNote: { type: ["string", "null"], maxLength: 5_000 },
+          verificationNote: { type: ["string", "null"], maxLength: 5_000 },
+        },
+      },
+      MaintenanceTask: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "id", "propertyId", "houseId", "floorId", "areaId", "equipmentId", "title", "description", "basis", "basisDetail", "priority",
+          "plannedFor", "dueBy", "observationIds", "status", "completionNote", "completedAt",
+          "verificationNote", "verifiedAt", "revision", "createdAt", "updatedAt",
+        ],
+        properties: {
+          id: { type: "string" },
+          propertyId: { type: "string" },
+          houseId: { type: ["string", "null"] },
+          floorId: { type: ["string", "null"] },
+          areaId: { type: ["string", "null"] },
+          equipmentId: { type: ["string", "null"] },
+          title: { type: "string", minLength: 1, maxLength: 200 },
+          description: { type: ["string", "null"], maxLength: 5_000 },
+          basis: { enum: ["required", "scheduled", "condition-based", "predictive", "optional-improvement"] },
+          basisDetail: { type: ["string", "null"], maxLength: 5_000 },
+          priority: { enum: ["low", "normal", "high", "urgent"] },
+          plannedFor: { type: ["string", "null"], format: "date" },
+          dueBy: { type: ["string", "null"], format: "date" },
+          observationIds: { type: "array", uniqueItems: true, maxItems: 100, items: { type: "string", maxLength: 200 } },
+          status: { enum: ["planned", "in-progress", "completed", "verified", "cancelled"] },
+          completionNote: { type: ["string", "null"], maxLength: 5_000 },
+          completedAt: { type: ["string", "null"], format: "date-time", readOnly: true },
+          verificationNote: { type: ["string", "null"], maxLength: 5_000 },
+          verifiedAt: { type: ["string", "null"], format: "date-time", readOnly: true },
+          revision: { type: "integer", minimum: 1, readOnly: true },
+          createdAt: { type: "string", format: "date-time", readOnly: true },
+          updatedAt: { type: "string", format: "date-time", readOnly: true },
+        },
+      },
+      MaintenanceTaskRevision: {
+        type: "object",
+        additionalProperties: false,
+        required: ["maintenanceTaskId", "revision", "changedAt", "actor", "changedFields", "snapshot"],
+        properties: {
+          maintenanceTaskId: { type: "string" },
+          revision: { type: "integer", minimum: 1 },
+          changedAt: { type: "string", format: "date-time" },
+          actor: { enum: ["local-rest", "local-mcp", "local-migration", "workspace-user", "system-service"] },
+          actorId: { type: ["string", "null"] },
+          actorLabel: { type: ["string", "null"] },
+          changedFields: { type: "array", uniqueItems: true, items: { enum: [
+            "propertyId", "houseId", "floorId", "areaId", "equipmentId", "title", "description", "basis", "basisDetail", "priority", "plannedFor", "dueBy",
+            "observationIds", "status", "completionNote", "completedAt", "verificationNote", "verifiedAt",
+          ] } },
+          snapshot: { $ref: "#/components/schemas/MaintenanceTask" },
         },
       },
       StaticParameterInput: {
@@ -794,10 +1991,88 @@ const combinedOpenApiDocument = {
           kind: { enum: ["floor-plan", "model-3d", "other"] }, size: { type: "integer", minimum: 0 }, createdAt: { type: "string", format: "date-time" },
         },
       },
+      TelegramDiscoveryInput: {
+        type: "object", additionalProperties: false, required: ["botToken"],
+        properties: { botToken: { type: "string", minLength: 20, maxLength: 256, writeOnly: true, description: "BotFather token used for this one discovery request; it is not persisted." } },
+      },
+      TelegramConfigInput: {
+        type: "object", additionalProperties: false, required: ["botToken", "chatId"],
+        properties: {
+          botToken: { type: "string", minLength: 20, maxLength: 256, writeOnly: true },
+          chatId: { type: "string", pattern: "^-?[0-9]+$", description: "Immutable Telegram private-chat identifier serialized as text." },
+        },
+      },
+      TelegramChatCandidate: {
+        type: "object", additionalProperties: false, required: ["id", "label", "username", "type"],
+        properties: { id: { type: "string", pattern: "^-?[0-9]+$" }, label: { type: "string" }, username: { type: ["string", "null"] }, type: { const: "private" } },
+      },
+      TelegramDiscoveryResult: {
+        type: "object", additionalProperties: false, required: ["botUsername", "chats", "message"],
+        properties: { botUsername: { type: "string" }, chats: { type: "array", items: { $ref: "#/components/schemas/TelegramChatCandidate" } }, message: { type: "string" } },
+      },
+      IntegrationConfigurationResult: {
+        type: "object", additionalProperties: false, required: ["ok", "configured", "integration"],
+        properties: { ok: { const: true }, configured: { const: true }, integration: { $ref: "#/components/schemas/IntegrationStatus" } },
+      },
+      TelegramSetup: {
+        type: "object", additionalProperties: true,
+        description: "Server-authored setup metadata. The web wizard presents BotFather creation, /start pairing, private-chat selection, local secret storage, testing, and per-rule activation in order.",
+        required: ["available", "configured", "privateChatsOnly", "steps", "privacy", "limitations"],
+        properties: { available: { type: "boolean" }, configured: { type: "boolean" }, privateChatsOnly: { const: true }, steps: { type: "array", items: { type: "string" } }, privacy: { type: "array", items: { type: "string" } }, limitations: { type: "array", items: { type: "string" } } },
+      },
+      AppleNotesGrantInput: {
+        type: "object", additionalProperties: false, required: ["deviceLabel", "houseId"],
+        properties: { deviceLabel: { type: "string", minLength: 1, maxLength: 100 }, houseId: { type: "string", minLength: 1, maxLength: 200 } },
+      },
+      AppleNotesGrantSummary: {
+        type: "object", additionalProperties: false, required: ["id", "deviceLabel", "houseId", "createdAt"],
+        properties: { id: { type: "string" }, deviceLabel: { type: "string" }, houseId: { type: "string" }, createdAt: { type: "string", format: "date-time" } },
+      },
+      AppleNotesGrantCreated: {
+        type: "object", additionalProperties: false, required: ["id", "deviceLabel", "houseId", "createdAt", "token", "integration"],
+        properties: {
+          id: { type: "string" }, deviceLabel: { type: "string" }, houseId: { type: "string" }, createdAt: { type: "string", format: "date-time" },
+          token: { type: "string", minLength: 32, readOnly: true, description: "Returned exactly once at grant creation. Store only inside the iOS Shortcut." },
+          integration: { $ref: "#/components/schemas/IntegrationStatus" },
+        },
+      },
+      AppleNotesSetup: {
+        type: "object", additionalProperties: true,
+        description: "Server-authored recipes for a generated Notes snapshot and a Share Sheet maintenance capture Shortcut. Apple Notes has no supported general server sync API, so the system database remains canonical.",
+        required: ["available", "snapshotPath", "capturePath", "steps", "limitations"],
+        properties: {
+          available: { type: "boolean" }, snapshotPath: { type: "string" }, capturePath: { type: "string" },
+          steps: { type: "array", items: { type: "string" } }, limitations: { type: "array", items: { type: "string" } },
+        },
+      },
+      AppleNotesSnapshot: {
+        type: "object", additionalProperties: false, required: ["schema", "generatedAt", "houseId", "title", "text", "maintenanceTasks"],
+        properties: {
+          schema: { const: "stuga.apple-notes-snapshot/v1" }, generatedAt: { type: "string", format: "date-time" }, houseId: { type: "string" },
+          title: { type: "string" }, text: { type: "string" }, maintenanceTasks: { type: "array", items: { $ref: "#/components/schemas/MaintenanceTask" } },
+        },
+      },
+      AppleNotesMaintenanceCaptureInput: {
+        type: "object", additionalProperties: false,
+        required: ["schema", "operationId", "houseId", "title", "basis"],
+        properties: {
+          schema: { const: "stuga.apple-notes-command/v1" }, operationId: { type: "string", format: "uuid" }, id: { type: "string" },
+          houseId: { type: "string" }, floorId: { type: ["string", "null"], maxLength: 200 }, title: { type: "string", minLength: 1, maxLength: 200 },
+          description: { type: ["string", "null"], maxLength: 5_000 }, basis: { enum: ["required", "scheduled", "condition-based", "predictive", "optional-improvement"] },
+          basisDetail: { type: ["string", "null"], maxLength: 5_000 }, priority: { enum: ["low", "normal", "high", "urgent"], default: "normal" },
+          plannedFor: { type: ["string", "null"], format: "date" }, dueBy: { type: ["string", "null"], format: "date" },
+          observationIds: { type: "array", maxItems: 100, default: [], items: { type: "string", minLength: 1, maxLength: 200 } },
+        },
+      },
+      AppleNotesMaintenanceCaptureResult: {
+        type: "object", additionalProperties: false, required: ["ok", "deduplicated", "task", "receipt"],
+        properties: { ok: { const: true }, deduplicated: { type: "boolean" }, task: { $ref: "#/components/schemas/MaintenanceTask" }, receipt: { type: "string" } },
+      },
       HomeAssistantConfigInput: {
         type: "object",
         required: ["url", "token"],
         properties: {
+          houseId: { type: "string", minLength: 1, description: "House which owns this Home Assistant connection." },
           url: { type: "string", format: "uri", maxLength: 2048, description: "HTTP(S) Home Assistant address without embedded credentials." },
           token: { type: "string", minLength: 1, maxLength: 8192, writeOnly: true },
         },
@@ -806,20 +2081,42 @@ const combinedOpenApiDocument = {
         type: "object",
         required: ["host", "username", "password"],
         properties: {
+          houseId: { type: "string", minLength: 1, description: "House which owns this TP-Link connection." },
+          connectionId: { type: "string", minLength: 1, description: "Existing connection to update; omitted when adding another hub or socket." },
           host: { type: "string", minLength: 1, maxLength: 253 },
           username: { type: "string", minLength: 1, maxLength: 320, writeOnly: true },
           password: { type: "string", minLength: 1, maxLength: 4096, writeOnly: true },
         },
       },
+      PropertyElectricityConfigInput: {
+        type: "object",
+        required: ["provider", "endpointUrl", "enabled", "marginCentsPerKwh", "contractType"],
+        properties: {
+          provider: { enum: ["porssisahko", "custom"] }, endpointUrl: { type: "string", format: "uri" }, enabled: { type: "boolean" },
+          marginCentsPerKwh: { type: "number" }, contractType: { enum: ["spot", "fixed", "other"] },
+          contractName: { type: ["string", "null"] }, retailer: { type: ["string", "null"] }, monthlyFeeEur: { type: ["number", "null"], minimum: 0 },
+        },
+      },
+      HomeElectricityPricePoint: {
+        type: "object", additionalProperties: false,
+        required: ["startAt", "endAt", "effectivePriceCentsPerKwh", "effectivePriceEurPerKwh", "fetchedAt"],
+        properties: {
+          startAt: { type: "string", format: "date-time" }, endAt: { type: "string", format: "date-time" },
+          effectivePriceCentsPerKwh: { type: "number" }, effectivePriceEurPerKwh: { type: "number" },
+          fetchedAt: { type: "string", format: "date-time" },
+        },
+      },
       IntegrationStatus: {
         type: "object",
-        required: ["homeAssistant", "tpLink", "webhook", "mock", "weather"],
+        required: ["homeAssistant", "tpLink", "webhook", "telegram", "appleNotes", "mock", "weather"],
         properties: {
-          homeAssistant: { type: "object", required: ["configured", "connected", "lastEventAt", "mappedEntities", "error"], properties: { configured: { type: "boolean" }, connected: { type: "boolean" }, lastEventAt: { type: ["string", "null"], format: "date-time" }, mappedEntities: { type: "integer" }, error: { type: ["string", "null"] } } },
-          tpLink: { type: "object", required: ["configured", "connected", "lastPollAt", "mappedDevices", "discoveredDevices", "hubModel", "error"], properties: { configured: { type: "boolean" }, connected: { type: "boolean" }, lastPollAt: { type: ["string", "null"], format: "date-time" }, mappedDevices: { type: "integer" }, discoveredDevices: { type: "integer" }, hubModel: { enum: ["H100", "H200", null] }, error: { type: ["string", "null"] } } },
+          homeAssistant: { type: "object", required: ["configured", "connected", "lastEventAt", "mappedEntities", "error"], properties: { configured: { type: "boolean" }, connected: { type: "boolean" }, lastEventAt: { type: ["string", "null"], format: "date-time" }, mappedEntities: { type: "integer" }, error: { type: ["string", "null"] }, connections: { type: "array", items: { type: "object", required: ["houseId", "configured", "connected", "lastEventAt", "mappedEntities", "error"], properties: { houseId: { type: "string" }, configured: { type: "boolean" }, connected: { type: "boolean" }, lastEventAt: { type: ["string", "null"], format: "date-time" }, mappedEntities: { type: "integer" }, error: { type: ["string", "null"] } } } } } },
+          tpLink: { type: "object", required: ["configured", "connected", "lastPollAt", "mappedDevices", "discoveredDevices", "hubModel", "error"], properties: { configured: { type: "boolean" }, connected: { type: "boolean" }, lastPollAt: { type: ["string", "null"], format: "date-time" }, mappedDevices: { type: "integer" }, discoveredDevices: { type: "integer" }, hubModel: { enum: ["H100", "H200", null] }, error: { type: ["string", "null"] }, connections: { type: "array", items: { type: "object", additionalProperties: true } } } },
           webhook: { type: "object", required: ["configured", "lastDeliveryAt", "error"], properties: { configured: { type: "boolean" }, lastDeliveryAt: { type: ["string", "null"], format: "date-time" }, error: { type: ["string", "null"] } } },
+          telegram: { type: "object", required: ["available", "configured", "connected", "botUsername", "chatLabel", "lastDeliveryAt", "error"], properties: { available: { type: "boolean" }, configured: { type: "boolean" }, connected: { type: "boolean" }, botUsername: { type: ["string", "null"] }, chatLabel: { type: ["string", "null"] }, lastDeliveryAt: { type: ["string", "null"], format: "date-time" }, error: { type: ["string", "null"] } } },
+          appleNotes: { type: "object", required: ["available", "configured", "grantCount", "lastSyncAt", "error"], properties: { available: { type: "boolean" }, configured: { type: "boolean" }, grantCount: { type: "integer", minimum: 0 }, lastSyncAt: { type: ["string", "null"], format: "date-time" }, error: { type: ["string", "null"] } } },
           mock: { type: "object", required: ["enabled", "intervalMs", "mode", "activatedAt"], properties: { enabled: { type: "boolean" }, intervalMs: { type: "integer" }, mode: { enum: ["demo", "real"] }, activatedAt: { type: ["string", "null"], format: "date-time" } } },
-          weather: { type: "object", required: ["provider", "configuredHouses", "lastSuccessAt", "error"], properties: { policy: { enum: ["automatic", "fmi", "open-meteo"] }, availableProviders: { type: "array", items: { enum: ["fmi", "open-meteo"] } }, provider: { enum: ["fmi", "open-meteo"] }, configuredHouses: { type: "integer" }, lastSuccessAt: { type: ["string", "null"], format: "date-time" }, error: { type: ["string", "null"] } } },
+          weather: { type: "object", required: ["provider", "configuredHouses", "lastSuccessAt", "error"], properties: { policy: { enum: ["automatic", "fmi", "open-meteo"] }, availableProviders: { type: "array", items: { enum: ["fmi", "open-meteo"] } }, provider: { enum: ["fmi", "open-meteo"] }, configuredHouses: { type: "integer" }, lastSuccessAt: { type: ["string", "null"], format: "date-time" }, error: { type: ["string", "null"] }, connections: { type: "array", items: { type: "object", additionalProperties: false, required: ["houseId", "configured", "provider", "lastSuccessAt", "error"], properties: { houseId: { type: "string" }, configured: { type: "boolean" }, provider: { enum: ["fmi", "open-meteo"] }, lastSuccessAt: { type: ["string", "null"], format: "date-time" }, error: { type: ["string", "null"] } } } } } },
         },
       },
       IntegrationDiscoveryResult: {
@@ -831,7 +2128,7 @@ const combinedOpenApiDocument = {
           warnings: { type: "array", items: { type: "string" } },
         },
       },
-      IntegrationTestResult: { type: "object", required: ["ok", "message"], properties: { ok: { type: "boolean" }, message: { type: "string" } } },
+      IntegrationTestResult: { type: "object", required: ["ok", "message"], properties: { ok: { type: "boolean" }, connected: { type: "boolean" }, message: { type: "string" }, details: { type: "object", additionalProperties: true } } },
       MockScenarioId: { type: "string", enum: ["normal", "shower", "leak", "cold-front", "heating-failure"] },
       MockScenario: {
         type: "object",
@@ -847,6 +2144,85 @@ const combinedOpenApiDocument = {
           speed: { type: "number", minimum: 0.1, maximum: 10000, default: 60 },
         },
       },
+      EnergyOptimizationReport: {
+        type: "object", additionalProperties: false,
+        required: ["propertyId", "generatedAt", "priceCoverageFrom", "priceCoverageUntil", "averagePriceCentsPerKwh", "currentPriceCentsPerKwh", "currentPricePercentile", "suggestedWindows", "recentDailyConsumptionKwh", "estimatedDailyCostEur", "baselinePowerWatts", "peakPowerWatts", "insights", "limitations"],
+        properties: {
+          propertyId: { type: "string" }, generatedAt: { type: "string", format: "date-time" },
+          priceCoverageFrom: { type: ["string", "null"], format: "date-time" }, priceCoverageUntil: { type: ["string", "null"], format: "date-time" },
+          averagePriceCentsPerKwh: { type: ["number", "null"] }, currentPriceCentsPerKwh: { type: ["number", "null"] }, currentPricePercentile: { type: ["number", "null"] },
+          suggestedWindows: { type: "array", items: { type: "object", additionalProperties: false, required: ["startAt", "endAt", "averagePriceCentsPerKwh", "relativeToAveragePercent", "rank"], properties: { startAt: { type: "string", format: "date-time" }, endAt: { type: "string", format: "date-time" }, averagePriceCentsPerKwh: { type: "number" }, relativeToAveragePercent: { type: "number" }, rank: { enum: ["best", "good", "expensive"] } } } },
+          recentDailyConsumptionKwh: { type: ["number", "null"] }, estimatedDailyCostEur: { type: ["number", "null"] }, baselinePowerWatts: { type: ["number", "null"] }, peakPowerWatts: { type: ["number", "null"] },
+          insights: { type: "array", items: { type: "object", additionalProperties: false, required: ["id", "severity", "title", "explanation", "estimatedSavingsEur"], properties: { id: { type: "string" }, severity: { enum: ["info", "opportunity", "warning"] }, title: { type: "string" }, explanation: { type: "string" }, estimatedSavingsEur: { type: ["number", "null"] } } } },
+          limitations: { type: "array", items: { type: "string" } },
+        },
+      },
+      NotificationDeliveryStatus: {
+        type: "object", additionalProperties: false,
+        required: ["id", "subjectKind", "subjectId", "stage", "sequence", "channel", "destinationId", "attempts", "availableAt", "createdAt", "deliveredAt", "deadLetteredAt", "abandonedAt", "lastError"],
+        properties: {
+          id: { type: "string" }, subjectKind: { enum: ["alert", "maintenance", "action-run"] }, subjectId: { type: "string" },
+          stage: { enum: ["initial", "escalation", "reminder", "due", "verification"] }, sequence: { type: "integer", minimum: 0 }, channel: { enum: ["webhook", "telegram"] }, destinationId: { type: "string" }, attempts: { type: "integer", minimum: 0 },
+          availableAt: { type: "string", format: "date-time" }, createdAt: { type: "string", format: "date-time" }, deliveredAt: { type: ["string", "null"], format: "date-time" }, deadLetteredAt: { type: ["string", "null"], format: "date-time" }, abandonedAt: { type: ["string", "null"], format: "date-time" }, lastError: { type: ["string", "null"] },
+        },
+      },
+      ActionPlaybook: {
+        type: "object", additionalProperties: false,
+        required: ["id", "name", "description", "instructions", "metric", "goal", "minimumImprovement", "targetValue", "waitSeconds", "verificationWindowSeconds", "enabled", "builtIn", "createdAt", "updatedAt"],
+        properties: {
+          id: { type: "string" }, name: { type: "string", maxLength: 160 }, description: { type: "string", maxLength: 2_000 }, instructions: { type: "array", minItems: 1, maxItems: 20, items: { type: "string", maxLength: 500 } }, metric: { type: "string" }, goal: { enum: ["decrease", "increase", "below", "above"] }, minimumImprovement: { type: "number" }, targetValue: { type: ["number", "null"] }, waitSeconds: { type: "number", minimum: 0 }, verificationWindowSeconds: { type: "number", minimum: 0 }, enabled: { type: "boolean" }, builtIn: { type: "boolean", readOnly: true }, createdAt: { type: "string", format: "date-time", readOnly: true }, updatedAt: { type: "string", format: "date-time", readOnly: true },
+        },
+      },
+      ActionPlaybookInput: {
+        type: "object", additionalProperties: false,
+        required: ["name", "description", "instructions", "metric", "goal", "minimumImprovement", "waitSeconds", "verificationWindowSeconds"],
+        properties: {
+          id: { type: "string" }, name: { type: "string", minLength: 1, maxLength: 160 }, description: { type: "string", minLength: 1, maxLength: 2_000 }, instructions: { type: "array", minItems: 1, maxItems: 20, items: { type: "string", minLength: 1, maxLength: 500 } }, metric: { type: "string", minLength: 1 }, goal: { enum: ["decrease", "increase", "below", "above"] }, minimumImprovement: { type: "number" }, targetValue: { type: ["number", "null"] }, waitSeconds: { type: "number", minimum: 0 }, verificationWindowSeconds: { type: "number", minimum: 0 }, enabled: { type: "boolean" },
+        },
+      },
+      ActionPlaybookPatch: {
+        type: "object", additionalProperties: false,
+        properties: {
+          id: { type: "string" }, name: { type: "string", minLength: 1, maxLength: 160 }, description: { type: "string", minLength: 1, maxLength: 2_000 }, instructions: { type: "array", minItems: 1, maxItems: 20, items: { type: "string", minLength: 1, maxLength: 500 } }, metric: { type: "string", minLength: 1 }, goal: { enum: ["decrease", "increase", "below", "above"] }, minimumImprovement: { type: "number" }, targetValue: { type: ["number", "null"] }, waitSeconds: { type: "number", minimum: 0 }, verificationWindowSeconds: { type: "number", minimum: 0 }, enabled: { type: "boolean" },
+        },
+      },
+      ActionRun: {
+        type: "object", additionalProperties: false,
+        required: ["id", "playbookId", "alertEventId", "maintenanceTaskId", "sensorId", "metric", "status", "startedAt", "actionCompletedAt", "verifyAfter", "verificationDeadline", "baselineValue", "baselineTimestamp", "resultValue", "resultTimestamp", "improvement", "sampleCount", "operatorNote", "verificationNote", "createdAt", "updatedAt"],
+        properties: {
+          id: { type: "string" }, playbookId: { type: "string" }, alertEventId: { type: ["string", "null"] }, maintenanceTaskId: { type: ["string", "null"] }, sensorId: { type: "string" }, metric: { type: "string" }, status: { enum: ["active", "waiting", "verified", "not-improved", "cancelled"] },
+          startedAt: { type: "string", format: "date-time" }, actionCompletedAt: { type: ["string", "null"], format: "date-time" }, verifyAfter: { type: ["string", "null"], format: "date-time" }, verificationDeadline: { type: ["string", "null"], format: "date-time" }, baselineValue: { type: "number" }, baselineTimestamp: { type: "string", format: "date-time" }, resultValue: { type: ["number", "null"] }, resultTimestamp: { type: ["string", "null"], format: "date-time" }, improvement: { type: ["number", "null"] }, sampleCount: { type: "integer", minimum: 0 }, operatorNote: { type: ["string", "null"] }, verificationNote: { type: ["string", "null"] }, createdAt: { type: "string", format: "date-time" }, updatedAt: { type: "string", format: "date-time" },
+        },
+      },
+      ActionRunStartInput: {
+        type: "object", additionalProperties: false, required: ["playbookId", "sensorId"],
+        properties: { playbookId: { type: "string", minLength: 1 }, sensorId: { type: "string", minLength: 1 }, alertEventId: { type: ["string", "null"] }, maintenanceTaskId: { type: ["string", "null"] }, operatorNote: { type: ["string", "null"] } },
+      },
+      ActionRunCancelInput: { type: "object", additionalProperties: false, properties: { note: { type: ["string", "null"] } } },
+      DataExportPreview: {
+        type: "object", additionalProperties: false, required: ["schemaVersion", "generatedAt", "privacyLevel", "includesTelemetry", "counts", "sensitiveCategories", "estimatedTelemetryRows"],
+        properties: { schemaVersion: { const: "stuga.export/v1" }, generatedAt: { type: "string", format: "date-time" }, privacyLevel: { enum: ["structure", "operations", "full"] }, includesTelemetry: { type: "boolean" }, counts: { type: "object", additionalProperties: { type: "integer", minimum: 0 } }, sensitiveCategories: { type: "array", items: { type: "string" } }, estimatedTelemetryRows: { type: "integer", minimum: 0 } },
+      },
+      DataExportBundle: {
+        type: "object", required: ["schemaVersion", "generatedAt", "privacyLevel", "includesTelemetry", "privacyPreview", "data"],
+        properties: { schemaVersion: { const: "stuga.export/v1" }, generatedAt: { type: "string", format: "date-time" }, privacyLevel: { enum: ["structure", "operations", "full"] }, includesTelemetry: { type: "boolean" }, privacyPreview: { $ref: "#/components/schemas/DataExportPreview" }, data: { type: "object", additionalProperties: true }, telemetry: { type: "object", additionalProperties: { type: "array", items: { type: "object", additionalProperties: true } } } },
+      },
+      BackupOperationStatus: {
+        type: "object", additionalProperties: false, required: ["available", "schedulerHealthy", "requestId", "state", "requestedAt", "completedAt", "backupPath", "lastError", "latestVerifiedBackupAt", "latestRestoreDrillAt"],
+        properties: { available: { type: "boolean" }, schedulerHealthy: { type: "boolean" }, requestId: { type: ["string", "null"] }, state: { enum: ["idle", "requested", "running", "complete", "failed"] }, requestedAt: { type: ["string", "null"], format: "date-time" }, completedAt: { type: ["string", "null"], format: "date-time" }, backupPath: { type: ["string", "null"] }, lastError: { type: ["string", "null"] }, latestVerifiedBackupAt: { type: ["string", "null"], format: "date-time" }, latestRestoreDrillAt: { type: ["string", "null"], format: "date-time" } },
+      },
+      SetupDoctorReport: {
+        type: "object", additionalProperties: false, required: ["generatedAt", "overall", "checks"],
+        properties: { generatedAt: { type: "string", format: "date-time" }, overall: { enum: ["ready", "attention", "blocked"] }, checks: { type: "array", items: { type: "object", additionalProperties: false, required: ["id", "category", "status", "title", "detail", "action"], properties: { id: { type: "string" }, category: { enum: ["storage", "telemetry", "integration", "sensors", "notifications", "recovery", "security"] }, status: { enum: ["pass", "warning", "fail", "not-applicable"] }, title: { type: "string" }, detail: { type: "string" }, action: { type: ["string", "null"] } } } } },
+      },
+      SensorLabelDescriptor: {
+        type: "object", additionalProperties: false, required: ["sensorId", "sensorName", "houseName", "roomName", "setupUri"],
+        properties: { sensorId: { type: "string" }, sensorName: { type: "string" }, houseName: { type: "string" }, roomName: { type: ["string", "null"] }, setupUri: { type: "string", format: "uri" } },
+      },
+      BulkSensorMappingsInput: {
+        type: "object", additionalProperties: false, required: ["houseId", "mappings"],
+        properties: { houseId: { type: "string", minLength: 1 }, mappings: { type: "array", items: { type: "object", additionalProperties: false, required: ["sensorId", "measurementEntityIds"], properties: { sensorId: { type: "string", minLength: 1 }, measurementEntityIds: { type: "object", additionalProperties: { type: "string" } } } } } },
+      },
       ReplayState: {
         type: "object",
         required: ["active", "count", "emitted", "speed", "from", "to"],
@@ -859,6 +2235,8 @@ const combinedOpenApiDocument = {
         type: "object",
         required: ["deviceId", "model", "alias", "status", "temperature", "humidity", "battery", "lastSeenAt", "mappedSensorId"],
         properties: {
+          houseId: { type: "string" },
+          connectionId: { type: "string" },
           deviceId: { type: "string" },
           model: { type: "string" },
           alias: { oneOf: [{ type: "string" }, { type: "null" }] },
@@ -866,6 +2244,9 @@ const combinedOpenApiDocument = {
           temperature: { oneOf: [{ type: "number" }, { type: "null" }], description: "Temperature normalized to degrees Celsius." },
           humidity: { oneOf: [{ type: "number" }, { type: "null" }] },
           battery: { oneOf: [{ type: "number" }, { type: "null" }] },
+          contactOpen: { oneOf: [{ type: "boolean" }, { type: "null" }], description: "Contact state reported by devices such as Tapo T110." },
+          power: { oneOf: [{ type: "number" }, { type: "null" }], description: "Instantaneous active power in W when the device exposes python-kasa's Energy module." },
+          energy: { oneOf: [{ type: "number" }, { type: "null" }], description: "Cumulative device energy in kWh when consumption_total is available; currently total since reboot." },
           lastSeenAt: { type: "string", format: "date-time" },
           mappedSensorId: { oneOf: [{ type: "string" }, { type: "null" }] },
         },
@@ -884,6 +2265,7 @@ const V2_PATHS = new Set([
   "/measurements/import",
   "/measurements/snapshot",
   "/measurements/history",
+  "/sensors/{id}/measurements",
   "/measurements/events",
   "/measurements/forecast",
 ]);

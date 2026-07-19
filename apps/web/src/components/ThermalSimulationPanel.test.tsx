@@ -24,7 +24,7 @@ import {
 function result(status: "ready" | "provisional" | "insufficient-data" = "provisional"): ThermalSimulationResult {
   return {
     generatedAt: "2026-07-14T12:00:00.000Z",
-    systemVersion: "0.2.0",
+    systemVersion: "0.3.0",
     houseId: "house-main",
     sensorId: "sensor-01",
     roomLabel: "Living room",
@@ -82,11 +82,16 @@ describe("ThermalSimulationPanel", () => {
     const state = createDemoState();
     render(<I18nProvider><ThermalSimulationPanel houseId="house-main" sensor={state.sensors[0]!} range="24h" units="metric" timeZone="Europe/Helsinki" /></I18nProvider>);
 
-    expect(screen.getByText("Observed")).not.toBeNull();
-    expect(screen.getByText("Simulated")).not.toBeNull();
-    expect(screen.getByText("Empirical model band")).not.toBeNull();
-    expect(screen.getByText("Residual (observed − simulated)")).not.toBeNull();
-    expect(screen.getByRole("img", { name: /separate signed residual plot/i })).not.toBeNull();
+    expect(screen.getAllByText("Observed").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Simulated").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Empirical model band").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Residual (observed − simulated)").length).toBeGreaterThan(0);
+    const chart = screen.getByRole("img", { name: /separate signed residual plot/i });
+    expect(chart.getAttribute("aria-describedby")).toBeTruthy();
+    expect(screen.getByText(/Simulated: 19\.8 °C/i, { selector: ".sr-only" })).not.toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
+    fireEvent.click(screen.getByText("Show exact data", { selector: "summary" }));
+    expect(screen.getByRole("table", { name: /separate signed residual plot/i })).not.toBeNull();
   });
 
   it("uses delta-only Fahrenheit conversion and retains the residual sign", () => {

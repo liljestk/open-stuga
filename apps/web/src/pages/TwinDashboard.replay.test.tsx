@@ -1,21 +1,22 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ClimateState } from "../domain";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
-import { TwinDashboard } from "./TwinDashboard";
+import { observationTimeFields, TwinDashboard } from "./TwinDashboard";
 
-function renderDashboard(state: ClimateState) {
+function renderDashboard(state: ClimateState, dataMode: "demo" | "real" | "unknown" = "demo", readOnly = false, viewMode: "plan" | "isometric" = "plan") {
   const house = state.houses[0]!;
   const floor = house.floors[0]!;
   const sensor = state.sensors.find((item) => item.houseId === house.id && item.enabled)!;
   const props = {
     house, floor, houseId: house.id, floorId: floor.id,
-    metric: "temperature" as const, units: "metric" as const, viewMode: "plan" as const,
-    selectedSensorId: sensor.id, saveState: "idle" as const, scenario: "normal" as const,
+    metric: "temperature" as const, units: "metric" as const, viewMode,
+    selectedSensorId: sensor.id, saveState: "idle" as const, scenario: "normal" as const, dataMode, readOnly,
     onHouse: vi.fn(), onFloor: vi.fn(), onMetric: vi.fn(), onViewMode: vi.fn(),
     onSensorSelect: vi.fn(), onSensorMove: vi.fn(), onSensorUpdate: vi.fn(),
     onFloorChange: vi.fn(), onSaveLayout: vi.fn(), onLoadSeries: vi.fn(), onRunScenario: vi.fn(),
+    onOpenSensors: vi.fn(),
     onCreateObservation: vi.fn().mockResolvedValue(state.observations[0]!),
     onCreateStaticParameter: vi.fn().mockResolvedValue(state.staticParameters[0]!),
   };
@@ -23,16 +24,148 @@ function renderDashboard(state: ClimateState) {
   return {
     ...view,
     sensor,
+    onFloor: props.onFloor,
+    onMetric: props.onMetric,
+    onSensorSelect: props.onSensorSelect,
+    onLoadSeries: props.onLoadSeries,
     onFloorChange: props.onFloorChange,
     onSensorUpdate: props.onSensorUpdate,
+    onCreateObservation: props.onCreateObservation,
+    onOpenSensors: props.onOpenSensors,
     rerenderState(nextState: ClimateState) {
       view.rerender(<I18nProvider><TwinDashboard state={nextState} {...props} /></I18nProvider>);
+    },
+    rerenderHouse(nextState: ClimateState, nextHouseId: string) {
+      const nextHouse = nextState.houses.find((candidate) => candidate.id === nextHouseId)!;
+      const nextFloor = nextHouse.floors[0]!;
+      view.rerender(<I18nProvider><TwinDashboard
+        state={nextState}
+        {...props}
+        house={nextHouse}
+        floor={nextFloor}
+        houseId={nextHouse.id}
+        floorId={nextFloor.id}
+      /></I18nProvider>);
     },
   };
 }
 
+describe("TwinDashboard full-page home view", () => {
+  it.each([
+    ["plan", "Plan"],
+    ["isometric", "3D building"],
+  ] as const)("expands and exits the %s view", (viewMode, activeViewLabel) => {
+    renderDashboard(createDemoState(), "demo", false, viewMode);
+    expect(screen.getByRole("button", { name: activeViewLabel }).getAttribute("aria-pressed")).toBe("true");
+
+    const enterButton = screen.getByRole("button", { name: "View full page" });
+    const panel = enterButton.closest(".twin-panel");
+    fireEvent.click(enterButton);
+
+    expect(panel?.classList.contains("is-full-page")).toBe(true);
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(screen.getByRole("button", { name: "Exit full page" }).getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(panel?.classList.contains("is-full-page")).toBe(false);
+    expect(document.body.style.overflow).toBe("");
+    expect(screen.getByRole("button", { name: "View full page" }).getAttribute("aria-pressed")).toBe("false");
+  });
+});
+
+describe("observation time conversion", () => {
+  it("converts property-local times across ordinary offsets and rejects gaps and exact folds", () => {
+    expect(observationTimeFields("exact", "2026-07-15T12:00", "", "", "", "Europe/Helsinki"))
+      .toMatchObject({ occurredAt: "2026-07-15T09:00:00.000Z" });
+    expect(observationTimeFields("exact", "2026-07-15T12:00", "", "", "", "America/New_York"))
+      .toMatchObject({ occurredAt: "2026-07-15T16:00:00.000Z" });
+    expect(observationTimeFields("exact", "2026-03-29T03:30", "", "", "", "Europe/Helsinki")).toBeNull();
+    expect(observationTimeFields("approximate", "2026-03-29T03:30", "", "", "", "Europe/Helsinki")).toBeNull();
+    expect(observationTimeFields("exact", "2026-10-25T03:30", "", "", "", "Europe/Helsinki")).toBeNull();
+    expect(observationTimeFields("approximate", "2026-10-25T03:30", "", "", "", "Europe/Helsinki")?.occurredAt)
+      .toMatch(/^2026-10-25T0[01]:30:00\.000Z$/);
+  });
+});
+
+describe("TwinDashboard observation capture", () => {
+  it("preserves a date range, source, confidence, and conservative defaults in the saved payload", async () => {
+    const view = renderDashboard(createDemoState());
+    fireEvent.click(screen.getByText("Open history and tools"));
+    expect(screen.getByRole("heading", { name: "Test scenario" })).not.toBeNull();
+
+    const precision = screen.getByLabelText("Time precision");
+    expect(within(precision).getByRole("option", { name: "Exact time" })).not.toBeNull();
+    expect(within(precision).getByRole("option", { name: "Approximate time" })).not.toBeNull();
+    expect(within(precision).getByRole("option", { name: "Date only" })).not.toBeNull();
+    expect(within(precision).getByRole("option", { name: "Date range" })).not.toBeNull();
+    expect(within(precision).getByRole("option", { name: "Unknown time" })).not.toBeNull();
+    expect((screen.getByLabelText("Source") as HTMLSelectElement).value).toBe("unknown");
+    expect((screen.getByLabelText("Confidence") as HTMLSelectElement).value).toBe("uncertain");
+
+    fireEvent.change(precision, { target: { value: "date-range" } });
+    fireEvent.change(screen.getByLabelText("Valid from"), { target: { value: "2026-01-01" } });
+    fireEvent.change(screen.getByLabelText("Valid to"), { target: { value: "2026-01-31" } });
+    fireEvent.change(screen.getByLabelText("Source"), { target: { value: "contractor" } });
+    fireEvent.change(screen.getByLabelText("Confidence"), { target: { value: "awaiting-inspection" } });
+    fireEvent.change(screen.getByLabelText("Source details"), { target: { value: "Roof inspection report" } });
+    fireEvent.change(screen.getByLabelText("Note"), { target: { value: "Roof remained wet" } });
+    fireEvent.click(screen.getByRole("button", { name: "Log observation" }));
+
+    const map = screen.getByRole("group", { name: /Temperature map for/i });
+    fireEvent.keyDown(map, { key: "Enter" });
+    await waitFor(() => expect(view.onCreateObservation).toHaveBeenCalledOnce());
+    const payload = view.onCreateObservation.mock.calls[0]![0];
+    expect(payload).toMatchObject({
+      timePrecision: "date-range",
+      validFrom: "2026-01-01",
+      validTo: "2026-01-31",
+      source: "contractor",
+      sourceDetail: "Roof inspection report",
+      confidence: "awaiting-inspection",
+      note: "Roof remained wet",
+    });
+    expect(payload).not.toHaveProperty("occurredAt");
+  });
+
+  it("hides scenario controls while the data environment is unconfirmed", () => {
+    renderDashboard(createDemoState(), "unknown");
+    fireEvent.click(screen.getByText("Open history and tools"));
+    expect(screen.queryByRole("heading", { name: "Test scenario" })).toBeNull();
+  });
+
+  it("resets house-local wall time and cancels placement when the house changes", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-15T12:00:00.000Z"));
+    try {
+      const demo = createDemoState();
+      const helsinki = demo.houses[0]!;
+      const newYork = {
+        ...helsinki,
+        id: "house-new-york",
+        name: "New York house",
+        timezone: "America/New_York",
+        floors: helsinki.floors.map((floor) => ({ ...floor, id: `ny-${floor.id}` })),
+      };
+      const state = { ...demo, houses: [helsinki, newYork] };
+      const view = renderDashboard(state);
+      const localTime = view.container.querySelector<HTMLInputElement>('input[type="datetime-local"]')!;
+      expect(localTime.value).toBe("2026-07-15T15:00");
+
+      fireEvent.submit(view.container.querySelector(".observation-form")!);
+      expect((view.container.querySelector(".observation-fields") as HTMLFieldSetElement).disabled).toBe(true);
+      view.rerenderHouse(state, newYork.id);
+
+      expect(view.container.querySelector<HTMLInputElement>('input[type="datetime-local"]')!.value).toBe("2026-07-15T08:00");
+      expect((view.container.querySelector(".observation-fields") as HTMLFieldSetElement).disabled).toBe(false);
+      expect(view.onCreateObservation).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("TwinDashboard room geometry", () => {
-  it("keeps room geometry edits separate from sensor room assignments", () => {
+  it("keeps room geometry edits separate and protects assigned rooms from removal", () => {
     const state = createDemoState();
     const floor = state.houses[0]!.floors[0]!;
     const room = floor.rooms.find((candidate) => state.sensors.some((sensor) => sensor.floorId === floor.id && sensor.room === candidate.name))!;
@@ -49,23 +182,139 @@ describe("TwinDashboard room geometry", () => {
     expect(view.onSensorUpdate).not.toHaveBeenCalled();
 
     const changesBeforeDelete = view.onFloorChange.mock.calls.length;
-    fireEvent.click(screen.getByRole("button", { name: "Delete room" }));
-    expect(view.onFloorChange.mock.calls.length).toBeGreaterThan(changesBeforeDelete);
+    fireEvent.click(screen.getByText("Editor options", { selector: "summary" }));
+    const deleteRoom = screen.getByRole("button", { name: "Delete room" });
+    expect((deleteRoom as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(deleteRoom);
+    expect(view.onFloorChange.mock.calls.length).toBe(changesBeforeDelete);
     expect(view.onSensorUpdate).not.toHaveBeenCalled();
   });
 });
 
+describe("TwinDashboard progressive disclosure", () => {
+  it("keeps Guest dashboards observational", () => {
+    renderDashboard(createDemoState(), "demo", true);
+    expect(screen.queryByRole("button", { name: "Edit layout" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Finish setup" })).toBeNull();
+
+    fireEvent.click(screen.getByText("Open history and tools"));
+    expect(screen.queryByRole("heading", { name: "Test scenario" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Log observation" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add context" })).toBeNull();
+  });
+
+  it("leads with Home Pulse and keeps optional Home utilities closed", () => {
+    const view = renderDashboard(createDemoState());
+    const decisionLayer = view.container.querySelector(".decision-layer")!;
+    const liveView = view.container.querySelector(".twin-panel")!;
+    const secondary = view.container.querySelector(".home-secondary-grid")!;
+
+    expect(decisionLayer.compareDocumentPosition(liveView) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(liveView.compareDocumentPosition(secondary) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+
+    const observation = view.container.querySelector<HTMLDetailsElement>(".observation-composer.collapsible");
+    const operations = view.container.querySelector<HTMLDetailsElement>(".home-operations-disclosure")!;
+    expect(observation).toBeNull();
+    expect(operations.open).toBe(false);
+    expect(within(operations).queryByRole("button", { name: "View all activity" })).toBeNull();
+
+    fireEvent.click(within(operations).getByText("Activity and maintenance overview", { selector: "strong" }));
+    expect(operations.open).toBe(true);
+    expect(within(operations).getByRole("heading", { name: "Recent activity" })).not.toBeNull();
+    expect(within(operations).getByRole("heading", { name: "Upcoming maintenance" })).not.toBeNull();
+  });
+
+  it("keeps no-data recovery in Home Pulse and removes duplicate home-level controls", () => {
+    const demo = createDemoState();
+    const state: ClimateState = { ...demo, latestMeasurements: {}, measurementHistory: {}, alerts: [] };
+    const view = renderDashboard(state);
+
+    expect(screen.getByRole("region", { name: "A few things need attention" })).toBeTruthy();
+    expect(view.container.querySelector(".moisture-coach")).toBeNull();
+    expect(view.container.querySelector(".home-status-zone")).toBeNull();
+    expect(view.container.querySelector(".room-comfort-section")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Finish setup" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
+    expect(view.onOpenSensors).toHaveBeenCalledWith(demo.houses[0]!.id);
+
+    expect(screen.queryByLabelText("House")).toBeNull();
+    expect(screen.getByLabelText("Floor")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Manage homes" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Edit layout" })).toHaveLength(1);
+  });
+
+  it("labels the alert-only summary independently from the broader Home Pulse", () => {
+    const view = renderDashboard(createDemoState());
+    expect(view.container.querySelector('[data-summary-scope="threshold-alerts"] small')?.textContent).toBe("Open events");
+  });
+});
+
 describe("TwinDashboard replay timing", () => {
+  it("preloads climate history and seeks a detected event in its metric, floor, and sensor context", async () => {
+    const demo = createDemoState();
+    const selectedSensor = demo.sensors.find((sensor) => sensor.id === "sensor-living")!;
+    const eventSensor = demo.sensors.find((sensor) => sensor.id === "sensor-bathroom")!;
+    const temperatureSeed = demo.measurementHistory[selectedSensor.id]!.temperature![0]!;
+    const humiditySeed = demo.measurementHistory[eventSensor.id]!.humidity![0]!;
+    const fiveMinutes = 5 * 60_000;
+    const origin = Math.floor((Date.now() - 2 * 60 * 60_000) / fiveMinutes) * fiveMinutes;
+    const plateau = (seed: typeof humiditySeed, fromMinute: number, toMinute: number, value: number) => (
+      Array.from({ length: (toMinute - fromMinute) / 5 + 1 }, (_, index) => ({
+        ...seed,
+        timestamp: new Date(origin + (fromMinute + index * 5) * 60_000).toISOString(),
+        value,
+      }))
+    );
+    const eventTimestamp = origin + 45 * 60_000;
+    const state: ClimateState = {
+      ...demo,
+      measurementHistory: {
+        [selectedSensor.id]: { temperature: plateau(temperatureSeed, 0, 100, 21) },
+        [eventSensor.id]: {
+          humidity: [
+            ...plateau(humiditySeed, 0, 40, 66),
+            ...plateau(humiditySeed, 45, 100, 52),
+          ],
+        },
+      },
+    };
+    const view = renderDashboard(state);
+    view.onLoadSeries.mockClear();
+
+    fireEvent.click(screen.getByText("Open history and tools"));
+    const expectedClimateLoads = demo.sensors
+      .filter((sensor) => sensor.houseId === demo.houses[0]!.id && sensor.enabled)
+      .flatMap((sensor) => ["temperature", "humidity"].map((metric) => `${sensor.id}:${metric}`));
+    await waitFor(() => {
+      const loaded = new Set(view.onLoadSeries.mock.calls.map(([sensorId, metric]) => `${sensorId}:${metric}`));
+      expect([...loaded]).toEqual(expect.arrayContaining(expectedClimateLoads));
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Humidity fell 14 percentage points in Bathroom/ }));
+
+    await waitFor(() => expect(Number((screen.getByRole("slider", { name: "Replay time" }) as HTMLInputElement).value)).toBe(eventTimestamp));
+    expect(view.onMetric).toHaveBeenLastCalledWith("humidity");
+    expect(view.onFloor).toHaveBeenLastCalledWith(eventSensor.floorId);
+    expect(view.onSensorSelect).toHaveBeenLastCalledWith(eventSensor.id);
+    expect(screen.getByRole("button", { name: /Humidity fell 14 percentage points in Bathroom/ }).getAttribute("aria-current")).toBe("time");
+  });
+
   it("starts first play at the beginning and advances at the selected minutes-per-second rate", () => {
     vi.useFakeTimers();
     const view = renderDashboard(createDemoState());
     try {
-      const slider = screen.getByRole("slider", { name: /Replay time/ }) as HTMLInputElement;
+      fireEvent.click(screen.getByText("Open history and tools"));
+      const tools = view.container.querySelector(".home-tools-disclosure")!;
+      let slider = screen.getByRole("slider", { name: /Replay time/ }) as HTMLInputElement;
+      expect(tools.contains(screen.getByRole("region", { name: "Replay" }))).toBe(true);
       const minimum = Number(slider.min);
       expect(Number(slider.value)).toBe(Number(slider.max));
 
       fireEvent.click(screen.getByRole("button", { name: "Play replay" }));
+      slider = screen.getByRole("slider", { name: /Replay time/ }) as HTMLInputElement;
       expect(screen.getByRole("button", { name: "Pause replay" })).not.toBeNull();
+      expect(screen.getByRole("button", { name: "Return to live" })).not.toBeNull();
+      expect(tools.contains(screen.getByRole("region", { name: "Replay" }))).toBe(false);
       expect(Number(slider.value)).toBe(minimum);
 
       act(() => vi.advanceTimersByTime(1_000));
@@ -88,8 +337,10 @@ describe("TwinDashboard replay timing", () => {
     const emptyState: ClimateState = { ...demo, measurementHistory: {} };
     const view = renderDashboard(emptyState);
     try {
-      const slider = screen.getByRole("slider", { name: /Replay time/ }) as HTMLInputElement;
+      fireEvent.click(screen.getByText("Open history and tools"));
+      let slider = screen.getByRole("slider", { name: /Replay time/ }) as HTMLInputElement;
       fireEvent.click(screen.getByRole("button", { name: "Play replay" }));
+      slider = screen.getByRole("slider", { name: /Replay time/ }) as HTMLInputElement;
       const pendingTimestamp = Number(slider.value);
 
       expect(screen.getByRole("button", { name: "Play replay" })).not.toBeNull();

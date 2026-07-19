@@ -13,6 +13,7 @@ import {
 
 const house: House = {
   id: "house-1",
+  propertyId: "property-1",
   name: "House",
   timezone: "Europe/Helsinki",
   location: { latitude: 60.17, longitude: 24.94 },

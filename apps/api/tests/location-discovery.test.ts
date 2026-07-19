@@ -69,7 +69,7 @@ describe("location discovery", () => {
       await request(runtime.app).get("/api/v1/locations/search?q=x").expect(400);
       expect(fetchImpl).toHaveBeenCalledTimes(2);
     } finally {
-      runtime.close();
+      await runtime.close();
     }
   });
 });

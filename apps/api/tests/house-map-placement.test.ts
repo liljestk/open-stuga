@@ -41,8 +41,8 @@ describe("house map placement", () => {
     runtime = createApi({ config: { ...config }, startBackground: false });
   });
 
-  afterEach(() => {
-    runtime.close();
+  afterEach(async () => {
+    await runtime.close();
   });
 
   it("round-trips independent precise placement through create, read, update, and clear", async () => {

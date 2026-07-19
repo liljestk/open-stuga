@@ -1,8 +1,15 @@
 import type { AppPage } from "./domain";
 
-export interface AppRoute {
-  page: AppPage;
+export interface RouteScope {
+  propertyId: string | null;
   houseId: string | null;
+}
+
+export interface AppRoute extends RouteScope {
+  page: AppPage;
+  /** The URL parsed successfully, but should be replaced by its canonical scoped URL. */
+  legacy?: boolean;
+  notFound?: boolean;
 }
 
 function decoded(value: string | undefined): string | null {
@@ -14,50 +21,112 @@ function decoded(value: string | undefined): string | null {
   }
 }
 
+const setupSectionPattern = "overview|homes|layout|connections|weather|automations";
+
 /**
- * Parse the small, intentionally explicit route surface used by Stuga.
+ * Parse Stuga's explicit Workspace -> Property -> Home route hierarchy.
  *
- * The app still works when served from `/`, while operational views get
- * durable URLs that can be refreshed, bookmarked, and restored with Back.
+ * Legacy Site URLs remain readable so an installed application can restore the
+ * referenced Home and replace the address after it knows that Home's Property.
  */
 export function routeFromLocation(location: Pick<Location, "pathname" | "search">): AppRoute {
   const path = location.pathname.replace(/\/+$/, "") || "/";
   const search = new URLSearchParams(location.search);
   const queryHouse = search.get("site") || search.get("home");
-  const siteRoute = /^\/sites\/([^/]+)\/(twin|outdoor)$/.exec(path);
-  if (siteRoute) {
+
+  const homeRoute = new RegExp(
+    `^/properties/([^/]+)/homes/([^/]+)(?:/(activity|maintenance|outdoor|electricity|sensors|setup(?:/(?:${setupSectionPattern}))?))?$`,
+  ).exec(path);
+  if (homeRoute) {
+    const propertyId = decoded(homeRoute[1]);
+    const houseId = decoded(homeRoute[2]);
+    if (!propertyId || !houseId) return { page: "overview", propertyId: null, houseId: null, notFound: true };
+    const suffix = homeRoute[3] ?? "";
+    if (suffix === "setup/homes") return { page: "properties", propertyId, houseId: null, legacy: true };
+    const page: AppPage = suffix === "activity"
+      ? "activity"
+      : suffix === "maintenance"
+        ? "maintenance"
+      : suffix === "outdoor"
+        ? "outdoor"
+        : suffix === "electricity"
+          ? "energy"
+        : suffix === "sensors"
+          ? "sensors"
+          : suffix.startsWith("setup")
+            ? "integrations"
+            : "twin";
+    return { page, propertyId, houseId };
+  }
+
+  const propertyRoute = /^\/properties\/([^/]+)(?:\/(maintenance|electricity))?$/.exec(path);
+  if (propertyRoute) {
+    const propertyId = decoded(propertyRoute[1]);
+    if (!propertyId) return { page: "overview", propertyId: null, houseId: null, notFound: true };
+    const page: AppPage = propertyRoute[2] === "maintenance"
+      ? "maintenance"
+      : propertyRoute[2] === "electricity"
+        ? "energy"
+        : "properties";
+    return { page, propertyId, houseId: null };
+  }
+
+  const legacySiteRoute = /^\/sites\/([^/]+)\/(twin|activity|maintenance|outdoor|energy)$/.exec(path);
+  if (legacySiteRoute) {
     return {
-      page: siteRoute[2] as Extract<AppPage, "twin" | "outdoor">,
-      houseId: decoded(siteRoute[1]),
+      page: legacySiteRoute[2] as Extract<AppPage, "twin" | "activity" | "maintenance" | "outdoor" | "energy">,
+      propertyId: null,
+      houseId: decoded(legacySiteRoute[1]),
+      legacy: true,
     };
   }
 
-  if (path === "/overview") return { page: "overview", houseId: queryHouse };
-  if (path === "/outdoor") return { page: "outdoor", houseId: queryHouse };
-  if (path === "/sensors") return { page: "sensors", houseId: queryHouse };
-  if (path === "/alerts") return { page: "alerts", houseId: queryHouse };
-  if (path === "/setup" || path.startsWith("/setup/")) return { page: "integrations", houseId: queryHouse };
-  if (path === "/developer") return { page: "developer", houseId: queryHouse };
-  if (path === "/twin") return { page: "twin", houseId: queryHouse };
-  return { page: "twin", houseId: queryHouse };
+  if (path === "/overview") return { page: "overview", propertyId: null, houseId: null };
+  if (path === "/properties") return { page: "properties", propertyId: null, houseId: null };
+  if (path === "/people") return { page: "people", propertyId: null, houseId: null };
+  if (path === "/alerts") return { page: "alerts", propertyId: null, houseId: null };
+  if (path === "/developer") return { page: "developer", propertyId: null, houseId: null };
+
+  if (path === "/") return { page: "twin", propertyId: null, houseId: queryHouse, legacy: true };
+  if (["/twin", "/outdoor", "/energy", "/activity", "/maintenance", "/sensors"].includes(path)) {
+    const page = path.slice(1) as Extract<AppPage, "twin" | "outdoor" | "energy" | "activity" | "maintenance" | "sensors">;
+    return { page, propertyId: null, houseId: queryHouse, legacy: true };
+  }
+  if (path === "/setup" || new RegExp(`^/setup/(?:${setupSectionPattern})$`).test(path)) {
+    return { page: "integrations", propertyId: null, houseId: queryHouse, legacy: true };
+  }
+
+  return { page: "overview", propertyId: null, houseId: null, notFound: true };
 }
 
 export function locationForRoute(
   page: AppPage,
-  houseId: string | null | undefined,
+  scope: Partial<RouteScope> = {},
   currentPathname?: string,
 ): string {
-  const site = houseId ? encodeURIComponent(houseId) : "";
+  const property = scope.propertyId ? encodeURIComponent(scope.propertyId) : "";
+  const home = scope.houseId ? encodeURIComponent(scope.houseId) : "";
+  const propertyBase = property ? `/properties/${property}` : "/properties";
+  const homeBase = property && home ? `${propertyBase}/homes/${home}` : "";
+
   switch (page) {
     case "overview": return "/overview";
-    case "twin": return site ? `/sites/${site}/twin` : "/twin";
-    case "outdoor": return site ? `/sites/${site}/outdoor` : "/outdoor";
-    case "sensors": return site ? `/sensors?site=${site}` : "/sensors";
-    case "alerts": return site ? `/alerts?site=${site}` : "/alerts";
+    case "properties": return propertyBase;
+    case "people": return "/people";
+    case "twin": return homeBase || propertyBase;
+    case "activity": return homeBase ? `${homeBase}/activity` : propertyBase;
+    case "maintenance": return homeBase ? `${homeBase}/maintenance` : property ? `${propertyBase}/maintenance` : "/properties";
+    case "outdoor": return homeBase ? `${homeBase}/outdoor` : propertyBase;
+    case "energy": return homeBase ? `${homeBase}/electricity` : property ? `${propertyBase}/electricity` : "/properties";
+    case "sensors": return homeBase ? `${homeBase}/sensors` : propertyBase;
+    case "alerts": return "/alerts";
     case "integrations": {
-      const setupSection = /^\/setup\/(overview|homes|connections|weather)\/?$/.exec(currentPathname ?? "")?.[1];
-      const path = setupSection ? `/setup/${setupSection}` : "/setup";
-      return site ? `${path}?site=${site}` : path;
+      const normalizedCurrentPath = (currentPathname ?? "").replace(/\/+$/, "");
+      const setupSection = new RegExp(`/(?:setup)/(?:${setupSectionPattern})$`).exec(normalizedCurrentPath)?.[0]
+        .replace(/^\/setup\//, "")
+        .replace(/^\/setup$/, "");
+      const suffix = setupSection && setupSection !== "homes" ? `/setup/${setupSection}` : "/setup";
+      return homeBase ? `${homeBase}${suffix}` : propertyBase;
     }
     case "developer": return "/developer";
   }

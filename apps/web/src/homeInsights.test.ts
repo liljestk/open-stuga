@@ -19,6 +19,7 @@ const NOW_MS = Date.parse(NOW);
 
 const house: House = {
   id: "house-1",
+  propertyId: "property-1",
   name: "Pine House",
   timezone: "Europe/Helsinki",
   floors: [{
@@ -123,11 +124,68 @@ describe("deriveHomePulse", () => {
       houseId: house.id,
       generatedAt: NOW,
       status: "steady",
-      coverage: { enabledSensors: 2, freshSensors: 2, agingSensors: 0, staleSensors: 0, sensorsWithoutData: 0 },
+      coverage: { enabledSensors: 2, freshSensors: 2, estimatedSensors: 0, agingSensors: 0, staleSensors: 0, sensorsWithoutData: 0 },
       insights: [],
       advisory: HOME_INSIGHT_ADVISORY,
     });
     expect(JSON.stringify(latest)).toBe(before);
+  });
+
+  it("requires current data for each enabled alert-rule metric", () => {
+    const living = sensor("living", "Living room");
+    const rule: AlertRule = {
+      id: "humidity-rule",
+      name: "Humidity",
+      sensorId: living.id,
+      metric: "humidity",
+      operator: "gte",
+      threshold: 70,
+      durationSeconds: 900,
+      severity: "warning",
+      enabled: true,
+      webhookEnabled: false,
+      telegramEnabled: false,
+    };
+    const pulse = deriveHomePulse(baseInput({
+      sensors: [living],
+      latestMeasurements: { [living.id]: { temperature: sample(living, "temperature", 21, 2) } },
+      alertRules: [rule],
+    }));
+
+    expect(pulse.coverage).toMatchObject({ freshSensors: 0, estimatedSensors: 0, sensorsWithoutData: 1 });
+    expect(pulse.sensorCoverage).toEqual([{
+      sensorId: living.id,
+      requiredMetrics: ["humidity"],
+      freshness: { state: "unknown", evidenceAt: null, ageMinutes: null },
+    }]);
+    expect(pulse.insights[0]).toMatchObject({ kind: "sensor-coverage", target: { sensorId: living.id } });
+  });
+
+  it("keeps estimated-only coverage out of the confirmed steady state", () => {
+    const living = sensor("living", "Living room");
+    const pulse = deriveHomePulse(baseInput({
+      sensors: [living],
+      latestMeasurements: {
+        [living.id]: { temperature: sample(living, "temperature", 21, 2, { quality: "estimated" }) },
+      },
+    }));
+
+    expect(pulse.coverage).toMatchObject({ freshSensors: 0, estimatedSensors: 1 });
+    expect(pulse.status).toBe("watch");
+    expect(pulse.insights[0]).toMatchObject({ kind: "sensor-coverage", severity: "notice" });
+  });
+
+  it("does not treat battery telemetry as confirmation of indoor conditions", () => {
+    const living = sensor("living", "Living room");
+    const pulse = deriveHomePulse(baseInput({
+      sensors: [living],
+      latestMeasurements: {
+        [living.id]: { battery: sample(living, "battery", 94, 2) },
+      },
+    }));
+
+    expect(pulse.coverage).toMatchObject({ freshSensors: 0, sensorsWithoutData: 1 });
+    expect(pulse.status).toBe("attention");
   });
 
   it("recognizes sustained humidity and uses dry outdoor air as supporting context", () => {
@@ -240,6 +298,28 @@ describe("deriveHomePulse", () => {
     expect(insight.safetyNote).toContain("not a medical diagnosis");
   });
 
+  it("does not treat a severe UV advisory as a reason to avoid airing", () => {
+    const office = sensor("office", "Office");
+    const insight = deriveHomeInsights(baseInput({
+      sensors: [office],
+      latestMeasurements: {
+        [office.id]: { co2: sample(office, "co2", 1_720, 4) },
+      },
+      outdoor: {
+        stale: false,
+        current: {
+          timestamp: "2026-07-14T11:55:00.000Z",
+          temperatureC: 16,
+          windSpeedMps: 2,
+        },
+        warnings: [warning({ event: "UV advisory", headline: "High ultraviolet radiation" })],
+      },
+    }))[0]!;
+
+    expect(insight.action).toContain("Current outdoor conditions support a short, supervised airing");
+    expect(insight.action).not.toContain("active severe weather warning");
+  });
+
   it("prioritizes an open alert, uses its rule name, and suppresses a duplicate inferred condition", () => {
     const bathroom = sensor("bathroom", "Bathroom");
     const openAlert: AlertEvent = {
@@ -277,6 +357,7 @@ describe("deriveHomePulse", () => {
       severity: "warning",
       enabled: true,
       webhookEnabled: false,
+      telegramEnabled: false,
     };
 
     const insights = deriveHomeInsights(baseInput({
@@ -390,6 +471,7 @@ describe("deriveHomePulse", () => {
     expect(pulse.coverage).toEqual({
       enabledSensors: 3,
       freshSensors: 0,
+      estimatedSensors: 0,
       agingSensors: 1,
       staleSensors: 1,
       sensorsWithoutData: 1,
@@ -478,6 +560,7 @@ describe("deriveHomePulse", () => {
       severity: "critical",
       enabled: true,
       webhookEnabled: false,
+      telegramEnabled: false,
     };
     const criticalAlert: AlertEvent = {
       id: "low-humidity-alert",

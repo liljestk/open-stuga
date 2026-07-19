@@ -40,8 +40,7 @@ function string(value: unknown): string | null {
 }
 
 function finite(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 export function isIanaTimezone(value: string): boolean {
@@ -167,4 +166,3 @@ export class LocationDiscoveryService {
     return { timezone, source: "open-meteo-coordinate" };
   }
 }
-

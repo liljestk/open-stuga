@@ -25,6 +25,24 @@ describe("LocationDiscoveryPanel", () => {
     expect(screen.getByRole("button", { name: "Use this device's location" })).not.toBeNull();
   });
 
+  it("shows the saved location summary before revealing ways to change it", async () => {
+    const user = userEvent.setup();
+    render(
+      <I18nProvider>
+        <LocationDiscoveryPanel
+          currentLocation={{ latitude: 60.17, longitude: 24.94, label: "Helsinki" }}
+          currentTimezone="Europe/Helsinki"
+          onApply={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByText("Helsinki")).not.toBeNull();
+    expect(screen.queryByLabelText("Find this home")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Change" }));
+    expect(screen.getByLabelText("Find this home")).not.toBeNull();
+  });
+
   it("shows and confirms an inferred location, timezone, and automatic weather summary", async () => {
     const user = userEvent.setup();
     vi.spyOn(api, "searchLocations").mockResolvedValue([{
@@ -97,5 +115,27 @@ describe("LocationDiscoveryPanel", () => {
     await user.click(screen.getByRole("button", { name: "Use this device's location" }));
     expect(getCurrentPosition).toHaveBeenCalledOnce();
     expect((screen.getByRole("button", { name: "Finding your location…" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("reviews browser geolocation before persisting it", async () => {
+    const user = userEvent.setup();
+    let shareLocation!: PositionCallback;
+    const getCurrentPosition = vi.fn((success: PositionCallback) => { shareLocation = success; });
+    vi.stubGlobal("navigator", { language: navigator.language, geolocation: { getCurrentPosition } });
+    vi.spyOn(api, "coordinateDefaults").mockResolvedValue({ timezone: "Europe/Helsinki", source: "open-meteo-coordinate" });
+    const onApply = vi.fn().mockResolvedValue(undefined);
+    render(<I18nProvider><LocationDiscoveryPanel currentTimezone="UTC" onApply={onApply} /></I18nProvider>);
+
+    await user.click(screen.getByRole("button", { name: "Use this device's location" }));
+    shareLocation({ coords: { latitude: 60.16952, longitude: 24.93545 } } as GeolocationPosition);
+
+    expect(await screen.findByText(/Current device location.*Europe\/Helsinki.*weather automatic/)).not.toBeNull();
+    expect(onApply).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Use this setup" }));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({
+      location: expect.objectContaining({ latitude: 60.16952, longitude: 24.93545 }),
+      timezone: "Europe/Helsinki",
+      source: "browser-geolocation",
+    }));
   });
 });

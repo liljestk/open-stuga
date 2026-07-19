@@ -1,11 +1,62 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { MeasurementDefinition, Sensor } from "@climate-twin/contracts";
 import {
   buildHistoricalImport,
+  buildHistoricalImportAsync,
   createInitialMapping,
+  MAX_IMPORT_ROWS,
   parseCsv,
   parseImportTimestamp,
+  validateImportSheet,
+  validateXlsxArchive,
 } from "./historicalImport";
+
+function storedZip(entries: Array<{ name: string; text: string; declaredSize?: number }>): ArrayBuffer {
+  const encoder = new TextEncoder();
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let localOffset = 0;
+  for (const entry of entries) {
+    const name = encoder.encode(entry.name);
+    const data = encoder.encode(entry.text);
+    const declaredSize = entry.declaredSize ?? data.byteLength;
+    const local = new Uint8Array(30 + name.byteLength + data.byteLength);
+    const localView = new DataView(local.buffer);
+    localView.setUint32(0, 0x04034b50, true);
+    localView.setUint16(4, 20, true);
+    localView.setUint32(18, data.byteLength, true);
+    localView.setUint32(22, declaredSize, true);
+    localView.setUint16(26, name.byteLength, true);
+    local.set(name, 30);
+    local.set(data, 30 + name.byteLength);
+    localParts.push(local);
+
+    const central = new Uint8Array(46 + name.byteLength);
+    const centralView = new DataView(central.buffer);
+    centralView.setUint32(0, 0x02014b50, true);
+    centralView.setUint16(4, 20, true);
+    centralView.setUint16(6, 20, true);
+    centralView.setUint32(20, data.byteLength, true);
+    centralView.setUint32(24, declaredSize, true);
+    centralView.setUint16(28, name.byteLength, true);
+    centralView.setUint32(42, localOffset, true);
+    central.set(name, 46);
+    centralParts.push(central);
+    localOffset += local.byteLength;
+  }
+  const centralSize = centralParts.reduce((total, part) => total + part.byteLength, 0);
+  const result = new Uint8Array(localOffset + centralSize + 22);
+  let offset = 0;
+  for (const part of localParts) { result.set(part, offset); offset += part.byteLength; }
+  for (const part of centralParts) { result.set(part, offset); offset += part.byteLength; }
+  const eocd = new DataView(result.buffer, offset, 22);
+  eocd.setUint32(0, 0x06054b50, true);
+  eocd.setUint16(8, entries.length, true);
+  eocd.setUint16(10, entries.length, true);
+  eocd.setUint32(12, centralSize, true);
+  eocd.setUint32(16, localOffset, true);
+  return result.buffer;
+}
 
 const definitions: MeasurementDefinition[] = [
   {
@@ -84,7 +135,110 @@ describe("historical spreadsheet import", () => {
     ]);
   });
 
+  it("tracks the date range without depending on input order", () => {
+    const sheet = parseCsv([
+      "Timestamp,Sensor,Temperature",
+      "2026-03-01T08:00:00Z,Living room,21",
+      "2026-01-01T08:00:00Z,Living room,19",
+      "2026-02-01T08:00:00Z,Living room,20",
+    ].join("\n"));
+    const mapping = createInitialMapping(sheet, definitions, sensors, "en");
+    const preview = buildHistoricalImport(sheet, mapping, sensors, definitions, "UTC");
+
+    expect(preview.firstTimestamp).toBe("2026-01-01T08:00:00.000Z");
+    expect(preview.lastTimestamp).toBe("2026-03-01T08:00:00.000Z");
+  });
+
+  it("retains only the displayed issue details while preserving exact totals", () => {
+    const rows = Array.from({ length: 30 }, (_, index) => `2026-01-${String(index % 28 + 1).padStart(2, "0")}T08:00:00Z,Living room,invalid,invalid`);
+    const sheet = parseCsv([
+      "Timestamp,Sensor,Temperature,Humidity",
+      ...rows,
+    ].join("\n"));
+    const mapping = createInitialMapping(sheet, definitions, sensors, "en");
+    const preview = buildHistoricalImport(sheet, mapping, sensors, definitions, "UTC");
+
+    expect(preview.samples).toEqual([]);
+    expect(preview.issues).toHaveLength(25);
+    expect(preview.issueCount).toBe(60);
+    expect(preview.issueRowCount).toBe(30);
+    expect(preview.issues[0]?.row).toBe(2);
+    expect(preview.issues.at(-1)?.row).toBe(14);
+  });
+
   it("parses Excel serial dates in the selected house timezone", () => {
     expect(parseImportTimestamp(46037.5, "Europe/Helsinki", "auto")).toBe("2026-01-15T10:00:00.000Z");
+  });
+
+  it("returns a row-level invalid timestamp for numeric dates outside the JavaScript date range", () => {
+    expect(parseImportTimestamp(1e20, "UTC", "auto")).toBeNull();
+    expect(parseImportTimestamp(Number.MAX_VALUE, "UTC", "auto")).toBeNull();
+  });
+
+  it("parses large delimited files without spreading every row width into a function call", () => {
+    const rowCount = 150_000;
+    const sheet = parseCsv(Array.from({ length: rowCount }, (_, index) => `${index},${index + 1}`).join("\n"));
+    expect(sheet.rows).toHaveLength(rowCount);
+    expect(sheet.rows.at(-1)).toEqual(["149999", "150000"]);
+  });
+
+  it("rejects decoded sheets beyond the row bound before iterating their contents", () => {
+    const oversized = { name: "Too many rows", rows: new Array<string[]>(MAX_IMPORT_ROWS + 1) };
+    expect(() => validateImportSheet(oversized)).toThrow(/too much data/i);
+  });
+
+  it("rejects unsafe worksheet dimensions before the Excel parser allocates them", async () => {
+    const archive = storedZip([{
+      name: "xl/worksheets/sheet1.xml",
+      text: '<worksheet><dimension ref="A1:XFD1048576"/><sheetData/></worksheet>',
+    }]);
+
+    await expect(validateXlsxArchive(archive)).rejects.toThrow(/too much data/i);
+  });
+
+  it("applies the decoded row bound across every worksheet before parsing", async () => {
+    const archive = storedZip([
+      { name: "xl/worksheets/sheet1.xml", text: '<worksheet><dimension ref="A1:A150000"/><sheetData/></worksheet>' },
+      { name: "xl/worksheets/sheet2.xml", text: '<worksheet><dimension ref="A1:A150000"/><sheetData/></worksheet>' },
+    ]);
+
+    await expect(validateXlsxArchive(archive)).rejects.toThrow(/too much data/i);
+  });
+
+  it("measures actual expanded worksheet bytes instead of trusting ZIP metadata", async () => {
+    const archive = storedZip([{
+      name: "xl/worksheets/sheet1.xml",
+      text: '<worksheet><dimension ref="A1"/><sheetData><row><c r="A1"><v>1</v></c></row></sheetData></worksheet>',
+      declaredSize: 1,
+    }]);
+
+    await expect(validateXlsxArchive(archive)).rejects.toThrow(/too much data/i);
+  });
+
+  it("yields between preview chunks and aborts before processing the remaining rows", async () => {
+    const base = Date.parse("2026-01-01T00:00:00.000Z");
+    const sheet = parseCsv([
+      "Timestamp,Sensor,Temperature",
+      ...Array.from({ length: 1_500 }, (_, index) => (
+        `${new Date(base + index * 60_000).toISOString()},Living room,21`
+      )),
+    ].join("\n"));
+    const mapping = createInitialMapping(sheet, definitions, sensors, "en");
+    const controller = new AbortController();
+    const onProgress = vi.fn();
+    let settled = false;
+    const preview = buildHistoricalImportAsync(sheet, mapping, sensors, definitions, "UTC", {
+      signal: controller.signal,
+      onProgress,
+    });
+    void preview.then(() => { settled = true; }, () => { settled = true; });
+
+    expect(settled).toBe(false);
+    expect(onProgress).toHaveBeenNthCalledWith(1, 0, 1_500);
+    expect(onProgress).toHaveBeenNthCalledWith(2, 1_000, 1_500);
+    controller.abort();
+
+    await expect(preview).rejects.toMatchObject({ name: "AbortError" });
+    expect(onProgress).toHaveBeenCalledTimes(2);
   });
 });

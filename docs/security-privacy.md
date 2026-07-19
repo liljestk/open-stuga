@@ -4,8 +4,8 @@ Stuga is local-first, not automatically trusted-by-LAN. Environmental
 traces such as temperature, humidity, and CO2 can reveal occupancy,
 shower/sleep patterns, ventilation habits, room use, incidents, and building
 weaknesses. Floor plans and manually recorded leaks add more sensitive household
-context. A precise house latitude/longitude is also sensitive: it can identify
-the property and is sent to the selected weather provider when house weather is
+context. A precise Home latitude/longitude is also sensitive: it can identify
+the Property and is sent to the selected weather provider when Home weather is
 requested.
 
 ## Default security boundary
@@ -15,26 +15,59 @@ network. It does not make a safe public internet service by itself. Keep ports
 behind the host firewall; for remote use, add an authenticated VPN or a mature
 reverse proxy with TLS and access control.
 
-Until application-level user authentication and authorization are implemented
-and independently reviewed, assume anyone who can reach the read API can see all
-houses, floor plans, readings, observations, forecasts, and alerts. The optional
-ingestion API key protects ingestion routes only; it is not general UI/API
-authentication.
+The local Node API has built-in owner, administrator, and Guest accounts in one
+workspace. Browser sign-in creates a server-managed HttpOnly session; browser
+JavaScript cannot read its credential. The API resolves the account role and
+resource grants on every request. Guests are always read-only, receive explicit
+Property, Home, and/or area grants, and see ungranted identifiers as not found.
+Client-side hidden controls are a usability measure, not authorization. Guest
+audit-history endpoints fail closed because a current grant cannot establish
+the visibility of every historical snapshot. See [Properties and Guest
+access](property-management.md).
+
+The optional `INGEST_API_KEY` is a separate machine-ingestion credential. It
+does not create a browser session or grant interactive account access.
 
 ## Secrets
 
-- The guided setup sends Home Assistant and TP-Link credentials to the local
-  API and stores them outside SQLite in `INTEGRATION_SECRETS_FILE`. The API never
-  returns them. The file is written atomically with owner-only mode where the
-  platform supports it, but it is not application-level encrypted. Protect the
-  host account, disk, backups, and Docker data volume.
-- These integration credentials configure the API process, not an individual
-  home. The Setup home selector scopes home metadata; it is not an authorization
-  or credential boundary between homes.
+- The guided setup sends Home Assistant, TP-Link, and Telegram credentials to
+  the local API and stores them outside SQLite in
+  `INTEGRATION_SECRETS_FILE`. Saved credentials are never returned. The file is
+  written atomically with owner-only mode where the platform supports it, but
+  it is not application-level encrypted. Protect the host account, disk,
+  backups, and Docker data volume.
+- SQLite contains only typed integration references and safe lifecycle/display
+  metadata. It never contains Home Assistant tokens, TP-Link account names or
+  passwords, Telegram bot tokens or numeric chat IDs, Apple Notes token hashes,
+  webhook bearers, or complete webhook URLs. Home Assistant endpoint query
+  strings and fragments are stripped from its SQLite metadata copy.
+- Use strong, unique owner and administrator passwords. Sign out or revoke
+  sessions after a device or account is lost. Protect the SQLite database and
+  backups because they contain account records, grants, password verifiers, and
+  session state alongside household data.
+- A revocable, Home-scoped Apple Notes Shortcut bearer is returned exactly
+  once at grant creation. Only its SHA-256 hash is retained in the integration
+  secrets file, so Stuga cannot reveal the original token later. Its operator
+  device label is informational and does not bind or authenticate a device.
+- Home Assistant and direct TP-Link credentials and connections belong to one
+  Home. The **Set up** Home selector controls that persisted ownership; API
+  authorization still enforces it server-side. Telegram credentials belong to
+  the Workspace, and electricity contract/source configuration belongs to a
+  Property. Apple Notes Shortcut bearers are restricted to one Home and the two
+  bridge routes.
 - Environment variables remain advanced overrides. Put `HA_TOKEN`,
-  `TP_LINK_USERNAME`, `TP_LINK_PASSWORD`, `INGEST_API_KEY`, and
+  `TP_LINK_USERNAME`, `TP_LINK_PASSWORD`, `TELEGRAM_BOT_TOKEN`,
+  `TELEGRAM_CHAT_ID`, `INGEST_API_KEY`, and
   `ALERT_WEBHOOK_BEARER_TOKEN` only in the private `.env`, the protected
   integration secrets file, or a container/orchestrator secret store.
+  Environment webhook values take precedence and are mirrored into the
+  protected secrets file for complete-backup recovery when that file is
+  writable; include the deployment secret separately if mirroring is blocked.
+- Compose authenticates the immediate Nginx proxy with a random credential in
+  the dedicated `climate-twin-runtime` volume. The proxy mounts that volume
+  read-only, overwrites client-supplied forwarding headers, and never sends the
+  credential to browser code. Custom reverse proxies must use their own
+  `LOCAL_AUTH_PROXY_SECRET` or `LOCAL_AUTH_PROXY_SECRET_FILE` value.
 - Never put a token in entity maps, floor-plan files, browser environment
   variables prefixed `VITE_`, URLs, source control, screenshots, or support
   bundles.
@@ -43,15 +76,27 @@ authentication.
 - Prefer a dedicated least-privilege TP-Link account if the platform supports
   the required hub access. Rotate its password after suspected exposure.
 - Give outbound webhook credentials access only to the receiving endpoint.
+- A Telegram bot token grants control of that bot. Use a dedicated bot, pair a
+  private numeric chat through the guided flow, and rotate the token through
+  BotFather after disclosure. Telegram bot chats are cloud chats, not
+  end-to-end encrypted Secret Chats. Alert messages include Home, sensor, and
+  rule names, so do not put sensitive personal facts in those names.
+- Apple Notes Shortcut grants are shown once, restricted to one Home, and
+  individually revocable. Store a bearer only inside its Shortcut, never in a
+  note. iCloud Shortcuts sync may copy that Shortcut and bearer to other
+  devices, although Personal Automations remain device-specific. Treat every
+  receiving device as authorized, or disable Shortcuts sync/use a non-synced
+  Shortcut. Revoke the grant if any recipient device is untrusted. Stuga does
+  not request an Apple Account or iCloud credential.
 - Prevent secrets from being emitted in normal or debug logs; redact headers and
   WebSocket authentication messages.
 
 The FMI and Open-Meteo endpoints used by the weather/location adapters do not
 require an API key. Do not add a weather credential to browser code or expose
-unrelated commercial-service credentials. House coordinates and place-search
+unrelated commercial-service credentials. Home coordinates and place-search
 text are data, not credentials, but logs and support bundles should still redact
 or coarsen them.
-Outdoor-boundary rows use an opaque location digest, are deleted when house
+Outdoor-boundary rows use an opaque location digest, are deleted when Home
 coordinates change or are cleared, and follow normal sample retention. The
 digest is pseudonymisation, not encryption; protect the SQLite database and its
 backups as location-sensitive data.
@@ -68,19 +113,28 @@ Recommended flows are narrowly scoped:
 | --- | --- | --- |
 | Stuga API | Home Assistant `8123/tcp` | authenticated WebSocket state events |
 | Stuga API | H100/H200 local address | authenticated direct local polling |
-| User browser | Stuga web/API port | UI, `/api/v1`, and `/api/v2` |
+| User browser | Stuga web/API port | authenticated UI, `/api/v1`, and `/api/v2` |
 | User browser | `tile.openstreetmap.org:443` | attributed location-picker tiles only |
 | Stuga API | `opendata.fmi.fi:443` | WFS observation and point-forecast requests |
 | Stuga API | `alerts.fmi.fi:443` | official CAP warning feed |
 | Stuga API | `api.open-meteo.com:443` | worldwide weather and coordinate-to-timezone defaults |
 | Stuga API | `geocoding-api.open-meteo.com:443` | user-initiated place search |
 | Stuga API | configured webhook host | alert delivery only |
+| Stuga API | `api.telegram.org:443` | bot validation, private-chat discovery, test, and opted-in alert delivery |
+| User iPhone/iPad | authenticated Stuga bridge URL | user-run maintenance capture and generated Notes snapshots |
 | Home Assistant | H200 local address | official TP-Link local polling |
 
 Block unsolicited inbound traffic to the API from guest/IoT networks. Do not
 expose H200 or Home Assistant device ports to the internet. Restrict outbound
 webhook destinations in a more hostile deployment to reduce server-side request
 forgery and data-exfiltration risk.
+
+The Apple Notes bearer is Home- and route-scoped and is separate from browser
+account sessions. Its operator device label is not a device binding. Changing
+`BIND_ADDRESS` from loopback exposes the web service and API to every client
+allowed by the host network. Prefer TLS with a VPN or reverse proxy/firewall
+policy that exposes only the snapshot and capture routes to the phone and keeps
+**Set up** and grant administration private.
 
 The production CSP permits map images only from the exact HTTPS
 `tile.openstreetmap.org` origin; FMI and Open-Meteo are server-to-server and are
@@ -133,17 +187,20 @@ production rollout.
 Collect the least data needed for the stated use case:
 
 - Use room labels rather than occupant names.
-- Store only the house-location precision needed for useful weather. Prefer a
+- Store only the Home-location precision needed for useful weather. Prefer a
   town/area search and label over a street address. Search text is sent to
   Open-Meteo geocoding, while a later display-label edit is stored locally.
 - Avoid putting medical, personal, or security-system facts in free-form notes.
+- Telegram receives the Home and sensor labels and triggered rule for opted-in
+  alerts. Avoid occupant names or sensitive facts in those labels. Generated
+  Notes snapshots remain in the Apple account/folder selected by the user.
 - Store only mapped Home Assistant entities or TP-Link children, not an entire
   device/event inventory.
 - Keep raw high-frequency metric samples only for a justified window; retain
   aggregates longer if that meets the analytical purpose.
 - Exclude token values, Home Assistant event context, IP addresses, and device
   account identifiers from telemetry unless specifically needed.
-- Make exports explicit and show their time range, included houses, and whether
+- Make exports explicit and show their time range, included Homes, and whether
   floor plans/manual observations are present.
 
 DayOps and OpenWearable can make combined data substantially more identifying.
@@ -153,14 +210,18 @@ basis before correlating environment and wearable data.
 
 ## Retention policy
 
-`RETENTION_DAYS` controls the intended raw sample/readings window (730 days in the
-example). A complete policy also defines:
+The current implementation deliberately accepts only `RETENTION_DAYS=0`: raw
+telemetry is retained in TimescaleDB and the SQLite safety copy is not yet
+pruned. Positive values fail closed until every historical and degraded-mode
+read is archive-aware. This matches an explicit keep-all policy, but operators
+must still budget disk, protect backups, and periodically confirm that indefinite
+retention remains justified. A future configurable policy must also define:
 
 - which tables/artifacts it applies to;
 - whether alert events, manual observations, forecasts, audit logs, exports, and
   backups have different periods;
 - cleanup frequency and failure monitoring;
-- how a user deletes a house/sensor and its dependent data;
+- how a user deletes a Home/sensor and its dependent data;
 - how long backups retain already-deleted data.
 
 Suggested starting points, to be adjusted to user need and local law:
@@ -189,7 +250,8 @@ and outbound alerts disabled.
 If a token or dataset is exposed:
 
 1. Isolate the service from the network.
-2. Revoke/rotate Home Assistant, ingestion, and webhook credentials.
+2. Revoke/rotate Home Assistant, ingestion, webhook, Telegram, and Apple Notes
+   bridge credentials.
 3. Preserve minimal logs needed to determine scope, without spreading secrets.
 4. Inspect access, exports, MCP clients, and outbound deliveries.
 5. Patch the cause, notify affected users where required, and restore from a
@@ -197,7 +259,7 @@ If a token or dataset is exposed:
 
 ## Privacy checklist before enabling external integrations
 
-- [ ] The user can see exactly which entities and houses are included.
+- [ ] The user can see exactly which entities and Homes are included.
 - [ ] The destination and purpose are documented.
 - [ ] The user understands that FMI or Open-Meteo receives the saved coordinate
       during weather requests, place-search text goes to Open-Meteo geocoding,

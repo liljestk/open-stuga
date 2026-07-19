@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { House, HouseWeather } from "@climate-twin/contracts";
+import type { House, HouseWeather, WeatherUpdateEvent } from "@climate-twin/contracts";
 import { api } from "./api";
 
 export const HOUSE_WEATHER_REFRESH_MS = 10 * 60 * 1000;
@@ -18,6 +18,22 @@ interface WeatherState extends Omit<UseHouseWeatherResult, "refresh"> {
 interface ActiveHouseRequest {
   key: string;
   houseId: string;
+}
+
+const weatherSubscribers = new Set<(event: WeatherUpdateEvent) => void>();
+const deliveredWeatherEventIds = new Set<string>();
+const WEATHER_EVENT_DEDUPE_LIMIT = 256;
+
+/** Fan out provider-neutral live snapshots to every mounted house-weather view. */
+export function publishHouseWeatherUpdate(event: WeatherUpdateEvent): void {
+  if (event.type !== "weather.snapshot" || deliveredWeatherEventIds.has(event.id)) return;
+  deliveredWeatherEventIds.add(event.id);
+  while (deliveredWeatherEventIds.size > WEATHER_EVENT_DEDUPE_LIMIT) {
+    const oldest = deliveredWeatherEventIds.values().next().value as string | undefined;
+    if (!oldest) break;
+    deliveredWeatherEventIds.delete(oldest);
+  }
+  for (const subscriber of weatherSubscribers) subscriber(event);
 }
 
 function locationKey(house: House | null | undefined, enabled: boolean): string | null {
@@ -49,6 +65,7 @@ export function useHouseWeather(
   const active = useRef<ActiveHouseRequest | null>(null);
   const latestRequest = useRef(new Map<string, number>());
   const requestSequence = useRef(0);
+  const requestController = useRef<AbortController | null>(null);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -58,10 +75,15 @@ export function useHouseWeather(
     return () => {
       mounted.current = false;
       active.current = null;
+      requestController.current?.abort();
+      requestController.current = null;
     };
   }, []);
 
   const load = useCallback(async (request: ActiveHouseRequest): Promise<void> => {
+    requestController.current?.abort();
+    const controller = new AbortController();
+    requestController.current = controller;
     const requestId = ++requestSequence.current;
     latestRequest.current.set(request.key, requestId);
     if (mounted.current && active.current?.key === request.key) {
@@ -74,13 +96,15 @@ export function useHouseWeather(
     }
 
     try {
-      const weather = await api.houseWeather(request.houseId, 48);
-      if (!mounted.current
+      const weather = await api.houseWeather(request.houseId, 48, controller.signal);
+      if (controller.signal.aborted
+        || !mounted.current
         || active.current?.key !== request.key
         || latestRequest.current.get(request.key) !== requestId) return;
       cache.current.set(request.key, weather);
       setState({ key: request.key, weather, loading: false, error: null });
     } catch (error) {
+      if (controller.signal.aborted) return;
       if (!mounted.current
         || active.current?.key !== request.key
         || latestRequest.current.get(request.key) !== requestId) return;
@@ -90,11 +114,15 @@ export function useHouseWeather(
         loading: false,
         error: asError(error),
       }));
+    } finally {
+      if (requestController.current === controller) requestController.current = null;
     }
   }, []);
 
   useEffect(() => {
     if (!key || !house) {
+      requestController.current?.abort();
+      requestController.current = null;
       active.current = null;
       setState({ key: null, weather: null, loading: false, error: null });
       return;
@@ -107,8 +135,35 @@ export function useHouseWeather(
     const timer = window.setInterval(() => {
       load(request);
     }, HOUSE_WEATHER_REFRESH_MS);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      if (active.current?.key === request.key) {
+        requestController.current?.abort();
+        requestController.current = null;
+      }
+    };
   }, [house?.id, key, load]);
+
+  useEffect(() => {
+    if (!key || !house?.location) return;
+    const consume = (event: WeatherUpdateEvent) => {
+      if (event.houseId !== house.id
+        || event.weather.location.latitude !== house.location?.latitude
+        || event.weather.location.longitude !== house.location?.longitude) return;
+      // A pushed snapshot is authoritative for this refresh cycle. Invalidate
+      // any older HTTP response that was already in flight so it cannot replace
+      // the live value after arriving late.
+      requestController.current?.abort();
+      requestController.current = null;
+      latestRequest.current.set(key, ++requestSequence.current);
+      cache.current.set(key, event.weather);
+      if (mounted.current && active.current?.key === key) {
+        setState({ key, weather: event.weather, loading: false, error: null });
+      }
+    };
+    weatherSubscribers.add(consume);
+    return () => { weatherSubscribers.delete(consume); };
+  }, [house?.id, house?.location?.latitude, house?.location?.longitude, key]);
 
   const refresh = useCallback(async () => {
     const request = active.current;

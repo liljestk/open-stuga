@@ -13,7 +13,8 @@ warning text whenever the data is displayed or exported.
 
 ## Set weather location, map placement, and orientation
 
-Open **Set up > Weather** and select the home to configure. Search by place name
+Select the Property and Home, then open **Set up > Weather**. Its canonical URL
+is `/properties/{propertyId}/homes/{homeId}/setup/weather`. Search by place name
 and review the suggested location and timezone, or explicitly choose **Use this
 device's location** and approve the browser permission prompt. Stuga does
 not request the device position until that action. Place search and coordinate
@@ -26,11 +27,12 @@ Use **Set up > Homes** for the independent precise map placement and plan
 orientation. Map tiles are not loaded until the user explicitly opens the map.
 A calibrated home is drawn as a geographically scaled floor-plan footprint that
 grows and shrinks with map zoom; a home with only a weather location is shown as
-a pin. A home with neither value is absent from the shared map until one is set.
+a pin. A home with neither value is absent from its Property map until one is set.
 Each saved home keeps its own location and timezone, so a single installation
 can monitor homes in different parts of the world. Home Assistant and direct
-TP-Link credentials are still process-wide integration settings, not per-home
-connections.
+TP-Link credentials and connections belong to the selected Home. Different
+Homes can use independent credentials and endpoints; a Home can also have
+multiple named direct TP-Link connections.
 
 `House.location` is the weather lookup reference. Its latitude and longitude
 can be entered directly. An optional label such as `Espoo` is for display only;
@@ -80,9 +82,9 @@ Coordinates in both objects are decimal degrees in WGS84 (`EPSG:4326`):
 latitude must be between -90 and 90 and longitude between -180 and 180. Both
 objects are separate from floor-local sensor `x`, `y`, and `z` coordinates.
 They are stored in the local SQLite database and returned by house endpoints.
-Stuga does not yet model property/site membership or surveyed parcel
-boundaries, so homes combined in this shared view may belong to different
-properties.
+Every home belongs to one Property. Property selection constrains the shared
+map to that Property's homes; surveyed parcel boundaries remain optional
+user-drawn context rather than authoritative cadastral geometry.
 
 Browser geolocation and the map are separate explicit actions. Approving device
 location supplies coordinates to the Stuga API and to the server-side
@@ -125,7 +127,8 @@ can be patched separately; clearing one does not erase the others.
 
 ## Outdoor page and Twin context
 
-The home-scoped **Outdoor** page presents current context separately from Setup.
+The Home-scoped **Outdoor** page presents current context separately from
+**Set up** at `/properties/{propertyId}/homes/{homeId}/outdoor`.
 It requests a 48-hour forecast and divides it into four keyboard-operable
 12-hour windows: **Next 12 hours**, **+12–24 hours**, **+24–36 hours**, and
 **+36–48 hours**. The table and mobile cards use the selected home's timezone,
@@ -267,6 +270,11 @@ component succeeded.
 - If no primary forecast, observation, or warning result is usable and no
   matching cached result exists, the endpoint returns 503. Callers should use
   bounded retries with jitter, not a rapid polling loop.
+- Every provider failure and independently unavailable component opens or
+  updates a durable, Home/location-scoped outage record. A later fresh result
+  closes the matching record. The 503 response includes public-safe recovery
+  status so the Outdoor page can distinguish an active outage from an ordinary
+  empty value without exposing server connection details.
 
 When normal background services are enabled, a weather monitor refreshes every
 located home with a 48-hour request. It starts after up to 60 seconds of jitter,
@@ -277,14 +285,58 @@ changing that home's location clears the obsolete backoff. Before persistence,
 the monitor rechecks the home update timestamp and opaque location key so a
 late response for a moved home cannot be stored under its new location.
 
-Weather context is not inserted into sensor measurement history. Stuga
-persists only fresh current temperature, with its source timestamp, requested
-location represented by an opaque digest, fetch time, and station provenance,
-in a separate outdoor-boundary table. The thermal model uses only timestamp
-overlap and never treats the latest
-API response as historical weather. These boundary rows follow
-`RETENTION_DAYS`, and changing or clearing the `House.location` coordinates
-erases rows from the old weather location.
+### Outage recovery and historical observations
+
+When an outage closes and observed conditions are available again, Stuga queues
+the affected observation interval for backfill. Recovery requests are split
+into bounded 24-hour chunks. Finnish Homes retrieve station observations from
+FMI WFS; worldwide Homes retrieve the same modelled hourly fields from
+Open-Meteo's historical-forecast service. A failed or partial backfill remains
+durable and is retried after a later successful weather update.
+
+Each recovered point keeps its canonical outdoor fields, observation time,
+retrieval time, provider, and station provenance. It is upserted into the
+location-keyed outdoor history used by thermal and spatial replay consumers.
+The SQLite row retains the complete canonical observation as JSON alongside the
+indexed temperature boundary; the optional Timescale archive carries the same
+observation in row metadata.
+
+Forecast and warning outages are recorded but are marked non-reconstructible.
+Stuga does not substitute a newer forecast or warning feed for what was actually
+available during the outage. This preserves the difference between replaying
+observed conditions and claiming to reproduce information that was issued in
+the past.
+
+## Weather event middle layer
+
+FMI and Open-Meteo are pull services, but consumers do not depend on that
+transport. Every accepted scheduled refresh and on-demand weather result enters
+a provider-neutral in-process broker as a `weather.snapshot` event. The monitor
+therefore acts as a polling-to-event adapter today; a future MQTT, webhook, or
+native provider stream can publish the same contract without changing storage,
+SSE clients, or weather-aware services.
+
+The broker runs its outdoor-boundary projector before live publication and
+coalesces identical cache replays. Each event contains a stable `id`, `houseId`,
+`publishedAt`, `trigger`, and the complete `HouseWeather` value with provenance
+and stale/component status intact. The local `/api/v1/events` and
+`/api/v1/stream` endpoints emit it as the named SSE event `weather` and include
+the stable ID in the SSE `id:` field. Consumers should still deduplicate by ID.
+
+The live broker is intentionally process-local and not a durable event log. An
+SSE reconnect must reload `GET /api/v1/houses/{id}/weather` and then resume live
+events; `Last-Event-ID` does not provide historical replay. Scheduled stale
+fallbacks are rejected by the monitor, while an explicitly requested stale
+snapshot can be emitted with `weather.stale: true` so clients retain its actual
+quality state.
+
+Weather context is not inserted into indoor sensor measurement history. Stuga
+persists fresh current observations and recovered historical observations in a
+separate outdoor-boundary table. Temperature remains indexed for the existing
+thermal and spatial consumers, while the full canonical observation is retained
+for broader weather-aware replay. Stale fallbacks and forward forecasts are not
+inserted as observations. Changing or clearing `House.location` erases both the
+old location's outdoor rows and its outage ledger.
 
 ## License, attribution, and service limits
 
@@ -346,7 +398,7 @@ history. Revoke the browser permission separately if it is no longer wanted.
 
 ## Map privacy and attribution
 
-The shared home map and location editor render standard tiles directly in the
+The selected Property's Home map and location editor render standard tiles directly in the
 user's browser from `https://tile.openstreetmap.org` only after the user chooses
 to load the map; Stuga does not proxy or store the tiles. Those
 requests disclose the browser's IP address, the Stuga web origin in the

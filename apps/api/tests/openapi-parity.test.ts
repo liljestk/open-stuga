@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH } from "@climate-twin/contracts";
 import { createApi } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import { openApiV1Document, openApiV2Document } from "../src/openapi.js";
@@ -92,7 +93,7 @@ function auditDocument(document: OpenApiDocument): void {
 }
 
 describe("local Express/OpenAPI parity", () => {
-  it("documents every runtime operation exactly once with resolvable schemas", () => {
+  it("documents every runtime operation exactly once with resolvable schemas", async () => {
     const runtime = createApi({
       config: loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", MOCK_ENABLED: "false" }),
       startBackground: false,
@@ -114,14 +115,157 @@ describe("local Express/OpenAPI parity", () => {
         ...documentOperations(v2, "v2"),
       ].sort();
 
-      expect(runtimeOperations).toHaveLength(75);
-      expect(documentOperations(v1, "v1")).toHaveLength(64);
-      expect(documentOperations(v2, "v2")).toHaveLength(11);
+      expect(runtimeOperations).toHaveLength(180);
+      expect(documentOperations(v1, "v1")).toHaveLength(168);
+      expect(documentOperations(v2, "v2")).toHaveLength(12);
       expect(documentedOperations).toEqual(runtimeOperations);
       auditDocument(v1);
       auditDocument(v2);
     } finally {
-      runtime.close();
+      await runtime.close();
     }
+  });
+
+  it("documents the server-owned observation resolution lifecycle", () => {
+    const schemas = (openApiV1Document.components as unknown as {
+      schemas: Record<string, { required?: string[]; properties?: Record<string, unknown> }>;
+    }).schemas;
+    expect(schemas.ObservationPatch?.properties).toMatchObject({
+      status: { enum: ["open", "resolved"] },
+      resolutionNote: {
+        type: ["string", "null"],
+        minLength: 1,
+        maxLength: MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH,
+      },
+    });
+    expect(schemas.ObservationPatch?.properties).not.toHaveProperty("resolvedAt");
+    expect(schemas.ManualObservation?.required).toEqual(expect.arrayContaining([
+      "status", "resolutionNote", "resolvedAt",
+    ]));
+    expect(schemas.ManualObservation?.properties).toMatchObject({
+      status: { enum: ["open", "resolved"], readOnly: true },
+      resolutionNote: {
+        type: ["string", "null"],
+        maxLength: MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH,
+        readOnly: true,
+      },
+      resolvedAt: { type: ["string", "null"], format: "date-time", readOnly: true },
+    });
+  });
+
+  it("documents revisioned maintenance planning through verification", () => {
+    const schemas = (openApiV1Document.components as unknown as {
+      schemas: Record<string, { required?: string[]; properties?: Record<string, unknown> }>;
+    }).schemas;
+    expect(schemas.MaintenanceTaskInput?.required).toEqual(["title", "basis"]);
+    expect(schemas.MaintenanceTaskInput?.properties).toMatchObject({
+      propertyId: { type: "string", minLength: 1, maxLength: 200 },
+      houseId: { type: ["string", "null"], maxLength: 200 },
+    });
+    expect(schemas.MaintenanceTaskPatch?.properties).toMatchObject({
+      baseRevision: { type: "integer", minimum: 1 },
+      houseId: { type: ["string", "null"], maxLength: 200 },
+      status: { enum: ["planned", "in-progress", "completed", "verified", "cancelled"] },
+      completionNote: { type: ["string", "null"], maxLength: 5_000 },
+      verificationNote: { type: ["string", "null"], maxLength: 5_000 },
+    });
+    expect(schemas.MaintenanceTaskPatch?.properties).not.toHaveProperty("completedAt");
+    expect(schemas.MaintenanceTaskPatch?.properties).not.toHaveProperty("verifiedAt");
+    expect(schemas.MaintenanceTask?.required).toEqual(expect.arrayContaining([
+      "propertyId", "houseId", "basis", "priority", "plannedFor", "dueBy", "observationIds", "status",
+      "completionNote", "completedAt", "verificationNote", "verifiedAt", "revision",
+    ]));
+  });
+
+  it("documents non-blank ownership identifiers for property aggregates", () => {
+    const schemas = (openApiV1Document.components as unknown as {
+      schemas: Record<string, { properties?: Record<string, unknown> }>;
+    }).schemas;
+    expect(schemas.PropertyAreaInput?.properties).toMatchObject({
+      propertyId: { type: "string", minLength: 1, maxLength: 200 },
+    });
+    expect(schemas.AreaEquipmentInput?.properties).toMatchObject({
+      propertyId: { type: "string", minLength: 1, maxLength: 200 },
+      areaId: { type: "string", minLength: 1, maxLength: 200 },
+    });
+    expect(schemas.AreaEquipmentPatch?.properties).toMatchObject({
+      areaId: { type: "string", minLength: 1, maxLength: 200 },
+    });
+    expect(schemas.PropertyNoteInput?.properties).toMatchObject({
+      propertyId: { type: "string", minLength: 1, maxLength: 200 },
+    });
+  });
+
+  it("documents the nullable stable sensor-to-room relationship", () => {
+    const schemas = (openApiV1Document.components as unknown as {
+      schemas: Record<string, { required?: string[]; properties?: Record<string, unknown> }>;
+    }).schemas;
+    expect(schemas.Sensor?.required).toContain("roomId");
+    expect(schemas.Sensor?.properties).toMatchObject({
+      roomId: { type: ["string", "null"] },
+      room: { type: "string" },
+    });
+    expect(schemas.SensorInput?.required).not.toContain("roomId");
+    expect(schemas.SensorInput?.properties).toMatchObject({ roomId: { type: ["string", "null"] } });
+    expect(schemas.SensorPatch?.properties).toMatchObject({ roomId: { type: ["string", "null"] } });
+  });
+
+  it("documents a Home-safe effective electricity-price projection", () => {
+    const document = openApiV1Document as unknown as {
+      paths: Record<string, { get?: { responses?: Record<string, { content?: Record<string, { schema?: unknown }> }> } }>;
+      components: { schemas: Record<string, { required?: string[]; properties?: Record<string, unknown>; additionalProperties?: unknown }> };
+    };
+    expect(document.paths["/houses/{id}/electricity-price"]?.get?.responses?.["200"]
+      ?.content?.["application/json"]?.schema).toMatchObject({
+        additionalProperties: false,
+        required: ["current"],
+      });
+    expect(document.components.schemas.HomeElectricityPricePoint).toMatchObject({
+      additionalProperties: false,
+      required: ["startAt", "endAt", "effectivePriceCentsPerKwh", "effectivePriceEurPerKwh", "fetchedAt"],
+    });
+    expect(document.components.schemas.HomeElectricityPricePoint?.properties).not.toHaveProperty("rawPriceCentsPerKwh");
+    expect(document.components.schemas.HomeElectricityPricePoint?.properties).not.toHaveProperty("propertyId");
+  });
+
+  it("documents bounded spatial writes and the flattened persisted snapshot payload", () => {
+    const document = openApiV1Document as unknown as {
+      paths: Record<string, {
+        post?: {
+          requestBody?: { content?: Record<string, { schema?: Record<string, unknown> }> };
+          responses?: Record<string, { content?: Record<string, { schema?: Record<string, unknown> }> }>;
+        };
+      }>;
+      components: { schemas: Record<string, { required?: string[]; properties?: Record<string, unknown>; additionalProperties?: unknown }> };
+    };
+    const schemas = document.components.schemas;
+    const requestSchema = (path: string): Record<string, unknown> | undefined => document.paths[path]?.post
+      ?.requestBody?.content?.["application/json"]?.schema;
+    const responseSchema = (path: string, status: string): Record<string, unknown> | undefined => document.paths[path]?.post
+      ?.responses?.[status]?.content?.["application/json"]?.schema;
+
+    expect(requestSchema("/houses/{id}/layers/bindings")).toEqual({ $ref: "#/components/schemas/SpatialSensorBindingInput" });
+    expect(requestSchema("/houses/{id}/layers/calibrations")).toEqual({ $ref: "#/components/schemas/SpatialSensorCalibrationInput" });
+    expect(requestSchema("/houses/{id}/layers/calibration-sessions")).toEqual({ $ref: "#/components/schemas/SpatialCalibrationSessionInput" });
+    expect(requestSchema("/houses/{id}/layers/context-events")).toEqual({ $ref: "#/components/schemas/SpatialContextEventInput" });
+    expect(responseSchema("/houses/{id}/layers/infer", "200")).toEqual({ $ref: "#/components/schemas/SpatialLayerInferenceResult" });
+
+    expect(schemas.SpatialSensorBindingInput?.additionalProperties).toBe(false);
+    expect(schemas.SpatialSensorCalibrationInput?.additionalProperties).toBe(false);
+    expect(schemas.SpatialCalibrationSessionInput?.additionalProperties).toBe(false);
+    expect(schemas.SpatialContextEventInput?.additionalProperties).toBe(false);
+
+    expect(schemas.SpatialLayerSnapshot?.required).toEqual(expect.arrayContaining([
+      "id", "partition", "scope", "coordinateFrames", "configVersion", "qualityScore", "reasonCodes",
+      "zones", "connections", "points", "revision", "supersedesSnapshotId", "createdAt",
+    ]));
+    expect(schemas.SpatialLayerSnapshot?.properties).not.toHaveProperty("payload");
+    expect(schemas.SpatialLayerSnapshot?.properties).toMatchObject({
+      partition: { $ref: "#/components/schemas/SpatialPartition" },
+      zones: { type: "array", items: { $ref: "#/components/schemas/SpatialZoneLayerValue" } },
+      connections: { type: "array", items: { $ref: "#/components/schemas/SpatialConnectionLayerValue" } },
+      points: { type: "array", items: { $ref: "#/components/schemas/SpatialPointLayerValue" } },
+      revision: { type: "integer", minimum: 1 },
+    });
   });
 });

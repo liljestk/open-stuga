@@ -1,16 +1,22 @@
 import type {
+  AppSession,
+  AreaEquipment,
   AlertEvent,
   AlertRule,
   Floor,
   ForecastPoint,
   House,
   IntegrationStatus,
+  MaintenanceTask,
   ManualObservation,
   MeasurementDefinition,
   MeasurementForecastPoint,
   MeasurementSample,
   Metric,
   MockScenario,
+  Property,
+  PropertyArea,
+  PropertyNote,
   Reading,
   Sensor,
   SensorSnapshot,
@@ -30,10 +36,15 @@ import {
 } from "./measurements";
 
 export type ViewMode = "plan" | "isometric";
-export type AppPage = "overview" | "twin" | "outdoor" | "sensors" | "alerts" | "integrations" | "developer";
+export type AppPage = "overview" | "properties" | "people" | "twin" | "activity" | "maintenance" | "outdoor" | "energy" | "sensors" | "alerts" | "integrations" | "developer";
 export type TimeRange = "6h" | "24h" | "7d";
 
 export interface ClimateState {
+  session: AppSession;
+  properties: Property[];
+  propertyAreas: PropertyArea[];
+  areaEquipment: AreaEquipment[];
+  propertyNotes: PropertyNote[];
   measurementDefinitions: MeasurementDefinition[];
   latestMeasurements: LatestMeasurements;
   measurementHistory: MeasurementHistory;
@@ -46,12 +57,14 @@ export interface ClimateState {
   alertRules: AlertRule[];
   alerts: AlertEvent[];
   observations: ManualObservation[];
+  maintenanceTasks: MaintenanceTask[];
   staticParameters: StaticParameter[];
   integration: IntegrationStatus;
   scenarios: MockScenario[];
 }
 
 export const DEMO_HOUSE_ID = "house-pine";
+export const DEMO_PROPERTY_ID = "property-pine";
 export const DEMO_GROUND_ID = "floor-ground";
 export const DEMO_UPPER_ID = "floor-upper";
 
@@ -65,6 +78,7 @@ const groundFloor: Floor = {
   height: 640,
   elevation: 0,
   ceilingHeight: 2.8,
+  wallHeight: 2.8,
   walls: [
     { id: "g-o1", from: { x: 50, y: 45 }, to: { x: 950, y: 45 } },
     { id: "g-o2", from: { x: 950, y: 45 }, to: { x: 950, y: 590 } },
@@ -92,6 +106,7 @@ const upperFloor: Floor = {
   height: 640,
   elevation: 3,
   ceilingHeight: 2.6,
+  wallHeight: 2.6,
   walls: [
     { id: "u-o1", from: { x: 50, y: 45 }, to: { x: 950, y: 45 } },
     { id: "u-o2", from: { x: 950, y: 45 }, to: { x: 950, y: 590 } },
@@ -123,12 +138,14 @@ const sensorSeeds = [
 ] as const;
 
 export function createDemoState(): ClimateState {
+  const propertyCreatedAt = new Date(now.getTime() - 86400000 * 30).toISOString();
   const houses: House[] = [{
     id: DEMO_HOUSE_ID,
+    propertyId: DEMO_PROPERTY_ID,
     name: "Pine House",
     timezone: "Europe/Helsinki",
     floors: [groundFloor, upperFloor],
-    createdAt: new Date(now.getTime() - 86400000 * 30).toISOString(),
+    createdAt: propertyCreatedAt,
     updatedAt: now.toISOString(),
   }];
   const sensors: Sensor[] = sensorSeeds.map(([id, floorId, name, room, x, y]) => ({
@@ -136,6 +153,8 @@ export function createDemoState(): ClimateState {
     houseId: DEMO_HOUSE_ID,
     floorId,
     name,
+    roomId: (floorId === DEMO_GROUND_ID ? groundFloor : upperFloor).rooms
+      .find((candidate) => candidate.name === room)?.id ?? null,
     room,
     model: id === "sensor-living" ? "Tapo T315" : "Tapo T310",
     x,
@@ -227,6 +246,18 @@ export function createDemoState(): ClimateState {
   });
 
   return {
+    session: {
+      authenticated: true,
+      principal: { type: "demo", email: "owner@example.test" },
+      tenant: { id: "demo", name: "Demo", role: "owner" },
+      availableTenants: [{ id: "demo", name: "Demo", role: "owner" }],
+      readOnly: false,
+      grants: [],
+    },
+    properties: [{ id: DEMO_PROPERTY_ID, name: "Pine Estate", description: "Demonstration property", location: null, createdAt: propertyCreatedAt, updatedAt: now.toISOString() }],
+    propertyAreas: [],
+    areaEquipment: [],
+    propertyNotes: [],
     measurementDefinitions: BUILTIN_MEASUREMENTS,
     latestMeasurements,
     measurementHistory,
@@ -247,6 +278,7 @@ export function createDemoState(): ClimateState {
       severity: "warning",
       enabled: true,
       webhookEnabled: true,
+      telegramEnabled: false,
     }],
     alerts: [{
       id: "alert-bathroom",
@@ -272,7 +304,16 @@ export function createDemoState(): ClimateState {
       y: 215,
       occurredAt: new Date(now.getTime() - 86400000 * 2).toISOString(),
       createdAt: new Date(now.getTime() - 86400000 * 2).toISOString(),
+      timePrecision: "exact",
+      validFrom: null,
+      validTo: null,
+      source: "unknown",
+      sourceDetail: null,
+      confidence: "uncertain",
+      revision: 1,
+      updatedAt: new Date(now.getTime() - 86400000 * 2).toISOString(),
     }],
+    maintenanceTasks: [],
     staticParameters: [{
       id: "parameter-wall",
       houseId: DEMO_HOUSE_ID,
@@ -287,6 +328,8 @@ export function createDemoState(): ClimateState {
       homeAssistant: { configured: false, connected: false, lastEventAt: null, mappedEntities: 0, error: null },
       tpLink: { configured: false, connected: false, lastPollAt: null, mappedDevices: 0, discoveredDevices: 0, hubModel: null, error: null },
       webhook: { configured: false, lastDeliveryAt: null, error: null },
+      telegram: { available: true, configured: false, connected: false, botUsername: null, chatLabel: null, lastDeliveryAt: null, error: null },
+      appleNotes: { available: true, configured: false, grantCount: 0, lastSyncAt: null, error: null },
       mock: { enabled: true, intervalMs: 2000, mode: "demo", activatedAt: null },
       weather: { policy: "automatic", availableProviders: ["fmi", "open-meteo"], provider: "fmi", configuredHouses: 0, lastSuccessAt: null, error: null },
     },

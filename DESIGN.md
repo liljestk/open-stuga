@@ -1,6 +1,6 @@
 # Stuga brand and interface system
 
-Version 1.0 · 14 July 2026
+Version 1.2 · 17 July 2026
 
 ## 1. Brand idea
 
@@ -30,6 +30,114 @@ The result should feel architectural rather than decorative, warm rather than ru
 4. **Quiet by default.** Use animation only to explain a change in state or location.
 5. **Details on demand.** Lead with the conclusion; reveal sensor provenance, confidence, and API detail progressively.
 6. **Accessibility is a release criterion.** WCAG 2.2 AA is the minimum, not an optional polish pass.
+
+### Scope and information architecture
+
+Stuga has one durable hierarchy. Every screen, route, API operation, status,
+and permission must identify which level owns the information:
+
+```text
+Workspace
+└── Property (one or many)
+    ├── Home (zero or many)
+    │   ├── Floor
+    │   └── Room
+    ├── Area or structure
+    └── Equipment
+```
+
+- **Workspace** owns the cross-property overview, aggregated alerts, accounts,
+  and developer access through API & MCP.
+- **Property** owns land, mapped areas and structures, wells, equipment, notes,
+  access grants, maintenance work, contracts, and electricity pricing. A
+  Property with no Home must remain fully usable.
+- **Home** owns floors, rooms, sensors, activity, indoor/outdoor telemetry,
+  consumption meters, and its Tapo, Home Assistant, and weather connections.
+- **Maintenance** is Property-owned and may optionally target a Home, Floor,
+  Area, structure, or piece of Equipment inside that Property.
+
+The shell keeps the selected Property in the URL and may keep one selected Home
+inside it. Selecting a Home also selects its parent Property. The Home selector
+shows only children of the selected Property. Back, Forward, refresh, copied
+links, and a new browser session must restore the same visible scope.
+
+Use **Home** in user-facing copy and canonical browser routes. **House** is the
+internal API/domain term and must not leak into ordinary navigation. **Site**
+means the Property's land/map context; it is never a synonym for Home.
+
+Primary navigation is scoped and deliberately short:
+
+- Workspace: **Overview**, **Properties**, **Alerts**.
+- Selected Property: **Property**, **Maintenance**, **Electricity**.
+- Selected Home: **Home**, **Sensors**, **Set up**.
+- Advanced: **API & MCP**.
+
+Map & assets, Notes, and Access are sections inside Property. Activity,
+Outdoor, and Home electricity consumption are contextual detail routes reached
+from Home rather than permanent rail items. Property electricity covers the
+contract and price source; Home electricity covers meters and consumption.
+
+### Attention management and progressive disclosure
+
+Every Stuga overview should manage attention rather than display everything the system knows. Lead with what matters now, summarize routine information, and reveal evidence, history, configuration, and secondary actions only when the user asks for them.
+
+The Home page is a calm, adaptive command centre. In a few seconds it should answer:
+
+- Does anything need my attention?
+- What has meaningfully changed?
+- What is the home doing now?
+- What, if anything, should I do next?
+
+Use a stable hierarchy across Home and other overview surfaces:
+
+1. **Needs attention.** Show only current, actionable exceptions. Omit the section when there are none.
+2. **Today or current state.** Summarize the immediate situation and the most useful next action.
+3. **Key status.** Present frequently checked information as compact cards with one primary value and a plain-language interpretation.
+4. **Everything else.** Collapse healthy, unchanged, historical, or specialist information into a reassuring summary that can be expanded.
+
+Core zones remain in a predictable order so people retain spatial memory. Items may be ranked within a zone by urgency, time sensitivity, relevance, confidence, and recent activity, but personalization must not make the page feel as though it rearranges itself at random.
+
+Support four intentional density states:
+
+- **Quiet:** normal conditions dominate; show a minimal status summary.
+- **Active:** several useful updates are ranked and grouped.
+- **Critical:** one urgent issue leads and visually reduces secondary content.
+- **Exploration:** the user has expanded supporting evidence, trends, or controls in place.
+
+Compact summaries follow **icon · label · key value or status · one-line interpretation**. The collapsed state contains at most one primary action. Supporting explanation, contributing factors, history, provenance, and secondary actions belong in an inline disclosure or a clearly labelled detail view. Prefer native `details`/`summary` or a button with `aria-expanded` and `aria-controls`; expansion should preserve the user's context.
+
+Do not place every available chart, form, and tool on an overview. Creation forms, calibration tools, simulations, imports, and advanced settings start closed unless they are the page's primary task. A disclosure label must describe its contents (for example, “Add an observation”), not use vague text such as “More.” The expanded state must remain understandable at 320 px and 200% zoom.
+
+### Smart-alert standard
+
+An alert is an interpreted, actionable exception, not a notification feed. Before presenting one, establish that it is materially important or unusual, relevant now, actionable, not already handled, and not better combined with a related alert.
+
+Alerts follow this lifecycle: **detected → presented → acknowledged or acted on → resolved or expired**. Resolved, expired, duplicate, and low-confidence events leave the attention surface automatically and remain available in history when that history is useful.
+
+Rank alert groups by severity, then recency and relevance. Deduplicate repeated readings from the same cause. Each presented alert explains:
+
+- what happened;
+- the key status or value;
+- why it may matter;
+- what the person can do next; and
+- why Stuga is showing it, when that is not self-evident.
+
+Use one clear primary action such as “View recommendation” or “Fix connection.” Secondary lifecycle actions may include “Mark as handled,” “Remind me later,” “Mute this alert type,” “Why am I seeing this?”, and “Open details.” Do not manufacture an action when monitoring is the honest recommendation.
+
+Prefer interpreted language: “The bathroom has stayed above 68% humidity for 14 minutes. Check the extractor fan.” Avoid generic announcements such as “A humidity reading is available.” Urgency must be conveyed by wording, icon, structure, and state label—not colour alone.
+
+### Page-level application
+
+Progressive disclosure applies throughout the product:
+
+- **Overview and Home:** exceptions first, glanceable current state second, specialist tools collapsed.
+- **Sensors:** health and setup gaps first; discovery, import, and editing open on request.
+- **Alerts:** active actionable groups first; rule creation and acknowledged history are secondary disclosures.
+- **Outdoor:** current conditions and immediate implications first; forecast detail and model provenance follow.
+- **Set up:** show setup progress and the recommended next incomplete step; keep completed and advanced configuration compact.
+- **API & MCP:** lead with readiness and the shortest working path; reference detail and raw payloads remain expandable.
+
+Before adding a surface, ask: what decision does this help someone make now, what can be summarized, what can stay closed, and when should the content disappear? If those answers are unclear, the content does not belong on a primary overview.
 
 ## 3. Identity
 
@@ -109,6 +217,11 @@ Use these perceptually ordered, colour-vision-safe ramps:
 - Air quality: `#E7F1F8` → `#D29B00` → `#8C2D04`.
 - Generic sequential: `#E7E0F3` → `#7B6AB5` → `#3F285F`.
 
+Experimental sensor-support volumes use the generic sequential endpoints through
+the `--coverage` and `--coverage-soft` tokens. In dark mode these become
+`#C4B5EC` and `#32294A`. The solid/dashed boundary and placement marker carry
+the meaning when colour is unavailable.
+
 Always show endpoints, units, numeric sensor values, and a text description near a visualised field. A heat map is supporting context, never the only way to retrieve a value.
 
 ## 5. Typography
@@ -156,11 +269,21 @@ The rail is near-black to frame the home rather than compete with it. Active ite
 
 Preferred user-facing labels:
 
+- Overview
+- Properties
+- Property
+- Maintenance
+- Electricity
 - Home
 - Sensors
 - Alerts
 - Set up
 - API & MCP
+
+Do not place Workspace-, Property-, and Home-owned destinations into one
+unlabelled list. Show scope through the selector, group label, URL, page heading,
+and breadcrumb or equivalent context. Credential-changing controls must always
+name the Home or Property they will change.
 
 ### Buttons
 

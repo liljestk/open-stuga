@@ -1,16 +1,27 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH } from "@climate-twin/contracts";
 import type {
+  AreaEquipment,
+  AreaEquipmentInput,
+  AreaEquipmentPatch,
   AlertRule,
   Floor,
+  GeoCoordinate,
   HouseLocation,
   HouseMapPlacement,
   HouseWeather,
+  MaintenanceTask,
   ManualObservation,
   MeasurementDefinition,
   MeasurementSample,
   MeasurementSnapshotEntry,
+  Property,
+  PropertyArea,
+  PropertyAreaInput,
+  PropertyAreaPatch,
+  PropertyCreateInput,
   Reading,
   Sensor,
   StaticParameter,
@@ -19,6 +30,10 @@ import {
   parseAlertRule,
   parseMeasurementDefinition,
   parseMeasurementSample,
+  parseMaintenanceTaskInput,
+  parseMaintenanceTaskPatch,
+  parseObservationInput,
+  parseObservationPatch,
   parseReading,
   parseSensorPatch,
 } from "./app.js";
@@ -43,7 +58,10 @@ import {
   requireMcpMeasurementTarget,
   requireMcpRealDataPersistenceConfirmation,
   requireMcpSensor,
+  summarizeMcpAreaEquipment,
   summarizeMcpHouse,
+  summarizeMcpProperty,
+  summarizeMcpPropertyArea,
   validateMcpToolRegistry,
   validateMcpDateRange,
 } from "./mcp-validation.js";
@@ -67,18 +85,21 @@ import { SYSTEM_VERSION } from "./version.js";
 import { FmiWeatherProvider, WeatherRequestSupersededError, WeatherService } from "./weather.js";
 
 const config = loadConfig();
-const database = new ClimateDatabase(config.databasePath);
+const database = new ClimateDatabase(config.databasePath, config.mockEnabled);
 const locationDiscovery = new LocationDiscoveryService();
 const bus = new TelemetryBus();
-const status = new RuntimeStatus(config, bus, database);
 const dataMode = new DataModeCoordinator(database);
+if ((config.haUrl && config.haToken) || (config.tpLinkHost && config.tpLinkUsername && config.tpLinkPassword)) {
+  dataMode.activate();
+}
+const status = new RuntimeStatus(config, bus, database);
 const alertEngine = new AlertEngine(database, bus, config, status);
 const telemetry = new TelemetryService(database, bus, alertEngine, dataMode);
 const measurements = new MeasurementService(database, bus, alertEngine, dataMode);
 const mock = new MockEngine(database, telemetry, config, dataMode);
 const replay = new ReplayEngine(database, bus);
 const homeAssistant = new HomeAssistantBridge(config, telemetry, measurements, database, status);
-const tpLink = new TpLinkBridge(config, telemetry, database, status);
+const tpLink = new TpLinkBridge(config, telemetry, measurements, database, status);
 const weather = new WeatherService(
   new AutomaticWeatherProvider(new FmiWeatherProvider(), new OpenMeteoWeatherProvider()),
   status.value.weather,
@@ -87,7 +108,6 @@ const weather = new WeatherService(
 dataMode.onActivated(() => {
   mock.stop();
   replay.reset();
-  alertEngine.reset();
   status.refreshDataMode();
 });
 
@@ -97,14 +117,21 @@ function objectArguments(value: unknown): Record<string, unknown> {
 
 function requiredString(args: Record<string, unknown>, key: string): string {
   const value = args[key];
-  if (typeof value !== "string" || !value) throw new Error(`${key} is required`);
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${key} is required`);
   return value;
 }
 
 function optionalString(args: Record<string, unknown>, key: string): string | undefined {
   const value = args[key];
   if (value === undefined) return undefined;
-  if (typeof value !== "string" || !value) throw new Error(`${key} must be a non-empty string`);
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${key} must be a non-empty string`);
+  return value;
+}
+
+function nullableString(args: Record<string, unknown>, key: string): string | null {
+  const value = args[key];
+  if (value === null) return null;
+  if (typeof value !== "string") throw new Error(`${key} must be a string or null`);
   return value;
 }
 
@@ -152,6 +179,90 @@ function enumString<T extends string>(args: Record<string, unknown>, key: string
   return value as T;
 }
 
+const propertyAreaKinds = [
+  "well", "beach", "garage", "plantation", "garden", "field", "forest",
+  "shoreline", "dock", "road", "yard", "building", "other",
+] as const;
+const areaEquipmentStatuses = ["active", "out-of-service", "retired"] as const;
+
+function createProperty(args: Record<string, unknown>): Property {
+  const input: PropertyCreateInput = {
+    ...(args.id === undefined ? {} : { id: requiredString(args, "id") }),
+    name: requiredString(args, "name"),
+    ...(args.description === undefined ? {} : { description: nullableString(args, "description") }),
+    ...(args.location === undefined
+      ? {}
+      : { location: args.location === null ? null : requiredObject(args, "location") as unknown as HouseLocation }),
+  };
+  return database.createProperty(input);
+}
+
+function createPropertyArea(args: Record<string, unknown>): PropertyArea {
+  const input: PropertyAreaInput = {
+    ...(args.id === undefined ? {} : { id: requiredString(args, "id") }),
+    propertyId: requiredString(args, "propertyId"),
+    name: requiredString(args, "name"),
+    kind: enumString(args, "kind", propertyAreaKinds),
+    ...(args.description === undefined ? {} : { description: nullableString(args, "description") }),
+    ...(args.location === undefined || args.location === null
+      ? {}
+      : { location: requiredObject(args, "location") as unknown as GeoCoordinate }),
+    polygon: requiredArray(args, "polygon", 500, 0) as GeoCoordinate[],
+  };
+  return database.createPropertyArea(input);
+}
+
+function updatePropertyArea(args: Record<string, unknown>): PropertyArea {
+  const areaId = requiredString(args, "areaId");
+  const values = requiredObject(args, "patch");
+  const patch: PropertyAreaPatch = {};
+  if (values.propertyId !== undefined) patch.propertyId = requiredString(values, "propertyId");
+  if (values.name !== undefined) patch.name = requiredString(values, "name");
+  if (values.kind !== undefined) patch.kind = enumString(values, "kind", propertyAreaKinds);
+  if (values.description !== undefined) patch.description = nullableString(values, "description");
+  if (values.location !== undefined) patch.location = values.location === null
+    ? null
+    : requiredObject(values, "location") as unknown as GeoCoordinate;
+  if (values.polygon !== undefined) patch.polygon = requiredArray(values, "polygon", 500, 0) as GeoCoordinate[];
+  if (Object.keys(patch).length === 0) throw new Error("patch must contain at least one mutable field");
+  const area = database.updatePropertyArea(areaId, patch, "local-mcp");
+  if (!area) throw new Error(`Unknown property area: ${areaId}`);
+  return area;
+}
+
+function createAreaEquipment(args: Record<string, unknown>): AreaEquipment {
+  const input: AreaEquipmentInput = {
+    ...(args.id === undefined ? {} : { id: requiredString(args, "id") }),
+    areaId: requiredString(args, "areaId"),
+    name: requiredString(args, "name"),
+    kind: requiredString(args, "kind"),
+    ...(args.manufacturer === undefined ? {} : { manufacturer: nullableString(args, "manufacturer") }),
+    ...(args.model === undefined ? {} : { model: nullableString(args, "model") }),
+    ...(args.serialNumber === undefined ? {} : { serialNumber: nullableString(args, "serialNumber") }),
+    ...(args.status === undefined ? {} : { status: enumString(args, "status", areaEquipmentStatuses) }),
+    ...(args.notes === undefined ? {} : { notes: nullableString(args, "notes") }),
+  };
+  return database.createAreaEquipment(input);
+}
+
+function updateAreaEquipment(args: Record<string, unknown>): AreaEquipment {
+  const equipmentId = requiredString(args, "equipmentId");
+  const values = requiredObject(args, "patch");
+  const patch: AreaEquipmentPatch = {};
+  if (values.areaId !== undefined) patch.areaId = requiredString(values, "areaId");
+  if (values.name !== undefined) patch.name = requiredString(values, "name");
+  if (values.kind !== undefined) patch.kind = requiredString(values, "kind");
+  if (values.manufacturer !== undefined) patch.manufacturer = nullableString(values, "manufacturer");
+  if (values.model !== undefined) patch.model = nullableString(values, "model");
+  if (values.serialNumber !== undefined) patch.serialNumber = nullableString(values, "serialNumber");
+  if (values.status !== undefined) patch.status = enumString(values, "status", areaEquipmentStatuses);
+  if (values.notes !== undefined) patch.notes = nullableString(values, "notes");
+  if (Object.keys(patch).length === 0) throw new Error("patch must contain at least one mutable field");
+  const equipment = database.updateAreaEquipment(equipmentId, patch, "local-mcp");
+  if (!equipment) throw new Error(`Unknown area equipment: ${equipmentId}`);
+  return equipment;
+}
+
 function measurementSnapshot(houseId?: string): MeasurementSnapshotEntry[] {
   if (houseId) requireMcpHouse(database, houseId);
   const bySensor = new Map<string, Record<string, MeasurementSample>>();
@@ -177,6 +288,7 @@ function persistFreshWeatherObservation(result: HouseWeather): boolean {
     fetchedAt: result.fetchedAt,
     stationId: result.observationStation?.id ?? null,
     stationName: result.observationStation?.name ?? null,
+    conditions: result.current,
   });
   dataMode.synchronize();
   return true;
@@ -233,6 +345,7 @@ function thermalSimulation(args: Record<string, unknown>): unknown {
 function createHouse(args: Record<string, unknown>): unknown {
   const house = database.createHouse({
     ...(args.id === undefined ? {} : { id: requiredString(args, "id") }),
+    ...(args.propertyId === undefined ? {} : { propertyId: requiredString(args, "propertyId") }),
     name: requiredString(args, "name"),
     timezone: requiredString(args, "timezone"),
     ...(args.location === undefined ? {} : { location: requiredObject(args, "location") as unknown as HouseLocation }),
@@ -249,6 +362,7 @@ function updateHouse(args: Record<string, unknown>): unknown {
   const patch: {
     name?: string;
     timezone?: string;
+    propertyId?: string;
     orientationDegrees?: number | null;
     floors?: Floor[];
     location?: HouseLocation | null;
@@ -256,6 +370,7 @@ function updateHouse(args: Record<string, unknown>): unknown {
   } = {};
   if (args.name !== undefined) patch.name = requiredString(args, "name");
   if (args.timezone !== undefined) patch.timezone = requiredString(args, "timezone");
+  if (args.propertyId !== undefined) patch.propertyId = requiredString(args, "propertyId");
   if (args.location !== undefined) patch.location = args.location === null
     ? null
     : requiredObject(args, "location") as unknown as HouseLocation;
@@ -266,7 +381,7 @@ function updateHouse(args: Record<string, unknown>): unknown {
     ? null
     : requiredNumber(args, "orientationDegrees");
   if (args.floors !== undefined) patch.floors = requiredArray(args, "floors", 100, 0) as Floor[];
-  const house = database.updateHouse(houseId, patch);
+  const house = database.updateHouse(houseId, patch, "local-mcp");
   if (!house) throw new Error(`Unknown house: ${houseId}`);
   weather.invalidate(houseId);
   status.refreshWeatherConfiguration();
@@ -275,7 +390,7 @@ function updateHouse(args: Record<string, unknown>): unknown {
 
 function replaceHouseLayout(args: Record<string, unknown>): unknown {
   const houseId = requiredString(args, "houseId");
-  const house = database.updateHouse(houseId, { floors: requiredArray(args, "floors", 100, 0) as Floor[] });
+  const house = database.updateHouse(houseId, { floors: requiredArray(args, "floors", 100, 0) as Floor[] }, "local-mcp");
   if (!house) throw new Error(`Unknown house: ${houseId}`);
   return house;
 }
@@ -290,7 +405,7 @@ function replaceHouseFloor(args: Record<string, unknown>): Floor {
   if (index < 0) throw new Error(`Unknown floor ${floorId} in house ${houseId}`);
   const floors = house.floors.slice();
   floors[index] = floor;
-  database.updateHouse(houseId, { floors });
+  database.updateHouse(houseId, { floors }, "local-mcp");
   return floor;
 }
 
@@ -310,6 +425,7 @@ function createSensor(args: Record<string, unknown>): Sensor {
     houseId: requiredString(args, "houseId"),
     floorId: requiredString(args, "floorId"),
     name: requiredString(args, "name"),
+    ...(args.roomId === undefined ? {} : { roomId: args.roomId === null ? null : requiredString(args, "roomId") }),
     room: requiredString(args, "room"),
     model: requiredString(args, "model"),
     x: requiredNumber(args, "x"), y: requiredNumber(args, "y"), z: requiredNumber(args, "z"),
@@ -404,6 +520,7 @@ function queryMeasurementHistory(args: Record<string, unknown>): MeasurementSamp
   const from = mcpIsoDate(requiredString(args, "from"), "from");
   const to = mcpIsoDate(requiredString(args, "to"), "to");
   validateMcpDateRange(from, to);
+  assertMcpLocalHistoryComplete(from);
   return database.measurementHistory(
     sensorId,
     metric,
@@ -419,7 +536,14 @@ function querySensorHistory(args: Record<string, unknown>): Reading[] {
   const from = mcpIsoDate(requiredString(args, "from"), "from");
   const to = mcpIsoDate(requiredString(args, "to"), "to");
   validateMcpDateRange(from, to);
+  assertMcpLocalHistoryComplete(from);
   return database.history([sensorId], from, to, mcpBoundedInteger(args.limit, "limit", 2_000, 1, 50_000));
+}
+
+function assertMcpLocalHistoryComplete(from: string): void {
+  if (config.retentionDays <= 0 || !config.timeseriesEnabled) return;
+  if (Date.parse(from) >= Date.now() - config.retentionDays * 86_400_000) return;
+  throw new Error("Complete cold telemetry history must be queried through the archive-aware REST API");
 }
 
 function createAlertRule(args: Record<string, unknown>): AlertRule {
@@ -453,21 +577,24 @@ function acknowledgeAlert(args: Record<string, unknown>): unknown {
 }
 
 function createObservation(args: Record<string, unknown>): ManualObservation {
-  const occurredAt = args.occurredAt === undefined
-    ? new Date().toISOString()
-    : mcpIsoDate(requiredString(args, "occurredAt"), "occurredAt");
-  return database.createObservation({
-    ...(args.id === undefined ? {} : { id: requiredString(args, "id") }),
-    houseId: requiredString(args, "houseId"),
-    floorId: requiredString(args, "floorId"),
-    sensorId: args.sensorId === null || args.sensorId === undefined ? null : requiredString(args, "sensorId"),
-    kind: enumString(args, "kind", ["leak", "condensation", "mould", "ventilation", "maintenance", "note"] as const),
-    severity: enumString(args, "severity", ["info", "warning", "critical"] as const),
-    note: requiredString(args, "note"),
-    x: args.x === null || args.x === undefined ? null : requiredNumber(args, "x"),
-    y: args.y === null || args.y === undefined ? null : requiredNumber(args, "y"),
-    occurredAt,
-  });
+  return database.createObservation(parseObservationInput(args), "local-mcp");
+}
+
+function updateObservation(args: Record<string, unknown>): ManualObservation {
+  const observationId = requiredString(args, "observationId");
+  const observation = database.updateObservation(
+    observationId,
+    parseObservationPatch({ ...requiredObject(args, "patch"), baseRevision: args.baseRevision }),
+    "local-mcp",
+  );
+  if (!observation) throw new Error(`Unknown observation: ${observationId}`);
+  return observation;
+}
+
+function listObservationRevisions(args: Record<string, unknown>): unknown[] {
+  const observationId = requiredString(args, "observationId");
+  if (!database.getObservation(observationId)) throw new Error(`Unknown observation: ${observationId}`);
+  return database.listObservationRevisions(observationId);
 }
 
 function deleteObservation(args: Record<string, unknown>): { deleted: true; observationId: string } {
@@ -475,6 +602,51 @@ function deleteObservation(args: Record<string, unknown>): { deleted: true; obse
   const observationId = requiredString(args, "observationId");
   if (!database.deleteObservation(observationId)) throw new Error(`Unknown observation: ${observationId}`);
   return { deleted: true, observationId };
+}
+
+function createMaintenanceTask(args: Record<string, unknown>): MaintenanceTask {
+  return database.createMaintenanceTask(parseMaintenanceTaskInput(args), "local-mcp");
+}
+
+function listMaintenanceTasks(args: Record<string, unknown>): MaintenanceTask[] {
+  const propertyId = optionalString(args, "propertyId");
+  const houseId = optionalString(args, "houseId");
+  const areaId = optionalString(args, "areaId");
+  const equipmentId = optionalString(args, "equipmentId");
+  return database.listMaintenanceTasks({
+    ...(propertyId ? { propertyId } : {}),
+    ...(houseId ? { houseId } : {}),
+    ...(areaId ? { areaId } : {}),
+    ...(equipmentId ? { equipmentId } : {}),
+  });
+}
+
+function updateMaintenanceTask(args: Record<string, unknown>): MaintenanceTask {
+  const maintenanceTaskId = requiredString(args, "maintenanceTaskId");
+  const task = database.updateMaintenanceTask(
+    maintenanceTaskId,
+    parseMaintenanceTaskPatch({ ...requiredObject(args, "patch"), baseRevision: args.baseRevision }),
+    "local-mcp",
+  );
+  if (!task) throw new Error(`Unknown maintenance task: ${maintenanceTaskId}`);
+  return task;
+}
+
+function listMaintenanceTaskRevisions(args: Record<string, unknown>): unknown[] {
+  const maintenanceTaskId = requiredString(args, "maintenanceTaskId");
+  if (!database.getMaintenanceTask(maintenanceTaskId)) {
+    throw new Error(`Unknown maintenance task: ${maintenanceTaskId}`);
+  }
+  return database.listMaintenanceTaskRevisions(maintenanceTaskId);
+}
+
+function deleteMaintenanceTask(args: Record<string, unknown>): { deleted: true; maintenanceTaskId: string } {
+  requireMcpConfirmation(args.confirm);
+  const maintenanceTaskId = requiredString(args, "maintenanceTaskId");
+  if (!database.deleteMaintenanceTask(maintenanceTaskId)) {
+    throw new Error(`Unknown maintenance task: ${maintenanceTaskId}`);
+  }
+  return { deleted: true, maintenanceTaskId };
 }
 
 function upsertStaticParameter(args: Record<string, unknown>): StaticParameter {
@@ -588,9 +760,10 @@ function tpLinkSetup(): object {
     configured: status.value.tpLink.configured,
     supportedHubs: ["H100", "H200"],
     supportedClimateSensors: ["T310", "T315"],
+    supportedEnergyDevices: "Configured TP-Link/Kasa hosts that python-kasa exposes through Module.Energy",
     steps: [
       "Install python-kasa from apps/api/python/requirements.txt.",
-      "Configure the hub's reserved LAN address and TP-Link credentials in the Stuga web integration screen or the API process's protected environment/secrets file.",
+      "Configure a hub or direct energy device's reserved LAN address and TP-Link credentials in the Stuga web integration screen or the API process's protected environment/secrets file.",
       "Inspect discovered devices in the long-running API process.",
       "Assign a stable child device id to a sensor's tpLinkDeviceId field.",
     ],
@@ -600,6 +773,7 @@ function tpLinkSetup(): object {
       "Credentials are never returned and are stored outside SQLite.",
       "The MCP server deliberately does not accept or write credentials; keep secrets out of model and tool arguments.",
       "The stdio MCP process deliberately does not start a second continuous hub poller beside the API process.",
+      "LAN discovery remains H100/H200-only; direct energy devices need manual address entry and expose power, plus cumulative energy only when python-kasa provides consumption_total.",
       "Saving a real integration permanently disables and purges demo telemetry for this database.",
     ],
   };
@@ -607,25 +781,19 @@ function tpLinkSetup(): object {
 
 function homeAssistantConnectionTest(): object {
   return {
-    ok: status.value.homeAssistant.connected,
+    ok: false,
+    available: false,
     runtimeScope: "mcp-process",
-    message: status.value.homeAssistant.connected
-      ? "Home Assistant is connected in this MCP process."
-      : status.value.homeAssistant.configured
-        ? status.value.homeAssistant.error ?? "Credentials are configured; live connection state belongs to the long-running API process."
-        : "Home Assistant is not configured.",
+    message: "Live Home Assistant connection testing belongs to the long-running API process and is unavailable over stdio.",
   };
 }
 
 function tpLinkConnectionTest(): object {
   return {
-    ok: status.value.tpLink.connected,
+    ok: false,
+    available: false,
     runtimeScope: "mcp-process",
-    message: status.value.tpLink.connected
-      ? `TP-Link ${status.value.tpLink.hubModel ?? "hub"} is connected in this MCP process.`
-      : status.value.tpLink.configured
-        ? status.value.tpLink.error ?? "Credentials are configured; live polling state belongs to the long-running API process."
-        : "TP-Link is not configured.",
+    message: "Live TP-Link connection testing belongs to the long-running API process and is unavailable over stdio.",
   };
 }
 
@@ -643,11 +811,12 @@ function startReplay(args: Record<string, unknown>): object {
     ? new Date(Date.parse(to) - 3_600_000).toISOString()
     : mcpIsoDate(requiredString(args, "from"), "from");
   validateMcpDateRange(from, to);
-  const speed = args.speed === undefined ? 60 : mcpBoundedNumber(args.speed, "speed", 0.1, 10_000);
+  if (args.speed !== undefined) mcpBoundedNumber(args.speed, "speed", 0.1, 10_000);
   return {
-    replay: replay.start(sensorIds, from, to, speed),
+    available: false,
+    replay: { ...replay.state, count: 0 },
     runtimeScope: "mcp-process",
-    note: "Replay events are published only on this stdio process's in-memory event bus, not a separately running API process.",
+    note: "No replay was started because stdio has no observable live event consumer; use the API replay endpoint.",
   };
 }
 
@@ -674,6 +843,36 @@ const houseLocationSchema = {
   additionalProperties: false,
 } as const;
 
+const geoCoordinateSchema = {
+  type: "object",
+  properties: {
+    latitude: { type: "number", minimum: -90, maximum: 90 },
+    longitude: { type: "number", minimum: -180, maximum: 180 },
+  },
+  required: ["latitude", "longitude"],
+  additionalProperties: false,
+} as const;
+
+const propertyAreaMutableProperties = {
+  propertyId: { type: "string", minLength: 1, maxLength: 200 },
+  name: { type: "string", minLength: 1, maxLength: 200 },
+  kind: { enum: propertyAreaKinds },
+  description: { type: ["string", "null"], maxLength: 5_000 },
+  location: { oneOf: [geoCoordinateSchema, { type: "null" }] },
+  polygon: { type: "array", minItems: 0, maxItems: 500, items: geoCoordinateSchema },
+} as const;
+
+const areaEquipmentMutableProperties = {
+  areaId: { type: "string", minLength: 1, maxLength: 200 },
+  name: { type: "string", minLength: 1, maxLength: 200 },
+  kind: { type: "string", minLength: 1, maxLength: 200 },
+  manufacturer: { type: ["string", "null"], maxLength: 200 },
+  model: { type: ["string", "null"], maxLength: 200 },
+  serialNumber: { type: ["string", "null"], maxLength: 200 },
+  status: { enum: areaEquipmentStatuses },
+  notes: { type: ["string", "null"], maxLength: 5_000 },
+} as const;
+
 const houseMapPlacementSchema = {
   type: "object",
   properties: {
@@ -693,6 +892,19 @@ const floorSchema = {
     type: { enum: ["basement", "ground", "upper", "attic", "mezzanine", "outdoor"] },
     width: { type: "number", exclusiveMinimum: 0 }, height: { type: "number", exclusiveMinimum: 0 },
     elevation: { type: "number" }, ceilingHeight: { type: "number", exclusiveMinimum: 0 },
+    wallHeight: { type: "number", exclusiveMinimum: 0, maximum: 20 },
+    roof: {
+      type: "object",
+      properties: {
+        style: { enum: ["gable", "hip", "shed", "flat"] },
+        pitchDegrees: { type: "number", minimum: 0, maximum: 75 },
+        ridgeAxis: { enum: ["x", "y"] },
+        overhang: { type: "number", minimum: 0 },
+        eavesHeight: { type: "number", minimum: 0 },
+      },
+      required: ["style", "pitchDegrees", "ridgeAxis", "overhang", "eavesHeight"],
+      additionalProperties: false,
+    },
     walls: {
       type: "array",
       items: {
@@ -724,7 +936,10 @@ const floorSchema = {
           position: pointSchema,
           rotationDegrees: { type: "number", minimum: 0, exclusiveMaximum: 360 },
           width: { type: "number", exclusiveMinimum: 0 },
+          height: { type: "number", exclusiveMinimum: 0, description: "Physical element height in metres for the 3D representation." },
           wallId: { type: "string", minLength: 1 },
+          verticalExtent: { enum: ["level", "roof"] },
+          chimneyHeightAboveRoof: { type: "number", minimum: 0, maximum: 5 },
         },
         required: ["id", "kind", "position", "rotationDegrees"],
         additionalProperties: false,
@@ -738,7 +953,8 @@ const floorSchema = {
 
 const sensorProperties = {
   houseId: { type: "string", minLength: 1 }, floorId: { type: "string", minLength: 1 },
-  name: { type: "string", minLength: 1 }, room: { type: "string", minLength: 1 }, model: { type: "string", minLength: 1 },
+  name: { type: "string", minLength: 1 }, roomId: { type: ["string", "null"], minLength: 1 },
+  room: { type: "string", minLength: 1 }, model: { type: "string", minLength: 1 },
   x: { type: "number" }, y: { type: "number" }, z: { type: "number" },
   temperatureEntityId: { type: "string", minLength: 1 }, humidityEntityId: { type: "string", minLength: 1 },
   batteryEntityId: { type: "string", minLength: 1 }, tpLinkDeviceId: { type: ["string", "null"] },
@@ -761,7 +977,6 @@ const measurementSampleSchema = {
   properties: {
     sensorId: { type: "string", minLength: 1 }, metric: { type: "string", minLength: 1 }, value: { type: "number" },
     canonicalUnit: { type: "string", minLength: 1 }, timestamp: { type: "string", format: "date-time" },
-    source: { enum: ["mock", "home-assistant", "tp-link", "api", "import", "replay"] },
     quality: { enum: ["good", "estimated", "stale"] },
   },
   required: ["sensorId", "metric", "value"],
@@ -785,7 +1000,56 @@ const alertRuleProperties = {
   name: { type: "string", minLength: 1 }, sensorId: { type: ["string", "null"] }, metric: { type: "string", minLength: 1 },
   operator: { enum: ["gt", "gte", "lt", "lte"] }, threshold: { type: "number" },
   durationSeconds: { type: "integer", minimum: 1, maximum: 31_536_000 },
-  severity: { enum: ["info", "warning", "critical"] }, enabled: { type: "boolean" }, webhookEnabled: { type: "boolean" },
+  severity: { enum: ["info", "warning", "critical"] }, enabled: { type: "boolean" }, webhookEnabled: { type: "boolean" }, telegramEnabled: { type: "boolean" },
+} as const;
+
+const observationCreateProperties = {
+  floorId: { type: "string", minLength: 1 }, sensorId: { type: ["string", "null"] },
+  kind: { enum: ["leak", "condensation", "mould", "ventilation", "maintenance", "note"] },
+  severity: { enum: ["info", "warning", "critical"] }, note: { type: "string", minLength: 1 },
+  x: { type: ["number", "null"] }, y: { type: ["number", "null"] },
+  occurredAt: { oneOf: [{ type: "string", format: "date-time" }, { type: "string", format: "date" }] },
+  timePrecision: { enum: ["exact", "approximate", "date-only", "date-range", "unknown"] },
+  validFrom: { type: ["string", "null"], format: "date" },
+  validTo: { type: ["string", "null"], format: "date" },
+  source: { enum: ["owner", "caretaker", "contractor", "sensor", "imported-document", "automated-analysis", "unknown"] },
+  sourceDetail: { type: ["string", "null"] },
+  confidence: { enum: ["confirmed", "probable", "uncertain", "awaiting-inspection"] },
+} as const;
+
+const observationPatchProperties = {
+  ...observationCreateProperties,
+  status: { enum: ["open", "resolved"] },
+  resolutionNote: {
+    type: ["string", "null"],
+    minLength: 1,
+    maxLength: MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH,
+  },
+} as const;
+
+const maintenanceTaskCreateProperties = {
+  floorId: { type: ["string", "null"], maxLength: 200 },
+  areaId: { type: ["string", "null"], minLength: 1, maxLength: 200 },
+  equipmentId: { type: ["string", "null"], minLength: 1, maxLength: 200 },
+  title: { type: "string", minLength: 1, maxLength: 200 },
+  description: { type: ["string", "null"], maxLength: 5_000 },
+  basis: { enum: ["required", "scheduled", "condition-based", "predictive", "optional-improvement"] },
+  basisDetail: { type: ["string", "null"], maxLength: 5_000 },
+  priority: { enum: ["low", "normal", "high", "urgent"] },
+  plannedFor: { type: ["string", "null"], format: "date" },
+  dueBy: { type: ["string", "null"], format: "date" },
+  observationIds: {
+    type: "array", maxItems: 100,
+    items: { type: "string", minLength: 1, maxLength: 200 },
+  },
+} as const;
+
+const maintenanceTaskPatchProperties = {
+  ...maintenanceTaskCreateProperties,
+  houseId: { type: ["string", "null"], minLength: 1, maxLength: 200 },
+  status: { enum: ["planned", "in-progress", "completed", "verified", "cancelled"] },
+  completionNote: { type: ["string", "null"], maxLength: 5_000 },
+  verificationNote: { type: ["string", "null"], maxLength: 5_000 },
 } as const;
 
 const confirmationProperty = { confirm: { const: true, description: "Must be true to authorize this destructive operation." } } as const;
@@ -795,7 +1059,7 @@ const server = new Server(
   {
     capabilities: { tools: {} },
     instructions: [
-      "This Stuga stdio MCP operates on its configured local SQLite database; it is not the hosted tenant or administration API.",
+      "This Stuga stdio MCP operates only on its configured local SQLite workspace and is not an administration API.",
       "It cannot inspect a separately running API process's in-memory connections or event bus.",
       "Raw integration credentials, SSE streams, and binary asset downloads are intentionally excluded from MCP tool arguments and results.",
     ].join(" "),
@@ -812,9 +1076,96 @@ const resultOutputSchema = {
 
 const mcpTools = [
     {
+      name: "list_properties",
+      description: "List compact property summaries without exact map-centre coordinates or free-form descriptions.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    },
+    {
+      name: "create_property",
+      description: "Create a property that can own houses, mapped areas, and equipment.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string", minLength: 1, maxLength: 200 },
+          name: { type: "string", minLength: 1, maxLength: 200 },
+          description: { type: ["string", "null"], maxLength: 5_000 },
+          location: { oneOf: [houseLocationSchema, { type: "null" }] },
+        },
+        required: ["name"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "list_property_areas",
+      description: "List compact mapped-area and fixed-asset summaries, optionally for one property. Exact coordinates and free-form descriptions are omitted.",
+      inputSchema: {
+        type: "object",
+        properties: { propertyId: { type: "string", minLength: 1, maxLength: 200 } },
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "create_property_area",
+      description: "Create a mapped polygon area or fixed-position asset on a property. Use an empty polygon for a point asset.",
+      inputSchema: {
+        type: "object",
+        properties: { id: { type: "string", minLength: 1, maxLength: 200 }, ...propertyAreaMutableProperties },
+        required: ["propertyId", "name", "kind", "polygon"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "update_property_area",
+      description: "Update an area or fixed asset, including its position, or move its complete aggregate to another property.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          areaId: { type: "string", minLength: 1, maxLength: 200 },
+          patch: { type: "object", properties: propertyAreaMutableProperties, minProperties: 1, additionalProperties: false },
+        },
+        required: ["areaId", "patch"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "list_area_equipment",
+      description: "List compact area-equipment summaries, optionally filtered by property or area. Serial numbers and free-form notes are omitted.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          propertyId: { type: "string", minLength: 1, maxLength: 200 },
+          areaId: { type: "string", minLength: 1, maxLength: 200 },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "create_area_equipment",
+      description: "Create equipment in a mapped area; its property is derived from that area.",
+      inputSchema: {
+        type: "object",
+        properties: { id: { type: "string", minLength: 1, maxLength: 200 }, ...areaEquipmentMutableProperties },
+        required: ["areaId", "name", "kind"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "update_area_equipment",
+      description: "Update equipment or move it to another area; its property follows the target area automatically.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          equipmentId: { type: "string", minLength: 1, maxLength: 200 },
+          patch: { type: "object", properties: areaEquipmentMutableProperties, minProperties: 1, additionalProperties: false },
+        },
+        required: ["equipmentId", "patch"],
+        additionalProperties: false,
+      },
+    },
+    {
       name: "list_houses",
       description: "List compact house and floor summaries. Coordinates, map placement, detailed geometry, and embedded floor-plan images are omitted; request get_house for one explicitly selected house when those details are needed.",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      inputSchema: { type: "object", properties: { propertyId: { type: "string" } }, additionalProperties: false },
     },
     {
       name: "get_house",
@@ -827,7 +1178,7 @@ const mcpTools = [
       inputSchema: {
         type: "object",
         properties: {
-          id: { type: "string" }, name: { type: "string" }, timezone: { type: "string" },
+          id: { type: "string" }, propertyId: { type: "string" }, name: { type: "string" }, timezone: { type: "string" },
           location: houseLocationSchema, mapPlacement: houseMapPlacementSchema,
           orientationDegrees: { type: "number", minimum: 0, exclusiveMaximum: 360 },
           floors: { type: "array", maxItems: 100, items: floorSchema },
@@ -842,7 +1193,7 @@ const mcpTools = [
       inputSchema: {
         type: "object",
         properties: {
-          houseId: { type: "string" }, name: { type: "string" }, timezone: { type: "string" },
+          houseId: { type: "string" }, propertyId: { type: "string" }, name: { type: "string" }, timezone: { type: "string" },
           location: { oneOf: [houseLocationSchema, { type: "null" }] },
           mapPlacement: { oneOf: [houseMapPlacementSchema, { type: "null" }] },
           orientationDegrees: { type: ["number", "null"], minimum: 0, exclusiveMaximum: 360 },
@@ -1008,7 +1359,7 @@ const mcpTools = [
     },
     {
       name: "ingest_measurements",
-      description: "Atomically ingest 1-1000 validated registry measurement samples and publish normal live events/alerts.",
+      description: "Atomically persist 1-1000 validated registry measurement samples with server-assigned API provenance and durable alert evaluation. A separate API process's SSE bus is not available over stdio.",
       inputSchema: { type: "object", properties: { samples: { type: "array", minItems: 1, maxItems: 1000, items: measurementSampleSchema } }, required: ["samples"], additionalProperties: false },
     },
     {
@@ -1121,6 +1472,16 @@ const mcpTools = [
       inputSchema: { type: "object", properties: { houseId: { type: "string" } }, additionalProperties: false },
     },
     {
+      name: "list_observation_revisions",
+      description: "List the append-only local revision history for one observation.",
+      inputSchema: {
+        type: "object",
+        properties: { observationId: { type: "string", minLength: 1 } },
+        required: ["observationId"],
+        additionalProperties: false,
+      },
+    },
+    {
       name: "list_static_parameters",
       description: "List static house, floor, room, and sensor context used to interpret readings.",
       inputSchema: { type: "object", properties: { houseId: { type: "string" } }, additionalProperties: false },
@@ -1131,18 +1492,99 @@ const mcpTools = [
       inputSchema: {
         type: "object",
         properties: {
-          id: { type: "string" }, houseId: { type: "string" }, floorId: { type: "string" }, sensorId: { type: ["string", "null"] },
-          kind: { enum: ["leak", "condensation", "mould", "ventilation", "maintenance", "note"] },
-          severity: { enum: ["info", "warning", "critical"] }, note: { type: "string" },
-          x: { type: ["number", "null"] }, y: { type: ["number", "null"] }, occurredAt: { type: "string", format: "date-time" },
+          id: { type: "string" }, houseId: { type: "string" }, ...observationCreateProperties,
         },
         required: ["houseId", "floorId", "kind", "severity", "note"], additionalProperties: false,
+      },
+    },
+    {
+      name: "update_observation",
+      description: "Optimistically update observation evidence, resolve it with a required resolutionNote, or reopen it while preserving append-only revision snapshots.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          observationId: { type: "string", minLength: 1 },
+          baseRevision: { type: "integer", minimum: 1 },
+          patch: { type: "object", properties: observationPatchProperties, minProperties: 1, additionalProperties: false },
+        },
+        required: ["observationId", "baseRevision", "patch"],
+        additionalProperties: false,
       },
     },
     {
       name: "delete_observation",
       description: "Permanently delete a manual observation. Requires confirm=true.",
       inputSchema: { type: "object", properties: { observationId: { type: "string" }, ...confirmationProperty }, required: ["observationId", "confirm"], additionalProperties: false },
+    },
+    {
+      name: "list_maintenance_tasks",
+      description: "List planned, active, completed, verified, and cancelled maintenance tasks, optionally filtered by property, house, area, or equipment.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          propertyId: { type: "string", minLength: 1, maxLength: 200 },
+          houseId: { type: "string", minLength: 1, maxLength: 200 },
+          areaId: { type: "string", minLength: 1, maxLength: 200 },
+          equipmentId: { type: "string", minLength: 1, maxLength: 200 },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "list_maintenance_task_revisions",
+      description: "List the append-only local revision history for one maintenance task.",
+      inputSchema: {
+        type: "object",
+        properties: { maintenanceTaskId: { type: "string", minLength: 1 } },
+        required: ["maintenanceTaskId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "create_maintenance_task",
+      description: "Plan property-owned maintenance with optional house, floor, area, equipment, and observation evidence context.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          propertyId: { type: "string", minLength: 1, maxLength: 200 },
+          houseId: { type: ["string", "null"], minLength: 1, maxLength: 200 },
+          ...maintenanceTaskCreateProperties,
+        },
+        required: ["title", "basis"],
+        anyOf: [
+          { required: ["propertyId"] },
+          {
+            required: ["houseId"],
+            properties: { houseId: { type: "string", minLength: 1, maxLength: 200 } },
+          },
+        ],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "update_maintenance_task",
+      description: "Optimistically edit, complete, verify, replan, or cancel maintenance while preserving revision history.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          maintenanceTaskId: { type: "string", minLength: 1 },
+          baseRevision: { type: "integer", minimum: 1 },
+          patch: { type: "object", properties: maintenanceTaskPatchProperties, minProperties: 1, additionalProperties: false },
+        },
+        required: ["maintenanceTaskId", "baseRevision", "patch"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "delete_maintenance_task",
+      description: "Permanently delete a maintenance task and its revision history. Requires confirm=true.",
+      inputSchema: {
+        type: "object",
+        properties: { maintenanceTaskId: { type: "string" }, ...confirmationProperty },
+        required: ["maintenanceTaskId", "confirm"],
+        additionalProperties: false,
+      },
     },
     {
       name: "upsert_static_parameter",
@@ -1251,7 +1693,7 @@ const mcpTools = [
     },
     {
       name: "start_replay",
-      description: "Start bounded historical replay on this MCP process's event bus; it does not publish into a separately running API process.",
+      description: "Report that live replay is unavailable over stdio; use the long-running API replay endpoint for observable SSE playback.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1279,7 +1721,19 @@ server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: mcpTools }));
 type ToolHandler = (args: Record<string, unknown>) => unknown | Promise<unknown>;
 
 const toolHandlers: Record<string, ToolHandler> = {
-  list_houses: () => database.listHouses().map(summarizeMcpHouse),
+  list_properties: () => database.listProperties().map(summarizeMcpProperty),
+  create_property: createProperty,
+  list_property_areas: (args) => database.listPropertyAreas(optionalString(args, "propertyId"))
+    .map(summarizeMcpPropertyArea),
+  create_property_area: createPropertyArea,
+  update_property_area: updatePropertyArea,
+  list_area_equipment: (args) => database.listAreaEquipment({
+    ...(args.propertyId === undefined ? {} : { propertyId: requiredString(args, "propertyId") }),
+    ...(args.areaId === undefined ? {} : { areaId: requiredString(args, "areaId") }),
+  }).map(summarizeMcpAreaEquipment),
+  create_area_equipment: createAreaEquipment,
+  update_area_equipment: updateAreaEquipment,
+  list_houses: (args) => database.listHouses(args.propertyId === undefined ? undefined : requiredString(args, "propertyId")).map(summarizeMcpHouse),
   get_house: (args) => requireMcpHouse(database, requiredString(args, "houseId")),
   create_house: createHouse,
   update_house: updateHouse,
@@ -1349,8 +1803,15 @@ const toolHandlers: Record<string, ToolHandler> = {
   ),
   acknowledge_alert: acknowledgeAlert,
   list_observations: (args) => database.listObservations(optionalString(args, "houseId")),
+  list_observation_revisions: listObservationRevisions,
   create_observation: createObservation,
+  update_observation: updateObservation,
   delete_observation: deleteObservation,
+  list_maintenance_tasks: listMaintenanceTasks,
+  list_maintenance_task_revisions: listMaintenanceTaskRevisions,
+  create_maintenance_task: createMaintenanceTask,
+  update_maintenance_task: updateMaintenanceTask,
+  delete_maintenance_task: deleteMaintenanceTask,
   list_static_parameters: (args) => database.listParameters(optionalString(args, "houseId")),
   upsert_static_parameter: upsertStaticParameter,
   delete_static_parameter: deleteStaticParameter,
@@ -1367,8 +1828,9 @@ const toolHandlers: Record<string, ToolHandler> = {
     dataMode.synchronize();
     return {
       runtimeScope: "mcp-process",
+      liveConnectionsAvailable: false,
       status: structuredClone(status.value),
-      note: "Live connection fields describe this stdio process and cannot inspect a separately running API process.",
+      note: "This stdio process does not start live integration adapters and cannot inspect the API process's connection state.",
     };
   },
   discover_integrations: discoverIntegrations,
@@ -1376,9 +1838,10 @@ const toolHandlers: Record<string, ToolHandler> = {
   test_home_assistant_connection: homeAssistantConnectionTest,
   get_tp_link_setup: tpLinkSetup,
   list_tp_link_devices: () => ({
-    devices: tpLink.listDiscoveredDevices(),
+    devices: [],
+    available: false,
     runtimeScope: "mcp-process",
-    note: "This cache is process-local; the MCP server does not start a duplicate continuous hub poller.",
+    note: "Live TP-Link inventory belongs to the long-running API process and is unavailable over stdio.",
   }),
   test_tp_link_connection: tpLinkConnectionTest,
   list_mock_scenarios: () => {
@@ -1387,9 +1850,9 @@ const toolHandlers: Record<string, ToolHandler> = {
   },
   select_mock_scenario: selectMockScenario,
   generate_mock_tick: () => ({ readings: mock.generate(), scenario: mock.scenario }),
-  get_replay_status: () => ({ replay: replay.state, runtimeScope: "mcp-process" }),
+  get_replay_status: () => ({ available: false, replay: { ...replay.state, count: 0 }, runtimeScope: "mcp-process" }),
   start_replay: startReplay,
-  stop_replay: () => ({ replay: replay.stop(), runtimeScope: "mcp-process" }),
+  stop_replay: () => ({ available: false, replay: replay.stop(), runtimeScope: "mcp-process" }),
 };
 
 validateMcpToolRegistry(mcpTools.map((tool) => tool.name), Object.keys(toolHandlers));

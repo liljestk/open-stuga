@@ -7,10 +7,17 @@ const config = loadConfig();
 const runtime = createApi({ config, startBackground: true });
 const server = createServer(runtime.app);
 
-server.listen(config.port, config.apiHost, () => {
-  // Do not log configuration: it may contain integration credentials.
-  console.log(`Stuga API listening on http://${config.apiHost}:${config.port}/api/v1`);
-});
+try {
+  await runtime.ready();
+  server.listen(config.port, config.apiHost, () => {
+    // Do not log configuration: it may contain integration credentials.
+    console.log(`Stuga API listening on http://${config.apiHost}:${config.port}/api/v1`);
+  });
+} catch {
+  console.error("Stuga API could not initialize its required telemetry archive");
+  await runtime.close();
+  process.exit(1);
+}
 
 let shutdownPromise: Promise<void> | null = null;
 

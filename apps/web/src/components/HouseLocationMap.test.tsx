@@ -1,4 +1,4 @@
-import { act, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HouseLocationMap, type HouseLocationMapItem } from "./HouseLocationMap";
 
@@ -178,6 +178,7 @@ describe("HouseLocationMap", () => {
     const coast = leaflet.state.markers.find((marker) => marker.options.title === "Coast house")!;
     const lake = leaflet.state.markers.find((marker) => marker.options.title === unsafeLabel)!;
     expect(coast.element.getAttribute("role")).toBe("button");
+    expect(coast.element.tabIndex).toBe(0);
     expect(coast.element.getAttribute("aria-label")).toBe("Coast house");
     expect(coast.element.getAttribute("aria-pressed")).toBe("true");
     expect(lake.element.getAttribute("aria-label")).toBe(unsafeLabel);
@@ -191,6 +192,10 @@ describe("HouseLocationMap", () => {
 
     act(() => lake.handlers.get("click")?.());
     expect(onSelect).toHaveBeenCalledWith("lake");
+    onSelect.mockClear();
+    fireEvent.keyDown(lake.element, { key: "Enter" });
+    fireEvent.keyDown(coast.element, { key: " " });
+    expect(onSelect.mock.calls).toEqual([["lake"], ["coast"]]);
 
     coast.setDraggedLatLng([60.171, 24.942]);
     act(() => coast.handlers.get("dragend")?.());

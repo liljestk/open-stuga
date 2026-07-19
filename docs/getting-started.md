@@ -1,9 +1,10 @@
 # Install and run Stuga
 
-Stuga runs with mock sensors out of the box. Home Assistant is optional,
-so the visualisation, history, alerts, and replay workflow can be evaluated
-before the physical sensors arrive. Temperature, relative humidity, and CO2 are
-built in; additional finite numeric scalar measurements can be registered later.
+Stuga's normal first run guides you through creating a property and its first
+home. An optional mock mode can instead seed a sample home and sensors so the
+visualisation, history, alerts, and replay workflow can be evaluated before the
+physical sensors arrive. Temperature, relative humidity, and CO2 are built in;
+additional finite numeric scalar measurements can be registered later.
 
 ## Choose a run mode
 
@@ -28,8 +29,10 @@ Prerequisites: a current Docker Engine with Compose v2.
 
    On macOS/Linux use `cp .env.example .env`.
 
-2. Leave `MOCK_ENABLED=true` for the first run. Do not put real tokens in
-   `.env.example`; add them only to `.env`.
+2. Leave `MOCK_ENABLED=false` for a real workspace and use the guided
+   property/home setup. Set it to `true` before the first start only for an
+   isolated demo. Do not put real tokens in `.env.example`; add them only to
+   `.env`.
 3. Build and start:
 
    ```sh
@@ -50,15 +53,19 @@ Prerequisites: a current Docker Engine with Compose v2.
    docker compose down
    ```
 
-History is stored in the named `climate-twin-data` volume. `docker compose down
--v` deletes that volume and all retained readings; use it only when an explicit
-reset is intended.
+History is stored in the named `climate-twin-data` volume. Compose also keeps a
+generated API-to-proxy credential in the dedicated `climate-twin-runtime`
+volume; it is never exposed to the browser. `docker compose down -v` deletes
+both volumes and all retained readings; use it only when an explicit reset is
+intended.
 
 Compose binds the web port to loopback by default. To use the UI from another
 device on the private LAN, set `BIND_ADDRESS` in `.env` to the host's specific
 LAN address (preferred) or `0.0.0.0`, allow only the intended subnet in the host
-firewall, and review the security guide first. The MVP has no general API login;
-the same web port also exposes `/api/v1` and `/api/v2`.
+firewall, and review the security guide first. Built-in accounts protect the
+web application and API with a server-managed HttpOnly session; complete owner
+setup and sign in before using `/api/v1` or `/api/v2`. Authentication does not
+make plain HTTP safe outside a trusted network.
 
 To update an installation, back up the data volume/database, fetch the desired
 release, then run `docker compose up --build -d` again. Pin a release tag in a
@@ -95,9 +102,10 @@ npm run dev --workspace @climate-twin/api
 npm run dev --workspace @climate-twin/web
 ```
 
-## First-run mock workflow
+## Optional first-run mock workflow
 
-The default seed creates one house, two floors, ten placed sensors, and registry
+Before starting a fresh demo database, set `MOCK_ENABLED=true`. The opt-in seed
+creates one Property with one Home, two floors, ten placed sensors, and registry
 definitions for temperature (°C), relative humidity (%), and CO2 (ppm). With
 `MOCK_ENABLED=true`, the API generates synthetic samples at `MOCK_INTERVAL_MS`
 intervals.
@@ -128,24 +136,43 @@ the current database into real-data mode. The transition removes persisted mock/
 synthetic outdoor boundaries, and existing alert events, stops mock generation
 and active replay, and blocks all future demo ingestion.
 
-## Use the Set up workspace
+## Choose the right scope
 
-**Set up** is split into four sections so routine monitoring stays out of the
-configuration flow:
+The rail follows ownership rather than feature categories:
+
+- **Workspace:** Overview, Properties, and Alerts across everything you may see.
+- **Property:** the Property workspace, Maintenance, and Electricity contracts.
+- **Home:** indoor status, Sensors, and Set up for one Home.
+- **Advanced:** API & MCP compatibility and integration contracts.
+
+Selecting a Home also selects its parent Property. Property-owned work remains
+available when a Property has no Home: use
+`/properties/{propertyId}/maintenance` for its work plan and
+`/properties/{propertyId}/electricity` for its electricity contract and price
+source.
+
+## Use the Home's Set up workspace
+
+Select a Property and Home, then open **Set up**. It is split into four sections
+so routine monitoring stays out of the configuration flow:
 
 | Section | Purpose |
 | --- | --- |
 | **Overview** | readiness steps and a compact status summary |
 | **Homes** | select a home, load the map deliberately, place/calibrate its footprint, and set plan orientation |
-| **Connections** | discover and configure the process-wide direct TP-Link or Home Assistant source |
+| **Connections** | discover and configure this Home's direct TP-Link or Home Assistant connections |
 | **Weather** | select a home, discover its location/timezone, and review automatic weather-provider configuration |
 
-The section is encoded in `/setup/{section}`, so browser Back/Forward and direct
-links retain context. Opening **Connections** starts one best-effort LAN
-discovery scan; a retry button and manual address fields remain available. The
-credential and manual-network controls are progressive disclosures for users
-who need them. TP-Link and Home Assistant settings remain shared by the API
-process: selecting a home in Setup does not create a per-home integration.
+The section is encoded in the canonical
+`/properties/{propertyId}/homes/{homeId}/setup/{section}` route, so browser
+Back/Forward and direct links retain both scope and context. Opening
+**Connections** starts one best-effort LAN
+discovery scan; a retry button and manual address fields remain available. If
+TP-Link discovery fails or returns no hub, its manual host and credential fields
+open automatically. The other credential and manual-network controls remain
+progressive disclosures. Home Assistant and direct TP-Link connections belong
+to the selected Home. Each Home can use independent credentials and endpoints;
+direct TP-Link also supports multiple named connections within one Home.
 
 Location setup is also discover-first. Search for a place, review its suggested
 coordinate and IANA timezone, then apply it; or choose **Use this device's
@@ -155,32 +182,37 @@ Manual coordinates and timezone overrides remain under **Advanced**.
 
 ## Connect a TP-Link hub directly
 
-After the mock workflow works:
+To connect a real hub (the mock workflow is not a prerequisite):
 
 1. Follow [direct TP-Link H100/H200 setup](tp-link-direct.md).
 2. For local development, install
    `apps/api/python/requirements.txt`; the Docker image already includes it.
-3. Open **Set up > Connections**, choose the discovered H100/H200 (or open the
-   manual connection fields), and enter the same account used by the Tapo app.
+3. Select the Home that owns the hub, open **Set up > Connections**, choose the
+   discovered H100/H200 (or open the manual connection fields), and enter the
+   same account used by the Tapo app.
 4. Open **Sensors**, choose **Add sensor**, and select a discovered T310/T315.
    Name it, choose its floor and room, and place it on the plan. The binding is
    stored in SQLite and begins ingesting without another restart.
-5. Saving the hub credentials automatically and permanently disables and purges
-   demo telemetry for this database. No environment change or restart is needed.
+5. If this database is in demo mode, saving the hub credentials automatically
+   and permanently disables and purges demo telemetry. No environment change or
+   restart is needed.
 
 Home Assistant is not required for this path.
 
 ## Connect Home Assistant
 
-After the mock workflow works:
+To connect a real Home Assistant instance (the mock workflow is not a
+prerequisite):
 
 1. Follow [TP-Link H100/H200 and Home Assistant setup](home-assistant.md).
 2. Copy `config/home-assistant.entities.example.json` to the untracked
    `config/home-assistant.entities.json` and replace all entity IDs.
-3. Open **Set up > Connections**, choose the discovered Home Assistant instance
-   (or open the manual connection fields), and paste a long-lived access token.
-4. Saving the Home Assistant credentials automatically and permanently disables
-   and purges demo telemetry for this database. No environment change is needed.
+3. Select the Home served by that Home Assistant instance, open
+   **Set up > Connections**, choose the discovered instance (or open the manual
+   connection fields), and paste a long-lived access token.
+4. If this database is in demo mode, saving the Home Assistant credentials
+   automatically and permanently disables and purges demo telemetry. No
+   environment change is needed.
 5. Restart only when changing environment-based entity maps or overrides.
 
 Keep demonstrations in a separate database or deployment. The real-data latch
@@ -202,7 +234,7 @@ Files can use either of these familiar layouts:
 | `Date, Sensor, Temperature, Humidity` | `Date, Sensor, Measurement, Value, Unit` |
 
 Sensor values can be stable sensor IDs or unique sensor names. Dates with an
-explicit offset are preserved; dates without one use the selected house's time
+explicit offset are preserved; dates without one use the selected Home's time
 zone. Celsius, Fahrenheit, and kelvin temperature columns can be converted to
 the registry's canonical Celsius unit. Decimal commas and common Finnish or
 ISO-style dates are supported.
@@ -232,7 +264,7 @@ No weather API key or environment variable is required.
 3. If the home already has a precise placement from **Set up > Homes**, it can
    be reused as the weather reference. Set the true-north bearing of the top
    floor-plan edge there when it is known; leave it unknown rather than guessing.
-4. Open the home-scoped **Outdoor** page for current conditions, warning status,
+4. Open the Home-scoped **Outdoor** page for current conditions, warning status,
    and the 48-hour forecast. Forecast navigation uses four 12-hour windows and
    displays timestamps in that home's saved IANA timezone.
 
@@ -270,9 +302,9 @@ take precedence after restart.
 | `API_HOST` | `127.0.0.1` | local API bind; Compose overrides this to its private container interface |
 | `DATABASE_PATH` | `./data/climate-twin.sqlite` | SQLite file; Compose uses `/app/data/climate-twin.sqlite` |
 | `INTEGRATION_SECRETS_FILE` | next to `DATABASE_PATH` | protected JSON file for credentials saved through the setup page; Compose uses `/app/data/integration-secrets.json` |
-| `MOCK_ENABLED` | `true` | start synthetic telemetry |
+| `MOCK_ENABLED` | `false` | opt in to sample inventory and synthetic telemetry before a database's first start |
 | `MOCK_INTERVAL_MS` | `2000` | synthetic event interval |
-| `RETENTION_DAYS` | `730` | raw measurement/readings history retention target |
+| `RETENTION_DAYS` | `0` | SQLite hot-copy retention; `0` keeps all local rows, or use at least `30` with Timescale enabled |
 | `INGEST_API_KEY` | empty | optional secret for external ingestion routes |
 | `HA_URL` | `http://homeassistant.local:8123` | Home Assistant base URL |
 | `HA_TOKEN` | empty | private Home Assistant access token |
@@ -285,7 +317,10 @@ take precedence after restart.
 | `TP_LINK_PYTHON` | `python` on Windows, `python3` elsewhere | Python 3.11+ executable for the direct bridge |
 | `ALERT_WEBHOOK_URL` | empty | optional outbound alert destination |
 | `ALERT_WEBHOOK_BEARER_TOKEN` | empty | optional destination bearer token |
-| `CORS_ORIGIN` | empty | explicit browser origin for a split-origin deployment |
+| `CORS_ORIGIN` | empty | exact trusted browser origin for a split-origin or non-loopback deployment |
+| `LOCAL_AUTH_BOOTSTRAP_SECRET` | empty | optional high-entropy secret for an explicitly authorized first-owner setup outside loopback |
+| `LOCAL_AUTH_PROXY_SECRET` | empty | advanced non-Compose shared secret authenticating one immediate reverse proxy; minimum 32 bytes |
+| `LOCAL_AUTH_PROXY_SECRET_FILE` | empty | advanced alternative path containing the proxy secret; creates a random credential when the file does not exist |
 | `VITE_API_BASE_URL` | empty | compile-time web API base; empty uses same-origin `/api/v1` and `/api/v2` |
 | `VITE_SPATIAL_MAX_SAMPLE_AGE_MS` | `900000` | live sample age limit for 2D/3D clouds and gradient vectors |
 | `VITE_SPATIAL_REPLAY_MAX_SAMPLE_AGE_MS` | `5400000` | wider replay age limit for downsampled stored history |
@@ -298,14 +333,17 @@ configuration change; unknown values may fall back to safe defaults.
 
 ### Split-origin deployments
 
-The supplied Compose setup is same-origin and needs no CORS. If the web app is
-hosted at a different origin, build it with an absolute `VITE_API_BASE_URL` and
-set `CORS_ORIGIN` to the exact trusted origin. Do not use `*` with credentials or
-on a network-exposed deployment.
+The supplied loopback Compose setup is same-origin and needs no CORS override.
+If the web app is hosted at a different origin, build it with an absolute
+`VITE_API_BASE_URL` and set `CORS_ORIGIN` to the exact trusted origin. Also set
+`CORS_ORIGIN` when a same-origin proxy is deliberately exposed through a LAN IP
+or custom hostname; the API does not trust an arbitrary `Host` header as proof
+of browser origin because that would permit DNS-rebinding requests. Do not use
+`*` with credentials or on a network-exposed deployment.
 
 ### Language, timezone, and units
 
-Store samples in their registry-defined canonical units and UTC. Each house's
+Store samples in their registry-defined canonical units and UTC. Each Home's
 IANA timezone and the user locale control display, so one installation can
 render homes on different local calendars correctly. Place/device discovery
 suggests a timezone; a manual valid-IANA override remains available.
@@ -317,20 +355,29 @@ Do not duplicate a sensor to change display units.
 
 ## Backup and restore
 
-For a quiet single-host installation:
+Create a complete, online Compose backup without publishing PostgreSQL:
 
-1. Stop the API container to guarantee a consistent simple file copy.
-2. Copy `climate-twin.sqlite` from the named volume to encrypted backup storage.
-3. Start the API again.
+```powershell
+docker compose --profile maintenance run --rm stuga-backup
+```
 
-For no-downtime production backups, use SQLite's online backup API/command with
-the database running; do not copy only the main file while WAL writes are active.
-Test restoration periodically into an isolated instance with alerts and outbound
-webhooks disabled.
+The maintenance image snapshots the core and spatial SQLite databases safely
+while WAL is active, copies assets and the protected integration file, creates a
+full TimescaleDB custom-format dump, and verifies a checksummed manifest. It
+writes under `./backups`; set `STUGA_BACKUP_DIRECTORY` to use another protected
+host directory. Verify an existing set with:
 
-Floor-plan images and configuration must be included separately if they are not
-embedded in the database. Never include `.env` or tokens in a broadly shared
-backup.
+```powershell
+docker compose --profile maintenance run --rm --no-deps stuga-backup `
+  --verify /app/backups/<backup-directory>
+```
+
+Every complete set contains credentials and household history. Keep it encrypted,
+copy it off-host, and periodically restore it into an isolated stack with alerts
+and outbound integrations disabled. A copied SQLite main file alone is not a
+backup while WAL writes may be active, and a SQLite-only copy omits the durable
+Timescale archive. See [Backend storage and operations](backend-storage.md) for
+the full restore sequence and ownership checks.
 
 ## Uninstall
 

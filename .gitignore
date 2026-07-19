@@ -19,6 +19,7 @@ pnpm-debug.log*
 
 # Runtime data and temporary files
 data/
+backups/
 .tmp-runtime/
 tmp/
 temp/

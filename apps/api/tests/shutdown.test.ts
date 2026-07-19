@@ -13,7 +13,7 @@ describe("API shutdown", () => {
       server.closeAllConnections();
       await new Promise<void>((resolve) => server?.close(() => resolve()));
     }
-    runtime?.close();
+    await runtime?.close();
   });
 
   it("drains every SSE endpoint before closing the database and HTTP server", async () => {

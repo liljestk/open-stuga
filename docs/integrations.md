@@ -1,36 +1,40 @@
 # API, weather, MCP, Home Assistant alerts, DayOps, and OpenWearable
 
-Stuga's local edition exposes one domain through three transports:
+Stuga exposes one local workspace through three transports:
 
 - REST under `/api/v1` for the original temperature/humidity compatibility
   contract and `/api/v2` for registered sparse measurements;
-- server-sent events at `/api/v1/stream` for compatibility readings and
+- server-sent events at `/api/v1/stream` for compatibility readings,
+  provider-neutral weather snapshots, and integration state, plus
   `/api/v2/measurements/events` for per-metric live updates;
 - a local stdio MCP server for trusted agent/tool hosts.
 
-The optional hosted edition adds a separate tenant-scoped HTTP surface. Its
-machine-readable OpenAPI document is `/api/openapi.json`, and
-`/api/hosted-routes.json` records which operations are equivalent, hosted-only,
-local-only, or intentionally not exposed. Tenant selection, membership, and
-API-token administration are hosted HTTP operations; they are deliberately not
-added to the trusted local stdio MCP. See [Cloudflare hosting and multi-tenant
-operations](cloudflare-hosting.md).
+Browser HTTP requests use built-in local accounts and a server-managed HttpOnly
+session. The API enforces owner/administrator roles and read-only Guest scopes;
+account and session administration are deliberately not added to the trusted
+local stdio MCP. The ingestion API key, when configured, remains a separate
+machine credential rather than a browser account session.
 
-Outbound alert webhooks can target Home Assistant or an integration relay. The
-MVP has one configured webhook destination, so a relay is required to fan out to
-Home Assistant, DayOps, and OpenWearable simultaneously.
+Outbound alerts can independently target Telegram and one generic webhook.
+The webhook can reach Home Assistant or an integration relay; a relay is still
+required to fan that single generic destination out to Home Assistant, DayOps,
+and OpenWearable simultaneously. See the guided [Apple Notes bridge and
+Telegram setup](apple-notes-telegram.md).
 
-House-scoped outdoor context is a v1 resource with automatic provider routing.
+Home-scoped outdoor context is a v1 resource with automatic provider routing
+(`House` and `houseId` remain the compatibility API names).
 Finnish homes use FMI open data; other homes use Open-Meteo worldwide modelled
 weather. The API stores each home's optional WGS84 weather location, IANA
 timezone, and independent precise map placement. Provider, geocoding, and
-timezone requests are server-side; the explicitly loaded shared home map uses
+timezone requests are server-side; the explicitly loaded Property Home map uses
 attributed OpenStreetMap tiles.
 
-The Setup home selector scopes location, timezone, map placement, and
-orientation edits. Direct TP-Link and Home Assistant credentials/configuration
-remain global to the API process; the current data model does not create a
-separate adapter instance per home.
+The **Set up** Home selector at
+`/properties/{propertyId}/homes/{homeId}/setup/{section}` scopes location,
+timezone, map placement, orientation, Home Assistant credentials, and direct
+TP-Link connections. Each configured Home runs its own Home Assistant WebSocket
+session. A Home may also run
+multiple TP-Link workers for an H100/H200 and one or more energy sockets.
 
 ## REST API v1 compatibility
 
@@ -57,18 +61,29 @@ Major groups are:
 | Group | Routes |
 | --- | --- |
 | Health/schema | `GET /health`, `GET /openapi.json` |
-| Digital twin | `/houses`, `/houses/{id}`, `/houses/{id}/layout`, `/sensors`, `/sensors/snapshots` |
+| Digital twin | `/houses`, `/houses/{id}`, `/houses/{id}/layout`, `/houses/{id}/opening-states`, `/sensors`, `/sensors/snapshots` |
 | Weather | `GET /houses/{id}/weather` after setting `House.location` |
 | Location discovery | `GET /locations/search`, `GET /locations/defaults` |
 | Telemetry | `POST /readings`, `GET /readings/latest`, `GET /history`, `GET /forecast` |
 | Live | `GET /stream` |
 | Alerts | `/alert-rules`, `/alert-events`, `/alert-events/{id}/acknowledge` |
 | Context | `/observations`, `/parameters` |
+| Property management | `/properties`, `/property-areas`, `/area-equipment`, `/property-notes` |
+| Property electricity | `/properties/{id}/electricity`, `/properties/{id}/electricity/config`, `/properties/{id}/electricity/refresh` |
+| Maintenance | `/maintenance-tasks`, `/maintenance-tasks/{id}`, `/maintenance-tasks/{id}/revisions` |
 | Assets | `/assets`, `/assets/{id}` |
-| Integrations | `/integrations/status`, `/integrations/discover`, `/integrations/home-assistant/config`, `/integrations/tp-link/config`, and adapter setup/test routes |
+| Integrations | `/integrations/status`, LAN adapter setup/test routes, `/integrations/telegram/*`, and the scoped `/integrations/apple-notes/*` Shortcut bridge |
 | Testing | `/mock/scenarios`, `/mock/scenario`, `/mock/tick`, `/replay` |
 
 Prefix every route in the table with `/api/v1`.
+
+`GET /houses/{id}/opening-states` returns the effective door, window, and vent
+state plus the bounded observation history used to resolve it; an optional
+`at` timestamp supports replay. `POST` accepts only `manual` or `api`
+provenance. Home Assistant and Tapo provenance is adapter-owned so a generic
+client cannot impersonate a trusted contact source. Fresh bound provider state
+wins, while missing, unknown, expired, or stale state falls back to the layout's
+configured state and then its conservative architectural default.
 
 `/api/v1` intentionally keeps its existing flat `Reading` semantics:
 temperature and humidity remain required together, the `reading` SSE event is
@@ -83,9 +98,12 @@ the generic persistence contract.
 
 The v2 measurement model is registry-driven and sparse. Each sample contains
 exactly one metric with its own timestamp, source, quality, value, and canonical
-unit. Built-in definitions are `temperature` (°C), `humidity` (%), and `co2`
-(ppm). Administrators can register other finite numeric scalar measurements;
-categorical/object values are not accepted.
+unit. Built-in definitions are `temperature` (°C), `humidity` (%), `co2`
+(ppm), instantaneous `power` (W), cumulative `energy` (kWh), and
+`electricity_price` (€/kWh). The three electricity metrics intentionally do not
+claim spatial interpolation or forecast support. Administrators can register
+other finite numeric scalar measurements; categorical/object values are not
+accepted.
 
 The version-specific machine-readable descriptions are served at
 `GET /api/v1/openapi.json` and `GET /api/v2/openapi.json`; each document lists
@@ -226,6 +244,15 @@ web client keeps telemetry empty until the API positively confirms demo mode and
 therefore does not fall back to synthetic values when a real installation is
 temporarily unreachable.
 
+While the API confirms demo mode, the browser keeps a persistent DEMO banner
+and a visually distinct shell; reconnecting does not make the environment look
+live. Scenario controls remain available only in the confirmed demo state. The
+one-way database latch prevents synthetic telemetry from crossing back into a
+real local installation, but it is not a reusable production/demo separation
+boundary. Use a separate database or deployment, device registry, credentials,
+recipients, and storage namespace for demonstrations that must coexist with a
+live installation.
+
 Map surfaces and forecasts follow the definition flags. When
 `spatialInterpolation` is false, clients should render positioned markers and
 history without a continuous surface. When `forecastSupported` is false, clients
@@ -286,11 +313,11 @@ timezone for explicitly supplied coordinates. The web client invokes the latter
 after the user approves device geolocation and persists a result only through a
 separate house patch. Manual fields remain a supported fallback.
 
-The shared map can show all houses that have either `mapPlacement` or the legacy
-`location`. Precisely placed houses render as true geographic footprints that
-scale with map zoom; location-only legacy houses fall back to pins. Houses are
-not grouped into properties/sites and surveyed parcel boundaries are not
-modeled, so a shared view may span multiple properties.
+The Property map can show the selected Property's Homes that have either
+`mapPlacement` or the legacy `location`. Precisely placed Homes render as true
+geographic footprints that scale with map zoom; location-only legacy Homes
+fall back to pins. Surveyed parcel boundaries are not imported, so drawn areas
+remain user-supplied context rather than authoritative cadastral geometry.
 
 Weather wind bearing is a wind-from direction. A client maps it to the plan with
 `normalize(windFromDegrees - orientationDegrees)` and should omit directional
@@ -325,6 +352,13 @@ jitter, and failures back off independently per home. A revision/location fence
 prevents an old in-flight response from being persisted after a home is moved.
 Only fresh current temperature is retained as an outdoor boundary; forecasts
 and stale fallbacks are not stored as observations.
+
+Accepted scheduled and on-demand results pass through a provider-neutral event
+broker after that fence. The broker projects the durable boundary first, then
+emits a named `weather` event on `/api/v1/stream` and `/api/v1/events`. Its
+payload is a `WeatherUpdateEvent` containing a stable `id`, `publishedAt`,
+`trigger`, and the complete `HouseWeather` snapshot. Identical cached responses
+coalesce, so an API cache hit does not masquerade as a provider update.
 
 See [Outdoor weather and home location](weather.md) for requested fields,
 station/model caveats, caching, background refresh, CC BY 4.0 attribution,
@@ -391,7 +425,7 @@ not a validated maintenance diagnosis.
 ```js
 const events = new EventSource("/api/v1/stream?sensorId=sensor-01,sensor-02");
 
-for (const type of ["reading", "alert", "integration", "heartbeat"]) {
+for (const type of ["reading", "alert", "integration", "weather", "heartbeat"]) {
   events.addEventListener(type, (event) => {
     const data = JSON.parse(event.data);
     console.log(type, data);
@@ -400,9 +434,11 @@ for (const type of ["reading", "alert", "integration", "heartbeat"]) {
 ```
 
 The stream sends an integration snapshot immediately and a heartbeat every 15
-seconds. A `sensorId` filter affects reading/alert events. Events currently have
-no durable SSE ID/resume cursor: after reconnect, fetch `/sensors/snapshots` or
-the required history range to reconcile state.
+seconds. A `sensorId` filter affects reading/alert events; weather remains
+house-scoped inside its payload. Weather events include a stable SSE `id`, but
+the in-memory stream has no durable resume cursor. After reconnect, fetch
+`/sensors/snapshots` or the required history range for telemetry and
+`/houses/{id}/weather` for outdoor context before resuming live events.
 
 ### Manual and static data
 
@@ -418,15 +454,41 @@ Use `POST /api/v1/observations` for time-bound evidence:
   "note": "Small leak observed below utility sink; valve closed.",
   "x": 11.2,
   "y": 7.4,
-  "occurredAt": "2026-07-14T07:45:00Z"
+  "occurredAt": "2026-07-14T07:45:00+03:00",
+  "timePrecision": "approximate",
+  "source": "caretaker",
+  "sourceDetail": "Departure inspection",
+  "confidence": "probable"
 }
 ```
 
 Kinds are `leak`, `condensation`, `mould`, `ventilation`, `maintenance`, and
-`note`. Use `POST /api/v1/parameters` for slower-changing context such as room
+`note`. Current responses keep immutable `createdAt`, editable observed-time
+semantics, `status`, server-managed `resolvedAt`, `resolutionNote`, `revision`,
+and `updatedAt`. Resolve with `status: "resolved"` plus a non-empty
+`resolutionNote`; reopen with `status: "open"`, which clears the current
+resolution fields while retaining them in revision history. Change evidence with an optimistic
+`PATCH /api/v1/observations/{id}` containing `baseRevision`; inspect its ordered
+snapshots with `GET /api/v1/observations/{id}/revisions`. See
+[Manual observations and evidence time](observations.md) for precision rules,
+provenance, resolution, conflicts, and actor attribution.
+
+Use `POST /api/v1/parameters` for slower-changing context such as room
 volume, wall material, insulation note, ventilation type, or sensor calibration.
-External consumers should preserve the IDs and UTC timestamps rather than parse
-display labels.
+External consumers should preserve the IDs and time-precision metadata rather
+than parse display labels or assume every observation is an exact UTC instant.
+
+Use `POST /api/v1/maintenance-tasks` to turn evidence into explicitly planned
+work. A task has a controlled `basis`, `priority`, separate house-local
+`plannedFor` and `dueBy` dates, and optional same-house `observationIds`.
+`PATCH /api/v1/maintenance-tasks/{id}` requires `baseRevision`. Setting
+`status: "completed"` requires `completionNote` and records `completedAt` on
+the server; a later `status: "verified"` requires `verificationNote` and
+records `verifiedAt`. Neither transition resolves linked observations. Inspect
+actor-attributed snapshots with
+`GET /api/v1/maintenance-tasks/{id}/revisions`. See
+[Activity and maintenance work](maintenance.md) for lifecycle and trust-basis
+rules.
 
 ### Floor-plan and 3D assets
 
@@ -479,7 +541,7 @@ its working directory.
 
 The trusted local stdio server currently exposes 58 tools. They operate on
 the configured local SQLite database; they do not expose raw credentials,
-binary asset downloads, SSE streams, or hosted tenant administration.
+binary asset downloads, SSE streams, or browser account/session administration.
 
 ### Homes, location, weather, and modelling
 
@@ -532,7 +594,14 @@ binary asset downloads, SSE streams, or hosted tenant administration.
 | <code>acknowledge_alert</code> | Acknowledge an alert at the current server time |
 | <code>list_observations</code> | List manual incident, maintenance, ventilation, and note observations |
 | <code>create_observation</code> | Record a manual observation |
+| <code>update_observation</code> | Update an observation with an optimistic base revision |
+| <code>list_observation_revisions</code> | List its immutable revision snapshots and local actor provenance |
 | <code>delete_observation</code> | Permanently delete an observation; requires <code>confirm=true</code> |
+| <code>list_maintenance_tasks</code> | List Property-owned maintenance work, optionally filtered by Home, floor, area, or equipment |
+| <code>create_maintenance_task</code> | Plan classified work and optionally link observations |
+| <code>update_maintenance_task</code> | Edit, start, complete, verify, or cancel work with an optimistic base revision |
+| <code>list_maintenance_task_revisions</code> | List immutable task snapshots and actor provenance |
+| <code>delete_maintenance_task</code> | Permanently delete a task; requires <code>confirm=true</code> |
 | <code>list_static_parameters</code> | List house, floor, room, and sensor context |
 | <code>upsert_static_parameter</code> | Create or update static context |
 | <code>delete_static_parameter</code> | Permanently delete static context; requires <code>confirm=true</code> |
@@ -652,21 +721,49 @@ The MVP posts once when a rule creates an alert, with a 10-second timeout:
     "durationSeconds": 1200,
     "severity": "warning",
     "enabled": true,
-    "webhookEnabled": true
+    "webhookEnabled": true,
+    "telegramEnabled": false
   }
 }
 ```
 
-There is no durable retry/dead-letter queue or signature in the MVP. The
-integration status reports the last success/error. Keep important safety alerts
-in Home Assistant/certified devices as well; do not rely on this best-effort path
-as the only notification.
+New webhook notifications are committed to a SQLite outbox with an immutable
+rendered payload and a one-way reference to the complete destination credential
+tuple. Rule edits and retirement therefore cannot rewrite or remove queued work,
+and a credential/destination rotation abandons an older row instead of rerouting
+it. Credentials themselves remain outside SQLite. Each request carries a stable
+`Idempotency-Key`, which receivers should persist and deduplicate because the
+delivery contract is at-least-once. Transient failures use bounded exponential
+backoff. There is no maximum-attempt/dead-letter policy, signature, destination
+allowlist, or fan-out yet. The integration status reports the last success/error.
+Keep important safety alerts in Home Assistant/certified devices as well; do not
+use this as the only notification.
 
-Alert `durationSeconds` is currently **sample-driven and held in process
-memory**. A rule is created only when another violating reading arrives after
-the duration; a flat value with no new event can wait indefinitely, and an API
-restart resets the pending duration. Use Home Assistant/certified alerting for
-time-critical thresholds until durable timer evaluation is implemented.
+## Send alerts to Telegram
+
+Telegram is a native channel rather than a generic-webhook target because its
+Bot API requires a destination-specific `chat_id` and `text` payload. Use
+**Set up → Automations** to validate a BotFather token, discover a private chat
+after `/start`, save the write-only credentials, and send an end-to-end test.
+Then set `telegramEnabled: true` only on the desired alert rules.
+
+Real alert messages contain a minimal house/sensor/rule summary and use
+Telegram's protected-content option; informational events are silent. Mock and
+replay values are never delivered. Telegram cloud bot chats are not
+end-to-end-encrypted Secret Chats, and Bot API acceptance is not proof that a
+person read the alert. Telegram notifications use the same immutable durable
+retry envelope and destination binding, but Telegram does not provide an
+idempotency key: a crash after remote acceptance can duplicate a message, and
+there is no maximum-attempt/dead-letter policy yet. Retain a suitable safety
+channel. Full setup and troubleshooting are in [Apple Notes bridge and Telegram
+alerts](apple-notes-telegram.md).
+
+Alert `durationSeconds` is currently **sample-driven with durable SQLite
+state**. Pending duration survives API restarts and is protected from
+out-of-order readings, but a rule fires only when another violating reading
+arrives after the duration. A flat value with no new event can therefore wait
+indefinitely. Use Home Assistant/certified alerting for time-critical thresholds
+until wall-clock timer evaluation is implemented.
 
 ## DayOps and OpenWearable
 

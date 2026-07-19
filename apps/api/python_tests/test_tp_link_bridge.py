@@ -12,7 +12,13 @@ import pytest
 
 
 MODULE_PATH = Path(__file__).parents[1] / "python" / "tp_link_bridge.py"
-sys.modules.setdefault("kasa", SimpleNamespace(Discover=object()))
+sys.modules.setdefault(
+    "kasa",
+    SimpleNamespace(
+        Discover=object(),
+        Module=SimpleNamespace(Energy="Energy", ContactSensor="ContactSensor"),
+    ),
+)
 SPEC = importlib.util.spec_from_file_location("tp_link_bridge", MODULE_PATH)
 assert SPEC is not None and SPEC.loader is not None
 bridge = importlib.util.module_from_spec(SPEC)
@@ -32,6 +38,7 @@ class FakeChild:
         }
         self.device_id = "fallback-id"
         self.model = "fallback-model"
+        self.modules: dict[Any, Any] = {}
         self._alias_raises = alias_raises
 
     @property
@@ -62,6 +69,30 @@ class FakeHub:
         self.disconnected = True
 
 
+class FakeEnergy:
+    def __init__(self, power: float | None, total: float | None) -> None:
+        self.current_consumption = power
+        self.consumption_total = total
+
+
+class FakeEnergyDevice:
+    def __init__(self, model: str, power: float | None, total: float | None) -> None:
+        self.model = model
+        self.device_id = f"{model.lower()}-device"
+        self.sys_info = {"device_id": self.device_id, "model": model}
+        self.alias = f"{model} outlet"
+        self.children: list[Any] = []
+        self.modules = {bridge.Module.Energy: FakeEnergy(power, total)}
+        self.updated: list[bool] = []
+        self.disconnected = False
+
+    async def update(self, *, update_children: bool) -> None:
+        self.updated.append(update_children)
+
+    async def disconnect(self) -> None:
+        self.disconnected = True
+
+
 def emitted_lines(capsys: pytest.CaptureFixture[str]) -> list[dict[str, Any]]:
     return [json.loads(line) for line in capsys.readouterr().out.splitlines()]
 
@@ -84,8 +115,22 @@ def test_child_snapshot_normalizes_supported_fields() -> None:
         "temperatureUnit": "celsius",
         "humidity": 48,
         "battery": 91,
+        "contactOpen": None,
     }
     assert bridge.child_snapshot(FakeChild(alias_raises=True))["alias"] is None
+
+
+def test_child_snapshot_normalizes_contact_state() -> None:
+    child = FakeChild()
+    child.modules[bridge.Module.ContactSensor] = SimpleNamespace(is_open=True)
+    assert bridge.child_snapshot(child)["contactOpen"] is True
+
+    child.modules = {"capability": SimpleNamespace(is_open=False)}
+    assert bridge.child_snapshot(child)["contactOpen"] is False
+
+    child.modules.clear()
+    child.sys_info["open"] = 0
+    assert bridge.child_snapshot(child)["contactOpen"] is False
 
 
 @pytest.mark.asyncio
@@ -113,6 +158,51 @@ async def test_connect_and_poll_emits_one_snapshot(
     assert payload["timestamp"].endswith("Z")
     assert payload["devices"][0]["deviceId"] == "sensor-1"
     assert hub.updated == [True]
+    assert hub.disconnected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model", "power", "total"),
+    [("P110", 12.5, None), ("HS110", 90.0, 3.25)],
+)
+async def test_connect_and_poll_emits_capability_based_direct_energy_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    model: str,
+    power: float,
+    total: float | None,
+) -> None:
+    device = FakeEnergyDevice(model, power, total)
+
+    async def discover_single(*_args: Any, **_kwargs: Any) -> FakeEnergyDevice:
+        return device
+
+    monkeypatch.setattr(
+        bridge, "Discover", SimpleNamespace(discover_single=discover_single)
+    )
+    await bridge.connect_and_poll("192.0.2.30", "user", "password", 10, True)
+
+    payload = emitted_lines(capsys)[0]
+    assert payload["sourceType"] == "energy-device"
+    assert payload["hubModel"] == model
+    assert payload["devices"] == [
+        {
+            "deviceId": f"{model.lower()}-device",
+            "model": model,
+            "alias": f"{model} outlet",
+            "status": None,
+            "temperature": None,
+            "temperatureUnit": None,
+            "humidity": None,
+            "battery": None,
+            "contactOpen": None,
+            "power": power,
+            "energy": total,
+        }
+    ]
+    assert device.updated == [True]
+    assert device.disconnected
 
 
 @pytest.mark.asyncio
@@ -141,9 +231,11 @@ async def test_discover_hubs_filters_sorts_and_disconnects(
     async def discover(**kwargs: Any) -> dict[str, FakeHub]:
         assert kwargs["username"] == "user"
         assert kwargs["password"] == "password"
+        assert kwargs["target"] == "192.0.2.255"
         return {"192.0.2.20": first, "192.0.2.10": second, "192.0.2.30": unsupported}
 
     monkeypatch.setattr(bridge, "Discover", SimpleNamespace(discover=discover))
+    monkeypatch.setenv("TP_LINK_DISCOVERY_TARGETS", "192.0.2.255")
     await bridge.discover_hubs("user", "password")
 
     payload = emitted_lines(capsys)[0]
@@ -153,8 +245,66 @@ async def test_discover_hubs_filters_sorts_and_disconnects(
             {"host": "192.0.2.10", "model": "H100", "alias": None},
             {"host": "192.0.2.20", "model": "H200", "alias": "Hallway hub"},
         ],
+        "warnings": [],
     }
     assert first.disconnected and second.disconnected and unsupported.disconnected
+
+
+@pytest.mark.asyncio
+async def test_discover_hubs_merges_multiple_directed_broadcasts(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    first = FakeHub("H200")
+    second = FakeHub("H100")
+    calls: list[str] = []
+
+    async def discover(**kwargs: Any) -> dict[str, FakeHub]:
+        target = kwargs["target"]
+        calls.append(target)
+        return (
+            {"192.0.2.20": first}
+            if target == "192.0.2.255"
+            else {"198.51.100.10": second}
+        )
+
+    monkeypatch.setattr(bridge, "Discover", SimpleNamespace(discover=discover))
+    monkeypatch.setenv(
+        "TP_LINK_DISCOVERY_TARGETS",
+        "192.0.2.255,198.51.100.255,192.0.2.255",
+    )
+    await bridge.discover_hubs("", "")
+
+    assert sorted(calls) == ["192.0.2.255", "198.51.100.255"]
+    assert emitted_lines(capsys)[0] == {
+        "type": "discovery",
+        "hubs": [
+            {"host": "192.0.2.20", "model": "H200", "alias": "Hallway hub"},
+            {"host": "198.51.100.10", "model": "H100", "alias": "Hallway hub"},
+        ],
+        "warnings": [],
+    }
+    assert first.disconnected and second.disconnected
+
+
+@pytest.mark.asyncio
+async def test_discover_hubs_surfaces_partial_target_failures(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    async def discover(**kwargs: Any) -> dict[str, FakeHub]:
+        if kwargs["target"] == "192.0.2.255":
+            raise OSError("subnet unreachable")
+        return {}
+
+    monkeypatch.setattr(bridge, "Discover", SimpleNamespace(discover=discover))
+    monkeypatch.setenv("TP_LINK_DISCOVERY_TARGETS", "192.0.2.255,198.51.100.255")
+
+    await bridge.discover_hubs("", "")
+
+    assert emitted_lines(capsys)[0] == {
+        "type": "discovery",
+        "hubs": [],
+        "warnings": ["TP-Link discovery via 192.0.2.255 failed: subnet unreachable"],
+    }
 
 
 @pytest.mark.asyncio
@@ -181,8 +331,9 @@ async def test_main_uses_safe_interval_fallback(
 ) -> None:
     calls: list[tuple[Any, ...]] = []
 
-    async def connect_and_poll(*args: Any) -> None:
-        calls.append(args)
+    async def connect_and_poll(*args: Any, **kwargs: Any) -> None:
+        calls.append((*args, kwargs.get("on_success")))
+        kwargs["on_success"]()
 
     monkeypatch.setattr(bridge, "connect_and_poll", connect_and_poll)
     monkeypatch.setattr(sys, "argv", ["tp_link_bridge.py", "--list"])
@@ -192,7 +343,8 @@ async def test_main_uses_safe_interval_fallback(
     monkeypatch.setenv("TP_LINK_POLL_INTERVAL_MS", "invalid")
 
     await bridge.main()
-    assert calls == [("192.0.2.10", "user", "password", 10.0, True)]
+    assert calls[0][:-1] == ("192.0.2.10", "user", "password", 10.0, True)
+    assert callable(calls[0][-1])
 
 
 @pytest.mark.asyncio
@@ -215,7 +367,7 @@ async def test_main_reports_discovery_failure(
 async def test_main_reports_list_failure(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    async def connect_and_poll(*_args: Any) -> None:
+    async def connect_and_poll(*_args: Any, **_kwargs: Any) -> None:
         raise RuntimeError("login rejected")
 
     monkeypatch.setattr(bridge, "connect_and_poll", connect_and_poll)
@@ -233,7 +385,7 @@ async def test_main_reports_list_failure(
 
 @pytest.mark.asyncio
 async def test_main_preserves_cancellation(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def connect_and_poll(*_args: Any) -> None:
+    async def connect_and_poll(*_args: Any, **_kwargs: Any) -> None:
         raise asyncio.CancelledError
 
     monkeypatch.setattr(bridge, "connect_and_poll", connect_and_poll)

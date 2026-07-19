@@ -11,7 +11,7 @@ usable local install.
   measurements with sparse per-metric timestamps/source/quality.
 - Registry-aware mock generation and scenario controls.
 - Home Assistant WebSocket adapter with legacy and generic entity mapping.
-- SQLite current/history storage and retention setting.
+- SQLite transactional control/current storage with a durable telemetry buffer.
 - Compatible `/api/v1` readings plus `/api/v2` measurement REST/SSE and stdio MCP.
 - Responsive accessible 2D authoring and whole-building stacked 3D views,
   current values, history, alerts, observations, static parameters, forecast
@@ -24,21 +24,25 @@ no secrets enter the browser/database/image.
 
 ## Stage 1 — harden the home installation
 
-- Schema migrations, online backup/restore command, retention job telemetry, and
-  documented upgrades/rollback; add rollups/downsampling and storage budgets for
-  multi-metric high-frequency history.
+- The hybrid TimescaleDB archive, continuous rollups, verified backup CLI,
+  resumable migration, and restore runbook are in place. Complete archive-aware
+  SQLite buffer pruning, scheduled backup/restore drills, retention telemetry,
+  and documented major-version rollback.
 - Integration freshness metrics, historical gap import, malformed-state
   diagnostics, per-metric unit/conversion diagnostics, and longer-running
   reconnect/conformance tests.
 - General API authentication/authorization, per-house roles, rate/body/query
   limits, structured audit events, and TLS/reverse-proxy recipes.
-- Webhook signature, idempotency key, bounded retry/dead-letter queue, destination
-  allowlist, and test delivery.
-- Durable sustained-condition timers that survive restarts and fire on wall-clock
-  time rather than waiting for the next sample.
+- Webhook signature, destination allowlist, multi-destination fan-out, and a
+  maximum-attempt/dead-letter policy on top of the durable retry outbox.
+- Wall-clock sustained-condition timers that fire without waiting for the next
+  sample (pending duration state is already durable across restarts).
 - Automated end-to-end accessibility auditing against WCAG 2.2 AA,
   localization extraction, and broader unit/timezone tests.
 - Import/export with explicit schema/version and privacy preview.
+- Immutable telemetry ownership context and retired-resource tombstones so
+  historical samples remain attributable, queryable, and correctly authorized
+  after sensor/Home moves or deletion.
 
 Exit gate: recovery, token rotation, retention, alert retry, and Home Assistant
 disconnect scenarios have automated integration tests and operational runbooks.
@@ -91,8 +95,9 @@ used as the release claim.
 - Versioned DayOps/OpenWearable adapter packages with field-level consent,
   pseudonymous identities, signed idempotent events, and contract fixtures.
 - MQTT and additional vendor adapters without changing domain services.
-- Optional PostgreSQL/time-series repository for multi-user or larger fleets;
-  SQLite remains the simple single-home default.
+- Extend the existing optional PostgreSQL/TimescaleDB archive toward managed or
+  multi-node deployments only when fleet-scale evidence justifies the added
+  operational complexity; keep SQLite as the local control plane.
 - Packaging options evaluated from evidence: signed container releases, local
   desktop bundle, and/or reviewed Home Assistant app/add-on.
 

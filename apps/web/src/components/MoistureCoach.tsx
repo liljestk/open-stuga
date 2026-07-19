@@ -1,4 +1,4 @@
-import { CloudRain, Droplets, ShieldCheck, TriangleAlert, Wind } from "lucide-react";
+import { ChevronDown, CloudRain, Droplets, ShieldCheck, TriangleAlert, Wind } from "lucide-react";
 import type { OutdoorConditions, Sensor, UnitSystem } from "@climate-twin/contracts";
 import { useMemo } from "react";
 import { useI18n } from "../i18n";
@@ -129,6 +129,23 @@ export function MoistureCoach(props: Readonly<MoistureCoachProps>) {
   const openSensor = () => {
     if (advice.sensorId) props.onOpenSensor?.(advice.sensorId);
   };
+
+  if (advice.reason === "missing-indoor") {
+    return (
+      <details className={`panel moisture-coach moisture-coach-compact ${advice.kind}`}>
+        <summary>
+          <span className="moisture-coach-icon" aria-hidden="true"><MoistureAdviceIcon kind={advice.kind} /></span>
+          <span className="moisture-coach-summary-copy">
+            <span className="eyebrow">{t("decision.moistureEyebrow")}</span>
+            <strong>{t(`decision.moisture.${advice.reason}.title`, { room: t("decision.thisHome") })}</strong>
+            <span>{t(`decision.moisture.${advice.reason}.body`, { room: t("decision.thisHome") })}</span>
+          </span>
+          <ChevronDown className="disclosure-chevron" size={17} aria-hidden="true" />
+        </summary>
+        <small className="decision-caveat">{t("decision.moistureCaveat")}</small>
+      </details>
+    );
+  }
 
   return (
     <section className={`panel moisture-coach ${advice.kind}`} aria-labelledby="moisture-coach-heading">

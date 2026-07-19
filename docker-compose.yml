@@ -1,18 +1,157 @@
 services:
+  runtime-secrets:
+    image: ${STUGA_API_IMAGE:-stuga-api:local}
+    build:
+      context: .
+      target: api
+    restart: "no"
+    command: ["node", "/app/scripts/init-runtime-secrets.mjs"]
+    environment:
+      STUGA_TIMESERIES_ADMIN_SECRET_PATH: /app/runtime/admin/password
+      STUGA_TIMESERIES_APP_SECRET_PATH: /app/runtime/db/password
+      STUGA_PROXY_SECRET_PATH: /app/runtime/proxy/secret
+    volumes:
+      - stuga-timeseries-admin-secret:/app/runtime/admin
+      - stuga-timeseries-app-secret:/app/runtime/db
+      - stuga-proxy-secret:/app/runtime/proxy
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+
+  backup-operations-init:
+    image: ${STUGA_BACKUP_IMAGE:-stuga-backup:local}
+    build:
+      context: .
+      target: backup
+    restart: "no"
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["chown -R 1000:1000 /app/runtime/backup-operations && chmod 0700 /app/runtime/backup-operations"]
+    volumes:
+      - stuga-backup-operations:/app/runtime/backup-operations
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+
+  timescaledb:
+    image: ${TIMESCALE_IMAGE:-timescale/timescaledb:2.28.3-pg17}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${TIMESERIES_DATABASE:-stuga}
+      POSTGRES_USER: stuga_admin
+      POSTGRES_PASSWORD_FILE: /run/stuga-admin/password
+      TIMESCALEDB_TELEMETRY: "off"
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - effective_cache_size=384MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - max_connections=30
+      - -c
+      - wal_compression=on
+      - -c
+      - max_wal_size=1GB
+      - -c
+      - timescaledb.telemetry_level=off
+    expose:
+      - "5432"
+    volumes:
+      - stuga-timeseries-data:/var/lib/postgresql/data
+      - stuga-timeseries-socket:/var/run/postgresql
+      - stuga-timeseries-admin-secret:/run/stuga-admin:ro
+      - stuga-timeseries-app-secret:/run/stuga-app:ro
+      - ./scripts/bootstrap-timescale.sh:/docker-entrypoint-initdb.d/20-stuga-app-role.sh:ro
+    depends_on:
+      runtime-secrets:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
+  timeseries-credential-reconcile:
+    profiles: ["maintenance"]
+    image: ${TIMESCALE_IMAGE:-timescale/timescaledb:2.28.3-pg17}
+    restart: "no"
+    user: postgres
+    depends_on:
+      runtime-secrets:
+        condition: service_completed_successfully
+      timescaledb:
+        condition: service_healthy
+    command: ["/bin/sh", "/opt/stuga/reconcile-timescale-credentials.sh"]
+    environment:
+      POSTGRES_DB: ${TIMESERIES_DATABASE:-stuga}
+      POSTGRES_USER: stuga_admin
+    volumes:
+      - stuga-timeseries-socket:/var/run/postgresql
+      - stuga-timeseries-admin-secret:/run/stuga-admin:ro
+      - stuga-timeseries-app-secret:/run/stuga-app:ro
+      - ./scripts/reconcile-timescale-credentials.sh:/opt/stuga/reconcile-timescale-credentials.sh:ro
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+
   api:
+    image: ${STUGA_API_IMAGE:-stuga-api:local}
     build:
       context: .
       target: api
     init: true
     restart: unless-stopped
+    depends_on:
+      runtime-secrets:
+        condition: service_completed_successfully
+      backup-operations-init:
+        condition: service_completed_successfully
+      timescaledb:
+        condition: service_started
     environment:
       PORT: "8787"
       API_HOST: 0.0.0.0
+      # The API permits first-owner setup through the bundled proxy only while
+      # the browser-facing port remains loopback-bound.
+      LOCAL_AUTH_PROXY_BIND_ADDRESS: ${BIND_ADDRESS:-127.0.0.1}
+      LOCAL_AUTH_PROXY_SECRET_FILE: /app/runtime/proxy/secret
+      LOCAL_AUTH_BOOTSTRAP_SECRET: ${LOCAL_AUTH_BOOTSTRAP_SECRET:-}
       DATABASE_PATH: /app/data/climate-twin.sqlite
       INTEGRATION_SECRETS_FILE: /app/data/integration-secrets.json
-      MOCK_ENABLED: ${MOCK_ENABLED:-true}
+      BACKUP_OPERATIONS_DIRECTORY: /app/runtime/backup-operations
+      BACKUP_DIRECTORY: /app/backups
+      MOCK_ENABLED: ${MOCK_ENABLED:-false}
       MOCK_INTERVAL_MS: ${MOCK_INTERVAL_MS:-2000}
-      RETENTION_DAYS: ${RETENTION_DAYS:-730}
+      # Zero retains the complete SQLite copy. Values >=30 retain a bounded
+      # SQLite hot window only after a fresh, healthy Timescale reconciliation.
+      RETENTION_DAYS: ${RETENTION_DAYS:-0}
+      TIMESERIES_ENABLED: "true"
+      # SQLite is the durable local buffer, so API availability does not depend
+      # on PostgreSQL. Set true only when strict archive startup is preferred.
+      TIMESERIES_REQUIRED: ${TIMESERIES_REQUIRED:-false}
+      TIMESERIES_HOST: timescaledb
+      TIMESERIES_PORT: "5432"
+      TIMESERIES_DATABASE: ${TIMESERIES_DATABASE:-stuga}
+      TIMESERIES_USER: stuga_app
+      TIMESERIES_PASSWORD_FILE: /app/runtime/db/password
+      TIMESERIES_SSL_MODE: disable
+      TIMESERIES_POOL_MAX: ${TIMESERIES_POOL_MAX:-6}
+      TIMESERIES_CONNECT_TIMEOUT_MS: ${TIMESERIES_CONNECT_TIMEOUT_MS:-5000}
+      TIMESERIES_STATEMENT_TIMEOUT_MS: ${TIMESERIES_STATEMENT_TIMEOUT_MS:-15000}
+      TIMESERIES_BATCH_SIZE: ${TIMESERIES_BATCH_SIZE:-1000}
       INGEST_API_KEY: ${INGEST_API_KEY:-}
       HA_URL: ${HA_URL:-}
       HA_TOKEN: ${HA_TOKEN:-}
@@ -24,17 +163,147 @@ services:
       TP_LINK_POLL_INTERVAL_MS: ${TP_LINK_POLL_INTERVAL_MS:-10000}
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
       ALERT_WEBHOOK_BEARER_TOKEN: ${ALERT_WEBHOOK_BEARER_TOKEN:-}
+      ALERT_WEBHOOK_SIGNING_SECRET: ${ALERT_WEBHOOK_SIGNING_SECRET:-}
+      ALERT_WEBHOOK_ALLOWED_HOSTS: ${ALERT_WEBHOOK_ALLOWED_HOSTS:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       CORS_ORIGIN: ${CORS_ORIGIN:-}
     expose:
       - "8787"
     volumes:
       - climate-twin-data:/app/data
+      - stuga-timeseries-app-secret:/app/runtime/db:ro
+      - stuga-proxy-secret:/app/runtime/proxy:ro
+      - stuga-backup-operations:/app/runtime/backup-operations
       - ./config:/app/config:ro
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777
     security_opt:
       - no-new-privileges:true
+    networks:
+      - frontend
+      - backend
+
+  telemetry-migrate:
+    profiles: ["maintenance"]
+    image: ${STUGA_API_IMAGE:-stuga-api:local}
+    build:
+      context: .
+      target: api
+    restart: "no"
+    depends_on:
+      runtime-secrets:
+        condition: service_completed_successfully
+      timescaledb:
+        condition: service_healthy
+    command:
+      - node
+      - /app/scripts/migrate-telemetry-to-timescale.mjs
+      - --source
+      - /app/data/climate-twin.sqlite
+    environment:
+      DATABASE_PATH: /app/data/climate-twin.sqlite
+      TIMESERIES_HOST: timescaledb
+      TIMESERIES_PORT: "5432"
+      TIMESERIES_DATABASE: ${TIMESERIES_DATABASE:-stuga}
+      TIMESERIES_USER: stuga_app
+      TIMESERIES_PASSWORD_FILE: /app/runtime/db/password
+    volumes:
+      - climate-twin-data:/app/data
+      - stuga-timeseries-app-secret:/app/runtime/db:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
+  stuga-backup:
+    profiles: ["maintenance"]
+    image: ${STUGA_BACKUP_IMAGE:-stuga-backup:local}
+    build:
+      context: .
+      target: backup
+    restart: "no"
+    depends_on:
+      runtime-secrets:
+        condition: service_completed_successfully
+      timescaledb:
+        condition: service_healthy
+    command:
+      - --database
+      - /app/data/climate-twin.sqlite
+      - --assets
+      - /app/data/assets
+      - --spatial-db
+      - /app/data/experimental-spatial-layers.sqlite
+      - --include-timescale
+      - --include-secrets
+      - --secrets-file
+      - /app/data/integration-secrets.json
+    environment:
+      TIMESERIES_HOST: timescaledb
+      TIMESERIES_PORT: "5432"
+      TIMESERIES_DATABASE: ${TIMESERIES_DATABASE:-stuga}
+      TIMESERIES_USER: stuga_app
+      TIMESERIES_PASSWORD_FILE: /app/runtime/db/password
+      TIMESERIES_SSL_MODE: disable
+    volumes:
+      - climate-twin-data:/app/data:ro
+      - stuga-timeseries-app-secret:/app/runtime/db:ro
+      - ${STUGA_BACKUP_DIRECTORY:-./backups}:/app/backups
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
+  stuga-backup-scheduler:
+    image: ${STUGA_BACKUP_IMAGE:-stuga-backup:local}
+    build:
+      context: .
+      target: backup
+    init: true
+    restart: unless-stopped
+    depends_on:
+      runtime-secrets:
+        condition: service_completed_successfully
+      backup-operations-init:
+        condition: service_completed_successfully
+      timescaledb:
+        condition: service_healthy
+    entrypoint: ["node", "/app/scripts/stuga-backup-scheduler.mjs"]
+    environment:
+      BACKUP_OPERATIONS_DIRECTORY: /app/runtime/backup-operations
+      BACKUP_DIRECTORY: /app/backups
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-30}
+      RESTORE_DRILL_INTERVAL_DAYS: ${RESTORE_DRILL_INTERVAL_DAYS:-30}
+      TIMESERIES_HOST: timescaledb
+      TIMESERIES_PORT: "5432"
+      TIMESERIES_DATABASE: ${TIMESERIES_DATABASE:-stuga}
+      TIMESERIES_USER: stuga_app
+      TIMESERIES_PASSWORD_FILE: /app/runtime/db/password
+      TIMESERIES_ADMIN_USER: stuga_admin
+      TIMESERIES_ADMIN_PASSWORD_FILE: /app/runtime/admin/password
+      TIMESERIES_SSL_MODE: disable
+    volumes:
+      - climate-twin-data:/app/data:ro
+      - stuga-timeseries-app-secret:/app/runtime/db:ro
+      - stuga-timeseries-admin-secret:/app/runtime/admin:ro
+      - stuga-backup-operations:/app/runtime/backup-operations
+      - ${STUGA_BACKUP_DIRECTORY:-./backups}:/app/backups
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
 
   web:
     build:
@@ -49,13 +318,30 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    environment:
+      LOCAL_AUTH_PROXY_SECRET_FILE: /run/stuga-proxy/secret
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8080}:8080"
     read_only: true
+    volumes:
+      - stuga-proxy-secret:/run/stuga-proxy:ro
     tmpfs:
       - /tmp:size=32m,mode=1777
     security_opt:
       - no-new-privileges:true
+    networks:
+      - frontend
+
+networks:
+  frontend:
+  backend:
+    internal: true
 
 volumes:
   climate-twin-data:
+  stuga-timeseries-admin-secret:
+  stuga-timeseries-app-secret:
+  stuga-proxy-secret:
+  stuga-backup-operations:
+  stuga-timeseries-data:
+  stuga-timeseries-socket:

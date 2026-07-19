@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MeasurementDefinition, MeasurementSample, Sensor } from "@climate-twin/contracts";
 import { createDemoState } from "../domain";
@@ -42,6 +42,7 @@ function renderFloor(
     <I18nProvider>
       <FloorPlan
         floor={floor} sensors={sensors} samples={samples} {...(climateSamples ? { climateSamples } : {})} observations={[]} definition={definition}
+        experimentalAirflowEnabled={Boolean(climateSamples)}
         units="metric" viewMode="plan" selectedSensorId={null} editing={false} observationPlacement={false}
         referenceTimeMs={REFERENCE_TIME_MS} maxSampleAgeMs={MAX_SAMPLE_AGE_MS}
         onSensorSelect={vi.fn()} onSensorMove={vi.fn()} onFloorChange={vi.fn()}
@@ -63,6 +64,7 @@ function renderBuilding(
     <I18nProvider>
       <BuildingScene
         house={house} sensors={sensors} samples={samples} {...(climateSamples ? { climateSamples } : {})} observations={[]} definition={definition}
+        experimentalAirflowEnabled={Boolean(climateSamples)}
         units="metric" activeFloorId={house.floors[0]!.id} selectedSensorId={null}
         onFloorSelect={vi.fn()} onSensorSelect={vi.fn()}
       />
@@ -102,6 +104,43 @@ function setReducedMotion(matches: boolean) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("estimated spatial clouds and flows", () => {
+  it("minimizes map information on mobile and remembers the choice across 2D and 3D", () => {
+    vi.stubGlobal("matchMedia", vi.fn().mockImplementation((media: string) => ({
+      matches: media.includes("max-width: 680px"),
+      media,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })));
+    const state = createDemoState();
+    const definition = definitionFor(state.measurementDefinitions, "temperature");
+    const sensors = state.sensors.filter((sensor) => sensor.floorId === state.houses[0]!.floors[0]!.id);
+    const samples = samplesFor(sensors, definition, (_, index) => 18 + index * 4);
+    const floorView = renderFloor(sensors, samples, definition);
+
+    const show2d = floorView.getByRole("button", { name: "Show map information" });
+    expect(show2d.getAttribute("aria-expanded")).toBe("false");
+    expect(floorView.container.querySelector(".heat-legend")).toBeNull();
+    fireEvent.click(show2d);
+    expect(floorView.container.querySelector(".heat-legend")).not.toBeNull();
+    expect(localStorage.getItem("climate-twin-map-information")).toBe("expanded");
+
+    fireEvent.click(floorView.getByRole("button", { name: "Hide map information" }));
+    expect(floorView.container.querySelector(".map-information-content")).toBeNull();
+    expect(localStorage.getItem("climate-twin-map-information")).toBe("collapsed");
+    floorView.unmount();
+
+    const buildingView = renderBuilding(state.sensors, samplesFor(state.sensors, definition, (_, index) => 19 + index), definition);
+    expect(buildingView.getByRole("button", { name: "Show map information" }).getAttribute("aria-expanded")).toBe("false");
+    expect(buildingView.container.querySelector(".building-legend-content")).toBeNull();
+    fireEvent.click(buildingView.getByRole("button", { name: "Show map information" }));
+    expect(buildingView.container.querySelector(".building-legend-content")).not.toBeNull();
+    expect(buildingView.container.querySelector(".building-help")).not.toBeNull();
+  });
+
   it("uses one coupled temperature-humidity airflow estimate in both views", () => {
     const state = createDemoState();
     const definition = definitionFor(state.measurementDefinitions, "temperature");
@@ -126,13 +165,13 @@ describe("estimated spatial clouds and flows", () => {
     const floorView = renderFloor(floorSensors, activeSamples, definition, climateSamples);
     expect(floorView.container.querySelectorAll(".simulated-flow-path").length).toBeGreaterThan(0);
     expect(floorView.container.querySelector(".gradient-flow-layer")).toBeNull();
-    expect(floorView.container.querySelector(".simulated-airflow-layer")?.getAttribute("aria-label")).toMatch(/sensor-constrained indoor flow simulation/i);
+    expect(floorView.container.querySelector(".simulated-airflow-layer")?.getAttribute("aria-label")).toMatch(/sensor-constrained air movement estimate/i);
     floorView.unmount();
 
     const buildingView = renderBuilding(state.sensors, activeSamples, definition, climateSamples);
     expect(buildingView.container.querySelectorAll(".simulated-building-flow-path").length).toBeGreaterThan(0);
     expect(buildingView.container.querySelector(".building-gradient-flows")).toBeNull();
-    expect(buildingView.container.querySelector(".building-simulated-airflow")?.getAttribute("aria-label")).toMatch(/sensor-constrained indoor flow simulation/i);
+    expect(buildingView.container.querySelector(".building-simulated-airflow")?.getAttribute("aria-label")).toMatch(/sensor-constrained air movement estimate/i);
   });
 
   it("renders layered 2D clouds and accessible high-to-low flow estimates", () => {

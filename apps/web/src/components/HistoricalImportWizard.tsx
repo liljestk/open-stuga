@@ -16,14 +16,16 @@ import {
 import type { House, MeasurementDefinition, MeasurementSample, Sensor } from "@climate-twin/contracts";
 import type { HistoricalImportResult } from "../api";
 import {
-  buildHistoricalImport,
+  buildHistoricalImportAsync,
   columnLabels,
   createInitialMapping,
   readHistoricalFile,
   type HistoricalImportMapping,
+  type HistoricalImportPreview,
   type ImportSheet,
   type InputUnit,
 } from "../historicalImport";
+import { formatInTimeZone } from "../dateTime";
 import { useI18n, type TranslationKey } from "../i18n";
 
 interface HistoricalImportWizardProps {
@@ -61,6 +63,10 @@ export function HistoricalImportWizard({
   const headingRef = useRef<HTMLHeadingElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+  const fileReadGenerationRef = useRef(0);
+  const previewBuildGenerationRef = useRef(0);
+  const previewAbortRef = useRef<AbortController | null>(null);
   const [step, setStep] = useState<WizardStep>(1);
   const [fileName, setFileName] = useState("");
   const [sheets, setSheets] = useState<ImportSheet[]>([]);
@@ -72,21 +78,111 @@ export function HistoricalImportWizard({
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState({ completed: 0, total: 0 });
   const [result, setResult] = useState<HistoricalImportResult | null>(null);
+  const [preview, setPreview] = useState<HistoricalImportPreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewProgress, setPreviewProgress] = useState({ completed: 0, total: 0 });
 
   const sheet = sheets[sheetIndex];
   const headers = useMemo(() => sheet && mapping ? columnLabels(sheet, mapping.headerRow) : [], [mapping, sheet]);
-  const preview = useMemo(() => sheet && mapping
-    ? buildHistoricalImport(sheet, mapping, sensors, definitions, house.timezone)
-    : null, [definitions, house.timezone, mapping, sensors, sheet]);
+  const shouldBuildPreview = open && step >= 3;
   const sensorNames = useMemo(() => new Map(sensors.map((sensor) => [sensor.id, sensor.name])), [sensors]);
   const definitionNames = useMemo(() => new Map(definitions.map((definition) => [definition.id, definition.labels[locale] ?? definition.labels.en ?? definition.id])), [definitions, locale]);
-  const issueRowCount = useMemo(() => new Set(preview?.issues.map((issue) => issue.row) ?? []).size, [preview]);
+  const issueRowCount = preview?.issueRowCount ?? 0;
+
+  useEffect(() => {
+    const generation = previewBuildGenerationRef.current + 1;
+    previewBuildGenerationRef.current = generation;
+    previewAbortRef.current?.abort();
+    previewAbortRef.current = null;
+    if (!shouldBuildPreview || !sheet || !mapping) {
+      setPreview(null);
+      setPreviewing(false);
+      setPreviewProgress({ completed: 0, total: 0 });
+      return;
+    }
+    const controller = new AbortController();
+    previewAbortRef.current = controller;
+    setPreview(null);
+    setPreviewing(true);
+    setPreviewProgress({ completed: 0, total: Math.max(0, sheet.rows.length - mapping.headerRow - 1) });
+    setError(null);
+    void buildHistoricalImportAsync(sheet, mapping, sensors, definitions, house.timezone, {
+      signal: controller.signal,
+      onProgress: (completed, total) => {
+        if (previewBuildGenerationRef.current === generation && !controller.signal.aborted) {
+          setPreviewProgress({ completed, total });
+        }
+      },
+    }).then((nextPreview) => {
+      if (previewBuildGenerationRef.current === generation && !controller.signal.aborted) setPreview(nextPreview);
+    }).catch((previewError) => {
+      if (previewBuildGenerationRef.current === generation && !controller.signal.aborted) {
+        setError(message(previewError, t("historyImport.fileError")));
+      }
+    }).finally(() => {
+      if (previewBuildGenerationRef.current === generation && !controller.signal.aborted) setPreviewing(false);
+    });
+    return () => controller.abort();
+  }, [definitions, house.timezone, mapping, sensors, sheet, shouldBuildPreview, t]);
 
   useEffect(() => {
     if (!open) return;
     const timer = window.setTimeout(() => headingRef.current?.focus(), 0);
     return () => window.clearTimeout(timer);
   }, [open, step]);
+
+  useEffect(() => {
+    if (!open) return;
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    return () => {
+      const opener = openerRef.current;
+      openerRef.current = null;
+      window.setTimeout(() => {
+        if (opener?.isConnected) opener.focus();
+      }, 0);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !dialogRef.current) return;
+    if (!dialogRef.current.contains(document.activeElement)) headingRef.current?.focus();
+    const isolated: Array<{
+      element: Element;
+      ariaHidden: string | null;
+      inert: boolean | null;
+      hadInertAttribute: boolean;
+    }> = [];
+    let branch: Element = dialogRef.current;
+    while (branch.parentElement) {
+      const parent = branch.parentElement;
+      for (const sibling of parent.children) {
+        if (sibling === branch) continue;
+        isolated.push({
+          element: sibling,
+          ariaHidden: sibling.getAttribute("aria-hidden"),
+          inert: sibling instanceof HTMLElement ? sibling.inert : null,
+          hadInertAttribute: sibling.hasAttribute("inert"),
+        });
+        sibling.setAttribute("aria-hidden", "true");
+        if (sibling instanceof HTMLElement) {
+          sibling.inert = true;
+          sibling.setAttribute("inert", "");
+        }
+      }
+      branch = parent;
+      if (parent === document.body) break;
+    }
+    return () => {
+      for (const { element, ariaHidden, inert, hadInertAttribute } of isolated) {
+        if (ariaHidden === null) element.removeAttribute("aria-hidden");
+        else element.setAttribute("aria-hidden", ariaHidden);
+        if (element instanceof HTMLElement && inert !== null) {
+          element.inert = inert;
+          if (!hadInertAttribute) element.removeAttribute("inert");
+        }
+      }
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -97,26 +193,49 @@ export function HistoricalImportWizard({
 
   useEffect(() => {
     if (!open) {
+      fileReadGenerationRef.current += 1;
       setStep(1);
       setFileName("");
       setSheets([]);
       setSheetIndex(0);
       setMapping(null);
+      setReadingFile(false);
+      setDragging(false);
       setError(null);
       setImporting(false);
       setProgress({ completed: 0, total: 0 });
       setResult(null);
+      setPreview(null);
+      setPreviewing(false);
+      setPreviewProgress({ completed: 0, total: 0 });
     }
   }, [open]);
 
+  useEffect(() => () => {
+    fileReadGenerationRef.current += 1;
+  }, []);
+
   if (!open) return null;
+
+  const closeWizard = () => {
+    fileReadGenerationRef.current += 1;
+    previewBuildGenerationRef.current += 1;
+    previewAbortRef.current?.abort();
+    previewAbortRef.current = null;
+    setReadingFile(false);
+    setDragging(false);
+    onClose();
+  };
 
   const loadFile = async (file: File | undefined) => {
     if (!file) return;
+    const generation = fileReadGenerationRef.current + 1;
+    fileReadGenerationRef.current = generation;
     setReadingFile(true);
     setError(null);
     try {
       const loaded = await readHistoricalFile(file);
+      if (fileReadGenerationRef.current !== generation) return;
       const initial = createInitialMapping(loaded[0]!, definitions, sensors, locale);
       setFileName(file.name);
       setSheets(loaded);
@@ -124,9 +243,10 @@ export function HistoricalImportWizard({
       setMapping(initial);
       setStep(2);
     } catch (loadError) {
+      if (fileReadGenerationRef.current !== generation) return;
       setError(message(loadError, t("historyImport.fileError")));
     } finally {
-      setReadingFile(false);
+      if (fileReadGenerationRef.current === generation) setReadingFile(false);
     }
   };
 
@@ -157,7 +277,7 @@ export function HistoricalImportWizard({
     setMapping({ ...mapping, wideColumns: mapping.wideColumns.map((item) => item.column === column ? { ...item, inputUnit } : item) });
   };
 
-  const readyToPreview = Boolean(mapping && preview && sensors.length > 0 && (mapping.mode === "wide"
+  const readyToPreview = Boolean(sheet && mapping && sensors.length > 0 && (mapping.mode === "wide"
     ? mapping.wideColumns.length > 0
     : mapping.longValueColumn >= 0 && (mapping.longMetricColumn !== null || mapping.longFixedMetric)));
   const startImport = async () => {
@@ -202,21 +322,28 @@ export function HistoricalImportWizard({
   const handleDialogKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape" && !importing) {
       event.preventDefault();
-      onClose();
+      closeWizard();
       return;
     }
     if (event.key !== "Tab") return;
-    const focusable = [...(dialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]), [tabindex="0"]') ?? [])]
-      .filter((element) => element.getAttribute("aria-hidden") !== "true");
+    const dialog = dialogRef.current;
+    const focusable = [...(dialog?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]):not([tabindex="-1"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])') ?? [])]
+      .filter((element) => !element.closest('[hidden], [inert], [aria-hidden="true"]'));
     if (!focusable.length) return;
     const first = focusable[0]!;
     const last = focusable.at(-1)!;
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || !dialog?.contains(active) || !focusable.includes(active as HTMLElement))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (active === last || !dialog?.contains(active))) {
+      event.preventDefault();
+      first.focus();
+    }
   };
 
   const formatDate = (timestamp: string | null) => timestamp
-    ? new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short", timeZone: house.timezone }).format(Date.parse(timestamp))
+    ? formatInTimeZone(timestamp, locale, house.timezone, { dateStyle: "medium", timeStyle: "short" })
     : "—";
 
   return (
@@ -228,7 +355,7 @@ export function HistoricalImportWizard({
             <h2 ref={headingRef} id={`${id}-title`} tabIndex={-1}>{t(`historyImport.step${step}Title`)}</h2>
             <p>{t(`historyImport.step${step}Description`, { house: house.name })}</p>
           </div>
-          <button type="button" className="icon-button" onClick={onClose} disabled={importing} aria-label={t("historyImport.close")}><X size={19} /></button>
+          <button type="button" className="icon-button" onClick={closeWizard} disabled={importing} aria-label={t("historyImport.close")}><X size={19} /></button>
         </header>
 
         <ol className="history-import-stepper" aria-label={t("historyImport.progress") }>
@@ -312,6 +439,15 @@ export function HistoricalImportWizard({
             </div>
           )}
 
+          {step === 3 && previewing && (
+            <div className="history-import-finish-step" aria-live="polite">
+              <LoaderCircle className="spin" size={45} aria-hidden="true" />
+              <h3>{t("historyImport.reading")}</h3>
+              <progress aria-label={t("historyImport.progress")} max={Math.max(1, previewProgress.total)} value={previewProgress.completed} />
+              <strong>{t("historyImport.progressCount", { completed: previewProgress.completed, total: previewProgress.total })}</strong>
+            </div>
+          )}
+
           {step === 3 && preview && (
             <div className="history-import-review-step">
               <div className="history-import-review-stats">
@@ -321,7 +457,7 @@ export function HistoricalImportWizard({
                 <div className={issueRowCount ? "warning" : "good"}><strong>{issueRowCount}</strong><span>{t("historyImport.rowsNeedAttention")}</span></div>
               </div>
               <div className="history-import-range"><CalendarClock size={20} aria-hidden="true" /><span><strong>{t("historyImport.dateRange")}</strong><small>{formatDate(preview.firstTimestamp)} — {formatDate(preview.lastTimestamp)}</small></span></div>
-              {preview.issues.length > 0 && <section className="history-import-issues" aria-labelledby={`${id}-issues-title`}><div><TriangleAlert size={18} aria-hidden="true" /><span><h3 id={`${id}-issues-title`}>{t("historyImport.issueTitle", { count: issueRowCount })}</h3><p>{t("historyImport.issueHelp")}</p></span></div><div className="table-scroll"><table><thead><tr><th>{t("historyImport.row")}</th><th>{t("historyImport.problem")}</th></tr></thead><tbody>{preview.issues.slice(0, 25).map((issue, index) => <tr key={`${issue.row}-${index}`}><td>{issue.row}</td><td>{issue.message}</td></tr>)}</tbody></table></div>{preview.issues.length > 25 && <small>{t("historyImport.moreIssues", { count: preview.issues.length - 25 })}</small>}</section>}
+              {preview.issueCount > 0 && <section className="history-import-issues" aria-labelledby={`${id}-issues-title`}><div><TriangleAlert size={18} aria-hidden="true" /><span><h3 id={`${id}-issues-title`}>{t("historyImport.issueTitle", { count: issueRowCount })}</h3><p>{t("historyImport.issueHelp")}</p></span></div><div className="table-scroll"><table><thead><tr><th>{t("historyImport.row")}</th><th>{t("historyImport.problem")}</th></tr></thead><tbody>{preview.issues.map((issue, index) => <tr key={`${issue.row}-${index}`}><td>{issue.row}</td><td>{issue.message}</td></tr>)}</tbody></table></div>{preview.issueCount > preview.issues.length && <small>{t("historyImport.moreIssues", { count: preview.issueCount - preview.issues.length })}</small>}</section>}
               <section className="history-import-preview" aria-labelledby={`${id}-preview-title`}><div><h3 id={`${id}-preview-title`}>{t("historyImport.previewTitle")}</h3><p>{t("historyImport.previewHelp")}</p></div><div className="table-scroll"><table><thead><tr><th>{t("historyImport.dateTime")}</th><th>{t("historyImport.sensor")}</th><th>{t("common.metric")}</th><th>{t("historyImport.value")}</th></tr></thead><tbody>{preview.samples.slice(0, 8).map((sample, index) => <tr key={`${sample.sensorId}-${sample.metric}-${sample.timestamp}-${index}`}><td>{formatDate(sample.timestamp)}</td><td>{sensorNames.get(sample.sensorId) ?? sample.sensorId}</td><td>{definitionNames.get(sample.metric) ?? sample.metric}</td><td>{sample.value} {sample.canonicalUnit}</td></tr>)}</tbody></table></div></section>
               <p className="history-import-safe-note"><CheckCircle2 size={17} aria-hidden="true" />{t("historyImport.safeNote")}</p>
             </div>
@@ -329,7 +465,7 @@ export function HistoricalImportWizard({
 
           {step === 4 && (
             <div className="history-import-finish-step">
-              {importing ? <><LoaderCircle className="spin" size={45} aria-hidden="true" /><h3>{t("historyImport.importing")}</h3><p>{t("historyImport.importingHelp")}</p><progress max={Math.max(1, progress.total)} value={progress.completed} /><strong>{t("historyImport.progressCount", { completed: progress.completed, total: progress.total })}</strong></> : result ? <><span className="history-import-success"><CheckCircle2 size={42} aria-hidden="true" /></span><h3>{t("historyImport.completeTitle")}</h3><p>{t("historyImport.completeHelp", { count: result.accepted, house: house.name })}</p><div className="history-import-result"><span><strong>{result.accepted.toLocaleString(locale)}</strong>{t("historyImport.added")}</span><span><strong>{result.ignoredDuplicates.toLocaleString(locale)}</strong>{t("historyImport.alreadyThere")}</span></div></> : <><span className="history-import-error"><TriangleAlert size={38} aria-hidden="true" /></span><h3>{t("historyImport.failedTitle")}</h3><p>{error}</p><p>{t("historyImport.retryHelp")}</p></>}
+              {importing ? <><LoaderCircle className="spin" size={45} aria-hidden="true" /><h3>{t("historyImport.importing")}</h3><p>{t("historyImport.importingHelp")}</p><progress aria-label={t("historyImport.progress")} max={Math.max(1, progress.total)} value={progress.completed} /><strong role="status" aria-live="polite" aria-atomic="true">{t("historyImport.progressCount", { completed: progress.completed, total: progress.total })}</strong></> : result ? <><span className="history-import-success"><CheckCircle2 size={42} aria-hidden="true" /></span><h3>{t("historyImport.completeTitle")}</h3><p>{t("historyImport.completeHelp", { count: result.accepted, house: house.name })}</p><div className="history-import-result"><span><strong>{result.accepted.toLocaleString(locale)}</strong>{t("historyImport.added")}</span><span><strong>{result.ignoredDuplicates.toLocaleString(locale)}</strong>{t("historyImport.alreadyThere")}</span></div></> : <><span className="history-import-error"><TriangleAlert size={38} aria-hidden="true" /></span><h3>{t("historyImport.failedTitle")}</h3><p>{error}</p><p>{t("historyImport.retryHelp")}</p></>}
             </div>
           )}
 
@@ -337,10 +473,10 @@ export function HistoricalImportWizard({
         </div>
 
         <footer className="history-import-actions">
-          {step === 1 && <><span /><button type="button" className="secondary-button" onClick={onClose}>{t("common.cancel")}</button></>}
+          {step === 1 && <><span /><button type="button" className="secondary-button" onClick={closeWizard}>{t("common.cancel")}</button></>}
           {step === 2 && <><button type="button" className="secondary-button" onClick={() => setStep(1)}><ArrowLeft size={15} aria-hidden="true" />{t("sensors.back")}</button><button type="button" className="primary-button" disabled={!readyToPreview} onClick={() => setStep(3)}>{t("historyImport.reviewData")}<ArrowRight size={15} aria-hidden="true" /></button></>}
           {step === 3 && <><button type="button" className="secondary-button" onClick={() => setStep(2)}><ArrowLeft size={15} aria-hidden="true" />{t("historyImport.fixMapping")}</button><button type="button" className="primary-button" disabled={!preview?.samples.length} onClick={() => void startImport()}><Upload size={15} aria-hidden="true" />{t("historyImport.importCount", { count: preview?.samples.length ?? 0 })}</button></>}
-          {step === 4 && !importing && result && <><span /><button type="button" className="primary-button" onClick={onClose}>{t("historyImport.done")}</button></>}
+          {step === 4 && !importing && result && <><span /><button type="button" className="primary-button" onClick={closeWizard}>{t("historyImport.done")}</button></>}
           {step === 4 && !importing && !result && <><button type="button" className="secondary-button" onClick={() => setStep(3)}><ArrowLeft size={15} aria-hidden="true" />{t("sensors.back")}</button><button type="button" className="primary-button" onClick={() => void startImport()}>{t("historyImport.tryAgain")}</button></>}
         </footer>
       </section>

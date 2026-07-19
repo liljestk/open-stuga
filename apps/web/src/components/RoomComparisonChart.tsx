@@ -1,10 +1,12 @@
 import { AlertTriangle, CloudSun, Eye, GitCompareArrows } from "lucide-react";
 import type { AlertEvent, HouseWeather, ManualObservation, MeasurementDefinition, Sensor, UnitSystem, WeatherWarning } from "@climate-twin/contracts";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import type { TimeRange } from "../domain";
 import { useI18n } from "../i18n";
 import { displayUnit, formatMeasurement, measurementDomain, measurementLabel, measurementValue, toDisplayValue, type MeasurementHistory } from "../measurements";
 import { formatInTimeZone } from "../dateTime";
+import { isHomeRelevantWeatherWarning } from "../weatherWarningRelevance";
+import { useNow } from "../useNow";
 
 interface RoomComparisonChartProps {
   sensors: Sensor[];
@@ -30,6 +32,21 @@ const width = 820;
 const height = 284;
 const margin = { top: 18, right: 20, bottom: 36, left: 60 };
 const MAX_SERIES = 4;
+const SERIES_DASHES = [undefined, "12 6", "3 5", "14 5 3 5", "7 4"] as const;
+const SERIES_GLYPHS = ["●", "■", "◆", "▲", "✚"] as const;
+
+function seriesPatternIndex(series: ChartSeries): number {
+  return series.outdoor ? 4 : Math.max(0, Math.min(3, series.colorIndex));
+}
+
+function SeriesPointMarker({ patternIndex }: { patternIndex: number }) {
+  const style = { fill: "var(--panel)", stroke: "currentColor", strokeWidth: 2, opacity: 1, vectorEffect: "non-scaling-stroke", pointerEvents: "none" } as const;
+  if (patternIndex === 0) return <circle r="4.5" style={style} />;
+  if (patternIndex === 1) return <rect x="-4.5" y="-4.5" width="9" height="9" style={style} />;
+  if (patternIndex === 2) return <rect x="-4" y="-4" width="8" height="8" transform="rotate(45)" style={style} />;
+  if (patternIndex === 3) return <path d="M0-5.5 5 4.5H-5Z" style={style} />;
+  return <g style={style}><circle r="5" /><path d="M-3.5 0H3.5M0-3.5V3.5" fill="none" /></g>;
+}
 
 function outdoorValue(definition: MeasurementDefinition, point: NonNullable<HouseWeather["current"]>): number | null {
   if (definition.id === "temperature") return point.temperatureC ?? null;
@@ -71,14 +88,24 @@ function tickDateOptions(range: TimeRange): Intl.DateTimeFormatOptions {
     : { hour: "2-digit", minute: "2-digit" };
 }
 
+/** Instant charts cannot truthfully place calendar-only, ranged, or unknown observation times. */
+export function observationInstantTimestamp(observation: ManualObservation): number | null {
+  const precision = observation.timePrecision ?? "exact";
+  if (precision !== "exact" && precision !== "approximate") return null;
+  const timestamp = Date.parse(observation.occurredAt);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
 export function RoomComparisonChart(props: Readonly<RoomComparisonChartProps>) {
   const { locale, t } = useI18n();
   const [selectedIds, setSelectedIds] = useState<string[]>(() => initialSensorIds(props.selectedSensorId, props.sensors));
   const [outdoorVisible, setOutdoorVisible] = useState(true);
   const [limitVisible, setLimitVisible] = useState(false);
   const [focusedTimestamp, setFocusedTimestamp] = useState<number | null>(null);
+  const [dataOpen, setDataOpen] = useState(false);
+  const comparisonSummaryId = useId();
   const loadSeriesRef = useRef(props.onLoadSeries);
-  const now = Date.now();
+  const now = useNow();
   const rangeHours = hoursForRange(props.range);
   const from = now - rangeHours * 60 * 60_000;
   const activeSensorIds = useMemo(() => new Set(props.sensors.map((sensor) => sensor.id)), [props.sensors]);
@@ -143,8 +170,12 @@ export function RoomComparisonChart(props: Readonly<RoomComparisonChartProps>) {
       if (!selectedIds.includes(alert.sensorId)) return [];
       return [{ id: `alert:${alert.id}`, timestamp: Date.parse(alert.startedAt), kind: "alert" as const, label: t("activity.alertTitle", { sensor: props.sensors.find((sensor) => sensor.id === alert.sensorId)?.name ?? alert.sensorId }) }];
     }),
-    ...props.observations.map((observation) => ({ id: `observation:${observation.id}`, timestamp: Date.parse(observation.occurredAt), kind: "observation" as const, label: observation.note })),
+    ...props.observations.flatMap((observation) => {
+      const timestamp = observationInstantTimestamp(observation);
+      return timestamp === null ? [] : [{ id: `observation:${observation.id}`, timestamp, kind: "observation" as const, label: observation.note }];
+    }),
     ...props.warnings.flatMap((warning) => {
+      if (!isHomeRelevantWeatherWarning(warning)) return [];
       const timestamp = Date.parse(warning.onsetAt ?? warning.effectiveAt ?? "");
       return Number.isFinite(timestamp) ? [{ id: `weather:${warning.id}`, timestamp, kind: "weather" as const, label: warning.headline }] : [];
     }),
@@ -155,6 +186,20 @@ export function RoomComparisonChart(props: Readonly<RoomComparisonChartProps>) {
     const point = nearest(item.points, focusedTimestamp);
     return point && Math.abs(point.timestamp - focusedTimestamp) <= 45 * 60_000 ? [{ series: item, point }] : [];
   });
+  const chartLabel = t("decision.compareAria", { metric: measurementLabel(props.definition, locale) });
+  const chartSummary = [
+    chartLabel,
+    ...series.flatMap((item) => {
+      const latest = item.points.reduce<SeriesPoint | null>((candidate, point) => (
+        !candidate || point.timestamp > candidate.timestamp ? point : candidate
+      ), null);
+      return latest ? [`${item.label}: ${formatMeasurement(latest.value, props.definition, props.units)}, ${formatInTimeZone(latest.timestamp, locale, props.timeZone, { dateStyle: "medium", timeStyle: "short" })}`] : [];
+    }),
+  ].join(". ");
+  const seriesDataRows = dataOpen
+    ? series.flatMap((item) => item.points.map((point) => ({ item, point })))
+      .sort((left, right) => left.point.timestamp - right.point.timestamp)
+    : [];
 
   const toggleSensor = (sensorId: string) => {
     setLimitVisible(false);
@@ -177,22 +222,50 @@ export function RoomComparisonChart(props: Readonly<RoomComparisonChartProps>) {
       ? null
       : formatInTimeZone(focusedTimestamp, locale, props.timeZone, { dateStyle: "medium", timeStyle: "short" });
     chartContent = (
+      <>
       <div className="comparison-chart-wrap">
-        <svg className="comparison-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t("decision.compareAria", { metric: measurementLabel(props.definition, locale) })}>
+        <p id={comparisonSummaryId} className="sr-only">{chartSummary}</p>
+        <svg className="comparison-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={chartLabel} aria-describedby={comparisonSummaryId}>
           <g className="chart-grid" aria-hidden="true">{yTicks.map((tick) => <line key={tick} x1={margin.left} x2={width - margin.right} y1={y(tick)} y2={y(tick)} />)}</g>
           <g className="chart-axis" aria-hidden="true">
             {yTicks.map((tick) => <text key={tick} x={margin.left - 9} y={y(tick) + 4} textAnchor="end">{toDisplayValue(tick, props.definition, props.units).toFixed(props.definition.precision)}</text>)}
             {xTicks.map((tick, index) => <text key={tick} x={x(tick)} y={height - 10} textAnchor={tickAnchor(index, xTicks.length)}>{formatInTimeZone(tick, locale, props.timeZone, tickDateOptions(props.range))}</text>)}
             <text x="7" y="15">{displayUnit(props.definition, props.units)}</text>
           </g>
-          <g className="comparison-events">{markers.map((marker, index) => <g key={marker.id} className={marker.kind} role="img" aria-label={`${marker.label}, ${formatInTimeZone(marker.timestamp, locale, props.timeZone, { dateStyle: "medium", timeStyle: "short" })}`}><line x1={x(marker.timestamp)} x2={x(marker.timestamp)} y1={margin.top + (index % 3) * 5} y2={height - margin.bottom} /><circle cx={x(marker.timestamp)} cy={margin.top + (index % 3) * 5} r="3" /></g>)}</g>
-          <g className="comparison-lines" aria-hidden="true">{series.map((item) => item.points.length > 1 && <path key={item.id} d={pathFor(item.points, x, y)} className={`comparison-line series-${item.outdoor ? "outdoor" : item.colorIndex}`} />)}</g>
-          <g className="comparison-points">{series.flatMap((item) => item.points.filter((_, index) => index % Math.max(1, Math.floor(item.points.length / 28)) === 0 || index === item.points.length - 1).map((point) => <circle key={`${item.id}:${point.timestamp}`} cx={x(point.timestamp)} cy={y(point.value)} r="7" className={`series-${item.outdoor ? "outdoor" : item.colorIndex}`} tabIndex={0} role="img" aria-label={`${item.label}, ${formatMeasurement(point.value, props.definition, props.units)}, ${formatInTimeZone(point.timestamp, locale, props.timeZone, { dateStyle: "medium", timeStyle: "short" })}`} onFocus={() => setFocusedTimestamp(point.timestamp)} onBlur={() => setFocusedTimestamp(null)} onMouseEnter={() => setFocusedTimestamp(point.timestamp)} onMouseLeave={() => setFocusedTimestamp(null)} />))}</g>
+          <g className="comparison-events" aria-hidden="true">{markers.map((marker, index) => <g key={marker.id} className={marker.kind}><line x1={x(marker.timestamp)} x2={x(marker.timestamp)} y1={margin.top + (index % 3) * 5} y2={height - margin.bottom} /><circle cx={x(marker.timestamp)} cy={margin.top + (index % 3) * 5} r="3" /></g>)}</g>
+          <g className="comparison-lines" aria-hidden="true">{series.map((item) => item.points.length > 1 && <path key={item.id} d={pathFor(item.points, x, y)} className={`comparison-line series-${item.outdoor ? "outdoor" : item.colorIndex}`} strokeDasharray={SERIES_DASHES[seriesPatternIndex(item)]} />)}</g>
+          <g className="comparison-points">{series.flatMap((item) => {
+            const patternIndex = seriesPatternIndex(item);
+            return item.points.filter((_, index) => index % Math.max(1, Math.floor(item.points.length / 28)) === 0 || index === item.points.length - 1).map((point) => (
+              <g
+                key={`${item.id}:${point.timestamp}`} transform={`translate(${x(point.timestamp)} ${y(point.value)})`}
+                className={`series-${item.outdoor ? "outdoor" : item.colorIndex}`} aria-hidden="true"
+                onMouseEnter={() => setFocusedTimestamp(point.timestamp)} onMouseLeave={() => setFocusedTimestamp(null)}
+              >
+                <circle r="9" style={{ fill: "transparent", stroke: "transparent", strokeWidth: 1, opacity: 1 }} />
+                <SeriesPointMarker patternIndex={patternIndex} />
+              </g>
+            ));
+          })}</g>
           {focusedTimestamp !== null && <line className="comparison-focus-line" x1={x(focusedTimestamp)} x2={x(focusedTimestamp)} y1={margin.top} y2={height - margin.bottom} aria-hidden="true" />}
         </svg>
-        {focused.length > 0 && focusedLabel && <output className="comparison-tooltip"><time>{focusedLabel}</time>{focused.map(({ series: item, point }) => <span key={item.id}><i aria-hidden="true" className={`series-dot series-${item.outdoor ? "outdoor" : item.colorIndex}`} />{item.label}<strong>{formatMeasurement(point.value, props.definition, props.units)}</strong></span>)}</output>}
+        {focused.length > 0 && focusedLabel && <output className="comparison-tooltip"><time>{focusedLabel}</time>{focused.map(({ series: item, point }) => <span key={item.id}><i aria-hidden="true" className={`series-dot series-${item.outdoor ? "outdoor" : item.colorIndex}`}>{SERIES_GLYPHS[seriesPatternIndex(item)]}</i>{item.label}<strong>{formatMeasurement(point.value, props.definition, props.units)}</strong></span>)}</output>}
         <div className="comparison-event-key" aria-label={t("decision.eventsOnChart")}><span><AlertTriangle size={12} aria-hidden="true" />{t("nav.alerts")}</span><span><Eye size={12} aria-hidden="true" />{t("observations.title")}</span><span><CloudSun size={12} aria-hidden="true" />{t("activity.weather")}</span></div>
       </div>
+      <details className="chart-data-disclosure comparison-data-disclosure" open={dataOpen}>
+        <summary onClick={(event) => { event.preventDefault(); setDataOpen((value) => !value); }}>{t("common.showDataTable")}</summary>
+        {dataOpen && <div className="chart-data-table-wrap">
+          <table>
+            <caption className="sr-only">{chartLabel}</caption>
+            <thead><tr><th scope="col">{t("historyImport.dateTime")}</th><th scope="col">{t("historyImport.value")}</th><th scope="col">{t("observations.kind")}</th></tr></thead>
+            <tbody>
+              {seriesDataRows.map(({ item, point }, index) => <tr key={`series-data-${item.id}-${point.timestamp}-${index}`}><td>{formatInTimeZone(point.timestamp, locale, props.timeZone, { dateStyle: "medium", timeStyle: "short" })}</td><td>{formatMeasurement(point.value, props.definition, props.units)}</td><td>{SERIES_GLYPHS[seriesPatternIndex(item)]} {item.label}</td></tr>)}
+              {markers.map((marker) => <tr key={`event-data-${marker.id}`}><td>{formatInTimeZone(marker.timestamp, locale, props.timeZone, { dateStyle: "medium", timeStyle: "short" })}</td><td>{marker.label}</td><td>{marker.kind === "alert" ? t("nav.alerts") : marker.kind === "observation" ? t("observations.title") : t("activity.weather")}</td></tr>)}
+            </tbody>
+          </table>
+        </div>}
+      </details>
+      </>
     );
   }
 
@@ -205,9 +278,9 @@ export function RoomComparisonChart(props: Readonly<RoomComparisonChartProps>) {
       <fieldset className="comparison-picker"><legend className="sr-only">{t("decision.compareRooms")}</legend>
         {props.sensors.map((sensor) => {
           const colorIndex = selectedIds.indexOf(sensor.id);
-          return <button key={sensor.id} type="button" className={`series-chip ${colorIndex >= 0 ? `series-${colorIndex}` : "series-idle"}`} aria-pressed={colorIndex >= 0} onClick={() => toggleSensor(sensor.id)}>{sensor.room.trim() || sensor.name}</button>;
+          return <button key={sensor.id} type="button" className={`series-chip ${colorIndex >= 0 ? `series-${colorIndex}` : "series-idle"}`} aria-pressed={colorIndex >= 0} onClick={() => toggleSensor(sensor.id)}>{colorIndex >= 0 && <span aria-hidden="true">{SERIES_GLYPHS[colorIndex]}</span>}{sensor.room.trim() || sensor.name}</button>;
         })}
-        {outdoorAvailable && <button type="button" className="series-chip series-outdoor" aria-pressed={outdoorVisible} onClick={() => setOutdoorVisible((visible) => !visible)}><CloudSun size={13} aria-hidden="true" />{t("decision.outdoor")}</button>}
+        {outdoorAvailable && <button type="button" className="series-chip series-outdoor" aria-pressed={outdoorVisible} onClick={() => setOutdoorVisible((visible) => !visible)}><span aria-hidden="true">{SERIES_GLYPHS[4]}</span><CloudSun size={13} aria-hidden="true" />{t("decision.outdoor")}</button>}
       </fieldset>
       {limitVisible && <output className="comparison-limit">{t("decision.compareLimit", { count: MAX_SERIES })}</output>}
       {chartContent}

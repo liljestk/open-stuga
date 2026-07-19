@@ -1,7 +1,7 @@
 # Versioning and pre-1.0 change policy
 
-Stuga uses Semantic Versioning for the product release shown by the local and
-hosted APIs, web/API packages, and shared contracts. The current release is `0.2.0`.
+Stuga uses Semantic Versioning for the product release shown by the local API,
+web/API packages, and shared contracts. The current release is `0.3.0`.
 
 Before `1.0.0`, the data model, API, configuration, and UI may change in
 backwards-incompatible ways while the architecture is still being established.
@@ -10,9 +10,8 @@ Those changes are intentional but not silent:
 - every feature or breaking-change pull request increments the minor version;
 - a compatible bug/documentation-only release increments the patch version;
 - every pull request updates `CHANGELOG.md` and describes migration impact;
-- the root, workspace, and standalone hosted manifests, both lockfiles, shared
-  contract version, compiled API runtime version, and hosted OpenAPI version
-  must agree;
+- the root and workspace manifests, root lockfile, shared contract version, and
+  compiled API runtime version must agree;
 - `npm run version:check` enforces that agreement and the changelog entry;
 - pull-request CI compares the product version with the target branch and
   rejects a PR unless its version is strictly newer;

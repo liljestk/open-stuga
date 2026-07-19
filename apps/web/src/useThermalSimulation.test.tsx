@@ -16,7 +16,7 @@ function deferred<T>() {
 function simulation(houseId: string, sensorId: string): ThermalSimulationResult {
   return {
     generatedAt: "2026-07-14T12:00:00.000Z",
-    systemVersion: "0.2.0",
+    systemVersion: "0.3.0",
     houseId,
     sensorId,
     roomLabel: "Room",

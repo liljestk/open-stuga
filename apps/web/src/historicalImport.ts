@@ -1,5 +1,5 @@
-import readExcelFile from "read-excel-file/browser";
 import type { MeasurementDefinition, MeasurementSample, Sensor } from "@climate-twin/contracts";
+import type { Locale } from "./i18n";
 
 export type ImportCell = string | number | boolean | Date | null;
 export type ImportMode = "wide" | "long";
@@ -39,6 +39,8 @@ export interface ImportIssue {
 export interface HistoricalImportPreview {
   samples: MeasurementSample[];
   issues: ImportIssue[];
+  issueCount: number;
+  issueRowCount: number;
   sourceRows: number;
   usableRows: number;
   skippedEmpty: number;
@@ -50,6 +52,14 @@ export interface HistoricalImportPreview {
 }
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_RETAINED_ISSUES = 25;
+export const MAX_IMPORT_ROWS = 200_000;
+export const MAX_IMPORT_COLUMNS = 256;
+export const MAX_IMPORT_CELLS = 1_000_000;
+const MAX_XLSX_XML_BYTES = 64 * 1024 * 1024;
+const MAX_XLSX_WORKSHEET_BYTES = 32 * 1024 * 1024;
+const MAX_XLSX_ARCHIVE_ENTRIES = 10_000;
+const MAX_XLSX_XML_ENTRIES = 1_000;
 const TIMESTAMP_ALIASES = ["timestamp", "datetime", "dateandtime", "recordedat", "recorded", "time", "date", "aika", "paivamaara", "ajankohta"];
 const SENSOR_ALIASES = ["sensorid", "sensorname", "sensor", "deviceid", "devicename", "device", "anturiid", "anturinnimi", "anturi", "laite"];
 const METRIC_ALIASES = ["metric", "measurementtype", "measurement", "type", "kind", "mittaustyyppi", "mittaus", "mittari", "suure"];
@@ -68,11 +78,41 @@ function isBlank(value: ImportCell | undefined): boolean {
   return value === null || value === undefined || (typeof value === "string" && value.trim() === "");
 }
 
+function importSizeError(): Error {
+  return new Error(`This file contains too much data. Use at most ${MAX_IMPORT_ROWS.toLocaleString("en-US")} rows, ${MAX_IMPORT_COLUMNS} columns, and ${MAX_IMPORT_CELLS.toLocaleString("en-US")} cells.`);
+}
+
+export function validateImportSheet(sheet: ImportSheet): void {
+  if (sheet.rows.length > MAX_IMPORT_ROWS) throw importSizeError();
+  let cells = 0;
+  for (const row of sheet.rows) {
+    if (row.length > MAX_IMPORT_COLUMNS) throw importSizeError();
+    cells += row.length;
+    if (cells > MAX_IMPORT_CELLS) throw importSizeError();
+  }
+}
+
 function parseDelimited(text: string, delimiter: string): ImportCell[][] {
   const rows: ImportCell[][] = [];
   let row: ImportCell[] = [];
   let value = "";
   let quoted = false;
+  let cells = 0;
+  const pushValue = () => {
+    row.push(value.trim());
+    value = "";
+    if (row.length > MAX_IMPORT_COLUMNS) throw importSizeError();
+  };
+  const pushRow = () => {
+    pushValue();
+    if (row.some((cell) => !isBlank(cell))) {
+      if (rows.length >= MAX_IMPORT_ROWS) throw importSizeError();
+      cells += row.length;
+      if (cells > MAX_IMPORT_CELLS) throw importSizeError();
+      rows.push(row);
+    }
+    row = [];
+  };
   for (let index = 0; index < text.length; index += 1) {
     const character = text[index]!;
     if (character === '"') {
@@ -83,40 +123,61 @@ function parseDelimited(text: string, delimiter: string): ImportCell[][] {
         quoted = !quoted;
       }
     } else if (character === delimiter && !quoted) {
-      row.push(value.trim());
-      value = "";
+      pushValue();
     } else if ((character === "\n" || character === "\r") && !quoted) {
       if (character === "\r" && text[index + 1] === "\n") index += 1;
-      row.push(value.trim());
-      if (row.some((cell) => !isBlank(cell))) rows.push(row);
-      row = [];
-      value = "";
+      pushRow();
     } else {
       value += character;
     }
   }
-  row.push(value.trim());
-  if (row.some((cell) => !isBlank(cell))) rows.push(row);
+  pushRow();
   return rows;
 }
 
-function delimiterScore(rows: ImportCell[][]): number {
-  const widths = rows.slice(0, 25).map((row) => row.length).filter((width) => width > 1);
+function delimiterScore(text: string, delimiter: string): number {
+  const widths: number[] = [];
+  const end = Math.min(text.length, 256 * 1024);
+  let width = 1;
+  let quoted = false;
+  let hasContent = false;
+  for (let index = 0; index < end && widths.length < 25; index += 1) {
+    const character = text[index]!;
+    if (character === '"') {
+      if (quoted && text[index + 1] === '"') index += 1;
+      else quoted = !quoted;
+    } else if (character === delimiter && !quoted) {
+      width += 1;
+    } else if ((character === "\n" || character === "\r") && !quoted) {
+      if (character === "\r" && text[index + 1] === "\n") index += 1;
+      if (hasContent && width > 1) widths.push(width);
+      width = 1;
+      hasContent = false;
+    } else if (!/\s/.test(character)) {
+      hasContent = true;
+    }
+  }
+  if (widths.length < 25 && hasContent && width > 1) widths.push(width);
   if (!widths.length) return 0;
   const counts = new Map<number, number>();
   for (const width of widths) counts.set(width, (counts.get(width) ?? 0) + 1);
-  const [width, frequency] = [...counts.entries()].sort((left, right) => right[1] - left[1] || right[0] - left[0])[0]!;
-  return width * frequency;
+  const [commonWidth, frequency] = [...counts.entries()].sort((left, right) => right[1] - left[1] || right[0] - left[0])[0]!;
+  return commonWidth * frequency;
 }
 
 export function parseCsv(text: string, fileName = "CSV data"): ImportSheet {
   const clean = text.replace(/^\uFEFF/, "");
-  const candidates = [",", ";", "\t"].map((delimiter) => ({ delimiter, rows: parseDelimited(clean, delimiter) }));
-  const selected = candidates.sort((left, right) => delimiterScore(right.rows) - delimiterScore(left.rows))[0]!;
-  if (!selected.rows.length || Math.max(...selected.rows.map((row) => row.length)) < 2) {
+  const delimiters = /\.tsv$/i.test(fileName) ? ["\t", ",", ";"] : [",", ";", "\t"];
+  const selected = delimiters
+    .map((delimiter) => ({ delimiter, score: delimiterScore(clean, delimiter) }))
+    .sort((left, right) => right.score - left.score)[0]!.delimiter;
+  const rows = parseDelimited(clean, selected);
+  let maximumWidth = 0;
+  for (const row of rows) maximumWidth = Math.max(maximumWidth, row.length);
+  if (!rows.length || maximumWidth < 2) {
     throw new Error("No table with two or more columns was found in this file.");
   }
-  return { name: fileName.replace(/\.(csv|tsv|txt)$/i, "") || "CSV data", rows: selected.rows };
+  return { name: fileName.replace(/\.(csv|tsv|txt)$/i, "") || "CSV data", rows };
 }
 
 function readFileText(file: File): Promise<string> {
@@ -128,15 +189,250 @@ function readFileText(file: File): Promise<string> {
   });
 }
 
+interface ZipEntry {
+  name: string;
+  flags: number;
+  compressionMethod: number;
+  compressedSize: number;
+  uncompressedSize: number;
+  localHeaderOffset: number;
+}
+
+function invalidWorkbookError(): Error {
+  return new Error("This Excel workbook could not be safely read.");
+}
+
+function checkedRange(offset: number, length: number, total: number): boolean {
+  return Number.isSafeInteger(offset) && Number.isSafeInteger(length)
+    && offset >= 0 && length >= 0 && offset <= total && length <= total - offset;
+}
+
+function parseZipEntries(archive: Uint8Array): ZipEntry[] {
+  if (archive.byteLength < 22) throw invalidWorkbookError();
+  const view = new DataView(archive.buffer, archive.byteOffset, archive.byteLength);
+  const firstPossibleEocd = Math.max(0, archive.byteLength - 22 - 65_535);
+  let eocd = -1;
+  for (let offset = archive.byteLength - 22; offset >= firstPossibleEocd; offset -= 1) {
+    if (view.getUint32(offset, true) === 0x06054b50) {
+      const commentLength = view.getUint16(offset + 20, true);
+      if (offset + 22 + commentLength === archive.byteLength) {
+        eocd = offset;
+        break;
+      }
+    }
+  }
+  if (eocd < 0) throw invalidWorkbookError();
+
+  const disk = view.getUint16(eocd + 4, true);
+  const centralDirectoryDisk = view.getUint16(eocd + 6, true);
+  const entriesOnDisk = view.getUint16(eocd + 8, true);
+  const entryCount = view.getUint16(eocd + 10, true);
+  const centralDirectorySize = view.getUint32(eocd + 12, true);
+  const centralDirectoryOffset = view.getUint32(eocd + 16, true);
+  if (disk !== 0 || centralDirectoryDisk !== 0 || entriesOnDisk !== entryCount
+    || entryCount === 0xffff || centralDirectorySize === 0xffffffff || centralDirectoryOffset === 0xffffffff
+    || entryCount > MAX_XLSX_ARCHIVE_ENTRIES
+    || !checkedRange(centralDirectoryOffset, centralDirectorySize, archive.byteLength)
+    || centralDirectoryOffset + centralDirectorySize > eocd) {
+    throw invalidWorkbookError();
+  }
+
+  const decoder = new TextDecoder();
+  const entries: ZipEntry[] = [];
+  let offset = centralDirectoryOffset;
+  for (let index = 0; index < entryCount; index += 1) {
+    if (!checkedRange(offset, 46, archive.byteLength) || view.getUint32(offset, true) !== 0x02014b50) {
+      throw invalidWorkbookError();
+    }
+    const fileNameLength = view.getUint16(offset + 28, true);
+    const extraLength = view.getUint16(offset + 30, true);
+    const commentLength = view.getUint16(offset + 32, true);
+    const entryLength = 46 + fileNameLength + extraLength + commentLength;
+    if (!checkedRange(offset, entryLength, archive.byteLength)) throw invalidWorkbookError();
+    const name = decoder.decode(archive.subarray(offset + 46, offset + 46 + fileNameLength)).replaceAll("\\", "/");
+    entries.push({
+      name,
+      flags: view.getUint16(offset + 8, true),
+      compressionMethod: view.getUint16(offset + 10, true),
+      compressedSize: view.getUint32(offset + 20, true),
+      uncompressedSize: view.getUint32(offset + 24, true),
+      localHeaderOffset: view.getUint32(offset + 42, true),
+    });
+    offset += entryLength;
+  }
+  if (offset !== centralDirectoryOffset + centralDirectorySize) throw invalidWorkbookError();
+  return entries;
+}
+
+function cellCoordinates(reference: string): { row: number; column: number } | null {
+  const match = reference.trim().match(/^\$?([A-Z]{1,3})\$?(\d+)$/i);
+  if (!match) return null;
+  let column = 0;
+  for (const character of match[1]!.toUpperCase()) column = column * 26 + character.charCodeAt(0) - 64;
+  const row = Number(match[2]);
+  return Number.isSafeInteger(row) && row > 0 ? { row, column } : null;
+}
+
+function worksheetAllocation(xml: string): { cells: number; rows: number } {
+  const dimension = xml.match(/<(?:[\w.-]+:)?dimension\b[^>]*\bref\s*=\s*(?:"([^"]+)"|'([^']+)')/i);
+  let allocatedCells: number | null = null;
+  let allocatedRows: number | null = null;
+  if (dimension) {
+    const references = (dimension[1] ?? dimension[2] ?? "").split(":");
+    if (references.length < 1 || references.length > 2) throw invalidWorkbookError();
+    const first = cellCoordinates(references[0]!);
+    const last = cellCoordinates(references.at(-1)!);
+    if (!first || !last || last.row < first.row || last.column < first.column) throw invalidWorkbookError();
+    if (last.row > MAX_IMPORT_ROWS || last.column > MAX_IMPORT_COLUMNS) throw importSizeError();
+    allocatedCells = last.row * last.column;
+    allocatedRows = last.row;
+    if (allocatedCells > MAX_IMPORT_CELLS) throw importSizeError();
+  }
+
+  const cellTag = /<(?:[\w.-]+:)?c\b([^>]*)>/gi;
+  let match: RegExpExecArray | null;
+  let cellCount = 0;
+  let maximumRow = 0;
+  let maximumColumn = 0;
+  while ((match = cellTag.exec(xml))) {
+    cellCount += 1;
+    if (cellCount > MAX_IMPORT_CELLS) throw importSizeError();
+    if (allocatedCells === null) {
+      const reference = match[1]?.match(/\br\s*=\s*(?:"([^"]+)"|'([^']+)')/i);
+      const coordinates = reference ? cellCoordinates(reference[1] ?? reference[2] ?? "") : null;
+      if (!coordinates) throw invalidWorkbookError();
+      maximumRow = Math.max(maximumRow, coordinates.row);
+      maximumColumn = Math.max(maximumColumn, coordinates.column);
+      if (maximumRow > MAX_IMPORT_ROWS || maximumColumn > MAX_IMPORT_COLUMNS
+        || maximumRow * maximumColumn > MAX_IMPORT_CELLS) throw importSizeError();
+    }
+  }
+  return {
+    cells: Math.max(allocatedCells ?? maximumRow * maximumColumn, cellCount),
+    rows: allocatedRows ?? maximumRow,
+  };
+}
+
+async function readZipEntry(
+  archive: Uint8Array,
+  entry: ZipEntry,
+  maximumOutputBytes: number,
+  retainText: boolean,
+): Promise<{ size: number; text: string | null }> {
+  if ((entry.flags & 0x1) !== 0 || ![0, 8].includes(entry.compressionMethod)) throw invalidWorkbookError();
+  const view = new DataView(archive.buffer, archive.byteOffset, archive.byteLength);
+  const offset = entry.localHeaderOffset;
+  if (!checkedRange(offset, 30, archive.byteLength) || view.getUint32(offset, true) !== 0x04034b50) {
+    throw invalidWorkbookError();
+  }
+  const localFlags = view.getUint16(offset + 6, true);
+  const localCompressionMethod = view.getUint16(offset + 8, true);
+  const fileNameLength = view.getUint16(offset + 26, true);
+  const extraLength = view.getUint16(offset + 28, true);
+  const dataOffset = offset + 30 + fileNameLength + extraLength;
+  if ((localFlags & 0x1) !== 0 || localCompressionMethod !== entry.compressionMethod
+    || !checkedRange(dataOffset, entry.compressedSize, archive.byteLength)) throw invalidWorkbookError();
+  const localName = new TextDecoder().decode(archive.subarray(offset + 30, offset + 30 + fileNameLength)).replaceAll("\\", "/");
+  if (localName !== entry.name) throw invalidWorkbookError();
+
+  const decoder = retainText ? new TextDecoder() : null;
+  const textChunks: string[] = [];
+  let size = 0;
+  const consume = (chunk: Uint8Array) => {
+    size += chunk.byteLength;
+    if (size > maximumOutputBytes || size > entry.uncompressedSize) throw importSizeError();
+    if (decoder) textChunks.push(decoder.decode(chunk, { stream: true }));
+  };
+
+  const compressed = archive.subarray(dataOffset, dataOffset + entry.compressedSize);
+  if (entry.compressionMethod === 0) {
+    for (let start = 0; start < compressed.byteLength; start += 64 * 1024) {
+      consume(compressed.subarray(start, Math.min(compressed.byteLength, start + 64 * 1024)));
+    }
+  } else {
+    if (typeof DecompressionStream === "undefined") throw invalidWorkbookError();
+    try {
+      const stream = new Blob([compressed.slice().buffer as ArrayBuffer]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      const reader = stream.getReader();
+      try {
+        while (true) {
+          const result = await reader.read();
+          if (result.done) break;
+          consume(result.value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("This file contains too much data.")) throw error;
+      throw invalidWorkbookError();
+    }
+  }
+  if (size !== entry.uncompressedSize) throw invalidWorkbookError();
+  if (decoder) textChunks.push(decoder.decode());
+  return { size, text: decoder ? textChunks.join("") : null };
+}
+
+export async function validateXlsxArchive(buffer: ArrayBuffer): Promise<void> {
+  const archive = new Uint8Array(buffer);
+  const entries = parseZipEntries(archive);
+  const xmlEntries = entries.filter((entry) => entry.name.endsWith(".xml") || entry.name.endsWith(".xml.rels"));
+  if (!xmlEntries.length || xmlEntries.length > MAX_XLSX_XML_ENTRIES) throw invalidWorkbookError();
+  const duplicateNames = new Set<string>();
+  let declaredXmlBytes = 0;
+  for (const entry of xmlEntries) {
+    if (duplicateNames.has(entry.name)) throw invalidWorkbookError();
+    duplicateNames.add(entry.name);
+    declaredXmlBytes += entry.uncompressedSize;
+    if (!Number.isSafeInteger(declaredXmlBytes) || declaredXmlBytes > MAX_XLSX_XML_BYTES) throw importSizeError();
+  }
+
+  let actualXmlBytes = 0;
+  let allocatedCells = 0;
+  let allocatedRows = 0;
+  let worksheetCount = 0;
+  for (const entry of xmlEntries) {
+    const worksheet = /^xl\/worksheets\/[^/]+\.xml$/.test(entry.name);
+    if (worksheet && entry.uncompressedSize > MAX_XLSX_WORKSHEET_BYTES) throw importSizeError();
+    const result = await readZipEntry(
+      archive,
+      entry,
+      worksheet ? Math.min(MAX_XLSX_WORKSHEET_BYTES, MAX_XLSX_XML_BYTES - actualXmlBytes) : MAX_XLSX_XML_BYTES - actualXmlBytes,
+      worksheet,
+    );
+    actualXmlBytes += result.size;
+    if (actualXmlBytes > MAX_XLSX_XML_BYTES) throw importSizeError();
+    if (worksheet) {
+      worksheetCount += 1;
+      const allocation = worksheetAllocation(result.text ?? "");
+      allocatedCells += allocation.cells;
+      allocatedRows += allocation.rows;
+      if (allocatedCells > MAX_IMPORT_CELLS || allocatedRows > MAX_IMPORT_ROWS) throw importSizeError();
+    }
+  }
+  if (!worksheetCount) throw invalidWorkbookError();
+}
+
 export async function readHistoricalFile(file: File): Promise<ImportSheet[]> {
   if (file.size > MAX_FILE_BYTES) throw new Error("Choose a file smaller than 25 MB.");
   if (/\.(csv|tsv|txt)$/i.test(file.name)) return [parseCsv(await readFileText(file), file.name)];
   if (!/\.xlsx$/i.test(file.name)) throw new Error("Choose an Excel .xlsx, CSV, or TSV file.");
-  const sheets = await readExcelFile(file);
+  const buffer = await file.arrayBuffer();
+  await validateXlsxArchive(buffer);
+  const { default: readExcelFile } = await import("read-excel-file/browser");
+  const sheets = await readExcelFile(buffer);
   const usable = sheets
     .map((sheet) => ({ name: sheet.sheet, rows: sheet.data as ImportCell[][] }))
     .filter((sheet) => sheet.rows.some((row) => row.some((cell) => !isBlank(cell))));
   if (!usable.length) throw new Error("This workbook does not contain any data rows.");
+  let workbookCells = 0;
+  let workbookRows = 0;
+  for (const sheet of usable) {
+    validateImportSheet(sheet);
+    workbookRows += sheet.rows.length;
+    for (const row of sheet.rows) workbookCells += row.length;
+    if (workbookRows > MAX_IMPORT_ROWS || workbookCells > MAX_IMPORT_CELLS) throw importSizeError();
+  }
   return usable;
 }
 
@@ -212,7 +508,7 @@ export function createInitialMapping(
   sheet: ImportSheet,
   definitions: MeasurementDefinition[],
   sensors: Sensor[],
-  locale: "en" | "fi",
+  locale: Locale,
   headerRow = detectHeaderRow(sheet.rows),
 ): HistoricalImportMapping {
   const headers = columnLabels(sheet, headerRow);
@@ -234,7 +530,7 @@ export function createInitialMapping(
     timestampColumn,
     sensorColumn: sensor >= 0 ? sensor : null,
     fallbackSensorId: sensors[0]?.id ?? "",
-    dateOrder: locale === "fi" ? "dmy" : "auto",
+    dateOrder: locale === "en" ? "auto" : "dmy",
     wideColumns,
     longMetricColumn: metric >= 0 ? metric : null,
     longFixedMetric: definitions[0]?.id ?? "",
@@ -243,11 +539,26 @@ export function createInitialMapping(
   };
 }
 
-function zonedParts(timestamp: number, timeZone: string): number[] {
-  const parts = new Intl.DateTimeFormat("en-CA", {
+const zonedFormatterCache = new Map<string, Intl.DateTimeFormat>();
+const MAX_ZONED_FORMATTERS = 32;
+
+function zonedFormatter(timeZone: string): Intl.DateTimeFormat {
+  const cached = zonedFormatterCache.get(timeZone);
+  if (cached) return cached;
+  const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone, year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
-  }).formatToParts(new Date(timestamp));
+  });
+  if (zonedFormatterCache.size >= MAX_ZONED_FORMATTERS) {
+    const oldest = zonedFormatterCache.keys().next().value as string | undefined;
+    if (oldest !== undefined) zonedFormatterCache.delete(oldest);
+  }
+  zonedFormatterCache.set(timeZone, formatter);
+  return formatter;
+}
+
+function zonedParts(timestamp: number, timeZone: string): number[] {
+  const parts = zonedFormatter(timeZone).formatToParts(new Date(timestamp));
   const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value);
   return [value("year"), value("month"), value("day"), value("hour"), value("minute"), value("second")];
 }
@@ -281,8 +592,14 @@ export function parseImportTimestamp(value: ImportCell | undefined, timeZone: st
     ], timeZone);
   }
   if (typeof value === "number" && Number.isFinite(value)) {
-    if (value > 1_000_000_000_000) return new Date(value).toISOString();
-    if (value > 1_000_000_000) return new Date(value * 1000).toISOString();
+    if (value > 1_000_000_000_000) {
+      const date = new Date(value);
+      return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+    }
+    if (value > 1_000_000_000) {
+      const date = new Date(value * 1000);
+      return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+    }
     if (value > 0 && value < 3_000_000) {
       const serialDate = new Date((value - 25569) * 86_400_000);
       return localPartsToIso([
@@ -343,19 +660,168 @@ function unitFromCell(value: ImportCell | undefined): InputUnit {
   return "canonical";
 }
 
-function resolveSensor(value: ImportCell | undefined, sensors: Sensor[], fallbackSensorId: string): Sensor | null {
-  if (value === undefined || value === null || String(value).trim() === "") {
-    return sensors.find((sensor) => sensor.id === fallbackSensorId) ?? null;
-  }
-  const token = normalizeImportToken(value);
-  const matches = sensors.filter((sensor) => normalizeImportToken(sensor.id) === token || normalizeImportToken(sensor.name) === token);
-  return matches.length === 1 ? matches[0]! : null;
+interface ImportLookups {
+  sensorsById: Map<string, Sensor>;
+  sensorsByToken: Map<string, Sensor | null>;
+  metricsByToken: Map<string, MeasurementDefinition>;
 }
 
-function resolveMetric(value: ImportCell | undefined, definitions: MeasurementDefinition[], fallback: string): MeasurementDefinition | null {
-  if (isBlank(value)) return definitions.find((definition) => definition.id === fallback) ?? null;
-  const token = normalizeImportToken(value);
-  return definitions.find((definition) => metricAliases(definition).includes(token)) ?? null;
+function createImportLookups(sensors: Sensor[], definitions: MeasurementDefinition[]): ImportLookups {
+  const sensorsById = new Map<string, Sensor>();
+  const sensorsByToken = new Map<string, Sensor | null>();
+  for (const sensor of sensors) {
+    if (!sensorsById.has(sensor.id)) sensorsById.set(sensor.id, sensor);
+    const tokens = new Set([normalizeImportToken(sensor.id), normalizeImportToken(sensor.name)]);
+    for (const token of tokens) {
+      if (!token) continue;
+      const existing = sensorsByToken.get(token);
+      if (existing === undefined) sensorsByToken.set(token, sensor);
+      else if (existing !== sensor) sensorsByToken.set(token, null);
+    }
+  }
+  const metricsByToken = new Map<string, MeasurementDefinition>();
+  for (const definition of definitions) {
+    for (const token of metricAliases(definition)) {
+      if (!metricsByToken.has(token)) metricsByToken.set(token, definition);
+    }
+  }
+  return { sensorsById, sensorsByToken, metricsByToken };
+}
+
+function resolveSensor(value: ImportCell | undefined, lookups: ImportLookups, fallbackSensorId: string): Sensor | null {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return lookups.sensorsById.get(fallbackSensorId) ?? null;
+  }
+  return lookups.sensorsByToken.get(normalizeImportToken(value)) ?? null;
+}
+
+function resolveMetric(
+  value: ImportCell | undefined,
+  definitionsById: Map<string, MeasurementDefinition>,
+  lookups: ImportLookups,
+  fallback: string,
+): MeasurementDefinition | null {
+  if (isBlank(value)) return definitionsById.get(fallback) ?? null;
+  return lookups.metricsByToken.get(normalizeImportToken(value)) ?? null;
+}
+
+interface HistoricalImportBuilder {
+  firstDataRow: number;
+  lastDataRow: number;
+  processRows: (start: number, end: number) => void;
+  finish: () => HistoricalImportPreview;
+}
+
+function createHistoricalImportBuilder(
+  sheet: ImportSheet,
+  mapping: HistoricalImportMapping,
+  sensors: Sensor[],
+  definitions: MeasurementDefinition[],
+  timeZone: string,
+): HistoricalImportBuilder {
+  validateImportSheet(sheet);
+  const samples: MeasurementSample[] = [];
+  const issues: ImportIssue[] = [];
+  const seen = new Set<string>();
+  const sensorIds = new Set<string>();
+  const metricIds = new Set<string>();
+  let skippedEmpty = 0;
+  let duplicatesInFile = 0;
+  let usableRows = 0;
+  let issueCount = 0;
+  let issueRowCount = 0;
+  let lastIssueRow: number | null = null;
+  let firstTimestamp: string | null = null;
+  let lastTimestamp: string | null = null;
+  const firstDataRow = mapping.headerRow + 1;
+  const sourceRows = Math.max(0, sheet.rows.length - firstDataRow);
+  const definitionsById = new Map(definitions.map((definition) => [definition.id, definition]));
+  const lookups = createImportLookups(sensors, definitions);
+  const addIssue = (row: number, message: string) => {
+    issueCount += 1;
+    if (row !== lastIssueRow) {
+      issueRowCount += 1;
+      lastIssueRow = row;
+    }
+    if (issues.length < MAX_RETAINED_ISSUES) issues.push({ row, message });
+  };
+
+  const processRows = (start: number, end: number) => {
+    for (let rowIndex = start; rowIndex < end; rowIndex += 1) {
+      const row = sheet.rows[rowIndex]!;
+      const rowNumber = rowIndex + 1;
+      if (row.every((cell) => isBlank(cell))) { skippedEmpty += 1; continue; }
+      const timestamp = parseImportTimestamp(row[mapping.timestampColumn], timeZone, mapping.dateOrder);
+      if (!timestamp) { addIssue(rowNumber, "The date or time could not be read."); continue; }
+      const sensor = resolveSensor(mapping.sensorColumn === null ? undefined : row[mapping.sensorColumn], lookups, mapping.fallbackSensorId);
+      if (!sensor) { addIssue(rowNumber, "The sensor does not match a sensor in this house."); continue; }
+      const candidates: Array<{ definition: MeasurementDefinition; raw: ImportCell | undefined; unit: InputUnit }> = [];
+      if (mapping.mode === "wide") {
+        for (const item of mapping.wideColumns) {
+          const definition = definitionsById.get(item.metric);
+          if (definition && !isBlank(row[item.column])) candidates.push({ definition, raw: row[item.column], unit: item.inputUnit });
+        }
+      } else {
+        const definition = resolveMetric(mapping.longMetricColumn === null ? undefined : row[mapping.longMetricColumn], definitionsById, lookups, mapping.longFixedMetric);
+        if (!definition) { addIssue(rowNumber, "The measurement type is not recognized."); continue; }
+        if (!isBlank(row[mapping.longValueColumn])) candidates.push({
+          definition,
+          raw: row[mapping.longValueColumn],
+          unit: mapping.longUnitColumn === null ? "canonical" : unitFromCell(row[mapping.longUnitColumn]),
+        });
+      }
+      if (!candidates.length) { skippedEmpty += 1; continue; }
+      let rowAccepted = false;
+      for (const candidate of candidates) {
+        const parsed = numberValue(candidate.raw);
+        if (parsed === null) { addIssue(rowNumber, `${candidate.definition.labels.en ?? candidate.definition.id} is not a number.`); continue; }
+        const value = convertValue(parsed, candidate.unit);
+        if (candidate.definition.validMin !== null && value < candidate.definition.validMin
+          || candidate.definition.validMax !== null && value > candidate.definition.validMax) {
+          addIssue(rowNumber, `${candidate.definition.labels.en ?? candidate.definition.id} is outside the allowed range.`);
+          continue;
+        }
+        const sample: MeasurementSample = {
+          sensorId: sensor.id,
+          metric: candidate.definition.id,
+          value: Number(value.toFixed(Math.max(candidate.definition.precision, 4))),
+          canonicalUnit: candidate.definition.unit,
+          timestamp,
+          source: "import",
+          quality: "good",
+        };
+        const key = `${sample.sensorId}\u0000${sample.metric}\u0000${sample.timestamp}`;
+        if (seen.has(key)) { duplicatesInFile += 1; continue; }
+        seen.add(key);
+        samples.push(sample);
+        sensorIds.add(sample.sensorId);
+        metricIds.add(sample.metric);
+        if (firstTimestamp === null || sample.timestamp < firstTimestamp) firstTimestamp = sample.timestamp;
+        if (lastTimestamp === null || sample.timestamp > lastTimestamp) lastTimestamp = sample.timestamp;
+        rowAccepted = true;
+      }
+      if (rowAccepted) usableRows += 1;
+    }
+  };
+  return {
+    firstDataRow,
+    lastDataRow: sheet.rows.length,
+    processRows,
+    finish: () => ({
+      samples,
+      issues,
+      issueCount,
+      issueRowCount,
+      sourceRows,
+      usableRows,
+      skippedEmpty,
+      duplicatesInFile,
+      firstTimestamp,
+      lastTimestamp,
+      sensorIds: [...sensorIds],
+      metricIds: [...metricIds],
+    }),
+  };
 }
 
 export function buildHistoricalImport(
@@ -365,76 +831,64 @@ export function buildHistoricalImport(
   definitions: MeasurementDefinition[],
   timeZone: string,
 ): HistoricalImportPreview {
-  const samples: MeasurementSample[] = [];
-  const issues: ImportIssue[] = [];
-  const seen = new Set<string>();
-  let skippedEmpty = 0;
-  let duplicatesInFile = 0;
-  let usableRows = 0;
-  const dataRows = sheet.rows.slice(mapping.headerRow + 1);
-  const definitionsById = new Map(definitions.map((definition) => [definition.id, definition]));
+  const builder = createHistoricalImportBuilder(sheet, mapping, sensors, definitions, timeZone);
+  builder.processRows(builder.firstDataRow, builder.lastDataRow);
+  return builder.finish();
+}
 
-  dataRows.forEach((row, dataIndex) => {
-    const rowNumber = mapping.headerRow + dataIndex + 2;
-    if (row.every((cell) => isBlank(cell))) { skippedEmpty += 1; return; }
-    const timestamp = parseImportTimestamp(row[mapping.timestampColumn], timeZone, mapping.dateOrder);
-    if (!timestamp) { issues.push({ row: rowNumber, message: "The date or time could not be read." }); return; }
-    const sensor = resolveSensor(mapping.sensorColumn === null ? undefined : row[mapping.sensorColumn], sensors, mapping.fallbackSensorId);
-    if (!sensor) { issues.push({ row: rowNumber, message: "The sensor does not match a sensor in this house." }); return; }
-    const candidates: Array<{ definition: MeasurementDefinition; raw: ImportCell | undefined; unit: InputUnit }> = [];
-    if (mapping.mode === "wide") {
-      for (const item of mapping.wideColumns) {
-        const definition = definitionsById.get(item.metric);
-        if (definition && !isBlank(row[item.column])) candidates.push({ definition, raw: row[item.column], unit: item.inputUnit });
-      }
-    } else {
-      const definition = resolveMetric(mapping.longMetricColumn === null ? undefined : row[mapping.longMetricColumn], definitions, mapping.longFixedMetric);
-      if (!definition) { issues.push({ row: rowNumber, message: "The measurement type is not recognized." }); return; }
-      if (!isBlank(row[mapping.longValueColumn])) candidates.push({
-        definition,
-        raw: row[mapping.longValueColumn],
-        unit: mapping.longUnitColumn === null ? "canonical" : unitFromCell(row[mapping.longUnitColumn]),
-      });
-    }
-    if (!candidates.length) { skippedEmpty += 1; return; }
-    let rowAccepted = false;
-    for (const candidate of candidates) {
-      const parsed = numberValue(candidate.raw);
-      if (parsed === null) { issues.push({ row: rowNumber, message: `${candidate.definition.labels.en ?? candidate.definition.id} is not a number.` }); continue; }
-      const value = convertValue(parsed, candidate.unit);
-      if (candidate.definition.validMin !== null && value < candidate.definition.validMin
-        || candidate.definition.validMax !== null && value > candidate.definition.validMax) {
-        issues.push({ row: rowNumber, message: `${candidate.definition.labels.en ?? candidate.definition.id} is outside the allowed range.` });
-        continue;
-      }
-      const sample: MeasurementSample = {
-        sensorId: sensor.id,
-        metric: candidate.definition.id,
-        value: Number(value.toFixed(Math.max(candidate.definition.precision, 4))),
-        canonicalUnit: candidate.definition.unit,
-        timestamp,
-        source: "import",
-        quality: "good",
-      };
-      const key = `${sample.sensorId}\u0000${sample.metric}\u0000${sample.timestamp}`;
-      if (seen.has(key)) { duplicatesInFile += 1; continue; }
-      seen.add(key);
-      samples.push(sample);
-      rowAccepted = true;
-    }
-    if (rowAccepted) usableRows += 1;
+export interface HistoricalImportBuildOptions {
+  signal?: AbortSignal;
+  onProgress?: (completedRows: number, totalRows: number) => void;
+}
+
+const PREVIEW_ROWS_PER_CHUNK = 1_000;
+
+function previewAbortError(): Error {
+  const error = new Error("Historical import preview was cancelled.");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfPreviewAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error ? signal.reason : previewAbortError();
+}
+
+function yieldPreviewWork(signal: AbortSignal | undefined): Promise<void> {
+  throwIfPreviewAborted(signal);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason instanceof Error ? signal.reason : previewAbortError());
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, 0);
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
-  const timestamps = samples.map((sample) => sample.timestamp).sort();
-  return {
-    samples,
-    issues,
-    sourceRows: dataRows.length,
-    usableRows,
-    skippedEmpty,
-    duplicatesInFile,
-    firstTimestamp: timestamps[0] ?? null,
-    lastTimestamp: timestamps.at(-1) ?? null,
-    sensorIds: [...new Set(samples.map((sample) => sample.sensorId))],
-    metricIds: [...new Set(samples.map((sample) => sample.metric))],
-  };
+}
+
+export async function buildHistoricalImportAsync(
+  sheet: ImportSheet,
+  mapping: HistoricalImportMapping,
+  sensors: Sensor[],
+  definitions: MeasurementDefinition[],
+  timeZone: string,
+  options: HistoricalImportBuildOptions = {},
+): Promise<HistoricalImportPreview> {
+  const builder = createHistoricalImportBuilder(sheet, mapping, sensors, definitions, timeZone);
+  const totalRows = builder.lastDataRow - builder.firstDataRow;
+  let nextRow = builder.firstDataRow;
+  options.onProgress?.(0, totalRows);
+  while (nextRow < builder.lastDataRow) {
+    throwIfPreviewAborted(options.signal);
+    const end = Math.min(builder.lastDataRow, nextRow + PREVIEW_ROWS_PER_CHUNK);
+    builder.processRows(nextRow, end);
+    nextRow = end;
+    options.onProgress?.(nextRow - builder.firstDataRow, totalRows);
+    if (nextRow < builder.lastDataRow) await yieldPreviewWork(options.signal);
+  }
+  throwIfPreviewAborted(options.signal);
+  return builder.finish();
 }

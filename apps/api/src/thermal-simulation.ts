@@ -148,6 +148,8 @@ function outdoorPoints(samples: OutdoorTemperatureSample[]): OutdoorPoint[] {
   const priority: Record<OutdoorTemperatureSample["source"], number> = {
     "fmi-observation": 3,
     "open-meteo-current": 3,
+    "fmi-backfill": 3,
+    "open-meteo-backfill": 3,
     api: 2,
     mock: 1,
   };

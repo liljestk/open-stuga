@@ -6,9 +6,9 @@ Thanks for helping improve Stuga.
 
 1. Install Node.js 22.13 or newer.
 2. Run `npm ci`.
-3. Run `npm ci --prefix cloudflare` when changing the standalone hosted Worker.
-4. Copy `.env.example` to `.env` and keep all values local.
-5. Run `npm run typecheck`, `npm test`, and `npm run build` before opening a pull request. Worker changes also require `npm run typecheck --prefix cloudflare`, `npm run test:coverage:cloudflare`, and `npm run deploy:dry-run --prefix cloudflare`.
+3. Copy `.env.example` to `.env` and keep all values local.
+4. Run `npm run typecheck`, `npm test`, `npm run build`, and
+   `npm run smoke:built-api` before opening a pull request.
 
 ## Continuous quality
 

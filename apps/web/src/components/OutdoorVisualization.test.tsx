@@ -89,7 +89,7 @@ describe("outdoor boundary visualization", () => {
     expect(screen.getByRole("group", { name: /Editing Ground floor/ })).not.toBeNull();
   });
 
-  it("shows FMI temperature, humidity, wind, gust, provenance, compass labels, and an incoming west-edge arrow", () => {
+  it("shows FMI conditions and highlights the windward edge without drawing over the plan", () => {
     localStorage.setItem("climate-twin-locale", "en");
     const demo = createDemoState();
     const house: House = {
@@ -104,23 +104,21 @@ describe("outdoor boundary visualization", () => {
     expect(screen.getByText("Gust 7 m/s")).not.toBeNull();
     expect(screen.getByText(/Finnish Meteorological Institute/)).not.toBeNull();
     expect(screen.getByText(/Helsinki Kaisaniemi.*0.7 km/)).not.toBeNull();
-    const arrow = view.container.querySelector<SVGGElement>(".floor-outdoor-wind");
-    expect(arrow?.dataset.windwardEdge).toBe("left");
-    expect(arrow?.getAttribute("aria-label")).toMatch(/Outdoor wind from W.*left edge.*not simulated indoor airflow/i);
     const shell = view.container.querySelector<SVGGElement>(".outdoor-shell");
-    expect(shell?.getAttribute("aria-label")).toMatch(/FMI outdoor shell.*Temperature 3 °C.*Relative humidity 82%.*Wind speed 4 m\/s/i);
+    const windwardEdge = shell?.querySelector<SVGPathElement>(".outdoor-shell-windward-edge");
+    expect(shell?.getAttribute("aria-label")).toMatch(/FMI outdoor shell.*Temperature 3 °C.*Relative humidity 82%.*Wind speed 4 m\/s.*Windward edge left/i);
+    expect(windwardEdge?.dataset.windwardEdge).toBe("left");
+    expect(windwardEdge?.getAttribute("d")).toMatch(/^M-64 30V/);
     expect(shell?.querySelector(".outdoor-shell-border")?.getAttribute("x")).toBe("-64");
     expect(shell?.querySelector(".outdoor-temperature-chip")?.textContent).toContain("3 °C");
     expect(shell?.querySelector(".outdoor-humidity-chip")?.textContent).toContain("82%");
     expect(shell?.querySelector(".outdoor-temperature-chip rect")?.getAttribute("width")).toBe("164");
     expect(shell?.querySelector(".outdoor-temperature-chip rect")?.getAttribute("height")).toBe("54");
-    expect(arrow?.querySelector(".outdoor-wind-label")?.textContent).toMatch(/FMI wind.*4 m\/s.*W 270°/i);
     expect(view.container.querySelectorAll(".outdoor-edge-labels text")).toHaveLength(4);
     expect(Number(view.container.querySelector('[data-plan-edge="top"]')?.getAttribute("y"))).toBeLessThan(0);
     expect(Number(view.container.querySelector('[data-plan-edge="right"]')?.getAttribute("x"))).toBeGreaterThan(1000);
-    expect(Number(arrow?.querySelector("circle")?.getAttribute("cx"))).toBeLessThan(0);
     expect(view.container.querySelector(".floor-plan")?.getAttribute("viewBox")).toMatch(/^-\d+ -\d+ /);
-    expect(view.container.querySelector(".flow-layer .outdoor-wind-path")).toBeNull();
+    expect(view.container.querySelector(".floor-outdoor-wind")).toBeNull();
   });
 
   it("applies the shared indoor comparison colors to the outdoor shell and condition values", () => {
@@ -149,6 +147,20 @@ describe("outdoor boundary visualization", () => {
     expect(humidityBadge.style.getPropertyValue("--outdoor-condition-color")).toBe("rgb(18 61 117)");
   });
 
+  it("marks the top shell edge for the oblique 331-degree case without an arrow", () => {
+    localStorage.setItem("climate-twin-locale", "en");
+    const demo = createDemoState();
+    const house: House = {
+      ...demo.houses[0]!, location: { latitude: 60.17, longitude: 24.94 }, orientationDegrees: 0,
+    };
+    const view = floorView(house, outdoorState(house, weather(house, 331)));
+    const indicator = view.container.querySelector<SVGPathElement>(".outdoor-shell-windward-edge")!;
+
+    expect(indicator.dataset.windwardEdge).toBe("top");
+    expect(indicator.getAttribute("d")).toMatch(/^M30 -64H/);
+    expect(view.container.querySelector(".floor-outdoor-wind")).toBeNull();
+  });
+
   it("collapses outdoor details to a persistent, recoverable chip", () => {
     localStorage.setItem("climate-twin-locale", "en");
     const demo = createDemoState();
@@ -160,8 +172,9 @@ describe("outdoor boundary visualization", () => {
     fireEvent.click(screen.getByRole("button", { name: "Hide Outside now details" }));
     expect(screen.getAllByText("3 °C")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Show Outside now details" }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByText("4 m/s · W · 270°")).not.toBeNull();
     expect(localStorage.getItem("climate-twin-outdoor-panel")).toBe("collapsed");
-    expect(first.container.querySelector(".floor-outdoor-wind")).not.toBeNull();
+    expect(first.container.querySelector(".outdoor-shell-windward-edge")).not.toBeNull();
 
     first.unmount();
     floorView(house, outdoorState(house));
@@ -177,8 +190,8 @@ describe("outdoor boundary visualization", () => {
     const house: House = { ...demo.houses[0]!, location: { latitude: 60.17, longitude: 24.94 } };
     const first = floorView(house, outdoorState(house));
     expect(screen.getAllByText("3 °C")).toHaveLength(2);
-    expect(screen.getByText(/Set house orientation.*windward plan edge/i)).not.toBeNull();
-    expect(first.container.querySelector(".floor-outdoor-wind")).toBeNull();
+    expect(screen.getByText(/Set home orientation.*windward plan edge/i)).not.toBeNull();
+    expect(first.container.querySelector(".outdoor-shell-windward-edge")).toBeNull();
     expect(first.container.querySelectorAll(".outdoor-edge-labels text")).toHaveLength(0);
     first.unmount();
 
@@ -186,7 +199,7 @@ describe("outdoor boundary visualization", () => {
     const second = floorView(oriented, outdoorState(oriented, weather(oriented, null)));
     expect(screen.getByText("4 m/s")).not.toBeNull();
     expect(screen.getByText(/Wind direction is unavailable/)).not.toBeNull();
-    expect(second.container.querySelector(".floor-outdoor-wind")).toBeNull();
+    expect(second.container.querySelector(".outdoor-shell-windward-edge")).toBeNull();
   });
 
   it("converts outdoor temperature, wind, gust, and station distance for imperial display", () => {
@@ -202,7 +215,7 @@ describe("outdoor boundary visualization", () => {
     expect(screen.getByText(/Helsinki Kaisaniemi.*0.4 mi/)).not.toBeNull();
   });
 
-  it("shows no live values or directional arrow during replay", () => {
+  it("shows no live values or windward-edge highlight during replay", () => {
     localStorage.setItem("climate-twin-locale", "en");
     const demo = createDemoState();
     const house: House = {
@@ -212,7 +225,7 @@ describe("outdoor boundary visualization", () => {
     const view = floorView(house, outdoor);
     expect(screen.getByText(/Live outdoor context is hidden during historical replay/)).not.toBeNull();
     expect(screen.queryByText("3 °C")).toBeNull();
-    expect(view.container.querySelector(".floor-outdoor-wind")).toBeNull();
+    expect(view.container.querySelector(".outdoor-shell-windward-edge")).toBeNull();
   });
 
   it("projects the same windward boundary into the rotatable 3D world", () => {
@@ -233,28 +246,27 @@ describe("outdoor boundary visualization", () => {
         />
       </I18nProvider>,
     );
-    const arrow = view.container.querySelector<SVGGElement>(".building-outdoor-wind")!;
     const shell = view.container.querySelector<SVGGElement>(".building-outdoor-shell")!;
-    expect(shell.getAttribute("aria-label")).toMatch(/FMI outdoor shell.*Temperature 3 °C.*Relative humidity 82%.*Wind speed 4 m\/s/i);
+    const windwardEdge = shell.querySelector<SVGLineElement>(".building-outdoor-windward-edge")!;
+    expect(shell.getAttribute("aria-label")).toMatch(/FMI outdoor shell.*Temperature 3 °C.*Relative humidity 82%.*Wind speed 4 m\/s.*Windward edge left/i);
     expect(shell.querySelector(".building-temperature-chip")?.textContent).toContain("3 °C");
     expect(shell.querySelector(".building-humidity-chip")?.textContent).toContain("82%");
     expect(shell.querySelector(".building-temperature-chip rect")?.getAttribute("width")).toBe("136");
     expect(shell.querySelector(".building-temperature-chip rect")?.getAttribute("height")).toBe("52");
     expect(shell.querySelectorAll(".building-outdoor-shell-edge")).toHaveLength(4);
-    expect(arrow.dataset.windwardEdge).toBe("left");
-    expect(Number(arrow.dataset.sourceX)).toBeLessThan(Number(arrow.dataset.targetX));
-    expect(arrow.querySelector(".building-outdoor-wind-label")?.textContent).toMatch(/FMI wind.*4 m\/s.*W 270°/i);
+    expect(windwardEdge.dataset.windwardEdge).toBe("left");
     const shellBefore = shell.querySelector(".building-outdoor-shell-top")!.getAttribute("points");
-    const before = arrow.querySelector("path")!.getAttribute("d");
+    const before = [windwardEdge.getAttribute("x1"), windwardEdge.getAttribute("y1"), windwardEdge.getAttribute("x2"), windwardEdge.getAttribute("y2")];
     fireEvent.click(screen.getByRole("button", { name: "Rotate view right" }));
-    const after = view.container.querySelector(".building-outdoor-wind path")!.getAttribute("d");
+    const rotatedEdge = view.container.querySelector<SVGLineElement>(".building-outdoor-windward-edge")!;
+    const after = [rotatedEdge.getAttribute("x1"), rotatedEdge.getAttribute("y1"), rotatedEdge.getAttribute("x2"), rotatedEdge.getAttribute("y2")];
     const shellAfter = view.container.querySelector(".building-outdoor-shell-top")!.getAttribute("points");
     expect(after).not.toBe(before);
     expect(shellAfter).not.toBe(shellBefore);
-    expect(view.container.querySelector(".building-volume-flows .outdoor-wind-path")).toBeNull();
+    expect(view.container.querySelector(".building-outdoor-wind")).toBeNull();
   });
 
-  it("keeps an oblique wind vector aligned on a rectangular plan", () => {
+  it("maps oblique wind to the correct highlighted shell edge", () => {
     localStorage.setItem("climate-twin-locale", "en");
     const demo = createDemoState();
     const house: House = {
@@ -262,14 +274,10 @@ describe("outdoor boundary visualization", () => {
     };
     const response = weather(house, 60);
     const view = floorView(house, outdoorState(house, response));
-    const arrow = view.container.querySelector<SVGGElement>(".floor-outdoor-wind")!;
-    const path = arrow.querySelector("path")!.getAttribute("d")!;
-    const values = path.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
-    const [sourceX, sourceY, targetX, targetY] = values;
-    expect(arrow.dataset.windwardEdge).toBe("right");
-    expect(sourceX).toBeGreaterThan(targetX!);
-    expect(sourceY).toBeLessThan(targetY!);
-    expect(Math.abs((targetX! - sourceX!) / (targetY! - sourceY!))).toBeCloseTo(Math.tan(Math.PI / 3), 5);
+    const indicator = view.container.querySelector<SVGPathElement>(".outdoor-shell-windward-edge")!;
+    expect(indicator.dataset.windwardEdge).toBe("right");
+    expect(indicator.getAttribute("d")).toMatch(/^M1064 30V/);
+    expect(view.container.querySelector(".floor-outdoor-wind")).toBeNull();
   });
 
   it("announces a retained observation when a refresh fails", () => {

@@ -12,7 +12,7 @@ integrations do not depend on a particular sensor vendor or a fixed metric list.
 - Keep telemetry and floor plans on the user's own machine by default.
 - Show new readings quickly while retaining queryable history independently of
   Home Assistant's recorder retention.
-- Represent several houses, floors, rooms, sensors, manual observations, and
+- Represent several Homes, floors, rooms, sensors, manual observations, and
   static building properties without hard-coded labels or locale assumptions.
 - Use one versioned contract for the web app and external clients.
 - Degrade clearly: live, reconnecting, stale, and replay data must not be
@@ -34,19 +34,33 @@ flowchart LR
         TPL[Direct TP-Link adapter\npython-kasa helper] --> N
         M[Mock / replay adapter] --> N
         I[Versioned ingest API] --> N
-        N --> DB[(SQLite history)]
+        N --> DB[(SQLite control plane\nand hot telemetry buffer)]
+        DB --> AR[Checkpointed archive reconciler]
+        AR --> TS[(TimescaleDB raw telemetry\nand continuous rollups)]
+        DB --> HR[Hybrid raw-telemetry reader]
+        TS --> HR
         N --> A[Alert evaluator]
         DB --> P[Forecast service]
         DB --> Q[Query service]
+        HR --> Q
+        TS -->|rollups| Q
+        DB --> SL[Experimental spatial-layer host]
+        HR --> SL
+        SL --> SDB[(Experimental spatial SQLite)]
         DB --> WM[Bounded multi-home\nweather monitor]
         WM --> WX[House weather service\n10 min response cache]
-        WX --> ODB[(Outdoor boundary history)]
+        WX --> WEB[Provider-neutral\nweather event broker]
+        WEB --> ODB[(Outdoor boundary history)]
+        WEB --> E
         DB --> PHY[Effective thermal model]
         ODB --> PHY
         N --> E[Live event stream]
         A --> E
-        A --> W[Outbound webhook adapter]
+        A --> NO[(Durable notification outbox)]
+        NO --> W[Outbound webhook adapter]
+        NO --> TG[Telegram Bot API adapter]
         Q --> API[REST APIs /api/v1 + /api/v2]
+        SL --> API
         P --> API
         WX --> API
         API --> LD[Location discovery]
@@ -59,11 +73,14 @@ flowchart LR
     H -->|local LAN polling| TPL
     W --> HA2[Home Assistant automation webhook]
     W --> EXT[DayOps / OpenWearable adapter]
+    TG --> TGC[Private Telegram bot chat]
     WX -->|HTTPS WFS + CAP| FMI[Finnish Meteorological Institute]
     WX -->|HTTPS forecast API| OM[Open-Meteo]
     LD -->|HTTPS geocoding + timezone| OM
     UI -->|attributed HTTPS tiles| OSM[OpenStreetMap tile service]
     CLIENT[Other clients] --> API
+    IOS[iOS Shortcuts] <-->|scoped maintenance capture\n+ dated snapshot| API
+    IOS --> NOTES[Apple Notes]
 ```
 
 The browser does not talk to Home Assistant, TP-Link, FMI, or Open-Meteo
@@ -74,17 +91,65 @@ third-party browser flow and are loaded only after an explicit action. Browser
 geolocation is requested only after **Use this device's location**; the selected
 coordinates then flow through the API. See
 [Outdoor weather and home location](weather.md) for those privacy boundaries.
+Telegram is an explicit, per-rule server-side outbound flow. Apple Notes is not
+a server integration: a user-run Shortcut calls a Home-scoped bridge and then
+creates or reads a note on the device. Stuga never receives an Apple Account
+credential and remains the canonical maintenance record.
 In the default Docker deployment an Nginx web service serves the static app and
 reverse-proxies `/api/*` to the API, including the server-sent event stream.
 
-The web information architecture separates configuration from monitoring.
-**Overview** is the multi-home entry point; Twin, Outdoor, Sensors, and Alerts
-are operational views scoped to the selected home. **Set up** has four
+The HTTP boundary resolves a built-in local account from a server-managed
+HttpOnly session. One installation has one workspace. The API enforces roles
+and property/house/area grants for every list, detail, history, and mutation
+request; Guest mutations are rejected. The MCP server is a separate privileged
+local process and does not use browser sessions.
+
+The web information architecture follows ownership. Workspace navigation holds
+**Overview**, **Properties**, and **Alerts**. A selected Property owns its
+**Property**, **Maintenance**, and **Electricity** destinations, including
+land-only Properties. A selected Home owns **Home**, **Sensors**, and **Set up**;
+Activity and Outdoor are Home-scoped operational subviews. **Set up** has four
 deep-linkable, keyboard-operable sections: **Overview** for readiness,
-**Homes** for placement/orientation, **Connections** for the shared TP-Link and
-Home Assistant adapters, and **Weather** for each home's location/timezone and
+**Homes** for placement/orientation, **Connections** for that Home's TP-Link and
+Home Assistant connections, and **Weather** for the Home's location/timezone and
 automatic-provider summary. Current conditions, warnings, and the 48-hour
-forecast belong on Outdoor rather than crowding Setup.
+forecast belong on Outdoor rather than crowding **Set up**. Canonical URLs retain
+Property and optional Home scope across refresh, Back/Forward, and copied links.
+
+Overview and Alerts share one explainable Home-monitoring selector. It applies
+the same freshness and quality gates as Home Pulse before presenting a Home as
+currently monitored. Its ordered states are `action-required`, `unknown`,
+`inspection-recommended`, and `monitoring-ok`: an unresolved warning or critical
+alert wins, missing/stale coverage prevents an all-clear, and aging data or an
+informational alert recommends inspection. Coverage requires the metrics used
+by enabled rules and declared sensor bindings; battery-only telemetry is not
+proof of indoor conditions. Estimated-only evidence and a disconnected adapter
+that supplied current samples recommend inspection rather than producing a
+confirmed state. Acknowledgement records that someone
+saw an alert; it does not resolve the underlying condition. Surfaces show the
+blocking alert or coverage gap instead of deriving an opaque readiness score.
+
+Manual observations are mutable current records backed by append-only revision
+snapshots. Their observed time and precision are independent of immutable
+server-recorded time. SQLite uses optimistic revisions, validates
+house/floor/sensor context, and retains actor attribution. An explicit
+open/resolved lifecycle requires a resolution outcome, records resolution time
+on the server, and preserves resolved/reopened transitions in those snapshots. See
+[Manual observations and evidence time](observations.md).
+
+Maintenance tasks are a Property-owned revisioned aggregate rather than another
+observation state. They may target a Home/floor or Property area/equipment and
+carry an explicit trust basis, priority, planned and due calendar dates,
+same-Home observation links, and independent work
+completion and verification evidence. Completing a task never mutates linked
+observations. SQLite uses normalized link tables, optimistic revisions, and
+append-only actor-attributed snapshots. See
+[Activity and maintenance work](maintenance.md).
+
+Electricity contract configuration and raw/effective price history are also
+Property-owned; consumption sensors and Home Assistant/direct TP-Link
+connections remain Home-owned. Telegram delivery configuration is owned by the
+Workspace rather than any Property or Home.
 
 ## Data flow
 
@@ -156,6 +221,9 @@ The shared TypeScript contracts define the stable domain vocabulary:
   insulation, window orientation, or room volume without changing telemetry.
 - `ManualObservation` records a leak, condensation, mould, ventilation event,
   maintenance action, or note at a house/floor/sensor/coordinate.
+- `MaintenanceTask` plans work independently of evidence, classifies why it is
+  proposed, links same-house observations, and records completion and
+  verification as separate server-timed lifecycle steps.
 - `AlertRule` and `AlertEvent` separate desired policy from its lifecycle.
 - `MeasurementForecastPoint` includes one registered metric's point estimate
   and low/high bounds so uncertainty can be rendered instead of hidden. A
@@ -165,6 +233,9 @@ The shared TypeScript contracts define the stable domain vocabulary:
   station, current values, hourly forecast, warnings, stale state, and a list of
   independently unavailable upstream parts. Per-component status distinguishes
   availability, coverage, and whether an empty result is authoritative.
+- `WeatherUpdateEvent` wraps an accepted `HouseWeather` snapshot with a stable
+  event ID, publication time, and scheduled/on-demand trigger. It is the
+  contract between pull or future push adapters and downstream projections.
 - `OutdoorTemperatureSample` stores only fresh observed outdoor temperature in
   a separate boundary table keyed by house and an opaque location digest.
   Location changes erase old boundary rows. Forecasts and stale fallbacks are
@@ -177,33 +248,78 @@ The shared TypeScript contracts define the stable domain vocabulary:
   edge and inward vector, and preserves the weather timestamp/stale state. It
   never creates indoor measurements.
 
-SQLite is the intermediate source of truth for this MVP. Metric samples use an
-entity-attribute-value table keyed by sensor, metric, timestamp, and source;
-temperature and humidity rows written through the compatibility API are also
-projected into that table. Existing legacy rows are idempotently unpivoted into
-temperature/humidity samples during migration, so reopening the database does
-not duplicate them. A single writer with
-WAL mode is a good fit for a home deployment and makes backup a file-level
-operation after a checkpoint or a SQLite online backup. House location metadata
-is stored with the house. Fresh provider current-temperature values are retained in a
-location-isolated outdoor-boundary table for physics calibration, while the
-full weather response cache remains in process memory. Outdoor boundaries are
-not added to indoor measurement history and follow the same configured
-retention horizon. All stored timestamps are UTC ISO-8601;
-a house timezone controls display and calendar grouping.
+Core SQLite is the transactional control plane, canonical store for Property,
+Home, floor-plan, sensor, and other non-time-series records, and first durable
+telemetry commit. Metric samples use an entity-attribute-value table keyed by sensor, metric,
+timestamp, and source; temperature and humidity rows written through the
+compatibility API are also projected into that table. A checkpointed,
+idempotent worker then archives indoor measurements, compatibility readings,
+outdoor boundaries, and electricity prices into PostgreSQL with TimescaleDB.
+The shared `HybridTelemetryReader` presents SQLite's hot buffer and Timescale's
+archive as one logical source to regular raw-history APIs and experimental
+spatial inference. It merges natural-key overlaps with SQLite winning, applies
+the active demo/real boundary, and can fall back to the complete local copy
+while retention is disabled. Bounded current-state reads stay local. Existing
+legacy rows are idempotently unpivoted into temperature/humidity samples during
+migration, so reopening the database does not duplicate them.
 
-Retention is configured with `RETENTION_DAYS`. Sample count grows per metric:
-ten sensors × three metrics every five seconds is about 15.6 million metric
-samples per 30-day month. Deletion should run in bounded batches, longer views
-need downsampling, and database compaction should be an explicit maintenance
-operation, not part of a request. See [Security and privacy](security-privacy.md)
-for retention and backup guidance.
+SQLite WAL mode remains a good fit for the single local writer and keeps an
+archive outage from blocking ingestion. TimescaleDB supplies time partitioning,
+cold-chunk optimization, and continuous rollups for multi-year history. House
+location metadata stays in the control plane. Fresh provider temperatures are
+also retained in a location-isolated outdoor-boundary series for physics
+calibration; full weather-response caching remains process-local. All stored
+timestamps are UTC ISO-8601, and a Home timezone controls display and calendar
+grouping.
+
+Optional experimental spatial state has its own WAL SQLite file. It stores only
+versioned overlays/configuration, bindings, calibrations, context, jobs,
+checkpoints, model runs, ground truth, and derived snapshots. It never copies
+core Property/sensor masters or raw samples. A persisted core source UUID plus
+demo/real mode partitions that state, so moving the core database does not
+orphan it and a different database at the same path cannot silently inherit it.
+
+The provider-neutral weather broker is the process-local middle layer between
+weather retrieval and consumers. Its durable projector runs before live
+publication, identical cache replays coalesce, and a stable event ID supports
+idempotent downstream handling. The broker itself is not a durable log: after
+a reconnect, clients still refresh the REST snapshot before resuming live SSE.
+
+Outbound alert delivery is decoupled from alert creation by a durable SQLite
+outbox. Alert creation atomically stores the exact rendered payload plus a
+one-way reference to its destination credential tuple; secrets remain in their
+protected configuration source. Later rule edits or retirement cannot re-render
+or cascade-delete historical events and queued rows, and sensors referenced by
+alert history must be disabled rather than deleted. A destination rotation
+terminally abandons mismatched older work rather than sending it somewhere new.
+Webhook and Telegram transient failures are retried with bounded exponential
+backoff; the contract is at-least-once. The queue survives process restarts, but
+it is not a general message broker or attempt-based dead-letter service.
+
+Raw archive retention is unlimited in TimescaleDB. `RETENTION_DAYS=0` also keeps
+the full local SQLite copy; a value of 30 or more turns SQLite into a bounded hot
+buffer. The maintenance worker reconciles all telemetry families immediately
+before pruning, requires a healthy and caught-up archive, rejects mutable dirty
+rows, and never deletes the newest local value for a stream. It pauses without
+deleting anything whenever those proofs are unavailable. Historical, bucketed,
+replay, and spatial readers use the shared hybrid reader, so older data remains
+available from TimescaleDB. Sample count grows per metric: ten sensors times
+three metrics every five seconds is about 15.6 million metric samples per
+30-day month. Pruning runs outside request handling and does not configure a raw
+Timescale retention policy.
+See [Backend storage and operations](backend-storage.md) for the current
+retention, migration, backup, and restore contract.
 
 ## Live, history, replay, and prediction semantics
 
 - **Live:** normalized metric samples are persisted first, then emitted. Each
   metric retains its own timestamp/source/quality. A client reconnect should
   refresh snapshots/history rather than assume it saw every event.
+- **Live weather:** the scheduled monitor converts pull-only provider results
+  into `weather` events, and accepted on-demand results enter the same broker.
+  The full provider-neutral snapshot is emitted only after the guarded outdoor
+  boundary projection succeeds. Cache hits with identical content do not
+  invent another event.
 - **History:** v2 API queries read one metric's persisted samples in a caller-selected
   range. Long ranges should be downsampled in later releases while raw data
   remains available within retention.
@@ -231,6 +347,15 @@ for retention and backup guidance.
   flow direction is relative and animation speed is fixed. See
   [Sensor-constrained indoor flow](airflow-simulation.md); neither layer is
   measured airflow or calibrated CFD.
+- **Experimental spatial layers:** a local backend engine can independently
+  derive versioned sensor-quality, psychrometric, inter-zone propagation, and
+  unexplained-activity evidence. It reads canonical core topology through a
+  read-only port and raw history through the same hybrid reader as regular
+  queries, writes only experimental/derived state to its separate database, and
+  supplies one renderer-neutral snapshot to the house/property 2D and 3D views.
+  These layers never become measurements, alerts, or control inputs. Client-only
+  spatial previews remain non-authoritative and do not write either database. See
+  [Experimental spatial-layer engine](spatial-layer-engine.md).
 - **Outdoor boundary:** the live 2D/3D views can render current provider temperature,
   humidity, and wind around the oriented plan. Directional geometry is omitted
   when orientation or wind direction is unknown. It is kept outside the indoor
@@ -247,7 +372,9 @@ for retention and backup guidance.
 | Repository | schema, transactions, retention queries | HTTP or visualisation |
 | Alert engine | rule evaluation and event lifecycle | delivery-specific secrets |
 | Forecast service | features, forecast output, uncertainty | presenting forecasts as facts |
-| Weather adapters and monitor | automatic FMI/Open-Meteo routing, source mapping, warning authority, bounded cache/concurrency, jitter, per-home backoff, stale-write fencing | browser map tiles or indoor measurement history |
+| Experimental spatial-layer host | optional local scheduling, versioned research-model execution, separate overlays/state/snapshots, renderer-neutral semantic layers | duplicated core masters/raw samples, core telemetry writes, alerts, controls, or UI graphics |
+| Weather adapters and monitor | automatic FMI/Open-Meteo routing, source mapping, warning authority, bounded cache/concurrency, jitter, per-home backoff, stale-write fencing | browser map tiles, event transports, or indoor measurement history |
+| Weather event broker | provider-neutral acceptance, durable projection ordering, cache-replay deduplication, stable event identity, live fan-out | upstream provider protocols or UI rendering |
 | REST/SSE transport | versioning, validation, errors, live fan-out | Home Assistant device protocol |
 | MCP server | tool schemas and domain-service calls | direct database access |
 | Web app | accessible interaction and rendering | secrets or authoritative storage |
@@ -276,8 +403,9 @@ Recommended failure behaviour:
 3. De-duplicate on sensor, metric, source timestamp, and source where an adapter
    can repeat an event. A second metric at the same sensor/time/source remains a
    distinct sample.
-4. Persist alert state before delivery; retry only idempotent webhook deliveries
-   with a stable event ID.
+4. Persist alert state and delivery work atomically. Treat delivery as
+   at-least-once: send a stable webhook idempotency key and accept that Telegram
+   can duplicate after an ambiguous remote success.
 5. Mark each metric sample and its UI representation stale independently after
    a configured freshness threshold.
 
@@ -286,7 +414,9 @@ refreshes located homes in non-overlapping cycles with concurrency two, startup
 and interval jitter, and independent exponential backoff per home. It rechecks
 the home revision and location key before persistence so an in-flight response
 cannot write after that home is moved. Manual Outdoor requests share the same
-provider service and bounded cache.
+provider service and bounded cache. Both accepted paths publish through the
+weather broker, so provider polling is an input adapter rather than a constraint
+on event-driven consumers.
 
 The Home Assistant adapter fetches initial mapped states and resumes the event
 stream with capped reconnect backoff. Generic measurement mappings ingest each

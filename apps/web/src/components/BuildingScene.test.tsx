@@ -15,6 +15,7 @@ function renderScene(options: {
   observations?: ManualObservation[];
   definition?: MeasurementDefinition;
   units?: UnitSystem;
+  editing?: boolean;
 } = {}) {
   const state = createDemoState();
   const house = { ...state.houses[0]!, floors: options.floors ?? state.houses[0]!.floors };
@@ -26,20 +27,47 @@ function renderScene(options: {
   }));
   const onFloorSelect = vi.fn();
   const onSensorSelect = vi.fn();
+  const onFloorChange = vi.fn();
   const view = render(
     <I18nProvider>
       <BuildingScene
         house={house} sensors={sensors} samples={samples}
         observations={options.observations ?? state.observations} definition={definition} units={options.units ?? "metric"}
         activeFloorId={house.floors[0]!.id} selectedSensorId={sensors.find((sensor) => sensor.enabled)?.id ?? null}
-        onFloorSelect={onFloorSelect} onSensorSelect={onSensorSelect}
+        editing={options.editing ?? false}
+        onFloorSelect={onFloorSelect} onSensorSelect={onSensorSelect} onFloorChange={onFloorChange}
       />
     </I18nProvider>,
   );
-  return { ...view, state, house, sensors, onFloorSelect, onSensorSelect };
+  return { ...view, state, house, sensors, samples, definition, onFloorSelect, onSensorSelect, onFloorChange };
 }
 
 describe("BuildingScene", () => {
+  it("extrudes each floor using its independently configured wall height", () => {
+    const state = createDemoState();
+    const floors = state.houses[0]!.floors.map((floor, index) => ({ ...floor, wallHeight: index === 0 ? 3.4 : 2.2 }));
+    const { container } = renderScene({ floors });
+    const rendered = [...container.querySelectorAll<SVGGElement>(".building-floor")];
+
+    expect(rendered.find((item) => item.getAttribute("data-wall-height") === "3.400")).toBeDefined();
+    expect(rendered.find((item) => item.getAttribute("data-wall-height") === "2.200")).toBeDefined();
+  });
+
+  it("renders an attic roof and a fireplace chimney that reaches above it", () => {
+    const state = createDemoState();
+    const [ground, upper] = state.houses[0]!.floors;
+    const fireplace = { id: "hearth", kind: "fireplace" as const, position: { x: 150, y: 230 }, rotationDegrees: 0, width: 80, height: 1.2, verticalExtent: "roof" as const };
+    const attic: Floor = {
+      ...upper!, id: "attic", name: "Attic", type: "attic", elevation: 6, wallHeight: .9,
+      roof: { style: "gable", pitchDegrees: 35, ridgeAxis: "x", overhang: 12, eavesHeight: .9 },
+      planElements: [],
+    };
+    const { container } = renderScene({ floors: [{ ...ground!, planElements: [fireplace] }, upper!, attic] });
+
+    expect(container.querySelectorAll(".building-roof-face")).toHaveLength(2);
+    expect(container.querySelector(".building-chimney[data-vertical-extent=roof]")).not.toBeNull();
+  });
+
   it("renders every floor and enabled house sensor with meaningful 3D labels", () => {
     const state = createDemoState();
     const disabled = { ...state.sensors.at(-1)!, enabled: false };
@@ -63,6 +91,63 @@ describe("BuildingScene", () => {
       expect(label).toContain((sensor.z - floor.elevation).toFixed(1));
     }
     expect(sensorControls.some((item) => item.getAttribute("aria-label")?.includes(disabled.name))).toBe(false);
+  });
+
+  it("renders the shared floor geometry and edits element width and height live in 3D", () => {
+    const state = createDemoState();
+    const base = state.houses[0]!.floors[0]!;
+    const floor: Floor = {
+      ...base,
+      planElements: [
+        { id: "door-front", kind: "door", wallId: base.walls[0]!.id, position: { x: 220, y: 45 }, rotationDegrees: 0, width: 70, height: 2 },
+        { id: "window-front", kind: "window", wallId: base.walls[0]!.id, position: { x: 410, y: 45 }, rotationDegrees: 0, width: 100, height: 1.1 },
+        { id: "fireplace-living", kind: "fireplace", position: { x: 150, y: 230 }, rotationDegrees: 90, width: 80, height: 1.25 },
+      ],
+    };
+    const floorSensors = state.sensors.filter((sensor) => sensor.floorId === floor.id);
+    const view = renderScene({ floors: [floor], sensors: floorSensors, observations: [], editing: true });
+
+    expect(view.container.querySelectorAll(".building-wall-face")).toHaveLength(floor.walls.length);
+    expect(view.container.querySelectorAll(".building-room-surface")).toHaveLength(floor.rooms.length);
+    expect(view.container.querySelectorAll(".building-plan-element")).toHaveLength(3);
+    const door = view.container.querySelector<SVGGElement>('[data-element-id="door-front"]')!;
+    expect(door.dataset.width).toBe("70.0000");
+    expect(door.dataset.height).toBe("2.0000");
+    expect(door.dataset.bottom).toBe("0.0000");
+
+    fireEvent.pointerDown(door);
+    fireEvent.click(door);
+    expect(view.onFloorSelect).toHaveBeenCalledTimes(1);
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Height" }), { target: { value: "2.3" } });
+    expect(view.onFloorChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      planElements: expect.arrayContaining([expect.objectContaining({ id: "door-front", height: 2.3 })]),
+    }));
+    const heightFloor = view.onFloorChange.mock.calls.at(-1)![0] as Floor;
+    view.rerender(
+      <I18nProvider>
+        <BuildingScene
+          house={{ ...view.house, floors: [heightFloor] }} sensors={view.sensors} samples={view.samples} observations={[]}
+          definition={view.definition} units="metric" activeFloorId={floor.id} selectedSensorId={null}
+          editing onFloorSelect={view.onFloorSelect} onSensorSelect={view.onSensorSelect} onFloorChange={view.onFloorChange}
+        />
+      </I18nProvider>,
+    );
+
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Width" }), { target: { value: "82" } });
+    const changedFloor = view.onFloorChange.mock.calls.at(-1)![0] as Floor;
+    expect(changedFloor.planElements?.find((element) => element.id === "door-front")?.width).toBe(82);
+
+    const changedHouse = { ...view.house, floors: [changedFloor] };
+    view.rerender(
+      <I18nProvider>
+        <BuildingScene
+          house={changedHouse} sensors={view.sensors} samples={view.samples} observations={[]}
+          definition={view.definition} units="metric" activeFloorId={floor.id} selectedSensorId={null}
+          editing onFloorSelect={view.onFloorSelect} onSensorSelect={view.onSensorSelect} onFloorChange={view.onFloorChange}
+        />
+      </I18nProvider>,
+    );
+    expect(view.container.querySelector<SVGGElement>('[data-element-id="door-front"]')?.dataset.width).toBe("82.0000");
   });
 
   it("keeps empty floors structural and announces their configured elevation", () => {
@@ -235,15 +320,56 @@ describe("BuildingScene", () => {
     expect(svg.dataset.cameraPitch).toBe(initialPitch);
     expect(svg.dataset.cameraZoom).toBe("1.00");
   });
+
+  it("leaves ordinary page scrolling alone and only wheel-zooms with a modifier", () => {
+    const { container } = renderScene();
+    const svg = container.querySelector<SVGSVGElement>(".building-svg")!;
+    const initialZoom = svg.dataset.cameraZoom;
+    const plainWheel = new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: -120 });
+    fireEvent(svg, plainWheel);
+    expect(plainWheel.defaultPrevented).toBe(false);
+    expect(svg.dataset.cameraZoom).toBe(initialZoom);
+
+    const zoomWheel = new WheelEvent("wheel", { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -120 });
+    fireEvent(svg, zoomWheel);
+    expect(svg.dataset.cameraZoom).not.toBe(initialZoom);
+  });
+
+  it("keeps the 3D view active and the view switch available while editing", () => {
+    const demo = createDemoState();
+    const house = demo.houses[0]!;
+    const floor = house.floors[0]!;
+    const onViewMode = vi.fn();
+    const view = render(
+      <I18nProvider>
+        <TwinDashboard
+          state={demo} house={house} floor={floor} houseId={house.id} floorId={floor.id}
+          metric="temperature" units="metric" viewMode="isometric" selectedSensorId={demo.sensors[0]!.id}
+          saveState="idle" scenario="normal" onHouse={vi.fn()} onFloor={vi.fn()} onMetric={vi.fn()}
+          onViewMode={onViewMode} onSensorSelect={vi.fn()} onSensorMove={vi.fn()} onSensorUpdate={vi.fn()}
+          onFloorChange={vi.fn()} onSaveLayout={vi.fn()} onLoadSeries={vi.fn()} onRunScenario={vi.fn()}
+          onCreateObservation={vi.fn().mockResolvedValue(demo.observations[0]!)}
+          onCreateStaticParameter={vi.fn().mockResolvedValue(demo.staticParameters[0]!)}
+        />
+      </I18nProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit layout" }));
+    expect(onViewMode).not.toHaveBeenCalled();
+    expect(view.container.querySelector(".building-scene")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "3D building" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("region", { name: "Element properties" })).not.toBeNull();
+  });
 });
 
 describe("TwinDashboard whole-building replay", () => {
-  it("reports unavailable summary values instead of fabricated zeroes", () => {
+  it("suppresses derived summaries when there are no usable readings", () => {
     const demo = createDemoState();
     const house = demo.houses[0]!;
     const floor = house.floors[0]!;
     const state = { ...demo, latestMeasurements: {}, measurementHistory: {} };
-    render(
+    const onOpenSensors = vi.fn();
+    const view = render(
       <I18nProvider>
         <TwinDashboard
           state={state} house={house} floor={floor} houseId={house.id} floorId={floor.id}
@@ -253,13 +379,16 @@ describe("TwinDashboard whole-building replay", () => {
           onFloorChange={vi.fn()} onSaveLayout={vi.fn()} onLoadSeries={vi.fn()} onRunScenario={vi.fn()}
           onCreateObservation={vi.fn().mockResolvedValue(demo.observations[0]!)}
           onCreateStaticParameter={vi.fn().mockResolvedValue(demo.staticParameters[0]!)}
+          onOpenSensors={onOpenSensors}
         />
       </I18nProvider>,
     );
 
-    const region = screen.getByRole("region", { name: "Your home, at a glance" });
-    expect(within(region).getAllByText("No data yet")).toHaveLength(2);
-    expect(region.textContent).toContain(`0 of ${demo.sensors.length}`);
+    expect(view.container.querySelector(".home-status-zone")).toBeNull();
+    expect(view.container.querySelector(".moisture-coach")).toBeNull();
+    expect(view.container.querySelector(".room-comfort-section")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
+    expect(onOpenSensors).toHaveBeenCalledWith(house.id);
   });
 
   it("loads every airflow driver for every enabled house sensor in isometric replay", async () => {

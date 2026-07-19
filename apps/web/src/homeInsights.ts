@@ -9,6 +9,7 @@ import type {
   WeatherWarning,
 } from "@climate-twin/contracts";
 import type { LatestMeasurements, MeasurementHistory } from "./measurements";
+import { isHomeRelevantWeatherWarning } from "./weatherWarningRelevance";
 
 const MINUTE_MS = 60_000;
 
@@ -42,7 +43,7 @@ export type HomeInsightKind =
 
 export type HomeInsightSeverity = "critical" | "warning" | "notice" | "info";
 export type HomeInsightConfidenceLevel = "high" | "medium" | "low";
-export type HomeInsightFreshnessState = "fresh" | "aging" | "stale" | "unknown";
+export type HomeInsightFreshnessState = "fresh" | "estimated" | "aging" | "stale" | "unknown";
 export type HomePulseStatus = "critical" | "attention" | "watch" | "steady" | "unknown";
 
 export interface HomeInsightTarget {
@@ -121,9 +122,17 @@ export interface HomeInsightInput {
 export interface HomePulseCoverage {
   enabledSensors: number;
   freshSensors: number;
+  estimatedSensors: number;
   agingSensors: number;
   staleSensors: number;
   sensorsWithoutData: number;
+}
+
+export interface HomePulseSensorCoverage {
+  sensorId: string;
+  freshness: HomeInsightFreshness;
+  /** Enabled alert-rule metrics that must be current for this sensor to be considered covered. */
+  requiredMetrics: Metric[];
 }
 
 export interface HomePulseResult {
@@ -131,6 +140,7 @@ export interface HomePulseResult {
   generatedAt: string;
   status: HomePulseStatus;
   coverage: HomePulseCoverage;
+  sensorCoverage: HomePulseSensorCoverage[];
   insights: HomeInsight[];
   advisory: typeof HOME_INSIGHT_ADVISORY;
 }
@@ -154,6 +164,12 @@ interface WindowEvidence {
   matching: number;
   sustained: boolean;
   spanMinutes: number;
+}
+
+interface SensorCoverageState {
+  sample: MeasurementSample | undefined;
+  freshness: HomeInsightFreshness;
+  requiredMetrics: Metric[];
 }
 
 interface OutdoorGuidance {
@@ -203,7 +219,11 @@ export function deriveHomePulse(input: HomeInsightInput): HomePulseResult {
     nowMs,
   };
 
-  const coverage = measureCoverage(context);
+  const sensorCoverage = context.enabledSensors.map((sensor): HomePulseSensorCoverage => {
+    const detail = coverageStateForSensor(context, sensor.id);
+    return { sensorId: sensor.id, freshness: detail.freshness, requiredMetrics: detail.requiredMetrics };
+  });
+  const coverage = measureCoverage(sensorCoverage);
   const alertResult = activeAlertInsights(context);
   const candidates: InsightCandidate[] = [
     ...alertResult.insights,
@@ -223,6 +243,7 @@ export function deriveHomePulse(input: HomeInsightInput): HomePulseResult {
     generatedAt: new Date(nowMs).toISOString(),
     status: pulseStatus(sorted, coverage),
     coverage,
+    sensorCoverage,
     insights,
     advisory: HOME_INSIGHT_ADVISORY,
   };
@@ -499,8 +520,7 @@ function coverageInsight(context: EngineContext, coverage: HomePulseCoverage): I
   }
 
   const affected = context.enabledSensors.flatMap((sensor) => {
-    const sample = newestSensorSample(context, sensor.id);
-    const freshness = sample ? freshnessForSample(sample, context.nowMs) : unknownFreshness();
+    const { sample, freshness } = coverageStateForSensor(context, sensor.id);
     return freshness.state === "fresh" ? [] : [{ sensor, sample, freshness }];
   });
   if (!affected.length) return [];
@@ -515,7 +535,7 @@ function coverageInsight(context: EngineContext, coverage: HomePulseCoverage): I
   })[0]!;
   const rooms = affected.slice(0, 3).map(({ sensor }) => targetLabel(sensor)).join(", ");
   const extraRooms = affected.length > 3 ? ` and ${affected.length - 3} more` : "";
-  const noFreshData = coverage.freshSensors === 0;
+  const noFreshData = coverage.freshSensors + coverage.estimatedSensors === 0;
 
   return [{
     id: `sensor-coverage:${context.house.id}`,
@@ -528,6 +548,7 @@ function coverageInsight(context: EngineContext, coverage: HomePulseCoverage): I
     target: one ? targetFor(context.house, one.sensor) : { houseId: context.house.id },
     evidence: [
       { label: "Fresh sensors", value: coverage.freshSensors },
+      ...(coverage.estimatedSensors > 0 ? [{ label: "Estimated sensors", value: coverage.estimatedSensors }] : []),
       { label: "Sensors needing data", value: affected.length },
       ...(representative.sample ? [{
         label: "Oldest affected reading",
@@ -541,22 +562,19 @@ function coverageInsight(context: EngineContext, coverage: HomePulseCoverage): I
   }];
 }
 
-function measureCoverage(context: EngineContext): HomePulseCoverage {
+function measureCoverage(sensorCoverage: readonly HomePulseSensorCoverage[]): HomePulseCoverage {
   const result: HomePulseCoverage = {
-    enabledSensors: context.enabledSensors.length,
+    enabledSensors: sensorCoverage.length,
     freshSensors: 0,
+    estimatedSensors: 0,
     agingSensors: 0,
     staleSensors: 0,
     sensorsWithoutData: 0,
   };
-  for (const sensor of context.enabledSensors) {
-    const sample = newestSensorSample(context, sensor.id);
-    if (!sample) {
-      result.sensorsWithoutData += 1;
-      continue;
-    }
-    const state = freshnessForSample(sample, context.nowMs).state;
+  for (const sensor of sensorCoverage) {
+    const state = sensor.freshness.state;
     if (state === "fresh") result.freshSensors += 1;
+    else if (state === "estimated") result.estimatedSensors += 1;
     else if (state === "aging") result.agingSensors += 1;
     else if (state === "stale") result.staleSensors += 1;
     else result.sensorsWithoutData += 1;
@@ -678,7 +696,9 @@ function ventilationGuidance(context: EngineContext): OutdoorGuidance {
 
 function unsafeAiringReason(context: EngineContext): string | null {
   const warning = (context.outdoor?.warnings ?? []).find((item) =>
-    (item.severity === "severe" || item.severity === "extreme") && warningIsCurrent(item, context.nowMs));
+    isHomeRelevantWeatherWarning(item)
+      && (item.severity === "severe" || item.severity === "extreme")
+      && warningIsCurrent(item, context.nowMs));
   if (warning) return `An active ${warning.severity} weather warning may make airing unsafe`;
   const outdoor = usableOutdoorConditions(context);
   if (!outdoor) return null;
@@ -774,18 +794,58 @@ function newestSensorSample(context: EngineContext, sensorId: string): Measureme
   let newest: MeasurementSample | undefined;
   const latestMetrics = context.latest[sensorId] ?? {};
   for (const metric of Object.keys(latestMetrics).sort(compareText)) {
+    if (metric === "battery") continue;
     const sample = latestMetrics[metric];
     if (!sample || !validSample(sample, sensorId, metric, context.nowMs)) continue;
     newest = newest ? newerSample(newest, sample) : sample;
   }
   const historyMetrics = context.history[sensorId] ?? {};
   for (const metric of Object.keys(historyMetrics).sort(compareText)) {
+    if (metric === "battery") continue;
     for (const sample of historyMetrics[metric] ?? []) {
       if (!validSample(sample, sensorId, metric, context.nowMs)) continue;
       newest = newest ? newerSample(newest, sample) : sample;
     }
   }
   return newest;
+}
+
+function coverageStateForSensor(context: EngineContext, sensorId: string): SensorCoverageState {
+  const sensor = context.sensors.find((candidate) => candidate.id === sensorId);
+  const ruleMetrics = [...context.rules.values()]
+    .filter((rule) => rule.enabled && (rule.sensorId === null || rule.sensorId === sensorId))
+    .map((rule) => rule.metric);
+  const declaredMetrics = sensor
+    ? [
+        ...Object.keys(sensor.measurementEntityIds ?? {}).filter((metric) => metric !== "battery"),
+        ...(sensor.temperatureEntityId ? ["temperature"] : []),
+        ...(sensor.humidityEntityId ? ["humidity"] : []),
+        ...(sensor.tpLinkDeviceId && /\bT3(?:10|15)\b/i.test(sensor.model) ? ["temperature", "humidity"] : []),
+      ]
+    : [];
+  const requiredMetrics = [...ruleMetrics, ...declaredMetrics]
+    .filter((metric, index, metrics) => metrics.indexOf(metric) === index)
+    .sort(compareText);
+  if (requiredMetrics.length === 0) {
+    const sample = newestSensorSample(context, sensorId);
+    return {
+      sample,
+      freshness: sample ? coverageFreshnessForSample(sample, context.nowMs) : unknownFreshness(),
+      requiredMetrics,
+    };
+  }
+
+  const priority: Record<HomeInsightFreshnessState, number> = { unknown: 5, stale: 4, aging: 3, estimated: 2, fresh: 1 };
+  return requiredMetrics.map((metric): SensorCoverageState => {
+    const sample = newestMetricSample(context, sensorId, metric);
+    return {
+      sample,
+      freshness: sample ? coverageFreshnessForSample(sample, context.nowMs) : unknownFreshness(),
+      requiredMetrics,
+    };
+  }).sort((left, right) => priority[right.freshness.state] - priority[left.freshness.state]
+    || (Date.parse(left.freshness.evidenceAt ?? "") || Number.NEGATIVE_INFINITY)
+      - (Date.parse(right.freshness.evidenceAt ?? "") || Number.NEGATIVE_INFINITY))[0]!;
 }
 
 function validSample(
@@ -835,6 +895,13 @@ function freshnessForSample(sample: MeasurementSample, nowMs: number): HomeInsig
     return { ...freshness, state: freshness.state === "unknown" ? "unknown" : "stale" };
   }
   return freshnessForTimestamp(sample.timestamp, nowMs);
+}
+
+function coverageFreshnessForSample(sample: MeasurementSample, nowMs: number): HomeInsightFreshness {
+  const freshness = freshnessForSample(sample, nowMs);
+  return sample.quality === "estimated" && freshness.state === "fresh"
+    ? { ...freshness, state: "estimated" }
+    : freshness;
 }
 
 function freshnessForTimestamp(timestamp: string, nowMs: number): HomeInsightFreshness {

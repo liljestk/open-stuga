@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
@@ -27,7 +27,7 @@ describe("TrendChart", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     try {
-      render(
+      const { container } = render(
         <I18nProvider>
           <TrendChart
             sensor={sensor} history={[observed]} forecast={[forecast]}
@@ -37,6 +37,13 @@ describe("TrendChart", () => {
       );
 
       expect(screen.getByRole("group", { name: /Temperature history and forecast/ })).not.toBeNull();
+      expect(container.querySelectorAll(".chart-points [tabindex]")).toHaveLength(0);
+      expect(screen.getByRole("group", { name: /Temperature history and forecast/ }).getAttribute("aria-describedby")).toBeTruthy();
+      expect(screen.queryByRole("table")).toBeNull();
+      expect(container.querySelector("tbody")).toBeNull();
+      fireEvent.click(screen.getByText("Show exact data", { selector: "summary" }));
+      expect(screen.getByRole("table", { name: /Temperature history and forecast/ })).not.toBeNull();
+      expect(container.querySelector("tbody")).not.toBeNull();
       const duplicateKeyWarnings = consoleError.mock.calls.filter((call) => (
         call.some((part) => /same key|unique key/i.test(String(part)))
       ));

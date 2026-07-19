@@ -11,7 +11,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -23,9 +23,7 @@ jobs:
         with:
           node-version: 22.13
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            cloudflare/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
@@ -36,9 +34,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Install hosted Worker dependencies
-        run: npm ci --prefix cloudflare
 
       - name: Install TP-Link bridge test dependencies
         run: python -m pip install -r apps/api/python/requirements.txt -r apps/api/python/requirements-dev.txt
@@ -61,14 +56,23 @@ jobs:
       - name: Test with coverage
         run: npm run test:coverage
 
-      - name: Test hosted Worker with coverage
-        run: npm run test:coverage:cloudflare
-
       - name: Test TP-Link bridge with coverage
         run: npm run test:coverage:python
 
       - name: Build
         run: npm run build
+
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+
+      - name: Build production containers
+        run: |
+          docker build --target api --tag stuga-api-ci:${{ github.sha }} .
+          docker build --target backup --tag stuga-backup-ci:${{ github.sha }} .
+          docker build --target web --tag stuga-web-ci:${{ github.sha }} .
+
+      - name: Smoke-test built API on minimum Node.js
+        run: npm run smoke:built-api
 
       - name: Read project version for SonarQube
         id: project-version

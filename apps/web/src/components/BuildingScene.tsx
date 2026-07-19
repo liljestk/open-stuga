@@ -2,14 +2,13 @@ import {
   useEffect, useId, useMemo, useRef, useState,
   type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent,
 } from "react";
-import type { House, ManualObservation, MeasurementDefinition, MeasurementSample, Sensor, UnitSystem } from "@climate-twin/contracts";
+import { configuredPlanElementOpeningState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type PlanElement, type Sensor, type UnitSystem } from "@climate-twin/contracts";
 import { useI18n, type TranslationKey } from "../i18n";
 import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue } from "../measurements";
 import {
   configuredSpatialMaxSampleAgeMs, isSpatialSampleFresh, type SpatialFreshnessOptions,
 } from "../spatialFreshness";
-import { windPathOnRectangle } from "../outdoorContext";
-import { simulateBuildingAirflow, type ClimateSampleMatrix } from "../airflowSimulation";
+import { simulateBuildingAirflow, type BuildingAirflowEstimate, type ClimateSampleMatrix } from "../airflowSimulation";
 import {
   clampCameraOrbit, createVolumeClouds, estimateVolumeFlows, interpolateVolume, projectPoint3D,
   type CameraOrbit, type Point3D, type ProjectedPoint3D, type VolumeBounds, type VolumeCloudBlob,
@@ -21,6 +20,28 @@ import {
   OutdoorConditionsBadge,
   type OutdoorVisualizationState,
 } from "./OutdoorConditionsBadge";
+import { PlanElementDimensionFields } from "./PlanElementDimensionFields";
+import { applyAirflowPlanElementPatch, PlanElementAirflowFields, type AirflowPlanElementPatch } from "./PlanElementAirflowFields";
+import { OpeningInventory } from "./OpeningInventory";
+import { SpatialLayerOverlay3D } from "./SpatialLayerOverlay3D";
+import type { SpatialLayerSnapshot, SpatialTopology } from "../spatialLayers";
+import type { SensorCoverageAssessment } from "../experimentalSpatialLayers";
+import { ExperimentalSensorCoverage3D } from "./ExperimentalSensorCoverage";
+import {
+  clampPlanElementHeight,
+  clampPlanElementWidth,
+  DEFAULT_CEILING_HEIGHT_METRES,
+  defaultPlanElementHeight,
+  defaultPlanElementWidth,
+  editablePlanElementWidthBounds,
+  effectivePlanElementHeight,
+  isWallOpening,
+  planElementBottomOffset,
+  planElementHeightBounds,
+  planElementWidthBounds,
+} from "../planElementGeometry";
+import { fireplaceChimneyTop, isRoofSpanningFireplace, roofEavesZ, roofPeakZ, roofSurfaces } from "../architecturalGeometry";
+import { MapInformationToggle, useMapInformationVisibility } from "./MapInformationToggle";
 
 interface BuildingSceneProps {
   house: House;
@@ -36,8 +57,15 @@ interface BuildingSceneProps {
   referenceTimeMs?: number;
   maxSampleAgeMs?: number;
   outdoor?: OutdoorVisualizationState;
+  editing?: boolean;
+  spatialLayerSnapshots?: readonly SpatialLayerSnapshot[];
+  spatialLayerTopology?: SpatialTopology | null;
+  experimentalAirflowEnabled?: boolean;
+  experimentalAirflow?: BuildingAirflowEstimate | null;
+  experimentalSensorCoverage?: SensorCoverageAssessment | null;
   onFloorSelect: (floorId: string) => void;
   onSensorSelect: (sensorId: string, floorId: string) => void;
+  onFloorChange?: (floor: Floor) => void;
 }
 
 interface ProjectedCloud {
@@ -56,9 +84,16 @@ interface DragState {
   moved: boolean;
 }
 
+type AddableOpeningKind = "door" | "window" | "vent";
+type SelectedElementPatch = AirflowPlanElementPatch & {
+  width?: number;
+  height?: number;
+  verticalExtent?: "level" | "roof";
+  chimneyHeightAboveRoof?: number;
+};
+
 const VIEW_WIDTH = 1100;
 const VIEW_HEIGHT = 720;
-const DEFAULT_CEILING_HEIGHT_METRES = 2.8;
 const DEFAULT_CAMERA: CameraOrbit = { yaw: -.68, pitch: .63, zoom: 1 };
 
 function points(projected: ProjectedPoint3D[]): string {
@@ -93,6 +128,75 @@ function visualLabel(value: string, maximumCharacters = 20): string {
     : value;
 }
 
+interface ElementWorldGeometry {
+  front: Point3D[];
+  back?: Point3D[];
+  left?: Point3D[];
+  right?: Point3D[];
+  top?: Point3D[];
+  width: number;
+  height: number;
+  bottom: number;
+}
+
+function elementAxis(floor: Floor, element: PlanElement): { x: number; y: number } {
+  if (isWallOpening(element)) {
+    const wall = floor.walls.find((candidate) => candidate.id === element.wallId);
+    if (wall) {
+      const dx = wall.to.x - wall.from.x;
+      const dy = wall.to.y - wall.from.y;
+      const length = Math.hypot(dx, dy);
+      if (length > 1e-8) return { x: dx / length, y: dy / length };
+    }
+  }
+  const radians = element.rotationDegrees * Math.PI / 180;
+  return { x: Math.cos(radians), y: Math.sin(radians) };
+}
+
+/** Builds the 3D shape directly from the same floor-local record used by the plan editor. */
+function elementWorldGeometry(
+  floor: Floor,
+  element: PlanElement,
+  overrides: { width?: number; height?: number; bottom?: number } = {},
+): ElementWorldGeometry {
+  const width = overrides.width ?? element.width ?? defaultPlanElementWidth(floor, element.kind);
+  const height = overrides.height ?? effectivePlanElementHeight(floor, element);
+  const bottom = overrides.bottom ?? floor.elevation + planElementBottomOffset(floor, element);
+  const top = bottom + height;
+  const axis = elementAxis(floor, element);
+  const perpendicular = { x: -axis.y, y: axis.x };
+  const halfWidth = width / 2;
+  const depth = isWallOpening(element)
+    ? 0
+    : Math.max(Math.max(floor.width, floor.height) * .012, width * (element.kind === "fireplace" ? .34 : .2));
+  const point = (along: number, across: number, z: number): Point3D => ({
+    x: element.position.x + axis.x * along + perpendicular.x * across,
+    y: element.position.y + axis.y * along + perpendicular.y * across,
+    z,
+  });
+  const frontAcross = depth / 2;
+  const backAcross = -depth / 2;
+  const front = [
+    point(-halfWidth, frontAcross, bottom), point(halfWidth, frontAcross, bottom),
+    point(halfWidth, frontAcross, top), point(-halfWidth, frontAcross, top),
+  ];
+  if (depth <= 0) return { front, width, height, bottom };
+  const back = [
+    point(halfWidth, backAcross, bottom), point(-halfWidth, backAcross, bottom),
+    point(-halfWidth, backAcross, top), point(halfWidth, backAcross, top),
+  ];
+  return {
+    front,
+    back,
+    left: [front[0]!, back[1]!, back[2]!, front[3]!],
+    right: [back[0]!, front[1]!, front[2]!, back[3]!],
+    top: [front[3]!, front[2]!, back[3]!, back[2]!],
+    width,
+    height,
+    bottom,
+  };
+}
+
 function inferReferenceTime(samples: Record<string, MeasurementSample>): number {
   const timestamps = Object.values(samples).map((sample) => Date.parse(sample.timestamp)).filter(Number.isFinite);
   return timestamps.length ? Math.max(...timestamps) : Date.now();
@@ -101,17 +205,20 @@ function inferReferenceTime(samples: Record<string, MeasurementSample>): number 
 function buildingBounds(house: House, sensors: Sensor[]): VolumeBounds {
   const ordered = [...house.floors].sort((a, b) => a.elevation - b.elevation);
   const minFloor = Math.min(0, ...ordered.map((floor) => floor.elevation));
-  const top = ordered.at(-1);
-  const topSensorHeight = top
-    ? Math.max(0, ...sensors.filter((sensor) => sensor.floorId === top.id).map((sensor) => sensor.z - top.elevation))
-    : 0;
+  const structuralTop = Math.max(minFloor + 1, ...ordered.map((floor) => floor.roof
+    ? roofPeakZ(floor)
+    : floor.elevation + (floor.wallHeight ?? floor.ceilingHeight ?? DEFAULT_CEILING_HEIGHT_METRES)));
+  const chimneyTop = Math.max(structuralTop, ...ordered.flatMap((floor) => (floor.planElements ?? [])
+    .filter(isRoofSpanningFireplace)
+    .map((element) => fireplaceChimneyTop(house, floor, element))));
   return {
     width: Math.max(1, ...ordered.map((floor) => floor.width)),
     depth: Math.max(1, ...ordered.map((floor) => floor.height)),
     minZ: Math.min(minFloor, ...sensors.map((sensor) => sensor.z)),
     maxZ: Math.max(
       minFloor + 1,
-      top ? top.elevation + Math.max(top.ceilingHeight ?? DEFAULT_CEILING_HEIGHT_METRES, topSensorHeight + .7) : 1,
+      structuralTop,
+      chimneyTop,
       ...sensors.map((sensor) => sensor.z + .4),
     ),
   };
@@ -143,13 +250,20 @@ function projectedCloud(
 
 export function BuildingScene({
   house, sensors, samples, climateSamples, observations, definition, colorDomain, units, activeFloorId, selectedSensorId,
-  referenceTimeMs, maxSampleAgeMs, outdoor, onFloorSelect, onSensorSelect,
+  referenceTimeMs, maxSampleAgeMs, outdoor, editing = false, spatialLayerSnapshots = [], spatialLayerTopology = null,
+  experimentalAirflowEnabled = false, experimentalAirflow = null, experimentalSensorCoverage = null,
+  onFloorSelect, onSensorSelect, onFloorChange,
 }: BuildingSceneProps) {
   const { locale, t } = useI18n();
   const metricLabel = measurementLabel(definition, locale);
   const markerId = `building-flow-${useId().replace(/:/g, "")}`;
   const [camera, setCamera] = useState<CameraOrbit>(DEFAULT_CAMERA);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const { expanded: mapInformationExpanded, setMapInformationExpanded } = useMapInformationVisibility();
+  const mapInformationId = `building-map-information-${useId().replace(/:/g, "")}`;
+  const [selectedElementKey, setSelectedElementKey] = useState<{ floorId: string; elementId: string } | null>(null);
+  const [addableOpeningKind, setAddableOpeningKind] = useState<AddableOpeningKind>("vent");
+  const [openingEditorMessage, setOpeningEditorMessage] = useState<string | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const suppressClickRef = useRef(false);
   const effectiveReferenceTimeMs = referenceTimeMs ?? inferReferenceTime(samples);
@@ -168,7 +282,13 @@ export function BuildingScene({
     return () => query.removeEventListener?.("change", update);
   }, []);
 
-  const bounds = useMemo(() => buildingBounds(house, sensors), [house, sensors]);
+  const boundsSignature = house.floors.map((floor) => [
+    floor.id, floor.width, floor.height, floor.elevation, floor.ceilingHeight ?? "", floor.wallHeight ?? "",
+    floor.roof ? `${floor.roof.style}:${floor.roof.pitchDegrees}:${floor.roof.ridgeAxis}:${floor.roof.overhang}:${floor.roof.eavesHeight}` : "",
+    ...(floor.planElements ?? []).filter(isRoofSpanningFireplace).map((element) => `${element.id}:${element.chimneyHeightAboveRoof ?? .6}`),
+  ].join(":" )).join("|");
+  // Element-only edits keep this object stable so heat-volume interpolation does not rerun on every slider tick.
+  const bounds = useMemo(() => buildingBounds(house, sensors), [boundsSignature, sensors]);
   const floorModels = useMemo(() => [...house.floors].sort((a, b) => a.elevation - b.elevation).map((floor) => {
     const floorSensors = sensors.filter((sensor) => sensor.floorId === floor.id && sensor.enabled);
     const values = floorSensors.flatMap((sensor) => {
@@ -198,53 +318,37 @@ export function BuildingScene({
     width: VIEW_WIDTH, height: VIEW_HEIGHT, padding: 72,
   });
   const outdoorContext = !outdoor?.replayActive ? outdoor?.context ?? null : null;
-  const airflow = useMemo(() => climateSamples ? simulateBuildingAirflow({
-    house,
-    sensors,
-    samples: climateSamples,
-    freshness,
-    outdoor: outdoorContext,
-  }, 14) : null, [climateSamples, house, sensors, freshness, outdoorContext]);
+  const airflow = useMemo(() => {
+    if (!experimentalAirflowEnabled || editing) return null;
+    if (experimentalAirflow) return experimentalAirflow;
+    return climateSamples ? simulateBuildingAirflow({
+      house,
+      sensors,
+      samples: climateSamples,
+      freshness,
+      outdoor: outdoorContext,
+    }, 14) : null;
+  }, [experimentalAirflowEnabled, experimentalAirflow, editing, climateSamples, house, sensors, freshness, outdoorContext]);
   const airflowPaths = airflow?.paths ?? [];
-  const activeGradientFlows = airflowPaths.length ? [] : gradientFlows;
+  const activeGradientFlows = editing || airflowPaths.length ? [] : gradientFlows;
   const airflowSupport = airflow
-    ? t(`twin.airflowSupport.${airflow.evidence.support}` as TranslationKey)
-    : t("twin.airflowSupport.low");
+    ? t(`spatial.airflow.support.${airflow.evidence.support}` as TranslationKey)
+    : t("spatial.airflow.support.low");
   const airflowDriver = airflow?.evidence.windDriven
-    ? t("twin.airflowDriverBuoyancyWind")
-    : t("twin.airflowDriverBuoyancy");
-  const airflowDescription = airflow ? t("twin.airflowDescription", {
+    ? t("spatial.airflow.driverBuoyancyWind")
+    : t("spatial.airflow.driverBuoyancy");
+  const airflowDescription = airflow ? t("spatial.airflow.description", {
     temperature: airflow.evidence.temperatureSensors,
     humidity: airflow.evidence.humiditySensors,
     tracer: airflow.evidence.tracerSensors,
     driver: airflowDriver,
   }) : "";
-  const airflowAria = airflow ? t("twin.airflowAria", {
+  const airflowAria = airflow ? t("spatial.airflow.aria", {
     support: airflowSupport,
     temperature: airflow.evidence.temperatureSensors,
     humidity: airflow.evidence.humiditySensors,
     tracer: airflow.evidence.tracerSensors,
   }) : "";
-  const outdoorWindWorld = outdoorContext?.sourceVector && outdoorContext.windwardEdge
-    ? (() => {
-      const path = windPathOnRectangle(outdoorContext.planWindFromDegrees!, bounds.width, bounds.depth, 0.025, 0.14);
-      const z = bounds.minZ + (bounds.maxZ - bounds.minZ) * .72;
-      return {
-        source: { ...path.sourcePoint, z },
-        target: { ...path.inwardTarget, z },
-      };
-    })()
-    : null;
-  const outdoorWindProjected = outdoorWindWorld
-    ? { source: project(outdoorWindWorld.source), target: project(outdoorWindWorld.target) }
-    : null;
-  const outdoorArrowLabel = outdoorContext?.windFromCardinal && outdoorContext.windFromDegrees !== null && outdoorContext.windwardEdge
-    ? t("outdoor.windArrowAria", {
-      direction: t(`outdoor.cardinal.${outdoorContext.windFromCardinal}` as TranslationKey),
-      degrees: Math.round(outdoorContext.windFromDegrees),
-      edge: t(`outdoor.edge.${outdoorContext.windwardEdge}` as TranslationKey),
-    })
-    : null;
   const outdoorTemperature = outdoorContext
     ? formatOutdoorTemperature(outdoorContext.conditions.temperatureC, units, locale)
     : null;
@@ -273,12 +377,16 @@ export function BuildingScene({
   const outdoorWindDirection = outdoorContext?.windFromCardinal && outdoorContext.windFromDegrees !== null
     ? `${t(`outdoor.cardinal.${outdoorContext.windFromCardinal}` as TranslationKey)} ${Math.round(outdoorContext.windFromDegrees)}°`
     : null;
+  const outdoorWindwardSide = outdoorContext?.windwardEdge
+    ? t(`outdoor.edge.${outdoorContext.windwardEdge}` as TranslationKey)
+    : null;
   const outdoorShellLabel = [
     t("outdoor.shellLabel"),
     outdoorTemperature && t("outdoor.temperatureAria", { value: outdoorTemperature }),
     outdoorHumidity && t("outdoor.humidityAria", { value: outdoorHumidity }),
     outdoorWindSpeed && t("outdoor.windSpeedAria", { value: outdoorWindSpeed }),
     outdoorWindDirection && t("outdoor.windFromAria", { value: outdoorWindDirection }),
+    outdoorWindwardSide && t("outdoor.windwardAria", { edge: outdoorWindwardSide }),
   ].filter(Boolean).join(". ");
   const outdoorShellWorld = outdoorContext ? (() => {
     const padding = Math.min(bounds.width, bounds.depth) * .14;
@@ -299,6 +407,20 @@ export function BuildingScene({
     bottom: outdoorShellWorld.bottom.map(project),
     top: outdoorShellWorld.top.map(project),
   } : null;
+  const outdoorWindwardProjected = outdoorShellProjected && outdoorContext?.windwardEdge ? (() => {
+    const startIndex = outdoorContext.windwardEdge === "top"
+      ? 0
+      : outdoorContext.windwardEdge === "right"
+        ? 1
+        : outdoorContext.windwardEdge === "bottom"
+          ? 2
+          : 3;
+    return {
+      edge: outdoorContext.windwardEdge,
+      start: outdoorShellProjected.top[startIndex]!,
+      end: outdoorShellProjected.top[(startIndex + 1) % outdoorShellProjected.top.length]!,
+    };
+  })() : null;
   const outdoorShellRail = outdoorShellProjected ? (() => {
     const anchor = outdoorShellProjected.top.reduce((highest, point) => point.y < highest.y ? point : highest);
     return {
@@ -307,12 +429,7 @@ export function BuildingScene({
       y: Math.max(28, Math.min(VIEW_HEIGHT - 66, anchor.y - 72)),
     };
   })() : null;
-  const outdoorWindLabelPosition = outdoorWindProjected ? {
-    x: Math.max(165, Math.min(VIEW_WIDTH - 165, outdoorWindProjected.source.x)),
-    y: Math.max(28, Math.min(VIEW_HEIGHT - 24, outdoorWindProjected.source.y - 20)),
-  } : null;
-
-  const projectedClouds = clouds.map((cloud) => projectedCloud(cloud, project))
+  const projectedClouds = (editing ? [] : clouds).map((cloud) => projectedCloud(cloud, project))
     .sort((a, b) => a.center.depth - b.center.depth);
   const renderedSensors = sensors.filter((sensor) => sensor.enabled).flatMap((sensor) => {
     const model = floorModels.find((item) => item.floor.id === sensor.floorId);
@@ -325,6 +442,20 @@ export function BuildingScene({
     ...model,
     depth: project({ x: model.floor.width / 2, y: model.floor.height / 2, z: model.floor.elevation }).depth,
   })).sort((a, b) => a.depth - b.depth);
+  const selectedElementFloor = selectedElementKey
+    ? house.floors.find((floor) => floor.id === selectedElementKey.floorId) ?? null
+    : null;
+  const selectedElement = selectedElementFloor
+    ? (selectedElementFloor.planElements ?? []).find((element) => element.id === selectedElementKey?.elementId) ?? null
+    : null;
+
+  useEffect(() => {
+    if (!editing) setSelectedElementKey(null);
+  }, [editing]);
+
+  useEffect(() => {
+    if (selectedElementKey && !selectedElement) setSelectedElementKey(null);
+  }, [selectedElementKey, selectedElement]);
 
   const changeCamera = (patch: Partial<CameraOrbit>) => setCamera((current) => clampCameraOrbit({ ...current, ...patch }));
   const rotateCamera = (yaw: number, pitch: number) => setCamera((current) => clampCameraOrbit({
@@ -356,6 +487,7 @@ export function BuildingScene({
     if (moved) window.setTimeout(() => { suppressClickRef.current = false; }, 0);
   };
   const onWheel = (event: WheelEvent<SVGSVGElement>) => {
+    if (!event.ctrlKey && !event.metaKey) return;
     event.preventDefault();
     changeCamera({ zoom: camera.zoom * Math.exp(-event.deltaY * .0012) });
   };
@@ -383,6 +515,189 @@ export function BuildingScene({
     onSensorSelect(sensor.id, sensor.floorId);
   };
 
+  const selectArchitecturalElement = (
+    event: MouseEvent<SVGGElement> | KeyboardEvent<SVGGElement> | ReactPointerEvent<SVGGElement>,
+    floorId: string,
+    elementId: string,
+  ) => {
+    if (!editing) return;
+    event.stopPropagation();
+    if (event.type === "keydown" && "key" in event && event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    event.currentTarget.focus();
+    onFloorSelect(floorId);
+    setSelectedElementKey({ floorId, elementId });
+  };
+
+  const updateSelectedElement = (patch: SelectedElementPatch): boolean => {
+    if (!selectedElementFloor || !selectedElement || !onFloorChange) return false;
+    onFloorChange({
+      ...selectedElementFloor,
+      planElements: (selectedElementFloor.planElements ?? []).map((element): PlanElement => {
+        if (element.id !== selectedElement.id) return element;
+        if (element.kind === "fireplace") {
+          const next = { ...element };
+          if (patch.width !== undefined) next.width = patch.width;
+          if (patch.height !== undefined) next.height = patch.height;
+          if (patch.verticalExtent !== undefined) next.verticalExtent = patch.verticalExtent;
+          if (patch.chimneyHeightAboveRoof !== undefined) next.chimneyHeightAboveRoof = patch.chimneyHeightAboveRoof;
+          return next;
+        }
+        const next = applyAirflowPlanElementPatch(element, patch);
+        if (patch.width !== undefined) next.width = patch.width;
+        if (patch.height !== undefined) {
+          next.height = patch.height;
+          if (next.bottomOffsetM !== undefined) {
+            next.bottomOffsetM = Math.min(next.bottomOffsetM,
+              Math.max(0, (selectedElementFloor.ceilingHeight ?? DEFAULT_CEILING_HEIGHT_METRES) - patch.height));
+          }
+        }
+        return next;
+      }),
+    });
+    return true;
+  };
+
+  const selectedWidthBounds = selectedElementFloor && selectedElement
+    ? editablePlanElementWidthBounds(selectedElementFloor, selectedElement)
+    : null;
+  const selectedHeightBounds = selectedElementFloor && selectedElement
+    ? planElementHeightBounds(selectedElementFloor, selectedElement.kind)
+    : null;
+  const updateSelectedWidth = (requestedWidth: number): boolean => {
+    if (!selectedElementFloor || !selectedElement || !selectedWidthBounds) return false;
+    const width = Math.max(selectedWidthBounds.min, Math.min(selectedWidthBounds.max,
+      clampPlanElementWidth(selectedElementFloor, selectedElement.kind, requestedWidth)));
+    return updateSelectedElement({ width });
+  };
+  const updateSelectedHeight = (requestedHeight: number): boolean => {
+    if (!selectedElementFloor || !selectedElement) return false;
+    return updateSelectedElement({ height: clampPlanElementHeight(selectedElementFloor, selectedElement.kind, requestedHeight) });
+  };
+  const deleteSelectedElement = () => {
+    if (!selectedElementFloor || !selectedElement || !onFloorChange) return;
+    onFloorChange({
+      ...selectedElementFloor,
+      planElements: (selectedElementFloor.planElements ?? []).filter((element) => element.id !== selectedElement.id),
+    });
+    setSelectedElementKey(null);
+  };
+
+  const addOpeningIn3d = () => {
+    const floor = house.floors.find((candidate) => candidate.id === activeFloorId);
+    if (!floor || !onFloorChange) return;
+    const id = crypto.randomUUID();
+    const height = defaultPlanElementHeight(floor, addableOpeningKind);
+    let element: PlanElement;
+    if (addableOpeningKind === "vent") {
+      const room = floor.rooms.find((candidate) => candidate.points.length >= 3);
+      const position = room
+        ? room.points.reduce((sum, point) => ({ x: sum.x + point.x / room.points.length, y: sum.y + point.y / room.points.length }), { x: 0, y: 0 })
+        : { x: floor.width / 2, y: floor.height / 2 };
+      element = { id, kind: "vent", position, rotationDegrees: 0, width: defaultPlanElementWidth(floor, "vent"), height, variant: "passive" };
+    } else {
+      const bounds = planElementWidthBounds(floor, addableOpeningKind);
+      const candidates = floor.walls.map((wall) => ({ wall, length: Math.hypot(wall.to.x - wall.from.x, wall.to.y - wall.from.y) }))
+        .filter((candidate) => candidate.length + 1e-9 >= bounds.min)
+        .sort((a, b) => b.length - a.length);
+      const candidate = candidates[0];
+      if (!candidate) {
+        setOpeningEditorMessage(t(floor.walls.length ? "twin.openingWallTooShort" : "opening.noWallIn3d"));
+        return;
+      }
+      const { wall, length } = candidate;
+      const width = Math.min(defaultPlanElementWidth(floor, addableOpeningKind), length * .8);
+      const position = { x: (wall.from.x + wall.to.x) / 2, y: (wall.from.y + wall.to.y) / 2 };
+      const rotationDegrees = (Math.atan2(wall.to.y - wall.from.y, wall.to.x - wall.from.x) * 180 / Math.PI + 360) % 360;
+      element = addableOpeningKind === "door"
+        ? { id, kind: "door", position, rotationDegrees, width, height, wallId: wall.id, variant: "interior" }
+        : { id, kind: "window", position, rotationDegrees, width, height, wallId: wall.id, variant: "casement" };
+    }
+    onFloorChange({ ...floor, planElements: [...(floor.planElements ?? []), element] });
+    setSelectedElementKey({ floorId: floor.id, elementId: element.id });
+    setOpeningEditorMessage(t("opening.addedIn3d"));
+  };
+
+  const renderArchitecturalElement = (floor: Floor, element: PlanElement, index: number) => {
+    const geometry = elementWorldGeometry(floor, element);
+    const chimneyGeometry = isRoofSpanningFireplace(element) ? elementWorldGeometry(floor, element, {
+      width: geometry.width * .55,
+      bottom: geometry.bottom + geometry.height,
+      height: Math.max(.05, fireplaceChimneyTop(house, floor, element) - geometry.bottom - geometry.height),
+    }) : null;
+    const chimneyFront = chimneyGeometry?.front.map(project);
+    const chimneyBack = chimneyGeometry?.back?.map(project);
+    const chimneyLeft = chimneyGeometry?.left?.map(project);
+    const chimneyRight = chimneyGeometry?.right?.map(project);
+    const chimneyTop = chimneyGeometry?.top?.map(project);
+    const front = geometry.front.map(project);
+    const back = geometry.back?.map(project);
+    const left = geometry.left?.map(project);
+    const right = geometry.right?.map(project);
+    const top = geometry.top?.map(project);
+    const selected = selectedElementKey?.floorId === floor.id && selectedElementKey.elementId === element.id;
+    const openingState = element.kind === "fireplace" ? null : configuredPlanElementOpeningState(element);
+    const stateLabel = openingState ? ` ${t("opening.state")} ${t(`opening.state.${openingState.state}` as TranslationKey)}.` : "";
+    const label = `${element.label ?? t(`planElement.${element.kind}` as TranslationKey)} ${index + 1}, ${floor.name}.${stateLabel} ${t("twin.elementWidth")} ${Number(geometry.width.toFixed(2))} ${t("twin.planUnit")}. ${t("twin.elementHeight")} ${geometry.height.toFixed(2)} m.`;
+    const verticalMidpoint = (a: ProjectedPoint3D, b: ProjectedPoint3D) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+    const bottomMid = verticalMidpoint(front[0]!, front[1]!);
+    const topMid = verticalMidpoint(front[3]!, front[2]!);
+    const leftMid = verticalMidpoint(front[0]!, front[3]!);
+    const rightMid = verticalMidpoint(front[1]!, front[2]!);
+    const frontXs = front.map((point) => point.x);
+    const frontYs = front.map((point) => point.y);
+    const hitPadding = 12;
+    return (
+      <g
+        key={element.id}
+        className={`building-plan-element ${element.kind} ${openingState ? `opening-${openingState.state}` : ""} ${selected ? "selected" : ""} ${editing ? "editable" : ""}`}
+        role={editing ? "button" : "img"}
+        tabIndex={editing ? 0 : undefined}
+        aria-label={label}
+        aria-pressed={editing ? selected : undefined}
+        data-element-id={element.id}
+        data-floor-id={floor.id}
+        data-kind={element.kind}
+        data-width={geometry.width.toFixed(4)}
+        data-height={geometry.height.toFixed(4)}
+        data-bottom={geometry.bottom.toFixed(4)}
+        data-opening-state={openingState?.state}
+        onPointerDown={editing ? (event) => selectArchitecturalElement(event, floor.id, element.id) : undefined}
+        onClick={editing ? (event) => event.stopPropagation() : undefined}
+        onKeyDown={editing ? (event) => selectArchitecturalElement(event, floor.id, element.id) : undefined}
+      >
+        <title>{label}</title>
+        {editing && <rect
+          x={Math.min(...frontXs) - hitPadding}
+          y={Math.min(...frontYs) - hitPadding}
+          width={Math.max(...frontXs) - Math.min(...frontXs) + hitPadding * 2}
+          height={Math.max(...frontYs) - Math.min(...frontYs) + hitPadding * 2}
+          className="building-element-hit-target"
+        />}
+        {chimneyGeometry && <g className="building-chimney" data-vertical-extent="roof">
+          {chimneyBack && <polygon points={points(chimneyBack)} className="building-chimney-side" />}
+          {chimneyLeft && <polygon points={points(chimneyLeft)} className="building-chimney-side" />}
+          {chimneyRight && <polygon points={points(chimneyRight)} className="building-chimney-side" />}
+          {chimneyTop && <polygon points={points(chimneyTop)} className="building-chimney-cap" />}
+          {chimneyFront && <polygon points={points(chimneyFront)} className="building-chimney-front" />}
+        </g>}
+        {back && <polygon points={points(back)} className="building-element-side building-element-back" />}
+        {left && <polygon points={points(left)} className="building-element-side building-element-left" />}
+        {right && <polygon points={points(right)} className="building-element-side building-element-right" />}
+        {top && <polygon points={points(top)} className="building-element-side building-element-top" />}
+        <polygon points={points(front)} className="building-element-front" />
+        {element.kind === "window" && <>
+          <line x1={bottomMid.x} y1={bottomMid.y} x2={topMid.x} y2={topMid.y} className="building-window-frame" />
+          <line x1={leftMid.x} y1={leftMid.y} x2={rightMid.x} y2={rightMid.y} className="building-window-frame" />
+        </>}
+        {element.kind === "door" && <circle cx={(front[0]!.x * .24 + front[1]!.x * .66 + front[2]!.x * .1)} cy={(front[0]!.y * .24 + front[1]!.y * .66 + front[2]!.y * .1)} r="3.2" className="building-door-handle" />}
+        {openingState && <circle cx={topMid.x} cy={topMid.y - 8} r="4.5" className="building-opening-state-dot" aria-hidden="true" />}
+        {element.kind === "fireplace" && <path d={`M${bottomMid.x.toFixed(1)} ${bottomMid.y.toFixed(1)}Q${((leftMid.x + rightMid.x) / 2 - 7).toFixed(1)} ${((leftMid.y + rightMid.y) / 2 + 3).toFixed(1)} ${topMid.x.toFixed(1)} ${topMid.y.toFixed(1)}Q${((leftMid.x + rightMid.x) / 2 + 9).toFixed(1)} ${((leftMid.y + rightMid.y) / 2 + 5).toFixed(1)} ${bottomMid.x.toFixed(1)} ${bottomMid.y.toFixed(1)}Z`} className="building-fireplace-flame" />}
+        {selected && <polygon points={points(front)} className="building-element-selection" />}
+      </g>
+    );
+  };
+
   const observationName = (observation: ManualObservation) => t(`observations.${observation.kind === "note" ? "noteKind" : observation.kind}` as TranslationKey);
 
   return (
@@ -401,6 +716,43 @@ export function BuildingScene({
           })}</output>
         </div>
       </div>
+      {editing && <div className="building-element-editor" role="region" aria-label={t("twin.elementProperties")}>
+        <div className="building-element-editor-heading">
+          <span className="eyebrow">{t("twin.planElements")}</span>
+          <strong>{selectedElement
+            ? t(`planElement.${selectedElement.kind}` as TranslationKey)
+            : t("twin.elementProperties")}</strong>
+          {selectedElementFloor && <small>{selectedElementFloor.name}</small>}
+        </div>
+        {onFloorChange && <div className="building-element-add" role="group" aria-label={t("opening.addIn3d")}>
+          <label><span>{t("twin.planElement")}</span><select value={addableOpeningKind} onChange={(event) => { setAddableOpeningKind(event.currentTarget.value as AddableOpeningKind); setOpeningEditorMessage(null); }}><option value="door">{t("planElement.door")}</option><option value="window">{t("planElement.window")}</option><option value="vent">{t("planElement.vent")}</option></select></label>
+          <button type="button" className="tool-button" onClick={addOpeningIn3d}>{t("opening.addIn3d")}</button>
+        </div>}
+        {openingEditorMessage && <p className="editor-properties-note" role="status">{openingEditorMessage}</p>}
+        <OpeningInventory floors={house.floors} selected={selectedElementKey} onSelect={(floorId, elementId) => { onFloorSelect(floorId); setSelectedElementKey({ floorId, elementId }); }} />
+        {selectedElement && selectedElementFloor && selectedWidthBounds && selectedHeightBounds
+          ? <>
+            <PlanElementDimensionFields
+              widthLabel={t("twin.elementWidth")}
+              heightLabel={t("twin.elementHeight")}
+              planUnitLabel={t("twin.planUnit")}
+              metreLabel="m"
+              width={selectedElement.width ?? defaultPlanElementWidth(selectedElementFloor, selectedElement.kind)}
+              height={effectivePlanElementHeight(selectedElementFloor, selectedElement)}
+              widthBounds={selectedWidthBounds}
+              heightBounds={selectedHeightBounds}
+              onWidthChange={updateSelectedWidth}
+              onHeightChange={updateSelectedHeight}
+            />
+            {selectedElement.kind !== "fireplace" && <PlanElementAirflowFields floor={selectedElementFloor} element={selectedElement} onChange={(patch) => updateSelectedElement(patch)} />}
+            {selectedElement.kind === "fireplace" && <div className="building-fireplace-fields">
+              <label><span>{t("twin.fireplaceExtent")}</span><select value={selectedElement.verticalExtent ?? "level"} onChange={(event) => updateSelectedElement({ verticalExtent: event.currentTarget.value as "level" | "roof" })}><option value="level">{t("twin.fireplaceExtentLevel")}</option><option value="roof">{t("twin.fireplaceExtentRoof")}</option></select></label>
+              {(selectedElement.verticalExtent ?? "level") === "roof" && <label><span>{t("twin.chimneyAboveRoof")}</span><span className="input-suffix"><input type="number" min="0" max="5" step="0.1" value={selectedElement.chimneyHeightAboveRoof ?? .6} onChange={(event) => updateSelectedElement({ chimneyHeightAboveRoof: Number(event.currentTarget.value) })} /><span>m</span></span></label>}
+            </div>}
+            <button type="button" className="tool-button danger-tool building-element-delete" onClick={deleteSelectedElement}>{t("twin.deleteElement")}</button>
+          </>
+          : <p>{t("building.editElementHelp")}</p>}
+      </div>}
       <div className="building-viewport">
         <svg
           className="building-svg" viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`} role="group"
@@ -408,19 +760,18 @@ export function BuildingScene({
           data-camera-yaw={camera.yaw.toFixed(3)} data-camera-pitch={camera.pitch.toFixed(3)} data-camera-zoom={camera.zoom.toFixed(2)}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPointer} onPointerCancel={endPointer} onWheel={onWheel}
         >
-          <desc>{airflowPaths.length
-            ? t("building.airflowVolumeDescription", { metric: metricLabel })
+          <desc>{spatialLayerSnapshots.length || experimentalSensorCoverage || experimentalAirflowEnabled
+            ? t("spatial.buildingDescription")
             : allValues.length
               ? t("building.volumeDescription", { metric: metricLabel })
-            : definition.spatialInterpolation
-              ? t("twin.estimateUnavailable", { metric: metricLabel })
-              : t("building.noSpatial", { metric: metricLabel })}</desc>
+              : definition.spatialInterpolation
+                ? t("twin.estimateUnavailable", { metric: metricLabel })
+                : t("building.noSpatial", { metric: metricLabel })}</desc>
           <defs>
             <marker id={markerId} markerWidth="9" markerHeight="9" refX="8" refY="4.5" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0L9 4.5L0 9Z" className="building-arrow-head" /></marker>
             <marker id={`${markerId}-vertical`} markerWidth="9" markerHeight="9" refX="8" refY="4.5" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0L9 4.5L0 9Z" className="vertical-arrow-head" /></marker>
             <marker id={`${markerId}-airflow`} markerWidth="9" markerHeight="9" refX="8" refY="4.5" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0L9 4.5L0 9Z" className="simulated-flow-arrow-head" /></marker>
             <marker id={`${markerId}-airflow-vertical`} markerWidth="9" markerHeight="9" refX="8" refY="4.5" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0L9 4.5L0 9Z" className="simulated-flow-arrow-head" /></marker>
-            <marker id={`${markerId}-outdoor`} markerWidth="12" markerHeight="12" refX="10" refY="6" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0L12 6L0 12Z" className="outdoor-wind-arrow-head" /></marker>
             <filter id={`${markerId}-shadow`} x="-80%" y="-80%" width="260%" height="260%"><feDropShadow dx="0" dy="4" stdDeviation="5" floodOpacity=".24" /></filter>
             <filter id={`${markerId}-cloud-soften`} x="-35%" y="-35%" width="170%" height="170%"><feGaussianBlur stdDeviation="7" /></filter>
             {projectedClouds.map(({ blob }) => (
@@ -437,6 +788,17 @@ export function BuildingScene({
               <polygon points={points(outdoorShellProjected.top)} className="building-outdoor-shell-face" />
               <polygon points={points(outdoorShellProjected.bottom)} className="building-outdoor-shell-outline building-outdoor-shell-bottom" />
               <polygon points={points(outdoorShellProjected.top)} className="building-outdoor-shell-outline building-outdoor-shell-top" />
+              {outdoorWindwardProjected && (
+                <line
+                  x1={outdoorWindwardProjected.start.x}
+                  y1={outdoorWindwardProjected.start.y}
+                  x2={outdoorWindwardProjected.end.x}
+                  y2={outdoorWindwardProjected.end.y}
+                  className="building-outdoor-windward-edge"
+                  data-windward-edge={outdoorWindwardProjected.edge}
+                  aria-hidden="true"
+                />
+              )}
               {outdoorShellProjected.top.map((point, index) => (
                 <line
                   key={index}
@@ -476,6 +838,9 @@ export function BuildingScene({
           <g className="building-floors">
             {orderedFloors.map(({ floor, floorSensors, average }) => {
               const z = floor.elevation;
+              const wallHeight = floor.roof?.style === "flat"
+                ? roofEavesZ(floor) - floor.elevation
+                : floor.wallHeight ?? floor.ceilingHeight ?? DEFAULT_CEILING_HEIGHT_METRES;
               const surface = [project({ x: 0, y: 0, z }), project({ x: floor.width, y: 0, z }), project({ x: floor.width, y: floor.height, z }), project({ x: 0, y: floor.height, z })];
               const slabBottom = [project({ x: 0, y: 0, z: z - .12 }), project({ x: floor.width, y: 0, z: z - .12 }), project({ x: floor.width, y: floor.height, z: z - .12 }), project({ x: 0, y: floor.height, z: z - .12 })];
               const active = floor.id === activeFloorId;
@@ -483,18 +848,35 @@ export function BuildingScene({
               const labelPoint = surface.reduce((best, point) => point.x > best.x ? point : best, surface[0]!);
               return (
                 <g
-                  key={floor.id} className={`building-floor ${active ? "active" : ""}`} role="button" tabIndex={0}
-                  aria-pressed={active} aria-label={t("building.floorAria", { floor: floor.name, height: floor.elevation.toFixed(1), sensors: floorSensors.length, metric: metricLabel, value: averageLabel })}
-                  onClick={() => activateFloor(floor.id)} onKeyDown={(event) => floorKeyDown(event, floor.id)}
+                  key={floor.id} className={`building-floor ${active ? "active" : ""}`} role={editing ? "group" : "button"} tabIndex={editing ? undefined : 0}
+                  data-wall-height={wallHeight.toFixed(3)}
+                  aria-pressed={editing ? undefined : active} aria-label={t("building.floorAria", { floor: floor.name, height: floor.elevation.toFixed(1), sensors: floorSensors.length, metric: metricLabel, value: averageLabel })}
+                  onClick={() => activateFloor(floor.id)} onKeyDown={editing ? undefined : (event) => floorKeyDown(event, floor.id)}
                 >
                   <polygon points={points([surface[1]!, surface[2]!, slabBottom[2]!, slabBottom[1]!])} className="floor-slab-side" />
                   <polygon points={points([surface[2]!, surface[3]!, slabBottom[3]!, slabBottom[2]!])} className="floor-slab-front" />
                   <polygon points={points(surface)} className="floor-surface" />
+                  <g className="building-room-surfaces" aria-hidden="true">{floor.rooms.filter((room) => room.points.length >= 3).map((room) => (
+                    <polygon
+                      key={room.id}
+                      points={points(room.points.map((point) => project({ ...point, z: z + .018 })))}
+                      className="building-room-surface"
+                      data-room-id={room.id}
+                    />
+                  ))}</g>
                   <g className="building-walls" aria-hidden="true">{floor.walls.map((wall) => {
-                    const from = project({ x: wall.from.x, y: wall.from.y, z: z + .07 });
-                    const to = project({ x: wall.to.x, y: wall.to.y, z: z + .07 });
-                    return <line key={wall.id} x1={from.x} y1={from.y} x2={to.x} y2={to.y} />;
+                    const face = [
+                      project({ x: wall.from.x, y: wall.from.y, z: z + .03 }),
+                      project({ x: wall.to.x, y: wall.to.y, z: z + .03 }),
+                      project({ x: wall.to.x, y: wall.to.y, z: z + wallHeight }),
+                      project({ x: wall.from.x, y: wall.from.y, z: z + wallHeight }),
+                    ];
+                    return <g key={wall.id} data-wall-id={wall.id}>
+                      <polygon points={points(face)} className="building-wall-face" />
+                      <line x1={face[3]!.x} y1={face[3]!.y} x2={face[2]!.x} y2={face[2]!.y} className="building-wall-top" />
+                    </g>;
                   })}</g>
+                  {!editing && <g className="building-plan-elements">{(floor.planElements ?? []).map((element, index) => renderArchitecturalElement(floor, element, index))}</g>}
                   <g className="building-floor-label" aria-hidden="true" transform={`translate(${Math.min(VIEW_WIDTH - 184, labelPoint.x + 10)} ${Math.max(8, labelPoint.y - 40)})`}>
                     <rect width="176" height="43" rx="9" />
                     <text x="11" y="17">{visualLabel(floor.name, 22)}</text>
@@ -505,33 +887,11 @@ export function BuildingScene({
             })}
           </g>
 
-          {outdoorWindWorld && outdoorWindProjected && outdoorArrowLabel && (
-            <g
-              className="outdoor-wind-vector building-outdoor-wind"
-              role="img"
-              aria-label={outdoorArrowLabel}
-              data-windward-edge={outdoorContext?.windwardEdge ?? undefined}
-              data-source-x={outdoorWindWorld.source.x.toFixed(2)}
-              data-source-y={outdoorWindWorld.source.y.toFixed(2)}
-              data-target-x={outdoorWindWorld.target.x.toFixed(2)}
-              data-target-y={outdoorWindWorld.target.y.toFixed(2)}
-            >
-              <title>{outdoorArrowLabel}</title>
-              <circle cx={outdoorWindProjected.source.x} cy={outdoorWindProjected.source.y} r="14" className="outdoor-wind-source-halo" />
-              <circle cx={outdoorWindProjected.source.x} cy={outdoorWindProjected.source.y} r="7" className="outdoor-wind-source" />
-              <path
-                d={`M${outdoorWindProjected.source.x.toFixed(1)} ${outdoorWindProjected.source.y.toFixed(1)}L${outdoorWindProjected.target.x.toFixed(1)} ${outdoorWindProjected.target.y.toFixed(1)}`}
-                className="outdoor-wind-path"
-                markerEnd={`url(#${markerId}-outdoor)`}
-              />
-              {outdoorWindLabelPosition && (
-                <text x={outdoorWindLabelPosition.x} y={outdoorWindLabelPosition.y} textAnchor="middle" className="outdoor-wind-label building-outdoor-wind-label">
-                  <tspan className="outdoor-wind-label-source">{t("outdoor.shellWind")}</tspan>
-                  <tspan>{` · ${outdoorWindSpeed ?? t("common.noData")}${outdoorWindDirection ? ` · ${outdoorWindDirection}` : ""}`}</tspan>
-                </text>
-              )}
-            </g>
-          )}
+          <g className="building-roofs">
+            {orderedFloors.flatMap(({ floor }) => roofSurfaces(floor).map((surface, index) => (
+              <polygon key={`${floor.id}:roof:${index}`} points={points(surface.map(project))} className={`building-roof-face roof-${floor.roof?.style ?? "none"}`} data-floor-id={floor.id} />
+            )))}
+          </g>
 
           <g className="building-clouds building-volume-clouds" filter={`url(#${markerId}-cloud-soften)`} aria-hidden="true">
             {projectedClouds.map(({ blob, center, radiusX, radiusY, angle }) => (
@@ -544,6 +904,14 @@ export function BuildingScene({
               />
             ))}
           </g>
+
+          {!editing && experimentalSensorCoverage && (
+            <ExperimentalSensorCoverage3D house={house} assessment={experimentalSensorCoverage} project={project} />
+          )}
+
+          {!editing && spatialLayerSnapshots.length > 0 && (
+            <SpatialLayerOverlay3D house={house} snapshots={spatialLayerSnapshots} topology={spatialLayerTopology} project={project} />
+          )}
 
           {airflowPaths.length > 0 && <g className="building-volume-flows building-simulated-airflow" role="img" aria-label={airflowAria}>
             <title>{airflowAria}</title>
@@ -603,12 +971,14 @@ export function BuildingScene({
               const model = floorModels.find((item) => item.floor.id === observation.floorId);
               if (!model) return null;
               const position = project({ x: observation.x!, y: observation.y!, z: model.floor.elevation + .18 });
+              const status = observation.status ?? "open";
               const label = t("building.observationAria", {
                 kind: observationName(observation), severity: t(`alerts.${observation.severity}`), floor: model.floor.name, note: observation.note,
+                status: t(`observations.status.${status}`),
               });
               return (
-                <g key={observation.id} transform={`translate(${position.x} ${position.y})`} className={`building-observation ${observation.severity}`} role="img" aria-label={label}>
-                  <title>{label}</title><path d="M0-15C-8-15-14-9-14-1C-14 9 0 19 0 19S14 9 14-1C14-9 8-15 0-15Z" /><text textAnchor="middle" y="3">!</text>
+                <g key={observation.id} transform={`translate(${position.x} ${position.y})`} className={`building-observation ${observation.severity} ${status}`} role="img" aria-label={label}>
+                  <title>{label}</title><path d="M0-15C-8-15-14-9-14-1C-14 9 0 19 0 19S14 9 14-1C14-9 8-15 0-15Z" /><text textAnchor="middle" y="3">{status === "resolved" ? "✓" : "!"}</text>
                 </g>
               );
             })}
@@ -646,19 +1016,32 @@ export function BuildingScene({
             })}
           </g>
 
+          {editing && <g className="building-plan-elements building-plan-elements-editing">
+            {orderedFloors.flatMap(({ floor }) => (floor.planElements ?? []).map((element, index) => renderArchitecturalElement(floor, element, index)))}
+          </g>}
+
         </svg>
         {outdoor && <OutdoorConditionsBadge outdoor={outdoor} units={units} />}
       </div>
-      <div className="building-legend">
-        <span>{!definition.spatialInterpolation
-          ? t("building.noSpatial", { metric: metricLabel })
-          : allValues.length > 0
-            ? <><i className="heat-gradient" style={{ background: measurementGradient(definition) }} aria-hidden="true" />{t("twin.estimatedField", { metric: metricLabel })}: {formatMeasurement(heatMin, definition, units)} – {formatMeasurement(heatMax, definition, units)}</>
-            : t("common.noData")}</span>
-        {airflowPaths.length > 0 && <span className="building-airflow-key"><i className="volume-vector-key simulated" aria-hidden="true">↝</i><span><strong>{t("twin.airflow")}</strong><small>{airflowDescription}</small></span></span>}
-        {airflowPaths.length === 0 && definition.spatialInterpolation && activeGradientFlows.length > 0 && <span><i className="volume-vector-key" aria-hidden="true">↗</i>{t("building.xyzGradient")}</span>}
+      <div className={`building-legend ${!editing && !mapInformationExpanded ? "collapsed" : ""}`}>
+        {(editing || mapInformationExpanded) && <div id={mapInformationId} className="building-legend-content">
+          {editing ? <span className="building-structure-sync">{t("building.structureSync")}</span> : <span>{!definition.spatialInterpolation
+            ? t("building.noSpatial", { metric: metricLabel })
+            : allValues.length > 0
+              ? <><i className="heat-gradient" style={{ background: measurementGradient(definition) }} aria-hidden="true" />{t("twin.estimatedField", { metric: metricLabel })}: {formatMeasurement(heatMin, definition, units)} – {formatMeasurement(heatMax, definition, units)}</>
+              : t("common.noData")}</span>}
+          {!editing && airflowPaths.length > 0 && <span className="building-airflow-key experimental-layer-legend"><i className="volume-vector-key simulated" aria-hidden="true">↝</i><span><strong>{t("spatial.airflow.title")}</strong><small>{airflowDescription}</small></span></span>}
+          {!editing && airflowPaths.length === 0 && definition.spatialInterpolation && activeGradientFlows.length > 0 && <span><i className="volume-vector-key" aria-hidden="true">↗</i>{t("building.xyzGradient")}</span>}
+          {!editing && experimentalSensorCoverage && <span className="building-airflow-key coverage-layer-legend"><i className="volume-vector-key coverage" aria-hidden="true">◎</i><span><strong>{t("spatial.coverage.title")}</strong><small>{t("spatial.coverage.legend", { support: Math.round(experimentalSensorCoverage.coverageScore * 100) })}</small></span></span>}
+          {!editing && spatialLayerSnapshots.length > 0 && <span className="building-airflow-key spatial-layer-legend"><i className="volume-vector-key" aria-hidden="true">⇢</i><span><strong>{t("spatial.title")}</strong><small>{t("spatial.inferenceDisclaimer")}</small></span></span>}
+        </div>}
+        {!editing && <MapInformationToggle
+          controls={mapInformationId}
+          expanded={mapInformationExpanded}
+          onExpandedChange={setMapInformationExpanded}
+        />}
       </div>
-      <p className="building-help">{airflowPaths.length ? t("building.airflowHelp") : t("building.help")}</p>
+      {(editing || mapInformationExpanded) && <p className="building-help">{editing ? t("building.editElementHelp") : airflowPaths.length ? t("spatial.airflow.help3d") : t("building.help")}</p>}
     </div>
   );
 }

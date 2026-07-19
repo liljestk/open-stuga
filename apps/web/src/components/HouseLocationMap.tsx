@@ -165,7 +165,7 @@ function handleIcon(selected: boolean): L.DivIcon {
   });
 }
 
-function updateHandle(marker: Marker, label: string, selected: boolean, draggable: boolean) {
+function updateHandle(marker: Marker, label: string, selected: boolean, draggable: boolean, activate: () => void) {
   marker.options.title = label;
   marker.options.alt = label;
   marker.options.draggable = draggable;
@@ -180,6 +180,13 @@ function updateHandle(marker: Marker, label: string, selected: boolean, draggabl
   element.setAttribute("aria-label", label);
   element.setAttribute("role", "button");
   element.setAttribute("aria-pressed", String(selected));
+  element.tabIndex = 0;
+  element.onkeydown = (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    event.stopPropagation();
+    activate();
+  };
 }
 
 function removeHouseLayers(map: LeafletMap, layers: HouseLayers) {
@@ -286,7 +293,7 @@ export function HouseLocationMap({
       } else {
         layers.marker.setLatLng(latLng);
       }
-      updateHandle(layers.marker, item.label, selected, draggable);
+      updateHandle(layers.marker, item.label, selected, draggable, () => onSelectRef.current(item.id));
 
       const footprint = geographicFootprint(item);
       if (!footprint) {

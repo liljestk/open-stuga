@@ -1,0 +1,28 @@
+# Local development companion for the production Compose stack.
+# Use together with docker-compose.yml; source edits rebuild and replace the
+# production Nginx frontend while the API and persistent data stay running.
+services:
+  web:
+    develop:
+      watch:
+        - action: rebuild
+          path: ./apps/web
+          ignore:
+            - node_modules/
+            - dist/
+            - coverage/
+            - tsconfig.tsbuildinfo
+        - action: rebuild
+          path: ./packages/contracts
+        - action: rebuild
+          path: ./package.json
+        - action: rebuild
+          path: ./package-lock.json
+        - action: rebuild
+          path: ./tsconfig.base.json
+        - action: rebuild
+          path: ./Dockerfile
+        - action: rebuild
+          path: ./config/nginx.conf
+        - action: rebuild
+          path: ./config/nginx-entrypoint.sh

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Activity, AlertCircle, FlaskConical, Play, RotateCcw } from "lucide-react";
 import type { Sensor, ThermalSimulationPoint, UnitSystem } from "@climate-twin/contracts";
 import type { TimeRange } from "../domain";
@@ -152,6 +152,8 @@ export function ThermalSimulationPanel({
         </button>
       </div>
 
+      {simulation.loading && <div className="simulation-message collecting" role="status" aria-live="polite"><RotateCcw className="spin" size={18} aria-hidden="true" /><span><strong>{t(simulation.elapsedSeconds < 3 ? "simulation.progressPreparing" : simulation.elapsedSeconds < 10 ? "simulation.progressCalibrating" : "simulation.progressFinishing")}</strong><small>{t("simulation.progressElapsed", { seconds: simulation.elapsedSeconds })}</small></span></div>}
+
       {simulation.error && <div className="simulation-message error" role="alert"><AlertCircle size={18} aria-hidden="true" /><span><strong>{t("simulation.error")}</strong><small>{t("simulation.errorHelp")}</small></span></div>}
       {!result && !simulation.error && <div className="simulation-empty"><Activity size={24} aria-hidden="true" /><span><strong>{t("simulation.empty")}</strong><small>{t("simulation.emptyHelp")}</small></span></div>}
       {result?.calibration.status === "insufficient-data" && (
@@ -212,6 +214,8 @@ function ThermalChart({
   cursorTimestamp?: number | undefined;
 }) {
   const { t } = useI18n();
+  const chartSummaryId = useId();
+  const [dataOpen, setDataOpen] = useState(false);
   const chart = useMemo(() => {
     if (!points.length) return null;
     const timestamps = points.map((point) => Date.parse(point.timestamp));
@@ -242,6 +246,19 @@ function ThermalChart({
   const yTicks = Array.from({ length: 4 }, (_, index) => chart.valueMin + (chart.valueMax - chart.valueMin) * index / 3).reverse();
   const residualTicks = [chart.residualLimit, 0, -chart.residualLimit];
   const cursorX = cursorTimestamp === undefined ? null : chart.x(cursorTimestamp);
+  const temperatureUnit = units === "imperial" ? "°F" : "°C";
+  const formatTemperature = (valueC: number) => `${temperatureForDisplay(valueC, units).toFixed(1)} ${temperatureUnit}`;
+  const latest = points.reduce<ThermalSimulationPoint | null>((candidate, point) => (
+    !candidate || Date.parse(point.timestamp) > Date.parse(candidate.timestamp) ? point : candidate
+  ), null);
+  const chartSummary = latest ? [
+    t("simulation.chartAria"),
+    formatHouseTime(Date.parse(latest.timestamp), locale, timeZone, { dateStyle: "medium", timeStyle: "short" }),
+    `${t("simulation.observed")}: ${latest.observedTemperatureC === null ? t("common.noData") : formatTemperature(latest.observedTemperatureC)}`,
+    `${t("simulation.simulated")}: ${formatTemperature(latest.simulatedTemperatureC)}`,
+    `${t("simulation.modelBand")}: ${formatTemperature(latest.lowC)} – ${formatTemperature(latest.highC)}`,
+    `${t("simulation.residual")}: ${latest.residualC === null ? t("common.noData") : formatSignedTemperatureDelta(latest.residualC, units)}`,
+  ].join(". ") : t("simulation.chartAria");
   return (
     <div className="thermal-chart-shell">
       <div className="thermal-legend" aria-hidden="true">
@@ -250,7 +267,8 @@ function ThermalChart({
         <span><i className="thermal-key band" />{t("simulation.modelBand")}</span>
         <span><i className="thermal-key residual" />{t("simulation.residual")}</span>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="thermal-chart" role="img" aria-label={t("simulation.chartAria")}>
+      <p id={chartSummaryId} className="sr-only">{chartSummary}</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="thermal-chart" role="img" aria-label={t("simulation.chartAria")} aria-describedby={chartSummaryId}>
         <g className="chart-grid" aria-hidden="true">
           {yTicks.map((tick) => <line key={`temperature-${tick}`} x1={margin.left} x2={width - margin.right} y1={chart.y(tick)} y2={chart.y(tick)} />)}
           <line x1={margin.left} x2={width - margin.right} y1={chart.residualY(0)} y2={chart.residualY(0)} className="residual-zero" />
@@ -268,6 +286,16 @@ function ThermalChart({
         {chart.residual.length > 1 && <path d={path(chart.residual)} className="thermal-line residual" aria-hidden="true" />}
         {cursorX !== null && cursorX >= margin.left && cursorX <= width - margin.right && <line className="thermal-cursor" x1={cursorX} x2={cursorX} y1={margin.top} y2={residualBottom} aria-hidden="true" />}
       </svg>
+      <details className="chart-data-disclosure thermal-data-disclosure" open={dataOpen}>
+        <summary onClick={(event) => { event.preventDefault(); setDataOpen((value) => !value); }}>{t("common.showDataTable")}</summary>
+        <div hidden={!dataOpen} className="chart-data-table-wrap">
+          <table>
+            <caption className="sr-only">{t("simulation.chartAria")}</caption>
+            <thead><tr><th scope="col">{t("historyImport.dateTime")}</th><th scope="col">{t("simulation.observed")}</th><th scope="col">{t("simulation.simulated")}</th><th scope="col">{t("simulation.modelBand")}</th><th scope="col">{t("simulation.residual")}</th></tr></thead>
+            <tbody>{points.map((point) => <tr key={`thermal-data-${point.timestamp}`}><td>{formatHouseTime(Date.parse(point.timestamp), locale, timeZone, { dateStyle: "medium", timeStyle: "short" })}</td><td>{point.observedTemperatureC === null ? "—" : formatTemperature(point.observedTemperatureC)}</td><td>{formatTemperature(point.simulatedTemperatureC)}</td><td>{formatTemperature(point.lowC)} – {formatTemperature(point.highC)}</td><td>{point.residualC === null ? "—" : formatSignedTemperatureDelta(point.residualC, units)}</td></tr>)}</tbody>
+          </table>
+        </div>
+      </details>
     </div>
   );
 }

@@ -2,13 +2,14 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { House, HouseWeather, OutdoorConditions } from "@climate-twin/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "../api";
+import { api, ApiRequestError } from "../api";
 import { I18nProvider } from "../i18n";
 import { OutdoorWeatherPage, OutdoorWeatherView } from "./OutdoorWeatherPage";
 import outdoorStyles from "./OutdoorWeatherPage.css?raw";
 
 const house: House = {
   id: "house-coast",
+  propertyId: "property-coast",
   name: "Coast house",
   timezone: "Europe/Helsinki",
   location: { latitude: 60.17, longitude: 24.94, label: "Helsinki" },
@@ -124,11 +125,15 @@ describe("OutdoorWeatherPage", () => {
     renderConnected();
 
     expect(await screen.findByRole("heading", { level: 1, name: "Outdoor weather" })).toBeTruthy();
-    expect(weatherSpy).toHaveBeenCalledWith(house.id, 48);
+    expect(weatherSpy).toHaveBeenCalledWith(house.id, 48, expect.any(AbortSignal));
     const summary = screen.getByRole("heading", { name: "Full 48-hour summary" }).closest("section")!;
     expect(within(summary).getByText("0 °C – 47 °C")).toBeTruthy();
     expect(within(summary).getByText("48 mm")).toBeTruthy();
 
+    const forecastDisclosure = screen.getByText("Detailed hourly forecast").closest("details")!;
+    expect(forecastDisclosure.hasAttribute("open")).toBe(false);
+    await user.click(screen.getByText("Detailed hourly forecast"));
+    expect(forecastDisclosure.hasAttribute("open")).toBe(true);
     const table = screen.getByRole("table", { name: /Hourly forecast for Coast house, Next 12h/ });
     expect(within(table).getAllByRole("row")).toHaveLength(13);
     expect(within(table).getByText("0 °C")).toBeTruthy();
@@ -137,6 +142,8 @@ describe("OutdoorWeatherPage", () => {
     await user.click(screen.getByRole("tab", { name: /\+12–24h/ }));
     expect(screen.getByRole("tab", { name: /\+12–24h/ }).getAttribute("aria-selected")).toBe("true");
     expect(within(screen.getByRole("table", { name: /\+12–24h/ })).getByText("12 °C")).toBeTruthy();
+    await user.click(screen.getByText("Detailed hourly forecast"));
+    expect(forecastDisclosure.hasAttribute("open")).toBe(false);
   });
 
   it("preserves a selected window across refresh, clamps it when data shrinks, and resets for house or horizon changes", async () => {
@@ -144,6 +151,7 @@ describe("OutdoorWeatherPage", () => {
     const initial = weather();
     const rendered = renderView(initial);
 
+    await user.click(screen.getByText("Detailed hourly forecast"));
     await user.click(screen.getByRole("tab", { name: /\+36–48h/ }));
     expect(screen.getByRole("tab", { name: /\+36–48h/ }).getAttribute("aria-selected")).toBe("true");
 
@@ -185,14 +193,123 @@ describe("OutdoorWeatherPage", () => {
 
     expect(screen.getByRole("heading", { name: "Warning status could not be verified" })).toBeTruthy();
     expect(screen.getByText(/Do not interpret this state as meaning there are no warnings/)).toBeTruthy();
-    expect(screen.queryByText("No active warnings were returned")).toBeNull();
+    expect(screen.queryByText("No active home-related warnings")).toBeNull();
 
     rendered.rerender(<I18nProvider><OutdoorWeatherView {...rendered.props} weather={weather()} /></I18nProvider>);
-    expect(screen.getByRole("heading", { name: "No active warnings were returned" })).toBeTruthy();
-    expect(screen.getByText(/not a guarantee of warning coverage outside FMI's service/)).toBeTruthy();
+    const clear = screen.getByRole("heading", { name: "No active home-related warnings" }).closest("section")!;
+    expect(clear.classList.contains("compact-clear")).toBe(true);
+    expect(within(clear).queryByText(/not a guarantee of warning coverage outside FMI's service/)).toBeNull();
 
     rendered.rerender(<I18nProvider><OutdoorWeatherView {...rendered.props} weather={weather({ stale: true })} /></I18nProvider>);
     expect(screen.getByRole("heading", { name: "Warning status could not be verified" })).toBeTruthy();
+  });
+
+  it("explains likely causes, repair steps, and queued history recovery on demand", async () => {
+    const user = userEvent.setup();
+    renderView(weather({
+      current: null,
+      warnings: [],
+      unavailable: ["observation", "warnings"],
+      recovery: {
+        active: true,
+        activeSince: "2026-01-01T00:00:00.000Z",
+        affectedComponents: ["observation", "warnings"],
+        lastError: "official warnings was unavailable",
+        lastRecoveredAt: null,
+        observationBackfill: {
+          state: "pending",
+          from: "2026-01-01T00:00:00.000Z",
+          to: null,
+          recoveredPoints: 0,
+          lastAttemptAt: null,
+          error: null,
+        },
+      },
+    }));
+
+    const disclosure = screen.getByText("Why this may be happening and how to fix it").closest("details")!;
+    expect(disclosure.hasAttribute("open")).toBe(false);
+
+    await user.click(screen.getByText("Why this may be happening and how to fix it"));
+    expect(disclosure.hasAttribute("open")).toBe(true);
+    expect(screen.getByRole("heading", { name: "Possible causes" })).toBeTruthy();
+    expect(screen.getByText(/internet, DNS, proxy, or firewall settings/)).toBeTruthy();
+    expect(screen.getByText(/records the outage, retries in the background/)).toBeTruthy();
+    expect(within(disclosure).getByText("The missing weather interval is queued for backfill.")).toBeTruthy();
+    expect(screen.getByText(/Past forecast and warning snapshots are not invented/)).toBeTruthy();
+  });
+
+  it("shows durable recovery diagnostics when the provider returns no usable weather", async () => {
+    const user = userEvent.setup();
+    const recovery = {
+      active: true,
+      activeSince: "2026-01-01T00:00:00.000Z",
+      affectedComponents: ["service" as const],
+      lastError: "FMI returned HTTP 503",
+      lastRecoveredAt: null,
+      observationBackfill: {
+        state: "pending" as const,
+        from: "2026-01-01T00:00:00.000Z",
+        to: null,
+        recoveredPoints: 0,
+        lastAttemptAt: null,
+        error: null,
+      },
+    };
+    renderView(null, {
+      error: new ApiRequestError(503, "WEATHER_UNAVAILABLE", "FMI returned HTTP 503", { provider: "fmi", recovery }),
+    });
+
+    expect(screen.getByRole("heading", { name: "Outdoor weather is unavailable" })).toBeTruthy();
+    await user.click(screen.getByText("Why this may be happening and how to fix it"));
+    expect(screen.getByText("weather service")).toBeTruthy();
+    expect(screen.getByText("FMI returned HTTP 503")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeTruthy();
+  });
+
+  it("keeps one clear Refresh action when cached weather is shown after a failed update", () => {
+    renderView(weather(), {
+      error: new ApiRequestError(503, "WEATHER_UNAVAILABLE", "FMI returned HTTP 503"),
+    });
+
+    expect(screen.getByText("The latest refresh failed. Last available data remains visible.")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Refresh" })).toHaveLength(1);
+  });
+
+  it("reveals why cached weather is stale and shows the available diagnostics when the badge is clicked", async () => {
+    const user = userEvent.setup();
+    renderView(weather({
+      stale: true,
+      fetchedAt: "2026-01-01T00:05:00.000Z",
+      recovery: {
+        active: true,
+        activeSince: "2026-01-01T00:10:00.000Z",
+        affectedComponents: ["observation", "forecast", "warnings"],
+        lastError: "FMI returned HTTP 503",
+        lastRecoveredAt: null,
+        observationBackfill: {
+          state: "pending",
+          from: "2026-01-01T00:10:00.000Z",
+          to: null,
+          recoveredPoints: 0,
+          lastAttemptAt: null,
+          error: null,
+        },
+      },
+    }));
+
+    const badge = screen.getByText("stale");
+    const disclosure = badge.closest("details")!;
+    expect(disclosure.hasAttribute("open")).toBe(false);
+
+    await user.click(badge);
+
+    expect(disclosure.hasAttribute("open")).toBe(true);
+    expect(within(disclosure).getByText("Why is this data stale?")).toBeTruthy();
+    expect(within(disclosure).getByText(/could not fetch a newer update from the weather provider/)).toBeTruthy();
+    expect(within(disclosure).getByText("observations, forecast, warnings")).toBeTruthy();
+    expect(within(disclosure).getByText("FMI returned HTTP 503")).toBeTruthy();
+    expect(disclosure.querySelectorAll("time")).toHaveLength(3);
   });
 
   it("never presents an empty warning result as clear when component metadata says it is non-authoritative", () => {
@@ -203,17 +320,18 @@ describe("OutdoorWeatherPage", () => {
     }));
 
     expect(screen.getByRole("heading", { name: "Warning status could not be verified" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "No active warnings were returned" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "No active home-related warnings" })).toBeNull();
 
     rendered.rerender(<I18nProvider><OutdoorWeatherView {...rendered.props} weather={weather({
       warnings: [],
       unavailable: [],
       componentStatus: componentStatuses("fmi", { emptyResultIsAuthoritative: true }),
     })} /></I18nProvider>);
-    expect(screen.getByRole("heading", { name: "No active warnings were returned" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "No active home-related warnings" })).toBeTruthy();
   });
 
-  it("credits Open-Meteo and keeps its empty warning capability explicitly unverified", () => {
+  it("credits Open-Meteo in Advanced and keeps its empty warning capability explicitly unverified", async () => {
+    const user = userEvent.setup();
     const attribution = "Weather data by Open-Meteo.com (CC BY 4.0)";
     const globalHouse: House = {
       ...house,
@@ -238,13 +356,18 @@ describe("OutdoorWeatherPage", () => {
     }), { house: globalHouse });
 
     const attributionLink = screen.getByRole("link", { name: attribution });
+    const advanced = attributionLink.closest("details")!;
+    expect(advanced.hasAttribute("open")).toBe(false);
+    await user.click(screen.getByText("Advanced weather details"));
+    expect(advanced.hasAttribute("open")).toBe(true);
     expect(attributionLink.getAttribute("href")).toBe("https://open-meteo.com/");
     expect(screen.getByText(/Modelled/)).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Warning status could not be verified" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "No active warnings were returned" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "No active home-related warnings" })).toBeNull();
   });
 
-  it("shows active warning details even when refresh verification failed", () => {
+  it("keeps an active warning summary visible and reveals secondary details on request", async () => {
+    const user = userEvent.setup();
     renderView(weather({
       stale: true,
       warnings: [{
@@ -263,12 +386,58 @@ describe("OutdoorWeatherPage", () => {
       }],
     }));
 
-    const warningRegion = screen.getByRole("heading", { name: "Active official warnings" }).closest("section")!;
+    const warningRegion = screen.getByRole("heading", { name: "Active warnings for the home" }).closest("section")!;
+    const currentRegion = screen.getByRole("heading", { name: "Current conditions" }).closest("section")!;
     expect(warningRegion.getAttribute("aria-live")).toBe("polite");
-    expect(screen.getByRole("article", { name: "Strong wind near the coast" })).toBeTruthy();
+    expect(warningRegion.compareDocumentPosition(currentRegion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const warningArticle = screen.getByRole("article", { name: "Strong wind near the coast" });
     expect(screen.getByRole("heading", { level: 3, name: "Strong wind near the coast" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Open official warning: Strong wind near the coast/ })).toBeTruthy();
+    expect(warningArticle.querySelector(".outdoor-warning-glance")).not.toBeNull();
+    const warningDetails = within(warningArticle).getByText("Warning details").closest("details")!;
+    expect(warningDetails.hasAttribute("open")).toBe(false);
     expect(screen.getByText(/Do not interpret this state as meaning there are no warnings/)).toBeTruthy();
+
+    await user.click(within(warningArticle).getByText("Warning details"));
+    expect(warningDetails.hasAttribute("open")).toBe(true);
+    expect(within(warningDetails).getByText("Gusts may affect exposed structures.")).toBeTruthy();
+    expect(within(warningDetails).getByRole("link", { name: /Open official warning: Strong wind near the coast/ })).toBeTruthy();
+    await user.click(within(warningArticle).getByText("Warning details"));
+    expect(warningDetails.hasAttribute("open")).toBe(false);
+  });
+
+  it("omits personal-only advisories while retaining property-impacting warnings", () => {
+    const baseWarning = {
+      description: "",
+      severity: "moderate" as const,
+      urgency: "Expected",
+      certainty: "Likely",
+      effectiveAt: "2026-01-01T00:00:00.000Z",
+      onsetAt: null,
+      expiresAt: "2026-01-01T08:00:00.000Z",
+      areas: ["Uusimaa"],
+      web: null,
+    };
+    const rendered = renderView(weather({
+      warnings: [
+        { ...baseWarning, id: "uv", event: "UV advisory", headline: "Yellow UV advisory" },
+        { ...baseWarning, id: "heat", event: "Heat wave warning", headline: "Yellow heat wave warning" },
+        { ...baseWarning, id: "fire", event: "Wildfire warning", headline: "Yellow wildfire warning" },
+      ],
+    }));
+
+    expect(screen.queryByText("Yellow UV advisory")).toBeNull();
+    expect(screen.getByRole("heading", { level: 3, name: "Yellow heat wave warning" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 3, name: "Yellow wildfire warning" })).toBeTruthy();
+    const warningScope = screen.getByText(/Personal and travel advisories, such as UV and road warnings, are omitted/);
+    const advancedDetails = warningScope.closest("details")!;
+    expect(advancedDetails.classList.contains("outdoor-advanced-details")).toBe(true);
+    expect(advancedDetails.hasAttribute("open")).toBe(false);
+
+    rendered.rerender(<I18nProvider><OutdoorWeatherView {...rendered.props} weather={weather({
+      warnings: [{ ...baseWarning, id: "uv", event: "UV advisory", headline: "Yellow UV advisory" }],
+    })} /></I18nProvider>);
+    expect(screen.getByRole("heading", { name: "No active home-related warnings" })).toBeTruthy();
+    expect(screen.queryByText("Yellow UV advisory")).toBeNull();
   });
 
   it("uses the shared page-heading language without creating a nested main landmark", () => {
@@ -326,6 +495,8 @@ describe("OutdoorWeatherPage", () => {
     await user.click(screen.getByText("Advanced weather details"));
     expect(details.hasAttribute("open")).toBe(true);
     expect(within(details).getByText("Weather reference")).toBeTruthy();
+    await user.click(screen.getByText("Advanced weather details"));
+    expect(details.hasAttribute("open")).toBe(false);
   });
 
   it("does not request weather for an unlocated house and offers a routing callback", async () => {
@@ -336,6 +507,7 @@ describe("OutdoorWeatherPage", () => {
     renderConnected({ house: unlocated, onConfigureLocation });
 
     expect(screen.getByRole("heading", { name: "A weather location is needed" })).toBeTruthy();
+    expect(screen.queryByText("Warning status could not be verified")).toBeNull();
     expect(weatherSpy).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Configure location" }));
     expect(onConfigureLocation).toHaveBeenCalledOnce();

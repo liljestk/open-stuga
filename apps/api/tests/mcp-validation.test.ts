@@ -23,7 +23,7 @@ import {
 describe("MCP measurement argument validation", () => {
   let database: ClimateDatabase;
 
-  beforeEach(() => { database = new ClimateDatabase(":memory:"); });
+  beforeEach(() => { database = new ClimateDatabase(":memory:", true); });
   afterEach(() => database.close());
 
   it("normalizes ISO dates and rejects invalid or reversed ranges", () => {
@@ -140,6 +140,36 @@ describe("MCP measurement argument validation", () => {
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
+    });
+    expect(mcpToolAnnotations("update_observation")).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
+    expect(mcpToolAnnotations("list_observation_revisions")).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
+    expect(mcpToolAnnotations("create_maintenance_task")).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    });
+    expect(mcpToolAnnotations("update_maintenance_task")).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
+    expect(mcpToolAnnotations("delete_maintenance_task")).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
     });
   });
 

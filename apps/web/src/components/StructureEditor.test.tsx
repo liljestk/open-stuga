@@ -6,6 +6,65 @@ import { I18nProvider } from "../i18n";
 import { StructureEditor } from "./StructureEditor";
 
 describe("StructureEditor", () => {
+  it("adjusts wall height independently on an ordinary floor", async () => {
+    const user = userEvent.setup();
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const floor = house.floors[0]!;
+    const onHouseChange = vi.fn();
+    const { container } = render(<I18nProvider><StructureEditor
+      houses={[house]} house={house} floor={floor} sensors={state.sensors}
+      onHouseSelect={vi.fn()} onFloorSelect={vi.fn()} onHouseChange={onHouseChange}
+    /></I18nProvider>);
+
+    await user.click(container.querySelector<HTMLElement>(".level-properties > summary")!);
+    const numberInputs = container.querySelectorAll<HTMLInputElement>(".level-properties .structure-number-grid input[type=number]");
+    fireEvent.change(numberInputs[1]!, { target: { value: "3.4" } });
+
+    expect(onHouseChange).toHaveBeenCalledWith(expect.objectContaining({
+      floors: expect.arrayContaining([expect.objectContaining({ id: floor.id, wallHeight: 3.4 })]),
+    }));
+  });
+
+  it("adds a configurable roof envelope to an attic level", async () => {
+    const user = userEvent.setup();
+    const state = createDemoState();
+    const baseHouse = state.houses[0]!;
+    const { wallHeight: _wallHeight, ...upperWithoutWallHeight } = baseHouse.floors[1]!;
+    const attic = { ...upperWithoutWallHeight, id: "attic", name: "Attic", type: "attic" as const, elevation: 6 };
+    const house = { ...baseHouse, floors: [...baseHouse.floors, attic] };
+    const onHouseChange = vi.fn();
+    const { container } = render(<I18nProvider><StructureEditor
+      houses={[house]} house={house} floor={attic} sensors={state.sensors}
+      onHouseSelect={vi.fn()} onFloorSelect={vi.fn()} onHouseChange={onHouseChange}
+    /></I18nProvider>);
+
+    await user.click(container.querySelector<HTMLElement>(".level-properties > summary")!);
+    await user.click(screen.getByRole("button", { name: "Add roof" }));
+
+    expect(onHouseChange).toHaveBeenCalledWith(expect.objectContaining({
+      floors: expect.arrayContaining([expect.objectContaining({
+        id: attic.id,
+        roof: { style: "gable", pitchDegrees: 35, ridgeAxis: "x", overhang: .35, eavesHeight: .9 },
+      })]),
+    }));
+  });
+
+  it("disables structural mutations when no change handler is available", async () => {
+    const user = userEvent.setup();
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    render(<I18nProvider><StructureEditor
+      houses={state.houses} house={house} floor={house.floors[0]!} sensors={state.sensors}
+      onHouseSelect={vi.fn()} onFloorSelect={vi.fn()}
+    /></I18nProvider>);
+
+    await user.click(screen.getByText("Level actions", { selector: "summary" }));
+    expect((screen.getByRole("button", { name: "Add level" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Duplicate level" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Move level down" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("adds typed levels and protects levels that still contain sensors", async () => {
     const user = userEvent.setup();
     const state = createDemoState();
@@ -22,6 +81,8 @@ describe("StructureEditor", () => {
       </I18nProvider>,
     );
 
+    expect(screen.queryByRole("button", { name: "Delete level" })).toBeNull();
+    await user.click(screen.getByText("Level actions", { selector: "summary" }));
     expect((screen.getByRole("button", { name: "Delete level" }) as HTMLButtonElement).disabled).toBe(true);
     await user.click(screen.getByRole("button", { name: "Add level" }));
     const name = screen.getAllByLabelText("Level name").find((item) => item.closest("form"))!;
@@ -33,7 +94,10 @@ describe("StructureEditor", () => {
 
     expect(onHouseChange).toHaveBeenCalledOnce();
     const created = onHouseChange.mock.calls[0]![0].floors.at(-1)!;
-    expect(created).toMatchObject({ name: "Roof studio", type: "attic", ceilingHeight: 2.4 });
+    expect(created).toMatchObject({
+      name: "Roof studio", type: "attic", ceilingHeight: 2.4, wallHeight: .9,
+      roof: { style: "gable", pitchDegrees: 35 },
+    });
     expect(onFloorSelect).toHaveBeenCalledWith(created.id);
   });
 
@@ -61,8 +125,9 @@ describe("StructureEditor", () => {
       </I18nProvider>,
     );
 
-    await user.selectOptions(screen.getByLabelText("Active house"), second.id);
+    await user.selectOptions(screen.getByLabelText("Active home"), second.id);
     expect(onHouseSelect).toHaveBeenCalledWith(second.id);
+    await user.click(screen.getByText("Level actions", { selector: "summary" }));
     await user.click(screen.getByRole("button", { name: "Duplicate level" }));
     const duplicated = onHouseChange.mock.calls[0]![0].floors[1]!;
     expect(duplicated.id).not.toBe(house.floors[0]!.id);
@@ -94,15 +159,16 @@ describe("StructureEditor", () => {
       </I18nProvider>,
     );
 
-    expect(screen.getByText("Add another home before deleting this one.")).not.toBeNull();
-    await user.click(screen.getByRole("button", { name: "Add house" }));
-    await user.type(screen.getByPlaceholderText("e.g. Lake house"), "Lake house");
-    await user.click(within(screen.getByPlaceholderText("e.g. Lake house").closest("form")!).getByRole("button", { name: "Add" }));
-    await waitFor(() => expect(onHouseCreate).toHaveBeenCalledWith(expect.objectContaining({ name: "Lake house" })));
+    expect(screen.queryByRole("button", { name: "Add home" })).toBeNull();
+    await user.click(screen.getByText("Manage homes", { selector: "summary" }));
+    await user.click(screen.getByRole("button", { name: "Add home" }));
+    await user.type(screen.getByPlaceholderText("e.g. Lake home"), "Lake house");
+    await user.click(within(screen.getByPlaceholderText("e.g. Lake home").closest("form")!).getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(onHouseCreate).toHaveBeenCalledWith(expect.objectContaining({ name: "Lake house", propertyId: house.propertyId })));
     expect(onHouseSelect).toHaveBeenCalledWith(created.id);
     expect(onFloorSelect).toHaveBeenCalledWith(created.floors[0]!.id);
 
-    fireEvent.change(screen.getByRole("textbox", { name: "House name" }), { target: { value: "Pine retreat" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Home name" }), { target: { value: "Pine retreat" } });
     const renamed = onHouseChange.mock.calls.at(-1)![0];
     view.rerender(
       <I18nProvider>
@@ -116,9 +182,13 @@ describe("StructureEditor", () => {
     await user.click(screen.getByRole("button", { name: "Save name" }));
     await waitFor(() => expect(onHouseSave).toHaveBeenCalledWith(expect.objectContaining({ id: house.id, name: "Pine retreat" })));
 
-    await user.click(screen.getByRole("button", { name: "Delete house" }));
+    const dangerDisclosure = screen.getByText("Delete home", { selector: "summary" });
+    expect(within(dangerDisclosure.closest("details")!).queryByRole("button", { name: "Delete home" })).toBeNull();
+    await user.click(dangerDisclosure);
+    await user.click(within(dangerDisclosure.closest("details")!).getByRole("button", { name: "Delete home" }));
     expect(screen.getByText("Delete Pine retreat and all of its local data?")).not.toBeNull();
-    await user.click(screen.getByRole("button", { name: "Delete house" }));
+    await user.click(within(dangerDisclosure.closest("details")!).getByRole("button", { name: "Delete home" }));
     await waitFor(() => expect(onHouseDelete).toHaveBeenCalledWith(house.id));
+    expect(onHouseDelete).toHaveBeenCalledOnce();
   });
 });

@@ -1,4 +1,4 @@
-import type { House, Sensor } from "@climate-twin/contracts";
+import type { AreaEquipment, House, Property, PropertyArea, Sensor } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "./db.js";
 
 const DAY_MS = 24 * 60 * 60_000;
@@ -13,25 +13,32 @@ const EXTERNALLY_CONNECTED_MCP_TOOLS = new Set([
 ]);
 
 const STATE_CHANGING_MCP_TOOLS = new Set([
+  "create_property", "create_property_area", "update_property_area", "create_area_equipment", "update_area_equipment",
   "create_house", "update_house", "replace_house_layout", "replace_house_floor", "delete_house", "get_house_weather",
   "create_sensor", "update_sensor", "delete_sensor", "create_measurement_definition", "update_measurement_definition",
   "disable_measurement_definition", "ingest_measurements", "import_measurements", "ingest_readings",
   "create_alert_rule", "update_alert_rule", "delete_alert_rule", "acknowledge_alert",
-  "create_observation", "delete_observation", "upsert_static_parameter", "delete_static_parameter",
+  "create_observation", "update_observation", "delete_observation",
+  "create_maintenance_task", "update_maintenance_task", "delete_maintenance_task",
+  "upsert_static_parameter", "delete_static_parameter",
   "upload_asset", "delete_asset", "select_mock_scenario", "generate_mock_tick", "start_replay", "stop_replay",
 ]);
 
 const DESTRUCTIVE_MCP_TOOLS = new Set([
+  // Reassignment can detach incompatible house/floor references from maintenance tasks.
+  "update_property_area", "update_area_equipment",
   // These tools can replace or remove existing geometry even when sensors remain valid.
   "update_house", "replace_house_layout", "replace_house_floor",
-  "delete_house", "delete_sensor", "delete_alert_rule", "delete_observation", "delete_static_parameter", "delete_asset",
+  "delete_house", "delete_sensor", "delete_alert_rule", "delete_observation", "delete_maintenance_task",
+  "delete_static_parameter", "delete_asset",
   // Opt-in persistence can cross the irreversible real-data boundary and purge demo data.
   "get_house_weather",
 ]);
 
 const NON_IDEMPOTENT_MCP_TOOLS = new Set([
+  "create_property", "create_property_area", "create_area_equipment",
   "create_house", "create_sensor", "create_measurement_definition", "ingest_measurements",
-  "ingest_readings", "create_alert_rule", "create_observation", "upload_asset", "generate_mock_tick",
+  "ingest_readings", "create_alert_rule", "create_observation", "create_maintenance_task", "upload_asset", "generate_mock_tick",
   "get_house_weather", "start_replay",
 ]);
 
@@ -53,6 +60,7 @@ export function mcpToolAnnotations(toolName: string): McpToolAnnotations {
 
 export interface McpHouseSummary {
   id: string;
+  propertyId: string;
   name: string;
   timezone: string;
   locationConfigured: boolean;
@@ -72,10 +80,92 @@ export interface McpHouseSummary {
   updatedAt: string;
 }
 
+export interface McpPropertySummary {
+  id: string;
+  name: string;
+  descriptionConfigured: boolean;
+  locationConfigured: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Compact portfolio-safe shape: no exact property map centre or free-form description. */
+export function summarizeMcpProperty(property: Property): McpPropertySummary {
+  return {
+    id: property.id,
+    name: property.name,
+    descriptionConfigured: property.description !== null,
+    locationConfigured: property.location !== null,
+    createdAt: property.createdAt,
+    updatedAt: property.updatedAt,
+  };
+}
+
+export interface McpPropertyAreaSummary {
+  id: string;
+  propertyId: string;
+  name: string;
+  kind: PropertyArea["kind"];
+  descriptionConfigured: boolean;
+  locationConfigured: boolean;
+  boundaryPointCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Compact map-safe shape: polygon coordinates and free-form description are omitted. */
+export function summarizeMcpPropertyArea(area: PropertyArea): McpPropertyAreaSummary {
+  return {
+    id: area.id,
+    propertyId: area.propertyId,
+    name: area.name,
+    kind: area.kind,
+    descriptionConfigured: area.description !== null,
+    locationConfigured: Boolean(area.location),
+    boundaryPointCount: area.polygon.length,
+    createdAt: area.createdAt,
+    updatedAt: area.updatedAt,
+  };
+}
+
+export interface McpAreaEquipmentSummary {
+  id: string;
+  propertyId: string;
+  areaId: string;
+  name: string;
+  kind: string;
+  status: AreaEquipment["status"];
+  manufacturerConfigured: boolean;
+  modelConfigured: boolean;
+  serialNumberConfigured: boolean;
+  notesConfigured: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Compact inventory-safe shape: serial number and free-form notes are never returned by list calls. */
+export function summarizeMcpAreaEquipment(equipment: AreaEquipment): McpAreaEquipmentSummary {
+  return {
+    id: equipment.id,
+    propertyId: equipment.propertyId,
+    areaId: equipment.areaId,
+    name: equipment.name,
+    kind: equipment.kind,
+    status: equipment.status,
+    manufacturerConfigured: equipment.manufacturer !== null,
+    modelConfigured: equipment.model !== null,
+    serialNumberConfigured: equipment.serialNumber !== null,
+    notesConfigured: equipment.notes !== null,
+    createdAt: equipment.createdAt,
+    updatedAt: equipment.updatedAt,
+  };
+}
+
 /** Compact portfolio-safe shape: no coordinates, geometry, or embedded images. */
 export function summarizeMcpHouse(house: House): McpHouseSummary {
   return {
     id: house.id,
+    propertyId: house.propertyId,
     name: house.name,
     timezone: house.timezone,
     locationConfigured: house.location !== undefined,

@@ -1,0 +1,24 @@
+.setup-operations-grid { display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.setup-operations-grid .bulk-mapping-panel { grid-column: 1 / -1; }
+.setup-doctor-summary { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center; padding: 12px; border-radius: 12px; background: var(--surface-muted, #f4f5f2); }
+.setup-doctor-summary > span { grid-column: 2; }
+.setup-doctor-summary.ready svg, .setup-doctor-list .pass svg, .setup-doctor-list .not-applicable svg { color: var(--success, #2f765d); }
+.setup-doctor-summary.attention svg, .setup-doctor-list .warning svg { color: var(--warning, #9a651c); }
+.setup-doctor-summary.blocked svg, .setup-doctor-list .fail svg { color: var(--danger, #ad3d3d); }
+.setup-doctor-list { list-style: none; padding: 0; display: grid; gap: 7px; max-height: 360px; overflow: auto; }
+.setup-doctor-list li { display: grid; grid-template-columns: auto 1fr; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border, #dfe2db); }
+.setup-doctor-list span { display: grid; gap: 2px; }
+.setup-doctor-list small, .setup-doctor-list em { font-size: .82rem; }
+.setup-doctor-list em { font-style: normal; color: var(--warning, #805613); }
+.data-operation-controls { display: flex; gap: 14px; align-items: end; flex-wrap: wrap; }
+.export-preview { display: grid; gap: 3px; margin: 12px 0; }
+.backup-status { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.backup-status div { display: grid; gap: 3px; }
+.backup-status dt { font-size: .78rem; color: var(--text-muted, #68706a); }
+.backup-status dd { margin: 0; font-weight: 650; text-transform: capitalize; }
+.bulk-mapping-scroll { overflow: auto; margin: 12px 0; }
+.bulk-mapping-panel table { width: 100%; border-collapse: collapse; min-width: 900px; }
+.bulk-mapping-panel th, .bulk-mapping-panel td { padding: 7px; text-align: left; vertical-align: top; }
+.bulk-mapping-panel th small { display: block; font-weight: 400; }
+.bulk-mapping-panel input { min-width: 140px; width: 100%; }
+@media (max-width: 900px) { .setup-operations-grid { grid-template-columns: 1fr; } .backup-status { grid-template-columns: 1fr; } }

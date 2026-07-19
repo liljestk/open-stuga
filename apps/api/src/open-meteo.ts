@@ -7,9 +7,14 @@ import type {
   WeatherComponentStatus,
 } from "@climate-twin/contracts";
 import { SYSTEM_VERSION } from "./version.js";
-import { WeatherUnavailableError, type WeatherProvider } from "./weather.js";
+import {
+  WeatherUnavailableError,
+  type WeatherObservationHistory,
+  type WeatherProvider,
+} from "./weather.js";
 
 const API_URL = "https://api.open-meteo.com/v1/forecast";
+const HISTORICAL_FORECAST_API_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast";
 const ATTRIBUTION = "Weather data by Open-Meteo.com (CC BY 4.0)";
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const CURRENT_VARIABLES = [
@@ -32,8 +37,7 @@ interface OpenMeteoResponse {
 }
 
 function finite(value: unknown): number | undefined {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function utcTimestamp(value: unknown): string | null {
@@ -205,6 +209,61 @@ export class OpenMeteoWeatherProvider implements WeatherProvider {
       },
     };
   }
+
+  async fetchObservationHistory(
+    houseId: string,
+    location: HouseLocation,
+    from: string,
+    to: string,
+  ): Promise<WeatherObservationHistory> {
+    const fromMs = Date.parse(from);
+    const toMs = Date.parse(to);
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs >= toMs) {
+      throw new WeatherUnavailableError("The Open-Meteo observation backfill range is invalid");
+    }
+    if (toMs - fromMs > 24 * 3_600_000) {
+      throw new WeatherUnavailableError("Open-Meteo observation backfill requests are limited to 24-hour chunks");
+    }
+    const parameters = new URLSearchParams({
+      latitude: String(location.latitude),
+      longitude: String(location.longitude),
+      hourly: HOURLY_VARIABLES.join(","),
+      start_date: new Date(fromMs).toISOString().slice(0, 10),
+      end_date: new Date(toMs).toISOString().slice(0, 10),
+      timezone: "GMT",
+      wind_speed_unit: "ms",
+      temperature_unit: "celsius",
+      precipitation_unit: "mm",
+    });
+    let response: Response;
+    try {
+      response = await this.#fetch(`${HISTORICAL_FORECAST_API_URL}?${parameters}`, {
+        headers: { Accept: "application/json", "User-Agent": `Stuga/${SYSTEM_VERSION} Open-Meteo weather recovery adapter` },
+        signal: AbortSignal.timeout(this.#timeoutMs),
+      });
+    } catch {
+      throw new WeatherUnavailableError("Open-Meteo historical request failed");
+    }
+    const payload = await jsonWithLimit(response);
+    const times = Array.isArray(payload.hourly?.time) ? payload.hourly.time : [];
+    const observations = payload.hourly
+      ? times.map((_, index) => openMeteoConditions(payload.hourly as OpenMeteoValues, index))
+        .filter((point): point is OutdoorConditions => point !== null
+          && Date.parse(point.timestamp) >= fromMs && Date.parse(point.timestamp) <= toMs)
+      : [];
+    if (observations.length === 0) {
+      throw new WeatherUnavailableError("Open-Meteo returned no historical values for the outage window");
+    }
+    return {
+      houseId,
+      location,
+      provider: "open-meteo",
+      attribution: ATTRIBUTION,
+      fetchedAt: this.#now().toISOString(),
+      station: null,
+      observations,
+    };
+  }
 }
 
 const FINLAND_OUTLINE: ReadonlyArray<readonly [number, number]> = [
@@ -240,5 +299,18 @@ export class AutomaticWeatherProvider implements WeatherProvider {
 
   fetch(houseId: string, location: HouseLocation, hours: number): Promise<HouseWeather> {
     return (prefersFmi(location) ? this.fmi : this.worldwide).fetch(houseId, location, hours);
+  }
+
+  fetchObservationHistory(
+    houseId: string,
+    location: HouseLocation,
+    from: string,
+    to: string,
+  ): Promise<WeatherObservationHistory> {
+    const provider = prefersFmi(location) ? this.fmi : this.worldwide;
+    if (!provider.fetchObservationHistory) {
+      return Promise.reject(new WeatherUnavailableError("This weather provider does not support observation backfill"));
+    }
+    return provider.fetchObservationHistory(houseId, location, from, to);
   }
 }

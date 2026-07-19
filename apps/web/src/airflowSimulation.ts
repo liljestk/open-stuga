@@ -1,5 +1,18 @@
-import type { Floor, House, MeasurementSample, PlanElement, Point, Sensor } from "@climate-twin/contracts";
+import {
+  configuredPlanElementOpeningState,
+  resolvePlanElementOpeningState,
+  type AirflowPlanElement,
+  type Floor,
+  type House,
+  type MeasurementSample,
+  type OpeningStateObservation,
+  type PlanElement,
+  type Point,
+  type Sensor,
+  type VentPlanElement,
+} from "@climate-twin/contracts";
 import type { OutdoorBoundaryContext, PlanEdge } from "./outdoorContext";
+import { defaultPlanElementWidth, effectivePlanElementHeight, planElementBottomOffset } from "./planElementGeometry";
 import { isSpatialSampleFresh, type SpatialFreshnessOptions } from "./spatialFreshness";
 
 /**
@@ -43,6 +56,9 @@ export interface AirflowEvidence {
   tracerSensors: number;
   windDriven: boolean;
   doorOpenings: number;
+  windowOpenings: number;
+  ventOpenings: number;
+  counterflowOpenings: number;
   pressureAssumed: boolean;
   support: AirflowDataSupport;
   /** RMS divergence after pressure projection, in normalized solver units. */
@@ -82,6 +98,7 @@ interface Velocity3D extends NormalizedPoint3D {
 
 interface SolverGrid {
   floor: Floor;
+  anchors: ClimateAnchor[];
   nx: number;
   ny: number;
   nz: number;
@@ -107,6 +124,7 @@ interface BuildGridInput {
   samples: ClimateSampleMatrix;
   freshness: SpatialFreshnessOptions;
   outdoor?: OutdoorBoundaryContext | null;
+  openingStateObservations?: readonly OpeningStateObservation[];
 }
 
 const STANDARD_PRESSURE_HPA = 1013.25;
@@ -174,6 +192,24 @@ function virtualTemperatureK(temperatureC: number, specificHumidity: number): nu
 
 function ceilingHeight(floor: Floor): number {
   return Math.max(.8, floor.ceilingHeight ?? DEFAULT_CEILING_HEIGHT_M);
+}
+
+function floorWithEffectiveOpeningStates(input: BuildGridInput): Floor {
+  const observations = input.openingStateObservations?.filter((observation) => observation.floorId === input.floor.id);
+  if (!observations?.length || !input.floor.planElements?.length) return input.floor;
+  return {
+    ...input.floor,
+    planElements: input.floor.planElements.map((element): PlanElement => {
+      if (element.kind === "fireplace") return element;
+      const effective = resolvePlanElementOpeningState(element, observations, input.freshness.referenceTimeMs);
+      return { ...element, state: effective.state, openFraction: effective.openFraction };
+    }),
+  };
+}
+
+function effectiveGridInput(input: BuildGridInput): BuildGridInput {
+  const floor = floorWithEffectiveOpeningStates(input);
+  return floor === input.floor ? input : { ...input, floor };
 }
 
 function anchorsForFloor(input: BuildGridInput): ClimateAnchor[] {
@@ -251,18 +287,29 @@ function segmentIntersection(a: Point, b: Point, c: Point, d: Point): Point | nu
 }
 
 function elementWidth(element: PlanElement, floor: Floor): number {
-  return Math.max(element.width ?? Math.max(floor.width, floor.height) / 18, Math.max(floor.width, floor.height) / 80);
+  return Math.max(element.width ?? defaultPlanElementWidth(floor, element.kind), Math.max(floor.width, floor.height) / 80);
 }
 
-function doorAllowsCrossing(floor: Floor, wallId: string, crossing: Point): boolean {
-  return (floor.planElements ?? []).some((element) => element.kind === "door" && element.wallId === wallId
-    && Math.hypot(element.position.x - crossing.x, element.position.y - crossing.y) <= elementWidth(element, floor) * .56);
+function openingIsActive(element: AirflowPlanElement): boolean {
+  return configuredPlanElementOpeningState(element).openFraction > .01;
 }
 
-function blockedByWall(floor: Floor, from: Point, to: Point): boolean {
+function openingAllowsCrossing(floor: Floor, wallId: string, crossing: Point, heightAboveFloorM: number): boolean {
+  return (floor.planElements ?? []).some((element) => {
+    if ((element.kind !== "door" && element.kind !== "window") || element.wallId !== wallId || !openingIsActive(element)) return false;
+    const effective = configuredPlanElementOpeningState(element);
+    const bottom = planElementBottomOffset(floor, element);
+    const top = bottom + effectivePlanElementHeight(floor, element);
+    if (heightAboveFloorM < bottom - FIELD_EPSILON || heightAboveFloorM > top + FIELD_EPSILON) return false;
+    const effectiveHalfWidth = elementWidth(element, floor) * .5 * effective.openFraction;
+    return Math.hypot(element.position.x - crossing.x, element.position.y - crossing.y) <= effectiveHalfWidth + FIELD_EPSILON;
+  });
+}
+
+function blockedByWall(floor: Floor, from: Point, to: Point, heightAboveFloorM = (floor.ceilingHeight ?? DEFAULT_CEILING_HEIGHT_M) * .5): boolean {
   return floor.walls.some((wall) => {
     const crossing = segmentIntersection(from, to, wall.from, wall.to);
-    return crossing !== null && !doorAllowsCrossing(floor, wall.id, crossing);
+    return crossing !== null && !openingAllowsCrossing(floor, wall.id, crossing, heightAboveFloorM);
   });
 }
 
@@ -290,18 +337,21 @@ function rasterizeFluid(grid: SolverGrid): void {
 }
 
 function rasterizeWalls(grid: SolverGrid): void {
-  for (let y = 0; y < grid.ny; y += 1) {
-    for (let x = 0; x < grid.nx - 1; x += 1) {
-      const from = { x: (x + .5) / grid.nx * grid.floor.width, y: (y + .5) / grid.ny * grid.floor.height };
-      const to = { x: (x + 1.5) / grid.nx * grid.floor.width, y: from.y };
-      grid.blockX[y * (grid.nx - 1) + x] = blockedByWall(grid.floor, from, to) ? 1 : 0;
+  for (let z = 0; z < grid.nz; z += 1) {
+    const heightAboveFloorM = (z + .5) / grid.nz * ceilingHeight(grid.floor);
+    for (let y = 0; y < grid.ny; y += 1) {
+      for (let x = 0; x < grid.nx - 1; x += 1) {
+        const from = { x: (x + .5) / grid.nx * grid.floor.width, y: (y + .5) / grid.ny * grid.floor.height };
+        const to = { x: (x + 1.5) / grid.nx * grid.floor.width, y: from.y };
+        grid.blockX[z * grid.ny * (grid.nx - 1) + y * (grid.nx - 1) + x] = blockedByWall(grid.floor, from, to, heightAboveFloorM) ? 1 : 0;
+      }
     }
-  }
-  for (let y = 0; y < grid.ny - 1; y += 1) {
-    for (let x = 0; x < grid.nx; x += 1) {
-      const from = { x: (x + .5) / grid.nx * grid.floor.width, y: (y + .5) / grid.ny * grid.floor.height };
-      const to = { x: from.x, y: (y + 1.5) / grid.ny * grid.floor.height };
-      grid.blockY[y * grid.nx + x] = blockedByWall(grid.floor, from, to) ? 1 : 0;
+    for (let y = 0; y < grid.ny - 1; y += 1) {
+      for (let x = 0; x < grid.nx; x += 1) {
+        const from = { x: (x + .5) / grid.nx * grid.floor.width, y: (y + .5) / grid.ny * grid.floor.height };
+        const to = { x: from.x, y: (y + 1.5) / grid.ny * grid.floor.height };
+        grid.blockY[z * (grid.ny - 1) * grid.nx + y * grid.nx + x] = blockedByWall(grid.floor, from, to, heightAboveFloorM) ? 1 : 0;
+      }
     }
   }
 }
@@ -312,16 +362,16 @@ function faceOpen(grid: SolverGrid, x: number, y: number, z: number, dx: number,
   const nz = z + dz;
   if (nx < 0 || nx >= grid.nx || ny < 0 || ny >= grid.ny || nz < 0 || nz >= grid.nz) return false;
   if (!grid.fluid[index(grid, x, y, z)] || !grid.fluid[index(grid, nx, ny, nz)]) return false;
-  if (dx === 1 && grid.blockX[y * (grid.nx - 1) + x]) return false;
-  if (dx === -1 && grid.blockX[y * (grid.nx - 1) + x - 1]) return false;
-  if (dy === 1 && grid.blockY[y * grid.nx + x]) return false;
-  if (dy === -1 && grid.blockY[(y - 1) * grid.nx + x]) return false;
+  if (dx === 1 && grid.blockX[z * grid.ny * (grid.nx - 1) + y * (grid.nx - 1) + x]) return false;
+  if (dx === -1 && grid.blockX[z * grid.ny * (grid.nx - 1) + y * (grid.nx - 1) + x - 1]) return false;
+  if (dy === 1 && grid.blockY[z * (grid.ny - 1) * grid.nx + y * grid.nx + x]) return false;
+  if (dy === -1 && grid.blockY[z * (grid.ny - 1) * grid.nx + (y - 1) * grid.nx + x]) return false;
   return true;
 }
 
-function lineOfSightPenalty(floor: Floor, point: Point, anchor: ClimateAnchor): number {
+function lineOfSightPenalty(floor: Floor, point: Point, pointZ: number, anchor: ClimateAnchor): number {
   const anchorPoint = { x: anchor.x * floor.width, y: anchor.y * floor.height };
-  return blockedByWall(floor, point, anchorPoint) ? .07 : 1;
+  return blockedByWall(floor, point, anchorPoint, (pointZ + anchor.z) * .5 * ceilingHeight(floor)) ? .07 : 1;
 }
 
 function interpolateScalars(grid: SolverGrid, anchors: ClimateAnchor[]): void {
@@ -345,7 +395,7 @@ function interpolateScalars(grid: SolverGrid, anchors: ClimateAnchor[]): void {
             (point.x - anchor.x) ** 2 + (point.y - anchor.y) ** 2 + ((point.z - anchor.z) * .72) ** 2);
           const distance = Math.sqrt(distanceSquared);
           nearest = Math.min(nearest, distance);
-          const weight = anchor.weight * lineOfSightPenalty(grid.floor, worldPoint, anchor) / distanceSquared;
+          const weight = anchor.weight * lineOfSightPenalty(grid.floor, worldPoint, point.z, anchor) / distanceSquared;
           total += weight;
           temperature += anchor.temperatureC * weight;
           humidity += anchor.specificHumidity * weight;
@@ -403,17 +453,22 @@ function boundaryDistance(point: Point, edge: PlanEdge, floor: Floor): number {
   return (floor.height - point.y) / Math.max(1, floor.height);
 }
 
-function windwardWindows(floor: Floor, outdoor?: OutdoorBoundaryContext | null): PlanElement[] {
+function windwardWindows(floor: Floor, outdoor?: OutdoorBoundaryContext | null): Array<Extract<PlanElement, { kind: "window" }>> {
   const edge = outdoor?.windwardEdge;
   if (!edge || outdoor.stale || !outdoor.inwardVector || !finite(outdoor.conditions.windSpeedMps)) return [];
   return (floor.planElements ?? []).filter((element) => element.kind === "window"
-    && boundaryDistance(element.position, edge, floor) <= .15);
+    && openingIsActive(element) && boundaryDistance(element.position, edge, floor) <= .15) as Array<Extract<PlanElement, { kind: "window" }>>;
+}
+
+function activeVents(floor: Floor): VentPlanElement[] {
+  return (floor.planElements ?? []).filter((element): element is VentPlanElement => element.kind === "vent" && openingIsActive(element));
 }
 
 function addForces(grid: SolverGrid, anchors: ClimateAnchor[], outdoor?: OutdoorBoundaryContext | null): void {
   const referenceVirtualTemperature = anchors.reduce((sum, anchor) => sum + anchor.virtualTemperatureK * anchor.weight, 0)
     / Math.max(FIELD_EPSILON, anchors.reduce((sum, anchor) => sum + anchor.weight, 0));
   const windows = windwardWindows(grid.floor, outdoor);
+  const vents = activeVents(grid.floor).filter((vent) => ["supply", "extract", "balanced"].includes(vent.variant ?? "passive"));
   const windSpeed = outdoor?.conditions.windSpeedMps ?? 0;
   const windStrength = windows.length && outdoor?.inwardVector ? clamp(windSpeed / 12, 0, .75) : 0;
   for (let z = 0; z < grid.nz; z += 1) {
@@ -433,11 +488,37 @@ function addForces(grid: SolverGrid, anchors: ClimateAnchor[], outdoor?: Outdoor
           const proximity = windows.reduce((maximum, opening) => {
             const ox = opening.position.x / Math.max(1, grid.floor.width);
             const oy = opening.position.y / Math.max(1, grid.floor.height);
-            return Math.max(maximum, Math.exp(-((px - ox) ** 2 + (py - oy) ** 2) / .035));
+            const aperture = configuredPlanElementOpeningState(opening).openFraction;
+            return Math.max(maximum, Math.exp(-((px - ox) ** 2 + (py - oy) ** 2) / .035) * aperture);
           }, 0);
           const heightTaper = Math.sin(Math.PI * (z + .5) / grid.nz);
           grid.u[cellIndex] = grid.u[cellIndex]! + outdoor.inwardVector.x * windStrength * proximity * heightTaper * .13;
           grid.v[cellIndex] = grid.v[cellIndex]! + outdoor.inwardVector.y * windStrength * proximity * heightTaper * .13;
+        }
+        if (vents.length) {
+          const px = (x + .5) / grid.nx;
+          const py = (y + .5) / grid.ny;
+          const pz = (z + .5) / grid.nz;
+          for (const vent of vents) {
+            const ox = vent.position.x / Math.max(1, grid.floor.width);
+            const oy = vent.position.y / Math.max(1, grid.floor.height);
+            const oz = (planElementBottomOffset(grid.floor, vent) + effectivePlanElementHeight(grid.floor, vent) * .5) / ceilingHeight(grid.floor);
+            const proximity = Math.exp(-((px - ox) ** 2 + (py - oy) ** 2) / .025 - (pz - oz) ** 2 / .055);
+            const effective = configuredPlanElementOpeningState(vent);
+            const strength = (.07 + clamp((vent.nominalFlowM3h ?? 35) / 250, 0, .55) * .13) * effective.openFraction * proximity;
+            const variant = vent.variant ?? "passive";
+            if (variant === "supply" || (variant === "balanced" && pz <= oz)) {
+              const radians = vent.rotationDegrees * Math.PI / 180;
+              grid.u[cellIndex] = grid.u[cellIndex]! + Math.cos(radians) * strength;
+              grid.v[cellIndex] = grid.v[cellIndex]! + Math.sin(radians) * strength;
+            } else {
+              const towardX = ox - px;
+              const towardY = oy - py;
+              const distance = Math.max(.025, Math.hypot(towardX, towardY));
+              grid.u[cellIndex] = grid.u[cellIndex]! + towardX / distance * strength;
+              grid.v[cellIndex] = grid.v[cellIndex]! + towardY / distance * strength;
+            }
+          }
         }
       }
     }
@@ -552,34 +633,41 @@ function solve(grid: SolverGrid, anchors: ClimateAnchor[], outdoor?: OutdoorBoun
   }
 }
 
-function emptyEvidence(input: BuildGridInput, anchors: ClimateAnchor[] = anchorsForFloor(input)): AirflowEvidence {
+function emptyEvidence(rawInput: BuildGridInput, suppliedAnchors?: ClimateAnchor[]): AirflowEvidence {
+  const input = effectiveGridInput(rawInput);
+  const anchors = suppliedAnchors ?? anchorsForFloor(input);
   const floorSensors = input.sensors.filter((sensor) => sensor.enabled && sensor.floorId === input.floor.id);
   const humiditySensors = floorSensors.filter((sensor) => freshSample(input.samples, sensor.id, "temperature", input.freshness)
     && freshSample(input.samples, sensor.id, "humidity", input.freshness)).length;
   const tracerSensors = floorSensors.filter((sensor) => freshSample(input.samples, sensor.id, "co2", input.freshness)).length;
+  const airflowElements = (input.floor.planElements ?? []).filter((element): element is AirflowPlanElement => element.kind !== "fireplace");
   return {
     temperatureSensors: anchors.length,
     humiditySensors,
     tracerSensors,
     windDriven: windwardWindows(input.floor, input.outdoor).length > 0,
-    doorOpenings: (input.floor.planElements ?? []).filter((element) => element.kind === "door").length,
+    doorOpenings: airflowElements.filter((element) => element.kind === "door" && openingIsActive(element)).length,
+    windowOpenings: airflowElements.filter((element) => element.kind === "window" && openingIsActive(element)).length,
+    ventOpenings: airflowElements.filter((element) => element.kind === "vent" && openingIsActive(element)).length,
+    counterflowOpenings: 0,
     pressureAssumed: !finite(input.outdoor?.conditions.pressureHpa),
     support: "low",
     divergenceRms: 0,
   };
 }
 
-function buildGrid(input: BuildGridInput): SolverGrid | null {
+function buildGrid(rawInput: BuildGridInput): SolverGrid | null {
+  const input = effectiveGridInput(rawInput);
   const anchors = anchorsForFloor(input);
   if (anchors.length < MIN_TEMPERATURE_ANCHORS) return null;
   const { nx, ny, nz } = gridDimensions(input.floor);
   const size = nx * ny * nz;
   const evidence = emptyEvidence(input, anchors);
   const grid: SolverGrid = {
-    floor: input.floor, nx, ny, nz,
+    floor: input.floor, anchors, nx, ny, nz,
     fluid: new Uint8Array(size),
-    blockX: new Uint8Array(Math.max(1, (nx - 1) * ny)),
-    blockY: new Uint8Array(Math.max(1, nx * (ny - 1))),
+    blockX: new Uint8Array(Math.max(1, (nx - 1) * ny * nz)),
+    blockY: new Uint8Array(Math.max(1, nx * (ny - 1) * nz)),
     u: new Float64Array(size), v: new Float64Array(size), w: new Float64Array(size),
     support: new Float64Array(size), temperature: new Float64Array(size), humidity: new Float64Array(size), tracer: new Float64Array(size),
     tracerAvailable: false, maximumSpeed: 0, divergenceRms: 0, evidence,
@@ -590,10 +678,12 @@ function buildGrid(input: BuildGridInput): SolverGrid | null {
   solve(grid, anchors, input.outdoor);
   const supported = [...grid.support].filter((value) => value > 0);
   const averageCoverage = supported.length ? supported.reduce((sum, value) => sum + value, 0) / supported.length : 0;
+  const counterflow = naturalDoorCounterflow(grid);
   grid.evidence = {
     ...evidence,
     support: supportLevel(anchors.length, averageCoverage, evidence.humiditySensors / Math.max(1, anchors.length)),
     divergenceRms: grid.divergenceRms,
+    counterflowOpenings: counterflow.openings,
   };
   return grid;
 }
@@ -694,7 +784,7 @@ function trace2DDirection(grid: SolverGrid, seed: NormalizedPoint3D, direction: 
     if (next.x <= .015 || next.x >= .985 || next.y <= .015 || next.y >= .985 || !fluidAt(grid, next)) break;
     const fromWorld = { x: current.x * grid.floor.width, y: current.y * grid.floor.height };
     const toWorld = { x: next.x * grid.floor.width, y: next.y * grid.floor.height };
-    if (blockedByWall(grid.floor, fromWorld, toWorld)) break;
+    if (blockedByWall(grid.floor, fromWorld, toWorld, current.z * ceilingHeight(grid.floor))) break;
     points.push({ x: toWorld.x, y: toWorld.y, vertical: velocity.z / Math.max(FIELD_EPSILON, grid.maximumSpeed) });
     current = next;
   }
@@ -743,7 +833,7 @@ function trace3DDirection(grid: SolverGrid, seed: NormalizedPoint3D, direction: 
     if (next.x <= .015 || next.x >= .985 || next.y <= .015 || next.y >= .985 || next.z <= .025 || next.z >= .975 || !fluidAt(grid, next)) break;
     const fromWorld = { x: current.x * grid.floor.width, y: current.y * grid.floor.height };
     const toWorld = { x: next.x * grid.floor.width, y: next.y * grid.floor.height };
-    if (blockedByWall(grid.floor, fromWorld, toWorld)) break;
+    if (blockedByWall(grid.floor, fromWorld, toWorld, (current.z + next.z) * .5 * ceilingHeight(grid.floor))) break;
     points.push({ x: toWorld.x, y: toWorld.y, z: grid.floor.elevation + next.z * ceilingHeight(grid.floor) });
     current = next;
   }
@@ -780,9 +870,71 @@ function volumePaths(grid: SolverGrid, maximum: number): AirflowPath3D[] {
   }).slice(0, maximum);
 }
 
+function naturalDoorCounterflow(grid: SolverGrid): { paths: AirflowPath3D[]; openings: number } {
+  const floor = grid.floor;
+  const doors = (floor.planElements ?? []).filter((element): element is Extract<PlanElement, { kind: "door" }> => element.kind === "door" && openingIsActive(element));
+  const paths: AirflowPath3D[] = [];
+  let openings = 0;
+  for (const door of doors) {
+    const wall = floor.walls.find((candidate) => candidate.id === door.wallId);
+    if (!wall) continue;
+    const dx = wall.to.x - wall.from.x;
+    const dy = wall.to.y - wall.from.y;
+    const length = Math.hypot(dx, dy);
+    if (length <= FIELD_EPSILON) continue;
+    const normal = { x: -dy / length, y: dx / length };
+    const span = Math.max(floor.width, floor.height);
+    let sides: { a: Point; b: Point; roomA: Floor["rooms"][number]; roomB: Floor["rooms"][number] } | null = null;
+    for (const distance of [Math.max(elementWidth(door, floor) * .62, span * .015), span * .035, span * .065]) {
+      const a = { x: door.position.x + normal.x * distance, y: door.position.y + normal.y * distance };
+      const b = { x: door.position.x - normal.x * distance, y: door.position.y - normal.y * distance };
+      const roomA = floor.rooms.find((room) => room.points.length >= 3 && pointInPolygon(a, room.points));
+      const roomB = floor.rooms.find((room) => room.points.length >= 3 && pointInPolygon(b, room.points));
+      if (roomA && roomB && roomA.id !== roomB.id) {
+        sides = { a, b, roomA, roomB };
+        break;
+      }
+    }
+    if (!sides) continue;
+    const roomTemperature = (room: Floor["rooms"][number]) => {
+      const anchors = grid.anchors.filter((anchor) => pointInPolygon({ x: anchor.x * floor.width, y: anchor.y * floor.height }, room.points));
+      if (!anchors.length) return null;
+      const weight = anchors.reduce((sum, anchor) => sum + anchor.weight, 0);
+      return { value: anchors.reduce((sum, anchor) => sum + anchor.temperatureC * anchor.weight, 0) / Math.max(FIELD_EPSILON, weight), count: anchors.length };
+    };
+    const temperatureA = roomTemperature(sides.roomA);
+    const temperatureB = roomTemperature(sides.roomB);
+    if (!temperatureA || !temperatureB || Math.abs(temperatureA.value - temperatureB.value) < .15) continue;
+    const aIsWarmer = temperatureA.value > temperatureB.value;
+    const warm = aIsWarmer ? sides.a : sides.b;
+    const cool = aIsWarmer ? sides.b : sides.a;
+    const effective = configuredPlanElementOpeningState(door);
+    const bottom = planElementBottomOffset(floor, door);
+    const height = effectivePlanElementHeight(floor, door);
+    const lowerZ = floor.elevation + bottom + height * .16;
+    const upperZ = floor.elevation + bottom + height * .84;
+    const support = clamp(.35 + Math.min(temperatureA.count, temperatureB.count) * .16, .35, .82);
+    const relativeSpeed = clamp(Math.abs(temperatureA.value - temperatureB.value) / 4, .16, .86) * Math.sqrt(effective.openFraction);
+    const across = (from: Point, to: Point, z: number): AirflowPoint3D[] => [0, .25, .5, .75, 1].map((progress) => ({
+      x: from.x + (to.x - from.x) * progress,
+      y: from.y + (to.y - from.y) * progress,
+      z,
+    }));
+    paths.push({
+      id: `${floor.id}-${door.id}-counterflow-low`, floorId: floor.id,
+      points: across(cool, warm, lowerZ), relativeSpeed, support, hasVerticalComponent: false,
+    }, {
+      id: `${floor.id}-${door.id}-counterflow-high`, floorId: floor.id,
+      points: across(warm, cool, upperZ), relativeSpeed, support, hasVerticalComponent: false,
+    });
+    openings += 1;
+  }
+  return { paths, openings };
+}
+
 function mergeEvidence(items: AirflowEvidence[]): AirflowEvidence {
   if (!items.length) {
-    return { temperatureSensors: 0, humiditySensors: 0, tracerSensors: 0, windDriven: false, doorOpenings: 0, pressureAssumed: true, support: "low", divergenceRms: 0 };
+    return { temperatureSensors: 0, humiditySensors: 0, tracerSensors: 0, windDriven: false, doorOpenings: 0, windowOpenings: 0, ventOpenings: 0, counterflowOpenings: 0, pressureAssumed: true, support: "low", divergenceRms: 0 };
   }
   const supports: Record<AirflowDataSupport, number> = { low: 0, medium: 1, high: 2 };
   const averageSupport = items.reduce((sum, item) => sum + supports[item.support], 0) / items.length;
@@ -792,6 +944,9 @@ function mergeEvidence(items: AirflowEvidence[]): AirflowEvidence {
     tracerSensors: items.reduce((sum, item) => sum + item.tracerSensors, 0),
     windDriven: items.some((item) => item.windDriven),
     doorOpenings: items.reduce((sum, item) => sum + item.doorOpenings, 0),
+    windowOpenings: items.reduce((sum, item) => sum + item.windowOpenings, 0),
+    ventOpenings: items.reduce((sum, item) => sum + item.ventOpenings, 0),
+    counterflowOpenings: items.reduce((sum, item) => sum + item.counterflowOpenings, 0),
     pressureAssumed: items.some((item) => item.pressureAssumed),
     support: averageSupport >= 1.5 ? "high" : averageSupport >= .55 ? "medium" : "low",
     divergenceRms: items.reduce((sum, item) => sum + item.divergenceRms, 0) / items.length,
@@ -811,17 +966,24 @@ export function simulateBuildingAirflow(input: {
   samples: ClimateSampleMatrix;
   freshness: SpatialFreshnessOptions;
   outdoor?: OutdoorBoundaryContext | null;
+  openingStateObservations?: readonly OpeningStateObservation[];
 }, maximumPaths = 14): BuildingAirflowEstimate {
   const floors = input.house.floors.filter((floor) => input.sensors.some((sensor) => sensor.floorId === floor.id && sensor.enabled));
   const perFloor = Math.max(3, Math.ceil(Math.max(0, maximumPaths) / Math.max(1, floors.length)));
-  const grids = floors.flatMap((floor) => {
+  const floorResults = floors.map((floor) => {
     const gridInput: BuildGridInput = { floor, sensors: input.sensors, samples: input.samples, freshness: input.freshness };
     if (input.outdoor !== undefined) gridInput.outdoor = input.outdoor;
+    if (input.openingStateObservations !== undefined) gridInput.openingStateObservations = input.openingStateObservations;
     const grid = buildGrid(gridInput);
-    return grid ? [grid] : [];
+    return { grid, evidence: grid?.evidence ?? emptyEvidence(gridInput) };
   });
+  const grids = floorResults.flatMap(({ grid }) => grid ? [grid] : []);
+  const counterflowPaths = grids.flatMap((grid) => naturalDoorCounterflow(grid).paths)
+    .sort((a, b) => b.support - a.support)
+    .slice(0, Math.floor(Math.max(0, maximumPaths) / 2) * 2);
+  const solvedPaths = grids.flatMap((grid) => volumePaths(grid, perFloor)).sort((a, b) => b.support - a.support);
   return {
-    paths: grids.flatMap((grid) => volumePaths(grid, perFloor)).sort((a, b) => b.support - a.support).slice(0, maximumPaths),
-    evidence: mergeEvidence(grids.map((grid) => grid.evidence)),
+    paths: [...counterflowPaths, ...solvedPaths].slice(0, maximumPaths),
+    evidence: mergeEvidence(floorResults.map(({ evidence }) => evidence)),
   };
 }

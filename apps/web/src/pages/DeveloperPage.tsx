@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Braces, Check, Clipboard, Cloud, ExternalLink, Radio, ServerCog, ShieldCheck, TerminalSquare, TriangleAlert } from "lucide-react";
+import { Braces, Check, ChevronDown, Clipboard, ExternalLink, Radio, ServerCog, TerminalSquare, TriangleAlert } from "lucide-react";
 import { API_BASE, API_V2_BASE } from "../api";
 import { useI18n } from "../i18n";
 
@@ -10,8 +10,6 @@ export function DeveloperPage() {
   const origin = typeof window === "undefined" ? "http://localhost:8787" : window.location.origin;
   const absoluteBase = API_BASE.startsWith("http") ? API_BASE : `${origin}${API_BASE}`;
   const absoluteV2Base = API_V2_BASE.startsWith("http") ? API_V2_BASE : `${origin}${API_V2_BASE}`;
-  const hostedOpenApi = `${origin}/api/openapi.json`;
-  const hostedRoutes = `${origin}/api/hosted-routes.json`;
   const mcpCommand = "node apps/api/dist/mcp-server.js";
 
   useEffect(() => () => {
@@ -66,18 +64,9 @@ export function DeveloperPage() {
             <div><dt><Braces size={15} aria-hidden="true" />{t("developer.resources")}</dt><dd>{t("developer.resourceList")}</dd></div>
           </dl>
         </section>
-        <section className="panel developer-card hosted-developer-card" aria-labelledby="hosted-title">
-          <div className="developer-icon hosted" aria-hidden="true"><Cloud size={23} /></div>
-          <div><span className="eyebrow">{t("developer.hostedOnly")}</span><h2 id="hosted-title">{t("developer.hostedTitle")}</h2><p>{t("developer.hostedBody")}</p></div>
-          <p className="developer-boundary"><ShieldCheck size={17} aria-hidden="true" />{t("developer.hostedBoundary")}</p>
-          <dl className="endpoint-list">
-            <Endpoint label={t("developer.hostedOpenApi")} value={hostedOpenApi} icon={<Braces size={15} />} status={copyResult?.id === "hosted-openapi" ? copyResult.status : null} onCopy={() => copy("hosted-openapi", hostedOpenApi)} />
-            <Endpoint label={t("developer.hostedRoutes")} value={hostedRoutes} icon={<Braces size={15} />} status={copyResult?.id === "hosted-routes" ? copyResult.status : null} onCopy={() => copy("hosted-routes", hostedRoutes)} />
-          </dl>
-        </section>
       </div>
-      <section className="panel route-table" aria-labelledby="routes-title">
-        <div className="panel-header"><div><span className="eyebrow">{t("developer.localRuntime")} {"\u00b7"} /api/v1 {"\u00b7"} /api/v2</span><h2 id="routes-title">{t("developer.localRoutesTitle")}</h2></div></div>
+      <details className="panel route-table developer-route-disclosure">
+        <summary><span><span className="eyebrow">{t("developer.localRuntime")} {"\u00b7"} /api/v1 {"\u00b7"} /api/v2</span><strong id="routes-title">{t("developer.localRoutesTitle")}</strong><small>{t("developer.routeCount", { count: 11 })}</small></span><ChevronDown size={18} aria-hidden="true" /></summary>
         <div className="table-scroll" role="region" aria-labelledby="routes-title" tabIndex={0}><table><caption className="sr-only">{t("developer.routeTableCaption")}</caption><thead><tr><th>{t("developer.method")}</th><th>{t("developer.route")}</th><th>{t("developer.resource")}</th></tr></thead><tbody>
           <tr><td><code>GET</code></td><td><code>/houses</code></td><td>{t("developer.routeHouses")}</td></tr>
           <tr><td><code>GET</code></td><td><code>/snapshot?houseId=…</code></td><td>{t("developer.routeSnapshot")}</td></tr>
@@ -91,7 +80,7 @@ export function DeveloperPage() {
           <tr><td><code>GET v2</code></td><td><code>/measurements/forecast?sensorId=…&amp;metric=…&amp;hours=…</code></td><td>{t("developer.routeMeasurementForecast")}</td></tr>
           <tr><td><code>GET v2</code></td><td><code>/measurements/events</code></td><td>{t("developer.routeMeasurementEvents")}</td></tr>
         </tbody></table></div>
-      </section>
+      </details>
     </>
   );
 }
@@ -109,5 +98,5 @@ function Endpoint({ label, value, icon, status, onCopy }: { label: string; value
     statusIcon = <TriangleAlert size={15} aria-hidden="true" />;
   }
 
-  return <div><dt>{icon}{label}</dt><dd><input className="endpoint-value" aria-label={label} readOnly value={value} onFocus={(event) => event.currentTarget.select()} /><button type="button" className="icon-button small" onClick={onCopy} aria-label={`${t("developer.copy")}: ${label}`} title={statusText || undefined}>{statusIcon}</button><span className="sr-only" role="status">{statusText}</span></dd></div>;
+  return <div><dt>{icon}{label}</dt><dd><input className="endpoint-value" aria-label={label} readOnly value={value} onFocus={(event) => event.currentTarget.select()} /><button type="button" className="icon-button endpoint-copy-button" onClick={onCopy} aria-label={`${t("developer.copy")}: ${label}`} title={statusText || undefined}>{statusIcon}</button>{statusText && <span className={`endpoint-copy-status ${status}`} role="status">{statusText}</span>}</dd></div>;
 }

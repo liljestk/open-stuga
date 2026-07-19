@@ -214,11 +214,11 @@ describe("thermal simulation API and outdoor persistence", () => {
     runtime = createApi({ config, startBackground: false });
   });
 
-  afterEach(() => runtime.close());
+  afterEach(async () => { await runtime.close(); });
 
   it("exposes the product release independently from the API contract version", async () => {
     const response = await request(runtime.app).get("/api/v1/health").expect(200);
-    expect(response.body).toMatchObject({ status: "ok", systemVersion: "0.2.0", apiVersion: "v1" });
+    expect(response.body).toMatchObject({ status: "ok", systemVersion: "0.3.0", apiVersion: "v1" });
   });
 
   it("stores boundary samples idempotently and isolates changed locations", () => {
@@ -259,8 +259,8 @@ describe("thermal simulation API and outdoor persistence", () => {
       stationName: null,
     };
     runtime.database.upsertOutdoorTemperatureSample(old);
-    expect(runtime.database.purgeReadingsBefore("2026-01-01T00:00:00.000Z")).toBeGreaterThanOrEqual(1);
     runtime.database.upsertOutdoorTemperatureSample({ ...old, timestamp: "2026-07-14T10:00:00.000Z" });
+    expect(runtime.database.purgeReadingsBefore("2026-01-01T00:00:00.000Z")).toBeGreaterThanOrEqual(1);
     runtime.database.updateHouse("house-main", { location: null });
     expect(runtime.database.outdoorTemperatureHistory("house-main", key, "2025-01-01T00:00:00Z", "2027-01-01T00:00:00Z"))
       .toEqual([]);
@@ -318,7 +318,7 @@ describe("thermal simulation API and outdoor persistence", () => {
       .query({ sensorId: "sensor-01", horizonHours: 3, scenarioOutdoorTemperatureC: -15 })
       .expect(200);
     expect(response.body.simulation).toMatchObject({
-      systemVersion: "0.2.0",
+      systemVersion: "0.3.0",
       houseId: "house-main",
       sensorId: "sensor-01",
       horizonHours: 3,

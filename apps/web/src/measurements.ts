@@ -30,6 +30,21 @@ export const BUILTIN_MEASUREMENTS: MeasurementDefinition[] = [
     validMin: 0, validMax: 10_000, displayMin: 400, displayMax: 2_000, interpolationDelta: 50,
     colorScale: "air-quality", builtin: true, enabled: true, spatialInterpolation: true, forecastSupported: true,
   },
+  {
+    id: "power", labels: { en: "Power", fi: "Teho", sv: "Effekt" }, unit: "W", precision: 0,
+    validMin: 0, validMax: 10_000_000, displayMin: 0, displayMax: 10_000, interpolationDelta: 500,
+    colorScale: "sequential", builtin: true, enabled: true, spatialInterpolation: false, forecastSupported: false,
+  },
+  {
+    id: "energy", labels: { en: "Electricity consumption", fi: "Sähkönkulutus", sv: "Elförbrukning" }, unit: "kWh", precision: 2,
+    validMin: 0, validMax: 1_000_000_000, displayMin: 0, displayMax: 50, interpolationDelta: 1,
+    colorScale: "sequential", builtin: true, enabled: true, spatialInterpolation: false, forecastSupported: false,
+  },
+  {
+    id: "electricity_price", labels: { en: "Electricity price", fi: "Sähkön hinta", sv: "Elpris" }, unit: "€/kWh", precision: 3,
+    validMin: -10, validMax: 100, displayMin: -0.2, displayMax: 1, interpolationDelta: 0.05,
+    colorScale: "sequential", builtin: true, enabled: true, spatialInterpolation: false, forecastSupported: false,
+  },
 ];
 
 export function enabledDefinitions(definitions: MeasurementDefinition[]): MeasurementDefinition[] {
@@ -136,15 +151,28 @@ export function upsertLatest(latest: LatestMeasurements, samples: MeasurementSam
   return next;
 }
 
-export function appendHistory(history: MeasurementHistory, samples: MeasurementSample[], limit = 1_000): MeasurementHistory {
+export function appendHistory(history: MeasurementHistory, samples: MeasurementSample[], limit = 50_000): MeasurementHistory {
   const next = { ...history };
   for (const sample of samples) {
     const sensorHistory = { ...(next[sample.sensorId] ?? {}) };
     const existing = sensorHistory[sample.metric] ?? [];
-    const withoutDuplicate = existing.filter((item) => item.timestamp !== sample.timestamp);
-    sensorHistory[sample.metric] = [...withoutDuplicate, sample]
-      .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
-      .slice(-limit);
+    const last = existing.at(-1);
+    const sampleTime = Date.parse(sample.timestamp);
+    const lastTime = last ? Date.parse(last.timestamp) : Number.NEGATIVE_INFINITY;
+    if (!last || Number.isFinite(sampleTime) && Number.isFinite(lastTime) && sampleTime >= lastTime) {
+      const appended = last?.timestamp === sample.timestamp
+        ? [...existing.slice(0, -1), sample]
+        : [...existing, sample];
+      sensorHistory[sample.metric] = appended.slice(-limit);
+    } else {
+      // Historical imports and reconnects can legitimately arrive out of order.
+      // Keep that uncommon path correct while making ordered live telemetry O(n)
+      // (array copy only) instead of sorting the complete series per sample.
+      const withoutDuplicate = existing.filter((item) => item.timestamp !== sample.timestamp);
+      sensorHistory[sample.metric] = [...withoutDuplicate, sample]
+        .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+        .slice(-limit);
+    }
     next[sample.sensorId] = sensorHistory;
   }
   return next;
@@ -254,7 +282,14 @@ export function measurementGradient(definition: MeasurementDefinition): string {
 }
 
 export function defaultAlertThreshold(definition: MeasurementDefinition): number {
-  const builtinDefaults: Record<string, number> = { temperature: 20, humidity: 65, co2: 1_000 };
+  const builtinDefaults: Record<string, number> = {
+    temperature: 20,
+    humidity: 65,
+    co2: 1_000,
+    power: 5_000,
+    energy: 20,
+    electricity_price: 0.25,
+  };
   return builtinDefaults[definition.id]
     ?? (definition.displayMin != null && definition.displayMax != null
       ? (definition.displayMin + definition.displayMax) / 2

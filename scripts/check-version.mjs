@@ -17,7 +17,7 @@ const workspaceManifests = [
   "apps/web/package.json",
   "packages/contracts/package.json",
 ];
-const productManifests = [...workspaceManifests, "cloudflare/package.json"];
+const productManifests = workspaceManifests;
 const mismatches = productManifests.flatMap((path) => {
   const version = json(path).version;
   return version === expected ? [] : [`${path}: ${version}`];
@@ -41,15 +41,6 @@ if (lock.version !== expected || lock.packages?.[""]?.version !== expected) {
 for (const path of workspaceManifests) {
   const lockVersion = lock.packages?.[path.replace("/package.json", "")]?.version;
   if (lockVersion !== expected) mismatches.push(`package-lock.json ${path}: ${lockVersion ?? "missing"}`);
-}
-const hostedLock = json("cloudflare/package-lock.json");
-if (hostedLock.version !== expected || hostedLock.packages?.[""]?.version !== expected) {
-  mismatches.push(`cloudflare/package-lock.json: ${hostedLock.version ?? "missing"}`);
-}
-const hostedRoutesSource = readFileSync(resolve(root, "cloudflare/src/routes.ts"), "utf8");
-const hostedOpenApiVersion = /title:\s*"(?:Open )?Stuga Hosted API"[\s\S]*?version:\s*"([^"]+)"/.exec(hostedRoutesSource)?.[1];
-if (hostedOpenApiVersion !== expected) {
-  mismatches.push(`cloudflare/src/routes.ts OpenAPI: ${hostedOpenApiVersion ?? "missing"}`);
 }
 const lockedWebContractsVersion = lock.packages?.["apps/web"]?.dependencies?.["@climate-twin/contracts"];
 if (lockedWebContractsVersion !== expected) {
@@ -88,5 +79,5 @@ if (mismatches.length) {
   process.exitCode = 1;
 } else {
   const bump = baseVersion ? ` and is newer than PR base ${baseVersion}` : "";
-  console.log(`Stuga version ${expected} is consistent across local and hosted runtime, package metadata, and changelog${bump}.`);
+  console.log(`Stuga version ${expected} is consistent across the local runtime, package metadata, and changelog${bump}.`);
 }

@@ -1,63 +1,18 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { OutdoorConditions, UnitSystem } from "@climate-twin/contracts";
+import { useI18n, type Locale, type TranslationKey } from "../i18n";
 
 export const FORECAST_WINDOW_HOURS = 12;
 export const MAX_FORECAST_HOURS = 48;
 
 export type ForecastHorizonHours = 12 | 24 | 36 | 48;
 
-interface ForecastWindowCopy {
-  navigationLabel: string;
-  windowLabels: readonly [string, string, string, string];
-  windowRange: string;
-  tableCaption: string;
-  mobileListLabel: string;
-  noPoints: string;
-  time: string;
-  temperature: string;
-  precipitation: string;
-  wind: string;
-  humidity: string;
-  cloudCover: string;
-  gust: string;
-}
-
-const copyByLocale: Record<"en" | "fi", ForecastWindowCopy> = {
-  en: {
-    navigationLabel: "Forecast time window",
-    windowLabels: ["Next 12h", "+12–24h", "+24–36h", "+36–48h"],
-    windowRange: "Displayed window",
-    tableCaption: "Hourly forecast for {house}, {window}",
-    mobileListLabel: "Hourly forecast cards for {house}, {window}",
-    noPoints: "No forecast points are available in this 12-hour window.",
-    time: "Local time",
-    temperature: "Temperature",
-    precipitation: "Precipitation",
-    wind: "Wind",
-    humidity: "Humidity",
-    cloudCover: "Cloud cover",
-    gust: "gust {value}",
-  },
-  fi: {
-    navigationLabel: "Ennusteen aikajakso",
-    windowLabels: ["Seuraavat 12 h", "+12–24 h", "+24–36 h", "+36–48 h"],
-    windowRange: "Näytettävä aikajakso",
-    tableCaption: "Tuntiennuste kohteelle {house}, {window}",
-    mobileListLabel: "Tuntiennustekortit kohteelle {house}, {window}",
-    noPoints: "Tälle 12 tunnin jaksolle ei ole ennustepisteitä.",
-    time: "Paikallinen aika",
-    temperature: "Lämpötila",
-    precipitation: "Sademäärä",
-    wind: "Tuuli",
-    humidity: "Ilmankosteus",
-    cloudCover: "Pilvisyys",
-    gust: "puuska {value}",
-  },
-};
-
-function interpolate(template: string, values: Record<string, string>): string {
-  return Object.entries(values).reduce((result, [key, value]) => result.replaceAll(`{${key}}`, value), template);
-}
+export const FORECAST_WINDOW_LABEL_KEYS = [
+  "forecast.window.next12",
+  "forecast.window.12to24",
+  "forecast.window.24to36",
+  "forecast.window.36to48",
+] as const satisfies readonly TranslationKey[];
 
 function finite(value: number | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -131,7 +86,7 @@ export interface ForecastWindow {
 export function buildForecastWindows(
   points: readonly OutdoorConditions[],
   horizonHours: ForecastHorizonHours = MAX_FORECAST_HOURS,
-  locale: "en" | "fi" = "en",
+  windowLabels: readonly string[],
 ): ForecastWindow[] {
   const validPoints = points
     .flatMap((point) => {
@@ -141,7 +96,7 @@ export function buildForecastWindows(
     .sort((left, right) => left.timestamp - right.timestamp);
   const configuredCount = Math.max(1, Math.min(4, Math.ceil(horizonHours / FORECAST_WINDOW_HOURS)));
   if (validPoints.length === 0) {
-    return [{ index: 0, label: copyByLocale[locale].windowLabels[0], start: 0, end: 0, points: [] }];
+    return [{ index: 0, label: windowLabels[0] ?? "", start: 0, end: 0, points: [] }];
   }
 
   const anchor = validPoints[0]!.timestamp;
@@ -155,7 +110,7 @@ export function buildForecastWindows(
     const end = start + windowMs;
     return {
       index,
-      label: copyByLocale[locale].windowLabels[index] ?? copyByLocale[locale].windowLabels[0],
+      label: windowLabels[index] ?? windowLabels[0] ?? "",
       start,
       end,
       points: validPoints
@@ -171,7 +126,7 @@ export interface ForecastWindowNavigatorProps {
   houseId: string;
   timeZone: string;
   units: UnitSystem;
-  locale: "en" | "fi";
+  locale: Locale;
   horizonHours?: ForecastHorizonHours;
 }
 
@@ -184,13 +139,14 @@ export function ForecastWindowNavigator({
   locale,
   horizonHours = MAX_FORECAST_HOURS,
 }: ForecastWindowNavigatorProps) {
-  const copy = copyByLocale[locale];
+  const { t } = useI18n();
   const id = useId().replaceAll(":", "");
   const [selectedWindow, setSelectedWindow] = useState(0);
   const tabs = useRef<Array<HTMLButtonElement | null>>([]);
+  const windowLabels = useMemo(() => FORECAST_WINDOW_LABEL_KEYS.map((key) => t(key)), [t]);
   const windows = useMemo(
-    () => buildForecastWindows(points, horizonHours, locale),
-    [horizonHours, locale, points],
+    () => buildForecastWindows(points, horizonHours, windowLabels),
+    [horizonHours, points, windowLabels],
   );
   const activeIndex = Math.min(selectedWindow, windows.length - 1);
   const activeWindow = windows[activeIndex]!;
@@ -228,20 +184,20 @@ export function ForecastWindowNavigator({
   const range = activeWindow.start
     ? `${formatZonedForecastTime(new Date(activeWindow.start).toISOString(), locale, timeZone)} – ${formatZonedForecastTime(new Date(activeWindow.end).toISOString(), locale, timeZone)}`
     : activeWindow.label;
-  const caption = interpolate(copy.tableCaption, { house: houseName, window: activeWindow.label });
-  const mobileLabel = interpolate(copy.mobileListLabel, { house: houseName, window: activeWindow.label });
+  const caption = t("forecast.tableCaption", { house: houseName, window: activeWindow.label });
+  const mobileLabel = t("forecast.mobileListLabel", { house: houseName, window: activeWindow.label });
 
   return (
     <section className="outdoor-forecast-navigator" aria-labelledby={`${id}-forecast-title`}>
       <div className="outdoor-forecast-heading">
         <div>
           <span>{horizonHours} h</span>
-          <h2 id={`${id}-forecast-title`}>{locale === "fi" ? "Tuntiennuste" : "Hourly forecast"}</h2>
+          <h2 id={`${id}-forecast-title`}>{t("forecast.title")}</h2>
         </div>
-        <p><strong>{copy.windowRange}:</strong> {range}</p>
+        <p><strong>{t("forecast.windowRange")}:</strong> {range}</p>
       </div>
 
-      <div className="outdoor-forecast-tabs" role="tablist" aria-label={copy.navigationLabel}>
+      <div className="outdoor-forecast-tabs" role="tablist" aria-label={t("forecast.navigationLabel")}>
         {windows.map((window, index) => (
           <button
             key={window.index}
@@ -269,7 +225,7 @@ export function ForecastWindowNavigator({
         tabIndex={0}
       >
         {activeWindow.points.length === 0 ? (
-          <p className="outdoor-weather-empty">{copy.noPoints}</p>
+          <p className="outdoor-weather-empty">{t("forecast.noPoints")}</p>
         ) : (
           <>
             <div className="outdoor-forecast-table-scroll">
@@ -277,12 +233,12 @@ export function ForecastWindowNavigator({
                 <caption>{caption}</caption>
                 <thead>
                   <tr>
-                    <th scope="col">{copy.time}</th>
-                    <th scope="col">{copy.temperature}</th>
-                    <th scope="col">{copy.precipitation}</th>
-                    <th scope="col">{copy.wind}</th>
-                    <th scope="col">{copy.humidity}</th>
-                    <th scope="col">{copy.cloudCover}</th>
+                    <th scope="col">{t("forecast.time")}</th>
+                    <th scope="col">{t("forecast.temperature")}</th>
+                    <th scope="col">{t("forecast.precipitation")}</th>
+                    <th scope="col">{t("forecast.wind")}</th>
+                    <th scope="col">{t("forecast.humidity")}</th>
+                    <th scope="col">{t("forecast.cloudCover")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -296,7 +252,7 @@ export function ForecastWindowNavigator({
                       </td>
                       <td>
                         {formatWeatherWind(point.windSpeedMps, units, locale)}
-                        {finite(point.windGustMps) && <small>{interpolate(copy.gust, { value: formatWeatherWind(point.windGustMps, units, locale) })}</small>}
+                        {finite(point.windGustMps) && <small>{t("forecast.gust", { value: formatWeatherWind(point.windGustMps, units, locale) })}</small>}
                       </td>
                       <td>{formatWeatherPercent(point.relativeHumidityPercent, locale)}</td>
                       <td>{formatWeatherPercent(point.cloudCoverPercent, locale)}</td>
@@ -312,10 +268,10 @@ export function ForecastWindowNavigator({
                   <time dateTime={point.timestamp}>{formatZonedForecastTime(point.timestamp, locale, timeZone)}</time>
                   <strong>{formatWeatherTemperature(point.temperatureC, units, locale)}</strong>
                   <dl>
-                    <div><dt>{copy.precipitation}</dt><dd>{formatWeatherPrecipitation(point.precipitation1hMm ?? point.precipitationIntensityMmPerHour, units, locale)}</dd></div>
-                    <div><dt>{copy.wind}</dt><dd>{formatWeatherWind(point.windSpeedMps, units, locale)}</dd></div>
-                    <div><dt>{copy.humidity}</dt><dd>{formatWeatherPercent(point.relativeHumidityPercent, locale)}</dd></div>
-                    <div><dt>{copy.cloudCover}</dt><dd>{formatWeatherPercent(point.cloudCoverPercent, locale)}</dd></div>
+                    <div><dt>{t("forecast.precipitation")}</dt><dd>{formatWeatherPrecipitation(point.precipitation1hMm ?? point.precipitationIntensityMmPerHour, units, locale)}</dd></div>
+                    <div><dt>{t("forecast.wind")}</dt><dd>{formatWeatherWind(point.windSpeedMps, units, locale)}</dd></div>
+                    <div><dt>{t("forecast.humidity")}</dt><dd>{formatWeatherPercent(point.relativeHumidityPercent, locale)}</dd></div>
+                    <div><dt>{t("forecast.cloudCover")}</dt><dd>{formatWeatherPercent(point.cloudCoverPercent, locale)}</dd></div>
                   </dl>
                 </li>
               ))}

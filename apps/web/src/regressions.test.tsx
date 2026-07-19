@@ -44,9 +44,43 @@ function ControlledFloorPlan({
   );
 }
 
+async function openFloorAddTools(user: ReturnType<typeof userEvent.setup>) {
+  const summary = screen.getByText("Add", { selector: "summary" });
+  await user.click(summary);
+  await waitFor(() => expect(summary.closest("details")?.open).toBe(true));
+}
+
+async function openFloorEditorOptions(user: ReturnType<typeof userEvent.setup>) {
+  const summary = screen.getByText("Editor options", { selector: "summary" });
+  await user.click(summary);
+  await waitFor(() => expect(summary.closest("details")?.open).toBe(true));
+}
+
 describe("frontend regressions", () => {
   it("keeps translation source free of common mojibake markers", () => {
     expect(i18nSource).not.toMatch(/â€¦|Ã|Â°|â€“|â€”|â€™|â€œ|â€|Â·/);
+  });
+
+  it("shows the distinct demo shell only after the environment is confirmed", () => {
+    const shell = (dataMode: "demo" | "real" | "unknown") => withI18n(
+      <AppShell page="twin" onPage={vi.fn()} connection="offline" units="metric" onUnits={vi.fn()} lastUpdated={null} dataMode={dataMode}>
+        <p>Content</p>
+      </AppShell>,
+    );
+    const view = render(shell("unknown"));
+    const appShell = view.container.querySelector(".app-shell")!;
+    expect(appShell.classList.contains("neutral-mode")).toBe(true);
+    expect(appShell.classList.contains("demo-mode")).toBe(false);
+    expect(appShell.getAttribute("data-environment")).toBe("unknown");
+    expect(view.container.querySelector(".demo-banner")).toBeNull();
+
+    view.rerender(shell("demo"));
+    expect(appShell.classList.contains("demo-mode")).toBe(true);
+    expect(view.container.querySelector(".demo-banner")?.textContent).toMatch(/Demo data.*generated sample data/i);
+
+    view.rerender(shell("real"));
+    expect(appShell.classList.contains("real-mode")).toBe(true);
+    expect(view.container.querySelector(".demo-banner")).toBeNull();
   });
 
   it("keeps an in-progress temperature threshold stable when units change", async () => {
@@ -54,7 +88,7 @@ describe("frontend regressions", () => {
     const state = createDemoState();
     const onCreateRule = vi.fn().mockResolvedValue(undefined);
     const view = render(withI18n(
-      <AlertsPage state={state} units="metric" onCreateRule={onCreateRule} onAcknowledge={vi.fn()} />,
+      <AlertsPage state={state} units="metric" onCreateRule={onCreateRule} onUpdateRule={vi.fn()} onAcknowledge={vi.fn()} />,
     ));
 
     await user.click(screen.getByRole("button", { name: "New rule" }));
@@ -66,7 +100,7 @@ describe("frontend regressions", () => {
     await user.type(threshold, "23.5");
 
     view.rerender(withI18n(
-      <AlertsPage state={state} units="imperial" onCreateRule={onCreateRule} onAcknowledge={vi.fn()} />,
+      <AlertsPage state={state} units="imperial" onCreateRule={onCreateRule} onUpdateRule={vi.fn()} onAcknowledge={vi.fn()} />,
     ));
     expect(Number((screen.getByLabelText(/^Threshold/) as HTMLInputElement).value)).toBeCloseTo(74.3, 5);
 
@@ -77,12 +111,14 @@ describe("frontend regressions", () => {
     expect(submitted.threshold).toBeCloseTo(23.5, 5);
   });
 
-  it("exposes alert-rule severity as text in the rules list", () => {
+  it("exposes alert-rule severity as text in the disclosed rules list", async () => {
+    const user = userEvent.setup();
     render(withI18n(
-      <AlertsPage state={createDemoState()} units="metric" onCreateRule={vi.fn()} onAcknowledge={vi.fn()} />,
+      <AlertsPage state={createDemoState()} units="metric" onCreateRule={vi.fn()} onUpdateRule={vi.fn()} onAcknowledge={vi.fn()} />,
     ));
 
-    const rules = screen.getByRole("heading", { name: "Rules" }).closest("section");
+    await user.click(screen.getByText("Rules", { selector: ".alerts-rule-admin > summary strong" }));
+    const rules = document.querySelector<HTMLElement>(".alerts-rule-admin");
     expect(rules).not.toBeNull();
     expect(within(rules!).getByText(/Warning/)).not.toBeNull();
   });
@@ -102,7 +138,7 @@ describe("frontend regressions", () => {
 
     try {
       const view = render(withI18n(
-        <AppShell page="twin" onPage={vi.fn()} connection="offline" units="metric" onUnits={vi.fn()} lastUpdated={null}>
+        <AppShell page="twin" onPage={vi.fn()} connection="offline" units="metric" onUnits={vi.fn()} lastUpdated={null} dataMode="demo">
           <p>Content</p>
         </AppShell>,
       ));
@@ -160,7 +196,7 @@ describe("frontend regressions", () => {
 
     try {
       render(withI18n(
-        <AppShell page="twin" onPage={vi.fn()} connection="offline" units="metric" onUnits={vi.fn()} lastUpdated={null}>
+        <AppShell page="twin" onPage={vi.fn()} connection="offline" units="metric" onUnits={vi.fn()} lastUpdated={null} dataMode="demo">
           <p>Content</p>
         </AppShell>,
       ));
@@ -179,7 +215,7 @@ describe("frontend regressions", () => {
   it("lets desktop users hide, restore, and persist the primary navigation", async () => {
     const user = userEvent.setup();
     const renderShell = () => render(withI18n(
-      <AppShell page="twin" onPage={vi.fn()} connection="offline" units="metric" onUnits={vi.fn()} lastUpdated={null}>
+      <AppShell page="twin" onPage={vi.fn()} connection="offline" units="metric" onUnits={vi.fn()} lastUpdated={null} dataMode="demo">
         <p>Content</p>
       </AppShell>,
     ));
@@ -247,6 +283,7 @@ describe("frontend regressions", () => {
     expect(screen.getByRole("toolbar", { name: "Floor-plan editing tools" })).not.toBeNull();
     expect(screen.getByRole("button", { name: "Select & move" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("status").textContent).toMatch(/Select a room.*wall.*plan element.*drawing tool/i);
+    await openFloorAddTools(user);
     await user.click(screen.getByRole("button", { name: "Draw wall" }));
     expect(screen.getByRole("status").textContent).toMatch(/Choose a start point.*Enter.*Escape/i);
     const wallMap = screen.getByRole("group", { name: /Editing Ground floor/i });
@@ -267,7 +304,7 @@ describe("frontend regressions", () => {
     await user.keyboard("{Enter}{Enter}");
     expect(onFloorChange).toHaveBeenCalledOnce();
     await user.keyboard("{Escape}");
-    expect(screen.getByRole("button", { name: "Draw wall" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Draw wall", hidden: true }).getAttribute("aria-pressed")).toBe("true");
     await user.keyboard("{Escape}");
     expect(screen.getByRole("button", { name: "Select & move" }).getAttribute("aria-pressed")).toBe("true");
   });
@@ -287,6 +324,7 @@ describe("frontend regressions", () => {
       />,
     ));
 
+    await openFloorEditorOptions(user);
     expect(view.container.querySelector('[data-testid="floor-snap-grid"]')).not.toBeNull();
     expect(screen.getByRole("button", { name: "Snap to grid" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("combobox", { name: "Grid size" })).not.toBeNull();
@@ -348,10 +386,16 @@ describe("frontend regressions", () => {
     changed = onChange.mock.calls.at(-1)![0] as Floor;
     expect(changed.rooms.find((room) => room.id === floor.rooms[0]!.id)).toMatchObject({ name: "Family room", kind: "living" });
 
+    await openFloorEditorOptions(user);
+    expect((screen.getByRole("button", { name: "Delete room" }) as HTMLButtonElement).disabled).toBe(true);
+    const unassignedRoom = floor.rooms.find((room) => room.id !== floor.rooms[0]!.id)!;
+    await user.click(screen.getByRole("button", { name: `Room: ${unassignedRoom.name}` }));
     await user.click(screen.getByRole("button", { name: "Delete room" }));
     changed = onChange.mock.calls.at(-1)![0] as Floor;
-    expect(changed.rooms.some((room) => room.id === floor.rooms[0]!.id)).toBe(false);
+    expect(changed.rooms.some((room) => room.id === floor.rooms[0]!.id)).toBe(true);
+    expect(changed.rooms.some((room) => room.id === unassignedRoom.id)).toBe(false);
 
+    await openFloorAddTools(user);
     await user.click(screen.getByRole("button", { name: "Designate room" }));
     const map = screen.getByRole("group", { name: /Editing Ground floor/i });
     map.focus();
@@ -366,6 +410,47 @@ describe("frontend regressions", () => {
       expect(point.x / gridSize).toBeCloseTo(Math.round(point.x / gridSize), 8);
       expect(point.y / gridSize).toBeCloseTo(Math.round(point.y / gridSize), 8);
     }
+  });
+
+  it("adds enough room edit points to create an L-shaped room", async () => {
+    const user = userEvent.setup();
+    const state = createDemoState();
+    const definition = definitionFor(state.measurementDefinitions, "temperature");
+    const floor: Floor = {
+      id: "l-shaped-room", name: "L-shaped room", width: 100, height: 100, elevation: 0, walls: [],
+      rooms: [{ id: "room", name: "Test room", kind: "other", points: [{ x: 25, y: 25 }, { x: 50, y: 25 }, { x: 50, y: 50 }, { x: 25, y: 50 }] }],
+      planElements: [],
+    };
+    const onChange = vi.fn();
+    const view = render(withI18n(<ControlledFloorPlan initialFloor={floor} definition={definition} onChange={onChange} />));
+
+    await user.click(screen.getByRole("button", { name: "Room: Test room" }));
+    const rightEdge = screen.getByRole("button", { name: /Test room, add a corner between corners 2 and 3/i });
+    rightEdge.focus();
+    await user.keyboard("{Enter}");
+    expect(view.container.querySelectorAll(".room-vertex-handle")).toHaveLength(5);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /Test room, corner 3/i }));
+
+    await user.click(screen.getByRole("button", { name: /Test room, add a corner between corners 4 and 5/i }));
+    expect(view.container.querySelectorAll(".room-vertex-handle")).toHaveLength(6);
+    expect(view.container.querySelectorAll(".room-edge-handle")).toHaveLength(6);
+
+    const map = view.container.querySelector<SVGSVGElement>("svg.floor-plan")!;
+    Object.defineProperty(map, "getScreenCTM", { configurable: true, value: () => null });
+    Object.defineProperty(map, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 1000, width: 1000, height: 1000, toJSON: () => ({}) }),
+    });
+    const innerCorner = screen.getByRole("button", { name: /Test room, corner 4/i });
+    fireEvent(innerCorner, new MouseEvent("pointerdown", { bubbles: true, clientX: 500, clientY: 500 }));
+    fireEvent(innerCorner, new MouseEvent("pointermove", { bubbles: true, clientX: 375, clientY: 375 }));
+    fireEvent(innerCorner, new MouseEvent("pointerup", { bubbles: true, clientX: 375, clientY: 375 }));
+
+    const changed = onChange.mock.calls.at(-1)![0] as Floor;
+    expect(changed.rooms[0]!.points).toEqual([
+      { x: 25, y: 25 }, { x: 50, y: 25 }, { x: 50, y: 37.5 },
+      { x: 37.5, y: 37.5 }, { x: 37.5, y: 50 }, { x: 25, y: 50 },
+    ]);
   });
 
   it("rejects duplicate room names case-insensitively at commit", async () => {
@@ -425,13 +510,18 @@ describe("frontend regressions", () => {
     const onChange = vi.fn();
     render(withI18n(<ControlledFloorPlan initialFloor={floor} definition={definition} onChange={onChange} />));
 
+    await openFloorAddTools(user);
     const elementPicker = screen.getByRole("combobox", { name: "Element" });
     expect(within(elementPicker).getByRole("option", { name: "Door" })).not.toBeNull();
     expect(within(elementPicker).getByRole("option", { name: "Window" })).not.toBeNull();
     expect(within(elementPicker).getByRole("option", { name: "Fireplace" })).not.toBeNull();
     expect(within(elementPicker).getByRole("option", { name: "Vent" })).not.toBeNull();
+    await openFloorEditorOptions(user);
+    expect(screen.getByText("Add", { selector: "summary" }).closest("details")?.open).toBe(false);
     await user.selectOptions(screen.getByRole("combobox", { name: "Grid size" }), "coarse");
 
+    await openFloorAddTools(user);
+    expect(screen.getByText("Editor options", { selector: "summary" }).closest("details")?.open).toBe(false);
     await user.click(screen.getByRole("button", { name: "Place element" }));
     const map = screen.getByRole("group", { name: /Editing Symbols/i });
     map.focus();
@@ -440,6 +530,7 @@ describe("frontend regressions", () => {
     expect(changed.planElements).toHaveLength(1);
     expect(changed.planElements![0]).toMatchObject({ kind: "door", wallId: "center-wall", position: { y: 320 }, rotationDegrees: 0 });
     expect(changed.planElements![0]!.width).toBe(defaultPlanElementWidth(floor, "door"));
+    expect(changed.planElements![0]!.height).toBe(2.1);
 
     const widthInput = await screen.findByRole("spinbutton", { name: "Width" });
     expect(widthInput.getAttribute("min")).not.toBeNull();
@@ -447,6 +538,12 @@ describe("frontend regressions", () => {
     fireEvent.change(widthInput, { target: { value: "80" } });
     changed = onChange.mock.calls.at(-1)![0] as Floor;
     expect(changed.planElements![0]!.width).toBe(80);
+
+    const heightInput = await screen.findByRole("spinbutton", { name: "Height" });
+    expect(heightInput.getAttribute("max")).toBe("2.8");
+    fireEvent.change(heightInput, { target: { value: "2.3" } });
+    changed = onChange.mock.calls.at(-1)![0] as Floor;
+    expect(changed.planElements![0]!.height).toBe(2.3);
 
     await user.click(await screen.findByRole("button", { name: "Flip side" }));
     changed = onChange.mock.calls.at(-1)![0] as Floor;
@@ -465,10 +562,13 @@ describe("frontend regressions", () => {
     changed = onChange.mock.calls.at(-1)![0] as Floor;
     expect(changed.walls).toHaveLength(1);
     expect(changed.planElements).toHaveLength(1);
-    await user.click(screen.getByRole("button", { name: "Door 1" }));
+    await user.click(screen.getByRole("button", { name: "Door 1, Closed" }));
+    await openFloorEditorOptions(user);
     await user.click(screen.getByRole("button", { name: "Delete element" }));
 
-    await user.selectOptions(elementPicker, "fireplace");
+    await openFloorAddTools(user);
+    const fireplacePicker = screen.getByRole("combobox", { name: "Element" });
+    await user.selectOptions(fireplacePicker, "fireplace");
     await user.click(screen.getByRole("button", { name: "Place element" }));
     map.focus();
     await user.keyboard("{Enter}");
@@ -498,15 +598,17 @@ describe("frontend regressions", () => {
     changed = onChange.mock.calls.at(-1)![0] as Floor;
     expect(changed.planElements!.at(-1)!.rotationDegrees).toBe(0);
 
-    await user.selectOptions(elementPicker, "vent");
-    expect((elementPicker as HTMLSelectElement).value).toBe("vent");
+    await openFloorAddTools(user);
+    const ventPicker = screen.getByRole("combobox", { name: "Element" });
+    await user.selectOptions(ventPicker, "vent");
+    expect((ventPicker as HTMLSelectElement).value).toBe("vent");
     await user.click(screen.getByRole("button", { name: "Place element" }));
     map.focus();
     await user.keyboard("{Enter}");
     changed = onChange.mock.calls.at(-1)![0] as Floor;
     const vent = changed.planElements!.at(-1)!;
     expect(vent).toMatchObject({ kind: "vent", rotationDegrees: 0 });
-    const ventControl = screen.getByRole("button", { name: "Vent 2" });
+    const ventControl = screen.getByRole("button", { name: "Vent 2, Open" });
     await waitFor(() => expect(document.activeElement).toBe(ventControl));
     await user.click(screen.getByRole("button", { name: "Rotate right 90°" }));
     changed = onChange.mock.calls.at(-1)![0] as Floor;
@@ -529,6 +631,7 @@ describe("frontend regressions", () => {
     const onChange = vi.fn();
     render(withI18n(<ControlledFloorPlan initialFloor={floor} definition={definition} onChange={onChange} />));
 
+    await openFloorAddTools(user);
     await user.click(screen.getByRole("button", { name: "Place element" }));
     const map = screen.getByRole("group", { name: /Editing Short wall/i });
     map.focus();
@@ -624,6 +727,7 @@ describe("frontend regressions", () => {
         onObservationPoint={vi.fn()} onCancelObservationPlacement={vi.fn()}
       />,
     ));
+    fireEvent.click(screen.getByText("Editor options", { selector: "summary" }));
     const input = screen.getByLabelText("Upload floor plan");
 
     fireEvent.change(input, { target: { files: [new File(["<svg/>"] , "plan.svg", { type: "image/svg+xml" })] } });
@@ -635,7 +739,8 @@ describe("frontend regressions", () => {
     expect(onFloorChange).not.toHaveBeenCalled();
   });
 
-  it("uses group semantics for an interactive trend and has no clock-only live region", () => {
+  it("summarizes the trend without point tab stops and discloses exact data", async () => {
+    const user = userEvent.setup();
     const state = createDemoState();
     const sensor = state.sensors[0]!;
     const floor = state.houses[0]!.floors.find((item) => item.id === sensor.floorId)!;
@@ -659,7 +764,10 @@ describe("frontend regressions", () => {
     const chart = screen.getByRole("group", { name: /Temperature history and forecast for/i });
     expect(chart.tagName.toLowerCase()).toBe("svg");
     expect(screen.queryByRole("img", { name: /Temperature history and forecast for/i })).toBeNull();
-    expect(within(chart).getAllByRole("img").length).toBeGreaterThan(0);
+    expect(view.container.querySelectorAll(".chart-points [tabindex]")).toHaveLength(0);
+    expect(screen.queryByRole("table")).toBeNull();
+    await user.click(screen.getByText("Show exact data", { selector: "summary" }));
+    expect(screen.getByRole("table", { name: /Temperature history and forecast for/i })).not.toBeNull();
     expect(view.container.querySelector(".floor-plan-wrap [aria-live]")).toBeNull();
   });
 

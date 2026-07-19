@@ -8,11 +8,14 @@ import type {
   WeatherComponentCoverage,
   WeatherComponentStatus,
   WeatherComponentStatuses,
+  WeatherRecoveryStatus,
   WeatherStation,
   WeatherWarning,
   WeatherWarningSeverity,
 } from "@climate-twin/contracts";
 import { SYSTEM_VERSION } from "./version.js";
+
+type WeatherConnectionStatus = NonNullable<IntegrationStatus["weather"]["connections"]>[number];
 
 const FMI_WFS_URL = "https://opendata.fmi.fi/wfs";
 const FMI_WARNING_FEED = "https://alerts.fmi.fi/cap/feed/atom_en-GB.xml";
@@ -79,6 +82,30 @@ interface ParsedCapWarning {
 
 export interface WeatherProvider {
   fetch(houseId: string, location: HouseLocation, hours: number): Promise<HouseWeather>;
+  /** Historical observed/modelled conditions used only to repair a recorded outage window. */
+  fetchObservationHistory?(
+    houseId: string,
+    location: HouseLocation,
+    from: string,
+    to: string,
+  ): Promise<WeatherObservationHistory>;
+}
+
+export interface WeatherObservationHistory {
+  houseId: string;
+  location: HouseLocation;
+  provider: HouseWeather["provider"];
+  attribution: string;
+  fetchedAt: string;
+  station: WeatherStation | null;
+  observations: OutdoorConditions[];
+}
+
+export interface WeatherRecoveryLifecycle {
+  recordFailure(house: House, error: unknown, detectedAt: string): void;
+  recordSuccess(house: House, weather: HouseWeather): void;
+  status(house: House): WeatherRecoveryStatus;
+  invalidate?(houseId: string): void;
 }
 
 export class WeatherUnavailableError extends Error {
@@ -139,7 +166,9 @@ function asArray<T>(value: T | T[] | undefined): T[] {
 }
 
 function finiteNumber(value: unknown): number | null {
-  const parsed = Number(xmlText(value));
+  const text = xmlText(value);
+  if (text === null || text === "") return null;
+  const parsed = Number(text);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -367,6 +396,54 @@ export function currentObservation(
   };
 }
 
+/** Select one nearby station and retain its complete canonical time series. */
+export function historicalObservations(
+  series: FmiTimeSeries[],
+  houseLocation: HouseLocation,
+): { observations: OutdoorConditions[]; station: WeatherStation | null } {
+  const groups = new Map<string, FmiTimeSeries[]>();
+  for (const item of series) {
+    if (!item.location || item.values.length === 0) continue;
+    const key = item.location.id ?? `${item.location.latitude.toFixed(5)},${item.location.longitude.toFixed(5)}`;
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  const selected = [...groups.values()]
+    .map((items) => {
+      const location = items[0]?.location;
+      const temperatureCount = items
+        .filter((item) => item.parameter === "t2m")
+        .reduce((count, item) => count + item.values.length, 0);
+      return location && temperatureCount > 0
+        ? { items, location, distanceKm: haversineKm(houseLocation, location) }
+        : null;
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null)
+    .sort((left, right) => left.distanceKm - right.distanceKm)[0];
+  if (!selected) return { observations: [], station: null };
+
+  const byTimestamp = new Map<string, OutdoorConditions>();
+  for (const item of selected.items) {
+    for (const entry of item.values) {
+      const point = byTimestamp.get(entry.timestamp) ?? { timestamp: entry.timestamp };
+      applyObservationValue(point, item.parameter, entry.value);
+      byTimestamp.set(entry.timestamp, point);
+    }
+  }
+  const observations = [...byTimestamp.values()]
+    .filter((point) => point.temperatureC !== undefined)
+    .sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+  return {
+    observations,
+    station: {
+      id: selected.location.id,
+      name: selected.location.name,
+      latitude: selected.location.latitude,
+      longitude: selected.location.longitude,
+      distanceKm: Number(selected.distanceKm.toFixed(1)),
+    },
+  };
+}
+
 function parsePolygon(value: unknown): Array<[number, number]> {
   return (xmlText(value)?.split(/\s+/) ?? []).flatMap((pair) => {
     const [latitude, longitude] = pair.split(",").map(Number);
@@ -580,9 +657,7 @@ export class FmiWeatherProvider implements WeatherProvider {
     return `${FMI_WFS_URL}?${query}`;
   }
 
-  #observationUrl(location: HouseLocation, now: Date, radiusKm: number): string {
-    const start = new Date(now.getTime() - 3 * 3_600_000);
-    start.setUTCMinutes(0, 0, 0);
+  #observationUrl(location: HouseLocation, start: Date, end: Date, radiusKm: number): string {
     const latitudeRadius = radiusKm / 111;
     const longitudeRadius = Math.min(5, radiusKm / (111 * Math.max(0.15, Math.cos(location.latitude * Math.PI / 180))));
     const bbox = [
@@ -591,19 +666,53 @@ export class FmiWeatherProvider implements WeatherProvider {
     ].join(",") + ",EPSG:4326";
     const query = new URLSearchParams({
       service: "WFS", version: "2.0.0", request: "GetFeature", storedquery_id: OBSERVATION_QUERY,
-      bbox, maxlocations: "20", timestep: "10", starttime: start.toISOString(), endtime: now.toISOString(),
+      bbox, maxlocations: "20", timestep: "10", starttime: start.toISOString(), endtime: end.toISOString(),
       parameters: OBSERVATION_PARAMETERS.join(","),
     });
     return `${FMI_WFS_URL}?${query}`;
   }
 
   async #observations(location: HouseLocation, now: Date): Promise<ReturnType<typeof currentObservation>> {
+    const start = new Date(now.getTime() - 3 * 3_600_000);
+    start.setUTCMinutes(0, 0, 0);
     for (const radiusKm of [40, 120]) {
-      const xml = await this.#xml(this.#observationUrl(location, now, radiusKm), 8 * 1024 * 1024);
+      const xml = await this.#xml(this.#observationUrl(location, start, now, radiusKm), 8 * 1024 * 1024);
       const parsed = currentObservation(parseFmiTimeSeries(xml), location, now);
       if (parsed.current) return parsed;
     }
     throw new WeatherUnavailableError("No recent FMI observation station data was found nearby");
+  }
+
+  async fetchObservationHistory(
+    houseId: string,
+    location: HouseLocation,
+    from: string,
+    to: string,
+  ): Promise<WeatherObservationHistory> {
+    const start = new Date(from);
+    const end = new Date(to);
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end) {
+      throw new WeatherUnavailableError("The FMI observation backfill range is invalid");
+    }
+    if (end.getTime() - start.getTime() > 24 * 3_600_000) {
+      throw new WeatherUnavailableError("FMI observation backfill requests are limited to 24-hour chunks");
+    }
+    for (const radiusKm of [40, 120]) {
+      const xml = await this.#xml(this.#observationUrl(location, start, end, radiusKm), 16 * 1024 * 1024);
+      const parsed = historicalObservations(parseFmiTimeSeries(xml), location);
+      if (parsed.observations.length > 0) {
+        return {
+          houseId,
+          location,
+          provider: "fmi",
+          attribution: ATTRIBUTION,
+          fetchedAt: this.#now().toISOString(),
+          station: parsed.station,
+          observations: parsed.observations.filter((point) => point.timestamp >= from && point.timestamp <= to),
+        };
+      }
+    }
+    throw new WeatherUnavailableError("No FMI observations were available for the outage window");
   }
 
   async #warnings(location: HouseLocation): Promise<WeatherWarning[]> {
@@ -695,6 +804,7 @@ interface WeatherCacheEntry {
   houseId: string;
   cachedAt: number;
   expiresAt: number;
+  retryAt?: number;
   weather: HouseWeather;
 }
 
@@ -716,6 +826,7 @@ export class WeatherService {
     private readonly cacheTtlMs = 10 * 60_000,
     private readonly staleMaxAgeMs = DEFAULT_STALE_MAX_AGE_MS,
     private readonly maxCacheEntries = DEFAULT_MAX_CACHE_ENTRIES,
+    private readonly recovery?: WeatherRecoveryLifecycle,
   ) {}
 
   invalidate(houseId: string): void {
@@ -726,6 +837,13 @@ export class WeatherService {
     for (const [key, entry] of this.#inFlight) {
       if (entry.houseId === houseId) this.#inFlight.delete(key);
     }
+    this.recovery?.invalidate?.(houseId);
+    const connection = this.status.connections?.find((candidate) => candidate.houseId === houseId);
+    if (connection && (connection.lastSuccessAt !== null || connection.error !== null)) {
+      connection.lastSuccessAt = null;
+      connection.error = null;
+      this.onStatusChange();
+    }
   }
 
   async get(house: House, hours: number): Promise<HouseWeather> {
@@ -734,9 +852,9 @@ export class WeatherService {
     const generation = this.#generation(house.id);
     const now = Date.now();
     const cached = this.#cache.get(key);
-    if (cached && cached.expiresAt > now) {
+    if (cached && (cached.expiresAt > now || (cached.retryAt ?? 0) > now)) {
       this.#touch(key, cached);
-      return this.#forCurrentTime(cached.weather, now, false);
+      return this.#withRecovery(house, this.#forCurrentTime(cached.weather, now, cached.expiresAt <= now));
     }
     const pending = this.#inFlight.get(key);
     if (pending?.generation === generation) return pending.promise;
@@ -759,30 +877,63 @@ export class WeatherService {
     try {
       const fetched = await this.provider.fetch(house.id, house.location as HouseLocation, hours);
       this.#assertCurrent(house.id, generation);
+      this.recovery?.recordSuccess(house, fetched);
       const cachedAt = Date.now();
-      const weather = this.#forCurrentTime(fetched, cachedAt, false);
+      const weather = this.#withRecovery(house, this.#forCurrentTime(fetched, cachedAt, false));
       this.#touch(key, { houseId: house.id, cachedAt, weather, expiresAt: cachedAt + this.cacheTtlMs });
       this.#trimCache();
       this.status.provider = weather.provider;
       this.status.lastSuccessAt = weather.fetchedAt;
       this.status.error = null;
+      const connection = this.#connectionStatus(house);
+      connection.provider = weather.provider;
+      connection.lastSuccessAt = weather.fetchedAt;
+      connection.error = null;
       this.onStatusChange();
       return weather;
     } catch (error) {
       this.#assertCurrent(house.id, generation);
       if (error instanceof WeatherRequestSupersededError) throw error;
+      try {
+        this.recovery?.recordFailure(house, error, new Date(Date.now()).toISOString());
+      } catch {
+        // Outage bookkeeping must never replace the provider error seen by the caller.
+      }
       this.status.error = error instanceof Error ? error.message : "Weather provider request failed";
+      const connection = this.#connectionStatus(house);
+      connection.error = this.status.error;
       this.onStatusChange();
       const now = Date.now();
       if (cached && now - cached.cachedAt <= this.staleMaxAgeMs) {
         const weather = this.#forCurrentTime(cached.weather, now, true);
         cached.weather = this.#forCurrentTime(cached.weather, now, false);
+        // Keep the original freshness timestamp while preventing every caller
+        // from hammering an unavailable provider during the stale fallback.
+        cached.retryAt = now + Math.min(this.cacheTtlMs, 60_000);
         this.#touch(key, cached);
-        return weather;
+        return this.#withRecovery(house, weather);
       }
       if (cached) this.#cache.delete(key);
       throw error;
     }
+  }
+
+  #connectionStatus(house: House): WeatherConnectionStatus {
+    const connections = this.status.connections ?? (this.status.connections = []);
+    let connection = connections.find((candidate) => candidate.houseId === house.id);
+    if (!connection) {
+      connection = {
+        houseId: house.id,
+        configured: house.location !== undefined,
+        provider: this.status.provider,
+        lastSuccessAt: null,
+        error: null,
+      };
+      connections.push(connection);
+    } else {
+      connection.configured = house.location !== undefined;
+    }
+    return connection;
   }
 
   #forCurrentTime(weather: HouseWeather, nowMs: number, stale: boolean): HouseWeather {
@@ -811,6 +962,15 @@ export class WeatherService {
       return weather;
     }
     return { ...weather, stale, forecast, warnings, ...(statuses ? { componentStatus: statuses } : {}) };
+  }
+
+  recoveryStatus(house: House): WeatherRecoveryStatus | null {
+    return this.recovery?.status(house) ?? null;
+  }
+
+  #withRecovery(house: House, weather: HouseWeather): HouseWeather {
+    const recovery = this.recovery?.status(house);
+    return recovery ? { ...weather, recovery } : weather;
   }
 
   #generation(houseId: string): number {

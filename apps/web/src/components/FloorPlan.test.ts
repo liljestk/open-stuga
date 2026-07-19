@@ -2,12 +2,19 @@ import { describe, expect, it } from "vitest";
 import type { MeasurementDefinition, MeasurementSample, Sensor } from "@climate-twin/contracts";
 import { BUILTIN_MEASUREMENTS } from "../measurements";
 import {
+  clampPlanElementHeight,
+  defaultPlanElementHeight,
+  planElementBottomOffset,
+  planElementHeightBounds,
+} from "../planElementGeometry";
+import {
   clampPlanElementWidth,
   defaultFloorGridSize,
   defaultPlanElementWidth,
   floorGridSize,
   floorRenderScale,
   interpolateHeat,
+  insertRoomVertex,
   isValidRoomPolygon,
   nearestWallOpeningPlacement,
   nearestWallPlacement,
@@ -106,11 +113,37 @@ describe("floor-plan grid", () => {
     expect(clampPlanElementWidth(floor, "door", 100)).toBe(bounds.max);
   });
 
+  it("resolves stable metre-based heights for legacy elements and keeps them inside the ceiling", () => {
+    const floor = { width: 14, height: 10, elevation: 0, ceilingHeight: 2.8, walls: [], rooms: [] };
+    expect(defaultPlanElementHeight(floor, "door")).toBe(2.1);
+    expect(defaultPlanElementHeight(floor, "window")).toBe(1.2);
+    expect(defaultPlanElementHeight(floor, "fireplace")).toBe(1.25);
+    const doorBounds = planElementHeightBounds(floor, "door");
+    expect(clampPlanElementHeight(floor, "door", 99)).toBe(doorBounds.max);
+    expect(clampPlanElementHeight(floor, "door", 0)).toBe(doorBounds.min);
+    expect(planElementBottomOffset(floor, {
+      id: "legacy-window", kind: "window", wallId: "north", position: { x: 2, y: 0 }, rotationDegrees: 0,
+    })).toBeCloseTo(.9);
+  });
+
   it("rejects collapsed and self-intersecting room polygons", () => {
     expect(isValidRoomPolygon([{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 3 }, { x: 0, y: 3 }])).toBe(true);
     expect(isValidRoomPolygon([{ x: 0, y: 0 }, { x: 4, y: 3 }, { x: 0, y: 3 }, { x: 4, y: 0 }])).toBe(false);
     expect(isValidRoomPolygon([{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 4, y: 0 }])).toBe(false);
     expect(isValidRoomPolygon([{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 3 }, { x: 0, y: 0 }])).toBe(false);
+  });
+
+  it("inserts ordered edit points that can form a valid six-corner L-shaped room", () => {
+    let points = roomRectanglePoints({ x: 0, y: 0 }, { x: 10, y: 10 });
+    points = insertRoomVertex(points, 1);
+    points = insertRoomVertex(points, 3);
+    points[3] = { x: 5, y: 5 };
+
+    expect(points).toEqual([
+      { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 5 },
+      { x: 5, y: 5 }, { x: 5, y: 10 }, { x: 0, y: 10 },
+    ]);
+    expect(isValidRoomPolygon(points)).toBe(true);
   });
 
   it("projects openings to the closest wall and preserves its angle", () => {

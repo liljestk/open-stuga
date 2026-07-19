@@ -88,9 +88,19 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
 
   if (!outdoor.hasLocation) return null;
 
+  const outsideWind = context
+    ? formatOutdoorWindSpeed(context.conditions.windSpeedMps, units, locale)
+    : null;
+  const direction = context?.windFromDegrees === null || context?.windFromDegrees === undefined || context.windFromCardinal === null
+    ? null
+    : `${t(cardinalKey(context.windFromCardinal))} · ${decimal(context.windFromDegrees, locale, 0)}°`;
+  const collapsedWindSummary = outdoor.replayActive
+    ? ""
+    : [outsideWind, direction].filter(Boolean).join(" · ");
+
   if (collapsed) {
     return (
-      <aside className="outdoor-context-card collapsed" aria-label={`${t("outdoor.title")}. ${t("outdoor.collapsed")}`}>
+      <aside className="outdoor-context-card collapsed" aria-label={[t("outdoor.title"), t("outdoor.collapsed"), collapsedWindSummary].filter(Boolean).join(". ")}>
         <button
           type="button"
           className="outdoor-context-toggle"
@@ -100,7 +110,10 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
           onClick={() => setPanelCollapsed(false)}
         >
           <Eye size={15} aria-hidden="true" />
-          <strong>{t("outdoor.title")}</strong>
+          <span className="outdoor-collapsed-copy">
+            <strong>{t("outdoor.title")}</strong>
+            {collapsedWindSummary && <small className="outdoor-collapsed-wind"><Wind size={13} aria-hidden="true" />{collapsedWindSummary}</small>}
+          </span>
         </button>
       </aside>
     );
@@ -153,7 +166,6 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
 
   const outsideTemperature = formatOutdoorTemperature(context.conditions.temperatureC, units, locale);
   const outsideHumidity = formatOutdoorHumidity(context.conditions.relativeHumidityPercent, locale);
-  const outsideWind = formatOutdoorWindSpeed(context.conditions.windSpeedMps, units, locale);
   const outsideGust = formatOutdoorWindSpeed(context.conditions.windGustMps, units, locale);
   const temperatureColor = outdoor.conditionColors?.temperature;
   const humidityColor = outdoor.conditionColors?.humidity;
@@ -163,9 +175,6 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
   const humidityStyle = humidityColor
     ? ({ "--outdoor-condition-color": humidityColor } as CSSProperties)
     : undefined;
-  const direction = context.windFromDegrees === null || context.windFromCardinal === null
-    ? null
-    : `${t(cardinalKey(context.windFromCardinal))} · ${decimal(context.windFromDegrees, locale, 0)}°`;
   const windwardSide = context.windwardEdge ? t(edgeKey(context.windwardEdge)) : null;
   const orientationKnown = outdoor.orientationDegrees !== undefined;
   const accessibleSummary = [

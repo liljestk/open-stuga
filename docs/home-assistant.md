@@ -78,6 +78,7 @@ sensor.living_room_window_temperature
 sensor.living_room_window_humidity
 sensor.living_room_window_battery
 sensor.living_room_co2
+binary_sensor.living_room_window
 ```
 
 Confirm the entity's unit and device class. Every measurement must have a finite
@@ -87,15 +88,33 @@ battery a percentage entity. Stuga maps by entity ID; it does not guess
 by friendly name.
 
 The bridge reads Home Assistant's `unit_of_measurement` attribute. Temperature
-in Fahrenheit or Kelvin is normalized to canonical Celsius. CO2 is stored in
-ppm; ppb can be converted to ppm, but a mass concentration such as mg/m³ is not
-converted because that requires environmental and substance assumptions. Other
-custom metric units must exactly match their registry definition unless the map
-contains an explicit linear conversion. Unsupported units and non-finite values
-are rejected. Still confirm each entity's device class and unit in **Developer
-tools -> States** so mapping mistakes are visible before enabling automations.
+in Fahrenheit or Kelvin is normalized to canonical Celsius. Simple string
+bindings for built-in electricity metrics safely normalize W/kW to W,
+Wh/kWh/MWh to cumulative kWh, and €/kWh, EUR/kWh, c/ct/kWh, €/MWh, or EUR/MWh
+to €/kWh. CO2 is stored in ppm; ppb can be converted to ppm, but a mass
+concentration such as mg/m³ is not converted because that requires
+environmental and substance assumptions. Other custom metric units must exactly
+match their registry definition unless the map contains an explicit linear
+conversion. Unsupported units and non-finite values are rejected. Still confirm
+each entity's device class and unit in **Developer tools -> States** so mapping
+mistakes are visible before enabling automations.
 Current mapped states are fetched at startup and after reconnect; historical
 events missed during an outage are not backfilled.
+
+Binary contact entities can also drive a modelled door, window, or vent. Add or
+select the opening in either the 2D or 3D Home editor, expand **Advanced**, set
+**Contact-state source** to **Home Assistant**, and paste the exact
+`binary_sensor.*` entity id. Home Assistant `on`/`open` becomes open,
+`off`/`closed` becomes closed, and `unknown`/`unavailable` falls back to the
+opening's configured state. Invert the polarity when the installed contact uses
+the opposite convention. The default freshness window is 15 minutes and can be
+changed per opening.
+
+Opening bindings are stored with the Home layout, not in the legacy climate
+entity-map file. Leave the connection id blank for the Home's normal single
+Home Assistant connection. When specified, the Home Assistant connection id is
+the Home id; observations retain it so readings cannot survive a later binding
+move to a different connection.
 
 ## 4. Create the Stuga entity map
 
@@ -136,10 +155,25 @@ The map supports legacy climate keys and a generic `measurements` object:
 `sensorId` is required; all entity bindings are optional, but a row must contain
 at least one. The legacy `temperature`, `humidity`, and `battery` keys keep
 existing setups working. Keys in `measurements` are stable measurement IDs from
-`GET /api/v2/measurement-definitions`. Temperature bindings normalize
-Fahrenheit/Kelvin to Celsius. Every other generic string binding requires Home
-Assistant's unit to exactly match the registry's canonical unit. The object
-form may declare the expected source `unit` and an explicit
+`GET /api/v2/measurement-definitions`. Sensor bindings saved through Stuga are
+loaded from the database as well; this file overrides a persisted binding for
+the same sensor and metric while persisted bindings for its other metrics remain
+active. After validation, this legacy file map is also stored as a canonical,
+versioned, hash-verified JSON aggregate in core SQLite. Manager startup imports
+it even without legacy credentials or when only Home-scoped connections exist;
+those connections still never apply the global map. The file remains an explicit
+bootstrap, repair, or update whenever it exists. If it is later unavailable,
+the single legacy environment-backed bridge continues from the last verified
+SQLite copy. Semantic ordering changes do not create revisions. The database
+copy preserves object-form `unit`, `scale`, and `offset` values but not the
+source path, credentials, or unknown fields. Duplicate claims for one
+sensor/metric are rejected, and mappings for missing or disabled sensors are
+kept in the stored aggregate but excluded from active ingestion with a status
+diagnostic. Sensor create/update/delete operations refresh the running bridge.
+Temperature bindings normalize Fahrenheit/Kelvin to Celsius. Generic string
+bindings otherwise require Home Assistant's unit to exactly match the registry's
+canonical unit, except for the safe built-in electricity conversions described
+above. The object form may declare the expected source `unit` and an explicit
 `scale`/`offset`, calculated as
 `canonical = raw * scale + offset`; do not use it for a physical conversion
 whose assumptions are unknown. Each entity ID should occur in only one mapping.
@@ -187,7 +221,10 @@ Stuga uses Home Assistant's authenticated WebSocket API and subscribes to
    your access policy permits it.
 2. Sign in as that user, open its profile, and create a **Long-Lived Access
    Token** named `Stuga`.
-3. Copy it immediately. Open Stuga **Set up**, select **Find devices**,
+3. Copy it immediately. Select the Home that owns this Home Assistant instance
+   and open its **Set up > Connections** page at
+   `/properties/{propertyId}/homes/{homeId}/setup/connections`. Then select
+   **Find devices**,
    choose Home Assistant (or enter its local URL manually), paste the token, and
    select **Save and connect**. Home Assistant does not display it again.
 
@@ -197,7 +234,7 @@ include it in a support bundle. The setup form sends it only to the local API,
 clears the input after saving, and the API never returns it. Rotation means
 creating a new token, saving it again in **Set up**, and deleting the old token.
 
-The API saves web-entered credentials outside SQLite in
+The API saves one web-entered Home Assistant connection per Home outside SQLite in
 `INTEGRATION_SECRETS_FILE`. The file is owner-only where supported but is not
 application-level encrypted. Environment variables remain an advanced override
 and take precedence after restart:
@@ -230,7 +267,7 @@ the protocol and token lifecycle.
 
 Start Stuga, then:
 
-1. Open `GET /api/v1/integrations/status` or the integration status in the web
+1. Open `GET /api/v1/integrations/status?houseId=house-main` or the integration status in the web
    app and confirm Home Assistant is configured and connected.
 2. Warm one sensor briefly without covering its ventilation openings.
 3. Within the upstream sampling/polling delay, confirm its Home Assistant state
@@ -304,8 +341,9 @@ For legacy climate readings, confirm both mapped temperature and humidity
 entities currently have numeric states. For a generic metric, only that mapped
 entity needs a valid numeric state. In both cases confirm the Stuga
 sensor ID exists/enabled and the entity map is mounted at the configured path.
-Restart the bridge after changing the map so its initial-state request includes
-the new mapping.
+Persisted sensor binding edits refresh the running bridge automatically. Restart
+the bridge after changing the file map so its initial-state request includes the
+new mapping.
 
 **Entity IDs changed after renaming in Home Assistant**
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Activity, AlertTriangle, BatteryMedium, Box, Building2, Check, Droplets, Edit3, Gauge, Home, Map, MapPinPlus, Save, Sparkles, Thermometer, Wind } from "lucide-react";
-import type { ConnectionState, Floor, House, ManualObservation, MeasurementDefinition, MeasurementSample, Metric, MockScenario, Point, Reading, Sensor, StaticParameter, UnitSystem } from "@climate-twin/contracts";
+import { Activity, AlertTriangle, BatteryMedium, Bolt, Box, Check, ChevronDown, Droplets, Edit3, Gauge, History, Home, Map, MapPinPlus, Maximize2, Minimize2, Save, Sparkles, Thermometer, Wind } from "lucide-react";
+import type { ConnectionState, Floor, House, ManualObservation, ManualObservationInput, ManualObservationPatch, MeasurementDefinition, MeasurementSample, Metric, MockScenario, ObservationConfidence, ObservationRevision, ObservationSource, ObservationTimePrecision, OpeningStateObservation, Point, Reading, Sensor, StaticParameter, UnitSystem } from "@climate-twin/contracts";
 import { BuildingScene } from "../components/BuildingScene";
 import { FloorPlan } from "../components/FloorPlan";
 import { ReplayControls } from "../components/ReplayControls";
@@ -10,7 +10,10 @@ import { MoistureCoach } from "../components/MoistureCoach";
 import { RoomComparisonChart } from "../components/RoomComparisonChart";
 import { HomeActivityTimeline } from "../components/HomeActivityTimeline";
 import { HomePulsePanel } from "../components/HomePulsePanel";
+import { ObservationComposer } from "../components/ObservationComposer";
+import { HomeOperationsPreview } from "../components/HomeOperationsPreview";
 import "../components/decisionLayer.css";
+import "./OperationsPages.css";
 import { formatInTimeZone } from "../dateTime";
 import { clamp, round, type ClimateState, type TimeRange, type ViewMode } from "../domain";
 import { useI18n, type TranslationKey } from "../i18n";
@@ -20,7 +23,25 @@ import { createOutdoorBoundaryContext } from "../outdoorContext";
 import { useHouseWeather } from "../useHouseWeather";
 import type { OutdoorVisualizationState } from "../components/OutdoorConditionsBadge";
 import { StructureEditor, type CreateHouseInput } from "../components/StructureEditor";
-import type { ClimateSampleMatrix } from "../airflowSimulation";
+import {
+  simulateBuildingAirflow,
+  simulateFloorAirflow,
+  type BuildingAirflowEstimate,
+  type ClimateSampleMatrix,
+  type FloorAirflowEstimate,
+} from "../airflowSimulation";
+import type { DataMode } from "../useClimateData";
+import { api, type SensorPatch } from "../api";
+import { useSpatialLayers } from "../useSpatialLayers";
+import { SpatialLayerPanel } from "../components/SpatialLayerPanel";
+import { SpatialLayerLab } from "../components/SpatialLayerLab";
+import {
+  assessSensorCoverage,
+  experimentalLayerSuggestions,
+  type ExperimentalVisualizationId,
+} from "../experimentalSpatialLayers";
+import { readLocalStorage, writeLocalStorage } from "../browserStorage";
+import { detectReplayClimateEvents, type ReplayClimateEvent } from "../replayEvents";
 
 interface TwinDashboardProps {
   state: ClimateState;
@@ -34,41 +55,161 @@ interface TwinDashboardProps {
   selectedSensorId: string | null;
   saveState: "idle" | "saving" | "saved" | "error";
   scenario: MockScenario["id"];
+  dataMode?: DataMode;
   connection?: ConnectionState;
+  readOnly?: boolean;
   onHouse: (id: string) => void;
   onFloor: (id: string) => void;
   onMetric: (metric: Metric) => void;
   onViewMode: (view: ViewMode) => void;
   onSensorSelect: (id: string) => void;
   onSensorMove: (id: string, point: Point) => void;
-  onSensorUpdate: (id: string, patch: Partial<Sensor>) => void;
+  onSensorUpdate: (id: string, patch: SensorPatch) => Promise<Sensor>;
   onFloorChange: (floor: Floor) => void;
   onSaveLayout: (house: House) => void | Promise<void>;
   onHouseChange?: (house: House) => void;
   onHouseCreate?: (input: CreateHouseInput) => Promise<House>;
   onHouseDelete?: (houseId: string) => Promise<void>;
+  onOpenSensors?: (houseId: string) => void;
   onLoadSeries: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported: boolean) => void;
   onRunScenario: (scenario: MockScenario["id"]) => void;
-  onCreateObservation: (observation: Omit<ManualObservation, "id" | "createdAt">) => Promise<ManualObservation>;
+  onCreateObservation: (observation: ManualObservationInput) => Promise<ManualObservation>;
+  onUpdateObservation?: (id: string, patch: ManualObservationPatch) => Promise<ManualObservation>;
+  onReloadObservation?: (id: string) => Promise<ManualObservation>;
+  onLoadObservationRevisions?: (observationId: string) => Promise<ObservationRevision[]>;
   onCreateStaticParameter: (parameter: Omit<StaticParameter, "id">) => Promise<StaticParameter>;
+  onOpenActivity?: () => void;
+  onOpenMaintenance?: () => void;
+  onOpenEnergy?: () => void;
+  onOpenOutdoor?: () => void;
 }
 
 const observationKinds: ManualObservation["kind"][] = ["leak", "condensation", "mould", "ventilation", "maintenance", "note"];
+const observationTimePrecisions: ObservationTimePrecision[] = ["exact", "approximate", "date-only", "date-range", "unknown"];
+const observationSources: ObservationSource[] = ["owner", "caretaker", "contractor", "sensor", "imported-document", "automated-analysis", "unknown"];
+const observationConfidences: ObservationConfidence[] = ["confirmed", "probable", "uncertain", "awaiting-inspection"];
+const experimentalVisualizationPreferenceKey = "stuga-experimental-home-visualizations";
+
+function initialExperimentalVisualizations(): ExperimentalVisualizationId[] {
+  const stored = readLocalStorage(experimentalVisualizationPreferenceKey);
+  if (!stored) return [];
+  try {
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is ExperimentalVisualizationId => value === "air-movement" || value === "sensor-coverage")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function zonedDateTimeParts(date: Date, timeZone: string): number[] {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value);
+  return [value("year"), value("month"), value("day"), value("hour"), value("minute"), value("second")];
+}
+
+function localDateTimeValue(date = new Date(), timeZone?: string): string {
+  if (timeZone) {
+    try {
+      const [year, month, day, hour, minute] = zonedDateTimeParts(date, timeZone);
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+    } catch {
+      // Fall back to the browser timezone when a stored timezone is no longer supported.
+    }
+  }
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
+function localDateValue(date = new Date(), timeZone?: string): string {
+  return localDateTimeValue(date, timeZone).slice(0, 10);
+}
+
+function houseLocalDateTimeCandidates(value: string, timeZone: string): string[] | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [year, month, day, hour, minute] = match.slice(1).map(Number) as [number, number, number, number, number];
+  const nominal = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const nominalDate = new Date(nominal);
+  if (nominalDate.getUTCFullYear() !== year || nominalDate.getUTCMonth() !== month - 1 || nominalDate.getUTCDate() !== day
+    || nominalDate.getUTCHours() !== hour || nominalDate.getUTCMinutes() !== minute) return null;
+  try {
+    const offsets = new Set<number>();
+    for (let deltaHours = -36; deltaHours <= 36; deltaHours += 6) {
+      const probe = nominal + deltaHours * 3_600_000;
+      const displayed = zonedDateTimeParts(new Date(probe), timeZone);
+      offsets.add(Date.UTC(displayed[0]!, displayed[1]! - 1, displayed[2]!, displayed[3]!, displayed[4]!, displayed[5]!) - probe);
+    }
+    const target = [year, month, day, hour, minute];
+    return [...new Set([...offsets].map((offset) => nominal - offset))]
+      .filter((candidate) => zonedDateTimeParts(new Date(candidate), timeZone).slice(0, 5)
+        .every((part, index) => part === target[index]))
+      .sort((left, right) => left - right)
+      .map((candidate) => new Date(candidate).toISOString());
+  } catch {
+    return null;
+  }
+}
+
+export function observationTimeFields(
+  precision: ObservationTimePrecision,
+  dateTime: string,
+  date: string,
+  validFrom: string,
+  validTo: string,
+  timeZone: string,
+): Pick<ManualObservationInput, "timePrecision"> & Partial<Pick<ManualObservationInput, "occurredAt" | "validFrom" | "validTo">> | null {
+  if (precision === "unknown") return { timePrecision: precision };
+  if (precision === "date-only") return /^\d{4}-\d{2}-\d{2}$/.test(date) ? { timePrecision: precision, occurredAt: date } : null;
+  if (precision === "date-range") {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(validFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(validTo) || validFrom > validTo) return null;
+    return { timePrecision: precision, validFrom, validTo };
+  }
+  const candidates = houseLocalDateTimeCandidates(dateTime, timeZone);
+  const instant = candidates?.length === 1 || (precision === "approximate" && candidates && candidates.length > 1)
+    ? candidates[0]
+    : null;
+  return instant ? { timePrecision: precision, occurredAt: instant } : null;
+}
 
 export function TwinDashboard(props: TwinDashboardProps) {
-  const { state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection = "live" } = props;
+  const { state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection = "live", dataMode = "unknown" } = props;
   const { locale, t } = useI18n();
   const [editing, setEditing] = useState(false);
+  const [fullPage, setFullPage] = useState(false);
+  const readOnly = props.readOnly ?? false;
   const [range, setRange] = useState<TimeRange>("24h");
   const [replayActive, setReplayActive] = useState(false);
   const [replayPlaying, setReplayPlaying] = useState(false);
   const [replayStartPending, setReplayStartPending] = useState(false);
+  const [replayPrepared, setReplayPrepared] = useState(false);
+  const [replayToolsOpen, setReplayToolsOpen] = useState(false);
   const [replaySpeed, setReplaySpeed] = useState(4);
   const [liveSpatialClockMs, setLiveSpatialClockMs] = useState(() => Date.now());
+  const [experimentalVisualizations, setExperimentalVisualizations] = useState<ExperimentalVisualizationId[]>(initialExperimentalVisualizations);
   const [observationPlacement, setObservationPlacement] = useState(false);
   const [observationKind, setObservationKind] = useState<ManualObservation["kind"]>("leak");
   const [observationSeverity, setObservationSeverity] = useState<ManualObservation["severity"]>("warning");
   const [observationNote, setObservationNote] = useState("");
+  const [observationTimePrecision, setObservationTimePrecision] = useState<ObservationTimePrecision>("exact");
+  const [observationDateTime, setObservationDateTime] = useState(() => localDateTimeValue(new Date(), house.timezone));
+  const [observationDate, setObservationDate] = useState(() => localDateValue(new Date(), house.timezone));
+  const [observationValidFrom, setObservationValidFrom] = useState(() => localDateValue(new Date(), house.timezone));
+  const [observationValidTo, setObservationValidTo] = useState(() => localDateValue(new Date(), house.timezone));
+  const [observationSource, setObservationSource] = useState<ObservationSource>("unknown");
+  const [observationSourceDetail, setObservationSourceDetail] = useState("");
+  const [observationConfidence, setObservationConfidence] = useState<ObservationConfidence>("uncertain");
+  const [observationDraft, setObservationDraft] = useState<Omit<ManualObservationInput, "x" | "y"> | null>(null);
+  const [observationValidationError, setObservationValidationError] = useState(false);
   const [observationStatus, setObservationStatus] = useState(false);
   const [observationError, setObservationError] = useState(false);
   const [parameterLabel, setParameterLabel] = useState("");
@@ -77,7 +218,48 @@ export function TwinDashboard(props: TwinDashboardProps) {
   const [parameterPending, setParameterPending] = useState(false);
   const [parameterFeedback, setParameterFeedback] = useState<"saved" | "error" | null>(null);
   const replayBatchRef = useRef("");
+  const replayPreparationBatchRef = useRef("");
   const airflowReplayBatchRef = useRef("");
+  const inspectorReplayBatchRef = useRef("");
+
+  useEffect(() => {
+    if (!fullPage) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFullPage(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [fullPage]);
+
+  useEffect(() => {
+    writeLocalStorage(experimentalVisualizationPreferenceKey, JSON.stringify(experimentalVisualizations));
+  }, [experimentalVisualizations]);
+
+  useEffect(() => {
+    const now = new Date();
+    setObservationDateTime(localDateTimeValue(now, house.timezone));
+    setObservationDate(localDateValue(now, house.timezone));
+    setObservationValidFrom(localDateValue(now, house.timezone));
+    setObservationValidTo(localDateValue(now, house.timezone));
+    setObservationPlacement(false);
+    setObservationDraft(null);
+    setObservationValidationError(false);
+    setObservationStatus(false);
+    setObservationError(false);
+  }, [houseId, floorId, house.timezone]);
+
+  useEffect(() => {
+    if (!readOnly) return;
+    setEditing(false);
+    setObservationPlacement(false);
+    setObservationDraft(null);
+  }, [readOnly]);
+
   const houseWeather = useHouseWeather(house, !replayActive);
   const outdoorContext = useMemo(
     () => createOutdoorBoundaryContext(house, houseWeather.weather),
@@ -120,7 +302,10 @@ export function TwinDashboard(props: TwinDashboardProps) {
   );
   const selectedSensor = houseSensors.find((sensor) => sensor.id === selectedSensorId) ?? floorSensors[0] ?? houseSensors[0] ?? null;
   const selectedFloor = house.floors.find((item) => item.id === selectedSensor?.floorId) ?? floor;
-  const summarySensors = viewMode === "isometric" ? houseSensors : floorSensors;
+  const viewSensors = viewMode === "isometric" ? houseSensors : floorSensors;
+  // Home-level status stays house-scoped so changing the visual view cannot
+  // silently change the meaning of the headline values.
+  const summarySensors = houseSensors;
   const definitions = enabledDefinitions(state.measurementDefinitions);
   const houseDefinitions = definitions.filter((definition) => houseSensors.some((sensor) =>
     state.latestMeasurements[sensor.id]?.[definition.id]
@@ -139,18 +324,35 @@ export function TwinDashboard(props: TwinDashboardProps) {
     const sample = state.latestMeasurements[sensor.id]?.[definition.id];
     return sample ? [[sensor.id, sample]] : [];
   })), [houseSensors, state.latestMeasurements, definition.id]);
-  const historyTimestamps = useMemo(() => houseSensors
+  const houseSensorIdList = useMemo(() => houseSensors.map((sensor) => sensor.id), [houseSensors]);
+  const houseSensorIds = houseSensorIdList.join(",");
+  const replayMetricIds = useMemo(() => [...new Set([definition.id, "temperature", "humidity"])], [definition.id]);
+  const selectedHistoryTimestamps = useMemo(() => houseSensors
     .flatMap((sensor) => (state.measurementHistory[sensor.id]?.[definition.id] ?? []).map((sample) => Date.parse(sample.timestamp)))
     .filter(Number.isFinite), [houseSensors, state.measurementHistory, definition.id]);
-  const replayHistoryReady = historyTimestamps.length > 0;
+  const replayTimelineTimestamps = useMemo(() => houseSensors
+    .flatMap((sensor) => replayMetricIds.flatMap((replayMetric) => (
+      state.measurementHistory[sensor.id]?.[replayMetric] ?? []
+    ).map((sample) => Date.parse(sample.timestamp))))
+    .filter(Number.isFinite), [houseSensors, replayMetricIds, state.measurementHistory]);
+  const replayHistoryReady = selectedHistoryTimestamps.length > 0;
+  const replayEvents = useMemo(() => replayActive || replayToolsOpen
+    ? detectReplayClimateEvents(state.measurementHistory, houseSensorIdList, { maxEvents: 8 })
+    : [], [replayActive, replayToolsOpen, state.measurementHistory, houseSensorIdList]);
   const fallbackReplayBounds = useMemo(() => {
     const maximum = Date.now();
     return { minimum: maximum - 24 * 3600000, maximum };
   }, [houseId]);
-  const replayMin = historyTimestamps.length ? Math.min(...historyTimestamps) : fallbackReplayBounds.minimum;
-  const replayMax = historyTimestamps.length ? Math.max(...historyTimestamps) : fallbackReplayBounds.maximum;
+  const replayMin = replayTimelineTimestamps.length ? Math.min(...replayTimelineTimestamps) : fallbackReplayBounds.minimum;
+  const replayMax = replayTimelineTimestamps.length ? Math.max(...replayTimelineTimestamps) : fallbackReplayBounds.maximum;
   const [replayTimestamp, setReplayTimestamp] = useState(replayMax);
   const spatialReferenceTimeMs = replayActive ? replayTimestamp : liveSpatialClockMs;
+  const spatialLayerScope = useMemo(() => ({ kind: "house" as const, id: houseId }), [houseId]);
+  const spatialLayers = useSpatialLayers({
+    scope: spatialLayerScope,
+    enabled: !editing,
+    historyAt: replayActive ? replayTimestamp : null,
+  });
   const liveSpatialMaxSampleAgeMs = configuredSpatialMaxSampleAgeMs();
   const spatialMaxSampleAgeMs = replayActive
     ? configuredSpatialReplayMaxSampleAgeMs()
@@ -204,11 +406,18 @@ export function TwinDashboard(props: TwinDashboardProps) {
     setReplayPlaying(true);
   };
 
+  const selectReplayEvent = (event: ReplayClimateEvent) => {
+    props.onMetric(event.metric);
+    const sensor = houseSensors.find((candidate) => candidate.id === event.sensorId);
+    if (!sensor) return;
+    if (sensor.floorId !== floorId) props.onFloor(sensor.floorId);
+    props.onSensorSelect(sensor.id);
+  };
+
   useEffect(() => {
     if (selectedSensor) props.onLoadSeries(selectedSensor.id, definition.id, range, definition.forecastSupported);
   }, [selectedSensor?.id, definition.id, range, definition.forecastSupported]);
 
-  const houseSensorIds = houseSensors.map((sensor) => sensor.id).join(",");
   useEffect(() => {
     if (!replayActive) {
       replayBatchRef.current = "";
@@ -223,20 +432,54 @@ export function TwinDashboard(props: TwinDashboardProps) {
   }, [replayActive, houseId, definition.id, definition.forecastSupported, range, houseSensorIds, selectedSensor?.id]);
 
   useEffect(() => {
+    if (!replayPrepared) {
+      replayPreparationBatchRef.current = "";
+      return;
+    }
+    const batchKey = `${houseId}:${range}:${houseSensorIds}:${airflowMetricKey}`;
+    if (replayPreparationBatchRef.current === batchKey) return;
+    replayPreparationBatchRef.current = batchKey;
+    airflowDefinitions
+      .filter((candidate) => candidate.id === "temperature" || candidate.id === "humidity")
+      .forEach((replayDefinition) => houseSensors.forEach((sensor) => {
+        props.onLoadSeries(sensor.id, replayDefinition.id, range, replayDefinition.forecastSupported);
+      }));
+  }, [replayPrepared, houseId, range, houseSensorIds, airflowMetricKey]);
+
+  useEffect(() => {
     if (!replayActive) {
       airflowReplayBatchRef.current = "";
       return;
     }
-    const batchKey = `${houseId}:${range}:${houseSensorIds}:${airflowMetricKey}:${definition.id}`;
+    const batchKey = `${houseId}:${range}:${houseSensorIds}:${airflowMetricKey}:${definition.id}:${replayPrepared}`;
     if (airflowReplayBatchRef.current === batchKey) return;
     airflowReplayBatchRef.current = batchKey;
     airflowDefinitions.forEach((airflowDefinition) => {
       if (airflowDefinition.id === definition.id) return;
+      if (replayPrepared && (airflowDefinition.id === "temperature" || airflowDefinition.id === "humidity")) return;
       houseSensors.forEach((sensor) => {
         props.onLoadSeries(sensor.id, airflowDefinition.id, range, airflowDefinition.forecastSupported);
       });
     });
-  }, [replayActive, houseId, range, houseSensorIds, airflowMetricKey, definition.id]);
+  }, [replayActive, replayPrepared, houseId, range, houseSensorIds, airflowMetricKey, definition.id]);
+
+  useEffect(() => {
+    if (!replayActive || !selectedSensor) {
+      inspectorReplayBatchRef.current = "";
+      return;
+    }
+    const supported = definitions.filter((candidate) => candidate.id !== definition.id
+      && !airflowDefinitions.some((airflow) => airflow.id === candidate.id)
+      && (selectedSensor.measurementEntityIds?.[candidate.id]
+        || state.latestMeasurements[selectedSensor.id]?.[candidate.id]
+        || state.measurementHistory[selectedSensor.id]?.[candidate.id]?.length));
+    const batchKey = `${selectedSensor.id}:${range}:${supported.map((candidate) => candidate.id).join(",")}`;
+    if (inspectorReplayBatchRef.current === batchKey) return;
+    inspectorReplayBatchRef.current = batchKey;
+    supported.forEach((candidate) => {
+      props.onLoadSeries(selectedSensor.id, candidate.id, range, candidate.forecastSupported);
+    });
+  }, [replayActive, selectedSensor?.id, range, definition.id, airflowMetricKey, state.latestMeasurements, state.measurementHistory]);
 
   const displayedSamples = useMemo(() => replayActive
     ? samplesAt(state.measurementHistory, houseSensors.map((sensor) => sensor.id), definition.id, replayTimestamp)
@@ -259,11 +502,85 @@ export function TwinDashboard(props: TwinDashboardProps) {
     )]));
   }, [replayActive, replayTimestamp, houseSensors, state.latestMeasurements, state.measurementHistory, airflowMetricKey]);
 
+  const sensorCoverage = useMemo(() => assessSensorCoverage({
+    house,
+    sensors: houseSensors,
+    samples: airflowSamples,
+    freshness: spatialFreshness,
+  }), [house, houseSensors, airflowSamples, spatialFreshness]);
+  const airMovementSelected = spatialLayers.available && experimentalVisualizations.includes("air-movement");
+  const coverageSelected = spatialLayers.available && experimentalVisualizations.includes("sensor-coverage");
+  const openingStateAt = replayActive ? new Date(replayTimestamp).toISOString() : undefined;
+  const [openingStateObservations, setOpeningStateObservations] = useState<OpeningStateObservation[]>([]);
+  useEffect(() => {
+    setOpeningStateObservations([]);
+    if (!airMovementSelected) return;
+    const controller = new AbortController();
+    let loading = false;
+    const load = async () => {
+      if (loading) return;
+      loading = true;
+      try {
+        const result = await api.openingStates(houseId, openingStateAt, controller.signal);
+        if (!controller.signal.aborted) setOpeningStateObservations(result.observations);
+      } catch {
+        // Keep the last-good states; configured/manual fallbacks remain authoritative.
+      } finally {
+        loading = false;
+      }
+    };
+    void load();
+    const timer = openingStateAt === undefined ? window.setInterval(() => { void load(); }, 30_000) : null;
+    return () => {
+      controller.abort();
+      if (timer !== null) window.clearInterval(timer);
+    };
+  }, [airMovementSelected, houseId, openingStateAt]);
+  const experimentalFloorAirflow = useMemo<FloorAirflowEstimate | null>(() => (
+    spatialLayers.available && viewMode === "plan" ? simulateFloorAirflow({
+      floor,
+      sensors: floorSensors,
+      samples: airflowSamples,
+      freshness: spatialFreshness,
+      outdoor: replayActive ? null : outdoorContext,
+      openingStateObservations,
+    }, 9) : null
+  ), [spatialLayers.available, viewMode, floor, floorSensors, airflowSamples, spatialFreshness, replayActive, outdoorContext, openingStateObservations]);
+  const experimentalBuildingAirflow = useMemo<BuildingAirflowEstimate | null>(() => (
+    spatialLayers.available && viewMode === "isometric" ? simulateBuildingAirflow({
+      house,
+      sensors: houseSensors,
+      samples: airflowSamples,
+      freshness: spatialFreshness,
+      outdoor: replayActive ? null : outdoorContext,
+      openingStateObservations,
+    }, 14) : null
+  ), [spatialLayers.available, viewMode, house, houseSensors, airflowSamples, spatialFreshness, replayActive, outdoorContext, openingStateObservations]);
+  const experimentalAirflowEvidence = experimentalFloorAirflow?.evidence ?? experimentalBuildingAirflow?.evidence ?? null;
+  const experimentalSuggestions = useMemo(() => experimentalLayerSuggestions({
+    house,
+    coverage: sensorCoverage,
+    airflow: experimentalAirflowEvidence,
+    ...(viewMode === "plan" ? { floorId } : {}),
+  }), [house, sensorCoverage, experimentalAirflowEvidence, viewMode, floorId]);
+  const toggleExperimentalVisualization = (layerId: ExperimentalVisualizationId, selected: boolean) => {
+    setExperimentalVisualizations((current) => {
+      return selected
+        ? current.includes(layerId) ? current : [...current, layerId]
+        : current.filter((candidate) => candidate !== layerId);
+    });
+  };
+
   const values = summarySensors.flatMap((sensor) => {
     const sample = displayedSamples[sensor.id];
     const value = measurementValue(sample, definition.id);
     return isSpatialSampleFresh(sample, spatialFreshness) && value != null ? [value] : [];
   });
+  const hasUsableReadings = houseSensors.some((sensor) => Object.values(state.latestMeasurements[sensor.id] ?? {})
+    .some((sample) => Number.isFinite(sample.value) && isSpatialSampleFresh(sample, {
+      referenceTimeMs: liveSpatialClockMs,
+      maxSampleAgeMs: liveSpatialMaxSampleAgeMs,
+    })));
   const houseValues = houseSensors.flatMap((sensor) => {
     const sample = displayedSamples[sensor.id];
     const value = measurementValue(sample, definition.id);
@@ -300,25 +617,30 @@ export function TwinDashboard(props: TwinDashboardProps) {
   const visualOutdoor: OutdoorVisualizationState = { ...outdoor, conditionColors: outdoorConditionColors };
   const average = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
   const spread = values.length ? Math.max(...values) - Math.min(...values) : null;
-  const openAlerts = state.alerts.filter((alert) => !alert.resolvedAt && !alert.acknowledgedAt && summarySensors.some((sensor) => sensor.id === alert.sensorId));
+  const openAlerts = state.alerts.filter((alert) => !alert.resolvedAt && summarySensors.some((sensor) => sensor.id === alert.sensorId));
   const floorObservations = state.observations.filter((observation) => observation.houseId === houseId && observation.floorId === floorId);
   const houseObservations = state.observations.filter((observation) => observation.houseId === houseId);
   const houseParameters = state.staticParameters.filter((parameter) => parameter.houseId === houseId);
   const inspectorSamples = useMemo<Record<string, MeasurementSample>>(() => {
     if (!selectedSensor) return {};
-    const samples: Record<string, MeasurementSample> = { ...(state.latestMeasurements[selectedSensor.id] ?? {}) };
-    if (replayActive) {
-      delete samples[definition.id];
-      const replaySample = displayedSamples[selectedSensor.id];
-      if (replaySample) samples[definition.id] = replaySample;
-    }
+    const samples: Record<string, MeasurementSample> = replayActive
+      ? Object.fromEntries(definitions.flatMap((candidate) => {
+          const replaySample = samplesAt(
+            state.measurementHistory,
+            [selectedSensor.id],
+            candidate.id,
+            replayTimestamp,
+          )[selectedSensor.id];
+          return replaySample ? [[candidate.id, replaySample]] : [];
+        }))
+      : { ...(state.latestMeasurements[selectedSensor.id] ?? {}) };
     return Object.fromEntries(Object.keys(samples).map((measurementId) => {
       const sample = samples[measurementId]!;
       return [measurementId, isSpatialSampleFresh(sample, spatialFreshness)
         ? sample
         : { ...sample, quality: "stale" as const }];
     }));
-  }, [selectedSensor?.id, state.latestMeasurements, displayedSamples, replayActive, definition.id, spatialFreshness]);
+  }, [selectedSensor?.id, state.latestMeasurements, state.measurementHistory, replayActive, replayTimestamp, definitions, spatialFreshness]);
 
   const changeRange = (next: TimeRange) => {
     setRange(next);
@@ -326,39 +648,63 @@ export function TwinDashboard(props: TwinDashboardProps) {
 
   const submitObservation = (event: FormEvent) => {
     event.preventDefault();
+    if (readOnly) return;
+    const time = observationTimeFields(observationTimePrecision, observationDateTime, observationDate, observationValidFrom, observationValidTo, house.timezone);
+    if (!time) {
+      setObservationValidationError(true);
+      return;
+    }
+    setObservationDraft({
+      houseId,
+      floorId,
+      sensorId: null,
+      kind: observationKind,
+      severity: observationSeverity,
+      note: observationNote.trim() || t(`observations.${observationKind === "note" ? "noteKind" : observationKind}` as TranslationKey),
+      source: observationSource,
+      sourceDetail: observationSourceDetail.trim() || null,
+      confidence: observationConfidence,
+      ...time,
+    });
     props.onViewMode("plan");
     setObservationPlacement(true);
     setObservationStatus(false);
     setObservationError(false);
+    setObservationValidationError(false);
   };
 
   const placeObservation = async (point: Point) => {
+    if (readOnly || !observationDraft) return;
     try {
       await props.onCreateObservation({
-        houseId,
-        floorId,
-        sensorId: null,
-        kind: observationKind,
-        severity: observationSeverity,
-        note: observationNote.trim() || t(`observations.${observationKind === "note" ? "noteKind" : observationKind}` as TranslationKey),
+        ...observationDraft,
         x: round(point.x),
         y: round(point.y),
-        occurredAt: new Date().toISOString(),
       });
       setObservationStatus(true);
       setObservationNote("");
+      setObservationDateTime(localDateTimeValue(new Date(), house.timezone));
+      setObservationDate(localDateValue(new Date(), house.timezone));
+      setObservationValidFrom(localDateValue(new Date(), house.timezone));
+      setObservationValidTo(localDateValue(new Date(), house.timezone));
     } catch {
       setObservationError(true);
     } finally {
       setObservationPlacement(false);
+      setObservationDraft(null);
     }
+  };
+
+  const cancelObservationPlacement = () => {
+    setObservationPlacement(false);
+    setObservationDraft(null);
   };
 
   const submitParameter = async (event: FormEvent) => {
     event.preventDefault();
     const label = parameterLabel.trim();
     const value = parameterValue.trim();
-    if (!label || !value || parameterPending) return;
+    if (readOnly || !label || !value || parameterPending) return;
     setParameterPending(true);
     setParameterFeedback(null);
     try {
@@ -383,12 +729,14 @@ export function TwinDashboard(props: TwinDashboardProps) {
   };
 
   const startEditing = () => {
+    if (readOnly) return;
+    setFullPage(false);
     setEditing(true);
-    setObservationPlacement(false);
-    props.onViewMode("plan");
+    cancelObservationPlacement();
   };
 
   const saveEdits = async () => {
+    if (readOnly) return false;
     try {
       await props.onSaveLayout(house);
       return true;
@@ -410,24 +758,18 @@ export function TwinDashboard(props: TwinDashboardProps) {
   return (
     <>
       <header className="page-heading twin-heading">
-        <div><span className="eyebrow"><Sparkles size={14} aria-hidden="true" />{t(`status.${connection}`)}</span><h1>{t("twin.title")}</h1><p>{t("twin.description")}</p></div>
+        <div><span className="eyebrow"><Sparkles size={14} aria-hidden="true" />{dataMode === "demo" ? t("demo.bannerTitle") : t(`status.${connection}`)}</span><h1>{t("twin.title")}</h1><p>{t("twin.description")}</p></div>
         <div className="context-controls">
-          <label><span>{t("common.house")}</span><select value={houseId} onChange={(event) => props.onHouse(event.target.value)}>{state.houses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          {props.onOpenOutdoor && <button type="button" className="secondary-button" onClick={props.onOpenOutdoor}><Wind size={15} aria-hidden="true" />{t("nav.outdoor")}</button>}
+          {props.onOpenEnergy && <button type="button" className="secondary-button" onClick={props.onOpenEnergy}><Bolt size={15} aria-hidden="true" />{t("nav.energyUse")}</button>}
           <label><span>{t("common.floor")}</span><select value={floorId} onChange={(event) => props.onFloor(event.target.value)}>{house.floors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <button type="button" className="secondary-button manage-homes-button" aria-pressed={editing} onClick={startEditing}><Building2 size={15} aria-hidden="true" />{t("structure.manageProperties")}</button>
         </div>
       </header>
 
-      {!editing && <section className="summary-strip" aria-label={t("twin.title")}>
-        <div className="summary-item"><span className={`summary-icon measurement ${definition.colorScale}`}><MeasurementGlyph definition={definition} size={18} /></span><span><small>{t("twin.averageMeasurement", { metric: metricLabel })}</small><strong>{average == null ? t("common.noData") : formatMeasurement(average, definition, units)}</strong></span></div>
-        <div className="summary-item"><span className="summary-icon flow"><Activity size={18} aria-hidden="true" /></span><span><small>{t("twin.reportingSensors")}</small><strong>{t("twin.reportingCount", { count: values.length, total: summarySensors.length })}</strong></span></div>
-        <div className="summary-item"><span className="summary-icon flow"><Wind size={18} aria-hidden="true" /></span><span><small>{t("twin.spread")}</small><strong>{spread == null ? t("common.noData") : formatMeasurementDelta(spread, definition, units)}</strong></span></div>
-        <div className={`summary-item ${openAlerts.length ? "attention" : ""}`}><span className="summary-icon alert"><AlertTriangle size={18} aria-hidden="true" /></span><span><small>{t("twin.attention")}</small><strong>{openAlerts.length === 0 ? t("twin.noActiveAlerts") : openAlerts.length === 1 ? t("twin.oneAlert") : t("twin.manyAlerts", { count: openAlerts.length })}</strong></span></div>
-      </section>}
-
-      {!editing && <>
+      {!editing && !replayActive && <>
         <div className="decision-layer">
           <HomePulsePanel
+            key={house.id}
             house={house}
             sensors={houseSensors}
             latestMeasurements={state.latestMeasurements}
@@ -437,8 +779,9 @@ export function TwinDashboard(props: TwinDashboardProps) {
             weather={houseWeather.weather}
             referenceTime={liveSpatialClockMs}
             onOpenTarget={openDecisionSensor}
+            {...(!readOnly && props.onOpenSensors ? { onOpenSetup: () => props.onOpenSensors?.(houseId) } : {})}
           />
-          <MoistureCoach
+          {hasUsableReadings && <MoistureCoach
             sensors={houseSensors}
             latestMeasurements={state.latestMeasurements}
             conditions={houseWeather.weather?.current}
@@ -449,31 +792,55 @@ export function TwinDashboard(props: TwinDashboardProps) {
               const sensor = houseSensors.find((candidate) => candidate.id === sensorId);
               if (sensor) openDecisionSensor(sensor.floorId, sensor.id);
             }}
-          />
+          />}
         </div>
-        <RoomComfortBoard
-          sensors={houseSensors}
-          latestMeasurements={state.latestMeasurements}
-          measurementHistory={state.measurementHistory}
-          definitions={definitions}
-          alerts={state.alerts}
-          units={units}
-          now={liveSpatialClockMs}
-          onOpenRoom={openDecisionSensor}
-        />
+        {hasUsableReadings && <section className="home-status-zone" aria-labelledby="home-status-heading">
+          <div className="decision-section-heading home-zone-heading">
+            <div><span className="eyebrow">{t("home.statusEyebrow")}</span><h2 id="home-status-heading">{t("home.statusTitle")}</h2></div>
+            <p>{t("home.statusDescription")}</p>
+          </div>
+          <section className="summary-strip" aria-label={t("twin.title")}>
+            <div className="summary-item"><span className={`summary-icon measurement ${definition.colorScale}`}><MeasurementGlyph definition={definition} size={18} /></span><span><small>{t("twin.averageMeasurement", { metric: metricLabel })}</small><strong>{average == null ? t("common.noData") : formatMeasurement(average, definition, units)}</strong></span></div>
+            <div className="summary-item"><span className="summary-icon flow"><Activity size={18} aria-hidden="true" /></span><span><small>{t("twin.reportingSensors")}</small><strong>{t("twin.reportingCount", { count: values.length, total: summarySensors.length })}</strong></span></div>
+            <div className="summary-item"><span className="summary-icon flow"><Wind size={18} aria-hidden="true" /></span><span><small>{t("twin.spread")}</small><strong>{spread == null ? t("common.noData") : formatMeasurementDelta(spread, definition, units)}</strong></span></div>
+            <div className={`summary-item ${openAlerts.length ? "attention" : ""}`} data-summary-scope="threshold-alerts"><span className="summary-icon alert"><AlertTriangle size={18} aria-hidden="true" /></span><span><small>{t("alerts.open")}</small><strong>{openAlerts.length === 0 ? t("twin.noActiveAlerts") : openAlerts.length === 1 ? t("twin.oneAlert") : t("twin.manyAlerts", { count: openAlerts.length })}</strong></span></div>
+          </section>
+        </section>}
       </>}
 
-      <section className="panel twin-panel">
+      {!editing && <div className="decision-section-heading home-live-heading"><div><span className="eyebrow">{replayActive ? t("replay.title") : t("home.liveEyebrow")}</span><h2>{replayActive
+        ? t("replay.active", { time: formatInTimeZone(replayTimestamp, locale, house.timezone, { dateStyle: "medium", timeStyle: "short" }) })
+        : t("home.liveTitle")}</h2></div><p>{replayActive ? t("replay.description") : t("home.liveDescription")}</p></div>}
+      <section className={`panel twin-panel ${fullPage ? "is-full-page" : ""}`}>
         <div className="twin-toolbar">
-          <div className="toolbar-title"><span className="eyebrow">{editing ? house.name : viewMode === "isometric" ? house.name : floor.name}</span><strong>{editing ? t("twin.editingFloor", { floor: floor.name }) : `${summarySensors.length} ${t("twin.sensors")}`}</strong></div>
+          <div className="toolbar-title"><span className="eyebrow">{editing ? house.name : viewMode === "isometric" ? house.name : floor.name}</span><strong>{editing ? t("twin.editingFloor", { floor: floor.name }) : `${viewSensors.length} ${t("twin.sensors")}`}</strong></div>
           <div className="toolbar-groups">
             {!editing && <label className="metric-picker"><span>{t("common.metric")}</span><select value={definition.id} onChange={(event) => props.onMetric(event.target.value)}>{metricOptions.map((item) => <option key={item.id} value={item.id}>{measurementLabel(item, locale)} · {displayUnit(item, units)}</option>)}</select></label>}
-            {!editing && <div className="segmented" role="group" aria-label={t("common.view")}><button type="button" aria-pressed={viewMode === "plan"} onClick={() => props.onViewMode("plan")}><Map size={15} aria-hidden="true" />{t("twin.mode2d")}</button><button type="button" aria-pressed={viewMode === "isometric"} onClick={() => { setEditing(false); setObservationPlacement(false); props.onViewMode("isometric"); }}><Box size={15} aria-hidden="true" />{t("twin.modeIso")}</button></div>}
-            <button type="button" className={editing ? "secondary-button" : "primary-button"} onClick={() => editing ? void finishEditing() : startEditing()} disabled={props.saveState === "saving"}><Edit3 size={15} aria-hidden="true" />{editing ? t("common.done") : t("common.edit")}</button>
-            {editing && <button type="button" className="primary-button" onClick={() => void saveEdits()} disabled={props.saveState === "saving"}><Save size={15} aria-hidden="true" />{props.saveState === "saving" ? t("common.saving") : props.saveState === "saved" ? t("common.saved") : t("common.save")}</button>}
+            <div className="segmented" role="group" aria-label={t("common.view")}><button type="button" aria-pressed={viewMode === "plan"} onClick={() => props.onViewMode("plan")}><Map size={15} aria-hidden="true" />{t("twin.mode2d")}</button><button type="button" aria-pressed={viewMode === "isometric"} onClick={() => { cancelObservationPlacement(); props.onViewMode("isometric"); }}><Box size={15} aria-hidden="true" />{t("twin.modeIso")}</button></div>
+            {!editing && <button type="button" className="secondary-button twin-full-page-button" aria-pressed={fullPage} onClick={() => setFullPage((current) => !current)}>{fullPage ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}{fullPage ? t("twin.exitFullPage") : t("twin.fullPage")}</button>}
+            {!readOnly && !editing && <button type="button" className="secondary-button" onClick={startEditing}><Edit3 size={15} aria-hidden="true" />{t("common.edit")}</button>}
+            {editing && <><button type="button" className="primary-button" onClick={() => void finishEditing()} disabled={props.saveState === "saving"}><Save size={15} aria-hidden="true" />{props.saveState === "saving" ? t("common.saving") : t("common.saveAndFinish")}</button><button type="button" className="secondary-button" onClick={() => setEditing(false)} disabled={props.saveState === "saving"}>{t("common.cancel")}</button></>}
           </div>
         </div>
         {props.saveState === "error" && <p className="inline-error" role="alert">{t("twin.layoutSaveError")}</p>}
+        {!editing && <SpatialLayerPanel
+          layers={spatialLayers}
+          timeZone={house.timezone}
+          historyAt={replayActive ? replayTimestamp : null}
+          compact
+          visualization={{
+            selected: experimentalVisualizations,
+            mode: viewMode,
+            coverage: sensorCoverage,
+            airflow: experimentalAirflowEvidence,
+            suggestions: experimentalSuggestions,
+            onToggle: toggleExperimentalVisualization,
+          }}
+          onHistorySelect={(timestamp) => {
+            setReplayActive(true);
+            setReplayTimestamp(clamp(timestamp, replayMin, replayMax));
+          }}
+        />}
         <div className={`twin-grid ${editing ? "is-editing" : ""}`}>
           {editing && (
             <StructureEditor
@@ -487,12 +854,17 @@ export function TwinDashboard(props: TwinDashboardProps) {
           )}
           {viewMode === "plan" ? (
             <FloorPlan
-              floor={floor} sensors={floorSensors} samples={displayedSamples} climateSamples={airflowSamples} observations={floorObservations} definition={definition} colorDomain={houseColorDomain} units={units}
+              floor={floor} house={house} sensors={floorSensors} samples={displayedSamples} climateSamples={airflowSamples} observations={floorObservations} definition={definition} colorDomain={houseColorDomain} units={units}
               viewMode="plan" selectedSensorId={selectedSensor?.id ?? null} editing={editing} observationPlacement={observationPlacement}
               referenceTimeMs={spatialReferenceTimeMs} maxSampleAgeMs={spatialMaxSampleAgeMs}
               outdoor={visualOutdoor}
+              spatialLayerSnapshots={spatialLayers.snapshots}
+              spatialLayerTopology={spatialLayers.topology}
+              experimentalAirflowEnabled={airMovementSelected}
+              experimentalAirflow={airMovementSelected ? experimentalFloorAirflow : null}
+              experimentalSensorCoverage={coverageSelected ? sensorCoverage : null}
               onSensorSelect={props.onSensorSelect} onSensorMove={props.onSensorMove} onFloorChange={props.onFloorChange} onObservationPoint={placeObservation}
-              onCancelObservationPlacement={() => setObservationPlacement(false)}
+              onCancelObservationPlacement={cancelObservationPlacement}
             />
           ) : (
             <BuildingScene
@@ -500,11 +872,18 @@ export function TwinDashboard(props: TwinDashboardProps) {
               activeFloorId={floorId} selectedSensorId={selectedSensor?.id ?? null} onFloorSelect={props.onFloor}
               referenceTimeMs={spatialReferenceTimeMs} maxSampleAgeMs={spatialMaxSampleAgeMs}
               outdoor={visualOutdoor}
+              editing={editing}
+              spatialLayerSnapshots={spatialLayers.snapshots}
+              spatialLayerTopology={spatialLayers.topology}
+              experimentalAirflowEnabled={airMovementSelected}
+              experimentalAirflow={airMovementSelected ? experimentalBuildingAirflow : null}
+              experimentalSensorCoverage={coverageSelected ? sensorCoverage : null}
+              onFloorChange={props.onFloorChange}
               onSensorSelect={(sensorId) => props.onSensorSelect(sensorId)}
             />
           )}
           <SensorInspector
-            sensor={selectedSensor} reading={selectedSensor ? state.readings[selectedSensor.id] : undefined} samples={inspectorSamples}
+            sensor={selectedSensor} reading={!replayActive && selectedSensor ? state.readings[selectedSensor.id] : undefined} samples={inspectorSamples}
             definitions={definitions} selectedDefinition={definition} units={units}
             house={house} floor={selectedFloor} editing={editing} onSensorUpdate={props.onSensorUpdate} onFloorSelect={props.onFloor}
           />
@@ -512,19 +891,56 @@ export function TwinDashboard(props: TwinDashboardProps) {
       </section>
 
       {!editing && <>
-      <ReplayControls active={replayActive} playing={replayPlaying} timestamp={replayTimestamp} min={replayMin} max={replayMax} speed={replaySpeed} timeZone={house.timezone} onActive={setReplayActive} onPlaying={changeReplayPlaying} onTimestamp={setReplayTimestamp} onSpeed={setReplaySpeed} />
-
-      <ThermalSimulationPanel
-        houseId={houseId}
-        sensor={selectedSensor}
-        range={range}
+      {!replayActive && hasUsableReadings && <RoomComfortBoard
+        sensors={houseSensors}
+        latestMeasurements={state.latestMeasurements}
+        measurementHistory={state.measurementHistory}
+        definitions={definitions}
+        alerts={state.alerts}
         units={units}
-        timeZone={house.timezone}
-        currentOutdoorTemperatureC={houseWeather.weather?.current?.temperatureC}
-        {...(replayActive ? { cursorTimestamp: replayTimestamp } : {})}
-      />
+        now={liveSpatialClockMs}
+        onOpenRoom={openDecisionSensor}
+      />}
 
-      <div className="lower-grid">
+      {!replayActive && <div className="home-secondary-grid">
+        <HomeOperationsPreview
+          sensors={houseSensors}
+          alerts={state.alerts.filter((alert) => houseSensors.some((sensor) => sensor.id === alert.sensorId))}
+          observations={houseObservations}
+          maintenanceTasks={state.maintenanceTasks.filter((task) => task.houseId === houseId)}
+          warnings={houseWeather.weather?.warnings ?? []}
+          integration={state.integration}
+          timeZone={house.timezone}
+          {...(props.onOpenActivity ? { onOpenActivity: props.onOpenActivity } : {})}
+          {...(props.onOpenMaintenance ? { onOpenMaintenance: props.onOpenMaintenance } : {})}
+        />
+      </div>}
+
+      {replayActive && <ReplayControls active={replayActive} playing={replayPlaying} timestamp={replayTimestamp} min={replayMin} max={replayMax} speed={replaySpeed} timeZone={house.timezone} events={replayEvents} sensors={houseSensors} definitions={definitions} units={units} onActive={setReplayActive} onPlaying={changeReplayPlaying} onTimestamp={setReplayTimestamp} onSpeed={setReplaySpeed} onEventSelect={selectReplayEvent} />}
+
+      <details className="home-tools-disclosure" hidden={replayActive} onToggle={(event) => {
+        setReplayToolsOpen(event.currentTarget.open);
+        if (event.currentTarget.open) setReplayPrepared(true);
+      }}>
+        <summary>
+          <span className="home-tools-icon" aria-hidden="true"><History size={20} /></span>
+          <span><span className="eyebrow">{t("home.moreSummary")}</span><strong>{t("home.moreTitle")}</strong><small>{t("home.moreDescription")}</small></span>
+          <ChevronDown className="disclosure-chevron" size={19} aria-hidden="true" />
+        </summary>
+        <div className="home-tools-content">
+          {!replayActive && <ReplayControls active={replayActive} playing={replayPlaying} timestamp={replayTimestamp} min={replayMin} max={replayMax} speed={replaySpeed} timeZone={house.timezone} events={replayEvents} sensors={houseSensors} definitions={definitions} units={units} onActive={setReplayActive} onPlaying={changeReplayPlaying} onTimestamp={setReplayTimestamp} onSpeed={setReplaySpeed} onEventSelect={selectReplayEvent} />}
+          <ThermalSimulationPanel
+            houseId={houseId}
+            sensor={selectedSensor}
+            range={range}
+            units={units}
+            timeZone={house.timezone}
+            currentOutdoorTemperatureC={houseWeather.weather?.current?.temperatureC}
+            {...(replayActive ? { cursorTimestamp: replayTimestamp } : {})}
+          />
+          {!readOnly && <SpatialLayerLab houseId={houseId} sensors={houseSensors} layers={spatialLayers} />}
+
+          <div className="lower-grid">
         <RoomComparisonChart
           sensors={houseSensors}
           selectedSensorId={selectedSensor?.id ?? null}
@@ -545,41 +961,58 @@ export function TwinDashboard(props: TwinDashboardProps) {
             sensors={houseSensors}
             alerts={state.alerts.filter((alert) => houseSensors.some((sensor) => sensor.id === alert.sensorId))}
             observations={houseObservations}
+            maintenanceTasks={state.maintenanceTasks.filter((task) => task.houseId === houseId)}
             warnings={houseWeather.weather?.warnings ?? []}
             integration={state.integration}
             timeZone={house.timezone}
+            {...(!readOnly && props.onUpdateObservation ? { onUpdateObservation: props.onUpdateObservation } : {})}
+            {...(!readOnly && props.onReloadObservation ? { onReloadObservation: props.onReloadObservation } : {})}
+            {...(props.onLoadObservationRevisions ? { onLoadObservationRevisions: props.onLoadObservationRevisions } : {})}
             onOpenSensor={openDecisionSensor}
             onOpenFloor={(targetFloorId) => { props.onFloor(targetFloorId); props.onViewMode("plan"); }}
           />
-          <section className="panel compact-panel">
+          {!readOnly && dataMode === "demo" && <section className="panel compact-panel">
             <div className="panel-header"><div><h2>{t("mock.title")}</h2><p className="panel-intro">{t("mock.description")}</p></div></div>
             <label className="field"><span>{t("mock.scenario")}</span><select value={scenario} onChange={(event) => props.onRunScenario(event.target.value as MockScenario["id"])}>{state.scenarios.map((item) => <option key={item.id} value={item.id}>{t(`mock.${item.id}` as TranslationKey)}</option>)}</select></label>
             <p className="field-help">{t(`mock.${scenario}Description` as TranslationKey)}</p>
             <button type="button" className="secondary-button full-width" onClick={() => props.onRunScenario(scenario)}><Sparkles size={15} aria-hidden="true" />{t("mock.start")}</button>
-          </section>
-          <section className="panel compact-panel observation-panel">
+          </section>}
+          {!readOnly && <section className="panel compact-panel observation-panel">
             <div className="panel-header"><div><span className="eyebrow">{floor.name}</span><h2>{t("observations.title")}</h2></div><span className="count-badge">{floorObservations.length}</span></div>
             <form onSubmit={submitObservation} className="observation-form">
-              <div className="field-row"><label className="field"><span>{t("observations.kind")}</span><select value={observationKind} onChange={(event) => setObservationKind(event.target.value as ManualObservation["kind"])}>{observationKinds.map((kind) => <option key={kind} value={kind}>{t(`observations.${kind === "note" ? "noteKind" : kind}` as TranslationKey)}</option>)}</select></label><label className="field"><span>{t("alerts.severity")}</span><select value={observationSeverity} onChange={(event) => setObservationSeverity(event.target.value as ManualObservation["severity"])}><option value="info">{t("alerts.info")}</option><option value="warning">{t("alerts.warning")}</option><option value="critical">{t("alerts.critical")}</option></select></label></div>
-              <label className="field"><span>{t("observations.note")}</span><input value={observationNote} onChange={(event) => setObservationNote(event.target.value)} placeholder={t("observations.notePlaceholder")} /></label>
+              <fieldset className="observation-fields" disabled={observationPlacement}>
+                <legend className="sr-only">{t("observations.details")}</legend>
+                <div className="field-row"><label className="field"><span>{t("observations.kind")}</span><select value={observationKind} onChange={(event) => setObservationKind(event.target.value as ManualObservation["kind"])}>{observationKinds.map((kind) => <option key={kind} value={kind}>{t(`observations.${kind === "note" ? "noteKind" : kind}` as TranslationKey)}</option>)}</select></label><label className="field"><span>{t("alerts.severity")}</span><select value={observationSeverity} onChange={(event) => setObservationSeverity(event.target.value as ManualObservation["severity"])}><option value="info">{t("alerts.info")}</option><option value="warning">{t("alerts.warning")}</option><option value="critical">{t("alerts.critical")}</option></select></label></div>
+                <label className="field"><span>{t("observations.timePrecision")}</span><select value={observationTimePrecision} onChange={(event) => { setObservationTimePrecision(event.target.value as ObservationTimePrecision); setObservationValidationError(false); }}>{observationTimePrecisions.map((precision) => <option key={precision} value={precision}>{t(`observations.precision.${precision}` as TranslationKey)}</option>)}</select></label>
+                {(observationTimePrecision === "exact" || observationTimePrecision === "approximate") && <label className="field"><span>{t("observations.observedAt")}</span><input type="datetime-local" required value={observationDateTime} onChange={(event) => setObservationDateTime(event.target.value)} /><small>{t("observations.localTimeHelp")}</small></label>}
+                {observationTimePrecision === "date-only" && <label className="field"><span>{t("observations.observedDate")}</span><input type="date" required value={observationDate} onChange={(event) => setObservationDate(event.target.value)} /></label>}
+                {observationTimePrecision === "date-range" && <div className="field-row"><label className="field"><span>{t("observations.validFrom")}</span><input type="date" required max={observationValidTo} value={observationValidFrom} onChange={(event) => setObservationValidFrom(event.target.value)} /></label><label className="field"><span>{t("observations.validTo")}</span><input type="date" required min={observationValidFrom} value={observationValidTo} onChange={(event) => setObservationValidTo(event.target.value)} /></label></div>}
+                {observationTimePrecision === "unknown" && <p className="field-help observation-time-help">{t("observations.unknownTimeHelp")}</p>}
+                <div className="field-row"><label className="field"><span>{t("observations.source")}</span><select value={observationSource} onChange={(event) => setObservationSource(event.target.value as ObservationSource)}>{observationSources.map((source) => <option key={source} value={source}>{t(`observations.source.${source}` as TranslationKey)}</option>)}</select></label><label className="field"><span>{t("observations.confidence")}</span><select value={observationConfidence} onChange={(event) => setObservationConfidence(event.target.value as ObservationConfidence)}>{observationConfidences.map((confidence) => <option key={confidence} value={confidence}>{t(`observations.confidence.${confidence}` as TranslationKey)}</option>)}</select></label></div>
+                <label className="field"><span>{t("observations.sourceDetail")}</span><input value={observationSourceDetail} onChange={(event) => setObservationSourceDetail(event.target.value)} placeholder={t("observations.sourceDetailPlaceholder")} /></label>
+                <label className="field"><span>{t("observations.note")}</span><input value={observationNote} onChange={(event) => setObservationNote(event.target.value)} placeholder={t("observations.notePlaceholder")} /></label>
+              </fieldset>
               <button type="submit" className={observationPlacement ? "primary-button full-width" : "secondary-button full-width"}><MapPinPlus size={15} aria-hidden="true" />{observationPlacement ? t("observations.locationHint") : t("observations.add")}</button>
+              {observationValidationError && <p className="inline-error" role="alert">{t("observations.invalidTime")}</p>}
               {observationStatus && <p className="success-message" role="status"><Check size={15} aria-hidden="true" />{t("observations.logged")}</p>}
               {observationError && <p className="inline-error" role="alert">{t("observations.saveFailed")}</p>}
             </form>
-          </section>
+          </section>}
           <section className="panel compact-panel context-panel">
             <div className="panel-header"><div><h2>{t("context.title")}</h2><p className="panel-intro">{t("context.description")}</p></div><span className="count-badge">{houseParameters.length}</span></div>
             {houseParameters.length > 0 && <dl className="parameter-list">{houseParameters.slice(0, 5).map((parameter) => <div key={parameter.id}><dt>{parameter.label}</dt><dd>{String(parameter.value)}{parameter.unit ? ` ${parameter.unit}` : ""}</dd></div>)}</dl>}
-            <form onSubmit={submitParameter} className="context-form">
+            {!readOnly && <form onSubmit={submitParameter} className="context-form">
               <label className="field"><span>{t("context.label")}</span><input required value={parameterLabel} onChange={(event) => setParameterLabel(event.target.value)} placeholder={t("context.labelPlaceholder")} /></label>
               <div className="field-row"><label className="field"><span>{t("context.value")}</span><input required value={parameterValue} onChange={(event) => setParameterValue(event.target.value)} placeholder={t("context.valuePlaceholder")} /></label><label className="field"><span>{t("context.unit")}</span><input value={parameterUnit} onChange={(event) => setParameterUnit(event.target.value)} placeholder={t("common.optional")} /></label></div>
               <button type="submit" className="secondary-button full-width" disabled={parameterPending}>{parameterPending ? t("common.saving") : t("context.add")}</button>
               {parameterFeedback === "saved" && <p className="success-message" role="status"><Check size={15} aria-hidden="true" />{t("context.saved")}</p>}
               {parameterFeedback === "error" && <p className="inline-error" role="alert">{t("context.saveFailed")}</p>}
-            </form>
+            </form>}
           </section>
         </div>
-      </div>
+          </div>
+        </div>
+      </details>
       </>}
     </>
   );
@@ -608,17 +1041,20 @@ function SensorInspector({
   house: House;
   floor: Floor;
   editing: boolean;
-  onSensorUpdate: (id: string, patch: Partial<Sensor>) => void;
+  onSensorUpdate: (id: string, patch: SensorPatch) => Promise<Sensor>;
   onFloorSelect: (floorId: string) => void;
 }) {
   const { locale, t } = useI18n();
   const [targetFloorId, setTargetFloorId] = useState(sensor?.floorId ?? floor.id);
   const [mountingHeight, setMountingHeight] = useState(sensor ? String(round(sensor.z - floor.elevation)) : "1.4");
+  const [placementPending, setPlacementPending] = useState(false);
+  const [placementError, setPlacementError] = useState(false);
   useEffect(() => {
     if (!sensor) return;
     const sensorFloor = house.floors.find((item) => item.id === sensor.floorId) ?? floor;
     setTargetFloorId(sensorFloor.id);
     setMountingHeight(String(round(sensor.z - sensorFloor.elevation)));
+    setPlacementError(false);
   }, [sensor?.id, sensor?.floorId, sensor?.z, house.floors, floor]);
   if (!sensor) return <aside className={`sensor-inspector ${editing ? "editing" : ""}`}><div className="empty-state">{editing ? t("twin.selectSensorToMove") : t("twin.selectSensor")}</div></aside>;
   const registeredForSensor = definitions.filter((definition) => samples[definition.id] || sensor.measurementEntityIds?.[definition.id]);
@@ -627,19 +1063,28 @@ function SensorInspector({
     ? availableDefinitions
     : [selectedDefinition, ...availableDefinitions];
   const selectedSample = samples[selectedDefinition.id];
-  const applyPlacement = (event: FormEvent) => {
+  const applyPlacement = async (event: FormEvent) => {
     event.preventDefault();
     const targetFloor = house.floors.find((item) => item.id === targetFloorId);
     const height = Number(mountingHeight);
     if (!targetFloor || !Number.isFinite(height)) return;
-    onSensorUpdate(sensor.id, {
-      floorId: targetFloor.id,
-      x: clamp(sensor.x, 0, targetFloor.width),
-      y: clamp(sensor.y, 0, targetFloor.height),
-      z: targetFloor.elevation + Math.max(0, height),
-    });
-    onFloorSelect(targetFloor.id);
+    setPlacementPending(true);
+    setPlacementError(false);
+    try {
+      await onSensorUpdate(sensor.id, {
+        floorId: targetFloor.id,
+        x: clamp(sensor.x, 0, targetFloor.width),
+        y: clamp(sensor.y, 0, targetFloor.height),
+        z: targetFloor.elevation + Math.max(0, height),
+      });
+      onFloorSelect(targetFloor.id);
+    } catch {
+      setPlacementError(true);
+    } finally {
+      setPlacementPending(false);
+    }
   };
+  const batteryValue = measurementValue(samples.battery, "battery") ?? reading?.battery ?? null;
   return (
     <aside className={`sensor-inspector ${editing ? "editing" : ""}`} aria-labelledby="selected-sensor-title">
       <div className="sensor-heading"><span className="device-glyph" aria-hidden="true"><span /><span /></span><div><span className="eyebrow">{sensor.model}</span><h2 id="selected-sensor-title">{sensor.name}</h2><p><Home size={13} aria-hidden="true" />{sensor.room}</p></div></div>
@@ -663,7 +1108,7 @@ function SensorInspector({
       <dl className="sensor-meta">
         <div><dt>{t("twin.sensorFloor")}</dt><dd>{floor.name}</dd></div>
         <div><dt>{t("twin.mountingHeight")}</dt><dd>{round(sensor.z - floor.elevation)} m</dd></div>
-        <div><dt><BatteryMedium size={15} aria-hidden="true" />{t("twin.battery")}</dt><dd>{reading?.battery == null ? "—" : `${reading.battery}%`}</dd></div>
+        <div><dt><BatteryMedium size={15} aria-hidden="true" />{t("twin.battery")}</dt><dd>{batteryValue == null ? "—" : `${batteryValue}%`}</dd></div>
         <div><dt>{t("twin.quality")}</dt><dd><span className={`quality-dot ${selectedSample?.quality ?? "stale"}`} aria-hidden="true" />{selectedSample ? t(`measurement.quality.${selectedSample.quality}` as TranslationKey) : "—"}</dd></div>
         <div><dt>{t("twin.source")}</dt><dd>{selectedSample ? t(`measurement.source.${selectedSample.source}` as TranslationKey) : "—"}</dd></div>
         <div><dt>{t("twin.lastReading")}</dt><dd>{selectedSample ? <time dateTime={selectedSample.timestamp}>{formatInTimeZone(selectedSample.timestamp, locale, house.timezone, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time> : "—"}</dd></div>
@@ -674,7 +1119,8 @@ function SensorInspector({
           <strong>{t("twin.sensorPlacement")}</strong>
           <label className="field"><span>{t("twin.sensorFloor")}</span><select value={targetFloorId} onChange={(event) => setTargetFloorId(event.target.value)}>{house.floors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label className="field"><span>{t("twin.mountingHeight")}</span><span className="input-suffix"><input type="number" min="0" step="0.1" required value={mountingHeight} onChange={(event) => setMountingHeight(event.target.value)} /><span aria-hidden="true">m</span></span></label>
-          <button type="submit" className="secondary-button full-width">{t("twin.applyPlacement")}</button>
+          <button type="submit" className="secondary-button full-width" disabled={placementPending}>{placementPending ? t("common.saving") : t("twin.applyPlacement")}</button>
+          {placementError && <p className="inline-error" role="alert">{t("twin.sensorPlacementError")}</p>}
         </form>
         <p className="keyboard-help">{t("twin.keyboardMove")}</p>
       </>}

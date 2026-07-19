@@ -1,8 +1,8 @@
 import type { Server } from "node:http";
 
 export interface DrainableApiRuntime {
-  beginShutdown: () => void;
-  close: () => void;
+  beginShutdown: () => void | Promise<void>;
+  close: () => void | Promise<void>;
 }
 
 export interface HttpShutdownResult {
@@ -20,9 +20,9 @@ export function shutdownHttpServer(
   runtime: DrainableApiRuntime,
   timeoutMs = 10_000,
 ): Promise<HttpShutdownResult> {
-  runtime.beginShutdown();
+  const begin = runtime.beginShutdown();
 
-  return new Promise<HttpShutdownResult>((resolve, reject) => {
+  return Promise.resolve(begin).then(() => new Promise<HttpShutdownResult>((resolve, reject) => {
     let settled = false;
     let forced = false;
     const timer = setTimeout(() => {
@@ -35,14 +35,17 @@ export function shutdownHttpServer(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      let closing: void | Promise<void>;
       try {
-        runtime.close();
+        closing = runtime.close();
       } catch (closeError) {
         reject(closeError);
         return;
       }
-      if (error) reject(error);
-      else resolve({ forced });
+      void Promise.resolve(closing).then(() => {
+        if (error) reject(error);
+        else resolve({ forced });
+      }, reject);
     };
 
     try {
@@ -51,5 +54,5 @@ export function shutdownHttpServer(
     } catch (error) {
       finish(error instanceof Error ? error : new Error("HTTP server shutdown failed"));
     }
-  });
+  }));
 }

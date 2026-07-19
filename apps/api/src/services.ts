@@ -12,6 +12,10 @@ import type {
 import type { AppConfig } from "./config.js";
 import { ClimateDatabase } from "./db.js";
 import { TelemetryBus } from "./events.js";
+import { alertNotificationBindings } from "./notification-snapshot.js";
+import { DEFAULT_ALERT_DELIVERY_POLICY } from "./notification-policy.js";
+
+type WeatherConnectionStatus = NonNullable<IntegrationStatus["weather"]["connections"]>[number];
 
 export class RuntimeStatus {
   readonly value: IntegrationStatus;
@@ -23,24 +27,54 @@ export class RuntimeStatus {
     this.#database = database;
     this.value = {
       homeAssistant: {
-          configured: Boolean(config.haUrl && config.haToken),
+        configured: Boolean((config.homeAssistantConnections?.length ?? 0) > 0
+          || (!config.homeAssistantLegacyDisabled && config.haUrl && config.haToken)),
         connected: false,
         lastEventAt: null,
         mappedEntities: 0,
         error: null,
+        connections: (config.homeAssistantConnections ?? []).map((connection) => ({
+          houseId: connection.houseId,
+          configured: true,
+          connected: false,
+          lastEventAt: null,
+          mappedEntities: 0,
+          error: null,
+        })),
       },
       tpLink: {
-        configured: Boolean(config.tpLinkHost && config.tpLinkUsername && config.tpLinkPassword),
+        configured: Boolean((config.tpLinkConnections?.length ?? 0) > 0
+          || (!config.tpLinkLegacyDisabled && config.tpLinkHost && config.tpLinkUsername && config.tpLinkPassword)),
         connected: false,
         lastPollAt: null,
         mappedDevices: 0,
         discoveredDevices: 0,
         hubModel: null,
         error: null,
+        connections: (config.tpLinkConnections ?? []).map((connection) => ({
+          id: connection.id, houseId: connection.houseId, configured: true, connected: false,
+          lastPollAt: null, mappedDevices: 0, discoveredDevices: 0, hubModel: null, error: null,
+        })),
       },
       webhook: {
         configured: Boolean(config.alertWebhookUrl),
         lastDeliveryAt: null,
+        error: null,
+      },
+      telegram: {
+        available: true,
+        configured: Boolean(config.telegramBotToken && config.telegramChatId),
+        connected: false,
+        botUsername: null,
+        chatLabel: null,
+        lastDeliveryAt: null,
+        error: null,
+      },
+      appleNotes: {
+        available: true,
+        configured: (config.appleNotesGrants ?? []).length > 0,
+        grantCount: (config.appleNotesGrants ?? []).length,
+        lastSyncAt: null,
         error: null,
       },
       mock: {
@@ -56,19 +90,18 @@ export class RuntimeStatus {
         configuredHouses: this.configuredWeatherHouses(),
         lastSuccessAt: null,
         error: null,
+        connections: this.weatherConnections(),
       },
     };
   }
 
   changed(): void {
-    this.value.weather.configuredHouses = this.configuredWeatherHouses();
+    this.synchronizeWeatherConfiguration();
     this.#bus.publish({ type: "integration", data: structuredClone(this.value) });
   }
 
   refreshWeatherConfiguration(): void {
-    const configuredHouses = this.configuredWeatherHouses();
-    if (configuredHouses === this.value.weather.configuredHouses) return;
-    this.value.weather.configuredHouses = configuredHouses;
+    if (!this.synchronizeWeatherConfiguration()) return;
     this.#bus.publish({ type: "integration", data: structuredClone(this.value) });
   }
 
@@ -85,6 +118,35 @@ export class RuntimeStatus {
 
   private configuredWeatherHouses(): number {
     return this.#database.listHouses().filter((house) => house.location !== undefined).length;
+  }
+
+  private weatherConnections(
+    existing: WeatherConnectionStatus[] = [],
+    fallbackProvider: IntegrationStatus["weather"]["provider"] = "fmi",
+  ): WeatherConnectionStatus[] {
+    const previous = new Map(existing.map((connection) => [connection.houseId, connection]));
+    return this.#database.listHouses().map((house) => {
+      const prior = previous.get(house.id);
+      const configured = house.location !== undefined;
+      return {
+        houseId: house.id,
+        configured,
+        provider: prior?.provider ?? fallbackProvider,
+        lastSuccessAt: configured ? prior?.lastSuccessAt ?? null : null,
+        error: configured ? prior?.error ?? null : null,
+      };
+    });
+  }
+
+  private synchronizeWeatherConfiguration(): boolean {
+    const previousConnections = this.value.weather.connections ?? [];
+    const connections = this.weatherConnections(previousConnections, this.value.weather.provider);
+    const configuredHouses = connections.filter((connection) => connection.configured).length;
+    const changed = configuredHouses !== this.value.weather.configuredHouses
+      || JSON.stringify(connections) !== JSON.stringify(previousConnections);
+    this.value.weather.configuredHouses = configuredHouses;
+    this.value.weather.connections = connections;
+    return changed;
   }
 }
 
@@ -121,99 +183,206 @@ function validateLiveTimestamp(timestamp: string, nowMs: number): void {
 }
 
 export class AlertEngine {
-  readonly #conditionSince = new Map<string, number>();
-
+  #timer: NodeJS.Timeout | null = null;
+  #tickActive = false;
   constructor(
     private readonly database: ClimateDatabase,
     private readonly bus: TelemetryBus,
-    private readonly config: AppConfig,
-    private readonly status: RuntimeStatus,
+    private readonly config?: AppConfig,
+    _status?: RuntimeStatus,
+    _telegram?: unknown,
   ) {}
 
+  start(): void {
+    if (this.#timer) return;
+    this.#timer = setInterval(() => this.tick(), 5_000);
+    this.#timer.unref();
+    this.tick();
+  }
+
+  stop(): void {
+    if (this.#timer) clearInterval(this.#timer);
+    this.#timer = null;
+  }
+
+  tick(now = new Date()): void {
+    if (this.#tickActive) return;
+    this.#tickActive = true;
+    try {
+      this.evaluateWallClock(now);
+      this.enqueueFollowups(now);
+      this.enqueueMaintenanceReminders(now);
+      for (const run of this.database.verifyDueActionRuns(now)) {
+        this.enqueueActionVerification(run, now);
+        this.bus.publish({ type: "mutation", data: {
+          method: "PATCH",
+          resource: `/action-runs/${run.id}`,
+          occurredAt: now.toISOString(),
+        } });
+      }
+    } finally {
+      this.#tickActive = false;
+    }
+  }
+
+  private evaluateWallClock(now: Date): void {
+    const maximumSampleAgeMs = 15 * 60_000;
+    for (const pending of this.database.listDueAlertConditions(now)) {
+      const latest = this.database.getLatestMeasurementSample(pending.sensorId, pending.rule.metric);
+      if (!latest || latest.quality === "stale") continue;
+      const latestMs = Date.parse(latest.timestamp);
+      if (!Number.isFinite(latestMs) || now.getTime() - latestMs > maximumSampleAgeMs || latestMs > now.getTime()) continue;
+      this.evaluateRule(pending.rule, { ...latest, timestamp: now.toISOString() }, now.getTime());
+    }
+  }
+
+  private enqueueFollowups(now: Date): void {
+    for (const event of this.database.listAlertEvents(1_000, true)) {
+      if (event.acknowledgedAt || event.resolvedAt) continue;
+      const rule = this.database.getAlertRule(event.ruleId);
+      if (!rule || !rule.enabled || (!rule.webhookEnabled && !rule.telegramEnabled)) continue;
+      const policy = rule.deliveryPolicy;
+      if (!policy) continue;
+      const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - Date.parse(event.startedAt)) / 1_000));
+      const sensor = this.database.getSensor(event.sensorId);
+      const house = sensor ? this.database.getHouse(sensor.houseId) : null;
+      const bindings = alertNotificationBindings(this.config, {
+        houseLabel: house?.name ?? null,
+        sensorLabel: sensor?.name ?? null,
+      });
+      let inserted = 0;
+      if (policy.escalationAfterSeconds && elapsedSeconds >= policy.escalationAfterSeconds) {
+        inserted += this.database.enqueueAlertFollowup(event, rule, "escalation", 0, bindings, now);
+      }
+      if (policy.reminderIntervalSeconds && elapsedSeconds >= policy.reminderIntervalSeconds) {
+        const sequence = Math.floor(elapsedSeconds / policy.reminderIntervalSeconds);
+        inserted += this.database.enqueueAlertFollowup(event, rule, "reminder", sequence, bindings, now);
+      }
+      if (inserted > 0) this.bus.publish({ type: "alert", data: event });
+    }
+  }
+
+  private enqueueMaintenanceReminders(now: Date): void {
+    if (!this.config) return;
+    const webhookEnabled = Boolean(this.config.alertWebhookUrl);
+    const telegramEnabled = Boolean(this.config.telegramBotToken && this.config.telegramChatId);
+    if (!webhookEnabled && !telegramEnabled) return;
+    for (const task of this.database.listMaintenanceTasks({ limit: 500 })) {
+      if (!["planned", "in-progress"].includes(task.status)) continue;
+      const dueDate = task.dueBy ?? task.plannedFor;
+      if (!dueDate) continue;
+      const house = task.houseId ? this.database.getHouse(task.houseId) : null;
+      const localToday = localCalendarDate(now, house?.timezone ?? "UTC");
+      if (dueDate > localToday) continue;
+      const property = this.database.getProperty(task.propertyId);
+      const overdue = dueDate < localToday;
+      this.database.enqueueOperationalNotification({
+        subjectKind: "maintenance",
+        subjectId: task.id,
+        stage: "due",
+        sequence: 0,
+        policy: { ...DEFAULT_ALERT_DELIVERY_POLICY, timeZone: house?.timezone ?? "UTC" },
+        severity: overdue || task.priority === "urgent" ? "critical" : "warning",
+        webhookEnabled,
+        telegramEnabled,
+        config: this.config,
+        type: "maintenance.due",
+        text: `${overdue ? "OVERDUE" : "DUE"} — ${task.title} (${property?.name ?? house?.name ?? "Property"}, ${dueDate})`,
+        data: { task, overdue, dueDate },
+        now,
+      });
+    }
+  }
+
+  private enqueueActionVerification(run: import("@climate-twin/contracts").ActionRun, now: Date): void {
+    if (!this.config || !["verified", "not-improved"].includes(run.status)) return;
+    const webhookEnabled = Boolean(this.config.alertWebhookUrl);
+    const telegramEnabled = Boolean(this.config.telegramBotToken && this.config.telegramChatId);
+    if (!webhookEnabled && !telegramEnabled) return;
+    const sensor = this.database.getSensor(run.sensorId);
+    const house = sensor ? this.database.getHouse(sensor.houseId) : null;
+    this.database.enqueueOperationalNotification({
+      subjectKind: "action-run",
+      subjectId: run.id,
+      stage: "verification",
+      sequence: 0,
+      policy: { ...DEFAULT_ALERT_DELIVERY_POLICY, timeZone: house?.timezone ?? "UTC" },
+      severity: run.status === "verified" ? "info" : "warning",
+      webhookEnabled,
+      telegramEnabled,
+      config: this.config,
+      type: "action.verification",
+      text: `${run.status === "verified" ? "Action verified" : "Action did not improve"} — ${sensor?.name ?? run.sensorId}: ${run.baselineValue} → ${run.resultValue ?? "no result"}`,
+      data: { run, sensorName: sensor?.name ?? null, houseName: house?.name ?? null },
+      now,
+    });
+  }
+
   evaluateSample(sample: MeasurementSample): AlertEvent[] {
-    if (sample.quality === "stale") return [];
-    const timestampMs = Date.parse(sample.timestamp);
-    const nowMs = Number.isFinite(timestampMs) ? timestampMs : Date.now();
-    const created: AlertEvent[] = [];
+    return this.evaluateSamples([sample]);
+  }
+
+  evaluateSamples(samples: readonly MeasurementSample[]): AlertEvent[] {
+    if (samples.length === 0) return [];
+    const rulesByMetric = new Map<string, AlertRule[]>();
     for (const rule of this.database.listAlertRules()) {
-      const event = this.evaluateRule(rule, sample, nowMs);
-      if (event) created.push(event);
+      if (!rule.enabled) continue;
+      const rules = rulesByMetric.get(rule.metric) ?? [];
+      rules.push(rule);
+      rulesByMetric.set(rule.metric, rules);
+    }
+    const created: AlertEvent[] = [];
+    for (const sample of samples) {
+      if (sample.quality === "stale") continue;
+      const timestampMs = Date.parse(sample.timestamp);
+      const nowMs = Number.isFinite(timestampMs) ? timestampMs : Date.now();
+      for (const rule of rulesByMetric.get(sample.metric) ?? []) {
+        const event = this.evaluateRule(rule, sample, nowMs);
+        if (event) created.push(event);
+      }
     }
     return created;
   }
 
   private evaluateRule(rule: AlertRule, sample: MeasurementSample, nowMs: number): AlertEvent | null {
     if (!ruleApplies(rule, sample)) return null;
-    const key = `${rule.id}:${sample.sensorId}`;
-    const active = this.database.activeAlert(rule.id, sample.sensorId);
-    if (!compare(sample.value, rule.operator, rule.threshold)) {
-      this.resolveActiveAlert(key, active, sample.timestamp);
-      return null;
-    }
-    if (active) return null;
-    const since = this.#conditionSince.get(key) ?? nowMs;
-    this.#conditionSince.set(key, since);
-    if (nowMs - since < rule.durationSeconds * 1_000) return null;
-    const event = this.createAlert(rule, sample, since);
-    this.bus.publish({ type: "alert", data: event });
-    // Demo/replay values may exercise local alert UI, but must never cross
-    // into a real outbound automation or escalation channel.
-    if (rule.webhookEnabled && sample.source !== "mock" && sample.source !== "replay") {
-      this.deliverWebhook(event, rule);
-    }
-    return event;
-  }
-
-  private resolveActiveAlert(key: string, active: AlertEvent | null, timestamp: string): void {
-    this.#conditionSince.delete(key);
-    if (!active) return;
-    const resolved = this.database.resolveAlert(active.id, timestamp);
-    if (resolved) this.bus.publish({ type: "alert", data: resolved });
-  }
-
-  private createAlert(rule: AlertRule, sample: MeasurementSample, since: number): AlertEvent {
-    return this.database.createAlertEvent({
-      ruleId: rule.id,
-      sensorId: sample.sensorId,
-      metric: rule.metric,
-      value: sample.value,
-      threshold: rule.threshold,
-      severity: rule.severity,
-      startedAt: new Date(since).toISOString(),
-    });
+    const sensor = rule.webhookEnabled || rule.telegramEnabled ? this.database.getSensor(sample.sensorId) : null;
+    const house = sensor ? this.database.getHouse(sensor.houseId) : null;
+    const bindings = rule.webhookEnabled || rule.telegramEnabled
+      ? alertNotificationBindings(this.config, {
+          houseLabel: house?.name ?? null,
+          sensorLabel: sensor?.name ?? null,
+        })
+      : undefined;
+    const transition = this.database.applyAlertSample(
+      rule,
+      sample,
+      compare(sample.value, rule.operator, rule.threshold),
+      bindings,
+    );
+    if (transition.resolved) this.bus.publish({ type: "alert", data: transition.resolved });
+    if (transition.created) this.bus.publish({ type: "alert", data: transition.created });
+    return transition.created;
   }
 
   evaluate(reading: Reading): AlertEvent[] {
     const shared = { sensorId: reading.sensorId, timestamp: reading.timestamp, source: reading.source, quality: reading.quality };
-    return [
-      ...this.evaluateSample({ ...shared, metric: "temperature", value: reading.temperature, canonicalUnit: "°C" }),
-      ...this.evaluateSample({ ...shared, metric: "humidity", value: reading.humidity, canonicalUnit: "%" }),
-    ];
+    return this.evaluateSamples([
+      { ...shared, metric: "temperature", value: reading.temperature, canonicalUnit: "°C" },
+      { ...shared, metric: "humidity", value: reading.humidity, canonicalUnit: "%" },
+    ]);
   }
 
   reset(): void {
-    this.#conditionSince.clear();
+    this.database.clearAlertEvaluationState();
   }
+}
 
-  private async deliverWebhook(event: AlertEvent, rule: AlertRule): Promise<void> {
-    if (!this.config.alertWebhookUrl) return;
-    try {
-      const headers: Record<string, string> = { "content-type": "application/json" };
-      if (this.config.alertWebhookBearerToken) headers.authorization = `Bearer ${this.config.alertWebhookBearerToken}`;
-      const response = await fetch(this.config.alertWebhookUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ apiVersion: "v1", type: "climate-twin.alert", event, rule }),
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!response.ok) throw new Error(`Webhook returned HTTP ${response.status}`);
-      this.status.value.webhook.lastDeliveryAt = new Date().toISOString();
-      this.status.value.webhook.error = null;
-    } catch (error) {
-      this.status.value.webhook.error = error instanceof Error ? error.message : "Webhook delivery failed";
-    }
-    this.status.changed();
-  }
+function localCalendarDate(value: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" })
+    .formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((candidate) => candidate.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
 export class TelemetryValidationError extends Error {
@@ -280,7 +449,10 @@ export class DataModeCoordinator {
     if (hasDemo && this.synchronize()) {
       throw new MeasurementValidationError("DEMO_DATA_DISABLED", 409, "Demo telemetry is permanently disabled after a real integration or real sample is accepted");
     }
-    if (hasReal && !this.isRealMode) this.activate();
+    // The repository latches real-data mode inside the same SQLite transaction
+    // as the first persisted real sample. Activating here would commit the
+    // destructive purge before persistence and could not be rolled back if the
+    // subsequent insert failed.
   }
 
   onActivated(listener: () => void): () => void {
@@ -343,13 +515,14 @@ export class MeasurementService {
       this.validateSample(sample, definition, nowMs);
     }
     this.dataMode.prepareSources(samples.map((sample) => sample.source));
-    const inserted = options.deduplicateAcrossSources === undefined
-      ? this.database.insertMeasurementSamples(samples)
-      : this.database.insertMeasurementSamples(samples, { deduplicateAcrossSources: options.deduplicateAcrossSources });
-    for (const sample of inserted) {
-      if (options.publish !== false) this.bus.publishMeasurement(sample);
-      if (options.evaluateAlerts !== false) this.alertEngine.evaluateSample(sample);
+    const inserted = this.database.insertMeasurementSamples(samples, options.deduplicateAcrossSources !== undefined
+      ? { deduplicateAcrossSources: options.deduplicateAcrossSources }
+      : {});
+    this.dataMode.synchronize();
+    if (options.publish !== false) {
+      for (const sample of inserted) this.bus.publishMeasurement(sample);
     }
+    if (options.evaluateAlerts !== false) this.alertEngine.evaluateSamples(inserted);
     return inserted;
   }
 
@@ -422,13 +595,16 @@ export class TelemetryService {
     }
     this.dataMode.prepareSources(readings.map((reading) => reading.source));
     const inserted = this.database.insertReadings(readings);
+    this.dataMode.synchronize();
+    const samples: MeasurementSample[] = [];
     for (const reading of inserted) {
       this.bus.publish({ type: "reading", data: reading });
       for (const sample of samplesFromReading(this.database, reading)) {
+        samples.push(sample);
         this.bus.publishMeasurement(sample);
-        this.alertEngine.evaluateSample(sample);
       }
     }
+    this.alertEngine.evaluateSamples(samples);
     return inserted;
   }
 
@@ -463,7 +639,8 @@ export class TelemetryService {
     if (!sensor.enabled) throw new TelemetryValidationError("SENSOR_DISABLED", 409, `Sensor is disabled: ${reading.sensorId}`);
     validateLiveTimestamp(reading.timestamp, Date.now());
     this.dataMode.prepareSources([reading.source]);
-    const inserted = this.database.insertLegacyReading(reading);
+    const inserted = this.database.upsertLegacyReading(reading);
+    this.dataMode.synchronize();
     if (inserted) this.bus.publish({ type: "reading", data: reading });
     return inserted;
   }
@@ -599,12 +776,23 @@ export class MockEngine {
     private readonly telemetry: TelemetryService,
     private readonly config: AppConfig,
     private readonly dataMode: DataModeCoordinator,
-  ) {}
+  ) {
+    const persisted = this.database.mockScenarioId();
+    if (MOCK_SCENARIOS.some((scenario) => scenario.id === persisted)) {
+      this.#scenario = persisted as MockScenario["id"];
+    }
+  }
 
-  get scenario(): MockScenario["id"] { return this.#scenario; }
+  get scenario(): MockScenario["id"] {
+    const persisted = this.database.mockScenarioId();
+    return MOCK_SCENARIOS.some((scenario) => scenario.id === persisted)
+      ? persisted as MockScenario["id"]
+      : this.#scenario;
+  }
 
   setScenario(scenario: MockScenario["id"]): void {
     this.dataMode.prepareSources(["mock"]);
+    this.database.setMockScenarioId(scenario);
     this.#scenario = scenario;
     this.#tick = 0;
   }
@@ -644,6 +832,7 @@ export class MockEngine {
     const now = new Date().toISOString();
     const generated: Reading[] = [];
     const sensors = this.database.listSensors().filter((sensor) => sensor.enabled);
+    const scenario = this.scenario;
     for (let index = 0; index < sensors.length; index += 1) {
       const sensor = sensors[index] as Sensor;
       const last = this.database.getLatestReading(sensor.id);
@@ -654,18 +843,18 @@ export class MockEngine {
       const wave = Math.sin(this.#tick / 15 + index * 0.7);
       temperature += wave * 0.025;
       humidity += Math.cos(this.#tick / 13 + index) * 0.08;
-      if (this.#scenario === "shower") {
+      if (scenario === "shower") {
         const distance = Math.hypot(sensor.x - 10.5, sensor.y - 7.5) + (sensor.floorId === "floor-upper" ? 0 : 8);
         humidity += Math.max(0, 2.2 - distance * 0.16);
         temperature += Math.max(0, 0.08 - distance * 0.006);
         co2 += Math.max(0, 18 - distance * 1.2);
-      } else if (this.#scenario === "leak") {
+      } else if (scenario === "leak") {
         const distance = Math.hypot(sensor.x - 11, sensor.y - 7.5) + (sensor.floorId === "floor-ground" ? 0 : 7);
         humidity += Math.max(0, 1.35 - distance * 0.11);
-      } else if (this.#scenario === "cold-front") {
+      } else if (scenario === "cold-front") {
         const front = (this.#tick / 4) % 18;
         temperature -= Math.max(0, 0.32 - Math.abs(sensor.x - front) * 0.055);
-      } else if (this.#scenario === "heating-failure") {
+      } else if (scenario === "heating-failure") {
         temperature -= 0.075 + (sensor.floorId === "floor-ground" ? 0.015 : 0);
       }
       // A gentle occupied-room cycle keeps mock CO2 realistic without coupling it to climate samples.
@@ -680,9 +869,9 @@ export class MockEngine {
         quality: "good",
         measurements: { co2: Number(Math.max(350, Math.min(5_000, co2)).toFixed(0)) },
       };
-      generated.push(this.telemetry.ingest(reading));
+      generated.push(reading);
     }
-    return generated;
+    return this.telemetry.ingestBatch(generated);
   }
 }
 
@@ -710,8 +899,12 @@ export class ReplayEngine {
   }
 
   start(sensorIds: string[], from: string, to: string, speed = 60): ReplayState {
+    return this.startReadings(this.database.history(sensorIds, from, to, 50_000), from, to, speed);
+  }
+
+  startReadings(readings: readonly Reading[], from: string, to: string, speed = 60): ReplayState {
     this.stop();
-    this.#readings = this.database.history(sensorIds, from, to, 50_000);
+    this.#readings = readings.slice(-50_000);
     this.#index = 0;
     this.#speed = Math.max(0.1, Math.min(speed, 10_000));
     this.#from = from;
@@ -742,7 +935,11 @@ export class ReplayEngine {
         this.#timer = null;
         return;
       }
-      this.bus.publish({ type: "reading", data: { ...current, source: "replay" } });
+      const replayReading: Reading = { ...current, source: "replay" };
+      this.bus.publish({ type: "reading", data: replayReading });
+      for (const sample of samplesFromReading(this.database, replayReading)) {
+        this.bus.publishMeasurement(sample);
+      }
       this.#index += 1;
       const next = this.#readings[this.#index];
       if (!next) {

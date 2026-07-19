@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 describe("DeveloperPage", () => {
-  it("distinguishes local integrations from hosted-only HTTP and copies the hosted manifest", async () => {
+  it("documents and copies the local integrations", async () => {
     const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
@@ -24,19 +24,15 @@ describe("DeveloperPage", () => {
 
     expect(screen.getByRole("heading", { name: "Local v1 + v2 HTTP API" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Local MCP server" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Tenant-scoped hosted HTTP" })).toBeTruthy();
-    expect(screen.getByText("Hosted deployments only")).toBeTruthy();
-    expect(screen.getByText(/Tenant, member, invitation, and API-token administration is HTTP-only/)).toBeTruthy();
-    expect(screen.getByText(/local MCP server remains trusted stdio/)).toBeTruthy();
+    expect(screen.getByText("Local integration contracts")).toBeTruthy();
+    expect(screen.getByText("Use Stuga locally through the versioned HTTP API and trusted stdio MCP server.")).toBeTruthy();
 
-    const openApi = screen.getByRole("textbox", { name: "Hosted OpenAPI" }) as HTMLInputElement;
-    const routeManifest = screen.getByRole("textbox", { name: "Hosted route manifest" }) as HTMLInputElement;
-    expect(openApi.value).toBe(window.location.origin + "/api/openapi.json");
-    expect(routeManifest.value).toBe(window.location.origin + "/api/hosted-routes.json");
+    const baseUrl = screen.getByRole("textbox", { name: "Local v1 base URL" }) as HTMLInputElement;
+    expect(baseUrl.value).toBe(window.location.origin + "/api/v1");
 
-    await user.click(screen.getByRole("button", { name: "Copy: Hosted route manifest" }));
+    await user.click(screen.getByRole("button", { name: "Copy: Local v1 base URL" }));
 
-    expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/\/api\/hosted-routes\.json$/));
+    expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/\/api\/v1$/));
     expect(screen.getByText("Copied").getAttribute("role")).toBe("status");
   });
 
@@ -62,23 +58,19 @@ describe("DeveloperPage", () => {
     localStorage.setItem("climate-twin-locale", "en");
     render(<I18nProvider><DeveloperPage /></I18nProvider>);
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy: Hosted OpenAPI" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy: Local v1 base URL" }));
     await vi.advanceTimersByTimeAsync(1500);
 
     expect(screen.getByText("Copy failed. Select the value and copy it manually.").getAttribute("role")).toBe("status");
   });
 
-  it("explains the same local and hosted boundary in Finnish", () => {
+  it("explains the local integrations in Finnish", () => {
     localStorage.setItem("climate-twin-locale", "fi");
     render(<I18nProvider><DeveloperPage /></I18nProvider>);
 
     expect(screen.getByRole("heading", { name: "Paikallinen v1 + v2 HTTP-rajapinta" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Paikallinen MCP-palvelin" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Tenant-kohtainen hostattu HTTP-rajapinta" })).toBeTruthy();
-    expect(screen.getByText("Vain hostatut asennukset")).toBeTruthy();
-    expect(screen.getByText(/hallinta toimii vain HTTP:n kautta/)).toBeTruthy();
-    expect(screen.getByText(/s\u00e4ilyy luotettuna stdio-palvelimena/)).toBeTruthy();
-    expect((screen.getByRole("textbox", { name: "Hostattu OpenAPI-kuvaus" }) as HTMLInputElement).value).toBe(window.location.origin + "/api/openapi.json");
-    expect((screen.getByRole("textbox", { name: "Hostattu reittiluettelo" }) as HTMLInputElement).value).toBe(window.location.origin + "/api/hosted-routes.json");
+    expect(screen.getByText("Paikalliset integraatiorajapinnat")).toBeTruthy();
+    expect(screen.getByText("Käytä Stugaa paikallisesti versioidun HTTP-rajapinnan ja luotetun stdio-MCP-palvelimen kautta.")).toBeTruthy();
   });
 });
