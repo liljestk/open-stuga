@@ -37,8 +37,9 @@ no secrets enter the browser/database/image.
   rotation drills, and additional TLS/VPN/reverse-proxy recipes.
 - Webhook signature, destination allowlist, multi-destination fan-out, and a
   maximum-attempt/dead-letter policy on top of the durable retry outbox.
-- Wall-clock sustained-condition timers that fire without waiting for the next
-  sample (pending duration state is already durable across restarts).
+- Wall-clock sustained-condition timers now fire without waiting for the next
+  sample, resume their durable pending state after restart, and refuse stale
+  evidence.
 - Automated end-to-end accessibility auditing against WCAG 2.2 AA,
   localization extraction, and broader unit/timezone tests.
 - Import/export with explicit schema/version and privacy preview.

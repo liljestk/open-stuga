@@ -255,6 +255,14 @@ Alert rules refer to a registered `metric` ID and evaluate only samples for that
 metric; a CO2 event cannot accidentally satisfy a humidity rule. Thresholds and
 durations remain site configuration rather than registry metadata.
 
+The production alert engine checks durable pending-condition deadlines against
+wall-clock time every five seconds. A deadline can therefore open an alert
+without waiting for another sensor event. The pending start survives process
+restart; the startup tick resumes it from SQLite and opens it only while the
+latest non-stale sample is still recent. This advances alert state but does not
+write an invented telemetry sample. Mock and replay sources remain excluded
+from external notification delivery.
+
 Mock mode generates realistic-but-synthetic temperature, humidity, and CO2 for
 the seeded sensors. It does not invent values for newly registered custom
 metrics, so their correct initial state is "no data" until an adapter, API call,

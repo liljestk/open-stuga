@@ -68,6 +68,53 @@ function telegramSuccessFetch() {
 }
 
 describe("durable alert history and notification snapshots", () => {
+  it("restores a pending sustained condition and opens it from wall-clock time after restart", () => {
+    const directory = mkdtempSync(join(tmpdir(), "stuga-alert-deadline-"));
+    const databasePath = join(directory, "climate.sqlite");
+    let database: ClimateDatabase | null = new ClimateDatabase(databasePath, true);
+    try {
+      const startedAt = new Date("2026-07-21T10:00:00.000Z");
+      const rule = database.saveAlertRule({
+        name: "Restart-safe humidity deadline",
+        sensorId: "sensor-01",
+        metric: "humidity",
+        operator: "gte",
+        threshold: 60,
+        durationSeconds: 60,
+        severity: "warning",
+        enabled: true,
+        webhookEnabled: false,
+        telegramEnabled: false,
+      });
+      const sample = {
+        sensorId: "sensor-01",
+        metric: "humidity",
+        value: 70,
+        canonicalUnit: "%",
+        timestamp: startedAt.toISOString(),
+        source: "api" as const,
+        quality: "good" as const,
+      };
+      database.insertMeasurementSamples([sample]);
+      expect(new AlertEngine(database, new TelemetryBus()).evaluateSample(sample)).toEqual([]);
+      expect(database.listDueAlertConditions(new Date(startedAt.getTime() + 59_999))).toEqual([]);
+
+      database.close();
+      database = new ClimateDatabase(databasePath, false);
+      const restarted = new AlertEngine(database, new TelemetryBus());
+      restarted.tick(new Date(startedAt.getTime() + 60_000));
+
+      expect(database.activeAlert(rule.id, sample.sensorId)).toMatchObject({
+        startedAt: startedAt.toISOString(),
+        value: sample.value,
+      });
+      expect(database.listDueAlertConditions(new Date(startedAt.getTime() + 65_000))).toEqual([]);
+    } finally {
+      database?.close();
+      rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  });
+
   it("delivers the original immutable payload after rule edits, retirement, and restart", async () => {
     const directory = mkdtempSync(join(tmpdir(), "stuga-alert-history-"));
     const databasePath = join(directory, "climate.sqlite");

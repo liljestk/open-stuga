@@ -4,6 +4,9 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+- Verified restart-safe wall-clock alert deadlines: durable sustained
+  conditions now have explicit integration coverage proving they open without
+  a second sensor sample and without inventing telemetry.
 - Hardened the optional Cloudflare Tunnel/Access deployment with a durable
   static edge-operator allowlist, separation from the local Stuga owner login,
   fail-closed upgrade validation, generated-config regression coverage, and a
