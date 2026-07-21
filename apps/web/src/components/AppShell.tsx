@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Activity, Bell, Bolt, Braces, ChevronDown, ChevronLeft, CloudSun, House, Languages, LayoutDashboard, ListChecks, LogOut, MapPinned, Menu, PanelLeftClose, PanelLeftOpen, RadioTower, RotateCcw, Settings2, ShieldCheck, Users, Wrench, X } from "lucide-react";
+import { Activity, Bell, Bolt, Braces, ChartLine, ChevronDown, ChevronLeft, CloudSun, House, Languages, LayoutDashboard, ListChecks, LogOut, MapPinned, Menu, PanelLeftClose, PanelLeftOpen, RadioTower, RotateCcw, Settings2, ShieldCheck, Users, Wrench, X } from "lucide-react";
 import type { AppPage } from "../domain";
 import { useI18n, type Locale } from "../i18n";
 import type { ConnectionState, House as Home, Property, UnitSystem } from "@climate-twin/contracts";
@@ -57,6 +57,7 @@ const pageIcons = {
   outdoor: CloudSun,
   energy: Bolt,
   sensors: RadioTower,
+  analytics: ChartLine,
   alerts: Bell,
   integrations: Settings2,
   developer: Braces,
@@ -139,6 +140,7 @@ export function AppShell({
       { id: "energy" as const, label: t("nav.energyUse"), scope: "home" as const },
     ] : []),
     { id: "sensors", label: t("nav.sensors"), scope: "home" },
+    { id: "analytics", label: t("nav.analytics"), scope: "home" },
     ...(!readOnly ? [
       { id: "integrations" as const, label: t("nav.integrations"), scope: "home" as const },
     ] : []),
@@ -426,27 +428,31 @@ export function AppShell({
             ? <span className="mobile-header-spacer" aria-hidden="true" />
             : <button className="icon-button" type="button" onClick={() => onBack ? onBack() : choosePage({ id: "overview", label: t("nav.overview"), scope: "workspace" })} aria-label={onBackLabel ?? t("header.overview")}><ChevronLeft size={20} /></button>}
         </header>
-        <main id="main-content" className="main-content" tabIndex={-1}>
+        <main id="main-content" className={`main-content page-${page}`} tabIndex={-1}>
           {properties.length > 0 && onProperty && page !== "overview" && page !== "alerts" && page !== "developer"
             && !(page === "properties" && /^\/properties\/?$/.test(window.location.pathname)) && (
             <div className="page-home-switcher">
-              <MapPinned size={16} aria-hidden="true" />
-              <label>
-                <span>{t("properties.activeProperty")}</span>
-                <select value={propertyId} onChange={(event) => onProperty(event.target.value)}>
-                  {properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
-                </select>
-              </label>
-              {onHouse && propertyHouses.length > 0 && (["twin", "activity", "outdoor", "sensors", "integrations"].includes(page)
-                || (page === "energy" && /\/homes\/[^/]+\/electricity\/?$/.test(window.location.pathname))) && <>
-                <House size={16} aria-hidden="true" />
+              <div className="page-home-switcher-group">
+                <MapPinned size={16} aria-hidden="true" />
                 <label>
-                  <span>{t("header.activeHome")}</span>
-                  <select value={houseId} onChange={(event) => onHouse(event.target.value)}>
-                    {propertyHouses.map((house) => <option key={house.id} value={house.id}>{house.name}</option>)}
+                  <span>{t("properties.activeProperty")}</span>
+                  <select value={propertyId} onChange={(event) => onProperty(event.target.value)}>
+                    {properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
                   </select>
                 </label>
-              </>}
+              </div>
+              {onHouse && propertyHouses.length > 0 && (["twin", "activity", "outdoor", "sensors", "analytics", "integrations"].includes(page)
+                || (page === "energy" && /\/homes\/[^/]+\/electricity\/?$/.test(window.location.pathname))) && (
+                <div className="page-home-switcher-group">
+                  <House size={16} aria-hidden="true" />
+                  <label>
+                    <span>{t("header.activeHome")}</span>
+                    <select value={houseId} onChange={(event) => onHouse(event.target.value)}>
+                      {propertyHouses.map((house) => <option key={house.id} value={house.id}>{house.name}</option>)}
+                    </select>
+                  </label>
+                </div>
+              )}
             </div>
           )}
           {children}

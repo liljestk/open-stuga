@@ -74,6 +74,20 @@ describe("experimental spatial visualization support", () => {
       "add-physical-scale",
       "model-vertical-portals",
     ]));
+
+    const calibratedHouse = {
+      ...house,
+      floors: house.floors.map((floor) => ({ ...floor, metersPerPlanUnit: .012 })),
+    };
+    expect(experimentalLayerSuggestions({
+      house: calibratedHouse,
+      coverage: { ...coverage },
+      airflow: {
+        temperatureSensors: 1, humiditySensors: 1, tracerSensors: 0, windDriven: false,
+        doorOpenings: 0, windowOpenings: 0, ventOpenings: 0, counterflowOpenings: 0,
+        pressureAssumed: false, support: "low", divergenceRms: 0,
+      },
+    }).some((item) => item.code === "add-physical-scale")).toBe(false);
   });
 
   it("chooses the least-supported valid point in the requested room", () => {

@@ -8,6 +8,7 @@ const WIDTH_CONFIG: Record<PlanElementKind, { spanDivisor: number; minFactor: nu
   window: { spanDivisor: 12, minFactor: .4, maxFactor: 2.5 },
   fireplace: { spanDivisor: 14, minFactor: .5, maxFactor: 2 },
   vent: { spanDivisor: 25, minFactor: .35, maxFactor: 2 },
+  fireEscape: { spanDivisor: 12, minFactor: .4, maxFactor: 2.5 },
 };
 
 const GEOMETRY_EPSILON = 1e-8;
@@ -22,17 +23,31 @@ export function isWallOpening(element: PlanElement): element is Extract<PlanElem
   return element.kind === "door" || element.kind === "window";
 }
 
+export function isWallAttachedPlanElement(
+  element: PlanElement,
+): element is Extract<PlanElement, { kind: "door" | "window" | "fireEscape" }> {
+  return isWallOpening(element) || element.kind === "fireEscape";
+}
+
 /** Architectural width defaults are expressed in the floor plan's local x/y units. */
 export function defaultPlanElementWidth(floor: Pick<Floor, "width" | "height">, kind: PlanElementKind): number {
   const span = Math.max(floor.width, floor.height, GEOMETRY_EPSILON);
   return Number((span / WIDTH_CONFIG[kind].spanDivisor).toPrecision(12));
 }
 
-export function planElementWidthBounds(floor: Pick<Floor, "width" | "height">, kind: PlanElementKind): DimensionBounds {
+export function planElementWidthBounds(
+  floor: Pick<Floor, "width" | "height" | "metersPerPlanUnit">,
+  kind: PlanElementKind,
+): DimensionBounds {
   const defaultWidth = defaultPlanElementWidth(floor, kind);
   const config = WIDTH_CONFIG[kind];
+  const relativeMinimum = defaultWidth * config.minFactor;
+  const scale = floor.metersPerPlanUnit;
+  const minimum = (kind === "door" || kind === "window") && Number.isFinite(scale) && scale! > 0
+    ? Math.min(relativeMinimum, .6 / scale!)
+    : relativeMinimum;
   return {
-    min: Number((defaultWidth * config.minFactor).toPrecision(12)),
+    min: Number(minimum.toPrecision(12)),
     max: Number((defaultWidth * config.maxFactor).toPrecision(12)),
     step: Number((defaultWidth / 10).toPrecision(12)),
   };
@@ -59,7 +74,7 @@ function distanceAlongWall(position: PlanElement["position"], wall: Wall) {
 /** Narrows a wall opening's live slider to widths that still fit at its current position. */
 export function editablePlanElementWidthBounds(floor: Floor, element: PlanElement): DimensionBounds {
   const bounds = planElementWidthBounds(floor, element.kind);
-  if (!isWallOpening(element)) return bounds;
+  if (!isWallAttachedPlanElement(element)) return bounds;
   const wall = floor.walls.find((candidate) => candidate.id === element.wallId);
   const distances = wall ? distanceAlongWall(element.position, wall) : null;
   if (!distances) return bounds;
@@ -83,10 +98,11 @@ export function planElementHeightBounds(
 ): DimensionBounds {
   const ceiling = ceilingHeight(floor);
   const configured = {
-    door: { min: 1.6, max: ceiling, step: .05 },
+    door: { min: .6, max: ceiling, step: .05 },
     window: { min: .3, max: Math.max(.3, ceiling - .2), step: .05 },
     fireplace: { min: .4, max: ceiling, step: .05 },
     vent: { min: .1, max: Math.min(.8, ceiling), step: .05 },
+    fireEscape: { min: .6, max: Math.max(.6, ceiling), step: .05 },
   }[kind];
   const max = Math.max(.05, configured.max);
   return { min: Math.min(configured.min, max), max, step: configured.step };
@@ -97,7 +113,7 @@ export function defaultPlanElementHeight(
   kind: PlanElementKind,
 ): number {
   const bounds = planElementHeightBounds(floor, kind);
-  const preferred = { door: 2.1, window: 1.2, fireplace: 1.25, vent: .3 }[kind];
+  const preferred = { door: 2.1, window: 1.2, fireplace: 1.25, vent: .3, fireEscape: 2.4 }[kind];
   return Number(clamp(preferred, bounds.min, bounds.max).toFixed(2));
 }
 
@@ -128,4 +144,8 @@ export function planElementBottomOffset(floor: Pick<Floor, "ceilingHeight">, ele
   const height = effectivePlanElementHeight(floor, element);
   const configured = element.kind === "fireplace" ? undefined : element.bottomOffsetM;
   return Number(clamp(configured ?? defaultPlanElementBottomOffset(floor, element), 0, Math.max(0, ceiling - height)).toFixed(2));
+}
+
+export function defaultFireEscapeProjection(floor: Pick<Floor, "width" | "height">, width: number): number {
+  return Number(Math.max(Math.max(floor.width, floor.height) * .02, width * .65).toPrecision(12));
 }

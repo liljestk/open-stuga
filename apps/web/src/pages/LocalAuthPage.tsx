@@ -8,6 +8,7 @@ export type LocalAuthMode = "setup" | "login" | "invitation";
 
 // randomBytes(32).toString("base64url") is exactly 43 URL-safe characters.
 const INVITATION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const INVITATION_SESSION_KEY = "stuga-invitation-token";
 
 /** Pure parsing keeps the token stable when React probes initializers in Strict Mode. */
 export function invitationTokenFromFragment(hash = window.location.hash): string | null {
@@ -21,6 +22,16 @@ export function clearInvitationFragment(): void {
   const parameters = new URLSearchParams(window.location.hash.slice(1));
   if (!parameters.has("invite")) return;
   window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}`);
+}
+
+/** Read the handoff created by the public static bootstrap before Access redirects. */
+export function invitationTokenFromBootstrapStorage(storage: Storage = window.sessionStorage): string | null {
+  const token = storage.getItem(INVITATION_SESSION_KEY)?.trim() ?? "";
+  return INVITATION_TOKEN_PATTERN.test(token) ? token : null;
+}
+
+export function clearInvitationBootstrapStorage(storage: Storage = window.sessionStorage): void {
+  storage.removeItem(INVITATION_SESSION_KEY);
 }
 
 type AuthError = { key: TranslationKey; field: "email" | "password" | null };

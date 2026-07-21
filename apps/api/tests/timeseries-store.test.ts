@@ -8,6 +8,9 @@ import {
 } from "../src/timeseries/schema.js";
 import { TimeseriesStore } from "../src/timeseries/store.js";
 
+const FROM = "2026-07-18T00:00:00.000Z";
+const TO = "2026-07-18T01:00:00.000Z";
+
 interface CapturedQuery {
   text: string;
   values: unknown[];
@@ -78,6 +81,7 @@ describe("time-series schema", () => {
     expect(sql).toContain("PRIMARY KEY (sensor_id, observed_at, source)");
     expect(sql).toContain("PRIMARY KEY (house_id, location_key, observed_at, source)");
     expect(sql).toContain("PRIMARY KEY (property_id, starts_at, source)");
+    expect(sql).toContain("margin_cents_per_kwh DOUBLE PRECISION NOT NULL DEFAULT 0");
     expect(sql).toContain("PRIMARY KEY (source_id, table_name)");
     expect(sql).toContain("last_row_id BIGINT NOT NULL CHECK (last_row_id >= 0)");
     expect(sql).toContain("USING BRIN (observed_at)");
@@ -368,6 +372,42 @@ describe("TimeseriesStore", () => {
       .resolves.toEqual([]);
     expect(pool.connect).not.toHaveBeenCalled();
     expect(pool.queries).toEqual([]);
+  });
+
+  it("aggregates cumulative energy deltas against overlapping persisted price intervals", async () => {
+    const pool = new FakePool(({ text }) => text.includes("WITH boundary_sample AS")
+      ? queryResult([{
+        delta_count: "3",
+        consumption_kwh: 4.5,
+        priced_consumption_kwh: 4.25,
+        cost_eur: 0.91,
+        total_duration_ms: 3_600_000,
+        priced_duration_ms: 3_300_000,
+        coverage_from: new Date(FROM),
+        coverage_until: new Date(TO),
+      }])
+      : queryResult());
+    const store = storeFor(pool);
+
+    await expect(store.energyCostAggregate({
+      sensorId: "meter-1",
+      propertyId: "property-1",
+      from: FROM,
+      to: TO,
+    })).resolves.toEqual({
+      deltaCount: 3,
+      consumptionKwh: 4.5,
+      pricedConsumptionKwh: 4.25,
+      costEur: 0.91,
+      totalDurationMs: 3_600_000,
+      pricedDurationMs: 3_300_000,
+      coverageFrom: FROM,
+      coverageUntil: TO,
+    });
+    const query = pool.queries.find(({ text }) => text.includes("WITH boundary_sample AS"))!;
+    expect(query.values).toEqual(["meter-1", FROM, TO, "property-1"]);
+    expect(query.text).toContain("price.raw_price_cents_per_kwh, price.margin_cents_per_kwh");
+    expect(query.text).toContain("LEAST(normalized.current_at, price.ends_at)");
   });
 
   it("honors cancellation controls for batched measurement windows", async () => {

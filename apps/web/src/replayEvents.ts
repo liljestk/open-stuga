@@ -3,6 +3,8 @@ import type { MeasurementHistory } from "./measurements";
 
 export type ReplayClimateMetric = "temperature" | "humidity";
 export type ReplayClimateDirection = "rise" | "drop";
+export type ReplayClimateEventSignificance = "major" | "notable";
+export type ReplayClimateEventAutoTag = ReplayClimateMetric | ReplayClimateDirection | ReplayClimateEventSignificance;
 
 export interface ReplayClimateEvent {
   id: string;
@@ -15,10 +17,16 @@ export interface ReplayClimateEvent {
   after: number;
   delta: number;
   score: number;
+  /** Additive fields are optional so callers with stored or hand-built legacy events remain compatible. */
+  significance?: ReplayClimateEventSignificance;
+  autoTags?: ReplayClimateEventAutoTag[];
 }
 
 export interface ReplayClimateEventOptions {
   maxEvents?: number;
+  /** Inclusive UTC epoch-millisecond bounds for the history that is actually loaded for replay. */
+  from?: number;
+  to?: number;
 }
 
 interface MetricConfig {
@@ -50,6 +58,7 @@ const CLUSTER_GAP_MS = 60 * MINUTE_MS;
 const SUSTAINED_FRACTION = 0.75;
 const DEFAULT_MAX_EVENTS = 24;
 const ABSOLUTE_MAX_EVENTS = 100;
+const MAJOR_SCORE_THRESHOLD = 2;
 
 const METRICS: readonly MetricConfig[] = [
   { metric: "temperature", threshold: 1.5 },
@@ -72,12 +81,14 @@ function normalizeSeries(
   samples: readonly MeasurementSample[],
   sensorId: string,
   metric: ReplayClimateMetric,
+  from: number,
+  to: number,
 ): SeriesPoint[] {
   const valuesByTimestamp = new Map<number, number[]>();
   for (const sample of samples) {
     const timestamp = Date.parse(sample.timestamp);
     if (sample.sensorId !== sensorId || sample.metric !== metric || sample.quality === "stale"
-      || !Number.isFinite(timestamp) || !Number.isFinite(sample.value)) continue;
+      || !Number.isFinite(timestamp) || timestamp < from || timestamp > to || !Number.isFinite(sample.value)) continue;
     const values = valuesByTimestamp.get(timestamp);
     if (values) values.push(sample.value);
     else valuesByTimestamp.set(timestamp, [sample.value]);
@@ -232,6 +243,7 @@ function eventForCandidate(
   candidate: EventCandidate,
 ): ReplayClimateEvent {
   const timestamp = onsetTimestamp(points, candidate);
+  const significance: ReplayClimateEventSignificance = candidate.score >= MAJOR_SCORE_THRESHOLD ? "major" : "notable";
   return {
     id: `climate:${metric}:${candidate.direction}:${sensorId}:${new Date(timestamp).toISOString()}`,
     kind: "climate",
@@ -243,6 +255,8 @@ function eventForCandidate(
     after: candidate.after,
     delta: candidate.delta,
     score: candidate.score,
+    significance,
+    autoTags: [metric, candidate.direction, significance],
   };
 }
 
@@ -260,6 +274,16 @@ function requestedEventLimit(options: ReplayClimateEventOptions | undefined): nu
   return Math.min(ABSOLUTE_MAX_EVENTS, Math.max(0, Math.trunc(requested)));
 }
 
+function requestedEventWindow(options: ReplayClimateEventOptions | undefined): { from: number; to: number } {
+  const from = typeof options?.from === "number" && Number.isFinite(options.from)
+    ? options.from
+    : Number.NEGATIVE_INFINITY;
+  const to = typeof options?.to === "number" && Number.isFinite(options.to)
+    ? options.to
+    : Number.POSITIVE_INFINITY;
+  return { from, to };
+}
+
 /**
  * Finds sustained, replayable indoor temperature and humidity changes.
  * Detection always uses canonical values, so display-unit preferences cannot
@@ -272,9 +296,11 @@ export function detectReplayClimateEvents(
 ): ReplayClimateEvent[] {
   const limit = requestedEventLimit(options);
   if (limit === 0) return [];
+  const window = requestedEventWindow(options);
+  if (window.from > window.to) return [];
 
   const events = [...new Set(sensorIds)].sort(compareText).flatMap((sensorId) => METRICS.flatMap(({ metric, threshold }) => {
-    const points = normalizeSeries(history[sensorId]?.[metric] ?? [], sensorId, metric);
+    const points = normalizeSeries(history[sensorId]?.[metric] ?? [], sensorId, metric, window.from, window.to);
     if (points.length < MIN_SUPPORT_BUCKETS * 2) return [];
     return clusterCandidates(candidatesForSeries(points, threshold))
       .map((candidate) => eventForCandidate(sensorId, metric, points, candidate));

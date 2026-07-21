@@ -1,5 +1,6 @@
 import {
   configuredPlanElementOpeningState,
+  floorMetersPerPlanUnit,
   resolvePlanElementOpeningState,
   type Floor,
   type House,
@@ -191,7 +192,7 @@ function deriveOpeningConnections(house: House, zones: SpatialZone[], observatio
       const defaultHeight = element.kind === "door" ? 2.1 : 1.2;
       const height = element.height ?? defaultHeight;
       const bottom = element.bottomOffsetM ?? (element.kind === "window" ? Math.max(0, Math.min((floor.ceilingHeight ?? 2.8) - height, .9)) : 0);
-      const metresPerPlanUnit = house.mapPlacement?.metersPerPlanUnit;
+      const metresPerPlanUnit = floorMetersPerPlanUnit(floor, house);
       connections.push({
         id: `house:${house.id}:opening:${element.id}`,
         zoneAId: left.id,
@@ -225,7 +226,7 @@ function deriveVentConnections(house: House, zones: SpatialZone[], observations:
       const configured = configuredPlanElementOpeningState(vent);
       const height = vent.height ?? .3;
       const bottom = vent.bottomOffsetM ?? Math.max(0, (floor.ceilingHeight ?? 2.8) - height - .15);
-      const metresPerPlanUnit = house.mapPlacement?.metersPerPlanUnit;
+      const metresPerPlanUnit = floorMetersPerPlanUnit(floor, house);
       let zoneA: SpatialZone | undefined;
       let zoneB: SpatialZone | undefined;
       if (vent.variant === "transfer") {
@@ -378,6 +379,7 @@ export function buildHouseTopology(input: {
     const centroid = averagePoint(room.points);
     const heightM = floor.ceilingHeight ?? 2.4;
     const kind = zoneKind(floor);
+    const scale = floorMetersPerPlanUnit(floor, input.house);
     return {
       id: roomZoneId(input.house.id, floor.id, room.id),
       name: room.name,
@@ -389,9 +391,7 @@ export function buildHouseTopology(input: {
       polygon: room.points.map((point) => ({ ...point })),
       elevationM: floor.elevation,
       heightM,
-      ...(input.house.mapPlacement
-        ? { volumeM3: polygonArea(room.points) * input.house.mapPlacement.metersPerPlanUnit ** 2 * heightM }
-        : {}),
+      ...(scale === null ? {} : { volumeM3: polygonArea(room.points) * scale ** 2 * heightM }),
       tags: ["derived-from-floor-plan"],
     } satisfies SpatialZone;
   }));
@@ -472,7 +472,7 @@ export function buildPropertyTopology(input: {
     const footprint = house.mapPlacement
       ? house.floors.find((floor) => floor.id === house.mapPlacement!.footprintFloorId) ?? house.floors[0]
       : undefined;
-    const scale = house.mapPlacement?.metersPerPlanUnit ?? 1;
+    const scale = footprint ? floorMetersPerPlanUnit(footprint, house) ?? 1 : 1;
     const height = house.floors.reduce((maximum, floor) => Math.max(maximum, floor.elevation + (floor.ceilingHeight ?? 2.4)), 2.4);
     return {
       id: `property:${input.property.id}:house:${house.id}`,

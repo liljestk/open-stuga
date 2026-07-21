@@ -3,10 +3,17 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, ApiRequestError } from "../api";
 import { I18nProvider } from "../i18n";
-import { clearInvitationFragment, invitationTokenFromFragment, LocalAuthPage } from "./LocalAuthPage";
+import {
+  clearInvitationBootstrapStorage,
+  clearInvitationFragment,
+  invitationTokenFromBootstrapStorage,
+  invitationTokenFromFragment,
+  LocalAuthPage,
+} from "./LocalAuthPage";
 
 afterEach(() => {
   vi.restoreAllMocks();
+  window.sessionStorage.clear();
   window.history.replaceState(null, "", "/");
 });
 
@@ -39,6 +46,16 @@ describe("LocalAuthPage", () => {
     expect(getItem).not.toHaveBeenCalled();
     expect(setItem).not.toHaveBeenCalled();
     expect(invitationTokenFromFragment("?invite=query-token")).toBeNull();
+  });
+
+  it("reads and then explicitly clears a Cloudflare bootstrap token from tab-scoped storage", () => {
+    window.sessionStorage.setItem("stuga-invitation-token", "abcdefghijklmnopqrstuvwxyz_1234567890ABCDEF");
+
+    expect(invitationTokenFromBootstrapStorage()).toBe("abcdefghijklmnopqrstuvwxyz_1234567890ABCDEF");
+    expect(invitationTokenFromBootstrapStorage()).toBe("abcdefghijklmnopqrstuvwxyz_1234567890ABCDEF");
+    clearInvitationBootstrapStorage();
+    expect(window.sessionStorage.getItem("stuga-invitation-token")).toBeNull();
+    expect(invitationTokenFromBootstrapStorage()).toBeNull();
   });
 
   it("requires matching passwords before creating the first owner", async () => {

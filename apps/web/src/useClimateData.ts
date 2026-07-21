@@ -45,10 +45,11 @@ import {
   type CreateSensorInput,
   type HousePatch,
   type HouseGeoreferencePatch,
+  type MeasurementHistoryPage,
   type SensorPatch,
 } from "./api";
 import { subscribeToAuthEpoch } from "./authEpoch";
-import { createDemoState, nextMockReading, snapshotToReadings, type ClimateState, type TimeRange } from "./domain";
+import { createDemoState, nextMockReading, snapshotToReadings, timeRangeHours, type ClimateState, type TimeRange } from "./domain";
 import { appendHistory, enabledDefinitions, legacyForecastSamples, readingSamples, upsertLatest } from "./measurements";
 import { routeFromLocation } from "./routing";
 import { publishHouseWeatherUpdate } from "./useHouseWeather";
@@ -66,6 +67,13 @@ export interface SeriesLoadState {
   loadedFrom: string | null;
   loadedTo: string | null;
   partial: boolean;
+}
+
+export interface HistoricalSeriesWindow {
+  from: string;
+  to: string;
+  /** Null keeps every recorded sample; otherwise the server returns one median value per bucket. */
+  bucketSeconds: number | null;
 }
 
 export const MAX_SERIES_SAMPLES = 50_000;
@@ -243,12 +251,6 @@ function advanceMockTelemetry(
   return { ...current, readings, history, latestMeasurements, measurementHistory };
 }
 
-function durationHours(range: TimeRange): number {
-  if (range === "6h") return 6;
-  if (range === "24h") return 24;
-  return 24 * 7;
-}
-
 function seriesLimit(range: TimeRange): number {
   if (range === "6h") return 5_000;
   if (range === "24h") return 20_000;
@@ -256,7 +258,11 @@ function seriesLimit(range: TimeRange): number {
 }
 
 function seriesBucketSeconds(range: TimeRange): number | undefined {
-  return range === "7d" ? 60 : undefined;
+  if (range === "7d") return 60;
+  if (range === "30d") return 5 * 60;
+  if (range === "90d") return 15 * 60;
+  if (range === "1y") return 60 * 60;
+  return undefined;
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -340,9 +346,14 @@ function metricForecastSamples(
 function replaceFloor(current: ClimateState, houseId: string, floor: Floor): ClimateState {
   const houses = current.houses.map((house) => {
     if (house.id !== houseId) return house;
+    const footprintFloorId = house.mapPlacement?.footprintFloorId ?? house.floors[0]?.id;
+    const mapPlacement = house.mapPlacement && footprintFloorId === floor.id && floor.metersPerPlanUnit
+      ? { ...house.mapPlacement, metersPerPlanUnit: floor.metersPerPlanUnit }
+      : house.mapPlacement;
     return {
       ...house,
       floors: house.floors.map((item) => item.id === floor.id ? floor : item),
+      ...(mapPlacement ? { mapPlacement } : {}),
       updatedAt: new Date().toISOString(),
     };
   });
@@ -1646,7 +1657,7 @@ export function useClimateData() {
     seriesLoadVersions.current.set(seriesKey, requestVersion);
     const isCurrentRequest = () => seriesLoadVersions.current.get(seriesKey) === requestVersion;
     const to = new Date();
-    const from = new Date(to.getTime() - durationHours(range) * 3600000);
+    const from = new Date(to.getTime() - timeRangeHours(range) * 3600000);
     const requestedFrom = from.toISOString();
     const requestedTo = to.toISOString();
     const limit = seriesLimit(range);
@@ -1802,6 +1813,122 @@ export function useClimateData() {
           partial: history.length >= limit && loadedFrom !== null && Date.parse(loadedFrom) > from.getTime(),
         },
       }));
+    } finally {
+      activeSeriesTelemetryBuffers.current.delete(liveTelemetry);
+    }
+  }, []);
+
+  const loadHistoricalSeries = useCallback(async (
+    sensorId: string,
+    metric: string,
+    window: HistoricalSeriesWindow,
+  ): Promise<MeasurementHistoryPage> => {
+    const fromMs = Date.parse(window.from);
+    const toMs = Date.parse(window.to);
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs > toMs) {
+      throw new Error("Historical replay requires a valid start and end time");
+    }
+    if (window.bucketSeconds !== null
+      && (!Number.isSafeInteger(window.bucketSeconds) || window.bucketSeconds < 1 || window.bucketSeconds > 86_400)) {
+      throw new Error("Historical replay resolution must be between 1 second and 1 day");
+    }
+
+    const requestedFrom = new Date(fromMs).toISOString();
+    const requestedTo = new Date(toMs).toISOString();
+    const seriesKey = seriesStateKey(sensorId, metric);
+    const requestVersion = (seriesLoadVersions.current.get(seriesKey) ?? 0) + 1;
+    seriesLoadVersions.current.set(seriesKey, requestVersion);
+    const isCurrentRequest = () => seriesLoadVersions.current.get(seriesKey) === requestVersion;
+    setSeriesStates((current) => {
+      const previous = current[seriesKey];
+      return {
+        ...current,
+        [seriesKey]: {
+          status: "loading",
+          error: null,
+          forecastError: previous?.forecastError ?? null,
+          requestedFrom,
+          requestedTo,
+          loadedFrom: previous?.loadedFrom ?? null,
+          loadedTo: previous?.loadedTo ?? null,
+          partial: previous?.partial ?? false,
+        },
+      };
+    });
+
+    const fail = (error: unknown) => {
+      if (!isCurrentRequest()) return;
+      setSeriesStates((current) => ({
+        ...current,
+        [seriesKey]: {
+          ...(current[seriesKey] ?? {
+            forecastError: null, loadedFrom: null, loadedTo: null, partial: false,
+          }),
+          status: "error",
+          error: errorMessage(error, "History data is temporarily unavailable"),
+          requestedFrom,
+          requestedTo,
+        },
+      }));
+    };
+
+    if (!apiAvailable.current) {
+      const error = new Error("History data is unavailable while the service is offline");
+      fail(error);
+      throw error;
+    }
+
+    const liveTelemetry: BufferedSeriesTelemetry = {
+      sensorId,
+      metric,
+      samples: new Map(),
+      readings: new Map(),
+    };
+    for (const buffer of activeSeriesTelemetryBuffers.current) {
+      if (buffer.sensorId === sensorId && buffer.metric === metric) activeSeriesTelemetryBuffers.current.delete(buffer);
+    }
+    activeSeriesTelemetryBuffers.current.add(liveTelemetry);
+
+    try {
+      const history = await api.measurementHistoryPage(
+        sensorId,
+        metric,
+        requestedFrom,
+        requestedTo,
+        MAX_SERIES_SAMPLES,
+        window.bucketSeconds ?? undefined,
+      );
+      if (!isCurrentRequest()) return history;
+
+      const samples = mergeMeasurementSeries(history.samples, liveTelemetry.samples.values(), MAX_SERIES_SAMPLES);
+      seriesCommitSequence.current += 1;
+      seriesCommitVersions.current.set(seriesKey, { version: seriesCommitSequence.current, legacy: false });
+      setState((current) => ({
+        ...current,
+        measurementHistory: {
+          ...current.measurementHistory,
+          [sensorId]: { ...current.measurementHistory[sensorId], [metric]: samples },
+        },
+      }));
+      const loadedFrom = history.samples[0]?.timestamp ?? null;
+      const loadedTo = history.samples.at(-1)?.timestamp ?? null;
+      setSeriesStates((current) => ({
+        ...current,
+        [seriesKey]: {
+          status: "ready",
+          error: null,
+          forecastError: current[seriesKey]?.forecastError ?? null,
+          requestedFrom,
+          requestedTo,
+          loadedFrom,
+          loadedTo,
+          partial: history.truncated,
+        },
+      }));
+      return history;
+    } catch (error) {
+      fail(error);
+      throw error;
     } finally {
       activeSeriesTelemetryBuffers.current.delete(liveTelemetry);
     }
@@ -2262,10 +2389,16 @@ export function useClimateData() {
 
   const saveLayout = useCallback(async (houseId: string, house: House) => {
     setSaveState("saving");
-    updateHouseDraft(houseId, { name: house.name, timezone: house.timezone, floors: house.floors });
+    const patch: HousePatch = {
+      name: house.name,
+      timezone: house.timezone,
+      floors: house.floors,
+      ...(house.mapPlacement ? { mapPlacement: house.mapPlacement } : {}),
+    };
+    updateHouseDraft(houseId, patch);
     try {
       if (!apiAvailable.current) throw new Error("The local API is unavailable. The layout was not saved.");
-      const saved = await api.updateHouse(houseId, { name: house.name, timezone: house.timezone, floors: house.floors });
+      const saved = await api.updateHouse(houseId, patch);
       recordInventoryMutation({ action: "upsert", value: saved });
       setState((current) => ({
         ...current,
@@ -2505,7 +2638,7 @@ export function useClimateData() {
     tpLinkDevices, tpLinkDevicesLoading, tpLinkDevicesError, refreshTpLinkDevices,
     disconnectHomeAssistant, disconnectTpLink, moveHomeAssistant, moveTpLink,
     applyIntegrationStatus,
-    selectHouse, loadSeries, importHistoricalMeasurements,
+    selectHouse, loadSeries, loadHistoricalSeries, importHistoricalMeasurements,
     createProperty, updateProperty, deleteProperty, createPropertyArea, updatePropertyArea, deletePropertyArea,
     createAreaEquipment, updateAreaEquipment, deleteAreaEquipment, createPropertyNote, updatePropertyNote, deletePropertyNote,
     createHouse, deleteHouse, createSensor, updateSensor, deleteSensor, moveSensor, updateFloor, updateHouse, updateHouseDraft, setHouseGeoreference,

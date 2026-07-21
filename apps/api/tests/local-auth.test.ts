@@ -2,7 +2,7 @@ import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { networkInterfaces } from "node:os";
 import request from "supertest";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 
@@ -148,6 +148,39 @@ describe("local account authentication and authorization", () => {
     await agent.get("/api/v1/houses").expect(401);
   });
 
+  it("keeps a local invitation valid when Cloudflare synchronization is temporarily unavailable", async () => {
+    const runtime = createApi({
+      config: loadConfig({
+        NODE_ENV: "test",
+        DATABASE_PATH: ":memory:",
+        MOCK_ENABLED: "false",
+        LOCAL_AUTH_TEST_BYPASS: "false",
+        CLOUDFLARE_ACCESS_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
+        CLOUDFLARE_ACCESS_GROUP_ID: "123e4567-e89b-42d3-a456-426614174000",
+        CLOUDFLARE_ACCESS_GROUP_NAME: "Stuga test members",
+        CLOUDFLARE_ACCESS_API_TOKEN: "runtime-token-that-is-long-enough-for-tests",
+      }),
+      cloudflareAccessFetcher: vi.fn(async () => new Response(JSON.stringify({
+        success: false,
+        errors: [{ code: 10000 }],
+      }), { status: 403 })) as unknown as typeof fetch,
+      startBackground: false,
+    });
+    runtimes.push(runtime);
+    const owner = await setupOwner(runtime);
+
+    const invitation = await owner.agent.post("/api/v1/tenant/members")
+      .set("x-csrf-token", owner.csrf)
+      .send({ email: "pending@example.test", role: "member", grants: [] })
+      .expect(201);
+
+    expect(invitation.body.cloudflareAccess).toMatchObject({ status: "pending" });
+    expect(invitation.body.registrationToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(runtime.database.db.prepare(
+      "SELECT email FROM local_workspace_invitations WHERE email = ?",
+    ).get("pending@example.test")).toMatchObject({ email: "pending@example.test" });
+  });
+
   it("authenticates forwarded proxy metadata and rate-limits subjects independently of x-real-ip", async () => {
     const address = privateIpv4Address();
     expect(address, "A private IPv4 interface is required for the proxy-boundary test").not.toBeNull();
@@ -279,7 +312,7 @@ describe("local account authentication and authorization", () => {
     }).expect(201);
     const token = invitation.body.registrationToken as string;
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(invitation.body.activationPath).toBe(`/#invite=${encodeURIComponent(token)}`);
+    expect(invitation.body.activationPath).toBe(`/invite-bootstrap#invite=${encodeURIComponent(token)}`);
     expect(JSON.stringify(runtime.database.db.prepare(
       "SELECT token_hash FROM local_workspace_invitations WHERE email = ?",
     ).get("guest@example.test"))).not.toContain(token);
@@ -298,6 +331,11 @@ describe("local account authentication and authorization", () => {
     await guestAgent.get("/api/v1/houses/house-hidden/electricity-price").expect(200)
       .expect(({ body }) => {
         expect(body).toEqual({ current: expectedHomePrice });
+        expect(JSON.stringify(body)).not.toMatch(/endpoint|contract|provider|rawPrice|propertyId|owner-only-secret/i);
+      });
+    await guestAgent.get(`/api/v1/houses/house-hidden/electricity-price?from=${encodeURIComponent(priceStartAt)}&to=${encodeURIComponent(priceEndAt)}`).expect(200)
+      .expect(({ body }) => {
+        expect(body).toEqual({ current: expectedHomePrice, prices: [expectedHomePrice] });
         expect(JSON.stringify(body)).not.toMatch(/endpoint|contract|provider|rawPrice|propertyId|owner-only-secret/i);
       });
     const properties = await guestAgent.get("/api/v1/properties").expect(200);
@@ -394,6 +432,87 @@ describe("local account authentication and authorization", () => {
     await adminAgent.delete("/api/v1/tenant/members/managed-guest%40example.test")
       .set("x-csrf-token", adminCsrf)
       .expect(204);
+  });
+
+  it("restricts Tapo export canaries to Owner and Admin roles", async () => {
+    const runtime = authRuntime();
+    runtimes.push(runtime);
+    const owner = await setupOwner(runtime);
+    const payload = {
+      sensorId: "sensor-living",
+      metric: "temperature",
+      from: "2026-07-01T00:00:00.000Z",
+      to: "2026-07-01T01:00:00.000Z",
+    };
+
+    for (const role of ["member", "guest"] as const) {
+      const email = `${role}-canary@example.test`;
+      const invitation = await owner.agent.post("/api/v1/tenant/members")
+        .set("x-csrf-token", owner.csrf)
+        .send({
+          email,
+          role,
+          grants: role === "guest" ? [{ scopeType: "property", scopeId: "property-main" }] : [],
+        })
+        .expect(201);
+      const agent = request.agent(runtime.app);
+      const registration = await agent.post("/api/v1/auth/register").send({
+        token: invitation.body.registrationToken,
+        password: `${role} canary password long enough`,
+      }).expect(201);
+      await agent.post("/api/v1/integrations/tp-link/history-export/canary")
+        .set("x-csrf-token", registration.body.csrfToken)
+        .send(payload)
+        .expect(403);
+    }
+  });
+
+  it("restricts Tapo export job cancellation and retry to Owner and Admin roles", async () => {
+    const runtime = authRuntime();
+    runtimes.push(runtime);
+    const owner = await setupOwner(runtime);
+    const sensor = runtime.database.listSensors()[0]!;
+    const house = runtime.database.getHouse(sensor.houseId)!;
+    const job = runtime.database.enqueueTapoHistoryExportJob({
+      provider: "private-cloud",
+      sensorId: sensor.id,
+      expectedDeviceId: "tapo-authz-fixture",
+      deviceName: "Authorization fixture",
+      timeZone: house.timezone,
+      metric: "temperature",
+      expectedRecipient: null,
+      rangeStart: "2026-07-01T00:00:00.000Z",
+      rangeEnd: "2026-07-01T01:00:00.000Z",
+      intervalMinutes: 15,
+    }).job;
+    const invitation = await owner.agent.post("/api/v1/tenant/members")
+      .set("x-csrf-token", owner.csrf)
+      .send({ email: "member-job-control@example.test", role: "member", grants: [] })
+      .expect(201);
+    const member = request.agent(runtime.app);
+    const registration = await member.post("/api/v1/auth/register").send({
+      token: invitation.body.registrationToken,
+      password: "member job control password long enough",
+    }).expect(201);
+
+    await member.delete(`/api/v1/integrations/tp-link/history-export/jobs/${job.id}`)
+      .set("x-csrf-token", registration.body.csrfToken)
+      .expect(403, {
+        error: { code: "FORBIDDEN", message: "Workspace administration requires an Owner or Admin account" },
+      });
+    await owner.agent.delete(`/api/v1/integrations/tp-link/history-export/jobs/${job.id}`)
+      .set("x-csrf-token", owner.csrf)
+      .expect(200)
+      .expect(({ body }) => expect(body.job.status).toBe("cancelled"));
+    await member.post(`/api/v1/integrations/tp-link/history-export/jobs/${job.id}/retry`)
+      .set("x-csrf-token", registration.body.csrfToken)
+      .expect(403, {
+        error: { code: "FORBIDDEN", message: "Workspace administration requires an Owner or Admin account" },
+      });
+    await owner.agent.post(`/api/v1/integrations/tp-link/history-export/jobs/${job.id}/retry`)
+      .set("x-csrf-token", owner.csrf)
+      .expect(200)
+      .expect(({ body }) => expect(body.job.status).toBe("queued"));
   });
 
   it("cleans expired invitations and deleted grants, scans beyond 500 hidden rows, and limits subject churn", async () => {

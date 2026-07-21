@@ -59,8 +59,37 @@ describe("detectReplayClimateEvents", () => {
       before: 22,
       after: 20,
       delta: -2,
+      significance: "notable",
+      autoTags: ["temperature", "drop", "notable"],
     })]);
     expect(detectReplayClimateEvents(history, [sensorId])[0]!.score).toBeCloseTo(2 / 1.5);
+  });
+
+  it("classifies normalized magnitude and assigns deterministic metric, direction, and significance tags", () => {
+    const sensorId = "sensor-classified";
+    const history: MeasurementHistory = {
+      [sensorId]: {
+        temperature: [
+          ...plateau(sensorId, "temperature", 0, 40, 22),
+          ...plateau(sensorId, "temperature", 45, 100, 20.4),
+        ],
+        humidity: [
+          ...plateau(sensorId, "humidity", 120, 160, 48),
+          ...plateau(sensorId, "humidity", 165, 220, 65),
+        ],
+      },
+    };
+
+    const events = detectReplayClimateEvents(history, [sensorId]);
+    expect(events.find((event) => event.metric === "temperature")).toMatchObject({
+      significance: "notable",
+      autoTags: ["temperature", "drop", "notable"],
+    });
+    expect(events.find((event) => event.metric === "humidity")).toMatchObject({
+      significance: "major",
+      autoTags: ["humidity", "rise", "major"],
+    });
+    expect(detectReplayClimateEvents(history, [sensorId])).toEqual(events);
   });
 
   it("detects humidity rises and drops as separate episodes", () => {
@@ -143,6 +172,36 @@ describe("detectReplayClimateEvents", () => {
     expect(events.filter((event) => event.direction === "drop")).toHaveLength(2);
     expect(events.filter((event) => event.direction === "rise")).toHaveLength(1);
     expect(new Set(events.map((event) => event.id)).size).toBe(events.length);
+  });
+
+  it("filters samples to inclusive replay bounds before detecting changes", () => {
+    const sensorId = "sensor-windowed";
+    const history = historyFor(sensorId, "temperature", [
+      ...plateau(sensorId, "temperature", 0, 40, 22),
+      ...plateau(sensorId, "temperature", 45, 100, 19),
+      ...plateau(sensorId, "temperature", 105, 180, 22),
+      ...plateau(sensorId, "temperature", 185, 250, 19),
+    ]);
+
+    const events = detectReplayClimateEvents(history, [sensorId], {
+      from: origin + 120 * 60_000,
+      to: origin + 250 * 60_000,
+    });
+    expect(events).toEqual([expect.objectContaining({
+      timestamp: origin + 185 * 60_000,
+      direction: "drop",
+    })]);
+
+    // If bounds were applied after detection, the pre-window baseline would
+    // incorrectly keep this event alive at the first in-window sample.
+    expect(detectReplayClimateEvents(history, [sensorId], {
+      from: origin + 45 * 60_000,
+      to: origin + 100 * 60_000,
+    })).toEqual([]);
+    expect(detectReplayClimateEvents(history, [sensorId], {
+      from: origin + 100 * 60_000,
+      to: origin + 45 * 60_000,
+    })).toEqual([]);
   });
 
   it("caps by normalized magnitude, returns chronological results, and ignores caller sensor order", () => {

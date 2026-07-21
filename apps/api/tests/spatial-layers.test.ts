@@ -15,6 +15,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClimateDatabase } from "../src/db.js";
 import { openApiV1Document } from "../src/openapi.js";
+import { buildHouseTopology } from "../src/spatial-layers/core-input.js";
 import {
   HybridTelemetryReader,
   type ArchiveTelemetryReader,
@@ -318,6 +319,24 @@ describe("isolated spatial layer state", () => {
 });
 
 describe("failure-isolated engine host", () => {
+  it("derives physical room volume from level calibration without map placement", () => {
+    const core = new ClimateDatabase(":memory:", true);
+    coreDatabases.push(core);
+    const stored = core.listHouses()[0]!;
+    const { mapPlacement: _mapPlacement, ...withoutMapPlacement } = stored;
+    const floor = { ...stored.floors[0]!, metersPerPlanUnit: .01 };
+    const house = { ...withoutMapPlacement, floors: [floor, ...stored.floors.slice(1)] };
+    const built = buildHouseTopology({ house, sensors: core.listSensors(house.id), bindings: [], at: new Date().toISOString() });
+    const room = floor.rooms[0]!;
+    const areaPlanUnits = Math.abs(room.points.reduce((sum, point, index) => {
+      const next = room.points[(index + 1) % room.points.length]!;
+      return sum + point.x * next.y - next.x * point.y;
+    }, 0)) / 2;
+    const zone = built.topology.zones.find((candidate) => candidate.roomId === room.id)!;
+
+    expect(zone.volumeM3).toBeCloseTo(areaPlanUnits * .01 ** 2 * (floor.ceilingHeight ?? 2.4), 8);
+  });
+
   it("shares archive and SQLite telemetry with inference while topology descriptions stay telemetry-free", async () => {
     const core = new ClimateDatabase(":memory:", true);
     const house = core.listHouses()[0]!;

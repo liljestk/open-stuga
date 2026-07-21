@@ -10,10 +10,12 @@ services:
       STUGA_TIMESERIES_ADMIN_SECRET_PATH: /app/runtime/admin/password
       STUGA_TIMESERIES_APP_SECRET_PATH: /app/runtime/db/password
       STUGA_PROXY_SECRET_PATH: /app/runtime/proxy/secret
+      STUGA_TAPO_WORKER_SECRET_PATH: /app/runtime/tapo/worker-token
     volumes:
       - stuga-timeseries-admin-secret:/app/runtime/admin
       - stuga-timeseries-app-secret:/app/runtime/db
       - stuga-proxy-secret:/app/runtime/proxy
+      - stuga-tapo-worker-secret:/app/runtime/tapo
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -121,6 +123,9 @@ services:
         condition: service_completed_successfully
       timescaledb:
         condition: service_started
+    env_file:
+      - path: ${STUGA_CLOUDFLARE_ENV_FILE:-./secrets/cloudflare/config.env}
+        required: false
     environment:
       PORT: "8787"
       API_HOST: 0.0.0.0
@@ -160,7 +165,23 @@ services:
       TP_LINK_USERNAME: ${TP_LINK_USERNAME:-}
       TP_LINK_PASSWORD: ${TP_LINK_PASSWORD:-}
       TP_LINK_DEVICE_MAP_FILE: /app/config/tp-link.devices.json
-      TP_LINK_POLL_INTERVAL_MS: ${TP_LINK_POLL_INTERVAL_MS:-10000}
+      TP_LINK_POLL_INTERVAL_MS: ${TP_LINK_POLL_INTERVAL_MS:-2000}
+      TAPO_HISTORY_ENABLED: ${TAPO_HISTORY_ENABLED:-false}
+      TAPO_HISTORY_WORKER_TOKEN_FILE: /app/runtime/tapo/worker-token
+      TAPO_HISTORY_EXPORT_EMAIL: ${TAPO_HISTORY_EXPORT_EMAIL:-}
+      TAPO_HISTORY_EMAIL_TAG_PREFIX: ${TAPO_HISTORY_EMAIL_TAG_PREFIX:-stuga}
+      TAPO_HISTORY_EXPORT_INTERVAL_MINUTES: ${TAPO_HISTORY_EXPORT_INTERVAL_MINUTES:-15}
+      TAPO_HISTORY_MAX_EXPORT_DAYS: ${TAPO_HISTORY_MAX_EXPORT_DAYS:-30}
+      TAPO_HISTORY_MAX_PENDING_EMAILS: ${TAPO_HISTORY_MAX_PENDING_EMAILS:-1}
+      TAPO_HISTORY_MAILBOX_POLL_INTERVAL_MS: ${TAPO_HISTORY_MAILBOX_POLL_INTERVAL_MS:-60000}
+      TAPO_HISTORY_EMAIL_TIMEOUT_MS: ${TAPO_HISTORY_EMAIL_TIMEOUT_MS:-21600000}
+      TAPO_HISTORY_WORKER_LEASE_MS: ${TAPO_HISTORY_WORKER_LEASE_MS:-300000}
+      TAPO_HISTORY_GMAIL_CLIENT_ID: ${TAPO_HISTORY_GMAIL_CLIENT_ID:-}
+      TAPO_HISTORY_GMAIL_ACCOUNT_EMAIL: ${TAPO_HISTORY_GMAIL_ACCOUNT_EMAIL:-}
+      TAPO_HISTORY_GMAIL_CLIENT_SECRET_FILE: /run/secrets/tapo-history/gmail-client-secret
+      TAPO_HISTORY_GMAIL_REFRESH_TOKEN_FILE: /run/secrets/tapo-history/gmail-refresh-token
+      TAPO_HISTORY_PRIVATE_ENDPOINT: ${TAPO_HISTORY_PRIVATE_ENDPOINT:-}
+      TAPO_HISTORY_PRIVATE_TOKEN_FILE: /run/secrets/tapo-history/private-endpoint-token
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
       ALERT_WEBHOOK_BEARER_TOKEN: ${ALERT_WEBHOOK_BEARER_TOKEN:-}
       ALERT_WEBHOOK_SIGNING_SECRET: ${ALERT_WEBHOOK_SIGNING_SECRET:-}
@@ -174,8 +195,11 @@ services:
       - climate-twin-data:/app/data
       - stuga-timeseries-app-secret:/app/runtime/db:ro
       - stuga-proxy-secret:/app/runtime/proxy:ro
+      - stuga-tapo-worker-secret:/app/runtime/tapo:ro
       - stuga-backup-operations:/app/runtime/backup-operations
       - ./config:/app/config:ro
+      - ${TAPO_HISTORY_API_SECRET_DIR:-./secrets/tapo-history-api}:/run/secrets/tapo-history:ro
+      - ${STUGA_CLOUDFLARE_SECRET_DIR:-./secrets/cloudflare}:/run/secrets/cloudflare:ro
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777
@@ -184,6 +208,62 @@ services:
     networks:
       - frontend
       - backend
+      - automation
+
+  tapo-export-runner:
+    profiles: ["tapo-history"]
+    build:
+      context: .
+      target: tapo-export-runner
+    init: true
+    restart: on-failure
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      TAPO_RUNNER_ENABLED: ${TAPO_RUNNER_ENABLED:-false}
+      STUGA_API_URL: http://api:8787
+      TAPO_RUNNER_API_PREFIX: /api/v1/internal/tapo-history
+      TAPO_HISTORY_WORKER_TOKEN_FILE: /app/runtime/tapo/worker-token
+      TAPO_RUNNER_WORKER_ID: ${TAPO_RUNNER_WORKER_ID:-tapo-android-01}
+      TAPO_TARGET_LOCK_ID: ${TAPO_TARGET_LOCK_ID:-}
+      TAPO_APPIUM_URL: ${TAPO_APPIUM_URL:-http://host.docker.internal:4723}
+      TAPO_APPIUM_CAPABILITIES_JSON: ${TAPO_APPIUM_CAPABILITIES_JSON:-}
+      TAPO_APPIUM_LOGS_HARDENED: ${TAPO_APPIUM_LOGS_HARDENED:-false}
+      TAPO_APPIUM_VERSION: ${TAPO_APPIUM_VERSION:-}
+      TAPO_UIAUTOMATOR2_VERSION: ${TAPO_UIAUTOMATOR2_VERSION:-}
+      TAPO_APP_VERSION: ${TAPO_APP_VERSION:-}
+      TAPO_DEDICATED_ACCOUNT: ${TAPO_DEDICATED_ACCOUNT:-false}
+      TAPO_KEEP_SESSION_ON_SHUTDOWN: ${TAPO_KEEP_SESSION_ON_SHUTDOWN:-true}
+      TAPO_APPIUM_SESSION_FILE: /app/data/tapo-appium-session.json
+      TAPO_RUNNER_ARTIFACT_DIR: /app/data/artifacts
+      TAPO_RUNNER_ARTIFACT_RETENTION_DAYS: ${TAPO_RUNNER_ARTIFACT_RETENTION_DAYS:-30}
+      TAPO_RUNNER_FLOW_CONFIG: /app/config/tapo-flow.json
+      TAPO_ACCOUNT_EMAIL_FILE: /run/secrets/tapo-history/account-email
+      TAPO_ACCOUNT_PASSWORD_FILE: /run/secrets/tapo-history/account-password
+      TAPO_ACCOUNT_PROOF_FILE: /run/secrets/tapo-history/account-proof
+      TAPO_EXPORT_EMAIL: ${TAPO_HISTORY_EXPORT_EMAIL:-}
+      TAPO_RUNNER_POLL_MS: ${TAPO_RUNNER_POLL_MS:-10000}
+      TAPO_RUNNER_HEARTBEAT_MS: ${TAPO_RUNNER_HEARTBEAT_MS:-15000}
+      TAPO_RUNNER_REQUEST_TIMEOUT_MS: ${TAPO_RUNNER_REQUEST_TIMEOUT_MS:-15000}
+      TAPO_ACTION_TIMEOUT_MS: ${TAPO_ACTION_TIMEOUT_MS:-15000}
+    volumes:
+      - stuga-tapo-runner-data:/app/data
+      - stuga-tapo-worker-secret:/app/runtime/tapo:ro
+      - ${TAPO_HISTORY_RUNNER_SECRET_DIR:-./secrets/tapo-history-runner}:/run/secrets/tapo-history:ro
+      # The checked-in example keeps `docker compose config` reproducible while
+      # the runner remains disabled. Point TAPO_RUNNER_FLOW_FILE at the
+      # installation-specific selector flow before enabling automation.
+      - ${TAPO_RUNNER_FLOW_FILE:-./apps/tapo-export-runner/flow.example.json}:/app/config/tapo-flow.json:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - automation
 
   telemetry-migrate:
     profiles: ["maintenance"]
@@ -332,16 +412,47 @@ services:
     networks:
       - frontend
 
+  cloudflared:
+    profiles: ["cloudflare"]
+    image: ${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:2026.7.2}
+    init: true
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_started
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --metrics
+      - 0.0.0.0:2000
+      - run
+      - --token-file
+      - /run/secrets/cloudflare/tunnel-token
+    volumes:
+      - ${STUGA_CLOUDFLARE_SECRET_DIR:-./secrets/cloudflare}:/run/secrets/cloudflare:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - frontend
+
 networks:
   frontend:
   backend:
     internal: true
+  automation:
 
 volumes:
   climate-twin-data:
   stuga-timeseries-admin-secret:
   stuga-timeseries-app-secret:
   stuga-proxy-secret:
+  stuga-tapo-worker-secret:
   stuga-backup-operations:
   stuga-timeseries-data:
   stuga-timeseries-socket:
+  stuga-tapo-runner-data:

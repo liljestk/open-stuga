@@ -7,6 +7,11 @@ import WebSocket from "ws";
 import type { MeasurementSample, OpeningState, Reading } from "@climate-twin/contracts";
 import type { AppConfig } from "./config.js";
 import type { ClimateDatabase } from "./db.js";
+import type {
+  SensorGapRecoveryAdapter,
+  SensorHistoryRecoveryResult,
+  SensorMetricAvailability,
+} from "./sensor-gap-recovery.js";
 import type { MeasurementService, RuntimeStatus, TelemetryService } from "./services.js";
 
 export interface HomeAssistantMeasurementBinding {
@@ -49,9 +54,15 @@ interface HaState {
   entity_id?: string;
   state?: string;
   last_updated?: string;
+  last_changed?: string;
   attributes?: {
     unit_of_measurement?: string;
   };
+}
+
+export interface HomeAssistantBridgeOptions {
+  fetcher?: typeof fetch;
+  onAvailabilityChange?: () => void;
 }
 
 interface CachedValue {
@@ -98,6 +109,7 @@ const HA_LIVENESS_INTERVAL_MS = 30_000;
 const HA_LIVENESS_TIMEOUT_MS = 90_000;
 const HA_OPENING_HEARTBEAT_MS = 5 * 60_000;
 const HA_COMPOSITE_MAX_SKEW_MS = 5 * 60_000;
+const HA_HISTORY_CHUNK_MS = 24 * 60 * 60_000;
 
 /**
  * Converts common Home Assistant electricity units to the built-in canonical
@@ -441,6 +453,7 @@ class HomeAssistantConnectionBridge {
   readonly #openings = new Map<string, OpeningTarget>();
   readonly #openingStateCache = new Map<string, { target: OpeningTarget; state: OpeningState }>();
   readonly #cache = new Map<string, CachedSensorState>();
+  readonly #entityAvailability = new Map<string, boolean>();
   #lastOpeningHeartbeatAt = 0;
 
   constructor(
@@ -450,6 +463,7 @@ class HomeAssistantConnectionBridge {
     private readonly database: ClimateDatabase,
     private readonly status: HomeAssistantStatusHost,
     private readonly houseId?: string,
+    private readonly options: HomeAssistantBridgeOptions = {},
   ) {}
 
   start(): void {
@@ -471,6 +485,95 @@ class HomeAssistantConnectionBridge {
       this.status.value.homeAssistant.error = error instanceof Error ? error.message : "Could not load entity mappings";
       this.status.changed();
     }
+  }
+
+  availability(now = new Date()): SensorMetricAvailability[] {
+    const observedAt = now.toISOString();
+    return [...this.#entities.entries()]
+      .filter(([, target]) => target.metric !== "battery")
+      .map(([entityId, target]) => ({
+        sensorId: target.sensorId,
+        metric: target.metric,
+        source: "home-assistant" as const,
+        available: this.status.value.homeAssistant.connected && this.#entityAvailability.get(entityId) === true,
+        observedAt,
+      }));
+  }
+
+  async recoverHistory(sensorId: string, metric: string, from: string, to: string): Promise<SensorHistoryRecoveryResult> {
+    const binding = [...this.#entities.entries()].find(([, target]) => target.sensorId === sensorId && target.metric === metric);
+    if (!binding || !this.config.haUrl || !this.config.haToken) {
+      return { state: "not-supported", samples: [], error: "The sensor metric has no active Home Assistant history binding" };
+    }
+    const [entityId, target] = binding;
+    const startMs = Date.parse(from);
+    const endMs = Date.parse(to);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+      return { state: "complete", samples: [], error: null };
+    }
+    const samples = new Map<string, MeasurementSample>();
+    for (let cursor = startMs; cursor < endMs; cursor += HA_HISTORY_CHUNK_MS) {
+      const chunkEnd = Math.min(endMs, cursor + HA_HISTORY_CHUNK_MS);
+      const endpoint = new URL(this.config.haUrl);
+      endpoint.pathname = `${endpoint.pathname.replace(/\/$/, "")}/api/history/period/${encodeURIComponent(new Date(cursor).toISOString())}`;
+      endpoint.search = new URLSearchParams({
+        end_time: new Date(chunkEnd).toISOString(),
+        filter_entity_id: entityId,
+      }).toString();
+      endpoint.hash = "";
+      const response = await (this.options.fetcher ?? fetch)(endpoint, {
+        headers: { authorization: `Bearer ${this.config.haToken}`, accept: "application/json" },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (response.status === 404) {
+        return { state: "not-supported", samples: [], error: "Home Assistant recorder history is not available" };
+      }
+      if (!response.ok) throw new Error(`Home Assistant history request failed with status ${response.status}`);
+      const body = await response.json() as unknown;
+      if (!Array.isArray(body)) throw new Error("Home Assistant history returned an invalid response");
+      for (const group of body) {
+        if (!Array.isArray(group)) continue;
+        for (const candidate of group) {
+          if (!candidate || typeof candidate !== "object") continue;
+          const state = { ...(candidate as HaState), entity_id: entityId };
+          const value = this.normalizeHistoryValue(target, state);
+          const sourceTimestamp = [state.last_updated, state.last_changed]
+            .find((timestamp) => timestamp && Number.isFinite(Date.parse(timestamp)));
+          if (!sourceTimestamp) continue;
+          const timestamp = new Date(sourceTimestamp).toISOString();
+          if (value === null || Date.parse(timestamp) < startMs || Date.parse(timestamp) > endMs) continue;
+          const definition = this.database.getMeasurementDefinition(metric);
+          if (!definition?.enabled) continue;
+          samples.set(timestamp, {
+            sensorId,
+            metric,
+            value,
+            canonicalUnit: definition.unit,
+            timestamp,
+            source: "home-assistant",
+            quality: "good",
+          });
+        }
+      }
+    }
+    return { state: "complete", samples: [...samples.values()].sort((left, right) => left.timestamp.localeCompare(right.timestamp)), error: null };
+  }
+
+  private normalizeHistoryValue(target: EntityTarget, state: HaState): number | null {
+    const rawValue = Number(state.state);
+    if (!Number.isFinite(rawValue)) return null;
+    const haUnit = state.attributes?.unit_of_measurement?.trim();
+    if (target.metric === "temperature") return normalizeHomeAssistantTemperature(rawValue, haUnit);
+    if (target.legacy || target.metric === "battery") return rawValue;
+    if (target.automaticElectricityUnitConversion) {
+      return normalizeHomeAssistantElectricityMeasurement(target.metric, rawValue, haUnit);
+    }
+    const definition = this.database.getMeasurementDefinition(target.metric);
+    if (!definition) return null;
+    const expectedUnit = target.expectedUnit ?? definition.unit;
+    if (!haUnit || haUnit !== expectedUnit) return null;
+    if (expectedUnit !== definition.unit && target.scale === undefined && target.offset === undefined) return null;
+    return rawValue * (target.scale ?? 1) + (target.offset ?? 0);
   }
 
   private configuredMappings(): HomeAssistantEntityMapping[] {
@@ -532,7 +635,7 @@ class HomeAssistantConnectionBridge {
   private configuredOpeningTargets(): OpeningTarget[] {
     const houses = this.houseId ? [this.database.getHouse(this.houseId)].filter(Boolean) : this.database.listHouses().slice(0, 1);
     return houses.flatMap((house) => house!.floors.flatMap((floor) => (floor.planElements ?? []).flatMap((element) => {
-      if (element.kind === "fireplace" || element.stateBinding?.provider !== "home-assistant") return [];
+      if ((element.kind !== "door" && element.kind !== "window" && element.kind !== "vent") || element.stateBinding?.provider !== "home-assistant") return [];
       if (element.stateBinding.connectionId && element.stateBinding.connectionId !== house!.id) return [];
       return [{ houseId: house!.id, floorId: floor.id, elementId: element.id,
         externalId: element.stateBinding.externalId, connectionId: house!.id }];
@@ -569,6 +672,7 @@ class HomeAssistantConnectionBridge {
     const normalized = entityId.trim();
     if (this.#entities.has(normalized)) throw new Error(`Home Assistant entity ${normalized} is mapped more than once`);
     this.#entities.set(normalized, target);
+    this.#entityAvailability.set(normalized, false);
   }
 
   private registerOpening(target: OpeningTarget): void {
@@ -597,6 +701,7 @@ class HomeAssistantConnectionBridge {
     this.#openingStateCache.clear();
     this.#lastOpeningHeartbeatAt = 0;
     this.#cache.clear();
+    this.#entityAvailability.clear();
     this.#mappingWarning = null;
     this.status.value.homeAssistant.mappedEntities = 0;
     this.status.value.homeAssistant.error = null;
@@ -648,6 +753,7 @@ class HomeAssistantConnectionBridge {
       this.#bufferedEvents.length = 0;
       this.status.value.homeAssistant.connected = false;
       this.status.changed();
+      this.options.onAvailabilityChange?.();
       this.scheduleReconnect();
     });
   }
@@ -731,7 +837,13 @@ class HomeAssistantConnectionBridge {
   private ingestInitialStates(states: HaState[]): void {
     const climateUpdates = new Map<string, string>();
     const observedAt = new Date().toISOString();
+    let availabilityChanged = false;
+    for (const entityId of this.#entities.keys()) {
+      if (this.#entityAvailability.get(entityId) !== false) availabilityChanged = true;
+      this.#entityAvailability.set(entityId, false);
+    }
     for (const state of states) {
+      availabilityChanged = this.updateEntityAvailability(state) || availabilityChanged;
       this.ingestOpeningState(state, undefined, observedAt);
       const updated = this.applyState(state);
       if (!updated || updated.metric === "battery") continue;
@@ -745,6 +857,7 @@ class HomeAssistantConnectionBridge {
     }
     this.#lastOpeningHeartbeatAt = Date.now();
     for (const [sensorId, timestamp] of climateUpdates) this.ingestCachedClimate(sensorId, timestamp);
+    if (availabilityChanged) this.options.onAvailabilityChange?.();
   }
 
   private handleEvent(message: HaMessage): void {
@@ -765,6 +878,7 @@ class HomeAssistantConnectionBridge {
   }
 
   private ingestEventState(state: HaState, fallbackTimestamp?: string): void {
+    if (this.updateEntityAvailability(state)) this.options.onAvailabilityChange?.();
     const openingTimestamp = this.ingestOpeningState(state, fallbackTimestamp);
     const updated = this.applyState(state, fallbackTimestamp);
     if (!updated && !openingTimestamp) return;
@@ -779,6 +893,14 @@ class HomeAssistantConnectionBridge {
     }
     this.ingestMeasurementUpdate(updated);
     if (updated.metric === "temperature" || updated.metric === "humidity") this.ingestCachedClimate(updated.sensorId, updated.timestamp);
+  }
+
+  private updateEntityAvailability(state: HaState): boolean {
+    if (!state.entity_id || !this.#entities.has(state.entity_id)) return false;
+    const available = this.normalizeHistoryValue(this.#entities.get(state.entity_id)!, state) !== null;
+    const previous = this.#entityAvailability.get(state.entity_id) ?? false;
+    this.#entityAvailability.set(state.entity_id, available);
+    return previous !== available;
   }
 
   private ingestOpeningState(state: HaState, fallbackTimestamp?: string, observedAtOverride?: string): string | null {
@@ -1011,7 +1133,8 @@ class HomeAssistantConnectionBridge {
 }
 
 /** Maintains one independent Home Assistant WebSocket session per house. */
-export class HomeAssistantBridge {
+export class HomeAssistantBridge implements SensorGapRecoveryAdapter {
+  readonly source = "home-assistant" as const;
   readonly #workers = new Map<string, { bridge: HomeAssistantConnectionBridge; status: HomeAssistantStatusHost }>();
   #running = false;
 
@@ -1021,6 +1144,7 @@ export class HomeAssistantBridge {
     private readonly measurements: MeasurementService,
     private readonly database: ClimateDatabase,
     private readonly status: RuntimeStatus,
+    private readonly options: HomeAssistantBridgeOptions = {},
   ) {}
 
   private configuredConnections(): Array<{ houseId: string; url: string; token: string }> {
@@ -1075,6 +1199,7 @@ export class HomeAssistantBridge {
         this.database,
         localStatus,
         (this.config.homeAssistantConnections?.length ?? 0) > 0 ? connection.houseId : undefined,
+        this.options,
       );
       this.#workers.set(connection.houseId, { bridge, status: localStatus });
       bridge.start();
@@ -1096,6 +1221,19 @@ export class HomeAssistantBridge {
 
   refreshMappings(): void {
     for (const worker of this.#workers.values()) worker.bridge.refreshMappings();
+  }
+
+  availability(now = new Date()): SensorMetricAvailability[] {
+    return [...this.#workers.values()].flatMap((worker) => worker.bridge.availability(now));
+  }
+
+  recoverHistory(sensorId: string, metric: string, from: string, to: string): Promise<SensorHistoryRecoveryResult> {
+    const houseId = this.database.getSensor(sensorId)?.houseId;
+    const worker = houseId ? this.#workers.get(houseId) : undefined;
+    if (!worker) {
+      return Promise.resolve({ state: "not-supported", samples: [], error: "No Home Assistant connection owns this sensor" });
+    }
+    return worker.bridge.recoverHistory(sensorId, metric, from, to);
   }
 
   private aggregateStatus(): void {

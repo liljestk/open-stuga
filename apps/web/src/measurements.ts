@@ -19,31 +19,43 @@ export const BUILTIN_MEASUREMENTS: MeasurementDefinition[] = [
     id: "temperature", labels: { en: "Temperature", fi: "Lämpötila" }, unit: "°C", precision: 1,
     validMin: -50, validMax: 60, displayMin: 12, displayMax: 30, interpolationDelta: .35,
     colorScale: "thermal", builtin: true, enabled: true, spatialInterpolation: true, forecastSupported: true,
+    dimension: "temperature", allowedUnits: ["\u00b0C", "\u00b0F"], kind: "gauge", defaultAggregation: "mean",
+    genericHistoryEnabled: true, genericStatsEnabled: true,
   },
   {
     id: "humidity", labels: { en: "Humidity", fi: "Ilmankosteus" }, unit: "%", precision: 0,
     validMin: 0, validMax: 100, displayMin: 20, displayMax: 90, interpolationDelta: 3,
     colorScale: "humidity", builtin: true, enabled: true, spatialInterpolation: true, forecastSupported: true,
+    dimension: "relative_humidity", allowedUnits: ["%"], kind: "gauge", defaultAggregation: "mean",
+    genericHistoryEnabled: true, genericStatsEnabled: true,
   },
   {
     id: "co2", labels: { en: "Carbon dioxide", fi: "Hiilidioksidi" }, unit: "ppm", precision: 0,
     validMin: 0, validMax: 10_000, displayMin: 400, displayMax: 2_000, interpolationDelta: 50,
     colorScale: "air-quality", builtin: true, enabled: true, spatialInterpolation: true, forecastSupported: true,
+    dimension: "co2_concentration", allowedUnits: ["ppm"], kind: "gauge", defaultAggregation: "mean",
+    genericHistoryEnabled: true, genericStatsEnabled: true,
   },
   {
     id: "power", labels: { en: "Power", fi: "Teho", sv: "Effekt" }, unit: "W", precision: 0,
     validMin: 0, validMax: 10_000_000, displayMin: 0, displayMax: 10_000, interpolationDelta: 500,
     colorScale: "sequential", builtin: true, enabled: true, spatialInterpolation: false, forecastSupported: false,
+    dimension: "power", allowedUnits: ["W"], kind: "rate", defaultAggregation: "time_weighted_mean",
+    genericHistoryEnabled: true, genericStatsEnabled: true,
   },
   {
     id: "energy", labels: { en: "Electricity consumption", fi: "Sähkönkulutus", sv: "Elförbrukning" }, unit: "kWh", precision: 2,
     validMin: 0, validMax: 1_000_000_000, displayMin: 0, displayMax: 50, interpolationDelta: 1,
     colorScale: "sequential", builtin: true, enabled: true, spatialInterpolation: false, forecastSupported: false,
+    dimension: "energy", allowedUnits: ["kWh"], kind: "cumulative_counter", defaultAggregation: "delta",
+    genericHistoryEnabled: true, genericStatsEnabled: true,
   },
   {
     id: "electricity_price", labels: { en: "Electricity price", fi: "Sähkön hinta", sv: "Elpris" }, unit: "€/kWh", precision: 3,
     validMin: -10, validMax: 100, displayMin: -0.2, displayMax: 1, interpolationDelta: 0.05,
     colorScale: "sequential", builtin: true, enabled: true, spatialInterpolation: false, forecastSupported: false,
+    dimension: "currency_per_energy", allowedUnits: ["\u20ac/kWh"], kind: "gauge", defaultAggregation: "mean",
+    genericHistoryEnabled: true, genericStatsEnabled: true,
   },
 ];
 
@@ -75,6 +87,12 @@ export function definitionFor(definitions: MeasurementDefinition[], metric: Metr
       enabled: true,
       spatialInterpolation: false,
       forecastSupported: false,
+      dimension: "finite_scalar",
+      allowedUnits: [],
+      kind: "gauge",
+      defaultAggregation: "mean",
+      genericHistoryEnabled: true,
+      genericStatsEnabled: true,
     };
 }
 
@@ -185,11 +203,24 @@ export function samplesAt(
   timestamp: number,
 ): Record<string, MeasurementSample> {
   return Object.fromEntries(sensorIds.flatMap((sensorId) => {
-    const sample = (history[sensorId]?.[metric] ?? []).reduce<MeasurementSample | undefined>((closest, item) => {
-      const time = Date.parse(item.timestamp);
-      if (time > timestamp) return closest;
-      return !closest || time > Date.parse(closest.timestamp) ? item : closest;
-    }, undefined);
+    const series = history[sensorId]?.[metric] ?? [];
+    let low = 0;
+    let high = series.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      const middleTime = Date.parse(series[middle]!.timestamp);
+      if (Number.isFinite(middleTime) && middleTime <= timestamp) low = middle + 1;
+      else high = middle;
+    }
+    let sample: MeasurementSample | undefined;
+    for (let index = low - 1; index >= 0; index -= 1) {
+      const candidate = series[index]!;
+      const candidateTime = Date.parse(candidate.timestamp);
+      if (Number.isFinite(candidateTime) && candidateTime <= timestamp) {
+        sample = candidate;
+        break;
+      }
+    }
     return sample ? [[sensorId, { ...sample, source: "replay" as const }]] : [];
   }));
 }

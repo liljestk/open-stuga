@@ -36,6 +36,39 @@ TP-Link connections. Each configured Home runs its own Home Assistant WebSocket
 session. A Home may also run
 multiple TP-Link workers for an H100/H200 and one or more energy sockets.
 
+Sensor availability is checked on adapter transitions and every 30 seconds. A
+periodic 30-day stored-history scan also finds holes that span an API restart.
+Each missing interval is stored per sensor, metric, and source. On reconnect,
+Home Assistant recorder history is fetched in 24-hour chunks and inserted
+idempotently without replaying historical alerts. Failed and partial attempts
+retry with bounded exponential backoff.
+
+For direct TP-Link mappings, Stuga first requests retained LAN history: up to 96
+15-minute T310/T315 climate buckets from an H100/H200 child, or supported
+instantaneous-power history from a compatible energy device. Firmware or range
+limitations return `partial` or `not-supported`, never a fabricated complete
+result. When explicitly enabled, older T310/T315 climate gaps can then create a
+durable Android/Appium export job; Gmail OAuth ingestion correlates the emailed
+CSV through a job-specific plus address. The optional experimental HTTPS
+provider is attempted before Appium only when separately configured. See
+[Automated Tapo history recovery](tapo-history-automation.md) for setup and the
+identity/reliability boundary.
+
+Operators can inspect the durable ledgers with:
+
+```text
+GET /api/v1/integrations/sensor-data-gaps?houseId=house-main
+GET /api/v1/integrations/tp-link/history-export/jobs
+```
+
+The export-job response includes an `enabled` flag and the newest jobs. An
+authenticated non-Guest operator can retry a `failed` or `needs-attention` job with
+`POST /api/v1/integrations/tp-link/history-export/jobs/{id}/retry`, or cancel an
+active job with `DELETE` on the same job resource. Worker claim, heartbeat, and
+status routes under `/api/v1/internal/tapo-history` require a separate bearer
+secret and a live per-claim lease; browser sessions and the general ingestion
+key do not authorize them.
+
 ## REST API v1 compatibility
 
 The machine-readable description is available from a running instance at:
@@ -273,6 +306,10 @@ local floor-plan units to real-world metres, and an optional
 `footprintFloorId`. When supplied, that floor provides the map footprint.
 `House.orientationDegrees` remains independently optional and is the clockwise
 true-north bearing of the floor plan's top edge, in the range `[0, 360)`.
+Each `Floor` may also store `metersPerPlanUnit` as its verified horizontal
+calibration. This per-level value is independent of geolocation and takes
+precedence for physical wall lengths, opening areas, room areas, and volumes;
+the map-placement scale remains the backward-compatible fallback.
 Set or replace these properties with `PATCH /api/v1/houses/{id}`:
 
 ```json
@@ -352,6 +389,13 @@ jitter, and failures back off independently per home. A revision/location fence
 prevents an old in-flight response from being persisted after a home is moved.
 Only fresh current temperature is retained as an outdoor boundary; forecasts
 and stale fallbacks are not stored as observations.
+
+After a successful provider refresh, the recovery coordinator scans the prior
+30 days of retained outdoor-temperature timestamps. It records previously
+unknown observation gaps, requests the provider's historical observations, and
+inserts them duplicate-safely into the SQLite ingestion buffer. A successful
+recovery immediately wakes the archive worker so the same rows are reconciled
+to TimescaleDB. Forecast and warning outages remain non-historical components.
 
 Accepted scheduled and on-demand results pass through a provider-neutral event
 broker after that fence. The broker projects the durable boundary first, then
@@ -620,7 +664,7 @@ binary asset downloads, SSE streams, or browser account/session administration.
 | Tool | Behaviour |
 | --- | --- |
 | <code>get_integration_status</code> | Get redacted integration and data-mode status for this MCP process |
-| <code>discover_integrations</code> | Run best-effort LAN discovery for Home Assistant and TP-Link hubs |
+| <code>discover_integrations</code> | Run best-effort LAN discovery for Home Assistant and supported TP-Link hubs or energy devices |
 | <code>get_home_assistant_setup</code> | Get Home Assistant setup guidance without credentials |
 | <code>test_home_assistant_connection</code> | Report redacted Home Assistant state visible to this process |
 | <code>get_tp_link_setup</code> | Get direct H100/H200 setup and mapping guidance without credentials |

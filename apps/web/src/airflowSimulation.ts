@@ -1,5 +1,6 @@
 import {
   configuredPlanElementOpeningState,
+  isAirflowPlanElement,
   resolvePlanElementOpeningState,
   type AirflowPlanElement,
   type Floor,
@@ -200,7 +201,7 @@ function floorWithEffectiveOpeningStates(input: BuildGridInput): Floor {
   return {
     ...input.floor,
     planElements: input.floor.planElements.map((element): PlanElement => {
-      if (element.kind === "fireplace") return element;
+      if (!isAirflowPlanElement(element)) return element;
       const effective = resolvePlanElementOpeningState(element, observations, input.freshness.referenceTimeMs);
       return { ...element, state: effective.state, openFraction: effective.openFraction };
     }),
@@ -640,7 +641,7 @@ function emptyEvidence(rawInput: BuildGridInput, suppliedAnchors?: ClimateAnchor
   const humiditySensors = floorSensors.filter((sensor) => freshSample(input.samples, sensor.id, "temperature", input.freshness)
     && freshSample(input.samples, sensor.id, "humidity", input.freshness)).length;
   const tracerSensors = floorSensors.filter((sensor) => freshSample(input.samples, sensor.id, "co2", input.freshness)).length;
-  const airflowElements = (input.floor.planElements ?? []).filter((element): element is AirflowPlanElement => element.kind !== "fireplace");
+  const airflowElements = (input.floor.planElements ?? []).filter(isAirflowPlanElement);
   return {
     temperatureSensors: anchors.length,
     humiditySensors,

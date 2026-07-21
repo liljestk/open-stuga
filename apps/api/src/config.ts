@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import {
   readIntegrationSecrets,
@@ -63,6 +63,30 @@ export interface AppConfig {
   tpLinkPollIntervalMs: number;
   tpLinkPython: string;
   tpLinkBridgeScript: string;
+  /** Enables asynchronous Tapo app/private-history fallback after local retention is exhausted. */
+  tapoHistoryEnabled?: boolean;
+  /** Route-scoped bearer secret shared only with the isolated Appium worker. */
+  tapoHistoryWorkerToken?: string | null;
+  tapoHistoryExportEmail?: string | null;
+  tapoHistoryEmailTagPrefix?: string;
+  tapoHistoryExportIntervalMinutes?: 1 | 15 | 30 | 60 | 360 | 720 | 1440;
+  /** Conservative app-report span; the public UI has truncated longer requests in practice. */
+  tapoHistoryMaxExportDays?: number;
+  /** Bounds correlated app exports that have been submitted but not yet ingested. */
+  tapoHistoryMaxPendingEmails?: number;
+  tapoHistoryMailboxPollIntervalMs?: number;
+  /** How long a submitted app export may wait for its correlated email before automatic retry. */
+  tapoHistoryEmailTimeoutMs?: number;
+  tapoHistoryWorkerLeaseMs?: number;
+  /** Gmail OAuth credentials are write-only deployment secrets. */
+  /** Primary mailbox identity returned by Gmail /users/me/profile. */
+  tapoHistoryGmailAccountEmail?: string | null;
+  tapoHistoryGmailClientId?: string | null;
+  tapoHistoryGmailClientSecret?: string | null;
+  tapoHistoryGmailRefreshToken?: string | null;
+  /** Experimental, explicitly configured compatibility endpoint. Never enabled by default. */
+  tapoHistoryPrivateEndpoint?: string | null;
+  tapoHistoryPrivateToken?: string | null;
   alertWebhookUrl: string | null;
   alertWebhookBearerToken: string | null;
   /** Optional HMAC-SHA256 signing key. Receivers verify X-Stuga-Timestamp and X-Stuga-Signature. */
@@ -83,6 +107,13 @@ export interface AppConfig {
   localAuthProxyBindAddress?: string | null;
   /** High-entropy credential used to authenticate the immediate reverse proxy. */
   localAuthProxySecret?: string | null;
+  /** Optional account-scoped Cloudflare Access group synchronized from local members and invitations. */
+  cloudflareAccessAccountId?: string | null;
+  cloudflareAccessGroupId?: string | null;
+  cloudflareAccessGroupName?: string | null;
+  /** Write-only, least-privilege Access group credential. Never log AppConfig. */
+  cloudflareAccessApiToken?: string | null;
+  cloudflareAccessSyncIntervalMs?: number;
   /** Explicit opt-in for a deliberately private-network custom electricity feed. */
   electricityAllowPrivateEndpoints?: boolean;
 }
@@ -95,6 +126,21 @@ function optional(value: string | undefined): string | null {
 function positiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function boundedInteger(
+  value: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+  name: string,
+): number {
+  if (value === undefined || value.trim() === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(`${name} must be an integer between ${minimum} and ${maximum}`);
+  }
+  return parsed;
 }
 
 function nonNegativeInteger(value: string | undefined, fallback: number): number {
@@ -132,6 +178,34 @@ function validatedSecret(value: string, label: string): string {
     throw new Error(`${label} must contain at least 32 UTF-8 bytes`);
   }
   return value;
+}
+
+function optionalFileSecret(
+  env: NodeJS.ProcessEnv,
+  inlineKey: string,
+  fileKey: string,
+  label: string,
+  minimumBytes = 1,
+  allowMissingFile = false,
+): string | null {
+  const inline = optional(env[inlineKey]);
+  const configuredFile = optional(env[fileKey]);
+  if (inline && configuredFile) throw new Error(`Configure only one of ${inlineKey} or ${fileKey}`);
+  const resolvedFile = configuredFile ? resolve(configuredFile) : null;
+  if (!inline && resolvedFile && allowMissingFile && !existsSync(resolvedFile)) return null;
+  const value = inline ?? (resolvedFile ? readFileSync(resolvedFile, "utf8").trim() : null);
+  if (value !== null && Buffer.byteLength(value, "utf8") < minimumBytes) {
+    throw new Error(`${label} must contain at least ${minimumBytes} UTF-8 bytes`);
+  }
+  return value;
+}
+
+function exportIntervalMinutes(value: string | undefined): 1 | 15 | 30 | 60 | 360 | 720 | 1440 {
+  const parsed = Number(value ?? 15);
+  if (![1, 15, 30, 60, 360, 720, 1440].includes(parsed)) {
+    throw new Error("TAPO_HISTORY_EXPORT_INTERVAL_MINUTES must be 1, 15, 30, 60, 360, 720, or 1440");
+  }
+  return parsed as 1 | 15 | 30 | 60 | 360 | 720 | 1440;
 }
 
 function localAuthProxySecret(env: NodeJS.ProcessEnv): string | null {
@@ -202,6 +276,29 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     : readIntegrationSecrets(integrationSecretsFile);
   const haEnvironment = environmentTuple(env, "Home Assistant", ["HA_URL", "HA_TOKEN"]);
   const tpLinkEnvironment = environmentTuple(env, "TP-Link", ["TP_LINK_HOST", "TP_LINK_USERNAME", "TP_LINK_PASSWORD"]);
+  const tapoGmailClientId = optional(env.TAPO_HISTORY_GMAIL_CLIENT_ID);
+  const tapoGmailClientSecret = optionalFileSecret(
+    env, "TAPO_HISTORY_GMAIL_CLIENT_SECRET", "TAPO_HISTORY_GMAIL_CLIENT_SECRET_FILE", "Tapo Gmail client secret", 1, true,
+  );
+  const tapoGmailRefreshToken = optionalFileSecret(
+    env, "TAPO_HISTORY_GMAIL_REFRESH_TOKEN", "TAPO_HISTORY_GMAIL_REFRESH_TOKEN_FILE", "Tapo Gmail refresh token", 1, true,
+  );
+  const tapoGmailValues = [tapoGmailClientId, tapoGmailClientSecret, tapoGmailRefreshToken];
+  if (tapoGmailValues.some(Boolean) && !tapoGmailValues.every(Boolean)) {
+    throw new Error("Tapo Gmail OAuth configuration requires client id, client secret, and refresh token");
+  }
+  const tapoGmail = tapoGmailValues.every(Boolean) ? tapoGmailValues as string[] : null;
+  const tapoPrivateEndpoint = optional(env.TAPO_HISTORY_PRIVATE_ENDPOINT);
+  const tapoPrivateToken = optionalFileSecret(
+    env, "TAPO_HISTORY_PRIVATE_TOKEN", "TAPO_HISTORY_PRIVATE_TOKEN_FILE", "Experimental Tapo history token", 1, true,
+  );
+  if (Boolean(tapoPrivateEndpoint) !== Boolean(tapoPrivateToken)) {
+    throw new Error("Experimental Tapo history configuration requires endpoint and token");
+  }
+  const tapoPrivate = tapoPrivateEndpoint && tapoPrivateToken ? [tapoPrivateEndpoint, tapoPrivateToken] : null;
+  const tapoHistoryWorkerToken = optionalFileSecret(
+    env, "TAPO_HISTORY_WORKER_TOKEN", "TAPO_HISTORY_WORKER_TOKEN_FILE", "TAPO_HISTORY_WORKER_TOKEN", 32, true,
+  );
   const telegramEnvironment = environmentTuple(env, "Telegram", ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"]);
   const alertWebhookEnvironmentUrl = optional(env.ALERT_WEBHOOK_URL);
   const alertWebhookEnvironmentBearerToken = optional(env.ALERT_WEBHOOK_BEARER_TOKEN);
@@ -216,6 +313,35 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   const localAuthProxyBindAddress = optional(env.LOCAL_AUTH_PROXY_BIND_ADDRESS);
   const proxySecret = localAuthProxySecret(env);
+  const cloudflareAccessAccountId = optional(env.CLOUDFLARE_ACCESS_ACCOUNT_ID);
+  const cloudflareAccessGroupId = optional(env.CLOUDFLARE_ACCESS_GROUP_ID);
+  const cloudflareAccessApiToken = optionalFileSecret(
+    env,
+    "CLOUDFLARE_ACCESS_API_TOKEN",
+    "CLOUDFLARE_ACCESS_API_TOKEN_FILE",
+    "Cloudflare Access API token",
+    32,
+    true,
+  );
+  const cloudflareAccessValues = [cloudflareAccessAccountId, cloudflareAccessGroupId, cloudflareAccessApiToken];
+  if (cloudflareAccessValues.some(Boolean) && !cloudflareAccessValues.every(Boolean)) {
+    throw new Error(
+      "Cloudflare Access synchronization requires CLOUDFLARE_ACCESS_ACCOUNT_ID, CLOUDFLARE_ACCESS_GROUP_ID, and an API token",
+    );
+  }
+  if (cloudflareAccessAccountId && !/^[a-f0-9]{32}$/i.test(cloudflareAccessAccountId)) {
+    throw new Error("CLOUDFLARE_ACCESS_ACCOUNT_ID must be a 32-character hexadecimal account ID");
+  }
+  if (cloudflareAccessGroupId
+    && !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(cloudflareAccessGroupId)) {
+    throw new Error("CLOUDFLARE_ACCESS_GROUP_ID must be a UUID");
+  }
+  const cloudflareAccessGroupName = cloudflareAccessValues.every(Boolean)
+    ? optional(env.CLOUDFLARE_ACCESS_GROUP_NAME) ?? "Stuga managed members"
+    : null;
+  if (cloudflareAccessGroupName && cloudflareAccessGroupName.length > 255) {
+    throw new Error("CLOUDFLARE_ACCESS_GROUP_NAME must contain at most 255 characters");
+  }
   if (!alertWebhookEnvironmentUrl && alertWebhookEnvironmentBearerToken) {
     throw new Error("ALERT_WEBHOOK_BEARER_TOKEN requires ALERT_WEBHOOK_URL");
   }
@@ -258,6 +384,42 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const retentionDays = nonNegativeInteger(env.RETENTION_DAYS, 0);
   if (retentionDays > 0 && retentionDays < 30) throw new Error("RETENTION_DAYS must be 0 or at least 30");
   if (retentionDays > 0 && !timeseriesEnabled) throw new Error("RETENTION_DAYS requires TIMESERIES_ENABLED=true");
+  const tapoHistoryExportEmail = optional(env.TAPO_HISTORY_EXPORT_EMAIL)?.toLowerCase() ?? null;
+  if (tapoHistoryExportEmail && (tapoHistoryExportEmail.length > 254
+    || !/^[^\s@<>]+@[^\s@<>]+$/.test(tapoHistoryExportEmail))) {
+    throw new Error("TAPO_HISTORY_EXPORT_EMAIL must be a valid email address");
+  }
+  if (tapoGmail && !tapoHistoryExportEmail) {
+    throw new Error("Tapo Gmail OAuth configuration requires TAPO_HISTORY_EXPORT_EMAIL");
+  }
+  const implicitGmailAccountEmail = tapoHistoryExportEmail?.replace(
+    /^([^+@]+)\+[^@]+@(gmail\.com|googlemail\.com)$/u,
+    "$1@$2",
+  ) ?? null;
+  const tapoHistoryGmailAccountEmail = optional(env.TAPO_HISTORY_GMAIL_ACCOUNT_EMAIL)?.toLowerCase()
+    ?? implicitGmailAccountEmail;
+  if (tapoHistoryGmailAccountEmail && (tapoHistoryGmailAccountEmail.length > 254
+    || !/^[^\s@<>]+@[^\s@<>]+$/.test(tapoHistoryGmailAccountEmail))) {
+    throw new Error("TAPO_HISTORY_GMAIL_ACCOUNT_EMAIL must be a valid email address");
+  }
+  if (tapoPrivate && new URL(httpEndpoint(tapoPrivate[0]!, "TAPO_HISTORY_PRIVATE_ENDPOINT")).protocol !== "https:") {
+    throw new Error("TAPO_HISTORY_PRIVATE_ENDPOINT must use HTTPS");
+  }
+  const tapoHistoryEnabled = booleanValue(env.TAPO_HISTORY_ENABLED, false);
+  const tapoHistoryEmailTagPrefix = optional(env.TAPO_HISTORY_EMAIL_TAG_PREFIX) ?? "stuga";
+  if (tapoHistoryExportEmail) {
+    const local = tapoHistoryExportEmail.slice(0, tapoHistoryExportEmail.lastIndexOf("@")).split("+")[0]!;
+    const safePrefix = tapoHistoryEmailTagPrefix.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 20) || "stuga";
+    if (Buffer.byteLength(`${local}+${safePrefix}-${"0".repeat(32)}`, "utf8") > 64) {
+      throw new Error("TAPO_HISTORY_EXPORT_EMAIL local part is too long for the per-attempt correlation tag");
+    }
+  }
+  const appHistoryConfigured = Boolean(tapoHistoryWorkerToken && tapoHistoryExportEmail && tapoGmail);
+  if (tapoHistoryEnabled && !appHistoryConfigured && !tapoPrivate) {
+    throw new Error(
+      "TAPO_HISTORY_ENABLED=true requires either the complete app worker/email/Gmail tuple or the private endpoint/token pair",
+    );
+  }
 
   return {
     port: positiveInteger(env.PORT, 8787),
@@ -305,9 +467,43 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tpLinkConnections: (stored.tpLinkConnections ?? []).map((connection) => ({ ...connection })),
     tpLinkLegacyDisabled: stored.tpLinkLegacyDisabled === true,
     tpLinkDeviceMapFile: optional(env.TP_LINK_DEVICE_MAP_FILE),
-    tpLinkPollIntervalMs: positiveInteger(env.TP_LINK_POLL_INTERVAL_MS, 10_000),
+    tpLinkPollIntervalMs: positiveInteger(env.TP_LINK_POLL_INTERVAL_MS, 2_000),
     tpLinkPython: optional(env.TP_LINK_PYTHON) ?? (process.platform === "win32" ? "python" : "python3"),
     tpLinkBridgeScript: resolve(env.TP_LINK_BRIDGE_SCRIPT ?? "./apps/api/python/tp_link_bridge.py"),
+    tapoHistoryEnabled,
+    tapoHistoryWorkerToken,
+    tapoHistoryExportEmail,
+    tapoHistoryEmailTagPrefix,
+    tapoHistoryExportIntervalMinutes: exportIntervalMinutes(env.TAPO_HISTORY_EXPORT_INTERVAL_MINUTES),
+    tapoHistoryMaxExportDays: boundedInteger(
+      env.TAPO_HISTORY_MAX_EXPORT_DAYS,
+      30,
+      1,
+      730,
+      "TAPO_HISTORY_MAX_EXPORT_DAYS",
+    ),
+    tapoHistoryMaxPendingEmails: boundedInteger(
+      env.TAPO_HISTORY_MAX_PENDING_EMAILS,
+      1,
+      1,
+      10,
+      "TAPO_HISTORY_MAX_PENDING_EMAILS",
+    ),
+    tapoHistoryMailboxPollIntervalMs: positiveInteger(env.TAPO_HISTORY_MAILBOX_POLL_INTERVAL_MS, 60_000),
+    tapoHistoryEmailTimeoutMs: positiveInteger(env.TAPO_HISTORY_EMAIL_TIMEOUT_MS, 6 * 60 * 60_000),
+    tapoHistoryWorkerLeaseMs: boundedInteger(
+      env.TAPO_HISTORY_WORKER_LEASE_MS,
+      5 * 60_000,
+      5 * 60_000,
+      24 * 60 * 60_000,
+      "TAPO_HISTORY_WORKER_LEASE_MS",
+    ),
+    tapoHistoryGmailAccountEmail,
+    tapoHistoryGmailClientId: tapoGmail?.[0] ?? null,
+    tapoHistoryGmailClientSecret: tapoGmail?.[1] ?? null,
+    tapoHistoryGmailRefreshToken: tapoGmail?.[2] ?? null,
+    tapoHistoryPrivateEndpoint: tapoPrivate ? httpEndpoint(tapoPrivate[0]!, "TAPO_HISTORY_PRIVATE_ENDPOINT") : null,
+    tapoHistoryPrivateToken: tapoPrivate?.[1] ?? null,
     alertWebhookUrl: webhook?.url ?? null,
     alertWebhookBearerToken: webhook?.bearerToken ?? null,
     alertWebhookSigningSecret: webhook?.signingSecret ?? null,
@@ -318,11 +514,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     telegramBotToken: telegram?.botToken ?? null,
     telegramChatId: telegram?.chatId ?? null,
     appleNotesGrants: (stored.appleNotesGrants ?? []).map((grant) => ({ ...grant })),
-    corsOrigin: optional(env.CORS_ORIGIN),
+    corsOrigin: optional(env.CORS_ORIGIN) ?? optional(env.CLOUDFLARE_ACCESS_PUBLIC_ORIGIN),
     localAuthBootstrapSecret,
     localAuthTestBypass,
     localAuthProxyBindAddress,
     localAuthProxySecret: proxySecret,
+    cloudflareAccessAccountId,
+    cloudflareAccessGroupId,
+    cloudflareAccessGroupName,
+    cloudflareAccessApiToken,
+    cloudflareAccessSyncIntervalMs: boundedInteger(
+      env.CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS,
+      5 * 60_000,
+      60_000,
+      24 * 60 * 60_000,
+      "CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS",
+    ),
     electricityAllowPrivateEndpoints: booleanValue(env.ELECTRICITY_ALLOW_PRIVATE_ENDPOINTS, false),
   };
 }

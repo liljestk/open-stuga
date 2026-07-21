@@ -3,6 +3,8 @@ import type {
   ActionRun,
   ActionRunStartInput,
   AppSession,
+  AnalyticsQueryRequest,
+  AnalyticsQueryResponse,
   AreaEquipment,
   AreaEquipmentInput,
   AreaEquipmentPatch,
@@ -21,6 +23,7 @@ import type {
   HouseMapPlacement,
   HouseWeather,
   HomeElectricityPricePoint,
+  HomeEnergyCost,
   IntegrationStatus,
   IntegrationTestResult,
   LocalInvitationRegistrationInput,
@@ -42,8 +45,10 @@ import type {
   OpeningStateObservation,
   OpeningStateObservationInput,
   OpeningStateSnapshot,
+  OutdoorTemperatureSample,
   Reading,
   Sensor,
+  SensorDataGap,
   SensorLabelDescriptor,
   SensorSnapshot,
   SetupDoctorReport,
@@ -135,6 +140,13 @@ export interface MeasurementHistoryPage {
   truncated: boolean;
 }
 
+export interface OutdoorTemperatureHistoryPage {
+  samples: OutdoorTemperatureSample[];
+  from: string;
+  to: string;
+  truncated: boolean;
+}
+
 export interface HomeAssistantDiscoveredInstance {
   name: string;
   url: string;
@@ -143,16 +155,87 @@ export interface HomeAssistantDiscoveredInstance {
   version: string | null;
 }
 
-export interface TpLinkDiscoveredHub {
+export interface TpLinkDiscoveredSource {
   host: string;
-  model: "H100" | "H200";
+  model: string;
   alias: string | null;
+  sourceType?: "hub" | "energy-device";
 }
 
 export interface IntegrationDiscoveryResult {
   homeAssistant: HomeAssistantDiscoveredInstance[];
-  tpLink: TpLinkDiscoveredHub[];
+  tpLink: TpLinkDiscoveredSource[];
   warnings: string[];
+}
+
+export type TpLinkHistoryExportProvider = "appium" | "private-cloud";
+
+export type TpLinkHistoryExportJobStatus =
+  | "queued"
+  | "claimed"
+  | "running"
+  | "waiting-email"
+  | "needs-attention"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface TpLinkHistoryExportJob {
+  id: string;
+  canary: boolean;
+  provider: TpLinkHistoryExportProvider;
+  sensorId: string;
+  deviceId: string;
+  deviceName: string;
+  timeZone: string;
+  metric: string;
+  expectedRecipient: string | null;
+  from: string;
+  to: string;
+  intervalMinutes: number;
+  status: TpLinkHistoryExportJobStatus;
+  attemptCount: number;
+  maxAttempts: number;
+  availableAt: string;
+  leaseOwner: string | null;
+  leaseExpiresAt: string | null;
+  heartbeatAt: string | null;
+  submittedAt: string | null;
+  mailboxMessageId: string | null;
+  sourceArtifactSha256: string | null;
+  sourceArtifactBytes: number | null;
+  parserVersion: string | null;
+  sourceSchemaSignature: string | null;
+  stagedSampleCount: number;
+  consumedSampleCount: number;
+  lastError: string | null;
+  attentionReason: string | null;
+  detail: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+}
+
+export interface TpLinkHistoryExportJobsResponse {
+  enabled: boolean;
+  automation: {
+    operational: boolean;
+    canaryPending: boolean;
+    waitingEmails: number;
+    maxPendingEmails: number;
+    exportIntervalMinutes: 1 | 15 | 30 | 60 | 360 | 720 | 1440;
+    canaryApprovalMaxAgeDays: number;
+    mailbox: {
+      lastSuccessfulPollAt: string | null;
+      lastErrorAt: string | null;
+      lastErrorCode: string | null;
+      consecutiveFailures: number;
+      budgetExhaustions: number;
+    };
+    lastWorkerSeenAt: string | null;
+    deploymentFingerprintPrefix: string | null;
+  };
+  jobs: TpLinkHistoryExportJob[];
 }
 
 export interface LocationSuggestion {
@@ -499,9 +582,14 @@ export const api = {
     current: PropertyElectricityPricePoint | null;
     prices: PropertyElectricityPricePoint[];
   }>(`/properties/${encodeURIComponent(propertyId)}/electricity`),
-  houseElectricityPrice: (houseId: string) => request<{
+  houseElectricityPrice: (houseId: string, from?: string, to?: string, signal?: AbortSignal) => request<{
     current: HomeElectricityPricePoint | null;
-  }>(`/houses/${encodeURIComponent(houseId)}/electricity-price`),
+    prices?: HomeElectricityPricePoint[];
+  }>(`/houses/${encodeURIComponent(houseId)}/electricity-price${from || to ? `?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}) })}` : ""}`, signal ? { signal } : {}),
+  houseEnergyCost: async (houseId: string, sensorId: string, from: string, to: string, signal?: AbortSignal) => entity<HomeEnergyCost>(await request<HomeEnergyCost | { cost: HomeEnergyCost }>(
+    `/houses/${encodeURIComponent(houseId)}/energy-cost?${new URLSearchParams({ sensorId, from, to })}`,
+    signal ? { signal } : {},
+  ), "cost"),
   configurePropertyElectricity: (propertyId: string, configuration: PropertyElectricityConfigInput) => request<{ config: PropertyElectricityConfig }>(
     `/properties/${encodeURIComponent(propertyId)}/electricity/config`,
     { method: "PUT", body: JSON.stringify(configuration) },
@@ -606,6 +694,24 @@ export const api = {
     );
     return "weather" in response ? response.weather : response;
   },
+  outdoorTemperatureHistory: async (
+    houseId: string,
+    from: string,
+    to: string,
+    limit = 20_000,
+    signal?: AbortSignal,
+  ): Promise<OutdoorTemperatureHistoryPage> => {
+    const query = new URLSearchParams({ from, to, limit: String(limit) });
+    const result = await requestV2<Partial<Omit<OutdoorTemperatureHistoryPage, "samples">> & {
+      samples: OutdoorTemperatureSample[];
+    }>(`/houses/${encodeURIComponent(houseId)}/outdoor-temperature/history?${query}`, signal ? { signal } : undefined);
+    return {
+      samples: result.samples,
+      from: result.from ?? from,
+      to: result.to ?? to,
+      truncated: result.truncated ?? result.samples.length >= limit,
+    };
+  },
   updateFloor: (houseId: string, floorId: string, floor: House["floors"][number]) => request<House["floors"][number]>(`/houses/${encodeURIComponent(houseId)}/floors/${encodeURIComponent(floorId)}`, { method: "PUT", body: JSON.stringify(floor) }),
   createSensor: async (sensor: CreateSensorInput) => sensorResponse(await request<Sensor | { sensor: Sensor }>("/sensors", {
     method: "POST",
@@ -678,9 +784,15 @@ export const api = {
   requestBackup: async () => entity(await request<BackupOperationStatus | { backup: BackupOperationStatus }>("/backups", { method: "POST" }), "backup"),
   createStaticParameter: (parameter: Omit<StaticParameter, "id">) => request<StaticParameter>("/static-parameters", { method: "POST", body: JSON.stringify(parameter) }),
   integrations: (houseId?: string) => request<IntegrationStatus>(`/integrations/status${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`),
-  discoverIntegrations: (houseId?: string) => request<IntegrationDiscoveryResult>("/integrations/discover", {
+  discoverIntegrations: (houseId?: string, tpLinkCredentials?: { username: string; password: string }) => request<IntegrationDiscoveryResult>("/integrations/discover", {
     method: "POST",
-    ...(houseId ? { body: JSON.stringify({ houseId }) } : {}),
+    ...(houseId || tpLinkCredentials ? { body: JSON.stringify({
+      ...(houseId ? { houseId } : {}),
+      ...(tpLinkCredentials ? {
+        tpLinkUsername: tpLinkCredentials.username,
+        tpLinkPassword: tpLinkCredentials.password,
+      } : {}),
+    }) } : {}),
   }),
   discoverTelegram: (botToken: string, signal?: AbortSignal) => request<TelegramDiscoveryResult>("/integrations/telegram/discover", {
     method: "POST",
@@ -742,9 +854,35 @@ export const api = {
     await request<unknown>(`/integrations/tp-link/devices${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`),
     ["devices", "data"],
   ),
+  tpLinkHistoryExportJobs: () => request<TpLinkHistoryExportJobsResponse>("/integrations/tp-link/history-export/jobs"),
+  createTpLinkHistoryExportCanary: (input: {
+    sensorId: string;
+    metric: "temperature" | "humidity";
+    from: string;
+    to: string;
+  }) => request<{ job: TpLinkHistoryExportJob }>("/integrations/tp-link/history-export/canary", {
+    method: "POST",
+    body: JSON.stringify(input),
+  }),
+  retryTpLinkHistoryExportJob: async (id: string): Promise<void> => {
+    await request<unknown>(`/integrations/tp-link/history-export/jobs/${encodeURIComponent(id)}/retry`, { method: "POST" });
+  },
+  cancelTpLinkHistoryExportJob: async (id: string): Promise<void> => {
+    await request<unknown>(`/integrations/tp-link/history-export/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
+  },
+  sensorDataGaps: async (houseId?: string, limit = 500): Promise<SensorDataGap[]> => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (houseId) query.set("houseId", houseId);
+    return list<SensorDataGap>(await request<unknown>(`/integrations/sensor-data-gaps?${query}`), ["gaps", "data"]);
+  },
   scenarios: async () => list<MockScenario>(await request<unknown>("/mock/scenarios"), ["scenarios", "data"]),
   runScenario: (scenarioId: MockScenario["id"]) => request<{ ok: boolean }>("/mock/scenario", { method: "POST", body: JSON.stringify({ scenarioId }) }),
   measurementDefinitions: async () => (await requestV2<{ definitions: MeasurementDefinition[] }>("/measurement-definitions")).definitions,
+  analyticsQuery: (input: AnalyticsQueryRequest, signal?: AbortSignal) => requestV2<AnalyticsQueryResponse>("/analytics/query", {
+    method: "POST",
+    body: JSON.stringify(input),
+    ...(signal ? { signal } : {}),
+  }),
   measurementSnapshot: async (houseId: string) => (await requestV2<{ snapshot: { sensorId: string; measurements: Record<string, MeasurementSample> }[] }>(
     `/measurements/snapshot?houseId=${encodeURIComponent(houseId)}`,
   )).snapshot,

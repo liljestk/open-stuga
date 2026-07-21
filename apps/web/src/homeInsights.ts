@@ -812,17 +812,18 @@ function newestSensorSample(context: EngineContext, sensorId: string): Measureme
 
 function coverageStateForSensor(context: EngineContext, sensorId: string): SensorCoverageState {
   const sensor = context.sensors.find((candidate) => candidate.id === sensorId);
+  const declaredMetrics = sensor ? declaredCoverageMetrics(sensor) : [];
+  const supportedMetrics = sensor ? supportedSensorMetrics(context, sensor, declaredMetrics) : new Set<Metric>();
+  // A sensor-specific rule is an explicit monitoring requirement. A global
+  // rule is event-driven and applies only where the sensor declares or has
+  // demonstrated that metric; otherwise climate rules would make energy-only
+  // devices look disconnected.
   const ruleMetrics = [...context.rules.values()]
-    .filter((rule) => rule.enabled && (rule.sensorId === null || rule.sensorId === sensorId))
+    .filter((rule) => rule.enabled && (
+      rule.sensorId === sensorId
+      || (rule.sensorId === null && supportedMetrics.has(rule.metric))
+    ))
     .map((rule) => rule.metric);
-  const declaredMetrics = sensor
-    ? [
-        ...Object.keys(sensor.measurementEntityIds ?? {}).filter((metric) => metric !== "battery"),
-        ...(sensor.temperatureEntityId ? ["temperature"] : []),
-        ...(sensor.humidityEntityId ? ["humidity"] : []),
-        ...(sensor.tpLinkDeviceId && /\bT3(?:10|15)\b/i.test(sensor.model) ? ["temperature", "humidity"] : []),
-      ]
-    : [];
   const requiredMetrics = [...ruleMetrics, ...declaredMetrics]
     .filter((metric, index, metrics) => metrics.indexOf(metric) === index)
     .sort(compareText);
@@ -846,6 +847,32 @@ function coverageStateForSensor(context: EngineContext, sensorId: string): Senso
   }).sort((left, right) => priority[right.freshness.state] - priority[left.freshness.state]
     || (Date.parse(left.freshness.evidenceAt ?? "") || Number.NEGATIVE_INFINITY)
       - (Date.parse(right.freshness.evidenceAt ?? "") || Number.NEGATIVE_INFINITY))[0]!;
+}
+
+function declaredCoverageMetrics(sensor: Sensor): Metric[] {
+  return [
+    ...Object.keys(sensor.measurementEntityIds ?? {}).filter((metric) => metric !== "battery"),
+    ...(sensor.temperatureEntityId ? ["temperature"] : []),
+    ...(sensor.humidityEntityId ? ["humidity"] : []),
+    ...(sensor.tpLinkDeviceId && /\bT3(?:10|15)\b/i.test(sensor.model) ? ["temperature", "humidity"] : []),
+  ];
+}
+
+function supportedSensorMetrics(
+  context: EngineContext,
+  sensor: Sensor,
+  declaredMetrics: readonly Metric[],
+): ReadonlySet<Metric> {
+  const supported = new Set<Metric>(declaredMetrics);
+  for (const metric of Object.keys(sensor.measurementEntityIds ?? {})) supported.add(metric);
+  if (sensor.temperatureEntityId) supported.add("temperature");
+  if (sensor.humidityEntityId) supported.add("humidity");
+  if (sensor.batteryEntityId) supported.add("battery");
+  for (const metric of Object.keys(context.latest[sensor.id] ?? {})) supported.add(metric);
+  for (const [metric, samples] of Object.entries(context.history[sensor.id] ?? {})) {
+    if (samples.length > 0) supported.add(metric);
+  }
+  return supported;
 }
 
 function validSample(

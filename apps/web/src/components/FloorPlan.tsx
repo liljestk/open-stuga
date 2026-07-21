@@ -1,9 +1,10 @@
 import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { BoxSelect, Grid3X3, ImagePlus, MapPinPlus, MousePointer2, PenLine, Plus, RotateCcw, RotateCw, Trash2 } from "lucide-react";
-import { configuredPlanElementOpeningState, type ConfiguredOpeningState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type PlanElement, type PlanElementKind, type Point, type Room, type Sensor, type UnitSystem, type Wall } from "@climate-twin/contracts";
+import { configuredPlanElementOpeningState, floorMetersPerPlanUnit, isAirflowPlanElement, wallLengthPlanUnits, type ConfiguredOpeningState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type PlanElement, type PlanElementKind, type Point, type Room, type Sensor, type UnitSystem, type Wall } from "@climate-twin/contracts";
 import { clamp, round, type ViewMode } from "../domain";
 import { useI18n, type TranslationKey } from "../i18n";
-import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue } from "../measurements";
+import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue, type LatestMeasurements } from "../measurements";
+import { energyDeviceMapStats, isEnergyDeviceSensor } from "../energyDeviceMap";
 import { createCloudLobes, estimateFieldFlows, heatColor, interpolateHeat } from "../spatialField";
 import { simulateFloorAirflow, type AirflowPoint2D, type ClimateSampleMatrix, type FloorAirflowEstimate } from "../airflowSimulation";
 import { configuredSpatialMaxSampleAgeMs, isSpatialSampleFresh } from "../spatialFreshness";
@@ -17,6 +18,7 @@ import {
 } from "./OutdoorConditionsBadge";
 import { PlanElementDimensionFields } from "./PlanElementDimensionFields";
 import { applyAirflowPlanElementPatch, PlanElementAirflowFields, type AirflowPlanElementPatch } from "./PlanElementAirflowFields";
+import { applyFixturePlanElementPatch, PlanElementFixtureFields, type FixturePlanElementPatch } from "./PlanElementFixtureFields";
 import { OpeningInventory } from "./OpeningInventory";
 import { SpatialLayerOverlay2D } from "./SpatialLayerOverlay2D";
 import type { SpatialLayerSnapshot, SpatialTopology } from "../spatialLayers";
@@ -28,12 +30,14 @@ import {
   DEFAULT_CEILING_HEIGHT_METRES,
   defaultPlanElementHeight,
   defaultPlanElementWidth,
+  defaultFireEscapeProjection,
   editablePlanElementWidthBounds,
   effectivePlanElementHeight,
+  isWallAttachedPlanElement,
   isWallOpening,
   planElementHeightBounds,
 } from "../planElementGeometry";
-import { chimneyPenetrationsForFloor } from "../architecturalGeometry";
+import { chimneyPenetrationsForFloor, fireplaceChimneyDimensions } from "../architecturalGeometry";
 import { MapInformationToggle, useMapInformationVisibility } from "./MapInformationToggle";
 
 export { heatColor, interpolateHeat } from "../spatialField";
@@ -45,6 +49,9 @@ interface FloorPlanProps {
   house?: House;
   sensors: Sensor[];
   samples: Record<string, MeasurementSample>;
+  /** Metric-complete samples used by capability-specific markers such as energy plugs. */
+  sensorMeasurements?: LatestMeasurements;
+  energyDevicesVisible?: boolean;
   climateSamples?: ClimateSampleMatrix;
   observations: ManualObservation[];
   definition: MeasurementDefinition;
@@ -73,6 +80,10 @@ export function floorRenderScale(floorWidth: number): number {
   return 1000 / Math.max(floorWidth, 1);
 }
 
+export function wallLengthInputValue(lengthMetres: number): string {
+  return Number(lengthMetres.toFixed(3)).toString();
+}
+
 function smoothAirflowPath(points: AirflowPoint2D[], scale: number): string {
   const rendered = points.map((point) => ({ x: point.x * scale, y: point.y * scale }));
   if (rendered.length < 2) return "";
@@ -91,7 +102,7 @@ export type FloorGridDensity = "fine" | "medium" | "coarse";
 type EditorTool = "select" | "wall" | "room" | "element";
 
 const ROOM_KINDS = ["living", "dining", "kitchen", "bedroom", "bathroom", "office", "hall", "entry", "utility", "storage", "sauna", "garage", "other"] as const;
-const PLAN_ELEMENT_KINDS: PlanElementKind[] = ["door", "window", "fireplace", "vent"];
+const PLAN_ELEMENT_KINDS: PlanElementKind[] = ["door", "window", "fireplace", "vent", "fireEscape"];
 const PLAN_VIEWPORT_MARGIN = 88;
 const OUTDOOR_SHELL_OFFSET = 64;
 const OUTDOOR_SHELL_CHIP_WIDTH = 164;
@@ -278,14 +289,12 @@ export function isValidRoomPolygon(points: Point[]): boolean {
   return true;
 }
 
-interface PlanElementPatch extends AirflowPlanElementPatch {
+interface PlanElementPatch extends AirflowPlanElementPatch, FixturePlanElementPatch {
   position?: Point;
   rotationDegrees?: number;
   width?: number;
   height?: number;
   wallId?: string;
-  verticalExtent?: "level" | "roof";
-  chimneyHeightAboveRoof?: number;
 }
 
 interface DeletedWallUndo {
@@ -295,7 +304,7 @@ interface DeletedWallUndo {
   openings: Array<{ element: PlanElement; index: number }>;
 }
 
-function PlanElementGlyph({ kind, width, state }: { kind: PlanElementKind; width: number; state?: ConfiguredOpeningState | undefined }) {
+function PlanElementGlyph({ kind, width, state, projection }: { kind: PlanElementKind; width: number; state?: ConfiguredOpeningState | undefined; projection?: number | undefined }) {
   const half = width / 2;
   const depth = Math.max(18, Math.min(width * .55, 42));
   if (kind === "door") return (
@@ -323,6 +332,15 @@ function PlanElementGlyph({ kind, width, state }: { kind: PlanElementKind; width
       <path d={`M0 ${depth * .28}C${-width * .16} ${depth * .05} ${-width * .1} ${-depth * .25} 0 ${-depth * .34}C${width * .18} ${-depth * .08} ${width * .16} ${depth * .12} 0 ${depth * .28}Z`} className="plan-element-flame" />
     </g>
   );
+  if (kind === "fireEscape") {
+    const escapeDepth = Math.max(24, projection ?? width * .65);
+    return <g className="fire-escape-glyph">
+      <rect x={-half} y="0" width={width} height={escapeDepth} rx="2" className="plan-element-body" />
+      {[-.32, -.1, .12, .34, .56, .78].map((offset) => <line key={offset} x1={-half * .72} x2={half * .72} y1={escapeDepth * (offset + .1)} y2={escapeDepth * (offset + .1)} className="plan-element-detail" />)}
+      <line x1={-half * .78} x2={-half * .78} y1="0" y2={escapeDepth} className="plan-element-stroke" />
+      <line x1={half * .78} x2={half * .78} y1="0" y2={escapeDepth} className="plan-element-stroke" />
+    </g>;
+  }
   const ventHeight = Math.max(18, Math.min(width * .45, 34));
   return (
     <g className="vent-glyph">
@@ -339,6 +357,7 @@ export function FloorPlan({
   referenceTimeMs, maxSampleAgeMs,
   outdoor, spatialLayerSnapshots = [], spatialLayerTopology = null,
   experimentalAirflowEnabled = false, experimentalAirflow = null, experimentalSensorCoverage = null,
+  sensorMeasurements = {}, energyDevicesVisible = true,
 }: FloorPlanProps) {
   const { locale, t } = useI18n();
   const metricLabel = measurementLabel(definition, locale);
@@ -356,11 +375,14 @@ export function FloorPlan({
   const mapHelpId = useId();
   const mapInformationId = `map-information-${useId().replace(/:/g, "")}`;
   const roomNameErrorId = useId();
+  const wallLengthErrorId = useId();
   const fieldId = `floor-field-${useId().replace(/:/g, "")}`;
   const [editorTool, setEditorTool] = useState<EditorTool>("select");
   const [wallStart, setWallStart] = useState<Point | null>(null);
   const [roomStart, setRoomStart] = useState<Point | null>(null);
   const [selectedWallId, setSelectedWallId] = useState<string | null>(null);
+  const [wallLengthDraft, setWallLengthDraft] = useState("");
+  const [wallLengthError, setWallLengthError] = useState<string | null>(null);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [selectedPlanElementId, setSelectedPlanElementId] = useState<string | null>(null);
   const [planElementKind, setPlanElementKind] = useState<PlanElementKind>("door");
@@ -377,6 +399,7 @@ export function FloorPlan({
   const [reducedMotion, setReducedMotion] = useState(false);
   const { expanded: mapInformationExpanded, setMapInformationExpanded } = useMapInformationVisibility();
   const renderScale = floorRenderScale(floor.width);
+  const metresPerPlanUnit = floorMetersPerPlanUnit(floor, house);
   const renderWidth = floor.width * renderScale;
   const renderHeight = floor.height * renderScale;
   const gridSize = floorGridSize(floor, gridDensity);
@@ -408,6 +431,7 @@ export function FloorPlan({
   const showMonitoringOverlays = !layoutEditing;
   const planElements = floor.planElements ?? [];
   const chimneyPenetrations = chimneyPenetrationsForFloor(house, floor);
+  const selectedWall = floor.walls.find((wall) => wall.id === selectedWallId) ?? null;
   const selectedRoom = floor.rooms.find((room) => room.id === selectedRoomId) ?? null;
   const selectedPlanElement = planElements.find((element) => element.id === selectedPlanElementId) ?? null;
   const selectedRoomSensorCount = selectedRoom
@@ -437,6 +461,8 @@ export function FloorPlan({
     setWallStart(null);
     setRoomStart(null);
     setSelectedWallId(null);
+    setWallLengthDraft("");
+    setWallLengthError(null);
     setSelectedRoomId(null);
     setSelectedPlanElementId(null);
     setPlacementError(null);
@@ -464,6 +490,8 @@ export function FloorPlan({
       setWallStart(null);
       setRoomStart(null);
       setSelectedWallId(null);
+      setWallLengthDraft("");
+      setWallLengthError(null);
       setSelectedRoomId(null);
       setSelectedPlanElementId(null);
       setPlacementError(null);
@@ -476,6 +504,15 @@ export function FloorPlan({
   useEffect(() => {
     if (selectedWallId && !floor.walls.some((wall) => wall.id === selectedWallId)) setSelectedWallId(null);
   }, [floor.walls, selectedWallId]);
+
+  useEffect(() => {
+    setWallLengthError(null);
+    if (!selectedWall || metresPerPlanUnit === null) {
+      setWallLengthDraft("");
+      return;
+    }
+    setWallLengthDraft(wallLengthInputValue(wallLengthPlanUnits(selectedWall) * metresPerPlanUnit));
+  }, [selectedWall?.id, selectedWall?.from.x, selectedWall?.from.y, selectedWall?.to.x, selectedWall?.to.y, metresPerPlanUnit]);
 
   useEffect(() => {
     if (selectedRoomId && !floor.rooms.some((room) => room.id === selectedRoomId)) setSelectedRoomId(null);
@@ -550,6 +587,28 @@ export function FloorPlan({
     onFloorChange(nextFloor);
   };
 
+  const resetSelectedWallLengthDraft = () => {
+    if (!selectedWall || metresPerPlanUnit === null) setWallLengthDraft("");
+    else setWallLengthDraft(wallLengthInputValue(wallLengthPlanUnits(selectedWall) * metresPerPlanUnit));
+    setWallLengthError(null);
+  };
+
+  const commitSelectedWallLength = () => {
+    if (!selectedWall) return;
+    const lengthMetres = Number(wallLengthDraft);
+    const planLength = wallLengthPlanUnits(selectedWall);
+    const nextScale = lengthMetres / planLength;
+    if (!Number.isFinite(lengthMetres) || lengthMetres <= 0 || lengthMetres > 10_000 || planLength <= GEOMETRY_EPSILON
+      || !Number.isFinite(nextScale) || nextScale > 10_000) {
+      setWallLengthError(t("twin.wallLengthInvalid"));
+      return;
+    }
+    setWallLengthError(null);
+    setWallLengthDraft(wallLengthInputValue(lengthMetres));
+    if (Math.abs((floor.metersPerPlanUnit ?? 0) - nextScale) <= GEOMETRY_EPSILON) return;
+    applyFloorChange({ ...floor, metersPerPlanUnit: nextScale });
+  };
+
   const nextUnusedRoomName = () => {
     const existingNames = new Set(floor.rooms.map((room) => room.name.trim().toLocaleLowerCase(locale)));
     let number = 1;
@@ -568,14 +627,14 @@ export function FloorPlan({
     const wallIndex = wallId ? floor.walls.findIndex((wall) => wall.id === wallId) : -1;
     if (!wallId || wallIndex < 0) return;
     const openings = planElements.flatMap((element, index) => (
-      isWallOpening(element) && element.wallId === wallId ? [{ element, index }] : []
+      isWallAttachedPlanElement(element) && element.wallId === wallId ? [{ element, index }] : []
     ));
     setDeletedWallUndo({ floorId: floor.id, wall: floor.walls[wallIndex]!, wallIndex, openings });
     setUndoMessage(t("twin.wallDeleted", { count: openings.length }));
     onFloorChange({
       ...floor,
       walls: floor.walls.filter((wall) => wall.id !== wallId),
-      planElements: planElements.filter((element) => !isWallOpening(element) || element.wallId !== wallId),
+      planElements: planElements.filter((element) => !isWallAttachedPlanElement(element) || element.wallId !== wallId),
     });
     setSelectedWallId(null);
     if (focusUndo) window.setTimeout(() => undoButtonRef.current?.focus(), 0);
@@ -673,7 +732,7 @@ export function FloorPlan({
   };
 
   const resolveElementPlacement = (kind: PlanElementKind, point: Point, width = defaultPlanElementWidth(floor, kind)) => {
-    if (kind !== "door" && kind !== "window") {
+    if (kind !== "door" && kind !== "window" && kind !== "fireEscape") {
       return { placement: { position: point, rotationDegrees: 0 }, failure: null } as const;
     }
     const result = nearestWallOpeningPlacement(point, floor.walls, renderScale, width);
@@ -685,6 +744,11 @@ export function FloorPlan({
       const swingDirection = { x: Math.sin(radians), y: -Math.cos(radians) };
       const towardCenter = { x: floor.width / 2 - wallPlacement.position.x, y: floor.height / 2 - wallPlacement.position.y };
       if (swingDirection.x * towardCenter.x + swingDirection.y * towardCenter.y < 0) rotationDegrees = (rotationDegrees + 180) % 360;
+    } else if (kind === "fireEscape") {
+      const radians = rotationDegrees * Math.PI / 180;
+      const projectionDirection = { x: -Math.sin(radians), y: Math.cos(radians) };
+      const awayFromCenter = { x: wallPlacement.position.x - floor.width / 2, y: wallPlacement.position.y - floor.height / 2 };
+      if (projectionDirection.x * awayFromCenter.x + projectionDirection.y * awayFromCenter.y < 0) rotationDegrees = (rotationDegrees + 180) % 360;
     }
     return { placement: {
       position: wallPlacement.position,
@@ -712,6 +776,13 @@ export function FloorPlan({
     } else if (planElementKind === "window") {
       if (!("wallId" in result.placement) || !result.placement.wallId) return false;
       element = { id, kind: "window", position: result.placement.position, rotationDegrees: result.placement.rotationDegrees, width, height: defaultPlanElementHeight(floor, "window"), wallId: result.placement.wallId, variant: "casement" };
+    } else if (planElementKind === "fireEscape") {
+      if (!("wallId" in result.placement) || !result.placement.wallId) return false;
+      element = {
+        id, kind: "fireEscape", position: result.placement.position, rotationDegrees: result.placement.rotationDegrees,
+        width, height: defaultPlanElementHeight(floor, "fireEscape"), wallId: result.placement.wallId,
+        variant: "ladder", projection: defaultFireEscapeProjection(floor, width),
+      };
     } else {
       element = planElementKind === "vent"
         ? { id, kind: "vent", position: result.placement.position, rotationDegrees: result.placement.rotationDegrees, width, height: defaultPlanElementHeight(floor, planElementKind), variant: "passive" }
@@ -728,14 +799,19 @@ export function FloorPlan({
   const updatePlanElement = (elementId: string, patch: PlanElementPatch) => {
     applyFloorChange({ ...floor, planElements: planElements.map((element): PlanElement => {
       if (element.id !== elementId) return element;
-      if (element.kind === "fireplace") {
-        const next = { ...element };
+      if (element.kind === "fireplace" || element.kind === "fireEscape") {
+        const next = applyFixturePlanElementPatch(element, patch);
         if (patch.position !== undefined) next.position = patch.position;
         if (patch.rotationDegrees !== undefined) next.rotationDegrees = patch.rotationDegrees;
         if (patch.width !== undefined) next.width = patch.width;
-        if (patch.height !== undefined) next.height = patch.height;
-        if (patch.verticalExtent !== undefined) next.verticalExtent = patch.verticalExtent;
-        if (patch.chimneyHeightAboveRoof !== undefined) next.chimneyHeightAboveRoof = patch.chimneyHeightAboveRoof;
+        if (patch.height !== undefined) {
+          next.height = patch.height;
+          if (next.kind === "fireEscape" && next.bottomOffsetM !== undefined) {
+            next.bottomOffsetM = Math.min(next.bottomOffsetM,
+              Math.max(0, (floor.ceilingHeight ?? DEFAULT_CEILING_HEIGHT_METRES) - patch.height));
+          }
+        }
+        if (next.kind === "fireEscape" && patch.wallId !== undefined) next.wallId = patch.wallId;
         return next;
       }
       const next = applyAirflowPlanElementPatch(element, patch);
@@ -766,7 +842,7 @@ export function FloorPlan({
     }
     const placement = result.placement;
     let rotationDegrees = element.rotationDegrees;
-    if (isWallOpening(element)) {
+    if (isWallAttachedPlanElement(element)) {
       const defaultAtCurrentPosition = resolveElementPlacement(element.kind, element.position, width).placement;
       const attachedOffset = defaultAtCurrentPosition
         ? (element.rotationDegrees - defaultAtCurrentPosition.rotationDegrees + 360) % 360
@@ -786,7 +862,7 @@ export function FloorPlan({
     const element = planElements.find((candidate) => candidate.id === elementId);
     if (!element || !Number.isFinite(requestedWidth)) return false;
     const width = clampPlanElementWidth(floor, element.kind, requestedWidth);
-    if (!isWallOpening(element)) {
+    if (!isWallAttachedPlanElement(element)) {
       updatePlanElement(element.id, { width });
       setPlacementError(null);
       return true;
@@ -1060,7 +1136,7 @@ export function FloorPlan({
     if (event.key.toLowerCase() === "r") {
       event.preventDefault();
       event.stopPropagation();
-      const step = isWallOpening(element) ? 180 : event.shiftKey ? -90 : 90;
+      const step = isWallAttachedPlanElement(element) ? 180 : event.shiftKey ? -90 : 90;
       updatePlanElement(element.id, { rotationDegrees: normalizeDegrees(element.rotationDegrees + step) });
       return;
     }
@@ -1234,13 +1310,30 @@ export function FloorPlan({
   const selectedElementHeightBounds = selectedPlanElement ? planElementHeightBounds(floor, selectedPlanElement.kind) : null;
   const selectedElementRotation = selectedPlanElement ? Math.round(normalizeDegrees(selectedPlanElement.rotationDegrees)) % 360 : 0;
   const selectedElementHasCardinalRotation = [0, 90, 180, 270].includes(selectedElementRotation);
+  const wallPreview = wallStart ? (() => {
+    const coordinates = {
+      x1: wallStart.x * renderScale,
+      y1: wallStart.y * renderScale,
+      x2: keyboardPoint.x * renderScale,
+      y2: keyboardPoint.y * renderScale,
+    };
+    const planLength = Math.hypot(keyboardPoint.x - wallStart.x, keyboardPoint.y - wallStart.y);
+    const physicalLength = metresPerPlanUnit === null ? null : planLength * metresPerPlanUnit;
+    const dimensionLabel = physicalLength === null
+      ? t("twin.wallLengthPlanUnits", { length: new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(planLength) })
+      : t("twin.wallLengthMetres", { length: new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(physicalLength) });
+    const midpoint = { x: (coordinates.x1 + coordinates.x2) / 2, y: (coordinates.y1 + coordinates.y2) / 2 };
+    const angle = Math.atan2(coordinates.y2 - coordinates.y1, coordinates.x2 - coordinates.x1) * 180 / Math.PI;
+    const readableAngle = angle > 90 || angle < -90 ? angle + 180 : angle;
+    return { coordinates, dimensionLabel, midpoint, physicalLength, readableAngle, start: wallStart };
+  })() : null;
   const editorHint = placementError ?? undoMessage
     ?? (selectedWallId
       ? t("twin.wallSelected")
       : selectedRoom
         ? t("twin.roomSelected")
         : selectedPlanElement
-          ? t(isWallOpening(selectedPlanElement) ? "twin.elementSelected" : "twin.fixtureSelected", {
+          ? t(isWallAttachedPlanElement(selectedPlanElement) ? "twin.elementSelected" : "twin.fixtureSelected", {
             element: t(`planElement.${selectedPlanElement.kind}` as TranslationKey),
             degrees: selectedElementRotation,
           })
@@ -1249,7 +1342,7 @@ export function FloorPlan({
             : drawingRoom
               ? roomStart ? t("twin.roomEnd") : t("twin.roomStart")
               : placingElement
-                ? t(planElementKind === "door" || planElementKind === "window" ? "twin.openingPlacement" : "twin.elementPlacement", { element: t(`planElement.${planElementKind}` as TranslationKey) })
+                ? t(planElementKind === "door" || planElementKind === "window" || planElementKind === "fireEscape" ? "twin.openingPlacement" : "twin.elementPlacement", { element: t(`planElement.${planElementKind}` as TranslationKey) })
                 : `${t("twin.dragHint")} ${snapEnabled ? t("twin.snapOnHint") : t("twin.snapOffHint")}`);
 
   return (
@@ -1289,6 +1382,34 @@ export function FloorPlan({
             onSelect={(_floorId, elementId) => { chooseEditorTool("select"); setSelectedPlanElementId(elementId); window.setTimeout(() => planElementRefs.current.get(elementId)?.focus(), 0); }}
           />
           {deletedWallUndo && <button ref={undoButtonRef} type="button" className="tool-button" aria-keyshortcuts="Control+Z Meta+Z" onClick={undoLastDeletion}>{t("common.undo")}</button>}
+          {selectedWall && (
+            <div className="editor-properties wall-properties" role="group" aria-label={t("twin.wallProperties")}>
+              <strong>{t("twin.wallProperties")}</strong>
+              <label>
+                <span>{t("twin.wallLength")}</span>
+                <span className="input-suffix"><input
+                  type="number"
+                  min="0.01"
+                  max="10000"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={wallLengthDraft}
+                  placeholder={t("twin.wallLengthPlaceholder")}
+                  aria-label={t("twin.wallLength")}
+                  aria-invalid={wallLengthError ? true : undefined}
+                  aria-describedby={wallLengthError ? wallLengthErrorId : undefined}
+                  onChange={(event) => { setWallLengthDraft(event.currentTarget.value); setWallLengthError(null); }}
+                  onBlur={commitSelectedWallLength}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); }
+                    if (event.key === "Escape") { event.preventDefault(); resetSelectedWallLengthDraft(); }
+                  }}
+                /><span>m</span></span>
+              </label>
+              <span className="editor-properties-note">{t(metresPerPlanUnit === null ? "twin.wallLengthCalibrationHelp" : "twin.wallLengthScaleHelp")}</span>
+              {wallLengthError && <span id={wallLengthErrorId} className="editor-field-error" role="alert">{wallLengthError}</span>}
+            </div>
+          )}
           {selectedRoom && (
             <div className="editor-properties" role="group" aria-label={t("twin.roomProperties")}>
               <strong>{t("twin.roomProperties")}</strong>
@@ -1313,13 +1434,10 @@ export function FloorPlan({
                 onWidthChange={(value) => updatePlanElementWidth(selectedPlanElement.id, value)}
                 onHeightChange={(value) => updatePlanElementHeight(selectedPlanElement.id, value)}
               />}
-              {selectedPlanElement.kind !== "fireplace" && <PlanElementAirflowFields floor={floor} element={selectedPlanElement} onChange={(patch) => updatePlanElement(selectedPlanElement.id, patch)} />}
-              {!isWallOpening(selectedPlanElement) && <label><span>{t("twin.elementRotation")}</span><select value={selectedElementRotation} onChange={(event) => updatePlanElement(selectedPlanElement.id, { rotationDegrees: Number(event.currentTarget.value) })}>{!selectedElementHasCardinalRotation && <option value={selectedElementRotation}>{selectedElementRotation}°</option>}{[0, 90, 180, 270].map((degrees) => <option key={degrees} value={degrees}>{degrees}°</option>)}</select></label>}
-              {selectedPlanElement.kind === "fireplace" && <>
-                <label><span>{t("twin.fireplaceExtent")}</span><select value={selectedPlanElement.verticalExtent ?? "level"} onChange={(event) => updatePlanElement(selectedPlanElement.id, { verticalExtent: event.currentTarget.value as "level" | "roof" })}><option value="level">{t("twin.fireplaceExtentLevel")}</option><option value="roof">{t("twin.fireplaceExtentRoof")}</option></select></label>
-                {(selectedPlanElement.verticalExtent ?? "level") === "roof" && <label><span>{t("twin.chimneyAboveRoof")}</span><span className="input-suffix"><input type="number" min="0" max="5" step="0.1" value={selectedPlanElement.chimneyHeightAboveRoof ?? .6} onChange={(event) => updatePlanElement(selectedPlanElement.id, { chimneyHeightAboveRoof: Number(event.currentTarget.value) })} /><span>m</span></span></label>}
-              </>}
-              {isWallOpening(selectedPlanElement)
+              {isAirflowPlanElement(selectedPlanElement) && <PlanElementAirflowFields floor={floor} element={selectedPlanElement} onChange={(patch) => updatePlanElement(selectedPlanElement.id, patch)} />}
+              {(selectedPlanElement.kind === "fireplace" || selectedPlanElement.kind === "fireEscape") && <PlanElementFixtureFields floor={floor} element={selectedPlanElement} planUnitLabel={t("twin.planUnit")} onChange={(patch) => updatePlanElement(selectedPlanElement.id, patch)} />}
+              {!isWallAttachedPlanElement(selectedPlanElement) && <label><span>{t("twin.elementRotation")}</span><select value={selectedElementRotation} onChange={(event) => updatePlanElement(selectedPlanElement.id, { rotationDegrees: Number(event.currentTarget.value) })}>{!selectedElementHasCardinalRotation && <option value={selectedElementRotation}>{selectedElementRotation}°</option>}{[0, 90, 180, 270].map((degrees) => <option key={degrees} value={degrees}>{degrees}°</option>)}</select></label>}
+              {isWallAttachedPlanElement(selectedPlanElement)
                 ? <button type="button" className="tool-button" onClick={() => updatePlanElement(selectedPlanElement.id, { rotationDegrees: normalizeDegrees(selectedPlanElement.rotationDegrees + 180) })}><RotateCw size={16} aria-hidden="true" />{t("twin.flipElement")}</button>
                 : <>
                   <button type="button" className="tool-button" aria-keyshortcuts="Shift+R" onClick={() => updatePlanElement(selectedPlanElement.id, { rotationDegrees: normalizeDegrees(selectedPlanElement.rotationDegrees - 90) })}><RotateCcw size={16} aria-hidden="true" />{t("twin.rotateElementLeft")}</button>
@@ -1498,6 +1616,11 @@ export function FloorPlan({
               {floor.walls.map((wall, index) => {
                 const selected = wall.id === selectedWallId;
                 const wallLabel = t("twin.wallAria", { number: index + 1 });
+                const planLength = wallLengthPlanUnits(wall);
+                const physicalLength = metresPerPlanUnit === null ? null : planLength * metresPerPlanUnit;
+                const dimensionLabel = physicalLength === null
+                  ? t("twin.wallLengthPlanUnits", { length: new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(planLength) })
+                  : t("twin.wallLengthMetres", { length: new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(physicalLength) });
                 const coordinates = {
                   x1: wall.from.x * renderScale,
                   y1: wall.from.y * renderScale,
@@ -1510,6 +1633,9 @@ export function FloorPlan({
                   width: Math.max(Math.abs(coordinates.x2 - coordinates.x1), 1) + 28,
                   height: Math.max(Math.abs(coordinates.y2 - coordinates.y1), 1) + 28,
                 };
+                const angle = Math.atan2(coordinates.y2 - coordinates.y1, coordinates.x2 - coordinates.x1) * 180 / Math.PI;
+                const readableAngle = angle > 90 || angle < -90 ? angle + 180 : angle;
+                const midpoint = { x: (coordinates.x1 + coordinates.x2) / 2, y: (coordinates.y1 + coordinates.y2) / 2 };
                 return (
                   <g
                     key={wall.id}
@@ -1524,11 +1650,32 @@ export function FloorPlan({
                     {wallSelectionActive && <rect {...focusBounds} className="wall-focus-bounds" aria-hidden="true" />}
                     {wallSelectionActive && <line {...coordinates} className="wall-hit-target" />}
                     <line {...coordinates} className="wall-segment" />
+                    {layoutEditing && <text
+                      x={midpoint.x}
+                      y={midpoint.y - 17}
+                      transform={`rotate(${readableAngle} ${midpoint.x} ${midpoint.y})`}
+                      className={`wall-length-label ${physicalLength === null ? "uncalibrated" : "calibrated"}`}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      aria-hidden="true"
+                    >{dimensionLabel}</text>}
                   </g>
                 );
               })}
-              {wallStart && <line x1={wallStart.x * renderScale} y1={wallStart.y * renderScale} x2={keyboardPoint.x * renderScale} y2={keyboardPoint.y * renderScale} className="wall-preview" />}
-              {wallStart && <circle cx={wallStart.x * renderScale} cy={wallStart.y * renderScale} r="8" className="wall-start" />}
+              {wallPreview && (
+                <g className="wall-preview-group" aria-hidden="true">
+                  <line {...wallPreview.coordinates} className="wall-preview" />
+                  <text
+                    x={wallPreview.midpoint.x}
+                    y={wallPreview.midpoint.y - 17}
+                    transform={`rotate(${wallPreview.readableAngle} ${wallPreview.midpoint.x} ${wallPreview.midpoint.y})`}
+                    className={`wall-length-label wall-preview-length ${wallPreview.physicalLength === null ? "uncalibrated" : "calibrated"}`}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                  >{wallPreview.dimensionLabel}</text>
+                  <circle cx={wallPreview.start.x * renderScale} cy={wallPreview.start.y * renderScale} r="8" className="wall-start" />
+                </g>
+              )}
             </g>
             {showMonitoringOverlays && edgeLabels.length > 0 && (
               <g className="outdoor-edge-labels" aria-hidden="true">
@@ -1667,28 +1814,36 @@ export function FloorPlan({
               </g>
             )}
             <g className="sensors-layer">
-              {sensors.filter((sensor) => sensor.enabled).map((sensor) => {
-                const sample = samples[sensor.id];
+              {sensors.filter((sensor) => sensor.enabled).flatMap((sensor) => {
+                const measurements = sensorMeasurements[sensor.id] ?? {};
+                const energyDevice = isEnergyDeviceSensor(sensor, measurements);
+                if (energyDevice && !energyDevicesVisible && !editing) return [];
+                const energyStats = energyDeviceMapStats(measurements, [definition], units);
+                const sample = energyDevice ? energyStats.power ?? energyStats.energy ?? undefined : samples[sensor.id];
                 const quality = !sample
                   ? null
                   : isSpatialSampleFresh(sample, spatialFreshness)
                     ? sample.quality
                     : "stale";
-                const value = quality === "stale" ? undefined : measurementValue(sample, definition.id);
+                const value = energyDevice || quality === "stale" ? undefined : measurementValue(sample, definition.id);
                 const qualityLabel = quality === "stale"
                   ? t("building.statusStale")
                   : quality === "estimated"
                     ? t("building.statusEstimated")
                     : null;
                 const selected = sensor.id === selectedSensorId;
+                const markerValue = energyDevice
+                  ? energyStats.short ?? t("twin.noEnergyStats")
+                  : value == null ? t("common.noData") : formatMeasurement(value, definition, units);
                 return (
                   <g
                     key={sensor.id}
                     transform={`translate(${sensor.x * renderScale} ${sensor.y * renderScale})`}
-                    className={`sensor-marker ${selected ? "selected" : ""} ${layoutEditing && selectingLayout ? "movable" : ""} ${quality ?? ""}`}
+                    className={`sensor-marker ${energyDevice ? "energy-device" : ""} ${selected ? "selected" : ""} ${layoutEditing && selectingLayout ? "movable" : ""} ${quality ?? ""}`}
+                    data-map-layer={energyDevice ? "energy-devices" : "sensors"}
                     role="button"
                     tabIndex={0}
-                    aria-label={`${sensor.name}, ${metricLabel}, ${value == null ? t("common.noData") : formatMeasurement(value, definition, units)}${qualityLabel ? `, ${qualityLabel}` : ""}`}
+                    aria-label={`${sensor.name}, ${energyDevice ? t("twin.energyDevice") : metricLabel}, ${markerValue}${qualityLabel ? `, ${qualityLabel}` : ""}`}
                     aria-pressed={selected}
                     onPointerDown={(event) => startSensorDrag(event, sensor.id)}
                     onPointerMove={(event) => moveSensor(event, sensor.id)}
@@ -1700,17 +1855,20 @@ export function FloorPlan({
                     <circle r="56" className="sensor-hit-target" />
                     <circle r="28" className="sensor-halo" />
                     <circle r="21" className="sensor-core" filter={`url(#${fieldId}-sensor-shadow)`} />
-                    <circle r="4" cy="-6" className="sensor-dot" />
-                    <text y="9" textAnchor="middle" className="sensor-value">{value == null ? "—" : toDisplayValue(value, definition, units).toFixed(definition.precision)}</text>
-                    <text y="45" textAnchor="middle" className="sensor-label">{sensor.name}</text>
+                    {energyDevice
+                      ? <path d="M3-16L-9 2H-2L-6 16L10-6H3Z" className="sensor-energy-glyph" aria-hidden="true" />
+                      : <><circle r="4" cy="-6" className="sensor-dot" /><text y="9" textAnchor="middle" className="sensor-value">{value == null ? "—" : toDisplayValue(value, definition, units).toFixed(definition.precision)}</text></>}
+                    {energyDevice && <text y="43" textAnchor="middle" className="sensor-energy-stats">{energyStats.short ?? "—"}</text>}
+                    <text y={energyDevice ? 58 : 45} textAnchor="middle" className="sensor-label">{sensor.name}</text>
                   </g>
                 );
               })}
             </g>
             <g className="plan-elements">
               {chimneyPenetrations.map(({ sourceFloorId, element }) => {
-                const width = Math.max(28, (element.width ?? defaultPlanElementWidth(floor, "fireplace")) * renderScale * .58);
-                const depth = Math.max(20, width * .68);
+                const dimensions = fireplaceChimneyDimensions(floor, element);
+                const width = Math.max(28, dimensions.width * renderScale);
+                const depth = Math.max(20, dimensions.depth * renderScale);
                 return <g key={`${sourceFloorId}:${element.id}`} transform={`translate(${element.position.x * renderScale} ${element.position.y * renderScale}) rotate(${element.rotationDegrees})`} className="chimney-penetration" role="img" aria-label={t("twin.chimneyPenetration")}>
                   <rect x={-width / 2} y={-depth / 2} width={width} height={depth} rx="2" />
                   <line x1={-width / 2} y1={-depth / 2} x2={width / 2} y2={depth / 2} />
@@ -1719,7 +1877,7 @@ export function FloorPlan({
               })}
               {planElements.map((element, index) => {
                 const selected = element.id === selectedPlanElementId;
-                const openingState = element.kind === "fireplace" ? null : configuredPlanElementOpeningState(element);
+                const openingState = isAirflowPlanElement(element) ? configuredPlanElementOpeningState(element) : null;
                 const symbolWidth = Math.max(28, (element.width ?? defaultPlanElementWidth(floor, element.kind)) * renderScale);
                 const baseLabel = t("twin.elementAria", {
                   element: t(`planElement.${element.kind}` as TranslationKey),
@@ -1730,8 +1888,10 @@ export function FloorPlan({
                   ? symbolWidth
                   : element.kind === "window"
                     ? 20
-                    : Math.max(18, Math.min(symbolWidth * (element.kind === "vent" ? .45 : .55), 42));
-                const glyphTop = element.kind === "door" ? -symbolWidth : -glyphHeight / 2;
+                    : element.kind === "fireEscape"
+                      ? Math.max(24, (element.projection ?? defaultFireEscapeProjection(floor, element.width ?? defaultPlanElementWidth(floor, "fireEscape"))) * renderScale)
+                      : Math.max(18, Math.min(symbolWidth * (element.kind === "vent" ? .45 : .55), 42));
+                const glyphTop = element.kind === "door" ? -symbolWidth : element.kind === "fireEscape" ? 0 : -glyphHeight / 2;
                 return (
                   <g
                     key={element.id}
@@ -1743,7 +1903,7 @@ export function FloorPlan({
                     tabIndex={planElementSelectionActive ? 0 : undefined}
                     aria-label={label}
                     aria-pressed={planElementSelectionActive ? selected : undefined}
-                    aria-keyshortcuts={planElementSelectionActive ? isWallOpening(element) ? "R Delete Backspace" : "R Shift+R Delete Backspace" : undefined}
+                    aria-keyshortcuts={planElementSelectionActive ? isWallAttachedPlanElement(element) ? "R Delete Backspace" : "R Shift+R Delete Backspace" : undefined}
                     onPointerDown={planElementSelectionActive ? (event) => planElementPointerDown(event, element.id) : undefined}
                     onPointerMove={planElementSelectionActive ? (event) => planElementPointerMove(event, element.id) : undefined}
                     onPointerUp={() => { draggingElement.current = null; }}
@@ -1753,7 +1913,7 @@ export function FloorPlan({
                   >
                     <rect x={-symbolWidth / 2 - 12} y={glyphTop - 12} width={symbolWidth + 24} height={glyphHeight + 24} className="plan-element-hit-target" />
                     {selected && <rect x={-symbolWidth / 2 - 9} y={glyphTop - 9} width={symbolWidth + 18} height={glyphHeight + 18} rx="8" className="plan-element-selection" />}
-                    <PlanElementGlyph kind={element.kind} width={symbolWidth} state={openingState?.state} />
+                    <PlanElementGlyph kind={element.kind} width={symbolWidth} state={openingState?.state} projection={element.kind === "fireEscape" ? (element.projection ?? defaultFireEscapeProjection(floor, element.width ?? defaultPlanElementWidth(floor, "fireEscape"))) * renderScale : undefined} />
                   </g>
                 );
               })}
@@ -1763,7 +1923,7 @@ export function FloorPlan({
                   className="plan-element preview"
                   aria-hidden="true"
                 >
-                  <PlanElementGlyph kind={planElementKind} width={Math.max(28, defaultPlanElementWidth(floor, planElementKind) * renderScale)} state={planElementKind === "vent" ? "open" : planElementKind === "fireplace" ? undefined : "closed"} />
+                  <PlanElementGlyph kind={planElementKind} width={Math.max(28, defaultPlanElementWidth(floor, planElementKind) * renderScale)} state={planElementKind === "vent" ? "open" : planElementKind === "door" || planElementKind === "window" ? "closed" : undefined} />
                 </g>
               )}
             </g>

@@ -131,6 +131,50 @@ describe("TelemetryArchiveWorker", () => {
     await worker.stop();
   });
 
+  it("archives raw TP-Link climate samples and readings to TimescaleDB", async () => {
+    const timestamp = "2026-07-18T00:02:00.000Z";
+    const archiveStore = store();
+    const worker = new TelemetryArchiveWorker(fixtures({
+      measurementArchivePage: (cursor: number) => cursor === 0 ? [
+        {
+          rowId: 1,
+          record: {
+            sensorId: "t310-1", metric: "temperature", value: 20.5, canonicalUnit: "C",
+            timestamp, source: "tp-link", quality: "good",
+          },
+        },
+        {
+          rowId: 2,
+          record: {
+            sensorId: "t310-1", metric: "humidity", value: 48, canonicalUnit: "%",
+            timestamp, source: "tp-link", quality: "good",
+          },
+        },
+      ] : [],
+      readingArchivePage: (cursor: number) => cursor === 0 ? [{
+        rowId: 1,
+        record: {
+          sensorId: "t310-1", temperature: 20.5, humidity: 48, battery: 91,
+          timestamp, source: "tp-link", quality: "good",
+        },
+      }] : [],
+    }), new TelemetryBus(), archiveStore, { batchSize: 10 });
+
+    await worker.start();
+    await worker.reconcileNow();
+
+    expect(archiveStore.upsertMeasurementSamples).toHaveBeenCalledWith([
+      expect.objectContaining({ sensorId: "t310-1", metric: "temperature", source: "tp-link" }),
+      expect.objectContaining({ sensorId: "t310-1", metric: "humidity", source: "tp-link" }),
+    ]);
+    expect(archiveStore.upsertLegacyReadings).toHaveBeenCalledWith([
+      expect.objectContaining({ sensorId: "t310-1", temperature: 20.5, humidity: 48, source: "tp-link" }),
+    ]);
+    expect(archiveStore.saveArchiveCheckpoint).toHaveBeenCalledWith("sqlite-source", "measurement_samples", 2);
+    expect(archiveStore.saveArchiveCheckpoint).toHaveBeenCalledWith("sqlite-source", "legacy_readings", 1);
+    await worker.stop();
+  });
+
   it("retains exact outdoor conditions metadata for initial and dirty-row writes", async () => {
     const timestamp = "2026-07-18T00:04:00.000Z";
     const initialConditions = {

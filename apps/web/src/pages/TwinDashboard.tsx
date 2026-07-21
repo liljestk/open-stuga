@@ -17,7 +17,8 @@ import "./OperationsPages.css";
 import { formatInTimeZone } from "../dateTime";
 import { clamp, round, type ClimateState, type TimeRange, type ViewMode } from "../domain";
 import { useI18n, type TranslationKey } from "../i18n";
-import { definitionFor, displayUnit, enabledDefinitions, formatMeasurement, formatMeasurementDelta, measurementComparisonColor, measurementDomain, measurementLabel, measurementValue, samplesAt } from "../measurements";
+import { definitionFor, displayUnit, enabledDefinitions, formatMeasurement, formatMeasurementDelta, measurementComparisonColor, measurementDomain, measurementLabel, measurementValue, samplesAt, type LatestMeasurements } from "../measurements";
+import { isEnergyDeviceSensor } from "../energyDeviceMap";
 import { configuredSpatialMaxSampleAgeMs, configuredSpatialReplayMaxSampleAgeMs, isSpatialSampleFresh } from "../spatialFreshness";
 import { createOutdoorBoundaryContext } from "../outdoorContext";
 import { useHouseWeather } from "../useHouseWeather";
@@ -31,7 +32,7 @@ import {
   type FloorAirflowEstimate,
 } from "../airflowSimulation";
 import type { DataMode } from "../useClimateData";
-import { api, type SensorPatch } from "../api";
+import { api, type MeasurementHistoryPage, type SensorPatch } from "../api";
 import { useSpatialLayers } from "../useSpatialLayers";
 import { SpatialLayerPanel } from "../components/SpatialLayerPanel";
 import { SpatialLayerLab } from "../components/SpatialLayerLab";
@@ -72,6 +73,11 @@ interface TwinDashboardProps {
   onHouseDelete?: (houseId: string) => Promise<void>;
   onOpenSensors?: (houseId: string) => void;
   onLoadSeries: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported: boolean) => void;
+  onLoadReplaySeries?: (
+    sensorId: string,
+    metric: Metric,
+    window: { from: string; to: string; bucketSeconds: number | null },
+  ) => Promise<MeasurementHistoryPage>;
   onRunScenario: (scenario: MockScenario["id"]) => void;
   onCreateObservation: (observation: ManualObservationInput) => Promise<ManualObservation>;
   onUpdateObservation?: (id: string, patch: ManualObservationPatch) => Promise<ManualObservation>;
@@ -89,6 +95,7 @@ const observationTimePrecisions: ObservationTimePrecision[] = ["exact", "approxi
 const observationSources: ObservationSource[] = ["owner", "caretaker", "contractor", "sensor", "imported-document", "automated-analysis", "unknown"];
 const observationConfidences: ObservationConfidence[] = ["confirmed", "probable", "uncertain", "awaiting-inspection"];
 const experimentalVisualizationPreferenceKey = "stuga-experimental-home-visualizations";
+const energyDeviceLayerPreferenceKey = "stuga-home-map-energy-devices-visible";
 
 function initialExperimentalVisualizations(): ExperimentalVisualizationId[] {
   const stored = readLocalStorage(experimentalVisualizationPreferenceKey);
@@ -101,6 +108,10 @@ function initialExperimentalVisualizations(): ExperimentalVisualizationId[] {
   } catch {
     return [];
   }
+}
+
+function initialEnergyDeviceLayerVisibility(): boolean {
+  return readLocalStorage(energyDeviceLayerPreferenceKey) !== "false";
 }
 
 function zonedDateTimeParts(date: Date, timeZone: string): number[] {
@@ -135,13 +146,18 @@ function localDateValue(date = new Date(), timeZone?: string): string {
 }
 
 function houseLocalDateTimeCandidates(value: string, timeZone: string): string[] | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value);
   if (!match) return null;
-  const [year, month, day, hour, minute] = match.slice(1).map(Number) as [number, number, number, number, number];
-  const nominal = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = match[6] === undefined ? 0 : Number(match[6]);
+  const nominal = Date.UTC(year, month - 1, day, hour, minute, second);
   const nominalDate = new Date(nominal);
   if (nominalDate.getUTCFullYear() !== year || nominalDate.getUTCMonth() !== month - 1 || nominalDate.getUTCDate() !== day
-    || nominalDate.getUTCHours() !== hour || nominalDate.getUTCMinutes() !== minute) return null;
+    || nominalDate.getUTCHours() !== hour || nominalDate.getUTCMinutes() !== minute || nominalDate.getUTCSeconds() !== second) return null;
   try {
     const offsets = new Set<number>();
     for (let deltaHours = -36; deltaHours <= 36; deltaHours += 6) {
@@ -149,9 +165,9 @@ function houseLocalDateTimeCandidates(value: string, timeZone: string): string[]
       const displayed = zonedDateTimeParts(new Date(probe), timeZone);
       offsets.add(Date.UTC(displayed[0]!, displayed[1]! - 1, displayed[2]!, displayed[3]!, displayed[4]!, displayed[5]!) - probe);
     }
-    const target = [year, month, day, hour, minute];
+    const target = [year, month, day, hour, minute, second];
     return [...new Set([...offsets].map((offset) => nominal - offset))]
-      .filter((candidate) => zonedDateTimeParts(new Date(candidate), timeZone).slice(0, 5)
+      .filter((candidate) => zonedDateTimeParts(new Date(candidate), timeZone).slice(0, 6)
         .every((part, index) => part === target[index]))
       .sort((left, right) => left - right)
       .map((candidate) => new Date(candidate).toISOString());
@@ -191,11 +207,19 @@ export function TwinDashboard(props: TwinDashboardProps) {
   const [replayActive, setReplayActive] = useState(false);
   const [replayPlaying, setReplayPlaying] = useState(false);
   const [replayStartPending, setReplayStartPending] = useState(false);
-  const [replayPrepared, setReplayPrepared] = useState(false);
-  const [replayToolsOpen, setReplayToolsOpen] = useState(false);
+  const [replayPrepared, setReplayPrepared] = useState(true);
   const [replaySpeed, setReplaySpeed] = useState(4);
+  const [replayWindowFrom, setReplayWindowFrom] = useState(() => localDateTimeValue(new Date(Date.now() - 24 * 3_600_000), house.timezone));
+  const [replayWindowTo, setReplayWindowTo] = useState(() => localDateTimeValue(new Date(), house.timezone));
+  const [replayResolutionSeconds, setReplayResolutionSeconds] = useState<number | null>(null);
+  const [replayRequestedBounds, setReplayRequestedBounds] = useState<{ minimum: number; maximum: number } | null>(null);
+  const [replayLoadState, setReplayLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [replayLoadError, setReplayLoadError] = useState<string | null>(null);
+  const [replayLoadPartial, setReplayLoadPartial] = useState(false);
+  const [replaySampleCount, setReplaySampleCount] = useState<number | null>(null);
   const [liveSpatialClockMs, setLiveSpatialClockMs] = useState(() => Date.now());
   const [experimentalVisualizations, setExperimentalVisualizations] = useState<ExperimentalVisualizationId[]>(initialExperimentalVisualizations);
+  const [energyDevicesVisible, setEnergyDevicesVisible] = useState(initialEnergyDeviceLayerVisibility);
   const [observationPlacement, setObservationPlacement] = useState(false);
   const [observationKind, setObservationKind] = useState<ManualObservation["kind"]>("leak");
   const [observationSeverity, setObservationSeverity] = useState<ManualObservation["severity"]>("warning");
@@ -221,6 +245,19 @@ export function TwinDashboard(props: TwinDashboardProps) {
   const replayPreparationBatchRef = useRef("");
   const airflowReplayBatchRef = useRef("");
   const inspectorReplayBatchRef = useRef("");
+  const replayWindowRequestRef = useRef(0);
+  const previousReplayActiveRef = useRef(replayActive);
+  const effectSeriesLoadsRef = useRef({ loader: props.onLoadSeries, keys: new Set<string>() });
+  if (effectSeriesLoadsRef.current.loader !== props.onLoadSeries) {
+    effectSeriesLoadsRef.current = { loader: props.onLoadSeries, keys: new Set<string>() };
+  }
+
+  const loadSeriesOnce = (sensorId: string, candidate: MeasurementDefinition) => {
+    const key = `${houseId}:${range}:${sensorId}:${candidate.id}`;
+    if (effectSeriesLoadsRef.current.keys.has(key)) return;
+    effectSeriesLoadsRef.current.keys.add(key);
+    props.onLoadSeries(sensorId, candidate.id, range, candidate.forecastSupported);
+  };
 
   useEffect(() => {
     if (!fullPage) return;
@@ -241,6 +278,10 @@ export function TwinDashboard(props: TwinDashboardProps) {
   }, [experimentalVisualizations]);
 
   useEffect(() => {
+    writeLocalStorage(energyDeviceLayerPreferenceKey, String(energyDevicesVisible));
+  }, [energyDevicesVisible]);
+
+  useEffect(() => {
     const now = new Date();
     setObservationDateTime(localDateTimeValue(now, house.timezone));
     setObservationDate(localDateValue(now, house.timezone));
@@ -252,6 +293,21 @@ export function TwinDashboard(props: TwinDashboardProps) {
     setObservationStatus(false);
     setObservationError(false);
   }, [houseId, floorId, house.timezone]);
+
+  useEffect(() => {
+    const now = new Date();
+    replayWindowRequestRef.current += 1;
+    setReplayActive(false);
+    setReplayPlaying(false);
+    setReplayPrepared(true);
+    setReplayWindowFrom(localDateTimeValue(new Date(now.getTime() - 24 * 3_600_000), house.timezone));
+    setReplayWindowTo(localDateTimeValue(now, house.timezone));
+    setReplayRequestedBounds(null);
+    setReplayLoadState("idle");
+    setReplayLoadError(null);
+    setReplayLoadPartial(false);
+    setReplaySampleCount(null);
+  }, [houseId, house.timezone]);
 
   useEffect(() => {
     if (!readOnly) return;
@@ -296,6 +352,9 @@ export function TwinDashboard(props: TwinDashboardProps) {
     () => state.sensors.filter((sensor) => sensor.houseId === houseId && sensor.enabled),
     [state.sensors, houseId],
   );
+  const energyDeviceCount = useMemo(() => houseSensors.filter((sensor) => (
+    isEnergyDeviceSensor(sensor, state.latestMeasurements[sensor.id] ?? {})
+  )).length, [houseSensors, state.latestMeasurements]);
   const floorSensors = useMemo(
     () => houseSensors.filter((sensor) => sensor.floorId === floorId),
     [houseSensors, floorId],
@@ -326,25 +385,44 @@ export function TwinDashboard(props: TwinDashboardProps) {
   })), [houseSensors, state.latestMeasurements, definition.id]);
   const houseSensorIdList = useMemo(() => houseSensors.map((sensor) => sensor.id), [houseSensors]);
   const houseSensorIds = houseSensorIdList.join(",");
-  const replayMetricIds = useMemo(() => [...new Set([definition.id, "temperature", "humidity"])], [definition.id]);
-  const selectedHistoryTimestamps = useMemo(() => houseSensors
-    .flatMap((sensor) => (state.measurementHistory[sensor.id]?.[definition.id] ?? []).map((sample) => Date.parse(sample.timestamp)))
-    .filter(Number.isFinite), [houseSensors, state.measurementHistory, definition.id]);
-  const replayTimelineTimestamps = useMemo(() => houseSensors
-    .flatMap((sensor) => replayMetricIds.flatMap((replayMetric) => (
-      state.measurementHistory[sensor.id]?.[replayMetric] ?? []
-    ).map((sample) => Date.parse(sample.timestamp))))
-    .filter(Number.isFinite), [houseSensors, replayMetricIds, state.measurementHistory]);
-  const replayHistoryReady = selectedHistoryTimestamps.length > 0;
-  const replayEvents = useMemo(() => replayActive || replayToolsOpen
-    ? detectReplayClimateEvents(state.measurementHistory, houseSensorIdList, { maxEvents: 8 })
-    : [], [replayActive, replayToolsOpen, state.measurementHistory, houseSensorIdList]);
+  const replayMetricIds = useMemo(
+    () => [...new Set([...availableDefinitions.map((candidate) => candidate.id), definition.id, "temperature", "humidity"])],
+    [availableDefinitions, definition.id],
+  );
+  const loadedReplayBounds = useMemo(() => {
+    let minimum = Number.POSITIVE_INFINITY;
+    let maximum = Number.NEGATIVE_INFINITY;
+    let count = 0;
+    for (const sensor of houseSensors) {
+      for (const replayMetric of replayMetricIds) {
+        for (const sample of state.measurementHistory[sensor.id]?.[replayMetric] ?? []) {
+          const timestamp = Date.parse(sample.timestamp);
+          if (!Number.isFinite(timestamp)) continue;
+          minimum = Math.min(minimum, timestamp);
+          maximum = Math.max(maximum, timestamp);
+          count += 1;
+        }
+      }
+    }
+    return count > 0 ? { minimum, maximum, count } : null;
+  }, [houseSensors, replayMetricIds, state.measurementHistory]);
   const fallbackReplayBounds = useMemo(() => {
     const maximum = Date.now();
     return { minimum: maximum - 24 * 3600000, maximum };
   }, [houseId]);
-  const replayMin = replayTimelineTimestamps.length ? Math.min(...replayTimelineTimestamps) : fallbackReplayBounds.minimum;
-  const replayMax = replayTimelineTimestamps.length ? Math.max(...replayTimelineTimestamps) : fallbackReplayBounds.maximum;
+  const replayMin = replayRequestedBounds?.minimum ?? loadedReplayBounds?.minimum ?? fallbackReplayBounds.minimum;
+  const replayMax = replayRequestedBounds?.maximum ?? loadedReplayBounds?.maximum ?? fallbackReplayBounds.maximum;
+  const replayHistoryReady = useMemo(() => houseSensors.some((sensor) => replayMetricIds.some((replayMetric) => (
+    state.measurementHistory[sensor.id]?.[replayMetric] ?? []
+  ).some((sample) => {
+    const timestamp = Date.parse(sample.timestamp);
+    return Number.isFinite(timestamp) && timestamp >= replayMin && timestamp <= replayMax;
+  }))), [houseSensors, replayMetricIds, replayMax, replayMin, state.measurementHistory]);
+  const replayEvents = useMemo(() => detectReplayClimateEvents(
+    state.measurementHistory,
+    houseSensorIdList,
+    { maxEvents: 24, from: replayMin, to: replayMax },
+  ), [state.measurementHistory, houseSensorIdList, replayMin, replayMax]);
   const [replayTimestamp, setReplayTimestamp] = useState(replayMax);
   const spatialReferenceTimeMs = replayActive ? replayTimestamp : liveSpatialClockMs;
   const spatialLayerScope = useMemo(() => ({ kind: "house" as const, id: houseId }), [houseId]);
@@ -365,6 +443,11 @@ export function TwinDashboard(props: TwinDashboardProps) {
   useEffect(() => {
     setReplayTimestamp((current) => replayActive ? clamp(current, replayMin, replayMax) : replayMax);
   }, [replayActive, replayMin, replayMax]);
+  useEffect(() => {
+    const wasActive = previousReplayActiveRef.current;
+    previousReplayActiveRef.current = replayActive;
+    if (wasActive && !replayActive) effectSeriesLoadsRef.current.keys.clear();
+  }, [replayActive]);
   useEffect(() => {
     if (!replayActive) {
       if (replayStartPending) setReplayStartPending(false);
@@ -414,12 +497,63 @@ export function TwinDashboard(props: TwinDashboardProps) {
     props.onSensorSelect(sensor.id);
   };
 
-  useEffect(() => {
-    if (selectedSensor) props.onLoadSeries(selectedSensor.id, definition.id, range, definition.forecastSupported);
-  }, [selectedSensor?.id, definition.id, range, definition.forecastSupported]);
+  const loadReplayWindow = async () => {
+    if (!props.onLoadReplaySeries) {
+      setReplayLoadState("error");
+      setReplayLoadError(t("replay.windowUnavailable"));
+      return;
+    }
+    const fromCandidates = houseLocalDateTimeCandidates(replayWindowFrom, house.timezone);
+    const toCandidates = houseLocalDateTimeCandidates(replayWindowTo, house.timezone);
+    const from = fromCandidates?.[0] ?? null;
+    const to = toCandidates?.at(-1) ?? null;
+    if (!from || !to || Date.parse(from) >= Date.parse(to)) {
+      setReplayLoadState("error");
+      setReplayLoadError(t("replay.invalidWindow"));
+      return;
+    }
+
+    const requestId = replayWindowRequestRef.current + 1;
+    replayWindowRequestRef.current = requestId;
+    setReplayLoadState("loading");
+    setReplayLoadError(null);
+    setReplayLoadPartial(false);
+    setReplaySampleCount(null);
+    setReplayPlaying(false);
+    setReplayStartPending(false);
+    setReplayPrepared(true);
+    try {
+      const pages = await Promise.all(houseSensors.flatMap((sensor) => replayMetricIds.map((replayMetric) => (
+        props.onLoadReplaySeries!(sensor.id, replayMetric, {
+          from,
+          to,
+          bucketSeconds: replayResolutionSeconds,
+        })
+      ))));
+      if (replayWindowRequestRef.current !== requestId) return;
+      const minimum = Date.parse(from);
+      const maximum = Date.parse(to);
+      const sampleCount = pages.reduce((total, page) => total + page.samples.length, 0);
+      setReplayRequestedBounds({ minimum, maximum });
+      setReplayTimestamp(minimum);
+      setReplayLoadPartial(pages.some((page) => page.truncated));
+      setReplaySampleCount(sampleCount);
+      setReplayLoadState("ready");
+      setReplayActive(sampleCount > 0);
+    } catch (error) {
+      if (replayWindowRequestRef.current !== requestId) return;
+      setReplayLoadState("error");
+      setReplayLoadError(error instanceof Error && error.message.trim() ? error.message : t("replay.loadFailed"));
+    }
+  };
 
   useEffect(() => {
-    if (!replayActive) {
+    if (replayActive && replayRequestedBounds) return;
+    if (selectedSensor) loadSeriesOnce(selectedSensor.id, definition);
+  }, [replayActive, replayRequestedBounds, selectedSensor?.id, definition.id, range, definition.forecastSupported]);
+
+  useEffect(() => {
+    if (!replayActive || replayRequestedBounds) {
       replayBatchRef.current = "";
       return;
     }
@@ -427,12 +561,12 @@ export function TwinDashboard(props: TwinDashboardProps) {
     if (replayBatchRef.current === batchKey) return;
     replayBatchRef.current = batchKey;
     houseSensors.forEach((sensor) => {
-      if (sensor.id !== selectedSensor?.id) props.onLoadSeries(sensor.id, definition.id, range, definition.forecastSupported);
+      if (sensor.id !== selectedSensor?.id) loadSeriesOnce(sensor.id, definition);
     });
-  }, [replayActive, houseId, definition.id, definition.forecastSupported, range, houseSensorIds, selectedSensor?.id]);
+  }, [replayActive, replayRequestedBounds, houseId, definition.id, definition.forecastSupported, range, houseSensorIds, selectedSensor?.id]);
 
   useEffect(() => {
-    if (!replayPrepared) {
+    if (!replayPrepared || replayRequestedBounds) {
       replayPreparationBatchRef.current = "";
       return;
     }
@@ -442,12 +576,12 @@ export function TwinDashboard(props: TwinDashboardProps) {
     airflowDefinitions
       .filter((candidate) => candidate.id === "temperature" || candidate.id === "humidity")
       .forEach((replayDefinition) => houseSensors.forEach((sensor) => {
-        props.onLoadSeries(sensor.id, replayDefinition.id, range, replayDefinition.forecastSupported);
+        loadSeriesOnce(sensor.id, replayDefinition);
       }));
-  }, [replayPrepared, houseId, range, houseSensorIds, airflowMetricKey]);
+  }, [replayPrepared, replayRequestedBounds, houseId, range, houseSensorIds, airflowMetricKey]);
 
   useEffect(() => {
-    if (!replayActive) {
+    if (!replayActive || replayRequestedBounds) {
       airflowReplayBatchRef.current = "";
       return;
     }
@@ -458,13 +592,13 @@ export function TwinDashboard(props: TwinDashboardProps) {
       if (airflowDefinition.id === definition.id) return;
       if (replayPrepared && (airflowDefinition.id === "temperature" || airflowDefinition.id === "humidity")) return;
       houseSensors.forEach((sensor) => {
-        props.onLoadSeries(sensor.id, airflowDefinition.id, range, airflowDefinition.forecastSupported);
+        loadSeriesOnce(sensor.id, airflowDefinition);
       });
     });
-  }, [replayActive, replayPrepared, houseId, range, houseSensorIds, airflowMetricKey, definition.id]);
+  }, [replayActive, replayPrepared, replayRequestedBounds, houseId, range, houseSensorIds, airflowMetricKey, definition.id]);
 
   useEffect(() => {
-    if (!replayActive || !selectedSensor) {
+    if (!replayActive || replayRequestedBounds || !selectedSensor) {
       inspectorReplayBatchRef.current = "";
       return;
     }
@@ -477,14 +611,27 @@ export function TwinDashboard(props: TwinDashboardProps) {
     if (inspectorReplayBatchRef.current === batchKey) return;
     inspectorReplayBatchRef.current = batchKey;
     supported.forEach((candidate) => {
-      props.onLoadSeries(selectedSensor.id, candidate.id, range, candidate.forecastSupported);
+      loadSeriesOnce(selectedSensor.id, candidate);
     });
-  }, [replayActive, selectedSensor?.id, range, definition.id, airflowMetricKey, state.latestMeasurements, state.measurementHistory]);
+  }, [replayActive, replayRequestedBounds, selectedSensor?.id, range, definition.id, airflowMetricKey, state.latestMeasurements, state.measurementHistory]);
 
   const displayedSamples = useMemo(() => replayActive
     ? samplesAt(state.measurementHistory, houseSensors.map((sensor) => sensor.id), definition.id, replayTimestamp)
     : liveSamples,
   [replayActive, replayTimestamp, houseSensors, state.measurementHistory, liveSamples, definition.id]);
+
+  const mapSensorMeasurements = useMemo<LatestMeasurements>(() => {
+    if (!replayActive) return state.latestMeasurements;
+    const replayEnergySamples = ["power", "energy"].map((energyMetric) => (
+      samplesAt(state.measurementHistory, houseSensors.map((sensor) => sensor.id), energyMetric, replayTimestamp)
+    ));
+    return Object.fromEntries(houseSensors.map((sensor) => [sensor.id, Object.fromEntries(
+      replayEnergySamples.flatMap((samplesBySensor) => {
+        const sample = samplesBySensor[sensor.id];
+        return sample ? [[sample.metric, sample]] : [];
+      }),
+    )]));
+  }, [replayActive, replayTimestamp, houseSensors, state.latestMeasurements, state.measurementHistory]);
 
   const airflowSamples = useMemo<ClimateSampleMatrix>(() => {
     if (!replayActive) {
@@ -758,11 +905,10 @@ export function TwinDashboard(props: TwinDashboardProps) {
   return (
     <>
       <header className="page-heading twin-heading">
-        <div><span className="eyebrow"><Sparkles size={14} aria-hidden="true" />{dataMode === "demo" ? t("demo.bannerTitle") : t(`status.${connection}`)}</span><h1>{t("twin.title")}</h1><p>{t("twin.description")}</p></div>
+        <div className="twin-heading-copy"><span className={`eyebrow twin-status ${dataMode === "demo" ? "demo" : connection}`}>{dataMode === "demo" ? t("demo.bannerTitle") : t(`status.${connection}`)}</span><h1>{t("twin.title")}</h1><p>{t("twin.description")}</p></div>
         <div className="context-controls">
           {props.onOpenOutdoor && <button type="button" className="secondary-button" onClick={props.onOpenOutdoor}><Wind size={15} aria-hidden="true" />{t("nav.outdoor")}</button>}
           {props.onOpenEnergy && <button type="button" className="secondary-button" onClick={props.onOpenEnergy}><Bolt size={15} aria-hidden="true" />{t("nav.energyUse")}</button>}
-          <label><span>{t("common.floor")}</span><select value={floorId} onChange={(event) => props.onFloor(event.target.value)}>{house.floors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         </div>
       </header>
 
@@ -813,10 +959,17 @@ export function TwinDashboard(props: TwinDashboardProps) {
         : t("home.liveTitle")}</h2></div><p>{replayActive ? t("replay.description") : t("home.liveDescription")}</p></div>}
       <section className={`panel twin-panel ${fullPage ? "is-full-page" : ""}`}>
         <div className="twin-toolbar">
-          <div className="toolbar-title"><span className="eyebrow">{editing ? house.name : viewMode === "isometric" ? house.name : floor.name}</span><strong>{editing ? t("twin.editingFloor", { floor: floor.name }) : `${viewSensors.length} ${t("twin.sensors")}`}</strong></div>
+          <div className="toolbar-title">
+            {editing
+              ? <><span className="eyebrow">{house.name}</span><strong>{t("twin.editingFloor", { floor: floor.name })}</strong></>
+              : house.floors.length > 1
+                ? <><label className="toolbar-floor-picker"><span>{t("common.floor")}</span><select value={floorId} onChange={(event) => props.onFloor(event.target.value)}>{house.floors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><strong>{viewSensors.length} {t("twin.sensors")}</strong></>
+                : <><span className="eyebrow">{floor.name}</span><strong>{viewSensors.length} {t("twin.sensors")}</strong></>}
+          </div>
           <div className="toolbar-groups">
             {!editing && <label className="metric-picker"><span>{t("common.metric")}</span><select value={definition.id} onChange={(event) => props.onMetric(event.target.value)}>{metricOptions.map((item) => <option key={item.id} value={item.id}>{measurementLabel(item, locale)} · {displayUnit(item, units)}</option>)}</select></label>}
             <div className="segmented" role="group" aria-label={t("common.view")}><button type="button" aria-pressed={viewMode === "plan"} onClick={() => props.onViewMode("plan")}><Map size={15} aria-hidden="true" />{t("twin.mode2d")}</button><button type="button" aria-pressed={viewMode === "isometric"} onClick={() => { cancelObservationPlacement(); props.onViewMode("isometric"); }}><Box size={15} aria-hidden="true" />{t("twin.modeIso")}</button></div>
+            {!editing && energyDeviceCount > 0 && <div className="segmented compact map-device-layers" role="group" aria-label={t("twin.mapLayers")}><button type="button" aria-pressed={energyDevicesVisible} onClick={() => setEnergyDevicesVisible((current) => !current)}><Bolt size={15} aria-hidden="true" />{t("twin.energyDeviceLayer")}</button></div>}
             {!editing && <button type="button" className="secondary-button twin-full-page-button" aria-pressed={fullPage} onClick={() => setFullPage((current) => !current)}>{fullPage ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}{fullPage ? t("twin.exitFullPage") : t("twin.fullPage")}</button>}
             {!readOnly && !editing && <button type="button" className="secondary-button" onClick={startEditing}><Edit3 size={15} aria-hidden="true" />{t("common.edit")}</button>}
             {editing && <><button type="button" className="primary-button" onClick={() => void finishEditing()} disabled={props.saveState === "saving"}><Save size={15} aria-hidden="true" />{props.saveState === "saving" ? t("common.saving") : t("common.saveAndFinish")}</button><button type="button" className="secondary-button" onClick={() => setEditing(false)} disabled={props.saveState === "saving"}>{t("common.cancel")}</button></>}
@@ -855,6 +1008,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
           {viewMode === "plan" ? (
             <FloorPlan
               floor={floor} house={house} sensors={floorSensors} samples={displayedSamples} climateSamples={airflowSamples} observations={floorObservations} definition={definition} colorDomain={houseColorDomain} units={units}
+              sensorMeasurements={mapSensorMeasurements} energyDevicesVisible={energyDevicesVisible}
               viewMode="plan" selectedSensorId={selectedSensor?.id ?? null} editing={editing} observationPlacement={observationPlacement}
               referenceTimeMs={spatialReferenceTimeMs} maxSampleAgeMs={spatialMaxSampleAgeMs}
               outdoor={visualOutdoor}
@@ -869,6 +1023,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
           ) : (
             <BuildingScene
               house={house} sensors={houseSensors} samples={displayedSamples} climateSamples={airflowSamples} observations={houseObservations} definition={definition} colorDomain={houseColorDomain} units={units}
+              sensorMeasurements={mapSensorMeasurements} energyDevicesVisible={energyDevicesVisible}
               activeFloorId={floorId} selectedSensorId={selectedSensor?.id ?? null} onFloorSelect={props.onFloor}
               referenceTimeMs={spatialReferenceTimeMs} maxSampleAgeMs={spatialMaxSampleAgeMs}
               outdoor={visualOutdoor}
@@ -916,19 +1071,51 @@ export function TwinDashboard(props: TwinDashboardProps) {
         />
       </div>}
 
-      {replayActive && <ReplayControls active={replayActive} playing={replayPlaying} timestamp={replayTimestamp} min={replayMin} max={replayMax} speed={replaySpeed} timeZone={house.timezone} events={replayEvents} sensors={houseSensors} definitions={definitions} units={units} onActive={setReplayActive} onPlaying={changeReplayPlaying} onTimestamp={setReplayTimestamp} onSpeed={setReplaySpeed} onEventSelect={selectReplayEvent} />}
+      <section className="panel history-events-workspace" aria-labelledby="history-events-heading">
+        <div className="panel-header history-events-heading">
+          <div><span className="eyebrow"><History size={14} aria-hidden="true" />{t("historyEvents.eyebrow")}</span><h2 id="history-events-heading">{t("historyEvents.title")}</h2><p className="panel-intro">{t("historyEvents.description")}</p></div>
+          <span className="count-badge">{t("historyEvents.detectedCount", { count: replayEvents.length })}</span>
+        </div>
+        <ReplayControls
+          active={replayActive}
+          playing={replayPlaying}
+          timestamp={replayTimestamp}
+          min={replayMin}
+          max={replayMax}
+          speed={replaySpeed}
+          timeZone={house.timezone}
+          events={replayEvents}
+          sensors={houseSensors}
+          definitions={definitions}
+          units={units}
+          onActive={setReplayActive}
+          onPlaying={changeReplayPlaying}
+          onTimestamp={setReplayTimestamp}
+          onSpeed={setReplaySpeed}
+          onEventSelect={selectReplayEvent}
+          {...(props.onLoadReplaySeries ? {
+            windowFrom: replayWindowFrom,
+            windowTo: replayWindowTo,
+            resolutionSeconds: replayResolutionSeconds,
+            loading: replayLoadState === "loading",
+            partial: replayLoadPartial,
+            loadError: replayLoadError,
+            onWindowFrom: setReplayWindowFrom,
+            onWindowTo: setReplayWindowTo,
+            onResolution: setReplayResolutionSeconds,
+            onLoadWindow: () => { void loadReplayWindow(); },
+          } : {})}
+          {...(replaySampleCount === null ? {} : { sampleCount: replaySampleCount })}
+        />
+      </section>
 
-      <details className="home-tools-disclosure" hidden={replayActive} onToggle={(event) => {
-        setReplayToolsOpen(event.currentTarget.open);
-        if (event.currentTarget.open) setReplayPrepared(true);
-      }}>
+      <details className="home-tools-disclosure">
         <summary>
           <span className="home-tools-icon" aria-hidden="true"><History size={20} /></span>
-          <span><span className="eyebrow">{t("home.moreSummary")}</span><strong>{t("home.moreTitle")}</strong><small>{t("home.moreDescription")}</small></span>
+          <span><span className="eyebrow">{t("home.toolsSummary")}</span><strong>{t("home.toolsTitle")}</strong><small>{t("home.toolsDescription")}</small></span>
           <ChevronDown className="disclosure-chevron" size={19} aria-hidden="true" />
         </summary>
         <div className="home-tools-content">
-          {!replayActive && <ReplayControls active={replayActive} playing={replayPlaying} timestamp={replayTimestamp} min={replayMin} max={replayMax} speed={replaySpeed} timeZone={house.timezone} events={replayEvents} sensors={houseSensors} definitions={definitions} units={units} onActive={setReplayActive} onPlaying={changeReplayPlaying} onTimestamp={setReplayTimestamp} onSpeed={setReplaySpeed} onEventSelect={selectReplayEvent} />}
           <ThermalSimulationPanel
             houseId={houseId}
             sensor={selectedSensor}

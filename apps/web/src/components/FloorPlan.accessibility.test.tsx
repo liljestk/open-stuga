@@ -73,4 +73,31 @@ describe("FloorPlan editor disclosure", () => {
     fireEvent.pointerDown(wall);
     expect(screen.getByRole("button", { name: "Delete wall" })).not.toBeNull();
   });
+
+  it("calibrates a level from one measured wall and labels every wall length", async () => {
+    const user = userEvent.setup();
+    const state = createDemoState();
+    const floor = state.houses[0]!.floors[0]!;
+    const definition = definitionFor(state.measurementDefinitions, "temperature");
+    const onFloorChange = vi.fn();
+    const { container } = render(
+      <I18nProvider><FloorPlan
+        floor={floor} sensors={[]} samples={{}} observations={[]}
+        definition={definition} units="metric" viewMode="plan" selectedSensorId={null}
+        editing observationPlacement={false} onSensorSelect={vi.fn()} onSensorMove={vi.fn()}
+        onFloorChange={onFloorChange} onObservationPoint={vi.fn()} onCancelObservationPlacement={vi.fn()}
+      /></I18nProvider>,
+    );
+
+    const labels = [...container.querySelectorAll<SVGTextElement>(".wall-length-label")];
+    expect(labels).toHaveLength(floor.walls.length);
+    expect(labels[0]?.textContent).toBe("900 units");
+
+    await user.click(screen.getByRole("button", { name: "Wall 1" }));
+    const length = screen.getByRole("spinbutton", { name: "Wall length" });
+    await user.type(length, "10.8{Enter}");
+
+    expect(onFloorChange).toHaveBeenCalledOnce();
+    expect(onFloorChange.mock.calls[0]![0].metersPerPlanUnit).toBeCloseTo(.012, 8);
+  });
 });

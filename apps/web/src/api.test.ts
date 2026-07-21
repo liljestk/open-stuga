@@ -475,6 +475,82 @@ describe("sensor management API client", () => {
   });
 });
 
+describe("TP-Link history export API client", () => {
+  it("lists, retries, and cancels durable export jobs", async () => {
+    const job = {
+      id: "job/315",
+      canary: false,
+      provider: "appium" as const,
+      sensorId: "sensor-hall",
+      deviceId: "device-315",
+      deviceName: "Hall sensor",
+      timeZone: "Europe/Helsinki",
+      metric: "temperature",
+      expectedRecipient: "history+job-315@example.test",
+      from: "2026-07-01T00:00:00.000Z",
+      to: "2026-07-02T00:00:00.000Z",
+      intervalMinutes: 15,
+      status: "failed" as const,
+      attemptCount: 2,
+      maxAttempts: 3,
+      availableAt: "2026-07-02T01:00:00.000Z",
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      heartbeatAt: null,
+      submittedAt: null,
+      mailboxMessageId: null,
+      sourceArtifactSha256: null,
+      sourceArtifactBytes: null,
+      parserVersion: null,
+      sourceSchemaSignature: null,
+      stagedSampleCount: 0,
+      consumedSampleCount: 0,
+      lastError: "Mailbox timeout",
+      attentionReason: null,
+      detail: "Mailbox timeout",
+      createdAt: "2026-07-02T00:00:00.000Z",
+      updatedAt: "2026-07-02T01:00:00.000Z",
+      completedAt: null,
+    };
+    const automation = {
+      operational: true,
+      canaryPending: false,
+      waitingEmails: 0,
+      maxPendingEmails: 1,
+      exportIntervalMinutes: 15 as const,
+      canaryApprovalMaxAgeDays: 30,
+      mailbox: {
+        lastSuccessfulPollAt: null,
+        lastErrorAt: null,
+        lastErrorCode: null,
+        consecutiveFailures: 0,
+        budgetExhaustions: 0,
+      },
+      lastWorkerSeenAt: null,
+      deploymentFingerprintPrefix: null,
+    };
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ enabled: true, automation, jobs: [job] }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 204, json: async () => undefined } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 204, json: async () => undefined } as Response);
+
+    await expect(api.tpLinkHistoryExportJobs()).resolves.toEqual({ enabled: true, automation, jobs: [job] });
+    await expect(api.retryTpLinkHistoryExportJob(job.id)).resolves.toBeUndefined();
+    await expect(api.cancelTpLinkHistoryExportJob(job.id)).resolves.toBeUndefined();
+
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/v1/integrations/tp-link/history-export/jobs");
+    expect(fetchMock.mock.calls[1]).toEqual([
+      "/api/v1/integrations/tp-link/history-export/jobs/job%2F315/retry",
+      expect.objectContaining({ method: "POST" }),
+    ]);
+    expect(fetchMock.mock.calls[2]).toEqual([
+      "/api/v1/integrations/tp-link/history-export/jobs/job%2F315",
+      expect.objectContaining({ method: "DELETE" }),
+    ]);
+  });
+});
+
 describe("house weather API client", () => {
   const house: House = {
     id: "house/coast",
@@ -605,6 +681,13 @@ describe("house weather API client", () => {
     await expect(api.houseElectricityPrice(house.id)).resolves.toEqual({ current });
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/houses/house%2Fcoast/electricity-price",
+      expect.any(Object),
+    );
+
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ current, prices: [current] }) } as Response);
+    await expect(api.houseElectricityPrice(house.id, current.startAt, current.endAt)).resolves.toEqual({ current, prices: [current] });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `/api/v1/houses/house%2Fcoast/electricity-price?from=${encodeURIComponent(current.startAt)}&to=${encodeURIComponent(current.endAt)}`,
       expect.any(Object),
     );
   });

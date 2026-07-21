@@ -1,11 +1,19 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { createInterface } from "node:readline";
 import type { Reading, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
 import type { AppConfig } from "./config.js";
 import type { ClimateDatabase } from "./db.js";
+import type {
+  SensorGapRecoveryAdapter,
+  SensorHistoryRecoveryResult,
+  SensorMetricAvailability,
+} from "./sensor-gap-recovery.js";
 import { MeasurementService, RuntimeStatus, TelemetryService } from "./services.js";
+
+const TP_LINK_LOCAL_CLIMATE_HISTORY_CAPABILITY_REVISION = "t310-t315-retained-history-v1";
 
 export interface TpLinkDeviceMapping {
   deviceId: string;
@@ -31,24 +39,104 @@ interface TpLinkSnapshotMessage {
   timestamp: string;
   hubModel: string;
   sourceType?: "hub" | "energy-device";
+  sourceDeviceId?: string | null;
   devices: TpLinkSnapshotDevice[];
 }
 
 interface TpLinkErrorMessage {
   type: "error";
   message: string;
+  requestId?: string;
 }
 
-type TpLinkHelperMessage = TpLinkSnapshotMessage | TpLinkErrorMessage;
-
-export interface TpLinkDiscoveredHub {
+interface TpLinkHostChangeMessage {
+  type: "host-change";
+  previousHost: string;
   host: string;
-  model: "H100" | "H200";
-  alias: string | null;
+  sourceDeviceId?: string | null;
 }
 
-export interface TpLinkHubDiscoveryResult {
-  hubs: TpLinkDiscoveredHub[];
+type TpLinkHelperMessage = TpLinkSnapshotMessage | TpLinkErrorMessage | TpLinkHostChangeMessage | TpLinkHistoryResultMessage;
+
+interface TpLinkHistorySample {
+  deviceId: string;
+  metric: string;
+  value: number;
+  canonicalUnit: string;
+  timestamp: string;
+  quality: "good" | "estimated" | "stale";
+}
+
+interface TpLinkHistoryResultMessage {
+  type: "history-result";
+  requestId?: string;
+  deviceId: string;
+  metric: string;
+  state: SensorHistoryRecoveryResult["state"];
+  samples: TpLinkHistorySample[];
+  error: string | null;
+}
+
+interface PendingTpLinkHistoryRequest {
+  child: ChildProcess;
+  requestId: string;
+  deviceId: string;
+  sensorId: string;
+  metric: string;
+  fromMs: number;
+  toMs: number;
+  canonicalUnit: string;
+  timer: NodeJS.Timeout;
+  resolve: (result: SensorHistoryRecoveryResult) => void;
+  reject: (error: Error) => void;
+}
+
+export interface TpLinkConnectionUpdate {
+  id: string;
+  houseId: string;
+  previousHost: string;
+  host: string;
+  deviceId?: string;
+}
+
+export interface TpLinkBridgeOptions {
+  onConnectionUpdate?: (update: TpLinkConnectionUpdate) => void;
+  onAvailabilityChange?: () => void;
+  historyFallback?: {
+    recoverHistory(sensorId: string, metric: string, from: string, to: string): Promise<SensorHistoryRecoveryResult>;
+    consumeRecovered?(sensorId: string, metric: string, from: string, to: string): void | Promise<void>;
+  };
+}
+
+/** Merge a best-effort fallback without replacing higher-confidence local rows. */
+export function mergeTpLinkHistoryRecovery(
+  local: SensorHistoryRecoveryResult,
+  fallback: SensorHistoryRecoveryResult,
+): SensorHistoryRecoveryResult {
+  const samples = new Map(fallback.samples
+    .map((sample) => [`${sample.metric}\u0000${sample.timestamp}`, sample] as const));
+  for (const sample of local.samples) samples.set(`${sample.metric}\u0000${sample.timestamp}`, sample);
+  const state = fallback.state === "complete"
+    ? "complete"
+    : local.state === "partial" || fallback.state === "partial" || samples.size > 0
+      ? "partial"
+      : "not-supported";
+  return {
+    state,
+    samples: [...samples.values()].sort((left, right) => left.timestamp.localeCompare(right.timestamp)),
+    error: [local.error, fallback.error].filter(Boolean).join("; ") || null,
+  };
+}
+
+export interface TpLinkDiscoveredSource {
+  host: string;
+  model: string;
+  alias: string | null;
+  sourceType: "hub" | "energy-device";
+}
+
+export interface TpLinkSourceDiscoveryResult {
+  sources: TpLinkDiscoveredSource[];
   warnings: string[];
 }
 
@@ -114,7 +202,8 @@ interface LastIngestedOpeningState {
 
 type CachedTpLinkDevice = Omit<TpLinkDiscoveredDevice, "mappedSensorId">;
 
-const MAX_UNCHANGED_SAMPLE_AGE_MS = 5 * 60_000;
+const CLIMATE_UNCHANGED_HEARTBEAT_MS = 60_000;
+const STATE_UNCHANGED_HEARTBEAT_MS = 5 * 60_000;
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -122,6 +211,20 @@ function nonEmptyString(value: unknown): string | null {
 
 function finiteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function safeTpLinkHistoryFailure(value: unknown): string | null {
+  const message = nonEmptyString(value);
+  if (!message) return null;
+  if (/unable to decrypt response|invalid padding bytes/iu.test(message)) {
+    return "TP-Link encrypted session was replaced during the local history request";
+  }
+  if (/status 500 after handshake|another session is created/iu.test(message)) {
+    return "TP-Link hub rejected an overlapping encrypted session";
+  }
+  // Protocol failures can include the full encrypted response. It is neither
+  // useful to an operator nor appropriate to persist in the gap ledger.
+  return message.replace(/,\s*response:\s*.*$/isu, "").trim().slice(0, 500);
 }
 
 export function loadTpLinkDeviceMappings(path: string): TpLinkDeviceMapping[] {
@@ -170,15 +273,18 @@ interface TpLinkStatusHost {
 class TpLinkConnectionBridge {
   #child: ChildProcess | null = null;
   #restartTimer: NodeJS.Timeout | null = null;
+  #historyQueue: Promise<void> = Promise.resolve();
   #running = false;
   #attempt = 0;
   #stderr = "";
   #mappingWarning: string | null = null;
   readonly #legacyMappings = new Map<string, string>();
   readonly #discovered = new Map<string, CachedTpLinkDevice>();
+  readonly #currentDevices = new Map<string, CachedTpLinkDevice>();
   readonly #lastIngested = new Map<string, LastIngestedDevice>();
   readonly #lastIngestedMeasurements = new Map<string, LastIngestedMeasurement>();
   readonly #lastIngestedOpeningStates = new Map<string, LastIngestedOpeningState>();
+  readonly #pendingHistory = new Map<string, PendingTpLinkHistoryRequest>();
 
   constructor(
     private readonly config: AppConfig,
@@ -187,6 +293,14 @@ class TpLinkConnectionBridge {
     private readonly database: ClimateDatabase,
     private readonly status: TpLinkStatusHost,
     private readonly connection?: { id: string; houseId: string; acceptUnscoped: boolean },
+    private readonly managedConnection?: {
+      id: string;
+      houseId: string;
+      host: string;
+      deviceId?: string;
+      onUpdate?: (update: TpLinkConnectionUpdate) => void;
+      onAvailabilityChange?: () => void;
+    },
   ) {}
 
   start(): void {
@@ -232,6 +346,262 @@ class TpLinkConnectionBridge {
       .sort((first, second) => (first.alias ?? first.deviceId).localeCompare(second.alias ?? second.deviceId));
   }
 
+  ownsSensor(sensorId: string): boolean {
+    return [...this.resolvedMappings().values()].includes(sensorId);
+  }
+
+  recoverHistory(sensorId: string, metric: string, from: string, to: string): Promise<SensorHistoryRecoveryResult> {
+    const operation = this.#historyQueue.then(() => this.recoverHistoryIsolated(sensorId, metric, from, to));
+    this.#historyQueue = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
+
+  private async recoverHistoryIsolated(
+    sensorId: string,
+    metric: string,
+    from: string,
+    to: string,
+  ): Promise<SensorHistoryRecoveryResult> {
+    const mapping = [...this.resolvedMappings()].find(([, mappedSensorId]) => mappedSensorId === sensorId);
+    if (!mapping || !this.config.tpLinkHost || !this.config.tpLinkUsername || !this.config.tpLinkPassword) {
+      return {
+        state: "not-supported", samples: [], error: "The sensor has no active local TP-Link history binding",
+      };
+    }
+    const definition = this.database.getMeasurementDefinition(metric);
+    if (!definition?.enabled) {
+      return { state: "not-supported", samples: [], error: `Measurement metric ${metric} is unavailable` };
+    }
+    const fromMs = Date.parse(from);
+    const toMs = Date.parse(to);
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs) {
+      return { state: "complete", samples: [], error: null };
+    }
+    const requestId = randomUUID();
+    const deviceId = mapping[0];
+    const liveChild = this.#child;
+    if (liveChild?.stdin?.writable) {
+      return this.runLiveHistoryRequest(
+        liveChild, requestId, deviceId, sensorId, metric, fromMs, toMs, definition.unit,
+      );
+    }
+
+    await this.pausePollingForHistory();
+    try {
+      return await this.runHistoryHelper(requestId, deviceId, sensorId, metric, fromMs, toMs, definition.unit);
+    } finally {
+      // SSL/AES hubs may keep only one usable encrypted session per client.
+      // Resume live polling only after the one-shot history process has exited.
+      if (this.#running) this.spawnHelper();
+    }
+  }
+
+  private runLiveHistoryRequest(
+    child: ChildProcess,
+    requestId: string,
+    deviceId: string,
+    sensorId: string,
+    metric: string,
+    fromMs: number,
+    toMs: number,
+    canonicalUnit: string,
+  ): Promise<SensorHistoryRecoveryResult> {
+    return new Promise((resolve, reject) => {
+      let pending!: PendingTpLinkHistoryRequest;
+      const timer = setTimeout(() => {
+        this.settlePendingHistory(pending, new Error("TP-Link local history request timed out"));
+        if (this.#child === child) child.kill();
+      }, 45_000);
+      timer.unref();
+      pending = {
+        child, requestId, deviceId, sensorId, metric, fromMs, toMs, canonicalUnit,
+        timer, resolve, reject,
+      };
+      this.#pendingHistory.set(requestId, pending);
+      const line = `${JSON.stringify({
+        type: "history-request", requestId, deviceId, metric,
+        from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString(),
+      })}\n`;
+      try {
+        child.stdin!.write(line, (error) => {
+          if (error) this.settlePendingHistory(pending, new Error(`Could not send TP-Link history request: ${error.message}`));
+        });
+      } catch (error) {
+        this.settlePendingHistory(pending, error instanceof Error ? error : new Error("Could not send TP-Link history request"));
+      }
+    });
+  }
+
+  private settlePendingHistory(
+    pending: PendingTpLinkHistoryRequest,
+    result: SensorHistoryRecoveryResult | Error,
+  ): void {
+    if (this.#pendingHistory.get(pending.requestId) !== pending) return;
+    this.#pendingHistory.delete(pending.requestId);
+    clearTimeout(pending.timer);
+    if (result instanceof Error) pending.reject(result);
+    else pending.resolve(result);
+  }
+
+  private failPendingHistory(child: ChildProcess, message: string): void {
+    for (const pending of this.#pendingHistory.values()) {
+      if (pending.child === child) this.settlePendingHistory(pending, new Error(message));
+    }
+  }
+
+  private runHistoryHelper(
+    requestId: string,
+    deviceId: string,
+    sensorId: string,
+    metric: string,
+    fromMs: number,
+    toMs: number,
+    canonicalUnit: string,
+  ): Promise<SensorHistoryRecoveryResult> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(this.config.tpLinkPython, [this.config.tpLinkBridgeScript, "--history"], {
+        env: {
+          ...process.env,
+          TP_LINK_HOST: this.config.tpLinkHost!,
+          TP_LINK_USERNAME: this.config.tpLinkUsername!,
+          TP_LINK_PASSWORD: this.config.tpLinkPassword!,
+          ...(this.managedConnection?.deviceId ? { TP_LINK_DEVICE_ID: this.managedConnection.deviceId } : {}),
+        },
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
+      });
+      let settled = false;
+      let stdout = "";
+      let stderr = "";
+      const finish = (result: SensorHistoryRecoveryResult | Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        if (!child.killed) child.kill();
+        if (result instanceof Error) reject(result);
+        else resolve(result);
+      };
+      const timeout = setTimeout(() => finish(new Error("TP-Link local history request timed out")), 45_000);
+      timeout.unref();
+      child.stdout?.on("data", (chunk: Buffer | string) => {
+        stdout += chunk.toString();
+        if (Buffer.byteLength(stdout, "utf8") > 2 * 1024 * 1024) {
+          finish(new Error("TP-Link local history response exceeded 2 MiB"));
+        }
+      });
+      child.stderr?.on("data", (chunk: Buffer | string) => { stderr = `${stderr}${chunk.toString()}`.slice(-2_000); });
+      child.once("error", (error) => finish(new Error(`Could not start TP-Link history helper: ${error.message}`)));
+      child.once("close", (code) => {
+        if (settled) return;
+        const lines = stdout.trim().split(/\r?\n/).filter(Boolean);
+        let message: TpLinkHistoryResultMessage | null = null;
+        let helperError: string | null = null;
+        for (const line of lines) {
+          try {
+            const candidate = JSON.parse(line) as {
+              type?: string;
+              requestId?: string;
+              message?: unknown;
+            };
+            if (candidate.type === "history-result") message = candidate as TpLinkHistoryResultMessage;
+            if (candidate.type === "error" && (candidate.requestId === undefined || candidate.requestId === requestId)) {
+              helperError = safeTpLinkHistoryFailure(candidate.message);
+            }
+          } catch { /* Reject below with a non-sensitive protocol error. */ }
+        }
+        if (!message || code !== 0) {
+          const stderrDetail = safeTpLinkHistoryFailure(stderr.trim().split(/\r?\n/).at(-1));
+          finish(new Error(helperError || stderrDetail || `TP-Link history helper stopped with exit code ${code ?? "unknown"}`));
+          return;
+        }
+        try { finish(this.validateHistoryResult(message, requestId, deviceId, sensorId, metric, fromMs, toMs, canonicalUnit)); }
+        catch (error) { finish(error instanceof Error ? error : new Error("TP-Link history response was invalid")); }
+      });
+      child.stdin?.end(`${JSON.stringify({
+        type: "history-request", requestId, deviceId, metric,
+        from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString(),
+      })}\n`);
+    });
+  }
+
+  private async pausePollingForHistory(): Promise<void> {
+    if (this.#restartTimer) clearTimeout(this.#restartTimer);
+    this.#restartTimer = null;
+    const child = this.#child;
+    if (!child) return;
+    this.#child = null;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const finish = (error?: Error): void => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(forceTimer);
+          clearTimeout(failureTimer);
+          child.off("close", closed);
+          child.off("error", failed);
+          if (error) reject(error);
+          else resolve();
+        };
+        const closed = (): void => finish();
+        const failed = (): void => finish();
+        const forceTimer = setTimeout(() => child.kill("SIGKILL"), 2_000);
+        const failureTimer = setTimeout(() => finish(new Error(
+          "TP-Link live polling helper could not be paused for local history recovery",
+        )), 5_000);
+        forceTimer.unref();
+        failureTimer.unref();
+        child.once("close", closed);
+        child.once("error", failed);
+        if (child.exitCode !== null || child.signalCode !== null) finish();
+        else child.kill();
+      });
+    } catch (error) {
+      if (child.exitCode === null && child.signalCode === null) this.#child = child;
+      throw error;
+    }
+  }
+
+  private validateHistoryResult(
+    message: TpLinkHistoryResultMessage,
+    requestId: string,
+    deviceId: string,
+    sensorId: string,
+    metric: string,
+    fromMs: number,
+    toMs: number,
+    canonicalUnit: string,
+  ): SensorHistoryRecoveryResult {
+    if (message.requestId !== requestId || nonEmptyString(message.deviceId)?.toUpperCase() !== deviceId.toUpperCase()
+      || message.metric !== metric || !["complete", "partial", "not-supported"].includes(message.state)
+      || !Array.isArray(message.samples) || message.samples.length > 100_000) {
+      throw new Error("TP-Link history helper returned a mismatched response identity");
+    }
+    const definition = this.database.getMeasurementDefinition(metric);
+    const samples = new Map<string, SensorHistoryRecoveryResult["samples"][number]>();
+    for (const sample of message.samples) {
+      const timestampMs = typeof sample.timestamp === "string" ? Date.parse(sample.timestamp) : NaN;
+      if (nonEmptyString(sample.deviceId)?.toUpperCase() !== deviceId.toUpperCase() || sample.metric !== metric
+        || typeof sample.value !== "number" || !Number.isFinite(sample.value)
+        || !Number.isFinite(timestampMs) || timestampMs < fromMs || timestampMs > toMs
+        || !["good", "estimated", "stale"].includes(sample.quality)
+        || definition?.validMin !== null && definition?.validMin !== undefined && sample.value < definition.validMin
+        || definition?.validMax !== null && definition?.validMax !== undefined && sample.value > definition.validMax) {
+        throw new Error("TP-Link history helper returned an invalid measurement sample");
+      }
+      const timestamp = new Date(timestampMs).toISOString();
+      samples.set(timestamp, {
+        sensorId, metric, value: sample.value, canonicalUnit, timestamp,
+        source: "tp-link", quality: sample.quality,
+      });
+    }
+    return {
+      state: message.state,
+      samples: [...samples.values()].sort((left, right) => left.timestamp.localeCompare(right.timestamp)),
+      error: message.error === null ? null : nonEmptyString(message.error)?.slice(0, 1_000) ?? "Local TP-Link history is incomplete",
+    };
+  }
+
   private resolvedMappings(): Map<string, string> {
     const mappings = new Map<string, string>();
     const mappedSensors = new Set<string>();
@@ -263,7 +633,7 @@ class TpLinkConnectionBridge {
     if (!house) return [];
     const connectionId = this.connection?.id ?? "legacy";
     return house.floors.flatMap((floor) => (floor.planElements ?? []).flatMap((element) => {
-      if (element.kind === "fireplace" || element.stateBinding?.provider !== "tapo") return [];
+      if ((element.kind !== "door" && element.kind !== "window" && element.kind !== "vent") || element.stateBinding?.provider !== "tapo") return [];
       if (element.stateBinding.connectionId && element.stateBinding.connectionId !== connectionId) return [];
       if (!element.stateBinding.connectionId && this.connection && !this.connection.acceptUnscoped) return [];
       return [{ houseId: house.id, floorId: floor.id, elementId: element.id,
@@ -286,6 +656,7 @@ class TpLinkConnectionBridge {
     this.#attempt = 0;
     this.#legacyMappings.clear();
     this.#discovered.clear();
+    this.#currentDevices.clear();
     this.#lastIngested.clear();
     this.#lastIngestedMeasurements.clear();
     this.#lastIngestedOpeningStates.clear();
@@ -297,16 +668,25 @@ class TpLinkConnectionBridge {
     this.start();
   }
 
-  discoverHubs(timeoutMs = 12_000): Promise<TpLinkHubDiscoveryResult> {
+  discoverSources(
+    timeoutMs = 35_000,
+    preferredConnection?: { username: string; password: string },
+  ): Promise<TpLinkSourceDiscoveryResult> {
     return new Promise((resolve, reject) => {
       const configuredTargets = process.env.TP_LINK_DISCOVERY_TARGETS?.trim();
       const discoveryTargets = configuredTargets || tpLinkDiscoveryTargets().join(",");
+      const savedConnection = this.config.tpLinkConnections?.[0];
+      const recoveryHosts = (this.config.tpLinkConnections ?? []).map((connection) => connection.host)
+        .concat(this.config.tpLinkHost ?? []).filter(Boolean).join(",");
+      const username = preferredConnection?.username ?? this.config.tpLinkUsername ?? savedConnection?.username;
+      const password = preferredConnection?.password ?? this.config.tpLinkPassword ?? savedConnection?.password;
       const child = spawn(this.config.tpLinkPython, [this.config.tpLinkBridgeScript, "--discover"], {
         env: {
           ...process.env,
           ...(discoveryTargets ? { TP_LINK_DISCOVERY_TARGETS: discoveryTargets } : {}),
-          ...(this.config.tpLinkUsername ? { TP_LINK_USERNAME: this.config.tpLinkUsername } : {}),
-          ...(this.config.tpLinkPassword ? { TP_LINK_PASSWORD: this.config.tpLinkPassword } : {}),
+          ...(recoveryHosts ? { TP_LINK_RECOVERY_HOSTS: recoveryHosts } : {}),
+          ...(username ? { TP_LINK_USERNAME: username } : {}),
+          ...(password ? { TP_LINK_PASSWORD: password } : {}),
         },
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
@@ -315,13 +695,13 @@ class TpLinkConnectionBridge {
       let stderr = "";
       let settled = false;
       const timer = setTimeout(() => finish(new Error("TP-Link discovery timed out")), timeoutMs);
-      const finish = (error?: Error, result?: TpLinkHubDiscoveryResult): void => {
+      const finish = (error?: Error, result?: TpLinkSourceDiscoveryResult): void => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         if (!child.killed) child.kill();
         if (error) reject(error);
-        else resolve(result ?? { hubs: [], warnings: [] });
+        else resolve(result ?? { sources: [], warnings: [] });
       };
       child.stdout?.on("data", (chunk: Buffer | string) => {
         stdout = `${stdout}${chunk.toString()}`.slice(-65_536);
@@ -336,17 +716,25 @@ class TpLinkConnectionBridge {
         const message = lines.flatMap((line) => {
           try { return [JSON.parse(line) as Record<string, unknown>]; } catch { return []; }
         }).find((value) => value.type === "discovery");
-        if (code !== 0 || !message || !Array.isArray(message.hubs)) {
+        const rawSources = message && Array.isArray(message.sources)
+          ? message.sources
+          : message && Array.isArray(message.hubs) ? message.hubs : null;
+        if (code !== 0 || !message || !rawSources) {
           finish(new Error(stderr.trim().split(/\r?\n/).at(-1) || "TP-Link discovery helper failed"));
           return;
         }
-        const hubs = message.hubs.flatMap((value): TpLinkDiscoveredHub[] => {
+        const sources = rawSources.flatMap((value): TpLinkDiscoveredSource[] => {
           if (!value || typeof value !== "object") return [];
           const item = value as Record<string, unknown>;
           const host = nonEmptyString(item.host);
           const model = nonEmptyString(item.model)?.toUpperCase();
-          if (!host || (model !== "H100" && model !== "H200")) return [];
-          return [{ host, model, alias: nonEmptyString(item.alias) }];
+          const declaredSourceType = nonEmptyString(item.sourceType);
+          const sourceType = declaredSourceType === "hub" || declaredSourceType === "energy-device"
+            ? declaredSourceType
+            : model === "H100" || model === "H200" ? "hub" : null;
+          if (!host || !model || !sourceType) return [];
+          if (sourceType === "hub" && model !== "H100" && model !== "H200") return [];
+          return [{ host, model, alias: nonEmptyString(item.alias), sourceType }];
         });
         const warnings = Array.isArray(message.warnings)
           ? message.warnings.flatMap((value): string[] => {
@@ -354,7 +742,7 @@ class TpLinkConnectionBridge {
             return warning ? [warning.slice(0, 500)] : [];
           }).slice(0, 20)
           : [];
-        finish(undefined, { hubs: hubs.sort((a, b) => a.host.localeCompare(b.host)), warnings });
+        finish(undefined, { sources: sources.sort((a, b) => a.host.localeCompare(b.host)), warnings });
       });
     });
   }
@@ -404,6 +792,11 @@ class TpLinkConnectionBridge {
         });
         const snapshot = messages.find((message) => message.type === "snapshot");
         if (code === 0 && snapshot && Array.isArray(snapshot.devices)) {
+          const deviceIds = snapshot.devices.flatMap((candidate): string[] => {
+            if (!candidate || typeof candidate !== "object") return [];
+            const deviceId = nonEmptyString((candidate as Record<string, unknown>).deviceId);
+            return deviceId && deviceId.length <= 1_024 ? [deviceId] : [];
+          });
           finish({
             ok: true,
             connected: true,
@@ -411,6 +804,8 @@ class TpLinkConnectionBridge {
             details: {
               model: nonEmptyString(snapshot.hubModel),
               deviceCount: snapshot.devices.length,
+              sourceDeviceId: nonEmptyString(snapshot.sourceDeviceId),
+              deviceIds: [...new Set(deviceIds)].slice(0, 2_048),
             },
           });
           return;
@@ -430,8 +825,9 @@ class TpLinkConnectionBridge {
         TP_LINK_USERNAME: this.config.tpLinkUsername,
         TP_LINK_PASSWORD: this.config.tpLinkPassword,
         TP_LINK_POLL_INTERVAL_MS: String(this.config.tpLinkPollIntervalMs),
+        ...(this.managedConnection?.deviceId ? { TP_LINK_DEVICE_ID: this.managedConnection.deviceId } : {}),
       },
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });
     this.#child = child;
@@ -445,19 +841,23 @@ class TpLinkConnectionBridge {
       this.#stderr = `${this.#stderr}${chunk.toString()}`.slice(-2_000);
     });
     child.once("error", (error) => {
+      this.failPendingHistory(child, `TP-Link helper failed: ${error.message}`);
       if (this.#child !== child) return;
       this.status.value.tpLink.connected = false;
       this.status.value.tpLink.error = `Could not start TP-Link helper: ${error.message}`;
       this.status.changed();
+      this.managedConnection?.onAvailabilityChange?.();
     });
     child.once("close", (code) => {
       lines?.close();
+      this.failPendingHistory(child, `TP-Link helper stopped with exit code ${code ?? "unknown"}`);
       if (this.#child !== child) return;
       this.#child = null;
       this.status.value.tpLink.connected = false;
       const stderr = this.#stderr.trim().split(/\r?\n/).at(-1);
       this.status.value.tpLink.error = stderr || `TP-Link helper stopped${code === null ? "" : ` with exit code ${code}`}`;
       this.status.changed();
+      this.managedConnection?.onAvailabilityChange?.();
       this.scheduleRestart();
     });
   }
@@ -476,13 +876,90 @@ class TpLinkConnectionBridge {
       return;
     }
     if (message.type === "error") {
+      const requestId = nonEmptyString(message.requestId);
+      if (requestId) {
+        const pending = this.#pendingHistory.get(requestId);
+        if (pending) {
+          this.settlePendingHistory(
+            pending,
+            new Error(safeTpLinkHistoryFailure(message.message) ?? "TP-Link history recovery failed"),
+          );
+        }
+        return;
+      }
       this.status.value.tpLink.connected = false;
       this.status.value.tpLink.error = nonEmptyString(message.message) ?? "TP-Link connection failed";
       this.status.changed();
+      this.managedConnection?.onAvailabilityChange?.();
+      return;
+    }
+    if (message.type === "history-result") {
+      const requestId = nonEmptyString(message.requestId);
+      const pending = requestId ? this.#pendingHistory.get(requestId) : undefined;
+      if (!pending) return;
+      try {
+        this.settlePendingHistory(pending, this.validateHistoryResult(
+          message,
+          pending.requestId,
+          pending.deviceId,
+          pending.sensorId,
+          pending.metric,
+          pending.fromMs,
+          pending.toMs,
+          pending.canonicalUnit,
+        ));
+      } catch (error) {
+        this.settlePendingHistory(
+          pending,
+          error instanceof Error ? error : new Error("TP-Link history response was invalid"),
+        );
+      }
+      return;
+    }
+    if (message.type === "host-change") {
+      this.handleHostChange(message);
       return;
     }
     if (message.type !== "snapshot" || !Array.isArray(message.devices)) return;
     this.ingestSnapshot(message);
+  }
+
+  private handleHostChange(message: TpLinkHostChangeMessage): void {
+    const previousHost = nonEmptyString(message.previousHost);
+    const host = nonEmptyString(message.host);
+    if (!previousHost || !host || !ipv4Octets(host) || previousHost !== this.config.tpLinkHost) return;
+    const reportedDeviceId = nonEmptyString(message.sourceDeviceId);
+    const knownDeviceId = this.managedConnection?.deviceId;
+    if (knownDeviceId && (!reportedDeviceId
+      || knownDeviceId.trim().toUpperCase() !== reportedDeviceId.trim().toUpperCase())) {
+      this.status.value.tpLink.connected = false;
+      this.status.value.tpLink.error = "TP-Link address recovery reported a different source identity; the saved connection was not changed";
+      this.status.changed();
+      this.managedConnection?.onAvailabilityChange?.();
+      return;
+    }
+    if (reportedDeviceId && reportedDeviceId.length > 1_024) {
+      this.status.value.tpLink.connected = false;
+      this.status.value.tpLink.error = "TP-Link address recovery returned an invalid source identity";
+      this.status.changed();
+      this.managedConnection?.onAvailabilityChange?.();
+      return;
+    }
+    const deviceId = reportedDeviceId ?? knownDeviceId;
+    this.config.tpLinkHost = host;
+    if (this.managedConnection) {
+      this.managedConnection.host = host;
+      if (deviceId) this.managedConnection.deviceId = deviceId;
+      this.managedConnection.onUpdate?.({
+        id: this.managedConnection.id,
+        houseId: this.managedConnection.houseId,
+        previousHost,
+        host,
+        ...(deviceId ? { deviceId } : {}),
+      });
+    }
+    this.status.value.tpLink.error = `TP-Link source moved from ${previousHost} to ${host}; connection recovery is in progress`;
+    this.status.changed();
   }
 
   private ingestSnapshot(message: TpLinkSnapshotMessage): void {
@@ -495,6 +972,34 @@ class TpLinkConnectionBridge {
       this.status.value.tpLink.error = `Unsupported TP-Link source model ${message.hubModel || "unknown"}`;
       this.status.changed();
       return;
+    }
+
+    const sourceDeviceId = nonEmptyString(message.sourceDeviceId);
+    if (sourceDeviceId && sourceDeviceId.length > 1_024) {
+      this.status.value.tpLink.connected = false;
+      this.status.value.tpLink.error = "TP-Link helper returned an invalid source identity";
+      this.status.changed();
+      this.managedConnection?.onAvailabilityChange?.();
+      return;
+    }
+    if (this.managedConnection?.deviceId && (!sourceDeviceId
+      || this.managedConnection.deviceId.trim().toUpperCase() !== sourceDeviceId.trim().toUpperCase())) {
+      this.status.value.tpLink.connected = false;
+      this.status.value.tpLink.error = "TP-Link helper returned a missing or different source identity at the saved address; polling was stopped to protect device bindings";
+      this.status.changed();
+      this.managedConnection.onAvailabilityChange?.();
+      return;
+    }
+    if (sourceDeviceId && this.managedConnection && !this.managedConnection.deviceId) {
+      const previousHost = this.managedConnection.host;
+      this.managedConnection.deviceId = sourceDeviceId;
+      this.managedConnection.onUpdate?.({
+        id: this.managedConnection.id,
+        houseId: this.managedConnection.houseId,
+        previousHost,
+        host: previousHost,
+        deviceId: sourceDeviceId,
+      });
     }
 
     this.#attempt = 0;
@@ -522,6 +1027,8 @@ class TpLinkConnectionBridge {
       devices.set(deviceId, device);
       this.#discovered.set(deviceId, device);
     }
+    this.#currentDevices.clear();
+    for (const [deviceId, device] of devices) this.#currentDevices.set(deviceId, device);
     this.status.value.tpLink.discoveredDevices = this.#discovered.size;
     const mappings = this.resolvedMappings();
     const issues: string[] = [];
@@ -541,7 +1048,7 @@ class TpLinkConnectionBridge {
       const state = device.contactOpen ? "open" : "closed";
       const targetKey = `${target.floorId}\u0000${target.elementId}`;
       const previous = this.#lastIngestedOpeningStates.get(targetKey);
-      if (previous?.state === state && timestampMs - previous.ingestedAt < MAX_UNCHANGED_SAMPLE_AGE_MS) continue;
+      if (previous?.state === state && timestampMs - previous.ingestedAt < STATE_UNCHANGED_HEARTBEAT_MS) continue;
       try {
         this.database.recordOpeningStateObservation(target.houseId, {
           floorId: target.floorId,
@@ -593,7 +1100,7 @@ class TpLinkConnectionBridge {
         const previous = this.#lastIngested.get(deviceId);
         const unchanged = previous?.sensorId === sensorId && previous.temperature === temperature
           && previous.humidity === humidity && previous.battery === battery;
-        if (!unchanged || timestampMs - previous.ingestedAt >= MAX_UNCHANGED_SAMPLE_AGE_MS) {
+        if (!unchanged || timestampMs - previous.ingestedAt >= CLIMATE_UNCHANGED_HEARTBEAT_MS) {
           const reading: Reading = {
             sensorId,
             timestamp,
@@ -618,6 +1125,40 @@ class TpLinkConnectionBridge {
 
     this.status.value.tpLink.error = [this.#mappingWarning, ...issues].filter(Boolean).join("; ") || null;
     this.status.changed();
+    this.managedConnection?.onAvailabilityChange?.();
+  }
+
+  availability(now = new Date()): SensorMetricAvailability[] {
+    const observedAt = now.toISOString();
+    const lastPollMs = this.status.value.tpLink.lastPollAt ? Date.parse(this.status.value.tpLink.lastPollAt) : Number.NaN;
+    const connectionFresh = this.status.value.tpLink.connected && Number.isFinite(lastPollMs)
+      && now.getTime() - lastPollMs <= Math.max(60_000, this.config.tpLinkPollIntervalMs * 3);
+    const availability: SensorMetricAvailability[] = [];
+    for (const [deviceId, sensorId] of this.resolvedMappings()) {
+      const sensor = this.database.getSensor(sensorId);
+      if (!sensor?.enabled) continue;
+      const device = this.#currentDevices.get(deviceId);
+      const metrics = new Set(this.database.sensorSourceMetrics(sensorId, "tp-link"));
+      if (device?.temperature !== null && device?.temperature !== undefined) metrics.add("temperature");
+      if (device?.humidity !== null && device?.humidity !== undefined) metrics.add("humidity");
+      if (device?.power !== null && device?.power !== undefined) metrics.add("power");
+      if (device?.energy !== null && device?.energy !== undefined) metrics.add("energy");
+      if (metrics.size === 0 && /T3(?:10|15)/i.test(sensor.model)) {
+        metrics.add("temperature");
+        metrics.add("humidity");
+      }
+      const online = connectionFresh && Boolean(device)
+        && (!device?.status || device.status.toLowerCase() === "online");
+      for (const metric of metrics) {
+        const exposesMetric = metric === "temperature" ? device?.temperature !== null && device?.temperature !== undefined
+          : metric === "humidity" ? device?.humidity !== null && device?.humidity !== undefined
+            : metric === "power" ? device?.power !== null && device?.power !== undefined
+              : metric === "energy" ? device?.energy !== null && device?.energy !== undefined
+                : false;
+        availability.push({ sensorId, metric, source: "tp-link", available: online && exposesMetric, observedAt });
+      }
+    }
+    return availability;
   }
 
   private ingestElectricityMeasurement(
@@ -633,7 +1174,7 @@ class TpLinkConnectionBridge {
     const key = `${deviceId}\u0000${metric}`;
     const previous = this.#lastIngestedMeasurements.get(key);
     const unchanged = previous?.sensorId === sensorId && previous.value === value;
-    if (unchanged && timestampMs - previous.ingestedAt < MAX_UNCHANGED_SAMPLE_AGE_MS) return;
+    if (unchanged && timestampMs - previous.ingestedAt < STATE_UNCHANGED_HEARTBEAT_MS) return;
     try {
       this.measurements.ingest({
         sensorId,
@@ -664,7 +1205,8 @@ class TpLinkConnectionBridge {
 }
 
 /** Runs one independent local helper per house-scoped TP-Link host. */
-export class TpLinkBridge {
+export class TpLinkBridge implements SensorGapRecoveryAdapter {
+  readonly source = "tp-link" as const;
   readonly #workers = new Map<string, { bridge: TpLinkConnectionBridge; status: TpLinkStatusHost; houseId: string }>();
   readonly #tester: TpLinkConnectionBridge;
   #running = false;
@@ -675,22 +1217,46 @@ export class TpLinkBridge {
     private readonly measurements: MeasurementService,
     private readonly database: ClimateDatabase,
     private readonly status: RuntimeStatus,
+    private readonly options: TpLinkBridgeOptions = {},
   ) {
     const testerStatus: TpLinkStatusHost = { value: structuredClone(status.value), changed: () => undefined };
     this.#tester = new TpLinkConnectionBridge(config, telemetry, measurements, database, testerStatus);
   }
 
-  private configuredConnections(): Array<{ id: string; houseId: string; host: string; username: string; password: string }> {
+  private rearmLocalClimateHistoryGaps(): void {
+    if (this.configuredConnections().length === 0) return;
+    this.database.rearmRetainedTpLinkClimateHistoryGaps(
+      TP_LINK_LOCAL_CLIMATE_HISTORY_CAPABILITY_REVISION,
+    );
+  }
+
+  private configuredConnections(): Array<{
+    id: string;
+    houseId: string;
+    host: string;
+    username: string;
+    password: string;
+    deviceId?: string;
+    legacyEnvironment: boolean;
+  }> {
     const explicit = (this.config.tpLinkConnections ?? []).filter((connection) => this.database.getHouse(connection.houseId));
-    if (explicit.length > 0) return explicit.map((connection) => ({ ...connection }));
+    if (explicit.length > 0) return explicit.map((connection) => ({ ...connection, legacyEnvironment: false }));
     const houseId = this.database.listHouses()[0]?.id;
     return !this.config.tpLinkLegacyDisabled && houseId && this.config.tpLinkHost && this.config.tpLinkUsername && this.config.tpLinkPassword
-      ? [{ id: "legacy", houseId, host: this.config.tpLinkHost, username: this.config.tpLinkUsername, password: this.config.tpLinkPassword }]
+      ? [{
+          id: "legacy",
+          houseId,
+          host: this.config.tpLinkHost,
+          username: this.config.tpLinkUsername,
+          password: this.config.tpLinkPassword,
+          legacyEnvironment: true,
+        }]
       : [];
   }
 
   start(): void {
     if (this.#running) return;
+    this.rearmLocalClimateHistoryGaps();
     const mappingPath = this.config.tpLinkDeviceMapFile;
     if (mappingPath && existsSync(mappingPath)) {
       let mappings: TpLinkDeviceMapping[] | undefined;
@@ -705,8 +1271,9 @@ export class TpLinkBridge {
       if (mappings) this.database.saveIntegrationMappingSet("tp-link", mappings);
     }
     this.#running = true;
-    for (const connection of this.configuredConnections()) {
-      const acceptUnscoped = this.configuredConnections()
+    const configuredConnections = this.configuredConnections();
+    for (const connection of configuredConnections) {
+      const acceptUnscoped = configuredConnections
         .filter((candidate) => candidate.houseId === connection.houseId).length === 1;
       const localValue = structuredClone(this.status.value);
       localValue.tpLink = {
@@ -721,11 +1288,19 @@ export class TpLinkBridge {
         tpLinkPassword: connection.password,
         tpLinkConnections: [],
         // A legacy map is global and is safe only for the compatibility connection.
-        tpLinkDeviceMapFile: connection.id === "legacy" ? this.config.tpLinkDeviceMapFile : null,
+        tpLinkDeviceMapFile: connection.legacyEnvironment ? this.config.tpLinkDeviceMapFile : null,
       };
       const bridge = new TpLinkConnectionBridge(
         localConfig, this.telemetry, this.measurements, this.database, localStatus,
-        connection.id === "legacy" ? undefined : { id: connection.id, houseId: connection.houseId, acceptUnscoped },
+        connection.legacyEnvironment ? undefined : { id: connection.id, houseId: connection.houseId, acceptUnscoped },
+        {
+          id: connection.id,
+          houseId: connection.houseId,
+          host: connection.host,
+          ...(connection.deviceId ? { deviceId: connection.deviceId } : {}),
+          ...(this.options.onConnectionUpdate ? { onUpdate: this.options.onConnectionUpdate } : {}),
+          ...(this.options.onAvailabilityChange ? { onAvailabilityChange: this.options.onAvailabilityChange } : {}),
+        },
       );
       this.#workers.set(connection.id, { bridge, status: localStatus, houseId: connection.houseId });
       bridge.start();
@@ -760,8 +1335,59 @@ export class TpLinkBridge {
         .localeCompare(`${right.houseId ?? ""}\u0000${right.alias ?? right.deviceId}`));
   }
 
-  discoverHubs(timeoutMs = 12_000): Promise<TpLinkHubDiscoveryResult> {
-    return this.#tester.discoverHubs(timeoutMs);
+  /**
+   * Resolve the exact alias the mobile app displays without falling back to a
+   * Stuga sensor label. Ambiguous aliases are unsafe because app CSV exports
+   * carry no immutable device id of their own.
+   */
+  tapoAppDeviceName(sensorId: string, deviceId: string): string | null {
+    const sensor = this.database.getSensor(sensorId);
+    if (!sensor || sensor.tpLinkDeviceId !== deviceId) return null;
+    const devices = this.listDiscoveredDevices();
+    const candidates = devices.filter((device) => device.deviceId === deviceId
+      && (!sensor.tpLinkConnectionId || device.connectionId === sensor.tpLinkConnectionId));
+    if (candidates.length !== 1) return null;
+    const alias = candidates[0]!.alias?.trim();
+    if (!alias) return null;
+    const normalized = alias.normalize("NFKC").toLocaleLowerCase();
+    const collision = devices.some((device) => device.deviceId !== deviceId
+      && device.alias?.trim().normalize("NFKC").toLocaleLowerCase() === normalized);
+    return collision ? null : alias;
+  }
+
+  availability(now = new Date()): SensorMetricAvailability[] {
+    return [...this.#workers.values()].flatMap((worker) => worker.bridge.availability(now));
+  }
+
+  async recoverHistory(sensorId: string, metric: string, from: string, to: string): Promise<SensorHistoryRecoveryResult> {
+    const sensor = this.database.getSensor(sensorId);
+    const candidates = [...this.#workers.entries()].filter(([, worker]) => worker.houseId === sensor?.houseId);
+    const owned = sensor?.tpLinkConnectionId
+      ? this.#workers.get(sensor.tpLinkConnectionId)?.bridge
+      : candidates.length === 1 ? candidates[0]![1].bridge
+        : candidates.map(([, worker]) => worker.bridge).find((bridge) => bridge.ownsSensor(sensorId));
+    const local = owned
+      ? await owned.recoverHistory(sensorId, metric, from, to)
+      : { state: "not-supported" as const, samples: [], error: "No local TP-Link connection owns this sensor" };
+    if (local.state === "complete" || !this.options.historyFallback) return local;
+
+    const fallback = await this.options.historyFallback.recoverHistory(sensorId, metric, from, to);
+    return mergeTpLinkHistoryRecovery(local, fallback);
+  }
+
+  recoveryAccepted(sensorId: string, metric: string, from: string, to: string): void | Promise<void> {
+    return this.options.historyFallback?.consumeRecovered?.(sensorId, metric, from, to);
+  }
+
+  discoverSources(
+    houseId?: string,
+    credentials?: { username: string; password: string },
+    timeoutMs = 35_000,
+  ): Promise<TpLinkSourceDiscoveryResult> {
+    const preferredConnection = credentials ?? (houseId
+      ? this.config.tpLinkConnections?.find((connection) => connection.houseId === houseId)
+      : undefined);
+    return this.#tester.discoverSources(timeoutMs, preferredConnection);
   }
 
   testCredentials(host: string, username: string, password: string, timeoutMs = 15_000): Promise<TpLinkCredentialTestResult> {

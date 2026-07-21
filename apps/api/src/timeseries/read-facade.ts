@@ -5,6 +5,8 @@ import type {
   Reading,
 } from "@climate-twin/contracts";
 import type {
+  EnergyCostAggregateQuery,
+  EnergyCostAggregateRecord,
   LegacyReadingHistoryQuery,
   LegacyReadingRecord,
   MeasurementHistoryQuery,
@@ -62,6 +64,7 @@ export interface LocalTelemetryReader {
     to: string,
     limit?: number,
   ): OutdoorTemperatureSample[];
+  energyCostAggregate?(query: EnergyCostAggregateQuery): EnergyCostAggregateRecord;
 }
 
 /**
@@ -74,6 +77,7 @@ export interface ArchiveTelemetryReader {
   measurementWindow?(query: MeasurementWindowQuery): Promise<MeasurementSampleRecord[]>;
   legacyReadingHistory(query: LegacyReadingHistoryQuery): Promise<LegacyReadingRecord[]>;
   outdoorTemperatureHistory(query: OutdoorTemperatureHistoryQuery): Promise<OutdoorTemperatureRecord[]>;
+  energyCostAggregate?(query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
 }
 
 export interface LocalCompletenessQuery {
@@ -378,6 +382,36 @@ export class HybridTelemetryReader {
       key: outdoorKey,
       compare: compareOutdoor,
     });
+  }
+
+  /**
+   * Derived aggregates cannot be merged without double-counting the hot tail.
+   * Use SQLite only when its requested measurement window is complete;
+   * otherwise use the permanent Timescale archive as the sole source of truth.
+   */
+  async energyCostAggregate(query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord> {
+    const cancellation = aborted(query.signal);
+    if (cancellation) throw cancellation;
+    const complete = this.#isLocalHistoryComplete({ family: "measurement", from: query.from, to: query.to });
+    if (complete) {
+      if (!this.#local.energyCostAggregate) throw new Error("Local energy-cost aggregation is unavailable");
+      return this.#local.energyCostAggregate(query);
+    }
+    if (!this.#archive || !this.#archive.energyCostAggregate) {
+      throw new IncompleteTelemetryHistoryError("not-configured");
+    }
+    const phase = this.#archivePhase ? this.#safeArchivePhase() : "ready";
+    if (phase !== "ready" && phase !== "syncing") {
+      throw new IncompleteTelemetryHistoryError("not-ready");
+    }
+    try {
+      return await this.#archive.energyCostAggregate(query);
+    } catch (error) {
+      const afterFailureCancellation = aborted(query.signal);
+      if (afterFailureCancellation) throw afterFailureCancellation;
+      this.#requestReconciliation();
+      throw new IncompleteTelemetryHistoryError("failed");
+    }
   }
 
   async #read<T extends { source: string }>(input: {

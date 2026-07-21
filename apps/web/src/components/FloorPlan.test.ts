@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { MeasurementDefinition, MeasurementSample, Sensor } from "@climate-twin/contracts";
+import { floorMetersPerPlanUnit, wallLengthMeters, wallLengthPlanUnits, type MeasurementDefinition, type MeasurementSample, type Sensor } from "@climate-twin/contracts";
 import { BUILTIN_MEASUREMENTS } from "../measurements";
 import {
   clampPlanElementHeight,
@@ -21,6 +21,7 @@ import {
   planElementWidthBounds,
   roomRectanglePoints,
   snapPointToGrid,
+  wallLengthInputValue,
 } from "./FloorPlan";
 
 const sensors: Sensor[] = [
@@ -34,6 +35,18 @@ const humidity = BUILTIN_MEASUREMENTS.find((definition) => definition.id === "hu
 const sample = (sensorId: string, definition: MeasurementDefinition, value: number): MeasurementSample => ({
   sensorId, metric: definition.id, value, canonicalUnit: definition.unit,
   timestamp: "2026-07-14T08:00:00.000Z", source: "mock", quality: "good",
+});
+
+describe("physical floor-plan scale", () => {
+  it("derives every physical wall length from one level calibration", () => {
+    const wall = { id: "diagonal", from: { x: 1, y: 1 }, to: { x: 4, y: 5 } };
+    const floor = { metersPerPlanUnit: .2 };
+    expect(wallLengthPlanUnits(wall)).toBe(5);
+    expect(floorMetersPerPlanUnit(floor)).toBe(.2);
+    expect(wallLengthMeters(wall, floor)).toBe(1);
+    expect(wallLengthInputValue(1.23456)).toBe("1.235");
+    expect(floorMetersPerPlanUnit({}, { mapPlacement: { latitude: 60, longitude: 24, metersPerPlanUnit: .05 } })).toBe(.05);
+  });
 });
 
 describe("interpolateHeat", () => {
@@ -106,11 +119,15 @@ describe("floor-plan grid", () => {
     expect(defaultPlanElementWidth(floor, "window")).toBeCloseTo(1.16666666667, 10);
     expect(defaultPlanElementWidth(floor, "fireplace")).toBe(1);
     expect(defaultPlanElementWidth(floor, "vent")).toBe(.56);
+    expect(defaultPlanElementWidth(floor, "fireEscape")).toBeCloseTo(1.16666666667, 10);
     expect(floorGridSize(floor, "fine")).not.toBe(floorGridSize(floor, "coarse"));
 
     const bounds = planElementWidthBounds(floor, "door");
     expect(clampPlanElementWidth(floor, "door", 0)).toBe(bounds.min);
     expect(clampPlanElementWidth(floor, "door", 100)).toBe(bounds.max);
+    const calibratedDrawing = { width: 1000, height: 640, metersPerPlanUnit: .02 };
+    expect(planElementWidthBounds(calibratedDrawing, "door").min * .02).toBeCloseTo(.6, 8);
+    expect(planElementWidthBounds(calibratedDrawing, "window").min * .02).toBeCloseTo(.6, 8);
   });
 
   it("resolves stable metre-based heights for legacy elements and keeps them inside the ceiling", () => {
@@ -119,6 +136,8 @@ describe("floor-plan grid", () => {
     expect(defaultPlanElementHeight(floor, "window")).toBe(1.2);
     expect(defaultPlanElementHeight(floor, "fireplace")).toBe(1.25);
     const doorBounds = planElementHeightBounds(floor, "door");
+    expect(doorBounds.min).toBe(.6);
+    expect(clampPlanElementHeight(floor, "door", .6)).toBe(.6);
     expect(clampPlanElementHeight(floor, "door", 99)).toBe(doorBounds.max);
     expect(clampPlanElementHeight(floor, "door", 0)).toBe(doorBounds.min);
     expect(planElementBottomOffset(floor, {

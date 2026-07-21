@@ -4,6 +4,38 @@ Review these constraints before using physical data, alerts, or external
 automations. They distinguish the working vertical slice from the hardened
 system described in the roadmap.
 
+## Analytics foundation
+
+- The analytics query is a bounded, on-demand first slice, not the complete
+  Graphing and Stats subsystem. It supports house-scoped sensor series and
+  deterministic descriptive summaries, explicit evidence-query controls, and
+  ranges through one year; saved views, comparison periods, brush selection,
+  distributions, scientific derived metrics, findings, topology models,
+  validated forecasts, and predictive-maintenance signals remain deferred.
+- Stuga currently uses a database-wide, one-way demo-to-real transition rather
+  than `dataMode` columns and composite constraints on every telemetry row. The
+  analytics request, response, and export require an explicit mode and reject a
+  mismatch, but a future coordinated storage migration is still needed to meet
+  the full per-record isolation design.
+- Rollups are computed in memory from a bounded SQLite/Timescale read. Requests
+  fail at the source or output budget instead of truncating silently. There are
+  no persisted rollups, semantic cache, or late-data invalidation jobs yet.
+- Buckets are aligned to UTC. The requested house timezone is preserved for
+  rendering and export, but local-calendar daily aggregation and explicit
+  23/24/25-hour daylight-saving behavior are not implemented yet.
+- Coverage is inferred from the median cadence present in the requested series.
+  It is useful evidence of missingness, not a substitute for a source-declared
+  sampling schedule. Only source-estimated, stale, missing, low-coverage, and
+  counter-reset quality states currently reach generic rollups. Source-quality
+  filtering includes or excludes whole source samples; it does not repair or
+  interpolate the intervals they leave behind.
+- Rate rollups cap the held value at 1.5 inferred cadences; cumulative counters
+  treat decreases as resets. Meter-specific rollover maxima and energy
+  conservation validation require device metadata and are not inferred.
+- The existing SVG chart is retained. The new evidence section has an accessible
+  table, but manual screen-reader/keyboard and visual-regression review is still
+  required before claiming complete WCAG 2.2 AA coverage.
+
 ## Physical ingest correctness
 
 - Direct H100/H200 ingestion depends on the community-maintained `python-kasa`
@@ -11,7 +43,7 @@ system described in the roadmap.
   lag new hub firmware; validate before upgrading a working deployment.
 - T310/T315 child state does not provide a distinct source measurement time
   through this path. Direct samples use the successful local poll time. Values
-  are written on change and at least every five minutes when unchanged.
+  are written on change and at least every minute when unchanged.
 - Direct and Home Assistant adapters may run together, but there is no automatic
   cross-adapter deduplication. Map a physical child through only one adapter.
 - The bridge fetches current mapped states at startup/reconnect, converts
@@ -20,9 +52,87 @@ system described in the roadmap.
   mappings persist each metric independently with its Home Assistant
   `last_updated` time. Unknown temperature units are rejected rather than
   silently corrupting history.
-- Home Assistant's current-state reconciliation does not backfill every event
-  missed during an outage. Use Home Assistant history import or another
-  ingestion adapter when gap-free source history is required.
+- Sensor/metric availability transitions are recorded as durable data gaps. A
+  15-minute periodic scan also examines the preceding 30 days, but only for
+  `good` direct TP-Link samples. Estimated retained/private/app rows are not
+  treated as exact cadence proof. Home Assistant entities are event-driven and
+  stable values can be silent, so they are deliberately excluded from periodic
+  timestamp-hole discovery. Availability gaps after a reconnect still query
+  Home Assistant recorder history in bounded chunks.
+- The direct `python-kasa` path can request retained T310/T315 climate buckets
+  from an H100/H200 and supported power history from an energy device. These are
+  reverse-engineered local commands, not a TP-Link compatibility contract.
+  Climate recovery is at most 96 15-minute buckets (approximately one day), not
+  the original two-second stream. Power interval and retention depend on model
+  and firmware. Retained rows are `estimated`; unsupported, out-of-retention,
+  and missing-bucket results remain visible as `not-supported` or `partial`.
+- After local TP-Link retention is incomplete, an explicitly configured private
+  compatibility adapter is tried before Appium. It is not an official API and
+  accepted rows remain `estimated`; failure falls through to the documented app
+  export instead of being treated as proof that no data exists.
+- The optional older-history fallback controls the Tapo Android UI through
+  Appium. It is disabled and inert by default. Enabled mode requires a stable
+  target-lock ID; exact UDID/platform/language/locale, Appium, UiAutomator2, and
+  APK pins; hardened Appium logging; a dedicated-account attestation; and either
+  login credentials or a per-account proof. It remains sensitive to selector,
+  screen, login, 2FA, consent, and firmware changes. Unknown UI states stop at
+  `needs-attention`; they are never interpreted as successful exports.
+- The account email/proof is HMAC-bound into the deployment fingerprint, but it
+  is an operator attestation rather than a Tapo-issued runtime identity. Runtime
+  safety still depends on a globally unique live alias and the exact immutable
+  `deviceProofs[deviceId]` value on the device page. Checked-in `CHANGE_ME`
+  selectors and unit tests cannot replace a live canary against the exact APK.
+- Tapo CSV files do not reliably include a stable device ID. Stuga correlates a
+  job through a random capability plus-address and stored sensor/device binding.
+  It requires a unique alias discovered for the immutable device ID, then makes
+  the flow tap and re-verify that alias. Every leased attempt rotates the hidden
+  address, so late mail from a retry/cancelled generation cannot complete the
+  current generation.
+- A canary must span at least eight export intervals and no more than
+  `max(7 days, 8 intervals)`. It proves both climate columns against overlapping
+  trusted-good live data; its staged rows are excluded from ingestion and gap
+  recovery. Approval is scoped to the target/device/alias/timezone/interval,
+  runner fingerprint, exact API build/acceptance/parser revision, and observed
+  CSV schema. It expires after 30 days and is renewed ahead of expiry when work
+  is queued. Any relevant deployment change or schema drift relocks ordinary
+  jobs until a fresh canary passes.
+- One attachment is limited to 8 MiB and 23,000 raw data rows; no more than
+  20,000 accepted rows (about 40,000 climate samples) complete one job. Explicit
+  recovery is limited to the most recent two years and normally split into
+  sequential segments no longer than 30 days; the one-minute row budget is
+  shorter. The flow's bounded `repeatTap` calendar action supports zero through
+  24 month steps, but its selectors still require live calibration.
+- Parsing fails closed on ambiguous/missing columns, invalid UTF-8, a missing or
+  conflicting Celsius/Fahrenheit declaration, timezone/range/cadence gaps,
+  excessive malformed rows, duplicate conflicts, or canary-schema drift.
+  Completed jobs retain the exact attachment SHA-256/byte length, parser version,
+  and schema signature for audit; they do not expose the recipient capability or
+  Gmail message ID. Stuga does not retain a second raw CSV or RFC-message copy,
+  so later byte-for-byte replay depends on the operator's Gmail retention policy.
+- Gmail ingestion requires offline OAuth with the restricted `gmail.readonly`
+  scope and accepts only mail to the hidden job alias with a Gmail timestamp no
+  earlier than the server-recorded app submission. The mailbox must support plus addressing and
+  preserve the tagged recipient header. The token's `/users/me/profile` identity
+  must match the configured primary Gmail account; Workspace aliases/catch-alls
+  need an explicit override. The default permits only one claimed/running or
+  waiting-email generation. Authenticated health reports expose last success,
+  last error/code, consecutive failures, and Gmail budget exhaustion; the setup
+  UI summarizes the current error, queue cap, worker, and deployment. The reader
+  does not delete or mark mail read, so mailbox retention and privacy are
+  operator responsibilities.
+- The supported topology is exactly one runner process for each Android target.
+  API leases serialize claimed jobs, but two replicas sharing one UDID can still
+  interfere while reconciling Appium sessions before either process claims work.
+- TP-Link states that a T310/T315 hub must remain online to upload history, that
+  power-outage intervals are lost, and that restarting the hub can delete
+  unuploaded history. Neither local recovery, Home Assistant, nor app automation
+  can reconstruct a sample that no source retained.
+- TP-Link does not publish an end-user Tapo smart-home API. The optional private
+  HTTPS adapter is explicitly experimental and operator-maintained; endpoint,
+  identity, units, time range, authentication, rate limits, terms, and version
+  compatibility require independent validation. It is not enabled by Tapo
+  account credentials alone. See
+  [Automated Tapo history recovery](tapo-history-automation.md).
 - Separate temperature and humidity entities can update a few seconds apart.
   The v1 combined reading therefore contains the newest known value of each
   metric rather than an atomic sample. Use v2 samples when source timing matters.
@@ -33,7 +143,7 @@ system described in the roadmap.
 - Home Assistant `unknown`, `unavailable`, non-numeric, and non-finite states are
   ignored. They are not converted into zeros.
 - **Freshness is source-bounded.** The official TP-Link integration polls every
-  five seconds and the direct bridge defaults to ten seconds; device sampling
+  five seconds and the direct bridge defaults to two seconds; device sampling
   and network delay are additional.
 
 ## House weather and map
@@ -79,8 +189,11 @@ system described in the roadmap.
 - Fresh outdoor temperature observations are persisted only in a separate,
   location-isolated boundary table with opaque location keys, weather-location
   change/clear erasure, and configured retention; other weather fields, stale
-  fallbacks, and forecasts are not historical observations. Moving or clearing
-  the independent map placement does not purge this history. Weather and fitted
+  fallbacks, and forecasts are not historical observations. Within the retained
+  30-day scan window, provider-supported observation gaps are discovered and
+  backfilled into SQLite and TimescaleDB; recovery cannot exceed upstream
+  availability or the configured retention window. Moving or clearing the
+  independent map placement does not purge this history. Weather and fitted
   models must not directly drive safety-critical HVAC, freeze protection,
   shutters, or alarms. See [Outdoor weather and home location](weather.md).
 - House orientation is a user-supplied bearing for the top of the plan, not a
@@ -214,7 +327,11 @@ system described in the roadmap.
   heights, observations, a sparse-sample XYZ cloud, and a shared 2D/3D
   sensor-constrained relative flow estimate with scalar-gradient fallback. It assumes floors share the same
   horizontal origin and orientation. Elevation and sensor `z` are metres;
-  horizontal plans may use a calibrated local coordinate system. The renderer
+  horizontal plans may use a calibrated local coordinate system. A measured
+  wall can calibrate `Floor.metersPerPlanUnit`; every wall length, area, and
+  volume is then derived from that shared level scale rather than stored as a
+  conflicting independent measurement. Legacy map-placement scale remains a
+  fallback. The renderer
   uses an orthographic camera and vertical normalization for legibility.
 - The API can retain glTF/GLB assets, but importing, aligning, interactively
   rendering, or editing those models remains a roadmap capability. Essential

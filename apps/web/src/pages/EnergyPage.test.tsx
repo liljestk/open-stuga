@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { MeasurementSample, Sensor } from "@climate-twin/contracts";
+import type { HomeEnergyCost, MeasurementSample, Sensor } from "@climate-twin/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
@@ -16,6 +16,23 @@ function sample(value: number, timestamp: string): MeasurementSample {
     timestamp,
     source: "home-assistant",
     quality: "good",
+  };
+}
+
+function cumulativeCost(houseId: string, sensorId: string, from: string, to: string, costEur: number): HomeEnergyCost {
+  return {
+    houseId,
+    sensorId,
+    from,
+    to,
+    consumptionKwh: 5,
+    pricedConsumptionKwh: 5,
+    costEur,
+    priceCoveragePercent: 100,
+    measurementCoverageFrom: from,
+    measurementCoverageUntil: to,
+    complete: true,
+    calculatedAt: to,
   };
 }
 
@@ -232,6 +249,10 @@ describe("EnergyPage", () => {
     const onOpenAlerts = vi.fn();
     const consumptionHistory = vi.spyOn(api, "measurementHistory").mockResolvedValue(history);
     vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({ current: null });
+    const costRequest = vi.spyOn(api, "houseEnergyCost").mockImplementation(async (houseId, sensorId, from, to) => {
+      const duration = Date.parse(to) - Date.parse(from);
+      return cumulativeCost(houseId, sensorId, from, to, duration <= 3_600_000 ? 0.19 : 8.42);
+    });
 
     render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={onLoadSeries} onOpenSensors={onOpenSensors} onOpenAlerts={onOpenAlerts} /></I18nProvider>);
 
@@ -239,7 +260,12 @@ describe("EnergyPage", () => {
     expect(screen.getAllByText("3000 W")).toHaveLength(2);
     expect(await screen.findByText("5.00 kWh")).not.toBeNull();
     expect(screen.getAllByText("0.123 €/kWh")).toHaveLength(2);
-    expect(screen.getByText("0.37 €/h")).not.toBeNull();
+    expect(await screen.findByText("8.42 €")).not.toBeNull();
+    const costInterval = screen.getByRole("combobox", { name: "Running cost interval" });
+    expect((costInterval as HTMLSelectElement).value).toBe("month");
+    await user.selectOptions(costInterval, "1h");
+    expect(await screen.findByText("0.19 €")).not.toBeNull();
+    expect(costRequest).toHaveBeenLastCalledWith(house.id, "meter", expect.any(String), expect.any(String), expect.any(AbortSignal));
     await waitFor(() => expect(onLoadSeries).toHaveBeenCalledWith("meter", "power", "24h", false));
     await waitFor(() => expect(consumptionHistory).toHaveBeenCalledWith(
       "meter", "energy", expect.any(String), expect.any(String), 50_000,
@@ -293,7 +319,7 @@ describe("EnergyPage", () => {
     render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={vi.fn()} onOpenAlerts={vi.fn()} /></I18nProvider>);
 
     expect(await screen.findByText("0.150 €/kWh")).not.toBeNull();
-    expect(screen.getByText("0.30 €/h")).not.toBeNull();
+    expect(screen.queryByText("216.00 €")).toBeNull();
     expect(screen.queryByRole("heading", { name: "Electricity contract" })).toBeNull();
     expect(screen.queryByLabelText("Retailer")).toBeNull();
     expect(homeProjection).toHaveBeenCalledWith(house.id);

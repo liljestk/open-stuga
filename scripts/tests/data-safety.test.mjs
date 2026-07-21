@@ -570,16 +570,18 @@ test("runtime database and proxy credentials are generated once without fixed de
     "timeseries-admin-password": join(directory, "admin", "password"),
     "timeseries-password": join(directory, "app", "password"),
     "local-auth-proxy-secret": join(directory, "proxy", "secret"),
+    "tapo-history-worker-token": join(directory, "tapo", "worker-token"),
   };
   const environment = {
     ...process.env,
     STUGA_TIMESERIES_ADMIN_SECRET_PATH: paths["timeseries-admin-password"],
     STUGA_TIMESERIES_APP_SECRET_PATH: paths["timeseries-password"],
     STUGA_PROXY_SECRET_PATH: paths["local-auth-proxy-secret"],
+    STUGA_TAPO_WORKER_SECRET_PATH: paths["tapo-history-worker-token"],
   };
   execFileSync(process.execPath, [script], { env: environment, stdio: "pipe" });
   const first = Object.fromEntries([
-    "timeseries-admin-password", "timeseries-password", "local-auth-proxy-secret",
+    "timeseries-admin-password", "timeseries-password", "local-auth-proxy-secret", "tapo-history-worker-token",
   ].map((name) => [
     name,
     readFileSync(paths[name], "utf8").trim(),

@@ -7,6 +7,7 @@ import { displayUnit, formatMeasurement, measurementDomain, measurementLabel, me
 import { formatInTimeZone } from "../dateTime";
 import { isHomeRelevantWeatherWarning } from "../weatherWarningRelevance";
 import { useNow } from "../useNow";
+import { chartGapThresholdMs } from "../chartGaps";
 
 interface RoomComparisonChartProps {
   sensors: Sensor[];
@@ -54,8 +55,17 @@ function outdoorValue(definition: MeasurementDefinition, point: NonNullable<Hous
   return null;
 }
 
-function pathFor(points: SeriesPoint[], x: (timestamp: number) => number, y: (value: number) => number): string {
-  return points.map((point, index) => `${index ? "L" : "M"}${x(point.timestamp).toFixed(1)} ${y(point.value).toFixed(1)}`).join(" ");
+function pathFor(
+  points: SeriesPoint[],
+  x: (timestamp: number) => number,
+  y: (value: number) => number,
+  gapThresholdMs: number,
+): string {
+  return points.map((point, index) => {
+    const previous = points[index - 1];
+    const command = !previous || point.timestamp - previous.timestamp > gapThresholdMs ? "M" : "L";
+    return `${command}${x(point.timestamp).toFixed(1)} ${y(point.value).toFixed(1)}`;
+  }).join(" ");
 }
 
 function nearest(points: SeriesPoint[], timestamp: number): SeriesPoint | null {
@@ -68,6 +78,20 @@ function initialSensorIds(selectedSensorId: string | null, sensors: Sensor[]): s
   if (selectedSensorId) return [selectedSensorId];
   const firstSensor = sensors[0];
   return firstSensor ? [firstSensor.id] : [];
+}
+
+function comparisonSensorLabels(sensors: Sensor[]): Map<string, string> {
+  const roomCounts = new Map<string, number>();
+  sensors.forEach((sensor) => {
+    const room = sensor.room.trim().toLocaleLowerCase();
+    if (room) roomCounts.set(room, (roomCounts.get(room) ?? 0) + 1);
+  });
+  return new Map(sensors.map((sensor) => {
+    const room = sensor.room.trim();
+    const name = sensor.name.trim();
+    const roomIsAmbiguous = room && (roomCounts.get(room.toLocaleLowerCase()) ?? 0) > 1;
+    return [sensor.id, roomIsAmbiguous ? (name || room) : (room || name)];
+  }));
 }
 
 function hoursForRange(range: TimeRange): number {
@@ -107,8 +131,10 @@ export function RoomComparisonChart(props: Readonly<RoomComparisonChartProps>) {
   const loadSeriesRef = useRef(props.onLoadSeries);
   const now = useNow();
   const rangeHours = hoursForRange(props.range);
+  const gapThresholdMs = chartGapThresholdMs(props.range);
   const from = now - rangeHours * 60 * 60_000;
   const activeSensorIds = useMemo(() => new Set(props.sensors.map((sensor) => sensor.id)), [props.sensors]);
+  const sensorLabels = useMemo(() => comparisonSensorLabels(props.sensors), [props.sensors]);
 
   useEffect(() => {
     setSelectedIds((current) => {
@@ -143,7 +169,7 @@ export function RoomComparisonChart(props: Readonly<RoomComparisonChartProps>) {
           const timestamp = Date.parse(sample.timestamp);
           return value === undefined || !Number.isFinite(timestamp) ? [] : [{ timestamp, value }];
         });
-      return [{ id: sensor.id, label: sensor.room.trim() || sensor.name, colorIndex: index, outdoor: false, points }];
+      return [{ id: sensor.id, label: sensorLabels.get(sensor.id) ?? sensor.name, colorIndex: index, outdoor: false, points }];
     });
     if (!outdoorVisible || !outdoorAvailable || !props.weather) return indoor;
     const weatherPoints = [props.weather.current, ...props.weather.forecast]
@@ -156,7 +182,7 @@ export function RoomComparisonChart(props: Readonly<RoomComparisonChartProps>) {
       .sort((left, right) => left.timestamp - right.timestamp)
       .filter((point, index, points) => index === 0 || point.timestamp !== points[index - 1]!.timestamp);
     return [...indoor, { id: "outdoor", label: t("decision.outdoor"), colorIndex: 4, outdoor: true, points: weatherPoints }];
-  }, [selectedIds, props.sensors, props.history, props.definition, props.weather, outdoorAvailable, outdoorVisible, from, t]);
+  }, [selectedIds, props.sensors, props.history, props.definition, props.weather, outdoorAvailable, outdoorVisible, from, sensorLabels, t]);
   const allPoints = series.flatMap((item) => item.points);
   const timeMin = from;
   const timeMax = now;
@@ -233,7 +259,7 @@ export function RoomComparisonChart(props: Readonly<RoomComparisonChartProps>) {
             <text x="7" y="15">{displayUnit(props.definition, props.units)}</text>
           </g>
           <g className="comparison-events" aria-hidden="true">{markers.map((marker, index) => <g key={marker.id} className={marker.kind}><line x1={x(marker.timestamp)} x2={x(marker.timestamp)} y1={margin.top + (index % 3) * 5} y2={height - margin.bottom} /><circle cx={x(marker.timestamp)} cy={margin.top + (index % 3) * 5} r="3" /></g>)}</g>
-          <g className="comparison-lines" aria-hidden="true">{series.map((item) => item.points.length > 1 && <path key={item.id} d={pathFor(item.points, x, y)} className={`comparison-line series-${item.outdoor ? "outdoor" : item.colorIndex}`} strokeDasharray={SERIES_DASHES[seriesPatternIndex(item)]} />)}</g>
+          <g className="comparison-lines" aria-hidden="true">{series.map((item) => item.points.length > 1 && <path key={item.id} d={pathFor(item.points, x, y, gapThresholdMs)} className={`comparison-line series-${item.outdoor ? "outdoor" : item.colorIndex}`} strokeDasharray={SERIES_DASHES[seriesPatternIndex(item)]} />)}</g>
           <g className="comparison-points">{series.flatMap((item) => {
             const patternIndex = seriesPatternIndex(item);
             return item.points.filter((_, index) => index % Math.max(1, Math.floor(item.points.length / 28)) === 0 || index === item.points.length - 1).map((point) => (
@@ -278,7 +304,7 @@ export function RoomComparisonChart(props: Readonly<RoomComparisonChartProps>) {
       <fieldset className="comparison-picker"><legend className="sr-only">{t("decision.compareRooms")}</legend>
         {props.sensors.map((sensor) => {
           const colorIndex = selectedIds.indexOf(sensor.id);
-          return <button key={sensor.id} type="button" className={`series-chip ${colorIndex >= 0 ? `series-${colorIndex}` : "series-idle"}`} aria-pressed={colorIndex >= 0} onClick={() => toggleSensor(sensor.id)}>{colorIndex >= 0 && <span aria-hidden="true">{SERIES_GLYPHS[colorIndex]}</span>}{sensor.room.trim() || sensor.name}</button>;
+          return <button key={sensor.id} type="button" className={`series-chip ${colorIndex >= 0 ? `series-${colorIndex}` : "series-idle"}`} aria-pressed={colorIndex >= 0} onClick={() => toggleSensor(sensor.id)}>{colorIndex >= 0 && <span aria-hidden="true">{SERIES_GLYPHS[colorIndex]}</span>}<span className="series-chip-label">{sensorLabels.get(sensor.id) ?? sensor.name}</span></button>;
         })}
         {outdoorAvailable && <button type="button" className="series-chip series-outdoor" aria-pressed={outdoorVisible} onClick={() => setOutdoorVisible((visible) => !visible)}><span aria-hidden="true">{SERIES_GLYPHS[4]}</span><CloudSun size={13} aria-hidden="true" />{t("decision.outdoor")}</button>}
       </fieldset>

@@ -176,8 +176,8 @@ explicit horizontal scale plus measured/configured opening and fan flow data.
   meaningfully push room air and must not be used as a direct force.
 
 The next scientifically meaningful additions are supply-air temperature and
-moisture, pressure/commissioning data, a reliable horizontal plan scale, and
-explicit stairs, shafts, and other vertical portals. Those inputs can later
+moisture, pressure/commissioning data, verified horizontal calibration for
+every level, and explicit stairs, shafts, and other vertical portals. Those inputs can later
 feed a conservative multizone airflow network and calibrated advection model.
 
 The view turns those limitations into calm, scoped suggestions. It may recommend

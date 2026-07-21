@@ -55,6 +55,24 @@ const discoveredChild: TpLinkDiscoveredDevice = {
   mappedSensorId: null,
 };
 
+const historyAutomation = {
+  operational: true,
+  canaryPending: false,
+  waitingEmails: 0,
+  maxPendingEmails: 1,
+  exportIntervalMinutes: 15 as const,
+  canaryApprovalMaxAgeDays: 30,
+  mailbox: {
+    lastSuccessfulPollAt: null,
+    lastErrorAt: null,
+    lastErrorCode: null,
+    consecutiveFailures: 0,
+    budgetExhaustions: 0,
+  },
+  lastWorkerSeenAt: null,
+  deploymentFingerprintPrefix: null,
+};
+
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   const promise = new Promise<T>((next) => { resolve = next; });
@@ -101,6 +119,8 @@ beforeEach(() => {
   vi.spyOn(window, "confirm").mockReturnValue(true);
   vi.spyOn(api, "testTpLinkDraft").mockResolvedValue({ ok: true, message: "Connected" });
   vi.spyOn(api, "testHomeAssistantDraft").mockResolvedValue({ ok: true, message: "Connected" });
+  vi.spyOn(api, "tpLinkHistoryExportJobs").mockResolvedValue({ enabled: false, automation: historyAutomation, jobs: [] });
+  vi.spyOn(api, "tpLinkDevices").mockResolvedValue([]);
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -108,7 +128,137 @@ afterEach(() => {
 });
 
 describe("Setup workspace", () => {
-  it("leads with the existing live TP-Link connection and keeps replacement setup collapsed", async () => {
+  it("queues an eight-interval Tapo canary for a daily export configuration", async () => {
+    window.history.replaceState(null, "", "/setup/connections");
+    vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
+    vi.mocked(api.tpLinkHistoryExportJobs).mockResolvedValue({
+      enabled: true,
+      automation: { ...historyAutomation, exportIntervalMinutes: 1440 },
+      jobs: [],
+    });
+    vi.mocked(api.tpLinkDevices).mockResolvedValue([{ ...discoveredChild, mappedSensorId: "sensor-hall" }]);
+    const createCanary = vi.spyOn(api, "createTpLinkHistoryExportCanary").mockResolvedValue({ job: {} as never });
+    const user = userEvent.setup();
+    renderPage({ integration: connectedTpLink() });
+
+    await user.click(await screen.findByRole("button", { name: "Run acceptance canary" }));
+    expect(createCanary).toHaveBeenCalledWith(expect.objectContaining({
+      sensorId: "sensor-hall",
+      metric: "temperature",
+      from: expect.any(String),
+      to: expect.any(String),
+    }));
+    const input = createCanary.mock.calls[0]![0];
+    expect(Date.parse(input.to) - Date.parse(input.from)).toBe(8 * 24 * 60 * 60_000);
+  });
+
+  it("shows automated Tapo history jobs and exposes retry, cancel, and refresh controls", async () => {
+    window.history.replaceState(null, "", "/setup/connections");
+    vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
+    const jobs = [
+      {
+        id: "failed-job",
+        canary: false,
+        provider: "appium" as const,
+        sensorId: "sensor-hall",
+        deviceId: "device-hall",
+        deviceName: "Hall sensor",
+        timeZone: "Europe/Helsinki",
+        metric: "temperature",
+        expectedRecipient: "history+failed@example.test",
+        from: "2026-07-01T00:00:00.000Z",
+        to: "2026-07-02T00:00:00.000Z",
+        intervalMinutes: 15,
+        status: "needs-attention" as const,
+        attemptCount: 2,
+        maxAttempts: 3,
+        availableAt: "2026-07-02T01:00:00.000Z",
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        heartbeatAt: null,
+        submittedAt: null,
+        mailboxMessageId: null,
+        sourceArtifactSha256: null,
+        sourceArtifactBytes: null,
+        parserVersion: null,
+        sourceSchemaSignature: null,
+        stagedSampleCount: 0,
+        consumedSampleCount: 0,
+        lastError: null,
+        attentionReason: "Tapo login requires verification",
+        detail: "Tapo login requires verification",
+        createdAt: "2026-07-02T00:00:00.000Z",
+        updatedAt: "2026-07-02T01:00:00.000Z",
+        completedAt: null,
+      },
+      {
+        id: "active-job",
+        canary: false,
+        provider: "private-cloud" as const,
+        sensorId: "sensor-cellar",
+        deviceId: "device-cellar",
+        deviceName: "Cellar sensor",
+        timeZone: "Europe/Helsinki",
+        metric: "humidity",
+        expectedRecipient: null,
+        from: "2026-07-03T00:00:00.000Z",
+        to: "2026-07-04T00:00:00.000Z",
+        intervalMinutes: 15,
+        status: "running" as const,
+        attemptCount: 1,
+        maxAttempts: 3,
+        availableAt: "2026-07-03T00:00:00.000Z",
+        leaseOwner: "private-worker",
+        leaseExpiresAt: "2026-07-03T00:10:00.000Z",
+        heartbeatAt: "2026-07-03T00:01:00.000Z",
+        submittedAt: null,
+        mailboxMessageId: null,
+        sourceArtifactSha256: null,
+        sourceArtifactBytes: null,
+        parserVersion: null,
+        sourceSchemaSignature: null,
+        stagedSampleCount: 0,
+        consumedSampleCount: 0,
+        lastError: null,
+        attentionReason: null,
+        detail: null,
+        createdAt: "2026-07-03T00:00:00.000Z",
+        updatedAt: "2026-07-03T00:01:00.000Z",
+        completedAt: null,
+      },
+    ];
+    vi.mocked(api.tpLinkHistoryExportJobs).mockResolvedValue({ enabled: true, automation: historyAutomation, jobs });
+    const retry = vi.spyOn(api, "retryTpLinkHistoryExportJob").mockResolvedValue(undefined);
+    const cancel = vi.spyOn(api, "cancelTpLinkHistoryExportJob").mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderPage({ integration: connectedTpLink() });
+
+    const panel = await screen.findByRole("heading", { name: "Automated Tapo history exports" });
+    const section = panel.closest("section")!;
+    expect(within(section).getByText("Needs Attention")).not.toBeNull();
+    expect(within(section).getByText("Tapo mobile app")).not.toBeNull();
+    expect(within(section).getByText("Hall sensor")).not.toBeNull();
+    expect(within(section).getByText("2 / 3")).not.toBeNull();
+    expect(within(section).getByText("Tapo login requires verification")).not.toBeNull();
+
+    await user.click(within(section).getByRole("button", { name: "Retry export for Hall sensor" }));
+    await waitFor(() => expect(retry).toHaveBeenCalledWith("failed-job"));
+    await user.click(within(section).getByRole("button", { name: "Cancel export for Cellar sensor" }));
+    await waitFor(() => expect(cancel).toHaveBeenCalledWith("active-job"));
+    await user.click(within(section).getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(api.tpLinkHistoryExportJobs).toHaveBeenCalledTimes(4));
+  });
+
+  it("clearly marks automated Tapo history exports as disabled", async () => {
+    window.history.replaceState(null, "", "/setup/connections");
+    vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
+    renderPage({ integration: connectedTpLink() });
+
+    expect((await screen.findByText("Automated history exports are disabled on this server.")).getAttribute("aria-disabled")).toBe("true");
+    expect((screen.getByRole("button", { name: "Refresh" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("leads with the existing live TP-Link connection, automatically scans for additions, and keeps replacement setup collapsed", async () => {
     const user = userEvent.setup();
     window.history.replaceState(null, "", "/setup/connections");
     const scan = vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
@@ -131,7 +281,7 @@ describe("Setup workspace", () => {
     expect(discovered?.textContent).toContain("3");
     expect(mapped?.textContent).toContain("2");
     expect(ready?.textContent).toContain("1");
-    expect(scan).not.toHaveBeenCalled();
+    await waitFor(() => expect(scan).toHaveBeenCalledWith(house.id));
 
     const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
     const settings = directSection.querySelector<HTMLDetailsElement>(".setup-config-disclosure")!;
@@ -139,6 +289,23 @@ describe("Setup workspace", () => {
     expect(within(directSection).getByText("Change saved TP-Link connection")).not.toBeNull();
     await user.click(settings.querySelector("summary")!);
     expect(await within(directSection).findByRole("button", { name: "Check direct TP-Link connection" })).not.toBeNull();
+  });
+
+  it("automatically surfaces standalone electrical devices beside a configured hub", async () => {
+    window.history.replaceState(null, "", "/setup/connections");
+    const scan = vi.spyOn(api, "discoverIntegrations").mockResolvedValue({
+      tpLink: [
+        { host: "192.168.68.54", model: "H200", alias: "Hall hub", sourceType: "hub" },
+        { host: "192.168.68.57", model: "HS110", alias: "Workshop plug", sourceType: "energy-device" },
+      ],
+      homeAssistant: [],
+      warnings: [],
+    });
+    renderPage({ integration: connectedTpLink() });
+
+    await waitFor(() => expect(scan).toHaveBeenCalledWith(house.id));
+    expect((await screen.findAllByText("Workshop plug")).length).toBeGreaterThan(0);
+    expect(screen.getByText(/energy device · HS110 · 192\.168\.68\.57/i)).not.toBeNull();
   });
 
   it("applies live TP-Link poll and inventory updates immediately on rerender", () => {
@@ -214,7 +381,7 @@ describe("Setup workspace", () => {
     const noTpLinkResult = {
       tpLink: [],
       homeAssistant: [{ name: "Our home", url: "http://homeassistant.local:8123", host: "192.168.1.20", port: 8123, version: null }],
-      warnings: ["TP-Link discovery was unavailable. Enter the hub address manually."],
+      warnings: ["TP-Link discovery was unavailable. Enter the hub or energy-device address manually."],
     };
     const scan = vi.spyOn(api, "discoverIntegrations").mockReturnValueOnce(firstScan).mockResolvedValue(noTpLinkResult);
     renderPage();
@@ -229,8 +396,8 @@ describe("Setup workspace", () => {
     expect(await screen.findByRole("button", { name: "Find devices" })).not.toBeNull();
     expect(screen.getByText("Connection options found: 1.")).not.toBeNull();
     const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
-    expect(await within(directSection).findByText(/Automatic discovery did not provide a TP-Link hub/)).not.toBeNull();
-    expect(screen.getByText("TP-Link discovery was unavailable. Enter the hub address manually.")).not.toBeNull();
+    expect(await within(directSection).findByText(/Automatic discovery did not provide a supported TP-Link source/)).not.toBeNull();
+    expect(screen.getByText("TP-Link discovery was unavailable. Enter the hub or energy-device address manually.")).not.toBeNull();
     expect((within(directSection).getByLabelText("Hub or energy-device address") as HTMLInputElement).value).toBe("");
     expect(directSection.querySelector<HTMLDetailsElement>(".setup-config-disclosure")?.open).toBe(true);
 
@@ -239,6 +406,40 @@ describe("Setup workspace", () => {
     expect(scan).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole("button", { name: "Find devices" }));
     await waitFor(() => expect(scan).toHaveBeenCalledTimes(2));
+  });
+
+  it("uses entered credentials to discover and auto-fill a first P110 energy plug", async () => {
+    const user = userEvent.setup();
+    const scan = vi.spyOn(api, "discoverIntegrations")
+      .mockResolvedValueOnce({ tpLink: [], homeAssistant: [], warnings: [] })
+      .mockResolvedValueOnce({
+        tpLink: [{
+          host: "192.168.1.64",
+          model: "P110",
+          alias: "Laundry plug",
+          sourceType: "energy-device",
+        }],
+        homeAssistant: [],
+        warnings: [],
+      });
+    renderPage();
+
+    await user.click(screen.getByRole("tab", { name: /Where readings come from/ }));
+    await user.click(screen.getByRole("button", { name: "Find devices" }));
+
+    const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
+    await user.type(within(directSection).getByLabelText("TP-Link account email"), "person@example.test");
+    await user.type(within(directSection).getByLabelText("TP-Link account password"), "local-secret");
+    await user.click(screen.getByRole("button", { name: "Find devices" }));
+
+    await waitFor(() => expect(scan).toHaveBeenLastCalledWith(house.id, {
+      username: "person@example.test",
+      password: "local-secret",
+    }));
+    expect((await within(directSection).findAllByText("Laundry plug")).length).toBeGreaterThan(0);
+    expect(within(directSection).getByText(/energy device · P110 · 192\.168\.1\.64/i)).not.toBeNull();
+    expect((within(directSection).getByLabelText("Hub or energy-device address") as HTMLInputElement).value)
+      .toBe("192.168.1.64");
   });
 
   it("discards a discovery result from the previously selected Home", async () => {
@@ -370,7 +571,7 @@ describe("Setup workspace", () => {
     await user.click(screen.getByRole("tab", { name: /Where readings come from/ }));
     await user.click(screen.getByRole("button", { name: "Find devices" }));
     const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
-    expect(await within(directSection).findByText(/Automatic discovery did not provide a TP-Link hub/)).not.toBeNull();
+    expect(await within(directSection).findByText(/Automatic discovery did not provide a supported TP-Link source/)).not.toBeNull();
     expect(screen.getByText("Device search could not finish.")).not.toBeNull();
     expect(within(directSection).getByLabelText("Hub or energy-device address")).not.toBeNull();
     expect(directSection.querySelector<HTMLDetailsElement>(".setup-config-disclosure")?.open).toBe(true);
@@ -436,13 +637,10 @@ describe("Setup workspace", () => {
     expect(screen.queryByRole("button", { name: "Review 2 found" })).toBeNull();
 
     const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
-    const manualSettings = within(directSection).getByText("Enter an address manually");
-    expect((manualSettings.closest("details") as HTMLDetailsElement).open).toBe(false);
-    await user.click(within(directSection).getByRole("radio", { name: /Hall hub/ }));
     const discoveredSettings = directSection.querySelector<HTMLDetailsElement>(".setup-config-disclosure")!;
+    expect(discoveredSettings.open).toBe(true);
     expect(discoveredSettings.querySelector("summary")?.textContent).toContain("Hall hub");
     expect(within(directSection).queryByText("Enter an address manually")).toBeNull();
-    await user.click(discoveredSettings.querySelector("summary")!);
 
     expect((within(directSection).getByLabelText("Hub or energy-device address") as HTMLInputElement).value).toBe("192.168.1.42");
     await user.type(within(directSection).getByLabelText("TP-Link account email"), "person@example.test");
@@ -465,6 +663,79 @@ describe("Setup workspace", () => {
     expect(await within(directSection).findByText("Paired sensors found: 1.")).not.toBeNull();
     expect(refreshTpLinkDevices).toHaveBeenCalledOnce();
     expect(rendered.props.onIntegrationChange).toHaveBeenCalledWith(realIntegration);
+  });
+
+  it("does not overwrite a manual address entered while discovery is in flight", async () => {
+    const user = userEvent.setup();
+    const scan = deferred<Awaited<ReturnType<typeof api.discoverIntegrations>>>();
+    vi.spyOn(api, "discoverIntegrations").mockReturnValue(scan.promise);
+    renderPage();
+
+    await user.click(screen.getByRole("tab", { name: /Where readings come from/ }));
+    const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
+    await user.click(directSection.querySelector("summary")!);
+    await user.click(screen.getByRole("button", { name: "Find devices" }));
+    const host = within(directSection).getByLabelText("Hub or energy-device address") as HTMLInputElement;
+    await user.type(host, "192.168.1.99");
+
+    await act(async () => {
+      scan.resolve({
+        tpLink: [{ host: "192.168.1.56", model: "H200", alias: "Hall hub" }],
+        homeAssistant: [],
+        warnings: [],
+      });
+      await scan.promise;
+    });
+
+    expect(host.value).toBe("192.168.1.99");
+  });
+
+  it("adds a different discovered source without overwriting the sole existing connection", async () => {
+    const user = userEvent.setup();
+    const configured = connectedTpLink({
+      connected: false,
+      error: "Unable to reach 192.168.1.42",
+      connections: [{
+        id: "legacy",
+        houseId: house.id,
+        configured: true,
+        connected: false,
+        lastPollAt: null,
+        mappedDevices: 0,
+        discoveredDevices: 0,
+        hubModel: "H200",
+        error: "Unable to reach 192.168.1.42",
+      }],
+    });
+    vi.spyOn(api, "discoverIntegrations").mockResolvedValue({
+      tpLink: [{ host: "192.168.1.56", model: "H200", alias: "Hall hub" }],
+      homeAssistant: [],
+      warnings: [],
+    });
+    const configure = vi.spyOn(api, "configureTpLink").mockResolvedValue({
+      ok: true,
+      configured: true,
+      integration: configured,
+    });
+    vi.spyOn(api, "integrations").mockResolvedValue(configured);
+    renderPage({ integration: configured, onRefreshTpLinkDevices: vi.fn().mockResolvedValue([]) });
+
+    await user.click(screen.getByRole("tab", { name: /Where readings come from/ }));
+    await user.click(screen.getByRole("button", { name: "Find additional systems" }));
+    const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
+    expect((await within(directSection).findByLabelText("Hub or energy-device address") as HTMLInputElement).value).toBe("192.168.1.56");
+    await user.type(within(directSection).getByLabelText("TP-Link account email"), "person@example.test");
+    await user.type(within(directSection).getByLabelText("TP-Link account password"), "local-secret");
+    await user.click(within(directSection).getByRole("button", { name: "Check direct TP-Link connection" }));
+    expect(await within(directSection).findByText("The server is polling the TP-Link hub or energy device directly.")).not.toBeNull();
+    await user.click(within(directSection).getByRole("button", { name: "Save and connect" }));
+
+    await waitFor(() => expect(configure).toHaveBeenCalledWith({
+      houseId: house.id,
+      host: "192.168.1.56",
+      username: "person@example.test",
+      password: "local-secret",
+    }));
   });
 
   it("invalidates a successful connection check when its credential draft changes in flight", async () => {
@@ -520,11 +791,8 @@ describe("Setup workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Find devices" }));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
-    fireEvent.click(within(directSection).getByRole("radio", { name: /Hall hub/ }));
-    await act(async () => {
-      fireEvent.click(directSection.querySelector("summary")!);
-      await Promise.resolve();
-    });
+    expect((within(directSection).getByRole("radio", { name: /Hall hub/ }) as HTMLInputElement).checked).toBe(true);
+    expect(directSection.querySelector<HTMLDetailsElement>(".setup-config-disclosure")!.open).toBe(true);
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     fireEvent.change(within(directSection).getByLabelText("TP-Link account email"), { target: { value: "person@example.test" } });
     fireEvent.change(within(directSection).getByLabelText("TP-Link account password"), { target: { value: "local-secret" } });
@@ -583,11 +851,8 @@ describe("Setup workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Find devices" }));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
-    fireEvent.click(within(directSection).getByRole("radio", { name: /Hall hub/ }));
-    await act(async () => {
-      fireEvent.click(directSection.querySelector("summary")!);
-      await Promise.resolve();
-    });
+    expect((within(directSection).getByRole("radio", { name: /Hall hub/ }) as HTMLInputElement).checked).toBe(true);
+    expect(directSection.querySelector<HTMLDetailsElement>(".setup-config-disclosure")!.open).toBe(true);
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     fireEvent.change(within(directSection).getByLabelText("TP-Link account email"), { target: { value: "person@example.test" } });
     fireEvent.change(within(directSection).getByLabelText("TP-Link account password"), { target: { value: "local-secret" } });

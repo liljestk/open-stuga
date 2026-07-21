@@ -77,10 +77,16 @@ import {
   policyFromJson,
   policyJson,
 } from "./notification-policy.js";
+import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord } from "./timeseries/types.js";
 
 type JsonValue = string | number | boolean;
 const MIN_SEED_OUTDOOR_READINGS = 48;
 const DEMO_TELEMETRY_SOURCES = new Set<MeasurementSample["source"]>(["mock", "replay"]);
+const TP_LINK_LOCAL_CLIMATE_HISTORY_REARM_KEY = "sensor-gap-rearm:tp-link-local-climate";
+const TP_LINK_LEGACY_CLIMATE_HISTORY_ERROR = "The direct H100/H200 local API does not expose retained T310/T315 measurement history";
+// T310/T315 return at most 96 quarter-hour buckets. The oldest bucket is 95
+// intervals behind the current bucket, so only fully retained gaps are rearmed.
+const TP_LINK_LOCAL_CLIMATE_HISTORY_RETENTION_MS = 95 * 15 * 60_000;
 const OBSERVATION_CHANGED_FIELDS: readonly ObservationChangedField[] = [
   "floorId", "sensorId", "kind", "severity", "note", "x", "y", "occurredAt", "timePrecision",
   "validFrom", "validTo", "source", "sourceDetail", "confidence", "status", "resolutionNote", "resolvedAt",
@@ -167,6 +173,7 @@ export interface ElectricityPriceArchiveRecord {
   startAt: string;
   endAt: string;
   rawPriceCentsPerKwh: number;
+  marginCentsPerKwh: number;
   source: string;
   fetchedAt: string;
 }
@@ -265,7 +272,19 @@ interface ElectricityPricePointRow {
   start_at: string;
   end_at: string;
   raw_price_cents_per_kwh: number;
+  margin_cents_per_kwh: number;
   fetched_at: string;
+}
+
+interface EnergyCostAggregateRow {
+  delta_count: number;
+  consumption_kwh: number | null;
+  priced_consumption_kwh: number | null;
+  cost_eur: number | null;
+  total_duration_ms: number | null;
+  priced_duration_ms: number | null;
+  coverage_from: string | null;
+  coverage_until: string | null;
 }
 
 interface PropertyAreaRow {
@@ -332,6 +351,12 @@ interface MeasurementDefinitionRow {
   id: string;
   labels_json: string;
   unit: string;
+  dimension: string;
+  allowed_units_json: string;
+  kind: NonNullable<MeasurementDefinition["kind"]>;
+  default_aggregation: NonNullable<MeasurementDefinition["defaultAggregation"]>;
+  generic_history_enabled: number;
+  generic_stats_enabled: number;
   precision: number;
   valid_min: number | null;
   valid_max: number | null;
@@ -580,6 +605,283 @@ export interface WeatherOutageRecord {
   backfillError: string | null;
 }
 
+export type SensorDataGapSource = "home-assistant" | "tp-link";
+export type SensorDataGapState = "open" | "pending" | "running" | "complete" | "partial" | "failed" | "not-supported";
+
+interface SensorDataGapRow {
+  id: number;
+  sensor_id: string;
+  metric: string;
+  source: SensorDataGapSource;
+  started_at: string;
+  detected_at: string;
+  ended_at: string | null;
+  recovery_state: SensorDataGapState;
+  recovered_points: number;
+  attempt_count: number;
+  last_attempt_at: string | null;
+  next_attempt_at: string | null;
+  recovery_error: string | null;
+}
+
+export interface SensorDataGapRecord {
+  id: number;
+  sensorId: string;
+  metric: string;
+  source: SensorDataGapSource;
+  startedAt: string;
+  detectedAt: string;
+  endedAt: string | null;
+  recoveryState: SensorDataGapState;
+  recoveredPoints: number;
+  attemptCount: number;
+  lastAttemptAt: string | null;
+  nextAttemptAt: string | null;
+  recoveryError: string | null;
+}
+
+export type TapoHistoryExportProvider = "appium" | "private-cloud";
+export type TapoHistoryExportJobStatus =
+  | "queued"
+  | "claimed"
+  | "running"
+  | "waiting-email"
+  | "needs-attention"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+interface TapoHistoryExportJobRow {
+  id: string;
+  dedupe_key: string;
+  provider: TapoHistoryExportProvider;
+  sensor_id: string;
+  expected_device_id: string;
+  device_name: string;
+  time_zone: string;
+  metric: string;
+  expected_recipient: string | null;
+  range_start: string;
+  range_end: string;
+  interval_minutes: number;
+  status: TapoHistoryExportJobStatus;
+  attempt_count: number;
+  max_attempts: number;
+  available_at: string;
+  lease_owner: string | null;
+  lease_token: string | null;
+  lease_expires_at: string | null;
+  heartbeat_at: string | null;
+  submitted_at: string | null;
+  deployment_fingerprint: string | null;
+  acceptance_revision: string | null;
+  mailbox_message_id: string | null;
+  source_artifact_sha256: string | null;
+  source_artifact_bytes: number | null;
+  parser_version: string | null;
+  source_schema_signature: string | null;
+  expected_schema_signature: string | null;
+  staged_sample_count: number;
+  consumed_sample_count: number;
+  last_error: string | null;
+  attention_reason: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+interface TapoHistoryExportStagedSampleRow {
+  id: number;
+  job_id: string;
+  sensor_id: string;
+  metric: string;
+  value: number;
+  canonical_unit: string;
+  timestamp: string;
+  source: "tp-link";
+  quality: MeasurementSample["quality"];
+  source_identity: string;
+  created_at: string;
+  consumed_at: string | null;
+}
+
+export interface TapoHistoryExportJobInput {
+  /** Optional caller-generated id, useful when a plus-address must contain the final job id. */
+  id?: string;
+  provider: TapoHistoryExportProvider;
+  sensorId: string;
+  expectedDeviceId: string;
+  deviceName?: string;
+  /** Immutable house-timezone snapshot used for app date selection and CSV parsing. */
+  timeZone?: string;
+  metric: string;
+  expectedRecipient: string | null;
+  rangeStart: string;
+  rangeEnd: string;
+  intervalMinutes: number;
+  /** Optional caller-owned idempotency key; otherwise a stable key is derived from the request. */
+  dedupeKey?: string;
+  maxAttempts?: number;
+  availableAt?: string;
+}
+
+export interface TapoHistoryExportJob {
+  id: string;
+  dedupeKey: string;
+  /** Acceptance-only jobs are staged for inspection but never reused for gap recovery. */
+  canary: boolean;
+  provider: TapoHistoryExportProvider;
+  sensorId: string;
+  expectedDeviceId: string;
+  /** Stable-device alias used by the isolated mobile worker protocol. */
+  deviceId: string;
+  deviceName: string;
+  timeZone: string;
+  metric: string;
+  expectedRecipient: string | null;
+  rangeStart: string;
+  rangeEnd: string;
+  /** Range aliases used by the isolated mobile worker protocol. */
+  from: string;
+  to: string;
+  intervalMinutes: number;
+  status: TapoHistoryExportJobStatus;
+  attemptCount: number;
+  attempt: number;
+  maxAttempts: number;
+  availableAt: string;
+  leaseOwner: string | null;
+  leaseExpiresAt: string | null;
+  heartbeatAt: string | null;
+  /** API-clock timestamp when the worker confirmed that Tapo accepted this attempt. */
+  submittedAt: string | null;
+  /** Exact automation deployment that leased this generation; internal audit data. */
+  deploymentFingerprint: string | null;
+  /** API parser/mailbox acceptance revision snapshotted when this generation was leased. */
+  acceptanceRevision: string | null;
+  mailboxMessageId: string | null;
+  sourceArtifactSha256: string | null;
+  sourceArtifactBytes: number | null;
+  parserVersion: string | null;
+  /** Structural signature of the exact parsed source CSV. */
+  sourceSchemaSignature: string | null;
+  /** Canary-approved schema snapshot fenced when an ordinary job was leased. */
+  expectedSchemaSignature: string | null;
+  stagedSampleCount: number;
+  consumedSampleCount: number;
+  lastError: string | null;
+  attentionReason: string | null;
+  detail: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+}
+
+export interface TapoHistoryExportClaim {
+  job: TapoHistoryExportJob;
+  /** Capability token required for worker-owned state changes; deliberately absent from the public job record. */
+  leaseToken: string;
+}
+
+export interface TapoHistoryExportEnqueueResult {
+  job: TapoHistoryExportJob;
+  created: boolean;
+}
+
+export interface TapoHistoryExportJobFilter {
+  statuses?: TapoHistoryExportJobStatus[];
+  provider?: TapoHistoryExportProvider;
+  sensorId?: string;
+  limit?: number;
+  oldestFirst?: boolean;
+}
+
+export interface TapoHistoryExportStagedSampleInput {
+  metric: string;
+  value: number;
+  canonicalUnit: string;
+  timestamp: string;
+  /** Stable row identity from the CSV/private response, used to make reparsing idempotent. */
+  sourceIdentity: string;
+  source?: "tp-link";
+  quality?: MeasurementSample["quality"];
+}
+
+export interface TapoHistoryExportStagedSample extends MeasurementSample {
+  id: number;
+  jobId: string;
+  source: "tp-link";
+  sourceIdentity: string;
+  createdAt: string;
+  consumedAt: string | null;
+}
+
+export interface TapoHistoryExportStagedSampleFilter {
+  jobId?: string;
+  sensorId?: string;
+  metric?: string;
+  from?: string;
+  to?: string;
+  consumed?: boolean;
+  limit?: number;
+}
+
+export interface TapoHistoryExportTransition {
+  status: TapoHistoryExportJobStatus;
+  at?: string;
+  leaseToken?: string;
+  /** Optional mailbox-generation fence for asynchronous poller transitions. */
+  expectedRecipient?: string | null;
+  /** Optional mailbox-generation fence for asynchronous poller transitions. */
+  expectedSubmittedAt?: string | null;
+  error?: string | null;
+  attentionReason?: string | null;
+  /** Retry time used when transitioning to failed or queued. */
+  availableAt?: string;
+}
+
+export interface TapoHistoryExportStageResult {
+  job: TapoHistoryExportJob;
+  staged: TapoHistoryExportStagedSample[];
+  duplicateCount: number;
+}
+
+export interface TapoHistoryExportCompletionOptions {
+  mailboxMessageId?: string;
+  leaseToken?: string;
+  completedAt?: string;
+  /** Exact per-attempt mailbox capability observed before the asynchronous fetch. */
+  expectedRecipient?: string;
+  /** Exact API-clock submission timestamp observed before the asynchronous fetch. */
+  expectedSubmittedAt?: string;
+  /** SHA-256 of the exact source attachment before parsing. Required for app exports. */
+  sourceArtifactSha256?: string;
+  /** Exact raw attachment length before parsing. Required for app exports. */
+  sourceArtifactBytes?: number;
+  /** Versioned parser/schema identity used for this import. Required for app exports. */
+  parserVersion?: string;
+  /** Canonical structural signature emitted by the parser. Required for app exports. */
+  sourceSchemaSignature?: string;
+}
+
+export interface TapoHistoryClaimOptions {
+  canaryOnly?: boolean;
+  preferCanary?: boolean;
+  deploymentFingerprint?: string;
+  acceptanceRevision?: string;
+  requireApprovedTarget?: boolean;
+  approvalNotBefore?: string;
+  requiredAcceptanceRevision?: string;
+  /** Atomic vendor/mailbox traffic slots across claimed, running, and waiting-email Appium jobs. */
+  maxOutstandingAppium?: number;
+}
+
+export interface HistoricalTelemetryGap {
+  startedAt: string;
+  endedAt: string;
+  durationMs: number;
+}
+
 export interface AssetRecord {
   id: string;
   houseId: string;
@@ -809,6 +1111,12 @@ function measurementDefinitionFromRow(row: MeasurementDefinitionRow): Measuremen
     id: row.id,
     labels: parseJson<Record<string, string>>(row.labels_json),
     unit: row.unit,
+    dimension: row.dimension,
+    allowedUnits: parseJson<string[]>(row.allowed_units_json),
+    kind: row.kind,
+    defaultAggregation: row.default_aggregation,
+    genericHistoryEnabled: row.generic_history_enabled === 1,
+    genericStatsEnabled: row.generic_stats_enabled === 1,
     precision: row.precision,
     validMin: row.valid_min,
     validMax: row.valid_max,
@@ -1318,6 +1626,128 @@ function weatherOutageFromRow(row: WeatherOutageRow): WeatherOutageRecord {
   };
 }
 
+function sensorDataGapFromRow(row: SensorDataGapRow): SensorDataGapRecord {
+  return {
+    id: row.id,
+    sensorId: row.sensor_id,
+    metric: row.metric,
+    source: row.source,
+    startedAt: row.started_at,
+    detectedAt: row.detected_at,
+    endedAt: row.ended_at,
+    recoveryState: row.recovery_state,
+    recoveredPoints: row.recovered_points,
+    attemptCount: row.attempt_count,
+    lastAttemptAt: row.last_attempt_at,
+    nextAttemptAt: row.next_attempt_at,
+    recoveryError: row.recovery_error,
+  };
+}
+
+function tapoHistoryExportJobFromRow(row: TapoHistoryExportJobRow): TapoHistoryExportJob {
+  return {
+    id: row.id,
+    dedupeKey: row.dedupe_key,
+    canary: row.dedupe_key.startsWith("canary:"),
+    provider: row.provider,
+    sensorId: row.sensor_id,
+    expectedDeviceId: row.expected_device_id,
+    deviceId: row.expected_device_id,
+    deviceName: row.device_name,
+    timeZone: row.time_zone,
+    metric: row.metric,
+    expectedRecipient: row.expected_recipient,
+    rangeStart: row.range_start,
+    rangeEnd: row.range_end,
+    from: row.range_start,
+    to: row.range_end,
+    intervalMinutes: row.interval_minutes,
+    status: row.status,
+    attemptCount: row.attempt_count,
+    attempt: row.attempt_count,
+    maxAttempts: row.max_attempts,
+    availableAt: row.available_at,
+    leaseOwner: row.lease_owner,
+    leaseExpiresAt: row.lease_expires_at,
+    heartbeatAt: row.heartbeat_at,
+    submittedAt: row.submitted_at,
+    deploymentFingerprint: row.deployment_fingerprint,
+    acceptanceRevision: row.acceptance_revision,
+    mailboxMessageId: row.mailbox_message_id,
+    sourceArtifactSha256: row.source_artifact_sha256,
+    sourceArtifactBytes: row.source_artifact_bytes,
+    parserVersion: row.parser_version,
+    sourceSchemaSignature: row.source_schema_signature,
+    expectedSchemaSignature: row.expected_schema_signature,
+    stagedSampleCount: row.staged_sample_count,
+    consumedSampleCount: row.consumed_sample_count,
+    lastError: row.last_error,
+    attentionReason: row.attention_reason,
+    detail: row.attention_reason ?? row.last_error,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    completedAt: row.completed_at,
+  };
+}
+
+function tapoHistoryExportStagedSampleFromRow(
+  row: TapoHistoryExportStagedSampleRow,
+): TapoHistoryExportStagedSample {
+  return {
+    id: row.id,
+    jobId: row.job_id,
+    sensorId: row.sensor_id,
+    metric: row.metric,
+    value: row.value,
+    canonicalUnit: row.canonical_unit,
+    timestamp: row.timestamp,
+    source: row.source,
+    quality: row.quality,
+    sourceIdentity: row.source_identity,
+    createdAt: row.created_at,
+    consumedAt: row.consumed_at,
+  };
+}
+
+const TAPO_HISTORY_EXPORT_TRANSITIONS: Readonly<Record<TapoHistoryExportJobStatus, readonly TapoHistoryExportJobStatus[]>> = {
+  queued: ["cancelled"],
+  claimed: ["running", "waiting-email", "needs-attention", "completed", "failed", "cancelled"],
+  running: ["waiting-email", "needs-attention", "completed", "failed", "cancelled"],
+  "waiting-email": ["needs-attention", "completed", "failed", "cancelled"],
+  "needs-attention": ["queued", "cancelled"],
+  completed: [],
+  failed: ["queued", "cancelled"],
+  cancelled: [],
+};
+
+function normalizedTapoHistoryTimestamp(value: string, field: string): string {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_TIMESTAMP", `${field} must be an ISO date-time`);
+  }
+  return new Date(parsed).toISOString();
+}
+
+function normalizedTapoHistoryText(value: string, field: string, maximum: number): string {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!normalized || Array.from(normalized).length > maximum) {
+    throw new ClimateDataValidationError(
+      422,
+      "INVALID_TAPO_EXPORT_FIELD",
+      `${field} must be a non-empty string of at most ${maximum} characters`,
+    );
+  }
+  return normalized;
+}
+
+function normalizedSha256(value: string, field: string): string {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!/^[a-f0-9]{64}$/u.test(normalized)) {
+    throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_FIELD", `${field} must be a lowercase SHA-256 hex digest`);
+  }
+  return normalized;
+}
+
 /** Opaque stable key prevents old-location weather entering a new calibration. */
 export function outdoorLocationKey(location?: HouseLocation): string {
   if (!location) return "unlocated";
@@ -1635,6 +2065,7 @@ export class ClimateDatabase {
         start_at TEXT NOT NULL,
         end_at TEXT NOT NULL,
         raw_price_cents_per_kwh REAL NOT NULL,
+        margin_cents_per_kwh REAL NOT NULL DEFAULT 0,
         fetched_at TEXT NOT NULL,
         PRIMARY KEY (property_id, start_at)
       );
@@ -1775,6 +2206,12 @@ export class ClimateDatabase {
         id TEXT PRIMARY KEY,
         labels_json TEXT NOT NULL,
         unit TEXT NOT NULL,
+        dimension TEXT NOT NULL DEFAULT 'finite_scalar',
+        allowed_units_json TEXT NOT NULL DEFAULT '[]',
+        kind TEXT NOT NULL DEFAULT 'gauge',
+        default_aggregation TEXT NOT NULL DEFAULT 'mean',
+        generic_history_enabled INTEGER NOT NULL DEFAULT 1 CHECK (generic_history_enabled IN (0, 1)),
+        generic_stats_enabled INTEGER NOT NULL DEFAULT 1 CHECK (generic_stats_enabled IN (0, 1)),
         precision INTEGER NOT NULL,
         valid_min REAL,
         valid_max REAL,
@@ -2181,6 +2618,122 @@ export class ClimateDatabase {
         ON weather_outages(house_id, location_key, provider, component) WHERE ended_at IS NULL;
       CREATE INDEX IF NOT EXISTS idx_weather_outages_house_location_started
         ON weather_outages(house_id, location_key, started_at DESC, id DESC);
+      CREATE TABLE IF NOT EXISTS sensor_data_gaps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sensor_id TEXT NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
+        metric TEXT NOT NULL REFERENCES measurement_definitions(id) ON DELETE CASCADE,
+        source TEXT NOT NULL CHECK (source IN ('home-assistant', 'tp-link')),
+        started_at TEXT NOT NULL,
+        detected_at TEXT NOT NULL,
+        ended_at TEXT,
+        recovery_state TEXT NOT NULL CHECK (recovery_state IN (
+          'open', 'pending', 'running', 'complete', 'partial', 'failed', 'not-supported'
+        )),
+        recovered_points INTEGER NOT NULL DEFAULT 0 CHECK (recovered_points >= 0),
+        attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+        last_attempt_at TEXT,
+        next_attempt_at TEXT,
+        recovery_error TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_sensor_data_gaps_one_open_metric
+        ON sensor_data_gaps(sensor_id, metric, source) WHERE ended_at IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_sensor_data_gaps_recovery_queue
+        ON sensor_data_gaps(recovery_state, next_attempt_at, id);
+      CREATE INDEX IF NOT EXISTS idx_sensor_data_gaps_sensor_started
+        ON sensor_data_gaps(sensor_id, started_at DESC, id DESC);
+      CREATE TABLE IF NOT EXISTS tapo_history_export_jobs (
+        id TEXT PRIMARY KEY,
+        dedupe_key TEXT NOT NULL UNIQUE CHECK (length(trim(dedupe_key)) BETWEEN 1 AND 500),
+        provider TEXT NOT NULL CHECK (provider IN ('appium', 'private-cloud')),
+        sensor_id TEXT NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
+        expected_device_id TEXT NOT NULL CHECK (length(trim(expected_device_id)) BETWEEN 1 AND 500),
+        device_name TEXT NOT NULL CHECK (length(trim(device_name)) BETWEEN 1 AND 500),
+        time_zone TEXT NOT NULL DEFAULT 'UTC' CHECK (length(trim(time_zone)) BETWEEN 1 AND 100),
+        metric TEXT NOT NULL REFERENCES measurement_definitions(id) ON DELETE RESTRICT,
+        expected_recipient TEXT COLLATE NOCASE CHECK (
+          expected_recipient IS NULL OR length(trim(expected_recipient)) BETWEEN 3 AND 320
+        ),
+        range_start TEXT NOT NULL,
+        range_end TEXT NOT NULL,
+        interval_minutes INTEGER NOT NULL CHECK (interval_minutes BETWEEN 1 AND 525600),
+        status TEXT NOT NULL CHECK (status IN (
+          'queued', 'claimed', 'running', 'waiting-email', 'needs-attention', 'completed', 'failed', 'cancelled'
+        )),
+        attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+        max_attempts INTEGER NOT NULL DEFAULT 5 CHECK (max_attempts BETWEEN 1 AND 100),
+        available_at TEXT NOT NULL,
+        lease_owner TEXT,
+        lease_token TEXT,
+        lease_expires_at TEXT,
+        heartbeat_at TEXT,
+        submitted_at TEXT,
+        deployment_fingerprint TEXT CHECK (
+          deployment_fingerprint IS NULL OR length(deployment_fingerprint) = 64
+        ),
+        acceptance_revision TEXT CHECK (
+          acceptance_revision IS NULL OR length(acceptance_revision) = 64
+        ),
+        mailbox_message_id TEXT,
+        source_artifact_sha256 TEXT CHECK (
+          source_artifact_sha256 IS NULL OR length(source_artifact_sha256) = 64
+        ),
+        source_artifact_bytes INTEGER CHECK (source_artifact_bytes IS NULL OR source_artifact_bytes >= 0),
+        parser_version TEXT CHECK (parser_version IS NULL OR length(trim(parser_version)) BETWEEN 1 AND 100),
+        source_schema_signature TEXT CHECK (
+          source_schema_signature IS NULL OR length(source_schema_signature) = 64
+        ),
+        expected_schema_signature TEXT CHECK (
+          expected_schema_signature IS NULL OR length(expected_schema_signature) = 64
+        ),
+        staged_sample_count INTEGER NOT NULL DEFAULT 0 CHECK (staged_sample_count >= 0),
+        consumed_sample_count INTEGER NOT NULL DEFAULT 0 CHECK (consumed_sample_count >= 0),
+        last_error TEXT,
+        attention_reason TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT,
+        CHECK (range_start < range_end),
+        CHECK ((lease_token IS NULL AND lease_owner IS NULL AND lease_expires_at IS NULL)
+          OR (lease_token IS NOT NULL AND lease_owner IS NOT NULL AND lease_expires_at IS NOT NULL)),
+        CHECK (consumed_sample_count <= staged_sample_count)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_tapo_history_export_mailbox_message
+        ON tapo_history_export_jobs(mailbox_message_id) WHERE mailbox_message_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_tapo_history_export_queue
+        ON tapo_history_export_jobs(status, available_at, lease_expires_at, created_at, id);
+      CREATE INDEX IF NOT EXISTS idx_tapo_history_export_sensor_range
+        ON tapo_history_export_jobs(sensor_id, range_start, range_end, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_tapo_history_export_retention
+        ON tapo_history_export_jobs(status, completed_at, updated_at, dedupe_key);
+      CREATE TABLE IF NOT EXISTS tapo_history_canary_approvals (
+        deployment_fingerprint TEXT NOT NULL CHECK (length(deployment_fingerprint) = 64),
+        canary_job_id TEXT NOT NULL REFERENCES tapo_history_export_jobs(id) ON DELETE CASCADE,
+        acceptance_revision TEXT NOT NULL CHECK (length(acceptance_revision) = 64),
+        schema_signature TEXT NOT NULL CHECK (length(schema_signature) = 64),
+        approved_at TEXT NOT NULL,
+        PRIMARY KEY (deployment_fingerprint, canary_job_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_tapo_history_canary_approvals_approved
+        ON tapo_history_canary_approvals(approved_at, deployment_fingerprint);
+      CREATE TABLE IF NOT EXISTS tapo_history_export_staged_samples (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id TEXT NOT NULL REFERENCES tapo_history_export_jobs(id) ON DELETE CASCADE,
+        sensor_id TEXT NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
+        metric TEXT NOT NULL REFERENCES measurement_definitions(id) ON DELETE RESTRICT,
+        value REAL NOT NULL,
+        canonical_unit TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'tp-link' CHECK (source = 'tp-link'),
+        quality TEXT NOT NULL CHECK (quality IN ('good', 'estimated', 'stale')),
+        source_identity TEXT NOT NULL CHECK (length(trim(source_identity)) BETWEEN 1 AND 1000),
+        created_at TEXT NOT NULL,
+        consumed_at TEXT,
+        UNIQUE(job_id, metric, source_identity)
+      );
+      CREATE INDEX IF NOT EXISTS idx_tapo_history_export_staged_lookup
+        ON tapo_history_export_staged_samples(sensor_id, metric, timestamp, consumed_at, id);
+      CREATE INDEX IF NOT EXISTS idx_tapo_history_export_staged_job
+        ON tapo_history_export_staged_samples(job_id, consumed_at, id);
       INSERT OR IGNORE INTO telemetry_archive_row_ids(table_name, natural_key)
         SELECT 'outdoor_temperature_samples', json_array(house_id, location_key, timestamp, source)
         FROM outdoor_temperature_samples ORDER BY timestamp, house_id, location_key, source;
@@ -2352,6 +2905,15 @@ export class ClimateDatabase {
     if (!outdoorColumns.some((column) => column.name === "conditions_json")) {
       this.db.exec("ALTER TABLE outdoor_temperature_samples ADD COLUMN conditions_json TEXT");
     }
+    const electricityPriceColumns = this.db.prepare("PRAGMA table_info(electricity_price_points)")
+      .all() as unknown as Array<{ name: string }>;
+    if (!electricityPriceColumns.some((column) => column.name === "margin_cents_per_kwh")) {
+      this.db.exec("ALTER TABLE electricity_price_points ADD COLUMN margin_cents_per_kwh REAL NOT NULL DEFAULT 0");
+      this.db.exec(`UPDATE electricity_price_points
+        SET margin_cents_per_kwh = COALESCE((SELECT config.margin_cents_per_kwh
+          FROM property_electricity_configs AS config
+          WHERE config.property_id = electricity_price_points.property_id), 0)`);
+    }
     const openingStateColumns = this.db.prepare("PRAGMA table_info(opening_state_observations)")
       .all() as unknown as Array<{ name: string }>;
     if (!openingStateColumns.some((column) => column.name === "connection_id")) {
@@ -2418,6 +2980,54 @@ export class ClimateDatabase {
     }
     if (!sensorColumns.some((column) => column.name === "room_id")) {
       this.db.exec("ALTER TABLE sensors ADD COLUMN room_id TEXT");
+    }
+    const tapoExportColumns = this.db.prepare("PRAGMA table_info(tapo_history_export_jobs)")
+      .all() as unknown as Array<{ name: string }>;
+    if (!tapoExportColumns.some((column) => column.name === "time_zone")) {
+      this.db.exec("ALTER TABLE tapo_history_export_jobs ADD COLUMN time_zone TEXT NOT NULL DEFAULT 'UTC'");
+      this.db.exec(`UPDATE tapo_history_export_jobs
+        SET time_zone = COALESCE((
+          SELECT house.timezone FROM sensors AS sensor
+          JOIN houses AS house ON house.id = sensor.house_id
+          WHERE sensor.id = tapo_history_export_jobs.sensor_id
+        ), 'UTC')`);
+    }
+    if (!tapoExportColumns.some((column) => column.name === "submitted_at")) {
+      this.db.exec("ALTER TABLE tapo_history_export_jobs ADD COLUMN submitted_at TEXT");
+    }
+    if (!tapoExportColumns.some((column) => column.name === "deployment_fingerprint")) {
+      this.db.exec("ALTER TABLE tapo_history_export_jobs ADD COLUMN deployment_fingerprint TEXT");
+    }
+    if (!tapoExportColumns.some((column) => column.name === "acceptance_revision")) {
+      this.db.exec("ALTER TABLE tapo_history_export_jobs ADD COLUMN acceptance_revision TEXT");
+    }
+    if (!tapoExportColumns.some((column) => column.name === "source_artifact_sha256")) {
+      this.db.exec("ALTER TABLE tapo_history_export_jobs ADD COLUMN source_artifact_sha256 TEXT");
+    }
+    if (!tapoExportColumns.some((column) => column.name === "source_artifact_bytes")) {
+      this.db.exec("ALTER TABLE tapo_history_export_jobs ADD COLUMN source_artifact_bytes INTEGER");
+    }
+    if (!tapoExportColumns.some((column) => column.name === "parser_version")) {
+      this.db.exec("ALTER TABLE tapo_history_export_jobs ADD COLUMN parser_version TEXT");
+    }
+    if (!tapoExportColumns.some((column) => column.name === "source_schema_signature")) {
+      this.db.exec("ALTER TABLE tapo_history_export_jobs ADD COLUMN source_schema_signature TEXT");
+    }
+    if (!tapoExportColumns.some((column) => column.name === "expected_schema_signature")) {
+      this.db.exec("ALTER TABLE tapo_history_export_jobs ADD COLUMN expected_schema_signature TEXT");
+    }
+    const tapoApprovalColumns = this.db.prepare("PRAGMA table_info(tapo_history_canary_approvals)")
+      .all() as unknown as Array<{ name: string }>;
+    if (!tapoApprovalColumns.some((column) => column.name === "acceptance_revision")) {
+      this.db.exec(`ALTER TABLE tapo_history_canary_approvals
+        ADD COLUMN acceptance_revision TEXT NOT NULL DEFAULT '${"0".repeat(64)}'`);
+    }
+    if (!tapoApprovalColumns.some((column) => column.name === "schema_signature")) {
+      this.db.exec(`ALTER TABLE tapo_history_canary_approvals
+        ADD COLUMN schema_signature TEXT NOT NULL DEFAULT '${"0".repeat(64)}'`);
+      // An approval created before schema fencing cannot safely authorize a
+      // future vendor CSV. The completed canary remains available for audit.
+      this.db.exec("DELETE FROM tapo_history_canary_approvals");
     }
     this.migrateSensorRoomIds();
     this.db.exec(`
@@ -3178,16 +3788,47 @@ export class ClimateDatabase {
         this.db.prepare("INSERT INTO metadata(key, value) VALUES ('observation_revisions_v1', 'complete')").run();
       });
     }
+    const measurementColumns = new Set((this.db.prepare("PRAGMA table_info(measurement_definitions)").all() as Array<{ name: string }>).map((column) => column.name));
+    const measurementColumnMigrations = [
+      ["dimension", "ALTER TABLE measurement_definitions ADD COLUMN dimension TEXT NOT NULL DEFAULT 'finite_scalar'"],
+      ["allowed_units_json", "ALTER TABLE measurement_definitions ADD COLUMN allowed_units_json TEXT NOT NULL DEFAULT '[]'"],
+      ["kind", "ALTER TABLE measurement_definitions ADD COLUMN kind TEXT NOT NULL DEFAULT 'gauge'"],
+      ["default_aggregation", "ALTER TABLE measurement_definitions ADD COLUMN default_aggregation TEXT NOT NULL DEFAULT 'mean'"],
+      ["generic_history_enabled", "ALTER TABLE measurement_definitions ADD COLUMN generic_history_enabled INTEGER NOT NULL DEFAULT 1"],
+      ["generic_stats_enabled", "ALTER TABLE measurement_definitions ADD COLUMN generic_stats_enabled INTEGER NOT NULL DEFAULT 1"],
+    ] as const;
+    for (const [column, sql] of measurementColumnMigrations) {
+      if (!measurementColumns.has(column)) this.db.exec(sql);
+    }
+    const definitionsWithoutAllowedUnits = this.db.prepare(
+      "SELECT id, unit FROM measurement_definitions WHERE allowed_units_json = '[]'",
+    ).all() as Array<{ id: string; unit: string }>;
+    const backfillAllowedUnits = this.db.prepare(
+      "UPDATE measurement_definitions SET allowed_units_json = ? WHERE id = ?",
+    );
+    for (const definition of definitionsWithoutAllowedUnits) {
+      backfillAllowedUnits.run(JSON.stringify([definition.unit]), definition.id);
+    }
     const insertDefinition = this.db.prepare(`INSERT OR IGNORE INTO measurement_definitions
-      (id, labels_json, unit, precision, valid_min, valid_max, display_min, display_max, interpolation_delta,
-       color_scale, builtin, enabled, spatial_interpolation, forecast_supported)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`);
-    insertDefinition.run("temperature", JSON.stringify({ en: "Temperature", fi: "Lämpötila" }), "°C", 1, -80, 100, 15, 30, 2, "thermal", 1, 1);
-    insertDefinition.run("humidity", JSON.stringify({ en: "Humidity", fi: "Ilmankosteus" }), "%", 0, 0, 100, 20, 80, 10, "humidity", 1, 1);
-    insertDefinition.run("co2", JSON.stringify({ en: "Carbon dioxide", fi: "Hiilidioksidi" }), "ppm", 0, 0, 10_000, 400, 2_000, 250, "air-quality", 1, 1);
-    insertDefinition.run("power", JSON.stringify({ en: "Power", fi: "Teho" }), "W", 1, null, null, 0, 10_000, 500, "sequential", 0, 0);
-    insertDefinition.run("energy", JSON.stringify({ en: "Energy (cumulative)", fi: "Energia (kumulatiivinen)" }), "kWh", 3, 0, null, 0, null, 1, "sequential", 0, 0);
-    insertDefinition.run("electricity_price", JSON.stringify({ en: "Electricity price", fi: "Sähkön hinta" }), "€/kWh", 4, null, null, -0.5, 1, 0.05, "sequential", 0, 0);
+      (id, labels_json, unit, dimension, allowed_units_json, kind, default_aggregation,
+       generic_history_enabled, generic_stats_enabled, precision, valid_min, valid_max, display_min, display_max,
+       interpolation_delta, color_scale, builtin, enabled, spatial_interpolation, forecast_supported)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`);
+    insertDefinition.run("temperature", JSON.stringify({ en: "Temperature", fi: "Lämpötila" }), "°C", "temperature", JSON.stringify(["°C", "°F"]), "gauge", "mean", 1, -80, 100, 15, 30, 2, "thermal", 1, 1);
+    insertDefinition.run("humidity", JSON.stringify({ en: "Humidity", fi: "Ilmankosteus" }), "%", "relative_humidity", JSON.stringify(["%"]), "gauge", "mean", 0, 0, 100, 20, 80, 10, "humidity", 1, 1);
+    insertDefinition.run("co2", JSON.stringify({ en: "Carbon dioxide", fi: "Hiilidioksidi" }), "ppm", "co2_concentration", JSON.stringify(["ppm"]), "gauge", "mean", 0, 0, 10_000, 400, 2_000, 250, "air-quality", 1, 1);
+    insertDefinition.run("power", JSON.stringify({ en: "Power", fi: "Teho" }), "W", "power", JSON.stringify(["W", "kW"]), "rate", "time_weighted_mean", 1, null, null, 0, 10_000, 500, "sequential", 0, 0);
+    insertDefinition.run("energy", JSON.stringify({ en: "Energy (cumulative)", fi: "Energia (kumulatiivinen)" }), "kWh", "energy", JSON.stringify(["Wh", "kWh"]), "cumulative_counter", "delta", 3, 0, null, 0, null, 1, "sequential", 0, 0);
+    insertDefinition.run("electricity_price", JSON.stringify({ en: "Electricity price", fi: "Sähkön hinta" }), "€/kWh", "finite_scalar", JSON.stringify(["€/kWh"]), "gauge", "mean", 4, null, null, -0.5, 1, 0.05, "sequential", 0, 0);
+    const updateBuiltinAnalytics = this.db.prepare(`UPDATE measurement_definitions SET
+      dimension = ?, allowed_units_json = ?, kind = ?, default_aggregation = ?,
+      generic_history_enabled = 1, generic_stats_enabled = 1 WHERE id = ?`);
+    updateBuiltinAnalytics.run("temperature", JSON.stringify(["°C", "°F"]), "gauge", "mean", "temperature");
+    updateBuiltinAnalytics.run("relative_humidity", JSON.stringify(["%"]), "gauge", "mean", "humidity");
+    updateBuiltinAnalytics.run("co2_concentration", JSON.stringify(["ppm"]), "gauge", "mean", "co2");
+    updateBuiltinAnalytics.run("power", JSON.stringify(["W", "kW"]), "rate", "time_weighted_mean", "power");
+    updateBuiltinAnalytics.run("energy", JSON.stringify(["Wh", "kWh"]), "cumulative_counter", "delta", "energy");
+    updateBuiltinAnalytics.run("finite_scalar", JSON.stringify(["€/kWh"]), "gauge", "mean", "electricity_price");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS action_playbooks (
         id TEXT PRIMARY KEY,
@@ -3752,6 +4393,8 @@ export class ClimateDatabase {
       .run(propertyId, input.provider, endpoint.toString(), input.enabled ? 1 : 0, input.marginCentsPerKwh,
         input.contractType, text(input.contractName, "Contract name"), text(input.retailer, "Retailer"),
         input.monthlyFeeEur ?? null, timestamp);
+    this.db.prepare(`UPDATE electricity_price_points SET margin_cents_per_kwh = ?
+      WHERE property_id = ? AND end_at > ?`).run(input.marginCentsPerKwh, propertyId, timestamp);
     return this.getPropertyElectricityConfig(propertyId);
   }
 
@@ -3760,12 +4403,20 @@ export class ClimateDatabase {
     prices: Array<{ startAt: string; endAt: string; rawPriceCentsPerKwh: number }>,
     fetchedAt: string,
   ): void {
+    const margin = this.getPropertyElectricityConfig(propertyId)?.marginCentsPerKwh ?? 0;
     this.immediateTransaction(() => {
       const statement = this.db.prepare(`INSERT INTO electricity_price_points
-        (property_id, start_at, end_at, raw_price_cents_per_kwh, fetched_at) VALUES (?, ?, ?, ?, ?)
+        (property_id, start_at, end_at, raw_price_cents_per_kwh, margin_cents_per_kwh, fetched_at) VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(property_id, start_at) DO UPDATE SET end_at = excluded.end_at,
-          raw_price_cents_per_kwh = excluded.raw_price_cents_per_kwh, fetched_at = excluded.fetched_at`);
-      for (const price of prices) statement.run(propertyId, price.startAt, price.endAt, price.rawPriceCentsPerKwh, fetchedAt);
+          raw_price_cents_per_kwh = excluded.raw_price_cents_per_kwh,
+          margin_cents_per_kwh = CASE
+            WHEN electricity_price_points.end_at <= excluded.fetched_at THEN electricity_price_points.margin_cents_per_kwh
+            ELSE excluded.margin_cents_per_kwh
+          END,
+          fetched_at = excluded.fetched_at`);
+      for (const price of prices) {
+        statement.run(propertyId, price.startAt, price.endAt, price.rawPriceCentsPerKwh, margin, fetchedAt);
+      }
       this.db.prepare(`UPDATE property_electricity_configs
         SET last_fetched_at = ?, last_error = NULL, updated_at = ? WHERE property_id = ?`)
         .run(fetchedAt, fetchedAt, propertyId);
@@ -3784,7 +4435,7 @@ export class ClimateDatabase {
       WHERE property_id = ? AND end_at >= ? AND start_at <= ? ORDER BY start_at`)
       .all(propertyId, from, to) as unknown as ElectricityPricePointRow[];
     return rows.map((row) => {
-      const effective = row.raw_price_cents_per_kwh + config.marginCentsPerKwh;
+      const effective = row.raw_price_cents_per_kwh + row.margin_cents_per_kwh;
       return {
         propertyId: row.property_id,
         startAt: row.start_at,
@@ -3799,6 +4450,85 @@ export class ClimateDatabase {
 
   getCurrentPropertyElectricityPrice(propertyId: string, at = new Date().toISOString()): PropertyElectricityPricePoint | null {
     return this.listPropertyElectricityPrices(propertyId, at, at)[0] ?? null;
+  }
+
+  /**
+   * Prices every cumulative-meter delta by the exact price intervals it overlaps.
+   * A delta spanning several price intervals is distributed by overlap duration;
+   * counter resets contribute the new post-reset counter value.
+   */
+  energyCostAggregate(query: EnergyCostAggregateQuery): EnergyCostAggregateRecord {
+    const row = this.db.prepare(`WITH boundary_sample AS (
+        SELECT id, timestamp, value FROM measurement_samples
+        WHERE sensor_id = ? AND metric = 'energy' AND quality <> 'stale' AND timestamp < ?
+        ORDER BY timestamp DESC, id DESC LIMIT 1
+      ), window_samples AS (
+        SELECT id, timestamp, value FROM measurement_samples
+        WHERE sensor_id = ? AND metric = 'energy' AND quality <> 'stale'
+          AND timestamp >= ? AND timestamp <= ?
+      ), deduplicated AS (
+        SELECT timestamp, value FROM (
+          SELECT id, timestamp, value,
+            ROW_NUMBER() OVER (PARTITION BY timestamp ORDER BY id DESC) AS sample_rank
+          FROM (SELECT * FROM boundary_sample UNION ALL SELECT * FROM window_samples)
+        ) WHERE sample_rank = 1
+      ), ordered AS (
+        SELECT timestamp AS current_at, value AS current_value,
+          LAG(timestamp) OVER (ORDER BY timestamp) AS previous_at,
+          LAG(value) OVER (ORDER BY timestamp) AS previous_value
+        FROM deduplicated
+      ), deltas AS (
+        SELECT previous_at, current_at,
+          CASE WHEN previous_at < ? THEN ? ELSE previous_at END AS window_start,
+          CASE WHEN current_value >= previous_value THEN current_value - previous_value
+            ELSE MAX(0, current_value) END AS base_delta_kwh,
+          (julianday(current_at) - julianday(previous_at)) * 86400000.0 AS full_duration_ms
+        FROM ordered
+        WHERE previous_at IS NOT NULL AND current_at > ?
+          AND current_value >= 0 AND previous_value >= 0
+          AND julianday(current_at) > julianday(previous_at)
+      ), normalized AS (
+        SELECT *,
+          base_delta_kwh * ((julianday(current_at) - julianday(window_start)) * 86400000.0)
+            / full_duration_ms AS window_delta_kwh,
+          (julianday(current_at) - julianday(window_start)) * 86400000.0 AS window_duration_ms
+        FROM deltas
+      ), priced AS (
+        SELECT normalized.*,
+          price.raw_price_cents_per_kwh, price.margin_cents_per_kwh,
+          (julianday(MIN(normalized.current_at, price.end_at))
+            - julianday(MAX(normalized.window_start, price.start_at))) * 86400000.0 AS overlap_ms
+        FROM normalized JOIN electricity_price_points AS price
+          ON price.property_id = ?
+          AND price.start_at < normalized.current_at
+          AND price.end_at > normalized.window_start
+      ), allocations AS (
+        SELECT overlap_ms,
+          base_delta_kwh * overlap_ms / full_duration_ms AS allocated_kwh,
+          raw_price_cents_per_kwh + margin_cents_per_kwh AS effective_price_cents_per_kwh
+        FROM priced WHERE overlap_ms > 0
+      )
+      SELECT
+        (SELECT COUNT(*) FROM normalized) AS delta_count,
+        (SELECT COALESCE(SUM(window_delta_kwh), 0) FROM normalized) AS consumption_kwh,
+        (SELECT COALESCE(SUM(allocated_kwh), 0) FROM allocations) AS priced_consumption_kwh,
+        (SELECT COALESCE(SUM(allocated_kwh * effective_price_cents_per_kwh / 100.0), 0) FROM allocations) AS cost_eur,
+        (SELECT COALESCE(SUM(window_duration_ms), 0) FROM normalized) AS total_duration_ms,
+        (SELECT COALESCE(SUM(overlap_ms), 0) FROM allocations) AS priced_duration_ms,
+        (SELECT MIN(window_start) FROM normalized) AS coverage_from,
+        (SELECT MAX(current_at) FROM normalized) AS coverage_until`)
+      .get(query.sensorId, query.from, query.sensorId, query.from, query.to,
+        query.from, query.from, query.from, query.propertyId) as unknown as EnergyCostAggregateRow;
+    return {
+      deltaCount: Number(row.delta_count ?? 0),
+      consumptionKwh: Number(row.consumption_kwh ?? 0),
+      pricedConsumptionKwh: Number(row.priced_consumption_kwh ?? 0),
+      costEur: Number(row.cost_eur ?? 0),
+      totalDurationMs: Number(row.total_duration_ms ?? 0),
+      pricedDurationMs: Number(row.priced_duration_ms ?? 0),
+      coverageFrom: row.coverage_from,
+      coverageUntil: row.coverage_until,
+    };
   }
 
   updateProperty(id: string, patch: PropertyPatch): Property | null {
@@ -4394,7 +5124,7 @@ export class ClimateDatabase {
     // still-valid manual state for replay and fallback resolution.
     for (const floor of house.floors) {
       for (const element of floor.planElements ?? []) {
-        if (element.kind === "fireplace") continue;
+        if (element.kind !== "door" && element.kind !== "window" && element.kind !== "vent") continue;
         for (const source of ["manual", "api"] as const) {
           const row = latestBySource.get(houseId, floor.id, element.id, source, atIso, atIso) as unknown as OpeningStateObservationRow | undefined;
           if (row) rows.push(row);
@@ -4419,7 +5149,7 @@ export class ClimateDatabase {
     const floor = house.floors.find((candidate) => candidate.id === input.floorId);
     if (!floor) throw new ClimateDataValidationError(404, "OPENING_FLOOR_NOT_FOUND", `Floor ${input.floorId} does not exist in house ${houseId}`);
     const element = (floor.planElements ?? []).find((candidate) => candidate.id === input.elementId);
-    if (!element || element.kind === "fireplace") {
+    if (!element || (element.kind !== "door" && element.kind !== "window" && element.kind !== "vent")) {
       throw new ClimateDataValidationError(404, "OPENING_NOT_FOUND", `Opening ${input.elementId} does not exist on floor ${input.floorId}`);
     }
     if (!["open", "closed", "unknown"].includes(input.state)) {
@@ -4652,10 +5382,7 @@ export class ClimateDatabase {
     return rows.map((row) => this.sensorWithMeasurementBindings(row));
   }
 
-  /**
-   * Removes direct-device bindings owned by one deleted logical connection.
-   * Sensor history, placement, Home Assistant bindings, and identity remain.
-   */
+  /** Detaches direct bindings owned by one deleted logical connection. */
   detachTpLinkConnection(connectionId: string, unscopedHouseId?: string): string[] {
     return this.immediateTransaction(() => {
       const rows = (unscopedHouseId
@@ -4678,6 +5405,52 @@ export class ClimateDatabase {
         }
       }
       return rows.map((row) => row.id);
+    });
+  }
+
+  /**
+   * Atomically moves existing direct-device bindings between logical TP-Link
+   * connections. The expected owner makes setup migrations fail closed if a
+   * concurrent request changed any sensor after it was inspected.
+   */
+  reassignTpLinkSensors(
+    houseId: string,
+    assignments: Array<{ sensorId: string; fromConnectionId: string | null; toConnectionId: string | null }>,
+  ): Sensor[] {
+    if (!this.getHouse(houseId)) {
+      throw new ClimateDataValidationError(404, "HOUSE_NOT_FOUND", "House not found");
+    }
+    if (assignments.length < 1 || assignments.length > 2_048) {
+      throw new ClimateDataValidationError(400, "INVALID_TP_LINK_ASSIGNMENTS", "TP-Link assignment migration requires 1–2,048 sensors");
+    }
+    return this.immediateTransaction(() => {
+      const sensorIds = new Set<string>();
+      const prepared = assignments.map((assignment) => {
+        const sensor = this.getSensor(assignment.sensorId);
+        if (!sensor || sensor.houseId !== houseId || !sensor.tpLinkDeviceId || sensorIds.has(sensor.id)) {
+          throw new ClimateDataValidationError(
+            409,
+            "TP_LINK_BINDING_CHANGED",
+            "Every TP-Link assignment must reference one unique bound sensor in the selected house",
+          );
+        }
+        sensorIds.add(sensor.id);
+        if ((sensor.tpLinkConnectionId ?? null) !== assignment.fromConnectionId) {
+          throw new ClimateDataValidationError(
+            409,
+            "TP_LINK_BINDING_CHANGED",
+            `TP-Link binding ownership changed for sensor ${sensor.id}`,
+          );
+        }
+        if (assignment.toConnectionId !== null
+          && (!assignment.toConnectionId.trim() || assignment.toConnectionId !== assignment.toConnectionId.trim())) {
+          throw new ClimateDataValidationError(400, "INVALID_TP_LINK_CONNECTION_ID", "TP-Link connection id is invalid");
+        }
+        return { sensor, toConnectionId: assignment.toConnectionId };
+      });
+      return prepared.map(({ sensor, toConnectionId }) => this.updateSensor(sensor.id, {
+        tpLinkConnectionId: toConnectionId,
+      })!);
     });
   }
 
@@ -4732,6 +5505,11 @@ export class ClimateDatabase {
       });
       this.validateTpLinkDeviceBinding(normalizedSensor);
       this.writeSensor(normalizedSensor, false);
+      if (normalizedSensor.enabled && normalizedSensor.tpLinkDeviceId
+        && (!current.enabled || !current.tpLinkDeviceId
+          || current.tpLinkDeviceId !== normalizedSensor.tpLinkDeviceId)) {
+        this.rearmEligibleNotSupportedTapoGaps(normalizedSensor.id, null);
+      }
       return normalizedSensor;
     });
   }
@@ -4805,6 +5583,10 @@ export class ClimateDatabase {
       ids.add(floor.id);
       if (!Number.isFinite(floor.width) || floor.width <= 0 || !Number.isFinite(floor.height) || floor.height <= 0) {
         throw new ClimateDataValidationError(400, "INVALID_FLOOR_EXTENT", `Floor ${floor.id} width and height must be positive finite numbers`);
+      }
+      if (floor.metersPerPlanUnit !== undefined
+        && (!Number.isFinite(floor.metersPerPlanUnit) || floor.metersPerPlanUnit <= 0 || floor.metersPerPlanUnit > 10_000)) {
+        throw new ClimateDataValidationError(400, "INVALID_FLOOR_SCALE", `Floor ${floor.id} metersPerPlanUnit must be a positive finite number no greater than 10000`);
       }
       if (!Number.isFinite(floor.elevation)) {
         throw new ClimateDataValidationError(400, "INVALID_FLOOR_ELEVATION", `Floor ${floor.id} elevation must be finite`);
@@ -4895,7 +5677,7 @@ export class ClimateDatabase {
             throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_ID", `Floor ${floor.id} plan elements must have unique non-empty ids`);
           }
           elementIds.add(element.id);
-          if (!["door", "window", "fireplace", "vent"].includes(element.kind)) {
+          if (!["door", "window", "fireplace", "vent", "fireEscape"].includes(element.kind)) {
             throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_KIND", `Floor ${floor.id} has an unsupported plan element kind`);
           }
           if (!element.position || !Number.isFinite(element.position.x) || !Number.isFinite(element.position.y)
@@ -4916,6 +5698,8 @@ export class ClimateDatabase {
           }
           const isOpening = element.kind === "door" || element.kind === "window";
           const isAirflowElement = isOpening || element.kind === "vent";
+          const isFireEscape = element.kind === "fireEscape";
+          const isWallAttached = isOpening || isFireEscape;
           const state = "state" in element ? element.state : undefined;
           const openFraction = "openFraction" in element ? element.openFraction : undefined;
           const bottomOffsetM = "bottomOffsetM" in element ? element.bottomOffsetM : undefined;
@@ -4928,7 +5712,7 @@ export class ClimateDatabase {
           if (openFraction !== undefined && (!isAirflowElement || !Number.isFinite(openFraction) || openFraction < 0 || openFraction > 1)) {
             throw new ClimateDataValidationError(400, "INVALID_OPENING_FRACTION", `Floor ${floor.id} opening fractions must be from 0 to 1`);
           }
-          if (bottomOffsetM !== undefined && (!isAirflowElement || !Number.isFinite(bottomOffsetM) || bottomOffsetM < 0 || bottomOffsetM > (floor.ceilingHeight ?? 2.8))) {
+          if (bottomOffsetM !== undefined && ((!isAirflowElement && !isFireEscape) || !Number.isFinite(bottomOffsetM) || bottomOffsetM < 0 || bottomOffsetM > (floor.ceilingHeight ?? 2.8))) {
             throw new ClimateDataValidationError(400, "INVALID_OPENING_BOTTOM_OFFSET", `Floor ${floor.id} opening bottom offsets must fit within the level height`);
           }
           if (bottomOffsetM !== undefined && element.height !== undefined && bottomOffsetM + element.height > (floor.ceilingHeight ?? 2.8) + 1e-9) {
@@ -4952,11 +5736,13 @@ export class ClimateDatabase {
               ? ["fixed", "casement", "tilt-turn", "sliding"]
               : element.kind === "vent"
                 ? ["passive", "supply", "extract", "balanced", "transfer"]
-                : [];
+                : element.kind === "fireEscape"
+                  ? ["ladder", "stairs"]
+                  : [];
           if (variant !== undefined && !validVariants.includes(variant)) {
             throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_VARIANT", `Floor ${floor.id} plan element variant is not supported for ${element.kind}`);
           }
-          if (element.kind !== "fireplace") {
+          if (isAirflowElement) {
             const fixedState = fixedPlanElementOpeningState(element);
             if (fixedState && state !== undefined && state !== fixedState) {
               throw new ClimateDataValidationError(400, "INVALID_OPENING_STATE", `Floor ${floor.id} ${element.variant} opening state must remain ${fixedState}`);
@@ -4970,6 +5756,9 @@ export class ClimateDatabase {
           }
           const verticalExtent = "verticalExtent" in element ? element.verticalExtent : undefined;
           const chimneyHeightAboveRoof = "chimneyHeightAboveRoof" in element ? element.chimneyHeightAboveRoof : undefined;
+          const chimneyWidth = "chimneyWidth" in element ? element.chimneyWidth : undefined;
+          const chimneyDepth = "chimneyDepth" in element ? element.chimneyDepth : undefined;
+          const projection = "projection" in element ? element.projection : undefined;
           if (verticalExtent !== undefined && (element.kind !== "fireplace" || !["level", "roof"].includes(verticalExtent))) {
             throw new ClimateDataValidationError(400, "INVALID_FIREPLACE_VERTICAL_EXTENT", `Floor ${floor.id} verticalExtent is only supported for fireplaces`);
           }
@@ -4979,13 +5768,21 @@ export class ClimateDatabase {
           if (chimneyHeightAboveRoof !== undefined && verticalExtent !== "roof") {
             throw new ClimateDataValidationError(400, "INVALID_CHIMNEY_HEIGHT", `Floor ${floor.id} chimneyHeightAboveRoof requires a roof-reaching fireplace`);
           }
-          if (isOpening && (typeof element.wallId !== "string" || !wallsById.has(element.wallId))) {
-            throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_WALL", `Floor ${floor.id} doors and windows must reference an existing wall`);
+          for (const [name, value] of [["chimneyWidth", chimneyWidth], ["chimneyDepth", chimneyDepth]] as const) {
+            if (value !== undefined && (element.kind !== "fireplace" || verticalExtent !== "roof" || !Number.isFinite(value) || value <= 0 || value > Math.max(floor.width, floor.height))) {
+              throw new ClimateDataValidationError(400, "INVALID_CHIMNEY_DIMENSION", `Floor ${floor.id} ${name} must be positive, fit within the floor extent, and belong to a roof-reaching fireplace`);
+            }
           }
-          if (!isOpening && element.wallId !== undefined) {
-            throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_WALL", `Floor ${floor.id} fireplaces and vents cannot be attached as wall openings`);
+          if (projection !== undefined && (!isFireEscape || !Number.isFinite(projection) || projection <= 0 || projection > Math.max(floor.width, floor.height))) {
+            throw new ClimateDataValidationError(400, "INVALID_FIRE_ESCAPE_PROJECTION", `Floor ${floor.id} fire escape projection must be positive and fit within the floor extent`);
           }
-          if (isOpening) {
+          if (isWallAttached && (typeof element.wallId !== "string" || !wallsById.has(element.wallId))) {
+            throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_WALL", `Floor ${floor.id} doors, windows, and fire escapes must reference an existing wall`);
+          }
+          if (!isWallAttached && element.wallId !== undefined) {
+            throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_WALL", `Floor ${floor.id} fireplaces and vents cannot be wall-attached`);
+          }
+          if (isWallAttached) {
             const wall = wallsById.get(element.wallId!);
             if (!wall) continue;
             const dx = wall.to.x - wall.from.x;
@@ -4999,7 +5796,7 @@ export class ClimateDatabase {
             const rotationDelta = ((element.rotationDegrees - wallAngle) % 180 + 180) % 180;
             if (Math.hypot(element.position.x - projectedX, element.position.y - projectedY) > tolerance
               || Math.min(rotationDelta, 180 - rotationDelta) > 1e-6) {
-              throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_ALIGNMENT", `Floor ${floor.id} doors and windows must lie on and align with their wall`);
+              throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_ALIGNMENT", `Floor ${floor.id} doors, windows, and fire escapes must lie on and align with their wall`);
             }
             if (element.width !== undefined) {
               const wallLength = Math.sqrt(lengthSquared);
@@ -5009,7 +5806,7 @@ export class ClimateDatabase {
               if (element.width > wallLength + tolerance
                 || distanceFromStart + tolerance < halfWidth
                 || distanceFromEnd + tolerance < halfWidth) {
-                throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_FIT", `Floor ${floor.id} door and window widths must fit fully within their wall`);
+                throw new ClimateDataValidationError(400, "INVALID_PLAN_ELEMENT_FIT", `Floor ${floor.id} door, window, and fire escape widths must fit fully within their wall`);
               }
             }
           }
@@ -5360,14 +6157,17 @@ export class ClimateDatabase {
 
   createMeasurementDefinition(definition: MeasurementDefinition): MeasurementDefinition {
     this.db.prepare(`INSERT INTO measurement_definitions
-      (id, labels_json, unit, precision, valid_min, valid_max, display_min, display_max, interpolation_delta,
-       color_scale, builtin, enabled, spatial_interpolation, forecast_supported)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(definition.id, JSON.stringify(definition.labels), definition.unit, definition.precision,
+      (id, labels_json, unit, dimension, allowed_units_json, kind, default_aggregation,
+       generic_history_enabled, generic_stats_enabled, precision, valid_min, valid_max, display_min, display_max,
+       interpolation_delta, color_scale, builtin, enabled, spatial_interpolation, forecast_supported)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(definition.id, JSON.stringify(definition.labels), definition.unit, definition.dimension ?? "finite_scalar",
+        JSON.stringify(definition.allowedUnits ?? [definition.unit]), definition.kind ?? "gauge", definition.defaultAggregation ?? "mean",
+        definition.genericHistoryEnabled === false ? 0 : 1, definition.genericStatsEnabled === false ? 0 : 1, definition.precision,
         definition.validMin, definition.validMax, definition.displayMin, definition.displayMax,
         definition.interpolationDelta, definition.colorScale, definition.builtin ? 1 : 0, definition.enabled ? 1 : 0,
         definition.spatialInterpolation ? 1 : 0, definition.forecastSupported ? 1 : 0);
-    return definition;
+    return this.getMeasurementDefinition(definition.id)!;
   }
 
   updateMeasurementDefinition(id: string, patch: Partial<Omit<MeasurementDefinition, "id" | "builtin">>): MeasurementDefinition | null {
@@ -5388,12 +6188,16 @@ export class ClimateDatabase {
         );
       }
     }
-    this.db.prepare(`UPDATE measurement_definitions SET labels_json = ?, unit = ?, precision = ?, valid_min = ?, valid_max = ?,
-      display_min = ?, display_max = ?, interpolation_delta = ?, color_scale = ?, enabled = ?, spatial_interpolation = ?,
-      forecast_supported = ? WHERE id = ?`)
-      .run(JSON.stringify(next.labels), next.unit, next.precision, next.validMin, next.validMax, next.displayMin,
+    this.db.prepare(`UPDATE measurement_definitions SET labels_json = ?, unit = ?, dimension = ?, allowed_units_json = ?,
+      kind = ?, default_aggregation = ?, generic_history_enabled = ?, generic_stats_enabled = ?, precision = ?,
+      valid_min = ?, valid_max = ?, display_min = ?, display_max = ?, interpolation_delta = ?, color_scale = ?, enabled = ?,
+      spatial_interpolation = ?, forecast_supported = ? WHERE id = ?`)
+      .run(JSON.stringify(next.labels), next.unit, next.dimension ?? "finite_scalar", JSON.stringify(next.allowedUnits ?? [next.unit]),
+        next.kind ?? "gauge", next.defaultAggregation ?? "mean", next.genericHistoryEnabled === false ? 0 : 1,
+        next.genericStatsEnabled === false ? 0 : 1, next.precision, next.validMin, next.validMax, next.displayMin,
         next.displayMax, next.interpolationDelta, next.colorScale, next.enabled ? 1 : 0,
         next.spatialInterpolation ? 1 : 0, next.forecastSupported ? 1 : 0, id);
+    if (next.enabled && !current.enabled) this.rearmEligibleNotSupportedTapoGaps(null, id);
     return next;
   }
 
@@ -5448,6 +6252,19 @@ export class ClimateDatabase {
     const row = this.db.prepare(`SELECT sensor_id, metric, value, canonical_unit, timestamp, source, quality
       FROM measurement_samples WHERE sensor_id = ? AND metric = ? ORDER BY timestamp DESC, id DESC LIMIT 1`)
       .get(sensorId, metric) as unknown as MeasurementSampleRow | undefined;
+    return row ? measurementSampleFromRow(row) : null;
+  }
+
+  measurementSampleAtOrBefore(
+    sensorId: string,
+    metric: string,
+    source: SensorDataGapSource,
+    timestamp: string,
+  ): MeasurementSample | null {
+    const row = this.db.prepare(`SELECT sensor_id, metric, value, canonical_unit, timestamp, source, quality
+      FROM measurement_samples WHERE sensor_id = ? AND metric = ? AND source = ? AND timestamp <= ?
+      ORDER BY timestamp DESC, id DESC LIMIT 1`)
+      .get(sensorId, metric, source, timestamp) as unknown as MeasurementSampleRow | undefined;
     return row ? measurementSampleFromRow(row) : null;
   }
 
@@ -5690,6 +6507,91 @@ export class ClimateDatabase {
     return rows.map(outdoorTemperatureFromRow);
   }
 
+  outdoorTemperatureGaps(
+    houseId: string,
+    locationKey: string,
+    provider: WeatherProviderName,
+    from: string,
+    to: string,
+    minimumGapMs: number,
+    limit = 100,
+  ): HistoricalTelemetryGap[] {
+    const safeLimit = Math.max(1, Math.min(1_000, Math.trunc(limit)));
+    const thresholdSeconds = Math.max(1, minimumGapMs / 1_000);
+    const sourcePrefix = provider === "fmi" ? "fmi-%" : "open-meteo-%";
+    const rows = this.db.prepare(`WITH sample_times AS (
+        SELECT DISTINCT timestamp FROM outdoor_temperature_samples
+        WHERE house_id = ? AND location_key = ? AND source LIKE ?
+          AND timestamp >= ? AND timestamp <= ?
+      ), ordered AS (
+        SELECT timestamp, LAG(timestamp) OVER (ORDER BY timestamp) AS previous_timestamp
+        FROM sample_times
+      )
+      SELECT previous_timestamp AS started_at, timestamp AS ended_at,
+        (julianday(timestamp) - julianday(previous_timestamp)) * 86400000.0 AS duration_ms
+      FROM ordered
+      WHERE previous_timestamp IS NOT NULL
+        AND (julianday(timestamp) - julianday(previous_timestamp)) * 86400.0 >= ?
+      ORDER BY previous_timestamp LIMIT ?`)
+      .all(houseId, locationKey, sourcePrefix, from, to, thresholdSeconds, safeLimit) as unknown as Array<{
+        started_at: string;
+        ended_at: string;
+        duration_ms: number;
+      }>;
+    return rows.map((row) => ({
+      startedAt: row.started_at,
+      endedAt: row.ended_at,
+      durationMs: Math.max(0, Math.round(row.duration_ms)),
+    }));
+  }
+
+  latestOutdoorTemperatureTimestamp(
+    houseId: string,
+    locationKey: string,
+    provider: WeatherProviderName,
+  ): string | null {
+    const sourcePrefix = provider === "fmi" ? "fmi-%" : "open-meteo-%";
+    const row = this.db.prepare(`SELECT timestamp FROM outdoor_temperature_samples
+      WHERE house_id = ? AND location_key = ? AND source LIKE ?
+      ORDER BY timestamp DESC LIMIT 1`)
+      .get(houseId, locationKey, sourcePrefix) as { timestamp?: string } | undefined;
+    return row?.timestamp ?? null;
+  }
+
+  noteHistoricalWeatherObservationGap(
+    houseId: string,
+    locationKey: string,
+    provider: WeatherProviderName,
+    startedAt: string,
+    endedAt: string,
+    detectedAt = new Date().toISOString(),
+  ): WeatherOutageRecord {
+    const existing = this.db.prepare(`SELECT * FROM weather_outages
+      WHERE house_id = ? AND location_key = ? AND provider = ?
+        AND component = 'observation' AND backfill_from = ? AND backfill_to = ?
+      ORDER BY id DESC LIMIT 1`)
+      .get(houseId, locationKey, provider, startedAt, endedAt) as unknown as WeatherOutageRow | undefined;
+    if (existing) return weatherOutageFromRow(existing);
+    const result = this.db.prepare(`INSERT INTO weather_outages
+      (house_id, location_key, provider, component, started_at, last_seen_at, ended_at, last_error,
+       backfill_state, backfill_from, backfill_to, recovered_points, last_attempt_at, backfill_error)
+      VALUES (?, ?, ?, 'observation', ?, ?, ?, ?, 'pending', ?, ?, 0, NULL, NULL)`)
+      .run(
+        houseId,
+        locationKey,
+        provider,
+        startedAt,
+        detectedAt,
+        endedAt,
+        "A historical observation gap was found in stored weather telemetry",
+        startedAt,
+        endedAt,
+      );
+    const inserted = this.db.prepare("SELECT * FROM weather_outages WHERE id = ?")
+      .get(Number(result.lastInsertRowid)) as unknown as WeatherOutageRow;
+    return weatherOutageFromRow(inserted);
+  }
+
   noteWeatherOutage(
     houseId: string,
     locationKey: string,
@@ -5753,6 +6655,1318 @@ export class ClimateDatabase {
     this.db.prepare(`UPDATE weather_outages SET backfill_state = ?, recovered_points = ?,
       last_attempt_at = ?, backfill_error = ? WHERE id = ?`)
       .run(state, Math.max(0, Math.trunc(recoveredPoints)), attemptedAt, error, id);
+  }
+
+  latestMeasurementTimestamp(sensorId: string, metric: string, source: SensorDataGapSource): string | null {
+    const row = this.db.prepare(`SELECT timestamp FROM measurement_samples
+      WHERE sensor_id = ? AND metric = ? AND source = ?
+      ORDER BY timestamp DESC, id DESC LIMIT 1`).get(sensorId, metric, source) as { timestamp?: string } | undefined;
+    return row?.timestamp ?? null;
+  }
+
+  sensorSourceMetrics(sensorId: string, source: SensorDataGapSource): string[] {
+    const rows = this.db.prepare(`SELECT metric, MAX(timestamp) AS latest_timestamp FROM measurement_samples
+      WHERE sensor_id = ? AND source = ? GROUP BY metric ORDER BY metric`)
+      .all(sensorId, source) as unknown as Array<{ metric: string; latest_timestamp: string }>;
+    return rows.map((row) => row.metric);
+  }
+
+  measurementSampleGaps(
+    sensorId: string,
+    metric: string,
+    source: SensorDataGapSource,
+    from: string,
+    to: string,
+    minimumGapMs: number,
+    limit = 100,
+  ): HistoricalTelemetryGap[] {
+    const safeLimit = Math.max(1, Math.min(1_000, Math.trunc(limit)));
+    const thresholdSeconds = Math.max(1, minimumGapMs / 1_000);
+    const rows = this.db.prepare(`WITH ordered AS (
+        SELECT timestamp, LAG(timestamp) OVER (ORDER BY timestamp) AS previous_timestamp
+        FROM measurement_samples
+        WHERE sensor_id = ? AND metric = ? AND source = ?
+          AND quality = 'good' AND timestamp >= ? AND timestamp <= ?
+      )
+      SELECT previous_timestamp AS started_at, timestamp AS ended_at,
+        (julianday(timestamp) - julianday(previous_timestamp)) * 86400000.0 AS duration_ms
+      FROM ordered
+      WHERE previous_timestamp IS NOT NULL
+        AND (julianday(timestamp) - julianday(previous_timestamp)) * 86400.0 > ?
+        AND NOT EXISTS (
+          SELECT 1 FROM sensor_data_gaps AS known
+          WHERE known.sensor_id = ? AND known.metric = ? AND known.source = ?
+            AND known.started_at <= previous_timestamp
+            AND COALESCE(known.ended_at, timestamp) >= timestamp
+        )
+      ORDER BY previous_timestamp LIMIT ?`)
+      .all(
+        sensorId, metric, source, from, to, thresholdSeconds,
+        sensorId, metric, source, safeLimit,
+      ) as unknown as Array<{
+        started_at: string;
+        ended_at: string;
+        duration_ms: number;
+      }>;
+    return rows.map((row) => ({
+      startedAt: row.started_at,
+      endedAt: row.ended_at,
+      durationMs: Math.max(0, Math.round(row.duration_ms)),
+    }));
+  }
+
+  noteHistoricalSensorDataGap(
+    sensorId: string,
+    metric: string,
+    source: SensorDataGapSource,
+    startedAt: string,
+    endedAt: string,
+    detectedAt = new Date().toISOString(),
+  ): SensorDataGapRecord {
+    const existing = this.db.prepare(`SELECT * FROM sensor_data_gaps
+      WHERE sensor_id = ? AND metric = ? AND source = ? AND started_at = ? AND ended_at = ?
+      ORDER BY id DESC LIMIT 1`)
+      .get(sensorId, metric, source, startedAt, endedAt) as unknown as SensorDataGapRow | undefined;
+    if (existing) return sensorDataGapFromRow(existing);
+    const result = this.db.prepare(`INSERT INTO sensor_data_gaps
+      (sensor_id, metric, source, started_at, detected_at, ended_at, recovery_state,
+       recovered_points, attempt_count, last_attempt_at, next_attempt_at, recovery_error)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, 0, NULL, ?, NULL)`)
+      .run(sensorId, metric, source, startedAt, detectedAt, endedAt, detectedAt);
+    const inserted = this.db.prepare("SELECT * FROM sensor_data_gaps WHERE id = ?")
+      .get(Number(result.lastInsertRowid)) as unknown as SensorDataGapRow;
+    return sensorDataGapFromRow(inserted);
+  }
+
+  /** Explicitly rearms one closed historical gap without disturbing an active recovery lease. */
+  rearmSensorDataGapRecovery(
+    id: number,
+    availableAt = new Date().toISOString(),
+    resetAttempts = true,
+  ): SensorDataGapRecord | null {
+    const at = normalizedTapoHistoryTimestamp(availableAt, "availableAt");
+    const result = this.db.prepare(`UPDATE sensor_data_gaps SET recovery_state = 'pending',
+        attempt_count = CASE WHEN ? = 1 THEN 0 ELSE attempt_count END,
+        next_attempt_at = ?, recovery_error = NULL
+      WHERE id = ? AND ended_at IS NOT NULL AND recovery_state <> 'running'`)
+      .run(resetAttempts ? 1 : 0, at, id);
+    return Number(result.changes) > 0 ? this.sensorDataGap(id) : this.sensorDataGap(id);
+  }
+
+  /** Rearms persisted TP-Link gaps after a previously unavailable fallback is configured. */
+  rearmNotSupportedSensorDataGaps(
+    source: SensorDataGapSource,
+    capabilityRevision: string,
+    availableAt = new Date().toISOString(),
+  ): number {
+    const at = normalizedTapoHistoryTimestamp(availableAt, "availableAt");
+    const revision = normalizedTapoHistoryText(capabilityRevision, "capabilityRevision", 200);
+    const key = `sensor-gap-rearm:${source}`;
+    return this.immediateTransaction(() => {
+      const current = this.db.prepare("SELECT value FROM metadata WHERE key = ?")
+        .get(key) as { value: string } | undefined;
+      if (current?.value === revision) return 0;
+      const result = this.db.prepare(`UPDATE sensor_data_gaps SET recovery_state = 'pending',
+          attempt_count = 0, next_attempt_at = ?, recovery_error = NULL
+        WHERE id IN (
+          SELECT gap.id FROM sensor_data_gaps AS gap
+          JOIN sensors AS sensor ON sensor.id = gap.sensor_id
+          JOIN measurement_definitions AS definition ON definition.id = gap.metric
+          WHERE gap.source = ? AND gap.ended_at IS NOT NULL
+            AND gap.recovery_state = 'not-supported'
+            AND sensor.enabled = 1 AND definition.enabled = 1
+            AND sensor.tp_link_device_id IS NOT NULL AND trim(sensor.tp_link_device_id) <> ''
+        )`).run(at, source);
+      this.db.prepare(`INSERT INTO metadata(key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key, revision);
+      return Number(result.changes);
+    });
+  }
+
+  /**
+   * Rearms the obsolete T310/T315 capability failure once local retained
+   * history becomes available. Gaps outside the hub's retained window remain
+   * terminal because retrying them locally can no longer recover the range.
+   */
+  rearmRetainedTpLinkClimateHistoryGaps(
+    capabilityRevision: string,
+    availableAt = new Date().toISOString(),
+  ): number {
+    const at = normalizedTapoHistoryTimestamp(availableAt, "availableAt");
+    const revision = normalizedTapoHistoryText(capabilityRevision, "capabilityRevision", 200);
+    const retainedAfter = new Date(Date.parse(at) - TP_LINK_LOCAL_CLIMATE_HISTORY_RETENTION_MS).toISOString();
+    return this.immediateTransaction(() => {
+      const current = this.db.prepare("SELECT value FROM metadata WHERE key = ?")
+        .get(TP_LINK_LOCAL_CLIMATE_HISTORY_REARM_KEY) as { value: string } | undefined;
+      if (current?.value === revision) return 0;
+      const result = this.db.prepare(`UPDATE sensor_data_gaps SET recovery_state = 'pending',
+          attempt_count = 0, next_attempt_at = ?, recovery_error = NULL
+        WHERE id IN (
+          SELECT gap.id FROM sensor_data_gaps AS gap
+          JOIN sensors AS sensor ON sensor.id = gap.sensor_id
+          JOIN measurement_definitions AS definition ON definition.id = gap.metric
+          WHERE gap.source = 'tp-link' AND gap.ended_at IS NOT NULL
+            AND gap.recovery_state = 'not-supported'
+            AND gap.metric IN ('temperature', 'humidity')
+            AND gap.recovery_error = ?
+            AND gap.started_at >= ? AND gap.ended_at <= ?
+            AND sensor.enabled = 1 AND definition.enabled = 1
+            AND sensor.tp_link_device_id IS NOT NULL AND trim(sensor.tp_link_device_id) <> ''
+        )`).run(at, TP_LINK_LEGACY_CLIMATE_HISTORY_ERROR, retainedAfter, at);
+      this.db.prepare(`INSERT INTO metadata(key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+        .run(TP_LINK_LOCAL_CLIMATE_HISTORY_REARM_KEY, revision);
+      return Number(result.changes);
+    });
+  }
+
+  private rearmEligibleNotSupportedTapoGaps(sensorId: string | null, metric: string | null): number {
+    const at = new Date().toISOString();
+    const retainedAfter = new Date(Date.parse(at) - TP_LINK_LOCAL_CLIMATE_HISTORY_RETENTION_MS).toISOString();
+    const result = this.db.prepare(`UPDATE sensor_data_gaps SET recovery_state = 'pending',
+        attempt_count = 0, next_attempt_at = ?, recovery_error = NULL
+      WHERE source = 'tp-link' AND ended_at IS NOT NULL AND recovery_state = 'not-supported'
+        AND (? IS NULL OR sensor_id = ?) AND (? IS NULL OR metric = ?)
+        AND (
+          EXISTS (SELECT 1 FROM metadata WHERE key = 'sensor-gap-rearm:tp-link')
+          OR (
+            EXISTS (SELECT 1 FROM metadata WHERE key = ?)
+            AND sensor_data_gaps.metric IN ('temperature', 'humidity')
+            AND sensor_data_gaps.recovery_error = ?
+            AND sensor_data_gaps.started_at >= ? AND sensor_data_gaps.ended_at <= ?
+          )
+        )
+        AND EXISTS (
+          SELECT 1 FROM sensors AS sensor
+          WHERE sensor.id = sensor_data_gaps.sensor_id AND sensor.enabled = 1
+            AND sensor.tp_link_device_id IS NOT NULL AND trim(sensor.tp_link_device_id) <> ''
+        )
+        AND EXISTS (
+          SELECT 1 FROM measurement_definitions AS definition
+          WHERE definition.id = sensor_data_gaps.metric AND definition.enabled = 1
+        )`).run(
+      at, sensorId, sensorId, metric, metric,
+      TP_LINK_LOCAL_CLIMATE_HISTORY_REARM_KEY, TP_LINK_LEGACY_CLIMATE_HISTORY_ERROR, retainedAfter, at,
+    );
+    return Number(result.changes);
+  }
+
+  openSensorDataGap(sensorId: string, metric: string, source: SensorDataGapSource): SensorDataGapRecord | null {
+    const row = this.db.prepare(`SELECT * FROM sensor_data_gaps
+      WHERE sensor_id = ? AND metric = ? AND source = ? AND ended_at IS NULL LIMIT 1`)
+      .get(sensorId, metric, source) as unknown as SensorDataGapRow | undefined;
+    return row ? sensorDataGapFromRow(row) : null;
+  }
+
+  noteSensorDataGap(
+    sensorId: string,
+    metric: string,
+    source: SensorDataGapSource,
+    startedAt: string,
+    detectedAt = new Date().toISOString(),
+  ): SensorDataGapRecord {
+    this.db.prepare(`INSERT INTO sensor_data_gaps
+      (sensor_id, metric, source, started_at, detected_at, ended_at, recovery_state,
+       recovered_points, attempt_count, last_attempt_at, next_attempt_at, recovery_error)
+      VALUES (?, ?, ?, ?, ?, NULL, 'open', 0, 0, NULL, NULL, NULL)
+      ON CONFLICT(sensor_id, metric, source) WHERE ended_at IS NULL DO UPDATE SET
+        detected_at = excluded.detected_at`)
+      .run(sensorId, metric, source, startedAt, detectedAt);
+    const gap = this.openSensorDataGap(sensorId, metric, source);
+    if (!gap) throw new Error("Could not persist the detected sensor data gap");
+    return gap;
+  }
+
+  resolveSensorDataGap(
+    sensorId: string,
+    metric: string,
+    source: SensorDataGapSource,
+    endedAt = new Date().toISOString(),
+  ): SensorDataGapRecord | null {
+    const current = this.openSensorDataGap(sensorId, metric, source);
+    if (!current) return null;
+    const normalizedEnd = Date.parse(endedAt) > Date.parse(current.startedAt) ? endedAt : current.detectedAt;
+    this.db.prepare(`UPDATE sensor_data_gaps SET ended_at = ?, recovery_state = 'pending',
+      next_attempt_at = ?, recovery_error = NULL WHERE id = ? AND ended_at IS NULL`)
+      .run(normalizedEnd, normalizedEnd, current.id);
+    return this.sensorDataGap(current.id);
+  }
+
+  sensorDataGap(id: number): SensorDataGapRecord | null {
+    const row = this.db.prepare("SELECT * FROM sensor_data_gaps WHERE id = ?").get(id) as unknown as SensorDataGapRow | undefined;
+    return row ? sensorDataGapFromRow(row) : null;
+  }
+
+  listSensorDataGaps(sensorId?: string, limit = 100): SensorDataGapRecord[] {
+    const safeLimit = Math.max(1, Math.min(1_000, Math.trunc(limit)));
+    const rows = this.db.prepare(`SELECT * FROM sensor_data_gaps ${sensorId ? "WHERE sensor_id = ?" : ""}
+      ORDER BY started_at DESC, id DESC LIMIT ?`)
+      .all(...(sensorId ? [sensorId, safeLimit] : [safeLimit])) as unknown as SensorDataGapRow[];
+    return rows.map(sensorDataGapFromRow);
+  }
+
+  recoverableSensorDataGaps(now = new Date().toISOString(), limit = 100): SensorDataGapRecord[] {
+    const safeLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
+    const rows = this.db.prepare(`SELECT * FROM sensor_data_gaps
+      WHERE ended_at IS NOT NULL
+        AND recovery_state IN ('pending', 'failed', 'partial', 'running')
+        AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+      ORDER BY COALESCE(next_attempt_at, ended_at), id LIMIT ?`)
+      .all(now, safeLimit) as unknown as SensorDataGapRow[];
+    return rows.map(sensorDataGapFromRow);
+  }
+
+  claimSensorDataGapRecovery(id: number, attemptedAt: string, leaseUntil: string): SensorDataGapRecord | null {
+    const result = this.db.prepare(`UPDATE sensor_data_gaps SET recovery_state = 'running',
+      attempt_count = attempt_count + 1, last_attempt_at = ?, next_attempt_at = ?, recovery_error = NULL
+      WHERE id = ? AND ended_at IS NOT NULL
+        AND recovery_state IN ('pending', 'failed', 'partial', 'running')
+        AND (next_attempt_at IS NULL OR next_attempt_at <= ?)`)
+      .run(attemptedAt, leaseUntil, id, attemptedAt);
+    return Number(result.changes) > 0 ? this.sensorDataGap(id) : null;
+  }
+
+  updateSensorDataGapRecovery(
+    id: number,
+    state: Exclude<SensorDataGapState, "open" | "pending" | "running">,
+    recoveredPoints: number,
+    attemptedAt: string,
+    error: string | null,
+    nextAttemptAt: string | null = null,
+  ): void {
+    this.db.prepare(`UPDATE sensor_data_gaps SET recovery_state = ?, recovered_points = ?,
+      last_attempt_at = ?, next_attempt_at = ?, recovery_error = ? WHERE id = ?`)
+      .run(state, Math.max(0, Math.trunc(recoveredPoints)), attemptedAt, nextAttemptAt, error, id);
+  }
+
+  /** Makes a completed asynchronous export immediately eligible for the gap coordinator's next pass. */
+  expediteSensorDataGapRecovery(
+    sensorId: string,
+    source: SensorDataGapSource,
+    from: string,
+    to: string,
+    now = new Date().toISOString(),
+  ): number {
+    const rangeStart = normalizedTapoHistoryTimestamp(from, "from");
+    const rangeEnd = normalizedTapoHistoryTimestamp(to, "to");
+    const attemptedAt = normalizedTapoHistoryTimestamp(now, "now");
+    if (Date.parse(rangeStart) > Date.parse(rangeEnd)) {
+      throw new ClimateDataValidationError(422, "INVALID_SENSOR_GAP_RANGE", "from must be before or equal to to");
+    }
+    const result = this.db.prepare(`UPDATE sensor_data_gaps SET next_attempt_at = ?, recovery_error = NULL
+      WHERE sensor_id = ? AND source = ? AND ended_at IS NOT NULL
+        AND recovery_state IN ('partial', 'failed')
+        AND started_at <= ? AND ended_at >= ?`)
+      .run(attemptedAt, sensorId, source, rangeEnd, rangeStart);
+    return Number(result.changes);
+  }
+
+  /** Creates one durable export request, returning the prior job when its idempotency key already exists. */
+  enqueueTapoHistoryExportJob(
+    input: TapoHistoryExportJobInput,
+    createdAt = new Date().toISOString(),
+  ): TapoHistoryExportEnqueueResult {
+    if (input.provider !== "appium" && input.provider !== "private-cloud") {
+      throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_PROVIDER", "Unsupported Tapo history export provider");
+    }
+    const sensor = this.getSensor(input.sensorId);
+    if (!sensor) throw new ClimateDataValidationError(404, "SENSOR_NOT_FOUND", `Sensor ${input.sensorId} does not exist`);
+    const expectedDeviceId = normalizedTapoHistoryText(input.expectedDeviceId, "expectedDeviceId", 500);
+    if (sensor.tpLinkDeviceId && sensor.tpLinkDeviceId !== expectedDeviceId) {
+      throw new ClimateDataValidationError(
+        409,
+        "TAPO_EXPORT_DEVICE_MISMATCH",
+        `Expected device ${expectedDeviceId} does not match sensor ${sensor.id}`,
+      );
+    }
+    const deviceName = normalizedTapoHistoryText(input.deviceName ?? sensor.name, "deviceName", 500);
+    const house = this.getHouse(sensor.houseId);
+    if (!house) throw new ClimateDataValidationError(409, "TAPO_EXPORT_CONTEXT_MISSING", "Sensor house does not exist");
+    const timeZone = normalizedTapoHistoryText(input.timeZone ?? house.timezone, "timeZone", 100);
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone }).format(0);
+    } catch {
+      throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_TIMEZONE", "timeZone must be a valid IANA timezone");
+    }
+    const metric = normalizedTapoHistoryText(input.metric, "metric", 200);
+    if (!this.getMeasurementDefinition(metric)) {
+      throw new ClimateDataValidationError(404, "TAPO_EXPORT_METRIC_NOT_FOUND", `Unknown measurement metric: ${metric}`);
+    }
+    const expectedRecipient = input.expectedRecipient === null
+      ? null
+      : normalizedTapoHistoryText(input.expectedRecipient, "expectedRecipient", 320).toLowerCase();
+    if (expectedRecipient !== null) {
+      const separator = expectedRecipient.lastIndexOf("@");
+      if (separator < 1 || separator === expectedRecipient.length - 1) {
+        throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_RECIPIENT", "expectedRecipient must be an email address");
+      }
+    } else if (input.provider === "appium") {
+      throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_RECIPIENT", "Appium exports require expectedRecipient");
+    }
+    const rangeStart = normalizedTapoHistoryTimestamp(input.rangeStart, "rangeStart");
+    const rangeEnd = normalizedTapoHistoryTimestamp(input.rangeEnd, "rangeEnd");
+    if (Date.parse(rangeStart) >= Date.parse(rangeEnd)) {
+      throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_RANGE", "rangeStart must be before rangeEnd");
+    }
+    if (!Number.isInteger(input.intervalMinutes) || input.intervalMinutes < 1 || input.intervalMinutes > 525_600) {
+      throw new ClimateDataValidationError(
+        422,
+        "INVALID_TAPO_EXPORT_INTERVAL",
+        "intervalMinutes must be an integer between 1 and 525600",
+      );
+    }
+    const maxAttempts = input.maxAttempts ?? 5;
+    if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 100) {
+      throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_ATTEMPTS", "maxAttempts must be between 1 and 100");
+    }
+    const normalizedCreatedAt = normalizedTapoHistoryTimestamp(createdAt, "createdAt");
+    const availableAt = normalizedTapoHistoryTimestamp(input.availableAt ?? normalizedCreatedAt, "availableAt");
+    const naturalKey = [
+      input.provider, sensor.id, expectedDeviceId, deviceName, timeZone, metric, rangeStart, rangeEnd,
+      String(input.intervalMinutes),
+    ].join("\u0000");
+    const dedupeKey = input.dedupeKey === undefined
+      ? `request:${createHash("sha256").update(naturalKey).digest("hex")}`
+      : normalizedTapoHistoryText(input.dedupeKey, "dedupeKey", 500);
+
+    return this.immediateTransaction(() => {
+      const existingRow = this.db.prepare("SELECT * FROM tapo_history_export_jobs WHERE dedupe_key = ?")
+        .get(dedupeKey) as unknown as TapoHistoryExportJobRow | undefined;
+      if (existingRow) {
+        const existing = tapoHistoryExportJobFromRow(existingRow);
+        if (existing.provider !== input.provider || existing.sensorId !== sensor.id
+          || existing.expectedDeviceId !== expectedDeviceId || existing.deviceName !== deviceName
+          || existing.timeZone !== timeZone || existing.metric !== metric
+          || existing.rangeStart !== rangeStart || existing.rangeEnd !== rangeEnd
+          || existing.intervalMinutes !== input.intervalMinutes) {
+          throw new ClimateDataValidationError(
+            409,
+            "TAPO_EXPORT_DEDUPE_COLLISION",
+            "The Tapo export idempotency key is already associated with a different request",
+          );
+        }
+        return { job: existing, created: false };
+      }
+      const id = input.id === undefined ? randomUUID() : normalizedTapoHistoryText(input.id, "id", 200);
+      if (this.getTapoHistoryExportJob(id)) {
+        throw new ClimateDataValidationError(
+          409,
+          "TAPO_EXPORT_ID_COLLISION",
+          "The Tapo export job id is already associated with a different request",
+        );
+      }
+      this.db.prepare(`INSERT INTO tapo_history_export_jobs (
+          id, dedupe_key, provider, sensor_id, expected_device_id, device_name, time_zone, metric, expected_recipient,
+          range_start, range_end, interval_minutes, status, attempt_count, max_attempts,
+          available_at, lease_owner, lease_token, lease_expires_at, heartbeat_at, submitted_at,
+          deployment_fingerprint, acceptance_revision, mailbox_message_id, source_artifact_sha256, source_artifact_bytes,
+          parser_version, source_schema_signature, expected_schema_signature,
+          staged_sample_count, consumed_sample_count, last_error,
+          attention_reason, created_at, updated_at, completed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?, NULL, NULL, NULL, NULL, NULL,
+          NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, NULL, NULL, ?, ?, NULL)`)
+        .run(
+          id, dedupeKey, input.provider, sensor.id, expectedDeviceId, deviceName, timeZone, metric, expectedRecipient,
+          rangeStart, rangeEnd, input.intervalMinutes, maxAttempts, availableAt,
+          normalizedCreatedAt, normalizedCreatedAt,
+        );
+      if (dedupeKey.startsWith("canary:") && !dedupeKey.startsWith("canary:renewal:")) {
+        this.db.prepare(`DELETE FROM tapo_history_canary_approvals
+          WHERE canary_job_id IN (
+            SELECT prior.id FROM tapo_history_export_jobs AS prior
+            WHERE prior.sensor_id = ? AND prior.expected_device_id = ? AND prior.device_name = ?
+              AND prior.time_zone = ? AND prior.interval_minutes = ?
+          )`).run(sensor.id, expectedDeviceId, deviceName, timeZone, input.intervalMinutes);
+        this.db.prepare(`UPDATE tapo_history_export_jobs SET status = 'needs-attention',
+            attention_reason = 'Target relocked for manual Tapo canary recertification', updated_at = ?
+          WHERE id <> ? AND provider = 'appium' AND dedupe_key NOT LIKE 'canary:%'
+            AND sensor_id = ? AND expected_device_id = ? AND device_name = ?
+            AND time_zone = ? AND interval_minutes = ?
+            AND status IN ('claimed', 'running', 'waiting-email')`)
+          .run(normalizedCreatedAt, id, sensor.id, expectedDeviceId, deviceName, timeZone, input.intervalMinutes);
+      }
+      return { job: this.getTapoHistoryExportJob(id)!, created: true };
+    });
+  }
+
+  getTapoHistoryExportJob(id: string): TapoHistoryExportJob | null {
+    const row = this.db.prepare("SELECT * FROM tapo_history_export_jobs WHERE id = ?")
+      .get(id) as unknown as TapoHistoryExportJobRow | undefined;
+    return row ? tapoHistoryExportJobFromRow(row) : null;
+  }
+
+  getTapoHistoryExportJobByDedupeKey(dedupeKey: string): TapoHistoryExportJob | null {
+    const key = normalizedTapoHistoryText(dedupeKey, "dedupeKey", 500);
+    const row = this.db.prepare("SELECT * FROM tapo_history_export_jobs WHERE dedupe_key = ?")
+      .get(key) as unknown as TapoHistoryExportJobRow | undefined;
+    return row ? tapoHistoryExportJobFromRow(row) : null;
+  }
+
+  listTapoHistoryExportJobs(filter: TapoHistoryExportJobFilter = {}): TapoHistoryExportJob[] {
+    const conditions: string[] = [];
+    const parameters: string[] = [];
+    if (filter.statuses) {
+      const statuses = [...new Set(filter.statuses)];
+      if (statuses.length === 0) return [];
+      if (statuses.some((status) => !(status in TAPO_HISTORY_EXPORT_TRANSITIONS))) {
+        throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_STATUS", "Unsupported Tapo export status");
+      }
+      conditions.push(`status IN (${statuses.map(() => "?").join(",")})`);
+      parameters.push(...statuses);
+    }
+    if (filter.provider) {
+      if (filter.provider !== "appium" && filter.provider !== "private-cloud") {
+        throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_PROVIDER", "Unsupported Tapo history export provider");
+      }
+      conditions.push("provider = ?");
+      parameters.push(filter.provider);
+    }
+    if (filter.sensorId) {
+      conditions.push("sensor_id = ?");
+      parameters.push(filter.sensorId);
+    }
+    const limit = Math.max(1, Math.min(1_000, Math.trunc(filter.limit ?? 100)));
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const direction = filter.oldestFirst === true ? "ASC" : "DESC";
+    const rows = this.db.prepare(`SELECT * FROM tapo_history_export_jobs ${where}
+      ORDER BY created_at ${direction}, id ${direction} LIMIT ?`).all(...parameters, limit) as unknown as TapoHistoryExportJobRow[];
+    return rows.map(tapoHistoryExportJobFromRow);
+  }
+
+  hasOpenTapoHistoryCanary(): boolean {
+    return Boolean(this.db.prepare(`SELECT 1 AS present FROM tapo_history_export_jobs
+      WHERE dedupe_key LIKE 'canary:%' AND status NOT IN ('completed', 'cancelled') LIMIT 1`).get());
+  }
+
+  countWaitingTapoHistoryExportEmails(): number {
+    const row = this.db.prepare(`SELECT COUNT(*) AS count FROM tapo_history_export_jobs
+      WHERE provider = 'appium' AND status = 'waiting-email'`).get() as { count: number };
+    return Number(row.count);
+  }
+
+  hasRecentTapoHistoryCanaryApproval(deploymentFingerprint: string, notBefore: string): boolean {
+    const fingerprint = normalizedSha256(deploymentFingerprint, "deploymentFingerprint");
+    const cutoff = normalizedTapoHistoryTimestamp(notBefore, "notBefore");
+    return Boolean(this.db.prepare(`SELECT 1 AS approved FROM tapo_history_canary_approvals AS approval
+      JOIN tapo_history_export_jobs AS job ON job.id = approval.canary_job_id
+      WHERE approval.deployment_fingerprint = ? AND approval.approved_at >= ?
+        AND job.status = 'completed' AND job.dedupe_key LIKE 'canary:%'
+      LIMIT 1`).get(fingerprint, cutoff));
+  }
+
+  approveTapoHistoryDeploymentFromCanary(
+    canaryJobId: string,
+    acceptanceRevision: string,
+    approvedAt = new Date().toISOString(),
+  ): void {
+    const at = normalizedTapoHistoryTimestamp(approvedAt, "approvedAt");
+    const revision = normalizedSha256(acceptanceRevision, "acceptanceRevision");
+    this.immediateTransaction(() => {
+      const row = this.db.prepare("SELECT * FROM tapo_history_export_jobs WHERE id = ?")
+        .get(canaryJobId) as unknown as TapoHistoryExportJobRow | undefined;
+      if (!row || row.status !== "completed" || !row.dedupe_key.startsWith("canary:")
+        || !row.deployment_fingerprint || !row.source_schema_signature) {
+        throw new ClimateDataValidationError(
+          409,
+          "TAPO_CANARY_NOT_APPROVABLE",
+          "Only a completed canary tied to an attested deployment can approve automation",
+        );
+      }
+      const fingerprint = normalizedSha256(row.deployment_fingerprint, "deploymentFingerprint");
+      this.db.prepare(`DELETE FROM tapo_history_canary_approvals WHERE deployment_fingerprint = ?
+        AND canary_job_id IN (
+          SELECT id FROM tapo_history_export_jobs
+          WHERE sensor_id = ? AND expected_device_id = ? AND device_name = ?
+            AND time_zone = ? AND interval_minutes = ?
+        )`).run(
+        fingerprint,
+        row.sensor_id,
+        row.expected_device_id,
+        row.device_name,
+        row.time_zone,
+        row.interval_minutes,
+      );
+      this.db.prepare(`INSERT INTO tapo_history_canary_approvals
+          (deployment_fingerprint, canary_job_id, acceptance_revision, schema_signature, approved_at)
+          VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(deployment_fingerprint, canary_job_id) DO UPDATE SET
+          acceptance_revision = excluded.acceptance_revision,
+          schema_signature = excluded.schema_signature,
+          approved_at = excluded.approved_at`)
+        .run(fingerprint, canaryJobId, revision, row.source_schema_signature, at);
+    });
+  }
+
+  /** A newly requested canary durably relocks its exact device/timezone/interval scope. */
+  revokeTapoHistoryCanaryApprovalsForTarget(canaryJobId: string): number {
+    const row = this.db.prepare("SELECT * FROM tapo_history_export_jobs WHERE id = ?")
+      .get(canaryJobId) as unknown as TapoHistoryExportJobRow | undefined;
+    if (!row || !row.dedupe_key.startsWith("canary:")) {
+      throw new ClimateDataValidationError(409, "TAPO_CANARY_NOT_FOUND", "Canary target does not exist");
+    }
+    const result = this.db.prepare(`DELETE FROM tapo_history_canary_approvals
+      WHERE canary_job_id IN (
+        SELECT id FROM tapo_history_export_jobs
+        WHERE sensor_id = ? AND expected_device_id = ? AND device_name = ?
+          AND time_zone = ? AND interval_minutes = ?
+      )`).run(row.sensor_id, row.expected_device_id, row.device_name, row.time_zone, row.interval_minutes);
+    return Number(result.changes);
+  }
+
+  /** Relock an ordinary job's exact target when a vendor CSV drifts from its approved canary. */
+  revokeTapoHistoryCanaryApprovalsForJobTarget(jobId: string): number {
+    const row = this.db.prepare("SELECT * FROM tapo_history_export_jobs WHERE id = ?")
+      .get(jobId) as unknown as TapoHistoryExportJobRow | undefined;
+    if (!row) {
+      throw new ClimateDataValidationError(404, "TAPO_EXPORT_NOT_FOUND", "Tapo export target does not exist");
+    }
+    const result = this.db.prepare(`DELETE FROM tapo_history_canary_approvals
+      WHERE canary_job_id IN (
+        SELECT id FROM tapo_history_export_jobs
+        WHERE sensor_id = ? AND expected_device_id = ? AND device_name = ?
+          AND time_zone = ? AND interval_minutes = ?
+      )`).run(row.sensor_id, row.expected_device_id, row.device_name, row.time_zone, row.interval_minutes);
+    return Number(result.changes);
+  }
+
+  tapoHistoryCanaryRenewalTarget(
+    deploymentFingerprint: string,
+    acceptanceRevision: string,
+    approvedNotAfter: string,
+  ): TapoHistoryExportJob | null {
+    const fingerprint = normalizedSha256(deploymentFingerprint, "deploymentFingerprint");
+    const revision = normalizedSha256(acceptanceRevision, "acceptanceRevision");
+    const cutoff = normalizedTapoHistoryTimestamp(approvedNotAfter, "approvedNotAfter");
+    const row = this.db.prepare(`SELECT candidate.* FROM tapo_history_export_jobs AS candidate
+      WHERE candidate.provider = 'appium' AND candidate.dedupe_key NOT LIKE 'canary:%'
+        AND candidate.status IN ('queued', 'failed') AND candidate.attempt_count < candidate.max_attempts
+        AND EXISTS (
+          SELECT 1 FROM tapo_history_canary_approvals AS approval
+          JOIN tapo_history_export_jobs AS canary ON canary.id = approval.canary_job_id
+          WHERE approval.deployment_fingerprint = ? AND approval.acceptance_revision = ?
+            AND approval.approved_at <= ? AND canary.status = 'completed'
+            AND canary.sensor_id = candidate.sensor_id
+            AND canary.expected_device_id = candidate.expected_device_id
+            AND canary.device_name = candidate.device_name
+            AND canary.time_zone = candidate.time_zone
+            AND canary.interval_minutes = candidate.interval_minutes
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM tapo_history_export_jobs AS pending_canary
+          WHERE pending_canary.dedupe_key LIKE 'canary:%'
+            AND pending_canary.status NOT IN ('completed', 'cancelled')
+            AND pending_canary.sensor_id = candidate.sensor_id
+            AND pending_canary.expected_device_id = candidate.expected_device_id
+            AND pending_canary.device_name = candidate.device_name
+            AND pending_canary.time_zone = candidate.time_zone
+            AND pending_canary.interval_minutes = candidate.interval_minutes
+        )
+      ORDER BY candidate.created_at, candidate.id LIMIT 1`)
+      .get(fingerprint, revision, cutoff) as unknown as TapoHistoryExportJobRow | undefined;
+    return row ? tapoHistoryExportJobFromRow(row) : null;
+  }
+
+  /** Atomically leases the oldest runnable job. Expired workers can be reclaimed, but never after maxAttempts. */
+  claimNextTapoHistoryExportJob(
+    leaseOwner: string,
+    claimedAt: string,
+    leaseUntil: string,
+    providers: readonly TapoHistoryExportProvider[] = ["appium", "private-cloud"],
+    reclaimNotAfter = claimedAt,
+    options: TapoHistoryClaimOptions = {},
+  ): TapoHistoryExportClaim | null {
+    const owner = normalizedTapoHistoryText(leaseOwner, "leaseOwner", 500);
+    const now = normalizedTapoHistoryTimestamp(claimedAt, "claimedAt");
+    const expiresAt = normalizedTapoHistoryTimestamp(leaseUntil, "leaseUntil");
+    const reclaimCutoff = normalizedTapoHistoryTimestamp(reclaimNotAfter, "reclaimNotAfter");
+    const deploymentFingerprint = options.deploymentFingerprint === undefined
+      ? null
+      : normalizedSha256(options.deploymentFingerprint, "deploymentFingerprint");
+    const acceptanceRevision = options.acceptanceRevision === undefined
+      ? null
+      : normalizedSha256(options.acceptanceRevision, "acceptanceRevision");
+    const approvalNotBefore = options.requireApprovedTarget === true
+      ? normalizedTapoHistoryTimestamp(options.approvalNotBefore ?? "", "approvalNotBefore")
+      : null;
+    const requiredAcceptanceRevision = options.requireApprovedTarget === true
+      ? normalizedSha256(options.requiredAcceptanceRevision ?? "", "requiredAcceptanceRevision")
+      : null;
+    if (options.requireApprovedTarget === true && !deploymentFingerprint) {
+      throw new ClimateDataValidationError(
+        422,
+        "INVALID_TAPO_EXPORT_FIELD",
+        "deploymentFingerprint is required when target approval is enforced",
+      );
+    }
+    if (Date.parse(expiresAt) <= Date.parse(now)) {
+      throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_LEASE", "leaseUntil must be after claimedAt");
+    }
+    const allowedProviders = [...new Set(providers)];
+    if (allowedProviders.length === 0) return null;
+    if (allowedProviders.some((provider) => provider !== "appium" && provider !== "private-cloud")) {
+      throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_PROVIDER", "Unsupported Tapo history export provider");
+    }
+    const placeholders = allowedProviders.map(() => "?").join(",");
+    const maxOutstandingAppium = options.maxOutstandingAppium ?? null;
+    if (maxOutstandingAppium !== null
+      && (!Number.isSafeInteger(maxOutstandingAppium) || maxOutstandingAppium < 1 || maxOutstandingAppium > 10)) {
+      throw new ClimateDataValidationError(
+        422,
+        "INVALID_TAPO_EXPORT_FIELD",
+        "maxOutstandingAppium must be an integer from 1 through 10",
+      );
+    }
+    const canaryPredicate = options.canaryOnly === true ? "AND dedupe_key LIKE 'canary:%'" : "";
+    const canaryOrder = options.preferCanary === true ? "CASE WHEN dedupe_key LIKE 'canary:%' THEN 0 ELSE 1 END," : "";
+    const approvalPredicate = options.requireApprovedTarget === true ? `AND dedupe_key NOT LIKE 'canary:%'
+      AND EXISTS (
+        SELECT 1 FROM tapo_history_canary_approvals AS approval
+        JOIN tapo_history_export_jobs AS canary ON canary.id = approval.canary_job_id
+        WHERE approval.deployment_fingerprint = ? AND approval.approved_at >= ?
+          AND approval.acceptance_revision = ?
+          AND length(approval.schema_signature) = 64
+          AND canary.status = 'completed' AND canary.dedupe_key LIKE 'canary:%'
+          AND canary.sensor_id = tapo_history_export_jobs.sensor_id
+          AND canary.expected_device_id = tapo_history_export_jobs.expected_device_id
+          AND canary.device_name = tapo_history_export_jobs.device_name
+          AND canary.time_zone = tapo_history_export_jobs.time_zone
+          AND canary.interval_minutes = tapo_history_export_jobs.interval_minutes
+      )` : "";
+    return this.immediateTransaction(() => {
+      if (maxOutstandingAppium !== null && allowedProviders.includes("appium")) {
+        const outstanding = this.db.prepare(`SELECT COUNT(*) AS count FROM tapo_history_export_jobs
+          WHERE provider = 'appium' AND (
+            status = 'waiting-email'
+            OR (status IN ('claimed', 'running') AND lease_expires_at IS NOT NULL AND lease_expires_at > ?)
+          )`).get(reclaimCutoff) as { count: number };
+        if (Number(outstanding.count) >= maxOutstandingAppium) return null;
+      }
+      const row = this.db.prepare(`SELECT * FROM tapo_history_export_jobs
+        WHERE provider IN (${placeholders}) ${canaryPredicate} AND attempt_count < max_attempts AND (
+          (status IN ('queued', 'failed') AND available_at <= ?)
+          OR (status IN ('claimed', 'running') AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)
+        ) ${approvalPredicate} AND NOT EXISTS (
+          SELECT 1 FROM tapo_history_export_jobs active
+          WHERE active.lease_owner = ? AND active.lease_expires_at IS NOT NULL
+            AND active.lease_expires_at > ?
+        )
+        ORDER BY ${canaryOrder} CASE WHEN status IN ('claimed', 'running') THEN 0 ELSE 1 END,
+          COALESCE(lease_expires_at, available_at), created_at, id LIMIT 1`)
+        .get(
+          ...allowedProviders,
+          now,
+          reclaimCutoff,
+          ...(options.requireApprovedTarget === true
+            ? [deploymentFingerprint!, approvalNotBefore!, requiredAcceptanceRevision!]
+            : []),
+          owner,
+          reclaimCutoff,
+        ) as unknown as TapoHistoryExportJobRow | undefined;
+      if (!row) return null;
+      const approvedSchema = options.requireApprovedTarget === true
+        ? this.db.prepare(`SELECT approval.schema_signature FROM tapo_history_canary_approvals AS approval
+            JOIN tapo_history_export_jobs AS canary ON canary.id = approval.canary_job_id
+            WHERE approval.deployment_fingerprint = ? AND approval.approved_at >= ?
+              AND approval.acceptance_revision = ? AND canary.status = 'completed'
+              AND canary.dedupe_key LIKE 'canary:%'
+              AND canary.sensor_id = ? AND canary.expected_device_id = ?
+              AND canary.device_name = ? AND canary.time_zone = ? AND canary.interval_minutes = ?
+            ORDER BY approval.approved_at DESC, approval.canary_job_id DESC LIMIT 1`)
+          .get(
+            deploymentFingerprint!, approvalNotBefore!, requiredAcceptanceRevision!,
+            row.sensor_id, row.expected_device_id, row.device_name, row.time_zone, row.interval_minutes,
+          ) as { schema_signature: string } | undefined
+        : undefined;
+      if (options.requireApprovedTarget === true && !approvedSchema) return null;
+      const leaseToken = randomUUID();
+      const result = this.db.prepare(`UPDATE tapo_history_export_jobs SET
+          status = 'claimed', attempt_count = attempt_count + 1, lease_owner = ?, lease_token = ?,
+          lease_expires_at = ?, heartbeat_at = ?, deployment_fingerprint = ?, acceptance_revision = ?,
+          expected_schema_signature = ?, last_error = NULL, attention_reason = NULL, updated_at = ?
+        WHERE id = ? AND attempt_count < max_attempts AND (
+          (status IN ('queued', 'failed') AND available_at <= ?)
+          OR (status IN ('claimed', 'running') AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)
+        )`).run(
+          owner, leaseToken, expiresAt, now, deploymentFingerprint, acceptanceRevision,
+          approvedSchema?.schema_signature ?? null,
+          now, row.id, now, reclaimCutoff,
+        );
+      if (Number(result.changes) === 0) return null;
+      if (row.dedupe_key.startsWith("canary:") && !row.dedupe_key.startsWith("canary:renewal:")) {
+        this.revokeTapoHistoryCanaryApprovalsForTarget(row.id);
+      }
+      return { job: this.getTapoHistoryExportJob(row.id)!, leaseToken };
+    });
+  }
+
+  /** Final-attempt worker crashes must not leave an active-looking lease forever. */
+  expireExhaustedTapoHistoryExportLeases(
+    now = new Date().toISOString(),
+    reclaimNotAfter = now,
+  ): number {
+    const at = normalizedTapoHistoryTimestamp(now, "now");
+    const reclaimCutoff = normalizedTapoHistoryTimestamp(reclaimNotAfter, "reclaimNotAfter");
+    const result = this.db.prepare(`UPDATE tapo_history_export_jobs SET
+        status = 'failed', lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL,
+        last_error = 'The final mobile-worker attempt ended without a terminal status', updated_at = ?
+      WHERE status IN ('claimed', 'running') AND lease_expires_at IS NOT NULL
+        AND lease_expires_at <= ? AND attempt_count >= max_attempts`).run(at, reclaimCutoff);
+    return Number(result.changes);
+  }
+
+  heartbeatTapoHistoryExportJob(
+    id: string,
+    leaseToken: string,
+    heartbeatAt: string,
+    leaseUntil: string,
+  ): TapoHistoryExportJob | null {
+    const token = normalizedTapoHistoryText(leaseToken, "leaseToken", 500);
+    const heartbeat = normalizedTapoHistoryTimestamp(heartbeatAt, "heartbeatAt");
+    const expiresAt = normalizedTapoHistoryTimestamp(leaseUntil, "leaseUntil");
+    if (Date.parse(expiresAt) <= Date.parse(heartbeat)) {
+      throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_LEASE", "leaseUntil must be after heartbeatAt");
+    }
+    const result = this.db.prepare(`UPDATE tapo_history_export_jobs SET
+        heartbeat_at = ?, lease_expires_at = ?, updated_at = ?
+      WHERE id = ? AND lease_token = ? AND status IN ('claimed', 'running')
+        AND lease_expires_at IS NOT NULL AND lease_expires_at > ?`)
+      .run(heartbeat, expiresAt, heartbeat, id, token, heartbeat);
+    return Number(result.changes) > 0 ? this.getTapoHistoryExportJob(id) : null;
+  }
+
+  /** Rotates the mailbox capability for each newly leased mobile attempt. */
+  rotateTapoHistoryExportRecipient(
+    id: string,
+    leaseToken: string,
+    expectedRecipient: string,
+    rotatedAt = new Date().toISOString(),
+  ): TapoHistoryExportJob | null {
+    const token = normalizedTapoHistoryText(leaseToken, "leaseToken", 500);
+    const recipient = normalizedTapoHistoryText(expectedRecipient, "expectedRecipient", 320).toLowerCase();
+    const separator = recipient.lastIndexOf("@");
+    if (separator < 1 || separator === recipient.length - 1) {
+      throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_RECIPIENT", "expectedRecipient must be an email address");
+    }
+    const at = normalizedTapoHistoryTimestamp(rotatedAt, "rotatedAt");
+    const result = this.db.prepare(`UPDATE tapo_history_export_jobs SET expected_recipient = ?,
+        submitted_at = NULL, mailbox_message_id = NULL, updated_at = ?
+      WHERE id = ? AND lease_token = ? AND status = 'claimed'
+        AND lease_expires_at IS NOT NULL AND lease_expires_at > ?`)
+      .run(recipient, at, id, token, at);
+    return Number(result.changes) > 0 ? this.getTapoHistoryExportJob(id) : null;
+  }
+
+  transitionTapoHistoryExportJob(id: string, transition: TapoHistoryExportTransition): TapoHistoryExportJob | null {
+    const at = normalizedTapoHistoryTimestamp(transition.at ?? new Date().toISOString(), "at");
+    const hasExpectedRecipient = Object.prototype.hasOwnProperty.call(transition, "expectedRecipient");
+    const expectedRecipient = transition.expectedRecipient === null || transition.expectedRecipient === undefined
+      ? null
+      : normalizedTapoHistoryText(transition.expectedRecipient, "expectedRecipient", 320).toLowerCase();
+    const hasExpectedSubmittedAt = Object.prototype.hasOwnProperty.call(transition, "expectedSubmittedAt");
+    const expectedSubmittedAt = transition.expectedSubmittedAt === null || transition.expectedSubmittedAt === undefined
+      ? null
+      : normalizedTapoHistoryTimestamp(transition.expectedSubmittedAt, "expectedSubmittedAt");
+    if (!(transition.status in TAPO_HISTORY_EXPORT_TRANSITIONS)) {
+      throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_STATUS", "Unsupported Tapo export status");
+    }
+    return this.immediateTransaction(() => {
+      const currentRow = this.db.prepare("SELECT * FROM tapo_history_export_jobs WHERE id = ?")
+        .get(id) as unknown as TapoHistoryExportJobRow | undefined;
+      if (!currentRow) return null;
+      const current = tapoHistoryExportJobFromRow(currentRow);
+      if ((hasExpectedRecipient && current.expectedRecipient !== expectedRecipient)
+        || (hasExpectedSubmittedAt && current.submittedAt !== expectedSubmittedAt)) {
+        throw new ClimateDataValidationError(
+          409,
+          "TAPO_EXPORT_GENERATION_CHANGED",
+          "The Tapo export mailbox attempt changed while an asynchronous operation was in flight",
+        );
+      }
+      const workerOwned = current.status === "claimed" || current.status === "running";
+      if (workerOwned && (!transition.leaseToken || transition.leaseToken !== currentRow.lease_token
+        || !current.leaseExpiresAt || Date.parse(current.leaseExpiresAt) <= Date.parse(at))) {
+        throw new ClimateDataValidationError(409, "TAPO_EXPORT_LEASE_LOST", "The Tapo export worker lease is missing or expired");
+      }
+      if (current.status === transition.status) return current;
+      if (!TAPO_HISTORY_EXPORT_TRANSITIONS[current.status].includes(transition.status)) {
+        throw new ClimateDataValidationError(
+          409,
+          "INVALID_TAPO_EXPORT_TRANSITION",
+          `Cannot transition a Tapo export from ${current.status} to ${transition.status}`,
+        );
+      }
+      const keepLease = transition.status === "running";
+      const availableAt = transition.status === "queued" || transition.status === "failed"
+        ? normalizedTapoHistoryTimestamp(transition.availableAt ?? at, "availableAt")
+        : current.availableAt;
+      const error = transition.error === undefined || transition.error === null
+        ? null
+        : normalizedTapoHistoryText(transition.error, "error", 2_000);
+      const attentionReason = transition.attentionReason === undefined || transition.attentionReason === null
+        ? null
+        : normalizedTapoHistoryText(transition.attentionReason, "attentionReason", 2_000);
+      this.db.prepare(`UPDATE tapo_history_export_jobs SET status = ?, available_at = ?,
+          lease_owner = ?, lease_token = ?, lease_expires_at = ?, heartbeat_at = ?,
+          submitted_at = ?, last_error = ?, attention_reason = ?, updated_at = ?, completed_at = ?
+        WHERE id = ?`)
+        .run(
+          transition.status,
+          availableAt,
+          keepLease ? currentRow.lease_owner : null,
+          keepLease ? currentRow.lease_token : null,
+          keepLease ? currentRow.lease_expires_at : null,
+          keepLease ? at : currentRow.heartbeat_at,
+          transition.status === "waiting-email" ? at : currentRow.submitted_at,
+          transition.status === "failed" ? error : null,
+          transition.status === "needs-attention" ? attentionReason : null,
+          at,
+          transition.status === "completed" ? at : null,
+          id,
+        );
+      return this.getTapoHistoryExportJob(id)!;
+    });
+  }
+
+  /** Cancellation fences worker mutations while retaining the target cool-down tombstone. */
+  cancelTapoHistoryExportJob(id: string, cancelledAt = new Date().toISOString()): TapoHistoryExportJob | null {
+    const at = normalizedTapoHistoryTimestamp(cancelledAt, "cancelledAt");
+    const result = this.db.prepare(`UPDATE tapo_history_export_jobs SET status = 'cancelled',
+        attention_reason = NULL,
+        updated_at = ?, completed_at = NULL
+      WHERE id = ? AND status NOT IN ('completed', 'cancelled')`).run(at, id);
+    if (Number(result.changes) > 0) return this.getTapoHistoryExportJob(id);
+    return this.getTapoHistoryExportJob(id);
+  }
+
+  requeueTapoHistoryExportJob(
+    id: string,
+    availableAt = new Date().toISOString(),
+    resetAttempts = false,
+  ): TapoHistoryExportJob | null {
+    const at = normalizedTapoHistoryTimestamp(availableAt, "availableAt");
+    const result = this.db.prepare(`UPDATE tapo_history_export_jobs SET status = 'queued',
+        attempt_count = CASE WHEN ? = 1 OR status = 'cancelled' THEN 0 ELSE attempt_count END,
+        available_at = ?,
+        lease_owner = CASE WHEN status = 'cancelled' THEN lease_owner ELSE NULL END,
+        lease_token = CASE WHEN status = 'cancelled' THEN lease_token ELSE NULL END,
+        lease_expires_at = CASE WHEN status = 'cancelled' THEN lease_expires_at ELSE NULL END,
+        submitted_at = NULL, mailbox_message_id = NULL,
+        last_error = NULL, attention_reason = NULL, updated_at = ?, completed_at = NULL
+      WHERE id = ? AND status IN ('failed', 'needs-attention', 'cancelled')`).run(resetAttempts ? 1 : 0, at, at, id);
+    return Number(result.changes) > 0 ? this.getTapoHistoryExportJob(id) : null;
+  }
+
+  attachTapoHistoryExportMailboxMessage(
+    id: string,
+    mailboxMessageId: string,
+    receivedAt = new Date().toISOString(),
+  ): TapoHistoryExportJob | null {
+    const messageId = normalizedTapoHistoryText(mailboxMessageId, "mailboxMessageId", 1_000);
+    const at = normalizedTapoHistoryTimestamp(receivedAt, "receivedAt");
+    return this.immediateTransaction(() => {
+      const current = this.getTapoHistoryExportJob(id);
+      if (!current) return null;
+      const owner = this.db.prepare("SELECT id FROM tapo_history_export_jobs WHERE mailbox_message_id = ?")
+        .get(messageId) as { id: string } | undefined;
+      if (owner && owner.id !== id) {
+        throw new ClimateDataValidationError(
+          409,
+          "TAPO_EXPORT_MAILBOX_MESSAGE_CLAIMED",
+          "The mailbox message has already been assigned to another Tapo export job",
+        );
+      }
+      if (current.mailboxMessageId === messageId) return current;
+      if (current.mailboxMessageId !== null) {
+        throw new ClimateDataValidationError(
+          409,
+          "TAPO_EXPORT_MAILBOX_MESSAGE_MISMATCH",
+          "The Tapo export job is already associated with a different mailbox message",
+        );
+      }
+      if (current.status === "cancelled") {
+        throw new ClimateDataValidationError(409, "TAPO_EXPORT_CANCELLED", "A cancelled Tapo export cannot accept mail");
+      }
+      this.db.prepare("UPDATE tapo_history_export_jobs SET mailbox_message_id = ?, updated_at = ? WHERE id = ?")
+        .run(messageId, at, id);
+      return this.getTapoHistoryExportJob(id)!;
+    });
+  }
+
+  listTapoHistoryExportMailboxMessageIds(jobId?: string): string[] {
+    const rows = (jobId
+      ? this.db.prepare(`SELECT mailbox_message_id FROM tapo_history_export_jobs
+          WHERE id = ? AND mailbox_message_id IS NOT NULL`).all(jobId)
+      : this.db.prepare(`SELECT mailbox_message_id FROM tapo_history_export_jobs
+          WHERE mailbox_message_id IS NOT NULL ORDER BY updated_at, id`).all()) as Array<{ mailbox_message_id: string }>;
+    return rows.map((row) => row.mailbox_message_id);
+  }
+
+  /**
+   * Commits mailbox/private-response identity and every normalized row in one transaction.
+   * Reprocessing the same source identities is a no-op; conflicting identities are rejected.
+   */
+  completeTapoHistoryExportJobWithSamples(
+    id: string,
+    samples: TapoHistoryExportStagedSampleInput[],
+    options: TapoHistoryExportCompletionOptions = {},
+  ): TapoHistoryExportStageResult {
+    if (!Array.isArray(samples) || samples.length > 250_000) {
+      throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_SAMPLES", "A Tapo export may stage at most 250000 samples");
+    }
+    const completedAt = normalizedTapoHistoryTimestamp(options.completedAt ?? new Date().toISOString(), "completedAt");
+    const mailboxMessageId = options.mailboxMessageId === undefined
+      ? null
+      : normalizedTapoHistoryText(options.mailboxMessageId, "mailboxMessageId", 1_000);
+    const expectedRecipient = options.expectedRecipient === undefined
+      ? null
+      : normalizedTapoHistoryText(options.expectedRecipient, "expectedRecipient", 320).toLowerCase();
+    const expectedSubmittedAt = options.expectedSubmittedAt === undefined
+      ? null
+      : normalizedTapoHistoryTimestamp(options.expectedSubmittedAt, "expectedSubmittedAt");
+    const sourceArtifactSha256 = options.sourceArtifactSha256 === undefined
+      ? null
+      : normalizedSha256(options.sourceArtifactSha256, "sourceArtifactSha256");
+    const sourceArtifactBytes = options.sourceArtifactBytes ?? null;
+    if (sourceArtifactBytes !== null
+      && (!Number.isSafeInteger(sourceArtifactBytes) || sourceArtifactBytes < 0 || sourceArtifactBytes > 100 * 1024 * 1024)) {
+      throw new ClimateDataValidationError(
+        422,
+        "INVALID_TAPO_EXPORT_FIELD",
+        "sourceArtifactBytes must be a non-negative safe integer no larger than 100 MiB",
+      );
+    }
+    const parserVersion = options.parserVersion === undefined
+      ? null
+      : normalizedTapoHistoryText(options.parserVersion, "parserVersion", 100);
+    const sourceSchemaSignature = options.sourceSchemaSignature === undefined
+      ? null
+      : normalizedSha256(options.sourceSchemaSignature, "sourceSchemaSignature");
+    return this.immediateTransaction(() => {
+      const jobRow = this.db.prepare("SELECT * FROM tapo_history_export_jobs WHERE id = ?")
+        .get(id) as unknown as TapoHistoryExportJobRow | undefined;
+      if (!jobRow) throw new ClimateDataValidationError(404, "TAPO_EXPORT_NOT_FOUND", `Tapo export job ${id} does not exist`);
+      const job = tapoHistoryExportJobFromRow(jobRow);
+      if (job.status === "cancelled") {
+        throw new ClimateDataValidationError(409, "TAPO_EXPORT_CANCELLED", "A cancelled Tapo export cannot be completed");
+      }
+      if (job.provider === "appium") {
+        if (!mailboxMessageId) {
+          throw new ClimateDataValidationError(
+            409,
+            "TAPO_EXPORT_MAILBOX_MESSAGE_REQUIRED",
+            "An app export can only be completed by a correlated mailbox message",
+          );
+        }
+        if (!sourceArtifactSha256 || sourceArtifactBytes === null || !parserVersion || !sourceSchemaSignature) {
+          throw new ClimateDataValidationError(
+            409,
+            "TAPO_EXPORT_ARTIFACT_AUDIT_REQUIRED",
+            "An app export requires its raw attachment hash, byte count, parser version, and schema signature",
+          );
+        }
+        if (job.status === "completed") {
+          if (job.mailboxMessageId !== mailboxMessageId) {
+            throw new ClimateDataValidationError(
+              409,
+              "TAPO_EXPORT_MAILBOX_MESSAGE_MISMATCH",
+              "A completed Tapo export can only be replayed with its original mailbox message",
+            );
+          }
+          if (job.sourceArtifactSha256 !== sourceArtifactSha256
+            || job.sourceArtifactBytes !== sourceArtifactBytes || job.parserVersion !== parserVersion
+            || job.sourceSchemaSignature !== sourceSchemaSignature) {
+            throw new ClimateDataValidationError(
+              409,
+              "TAPO_EXPORT_ARTIFACT_MISMATCH",
+              "A completed Tapo export can only be replayed with its original audited attachment",
+            );
+          }
+        } else if (job.status !== "waiting-email"
+          || !job.expectedRecipient || !job.submittedAt
+          || expectedRecipient === null || expectedSubmittedAt === null
+          || job.expectedRecipient !== expectedRecipient || job.submittedAt !== expectedSubmittedAt) {
+          throw new ClimateDataValidationError(
+            409,
+            "TAPO_EXPORT_GENERATION_CHANGED",
+            "The Tapo export mailbox attempt is no longer current",
+          );
+        }
+        if (!job.canary && job.deploymentFingerprint
+          && job.expectedSchemaSignature !== sourceSchemaSignature) {
+          throw new ClimateDataValidationError(
+            409,
+            "TAPO_EXPORT_SCHEMA_DRIFT",
+            "The Tapo CSV schema no longer matches the last accepted canary",
+          );
+        }
+        if (!job.canary && job.status !== "completed" && job.deploymentFingerprint) {
+          const approvalStillPresent = Boolean(this.db.prepare(`SELECT 1 AS approved
+              FROM tapo_history_canary_approvals AS approval
+              JOIN tapo_history_export_jobs AS canary ON canary.id = approval.canary_job_id
+              WHERE approval.deployment_fingerprint = ? AND approval.acceptance_revision = ?
+                AND approval.schema_signature = ? AND canary.status = 'completed'
+                AND canary.sensor_id = ? AND canary.expected_device_id = ?
+                AND canary.device_name = ? AND canary.time_zone = ? AND canary.interval_minutes = ?
+              LIMIT 1`)
+            .get(
+              job.deploymentFingerprint,
+              job.acceptanceRevision,
+              job.expectedSchemaSignature,
+              job.sensorId,
+              job.expectedDeviceId,
+              job.deviceName,
+              job.timeZone,
+              job.intervalMinutes,
+            ));
+          if (!approvalStillPresent) {
+            throw new ClimateDataValidationError(
+              409,
+              "TAPO_EXPORT_APPROVAL_REVOKED",
+              "The Tapo canary approval was revoked before this export completed",
+            );
+          }
+        }
+      } else {
+        if (mailboxMessageId) {
+          throw new ClimateDataValidationError(
+            409,
+            "TAPO_EXPORT_MAILBOX_MESSAGE_UNEXPECTED",
+            "A private-cloud export cannot claim a mailbox message",
+          );
+        }
+        if (job.status !== "queued" && job.status !== "completed") {
+          throw new ClimateDataValidationError(
+            409,
+            "INVALID_TAPO_EXPORT_TRANSITION",
+            `Cannot complete a private-cloud Tapo export from ${job.status}`,
+          );
+        }
+      }
+      const resolvedMessageId = mailboxMessageId ?? job.mailboxMessageId;
+      if (mailboxMessageId) {
+        const owner = this.db.prepare("SELECT id FROM tapo_history_export_jobs WHERE mailbox_message_id = ?")
+          .get(mailboxMessageId) as { id: string } | undefined;
+        if (owner && owner.id !== id) {
+          throw new ClimateDataValidationError(
+            409,
+            "TAPO_EXPORT_MAILBOX_MESSAGE_CLAIMED",
+            "The mailbox message has already been assigned to another Tapo export job",
+          );
+        }
+        if (job.mailboxMessageId && job.mailboxMessageId !== mailboxMessageId) {
+          throw new ClimateDataValidationError(
+            409,
+            "TAPO_EXPORT_MAILBOX_MESSAGE_MISMATCH",
+            "The Tapo export job is already associated with a different mailbox message",
+          );
+        }
+      }
+
+      const insert = this.db.prepare(`INSERT OR IGNORE INTO tapo_history_export_staged_samples
+        (job_id, sensor_id, metric, value, canonical_unit, timestamp, source, quality,
+         source_identity, created_at, consumed_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'tp-link', ?, ?, ?, NULL)`);
+      const byIdentity = this.db.prepare(`SELECT * FROM tapo_history_export_staged_samples
+        WHERE job_id = ? AND metric = ? AND source_identity = ?`);
+      const staged: TapoHistoryExportStagedSample[] = [];
+      let duplicateCount = 0;
+      for (const sample of samples) {
+        const metric = normalizedTapoHistoryText(sample.metric, "metric", 200);
+        const definition = this.getMeasurementDefinition(metric);
+        if (!definition) {
+          throw new ClimateDataValidationError(404, "TAPO_EXPORT_METRIC_NOT_FOUND", `Unknown measurement metric: ${metric}`);
+        }
+        if (sample.canonicalUnit !== definition.unit) {
+          throw new ClimateDataValidationError(
+            422,
+            "TAPO_EXPORT_UNIT_MISMATCH",
+            `${metric} canonicalUnit must be ${definition.unit}`,
+          );
+        }
+        if (!Number.isFinite(sample.value)
+          || (definition.validMin !== null && sample.value < definition.validMin)
+          || (definition.validMax !== null && sample.value > definition.validMax)) {
+          throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_VALUE", `${metric} value is outside its valid range`);
+        }
+        if (sample.source !== undefined && sample.source !== "tp-link") {
+          throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_SOURCE", "Tapo export samples must use source tp-link");
+        }
+        const quality = sample.quality ?? "estimated";
+        if (quality !== "good" && quality !== "estimated" && quality !== "stale") {
+          throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_QUALITY", "Unsupported sample quality");
+        }
+        const timestamp = normalizedTapoHistoryTimestamp(sample.timestamp, "sample.timestamp");
+        if (Date.parse(timestamp) < Date.parse(job.rangeStart) || Date.parse(timestamp) > Date.parse(job.rangeEnd)) {
+          throw new ClimateDataValidationError(
+            422,
+            "TAPO_EXPORT_SAMPLE_OUTSIDE_RANGE",
+            "A staged sample falls outside the export job range",
+          );
+        }
+        const sourceIdentity = normalizedTapoHistoryText(sample.sourceIdentity, "sourceIdentity", 1_000);
+        const existing = byIdentity.get(id, metric, sourceIdentity) as unknown as TapoHistoryExportStagedSampleRow | undefined;
+        if (existing) {
+          if (existing.sensor_id !== job.sensorId || existing.value !== sample.value
+            || existing.canonical_unit !== definition.unit || existing.timestamp !== timestamp
+            || existing.quality !== quality) {
+            throw new ClimateDataValidationError(
+              409,
+              "TAPO_EXPORT_SOURCE_IDENTITY_COLLISION",
+              `Source identity ${sourceIdentity} was reused for different sample content`,
+            );
+          }
+          duplicateCount += 1;
+          continue;
+        }
+        const result = insert.run(
+          id, job.sensorId, metric, sample.value, definition.unit, timestamp,
+          quality, sourceIdentity, completedAt,
+        );
+        if (Number(result.changes) === 0) {
+          duplicateCount += 1;
+          continue;
+        }
+        const row = this.db.prepare("SELECT * FROM tapo_history_export_staged_samples WHERE id = ?")
+          .get(Number(result.lastInsertRowid)) as unknown as TapoHistoryExportStagedSampleRow;
+        staged.push(tapoHistoryExportStagedSampleFromRow(row));
+      }
+      const counts = this.db.prepare(`SELECT COUNT(*) AS staged,
+          SUM(CASE WHEN consumed_at IS NOT NULL THEN 1 ELSE 0 END) AS consumed
+        FROM tapo_history_export_staged_samples WHERE job_id = ?`)
+        .get(id) as { staged: number; consumed: number | null };
+      this.db.prepare(`UPDATE tapo_history_export_jobs SET status = 'completed', mailbox_message_id = ?,
+          source_artifact_sha256 = ?, source_artifact_bytes = ?, parser_version = ?, source_schema_signature = ?,
+          staged_sample_count = ?, consumed_sample_count = ?, lease_owner = NULL, lease_token = NULL,
+          lease_expires_at = NULL, last_error = NULL, attention_reason = NULL, updated_at = ?,
+          completed_at = COALESCE(completed_at, ?)
+        WHERE id = ?`)
+        .run(
+          resolvedMessageId,
+          sourceArtifactSha256 ?? job.sourceArtifactSha256,
+          sourceArtifactBytes ?? job.sourceArtifactBytes,
+          parserVersion ?? job.parserVersion,
+          sourceSchemaSignature ?? job.sourceSchemaSignature,
+          Number(counts.staged),
+          Number(counts.consumed ?? 0),
+          completedAt,
+          completedAt,
+          id,
+        );
+      return { job: this.getTapoHistoryExportJob(id)!, staged, duplicateCount };
+    });
+  }
+
+  /** Read staged rows without mutating them so the recovery coordinator remains the ingestion authority. */
+  listTapoHistoryExportStagedSamples(
+    filter: TapoHistoryExportStagedSampleFilter = {},
+  ): TapoHistoryExportStagedSample[] {
+    const conditions: string[] = [];
+    const parameters: Array<string | number> = [];
+    if (filter.jobId) {
+      conditions.push("job_id = ?");
+      parameters.push(filter.jobId);
+    }
+    if (filter.sensorId) {
+      conditions.push("sensor_id = ?");
+      parameters.push(filter.sensorId);
+    }
+    if (filter.metric) {
+      conditions.push("metric = ?");
+      parameters.push(filter.metric);
+    }
+    if (filter.from) {
+      conditions.push("timestamp >= ?");
+      parameters.push(normalizedTapoHistoryTimestamp(filter.from, "from"));
+    }
+    if (filter.to) {
+      conditions.push("timestamp <= ?");
+      parameters.push(normalizedTapoHistoryTimestamp(filter.to, "to"));
+    }
+    if (filter.consumed !== undefined) conditions.push(filter.consumed ? "consumed_at IS NOT NULL" : "consumed_at IS NULL");
+    // A job cannot stage more than 250,000 rows, so this upper bound lets a
+    // recovery read prove it has the complete requested metric rather than
+    // silently treating a truncated page as complete.
+    const limit = Math.max(1, Math.min(250_000, Math.trunc(filter.limit ?? 10_000)));
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const rows = this.db.prepare(`SELECT * FROM tapo_history_export_staged_samples ${where}
+      ORDER BY timestamp, metric, id LIMIT ?`).all(...parameters, limit) as unknown as TapoHistoryExportStagedSampleRow[];
+    return rows.map(tapoHistoryExportStagedSampleFromRow);
+  }
+
+  /** Marks only rows actually accepted by the coordinator; duplicate calls are harmless. */
+  markTapoHistoryExportStagedSamplesConsumed(
+    jobId: string,
+    sampleIds: number[],
+    consumedAt = new Date().toISOString(),
+  ): number {
+    const at = normalizedTapoHistoryTimestamp(consumedAt, "consumedAt");
+    const ids = [...new Set(sampleIds)];
+    if (ids.length === 0) return 0;
+    if (ids.length > 250_000 || ids.some((id) => !Number.isSafeInteger(id) || id < 1)) {
+      throw new ClimateDataValidationError(
+        422,
+        "INVALID_TAPO_EXPORT_SAMPLE_IDS",
+        "sampleIds must contain at most 250000 positive integer identifiers",
+      );
+    }
+    return this.immediateTransaction(() => {
+      let changed = 0;
+      // Stay below SQLite's host-parameter ceiling even for a maximum-size job.
+      for (let offset = 0; offset < ids.length; offset += 5_000) {
+        const batch = ids.slice(offset, offset + 5_000);
+        const placeholders = batch.map(() => "?").join(",");
+        const result = this.db.prepare(`UPDATE tapo_history_export_staged_samples SET consumed_at = ?
+          WHERE job_id = ? AND consumed_at IS NULL AND id IN (${placeholders})`).run(at, jobId, ...batch);
+        changed += Number(result.changes);
+      }
+      const counts = this.db.prepare(`SELECT COUNT(*) AS staged,
+          SUM(CASE WHEN consumed_at IS NOT NULL THEN 1 ELSE 0 END) AS consumed
+        FROM tapo_history_export_staged_samples WHERE job_id = ?`)
+        .get(jobId) as { staged: number; consumed: number | null };
+      this.db.prepare(`UPDATE tapo_history_export_jobs SET staged_sample_count = ?,
+        consumed_sample_count = ?, updated_at = ? WHERE id = ?`)
+        .run(Number(counts.staged), Number(counts.consumed ?? 0), at, jobId);
+      return changed;
+    });
+  }
+
+  /**
+   * Bounds operational history while retaining recent audit evidence. Pending
+   * recovery rows survive 180 days; cancellation/attention tombstones survive a year.
+   */
+  pruneTapoHistoryExportHistory(options: {
+    consumedBefore: string;
+    completedBefore: string;
+    canaryBefore: string;
+  }): { samples: number; jobs: number } {
+    const consumedBefore = normalizedTapoHistoryTimestamp(options.consumedBefore, "consumedBefore");
+    const completedBefore = normalizedTapoHistoryTimestamp(options.completedBefore, "completedBefore");
+    const canaryBefore = normalizedTapoHistoryTimestamp(options.canaryBefore, "canaryBefore");
+    return this.immediateTransaction(() => {
+      const eligible = `status IN ('needs-attention', 'cancelled') AND updated_at <= :canaryBefore
+        OR status = 'failed' AND updated_at <= :completedBefore
+        OR status = 'completed' AND (
+          dedupe_key LIKE 'canary:%' AND COALESCE(completed_at, updated_at) <= :canaryBefore
+          OR dedupe_key NOT LIKE 'canary:%' AND (
+            COALESCE(completed_at, updated_at) <= :completedBefore
+            OR COALESCE(completed_at, updated_at) <= :consumedBefore AND NOT EXISTS (
+              SELECT 1 FROM tapo_history_export_staged_samples pending
+              WHERE pending.job_id = tapo_history_export_jobs.id AND pending.consumed_at IS NULL
+            )
+          )
+        )`;
+      const parameters = { consumedBefore, completedBefore, canaryBefore };
+      const sampleCount = this.db.prepare(`SELECT COUNT(*) AS count
+        FROM tapo_history_export_staged_samples staged
+        WHERE EXISTS (
+          SELECT 1 FROM tapo_history_export_jobs
+          WHERE tapo_history_export_jobs.id = staged.job_id AND (${eligible})
+        )`).get(parameters) as { count: number };
+      // Delete the coverage authority and its rows together. Keeping an empty
+      // completed job would otherwise block a future recovery forever.
+      const jobs = this.db.prepare(`DELETE FROM tapo_history_export_jobs WHERE ${eligible}`).run(parameters);
+      return { samples: Number(sampleCount.count), jobs: Number(jobs.changes) };
+    });
   }
 
   private insertReading(reading: Reading): boolean {
@@ -5955,8 +8169,8 @@ export class ClimateDatabase {
     const pageSize = this.telemetryArchivePageSize(limit);
     const recentClause = since ? "AND price.start_at >= ?" : "";
     const parameters = since ? [afterRowId, since, pageSize] : [afterRowId, pageSize];
-    const rows = this.db.prepare(`SELECT archive.archive_id AS archive_row_id, price.property_id,
-        price.start_at, price.end_at, price.raw_price_cents_per_kwh, price.fetched_at
+      const rows = this.db.prepare(`SELECT archive.archive_id AS archive_row_id, price.property_id,
+        price.start_at, price.end_at, price.raw_price_cents_per_kwh, price.margin_cents_per_kwh, price.fetched_at
       FROM telemetry_archive_row_ids AS archive
       JOIN electricity_price_points AS price
         ON price.property_id = json_extract(archive.natural_key, '$[0]')
@@ -5972,6 +8186,7 @@ export class ClimateDatabase {
         startAt: row.start_at,
         endAt: row.end_at,
         rawPriceCentsPerKwh: row.raw_price_cents_per_kwh,
+        marginCentsPerKwh: row.margin_cents_per_kwh,
         source: "sqlite",
         fetchedAt: row.fetched_at,
       },
@@ -6011,7 +8226,7 @@ export class ClimateDatabase {
   electricityPriceArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<ElectricityPriceArchiveRecord>[] {
     const pageSize = this.telemetryArchivePageSize(limit);
     const rows = this.db.prepare(`SELECT dirty.dirty_id, dirty.version, price.property_id, price.start_at, price.end_at,
-        price.raw_price_cents_per_kwh, price.fetched_at
+        price.raw_price_cents_per_kwh, price.margin_cents_per_kwh, price.fetched_at
       FROM telemetry_archive_dirty_rows AS dirty
       JOIN electricity_price_points AS price
         ON price.property_id = json_extract(dirty.natural_key, '$[0]')
@@ -6026,6 +8241,7 @@ export class ClimateDatabase {
         startAt: row.start_at,
         endAt: row.end_at,
         rawPriceCentsPerKwh: row.raw_price_cents_per_kwh,
+        marginCentsPerKwh: row.margin_cents_per_kwh,
         source: "sqlite",
         fetchedAt: row.fetched_at,
       },

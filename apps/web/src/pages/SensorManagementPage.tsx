@@ -42,12 +42,14 @@ import type {
   House,
   IntegrationStatus,
   MeasurementSample,
+  Metric,
   Sensor,
   SensorLabelDescriptor,
   TpLinkDiscoveredDevice,
+  UnitSystem,
 } from "@climate-twin/contracts";
 import { api, type CreateSensorInput, type HistoricalImportResult, type SensorPatch } from "../api";
-import type { ClimateState } from "../domain";
+import type { ClimateState, TimeRange } from "../domain";
 import { useI18n, type TranslationKey } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 import { measurementLabel } from "../measurements";
@@ -57,6 +59,7 @@ import { assessSensorCoverage, suggestSensorPlacement, type SensorCoverageAssess
 import { configuredSpatialMaxSampleAgeMs } from "../spatialFreshness";
 import { useSpatialLayers } from "../useSpatialLayers";
 import { qrCodeMatrix } from "../qrCode";
+import { TrendChart } from "../components/TrendChart";
 
 const HistoricalImportWizard = lazy(() => import("../components/HistoricalImportWizard")
   .then((module) => ({ default: module.HistoricalImportWizard })));
@@ -73,7 +76,9 @@ export interface SensorManagementPageProps {
   /** Compatibility for older embedders; ambiguous across multiple connections. */
   requestedDeviceId?: string | null;
   readOnly?: boolean;
+  units?: UnitSystem;
   onRequestedDeviceHandled?: () => void;
+  onLoadSeries?: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported: boolean) => void;
   onHouse: (houseId: string) => void;
   onRefreshDevices: () => Promise<void>;
   onCreateSensor: (sensor: CreateSensorInput) => Promise<Sensor>;
@@ -178,6 +183,23 @@ function sensorMeasurementEntityIds(sensor: Sensor): Record<string, string> {
     ...(sensor.humidityEntityId ? { humidity: sensor.humidityEntityId } : {}),
     ...(sensor.measurementEntityIds ?? {}),
   };
+}
+
+function sensorHasMetric(state: ClimateState, sensor: Sensor, metric: Metric): boolean {
+  return Boolean(
+    state.latestMeasurements[sensor.id]?.[metric]
+    || state.measurementHistory[sensor.id]?.[metric]?.length
+    || state.measurementForecasts[sensor.id]?.[metric]?.length
+    || sensor.measurementEntityIds?.[metric]
+    || (metric === "temperature" && sensor.temperatureEntityId)
+    || (metric === "humidity" && sensor.humidityEntityId),
+  );
+}
+
+function mergeMetricSamples(...sampleGroups: MeasurementSample[][]): MeasurementSample[] {
+  const byTimestamp = new Map<string, MeasurementSample>();
+  for (const sample of sampleGroups.flat()) byTimestamp.set(sample.timestamp, sample);
+  return [...byTimestamp.values()].sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
 }
 
 function normalizedMeasurementEntityIds(values: Record<string, string>): Record<string, string> {
@@ -312,7 +334,9 @@ export function SensorManagementPage({
   requestedDevice = null,
   requestedDeviceId = null,
   readOnly = false,
+  units = "metric",
   onRequestedDeviceHandled,
+  onLoadSeries,
   onHouse,
   onRefreshDevices,
   onCreateSensor,
@@ -354,6 +378,8 @@ export function SensorManagementPage({
   const [detailCursor, setDetailCursor] = useState<string | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [detailMetric, setDetailMetric] = useState<Metric>("temperature");
+  const [detailRange, setDetailRange] = useState<TimeRange>("24h");
 
   const currentSensors = useMemo(
     () => state.sensors.filter((sensor) => sensor.houseId === house.id),
@@ -375,6 +401,22 @@ export function SensorManagementPage({
     () => state.measurementDefinitions.filter((definition) => definition.enabled),
     [state.measurementDefinitions],
   );
+  const detailDefinitions = useMemo(() => {
+    if (!visibleDetailsSensor) return enabledMeasurementDefinitions;
+    const available = enabledMeasurementDefinitions.filter((definition) => (
+      sensorHasMetric(state, visibleDetailsSensor, definition.id)
+      || detailSamples.some((sample) => sample.metric === definition.id)
+    ));
+    return available.length > 0 ? available : enabledMeasurementDefinitions;
+  }, [detailSamples, enabledMeasurementDefinitions, state, visibleDetailsSensor]);
+  const detailDefinition = detailDefinitions.find((definition) => definition.id === detailMetric) ?? detailDefinitions[0];
+  const detailHistory = useMemo(() => visibleDetailsSensor && detailDefinition
+    ? mergeMetricSamples(
+      state.measurementHistory[visibleDetailsSensor.id]?.[detailDefinition.id] ?? [],
+      detailSamples.filter((sample) => sample.metric === detailDefinition.id),
+      [state.latestMeasurements[visibleDetailsSensor.id]?.[detailDefinition.id]].filter(Boolean) as MeasurementSample[],
+    )
+    : [], [detailDefinition, detailSamples, state.latestMeasurements, state.measurementHistory, visibleDetailsSensor]);
   const usedDeviceIds = useMemo(
     () => new Set(state.sensors.flatMap((sensor) => sensor.tpLinkDeviceId
       ? [deviceBindingKey(sensor.tpLinkDeviceId, sensor.tpLinkConnectionId)] : [])),
@@ -555,6 +597,15 @@ export function SensorManagementPage({
   useEffect(() => {
     if (detailsSensor && !visibleDetailsSensor) closeSensorDetails();
   }, [detailsSensor, visibleDetailsSensor]);
+
+  useEffect(() => {
+    if (detailDefinition && detailDefinition.id !== detailMetric) setDetailMetric(detailDefinition.id);
+  }, [detailDefinition, detailMetric]);
+
+  useEffect(() => {
+    if (!visibleDetailsSensor || !detailDefinition || !onLoadSeries) return;
+    onLoadSeries(visibleDetailsSensor.id, detailDefinition.id, detailRange, detailDefinition.forecastSupported);
+  }, [detailDefinition?.id, detailDefinition?.forecastSupported, detailRange, onLoadSeries, visibleDetailsSensor?.id]);
 
   const chooseSource = (source: DraftSource) => {
     setDraft((current) => ({
@@ -1203,7 +1254,11 @@ export function SensorManagementPage({
         aria-label={t("sensors.discoveryStatus")}
       >
         <span className="sensor-discovery-watch-icon" aria-hidden="true">
-          {tpLinkDevicesLoading || refreshing ? <LoaderCircle className="spin" size={19} /> : <RadioTower size={19} />}
+          {tpLinkDevicesLoading || refreshing
+            ? <LoaderCircle className="spin" size={19} />
+            : tpLinkStatus.connected
+              ? <RadioTower size={19} />
+              : <RefreshCw className="spin" size={19} />}
         </span>
         <span>
           <strong>{t(tpLinkStatus.connected ? "sensors.discoveryWatchingTitle" : "sensors.discoveryPausedTitle")}</strong>
@@ -1237,6 +1292,23 @@ export function SensorManagementPage({
           <span><Database size={15} aria-hidden="true" />{t("sensors.loadedRecords", { count: detailSamples.length })}</span>
           <small>{t("sensors.newestFirst")}</small>
         </div>
+        {detailDefinition && <div className="sensor-detail-visualization">
+          <div className="sensor-detail-visualization-toolbar">
+            <span><strong>{t("sensors.visualization")}</strong><small>{t("sensors.visualizationDescription")}</small></span>
+            <label className="field"><span>{t("sensors.analyticsMetric")}</span><select value={detailDefinition.id} onChange={(event) => setDetailMetric(event.target.value)}>{detailDefinitions.map((definition) => <option key={definition.id} value={definition.id}>{measurementLabel(definition, locale)}</option>)}</select></label>
+          </div>
+          <TrendChart
+            sensor={visibleDetailsSensor}
+            history={detailHistory}
+            forecast={state.measurementForecasts[visibleDetailsSensor.id]?.[detailDefinition.id] ?? []}
+            definition={detailDefinition}
+            units={units}
+            range={detailRange}
+            onRange={setDetailRange}
+            timeZone={house.timezone}
+            heading={measurementLabel(detailDefinition, locale)}
+          />
+        </div>}
         <SensorLabelCard sensor={visibleDetailsSensor} />
         {detailsError && <p className="sensor-details-error" role="alert"><TriangleAlert size={15} aria-hidden="true" />{detailsError}</p>}
         {detailSamples.length > 0 ? <div className="sensor-log-scroll" role="region" aria-labelledby="sensor-details-title" tabIndex={0}><table>
@@ -1305,7 +1377,7 @@ export function SensorManagementPage({
           <details className="panel sensor-discovery-card" aria-labelledby="sensor-discovery-title">
             <summary><span><RadioTower size={17} aria-hidden="true" /><strong id="sensor-discovery-title">{t("sensors.discovery")}</strong><small>{t("sensors.discoveryCount", { available: addableDevices.length, total: homeTpLinkDevices.length })}</small></span><ChevronDown size={16} aria-hidden="true" /></summary>
             <div>
-              <div className="sensor-bridge-status"><span className={`status-pulse ${tpLinkStatus.connected ? "live" : ""}`} aria-hidden="true" /><span><strong>{tpLinkStatus.connected ? t("common.connected") : t("common.notConnected")}</strong><small>{t("sensors.tpLinkBridgeScope")}</small></span></div>
+              <div className="sensor-bridge-status"><span className={`status-pulse ${tpLinkStatus.connected ? "live" : "reconnecting"}`} aria-hidden="true" /><span><strong>{tpLinkStatus.connected ? t("common.connected") : t("status.reconnecting")}</strong><small>{t("sensors.tpLinkBridgeScope")}</small></span></div>
               {(tpLinkDevicesError || refreshError) && <p className="sensor-discovery-error" role="alert"><TriangleAlert size={15} aria-hidden="true" />{refreshError || tpLinkDevicesError}</p>}
               {(tpLinkDevicesLoading || refreshing) && <p className="sensor-discovery-loading" role="status"><LoaderCircle className="spin" size={15} aria-hidden="true" />{t("sensors.refreshing")}</p>}
               <button type="button" className="secondary-button full-width" disabled={tpLinkDevicesLoading || refreshing} onClick={() => void refreshDevices()}><RefreshCw className={tpLinkDevicesLoading || refreshing ? "spin" : ""} size={15} aria-hidden="true" />{t("sensors.refreshDevices")}</button>

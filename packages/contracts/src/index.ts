@@ -2,6 +2,57 @@
 export type Metric = string;
 export type MeasurementColorScale = "thermal" | "humidity" | "air-quality" | "sequential";
 
+/** Analytics partitions use `live`; the legacy integration status calls the same mode `real`. */
+export type DataMode = "live" | "demo";
+
+export type TruthClass =
+  | "observed"
+  | "derived"
+  | "estimated"
+  | "inferred"
+  | "forecast"
+  | "simulated";
+
+export type ConfidenceLevel = "none" | "very_low" | "low" | "medium" | "high";
+
+export type QualityFlag =
+  | "missing"
+  | "stale"
+  | "duplicate"
+  | "out_of_order"
+  | "clock_skew"
+  | "out_of_physical_range"
+  | "implausible_rate"
+  | "spike"
+  | "flatline"
+  | "sensor_reset"
+  | "counter_reset"
+  | "source_estimated"
+  | "interpolated"
+  | "calibrated"
+  | "placement_unknown"
+  | "weather_remote"
+  | "estimated_pressure"
+  | "topology_incomplete"
+  | "low_coverage";
+
+export type MeasurementKind =
+  | "gauge"
+  | "rate"
+  | "increment"
+  | "cumulative_counter"
+  | "binary_state"
+  | "categorical_state";
+
+export type AggregationSemantic =
+  | "mean"
+  | "sum"
+  | "delta"
+  | "last"
+  | "time_weighted_mean"
+  | "duration"
+  | "custom";
+
 /** Product release version. Pre-1.0 minor releases may contain breaking changes. */
 export const SYSTEM_VERSION = "0.3.0" as const;
 
@@ -9,6 +60,13 @@ export interface MeasurementDefinition {
   id: Metric;
   labels: Record<string, string>;
   unit: string;
+  /** Optional during the pre-1.0 registry migration; persisted definitions always populate these fields. */
+  dimension?: string;
+  allowedUnits?: string[];
+  kind?: MeasurementKind;
+  defaultAggregation?: AggregationSemantic;
+  genericHistoryEnabled?: boolean;
+  genericStatsEnabled?: boolean;
   precision: number;
   validMin: number | null;
   validMax: number | null;
@@ -52,6 +110,119 @@ export interface MeasurementSnapshotEntry {
   sensorId: string;
   measurements: Record<Metric, MeasurementSample>;
 }
+
+export type AnalyticsResolution = "auto" | "raw" | "1m" | "5m" | "15m" | "1h" | "1d";
+export type AnalyticsAggregation = "default" | Exclude<AggregationSemantic, "duration" | "custom"> | "min" | "max";
+export type AnalyticsSampleQuality = MeasurementSample["quality"];
+
+export interface AnalyticsQualityFilter {
+  /** Only samples with one of these source quality states participate in values and summaries. */
+  include: AnalyticsSampleQuality[];
+}
+
+export interface AnalyticsEntityScope {
+  kind: "house";
+  id: string;
+  /** Omit to include every enabled sensor in the house. */
+  entityIds?: string[];
+}
+
+export interface AnalyticsQueryRequest {
+  apiVersion: "1.0";
+  dataMode: DataMode;
+  scope: AnalyticsEntityScope;
+  measurementIds: string[];
+  range: {
+    start: string;
+    end: string;
+    timezone: string;
+  };
+  resolution: AnalyticsResolution;
+  aggregation: AnalyticsAggregation;
+  qualityFilter?: AnalyticsQualityFilter;
+  include?: Array<"series" | "summary" | "provenance" | "quality">;
+  maxPointsPerSeries?: number;
+  requestId: string;
+}
+
+export interface AnalyticsProvenance {
+  algorithmKey: string;
+  algorithmVersion: string;
+  generatedAt: string;
+  inputStart: string;
+  inputEnd: string;
+  sourceIds: string[];
+  archiveState: "not-configured" | "not-ready" | "merged" | "failed";
+}
+
+export interface AnalyticsPoint {
+  timestamp: string;
+  value: number | null;
+  minimum: number | null;
+  maximum: number | null;
+  sampleCount: number;
+  coverage: number;
+  qualityFlags: QualityFlag[];
+}
+
+export interface AnalyticsSummary {
+  entityId: string;
+  measurementId: string;
+  canonicalUnit: string;
+  count: number;
+  coverage: number;
+  minimum: number | null;
+  maximum: number | null;
+  mean: number | null;
+  median: number | null;
+  standardDeviation: number | null;
+  medianAbsoluteDeviation: number | null;
+  p05: number | null;
+  p95: number | null;
+}
+
+export interface AnalyticsSeries {
+  entityId: string;
+  entityLabel: string;
+  measurementId: string;
+  canonicalUnit: string;
+  truthClass: TruthClass;
+  /** Raw means no aggregation was applied; all other values describe the bucket rollup. */
+  aggregation: "raw" | Exclude<AnalyticsAggregation, "default">;
+  resolution: Exclude<AnalyticsResolution, "auto">;
+  points: AnalyticsPoint[];
+  summary: AnalyticsSummary;
+  provenance: AnalyticsProvenance;
+}
+
+export interface AnalyticsQueryQualitySummary {
+  coverage: number;
+  seriesCount: number;
+  sampleCount: number;
+  excludedSampleCount: number;
+  includedQualities: AnalyticsSampleQuality[];
+  lowCoverageSeries: number;
+}
+
+export interface AnalyticsWarning {
+  code: string;
+  message: string;
+}
+
+export interface AnalyticsQueryResponse {
+  apiVersion: "1.0";
+  requestId: string;
+  dataMode: DataMode;
+  resolvedRange: AnalyticsQueryRequest["range"];
+  resolution: Exclude<AnalyticsResolution, "auto">;
+  series: AnalyticsSeries[];
+  summaries: AnalyticsSummary[];
+  quality: AnalyticsQueryQualitySummary;
+  provenance: AnalyticsProvenance[];
+  warnings: AnalyticsWarning[];
+  generatedAt: string;
+  cache: { hit: false; keyVersion: "analytics-query-v1" };
+}
 export type UnitSystem = "metric" | "imperial";
 export type ConnectionState = "live" | "reconnecting" | "offline";
 
@@ -66,6 +237,11 @@ export interface Wall {
   to: Point;
 }
 
+/** Geometric wall length in the floor plan's local coordinate system. */
+export function wallLengthPlanUnits(wall: Pick<Wall, "from" | "to">): number {
+  return Math.hypot(wall.to.x - wall.from.x, wall.to.y - wall.from.y);
+}
+
 export interface Room {
   id: string;
   name: string;
@@ -74,7 +250,7 @@ export interface Room {
 }
 
 /** Architectural symbols placed independently of wall geometry on a floor plan. */
-export type PlanElementKind = "door" | "window" | "fireplace" | "vent";
+export type PlanElementKind = "door" | "window" | "fireplace" | "vent" | "fireEscape";
 
 export type OpeningState = "open" | "closed" | "unknown";
 export type ConfiguredOpeningState = Exclude<OpeningState, "unknown">;
@@ -82,6 +258,7 @@ export type OpeningStateSource = "manual" | "home-assistant" | "tapo" | "api";
 export type DoorVariant = "interior" | "exterior" | "sliding" | "double" | "open-passage";
 export type WindowVariant = "fixed" | "casement" | "tilt-turn" | "sliding";
 export type VentVariant = "passive" | "supply" | "extract" | "balanced" | "transfer";
+export type FireEscapeVariant = "ladder" | "stairs";
 
 /**
  * Provider-neutral link from an architectural opening to an external state
@@ -156,12 +333,32 @@ export interface FireplacePlanElement extends PlanElementBase {
   verticalExtent?: "level" | "roof";
   /** Chimney projection above the roof surface in metres. Only meaningful for roof-reaching fireplaces. */
   chimneyHeightAboveRoof?: number;
+  /** Independent chimney-shaft width in floor-plan units. Falls back to 55% of the fireplace width. */
+  chimneyWidth?: number;
+  /** Chimney-shaft depth in floor-plan units. Falls back to a proportion of its width. */
+  chimneyDepth?: number;
+}
+
+/** A wall-attached escape ladder or stair mounted on the house exterior. */
+export interface FireEscapePlanElement extends PlanElementBase {
+  kind: "fireEscape";
+  /** Exterior wall used for alignment, movement, and cascade deletion. */
+  wallId: string;
+  variant?: FireEscapeVariant;
+  /** Bottom of the fire escape above the floor plane, in metres. */
+  bottomOffsetM?: number;
+  /** Horizontal projection out from the exterior wall, in floor-plan units. */
+  projection?: number;
 }
 
 export type WallOpeningPlanElement = DoorPlanElement | WindowPlanElement;
 export type FixturePlanElement = FireplacePlanElement | VentPlanElement;
 export type AirflowPlanElement = WallOpeningPlanElement | VentPlanElement;
-export type PlanElement = AirflowPlanElement | FireplacePlanElement;
+export type PlanElement = AirflowPlanElement | FireplacePlanElement | FireEscapePlanElement;
+
+export function isAirflowPlanElement(element: PlanElement): element is AirflowPlanElement {
+  return element.kind === "door" || element.kind === "window" || element.kind === "vent";
+}
 
 /** Effective-dated state accepted from manual, API, Home Assistant, or Tapo sources. */
 export interface OpeningStateObservation {
@@ -300,6 +497,8 @@ export interface Floor {
   width: number;
   /** Horizontal floor-plan extent; y coordinates use the same local system. */
   height: number;
+  /** Verified horizontal conversion for this level. One local x/y unit equals this many metres. */
+  metersPerPlanUnit?: number;
   /** Absolute floor-plane height in metres in the house vertical coordinate system. */
   elevation: number;
   /** Clear room height in metres, used when stacking and duplicating levels. */
@@ -451,6 +650,22 @@ export interface EnergyOptimizationReport {
 export type HomeElectricityPricePoint = Pick<PropertyElectricityPricePoint,
   "startAt" | "endAt" | "effectivePriceCentsPerKwh" | "effectivePriceEurPerKwh" | "fetchedAt"
 >;
+
+/** Time-aligned, cumulative energy cost for one Home energy meter. */
+export interface HomeEnergyCost {
+  houseId: string;
+  sensorId: string;
+  from: string;
+  to: string;
+  consumptionKwh: number | null;
+  pricedConsumptionKwh: number | null;
+  costEur: number | null;
+  priceCoveragePercent: number;
+  measurementCoverageFrom: string | null;
+  measurementCoverageUntil: string | null;
+  complete: boolean;
+  calculatedAt: string;
+}
 
 export const DEFAULT_ELECTRICITY_PRICE_ENDPOINT = "https://api.porssisahko.net/v2/latest-prices.json" as const;
 
@@ -611,12 +826,18 @@ export interface TenantMembersResponse {
   invitations: TenantMemberSummary[];
 }
 
+export interface CloudflareAccessSyncSummary {
+  status: "disabled" | "pending" | "synced";
+  lastSyncedAt: string | null;
+}
+
 export interface TenantInvitationCreated {
   invitation: TenantMemberSummary;
   /** Shown once; only its SHA-256 digest is persisted. */
   registrationToken: string;
   activationPath: string;
   expiresAt: string;
+  cloudflareAccess?: CloudflareAccessSyncSummary;
 }
 
 export interface House {
@@ -636,6 +857,26 @@ export interface House {
   floors: Floor[];
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Resolves a level's verified horizontal scale. Per-level calibration wins;
+ * legacy layouts can continue to use the scale saved with map placement.
+ */
+export function floorMetersPerPlanUnit(floor: Pick<Floor, "metersPerPlanUnit">, house?: Pick<House, "mapPlacement">): number | null {
+  if (Number.isFinite(floor.metersPerPlanUnit) && floor.metersPerPlanUnit! > 0) return floor.metersPerPlanUnit!;
+  const legacyScale = house?.mapPlacement?.metersPerPlanUnit;
+  return Number.isFinite(legacyScale) && legacyScale! > 0 ? legacyScale! : null;
+}
+
+/** Physical wall length when the level has a verified horizontal scale. */
+export function wallLengthMeters(
+  wall: Pick<Wall, "from" | "to">,
+  floor: Pick<Floor, "metersPerPlanUnit">,
+  house?: Pick<House, "mapPlacement">,
+): number | null {
+  const scale = floorMetersPerPlanUnit(floor, house);
+  return scale === null ? null : wallLengthPlanUnits(wall) * scale;
 }
 
 export type HouseCreateInput = Pick<House, "name" | "timezone" | "floors">
@@ -787,6 +1028,26 @@ export interface OutdoorTemperatureSample {
   stationName: string | null;
   /** Full canonical observation retained for weather-aware historical replay. */
   conditions?: OutdoorConditions;
+}
+
+export type SensorDataGapSource = "home-assistant" | "tp-link";
+export type SensorDataGapState = "open" | "pending" | "running" | "complete" | "partial" | "failed" | "not-supported";
+
+/** Durable record of a sensor interval that was missing and, when possible, recovered upstream. */
+export interface SensorDataGap {
+  id: number;
+  sensorId: string;
+  metric: string;
+  source: SensorDataGapSource;
+  startedAt: string;
+  detectedAt: string;
+  endedAt: string | null;
+  recoveryState: SensorDataGapState;
+  recoveredPoints: number;
+  attemptCount: number;
+  lastAttemptAt: string | null;
+  nextAttemptAt: string | null;
+  recoveryError: string | null;
 }
 
 export type ThermalCalibrationStatus = "ready" | "provisional" | "insufficient-data";
@@ -1535,15 +1796,16 @@ export interface HomeAssistantDiscoveredInstance {
   version: string | null;
 }
 
-export interface TpLinkDiscoveredHub {
+export interface TpLinkDiscoveredSource {
   host: string;
-  model: "H100" | "H200";
+  model: string;
   alias: string | null;
+  sourceType?: "hub" | "energy-device";
 }
 
 export interface IntegrationDiscoveryResult {
   homeAssistant: HomeAssistantDiscoveredInstance[];
-  tpLink: TpLinkDiscoveredHub[];
+  tpLink: TpLinkDiscoveredSource[];
   warnings: string[];
 }
 

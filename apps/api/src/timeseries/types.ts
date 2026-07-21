@@ -50,9 +50,29 @@ export interface ElectricityPriceRecord {
   startAt: string;
   endAt: string;
   rawPriceCentsPerKwh: number;
+  /** Contract margin captured for this interval so historical effective prices remain stable. */
+  marginCentsPerKwh: number;
   source: TelemetrySource;
   fetchedAt: string;
   metadata?: TelemetryMetadata;
+}
+
+export interface EnergyCostAggregateQuery extends QueryControl {
+  sensorId: string;
+  propertyId: string;
+  from: string;
+  to: string;
+}
+
+export interface EnergyCostAggregateRecord {
+  deltaCount: number;
+  consumptionKwh: number;
+  pricedConsumptionKwh: number;
+  costEur: number;
+  totalDurationMs: number;
+  pricedDurationMs: number;
+  coverageFrom: string | null;
+  coverageUntil: string | null;
 }
 
 export interface BatchWriteResult {

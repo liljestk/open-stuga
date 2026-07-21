@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Floor } from "@climate-twin/contracts";
 import { createDemoState } from "./domain";
-import { chimneyPenetrationsForFloor, fireplaceChimneyTop, roofPeakZ, roofSurfaces } from "./architecturalGeometry";
+import { chimneyPenetrationsForFloor, fireplaceChimneyDimensions, fireplaceChimneyTop, roofPeakZ, roofSurfaces } from "./architecturalGeometry";
 
 describe("architectural geometry", () => {
   it("builds pitched roof surfaces above an attic knee wall", () => {
@@ -20,7 +20,7 @@ describe("architectural geometry", () => {
     const [ground, upper] = state.houses[0]!.floors;
     const fireplace = {
       id: "fireplace", kind: "fireplace" as const, position: { x: 4, y: 3 }, rotationDegrees: 0,
-      width: 1, height: 1.2, verticalExtent: "roof" as const, chimneyHeightAboveRoof: .8,
+      width: 1, height: 1.2, verticalExtent: "roof" as const, chimneyHeightAboveRoof: .8, chimneyWidth: .75, chimneyDepth: .45,
     };
     const attic: Floor = {
       ...upper!, id: "attic", name: "Attic", type: "attic", elevation: 6, wallHeight: .9,
@@ -35,5 +35,6 @@ describe("architectural geometry", () => {
     expect(chimneyPenetrationsForFloor(house, upper!)).toEqual([expect.objectContaining({ sourceFloorId: ground!.id, element: fireplace })]);
     expect(chimneyPenetrationsForFloor(house, attic)).toHaveLength(1);
     expect(fireplaceChimneyTop(house, ground!, fireplace)).toBeCloseTo(roofPeakZ(attic) + .8, 8);
+    expect(fireplaceChimneyDimensions(ground!, fireplace)).toEqual({ width: .75, depth: .45 });
   });
 });

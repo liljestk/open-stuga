@@ -27,6 +27,9 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
   empirical bands, residuals, and a bounded
   weather scenario; observed and simulated values remain separate
 - Direct local H100/H200 polling, Home Assistant WebSocket ingestion, and a mock scenario generator
+- Durable TP-Link gap recovery: local retained history first, an optional
+  operator-maintained private adapter second, then a disabled-by-default,
+  canary-gated Tapo Android/Appium export with Gmail CSV correlation
 - Manual leak/condensation/mould/maintenance observations with observed versus
   recorded time, explicit precision, source, confidence, open/resolved state,
   resolution outcomes, and revision history, plus static metadata
@@ -121,6 +124,16 @@ server-side protected secrets file outside SQLite. Safe integration ownership,
 endpoint identity, lifecycle state, and revisions live in SQLite; environment
 variables remain available as administrator overrides.
 
+Older direct TP-Link climate gaps can use the optional automated Tapo history
+service. It segments requests within Tapo's two-year window, permits only one
+outstanding mobile/email generation by default, and fails closed on identity,
+unit, range, cadence, schema, mailbox, or selector drift. The Android runner is
+inert until explicitly enabled and ordinary work remains locked behind a recent
+live canary for the exact target, APK/Appium/driver/locale/account/flow, API
+build, and CSV schema. The checked-in flow contains placeholders, not usable
+selectors. See [automated Tapo history recovery](docs/tapo-history-automation.md)
+before supplying credentials or enabling the Compose profile.
+
 Mock telemetry can be enabled explicitly for a new demo database so the product
 can be evaluated before hardware is connected. Saving Home Assistant or TP-Link credentials—or accepting
 the first non-demo API/import sample or fresh FMI observation—atomically switches
@@ -134,7 +147,7 @@ persistent banner and visually distinct shell while navigating the product.
 Use a separate database or deployment for later demonstrations; setting
 `MOCK_ENABLED=true` cannot undo the real-data latch.
 
-See [direct TP-Link setup](docs/tp-link-direct.md), [electricity prices and contracts](docs/electricity-prices.md), [Home Assistant setup](docs/home-assistant.md), [property management and Guest access](docs/property-management.md), [manual observation semantics](docs/observations.md), [activity and maintenance work](docs/maintenance.md), [Apple Notes and Telegram setup](docs/apple-notes-telegram.md), [architecture](docs/architecture.md), and [API/MCP integration](docs/integrations.md) for details.
+See [direct TP-Link setup](docs/tp-link-direct.md), [automated Tapo history recovery](docs/tapo-history-automation.md), [electricity prices and contracts](docs/electricity-prices.md), [Home Assistant setup](docs/home-assistant.md), [property management and Guest access](docs/property-management.md), [manual observation semantics](docs/observations.md), [activity and maintenance work](docs/maintenance.md), [Apple Notes and Telegram setup](docs/apple-notes-telegram.md), [architecture](docs/architecture.md), and [API/MCP integration](docs/integrations.md) for details.
 
 The thermal model is documented in [effective room thermal
 simulation](docs/thermal-simulation.md), and the 2D/3D dynamics layer in

@@ -1,5 +1,5 @@
 import type { Floor, House, PlanElement, RoofDesign } from "@climate-twin/contracts";
-import { DEFAULT_CEILING_HEIGHT_METRES, effectivePlanElementHeight } from "./planElementGeometry";
+import { DEFAULT_CEILING_HEIGHT_METRES, defaultPlanElementWidth, effectivePlanElementHeight } from "./planElementGeometry";
 
 export const DEFAULT_ROOF_DESIGN: RoofDesign = {
   style: "gable",
@@ -106,6 +106,23 @@ export function fireplaceChimneyTop(house: House, sourceFloor: Floor, element: P
     sourceFloor.elevation + effectivePlanElementHeight(sourceFloor, element),
     ...higherStructure,
   ) + clearance;
+}
+
+export function fireplaceChimneyDimensions(
+  floor: Floor,
+  element: Extract<PlanElement, { kind: "fireplace" }>,
+): { width: number; depth: number } {
+  const maximum = Math.max(.05, floor.width, floor.height);
+  const fireplaceWidth = element.width ?? defaultPlanElementWidth(floor, "fireplace");
+  // A masonry chimney breast, like the reference installation, is normally at
+  // least as wide as the appliance rather than a narrow pipe above it.
+  const fallbackWidth = fireplaceWidth;
+  const width = Math.max(.05, Math.min(maximum,
+    Number.isFinite(element.chimneyWidth) ? element.chimneyWidth! : fallbackWidth));
+  const fallbackDepth = Math.max(maximum * .012, width * .45);
+  const depth = Math.max(.05, Math.min(maximum,
+    Number.isFinite(element.chimneyDepth) ? element.chimneyDepth! : fallbackDepth));
+  return { width, depth };
 }
 
 export interface ChimneyPenetration {

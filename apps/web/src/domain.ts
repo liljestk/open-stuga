@@ -36,8 +36,18 @@ import {
 } from "./measurements";
 
 export type ViewMode = "plan" | "isometric";
-export type AppPage = "overview" | "properties" | "people" | "twin" | "activity" | "maintenance" | "outdoor" | "energy" | "sensors" | "alerts" | "integrations" | "developer";
-export type TimeRange = "6h" | "24h" | "7d";
+export type AppPage = "overview" | "properties" | "people" | "twin" | "activity" | "maintenance" | "outdoor" | "energy" | "sensors" | "analytics" | "alerts" | "integrations" | "developer";
+export const ANALYTICS_TIME_RANGES = ["6h", "24h", "7d", "30d", "90d", "1y"] as const;
+export type TimeRange = typeof ANALYTICS_TIME_RANGES[number];
+
+export function timeRangeHours(range: TimeRange): number {
+  if (range === "6h") return 6;
+  if (range === "24h") return 24;
+  if (range === "7d") return 7 * 24;
+  if (range === "30d") return 30 * 24;
+  if (range === "90d") return 90 * 24;
+  return 365 * 24;
+}
 
 export interface ClimateState {
   session: AppSession;

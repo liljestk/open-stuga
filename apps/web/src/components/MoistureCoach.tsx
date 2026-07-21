@@ -130,30 +130,18 @@ export function MoistureCoach(props: Readonly<MoistureCoachProps>) {
     if (advice.sensorId) props.onOpenSensor?.(advice.sensorId);
   };
 
-  if (advice.reason === "missing-indoor") {
-    return (
-      <details className={`panel moisture-coach moisture-coach-compact ${advice.kind}`}>
-        <summary>
-          <span className="moisture-coach-icon" aria-hidden="true"><MoistureAdviceIcon kind={advice.kind} /></span>
-          <span className="moisture-coach-summary-copy">
-            <span className="eyebrow">{t("decision.moistureEyebrow")}</span>
-            <strong>{t(`decision.moisture.${advice.reason}.title`, { room: t("decision.thisHome") })}</strong>
-            <span>{t(`decision.moisture.${advice.reason}.body`, { room: t("decision.thisHome") })}</span>
-          </span>
-          <ChevronDown className="disclosure-chevron" size={17} aria-hidden="true" />
-        </summary>
-        <small className="decision-caveat">{t("decision.moistureCaveat")}</small>
-      </details>
-    );
-  }
-
   return (
-    <section className={`panel moisture-coach ${advice.kind}`} aria-labelledby="moisture-coach-heading">
-      <div className="moisture-coach-icon" aria-hidden="true"><MoistureAdviceIcon kind={advice.kind} /></div>
-      <div className="moisture-coach-copy">
-        <span className="eyebrow">{t("decision.moistureEyebrow")}</span>
-        <h2 id="moisture-coach-heading">{t(`decision.moisture.${advice.reason}.title`, { room: advice.room ?? t("decision.thisHome") })}</h2>
-        <p>{t(`decision.moisture.${advice.reason}.body`, { room: advice.room ?? t("decision.thisHome") })}</p>
+    <details className={`panel moisture-coach moisture-coach-disclosure ${advice.kind}`}>
+      <summary>
+        <span className="moisture-coach-icon" aria-hidden="true"><MoistureAdviceIcon kind={advice.kind} /></span>
+        <span className="moisture-coach-summary-copy">
+          <span className="eyebrow">{t("decision.moistureEyebrow")}</span>
+          <h2>{t(`decision.moisture.${advice.reason}.title`, { room: advice.room ?? t("decision.thisHome") })}</h2>
+          <span>{t(`decision.moisture.${advice.reason}.body`, { room: advice.room ?? t("decision.thisHome") })}</span>
+        </span>
+        <span className="moisture-more-label">{t("home.moreInformation")}<ChevronDown className="disclosure-chevron" size={15} aria-hidden="true" /></span>
+      </summary>
+      <div className="moisture-coach-details">
         {advice.indoorDewPointC !== null && (
           <dl className="moisture-evidence">
             <div><dt>{t("decision.indoorDewPoint")}</dt><dd>{formatMeasurement(advice.indoorDewPointC, temperature, props.units)}</dd></div>
@@ -163,8 +151,8 @@ export function MoistureCoach(props: Readonly<MoistureCoachProps>) {
         )}
         {advice.elevatedMoisture && <p className="moisture-watch"><TriangleAlert size={14} aria-hidden="true" />{t("decision.moistureWatch")}</p>}
         <small className="decision-caveat">{t("decision.moistureCaveat")}</small>
+        {canOpen && <button type="button" className="secondary-button" onClick={openSensor}>{t("decision.inspectRoom")}</button>}
       </div>
-      {canOpen && <button type="button" className="secondary-button" onClick={openSensor}>{t("decision.inspectRoom")}</button>}
-    </section>
+    </details>
   );
 }

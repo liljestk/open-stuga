@@ -9,6 +9,7 @@ const secrets = [
   resolve(process.env.STUGA_TIMESERIES_ADMIN_SECRET_PATH ?? join(directory, "timeseries-admin-password")),
   resolve(process.env.STUGA_TIMESERIES_APP_SECRET_PATH ?? join(directory, "timeseries-password")),
   resolve(process.env.STUGA_PROXY_SECRET_PATH ?? join(directory, "local-auth-proxy-secret")),
+  resolve(process.env.STUGA_TAPO_WORKER_SECRET_PATH ?? join(directory, "tapo-history-worker-token")),
 ];
 
 function ensureSecret(path) {

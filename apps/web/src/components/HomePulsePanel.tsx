@@ -275,46 +275,53 @@ export function HomePulsePanel(props: HomePulsePanelProps) {
   const hiddenInsightLabel = t(hiddenInsightCount === 1 ? "decision.hiddenInsightOne" : "decision.hiddenInsightMany", { count: hiddenInsightCount });
   const monitoringUnavailable = pulse.coverage.enabledSensors === 0
     || pulse.coverage.freshSensors + pulse.coverage.estimatedSensors === 0;
-  const showVisibleAdvisory = pulse.insights.some((insight) => insight.severity === "critical" || insight.severity === "warning");
-
   return (
     <section className={`panel home-pulse ${pulse.status}`} aria-labelledby="home-pulse-heading">
       <div className="home-pulse-header">
         <span className="home-pulse-icon"><PulseIcon status={pulse.status} /></span>
-        <div><span className="eyebrow">{t("decision.pulseEyebrow")}</span><h2 id="home-pulse-heading">{t(`decision.pulse.${pulse.status}.title`)}</h2><p>{t(`decision.pulse.${pulse.status}.body`)}</p></div>
+        <div><span className="eyebrow">{t("decision.pulseEyebrow")}</span><h2 id="home-pulse-heading">{t(`decision.pulse.${pulse.status}.title`)}</h2></div>
         <span className={`pulse-status ${pulse.status}`}>{t(`decision.pulse.${pulse.status}.label`)}</span>
       </div>
-      {visibleInsights.length ? <div className="pulse-insights">{visibleInsights.map((insight) => {
-        const fingerprint = insightHideFingerprint(insight);
-        return <InsightCard key={insight.id} insight={insight} summaryRef={(node) => { if (node) insightSummaryRefs.current.set(fingerprint, node); else insightSummaryRefs.current.delete(fingerprint); }} allowOpen={!monitoringUnavailable || !props.onOpenSetup} onHide={() => hideInsight(insight)} onOpen={() => {
-        if (insight.target.floorId && insight.target.sensorId) props.onOpenTarget(insight.target.floorId, insight.target.sensorId);
-        }} />;
-      })}</div> : pulse.insights.length === 0 ? <div className="pulse-calm"><CheckCircle2 size={20} aria-hidden="true" /><span><strong>{t("decision.pulseCalmTitle")}</strong>{t("decision.pulseCalmBody")}</span></div> : null}
-      {hiddenInsightCount > 0 && <>
-        <span className="sr-only" role="status">{hiddenInsightLabel}</span>
-        <details className="pulse-hidden-disclosure">
-          <summary ref={hiddenSummaryRef}><EyeOff size={16} aria-hidden="true" /><span>{hiddenInsightLabel}</span><ChevronDown size={15} aria-hidden="true" /></summary>
-          <div className="pulse-hidden-content">
-            <p>{t("decision.hiddenInsightBody")}</p>
-            <ul>{hiddenInsights.map((insight) => {
-              const display = displayHomeInsight(insight, locale, t);
-              return <li key={insightHideFingerprint(insight)}><span><small>{t(`decision.severity.${insight.severity}`)}</small><strong>{display.title}</strong></span><button type="button" className="text-button" aria-label={t("decision.restoreInsightLabel", { title: display.title })} onClick={() => restoreInsight(insight)}><Eye size={13} aria-hidden="true" />{t("decision.restoreInsight")}</button></li>;
-            })}</ul>
-            {hiddenInsightCount > 1 && <button type="button" className="secondary-button" onClick={restoreAllInsights}><Eye size={14} aria-hidden="true" />{t("decision.restoreAllInsights")}</button>}
-          </div>
-        </details>
-      </>}
+      {visibleInsights.length ? <ul className="pulse-glance-list">{visibleInsights.map((insight) => {
+        const display = displayHomeInsight(insight, locale, t);
+        return <li key={insight.id} className={insight.severity}><span>{t(`decision.severity.${insight.severity}`)}</span><strong>{display.title}</strong></li>;
+      })}</ul> : pulse.insights.length === 0 ? <div className="pulse-calm"><CheckCircle2 size={18} aria-hidden="true" /><span><strong>{t("decision.pulseCalmTitle")}</strong></span></div> : null}
       {monitoringUnavailable && props.onOpenSetup && <button type="button" className="secondary-button home-pulse-remediation" data-remediation="sensors" onClick={props.onOpenSetup}>{t("overview.finishSetup")}<ArrowRight size={15} aria-hidden="true" /></button>}
-      {showVisibleAdvisory && <small className="decision-caveat home-pulse-advisory">{t("decision.pulseAdvisory")}</small>}
-      <details className="pulse-context">
-        <summary>{t("home.whyStatus")}<ChevronDown size={15} aria-hidden="true" /></summary>
-        <div className="pulse-coverage" aria-label={t("decision.coverageLabel")}>
-          <span><b>{pulse.coverage.freshSensors}</b>{t("decision.freshOf", { total: pulse.coverage.enabledSensors })}</span>
-          <span><b>{pulse.coverage.estimatedSensors}</b>{t("decision.estimatedSensors")}</span>
-          <span><b>{pulse.coverage.agingSensors + pulse.coverage.staleSensors}</b>{t("decision.agingSensors")}</span>
-          <span><b>{pulse.coverage.sensorsWithoutData}</b>{t("decision.missingSensors")}</span>
+      <details className="home-pulse-more">
+        <summary><span>{t("home.moreInformation")}</span>{visibleInsights.length > 0 && <small>{visibleInsights.length}</small>}<ChevronDown size={15} aria-hidden="true" /></summary>
+        <div className="home-pulse-more-content">
+          <p className="home-pulse-explanation">{t(`decision.pulse.${pulse.status}.body`)}</p>
+          {visibleInsights.length > 0 && <div className="pulse-insights">{visibleInsights.map((insight) => {
+            const fingerprint = insightHideFingerprint(insight);
+            return <InsightCard key={insight.id} insight={insight} summaryRef={(node) => { if (node) insightSummaryRefs.current.set(fingerprint, node); else insightSummaryRefs.current.delete(fingerprint); }} allowOpen={!monitoringUnavailable || !props.onOpenSetup} onHide={() => hideInsight(insight)} onOpen={() => {
+              if (insight.target.floorId && insight.target.sensorId) props.onOpenTarget(insight.target.floorId, insight.target.sensorId);
+            }} />;
+          })}</div>}
+          {hiddenInsightCount > 0 && <>
+            <span className="sr-only" role="status">{hiddenInsightLabel}</span>
+            <details className="pulse-hidden-disclosure">
+              <summary ref={hiddenSummaryRef}><EyeOff size={16} aria-hidden="true" /><span>{hiddenInsightLabel}</span><ChevronDown size={15} aria-hidden="true" /></summary>
+              <div className="pulse-hidden-content">
+                <p>{t("decision.hiddenInsightBody")}</p>
+                <ul>{hiddenInsights.map((insight) => {
+                  const display = displayHomeInsight(insight, locale, t);
+                  return <li key={insightHideFingerprint(insight)}><span><small>{t(`decision.severity.${insight.severity}`)}</small><strong>{display.title}</strong></span><button type="button" className="text-button" aria-label={t("decision.restoreInsightLabel", { title: display.title })} onClick={() => restoreInsight(insight)}><Eye size={13} aria-hidden="true" />{t("decision.restoreInsight")}</button></li>;
+                })}</ul>
+                {hiddenInsightCount > 1 && <button type="button" className="secondary-button" onClick={restoreAllInsights}><Eye size={14} aria-hidden="true" />{t("decision.restoreAllInsights")}</button>}
+              </div>
+            </details>
+          </>}
+          <small className="decision-caveat home-pulse-advisory">{t("decision.pulseAdvisory")}</small>
+          <details className="pulse-context">
+            <summary>{t("home.whyStatus")}<ChevronDown size={15} aria-hidden="true" /></summary>
+            <div className="pulse-coverage" aria-label={t("decision.coverageLabel")}>
+              <span><b>{pulse.coverage.freshSensors}</b>{t("decision.freshOf", { total: pulse.coverage.enabledSensors })}</span>
+              <span><b>{pulse.coverage.estimatedSensors}</b>{t("decision.estimatedSensors")}</span>
+              <span><b>{pulse.coverage.agingSensors + pulse.coverage.staleSensors}</b>{t("decision.agingSensors")}</span>
+              <span><b>{pulse.coverage.sensorsWithoutData}</b>{t("decision.missingSensors")}</span>
+            </div>
+          </details>
         </div>
-        {!showVisibleAdvisory && <small className="decision-caveat home-pulse-advisory">{t("decision.pulseAdvisory")}</small>}
       </details>
     </section>
   );

@@ -40,6 +40,8 @@ export interface TpLinkConnectionSecret {
   host: string;
   username: string;
   password: string;
+  /** Stable local device identity learned after the first authenticated poll. */
+  deviceId?: string;
 }
 
 export interface AppleNotesGrantSecret {
@@ -62,6 +64,43 @@ function protectedHttpEndpoint(value: unknown, label: string): string {
     throw new Error(`${label} is invalid`);
   }
   return url.toString().replace(/\/$/, "");
+}
+
+function normalizedTpLinkConnections(value: unknown): TpLinkConnectionSecret[] {
+  if (!Array.isArray(value)) throw new Error("The TP-Link connections in the integration secrets file are invalid");
+  const connections: TpLinkConnectionSecret[] = [];
+  const ids = new Set<string>();
+  const houseHosts = new Set<string>();
+  const deviceIds = new Set<string>();
+  for (const candidate of value) {
+    const item = candidate as Record<string, unknown>;
+    if (!item || !isNonEmptyString(item.id) || !isNonEmptyString(item.houseId)
+      || !isNonEmptyString(item.host) || !isNonEmptyString(item.username) || !isNonEmptyString(item.password)
+      || (item.deviceId !== undefined && (!isNonEmptyString(item.deviceId) || item.deviceId.length > 1_024))) {
+      throw new Error("The TP-Link connections in the integration secrets file are invalid");
+    }
+    const id = item.id.trim();
+    const houseId = item.houseId.trim();
+    const host = item.host.trim();
+    const houseHost = `${houseId}\u0000${host.toLowerCase()}`;
+    const deviceId = isNonEmptyString(item.deviceId) ? item.deviceId.trim() : undefined;
+    const normalizedDeviceId = deviceId?.toUpperCase();
+    if (ids.has(id) || houseHosts.has(houseHost) || (normalizedDeviceId && deviceIds.has(normalizedDeviceId))) {
+      throw new Error("The TP-Link connections in the integration secrets file contain conflicting identities or addresses");
+    }
+    ids.add(id);
+    houseHosts.add(houseHost);
+    if (normalizedDeviceId) deviceIds.add(normalizedDeviceId);
+    connections.push({
+      id,
+      houseId,
+      host,
+      username: item.username.trim(),
+      password: item.password,
+      ...(deviceId ? { deviceId } : {}),
+    });
+  }
+  return connections;
 }
 
 export function readIntegrationSecrets(path: string): IntegrationSecrets {
@@ -113,23 +152,7 @@ export function readIntegrationSecrets(path: string): IntegrationSecrets {
     result.tpLinkLegacyDisabled = true;
   }
   if (parsed.tpLinkConnections !== undefined) {
-    if (!Array.isArray(parsed.tpLinkConnections)) throw new Error("The TP-Link connections in the integration secrets file are invalid");
-    const connections: TpLinkConnectionSecret[] = [];
-    const ids = new Set<string>();
-    for (const candidate of parsed.tpLinkConnections) {
-      const value = candidate as Record<string, unknown>;
-      if (!value || !isNonEmptyString(value.id) || !isNonEmptyString(value.houseId)
-        || !isNonEmptyString(value.host) || !isNonEmptyString(value.username) || !isNonEmptyString(value.password)
-        || ids.has(value.id.trim())) {
-        throw new Error("The TP-Link connections in the integration secrets file are invalid");
-      }
-      ids.add(value.id.trim());
-      connections.push({
-        id: value.id.trim(), houseId: value.houseId.trim(), host: value.host.trim(),
-        username: value.username.trim(), password: value.password,
-      });
-    }
-    result.tpLinkConnections = connections;
+    result.tpLinkConnections = normalizedTpLinkConnections(parsed.tpLinkConnections);
   }
   if (parsed.webhook !== undefined) {
     const value = parsed.webhook as Record<string, unknown>;
@@ -185,6 +208,9 @@ export function readIntegrationSecrets(path: string): IntegrationSecrets {
 }
 
 export function writeIntegrationSecrets(path: string, secrets: IntegrationSecrets): void {
+  const validatedSecrets: IntegrationSecrets = secrets.tpLinkConnections === undefined
+    ? secrets
+    : { ...secrets, tpLinkConnections: normalizedTpLinkConnections(secrets.tpLinkConnections) };
   const directory = dirname(path);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   try { chmodSync(directory, 0o700); } catch { /* Windows ACLs are managed by the host. */ }
@@ -193,7 +219,7 @@ export function writeIntegrationSecrets(path: string, secrets: IntegrationSecret
   let descriptor: number | null = null;
   try {
     descriptor = openSync(temporary, "wx", 0o600);
-    writeFileSync(descriptor, `${JSON.stringify(secrets, null, 2)}\n`, { encoding: "utf8" });
+    writeFileSync(descriptor, `${JSON.stringify(validatedSecrets, null, 2)}\n`, { encoding: "utf8" });
     fsyncSync(descriptor);
     closeSync(descriptor);
     descriptor = null;
@@ -242,7 +268,7 @@ export function updateIntegrationSecrets(
     else if (patch.tpLink !== undefined) next.tpLink = patch.tpLink;
     if (patch.tpLinkLegacyDisabled === true) next.tpLinkLegacyDisabled = true;
     else if (patch.tpLinkLegacyDisabled === false) delete next.tpLinkLegacyDisabled;
-    if (patch.tpLinkConnections !== undefined) next.tpLinkConnections = patch.tpLinkConnections.map((connection) => ({ ...connection }));
+    if (patch.tpLinkConnections !== undefined) next.tpLinkConnections = normalizedTpLinkConnections(patch.tpLinkConnections);
     if (patch.webhook === null) delete next.webhook;
     else if (patch.webhook !== undefined) next.webhook = { ...patch.webhook };
     if (patch.telegram === null) delete next.telegram;

@@ -1,4 +1,4 @@
-import type { Floor, House, MeasurementSample, Point, Room, Sensor } from "@climate-twin/contracts";
+import { floorMetersPerPlanUnit, type Floor, type House, type MeasurementSample, type Point, type Room, type Sensor } from "@climate-twin/contracts";
 import type { AirflowEvidence, ClimateSampleMatrix } from "./airflowSimulation";
 import { isSpatialSampleFresh, type SpatialFreshnessOptions } from "./spatialFreshness";
 import type { SpatialLayerSnapshot, SpatialLayerZone } from "./spatialLayers";
@@ -127,7 +127,7 @@ function coverageAtPoint(point: Point, regions: readonly SensorCoverageRegion[])
 function placementBiasPenalty(floor: Floor, point: Point): number {
   const influenceRadius = Math.max(1, Math.max(floor.width, floor.height) * .16);
   return (floor.planElements ?? []).reduce((sum, element) => {
-    const weight = { window: 1, fireplace: 1, vent: .72, door: .42 }[element.kind];
+    const weight = { window: 1, fireplace: 1, vent: .72, door: .42, fireEscape: .18 }[element.kind];
     const normalizedDistance = Math.hypot(point.x - element.position.x, point.y - element.position.y) / influenceRadius;
     return sum + Math.exp(-normalizedDistance * normalizedDistance * 1.3) * weight;
   }, 0);
@@ -424,7 +424,9 @@ export function experimentalLayerSuggestions(input: {
   } else if (input.airflow) {
     suggestions.push({ id: "airflow:opening-state", code: "record-opening-state", layer: "air-movement" });
   }
-  if (input.airflow) suggestions.push({ id: "airflow:scale", code: "add-physical-scale", layer: "air-movement" });
+  if (input.airflow && visibleFloors.some((floor) => floorMetersPerPlanUnit(floor, input.house) === null)) {
+    suggestions.push({ id: "airflow:scale", code: "add-physical-scale", layer: "air-movement" });
+  }
   if (input.airflow && !input.floorId && input.house.floors.length > 1) {
     suggestions.push({ id: "airflow:vertical-portals", code: "model-vertical-portals", layer: "air-movement" });
   }

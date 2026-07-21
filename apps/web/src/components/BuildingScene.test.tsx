@@ -16,6 +16,8 @@ function renderScene(options: {
   definition?: MeasurementDefinition;
   units?: UnitSystem;
   editing?: boolean;
+  sensorMeasurements?: Record<string, Record<string, MeasurementSample>>;
+  energyDevicesVisible?: boolean;
 } = {}) {
   const state = createDemoState();
   const house = { ...state.houses[0]!, floors: options.floors ?? state.houses[0]!.floors };
@@ -32,6 +34,8 @@ function renderScene(options: {
     <I18nProvider>
       <BuildingScene
         house={house} sensors={sensors} samples={samples}
+        {...(options.sensorMeasurements ? { sensorMeasurements: options.sensorMeasurements } : {})}
+        {...(options.energyDevicesVisible === undefined ? {} : { energyDevicesVisible: options.energyDevicesVisible })}
         observations={options.observations ?? state.observations} definition={definition} units={options.units ?? "metric"}
         activeFloorId={house.floors[0]!.id} selectedSensorId={sensors.find((sensor) => sensor.enabled)?.id ?? null}
         editing={options.editing ?? false}
@@ -56,7 +60,7 @@ describe("BuildingScene", () => {
   it("renders an attic roof and a fireplace chimney that reaches above it", () => {
     const state = createDemoState();
     const [ground, upper] = state.houses[0]!.floors;
-    const fireplace = { id: "hearth", kind: "fireplace" as const, position: { x: 150, y: 230 }, rotationDegrees: 0, width: 80, height: 1.2, verticalExtent: "roof" as const };
+    const fireplace = { id: "hearth", kind: "fireplace" as const, position: { x: 150, y: 230 }, rotationDegrees: 0, width: 80, height: 1.2, verticalExtent: "roof" as const, chimneyWidth: 42, chimneyDepth: 28 };
     const attic: Floor = {
       ...upper!, id: "attic", name: "Attic", type: "attic", elevation: 6, wallHeight: .9,
       roof: { style: "gable", pitchDegrees: 35, ridgeAxis: "x", overhang: 12, eavesHeight: .9 },
@@ -65,7 +69,33 @@ describe("BuildingScene", () => {
     const { container } = renderScene({ floors: [{ ...ground!, planElements: [fireplace] }, upper!, attic] });
 
     expect(container.querySelectorAll(".building-roof-face")).toHaveLength(2);
-    expect(container.querySelector(".building-chimney[data-vertical-extent=roof]")).not.toBeNull();
+    const chimney = container.querySelector<SVGGElement>(".building-chimney[data-vertical-extent=roof]");
+    expect(chimney).not.toBeNull();
+    expect(chimney?.dataset.bottom).toBe(ground!.elevation.toFixed(4));
+    expect(chimney?.dataset.width).toBe("42.0000");
+    expect(chimney?.dataset.depth).toBe("28.0000");
+    expect(chimney?.querySelectorAll(".building-chimney-course")).toHaveLength(7);
+  });
+
+  it("renders a wall-attached exterior fire escape with configurable projection", () => {
+    const state = createDemoState();
+    const base = state.houses[0]!.floors[0]!;
+    const wall = base.walls[0]!;
+    const floor: Floor = {
+      ...base,
+      planElements: [{
+        id: "north-escape", kind: "fireEscape", wallId: wall.id,
+        position: { x: (wall.from.x + wall.to.x) / 2, y: (wall.from.y + wall.to.y) / 2 },
+        rotationDegrees: 0, width: 75, height: 2.4, bottomOffsetM: .2, projection: 45, variant: "ladder",
+      }],
+    };
+    const { container } = renderScene({ floors: [floor], sensors: [], samples: {}, observations: [], editing: true });
+    const escape = container.querySelector<SVGGElement>('[data-element-id="north-escape"]');
+
+    expect(escape?.dataset.kind).toBe("fireEscape");
+    expect(escape?.dataset.depth).toBe("45.0000");
+    expect(escape?.dataset.bottom).toBe("0.2000");
+    expect(escape?.querySelectorAll(".building-fire-escape-detail line").length).toBeGreaterThan(6);
   });
 
   it("renders every floor and enabled house sensor with meaningful 3D labels", () => {
@@ -91,6 +121,25 @@ describe("BuildingScene", () => {
       expect(label).toContain((sensor.z - floor.elevation).toFixed(1));
     }
     expect(sensorControls.some((item) => item.getAttribute("aria-label")?.includes(disabled.name))).toBe(false);
+  });
+
+  it("renders energy plugs with compact stats in 3D and honors their marker layer visibility", () => {
+    const state = createDemoState();
+    const floor = state.houses[0]!.floors[0]!;
+    const plug: Sensor = {
+      ...state.sensors[0]!, id: "plug-hs110", floorId: floor.id, name: "Desk plug", model: "HS110", tpLinkDeviceId: "hs110-1",
+    };
+    const power: MeasurementSample = { sensorId: plug.id, metric: "power", value: 52, canonicalUnit: "W", timestamp: new Date().toISOString(), source: "tp-link", quality: "good" };
+    const energy: MeasurementSample = { ...power, metric: "energy", value: 3.14, canonicalUnit: "kWh" };
+    const visible = renderScene({ sensors: [plug], samples: {}, sensorMeasurements: { [plug.id]: { power, energy } } });
+
+    expect(visible.container.querySelector(".building-sensor.energy-device")?.textContent).toContain("52 W");
+    expect(visible.container.querySelector(".building-sensor.energy-device")?.textContent).toContain("3.14 kWh");
+    expect(screen.getByRole("button", { name: /Desk plug, plug sensor.*52 W.*3.14 kWh/i })).not.toBeNull();
+    visible.unmount();
+
+    const hidden = renderScene({ sensors: [plug], samples: {}, sensorMeasurements: { [plug.id]: { power, energy } }, energyDevicesVisible: false });
+    expect(hidden.container.querySelector(".building-sensor.energy-device")).toBeNull();
   });
 
   it("renders the shared floor geometry and edits element width and height live in 3D", () => {

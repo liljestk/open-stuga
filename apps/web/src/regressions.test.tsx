@@ -272,9 +272,10 @@ describe("frontend regressions", () => {
     observationView.unmount();
 
     const onFloorChange = vi.fn();
-    render(withI18n(
+    const editableFloor = { ...floor, metersPerPlanUnit: .012 };
+    const wallView = render(withI18n(
       <FloorPlan
-        floor={floor} sensors={sensors} samples={samples} observations={state.observations}
+        floor={editableFloor} sensors={sensors} samples={samples} observations={state.observations}
         definition={definition} units="metric" viewMode="plan" selectedSensorId={null} editing
         observationPlacement={false} onSensorSelect={vi.fn()} onSensorMove={vi.fn()} onFloorChange={onFloorChange}
         onObservationPoint={vi.fn()} onCancelObservationPlacement={vi.fn()}
@@ -290,12 +291,16 @@ describe("frontend regressions", () => {
     wallMap.focus();
     await user.keyboard("{Enter}");
     expect(screen.getByRole("status").textContent).toMatch(/Choose the end point.*Shift.*Escape/i);
-    await user.keyboard("{ArrowRight}{Enter}");
+    expect(wallView.container.querySelector(".wall-preview-length")?.textContent).toBe("0 m");
+    await user.keyboard("{ArrowRight}");
+    const gridSize = floorGridSize(editableFloor);
+    const expectedPreviewLength = new Intl.NumberFormat("en", { maximumFractionDigits: 2 }).format(gridSize * editableFloor.metersPerPlanUnit);
+    expect(wallView.container.querySelector(".wall-preview-length")?.textContent).toBe(`${expectedPreviewLength} m`);
+    await user.keyboard("{Enter}");
     expect(onFloorChange).toHaveBeenCalledOnce();
     const changedFloor = onFloorChange.mock.calls[0]![0];
     const wall = changedFloor.walls.at(-1)!;
     expect(wall.from).not.toEqual(wall.to);
-    const gridSize = floorGridSize(floor);
     expect(wall.to.x - wall.from.x).toBeCloseTo(gridSize, 8);
     for (const coordinate of [wall.from.x, wall.from.y, wall.to.x, wall.to.y]) {
       expect(coordinate / gridSize).toBeCloseTo(Math.round(coordinate / gridSize), 8);

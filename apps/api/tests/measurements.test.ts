@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
-import { ClimateDatabase } from "../src/db.js";
+import { ClimateDatabase, outdoorLocationKey } from "../src/db.js";
 import {
   HybridTelemetryReader,
   type ArchiveTelemetryReader,
@@ -71,14 +71,42 @@ describe("registry-driven measurements API", () => {
     ]);
   });
 
+  it("serves persisted outdoor observations for combined analytics", async () => {
+    const location = { latitude: 60.17, longitude: 24.94, countryCode: "FI", label: "Helsinki" };
+    const house = runtime.database.updateHouse("house-main", { location })!;
+    const locationKey = outdoorLocationKey(location);
+    runtime.database.upsertCurrentOutdoorTemperatureSample({
+      houseId: house.id,
+      locationKey,
+      timestamp: "2026-07-19T10:00:00.000Z",
+      temperatureC: 18.5,
+      source: "fmi-backfill",
+      fetchedAt: "2026-07-19T10:01:00.000Z",
+      stationId: "station-1",
+      stationName: "Kaisaniemi",
+    });
+
+    const response = await request(runtime.app)
+      .get(`/api/v2/houses/${house.id}/outdoor-temperature/history`)
+      .query({ from: "2026-07-19T09:00:00.000Z", to: "2026-07-19T11:00:00.000Z" })
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      from: "2026-07-19T09:00:00.000Z",
+      to: "2026-07-19T11:00:00.000Z",
+      truncated: false,
+      samples: [expect.objectContaining({ source: "fmi-backfill", temperatureC: 18.5 })],
+    });
+  });
+
   it("seeds capabilities, validates custom definitions, and disables without orphaning data", async () => {
     const listed = await request(runtime.app).get("/api/v2/measurement-definitions").expect(200);
     expect(listed.body.definitions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "temperature", unit: "°C", builtin: true, spatialInterpolation: true, forecastSupported: true }),
+      expect.objectContaining({ id: "temperature", unit: "°C", dimension: "temperature", allowedUnits: ["°C", "°F"], kind: "gauge", defaultAggregation: "mean", builtin: true, spatialInterpolation: true, forecastSupported: true }),
       expect.objectContaining({ id: "humidity", unit: "%", builtin: true }),
       expect.objectContaining({ id: "co2", unit: "ppm", colorScale: "air-quality", forecastSupported: true }),
-      expect.objectContaining({ id: "power", unit: "W", builtin: true, spatialInterpolation: false, forecastSupported: false }),
-      expect.objectContaining({ id: "energy", unit: "kWh", builtin: true, spatialInterpolation: false, forecastSupported: false }),
+      expect.objectContaining({ id: "power", unit: "W", kind: "rate", defaultAggregation: "time_weighted_mean", builtin: true, spatialInterpolation: false, forecastSupported: false }),
+      expect.objectContaining({ id: "energy", unit: "kWh", kind: "cumulative_counter", defaultAggregation: "delta", builtin: true, spatialInterpolation: false, forecastSupported: false }),
       expect.objectContaining({ id: "electricity_price", unit: "€/kWh", builtin: true, spatialInterpolation: false, forecastSupported: false }),
     ]));
 
@@ -88,7 +116,8 @@ describe("registry-driven measurements API", () => {
     }).expect(201);
     expect(created.body.definition).toMatchObject({
       id: "voc_index", builtin: false, enabled: true, colorScale: "sequential",
-      spatialInterpolation: false, forecastSupported: false,
+      dimension: "finite_scalar", allowedUnits: ["index"], kind: "gauge", defaultAggregation: "mean",
+      genericHistoryEnabled: true, genericStatsEnabled: true, spatialInterpolation: false, forecastSupported: false,
     });
 
     await request(runtime.app).post("/api/v2/measurement-definitions").send({
@@ -504,6 +533,7 @@ describe("registry-driven measurements API", () => {
     expect(v2.body.servers).toEqual([{ url: "/api/v2", description: "Registry-driven measurements API" }]);
     expect(v2.body.paths).toHaveProperty("/measurement-definitions");
     expect(v2.body.paths).toHaveProperty("/measurements/history");
+    expect(v2.body.paths).toHaveProperty("/houses/{id}/outdoor-temperature/history");
     expect(v2.body.paths).toHaveProperty("/measurements/import");
     expect(v2.body.paths).not.toHaveProperty("/houses");
     expect(v2.body.paths["/measurements"].post.requestBody.content["application/json"].schema.oneOf)

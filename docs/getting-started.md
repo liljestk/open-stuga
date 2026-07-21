@@ -47,6 +47,18 @@ Prerequisites: a current Docker Engine with Compose v2.
    docker compose logs -f api web
    ```
 
+   The optional Android Tapo history worker is in a separate, disabled Compose
+   profile. Configure and canary it before starting that profile:
+
+   ```sh
+   docker compose --profile tapo-history up --build -d
+   docker compose --profile tapo-history logs -f api tapo-export-runner
+   ```
+
+   The profile does not install or start Appium, Android, or the Tapo app. See
+   [Automated Tapo history recovery](tapo-history-automation.md) before enabling
+   `TAPO_RUNNER_ENABLED`.
+
 6. Stop without deleting history:
 
    ```sh
@@ -199,6 +211,55 @@ To connect a real hub (the mock workflow is not a prerequisite):
 
 Home Assistant is not required for this path.
 
+## Enable automated Tapo history recovery
+
+Direct T310/T315 gaps first use the H100/H200's retained 15-minute buckets, and
+supported direct energy devices first use their retained power history. If that
+is incomplete, Stuga tries an explicitly configured experimental private
+adapter before it queues a durable Tapo Android export. The final path
+correlates an emailed CSV through Gmail OAuth, validates/stages the rows, and
+retries the original gap ingestion. Home Assistant-mapped sensors use their own
+recorder-history branch and are never silently merged with direct TP-Link data.
+
+This service is intentionally opt-in because it drives a third-party mobile UI:
+
+1. Read [Automated Tapo history recovery](tapo-history-automation.md) and
+   prepare a dedicated Android target and Tapo account, stable target-lock ID,
+   pinned Tapo APK, Appium 2.18.0 or newer with the repository log filter,
+   UiAutomator2 3.1.0 or newer, and a dedicated Gmail mailbox. Record the exact
+   APK/Appium/driver versions and pin the Android UDID, platform version,
+   language, and locale.
+2. Verify that the mailbox supports plus addressing and preserves the tagged
+   recipient header. The CSV itself does not reliably identify its device.
+3. Capture `config/tapo-flow.json` from the exact deployed app with Appium
+   Inspector. `apps/tapo-export-runner/flow.example.json` is not a working flow.
+4. Configure the export mailbox and Gmail client ID. For a Workspace alias or
+   catch-all, set `TAPO_HISTORY_GMAIL_ACCOUNT_EMAIL` to the primary address
+   returned by Gmail `/users/me/profile`. Put Gmail client/refresh secrets in
+   the API-only Compose secret directory. In the separate runner directory put
+   either Tapo login files or a stable 32-byte-or-longer per-account proof for a
+   retained session. Compose generates the shared worker token. Leave the
+   private endpoint unset unless a maintained adapter is validated.
+5. Start the `tapo-history` Compose profile with the runner still disabled.
+   Disabled mode is inert: it logs and exits without reading/executing the flow
+   or contacting API/Appium, so it does not certify enabled-mode configuration.
+   Verify API/Appium separately, then set `TAPO_APPIUM_LOGS_HARDENED=true` only
+   after protected filtered Appium logging is active.
+6. Set `TAPO_DEDICATED_ACCOUNT=true` as the explicit operator attestation, set
+   `TAPO_RUNNER_ENABLED=true`, and start one worker. Use **Set up > Connections**
+   to complete a staged-only canary spanning at least eight export intervals and
+   at most `max(7 days, 8 intervals)`. Ordinary jobs remain locked until its
+   exact deployment/API/schema/target scope passes. Canary samples are not
+   ingested or recorded as recovered gaps.
+
+Open **Set up > Connections > Automated Tapo history exports** to review job
+state, provider, device/range, attempts, and errors. Retry `failed` or
+`needs-attention` work only after correcting the cause and repeating the canary
+when selectors changed. Approval expires after 30 days and renews ahead of
+expiry when work is queued. Login and 2FA are operator-attention states, not
+prompts the worker attempts to bypass. The checked-in selectors and unit tests
+never replace a live canary against the exact installed APK and target.
+
 ## Connect Home Assistant
 
 To connect a real Home Assistant instance (the mock workflow is not a
@@ -313,8 +374,56 @@ take precedence after restart.
 | `TP_LINK_USERNAME` | empty | TP-Link account email used for local hub authentication |
 | `TP_LINK_PASSWORD` | empty | TP-Link account password used for local hub authentication |
 | `TP_LINK_DEVICE_MAP_FILE` | `./config/tp-link.devices.json` | optional legacy child-device-to-sensor bootstrap map; in-app mappings are stored in SQLite |
-| `TP_LINK_POLL_INTERVAL_MS` | `10000` | direct local hub polling interval; minimum effective value is one second |
+| `TP_LINK_POLL_INTERVAL_MS` | `2000` | fixed-rate direct local hub polling interval; minimum effective value is one second |
 | `TP_LINK_PYTHON` | `python` on Windows, `python3` elsewhere | Python 3.11+ executable for the direct bridge |
+| `TAPO_HISTORY_ENABLED` | `false` | enables the asynchronous older-history provider and mailbox service after local TP-Link recovery is incomplete |
+| `TAPO_HISTORY_WORKER_TOKEN` | empty | non-Compose bearer secret shared only by the API and runner; Compose generates it in a dedicated volume |
+| `TAPO_HISTORY_WORKER_TOKEN_FILE` | empty | non-Compose alternative file containing the worker token |
+| `TAPO_HISTORY_EXPORT_EMAIL` | empty | dedicated base mailbox; it must accept plus addresses and preserve the tagged recipient header |
+| `TAPO_HISTORY_EMAIL_TAG_PREFIX` | `stuga` | sanitized prefix for random per-job correlation plus tags |
+| `TAPO_HISTORY_EXPORT_INTERVAL_MINUTES` | `15` | Tapo app CSV interval; allowed values are 1, 15, 30, 60, 360, 720, or 1440 |
+| `TAPO_HISTORY_MAX_EXPORT_DAYS` | `30` | maximum calendar span per sequential export segment, from 1 through 730 days; row and two-year limits still apply |
+| `TAPO_HISTORY_MAX_PENDING_EMAILS` | `1` | atomic cap, from 1 through 10, on live claimed/running plus waiting-email Appium generations |
+| `TAPO_HISTORY_MAILBOX_POLL_INTERVAL_MS` | `60000` | Gmail polling cadence; effective minimum is 15 seconds |
+| `TAPO_HISTORY_EMAIL_TIMEOUT_MS` | `21600000` | maximum wait for correlated email before bounded automatic retry |
+| `TAPO_HISTORY_WORKER_LEASE_MS` | `300000` | durable mobile-worker claim lease; allowed range is five minutes through 24 hours |
+| `TAPO_HISTORY_GMAIL_CLIENT_ID` | empty | Gmail OAuth client ID; configure with both Gmail secret and refresh token |
+| `TAPO_HISTORY_GMAIL_ACCOUNT_EMAIL` | export mailbox identity | exact primary identity expected from Gmail `/users/me/profile`; set explicitly for a Workspace alias or catch-all |
+| `TAPO_HISTORY_GMAIL_CLIENT_SECRET` | empty | Gmail OAuth client secret; prefer its file form in a custom secret-mounted deployment |
+| `TAPO_HISTORY_GMAIL_CLIENT_SECRET_FILE` | empty | API-only alternative file containing the Gmail client secret |
+| `TAPO_HISTORY_GMAIL_REFRESH_TOKEN` | empty | offline Gmail OAuth refresh token granted only `gmail.readonly` |
+| `TAPO_HISTORY_GMAIL_REFRESH_TOKEN_FILE` | empty | API-only alternative file containing the Gmail refresh token |
+| `TAPO_HISTORY_PRIVATE_ENDPOINT` | empty | optional experimental operator-maintained HTTPS history adapter; not a public TP-Link API |
+| `TAPO_HISTORY_PRIVATE_TOKEN` | empty | bearer token for the experimental endpoint; endpoint and token must be configured together |
+| `TAPO_HISTORY_PRIVATE_TOKEN_FILE` | empty | API-only alternative file containing the experimental endpoint token |
+| `TAPO_HISTORY_API_SECRET_DIR` | `./secrets/tapo-history-api` | Compose-only API mount containing Gmail secrets and optional private-endpoint token |
+| `TAPO_HISTORY_RUNNER_SECRET_DIR` | `./secrets/tapo-history-runner` | Compose-only runner mount containing either account email/password or retained-session account proof; isolated from API secrets |
+| `TAPO_RUNNER_ENABLED` | `false` | lets the isolated Android worker claim canary work; ordinary jobs remain gated until the exact deployment passes |
+| `TAPO_RUNNER_WORKER_ID` | `tapo-android-01` | human-readable operator log label only |
+| `TAPO_TARGET_LOCK_ID` | empty | required stable operator ID for one physical phone; lease identity derives from this plus UDID |
+| `TAPO_APPIUM_URL` | `http://host.docker.internal:4723` | private Appium server reachable from the runner container |
+| `TAPO_APPIUM_CAPABILITIES_JSON` | Android/UiAutomator2 example | exact `Android`/`UiAutomator2`, UDID, platform version, language, and locale pins plus reviewed session capabilities |
+| `TAPO_APPIUM_LOGS_HARDENED` | `false` | must be explicitly `true` only after Appium 2.18+ uses the supplied sensitive-value log filter and protected rotated logs |
+| `TAPO_APPIUM_VERSION` | empty | required exact installed Appium version, at least 2.18.0; `/status` must echo it |
+| `TAPO_UIAUTOMATOR2_VERSION` | empty | required exact installed UiAutomator2 version, at least 3.1.0 |
+| `TAPO_APP_VERSION` | empty | required exact installed Tapo APK version; floating labels are rejected |
+| `TAPO_DEDICATED_ACCOUNT` | `false` | must be explicitly `true` when enabled; operator attestation that the automation account and unique aliases are dedicated |
+| `TAPO_APPIUM_SESSION_FILE` | `data/tapo-appium-session.json` | persisted session id plus endpoint/capability fingerprint; never stores account credentials |
+| `TAPO_KEEP_SESSION_ON_SHUTDOWN` | `true` | retains the verified Appium session on graceful worker shutdown |
+| `TAPO_RUNNER_FLOW_CONFIG` | empty | required enabled-mode path to the captured and canary-tested flow JSON |
+| `TAPO_RUNNER_FLOW_FILE` | checked-in invalid example | Compose host path mounted as the runner flow; replace it with the installation-specific captured file before enabling |
+| `TAPO_ACCOUNT_EMAIL` | empty | non-Compose optional login email; Compose reads runner secret file `account-email` |
+| `TAPO_ACCOUNT_PASSWORD` | empty | non-Compose optional login password; Compose reads runner secret file `account-password` |
+| `TAPO_ACCOUNT_EMAIL_FILE` | empty | non-Compose alternative file for the optional Tapo account email |
+| `TAPO_ACCOUNT_PASSWORD_FILE` | empty | non-Compose alternative file for the optional Tapo account password |
+| `TAPO_ACCOUNT_PROOF` | empty | required 32-byte-or-longer stable per-account proof when using a retained session instead of login credentials |
+| `TAPO_ACCOUNT_PROOF_FILE` | empty | preferred file form of the retained-session account proof |
+| `TAPO_RUNNER_POLL_MS` | `10000` | idle durable-job claim interval |
+| `TAPO_RUNNER_HEARTBEAT_MS` | `15000` | active-job lease heartbeat interval |
+| `TAPO_RUNNER_REQUEST_TIMEOUT_MS` | `15000` | API/Appium request timeout; the server lease watchdog remains the hard stop |
+| `TAPO_ACTION_TIMEOUT_MS` | `15000` | default per-action selector/command timeout in the pinned flow |
+| `TAPO_RUNNER_ARTIFACT_DIR` | `data/tapo-runner-artifacts` | protected diagnostic screenshot directory; apply short retention |
+| `TAPO_RUNNER_ARTIFACT_RETENTION_DAYS` | `30` | automatic protected screenshot retention, from 1 through 365 days |
 | `ALERT_WEBHOOK_URL` | empty | optional outbound alert destination |
 | `ALERT_WEBHOOK_BEARER_TOKEN` | empty | optional destination bearer token |
 | `CORS_ORIGIN` | empty | exact trusted browser origin for a split-origin or non-loopback deployment |

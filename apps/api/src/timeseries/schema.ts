@@ -182,6 +182,10 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
         raw_price_cents_per_kwh > '-Infinity'::DOUBLE PRECISION
         AND raw_price_cents_per_kwh < 'Infinity'::DOUBLE PRECISION
       ),
+      margin_cents_per_kwh DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (
+        margin_cents_per_kwh > '-Infinity'::DOUBLE PRECISION
+        AND margin_cents_per_kwh < 'Infinity'::DOUBLE PRECISION
+      ),
       fetched_at TIMESTAMPTZ NOT NULL CHECK (isfinite(fetched_at)),
       metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
       ingested_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
@@ -197,6 +201,11 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
       ON CONFLICT (version) DO NOTHING`,
     `INSERT INTO ${relation("schema_migrations")} (version, description)
       VALUES (2, 'Checkpointed SQLite archive reconciliation and real-data boundary state')
+      ON CONFLICT (version) DO NOTHING`,
+    `ALTER TABLE ${relation("electricity_price_samples")}
+      ADD COLUMN IF NOT EXISTS margin_cents_per_kwh DOUBLE PRECISION NOT NULL DEFAULT 0`,
+    `INSERT INTO ${relation("schema_migrations")} (version, description)
+      VALUES (3, 'Snapshot contract margin with every electricity price interval')
       ON CONFLICT (version) DO NOTHING`,
   ];
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Building2, ChevronDown, ChevronUp, Copy, Layers3, Plus, Trash2 } from "lucide-react";
-import type { Floor, FloorType, House, PlanElement, RoofDesign, RoofStyle, Sensor } from "@climate-twin/contracts";
+import { floorMetersPerPlanUnit, type Floor, type FloorType, type House, type PlanElement, type RoofDesign, type RoofStyle, type Sensor } from "@climate-twin/contracts";
 import { useI18n, type TranslationKey } from "../i18n";
 import { DEFAULT_ROOF_DESIGN, roofPeakZ } from "../architecturalGeometry";
 
@@ -85,6 +85,7 @@ function blankFloor(type: FloorType, name: string, house: House, reference: Floo
     type,
     width: reference.width,
     height: reference.height,
+    ...(reference.metersPerPlanUnit ? { metersPerPlanUnit: reference.metersPerPlanUnit } : {}),
     elevation: nextElevation(house, type),
     ceilingHeight: type === "attic" ? 2.4 : type === "outdoor" ? 2.8 : 2.8,
     wallHeight,
@@ -107,7 +108,7 @@ function copyFloor(source: Floor, house: House): Floor {
     walls: source.walls.map((wall) => ({ ...wall, id: wallIdMap.get(wall.id)!, from: { ...wall.from }, to: { ...wall.to } })),
     rooms: source.rooms.map((room) => ({ ...room, id: crypto.randomUUID(), points: room.points.map((point) => ({ ...point })) })),
     planElements: source.planElements?.map((element): PlanElement => {
-      if (element.kind !== "door" && element.kind !== "window") {
+      if (element.kind !== "door" && element.kind !== "window" && element.kind !== "fireEscape") {
         return { ...element, id: crypto.randomUUID(), position: { ...element.position } };
       }
       return {
@@ -123,7 +124,7 @@ function copyFloor(source: Floor, house: House): Floor {
 export function StructureEditor({
   houses, house, floor, sensors, onHouseSelect, onFloorSelect, onHouseChange, onHouseSave, onHouseCreate, onHouseDelete,
 }: StructureEditorProps) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [addingHouse, setAddingHouse] = useState(false);
   const [addingFloor, setAddingFloor] = useState(false);
   const [newHouseName, setNewHouseName] = useState("");
@@ -142,6 +143,12 @@ export function StructureEditor({
   ];
   const minimumWidth = Math.max(1, ...floorSensors.map((sensor) => Math.ceil(sensor.x)), ...geometryPoints.map((point) => Math.ceil(point.x)));
   const minimumHeight = Math.max(1, ...floorSensors.map((sensor) => Math.ceil(sensor.y)), ...geometryPoints.map((point) => Math.ceil(point.y)));
+  const horizontalScale = floorMetersPerPlanUnit(floor, house);
+  const physicalFootprint = horizontalScale === null ? null : {
+    width: new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(floor.width * horizontalScale),
+    depth: new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(floor.height * horizontalScale),
+    scale: new Intl.NumberFormat(locale, { maximumFractionDigits: 5 }).format(horizontalScale),
+  };
 
   useEffect(() => {
     setConfirmDeleteHouse(false);
@@ -358,6 +365,10 @@ export function StructureEditor({
               <label className="field compact-field"><span>{t("structure.planWidth")}</span><input type="number" min={minimumWidth} step="1" value={floor.width} disabled={!onHouseChange} onChange={(event) => changeFloor({ width: Number(event.target.value) })} /></label>
               <label className="field compact-field"><span>{t("structure.planDepth")}</span><input type="number" min={minimumHeight} step="1" value={floor.height} disabled={!onHouseChange} onChange={(event) => changeFloor({ height: Number(event.target.value) })} /></label>
             </div>
+            {physicalFootprint && <div className="structure-scale-summary">
+              <span>{t("structure.calibratedPlanExtent", physicalFootprint)}</span>
+              <small>{t("structure.horizontalScale", physicalFootprint)}</small>
+            </div>}
             {(inferredFloorType(floor) === "attic" || floor.roof) && <div className="roof-design-fields">
               <div className="structure-subheading">
                 <span><strong>{t("structure.roofDesign")}</strong><small>{t("structure.roofDesignHelp")}</small></span>

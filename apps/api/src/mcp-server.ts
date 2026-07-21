@@ -716,14 +716,14 @@ function deleteAsset(args: Record<string, unknown>): { deleted: true; assetId: s
 async function discoverIntegrations(): Promise<object> {
   const [homeAssistantResult, tpLinkResult] = await Promise.allSettled([
     discoverHomeAssistant(),
-    tpLink.discoverHubs(),
+    tpLink.discoverSources(),
   ]);
   const warnings: string[] = [];
   if (homeAssistantResult.status === "rejected") warnings.push("Home Assistant discovery was unavailable. Enter its address manually.");
-  if (tpLinkResult.status === "rejected") warnings.push("TP-Link discovery was unavailable. Enter the hub address manually.");
+  if (tpLinkResult.status === "rejected") warnings.push("TP-Link discovery was unavailable. Enter the hub or energy-device address manually.");
   return {
     homeAssistant: homeAssistantResult.status === "fulfilled" ? homeAssistantResult.value : [],
-    tpLink: tpLinkResult.status === "fulfilled" ? tpLinkResult.value : [],
+    tpLink: tpLinkResult.status === "fulfilled" ? tpLinkResult.value.sources : [],
     warnings,
   };
 }
@@ -773,7 +773,7 @@ function tpLinkSetup(): object {
       "Credentials are never returned and are stored outside SQLite.",
       "The MCP server deliberately does not accept or write credentials; keep secrets out of model and tool arguments.",
       "The stdio MCP process deliberately does not start a second continuous hub poller beside the API process.",
-      "LAN discovery remains H100/H200-only; direct energy devices need manual address entry and expose power, plus cumulative energy only when python-kasa provides consumption_total.",
+      "LAN discovery includes H100/H200 hubs and energy devices that python-kasa verifies through Module.Energy using saved TP-Link credentials; energy devices expose power, plus cumulative energy only when python-kasa provides consumption_total.",
       "Saving a real integration permanently disables and purges demo telemetry for this database.",
     ],
   };
@@ -932,14 +932,20 @@ const floorSchema = {
         type: "object",
         properties: {
           id: { type: "string", minLength: 1 },
-          kind: { enum: ["door", "window", "fireplace", "vent"] },
+          kind: { enum: ["door", "window", "fireplace", "vent", "fireEscape"] },
           position: pointSchema,
           rotationDegrees: { type: "number", minimum: 0, exclusiveMaximum: 360 },
           width: { type: "number", exclusiveMinimum: 0 },
           height: { type: "number", exclusiveMinimum: 0, description: "Physical element height in metres for the 3D representation." },
+          label: { type: "string", minLength: 1, maxLength: 120 },
           wallId: { type: "string", minLength: 1 },
+          variant: { enum: ["interior", "exterior", "sliding", "double", "open-passage", "fixed", "casement", "tilt-turn", "passive", "supply", "extract", "balanced", "transfer", "ladder", "stairs"] },
+          bottomOffsetM: { type: "number", minimum: 0 },
           verticalExtent: { enum: ["level", "roof"] },
           chimneyHeightAboveRoof: { type: "number", minimum: 0, maximum: 5 },
+          chimneyWidth: { type: "number", exclusiveMinimum: 0 },
+          chimneyDepth: { type: "number", exclusiveMinimum: 0 },
+          projection: { type: "number", exclusiveMinimum: 0 },
         },
         required: ["id", "kind", "position", "rotationDegrees"],
         additionalProperties: false,
@@ -1643,7 +1649,7 @@ const mcpTools = [
     },
     {
       name: "discover_integrations",
-      description: "Run best-effort LAN discovery for Home Assistant and TP-Link H100/H200 hubs.",
+      description: "Run best-effort LAN discovery for Home Assistant and supported TP-Link hubs or energy devices.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
     },
     {

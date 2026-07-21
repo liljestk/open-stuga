@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -8,6 +8,14 @@ import { loadConfig } from "../src/config.js";
 import { ClimateDatabase } from "../src/db.js";
 import { homeAssistantInstanceFromService } from "../src/discovery.js";
 import { readIntegrationSecrets, writeIntegrationSecrets } from "../src/integration-secrets.js";
+
+async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
+  const started = Date.now();
+  while (!predicate()) {
+    if (Date.now() - started > timeoutMs) throw new Error("Timed out waiting for integration state");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 
 describe("guided integration setup", () => {
   let directory: string | null = null;
@@ -112,6 +120,199 @@ describe("guided integration setup", () => {
     expect(reloaded.haToken).toBe("environment-wins");
     expect(reloaded.tpLinkConnections?.[0]?.password).toBe("tp-link-secret");
     expect(readFileSync(secretsPath, "utf8")).not.toContain("SQLite");
+  });
+
+  it("follows stable TP-Link identities across address changes without overwriting different hardware", async () => {
+    directory = mkdtempSync(join(tmpdir(), "climate-twin-tp-link-identities-"));
+    const secretsPath = join(directory, "integrations.json");
+    const identities = new Map([
+      ["192.168.1.56", "h200-stable-id"],
+      ["192.168.1.57", "hs110-stable-id"],
+      ["192.168.1.58", "h200-stable-id"],
+    ]);
+    runtime = createApi({
+      config: loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", INTEGRATION_SECRETS_FILE: secretsPath }),
+      startBackground: false,
+      tpLinkCredentialTester: async (host) => ({
+        ok: true,
+        connected: true,
+        message: "validated",
+        details: { sourceDeviceId: identities.get(host) },
+      }),
+    });
+
+    const hub = await request(runtime.app).put("/api/v1/integrations/tp-link/config").send({
+      houseId: "house-main", host: "192.168.1.56", username: "owner@example.test", password: "secret",
+    }).expect(200);
+    const beforeMismatch = readFileSync(secretsPath, "utf8");
+    await request(runtime.app).put("/api/v1/integrations/tp-link/config").send({
+      houseId: "house-main",
+      connectionId: hub.body.connectionId,
+      host: "192.168.1.57",
+      username: "owner@example.test",
+      password: "secret",
+    }).expect(409).expect(({ body }) => {
+      expect(body.error.code).toBe("TP_LINK_CONNECTION_IDENTITY_MISMATCH");
+    });
+    expect(readFileSync(secretsPath, "utf8")).toBe(beforeMismatch);
+
+    const plug = await request(runtime.app).put("/api/v1/integrations/tp-link/config").send({
+      houseId: "house-main", host: "192.168.1.57", username: "owner@example.test", password: "secret",
+    }).expect(200);
+
+    expect(plug.body.connectionId).not.toBe(hub.body.connectionId);
+    expect(readIntegrationSecrets(secretsPath).tpLinkConnections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: hub.body.connectionId, host: "192.168.1.56", deviceId: "h200-stable-id" }),
+      expect.objectContaining({ id: plug.body.connectionId, host: "192.168.1.57", deviceId: "hs110-stable-id" }),
+    ]));
+
+    const movedHub = await request(runtime.app).put("/api/v1/integrations/tp-link/config").send({
+      houseId: "house-main", host: "192.168.1.58", username: "owner@example.test", password: "new-secret",
+    }).expect(200);
+    expect(movedHub.body.connectionId).toBe(hub.body.connectionId);
+    expect(readIntegrationSecrets(secretsPath).tpLinkConnections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: hub.body.connectionId, host: "192.168.1.58", password: "new-secret" }),
+      expect.objectContaining({ id: plug.body.connectionId, host: "192.168.1.57" }),
+    ]));
+
+  });
+
+  it("materializes an environment-backed TP-Link source before adding different hardware", async () => {
+    directory = mkdtempSync(join(tmpdir(), "climate-twin-tp-link-legacy-addition-"));
+    const secretsPath = join(directory, "integrations.json");
+    runtime = createApi({
+      config: loadConfig({
+        NODE_ENV: "test",
+        DATABASE_PATH: ":memory:",
+        INTEGRATION_SECRETS_FILE: secretsPath,
+        TP_LINK_HOST: "192.168.1.56",
+        TP_LINK_USERNAME: "owner@example.test",
+        TP_LINK_PASSWORD: "legacy-secret",
+      }),
+      startBackground: false,
+      tpLinkCredentialTester: async () => ({
+        ok: true,
+        connected: true,
+        message: "validated",
+        details: { sourceDeviceId: "hs110-stable-id" },
+      }),
+    });
+
+    const added = await request(runtime.app).put("/api/v1/integrations/tp-link/config").send({
+      houseId: "house-main", host: "192.168.1.57", username: "owner@example.test", password: "new-secret",
+    }).expect(200);
+
+    expect(added.body.connectionId).not.toBe("legacy");
+    expect(readIntegrationSecrets(secretsPath)).toMatchObject({
+      tpLinkLegacyDisabled: true,
+      tpLinkConnections: expect.arrayContaining([
+        expect.objectContaining({ id: "legacy", host: "192.168.1.56", password: "legacy-secret" }),
+        expect.objectContaining({ id: added.body.connectionId, host: "192.168.1.57", deviceId: "hs110-stable-id" }),
+      ]),
+    });
+    expect(runtime.status.value.tpLink.connections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "legacy", houseId: "house-main" }),
+      expect.objectContaining({ id: added.body.connectionId, houseId: "house-main" }),
+    ]));
+  });
+
+  it("atomically scopes legacy sensor bindings when a second TP-Link source is added", async () => {
+    directory = mkdtempSync(join(tmpdir(), "climate-twin-tp-link-binding-migration-"));
+    const secretsPath = join(directory, "integrations.json");
+    const helperPath = join(directory, "existing-tp-link-source.mjs");
+    const existingConnection = {
+      id: "existing-source",
+      houseId: "house-main",
+      host: "192.168.1.56",
+      username: "owner@example.test",
+      password: "existing-secret",
+      deviceId: "h200-stable-id",
+    };
+    writeIntegrationSecrets(secretsPath, {
+      version: 1,
+      tpLinkLegacyDisabled: true,
+      tpLinkConnections: [existingConnection],
+    });
+    writeFileSync(helperPath, `
+      process.stdout.write(JSON.stringify({
+        type: "snapshot", timestamp: new Date().toISOString(), hubModel: "H200",
+        sourceDeviceId: "h200-stable-id", devices: [{
+          deviceId: "existing-child", model: "T310", alias: "Existing sensor", status: "online",
+          temperature: 20, temperatureUnit: "celsius", humidity: 40, battery: 90
+        }]
+      }) + "\\n");
+      setInterval(() => {}, 1000);
+    `);
+    const config = loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", INTEGRATION_SECRETS_FILE: secretsPath });
+    config.tpLinkPython = process.execPath;
+    config.tpLinkBridgeScript = helperPath;
+    runtime = createApi({
+      config,
+      startBackground: false,
+      tpLinkCredentialTester: async () => ({
+        ok: true,
+        connected: true,
+        message: "validated",
+        details: { sourceDeviceId: "hs110-stable-id", deviceIds: ["new-child"] },
+      }),
+    });
+    runtime.database.updateSensor("sensor-01", { tpLinkDeviceId: "existing-child", tpLinkConnectionId: null });
+    runtime.database.updateSensor("sensor-02", { tpLinkDeviceId: "new-child", tpLinkConnectionId: null });
+    runtime.database.updateSensor("sensor-03", { tpLinkDeviceId: "unknown-child", tpLinkConnectionId: null });
+    runtime.tpLink.start();
+    await waitFor(() => runtime?.status.value.tpLink.connected === true);
+
+    const newSource = {
+      houseId: "house-main", host: "192.168.1.57", username: "owner@example.test", password: "new-secret",
+    };
+    await request(runtime.app).put("/api/v1/integrations/tp-link/config").send(newSource)
+      .expect(409).expect(({ body }) => {
+        expect(body.error).toMatchObject({
+          code: "TP_LINK_BINDING_MIGRATION_REQUIRED",
+          details: { sensorIds: ["sensor-03"] },
+        });
+      });
+    expect(readIntegrationSecrets(secretsPath).tpLinkConnections).toEqual([existingConnection]);
+    expect(runtime.database.getSensor("sensor-01")).not.toHaveProperty("tpLinkConnectionId");
+    expect(runtime.database.getSensor("sensor-02")).not.toHaveProperty("tpLinkConnectionId");
+    runtime.database.updateSensor("sensor-03", { tpLinkDeviceId: null });
+
+    const added = await request(runtime.app).put("/api/v1/integrations/tp-link/config").send({
+      ...newSource,
+    }).expect(200);
+
+    expect(runtime.database.getSensor("sensor-01")).toMatchObject({
+      tpLinkDeviceId: "existing-child", tpLinkConnectionId: existingConnection.id,
+    });
+    expect(runtime.database.getSensor("sensor-02")).toMatchObject({
+      tpLinkDeviceId: "new-child", tpLinkConnectionId: added.body.connectionId,
+    });
+    expect(readIntegrationSecrets(secretsPath).tpLinkConnections).toHaveLength(2);
+  });
+
+  it("does not treat an explicit saved connection named legacy as the global compatibility source", async () => {
+    directory = mkdtempSync(join(tmpdir(), "climate-twin-explicit-legacy-delete-"));
+    const secretsPath = join(directory, "integrations.json");
+    writeIntegrationSecrets(secretsPath, {
+      version: 1,
+      tpLinkLegacyDisabled: true,
+      tpLinkConnections: [{
+        id: "legacy", houseId: "house-main", host: "192.168.1.57",
+        username: "owner@example.test", password: "secret", deviceId: "hs110-stable-id",
+      }],
+    });
+    runtime = createApi({
+      config: loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", INTEGRATION_SECRETS_FILE: secretsPath }),
+      startBackground: false,
+    });
+    runtime.database.updateSensor("sensor-01", { tpLinkDeviceId: "scoped-device", tpLinkConnectionId: "legacy" });
+    runtime.database.updateSensor("sensor-02", { tpLinkDeviceId: "unscoped-device", tpLinkConnectionId: null });
+
+    await request(runtime.app).delete("/api/v1/integrations/tp-link/config/legacy").expect(200).expect(({ body }) => {
+      expect(body.detachedSensorIds).toEqual(["sensor-01"]);
+    });
+    expect(runtime.database.getSensor("sensor-01")).not.toHaveProperty("tpLinkDeviceId");
+    expect(runtime.database.getSensor("sensor-02")).toMatchObject({ tpLinkDeviceId: "unscoped-device" });
   });
 
   it("keeps shared Home Assistant and TP-Link endpoints scoped to independent Home assignments", async () => {

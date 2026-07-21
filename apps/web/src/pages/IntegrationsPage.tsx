@@ -24,6 +24,7 @@ import {
   Trash2,
   TriangleAlert,
 } from "lucide-react";
+import { floorMetersPerPlanUnit } from "@climate-twin/contracts";
 import type {
   ConnectionState,
   House,
@@ -33,7 +34,15 @@ import type {
   TpLinkDiscoveredDevice,
   UnitSystem,
 } from "@climate-twin/contracts";
-import { api, type HouseGeoreferencePatch, type HousePatch, type IntegrationDiscoveryResult } from "../api";
+import {
+  api,
+  type HouseGeoreferencePatch,
+  type HousePatch,
+  type IntegrationDiscoveryResult,
+  type TpLinkHistoryExportJob,
+  type TpLinkHistoryExportJobsResponse,
+  type TpLinkHistoryExportJobStatus,
+} from "../api";
 import type { HouseLocationMapItem, MapLocation } from "../components/HouseLocationMap";
 import { LocationDiscoveryPanel, type DiscoveredHomeDefaults } from "../components/LocationDiscoveryPanel";
 import { useI18n } from "../i18n";
@@ -78,6 +87,22 @@ type TpLinkChildDiscovery =
 const setupSectionOrder: SetupSection[] = ["overview", "layout", "connections", "weather", "operations", "automations"];
 const TP_LINK_CHILD_DISCOVERY_ATTEMPTS = 7;
 const TP_LINK_CHILD_DISCOVERY_INTERVAL_MS = 5_000;
+const RETRYABLE_TP_LINK_EXPORT_STATUSES = new Set<TpLinkHistoryExportJobStatus>(["failed", "needs-attention"]);
+const ACTIVE_TP_LINK_EXPORT_STATUSES = new Set<TpLinkHistoryExportJobStatus>(["queued", "claimed", "running", "waiting-email"]);
+const TP_LINK_EXPORT_STATUS_KEYS = {
+  queued: "setup.tpLinkHistoryStatusQueued",
+  claimed: "setup.tpLinkHistoryStatusClaimed",
+  running: "setup.tpLinkHistoryStatusRunning",
+  "waiting-email": "setup.tpLinkHistoryStatusWaitingEmail",
+  "needs-attention": "setup.tpLinkHistoryStatusNeedsAttention",
+  completed: "setup.tpLinkHistoryStatusCompleted",
+  failed: "setup.tpLinkHistoryStatusFailed",
+  cancelled: "setup.tpLinkHistoryStatusCancelled",
+} as const satisfies Record<TpLinkHistoryExportJobStatus, string>;
+const TP_LINK_EXPORT_PROVIDER_KEYS = {
+  appium: "setup.tpLinkHistoryProviderApp",
+  "private-cloud": "setup.tpLinkHistoryProviderPrivateCloud",
+} as const satisfies Record<TpLinkHistoryExportJob["provider"], string>;
 
 function connectionError(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim() ? error.message : fallback;
@@ -186,8 +211,9 @@ function placementForm(candidate: House): {
   const floor = footprintFloorFor(candidate);
   const source = candidate.mapPlacement ?? candidate.location;
   const planWidth = floorPlanSize(floor).width;
-  const physicalWidth = candidate.mapPlacement
-    ? candidate.mapPlacement.metersPerPlanUnit * planWidth
+  const horizontalScale = floor ? floorMetersPerPlanUnit(floor, candidate) : null;
+  const physicalWidth = horizontalScale !== null
+    ? horizontalScale * planWidth
     : defaultFootprintWidthMeters(floor);
   return {
     latitude: source ? String(source.latitude) : "",
@@ -211,7 +237,9 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
   const [result, setResult] = useState<"success" | "failure" | null>(null);
   const homeAssistantTestGeneration = useRef(0);
   const discoveryGeneration = useRef(0);
+  const automaticallyScannedHouseId = useRef<string | null>(null);
   const inventoryRefreshGeneration = useRef(0);
+  const historyExportRequestGeneration = useRef(0);
   const [testingDirect, setTestingDirect] = useState(false);
   const [directResult, setDirectResult] = useState<"success" | "failure" | null>(null);
   const tpLinkTestGeneration = useRef(0);
@@ -221,6 +249,7 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
   const [discoveryOutcome, setDiscoveryOutcome] = useState<DiscoveryOutcome>("idle");
   const [tpLinkSettingsOpen, setTpLinkSettingsOpen] = useState(false);
   const [tpLinkHost, setTpLinkHost] = useState("");
+  const tpLinkHostDraft = useRef("");
   const [tpLinkUsername, setTpLinkUsername] = useState("");
   const [tpLinkPassword, setTpLinkPassword] = useState("");
   const [showTpLinkPassword, setShowTpLinkPassword] = useState(false);
@@ -228,6 +257,16 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
   const [tpLinkFeedback, setTpLinkFeedback] = useState<Feedback>(null);
   const [refreshingTpLinkInventory, setRefreshingTpLinkInventory] = useState(false);
   const [tpLinkInventoryRefreshFailed, setTpLinkInventoryRefreshFailed] = useState(false);
+  const [tpLinkExportEnabled, setTpLinkExportEnabled] = useState<boolean | null>(null);
+  const [tpLinkExportJobs, setTpLinkExportJobs] = useState<TpLinkHistoryExportJob[]>([]);
+  const [tpLinkExportAutomation, setTpLinkExportAutomation] = useState<TpLinkHistoryExportJobsResponse["automation"] | null>(null);
+  const [tpLinkExportJobsLoading, setTpLinkExportJobsLoading] = useState(false);
+  const [tpLinkExportJobsError, setTpLinkExportJobsError] = useState<string | null>(null);
+  const [busyTpLinkExportJobId, setBusyTpLinkExportJobId] = useState<string | null>(null);
+  const [tpLinkCanaryTargets, setTpLinkCanaryTargets] = useState<Array<{ sensorId: string; label: string }>>([]);
+  const [tpLinkCanarySensorId, setTpLinkCanarySensorId] = useState("");
+  const [tpLinkCanaryMetric, setTpLinkCanaryMetric] = useState<"temperature" | "humidity">("temperature");
+  const [tpLinkCanaryRunning, setTpLinkCanaryRunning] = useState(false);
   const [tpLinkChildDiscovery, setTpLinkChildDiscovery] = useState<TpLinkChildDiscovery>({ phase: "idle" });
   const tpLinkChildDiscoveryAbort = useRef<AbortController | null>(null);
   const tpLinkChildDiscoveryKey = useRef<string | null>(null);
@@ -267,7 +306,6 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
     .filter((connection) => managedHouseIds.has(connection.houseId));
   const tpLinkAssignments = (aggregateIntegration.tpLink.connections ?? [])
     .filter((connection) => managedHouseIds.has(connection.houseId));
-
   const beginLocationRequest = () => ({
     houseId: house.id,
     generation: ++locationRequestGeneration.current,
@@ -309,6 +347,7 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
   }, []);
 
   useEffect(() => () => {
+    historyExportRequestGeneration.current += 1;
     tpLinkChildDiscoveryAbort.current?.abort();
     tpLinkChildDiscoveryAbort.current = null;
     tpLinkChildDiscoveryKey.current = null;
@@ -367,6 +406,7 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
     setLocationFeedback(null);
     setPlacementFeedback(null);
     setLocationValidationAttempted(false);
+    tpLinkHostDraft.current = "";
     setTpLinkHost("");
     setTpLinkUsername("");
     setTpLinkPassword("");
@@ -404,7 +444,10 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
     setTestingDirect(false);
     setValidatedTpLinkDraft(null);
     setDirectResult(null);
-    if (field === "host") setTpLinkHost(value);
+    if (field === "host") {
+      tpLinkHostDraft.current = value;
+      setTpLinkHost(value);
+    }
     else if (field === "username") setTpLinkUsername(value);
     else setTpLinkPassword(value);
   };
@@ -472,13 +515,16 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
     const floor = selected
       ? selectedFootprintFloor
       : candidate.floors.find((item) => item.id === candidate.mapPlacement?.footprintFloorId) ?? footprintFloorFor(candidate);
+    const resolvedScale = selected
+      ? placement?.metersPerPlanUnit
+      : floor ? floorMetersPerPlanUnit(floor, candidate) : null;
     const candidateOrientation = selected ? draftOrientation : candidate.orientationDegrees;
     return {
       id: candidate.id,
       label: t("weather.markerLabel", { house: candidate.name }),
       location: fallback ? { latitude: fallback.latitude, longitude: fallback.longitude } : null,
       ...(candidateOrientation !== null && candidateOrientation !== undefined ? { orientationDegrees: candidateOrientation } : {}),
-      ...(placement ? { metersPerPlanUnit: placement.metersPerPlanUnit } : {}),
+      ...(resolvedScale !== null && resolvedScale !== undefined ? { metersPerPlanUnit: resolvedScale } : {}),
       ...(floor ? { floor } : {}),
     };
   }), [draftMapLocation, draftOrientation, draftPlacement, house.id, houses, selectedFootprintFloor, t]);
@@ -661,13 +707,36 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
     }
   };
 
+  const updateTpLinkCanaryTargets = (devices: Awaited<ReturnType<typeof api.tpLinkDevices>>) => {
+    const bySensor = new Map<string, string>();
+    for (const device of devices) {
+      if (!device.mappedSensorId) continue;
+      bySensor.set(device.mappedSensorId, device.alias?.trim() || `${device.model} · ${device.deviceId}`);
+    }
+    const targets = [...bySensor].map(([sensorId, label]) => ({ sensorId, label }));
+    setTpLinkCanaryTargets(targets);
+    setTpLinkCanarySensorId((current) => targets.some((target) => target.sensorId === current)
+      ? current
+      : targets[0]?.sensorId ?? "");
+  };
+
+  const loadTpLinkCanaryTargets = async () => {
+    try {
+      updateTpLinkCanaryTargets(await api.tpLinkDevices(house.id));
+    } catch {
+      setTpLinkCanaryTargets([]);
+      setTpLinkCanarySensorId("");
+    }
+  };
+
   const refreshTpLinkInventory = async () => {
     const targetHouseId = house.id;
     const generation = ++inventoryRefreshGeneration.current;
     setRefreshingTpLinkInventory(true);
     setTpLinkInventoryRefreshFailed(false);
     try {
-      await (onRefreshTpLinkDevices ? onRefreshTpLinkDevices(targetHouseId) : api.tpLinkDevices(targetHouseId));
+      const devices = await (onRefreshTpLinkDevices ? onRefreshTpLinkDevices(targetHouseId) : api.tpLinkDevices(targetHouseId));
+      if (activeSetupHouseId.current === targetHouseId) updateTpLinkCanaryTargets(devices);
     } catch {
       if (activeSetupHouseId.current === targetHouseId && inventoryRefreshGeneration.current === generation) {
         setTpLinkInventoryRefreshFailed(true);
@@ -679,18 +748,98 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
     }
   };
 
-  const scanIntegrations = async () => {
+  const loadTpLinkExportJobs = async () => {
+    const generation = ++historyExportRequestGeneration.current;
+    setTpLinkExportJobsLoading(true);
+    setTpLinkExportJobsError(null);
+    try {
+      const result = await api.tpLinkHistoryExportJobs();
+      if (historyExportRequestGeneration.current !== generation) return;
+      setTpLinkExportEnabled(result.enabled);
+      setTpLinkExportAutomation(result.automation);
+      setTpLinkExportJobs(result.jobs);
+      if (result.enabled) void loadTpLinkCanaryTargets();
+    } catch (error) {
+      if (historyExportRequestGeneration.current !== generation) return;
+      setTpLinkExportJobsError(connectionError(error, t("setup.tpLinkHistoryLoadFailed")));
+    } finally {
+      if (historyExportRequestGeneration.current === generation) setTpLinkExportJobsLoading(false);
+    }
+  };
+
+  const runTpLinkCanary = async () => {
+    if (!tpLinkCanarySensorId) return;
+    setTpLinkCanaryRunning(true);
+    setTpLinkExportJobsError(null);
+    try {
+      const to = new Date(Date.now() - 5 * 60_000);
+      const intervalMinutes = tpLinkExportAutomation?.exportIntervalMinutes ?? 15;
+      const canarySpanMs = Math.max(7 * 24 * 60 * 60_000, 8 * intervalMinutes * 60_000);
+      const from = new Date(to.getTime() - canarySpanMs);
+      await api.createTpLinkHistoryExportCanary({
+        sensorId: tpLinkCanarySensorId,
+        metric: tpLinkCanaryMetric,
+        from: from.toISOString(),
+        to: to.toISOString(),
+      });
+      await loadTpLinkExportJobs();
+    } catch (error) {
+      setTpLinkExportJobsError(connectionError(error, t("setup.tpLinkHistoryCanaryQueueFailed")));
+    } finally {
+      setTpLinkCanaryRunning(false);
+    }
+  };
+
+  const retryTpLinkExportJob = async (job: TpLinkHistoryExportJob) => {
+    setBusyTpLinkExportJobId(job.id);
+    setTpLinkExportJobsError(null);
+    try {
+      await api.retryTpLinkHistoryExportJob(job.id);
+      await loadTpLinkExportJobs();
+    } catch (error) {
+      setTpLinkExportJobsError(connectionError(error, t("setup.tpLinkHistoryRetryFailed")));
+    } finally {
+      setBusyTpLinkExportJobId((current) => current === job.id ? null : current);
+    }
+  };
+
+  const cancelTpLinkExportJob = async (job: TpLinkHistoryExportJob) => {
+    if (!window.confirm(t("setup.tpLinkHistoryCancelConfirm", { device: job.deviceName || job.deviceId }))) return;
+    setBusyTpLinkExportJobId(job.id);
+    setTpLinkExportJobsError(null);
+    try {
+      await api.cancelTpLinkHistoryExportJob(job.id);
+      await loadTpLinkExportJobs();
+    } catch (error) {
+      setTpLinkExportJobsError(connectionError(error, t("setup.tpLinkHistoryCancelFailed")));
+    } finally {
+      setBusyTpLinkExportJobId((current) => current === job.id ? null : current);
+    }
+  };
+
+  const scanIntegrations = async (options: { automatic?: boolean } = {}) => {
     const targetHouseId = house.id;
+    automaticallyScannedHouseId.current = targetHouseId;
     const generation = ++discoveryGeneration.current;
     setDiscovering(true);
     setDiscovery(null);
     setDiscoveryOutcome("idle");
     try {
-      const result = await api.discoverIntegrations(targetHouseId);
+      const draftCredentials = tpLinkUsername.trim() && tpLinkPassword
+        ? { username: tpLinkUsername.trim(), password: tpLinkPassword }
+        : null;
+      const result = draftCredentials
+        ? await api.discoverIntegrations(targetHouseId, draftCredentials)
+        : await api.discoverIntegrations(targetHouseId);
       if (activeSetupHouseId.current !== targetHouseId || discoveryGeneration.current !== generation) return;
       setDiscovery(result);
       const count = result.tpLink.length + result.homeAssistant.length;
       setDiscoveryOutcome(count > 0 ? "found" : result.warnings.length > 0 ? "error" : "empty");
+      if (result.tpLink.length === 1 && !tpLinkHostDraft.current.trim()
+        && (!options.automatic || !integration.tpLink.configured)) {
+        changeTpLinkDraft("host", result.tpLink[0]!.host);
+        setTpLinkSettingsOpen(true);
+      }
       if (result.tpLink.length === 0 && !integration.tpLink.configured && !integration.homeAssistant.configured) setTpLinkSettingsOpen(true);
     } catch {
       if (activeSetupHouseId.current !== targetHouseId || discoveryGeneration.current !== generation) return;
@@ -703,6 +852,17 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
       }
     }
   };
+
+  useEffect(() => {
+    if (activeSection !== "connections" || !integration.tpLink.configured
+      || automaticallyScannedHouseId.current === house.id) return;
+    void scanIntegrations({ automatic: true });
+  }, [activeSection, house.id, integration.tpLink.configured]);
+
+  useEffect(() => {
+    if (activeSection !== "connections" || !integration.tpLink.configured) return;
+    void loadTpLinkExportJobs();
+  }, [activeSection, integration.tpLink.configured]);
 
   const settleTpLinkChildren = async (hubModel: "H100" | "H200" | null) => {
     stopTpLinkChildDiscovery();
@@ -730,6 +890,7 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
         if (!isCurrentHouse()) return;
 
         const devices = devicesResult.status === "fulfilled" ? devicesResult.value : [];
+        if (devicesResult.status === "fulfilled") updateTpLinkCanaryTargets(devices);
         if (devicesResult.status === "fulfilled") {
           receivedResponse = true;
           receivedDeviceInventory = true;
@@ -816,15 +977,29 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
     setTpLinkFeedback(null);
     const requestHouseId = house.id;
     try {
-      const configured = await api.configureTpLink({ houseId: requestHouseId, host: tpLinkHost, username: tpLinkUsername, password: tpLinkPassword });
+      const configured = await api.configureTpLink({
+        houseId: requestHouseId,
+        host: tpLinkHost,
+        username: tpLinkUsername,
+        password: tpLinkPassword,
+      });
       if (activeSetupHouseId.current !== requestHouseId) return;
       onIntegrationChange(configured.integration);
       setTpLinkPassword("");
       setValidatedTpLinkDraft(null);
       setShowTpLinkPassword(false);
       setTpLinkFeedback({ kind: "success", message: t("setup.credentialsSaved") });
-      const selectedHub = discovery?.tpLink.find((candidate) => candidate.host === tpLinkHost);
-      void settleTpLinkChildren(configured.integration.tpLink.hubModel ?? selectedHub?.model ?? null);
+      const selectedSource = discovery?.tpLink.find((candidate) => candidate.host === tpLinkHost);
+      const discoveredHubModel = selectedSource?.sourceType !== "energy-device"
+        && (selectedSource?.model === "H100" || selectedSource?.model === "H200")
+        ? selectedSource.model
+        : null;
+      const hubModel = configured.integration.tpLink.hubModel ?? discoveredHubModel;
+      if (hubModel) void settleTpLinkChildren(hubModel);
+      else {
+        stopTpLinkChildDiscovery();
+        setTpLinkChildDiscovery({ phase: "idle" });
+      }
     } catch {
       if (activeSetupHouseId.current === requestHouseId) setTpLinkFeedback({ kind: "error", message: t("setup.credentialsError") });
     } finally {
@@ -1258,6 +1433,64 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
               </div>
             </details>
           </section>}
+          {activeSection === "connections" && integration.tpLink.configured && <section className="panel connection-card" aria-labelledby="tp-link-history-export-heading">
+            <div className="panel-header">
+              <div><span className="eyebrow">{t("setup.tpLinkHistoryEyebrow")}</span><h2 id="tp-link-history-export-heading">{t("setup.tpLinkHistoryTitle")}</h2></div>
+              <button type="button" className="secondary-button" disabled={tpLinkExportJobsLoading || tpLinkExportEnabled === false} onClick={() => void loadTpLinkExportJobs()}>
+                {tpLinkExportJobsLoading ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <RefreshCw size={16} aria-hidden="true" />}{t("common.refresh")}
+              </button>
+            </div>
+            <p className="connection-card-description">{t("setup.tpLinkHistoryDescription")}</p>
+            {tpLinkExportEnabled === true && tpLinkExportAutomation && <div
+              className={`tp-link-live-alert ${tpLinkExportAutomation.operational && tpLinkExportAutomation.mailbox.consecutiveFailures === 0 ? "warning" : "error"}`}
+              role={tpLinkExportAutomation.mailbox.consecutiveFailures > 0 ? "alert" : "status"}
+            >
+              {tpLinkExportAutomation.operational ? <ShieldCheck size={17} aria-hidden="true" /> : <TriangleAlert size={17} aria-hidden="true" />}
+              <span>
+                <strong>{t(tpLinkExportAutomation.operational ? "setup.tpLinkHistoryAutomationConfigured" : "setup.tpLinkHistoryAutomationIncomplete")}</strong>
+                <small>
+                  {tpLinkExportAutomation.canaryPending ? `${t("setup.tpLinkHistoryCanaryPending")} · ` : ""}
+                  {t("setup.tpLinkHistoryMailbox", { waiting: tpLinkExportAutomation.waitingEmails, max: tpLinkExportAutomation.maxPendingEmails })}
+                  {tpLinkExportAutomation.mailbox.lastErrorCode ? ` · ${t("setup.tpLinkHistoryMailboxError", { code: tpLinkExportAutomation.mailbox.lastErrorCode, count: tpLinkExportAutomation.mailbox.consecutiveFailures })}` : ""}
+                  {tpLinkExportAutomation.lastWorkerSeenAt ? ` · ${t("setup.tpLinkHistoryWorkerSeen", { time: localDateTime(tpLinkExportAutomation.lastWorkerSeenAt) ?? tpLinkExportAutomation.lastWorkerSeenAt })}` : ` · ${t("setup.tpLinkHistoryWorkerNotSeen")}`}
+                  {tpLinkExportAutomation.deploymentFingerprintPrefix ? ` · ${t("setup.tpLinkHistoryDeployment", { fingerprint: tpLinkExportAutomation.deploymentFingerprintPrefix })}` : ""}
+                </small>
+              </span>
+            </div>}
+            {tpLinkExportJobsError && <div className="tp-link-live-alert error" role="alert"><TriangleAlert size={17} aria-hidden="true" /><span><strong>{t("setup.tpLinkHistoryUnavailable")}</strong><small>{tpLinkExportJobsError}</small></span></div>}
+            {tpLinkExportEnabled === null && tpLinkExportJobsLoading && <p className="tp-link-inventory-refresh" role="status"><LoaderCircle className="spin" size={16} aria-hidden="true" />{t("setup.tpLinkHistoryLoading")}</p>}
+            {tpLinkExportEnabled === false && <p className="configured-note" aria-disabled="true"><CircleDot size={17} aria-hidden="true" />{t("setup.tpLinkHistoryDisabled")}</p>}
+            {tpLinkExportEnabled === true && <div className="tp-link-live-actions" aria-label={t("setup.tpLinkHistoryCanaryControls")}>
+              <label className="field"><span>{t("setup.tpLinkHistoryCanarySensor")}</span><select aria-label={t("setup.tpLinkHistoryCanarySensor")} value={tpLinkCanarySensorId} disabled={tpLinkCanaryRunning || tpLinkCanaryTargets.length === 0} onChange={(event) => setTpLinkCanarySensorId(event.target.value)}>{tpLinkCanaryTargets.length === 0 ? <option value="">{t("setup.tpLinkHistoryNoMappedTarget")}</option> : tpLinkCanaryTargets.map((target) => <option key={target.sensorId} value={target.sensorId}>{target.label}</option>)}</select></label>
+              <label className="field"><span>{t("common.metric")}</span><select aria-label={t("setup.tpLinkHistoryCanaryMetric")} value={tpLinkCanaryMetric} disabled={tpLinkCanaryRunning} onChange={(event) => setTpLinkCanaryMetric(event.target.value as "temperature" | "humidity")}><option value="temperature">{t("common.temperature")}</option><option value="humidity">{t("common.humidity")}</option></select></label>
+              <button type="button" className="primary-button" disabled={tpLinkCanaryRunning || !tpLinkCanarySensorId} onClick={() => void runTpLinkCanary()}>{tpLinkCanaryRunning ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <ShieldCheck size={16} aria-hidden="true" />}{t("setup.tpLinkHistoryRunCanary")}</button>
+            </div>}
+            {tpLinkExportEnabled === true && <p className="setup-help">{t("setup.tpLinkHistoryCanaryHelp")}</p>}
+            {tpLinkExportEnabled === true && !tpLinkExportJobsLoading && tpLinkExportJobs.length === 0 && <p className="setup-help">{t("setup.tpLinkHistoryNoJobs")}</p>}
+            {tpLinkExportEnabled === true && tpLinkExportJobs.length > 0 && <div className="table-scroll" tabIndex={0} aria-label={t("setup.tpLinkHistoryJobsLabel")}>
+              <table>
+                <thead><tr><th scope="col">{t("setup.tpLinkHistoryColumnStatus")}</th><th scope="col">{t("setup.tpLinkHistoryColumnProvider")}</th><th scope="col">{t("setup.tpLinkHistoryColumnDevice")}</th><th scope="col">{t("setup.tpLinkHistoryColumnRange")}</th><th scope="col">{t("setup.tpLinkHistoryColumnAttempt")}</th><th scope="col">{t("setup.tpLinkHistoryColumnError")}</th><th scope="col">{t("setup.tpLinkHistoryColumnActions")}</th></tr></thead>
+                <tbody>{tpLinkExportJobs.map((job) => {
+                  const deviceLabel = job.deviceName || job.deviceId;
+                  const busy = busyTpLinkExportJobId === job.id;
+                  const problem = job.lastError ?? job.attentionReason ?? job.detail;
+                  return <tr key={job.id}>
+                    <td><strong>{t(TP_LINK_EXPORT_STATUS_KEYS[job.status])}</strong>{job.canary && <><br /><small>{t("setup.tpLinkHistoryCanary")}</small></>}</td>
+                    <td>{t(TP_LINK_EXPORT_PROVIDER_KEYS[job.provider])}</td>
+                    <td><strong>{deviceLabel}</strong><br /><small>{job.deviceId}</small></td>
+                    <td><time dateTime={job.from}>{localDateTime(job.from) ?? job.from}</time><br /><small>{t("setup.tpLinkHistoryRangeTo")} <time dateTime={job.to}>{localDateTime(job.to) ?? job.to}</time></small></td>
+                    <td>{job.attemptCount} / {job.maxAttempts}</td>
+                    <td>{problem ? <small>{problem}</small> : "—"}</td>
+                    <td><div className="tp-link-live-actions">
+                      {RETRYABLE_TP_LINK_EXPORT_STATUSES.has(job.status) && <button type="button" className="secondary-button" disabled={busyTpLinkExportJobId !== null} aria-label={t("setup.tpLinkHistoryRetryLabel", { device: deviceLabel })} onClick={() => void retryTpLinkExportJob(job)}>{busy ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}{t("setup.tpLinkHistoryRetry")}</button>}
+                      {ACTIVE_TP_LINK_EXPORT_STATUSES.has(job.status) && <button type="button" className="danger-button" disabled={busyTpLinkExportJobId !== null} aria-label={t("setup.tpLinkHistoryCancelLabel", { device: deviceLabel })} onClick={() => void cancelTpLinkExportJob(job)}>{busy ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}{t("common.cancel")}</button>}
+                      {!RETRYABLE_TP_LINK_EXPORT_STATUSES.has(job.status) && !ACTIVE_TP_LINK_EXPORT_STATUSES.has(job.status) && <small>{t("setup.tpLinkHistoryNoAction")}</small>}
+                    </div></td>
+                  </tr>;
+                })}</tbody>
+              </table>
+            </div>}
+          </section>}
           {activeSection === "connections" && <details className={`panel connection-card discovery-card ${sensorSourceConfigured ? "optional" : ""}`} aria-labelledby="network-discovery-heading" open={!sensorSourceConfigured || discovering || discoveryOutcome !== "idle"}>
             <summary className="connection-card-summary">
               <span className="connection-card-summary-copy"><span className="eyebrow">{t(sensorSourceConfigured ? "setup.addConnectionEyebrow" : "setup.scanTitle")}</span><strong id="network-discovery-heading">{t(sensorSourceConfigured ? "setup.addConnectionTitle" : "setup.scanDescription")}</strong><small>{t(sensorSourceConfigured ? "setup.addConnectionDescription" : "setup.scanScope")}</small></span>
@@ -1280,7 +1513,7 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
           {activeSection === "connections" && <section className="panel connection-card" aria-labelledby="direct-connection-heading">
             <div className="panel-header"><div><span className="eyebrow">{t("setup.directTitle")}</span><h2 id="direct-connection-heading">{t("setup.directConnectionTitle")}</h2></div><span className="ha-mark" aria-hidden="true"><Router size={22} /></span></div>
             <p className="connection-card-description">{t("setup.directDescription")}</p>
-            {discovery && discovery.tpLink.length > 0 && <fieldset className="discovery-results setup-found-results"><legend>{t("setup.selectTpLink")}</legend>{discovery.tpLink.map((hub) => <label key={hub.host}><input type="radio" name="tp-link-discovery" value={hub.host} checked={tpLinkHost === hub.host} disabled={savingTpLink} onChange={() => changeTpLinkDraft("host", hub.host)} /><span><strong>{hub.alias ?? `TP-Link ${hub.model}`}</strong><small>{hub.model} · {hub.host}</small></span></label>)}</fieldset>}
+            {discovery && discovery.tpLink.length > 0 && <fieldset className="discovery-results setup-found-results"><legend>{t("setup.selectTpLink")}</legend>{discovery.tpLink.map((source) => <label key={source.host}><input type="radio" name="tp-link-discovery" value={source.host} checked={tpLinkHost === source.host} disabled={savingTpLink} onChange={() => changeTpLinkDraft("host", source.host)} /><span><strong>{source.alias ?? `TP-Link ${source.model}`}</strong><small>{t(source.sourceType === "energy-device" ? "setup.tpLinkEnergyDevice" : "setup.tpLinkHub")} · {source.model} · {source.host}</small></span></label>)}</fieldset>}
             <p className="setup-help setup-child-discovery-explainer">{t(integration.tpLink.configured ? "setup.tpLinkSettingsDescription" : "setup.childDiscoveryExplainer")}</p>
             {!integration.tpLink.configured && (discoveryOutcome === "error" || (discovery && discovery.tpLink.length === 0)) && <p className="setup-help setup-manual-fallback">{t("setup.tpLinkManualFallback")}</p>}
             <details className="setup-config-disclosure" open={tpLinkSettingsOpen} onToggle={(event) => setTpLinkSettingsOpen(event.currentTarget.open)}>

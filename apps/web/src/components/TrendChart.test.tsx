@@ -3,9 +3,27 @@ import { describe, expect, it, vi } from "vitest";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import { definitionFor } from "../measurements";
-import { TrendChart } from "./TrendChart";
+import { timelineValueDomain, TrendChart } from "./TrendChart";
 
 describe("TrendChart", () => {
+  it("auto-scales the vertical axis to the visible values", () => {
+    const definition = definitionFor(createDemoState().measurementDefinitions, "power");
+
+    const domain = timelineValueDomain(definition, [150, 155, 160]);
+
+    expect(domain).not.toBeNull();
+    expect(domain!.min).toBeCloseTo(149);
+    expect(domain!.max).toBeCloseTo(161);
+    expect(domain!.max).toBeLessThan(definition.displayMax!);
+  });
+
+  it("gives a flat series readable padding without crossing a physical boundary", () => {
+    const definition = definitionFor(createDemoState().measurementDefinitions, "power");
+
+    expect(timelineValueDomain(definition, [155.5])).toEqual({ min: 147.725, max: 163.275 });
+    expect(timelineValueDomain(definition, [0])).toEqual({ min: 0, max: 3 });
+  });
+
   it("does not emit React duplicate-key warnings when observed and forecast points share one timestamp", () => {
     const state = createDemoState();
     const sensor = state.sensors[0]!;

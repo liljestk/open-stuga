@@ -12,13 +12,20 @@ import { locationForRoute, routeFromLocation } from "./routing";
 import { StugaMark } from "./components/StugaMark";
 import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 import { readLocalStorage, writeLocalStorage } from "./browserStorage";
-import { clearInvitationFragment, invitationTokenFromFragment, LocalAuthPage } from "./pages/LocalAuthPage";
+import {
+  clearInvitationBootstrapStorage,
+  clearInvitationFragment,
+  invitationTokenFromBootstrapStorage,
+  invitationTokenFromFragment,
+  LocalAuthPage,
+} from "./pages/LocalAuthPage";
 import { integrationForHouse } from "./integrationScope";
 
 const AlertsPage = lazy(() => import("./pages/AlertsPage").then((module) => ({ default: module.AlertsPage })));
 const DeveloperPage = lazy(() => import("./pages/DeveloperPage").then((module) => ({ default: module.DeveloperPage })));
 const IntegrationsPage = lazy(() => import("./pages/IntegrationsPage").then((module) => ({ default: module.IntegrationsPage })));
 const SensorManagementPage = lazy(() => import("./pages/SensorManagementPage").then((module) => ({ default: module.SensorManagementPage })));
+const DataAnalyticsPage = lazy(() => import("./pages/DataAnalyticsPage").then((module) => ({ default: module.DataAnalyticsPage })));
 const TwinDashboard = lazy(() => import("./pages/TwinDashboard").then((module) => ({ default: module.TwinDashboard })));
 const PortfolioOverview = lazy(() => import("./pages/PortfolioOverview").then((module) => ({ default: module.PortfolioOverview })));
 const PropertyManagementPage = lazy(() => import("./pages/PropertyManagementPage").then((module) => ({ default: module.PropertyManagementPage })));
@@ -38,6 +45,7 @@ const pageTitleKeys = {
   outdoor: "nav.outdoor",
   energy: "nav.energy",
   sensors: "nav.sensors",
+  analytics: "nav.analytics",
   alerts: "nav.alerts",
   integrations: "nav.integrations",
   developer: "nav.developer",
@@ -124,12 +132,15 @@ export function App() {
   const [maintenanceObservationId, setMaintenanceObservationId] = useState<string | null>(null);
   const [requestedSensorDevice, setRequestedSensorDevice] = useState<TpLinkDeviceReference | null>(null);
   const [dismissedTpLinkDeviceIds, setDismissedTpLinkDeviceIds] = useState(storedDismissedTpLinkDevices);
-  const [invitationToken, setInvitationToken] = useState(() => invitationTokenFromFragment());
+  const [invitationToken, setInvitationToken] = useState(
+    () => invitationTokenFromFragment() ?? invitationTokenFromBootstrapStorage(),
+  );
   const [logoutUncertain, setLogoutUncertain] = useState(false);
   const previousPage = useRef(page);
 
   useEffect(() => {
     clearInvitationFragment();
+    clearInvitationBootstrapStorage();
   }, []);
 
   useEffect(() => {
@@ -349,7 +360,7 @@ export function App() {
       setSelectedSensorId(null);
     }
     const currentRoute = routeFromLocation(window.location);
-    const homeScoped = ["twin", "activity", "outdoor", "sensors", "integrations"].includes(page)
+    const homeScoped = ["twin", "activity", "outdoor", "sensors", "analytics", "integrations"].includes(page)
       || (page === "energy" && Boolean(currentRoute.houseId));
     navigate(homeScoped && !nextHouse ? "properties" : page, homeScoped ? nextHouse?.id ?? null : null, false, window.location.pathname, id);
   }, [applyHouse, navigate, page, state.houses, state.properties]);
@@ -387,7 +398,7 @@ export function App() {
     const route = routeFromLocation(window.location);
     if (!route.legacy || route.notFound || !property) return;
     const legacyHouse = state.houses.find((candidate) => candidate.id === route.houseId) ?? house;
-    const canonicalPage = !legacyHouse && ["twin", "activity", "outdoor", "sensors", "integrations"].includes(page)
+    const canonicalPage = !legacyHouse && ["twin", "activity", "outdoor", "sensors", "analytics", "integrations"].includes(page)
       ? "properties"
       : page;
     navigate(canonicalPage, legacyHouse?.id ?? null, true, window.location.pathname, legacyHouse?.propertyId ?? property.id);
@@ -819,6 +830,7 @@ export function App() {
   const freshnessLabel = page === "activity" ? t("nav.activity")
     : page === "integrations" ? t("nav.integrations")
       : page === "sensors" ? t("nav.sensors")
+        : page === "analytics" ? t("nav.analytics")
         : page === "energy" ? t("nav.energyUse")
           : page === "twin" ? t("nav.twin") : undefined;
 
@@ -893,7 +905,7 @@ export function App() {
           onSensorMove={climate.moveSensor} onSensorUpdate={climate.updateSensor} onFloorChange={(next) => climate.updateFloor(house.id, next)}
           onHouseChange={(next) => climate.updateHouseDraft(next.id, { name: next.name, timezone: next.timezone, floors: next.floors })}
           onHouseCreate={createHouse} onHouseDelete={deleteHouse}
-          onSaveLayout={(next) => climate.saveLayout(next.id, next)} onLoadSeries={loadSeriesInBackground}
+          onSaveLayout={(next) => climate.saveLayout(next.id, next)} onLoadSeries={loadSeriesInBackground} onLoadReplaySeries={climate.loadHistoricalSeries}
           onRunScenario={(next) => settleInBackground(climate.runScenario(next))} onCreateObservation={climate.createObservation}
           onUpdateObservation={climate.updateObservation}
           onReloadObservation={climate.reloadObservation}
@@ -936,6 +948,8 @@ export function App() {
           tpLinkDevicesError={climate.tpLinkDevicesError}
           requestedDevice={requestedSensorDevice}
           readOnly={readOnly}
+          units={units}
+          onLoadSeries={loadSeriesInBackground}
           onRequestedDeviceHandled={() => setRequestedSensorDevice(null)}
           onHouse={chooseHouse}
           onRefreshDevices={async () => { await climate.refreshTpLinkDevices(house.id); }}
@@ -943,6 +957,15 @@ export function App() {
           onUpdateSensor={climate.updateSensor}
           onDeleteSensor={climate.deleteSensor}
           onImportHistoricalData={(samples, onProgress) => climate.importHistoricalMeasurements(house.id, samples, onProgress)}
+        />
+      )}
+      {page === "analytics" && (
+        <DataAnalyticsPage
+          state={state}
+          house={house}
+          units={units}
+          dataMode={climate.dataMode}
+          onLoadSeries={loadSeriesInBackground}
         />
       )}
       {page === "integrations" && !readOnly && (

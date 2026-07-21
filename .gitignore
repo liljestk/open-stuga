@@ -34,6 +34,7 @@ temp/
 !.env.example
 config/home-assistant.entities.json
 config/tp-link.devices.json
+config/tapo-flow*.json
 __pycache__/
 *.py[cod]
 *.pem
@@ -44,6 +45,7 @@ __pycache__/
 *.keystore
 credentials.json
 secrets.json
+secrets/
 
 # Local agent/editor metadata
 .agents/

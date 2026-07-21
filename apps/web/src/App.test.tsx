@@ -314,7 +314,7 @@ describe("Stuga app", () => {
     renderApp();
 
     expect(await findPageHeading("Sensors")).toBeTruthy();
-    expect(screen.getByText(sensor.name)).toBeTruthy();
+    expect(within(document.querySelector<HTMLElement>(".sensor-list-panel")!).getByText(sensor.name)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Sensors" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Set up" })).toBeNull();
     expect(screen.queryByRole("button", { name: `Edit ${sensor.name}` })).toBeNull();

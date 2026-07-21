@@ -109,6 +109,53 @@ describe("property electricity prices", () => {
     expect(endpoints).toEqual([DEFAULT_ELECTRICITY_PRICE_ENDPOINT, "https://second.example/prices.json"]);
   });
 
+  it("calculates cumulative cost from time-aligned meter deltas and persisted interval prices", async () => {
+    runtime = createApi({
+      config: loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" }),
+      startBackground: false,
+    });
+    await request(runtime.app).put("/api/v1/properties/property-main/electricity/config").send({
+      provider: "porssisahko", endpointUrl: DEFAULT_ELECTRICITY_PRICE_ENDPOINT, enabled: true,
+      marginCentsPerKwh: 1, contractType: "spot", contractName: null, retailer: null, monthlyFeeEur: null,
+    }).expect(200);
+    runtime.database.storePropertyElectricityPrices("property-main", [
+      { startAt: "2026-07-17T00:00:00.000Z", endAt: "2026-07-17T00:30:00.000Z", rawPriceCentsPerKwh: 10 },
+      { startAt: "2026-07-17T00:30:00.000Z", endAt: "2026-07-17T01:00:00.000Z", rawPriceCentsPerKwh: 20 },
+    ], "2026-07-16T12:00:00.000Z");
+    runtime.measurements.ingestBatch([
+      { sensorId: "sensor-01", metric: "energy", value: 10, canonicalUnit: "kWh", timestamp: "2026-07-17T00:00:00.000Z", source: "api", quality: "good" },
+      { sensorId: "sensor-01", metric: "energy", value: 11, canonicalUnit: "kWh", timestamp: "2026-07-17T00:30:00.000Z", source: "api", quality: "good" },
+      { sensorId: "sensor-01", metric: "energy", value: 13, canonicalUnit: "kWh", timestamp: "2026-07-17T01:00:00.000Z", source: "api", quality: "good" },
+    ]);
+
+    const result = await request(runtime.app).get("/api/v1/houses/house-main/energy-cost").query({
+      sensorId: "sensor-01",
+      from: "2026-07-17T00:00:00.000Z",
+      to: "2026-07-17T01:00:00.000Z",
+    }).expect(200);
+
+    expect(result.body.cost).toMatchObject({
+      houseId: "house-main",
+      sensorId: "sensor-01",
+      consumptionKwh: 3,
+      pricedConsumptionKwh: 3,
+      costEur: 0.53,
+      priceCoveragePercent: 100,
+      complete: true,
+    });
+    expect(runtime.database.electricityPriceArchivePage(0, 10)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ record: expect.objectContaining({ marginCentsPerKwh: 1 }) }),
+    ]));
+
+    await request(runtime.app).put("/api/v1/properties/property-main/electricity/config").send({
+      provider: "porssisahko", endpointUrl: DEFAULT_ELECTRICITY_PRICE_ENDPOINT, enabled: true,
+      marginCentsPerKwh: 5, contractType: "spot", contractName: null, retailer: null, monthlyFeeEur: null,
+    }).expect(200);
+    expect(runtime.database.listPropertyElectricityPrices(
+      "property-main", "2026-07-17T00:00:00.000Z", "2026-07-17T01:00:00.000Z",
+    ).map((price) => price.effectivePriceCentsPerKwh)).toEqual([11, 21]);
+  });
+
   it("blocks private custom targets unless private access is explicitly opted in", async () => {
     expect(() => validateElectricityEndpointUrl("https://127.0.0.1/prices.json")).toThrow(/private or reserved/);
     expect(validateElectricityEndpointUrl("https://127.0.0.1/prices.json", true).hostname).toBe("127.0.0.1");

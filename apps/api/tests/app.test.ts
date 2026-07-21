@@ -45,7 +45,9 @@ describe("Climate Twin API v1", () => {
   });
 
   it("binds to loopback by default and honors an explicit API host", () => {
-    expect(loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" }).apiHost).toBe("127.0.0.1");
+    const defaults = loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" });
+    expect(defaults.apiHost).toBe("127.0.0.1");
+    expect(defaults.tpLinkPollIntervalMs).toBe(2_000);
     expect(loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", API_HOST: "0.0.0.0" }).apiHost).toBe("0.0.0.0");
     expect(loadConfig({ NODE_ENV: "production", DATABASE_PATH: ":memory:" }).mockEnabled).toBe(false);
     expect(loadConfig({ NODE_ENV: "production", DATABASE_PATH: ":memory:", MOCK_ENABLED: "false" }).mockEnabled).toBe(false);
@@ -129,6 +131,37 @@ describe("Climate Twin API v1", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  it("loads only complete, least-privilege Cloudflare Access synchronization settings", () => {
+    const identity = {
+      CLOUDFLARE_ACCESS_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
+      CLOUDFLARE_ACCESS_GROUP_ID: "123e4567-e89b-42d3-a456-426614174000",
+    };
+    expect(() => loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", ...identity }))
+      .toThrow("Cloudflare Access synchronization requires");
+    expect(loadConfig({
+      NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
+      ...identity,
+      CLOUDFLARE_ACCESS_GROUP_NAME: "Stuga test members",
+      CLOUDFLARE_ACCESS_API_TOKEN: "runtime-token-that-is-long-enough-for-tests",
+      CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS: "60000",
+      CLOUDFLARE_ACCESS_PUBLIC_ORIGIN: "https://stuga.example.test",
+    })).toMatchObject({
+      cloudflareAccessAccountId: identity.CLOUDFLARE_ACCESS_ACCOUNT_ID,
+      cloudflareAccessGroupId: identity.CLOUDFLARE_ACCESS_GROUP_ID,
+      cloudflareAccessGroupName: "Stuga test members",
+      cloudflareAccessSyncIntervalMs: 60_000,
+      corsOrigin: "https://stuga.example.test",
+    });
+    expect(() => loadConfig({
+      NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
+      ...identity,
+      CLOUDFLARE_ACCESS_API_TOKEN: "runtime-token-that-is-long-enough-for-tests",
+      CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS: "1000",
+    })).toThrow("CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS");
   });
 
   it("keeps the starter inventory independent from mock telemetry", async () => {
@@ -468,14 +501,15 @@ describe("Climate Twin API v1", () => {
 
   it("round-trips architectural plan elements and rejects invalid dimensions or wall attachments", async () => {
     const floor = {
-      id: "main", name: "Main", type: "attic", width: 10, height: 8, elevation: 0, wallHeight: .9,
+      id: "main", name: "Main", type: "attic", width: 10, height: 8, metersPerPlanUnit: .02, elevation: 0, wallHeight: .9,
       roof: { style: "gable", pitchDegrees: 35, ridgeAxis: "x", overhang: .4, eavesHeight: .9 },
       walls: [{ id: "north", from: { x: 0, y: 0 }, to: { x: 10, y: 0 } }],
       rooms: [{ id: "living", name: "Living room", kind: "living", points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 8 }, { x: 0, y: 8 }] }],
       planElements: [
-        { id: "door-1", kind: "door", label: "Entry", position: { x: 4, y: 0 }, rotationDegrees: 0, width: 1, height: 2.1, wallId: "north", variant: "interior", state: "closed", openFraction: .8, stateBinding: { provider: "home-assistant", externalId: "binary_sensor.entry", connectionId: "house-elements" } },
+        { id: "door-1", kind: "door", label: "Low hatch", position: { x: 4, y: 0 }, rotationDegrees: 0, width: 1, height: .6, wallId: "north", variant: "interior", state: "closed", openFraction: .8, stateBinding: { provider: "home-assistant", externalId: "binary_sensor.entry", connectionId: "house-elements" } },
         { id: "vent-1", kind: "vent", position: { x: 5, y: 4 }, rotationDegrees: 90, width: .5, variant: "supply", state: "open", nominalFlowM3h: 45 },
-        { id: "fireplace-1", kind: "fireplace", position: { x: 3, y: 4 }, rotationDegrees: 0, width: 1, verticalExtent: "roof", chimneyHeightAboveRoof: .7 },
+        { id: "fireplace-1", kind: "fireplace", position: { x: 3, y: 4 }, rotationDegrees: 0, width: 1, verticalExtent: "roof", chimneyHeightAboveRoof: .7, chimneyWidth: .8, chimneyDepth: .5 },
+        { id: "escape-1", kind: "fireEscape", label: "North escape", position: { x: 7, y: 0 }, rotationDegrees: 0, width: 1.2, height: 2.4, wallId: "north", variant: "ladder", projection: .7 },
       ],
     };
     const created = await request(runtime.app).post("/api/v1/houses").send({
@@ -486,6 +520,7 @@ describe("Climate Twin API v1", () => {
     expect(persisted.body.house.floors[0].planElements).toEqual(floor.planElements);
     expect(persisted.body.house.floors[0].roof).toEqual(floor.roof);
     expect(persisted.body.house.floors[0].wallHeight).toBe(.9);
+    expect(persisted.body.house.floors[0].metersPerPlanUnit).toBe(.02);
     const refreshMappings = vi.spyOn(runtime.homeAssistant, "refreshMappings");
     await request(runtime.app).patch("/api/v1/houses/house-elements").send({ floors: [floor] }).expect(200);
     expect(refreshMappings).toHaveBeenCalledOnce();
@@ -495,6 +530,7 @@ describe("Climate Twin API v1", () => {
         expect.objectContaining({ elementId: "door-1", state: "closed", openFraction: 0, source: "manual" }),
         expect.objectContaining({ elementId: "vent-1", state: "open", openFraction: 1, source: "manual" }),
       ]));
+      expect(body.snapshot.states.some((state: { elementId: string }) => state.elementId === "escape-1")).toBe(false);
     });
     await request(runtime.app).post("/api/v1/houses/house-elements/opening-states").send({
       floorId: "main", elementId: "door-1", state: "open", openFraction: .6, source: "manual", observedAt: "2026-07-18T12:01:00.000Z",
@@ -526,6 +562,11 @@ describe("Climate Twin API v1", () => {
     }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_WALL_HEIGHT"));
 
     await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-invalid-floor-scale", name: "Invalid scale", timezone: "UTC",
+      floors: [{ ...floor, metersPerPlanUnit: 0 }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_FLOOR_SCALE"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
       id: "house-invalid-roof", name: "Invalid roof", timezone: "UTC",
       floors: [{ ...floor, roof: { ...floor.roof, pitchDegrees: 82 } }],
     }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_ROOF_PITCH"));
@@ -534,6 +575,16 @@ describe("Climate Twin API v1", () => {
       id: "house-invalid-chimney", name: "Invalid chimney", timezone: "UTC",
       floors: [{ ...floor, planElements: [{ ...floor.planElements[2], chimneyHeightAboveRoof: 8 }] }],
     }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_CHIMNEY_HEIGHT"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-invalid-chimney-width", name: "Invalid chimney", timezone: "UTC",
+      floors: [{ ...floor, planElements: [{ ...floor.planElements[2], chimneyWidth: 20 }] }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_CHIMNEY_DIMENSION"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-unattached-fire-escape", name: "Unattached escape", timezone: "UTC",
+      floors: [{ ...floor, planElements: [{ ...floor.planElements[3], wallId: "missing" }] }],
+    }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_PLAN_ELEMENT_WALL"));
 
     for (const [suffix, height] of [["zero", 0], ["negative", -1], ["not-finite", null]] as const) {
       await request(runtime.app).post("/api/v1/houses").send({
@@ -970,7 +1021,7 @@ describe("Climate Twin API v1", () => {
     expect(openapi.body.components.schemas.Floor.properties.elevation.description).toContain("vertical");
     expect(openapi.body.components.schemas.Floor.properties.rooms.items.properties.points.minItems).toBe(3);
     const planElementVariants = openapi.body.components.schemas.Floor.properties.planElements.items.oneOf;
-    expect(planElementVariants).toHaveLength(2);
+    expect(planElementVariants).toHaveLength(3);
     expect(planElementVariants[0].properties.kind.enum).toEqual(["door", "window"]);
     expect(planElementVariants[0].required).toContain("wallId");
     expect(planElementVariants[0].properties.height).toMatchObject({ type: "number", exclusiveMinimum: 0 });
@@ -978,6 +1029,10 @@ describe("Climate Twin API v1", () => {
     expect(planElementVariants[1].properties.kind.enum).toEqual(["fireplace", "vent"]);
     expect(planElementVariants[1].not.required).toEqual(["wallId"]);
     expect(planElementVariants[1].properties.height).toMatchObject({ type: "number", exclusiveMinimum: 0 });
+    expect(planElementVariants[1].properties.chimneyWidth.exclusiveMinimum).toBe(0);
+    expect(planElementVariants[2].properties.kind.enum).toEqual(["fireEscape"]);
+    expect(planElementVariants[2].required).toContain("wallId");
+    expect(planElementVariants[2].properties.variant.enum).toEqual(["ladder", "stairs"]);
     expect(openapi.body.components.schemas.SensorInput.properties.z.description).toContain("Floor.elevation");
     expect(openapi.body.components.schemas.SensorInput.properties.tpLinkDeviceId.oneOf).toContainEqual({ type: "null" });
     expect(openapi.body.components.schemas.SensorPatch.properties.tpLinkDeviceId.description).toContain("clear");

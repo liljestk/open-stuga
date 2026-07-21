@@ -19,6 +19,8 @@ import type {
   ArchiveTableName,
   BatchWriteResult,
   ColdStorageMode,
+  EnergyCostAggregateQuery,
+  EnergyCostAggregateRecord,
   ElectricityPriceHistoryQuery,
   ElectricityPriceRecord,
   LegacyReadingHistoryQuery,
@@ -107,9 +109,21 @@ interface ElectricityPriceRow extends QueryResultRow {
   starts_at: string | Date;
   ends_at: string | Date;
   raw_price_cents_per_kwh: number;
+  margin_cents_per_kwh: number;
   source: string;
   fetched_at: string | Date;
   metadata: Readonly<Record<string, unknown>>;
+}
+
+interface EnergyCostAggregateRow extends QueryResultRow {
+  delta_count: string | number;
+  consumption_kwh: number | null;
+  priced_consumption_kwh: number | null;
+  cost_eur: number | null;
+  total_duration_ms: number | null;
+  priced_duration_ms: number | null;
+  coverage_from: string | Date | null;
+  coverage_until: string | Date | null;
 }
 
 interface MeasurementBucketRow extends QueryResultRow {
@@ -232,6 +246,7 @@ function electricityPriceFromRow(row: ElectricityPriceRow): ElectricityPriceReco
     startAt: timestamp(row.starts_at),
     endAt: timestamp(row.ends_at),
     rawPriceCentsPerKwh: Number(row.raw_price_cents_per_kwh),
+    marginCentsPerKwh: Number(row.margin_cents_per_kwh),
     source: row.source,
     fetchedAt: timestamp(row.fetched_at),
     metadata: row.metadata,
@@ -653,13 +668,13 @@ export class TimeseriesStore {
   ): Promise<BatchWriteResult> {
     return this.#writeBatches(
       "electricity_price_samples",
-      ["property_id", "starts_at", "source", "ends_at", "raw_price_cents_per_kwh", "fetched_at", "metadata"],
+      ["property_id", "starts_at", "source", "ends_at", "raw_price_cents_per_kwh", "margin_cents_per_kwh", "fetched_at", "metadata"],
       ["property_id", "starts_at", "source"],
-      ["ends_at", "raw_price_cents_per_kwh", "fetched_at", "metadata"],
+      ["ends_at", "raw_price_cents_per_kwh", "margin_cents_per_kwh", "fetched_at", "metadata"],
       samples,
       (sample) => [
         sample.propertyId, sample.startAt, sample.source, sample.endAt,
-        sample.rawPriceCentsPerKwh, sample.fetchedAt, sample.metadata ?? {},
+        sample.rawPriceCentsPerKwh, sample.marginCentsPerKwh, sample.fetchedAt, sample.metadata ?? {},
       ],
       control,
     );
@@ -952,16 +967,88 @@ export class TimeseriesStore {
   async electricityPriceHistory(query: ElectricityPriceHistoryQuery): Promise<ElectricityPriceRecord[]> {
     const limit = positiveInteger(query.limit, 20_000, MAX_HISTORY_LIMIT);
     const result = await this.#query<ElectricityPriceRow>(`SELECT property_id, starts_at, ends_at,
-        raw_price_cents_per_kwh, source, fetched_at, metadata
+        raw_price_cents_per_kwh, margin_cents_per_kwh, source, fetched_at, metadata
       FROM (
-        SELECT property_id, starts_at, ends_at, raw_price_cents_per_kwh, source, fetched_at, metadata, ingested_at
+        SELECT property_id, starts_at, ends_at, raw_price_cents_per_kwh, margin_cents_per_kwh,
+          source, fetched_at, metadata, ingested_at
         FROM ${qualifiedName(this.schema, "electricity_price_samples")}
-        WHERE property_id = $1 AND starts_at >= $2::TIMESTAMPTZ AND starts_at <= $3::TIMESTAMPTZ
+        WHERE property_id = $1 AND starts_at < $3::TIMESTAMPTZ AND ends_at > $2::TIMESTAMPTZ
         ORDER BY starts_at DESC, ingested_at DESC, source DESC
         LIMIT $4
       ) recent
       ORDER BY starts_at ASC, source ASC`, [query.propertyId, query.from, query.to, limit], query);
     return result.rows.map(electricityPriceFromRow);
+  }
+
+  async energyCostAggregate(query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord> {
+    const measurements = qualifiedName(this.schema, "measurement_samples");
+    const prices = qualifiedName(this.schema, "electricity_price_samples");
+    const result = await this.#query<EnergyCostAggregateRow>(`WITH boundary_sample AS (
+        SELECT observed_at, value, ingested_at, source FROM ${measurements}
+        WHERE sensor_id = $1 AND metric = 'energy' AND quality <> 'stale'
+          AND observed_at < $2::TIMESTAMPTZ
+        ORDER BY observed_at DESC, ingested_at DESC, source DESC LIMIT 1
+      ), window_samples AS (
+        SELECT observed_at, value, ingested_at, source FROM ${measurements}
+        WHERE sensor_id = $1 AND metric = 'energy' AND quality <> 'stale'
+          AND observed_at >= $2::TIMESTAMPTZ AND observed_at <= $3::TIMESTAMPTZ
+      ), deduplicated AS (
+        SELECT DISTINCT ON (observed_at) observed_at, value
+        FROM (SELECT * FROM boundary_sample UNION ALL SELECT * FROM window_samples) samples
+        ORDER BY observed_at, ingested_at DESC, source DESC
+      ), ordered AS (
+        SELECT observed_at AS current_at, value AS current_value,
+          lag(observed_at) OVER (ORDER BY observed_at) AS previous_at,
+          lag(value) OVER (ORDER BY observed_at) AS previous_value
+        FROM deduplicated
+      ), deltas AS (
+        SELECT previous_at, current_at, GREATEST(previous_at, $2::TIMESTAMPTZ) AS window_start,
+          CASE WHEN current_value >= previous_value THEN current_value - previous_value
+            ELSE GREATEST(0, current_value) END AS base_delta_kwh,
+          EXTRACT(EPOCH FROM (current_at - previous_at)) * 1000.0 AS full_duration_ms
+        FROM ordered
+        WHERE previous_at IS NOT NULL AND current_at > $2::TIMESTAMPTZ
+          AND current_value >= 0 AND previous_value >= 0 AND current_at > previous_at
+      ), normalized AS (
+        SELECT *,
+          base_delta_kwh * EXTRACT(EPOCH FROM (current_at - window_start)) * 1000.0
+            / full_duration_ms AS window_delta_kwh,
+          EXTRACT(EPOCH FROM (current_at - window_start)) * 1000.0 AS window_duration_ms
+        FROM deltas
+      ), priced AS (
+        SELECT normalized.*, price.raw_price_cents_per_kwh, price.margin_cents_per_kwh,
+          EXTRACT(EPOCH FROM (LEAST(normalized.current_at, price.ends_at)
+            - GREATEST(normalized.window_start, price.starts_at))) * 1000.0 AS overlap_ms
+        FROM normalized JOIN ${prices} AS price
+          ON price.property_id = $4
+          AND price.starts_at < normalized.current_at
+          AND price.ends_at > normalized.window_start
+      ), allocations AS (
+        SELECT overlap_ms, base_delta_kwh * overlap_ms / full_duration_ms AS allocated_kwh,
+          raw_price_cents_per_kwh + margin_cents_per_kwh AS effective_price_cents_per_kwh
+        FROM priced WHERE overlap_ms > 0
+      )
+      SELECT
+        (SELECT count(*) FROM normalized) AS delta_count,
+        (SELECT COALESCE(sum(window_delta_kwh), 0) FROM normalized) AS consumption_kwh,
+        (SELECT COALESCE(sum(allocated_kwh), 0) FROM allocations) AS priced_consumption_kwh,
+        (SELECT COALESCE(sum(allocated_kwh * effective_price_cents_per_kwh / 100.0), 0) FROM allocations) AS cost_eur,
+        (SELECT COALESCE(sum(window_duration_ms), 0) FROM normalized) AS total_duration_ms,
+        (SELECT COALESCE(sum(overlap_ms), 0) FROM allocations) AS priced_duration_ms,
+        (SELECT min(window_start) FROM normalized) AS coverage_from,
+        (SELECT max(current_at) FROM normalized) AS coverage_until`,
+    [query.sensorId, query.from, query.to, query.propertyId], query);
+    const row = result.rows[0]!;
+    return {
+      deltaCount: Number(row.delta_count ?? 0),
+      consumptionKwh: Number(row.consumption_kwh ?? 0),
+      pricedConsumptionKwh: Number(row.priced_consumption_kwh ?? 0),
+      costEur: Number(row.cost_eur ?? 0),
+      totalDurationMs: Number(row.total_duration_ms ?? 0),
+      pricedDurationMs: Number(row.priced_duration_ms ?? 0),
+      coverageFrom: row.coverage_from === null ? null : timestamp(row.coverage_from),
+      coverageUntil: row.coverage_until === null ? null : timestamp(row.coverage_until),
+    };
   }
 
   /** Refreshes all three Timescale rollups after a historical import. */

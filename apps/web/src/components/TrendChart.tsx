@@ -1,7 +1,7 @@
 import { useId, useMemo, useState } from "react";
 import type { MeasurementDefinition, MeasurementForecastPoint, MeasurementSample, Sensor, UnitSystem } from "@climate-twin/contracts";
 import { type TimeRange } from "../domain";
-import { displayUnit, formatMeasurement, measurementDomain, measurementLabel, measurementValue, toDisplayValue } from "../measurements";
+import { displayUnit, formatMeasurement, measurementLabel, measurementValue, toDisplayValue } from "../measurements";
 import { useI18n } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 import { useNow } from "../useNow";
@@ -17,6 +17,7 @@ interface TrendChartProps {
   onRange: (range: TimeRange) => void;
   timeZone?: string;
   loadState?: SeriesLoadState;
+  heading?: string | undefined;
 }
 
 interface PlotPoint { timestamp: number; value: number; low?: number; high?: number; kind: "history" | "forecast" }
@@ -25,7 +26,58 @@ const width = 780;
 const height = 250;
 const margin = { top: 20, right: 22, bottom: 34, left: 62 };
 
-export function TrendChart({ sensor, history, forecast, definition, units, range, onRange, timeZone, loadState }: TrendChartProps) {
+/**
+ * Fit the vertical timeline axis to the values that are currently visible.
+ * Measurement display bounds are useful for stable spatial colour scales, but
+ * they can flatten a low-amplitude series (for example, 155 W on a 0–10 kW
+ * power scale). Keep enough padding for a readable line and enough range for
+ * four distinct labels when the series is flat.
+ */
+export function timelineValueDomain(
+  definition: MeasurementDefinition,
+  values: number[],
+): { min: number; max: number } | null {
+  const finiteValues = values.filter(Number.isFinite);
+  if (!finiteValues.length) return null;
+
+  const actualMin = Math.min(...finiteValues);
+  const actualMax = Math.max(...finiteValues);
+  const actualSpan = actualMax - actualMin;
+  const labelStep = 10 ** -definition.precision;
+  let targetSpan = Math.max(
+    actualSpan * 1.2,
+    actualSpan === 0 ? Math.abs(actualMax) * 0.1 : 0,
+    labelStep * 3,
+  );
+
+  // Respect physical bounds when the data itself is within them. Values that
+  // are already outside a configured bound remain visible for diagnosis.
+  const lowerBound = definition.validMin != null && actualMin >= definition.validMin
+    ? definition.validMin
+    : Number.NEGATIVE_INFINITY;
+  const upperBound = definition.validMax != null && actualMax <= definition.validMax
+    ? definition.validMax
+    : Number.POSITIVE_INFINITY;
+  if (Number.isFinite(lowerBound) && Number.isFinite(upperBound)) {
+    targetSpan = Math.min(targetSpan, upperBound - lowerBound);
+  }
+
+  const padding = (targetSpan - actualSpan) / 2;
+  let min = actualMin - padding;
+  let max = actualMax + padding;
+  if (min < lowerBound) {
+    max += lowerBound - min;
+    min = lowerBound;
+  }
+  if (max > upperBound) {
+    min -= max - upperBound;
+    max = upperBound;
+  }
+
+  return { min: Math.max(min, lowerBound), max: Math.min(max, upperBound) };
+}
+
+export function TrendChart({ sensor, history, forecast, definition, units, range, onRange, timeZone, loadState, heading }: TrendChartProps) {
   const { locale, t } = useI18n();
   const [focused, setFocused] = useState<PlotPoint | null>(null);
   const [dataOpen, setDataOpen] = useState(false);
@@ -54,7 +106,7 @@ export function TrendChart({ sensor, history, forecast, definition, units, range
     return <section className="panel chart-panel"><div className="panel-header"><div><span className="eyebrow">{t("chart.title")}</span><h2>{t("twin.selectSensor")}</h2></div></div><div className="empty-state">{t("common.noData")}</div></section>;
   }
   if (!all.length) {
-    return <section className="panel chart-panel"><ChartHeader sensor={sensor} range={range} onRange={onRange} />
+    return <section className="panel chart-panel"><ChartHeader sensor={sensor} heading={heading} range={range} onRange={onRange} />
       {loadState?.status === "loading"
         ? <div className="empty-state" role="status">{t("chart.loading")}</div>
         : loadState?.status === "error"
@@ -69,7 +121,7 @@ export function TrendChart({ sensor, history, forecast, definition, units, range
   // masquerades as full-range coverage.
   const timeMin = requestedStart;
   const timeMax = Math.max(now, ...series.predicted.map((point) => point.timestamp));
-  const domain = measurementDomain(definition, all.flatMap((point) => [point.value, point.low ?? point.value, point.high ?? point.value]))!;
+  const domain = timelineValueDomain(definition, all.flatMap((point) => [point.value, point.low ?? point.value, point.high ?? point.value]))!;
   const valueMin = domain.min;
   const valueMax = domain.max;
   const plotWidth = width - margin.left - margin.right;
@@ -107,7 +159,7 @@ export function TrendChart({ sensor, history, forecast, definition, units, range
 
   return (
     <section className="panel chart-panel">
-      <ChartHeader sensor={sensor} range={range} onRange={onRange} />
+      <ChartHeader sensor={sensor} heading={heading} range={range} onRange={onRange} />
       <div className="chart-legend" aria-hidden="true"><span><i className="legend-line observed" />{t("chart.observed")}</span>{definition.forecastSupported && <><span><i className="legend-line predicted" />{t("chart.predicted")}</span><span><i className="legend-area" />{t("chart.confidence")}</span></>}</div>
       <div className="chart-wrap">
         <p id={chartSummaryId} className="sr-only">{chartSummary}</p>
@@ -166,11 +218,11 @@ export function TrendChart({ sensor, history, forecast, definition, units, range
   );
 }
 
-function ChartHeader({ sensor, range, onRange }: { sensor: Sensor; range: TimeRange; onRange: (range: TimeRange) => void }) {
+function ChartHeader({ sensor, heading, range, onRange }: { sensor: Sensor; heading?: string | undefined; range: TimeRange; onRange: (range: TimeRange) => void }) {
   const { t } = useI18n();
   return (
     <div className="panel-header chart-heading">
-      <div><span className="eyebrow">{t("chart.title")}</span><h2>{sensor.name}</h2></div>
+      <div><span className="eyebrow">{t("chart.title")}</span><h2>{heading ?? sensor.name}</h2></div>
       <div className="segmented compact" role="group" aria-label={t("chart.history")}>
         {(["6h", "24h", "7d"] as const).map((item) => <button key={item} type="button" aria-pressed={range === item} onClick={() => onRange(item)}>{t(`chart.range${item}`)}</button>)}
       </div>

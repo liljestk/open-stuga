@@ -1,0 +1,22 @@
+[
+  {
+    "pattern": ".*\\/element\\/[^\\s\\/]+\\/value.*",
+    "flags": "i",
+    "replacer": "**SECURE VALUE ENDPOINT REDACTED**"
+  },
+  {
+    "pattern": "(\\\"text\\\"\\s*:\\s*)\\\"(?:\\\\.|[^\\\"])*\\\"",
+    "flags": "i",
+    "replacer": "$1\\\"**SECURE**\\\""
+  },
+  {
+    "pattern": "(\\\"value\\\"\\s*:\\s*)\\[(?:\\\"(?:\\\\.|[^\\\"])*\\\"\\s*,?\\s*)*\\]",
+    "flags": "i",
+    "replacer": "$1[\\\"**SECURE**\\\"]"
+  },
+  {
+    "pattern": ".*(?:AppiumDriver\\.setValue|setValue\\().*",
+    "flags": "i",
+    "replacer": "**SECURE INPUT COMMAND REDACTED**"
+  }
+]

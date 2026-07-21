@@ -4,7 +4,7 @@ Stuga can poll three local TP-Link source shapes without Home Assistant:
 
 - Tapo T310 and T315 climate children paired to an H100 or H200 hub;
 - paired hub children that expose a boolean python-kasa contact-state capability; and
-- one manually addressed TP-Link/Kasa device (or one strip and its outlets)
+- one discovered or manually addressed TP-Link/Kasa device (or one strip and its outlets)
   that the pinned python-kasa library exposes through `Module.Energy`.
 
 The energy-device boundary is capability-based rather than a model allowlist.
@@ -25,7 +25,9 @@ engine.
 
 The Tapo/Kasa app is still used to commission devices, pair hub children,
 update firmware, and give devices useful names. Reserve a stable LAN address
-for the configured hub or direct energy device before configuring Stuga.
+for the configured hub or direct energy device before configuring Stuga. For
+T310/T315, TP-Link also documents app-based CSV export and up to two calendar
+years of cloud retention in its [history-export FAQ](https://www.tp-link.com/us/support/faq/4048/).
 
 ## 1. Install the helper dependency
 
@@ -44,19 +46,23 @@ set `TP_LINK_PYTHON=python3`.
 Use the TP-Link account email and password that can authenticate to the hub.
 Select the owning Home and open **Set up > Connections** at
 `/properties/{propertyId}/homes/{homeId}/setup/connections`, then select
-**Find devices**. Choose an H100/H200 result, or enter
+**Find devices**. Choose an H100/H200 hub or a supported energy device, or enter
 a reserved IP address manually if discovery is blocked by Wi-Fi isolation,
-VLANs, or Docker networking. Direct energy devices are not returned by the
-current LAN scan and always require manual address entry. Enter the same account
-used by the Tapo/Kasa app and select **Save and connect**.
+VLANs, or Docker networking. The scan uses saved TP-Link credentials or
+credentials currently entered in the setup form to update non-hub devices and
+includes only devices that expose `Module.Energy`. Legacy Kasa energy devices
+such as HS110 can normally be verified over their older local protocol without
+credentials. Draft credentials used for discovery are not saved. Enter the same
+account used by the Tapo/Kasa app and select **Save and connect**.
 
-These are two separate discovery stages. **Find devices** is an unauthenticated
-LAN scan that locates an H100/H200 address (and any Home Assistant instance); it does
-not enumerate the T310/T315 devices paired to the hub. The scan is useful when
-the hub address is unknown, but it is optional when a stable address is already
-known. The TP-Link account credentials are still required for the direct local
+These are two separate discovery stages. **Find devices** locates H100/H200
+hubs, supported energy devices, and any Home Assistant instance; it does not
+enumerate the T310/T315 devices paired to a hub. Hub addresses can be reported
+without authentication. Verifying an energy device's capability requires saved
+TP-Link credentials because `python-kasa` must update the device before its
+modules are available. The credentials are also required for the direct local
 connection. Only after that connection starts can the H100/H200 report its
-paired child sensors or a direct endpoint report its Energy module.
+paired child sensors or a direct endpoint report live Energy data.
 
 Connections saved in Stuga are owned by the selected Home. One Home can have
 an H100/H200 plus one or more directly polled energy sockets, and each connection
@@ -82,7 +88,7 @@ over web-saved values after a restart:
 TP_LINK_HOST=192.0.2.10
 TP_LINK_USERNAME=user@example.com
 TP_LINK_PASSWORD=replace-me
-TP_LINK_POLL_INTERVAL_MS=10000
+TP_LINK_POLL_INTERVAL_MS=2000
 ```
 
 ## 3. Discover and add sensors
@@ -118,9 +124,55 @@ GET  /api/v1/integrations/tp-link/setup
 `tpLink.connected` should be `true` and the mapped/discovered counts should be
 non-zero. `hubModel` is `H100` or `H200` for a hub and `null` for a direct energy
 endpoint. Climate readings and generic power/energy samples have
-`source: "tp-link"`. The helper polls at `TP_LINK_POLL_INTERVAL_MS`; unchanged
-values are persisted at least every five minutes to keep freshness explicit
-without writing an identical row on every poll.
+`source: "tp-link"`. The helper uses a fixed-rate schedule at
+`TP_LINK_POLL_INTERVAL_MS` (two seconds by default). Temperature or humidity
+changes are persisted immediately; otherwise an unchanged climate heartbeat is
+persisted every minute to keep freshness explicit without writing an identical
+row on every poll. SQLite is the crash-safe ingestion buffer, and the telemetry
+archive worker copies both raw measurement samples and legacy climate readings
+to TimescaleDB with durable checkpoints.
+
+## Retained-history recovery
+
+The durable gap coordinator checks source availability every 30 seconds and
+scans the prior 30 days of stored samples every 15 minutes. When a direct
+TP-Link gap closes, the owning connection first asks the same LAN device for
+retained history:
+
+- Stuga attempts to read up to 96 15-minute temperature or humidity buckets
+  from an H100/H200 T310 or T315 child, representing approximately the latest
+  day;
+- a compatible energy device can return retained instantaneous `power` at a
+  5-minute interval for a range up to 12 hours, or a 60-minute interval for a
+  longer range, subject to the model and firmware's actual retention; and
+- local interval energy is deliberately not mapped to the cumulative `energy`
+  metric.
+
+These history commands are reverse-engineered protocol capabilities, not a
+public TP-Link contract. The pinned helper validates the requested connection,
+device ID, metric, time range, units, and returned row count. Unsupported
+firmware returns `not-supported`; a range extending beyond local retention or
+containing missing buckets returns `partial`. Recovered rows are inserted
+idempotently without live events or historical alert delivery.
+
+Canary each hub model and firmware separately. An H100 fixture or live result
+does not prove that the H200 child-command wrapper is identical, and a firmware
+update can remove or reshape either retained-history command.
+
+When the optional automated history stack is enabled, a partial local result
+can fall through to the Tapo app export/mailbox queue. See
+[Automated Tapo history recovery](tapo-history-automation.md) for Appium flow
+capture, Gmail OAuth, worker leases, operator controls, and the experimental
+endpoint boundary. A Home Assistant-mapped sensor instead uses Home Assistant
+recorder history; Stuga does not merge the same physical sensor across both
+adapters automatically.
+
+Operators can inspect the persistent gap ledger and export-job ledger with:
+
+```text
+GET /api/v1/integrations/sensor-data-gaps?houseId=house-main
+GET /api/v1/integrations/tp-link/history-export/jobs
+```
 
 To use a contact child for airflow, add or select its door, window, or vent in
 the 2D or 3D Home editor. Under **Advanced**, choose **Tapo** as the
@@ -177,6 +229,13 @@ credentials are removed. Use a separate database for demonstrations.
 - Re-run the helper with `--list` after firmware changes or re-pairing.
 - Treat an offline mapped child as a radio/power issue; cached hub values are
   not ingested while the child reports offline.
+- Do not expect local climate recovery to recreate the original two-second
+  stream. The retained response is a 15-minute bucket series and normally covers
+  only approximately the latest day.
+- A local `partial` or `not-supported` result is not proof that the Tapo cloud
+  has the missing rows. TP-Link states that hub power/internet outages can lose
+  history before upload and that a hub restart can delete unuploaded history;
+  see its [missing-history FAQ](https://www.tp-link.com/us/support/faq/3450/).
 - If a direct Tapo device reports power but no energy, inspect python-kasa's
   `Module.Energy.consumption_total`. Stuga deliberately does not substitute
   `consumption_today` or `consumption_this_month` because those counters reset.

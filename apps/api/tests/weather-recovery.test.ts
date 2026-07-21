@@ -125,4 +125,71 @@ describe("WeatherRecoveryCoordinator", () => {
     ]));
     expect(provider.fetchObservationHistory).not.toHaveBeenCalled();
   });
+
+  it("discovers and backfills historical FMI holes that were not recorded as live outages", async () => {
+    database = new ClimateDatabase(":memory:");
+    const house = database.updateHouse("house-main", { location })!;
+    const locationKey = outdoorLocationKey(location);
+    for (const [timestamp, temperatureC] of [
+      ["2026-07-14T10:20:00.000Z", 19],
+      ["2026-07-14T10:40:00.000Z", 19.2],
+    ] as const) {
+      database.upsertCurrentOutdoorTemperatureSample({
+        houseId: house.id,
+        locationKey,
+        timestamp,
+        temperatureC,
+        source: "fmi-observation",
+        fetchedAt: timestamp,
+        stationId: "station-1",
+        stationName: "Kaisaniemi",
+      });
+    }
+    const onRecovered = vi.fn();
+    const provider: WeatherProvider = {
+      fetch: vi.fn(),
+      fetchObservationHistory: vi.fn(async (_houseId, requestedLocation, from, to) => ({
+        houseId: house.id,
+        location: requestedLocation,
+        provider: "fmi",
+        attribution: "FMI open data",
+        fetchedAt: "2026-07-14T11:01:00.000Z",
+        station: { id: "station-1", name: "Kaisaniemi", latitude: 60.17, longitude: 24.94, distanceKm: 1 },
+        observations: [
+          { timestamp: "2026-07-14T10:30:00.000Z", temperatureC: 19.1 },
+        ].filter((point) => point.timestamp >= from && point.timestamp <= to),
+      })),
+    };
+    const recovery = new WeatherRecoveryCoordinator(database, provider, { onRecovered });
+
+    recovery.recordSuccess(house, {
+      ...weather(),
+      fetchedAt: "2026-07-14T11:01:00.000Z",
+      current: { timestamp: "2026-07-14T10:50:00.000Z", temperatureC: 19.3 },
+    });
+    await recovery.drain();
+
+    expect(provider.fetchObservationHistory).toHaveBeenCalledWith(
+      house.id,
+      location,
+      "2026-07-14T10:20:00.000Z",
+      "2026-07-14T10:40:00.000Z",
+    );
+    expect(database.outdoorTemperatureHistory(
+      house.id,
+      locationKey,
+      "2026-07-14T10:20:00.000Z",
+      "2026-07-14T10:40:00.000Z",
+    )).toHaveLength(3);
+    expect(database.listWeatherOutages(house.id, locationKey)).toEqual([
+      expect.objectContaining({
+        component: "observation",
+        backfillFrom: "2026-07-14T10:20:00.000Z",
+        backfillTo: "2026-07-14T10:40:00.000Z",
+        backfillState: "complete",
+        recoveredPoints: 1,
+      }),
+    ]);
+    expect(onRecovered).toHaveBeenCalledOnce();
+  });
 });

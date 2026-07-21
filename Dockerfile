@@ -9,6 +9,7 @@ COPY package*.json ./
 COPY tsconfig.base.json ./
 COPY apps/api/package*.json ./apps/api/
 COPY apps/web/package*.json ./apps/web/
+COPY apps/tapo-export-runner/package*.json ./apps/tapo-export-runner/
 COPY packages/contracts/package*.json ./packages/contracts/
 COPY packages/spatial-layers/package*.json ./packages/spatial-layers/
 
@@ -48,6 +49,12 @@ ENV VITE_SPATIAL_REPLAY_MAX_SAMPLE_AGE_MS=${VITE_SPATIAL_REPLAY_MAX_SAMPLE_AGE_M
 
 RUN npm run build:packages && npm run build --workspace @climate-twin/web
 
+FROM dependencies AS tapo-export-runner-build
+
+COPY apps/tapo-export-runner ./apps/tapo-export-runner
+
+RUN npm run build --workspace @climate-twin/tapo-export-runner
+
 FROM node-base AS api-runtime
 
 ENV NODE_ENV=production \
@@ -74,7 +81,7 @@ RUN apt-get update \
   && rm -f /tmp/tp-link-requirements.txt \
   && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /app/data /app/config /app/runtime/admin /app/runtime/db /app/runtime/proxy \
+RUN mkdir -p /app/data /app/config /app/runtime/admin /app/runtime/db /app/runtime/proxy /app/runtime/tapo \
   && chown -R node:node /app/data /app/config /app/runtime
 
 FROM api-runtime AS api
@@ -102,6 +109,21 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:8787/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
 
 CMD ["node", "apps/api/dist/index.js"]
+
+FROM node-base AS tapo-export-runner
+
+ENV NODE_ENV=production
+WORKDIR /app
+
+RUN mkdir -p /app/data /app/config \
+  && chown -R node:node /app/data /app/config
+
+COPY --from=tapo-export-runner-build --chown=node:node /app/apps/tapo-export-runner/package.json ./apps/tapo-export-runner/package.json
+COPY --from=tapo-export-runner-build --chown=node:node /app/apps/tapo-export-runner/dist ./apps/tapo-export-runner/dist
+
+USER node
+
+CMD ["node", "apps/tapo-export-runner/dist/index.js"]
 
 # Backup tooling stays out of the production API image. This maintenance-only
 # target combines Node's built-in SQLite support with a PostgreSQL 17 client,

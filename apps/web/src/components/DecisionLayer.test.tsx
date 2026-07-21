@@ -6,7 +6,7 @@ import { I18nProvider } from "../i18n";
 import { BUILTIN_MEASUREMENTS } from "../measurements";
 import { createDemoState } from "../domain";
 import { buildRoomComforts, RoomComfortBoard } from "./RoomComfortBoard";
-import { buildMoistureAdvice, dewPointCelsius } from "./MoistureCoach";
+import { buildMoistureAdvice, dewPointCelsius, MoistureCoach } from "./MoistureCoach";
 import { buildHomeActivityEvents, HomeActivityTimeline } from "./HomeActivityTimeline";
 import { HomePulsePanel } from "./HomePulsePanel";
 import { observationInstantTimestamp } from "./RoomComparisonChart";
@@ -28,6 +28,12 @@ const sensor: Sensor = {
 
 function sample(metric: string, value: number, timestamp = "2026-07-14T11:55:00.000Z"): MeasurementSample {
   return { sensorId: sensor.id, metric, value, canonicalUnit: metric === "temperature" ? "°C" : metric === "humidity" ? "%" : "ppm", timestamp, source: "mock", quality: "good" };
+}
+
+function openHomePulseMore(container: HTMLElement): HTMLDetailsElement {
+  const details = container.querySelector<HTMLDetailsElement>(".home-pulse-more")!;
+  fireEvent.click(within(details).getByText("More information"));
+  return details;
 }
 
 const integration: IntegrationStatus = {
@@ -98,6 +104,28 @@ describe("decision layer", () => {
       weatherStale: true,
       now,
     }).kind).toBe("limited");
+  });
+
+  it("keeps Moisture Coach evidence and actions behind an explicit disclosure", () => {
+    const onOpenSensor = vi.fn();
+    const view = render(<I18nProvider><MoistureCoach
+      sensors={[sensor]}
+      latestMeasurements={{ [sensor.id]: { temperature: sample("temperature", 22), humidity: sample("humidity", 65) } }}
+      conditions={{ timestamp: "2026-07-14T11:50:00.000Z", temperatureC: 12, dewPointC: 7, relativeHumidityPercent: 72 }}
+      units="metric"
+      now={now}
+      onOpenSensor={onOpenSensor}
+    /></I18nProvider>);
+
+    const details = view.container.querySelector<HTMLDetailsElement>(".moisture-coach-disclosure")!;
+    expect(details.open).toBe(false);
+    expect(within(details.querySelector("summary")!).getByText("More information")).not.toBeNull();
+    expect(details.querySelector(".moisture-evidence")).not.toBeNull();
+
+    fireEvent.click(details.querySelector("summary")!);
+    expect(details.open).toBe(true);
+    fireEvent.click(within(details).getByRole("button", { name: "Inspect room" }));
+    expect(onOpenSensor).toHaveBeenCalledWith(sensor.id);
   });
 
   it("sorts maintenance, observations, alerts, and weather into one activity feed", () => {
@@ -424,10 +452,16 @@ describe("decision layer", () => {
       onOpenTarget={vi.fn()}
     /></I18nProvider>);
 
+    const more = view.container.querySelector<HTMLDetailsElement>(".home-pulse-more")!;
+    expect(more.open).toBe(false);
+    const criticalGlance = view.container.querySelector<HTMLElement>(".pulse-glance-list .critical")!;
+    expect(within(criticalGlance).getByText("Critical")).not.toBeNull();
+    expect(within(criticalGlance).getByText("Temperature alert - Living room")).not.toBeNull();
+    openHomePulseMore(view.container);
     const criticalInsight = view.container.querySelector<HTMLDetailsElement>(".pulse-insight.critical")!;
     expect(criticalInsight.open).toBe(true);
     expect(within(criticalInsight).getByRole("button", { name: "Inspect room" })).toBeTruthy();
-    expect(view.container.querySelector(".home-pulse > .home-pulse-advisory")).not.toBeNull();
+    expect(view.container.querySelector(".home-pulse-more-content > .home-pulse-advisory")).not.toBeNull();
   });
 
   it("hides, persists, and restores a Home Pulse insight without masking the real status", async () => {
@@ -460,10 +494,11 @@ describe("decision layer", () => {
     /></I18nProvider>;
     const view = render(panel);
 
+    openHomePulseMore(view.container);
     fireEvent.click(screen.getByRole("button", { name: /^Hide / }));
     expect(view.container.querySelector(".pulse-insight")).toBeNull();
     expect(screen.getByRole("heading", { name: "Check this home now" })).not.toBeNull();
-    expect(view.container.querySelector(".home-pulse > .home-pulse-advisory")).not.toBeNull();
+    expect(view.container.querySelector(".home-pulse-more-content > .home-pulse-advisory")).not.toBeNull();
     expect(screen.queryByText("No action is being suggested right now.")).toBeNull();
     const hiddenSummary = view.container.querySelector<HTMLElement>(".pulse-hidden-disclosure > summary")!;
     expect(hiddenSummary.textContent).toContain("1 hidden Home Pulse item");
@@ -473,6 +508,7 @@ describe("decision layer", () => {
     view.unmount();
     const remounted = render(panel);
     expect(remounted.container.querySelector(".pulse-insight")).toBeNull();
+    openHomePulseMore(remounted.container);
     const remountedSummary = remounted.container.querySelector<HTMLElement>(".pulse-hidden-disclosure > summary")!;
     expect(remountedSummary.textContent).toContain("1 hidden Home Pulse item");
     fireEvent.click(remountedSummary);
@@ -514,6 +550,7 @@ describe("decision layer", () => {
     /></I18nProvider>);
 
     expect(view.container.querySelectorAll(".pulse-insight")).toHaveLength(3);
+    openHomePulseMore(view.container);
     fireEvent.click(screen.getAllByRole("button", { name: /^Hide / })[0]!);
     expect(view.container.querySelectorAll(".pulse-insight")).toHaveLength(3);
     expect(view.container.querySelector(".pulse-hidden-disclosure > summary")?.textContent).toContain("1 hidden Home Pulse item");
@@ -551,6 +588,7 @@ describe("decision layer", () => {
       onOpenTarget: vi.fn(),
     };
     const view = render(<I18nProvider><HomePulsePanel {...baseProps} alerts={[warningAlert]} /></I18nProvider>);
+    openHomePulseMore(view.container);
     fireEvent.click(screen.getByRole("button", { name: /^Hide / }));
     expect(view.container.querySelector(".pulse-insight")).toBeNull();
 
@@ -590,10 +628,12 @@ describe("decision layer", () => {
       onOpenTarget={vi.fn()}
     /></I18nProvider>);
 
-    expect(screen.getByText(`Huoneen ${roomSensor.room} ilmankosteus on koholla`)).not.toBeNull();
+    expect(within(view.container.querySelector(".pulse-glance-list")!).getByText(`Huoneen ${roomSensor.room} ilmankosteus on koholla`)).not.toBeNull();
     expect(screen.getByText("Viimeisin suhteellinen ilmankosteus on 70,5 %.")).not.toBeNull();
+    fireEvent.click(view.container.querySelector(".home-pulse-more > summary")!);
+    fireEvent.click(view.container.querySelector(".pulse-insight > summary")!);
     expect(screen.getByText("Viimeisin ilmankosteus")).not.toBeNull();
     expect(screen.queryByText(/Humidity is elevated/)).toBeNull();
-    expect(view.container.querySelector(".home-pulse > .home-pulse-advisory")).not.toBeNull();
+    expect(view.container.querySelector(".home-pulse-more-content > .home-pulse-advisory")).not.toBeNull();
   });
 });

@@ -161,6 +161,76 @@ describe("deriveHomePulse", () => {
     expect(pulse.insights[0]).toMatchObject({ kind: "sensor-coverage", target: { sensorId: living.id } });
   });
 
+  it("limits all-sensor alert coverage to sensors that support the rule metric", () => {
+    const healthyClimate = sensor("healthy-climate", "Living room", {
+      model: "T310",
+      tpLinkDeviceId: "climate-healthy",
+    });
+    const missingHumidity = sensor("missing-humidity", "Cellar", {
+      model: "T315",
+      tpLinkDeviceId: "climate-missing",
+    });
+    const wattMeter = sensor("watt-meter", "Office", {
+      model: "HS110(EU)",
+      tpLinkDeviceId: "energy-meter",
+    });
+    const globalHumidityRule: AlertRule = {
+      id: "global-humidity",
+      name: "Persistent high humidity",
+      sensorId: null,
+      metric: "humidity",
+      operator: "gte",
+      threshold: 65,
+      durationSeconds: 900,
+      severity: "warning",
+      enabled: true,
+      webhookEnabled: false,
+      telegramEnabled: false,
+    };
+    const pulse = deriveHomePulse(baseInput({
+      sensors: [healthyClimate, missingHumidity, wattMeter],
+      latestMeasurements: {
+        [healthyClimate.id]: {
+          temperature: sample(healthyClimate, "temperature", 21, 2),
+          humidity: sample(healthyClimate, "humidity", 48, 2),
+        },
+        [missingHumidity.id]: {
+          temperature: sample(missingHumidity, "temperature", 16, 2),
+        },
+        [wattMeter.id]: {
+          power: sample(wattMeter, "power", 84, 1),
+          energy: sample(wattMeter, "energy", 1.86, 2),
+        },
+      },
+      alertRules: [globalHumidityRule],
+    }));
+
+    expect(pulse.coverage).toEqual({
+      enabledSensors: 3,
+      freshSensors: 2,
+      estimatedSensors: 0,
+      agingSensors: 0,
+      staleSensors: 0,
+      sensorsWithoutData: 1,
+    });
+    expect(pulse.sensorCoverage).toEqual(expect.arrayContaining([
+      {
+        sensorId: missingHumidity.id,
+        requiredMetrics: ["humidity", "temperature"],
+        freshness: { state: "unknown", evidenceAt: null, ageMinutes: null },
+      },
+      {
+        sensorId: wattMeter.id,
+        requiredMetrics: [],
+        freshness: { state: "fresh", evidenceAt: "2026-07-14T11:59:00.000Z", ageMinutes: 1 },
+      },
+    ]));
+    expect(pulse.insights.find((insight) => insight.kind === "sensor-coverage")).toMatchObject({
+      title: `${missingHumidity.name} needs a data check`,
+      target: { sensorId: missingHumidity.id },
+    });
+  });
+
   it("keeps estimated-only coverage out of the confirmed steady state", () => {
     const living = sensor("living", "Living room");
     const pulse = deriveHomePulse(baseInput({

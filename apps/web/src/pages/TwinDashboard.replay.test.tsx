@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { MeasurementSample, Sensor } from "@climate-twin/contracts";
 import type { ClimateState } from "../domain";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
@@ -16,6 +17,13 @@ function renderDashboard(state: ClimateState, dataMode: "demo" | "real" | "unkno
     onHouse: vi.fn(), onFloor: vi.fn(), onMetric: vi.fn(), onViewMode: vi.fn(),
     onSensorSelect: vi.fn(), onSensorMove: vi.fn(), onSensorUpdate: vi.fn(),
     onFloorChange: vi.fn(), onSaveLayout: vi.fn(), onLoadSeries: vi.fn(), onRunScenario: vi.fn(),
+    onLoadReplaySeries: vi.fn(async (sensorId: string, metric: string, window: { from: string; to: string; bucketSeconds: number | null }) => {
+      const samples = (state.measurementHistory[sensorId]?.[metric] ?? []).filter((sample) => {
+        const timestamp = Date.parse(sample.timestamp);
+        return timestamp >= Date.parse(window.from) && timestamp <= Date.parse(window.to);
+      });
+      return { samples, from: window.from, to: window.to, bucketSeconds: window.bucketSeconds, truncated: false };
+    }),
     onOpenSensors: vi.fn(),
     onCreateObservation: vi.fn().mockResolvedValue(state.observations[0]!),
     onCreateStaticParameter: vi.fn().mockResolvedValue(state.staticParameters[0]!),
@@ -28,6 +36,7 @@ function renderDashboard(state: ClimateState, dataMode: "demo" | "real" | "unkno
     onMetric: props.onMetric,
     onSensorSelect: props.onSensorSelect,
     onLoadSeries: props.onLoadSeries,
+    onLoadReplaySeries: props.onLoadReplaySeries,
     onFloorChange: props.onFloorChange,
     onSensorUpdate: props.onSensorUpdate,
     onCreateObservation: props.onCreateObservation,
@@ -73,10 +82,43 @@ describe("TwinDashboard full-page home view", () => {
   });
 });
 
+describe("TwinDashboard plug map layer", () => {
+  it("shows compact plug stats on the 2D map and can hide the layer", () => {
+    localStorage.removeItem("stuga-home-map-energy-devices-visible");
+    const base = createDemoState();
+    const floor = base.houses[0]!.floors[0]!;
+    const plug: Sensor = {
+      ...base.sensors[0]!, id: "plug-p110", floorId: floor.id, name: "Coffee plug", model: "P110", tpLinkDeviceId: "p110-1",
+    };
+    const power: MeasurementSample = { sensorId: plug.id, metric: "power", value: 840, canonicalUnit: "W", timestamp: new Date().toISOString(), source: "tp-link", quality: "good" };
+    const energy: MeasurementSample = { ...power, metric: "energy", value: 2.5, canonicalUnit: "kWh" };
+    const state: ClimateState = {
+      ...base,
+      sensors: [...base.sensors, plug],
+      latestMeasurements: { ...base.latestMeasurements, [plug.id]: { power, energy } },
+    };
+    const view = renderDashboard(state);
+
+    const marker = view.container.querySelector(".sensor-marker.energy-device");
+    expect(marker?.textContent).toContain("840 W");
+    expect(marker?.textContent).toContain("2.50 kWh");
+    const layerButton = screen.getByRole("button", { name: "Plug sensors" });
+    expect(layerButton.getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(layerButton);
+    expect(layerButton.getAttribute("aria-pressed")).toBe("false");
+    expect(view.container.querySelector(".sensor-marker.energy-device")).toBeNull();
+    view.unmount();
+    localStorage.removeItem("stuga-home-map-energy-devices-visible");
+  });
+});
+
 describe("observation time conversion", () => {
   it("converts property-local times across ordinary offsets and rejects gaps and exact folds", () => {
     expect(observationTimeFields("exact", "2026-07-15T12:00", "", "", "", "Europe/Helsinki"))
       .toMatchObject({ occurredAt: "2026-07-15T09:00:00.000Z" });
+    expect(observationTimeFields("exact", "2026-07-15T12:00:37", "", "", "", "Europe/Helsinki"))
+      .toMatchObject({ occurredAt: "2026-07-15T09:00:37.000Z" });
     expect(observationTimeFields("exact", "2026-07-15T12:00", "", "", "", "America/New_York"))
       .toMatchObject({ occurredAt: "2026-07-15T16:00:00.000Z" });
     expect(observationTimeFields("exact", "2026-03-29T03:30", "", "", "", "Europe/Helsinki")).toBeNull();
@@ -90,7 +132,7 @@ describe("observation time conversion", () => {
 describe("TwinDashboard observation capture", () => {
   it("preserves a date range, source, confidence, and conservative defaults in the saved payload", async () => {
     const view = renderDashboard(createDemoState());
-    fireEvent.click(screen.getByText("Open history and tools"));
+    fireEvent.click(screen.getByText("Open analysis tools"));
     expect(screen.getByRole("heading", { name: "Test scenario" })).not.toBeNull();
 
     const precision = screen.getByLabelText("Time precision");
@@ -129,7 +171,7 @@ describe("TwinDashboard observation capture", () => {
 
   it("hides scenario controls while the data environment is unconfirmed", () => {
     renderDashboard(createDemoState(), "unknown");
-    fireEvent.click(screen.getByText("Open history and tools"));
+    fireEvent.click(screen.getByText("Open analysis tools"));
     expect(screen.queryByRole("heading", { name: "Test scenario" })).toBeNull();
   });
 
@@ -148,14 +190,15 @@ describe("TwinDashboard observation capture", () => {
       };
       const state = { ...demo, houses: [helsinki, newYork] };
       const view = renderDashboard(state);
-      const localTime = view.container.querySelector<HTMLInputElement>('input[type="datetime-local"]')!;
+      fireEvent.click(screen.getByText("Open analysis tools"));
+      const localTime = view.container.querySelector<HTMLInputElement>('.observation-form input[type="datetime-local"]')!;
       expect(localTime.value).toBe("2026-07-15T15:00");
 
       fireEvent.submit(view.container.querySelector(".observation-form")!);
       expect((view.container.querySelector(".observation-fields") as HTMLFieldSetElement).disabled).toBe(true);
       view.rerenderHouse(state, newYork.id);
 
-      expect(view.container.querySelector<HTMLInputElement>('input[type="datetime-local"]')!.value).toBe("2026-07-15T08:00");
+      expect(view.container.querySelector<HTMLInputElement>('.observation-form input[type="datetime-local"]')!.value).toBe("2026-07-15T08:00");
       expect((view.container.querySelector(".observation-fields") as HTMLFieldSetElement).disabled).toBe(false);
       expect(view.onCreateObservation).not.toHaveBeenCalled();
     } finally {
@@ -197,7 +240,7 @@ describe("TwinDashboard progressive disclosure", () => {
     expect(screen.queryByRole("button", { name: "Edit layout" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Finish setup" })).toBeNull();
 
-    fireEvent.click(screen.getByText("Open history and tools"));
+    fireEvent.click(screen.getByText("Open analysis tools"));
     expect(screen.queryByRole("heading", { name: "Test scenario" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Log observation" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add context" })).toBeNull();
@@ -238,7 +281,9 @@ describe("TwinDashboard progressive disclosure", () => {
     expect(view.onOpenSensors).toHaveBeenCalledWith(demo.houses[0]!.id);
 
     expect(screen.queryByLabelText("House")).toBeNull();
-    expect(screen.getByLabelText("Floor")).toBeTruthy();
+    const floorPicker = screen.getByLabelText("Floor");
+    expect(floorPicker.closest("header")).toBeNull();
+    expect(floorPicker.closest(".twin-toolbar")).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Manage homes" })).toBeNull();
     expect(screen.getAllByRole("button", { name: "Edit layout" })).toHaveLength(1);
   });
@@ -250,6 +295,28 @@ describe("TwinDashboard progressive disclosure", () => {
 });
 
 describe("TwinDashboard replay timing", () => {
+  it("loads an arbitrary house-local recording window at the selected resolution", async () => {
+    const demo = createDemoState();
+    const view = renderDashboard(demo);
+    const historyWindow = screen.getByRole("form", { name: "History window" });
+
+    fireEvent.change(within(historyWindow).getByLabelText("From"), { target: { value: "2024-02-10T00:00" } });
+    fireEvent.change(within(historyWindow).getByLabelText("To"), { target: { value: "2024-02-11T00:00" } });
+    fireEvent.change(within(historyWindow).getByLabelText("Resolution"), { target: { value: "300" } });
+    fireEvent.click(within(historyWindow).getByRole("button", { name: "Load recording" }));
+
+    await waitFor(() => expect(view.onLoadReplaySeries).toHaveBeenCalled());
+    const requestedWindows = view.onLoadReplaySeries.mock.calls.map(([, , window]) => window);
+    expect(requestedWindows.length).toBeGreaterThan(demo.sensors.filter((sensor) => sensor.enabled).length);
+    expect(requestedWindows).toEqual(expect.arrayContaining([{
+      from: "2024-02-09T22:00:00.000Z",
+      to: "2024-02-10T22:00:00.000Z",
+      bucketSeconds: 300,
+    }]));
+    await waitFor(() => expect(within(historyWindow).getByText("0 samples loaded")).not.toBeNull());
+    expect(screen.getByRole("heading", { name: "History & Events" })).not.toBeNull();
+  });
+
   it("preloads climate history and seeks a detected event in its metric, floor, and sensor context", async () => {
     const demo = createDemoState();
     const selectedSensor = demo.sensors.find((sensor) => sensor.id === "sensor-living")!;
@@ -279,9 +346,6 @@ describe("TwinDashboard replay timing", () => {
       },
     };
     const view = renderDashboard(state);
-    view.onLoadSeries.mockClear();
-
-    fireEvent.click(screen.getByText("Open history and tools"));
     const expectedClimateLoads = demo.sensors
       .filter((sensor) => sensor.houseId === demo.houses[0]!.id && sensor.enabled)
       .flatMap((sensor) => ["temperature", "humidity"].map((metric) => `${sensor.id}:${metric}`));
@@ -303,10 +367,11 @@ describe("TwinDashboard replay timing", () => {
     vi.useFakeTimers();
     const view = renderDashboard(createDemoState());
     try {
-      fireEvent.click(screen.getByText("Open history and tools"));
       const tools = view.container.querySelector(".home-tools-disclosure")!;
+      const historyEvents = view.container.querySelector(".history-events-workspace")!;
       let slider = screen.getByRole("slider", { name: /Replay time/ }) as HTMLInputElement;
-      expect(tools.contains(screen.getByRole("region", { name: "Replay" }))).toBe(true);
+      expect(historyEvents.contains(screen.getByRole("region", { name: "Replay" }))).toBe(true);
+      expect(tools.contains(screen.getByRole("region", { name: "Replay" }))).toBe(false);
       const minimum = Number(slider.min);
       expect(Number(slider.value)).toBe(Number(slider.max));
 
@@ -314,6 +379,7 @@ describe("TwinDashboard replay timing", () => {
       slider = screen.getByRole("slider", { name: /Replay time/ }) as HTMLInputElement;
       expect(screen.getByRole("button", { name: "Pause replay" })).not.toBeNull();
       expect(screen.getByRole("button", { name: "Return to live" })).not.toBeNull();
+      expect(historyEvents.contains(screen.getByRole("region", { name: "Replay" }))).toBe(true);
       expect(tools.contains(screen.getByRole("region", { name: "Replay" }))).toBe(false);
       expect(Number(slider.value)).toBe(minimum);
 
@@ -337,7 +403,6 @@ describe("TwinDashboard replay timing", () => {
     const emptyState: ClimateState = { ...demo, measurementHistory: {} };
     const view = renderDashboard(emptyState);
     try {
-      fireEvent.click(screen.getByText("Open history and tools"));
       let slider = screen.getByRole("slider", { name: /Replay time/ }) as HTMLInputElement;
       fireEvent.click(screen.getByRole("button", { name: "Play replay" }));
       slider = screen.getByRole("slider", { name: /Replay time/ }) as HTMLInputElement;

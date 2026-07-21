@@ -53,6 +53,7 @@ import {
   ClimateDataValidationError,
   outdoorLocationKey,
   type SensorUpdate,
+  type TapoHistoryExportJob,
   type TelemetryCascadeScope,
 } from "./db.js";
 import { TelemetryBus } from "./events.js";
@@ -64,6 +65,7 @@ import {
   updateIntegrationSecrets,
   type AppleNotesGrantSecret,
   type IntegrationSecrets,
+  type TpLinkConnectionSecret,
 } from "./integration-secrets.js";
 import { IntegrationMetadataStore } from "./integration-metadata.js";
 import { openApiV1Document, openApiV2Document } from "./openapi.js";
@@ -94,6 +96,12 @@ import { LocationDiscoveryService } from "./location-discovery.js";
 import { AutomaticWeatherProvider, OpenMeteoWeatherProvider, prefersFmi } from "./open-meteo.js";
 import { WeatherMonitor } from "./weather-monitor.js";
 import { WeatherRecoveryCoordinator } from "./weather-recovery.js";
+import { SensorGapRecoveryCoordinator } from "./sensor-gap-recovery.js";
+import {
+  TAPO_CANARY_APPROVAL_MAX_AGE_MS,
+  TapoHistoryCanaryError,
+  TapoHistoryExportService,
+} from "./tapo-history-export.js";
 import {
   InMemoryWeatherEventBroker,
   WeatherEventSupersededError,
@@ -115,6 +123,7 @@ import {
   type LocalAuthIdentity,
   type LocalAuthSession,
 } from "./local-auth.js";
+import { CloudflareAccessGroupSynchronizer } from "./cloudflare-access.js";
 import {
   createLocalSpatialLayerRuntime,
   registerSpatialLayerRoutes,
@@ -123,6 +132,7 @@ import {
 import { LruTtlCache } from "./cache.js";
 import { DataOperationsService } from "./data-operations.js";
 import { EnergyOptimizer } from "./energy-optimizer.js";
+import { EnergyCostService } from "./energy-cost.js";
 import { SetupDoctor } from "./setup-doctor.js";
 import { TimeseriesStore } from "./timeseries/store.js";
 import {
@@ -135,6 +145,11 @@ import {
   IncompleteTelemetryHistoryError,
 } from "./timeseries/read-facade.js";
 import { TelemetryRetentionWorker } from "./timeseries/retention-worker.js";
+import {
+  AnalyticsQueryError,
+  buildAnalyticsResponse,
+  parseAnalyticsQueryRequest,
+} from "./analytics.js";
 
 class HttpError extends Error {
   constructor(readonly status: number, readonly code: string, message: string, readonly details?: unknown) {
@@ -1383,7 +1398,23 @@ function validateMeasurementDefinition(definition: MeasurementDefinition): Measu
     || (definition.validMax !== null && value > definition.validMax))) {
     throw new HttpError(400, "INVALID_RANGE", "Display range must be within the valid range");
   }
+  if (!definition.dimension?.trim()) throw new HttpError(400, "INVALID_FIELD", "dimension must be a non-empty string");
+  if (!definition.allowedUnits?.length || definition.allowedUnits.some((unit) => !unit.trim())) {
+    throw new HttpError(400, "INVALID_FIELD", "allowedUnits must contain at least one non-empty unit");
+  }
+  if (!definition.allowedUnits.includes(definition.unit)) {
+    throw new HttpError(400, "INVALID_FIELD", "allowedUnits must include the canonical unit");
+  }
   return definition;
+}
+
+function measurementUnits(value: unknown, canonicalUnit: string, current?: string[]): string[] {
+  if (value === undefined) return current ?? [canonicalUnit];
+  if (!Array.isArray(value) || value.length === 0 || value.length > 50
+    || value.some((unit) => typeof unit !== "string" || !unit.trim() || unit.length > 50)) {
+    throw new HttpError(400, "INVALID_FIELD", "allowedUnits must contain between 1 and 50 non-empty unit strings");
+  }
+  return [...new Set(value.map((unit) => (unit as string).trim()))];
 }
 
 export function parseMeasurementDefinition(value: unknown, current?: MeasurementDefinition): MeasurementDefinition {
@@ -1391,10 +1422,20 @@ export function parseMeasurementDefinition(value: unknown, current?: Measurement
   if ((current && body.id !== undefined) || body.builtin !== undefined) {
     throw new HttpError(409, "IMMUTABLE_FIELD", "Measurement definition id and builtin status cannot be changed");
   }
+  const canonicalUnit = body.unit === undefined ? current?.unit ?? requiredString(body, "unit") : requiredString(body, "unit");
+  const inheritedAllowedUnits = body.unit !== undefined && body.allowedUnits === undefined
+    ? [canonicalUnit, ...(current?.allowedUnits ?? []).filter((unit) => unit !== canonicalUnit)]
+    : current?.allowedUnits;
   const definition: MeasurementDefinition = {
     id: current?.id ?? measurementId(body.id, "id"),
     labels: body.labels === undefined ? current?.labels ?? (() => { throw new HttpError(400, "INVALID_FIELD", "labels is required"); })() : stringMap(body.labels, "labels"),
-    unit: body.unit === undefined ? current?.unit ?? requiredString(body, "unit") : requiredString(body, "unit"),
+    unit: canonicalUnit,
+    dimension: body.dimension === undefined ? current?.dimension ?? "finite_scalar" : requiredString(body, "dimension"),
+    allowedUnits: measurementUnits(body.allowedUnits, canonicalUnit, inheritedAllowedUnits),
+    kind: body.kind === undefined ? current?.kind ?? "gauge" : enumValue(body.kind, ["gauge", "rate", "increment", "cumulative_counter", "binary_state", "categorical_state"] as const, "kind"),
+    defaultAggregation: body.defaultAggregation === undefined ? current?.defaultAggregation ?? "mean" : enumValue(body.defaultAggregation, ["mean", "sum", "delta", "last", "time_weighted_mean", "duration", "custom"] as const, "defaultAggregation"),
+    genericHistoryEnabled: body.genericHistoryEnabled === undefined ? current?.genericHistoryEnabled ?? true : optionalBoolean(body, "genericHistoryEnabled") as boolean,
+    genericStatsEnabled: body.genericStatsEnabled === undefined ? current?.genericStatsEnabled ?? true : optionalBoolean(body, "genericStatsEnabled") as boolean,
     precision: body.precision === undefined ? current?.precision ?? 1 : (() => {
       if (typeof body.precision !== "number" || !Number.isInteger(body.precision)) {
         throw new HttpError(400, "INVALID_FIELD", "precision must be an integer from 0 to 6");
@@ -1582,17 +1623,21 @@ export interface ApiRuntime {
   status: RuntimeStatus;
   homeAssistant: HomeAssistantBridge;
   tpLink: TpLinkBridge;
+  tapoHistory: TapoHistoryExportService;
   electricityPrices: ElectricityPriceService;
   telegram: TelegramService;
   weather: WeatherService;
   weatherMonitor: WeatherMonitor;
   weatherRecovery: WeatherRecoveryCoordinator;
+  sensorGapRecovery: SensorGapRecoveryCoordinator;
   weatherEvents: WeatherEventBroker;
   dataMode: DataModeCoordinator;
   notificationOutbox: NotificationOutboxWorker;
   dataOperations: DataOperationsService;
   energyOptimizer: EnergyOptimizer;
+  energyCost: EnergyCostService;
   setupDoctor: SetupDoctor;
+  cloudflareAccess: CloudflareAccessGroupSynchronizer | null;
   spatialLayers: LocalSpatialLayerRuntime | null;
   timeseries: TimeseriesStore | null;
   telemetryArchive: TelemetryArchiveWorker | null;
@@ -1609,6 +1654,70 @@ export interface IntegrationDraftTestResult {
   details?: Record<string, unknown>;
 }
 
+function publicTapoHistoryExportJob(job: TapoHistoryExportJob): Omit<TapoHistoryExportJob,
+  "dedupeKey" | "expectedDeviceId" | "rangeStart" | "rangeEnd" | "attempt"
+  | "deploymentFingerprint" | "acceptanceRevision" | "expectedSchemaSignature"> {
+  const redactRecipient = (value: string | null): string | null => value && job.expectedRecipient
+    ? value.replaceAll(job.expectedRecipient, "[redacted export recipient]")
+    : value;
+  return {
+    id: job.id,
+    canary: job.canary,
+    provider: job.provider,
+    sensorId: job.sensorId,
+    deviceId: job.deviceId,
+    deviceName: job.deviceName,
+    timeZone: job.timeZone,
+    metric: job.metric,
+    // Correlation aliases and mailbox ids are capabilities, not operator UI data.
+    expectedRecipient: null,
+    from: job.from,
+    to: job.to,
+    intervalMinutes: job.intervalMinutes,
+    status: job.status,
+    attemptCount: job.attemptCount,
+    maxAttempts: job.maxAttempts,
+    availableAt: job.availableAt,
+    leaseOwner: null,
+    leaseExpiresAt: null,
+    heartbeatAt: null,
+    submittedAt: job.submittedAt,
+    mailboxMessageId: null,
+    sourceArtifactSha256: job.sourceArtifactSha256,
+    sourceArtifactBytes: job.sourceArtifactBytes,
+    parserVersion: job.parserVersion,
+    sourceSchemaSignature: job.sourceSchemaSignature,
+    stagedSampleCount: job.stagedSampleCount,
+    consumedSampleCount: job.consumedSampleCount,
+    lastError: redactRecipient(job.lastError),
+    attentionReason: redactRecipient(job.attentionReason),
+    detail: redactRecipient(job.detail),
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    completedAt: job.completedAt,
+  };
+}
+
+function workerTapoHistoryExportJob(job: TapoHistoryExportJob): Pick<TapoHistoryExportJob,
+  "id" | "sensorId" | "deviceId" | "deviceName" | "metric" | "from" | "to" | "timeZone"
+  | "intervalMinutes" | "expectedRecipient" | "status" | "attemptCount" | "leaseExpiresAt"> {
+  return {
+    id: job.id,
+    sensorId: job.sensorId,
+    deviceId: job.deviceId,
+    deviceName: job.deviceName,
+    metric: job.metric,
+    from: job.from,
+    to: job.to,
+    timeZone: job.timeZone,
+    intervalMinutes: job.intervalMinutes,
+    expectedRecipient: job.expectedRecipient,
+    status: job.status,
+    attemptCount: job.attemptCount,
+    leaseExpiresAt: job.leaseExpiresAt,
+  };
+}
+
 export interface CreateApiOptions {
   config?: AppConfig;
   database?: ClimateDatabase;
@@ -1619,7 +1728,12 @@ export interface CreateApiOptions {
   homeAssistantCredentialTester?: (url: string, token: string) => Promise<IntegrationDraftTestResult>;
   tpLinkCredentialTester?: (host: string, username: string, password: string) => Promise<IntegrationDraftTestResult>;
   electricityPriceFetcher?: typeof fetch;
+  cloudflareAccessFetcher?: typeof fetch;
   electricityEndpointResolver?: ElectricityEndpointResolver;
+  /** Test/embedding hook; normal deployments resolve aliases from live TP-Link discovery. */
+  tapoHistoryDeviceNameFor?: (sensorId: string, deviceId: string) => string | null;
+  /** Test/embedding clock for durable Tapo history transitions. */
+  tapoHistoryNow?: () => Date;
   timeseriesStore?: TimeseriesStore;
   telemetryReader?: HybridTelemetryReader;
   startBackground?: boolean;
@@ -1757,9 +1871,29 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   config.appleNotesGrants ??= [];
   config.homeAssistantLegacyDisabled ??= false;
   config.tpLinkLegacyDisabled ??= false;
+  config.tapoHistoryEnabled ??= false;
+  config.tapoHistoryWorkerToken ??= null;
+  config.tapoHistoryExportEmail ??= null;
+  config.tapoHistoryEmailTagPrefix ??= "stuga";
+  config.tapoHistoryExportIntervalMinutes ??= 15;
+  config.tapoHistoryMaxExportDays ??= 30;
+  config.tapoHistoryMaxPendingEmails ??= 1;
+  config.tapoHistoryMailboxPollIntervalMs ??= 60_000;
+  config.tapoHistoryEmailTimeoutMs ??= 6 * 60 * 60_000;
+  config.tapoHistoryWorkerLeaseMs ??= 5 * 60_000;
+  config.tapoHistoryGmailClientId ??= null;
+  config.tapoHistoryGmailClientSecret ??= null;
+  config.tapoHistoryGmailRefreshToken ??= null;
+  config.tapoHistoryPrivateEndpoint ??= null;
+  config.tapoHistoryPrivateToken ??= null;
   // Older in-memory test fixtures predate local authentication. Preserve their
   // trusted harness behavior without ever enabling the bypass outside tests.
   config.localAuthTestBypass ??= process.env.NODE_ENV === "test";
+  config.cloudflareAccessAccountId ??= null;
+  config.cloudflareAccessGroupId ??= null;
+  config.cloudflareAccessGroupName ??= null;
+  config.cloudflareAccessApiToken ??= null;
+  config.cloudflareAccessSyncIntervalMs ??= 5 * 60_000;
   config.electricityAllowPrivateEndpoints ??= false;
   config.timeseriesEnabled ??= false;
   config.timeseriesRequired ??= false;
@@ -1782,6 +1916,25 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   const energyOptimizer = new EnergyOptimizer(database);
   const integrationMetadata = initializeIntegrationMetadata(config, database);
   const localAuth = new LocalAuthStore(database);
+  const cloudflareAccess = config.cloudflareAccessAccountId
+    && config.cloudflareAccessGroupId
+    && config.cloudflareAccessGroupName
+    && config.cloudflareAccessApiToken
+    ? new CloudflareAccessGroupSynchronizer({
+      accountId: config.cloudflareAccessAccountId,
+      groupId: config.cloudflareAccessGroupId,
+      groupName: config.cloudflareAccessGroupName,
+      apiToken: config.cloudflareAccessApiToken,
+      syncIntervalMs: config.cloudflareAccessSyncIntervalMs,
+    }, () => {
+      if (!localAuth.isInitialized()) return null;
+      const directory = localAuth.listWorkspaceMembers();
+      return [...directory.members, ...directory.invitations].map((entry) => entry.email);
+    }, options.cloudflareAccessFetcher, () => {
+      // This intentionally omits account, group, email, and provider details.
+      console.error("[cloudflare-access] Member allowlist synchronization is pending");
+    })
+    : null;
   const authAbuseLimiter = new AuthAbuseLimiter();
   const dataMode = new DataModeCoordinator(database);
   if ((config.homeAssistantConnections?.length ?? 0) > 0
@@ -1850,6 +2003,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   });
   const status = new RuntimeStatus(config, bus, database);
   const setupDoctor = new SetupDoctor(database, config, status, dataOperations, telemetryArchive);
+  const energyCost = new EnergyCostService(telemetryReader);
   const storedTelegramIdentity = integrationMetadata.get("telegram", "singleton");
   if (status.value.telegram?.configured && storedTelegramIdentity?.active) {
     status.value.telegram.botUsername = storedTelegramIdentity.label;
@@ -1870,8 +2024,52 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   );
   const mock = new MockEngine(database, telemetry, config, dataMode);
   const replay = new ReplayEngine(database, bus);
-  const homeAssistant = new HomeAssistantBridge(config, telemetry, measurements, database, status);
-  const tpLink = new TpLinkBridge(config, telemetry, measurements, database, status);
+  let sensorGapRecovery: SensorGapRecoveryCoordinator | null = null;
+  let tpLink: TpLinkBridge;
+  const wakeSensorGapRecovery = (): void => sensorGapRecovery?.wake();
+  const tapoHistory = new TapoHistoryExportService(config, database, {
+    onHistoryReady: wakeSensorGapRecovery,
+    ...(options.tapoHistoryNow ? { now: options.tapoHistoryNow } : {}),
+    deviceNameFor: options.tapoHistoryDeviceNameFor
+      ?? ((sensorId, deviceId) => tpLink?.tapoAppDeviceName(sensorId, deviceId) ?? null),
+  });
+  const homeAssistant = new HomeAssistantBridge(config, telemetry, measurements, database, status, {
+    onAvailabilityChange: wakeSensorGapRecovery,
+  });
+  tpLink = new TpLinkBridge(config, telemetry, measurements, database, status, {
+    onAvailabilityChange: wakeSensorGapRecovery,
+    historyFallback: tapoHistory,
+    onConnectionUpdate: (update) => {
+      const existing = config.tpLinkConnections ?? [];
+      const current = existing.find((connection) => connection.id === update.id);
+      if (!current || current.houseId !== update.houseId) return;
+      if (update.host !== current.host && current.host !== update.previousHost) return;
+      if (update.deviceId && update.deviceId.length > 1_024) return;
+      if (current.deviceId && update.deviceId
+        && current.deviceId.trim().toUpperCase() !== update.deviceId.trim().toUpperCase()) return;
+      const nextConnection: TpLinkConnectionSecret = {
+        ...current,
+        host: update.host,
+        ...(update.deviceId ? { deviceId: update.deviceId } : {}),
+      };
+      if (nextConnection.host === current.host && nextConnection.deviceId === current.deviceId) return;
+      const connections = existing.map((connection) => connection.id === current.id ? nextConnection : connection);
+      updateIntegrationSecrets(config.integrationSecretsFile, { tpLinkConnections: connections });
+      config.tpLinkConnections = connections;
+      integrationMetadata.saveTpLink({
+        id: nextConnection.id,
+        houseId: nextConnection.houseId,
+        host: nextConnection.host,
+        reason: "identity-refreshed",
+      });
+    },
+  });
+  sensorGapRecovery = new SensorGapRecoveryCoordinator(database, measurements, [homeAssistant, tpLink], {
+    onRecovered: () => {
+      measurementSnapshotCache.clear();
+      return telemetryArchive?.reconcileNow();
+    },
+  });
   const electricityPrices = new ElectricityPriceService(
     database,
     options.electricityPriceFetcher ?? fetch,
@@ -1889,7 +2087,9 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       new FmiWeatherProvider(),
       new OpenMeteoWeatherProvider(),
     );
-  const weatherRecovery = new WeatherRecoveryCoordinator(database, weatherProvider);
+  const weatherRecovery = new WeatherRecoveryCoordinator(database, weatherProvider, {
+    onRecovered: () => telemetryArchive?.reconcileNow(),
+  });
   const weather = new WeatherService(
     weatherProvider,
     status.value.weather,
@@ -1913,6 +2113,9 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     persist: async (result) => { await weatherEvents.publish(result, "scheduled-refresh"); },
   });
   const app = express();
+  // Security middleware classifies route prefixes before Express dispatches.
+  // Keep dispatch case-sensitive so mixed-case paths cannot cross auth zones.
+  app.set("case sensitive routing", true);
   let spatialLayers: LocalSpatialLayerRuntime | null = null;
   if (config.spatialLayersEnabled ?? false) {
     try {
@@ -2048,6 +2251,20 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   let telegramConfigurationGeneration = 0;
   const homeAssistantConfigurationGenerations = new Map<string, number>();
   const tpLinkConfigurationGenerations = new Map<string, number>();
+
+  const synchronizeCloudflareAccess = async (): Promise<{
+    status: "disabled" | "pending" | "synced";
+    lastSyncedAt: string | null;
+  }> => {
+    if (!cloudflareAccess) return { status: "disabled", lastSyncedAt: null };
+    try {
+      const result = await cloudflareAccess.synchronize();
+      return { status: result.status, lastSyncedAt: result.lastSyncedAt };
+    } catch {
+      console.error("[cloudflare-access] Member allowlist synchronization is pending");
+      return { status: "pending", lastSyncedAt: cloudflareAccess.status().lastSyncedAt };
+    }
+  };
 
   const integrationStatusForHouse = (houseId?: string): IntegrationStatus => {
     const value = structuredClone(status.value);
@@ -2208,6 +2425,23 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       } satisfies LocalRequestPrincipal;
     }
 
+    const tapoWorkerPath = request.path.startsWith(`${prefix}/internal/tapo-history/`);
+    if (tapoWorkerPath) {
+      response.setHeader("cache-control", "no-store");
+      if (!config.tapoHistoryEnabled || !config.tapoHistoryWorkerToken) {
+        next(new HttpError(404, "TAPO_HISTORY_WORKER_DISABLED", "Tapo history worker endpoint is disabled"));
+        return;
+      }
+      const authorization = request.header("authorization");
+      const bearer = authorization?.startsWith("Bearer ") ? authorization.slice(7) : null;
+      if (!bearer || !keyMatches(bearer, config.tapoHistoryWorkerToken)) {
+        next(new HttpError(401, "UNAUTHORIZED", "A valid Tapo history worker token is required"));
+        return;
+      }
+      next();
+      return;
+    }
+
     const preSetupPath = request.path === `${prefix}/health`
       || request.path === `${prefix}/openapi.json`
       || request.path === `${v2Prefix}/openapi.json`
@@ -2252,7 +2486,8 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       next(new HttpError(401, "UNAUTHORIZED", "Sign in to access this endpoint"));
       return;
     }
-    const unsafe = !SAFE_HTTP_METHODS.has(request.method);
+    const sideEffectFreePost = request.method === "POST" && request.path === `${v2Prefix}/analytics/query`;
+    const unsafe = !SAFE_HTTP_METHODS.has(request.method) && !sideEffectFreePost;
     if (unsafe && principal.role === "guest" && request.path !== `${prefix}/auth/logout`) {
       next(new HttpError(403, "GUEST_READ_ONLY", "Guest accounts are read-only"));
       return;
@@ -2282,7 +2517,8 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     // themselves needed for authentication and abuse limiting. Everything else
     // is authorized before the server allocates a potentially large JSON body.
     if (request.path.startsWith(`${prefix}/auth/`)) { next(); return; }
-    if (request.path.startsWith(`${prefix}/tenant/members`)) {
+    if (request.path.startsWith(`${prefix}/tenant/members`)
+      || request.path.startsWith(`${prefix}/internal/tapo-history/`)) {
       response.locals.accountBodyLimit = "32 KiB";
       memberJsonParser(request, response, next);
       return;
@@ -2296,7 +2532,8 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   // all open browsers to refresh properties, tasks, notes, access grants, and
   // configuration without a manual reload.
   app.use((request, response, next) => {
-    const unsafe = !SAFE_HTTP_METHODS.has(request.method) && request.method !== "OPTIONS";
+    const sideEffectFreePost = request.method === "POST" && request.path === `${v2Prefix}/analytics/query`;
+    const unsafe = !SAFE_HTTP_METHODS.has(request.method) && request.method !== "OPTIONS" && !sideEffectFreePost;
     const excluded = request.path.startsWith(`${prefix}/auth/`)
       || request.path === `${prefix}/readings`
       || request.path === `${v2Prefix}/measurements`
@@ -2439,7 +2676,11 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       const identity = await localAuth.createFirstOwner(body.email, body.password);
       const issued = localAuth.issueSession(identity);
       setLocalSessionCookies(response, request, config, issued.token, issued.session.csrfToken);
-      response.status(201).json(sessionDocument(issued.session, issued.session.csrfToken));
+      const cloudflareAccessStatus = await synchronizeCloudflareAccess();
+      response.status(201).json({
+        ...sessionDocument(issued.session, issued.session.csrfToken),
+        cloudflareAccess: cloudflareAccessStatus,
+      });
     } finally {
       release();
     }
@@ -2489,9 +2730,11 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   });
 
   app.get(`${prefix}/tenant/members`, requireWorkspaceAdmin, (_request, response) => {
-    response.json(localAuth.listWorkspaceMembers());
+    const directory = localAuth.listWorkspaceMembers();
+    if (cloudflareAccess) void synchronizeCloudflareAccess();
+    response.json(directory);
   });
-  app.post(`${prefix}/tenant/members`, requireWorkspaceAdmin, (request, response) => {
+  app.post(`${prefix}/tenant/members`, requireWorkspaceAdmin, async (request, response) => {
     requireJsonContentType(request);
     const body = bodyObject(request.body);
     const role = enumValue(body.role, ["admin", "member", "guest"] as const, "role");
@@ -2499,13 +2742,15 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     const grants = body.grants === undefined ? [] : body.grants;
     if (!Array.isArray(grants)) throw new HttpError(400, "INVALID_GRANTS", "grants must be an array");
     const created = localAuth.inviteMember(principal, body.email, role, grants as GuestAccessGrant[]);
+    const cloudflareAccessStatus = await synchronizeCloudflareAccess();
     response.status(201).json({
       invitation: created.invitation,
       registrationToken: created.registrationToken,
       // URL fragments remain client-side and avoid leaking the one-time token
       // through HTTP access logs, browser referrers, or intermediary caches.
-      activationPath: `/#invite=${encodeURIComponent(created.registrationToken)}`,
+      activationPath: `/invite-bootstrap#invite=${encodeURIComponent(created.registrationToken)}`,
       expiresAt: created.expiresAt,
+      cloudflareAccess: cloudflareAccessStatus,
     });
   });
   app.put(`${prefix}/tenant/members/:email/access`, requireWorkspaceAdmin, (request, response) => {
@@ -2515,10 +2760,11 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     const member = localAuth.updateMemberAccess(request.params.email, body.grants as GuestAccessGrant[]);
     response.json({ member });
   });
-  app.delete(`${prefix}/tenant/members/:email`, requireWorkspaceAdmin, (request, response) => {
+  app.delete(`${prefix}/tenant/members/:email`, requireWorkspaceAdmin, async (request, response) => {
     if (!localAuth.removeMember(request.params.email, requestPrincipal(response))) {
       throw new HttpError(404, "MEMBER_NOT_FOUND", "Member or invitation not found");
     }
+    await synchronizeCloudflareAccess();
     response.status(204).end();
   });
   app.get(`${prefix}/locations/search`, requireNonGuest, async (request, response) => {
@@ -2568,6 +2814,65 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     const definition = database.disableMeasurementDefinition(measurementId(request.params.id, "id"));
     if (!definition) throw new HttpError(404, "NOT_FOUND", "Measurement definition not found");
     response.json({ definition });
+  });
+
+  app.post(`${v2Prefix}/analytics/query`, async (request, response) => {
+    try {
+      const analyticsRequest = parseAnalyticsQueryRequest(request.body);
+      const activeDataMode = database.isRealDataMode() ? "live" : "demo";
+      if (analyticsRequest.dataMode !== activeDataMode) {
+        throw new AnalyticsQueryError(
+          409,
+          "ANALYTICS_DATA_MODE_MISMATCH",
+          `This local database is in ${activeDataMode} mode; cross-mode analytics queries are not allowed`,
+        );
+      }
+      const house = database.getHouse(analyticsRequest.scope.id);
+      if (!house || !visibility(response).house(house.id)) {
+        throw new AnalyticsQueryError(404, "ANALYTICS_SCOPE_NOT_FOUND", "Analytics house scope was not found");
+      }
+      const accessibleSensors = database.listSensors(house.id)
+        .filter((sensor) => sensor.enabled && visibility(response).sensor(sensor.id));
+      const byId = new Map(accessibleSensors.map((sensor) => [sensor.id, sensor]));
+      const requestedSensorIds = analyticsRequest.scope.entityIds ?? accessibleSensors.map((sensor) => sensor.id);
+      const sensors = requestedSensorIds.map((sensorId) => {
+        const sensor = byId.get(sensorId);
+        if (!sensor) {
+          throw new AnalyticsQueryError(404, "ANALYTICS_ENTITY_NOT_FOUND", `Sensor ${sensorId} is not available in the requested house`);
+        }
+        return sensor;
+      });
+      const definitions = analyticsRequest.measurementIds.map((metric) => {
+        const definition = database.getMeasurementDefinition(metric);
+        if (!definition) throw new AnalyticsQueryError(404, "UNKNOWN_ANALYTICS_MEASUREMENT", `Unknown measurement: ${metric}`);
+        return definition;
+      });
+      const read = await telemetryReader.measurementWindow({
+        sensorIds: sensors.map((sensor) => sensor.id),
+        metrics: definitions.map((definition) => definition.id),
+        from: analyticsRequest.range.start,
+        to: analyticsRequest.range.end,
+        limit: 250_000,
+      });
+      if (read.records.length >= 250_000) {
+        throw new AnalyticsQueryError(
+          422,
+          "ANALYTICS_SOURCE_POINT_LIMIT_EXCEEDED",
+          "The source window reached the 250000-point interactive limit; choose a shorter range or fewer series",
+        );
+      }
+      response.setHeader("cache-control", "no-store");
+      response.json(buildAnalyticsResponse({
+        request: analyticsRequest,
+        samples: read.records,
+        definitions,
+        entities: sensors.map((sensor) => ({ id: sensor.id, label: sensor.name })),
+        archiveState: read.provenance.archiveState,
+      }));
+    } catch (error) {
+      if (error instanceof AnalyticsQueryError) throw new HttpError(error.status, error.code, error.message);
+      throw error;
+    }
   });
 
   app.post(`${v2Prefix}/measurements`, requireIngestKey, (request, response) => {
@@ -3032,7 +3337,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     const at = dateValue(request.query.at, new Date(), "at");
     const observations = database.listOpeningStateObservations(houseId, 10_000, at);
     const states = house.floors.flatMap((floor) => (floor.planElements ?? []).flatMap((element) => {
-      if (element.kind === "fireplace") return [];
+      if (element.kind !== "door" && element.kind !== "window" && element.kind !== "vent") return [];
       return [{ floorId: floor.id, elementId: element.id, kind: element.kind, ...(element.label ? { label: element.label } : {}),
         ...resolvePlanElementOpeningState(element, observations.filter((observation) => observation.floorId === floor.id), at) }];
     }));
@@ -3067,14 +3372,48 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     const house = database.getHouse(houseId);
     if (!house || !visibility(response).house(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
     const propertyPrice = database.getCurrentPropertyElectricityPrice(house.propertyId);
-    const current: HomeElectricityPricePoint | null = propertyPrice ? {
-      startAt: propertyPrice.startAt,
-      endAt: propertyPrice.endAt,
-      effectivePriceCentsPerKwh: propertyPrice.effectivePriceCentsPerKwh,
-      effectivePriceEurPerKwh: propertyPrice.effectivePriceEurPerKwh,
-      fetchedAt: propertyPrice.fetchedAt,
-    } : null;
-    response.json({ current });
+    const homePrice = (price: NonNullable<typeof propertyPrice>): HomeElectricityPricePoint => ({
+      startAt: price.startAt,
+      endAt: price.endAt,
+      effectivePriceCentsPerKwh: price.effectivePriceCentsPerKwh,
+      effectivePriceEurPerKwh: price.effectivePriceEurPerKwh,
+      fetchedAt: price.fetchedAt,
+    });
+    const current = propertyPrice ? homePrice(propertyPrice) : null;
+    const historyRequested = request.query.from !== undefined || request.query.to !== undefined;
+    if (!historyRequested) {
+      response.json({ current });
+      return;
+    }
+    const from = dateValue(request.query.from, new Date(Date.now() - 24 * 60 * 60_000), "from");
+    const to = dateValue(request.query.to, new Date(Date.now() + 48 * 60 * 60_000), "to");
+    const prices = database.listPropertyElectricityPrices(house.propertyId, from, to).map(homePrice);
+    response.json({ current, prices });
+  });
+  app.get(`${prefix}/houses/:id/energy-cost`, async (request, response) => {
+    const houseId = request.params.id as string;
+    const house = database.getHouse(houseId);
+    if (!house || !visibility(response).house(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
+    const sensorId = optionalResourceQuery(request.query.sensorId, "sensorId");
+    if (!sensorId) throw new HttpError(400, "INVALID_FIELD", "sensorId is required");
+    const sensor = database.getSensor(sensorId);
+    if (!sensor || sensor.houseId !== houseId || !visibility(response).sensor(sensorId)) {
+      throw new HttpError(404, "NOT_FOUND", "Energy sensor not found");
+    }
+    const to = dateValue(request.query.to, new Date(), "to");
+    const from = dateValue(request.query.from, new Date(Date.parse(to) - 30 * 86_400_000), "from");
+    const durationMs = Date.parse(to) - Date.parse(from);
+    if (durationMs <= 0 || durationMs > 366 * 86_400_000) {
+      throw new HttpError(400, "INVALID_ENERGY_COST_RANGE", "Energy cost range must be greater than zero and at most 366 days");
+    }
+    response.setHeader("cache-control", "no-store");
+    response.json({ cost: await energyCost.calculate({
+      houseId,
+      propertyId: house.propertyId,
+      sensorId,
+      from,
+      to,
+    }) });
   });
   app.get(`${prefix}/houses/:id/weather`, async (request, response) => {
     const house = database.getHouse(request.params.id as string);
@@ -3105,6 +3444,27 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       }
       throw error;
     }
+  });
+  app.get(`${v2Prefix}/houses/:id/outdoor-temperature/history`, async (request, response) => {
+    const house = database.getHouse(request.params.id as string);
+    if (!house || !visibility(response).house(house.id)) throw new HttpError(404, "NOT_FOUND", "House not found");
+    const to = dateValue(request.query.to, new Date(), "to");
+    const from = dateValue(request.query.from, new Date(Date.parse(to) - 24 * 3_600_000), "from");
+    if (Date.parse(from) > Date.parse(to)) throw new HttpError(400, "INVALID_RANGE", "from must be before to");
+    const limit = safeInteger(request.query.limit, 20_000, 1, 50_000);
+    if (!house.location) {
+      response.json({ samples: [], from, to, truncated: false });
+      return;
+    }
+    const archived = (await telemetryReader.outdoorTemperatureHistory({
+      houseId: house.id,
+      locationKey: outdoorLocationKey(house.location),
+      from,
+      to,
+      limit: limit + 1,
+    })).records;
+    const truncated = archived.length > limit;
+    response.json({ samples: truncated ? archived.slice(-limit) : archived, from, to, truncated });
   });
   app.get(`${prefix}/houses/:id/thermal-simulation`, (request, response) => {
     const house = database.getHouse(request.params.id as string);
@@ -3874,18 +4234,47 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     if (houseId && !database.getHouse(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
     response.json(integrationStatusForHouse(houseId));
   });
-  app.post(`${prefix}/integrations/discover`, async (_request, response) => {
+  app.get(`${prefix}/integrations/sensor-data-gaps`, (request, response) => {
+    const houseId = typeof request.query.houseId === "string" ? request.query.houseId.trim() : undefined;
+    const sensorId = typeof request.query.sensorId === "string" ? request.query.sensorId.trim() : undefined;
+    const access = visibility(response);
+    if (houseId && (!database.getHouse(houseId) || !access.house(houseId))) {
+      throw new HttpError(404, "NOT_FOUND", "House not found");
+    }
+    const limit = safeInteger(request.query.limit, 100, 1, 1_000);
+    const gaps = database.listSensorDataGaps(sensorId, limit)
+      .filter((gap) => {
+        const sensor = database.getSensor(gap.sensorId);
+        return Boolean(sensor && access.sensor(gap.sensorId) && (!houseId || sensor.houseId === houseId));
+      });
+    response.json({ gaps });
+  });
+  app.post(`${prefix}/integrations/discover`, async (request, response) => {
+    const body = bodyObject(request.body);
+    const houseId = body.houseId === undefined ? undefined : requiredString(body, "houseId");
+    if (houseId && !database.getHouse(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
+    const hasDraftUsername = body.tpLinkUsername !== undefined;
+    const hasDraftPassword = body.tpLinkPassword !== undefined;
+    if (hasDraftUsername !== hasDraftPassword) {
+      throw new HttpError(400, "INVALID_TP_LINK_CREDENTIALS", "tpLinkUsername and tpLinkPassword must be supplied together");
+    }
+    const draftCredentials = hasDraftUsername && hasDraftPassword
+      ? {
+          username: credentialString(body, "tpLinkUsername", 320, true),
+          password: credentialString(body, "tpLinkPassword", 4_096),
+        }
+      : undefined;
     const [homeAssistantResult, tpLinkResult] = await Promise.allSettled([
       discoverHomeAssistant(),
-      tpLink.discoverHubs(),
+      tpLink.discoverSources(houseId, draftCredentials),
     ]);
     const warnings: string[] = [];
     if (homeAssistantResult.status === "rejected") warnings.push("Home Assistant discovery was unavailable. Enter its address manually.");
-    if (tpLinkResult.status === "rejected") warnings.push("TP-Link discovery was unavailable. Enter the hub address manually.");
+    if (tpLinkResult.status === "rejected") warnings.push("TP-Link discovery was unavailable. Enter the hub or energy-device address manually.");
     else warnings.push(...tpLinkResult.value.warnings);
     response.json({
       homeAssistant: homeAssistantResult.status === "fulfilled" ? homeAssistantResult.value : [],
-      tpLink: tpLinkResult.status === "fulfilled" ? tpLinkResult.value.hubs : [],
+      tpLink: tpLinkResult.status === "fulfilled" ? tpLinkResult.value.sources : [],
       warnings,
     });
   });
@@ -4161,34 +4550,182 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     if (generation !== tpLinkConfigurationGenerations.get(generationKey)) {
       throw new HttpError(409, "INTEGRATION_CONFIG_SUPERSEDED", "A newer TP-Link configuration superseded this request");
     }
-    const existing = config.tpLinkConnections ?? [];
-    const matching = requestedConnectionId
+    const explicitConnections = config.tpLinkConnections ?? [];
+    const legacyHouseId = status.value.tpLink.connections?.find((candidate) => candidate.id === "legacy")?.houseId
+      ?? database.listHouses()[0]?.id;
+    const legacyConnection: TpLinkConnectionSecret | null = explicitConnections.length === 0
+      && !config.tpLinkLegacyDisabled && legacyHouseId
+      && config.tpLinkHost && config.tpLinkUsername && config.tpLinkPassword
+      ? {
+          id: "legacy",
+          houseId: legacyHouseId,
+          host: config.tpLinkHost,
+          username: config.tpLinkUsername,
+          password: config.tpLinkPassword,
+        }
+      : null;
+    // Materialize an environment-backed source before adding anything else.
+    // Otherwise the first different device saved through the UI would silently
+    // retire the working legacy hub.
+    const existing = legacyConnection ? [legacyConnection] : explicitConnections;
+    const rawTestedDeviceId = typeof validation.details?.sourceDeviceId === "string"
+      ? validation.details.sourceDeviceId.trim()
+      : "";
+    if (rawTestedDeviceId.length > 1_024) {
+      throw new HttpError(422, "INVALID_TP_LINK_DEVICE_ID", "The TP-Link helper returned an invalid source identity");
+    }
+    const testedDeviceId = rawTestedDeviceId || null;
+    const identityKey = (value: string | null | undefined): string | null => value?.trim().toUpperCase() || null;
+    const testedIdentity = identityKey(testedDeviceId);
+    const requestedConnection = requestedConnectionId
       ? existing.find((connection) => connection.id === requestedConnectionId)
-      : existing.find((connection) => connection.houseId === houseId && connection.host === host);
-    if (requestedConnectionId && !matching) throw new HttpError(404, "NOT_FOUND", "TP-Link connection not found");
-    if (matching && matching.houseId !== houseId) throw new HttpError(409, "TP_LINK_HOUSE_SCOPE", "TP-Link connection belongs to another house");
-    const connection = { id: matching?.id ?? randomUUID(), houseId, host, username, password };
-    const replacingLegacy = existing.length === 0 && !config.tpLinkLegacyDisabled
-      && Boolean(config.tpLinkHost && config.tpLinkUsername && config.tpLinkPassword);
+      : undefined;
+    if (requestedConnectionId && !requestedConnection) {
+      throw new HttpError(404, "NOT_FOUND", "TP-Link connection not found");
+    }
+    if (requestedConnection && requestedConnection.houseId !== houseId) {
+      throw new HttpError(409, "TP_LINK_HOUSE_SCOPE", "TP-Link connection belongs to another house");
+    }
+    const identityMatch = testedIdentity
+      ? existing.find((connection) => identityKey(connection.deviceId) === testedIdentity)
+      : undefined;
+    if (identityMatch && identityMatch.houseId !== houseId) {
+      throw new HttpError(409, "TP_LINK_ALREADY_ASSIGNED", "This TP-Link device is already assigned to another house");
+    }
+    if (requestedConnection && identityMatch && identityMatch.id !== requestedConnection.id) {
+      throw new HttpError(409, "TP_LINK_ALREADY_CONFIGURED", "This TP-Link device already has a different saved connection");
+    }
+    const requestedIdentity = identityKey(requestedConnection?.deviceId);
+    if (requestedConnection && requestedConnection.host !== host && requestedIdentity && !testedIdentity) {
+      throw new HttpError(
+        409,
+        "TP_LINK_IDENTITY_REQUIRED",
+        "The TP-Link helper did not return a stable identity, so the saved connection address was not changed",
+      );
+    }
+    if (requestedIdentity && testedIdentity && requestedIdentity !== testedIdentity) {
+      throw new HttpError(
+        409,
+        "TP_LINK_CONNECTION_IDENTITY_MISMATCH",
+        "The selected TP-Link connection belongs to a different physical device; add this device as a new connection instead",
+      );
+    }
+    const hostMatch = existing.find((connection) => connection.houseId === houseId && connection.host === host);
+    if (requestedConnection && hostMatch && hostMatch.id !== requestedConnection.id) {
+      throw new HttpError(409, "TP_LINK_HOST_ALREADY_CONFIGURED", "This TP-Link address already has a different saved connection");
+    }
+    const hostIdentity = identityKey(hostMatch?.deviceId);
+    if (!requestedConnection && hostIdentity && testedIdentity && hostIdentity !== testedIdentity) {
+      throw new HttpError(
+        409,
+        "TP_LINK_HOST_IDENTITY_MISMATCH",
+        "The device at this address does not match the TP-Link connection previously saved for it",
+      );
+    }
+    // Stable identity wins over a DHCP address. Omitting connectionId therefore
+    // updates a known device after an address change, but creates a second
+    // connection when discovery finds genuinely different hardware.
+    const matching = requestedConnection ?? identityMatch ?? hostMatch;
+    const resolvedDeviceId = testedDeviceId ?? matching?.deviceId;
+    const connection: TpLinkConnectionSecret = {
+      id: matching?.id ?? randomUUID(), houseId, host, username, password,
+      ...(resolvedDeviceId ? { deviceId: resolvedDeviceId } : {}),
+    };
     const connections = [...existing.filter((candidate) => candidate.id !== connection.id), connection];
-    updateIntegrationSecrets(config.integrationSecretsFile, {
-      tpLink: null,
-      tpLinkConnections: connections,
-      ...(replacingLegacy ? { tpLinkLegacyDisabled: true } : {}),
-    });
-    if (replacingLegacy) integrationMetadata.retireTpLink("legacy");
+    const sameHouseConnections = existing.filter((candidate) => candidate.houseId === houseId);
+    const unscopedSensors = database.listSensors(houseId)
+      .filter((sensor) => sensor.tpLinkDeviceId && !sensor.tpLinkConnectionId);
+    const sensorAssignments: Array<{
+      sensorId: string;
+      fromConnectionId: string | null;
+      toConnectionId: string | null;
+    }> = [];
+    if (!matching && sameHouseConnections.length > 0 && unscopedSensors.length > 0) {
+      if (sameHouseConnections.length !== 1) {
+        throw new HttpError(
+          409,
+          "TP_LINK_BINDING_MIGRATION_REQUIRED",
+          "Unscoped TP-Link sensors must be assigned before another connection can be added",
+        );
+      }
+      const normalizeDeviceId = (value: string): string => value.trim().toUpperCase();
+      const newDeviceIds = new Set((Array.isArray(validation.details?.deviceIds)
+        ? validation.details.deviceIds
+        : []).flatMap((value): string[] => {
+          if (typeof value !== "string") return [];
+          const deviceId = value.trim();
+          return deviceId && deviceId.length <= 1_024 ? [normalizeDeviceId(deviceId)] : [];
+        }).slice(0, 2_048));
+      const existingConnection = sameHouseConnections[0]!;
+      const existingDeviceIds = new Set(tpLink.listDiscoveredDevices(houseId)
+        .filter((device) => !device.connectionId || device.connectionId === existingConnection.id)
+        .map((device) => normalizeDeviceId(device.deviceId)));
+      const ambiguousSensorIds: string[] = [];
+      for (const sensor of unscopedSensors) {
+        const deviceId = normalizeDeviceId(sensor.tpLinkDeviceId!);
+        const belongsToNewConnection = newDeviceIds.has(deviceId);
+        const belongsToExistingConnection = existingDeviceIds.has(deviceId);
+        if (belongsToNewConnection === belongsToExistingConnection) {
+          ambiguousSensorIds.push(sensor.id);
+          continue;
+        }
+        sensorAssignments.push({
+          sensorId: sensor.id,
+          fromConnectionId: null,
+          toConnectionId: belongsToNewConnection ? connection.id : existingConnection.id,
+        });
+      }
+      if (ambiguousSensorIds.length > 0) {
+        throw new HttpError(
+          409,
+          "TP_LINK_BINDING_MIGRATION_REQUIRED",
+          "The existing and new TP-Link sources could not safely identify every unscoped sensor; no configuration was changed",
+          { sensorIds: ambiguousSensorIds },
+        );
+      }
+    }
+    if (sensorAssignments.length > 0) {
+      database.reassignTpLinkSensors(houseId, sensorAssignments);
+    }
+    try {
+      updateIntegrationSecrets(config.integrationSecretsFile, {
+        tpLink: null,
+        tpLinkConnections: connections,
+        ...(legacyConnection ? { tpLinkLegacyDisabled: true } : {}),
+      });
+    } catch (error) {
+      if (sensorAssignments.length > 0) {
+        database.reassignTpLinkSensors(houseId, sensorAssignments.map((assignment) => ({
+          sensorId: assignment.sensorId,
+          fromConnectionId: assignment.toConnectionId,
+          toConnectionId: assignment.fromConnectionId,
+        })));
+      }
+      throw error;
+    }
+    if (legacyConnection && connection.id !== legacyConnection.id) {
+      integrationMetadata.saveTpLink({
+        id: legacyConnection.id,
+        houseId: legacyConnection.houseId,
+        host: legacyConnection.host,
+        reason: "reconciled",
+      });
+    }
     integrationMetadata.saveTpLink({ id: connection.id, houseId, host });
     config.tpLinkConnections = connections;
-    if (replacingLegacy) config.tpLinkLegacyDisabled = true;
+    if (legacyConnection) config.tpLinkLegacyDisabled = true;
     status.value.tpLink.configured = true;
     status.value.tpLink.error = null;
-    status.value.tpLink.connections = [
-      ...(status.value.tpLink.connections ?? []).filter((candidate) => candidate.id !== connection.id),
-      {
-        id: connection.id, houseId, configured: true, connected: false, lastPollAt: null,
+    const previousConnectionStatuses = new Map((status.value.tpLink.connections ?? [])
+      .map((candidate) => [candidate.id, candidate] as const));
+    status.value.tpLink.connections = connections.map((candidate) => {
+      const previous = previousConnectionStatuses.get(candidate.id);
+      if (candidate.id !== connection.id && previous) return previous;
+      return {
+        id: candidate.id, houseId: candidate.houseId, configured: true, connected: false, lastPollAt: null,
         mappedDevices: 0, discoveredDevices: 0, hubModel: null, error: null,
-      },
-    ];
+      };
+    });
     const wasRealMode = dataMode.isRealMode;
     dataMode.activate();
     if (wasRealMode) status.changed();
@@ -4235,7 +4772,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     integrationMetadata.moveTpLink(connectionId, targetHouseId, connection.host);
     config.tpLinkConnections = connections;
     if (migratingLegacy) config.tpLinkLegacyDisabled = true;
-    const detachedSensorIds = database.detachTpLinkConnection(connectionId, connectionId === "legacy" ? fromHouseId : undefined);
+    const detachedSensorIds = database.detachTpLinkConnection(connectionId, migratingLegacy ? fromHouseId : undefined);
     if (options.startBackground) tpLink.restart();
     else {
       status.value.tpLink.connections = (status.value.tpLink.connections ?? []).map((candidate) => candidate.id === connectionId
@@ -4330,7 +4867,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     integrationMetadata.retireTpLink(connectionId);
     config.tpLinkConnections = connections;
     if (disconnectingLegacy) config.tpLinkLegacyDisabled = true;
-    const detachedSensorIds = database.detachTpLinkConnection(connectionId, connectionId === "legacy" ? connection.houseId : undefined);
+    const detachedSensorIds = database.detachTpLinkConnection(connectionId, disconnectingLegacy ? connection.houseId : undefined);
     if (options.startBackground) tpLink.restart();
     else {
       status.value.tpLink.configured = connections.length > 0;
@@ -4405,6 +4942,170 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   app.get(`${prefix}/integrations/tp-link/devices`, (request, response) => response.json({
     devices: tpLink.listDiscoveredDevices(typeof request.query.houseId === "string" ? request.query.houseId : undefined),
   }));
+
+  app.post(`${prefix}/integrations/tp-link/history-export/canary`, requireWorkspaceAdmin, (request, response) => {
+    const body = bodyObject(request.body);
+    rejectUnknownFields(body, new Set(["sensorId", "metric", "from", "to"]), "Tapo history canary");
+    const sensorId = requiredString(body, "sensorId");
+    const metric = enumValue(body.metric, ["temperature", "humidity"] as const, "metric");
+    const fromMs = Date.parse(requiredString(body, "from"));
+    const toMs = Date.parse(requiredString(body, "to"));
+    const minimumRangeMs = 8 * (config.tapoHistoryExportIntervalMinutes ?? 15) * 60_000;
+    const maximumRangeMs = Math.max(7 * 24 * 60 * 60_000, minimumRangeMs);
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs
+      || toMs - fromMs < minimumRangeMs || toMs - fromMs > maximumRangeMs
+      || toMs > Date.now() + 5 * 60_000) {
+      throw new HttpError(
+        422,
+        "INVALID_TAPO_CANARY_RANGE",
+        "Canary range must be explicit, end no more than five minutes in the future, span at least eight export intervals, and stay within the configured bounded acceptance window",
+      );
+    }
+    try {
+      const job = tapoHistory.createCanary(
+        sensorId,
+        metric,
+        new Date(fromMs).toISOString(),
+        new Date(toMs).toISOString(),
+      );
+      response.status(202).json({ job: publicTapoHistoryExportJob(job) });
+    } catch (error) {
+      if (error instanceof TapoHistoryCanaryError) throw new HttpError(409, error.code, error.message);
+      throw error;
+    }
+  });
+
+  app.post(`${prefix}/integrations/tp-link/history-export/backfill`, requireWorkspaceAdmin, (request, response) => {
+    const body = bodyObject(request.body);
+    rejectUnknownFields(body, new Set(["sensorId", "metric", "from", "to"]), "Tapo history backfill");
+    const sensorId = requiredString(body, "sensorId");
+    const metric = enumValue(body.metric, ["temperature", "humidity"] as const, "metric");
+    const sensor = database.getSensor(sensorId);
+    if (!sensor) throw new HttpError(404, "NOT_FOUND", "Sensor not found");
+    const definition = database.getMeasurementDefinition(metric);
+    if (!sensor.enabled || !definition?.enabled) {
+      throw new HttpError(409, "TAPO_BACKFILL_TARGET_DISABLED", "Backfill sensor and metric must both be enabled");
+    }
+    const fromMs = Date.parse(requiredString(body, "from"));
+    const toMs = Date.parse(requiredString(body, "to"));
+    const validationNowMs = Date.now();
+    const minimumRangeMs = 2 * (config.tapoHistoryExportIntervalMinutes ?? 15) * 60_000;
+    const maximumRangeMs = 730 * 24 * 60 * 60_000;
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs
+      || toMs - fromMs < minimumRangeMs || toMs - fromMs > maximumRangeMs
+      || fromMs < validationNowMs - maximumRangeMs
+      || toMs > validationNowMs + 5 * 60_000) {
+      throw new HttpError(
+        422,
+        "INVALID_TAPO_BACKFILL_RANGE",
+        "Backfill range must be explicit, fall within the most recent two years, span at least two export intervals, and end no more than five minutes in the future",
+      );
+    }
+    try {
+      const gap = tapoHistory.requestBackfill(
+        sensorId,
+        metric,
+        new Date(fromMs).toISOString(),
+        new Date(toMs).toISOString(),
+      );
+      sensorGapRecovery.wake();
+      response.status(202).json({ gap });
+    } catch (error) {
+      if (error instanceof TapoHistoryCanaryError) {
+        throw new HttpError(error.code === "INVALID_TAPO_BACKFILL_RANGE" ? 422 : 409, error.code, error.message);
+      }
+      throw error;
+    }
+  });
+
+  app.get(`${prefix}/integrations/tp-link/history-export/jobs`, (_request, response) => {
+    const jobs = tapoHistory.listJobs(250);
+    const lastWorkerJob = jobs.filter((job) => job.deploymentFingerprint)
+      .sort((left, right) => (right.heartbeatAt ?? right.updatedAt).localeCompare(left.heartbeatAt ?? left.updatedAt))[0];
+    response.json({
+      enabled: tapoHistory.enabled,
+      automation: {
+        operational: tapoHistory.operational,
+        canaryPending: database.hasOpenTapoHistoryCanary(),
+        waitingEmails: database.countWaitingTapoHistoryExportEmails(),
+        maxPendingEmails: config.tapoHistoryMaxPendingEmails ?? 1,
+        exportIntervalMinutes: config.tapoHistoryExportIntervalMinutes ?? 15,
+        canaryApprovalMaxAgeDays: TAPO_CANARY_APPROVAL_MAX_AGE_MS / (24 * 60 * 60_000),
+        mailbox: tapoHistory.mailboxHealth,
+        lastWorkerSeenAt: lastWorkerJob?.heartbeatAt ?? lastWorkerJob?.updatedAt ?? null,
+        deploymentFingerprintPrefix: lastWorkerJob?.deploymentFingerprint?.slice(0, 12) ?? null,
+      },
+      jobs: jobs.map(publicTapoHistoryExportJob),
+    });
+  });
+
+  app.post(`${prefix}/integrations/tp-link/history-export/jobs/:id/retry`, requireWorkspaceAdmin, (request, response) => {
+    const id = typeof request.params.id === "string" ? request.params.id : "";
+    if (!id || id.length > 200) throw new HttpError(400, "INVALID_FIELD", "Invalid Tapo export job id");
+    const job = tapoHistory.retry(id);
+    if (!job) throw new HttpError(409, "TAPO_EXPORT_NOT_RETRYABLE", "Tapo export job is not retryable");
+    response.json({ job: publicTapoHistoryExportJob(job) });
+  });
+
+  app.delete(`${prefix}/integrations/tp-link/history-export/jobs/:id`, requireWorkspaceAdmin, (request, response) => {
+    const id = typeof request.params.id === "string" ? request.params.id : "";
+    if (!id || id.length > 200) throw new HttpError(400, "INVALID_FIELD", "Invalid Tapo export job id");
+    const existing = database.getTapoHistoryExportJob(id);
+    if (!existing) throw new HttpError(404, "TAPO_EXPORT_NOT_FOUND", "Tapo export job was not found");
+    const job = tapoHistory.cancel(id);
+    response.json({ job: job ? publicTapoHistoryExportJob(job) : null });
+  });
+
+  app.get(`${prefix}/internal/tapo-history/jobs/claim`, (request, response) => {
+    const workerId = typeof request.query.workerId === "string" ? request.query.workerId.trim() : "";
+    if (!workerId || workerId.length > 200) throw new HttpError(400, "INVALID_FIELD", "workerId is required and must be at most 200 characters");
+    const deploymentFingerprint = typeof request.query.deploymentFingerprint === "string"
+      ? request.query.deploymentFingerprint.trim().toLowerCase()
+      : "";
+    const attestedHeader = request.get("x-tapo-deployment-fingerprint")?.trim().toLowerCase() ?? "";
+    if (!/^[a-f0-9]{64}$/u.test(deploymentFingerprint) || attestedHeader !== deploymentFingerprint) {
+      throw new HttpError(
+        400,
+        "INVALID_TAPO_DEPLOYMENT_FINGERPRINT",
+        "A matching SHA-256 deployment fingerprint is required in the claim query and header",
+      );
+    }
+    const claim = tapoHistory.claim(workerId, deploymentFingerprint);
+    if (!claim) { response.status(204).end(); return; }
+    response.json({ job: workerTapoHistoryExportJob(claim.job), leaseToken: claim.leaseToken, serverNow: claim.serverNow });
+  });
+
+  app.post(`${prefix}/internal/tapo-history/jobs/:id/heartbeat`, (request, response) => {
+    const body = bodyObject(request.body);
+    const workerId = requiredString(body, "workerId");
+    const leaseToken = requiredString(body, "leaseToken");
+    const existing = database.getTapoHistoryExportJob(request.params.id);
+    const deploymentFingerprint = request.get("x-tapo-deployment-fingerprint")?.trim().toLowerCase() ?? "";
+    if (!existing || existing.leaseOwner !== workerId || !existing.deploymentFingerprint
+      || deploymentFingerprint !== existing.deploymentFingerprint) {
+      throw new HttpError(409, "TAPO_EXPORT_LEASE_LOST", "The Tapo export worker lease is no longer active");
+    }
+    const renewed = tapoHistory.heartbeat(request.params.id, leaseToken);
+    if (!renewed) throw new HttpError(409, "TAPO_EXPORT_LEASE_LOST", "The Tapo export worker lease is no longer active");
+    response.json({ job: workerTapoHistoryExportJob(renewed.job), serverNow: renewed.serverNow });
+  });
+
+  app.post(`${prefix}/internal/tapo-history/jobs/:id/status`, (request, response) => {
+    const body = bodyObject(request.body);
+    const workerId = requiredString(body, "workerId");
+    const leaseToken = requiredString(body, "leaseToken");
+    const status = enumValue(body.status, ["running", "waiting-email", "needs-attention", "failed"] as const, "status");
+    const detail = body.detail === undefined || body.detail === null ? null : requiredString(body, "detail").slice(0, 1_000);
+    const existing = database.getTapoHistoryExportJob(request.params.id);
+    const deploymentFingerprint = request.get("x-tapo-deployment-fingerprint")?.trim().toLowerCase() ?? "";
+    if (!existing || existing.leaseOwner !== workerId || !existing.deploymentFingerprint
+      || deploymentFingerprint !== existing.deploymentFingerprint) {
+      throw new HttpError(409, "TAPO_EXPORT_LEASE_LOST", "The Tapo export worker lease is no longer active");
+    }
+    const job = tapoHistory.updateFromWorker(request.params.id, leaseToken, { status, detail });
+    if (!job) throw new HttpError(409, "TAPO_EXPORT_LEASE_LOST", "The Tapo export worker lease is no longer active");
+    response.json({ job: workerTapoHistoryExportJob(job) });
+  });
   app.post(`${prefix}/integrations/tp-link/test`, (request, response) => {
     const houseStatus = integrationStatusForHouse(typeof request.query.houseId === "string" ? request.query.houseId : undefined).tpLink;
     response.json({
@@ -4413,7 +5114,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       ? `TP-Link ${houseStatus.hubModel ?? "energy device"} is connected; ${houseStatus.discoveredDevices} devices discovered and ${houseStatus.mappedDevices} mapped.`
       : houseStatus.configured
         ? houseStatus.error ?? "TP-Link credentials are configured, but discovery has not connected yet."
-        : "Use the setup page to discover or enter the hub, then save the TP-Link account credentials.",
+        : "Use the setup page to discover or enter the hub or energy device, then save the TP-Link account credentials.",
     });
   });
   app.get(`${prefix}/integrations/tp-link/setup`, (request, response) => {
@@ -4426,7 +5127,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     supportedEnergyDevices: "Configured TP-Link/Kasa hosts that python-kasa exposes through Module.Energy",
     steps: [
       "Install python-kasa from apps/api/python/requirements.txt (already included in the Docker image).",
-      "Select the owning house, discover an H100/H200 hub or enter a reserved LAN address, then save the house-scoped TP-Link connection.",
+      "Select the owning house, discover an H100/H200 hub or supported energy device, or enter a reserved LAN address, then save the house-scoped TP-Link connection.",
       "Inspect /api/v1/integrations/tp-link/devices for discovered climate children or the configured direct energy device.",
       "Assign a discovered device by PATCHing its stable deviceId into a sensor's tpLinkDeviceId field.",
     ],
@@ -4440,7 +5141,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       "Home Assistant and direct TP-Link bridges can run at the same time, but the same physical child should be mapped through only one path.",
       "Direct smart energy devices provide power when current_consumption is available and cumulative kWh only when consumption_total is available; daily/monthly reset counters are not mapped to energy.",
       "TP-Link provides consumption only. Property electricity prices are fetched separately from the configured price API (Pörssisähkö by default).",
-      "LAN Find devices currently discovers H100/H200 hubs only; direct energy devices require manual address entry.",
+      "LAN Find devices discovers H100/H200 hubs and uses saved or request-scoped draft TP-Link credentials to include devices that python-kasa verifies through Module.Energy; draft credentials are never persisted.",
       "Saving a real integration permanently disables mock telemetry for this database and purges existing demo samples and mock-derived alert events.",
     ],
     });
@@ -4567,10 +5268,13 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   }
 
   if (options.startBackground) {
+    cloudflareAccess?.start();
     alertEngine.start();
     mock.start();
     homeAssistant.start();
     tpLink.start();
+    tapoHistory.start();
+    sensorGapRecovery.start();
     electricityPrices.start();
     weatherMonitor.start();
     notifySpatial((runtime) => runtime.start());
@@ -4582,6 +5286,8 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     alertEngine.stop();
     mock.stop();
     replay.stop();
+    const stoppingSensorGapRecovery = sensorGapRecovery.stop();
+    const stoppingTapoHistory = tapoHistory.stop();
     homeAssistant.stop();
     tpLink.stop();
     electricityPrices.stop();
@@ -4589,6 +5295,9 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     for (const closeStream of [...activeEventStreams]) closeStream(true);
     shutdownPromise = Promise.all([
       notificationOutbox.stop(),
+      cloudflareAccess?.stop() ?? Promise.resolve(),
+      stoppingSensorGapRecovery,
+      stoppingTapoHistory,
       weatherRecovery.stop(),
       spatialLayers?.stop() ?? Promise.resolve(),
       (telemetryRetention?.stop() ?? Promise.resolve()).then(() => telemetryArchive?.stop()),
@@ -4611,8 +5320,8 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   };
 
   return {
-    app, database, integrationMetadata, bus, telemetry, measurements, mock, replay, status, homeAssistant, tpLink, electricityPrices, telegram, weather, weatherMonitor,
-    weatherRecovery, weatherEvents, dataMode, notificationOutbox, dataOperations, energyOptimizer, setupDoctor, spatialLayers, timeseries, telemetryArchive, telemetryReader,
+    app, database, integrationMetadata, bus, telemetry, measurements, mock, replay, status, homeAssistant, tpLink, tapoHistory, electricityPrices, telegram, weather, weatherMonitor,
+    weatherRecovery, sensorGapRecovery, weatherEvents, dataMode, notificationOutbox, dataOperations, energyOptimizer, energyCost, setupDoctor, cloudflareAccess, spatialLayers, timeseries, telemetryArchive, telemetryReader,
     ready: () => runtimeReady,
     beginShutdown,
     close,

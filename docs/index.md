@@ -45,7 +45,9 @@ Start here:
    models, integrations, testing, and versioning.
 19. [Backend storage and operations](backend-storage.md) — SQLite control-plane
    durability, TimescaleDB telemetry, caching, migration, backup, and recovery.
-20. [Known MVP limitations](known-limitations.md) — correctness and operational
+20. [Analytics foundation and Explorer](analytics-foundation.md) — the bounded
+   query contract, measurement-aware rollups, evidence UI, decisions, and gap matrix.
+21. [Known MVP limitations](known-limitations.md) — correctness and operational
    constraints to review before using physical data or notifications.
 
 Reference configuration:

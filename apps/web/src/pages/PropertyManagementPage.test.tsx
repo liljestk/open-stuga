@@ -617,13 +617,13 @@ describe("PropertyManagementPage", () => {
       .mockResolvedValueOnce({
         invitation: { email: "guest@example.test", role: "guest", grants: [], invitedAt: "2026-07-16T08:00:00.000Z" },
         registrationToken: "first_activation_token_abcdefghijklmnopqrstuvwxyz",
-        activationPath: "/#invite=first_activation_token_abcdefghijklmnopqrstuvwxyz",
+        activationPath: "/invite-bootstrap#invite=first_activation_token_abcdefghijklmnopqrstuvwxyz",
         expiresAt: "2026-07-23T08:00:00.000Z",
       })
       .mockResolvedValueOnce({
         invitation: { email: "guest@example.test", role: "guest", grants: [], invitedAt: "2026-07-16T09:00:00.000Z" },
         registrationToken: "second_activation_token_abcdefghijklmnopqrstuvwxyz",
-        activationPath: "/#invite=second_activation_token_abcdefghijklmnopqrstuvwxyz",
+        activationPath: "/invite-bootstrap#invite=second_activation_token_abcdefghijklmnopqrstuvwxyz",
         expiresAt: "2026-07-23T09:00:00.000Z",
       });
     const writeText = vi.fn().mockResolvedValue(undefined);
@@ -635,14 +635,14 @@ describe("PropertyManagementPage", () => {
     fireEvent.change(screen.getByLabelText("Guest email address"), { target: { value: "guest@example.test" } });
     fireEvent.click(screen.getByRole("button", { name: "Invite guest" }));
     const activation = await screen.findByLabelText("Activation link") as HTMLInputElement;
-    expect(activation.value).toContain("/#invite=first_activation_token_abcdefghijklmnopqrstuvwxyz");
+    expect(activation.value).toContain("/invite-bootstrap#invite=first_activation_token_abcdefghijklmnopqrstuvwxyz");
     expect(activation.value).not.toContain("?token=");
     fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(activation.value));
 
     fireEvent.change(screen.getByLabelText("Guest email address"), { target: { value: "guest@example.test" } });
     fireEvent.click(screen.getByRole("button", { name: "Invite guest" }));
-    await waitFor(() => expect((screen.getByLabelText("Activation link") as HTMLInputElement).value).toContain("/#invite=second_activation_token_abcdefghijklmnopqrstuvwxyz"));
+    await waitFor(() => expect((screen.getByLabelText("Activation link") as HTMLInputElement).value).toContain("/invite-bootstrap#invite=second_activation_token_abcdefghijklmnopqrstuvwxyz"));
     expect(inviteGuest).toHaveBeenCalledTimes(2);
   });
 
@@ -670,7 +670,6 @@ describe("PropertyManagementPage", () => {
     vi.spyOn(api, "tenantMembers").mockResolvedValue({ members: [guest], invitations: [] });
     const updateAccess = vi.spyOn(api, "updateMemberAccess").mockImplementation(async (_email, grants) => ({ email: guest.email, role: "guest", grants }));
     const removeMember = vi.spyOn(api, "removeTenantMember").mockResolvedValue(undefined);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
 
     render(<I18nProvider><PeopleAccessPage state={state} /></I18nProvider>);
 
@@ -699,6 +698,12 @@ describe("PropertyManagementPage", () => {
     expect(screen.getByText("Active guest")).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove guest" }));
+    expect(removeMember).not.toHaveBeenCalled();
+    expect(screen.getByText("Remove guest access for guest@example.test? Their grants to this workspace will be cleared.")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("button", { name: "Confirm removal" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Remove guest" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm removal" }));
     await waitFor(() => expect(removeMember).toHaveBeenCalledWith("guest@example.test"));
     expect(screen.getByText("Guest access removed.")).not.toBeNull();
   });

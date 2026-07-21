@@ -259,6 +259,29 @@ describe("sensor onboarding and management", () => {
     expect(within(status).getByRole("button", { name: "Refresh device list" })).not.toBeNull();
   });
 
+  it("explains that an unavailable hub is retried automatically", () => {
+    const state = createDemoState();
+    renderPage({
+      integration: {
+        ...state.integration,
+        tpLink: {
+          configured: true,
+          connected: false,
+          lastPollAt: "2026-07-14T12:00:00.000Z",
+          mappedDevices: 0,
+          discoveredDevices: 1,
+          hubModel: "H200",
+          error: "TP-Link connection failed: hub unavailable",
+        },
+      },
+    });
+
+    const status = screen.getByRole("region", { name: "Automatic sensor discovery status" });
+    expect(within(status).getByText("Reconnecting to the TP-Link hub")).not.toBeNull();
+    expect(within(status).getByText("Stuga keeps retrying automatically. Sensor checks resume as soon as the connection is restored.")).not.toBeNull();
+    expect(status.querySelector(".sensor-discovery-watch-icon .spin")).not.toBeNull();
+  });
+
   it("restores focus after closing inline sensor setup and history import", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -667,6 +690,30 @@ describe("sensor onboarding and management", () => {
     expect(screen.getByRole("combobox", { name: /^TP-Link device binding/ })).not.toBeNull();
   });
 
+  it("keeps history and prediction visualization on each individual sensor detail view", async () => {
+    const user = userEvent.setup();
+    const state = createDemoState();
+    const sensor = state.sensors.find((candidate) => candidate.id === "sensor-living")!;
+    vi.spyOn(api, "sensorMeasurementPage").mockResolvedValue({
+      samples: state.measurementHistory[sensor.id]!.temperature!,
+      nextCursor: null,
+    });
+    const onLoadSeries = vi.fn();
+    const rendered = renderPage({ state, onLoadSeries });
+
+    expect(screen.queryByRole("heading", { name: "Home sensor analytics" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: `View data for ${sensor.name}` }));
+    const details = rendered.container.querySelector<HTMLElement>(".sensor-details-panel")!;
+    expect(within(details).getByRole("group", { name: /Temperature history and forecast for Living room/ })).not.toBeNull();
+    expect(within(details).getByText("Predicted")).not.toBeNull();
+    expect(onLoadSeries).toHaveBeenCalledWith(sensor.id, "temperature", "24h", true);
+
+    await user.selectOptions(within(details).getByRole("combobox", { name: "Measurement" }), "humidity");
+    await waitFor(() => expect(onLoadSeries).toHaveBeenCalledWith(sensor.id, "humidity", "24h", true));
+    expect(within(details).getByRole("group", { name: /Humidity history and forecast for Living room/ })).not.toBeNull();
+  });
+
   it("keeps the newly selected sensor details when an older request finishes later", async () => {
     const user = userEvent.setup();
     const state = createDemoState();
@@ -776,7 +823,7 @@ describe("sensor onboarding and management", () => {
     });
 
     expect(screen.getByRole("heading", { name: "Sensors" })).not.toBeNull();
-    expect(screen.getByText(sensor.name)).not.toBeNull();
+    expect(within(rendered.container.querySelector<HTMLElement>(".sensor-list-panel")!).getByText(sensor.name)).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Add sensor" })).toBeNull();
     expect(screen.queryByRole("button", { name: `Edit ${sensor.name}` })).toBeNull();
     expect(screen.queryByRole("button", { name: `Archive ${sensor.name}` })).toBeNull();

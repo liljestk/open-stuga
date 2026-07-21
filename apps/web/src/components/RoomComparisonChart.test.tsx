@@ -37,4 +37,28 @@ describe("RoomComparisonChart", () => {
     expect(screen.getByRole("table", { name: /Comparison chart for Temperature/i })).not.toBeNull();
     expect(container.querySelector("tbody")).not.toBeNull();
   });
+
+  it("uses sensor names when room labels would be ambiguous", () => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const sensors = state.sensors.filter((sensor) => sensor.houseId === house.id).slice(0, 2).map((sensor, index) => ({
+      ...sensor,
+      name: `Living sensor ${index + 1}`,
+      room: "Living room",
+    }));
+    render(
+      <I18nProvider>
+        <RoomComparisonChart
+          sensors={sensors} selectedSensorId={sensors[0]!.id} history={state.measurementHistory}
+          definition={definitionFor(state.measurementDefinitions, "temperature")} units="metric" range="24h"
+          weather={null} alerts={[]} observations={[]} warnings={[]} timeZone={house.timezone}
+          onRange={vi.fn()} onLoadSeries={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByRole("button", { name: "Living sensor 1" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Living sensor 2" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Living room" })).toBeNull();
+  });
 });

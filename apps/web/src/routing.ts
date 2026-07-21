@@ -35,7 +35,7 @@ export function routeFromLocation(location: Pick<Location, "pathname" | "search"
   const queryHouse = search.get("site") || search.get("home");
 
   const homeRoute = new RegExp(
-    `^/properties/([^/]+)/homes/([^/]+)(?:/(activity|maintenance|outdoor|electricity|sensors|setup(?:/(?:${setupSectionPattern}))?))?$`,
+    `^/properties/([^/]+)/homes/([^/]+)(?:/(activity|maintenance|outdoor|electricity|sensors|analytics|setup(?:/(?:${setupSectionPattern}))?))?$`,
   ).exec(path);
   if (homeRoute) {
     const propertyId = decoded(homeRoute[1]);
@@ -53,6 +53,8 @@ export function routeFromLocation(location: Pick<Location, "pathname" | "search"
           ? "energy"
         : suffix === "sensors"
           ? "sensors"
+          : suffix === "analytics"
+            ? "analytics"
           : suffix.startsWith("setup")
             ? "integrations"
             : "twin";
@@ -88,8 +90,8 @@ export function routeFromLocation(location: Pick<Location, "pathname" | "search"
   if (path === "/developer") return { page: "developer", propertyId: null, houseId: null };
 
   if (path === "/") return { page: "twin", propertyId: null, houseId: queryHouse, legacy: true };
-  if (["/twin", "/outdoor", "/energy", "/activity", "/maintenance", "/sensors"].includes(path)) {
-    const page = path.slice(1) as Extract<AppPage, "twin" | "outdoor" | "energy" | "activity" | "maintenance" | "sensors">;
+  if (["/twin", "/outdoor", "/energy", "/activity", "/maintenance", "/sensors", "/analytics"].includes(path)) {
+    const page = path.slice(1) as Extract<AppPage, "twin" | "outdoor" | "energy" | "activity" | "maintenance" | "sensors" | "analytics">;
     return { page, propertyId: null, houseId: queryHouse, legacy: true };
   }
   if (path === "/setup" || new RegExp(`^/setup/(?:${setupSectionPattern})$`).test(path)) {
@@ -119,6 +121,7 @@ export function locationForRoute(
     case "outdoor": return homeBase ? `${homeBase}/outdoor` : propertyBase;
     case "energy": return homeBase ? `${homeBase}/electricity` : property ? `${propertyBase}/electricity` : "/properties";
     case "sensors": return homeBase ? `${homeBase}/sensors` : propertyBase;
+    case "analytics": return homeBase ? `${homeBase}/analytics` : propertyBase;
     case "alerts": return "/alerts";
     case "integrations": {
       const normalizedCurrentPath = (currentPathname ?? "").replace(/\/+$/, "");

@@ -1,0 +1,254 @@
+{
+  "version": 1,
+  "appPackage": "com.tplink.iot",
+  "intervalLabels": {
+    "1": "1 min",
+    "15": "15 min",
+    "30": "30 min",
+    "60": "1 h",
+    "360": "6 h",
+    "720": "12 h",
+    "1440": "1 day"
+  },
+  "deviceProofs": {
+    "CHANGE_ME_TAPO_DEVICE_ID": "CHANGE_ME_IMMUTABLE_DEVICE_PROOF"
+  },
+  "restartAppBeforeJob": true,
+  "signalTimeoutMs": 750,
+  "signals": {
+    "authenticated": {
+      "using": "id",
+      "value": "com.tplink.iot:id/CHANGE_ME_HOME_SIGNAL"
+    },
+    "login": {
+      "using": "id",
+      "value": "com.tplink.iot:id/CHANGE_ME_LOGIN_EMAIL"
+    },
+    "twoFactor": {
+      "using": "id",
+      "value": "com.tplink.iot:id/CHANGE_ME_VERIFICATION_CODE"
+    }
+  },
+  "flows": {
+    "prepare": [
+      {
+        "action": "pause",
+        "durationMs": 2500
+      },
+      {
+        "action": "tap",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_OPTIONAL_DISMISS"
+        },
+        "optional": true,
+        "timeoutMs": 1000
+      }
+    ],
+    "login": [
+      {
+        "action": "type",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_LOGIN_EMAIL"
+        },
+        "value": "{{TAPO_USERNAME}}"
+      },
+      {
+        "action": "type",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_LOGIN_PASSWORD"
+        },
+        "value": "{{TAPO_PASSWORD}}"
+      },
+      {
+        "action": "tap",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_LOGIN_SUBMIT"
+        }
+      },
+      {
+        "action": "waitFor",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_HOME_SIGNAL"
+        },
+        "timeoutMs": 30000
+      }
+    ],
+    "export": [
+      {
+        "action": "tap",
+        "selector": {
+          "using": "accessibility id",
+          "value": "{{DEVICE_NAME}}"
+        },
+        "failureCode": "device_not_found",
+        "requireUnique": true
+      },
+      {
+        "action": "waitFor",
+        "selector": {
+          "using": "xpath",
+          "value": "//*[@resource-id='com.tplink.iot:id/CHANGE_ME_DEVICE_TITLE' and @text='{{DEVICE_NAME}}']"
+        },
+        "failureCode": "device_not_found"
+      },
+      {
+        "action": "tap",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_DEVICE_SETTINGS"
+        }
+      },
+      {
+        "action": "tap",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_DEVICE_INFO"
+        }
+      },
+      {
+        "action": "waitFor",
+        "selector": {
+          "using": "xpath",
+          "value": "//*[@resource-id='com.tplink.iot:id/CHANGE_ME_IMMUTABLE_ID' and @text='{{DEVICE_PROOF}}']"
+        },
+        "failureCode": "device_not_found"
+      },
+      {
+        "action": "back"
+      },
+      {
+        "action": "back"
+      },
+      {
+        "action": "tap",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_HISTORY"
+        }
+      },
+      {
+        "action": "tap",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_EXPORT"
+        }
+      },
+      {
+        "action": "tap",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_INTERVAL"
+        }
+      },
+      {
+        "action": "tap",
+        "selector": {
+          "using": "-android uiautomator",
+          "value": "new UiSelector().text(\"{{INTERVAL_LABEL}}\")"
+        }
+      },
+      {
+        "action": "waitFor",
+        "selector": {
+          "using": "xpath",
+          "value": "//*[@resource-id='com.tplink.iot:id/CHANGE_ME_SELECTED_INTERVAL' and @text='{{INTERVAL_LABEL}}']"
+        }
+      },
+      {
+        "action": "tap",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_FROM_DATE"
+        }
+      },
+      {
+        "action": "repeatTap",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_PREVIOUS_MONTH"
+        },
+        "countVariable": "FROM_MONTHS_BEFORE_CURRENT",
+        "settleMs": 300
+      },
+      {
+        "action": "tap",
+        "selector": {
+          "using": "xpath",
+          "value": "//*[@text='{{FROM_DAY}}/{{FROM_MONTH}}/{{FROM_YEAR}}']"
+        }
+      },
+      {
+        "action": "waitFor",
+        "selector": {
+          "using": "xpath",
+          "value": "//*[@resource-id='com.tplink.iot:id/CHANGE_ME_FROM_DATE' and @text='{{FROM_DAY}}/{{FROM_MONTH}}/{{FROM_YEAR}}']"
+        }
+      },
+      {
+        "action": "tap",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_TO_DATE"
+        }
+      },
+      {
+        "action": "repeatTap",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_NEXT_MONTH"
+        },
+        "countVariable": "MONTHS_FROM_FROM_TO",
+        "settleMs": 300
+      },
+      {
+        "action": "tap",
+        "selector": {
+          "using": "xpath",
+          "value": "//*[@text='{{TO_DAY}}/{{TO_MONTH}}/{{TO_YEAR}}']"
+        }
+      },
+      {
+        "action": "waitFor",
+        "selector": {
+          "using": "xpath",
+          "value": "//*[@resource-id='com.tplink.iot:id/CHANGE_ME_TO_DATE' and @text='{{TO_DAY}}/{{TO_MONTH}}/{{TO_YEAR}}']"
+        }
+      },
+      {
+        "action": "type",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_EXPORT_EMAIL"
+        },
+        "value": "{{EXPORT_EMAIL}}"
+      },
+      {
+        "action": "waitForGone",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_EXPORT_CONFIRMED"
+        }
+      },
+      {
+        "action": "tap",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_EXPORT_SUBMIT"
+        }
+      },
+      {
+        "action": "waitFor",
+        "selector": {
+          "using": "id",
+          "value": "com.tplink.iot:id/CHANGE_ME_EXPORT_CONFIRMED"
+        },
+        "timeoutMs": 30000
+      }
+    ]
+  }
+}

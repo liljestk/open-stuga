@@ -139,7 +139,7 @@ vi.mock("./authEpoch", () => ({
   subscribeToAuthEpoch: mocks.subscribeToAuthEpoch,
 }));
 
-import { replaceLoadedHouseTelemetry, useClimateData, withoutDemoTelemetry } from "./useClimateData";
+import { replaceLoadedHouseTelemetry, seriesStateKey, useClimateData, withoutDemoTelemetry } from "./useClimateData";
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -1680,6 +1680,67 @@ describe("useClimateData", () => {
     expect(result.current.state.measurementForecasts[sensor.id]?.temperature).toEqual([loadedForecast]);
   });
 
+  it("loads an arbitrary recorded window at the requested server resolution", async () => {
+    const demo = createDemoState();
+    const sensor = demo.sensors[0]!;
+    const from = "2024-02-10T00:00:00.000Z";
+    const to = "2024-02-11T00:00:00.000Z";
+    const sample: MeasurementSample = {
+      ...demo.latestMeasurements[sensor.id]!.temperature!,
+      timestamp: "2024-02-10T12:00:00.000Z",
+      value: 18.6,
+      quality: "estimated",
+    };
+    mocks.measurementHistoryPage.mockResolvedValueOnce({
+      samples: [sample], from, to, bucketSeconds: 300, truncated: false,
+    });
+    const { result } = renderHook(() => useClimateData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let page!: Awaited<ReturnType<typeof result.current.loadHistoricalSeries>>;
+    await act(async () => {
+      page = await result.current.loadHistoricalSeries(sensor.id, "temperature", {
+        from,
+        to,
+        bucketSeconds: 300,
+      });
+    });
+
+    expect(mocks.measurementHistoryPage).toHaveBeenLastCalledWith(
+      sensor.id,
+      "temperature",
+      from,
+      to,
+      50_000,
+      300,
+    );
+    expect(page.samples).toEqual([sample]);
+    expect(result.current.state.measurementHistory[sensor.id]?.temperature).toEqual([sample]);
+    expect(result.current.seriesStates[seriesStateKey(sensor.id, "temperature")]).toMatchObject({
+      status: "ready",
+      requestedFrom: from,
+      requestedTo: to,
+      loadedFrom: sample.timestamp,
+      loadedTo: sample.timestamp,
+      partial: false,
+    });
+  });
+
+  it("rejects invalid historical replay resolution before requesting data", async () => {
+    const demo = createDemoState();
+    const sensor = demo.sensors[0]!;
+    const { result } = renderHook(() => useClimateData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const callsBefore = mocks.measurementHistoryPage.mock.calls.length;
+
+    await expect(result.current.loadHistoricalSeries(sensor.id, "temperature", {
+      from: "2024-02-10T00:00:00.000Z",
+      to: "2024-02-11T00:00:00.000Z",
+      bucketSeconds: 86_401,
+    })).rejects.toThrow("between 1 second and 1 day");
+    expect(mocks.measurementHistoryPage).toHaveBeenCalledTimes(callsBefore);
+  });
+
   it("merges a canonical live sample received while its series request is in flight", async () => {
     const demo = createDemoState();
     const sensor = demo.sensors[0]!;
@@ -1996,6 +2057,11 @@ describe("useClimateData", () => {
     expect(result.current.state.houses[0]?.mapPlacement).toEqual(mapPlacement);
     expect(result.current.state.integration.weather.configuredHouses).toBe(configuredBefore);
     expect(mocks.updateHouseGeoreference).toHaveBeenCalledWith(house.id, { mapPlacement });
+
+    const calibratedFloor = { ...house.floors[0]!, metersPerPlanUnit: .02 };
+    act(() => result.current.updateFloor(house.id, calibratedFloor));
+    expect(result.current.state.houses[0]?.floors[0]?.metersPerPlanUnit).toBe(.02);
+    expect(result.current.state.houses[0]?.mapPlacement?.metersPerPlanUnit).toBe(.02);
   });
 
   it("derives the weather-location count when integration SSE precedes the save response", async () => {

@@ -36,6 +36,11 @@ describe("application routes", () => {
       propertyId: "lake estate",
       houseId: "lake house",
     });
+    expect(routeFromUrl("/properties/lake%20estate/homes/lake%20house/analytics")).toEqual({
+      page: "analytics",
+      propertyId: "lake estate",
+      houseId: "lake house",
+    });
     expect(routeFromUrl("/properties/lake%20estate/homes/lake%20house/electricity")).toEqual({
       page: "energy",
       propertyId: "lake estate",
@@ -89,6 +94,7 @@ describe("application routes", () => {
     expect(locationForRoute("energy", { propertyId: scope.propertyId, houseId: null })).toBe("/properties/property-main/electricity");
     expect(locationForRoute("energy", scope)).toBe("/properties/property-main/homes/home-1/electricity");
     expect(locationForRoute("sensors", scope)).toBe("/properties/property-main/homes/home-1/sensors");
+    expect(locationForRoute("analytics", scope)).toBe("/properties/property-main/homes/home-1/analytics");
     expect(locationForRoute("integrations", scope)).toBe("/properties/property-main/homes/home-1/setup");
   });
 
@@ -107,6 +113,7 @@ describe("application routes", () => {
     ["maintenance", "/properties/property%20%2F%20one/homes/home%20%2F%20one/maintenance", "property / one", "home / one"],
     ["energy", "/properties/property%20%2F%20one/homes/home%20%2F%20one/electricity", "property / one", "home / one"],
     ["sensors", "/properties/property%20%2F%20one/homes/home%20%2F%20one/sensors", "property / one", "home / one"],
+    ["analytics", "/properties/property%20%2F%20one/homes/home%20%2F%20one/analytics", "property / one", "home / one"],
     ["alerts", "/alerts", null, null],
     ["integrations", "/properties/property%20%2F%20one/homes/home%20%2F%20one/setup", "property / one", "home / one"],
     ["developer", "/developer", null, null],

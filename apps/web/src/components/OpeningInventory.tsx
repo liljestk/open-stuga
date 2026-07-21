@@ -1,4 +1,4 @@
-import { configuredPlanElementOpeningState, type AirflowPlanElement, type Floor } from "@climate-twin/contracts";
+import { configuredPlanElementOpeningState, isAirflowPlanElement, type AirflowPlanElement, type Floor } from "@climate-twin/contracts";
 import { useI18n, type TranslationKey } from "../i18n";
 
 interface OpeningInventoryProps {
@@ -16,7 +16,7 @@ function defaultVariant(element: AirflowPlanElement) {
 /** A compact instance inventory shared by the 2D and 3D house editors. */
 export function OpeningInventory({ floors, selected = null, onSelect }: OpeningInventoryProps) {
   const { t } = useI18n();
-  const entries = floors.flatMap((floor) => (floor.planElements ?? []).flatMap((element, index) => element.kind === "fireplace" ? [] : [{ floor, element, index }]));
+  const entries = floors.flatMap((floor) => (floor.planElements ?? []).flatMap((element, index) => isAirflowPlanElement(element) ? [{ floor, element, index }] : []));
   return <details className="opening-inventory">
     <summary><span>{t("opening.inventory")}</span><small>{t("opening.inventoryCount", { count: entries.length })}</small></summary>
     {entries.length
