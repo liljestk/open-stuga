@@ -147,7 +147,7 @@ persistent banner and visually distinct shell while navigating the product.
 Use a separate database or deployment for later demonstrations; setting
 `MOCK_ENABLED=true` cannot undo the real-data latch.
 
-See [direct TP-Link setup](docs/tp-link-direct.md), [automated Tapo history recovery](docs/tapo-history-automation.md), [electricity prices and contracts](docs/electricity-prices.md), [Home Assistant setup](docs/home-assistant.md), [property management and Guest access](docs/property-management.md), [manual observation semantics](docs/observations.md), [activity and maintenance work](docs/maintenance.md), [Apple Notes and Telegram setup](docs/apple-notes-telegram.md), [architecture](docs/architecture.md), and [API/MCP integration](docs/integrations.md) for details.
+See [direct TP-Link setup](docs/tp-link-direct.md), [automated Tapo history recovery](docs/tapo-history-automation.md), [electricity prices and contracts](docs/electricity-prices.md), [Home Assistant setup](docs/home-assistant.md), [property management and Guest access](docs/property-management.md), [Cloudflare Tunnel and Access](docs/cloudflare-access.md), [manual observation semantics](docs/observations.md), [activity and maintenance work](docs/maintenance.md), [Apple Notes and Telegram setup](docs/apple-notes-telegram.md), [architecture](docs/architecture.md), and [API/MCP integration](docs/integrations.md) for details.
 
 The thermal model is documented in [effective room thermal
 simulation](docs/thermal-simulation.md), and the 2D/3D dynamics layer in
@@ -210,7 +210,10 @@ parent context needed to identify it, never sibling resources.
 
 The sign-in boundary does not encrypt network traffic. Keep the default
 loopback binding, or put Stuga behind TLS and a trusted VPN or reverse proxy
-before allowing access from another network.
+before allowing access from another network. The optional
+[Cloudflare Tunnel and Access recipe](docs/cloudflare-access.md) keeps a
+permanent edge-recovery identity separate from the local Stuga owner and
+reconciles invited members without exposing the host port.
 
 ## MCP
 

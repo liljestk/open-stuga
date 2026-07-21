@@ -158,6 +158,7 @@ describe("local account authentication and authorization", () => {
         CLOUDFLARE_ACCESS_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
         CLOUDFLARE_ACCESS_GROUP_ID: "123e4567-e89b-42d3-a456-426614174000",
         CLOUDFLARE_ACCESS_GROUP_NAME: "Stuga test members",
+        CLOUDFLARE_ACCESS_STATIC_EMAILS: "cloudflare-owner@example.test",
         CLOUDFLARE_ACCESS_API_TOKEN: "runtime-token-that-is-long-enough-for-tests",
       }),
       cloudflareAccessFetcher: vi.fn(async () => new Response(JSON.stringify({
@@ -179,6 +180,55 @@ describe("local account authentication and authorization", () => {
     expect(runtime.database.db.prepare(
       "SELECT email FROM local_workspace_invitations WHERE email = ?",
     ).get("pending@example.test")).toMatchObject({ email: "pending@example.test" });
+  });
+
+  it("keeps the Cloudflare operator identity while syncing invited accounts, not the local owner login", async () => {
+    const group = {
+      id: "123e4567-e89b-42d3-a456-426614174000",
+      name: "Stuga test members",
+      include: [{ email: { email: "cloudflare-owner@example.test" } }],
+      exclude: [],
+      require: [],
+    };
+    const fetcher = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        const update = JSON.parse(String(init.body)) as Pick<typeof group, "include" | "exclude" | "require">;
+        Object.assign(group, update);
+      }
+      return new Response(JSON.stringify({ success: true, result: group }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    const runtime = createApi({
+      config: loadConfig({
+        NODE_ENV: "test",
+        DATABASE_PATH: ":memory:",
+        MOCK_ENABLED: "false",
+        LOCAL_AUTH_TEST_BYPASS: "false",
+        CLOUDFLARE_ACCESS_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
+        CLOUDFLARE_ACCESS_GROUP_ID: group.id,
+        CLOUDFLARE_ACCESS_GROUP_NAME: group.name,
+        CLOUDFLARE_ACCESS_STATIC_EMAILS: "cloudflare-owner@example.test",
+        CLOUDFLARE_ACCESS_API_TOKEN: "runtime-token-that-is-long-enough-for-tests",
+      }),
+      cloudflareAccessFetcher: fetcher,
+      startBackground: false,
+    });
+    runtimes.push(runtime);
+    const owner = await setupOwner(runtime);
+
+    await owner.agent.post("/api/v1/tenant/members")
+      .set("x-csrf-token", owner.csrf)
+      .send({ email: "guest@example.test", role: "member", grants: [] })
+      .expect(201)
+      .expect(({ body }) => expect(body.cloudflareAccess).toMatchObject({ status: "synced" }));
+
+    expect(group.include).toEqual([
+      { email: { email: "cloudflare-owner@example.test" } },
+      { email: { email: "guest@example.test" } },
+    ]);
+    expect(group.include).not.toContainEqual({ email: { email: OWNER.email } });
   });
 
   it("authenticates forwarded proxy metadata and rate-limits subjects independently of x-real-ip", async () => {

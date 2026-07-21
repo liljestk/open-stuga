@@ -77,7 +77,7 @@ function validateOptions(options) {
   if (options.hostname !== options.zone && !options.hostname.endsWith(`.${options.zone}`)) {
     throw new UsageError("--hostname must belong to --zone");
   }
-  if (!/^[^\s@<>]+@[^\s@<>]+$/.test(options.ownerEmail) || options.ownerEmail.length > 254) {
+  if (!/^[^\s@<>,]+@[^\s@<>,]+$/.test(options.ownerEmail) || options.ownerEmail.length > 254) {
     throw new UsageError("--owner-email must be a valid email address");
   }
   for (const [label, value] of [["--account-id", options.accountId], ["--zone-id", options.zoneId]]) {
@@ -318,6 +318,19 @@ function writeProtected(path, value) {
   try { chmodSync(path, 0o600); } catch { /* Windows ACLs are handled by the parent directory. */ }
 }
 
+function renderRuntimeEnvironment({ accountId, groupId, groupName, operatorEmails, hostname }) {
+  return [
+    `CLOUDFLARE_ACCESS_ACCOUNT_ID=${accountId}`,
+    `CLOUDFLARE_ACCESS_GROUP_ID=${groupId}`,
+    `CLOUDFLARE_ACCESS_GROUP_NAME=${JSON.stringify(groupName)}`,
+    `CLOUDFLARE_ACCESS_STATIC_EMAILS=${JSON.stringify(operatorEmails.join(","))}`,
+    "CLOUDFLARE_ACCESS_API_TOKEN_FILE=/run/secrets/cloudflare/access-group-token",
+    `CLOUDFLARE_ACCESS_PUBLIC_ORIGIN=https://${hostname}`,
+    "CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS=300000",
+    "",
+  ].join("\n");
+}
+
 async function provision(options) {
   validateOptions(options);
   const provisionToken = readToken(options.provisionTokenFile, "Provisioning token file");
@@ -387,15 +400,13 @@ async function provision(options) {
   mkdirSync(options.secretDirectory, { recursive: true, mode: 0o700 });
   writeProtected(resolve(options.secretDirectory, "access-group-token"), `${accessToken}\n`);
   writeProtected(resolve(options.secretDirectory, "tunnel-token"), `${tunnelToken}\n`);
-  writeProtected(resolve(options.secretDirectory, "config.env"), [
-    `CLOUDFLARE_ACCESS_ACCOUNT_ID=${accountId}`,
-    `CLOUDFLARE_ACCESS_GROUP_ID=${group.id}`,
-    `CLOUDFLARE_ACCESS_GROUP_NAME=${JSON.stringify(groupName)}`,
-    "CLOUDFLARE_ACCESS_API_TOKEN_FILE=/run/secrets/cloudflare/access-group-token",
-    `CLOUDFLARE_ACCESS_PUBLIC_ORIGIN=https://${hostname}`,
-    "CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS=300000",
-    "",
-  ].join("\n"));
+  writeProtected(resolve(options.secretDirectory, "config.env"), renderRuntimeEnvironment({
+    accountId,
+    groupId: group.id,
+    groupName,
+    operatorEmails: [options.ownerEmail],
+    hostname,
+  }));
   writeProtected(resolve(options.secretDirectory, "deployment.json"), `${JSON.stringify({
     version: 1,
     hostname,
@@ -428,7 +439,15 @@ async function main() {
   }
 }
 
-export { CloudflareApiError, UsageError, cloudflareClient, parseArguments, provision, validateOptions };
+export {
+  CloudflareApiError,
+  UsageError,
+  cloudflareClient,
+  parseArguments,
+  provision,
+  renderRuntimeEnvironment,
+  validateOptions,
+};
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   await main();

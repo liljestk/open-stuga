@@ -1893,8 +1893,19 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   config.cloudflareAccessAccountId ??= null;
   config.cloudflareAccessGroupId ??= null;
   config.cloudflareAccessGroupName ??= null;
+  config.cloudflareAccessStaticEmails ??= [];
   config.cloudflareAccessApiToken ??= null;
   config.cloudflareAccessSyncIntervalMs ??= 5 * 60_000;
+  const cloudflareAccessRuntimeValues = [
+    config.cloudflareAccessAccountId,
+    config.cloudflareAccessGroupId,
+    config.cloudflareAccessGroupName,
+    config.cloudflareAccessApiToken,
+    config.cloudflareAccessStaticEmails.length > 0 ? "configured" : null,
+  ];
+  if (cloudflareAccessRuntimeValues.some(Boolean) && !cloudflareAccessRuntimeValues.every(Boolean)) {
+    throw new Error("Cloudflare Access synchronization requires a group identity, a static operator email, and an API token");
+  }
   config.electricityAllowPrivateEndpoints ??= false;
   config.timeseriesEnabled ??= false;
   config.timeseriesRequired ??= false;
@@ -1921,6 +1932,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     && config.cloudflareAccessGroupId
     && config.cloudflareAccessGroupName
     && config.cloudflareAccessApiToken
+    && config.cloudflareAccessStaticEmails.length > 0
     ? new CloudflareAccessGroupSynchronizer({
       accountId: config.cloudflareAccessAccountId,
       groupId: config.cloudflareAccessGroupId,
@@ -1930,7 +1942,14 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     }, () => {
       if (!localAuth.isInitialized()) return null;
       const directory = localAuth.listWorkspaceMembers();
-      return [...directory.members, ...directory.invitations].map((entry) => entry.email);
+      // The Cloudflare identity used by the installation owner may differ from
+      // their local Stuga login. Keep configured operators permanently allowed,
+      // and reconcile every invited/non-owner local account around them.
+      return [
+        ...(config.cloudflareAccessStaticEmails ?? []),
+        ...directory.members.filter((entry) => entry.role !== "owner").map((entry) => entry.email),
+        ...directory.invitations.map((entry) => entry.email),
+      ];
     }, options.cloudflareAccessFetcher, () => {
       // This intentionally omits account, group, email, and provider details.
       console.error("[cloudflare-access] Member allowlist synchronization is pending");

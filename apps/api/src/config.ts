@@ -111,6 +111,8 @@ export interface AppConfig {
   cloudflareAccessAccountId?: string | null;
   cloudflareAccessGroupId?: string | null;
   cloudflareAccessGroupName?: string | null;
+  /** Cloudflare identities that permanently retain access, independent of local Stuga account email. */
+  cloudflareAccessStaticEmails?: string[];
   /** Write-only, least-privilege Access group credential. Never log AppConfig. */
   cloudflareAccessApiToken?: string | null;
   cloudflareAccessSyncIntervalMs?: number;
@@ -121,6 +123,18 @@ export interface AppConfig {
 function optional(value: string | undefined): string | null {
   const normalized = value?.trim();
   return normalized ? normalized : null;
+}
+
+function normalizedEmailList(value: string | undefined, name: string): string[] {
+  const emails = [...new Set((value ?? "").split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean))];
+  for (const email of emails) {
+    if (email.length > 254 || !/^[^\s@<>,]+@[^\s@<>,]+$/.test(email)) {
+      throw new Error(`${name} must contain only valid comma-separated email addresses`);
+    }
+  }
+  return emails;
 }
 
 function positiveInteger(value: string | undefined, fallback: number): number {
@@ -323,10 +337,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     32,
     true,
   );
-  const cloudflareAccessValues = [cloudflareAccessAccountId, cloudflareAccessGroupId, cloudflareAccessApiToken];
+  const cloudflareAccessStaticEmails = normalizedEmailList(
+    env.CLOUDFLARE_ACCESS_STATIC_EMAILS,
+    "CLOUDFLARE_ACCESS_STATIC_EMAILS",
+  );
+  const cloudflareAccessValues = [
+    cloudflareAccessAccountId,
+    cloudflareAccessGroupId,
+    cloudflareAccessApiToken,
+    cloudflareAccessStaticEmails.length > 0 ? "configured" : null,
+  ];
   if (cloudflareAccessValues.some(Boolean) && !cloudflareAccessValues.every(Boolean)) {
     throw new Error(
-      "Cloudflare Access synchronization requires CLOUDFLARE_ACCESS_ACCOUNT_ID, CLOUDFLARE_ACCESS_GROUP_ID, and an API token",
+      "Cloudflare Access synchronization requires CLOUDFLARE_ACCESS_ACCOUNT_ID, CLOUDFLARE_ACCESS_GROUP_ID, CLOUDFLARE_ACCESS_STATIC_EMAILS, and an API token",
     );
   }
   if (cloudflareAccessAccountId && !/^[a-f0-9]{32}$/i.test(cloudflareAccessAccountId)) {
@@ -522,6 +545,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     cloudflareAccessAccountId,
     cloudflareAccessGroupId,
     cloudflareAccessGroupName,
+    cloudflareAccessStaticEmails,
     cloudflareAccessApiToken,
     cloudflareAccessSyncIntervalMs: boundedInteger(
       env.CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS,

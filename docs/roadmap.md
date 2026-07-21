@@ -31,8 +31,10 @@ no secrets enter the browser/database/image.
 - Integration freshness metrics, historical gap import, malformed-state
   diagnostics, per-metric unit/conversion diagnostics, and longer-running
   reconnect/conformance tests.
-- General API authentication/authorization, per-house roles, rate/body/query
-  limits, structured audit events, and TLS/reverse-proxy recipes.
+- Built-in API authentication/authorization, resource-scoped Guest grants,
+  rate/body/query limits, and an optional lockout-safe Cloudflare Access/Tunnel
+  recipe are in place. Continue structured security audit events, credential
+  rotation drills, and additional TLS/VPN/reverse-proxy recipes.
 - Webhook signature, destination allowlist, multi-destination fan-out, and a
   maximum-attempt/dead-letter policy on top of the durable retry outbox.
 - Wall-clock sustained-condition timers that fire without waiting for the next

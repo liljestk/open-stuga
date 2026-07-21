@@ -4,6 +4,10 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+- Hardened the optional Cloudflare Tunnel/Access deployment with a durable
+  static edge-operator allowlist, separation from the local Stuga owner login,
+  fail-closed upgrade validation, generated-config regression coverage, and a
+  provisioning, rotation, recovery, and rollback runbook.
 - Added independently toggleable experimental Air movement and Sensor support
   overlays to both the 2D Home plan and 3D Home volume, with persisted view
   preferences, sparse-data qualification, in-view placement markers, and

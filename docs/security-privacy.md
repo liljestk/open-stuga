@@ -15,6 +15,13 @@ network. It does not make a safe public internet service by itself. Keep ports
 behind the host firewall; for remote use, add an authenticated VPN or a mature
 reverse proxy with TLS and access control.
 
+The optional [Cloudflare Tunnel and Access deployment](cloudflare-access.md)
+adds an outer exact-email gate without replacing local authorization. Its
+runtime group token and Tunnel token are deployment secrets. At least one
+verified static Cloudflare operator must remain independent of the local owner
+login so first-owner setup, invitation cleanup, or a private local email cannot
+remove the recovery identity.
+
 The local Node API has built-in owner, administrator, and Guest accounts in one
 workspace. Browser sign-in creates a server-managed HttpOnly session; browser
 JavaScript cannot read its credential. The API resolves the account role and

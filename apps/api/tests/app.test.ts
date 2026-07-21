@@ -140,11 +140,25 @@ describe("Climate Twin API v1", () => {
     };
     expect(() => loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", ...identity }))
       .toThrow("Cloudflare Access synchronization requires");
+    expect(() => loadConfig({
+      NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
+      ...identity,
+      CLOUDFLARE_ACCESS_API_TOKEN: "runtime-token-that-is-long-enough-for-tests",
+    })).toThrow("CLOUDFLARE_ACCESS_STATIC_EMAILS");
+    expect(() => loadConfig({
+      NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
+      ...identity,
+      CLOUDFLARE_ACCESS_STATIC_EMAILS: "operator@example.test,bad,address@example.test",
+      CLOUDFLARE_ACCESS_API_TOKEN: "runtime-token-that-is-long-enough-for-tests",
+    })).toThrow("valid comma-separated email addresses");
     expect(loadConfig({
       NODE_ENV: "test",
       DATABASE_PATH: ":memory:",
       ...identity,
       CLOUDFLARE_ACCESS_GROUP_NAME: "Stuga test members",
+      CLOUDFLARE_ACCESS_STATIC_EMAILS: " Owner@Example.test,owner@example.test ",
       CLOUDFLARE_ACCESS_API_TOKEN: "runtime-token-that-is-long-enough-for-tests",
       CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS: "60000",
       CLOUDFLARE_ACCESS_PUBLIC_ORIGIN: "https://stuga.example.test",
@@ -152,6 +166,7 @@ describe("Climate Twin API v1", () => {
       cloudflareAccessAccountId: identity.CLOUDFLARE_ACCESS_ACCOUNT_ID,
       cloudflareAccessGroupId: identity.CLOUDFLARE_ACCESS_GROUP_ID,
       cloudflareAccessGroupName: "Stuga test members",
+      cloudflareAccessStaticEmails: ["owner@example.test"],
       cloudflareAccessSyncIntervalMs: 60_000,
       corsOrigin: "https://stuga.example.test",
     });
@@ -159,6 +174,7 @@ describe("Climate Twin API v1", () => {
       NODE_ENV: "test",
       DATABASE_PATH: ":memory:",
       ...identity,
+      CLOUDFLARE_ACCESS_STATIC_EMAILS: "owner@example.test",
       CLOUDFLARE_ACCESS_API_TOKEN: "runtime-token-that-is-long-enough-for-tests",
       CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS: "1000",
     })).toThrow("CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS");
