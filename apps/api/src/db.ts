@@ -3214,7 +3214,10 @@ export class ClimateDatabase {
       const bindings: AlertNotificationBindings = {
         houseLabel: house?.name ?? null,
         sensorLabel: sensor?.name ?? null,
-        webhookDestinationRef: legacyNotificationDestinationRef("webhook"),
+        webhookDestinations: [{
+          destinationId: "primary",
+          destinationRef: legacyNotificationDestinationRef("webhook"),
+        }],
         telegramDestinationRef: legacyNotificationDestinationRef("telegram"),
       };
       const payloadJson = event && rule
@@ -8669,15 +8672,19 @@ export class ClimateDatabase {
           (id, subject_kind, subject_id, event_id, stage, sequence, channel, destination_id, attempts, max_attempts,
            available_at, locked_at, lock_token, last_error, created_at, delivered_at, payload_json,
            destination_ref, policy_json, dead_lettered_at, abandoned_at)
-          VALUES (?, 'alert', ?, ?, 'initial', 0, ?, 'primary', 0, ?, ?, NULL, NULL, NULL, ?, NULL, ?, ?, ?, NULL, NULL)`);
+          VALUES (?, 'alert', ?, ?, 'initial', 0, ?, ?, 0, ?, ?, NULL, NULL, NULL, ?, NULL, ?, ?, ?, NULL, NULL)`);
         if (rule.webhookEnabled) {
-          const snapshot = notificationSnapshot("webhook", created, rule, bindings, schedule.silent);
-          enqueue.run(randomUUID(), created.id, created.id, "webhook", policy.maxAttempts,
-            schedule.deliverAt.toISOString(), now.toISOString(), snapshot.payloadJson, snapshot.destinationRef, policyJson(policy));
+          for (const destination of bindings.webhookDestinations) {
+            const snapshot = notificationSnapshot(
+              "webhook", created, rule, bindings, schedule.silent, "initial", destination.destinationId,
+            );
+            enqueue.run(randomUUID(), created.id, created.id, "webhook", destination.destinationId, policy.maxAttempts,
+              schedule.deliverAt.toISOString(), now.toISOString(), snapshot.payloadJson, snapshot.destinationRef, policyJson(policy));
+          }
         }
         if (rule.telegramEnabled) {
           const snapshot = notificationSnapshot("telegram", created, rule, bindings, schedule.silent);
-          enqueue.run(randomUUID(), created.id, created.id, "telegram", policy.maxAttempts,
+          enqueue.run(randomUUID(), created.id, created.id, "telegram", "primary", policy.maxAttempts,
             schedule.deliverAt.toISOString(), now.toISOString(), snapshot.payloadJson, snapshot.destinationRef, policyJson(policy));
         }
       }
@@ -8724,16 +8731,21 @@ export class ClimateDatabase {
       (id, subject_kind, subject_id, event_id, stage, sequence, channel, destination_id, attempts, max_attempts,
        available_at, locked_at, lock_token, last_error, created_at, delivered_at, payload_json, destination_ref,
        policy_json, dead_lettered_at, abandoned_at)
-      VALUES (?, 'alert', ?, ?, ?, ?, ?, 'primary', 0, ?, ?, NULL, NULL, NULL, ?, NULL, ?, ?, ?, NULL, NULL)`);
+      VALUES (?, 'alert', ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, NULL, NULL, ?, NULL, ?, ?, ?, NULL, NULL)`);
     let inserted = 0;
     if (rule.webhookEnabled) {
-      const snapshot = notificationSnapshot("webhook", event, rule, bindings, schedule.silent, stage);
-      inserted += Number(enqueue.run(randomUUID(), event.id, event.id, stage, sequence, "webhook", policy.maxAttempts,
-        schedule.deliverAt.toISOString(), now.toISOString(), snapshot.payloadJson, snapshot.destinationRef, policyJson(policy)).changes);
+      for (const destination of bindings.webhookDestinations) {
+        const snapshot = notificationSnapshot(
+          "webhook", event, rule, bindings, schedule.silent, stage, destination.destinationId,
+        );
+        inserted += Number(enqueue.run(randomUUID(), event.id, event.id, stage, sequence, "webhook",
+          destination.destinationId, policy.maxAttempts, schedule.deliverAt.toISOString(), now.toISOString(),
+          snapshot.payloadJson, snapshot.destinationRef, policyJson(policy)).changes);
+      }
     }
     if (rule.telegramEnabled) {
       const snapshot = notificationSnapshot("telegram", event, rule, bindings, schedule.silent, stage);
-      inserted += Number(enqueue.run(randomUUID(), event.id, event.id, stage, sequence, "telegram", policy.maxAttempts,
+      inserted += Number(enqueue.run(randomUUID(), event.id, event.id, stage, sequence, "telegram", "primary", policy.maxAttempts,
         schedule.deliverAt.toISOString(), now.toISOString(), snapshot.payloadJson, snapshot.destinationRef, policyJson(policy)).changes);
     }
     return inserted;
@@ -8763,19 +8775,34 @@ export class ClimateDatabase {
       (id, subject_kind, subject_id, event_id, stage, sequence, channel, destination_id, attempts, max_attempts,
        available_at, locked_at, lock_token, last_error, created_at, delivered_at, payload_json, destination_ref,
        policy_json, dead_lettered_at, abandoned_at)
-      VALUES (?, ?, ?, NULL, ?, ?, ?, 'primary', 0, ?, ?, NULL, NULL, NULL, ?, NULL, ?, ?, ?, NULL, NULL)`);
+      VALUES (?, ?, ?, NULL, ?, ?, ?, ?, 0, ?, ?, NULL, NULL, NULL, ?, NULL, ?, ?, ?, NULL, NULL)`);
     let inserted = 0;
-    for (const channel of ["webhook", "telegram"] as const) {
-      if (channel === "webhook" ? !input.webhookEnabled : !input.telegramEnabled) continue;
-      const snapshot = operationalNotificationSnapshot(channel, input.config, {
+    if (input.webhookEnabled) {
+      const destinations = alertNotificationBindings(input.config, { houseLabel: null, sensorLabel: null })
+        .webhookDestinations;
+      for (const destination of destinations) {
+        const snapshot = operationalNotificationSnapshot("webhook", input.config, {
+          type: input.type,
+          subjectId: input.subjectId,
+          text: input.text,
+          data: input.data,
+          silent: schedule.silent || input.severity === "info",
+        }, destination.destinationId);
+        inserted += Number(enqueue.run(randomUUID(), input.subjectKind, input.subjectId, input.stage, sequence,
+          "webhook", destination.destinationId, policy.maxAttempts, schedule.deliverAt.toISOString(), now.toISOString(),
+          snapshot.payloadJson, snapshot.destinationRef, policyJson(policy)).changes);
+      }
+    }
+    if (input.telegramEnabled) {
+      const snapshot = operationalNotificationSnapshot("telegram", input.config, {
         type: input.type,
         subjectId: input.subjectId,
         text: input.text,
         data: input.data,
         silent: schedule.silent || input.severity === "info",
       });
-      inserted += Number(enqueue.run(randomUUID(), input.subjectKind, input.subjectId, input.stage, sequence, channel,
-        policy.maxAttempts, schedule.deliverAt.toISOString(), now.toISOString(), snapshot.payloadJson,
+      inserted += Number(enqueue.run(randomUUID(), input.subjectKind, input.subjectId, input.stage, sequence, "telegram",
+        "primary", policy.maxAttempts, schedule.deliverAt.toISOString(), now.toISOString(), snapshot.payloadJson,
         snapshot.destinationRef, policyJson(policy)).changes);
     }
     return inserted;
@@ -8885,16 +8912,16 @@ export class ClimateDatabase {
   }
 
   listNotificationDeliveries(limit = 200): NotificationDeliveryStatus[] {
-    return (this.db.prepare(`SELECT id, subject_kind, subject_id, stage, sequence, channel, destination_id, attempts,
+    return (this.db.prepare(`SELECT id, subject_kind, subject_id, stage, sequence, channel, destination_id, attempts, max_attempts,
         available_at, created_at, delivered_at, dead_lettered_at, abandoned_at, last_error
       FROM notification_outbox ORDER BY created_at DESC LIMIT ?`).all(boundedCollectionLimit(limit)) as Array<{
         id: string; subject_kind: NotificationSubjectKind; subject_id: string; stage: NotificationDeliveryStage; sequence: number;
-        channel: NotificationChannel; destination_id: string; attempts: number; available_at: string;
+        channel: NotificationChannel; destination_id: string; attempts: number; max_attempts: number; available_at: string;
         created_at: string; delivered_at: string | null; dead_lettered_at: string | null;
         abandoned_at: string | null; last_error: string | null;
       }>).map((row) => ({
         id: row.id, subjectKind: row.subject_kind, subjectId: row.subject_id, stage: row.stage, sequence: row.sequence,
-        channel: row.channel, destinationId: row.destination_id, attempts: row.attempts,
+        channel: row.channel, destinationId: row.destination_id, attempts: row.attempts, maxAttempts: row.max_attempts,
         availableAt: row.available_at, createdAt: row.created_at, deliveredAt: row.delivered_at,
         deadLetteredAt: row.dead_lettered_at, abandonedAt: row.abandoned_at, lastError: row.last_error,
       }));

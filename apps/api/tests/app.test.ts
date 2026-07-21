@@ -278,6 +278,60 @@ describe("Climate Twin API v1", () => {
     })).toThrow(/requires ALERT_WEBHOOK_URL/);
   });
 
+  it("loads bounded multi-destination webhooks with an exact host allowlist", () => {
+    const destinations = [
+      {
+        id: "operations",
+        url: "https://ops.example.test/hooks/",
+        bearerToken: "ops-bearer",
+        signingSecret: "o".repeat(32),
+      },
+      {
+        id: "archive.eu",
+        url: "https://archive.example.test/events",
+        bearerToken: "archive-bearer",
+        signingSecret: "a".repeat(32),
+      },
+    ];
+    const loaded = loadConfig({
+      NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
+      ALERT_WEBHOOK_DESTINATIONS_JSON: JSON.stringify(destinations),
+      ALERT_WEBHOOK_ALLOWED_HOSTS: "ops.example.test, archive.example.test",
+    });
+
+    expect(loaded.alertWebhookDestinations).toEqual([
+      { ...destinations[0], url: "https://ops.example.test/hooks" },
+      destinations[1],
+    ]);
+    expect(loaded.alertWebhookAllowedHosts).toEqual(["ops.example.test", "archive.example.test"]);
+    expect(loaded.alertWebhookUrl).toBe("https://ops.example.test/hooks");
+    expect(loaded.alertWebhookBearerToken).toBe("ops-bearer");
+
+    expect(() => loadConfig({
+      NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
+      ALERT_WEBHOOK_DESTINATIONS_JSON: JSON.stringify([destinations[0], { ...destinations[1], id: "operations" }]),
+    })).toThrow(/invalid or duplicate destination id/);
+    expect(() => loadConfig({
+      NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
+      ALERT_WEBHOOK_DESTINATIONS_JSON: JSON.stringify([{ ...destinations[0], id: "Not Stable" }]),
+    })).toThrow(/invalid or duplicate destination id/);
+    expect(() => loadConfig({
+      NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
+      ALERT_WEBHOOK_DESTINATIONS_JSON: JSON.stringify(destinations),
+      ALERT_WEBHOOK_URL: "https://legacy.example.test/hook",
+    })).toThrow(/cannot be combined/);
+    expect(() => loadConfig({
+      NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
+      ALERT_WEBHOOK_DESTINATIONS_JSON: JSON.stringify(destinations),
+      ALERT_WEBHOOK_ALLOWED_HOSTS: "ops.example.test",
+    })).toThrow(/must include every configured webhook destination host \(archive.eu\)/);
+  });
+
   it("rejects untrusted browser origins without blocking trusted or native clients", async () => {
     const before = runtime.database.latestReadings().map((reading) => reading.timestamp);
     const rejected = await request(runtime.app).post("/api/v1/mock/tick")

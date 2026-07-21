@@ -37,8 +37,9 @@ no secrets enter the browser/database/image.
   credential rotation/revocation drills are also in place; continue additional
   TLS/VPN/reverse-proxy recipes and expand audit coverage with future privileged
   capabilities.
-- Webhook signature, destination allowlist, multi-destination fan-out, and a
-  maximum-attempt/dead-letter policy on top of the durable retry outbox.
+- Webhook HMAC signatures, exact destination allowlisting, multi-destination
+  fan-out, bounded attempts, durable dead letters, and Owner/Admin manual retry
+  are now in place on top of the durable outbox.
 - Wall-clock sustained-condition timers now fire without waiting for the next
   sample, resume their durable pending state after restart, and refuse stale
   evidence.

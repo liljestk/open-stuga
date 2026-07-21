@@ -1342,6 +1342,7 @@ export interface NotificationDeliveryStatus {
   channel: NotificationChannel;
   destinationId: string;
   attempts: number;
+  maxAttempts: number;
   availableAt: string;
   createdAt: string;
   deliveredAt: string | null;
@@ -1770,6 +1771,12 @@ export interface IntegrationStatus {
     configured: boolean;
     lastDeliveryAt: string | null;
     error: string | null;
+    /** Additive per-destination health. URLs and credentials are never exposed. */
+    destinations?: Array<{
+      id: string;
+      lastDeliveryAt: string | null;
+      error: string | null;
+    }>;
   };
   /** Optional for wire compatibility with Stuga servers without native automation status. */
   telegram?: {

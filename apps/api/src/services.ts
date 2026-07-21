@@ -9,7 +9,7 @@ import type {
   Reading,
   Sensor,
 } from "@climate-twin/contracts";
-import type { AppConfig } from "./config.js";
+import { configuredAlertWebhookDestinations, type AppConfig } from "./config.js";
 import { ClimateDatabase } from "./db.js";
 import { TelemetryBus } from "./events.js";
 import { alertNotificationBindings } from "./notification-snapshot.js";
@@ -25,6 +25,7 @@ export class RuntimeStatus {
   constructor(config: AppConfig, bus: TelemetryBus, database: ClimateDatabase) {
     this.#bus = bus;
     this.#database = database;
+    const webhookDestinations = configuredAlertWebhookDestinations(config);
     this.value = {
       homeAssistant: {
         configured: Boolean((config.homeAssistantConnections?.length ?? 0) > 0
@@ -57,9 +58,14 @@ export class RuntimeStatus {
         })),
       },
       webhook: {
-        configured: Boolean(config.alertWebhookUrl),
+        configured: webhookDestinations.length > 0,
         lastDeliveryAt: null,
         error: null,
+        destinations: webhookDestinations.map((destination) => ({
+          id: destination.id,
+          lastDeliveryAt: null,
+          error: null,
+        })),
       },
       telegram: {
         available: true,
@@ -264,7 +270,7 @@ export class AlertEngine {
 
   private enqueueMaintenanceReminders(now: Date): void {
     if (!this.config) return;
-    const webhookEnabled = Boolean(this.config.alertWebhookUrl);
+    const webhookEnabled = configuredAlertWebhookDestinations(this.config).length > 0;
     const telegramEnabled = Boolean(this.config.telegramBotToken && this.config.telegramChatId);
     if (!webhookEnabled && !telegramEnabled) return;
     for (const task of this.database.listMaintenanceTasks({ limit: 500 })) {
@@ -296,7 +302,7 @@ export class AlertEngine {
 
   private enqueueActionVerification(run: import("@climate-twin/contracts").ActionRun, now: Date): void {
     if (!this.config || !["verified", "not-improved"].includes(run.status)) return;
-    const webhookEnabled = Boolean(this.config.alertWebhookUrl);
+    const webhookEnabled = configuredAlertWebhookDestinations(this.config).length > 0;
     const telegramEnabled = Boolean(this.config.telegramBotToken && this.config.telegramChatId);
     if (!webhookEnabled && !telegramEnabled) return;
     const sensor = this.database.getSensor(run.sensorId);

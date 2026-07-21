@@ -871,7 +871,7 @@ const combinedOpenApiDocument = {
     "/notification-deliveries/{id}/retry": {
       post: {
         tags: ["Alerts"], operationId: "retryNotificationDelivery", parameters: [{ $ref: "#/components/parameters/Id" }],
-        responses: { "200": jsonResponse("Delivery returned to the durable outbox.", { type: "object", additionalProperties: false, required: ["delivery"], properties: { delivery: { $ref: "#/components/schemas/NotificationDeliveryStatus" } } }), "409": { description: "Delivery is not retryable" } },
+        responses: { "200": jsonResponse("Delivery returned to the durable outbox.", { type: "object", additionalProperties: false, required: ["delivery"], properties: { delivery: { $ref: "#/components/schemas/NotificationDeliveryStatus" } } }), "403": { description: "Owner or Admin role required" }, "409": { description: "Delivery is not retryable" } },
       },
     },
     "/action-playbooks": {
@@ -2486,7 +2486,7 @@ const combinedOpenApiDocument = {
         properties: {
           homeAssistant: { type: "object", required: ["configured", "connected", "lastEventAt", "mappedEntities", "error"], properties: { configured: { type: "boolean" }, connected: { type: "boolean" }, lastEventAt: { type: ["string", "null"], format: "date-time" }, mappedEntities: { type: "integer" }, error: { type: ["string", "null"] }, connections: { type: "array", items: { type: "object", required: ["houseId", "configured", "connected", "lastEventAt", "mappedEntities", "error"], properties: { houseId: { type: "string" }, configured: { type: "boolean" }, connected: { type: "boolean" }, lastEventAt: { type: ["string", "null"], format: "date-time" }, mappedEntities: { type: "integer" }, error: { type: ["string", "null"] } } } } } },
           tpLink: { type: "object", required: ["configured", "connected", "lastPollAt", "mappedDevices", "discoveredDevices", "hubModel", "error"], properties: { configured: { type: "boolean" }, connected: { type: "boolean" }, lastPollAt: { type: ["string", "null"], format: "date-time" }, mappedDevices: { type: "integer" }, discoveredDevices: { type: "integer" }, hubModel: { enum: ["H100", "H200", null] }, error: { type: ["string", "null"] }, connections: { type: "array", items: { type: "object", additionalProperties: true } } } },
-          webhook: { type: "object", required: ["configured", "lastDeliveryAt", "error"], properties: { configured: { type: "boolean" }, lastDeliveryAt: { type: ["string", "null"], format: "date-time" }, error: { type: ["string", "null"] } } },
+          webhook: { type: "object", required: ["configured", "lastDeliveryAt", "error"], properties: { configured: { type: "boolean" }, lastDeliveryAt: { type: ["string", "null"], format: "date-time" }, error: { type: ["string", "null"] }, destinations: { type: "array", maxItems: 16, items: { type: "object", additionalProperties: false, required: ["id", "lastDeliveryAt", "error"], properties: { id: { type: "string", pattern: "^[a-z0-9][a-z0-9._-]{0,63}$" }, lastDeliveryAt: { type: ["string", "null"], format: "date-time" }, error: { type: ["string", "null"] } } } } } },
           telegram: { type: "object", required: ["available", "configured", "connected", "botUsername", "chatLabel", "lastDeliveryAt", "error"], properties: { available: { type: "boolean" }, configured: { type: "boolean" }, connected: { type: "boolean" }, botUsername: { type: ["string", "null"] }, chatLabel: { type: ["string", "null"] }, lastDeliveryAt: { type: ["string", "null"], format: "date-time" }, error: { type: ["string", "null"] } } },
           appleNotes: { type: "object", required: ["available", "configured", "grantCount", "lastSyncAt", "error"], properties: { available: { type: "boolean" }, configured: { type: "boolean" }, grantCount: { type: "integer", minimum: 0 }, lastSyncAt: { type: ["string", "null"], format: "date-time" }, error: { type: ["string", "null"] } } },
           mock: { type: "object", required: ["enabled", "intervalMs", "mode", "activatedAt"], properties: { enabled: { type: "boolean" }, intervalMs: { type: "integer" }, mode: { enum: ["demo", "real"] }, activatedAt: { type: ["string", "null"], format: "date-time" } } },
@@ -2533,10 +2533,10 @@ const combinedOpenApiDocument = {
       },
       NotificationDeliveryStatus: {
         type: "object", additionalProperties: false,
-        required: ["id", "subjectKind", "subjectId", "stage", "sequence", "channel", "destinationId", "attempts", "availableAt", "createdAt", "deliveredAt", "deadLetteredAt", "abandonedAt", "lastError"],
+        required: ["id", "subjectKind", "subjectId", "stage", "sequence", "channel", "destinationId", "attempts", "maxAttempts", "availableAt", "createdAt", "deliveredAt", "deadLetteredAt", "abandonedAt", "lastError"],
         properties: {
           id: { type: "string" }, subjectKind: { enum: ["alert", "maintenance", "action-run"] }, subjectId: { type: "string" },
-          stage: { enum: ["initial", "escalation", "reminder", "due", "verification"] }, sequence: { type: "integer", minimum: 0 }, channel: { enum: ["webhook", "telegram"] }, destinationId: { type: "string" }, attempts: { type: "integer", minimum: 0 },
+          stage: { enum: ["initial", "escalation", "reminder", "due", "verification"] }, sequence: { type: "integer", minimum: 0 }, channel: { enum: ["webhook", "telegram"] }, destinationId: { type: "string" }, attempts: { type: "integer", minimum: 0 }, maxAttempts: { type: "integer", minimum: 1, maximum: 100 },
           availableAt: { type: "string", format: "date-time" }, createdAt: { type: "string", format: "date-time" }, deliveredAt: { type: ["string", "null"], format: "date-time" }, deadLetteredAt: { type: ["string", "null"], format: "date-time" }, abandonedAt: { type: ["string", "null"], format: "date-time" }, lastError: { type: ["string", "null"] },
         },
       },

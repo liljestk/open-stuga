@@ -3,9 +3,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import {
   readIntegrationSecrets,
+  normalizedWebhookDestinations,
   type AppleNotesGrantSecret,
   type HomeAssistantConnectionSecret,
   type TpLinkConnectionSecret,
+  type WebhookDestinationSecret,
 } from "./integration-secrets.js";
 
 export interface AppConfig {
@@ -89,6 +91,8 @@ export interface AppConfig {
   tapoHistoryPrivateToken?: string | null;
   alertWebhookUrl: string | null;
   alertWebhookBearerToken: string | null;
+  /** All effective webhook destinations. Legacy singleton fields above project the primary/first entry. */
+  alertWebhookDestinations?: WebhookDestinationSecret[];
   /** Optional HMAC-SHA256 signing key. Receivers verify X-Stuga-Timestamp and X-Stuga-Signature. */
   alertWebhookSigningSecret?: string | null;
   /** Exact host allowlist; redirects are never followed. */
@@ -118,6 +122,21 @@ export interface AppConfig {
   cloudflareAccessSyncIntervalMs?: number;
   /** Explicit opt-in for a deliberately private-network custom electricity feed. */
   electricityAllowPrivateEndpoints?: boolean;
+}
+
+export function configuredAlertWebhookDestinations(
+  config: Pick<AppConfig, "alertWebhookDestinations" | "alertWebhookUrl" | "alertWebhookBearerToken" | "alertWebhookSigningSecret">,
+): WebhookDestinationSecret[] {
+  if (config.alertWebhookDestinations !== undefined) {
+    return config.alertWebhookDestinations.map((destination) => ({ ...destination }));
+  }
+  if (!config.alertWebhookUrl) return [];
+  return [{
+    id: "primary",
+    url: config.alertWebhookUrl,
+    ...(config.alertWebhookBearerToken ? { bearerToken: config.alertWebhookBearerToken } : {}),
+    ...(config.alertWebhookSigningSecret ? { signingSecret: config.alertWebhookSigningSecret } : {}),
+  }];
 }
 
 function optional(value: string | undefined): string | null {
@@ -314,6 +333,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     env, "TAPO_HISTORY_WORKER_TOKEN", "TAPO_HISTORY_WORKER_TOKEN_FILE", "TAPO_HISTORY_WORKER_TOKEN", 32, true,
   );
   const telegramEnvironment = environmentTuple(env, "Telegram", ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"]);
+  const alertWebhookEnvironmentDestinationsJson = optional(env.ALERT_WEBHOOK_DESTINATIONS_JSON);
   const alertWebhookEnvironmentUrl = optional(env.ALERT_WEBHOOK_URL);
   const alertWebhookEnvironmentBearerToken = optional(env.ALERT_WEBHOOK_BEARER_TOKEN);
   const alertWebhookEnvironmentSigningSecret = optional(env.ALERT_WEBHOOK_SIGNING_SECRET);
@@ -365,6 +385,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (cloudflareAccessGroupName && cloudflareAccessGroupName.length > 255) {
     throw new Error("CLOUDFLARE_ACCESS_GROUP_NAME must contain at most 255 characters");
   }
+  if (alertWebhookEnvironmentDestinationsJson && (
+    alertWebhookEnvironmentUrl || alertWebhookEnvironmentBearerToken || alertWebhookEnvironmentSigningSecret
+  )) {
+    throw new Error("ALERT_WEBHOOK_DESTINATIONS_JSON cannot be combined with legacy ALERT_WEBHOOK_* destination credentials");
+  }
   if (!alertWebhookEnvironmentUrl && alertWebhookEnvironmentBearerToken) {
     throw new Error("ALERT_WEBHOOK_BEARER_TOKEN requires ALERT_WEBHOOK_URL");
   }
@@ -383,21 +408,44 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const telegram = telegramEnvironment
     ? { botToken: telegramEnvironment[0]!, chatId: telegramEnvironment[1]! }
     : stored.telegram ?? null;
-  const webhook = alertWebhookEnvironmentUrl
-    ? {
-        url: httpEndpoint(alertWebhookEnvironmentUrl, "ALERT_WEBHOOK_URL"),
-        bearerToken: alertWebhookEnvironmentBearerToken,
-        signingSecret: alertWebhookEnvironmentSigningSecret,
-        source: "environment" as const,
-      }
-    : stored.webhook
-      ? {
-          url: httpEndpoint(stored.webhook.url, "stored webhook URL"),
-          bearerToken: stored.webhook.bearerToken ?? null,
-          signingSecret: stored.webhook.signingSecret ?? null,
-          source: "protected-file" as const,
-        }
+  let environmentWebhookDestinations: WebhookDestinationSecret[] | null = null;
+  if (alertWebhookEnvironmentDestinationsJson) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(alertWebhookEnvironmentDestinationsJson);
+    } catch {
+      throw new Error("ALERT_WEBHOOK_DESTINATIONS_JSON must be valid JSON");
+    }
+    environmentWebhookDestinations = normalizedWebhookDestinations(parsed, "ALERT_WEBHOOK_DESTINATIONS_JSON");
+  } else if (alertWebhookEnvironmentUrl) {
+    environmentWebhookDestinations = normalizedWebhookDestinations([{
+      id: "primary",
+      url: httpEndpoint(alertWebhookEnvironmentUrl, "ALERT_WEBHOOK_URL"),
+      ...(alertWebhookEnvironmentBearerToken ? { bearerToken: alertWebhookEnvironmentBearerToken } : {}),
+      ...(alertWebhookEnvironmentSigningSecret ? { signingSecret: alertWebhookEnvironmentSigningSecret } : {}),
+    }], "Legacy alert webhook configuration");
+  }
+  const storedWebhookDestinations = stored.webhookDestinations
+    ?? (stored.webhook ? normalizedWebhookDestinations([{ id: "primary", ...stored.webhook }], "Stored webhook") : null);
+  const webhookDestinations = environmentWebhookDestinations ?? storedWebhookDestinations ?? [];
+  const webhookSource: AppConfig["alertWebhookSource"] = environmentWebhookDestinations
+    ? "environment"
+    : storedWebhookDestinations
+      ? "protected-file"
       : null;
+  const primaryWebhook = webhookDestinations.find((destination) => destination.id === "primary")
+    ?? webhookDestinations[0]
+    ?? null;
+  const configuredWebhookAllowedHosts = optional(env.ALERT_WEBHOOK_ALLOWED_HOSTS)?.split(",")
+    .map((host) => host.trim().toLowerCase()).filter(Boolean);
+  const alertWebhookAllowedHosts = [...new Set(configuredWebhookAllowedHosts
+    ?? webhookDestinations.map((destination) => new URL(destination.url).hostname.toLowerCase()))];
+  const disallowedWebhookHost = webhookDestinations.find((destination) => (
+    !alertWebhookAllowedHosts.includes(new URL(destination.url).hostname.toLowerCase())
+  ));
+  if (disallowedWebhookHost) {
+    throw new Error(`ALERT_WEBHOOK_ALLOWED_HOSTS must include every configured webhook destination host (${disallowedWebhookHost.id})`);
+  }
   const timeseriesEnabled = booleanValue(env.TIMESERIES_ENABLED, false);
   const timeseriesRequired = booleanValue(env.TIMESERIES_REQUIRED, false);
   if (timeseriesRequired && !timeseriesEnabled) {
@@ -527,13 +575,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tapoHistoryGmailRefreshToken: tapoGmail?.[2] ?? null,
     tapoHistoryPrivateEndpoint: tapoPrivate ? httpEndpoint(tapoPrivate[0]!, "TAPO_HISTORY_PRIVATE_ENDPOINT") : null,
     tapoHistoryPrivateToken: tapoPrivate?.[1] ?? null,
-    alertWebhookUrl: webhook?.url ?? null,
-    alertWebhookBearerToken: webhook?.bearerToken ?? null,
-    alertWebhookSigningSecret: webhook?.signingSecret ?? null,
-    alertWebhookAllowedHosts: [...new Set((optional(env.ALERT_WEBHOOK_ALLOWED_HOSTS)?.split(",")
-      .map((host) => host.trim().toLowerCase()).filter(Boolean)
-      ?? (webhook?.url ? [new URL(webhook.url).hostname.toLowerCase()] : [])))],
-    alertWebhookSource: webhook?.source ?? null,
+    alertWebhookUrl: primaryWebhook?.url ?? null,
+    alertWebhookBearerToken: primaryWebhook?.bearerToken ?? null,
+    alertWebhookDestinations: webhookDestinations.map((destination) => ({ ...destination })),
+    alertWebhookSigningSecret: primaryWebhook?.signingSecret ?? null,
+    alertWebhookAllowedHosts,
+    alertWebhookSource: webhookSource,
     telegramBotToken: telegram?.botToken ?? null,
     telegramChatId: telegram?.chatId ?? null,
     appleNotesGrants: (stored.appleNotesGrants ?? []).map((grant) => ({ ...grant })),

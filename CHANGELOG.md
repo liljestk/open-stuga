@@ -4,6 +4,10 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+- Added webhook fan-out to as many as 16 stable destinations with independent
+  credentials and health, optional HMAC-SHA256 signatures, exact host
+  allowlisting, immutable per-destination outbox rows, bounded attempts, durable
+  dead letters, and Owner/Admin manual retry.
 - Added an Owner/Admin-only append-only security audit API for authentication,
   membership, integration credential, and bridge-grant lifecycles, plus
   restart-persistent automated credential rotation/revocation drills that prove

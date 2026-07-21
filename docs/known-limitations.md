@@ -223,8 +223,9 @@ system described in the roadmap.
 ## Alerts and delivery
 
 - Sustained-duration state is persisted in SQLite and chronology-fenced, so it
-  survives API restarts. Evaluation remains sample-driven: a flat value does not
-  fire on a wall-clock timer until another reading arrives.
+  survives API restarts. A five-second wall-clock tick can open a pending alert
+  without another reading, but refuses stale evidence: the latest sample must be
+  non-stale, not future-dated, and no more than 15 minutes old.
 - New webhook and Telegram notifications are persisted in a SQLite outbox and
   retried with bounded exponential backoff. Delivery is at-least-once: a process
   failure after the remote service accepts a request but before the local commit
@@ -236,14 +237,17 @@ system described in the roadmap.
   Legacy unbound queued rows are retained but fail closed rather than being
   attached to whichever destination happens to be configured after migration.
   A sensor referenced by alert history must be disabled instead of deleted.
-- The outbox currently has no maximum-attempt/dead-letter policy, webhook
-  signature, destination allowlist, or fan-out. A successful Bot API response
-  confirms acceptance by Telegram, not that the recipient read it. Mock and
-  replay samples are blocked from both external channels.
-- Telegram currently sends newly opened threshold alerts only. Maintenance due
-  reminders and task completion/verification notifications are not scheduled
-  or delivered automatically.
-- Only one outbound URL is configured. Multiple destinations need a relay.
+- Delivery policies allow 1-100 attempts (8 by default). Exhausted rows remain
+  in a durable dead-letter state visible through the delivery API; an Owner or
+  Admin can manually requeue terminal work. This is an operator action, not an
+  automatic poison-message remediation workflow.
+- Up to 16 webhook destinations can fan out independently. Outbound requests
+  use an exact host allowlist, refuse redirects, and can carry destination-local
+  HMAC-SHA256 signatures. Signatures provide body integrity/authenticity when
+  receivers protect the key and enforce the timestamp; receivers must still
+  implement replay-window checks and idempotency.
+- A successful Bot API response confirms acceptance by Telegram, not that the
+  recipient read it. Mock and replay samples are blocked from external channels.
 - Repeated open events are grouped for presentation, but there is not yet a
   durable issue/incident lifecycle, snooze state, escalation policy, seasonal
   baseline, or cross-sensor/weather correlation engine. Acknowledgement does not

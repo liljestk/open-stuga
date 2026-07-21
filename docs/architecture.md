@@ -286,15 +286,17 @@ idempotent downstream handling. The broker itself is not a durable log: after
 a reconnect, clients still refresh the REST snapshot before resuming live SSE.
 
 Outbound alert delivery is decoupled from alert creation by a durable SQLite
-outbox. Alert creation atomically stores the exact rendered payload plus a
-one-way reference to its destination credential tuple; secrets remain in their
-protected configuration source. Later rule edits or retirement cannot re-render
-or cascade-delete historical events and queued rows, and sensors referenced by
-alert history must be disabled rather than deleted. A destination rotation
-terminally abandons mismatched older work rather than sending it somewhere new.
-Webhook and Telegram transient failures are retried with bounded exponential
-backoff; the contract is at-least-once. The queue survives process restarts, but
-it is not a general message broker or attempt-based dead-letter service.
+outbox. Alert creation atomically stores one immutable rendered-payload row per
+enabled channel and webhook destination plus a one-way reference to each
+credential tuple; secrets remain in their protected configuration source.
+Later rule edits or retirement cannot re-render or cascade-delete historical
+events and queued rows, and sensors referenced by alert history must be disabled
+rather than deleted. A destination rotation terminally abandons mismatched older
+work rather than sending it somewhere new. Webhook and Telegram transient
+failures use bounded exponential backoff until the policy's maximum attempt
+count, then remain in a durable dead-letter state for Owner/Admin inspection and
+manual retry. The contract is at-least-once and survives process restarts; this
+bounded delivery ledger is not a general message broker.
 
 Raw archive retention is unlimited in TimescaleDB. `RETENTION_DAYS=0` also keeps
 the full local SQLite copy; a value of 30 or more turns SQLite into a bounded hot

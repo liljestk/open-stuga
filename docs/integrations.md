@@ -15,11 +15,11 @@ account and session administration are deliberately not added to the trusted
 local stdio MCP. The ingestion API key, when configured, remains a separate
 machine credential rather than a browser account session.
 
-Outbound alerts can independently target Telegram and one generic webhook.
-The webhook can reach Home Assistant or an integration relay; a relay is still
-required to fan that single generic destination out to Home Assistant, DayOps,
-and OpenWearable simultaneously. See the guided [Apple Notes bridge and
-Telegram setup](apple-notes-telegram.md).
+Outbound alerts can independently target Telegram and as many as 16 generic
+webhook destinations. Each webhook destination has its own stable ID,
+credentials, delivery state, and immutable outbox row; a relay remains useful
+when a downstream needs custom transformation or orchestration. See the guided
+[Apple Notes bridge and Telegram setup](apple-notes-telegram.md).
 
 Home-scoped outdoor context is a v1 resource with automatic provider routing
 (`House` and `houseId` remain the compatibility API names).
@@ -739,18 +739,35 @@ Set the Stuga environment to the corresponding local URL:
 ```dotenv
 ALERT_WEBHOOK_URL=http://homeassistant.local:8123/api/webhook/replace-with-secret-id
 ALERT_WEBHOOK_BEARER_TOKEN=
+ALERT_WEBHOOK_ALLOWED_HOSTS=homeassistant.local
 ```
 
 Home Assistant webhook triggers authenticate by possession of the unguessable
 ID, so leave the bearer token empty for this route. Enable `webhookEnabled` on
-the desired Stuga alert rules.
+the desired Stuga alert rules. The legacy tuple above remains supported. To
+deliver the same alert to several independent systems, use the mutually
+exclusive multi-destination form on one line in the private environment file:
 
-The MVP posts once when a rule creates an alert, with a 10-second timeout:
+```dotenv
+ALERT_WEBHOOK_DESTINATIONS_JSON=[{"id":"home-assistant","url":"http://homeassistant.local:8123/api/webhook/replace-with-secret-id"},{"id":"dayops","url":"https://dayops.example.test/stuga","bearerToken":"replace-me","signingSecret":"replace-with-a-unique-secret-of-at-least-32-bytes"}]
+ALERT_WEBHOOK_ALLOWED_HOSTS=homeassistant.local,dayops.example.test
+```
+
+Destination IDs use lowercase letters, digits, dots, underscores, or hyphens,
+are unique, and remain stable because they are part of delivery status and the
+idempotency key. `ALERT_WEBHOOK_DESTINATIONS_JSON` cannot be combined with
+`ALERT_WEBHOOK_URL`, `ALERT_WEBHOOK_BEARER_TOKEN`, or
+`ALERT_WEBHOOK_SIGNING_SECRET`. If the explicit allowlist is omitted, Stuga
+derives it from the configured destination hosts; if supplied, it must contain
+every destination host.
+
+An initial alert payload looks like this:
 
 ```json
 {
   "apiVersion": "v1",
   "type": "climate-twin.alert",
+  "deliveryStage": "initial",
   "event": {
     "id": "alert-event-id",
     "ruleId": "rule-id",
@@ -779,17 +796,30 @@ The MVP posts once when a rule creates an alert, with a 10-second timeout:
 }
 ```
 
-New webhook notifications are committed to a SQLite outbox with an immutable
-rendered payload and a one-way reference to the complete destination credential
-tuple. Rule edits and retirement therefore cannot rewrite or remove queued work,
-and a credential/destination rotation abandons an older row instead of rerouting
-it. Credentials themselves remain outside SQLite. Each request carries a stable
-`Idempotency-Key`, which receivers should persist and deduplicate because the
-delivery contract is at-least-once. Transient failures use bounded exponential
-backoff. There is no maximum-attempt/dead-letter policy, signature, destination
-allowlist, or fan-out yet. The integration status reports the last success/error.
-Keep important safety alerts in Home Assistant/certified devices as well; do not
-use this as the only notification.
+New webhook notifications are committed to a SQLite outbox with one immutable
+rendered-payload row and one-way credential reference per destination. Rule
+edits and retirement therefore cannot rewrite or remove queued work, and a
+credential/destination rotation abandons an older row instead of rerouting it.
+Credentials and complete URLs remain outside SQLite.
+
+Each request has a 10-second timeout, refuses redirects, checks the exact host
+allowlist, and carries a stable `Idempotency-Key` that includes its destination
+ID. Receivers should persist and deduplicate that key because delivery is
+at-least-once. When a destination has `signingSecret`, Stuga also sends an epoch
+`X-Stuga-Timestamp` and `X-Stuga-Signature: sha256=<hex>`, calculated as
+HMAC-SHA256 over `<timestamp>.<raw JSON body>`. A receiver should compare the
+signature in constant time, reject timestamps outside its replay window, and
+still deduplicate the idempotency key.
+
+Transient failures use bounded exponential backoff. Each rule's
+`deliveryPolicy.maxAttempts` accepts 1-100 attempts and defaults to 8; exhausted
+rows remain in a durable dead-letter state. Authenticated operators can inspect
+the redacted ledger with `GET /api/v1/notification-deliveries`, and an Owner or
+Admin can reset a dead-lettered or abandoned row with
+`POST /api/v1/notification-deliveries/{id}/retry`. The integration status
+reports aggregate and per-destination success/error state without URLs or
+credentials. Keep important safety alerts in Home Assistant/certified devices
+as well; do not use this as the only notification.
 
 ## Send alerts to Telegram
 
@@ -806,16 +836,16 @@ end-to-end-encrypted Secret Chats, and Bot API acceptance is not proof that a
 person read the alert. Telegram notifications use the same immutable durable
 retry envelope and destination binding, but Telegram does not provide an
 idempotency key: a crash after remote acceptance can duplicate a message, and
-there is no maximum-attempt/dead-letter policy yet. Retain a suitable safety
-channel. Full setup and troubleshooting are in [Apple Notes bridge and Telegram
-alerts](apple-notes-telegram.md).
+the same bounded-attempt/dead-letter policy applies. Retain a suitable safety
+channel. Full setup and troubleshooting are in [Apple Notes bridge and
+Telegram alerts](apple-notes-telegram.md).
 
-Alert `durationSeconds` is currently **sample-driven with durable SQLite
-state**. Pending duration survives API restarts and is protected from
-out-of-order readings, but a rule fires only when another violating reading
-arrives after the duration. A flat value with no new event can therefore wait
-indefinitely. Use Home Assistant/certified alerting for time-critical thresholds
-until wall-clock timer evaluation is implemented.
+Alert `durationSeconds` uses durable SQLite state plus a five-second wall-clock
+tick. A pending condition survives API restarts and can fire without another
+sensor event once its deadline passes, but only when the latest non-stale sample
+is no more than 15 minutes old and is not future-dated. The tick advances alert
+state without writing an invented telemetry sample. Continue to use certified
+alerting for life-safety thresholds.
 
 ## DayOps and OpenWearable
 
@@ -827,9 +857,10 @@ Recommended patterns:
 1. **Read-only consumer:** query v2 measurement snapshot/history/forecast plus
    v1 alert events and observations; subscribe to the v2 measurement stream
    while online. Keep v1 reading routes only for existing clients.
-2. **Alert relay:** set the single Stuga webhook to a local relay. Validate
-   its bearer token, persist/deduplicate by `event.id`, then transform and fan out
-   to Home Assistant, DayOps, and OpenWearable with destination-specific auth.
+2. **Alert delivery:** configure one Stuga webhook destination per downstream,
+   or use a local relay when custom transformation or orchestration is needed.
+   Validate bearer/HMAC credentials and persist/deduplicate the complete
+   `Idempotency-Key` before forwarding to Home Assistant, DayOps, or OpenWearable.
 3. **Context writer:** record a verified maintenance/leak outcome through
    `/observations` or a durable building fact through `/parameters`.
 4. **Combined analysis:** correlate by explicit pseudonymous house/room/sensor

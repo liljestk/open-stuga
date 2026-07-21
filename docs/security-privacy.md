@@ -64,8 +64,9 @@ does not create a browser session or grant interactive account access.
   bridge routes.
 - Environment variables remain advanced overrides. Put `HA_TOKEN`,
   `TP_LINK_USERNAME`, `TP_LINK_PASSWORD`, `TELEGRAM_BOT_TOKEN`,
-  `TELEGRAM_CHAT_ID`, `INGEST_API_KEY`, and
-  `ALERT_WEBHOOK_BEARER_TOKEN` only in the private `.env`, the protected
+  `TELEGRAM_CHAT_ID`, `INGEST_API_KEY`, `ALERT_WEBHOOK_BEARER_TOKEN`,
+  `ALERT_WEBHOOK_SIGNING_SECRET`, and credential-bearing
+  `ALERT_WEBHOOK_DESTINATIONS_JSON` only in the private `.env`, the protected
   integration secrets file, or a container/orchestrator secret store.
   Environment webhook values take precedence and are mirrored into the
   protected secrets file for complete-backup recovery when that file is
@@ -151,15 +152,17 @@ Recommended flows are narrowly scoped:
 | Stuga API | `alerts.fmi.fi:443` | official CAP warning feed |
 | Stuga API | `api.open-meteo.com:443` | worldwide weather and coordinate-to-timezone defaults |
 | Stuga API | `geocoding-api.open-meteo.com:443` | user-initiated place search |
-| Stuga API | configured webhook host | alert delivery only |
+| Stuga API | configured webhook hosts | alert delivery only |
 | Stuga API | `api.telegram.org:443` | bot validation, private-chat discovery, test, and opted-in alert delivery |
 | User iPhone/iPad | authenticated Stuga bridge URL | user-run maintenance capture and generated Notes snapshots |
 | Home Assistant | H200 local address | official TP-Link local polling |
 
 Block unsolicited inbound traffic to the API from guest/IoT networks. Do not
-expose H200 or Home Assistant device ports to the internet. Restrict outbound
-webhook destinations in a more hostile deployment to reduce server-side request
-forgery and data-exfiltration risk.
+expose H200 or Home Assistant device ports to the internet. Webhook destinations
+are fixed administrator configuration, checked against an exact host allowlist,
+and never accepted from an alert request. Set `ALERT_WEBHOOK_ALLOWED_HOSTS`
+explicitly in a more hostile deployment so a mistyped or injected configuration
+fails startup rather than widening outbound access.
 
 The Apple Notes bearer is Home- and route-scoped and is separate from browser
 account sessions. Its operator device label is not a device binding. Changing
@@ -207,9 +210,11 @@ production rollout.
   generated IDs outside executable/static source directories.
 - Do not accept arbitrary callback URLs on alert requests. Delivery targets are
   administrator configuration.
-- Include stable event IDs for idempotency and sign webhook bodies in a future
-  hardened integration; bearer tokens provide authorization but not body-level
-  integrity or replay protection.
+- Webhooks include a stable destination-scoped idempotency key. Configure a
+  unique signing secret per receiver when body integrity/authenticity is needed;
+  verify `X-Stuga-Signature` against the raw body in constant time and enforce
+  an `X-Stuga-Timestamp` replay window. HMAC alone does not prevent replay, and
+  bearer tokens alone do not provide body-level integrity.
 - MCP is a privileged local automation interface. Run the stdio process only for
   a trusted MCP host, expose the minimum tools, validate every argument, and
   require confirmation for destructive or notification-producing actions.

@@ -48,7 +48,7 @@ import type {
   TelemetryEvent,
   TenantMemberRole,
 } from "@climate-twin/contracts";
-import { loadConfig, type AppConfig } from "./config.js";
+import { configuredAlertWebhookDestinations, loadConfig, type AppConfig } from "./config.js";
 import {
   ClimateDatabase,
   ClimateDataValidationError,
@@ -1771,21 +1771,17 @@ function sameTelegramCredential(
 }
 
 function mirrorEnvironmentWebhook(config: AppConfig): void {
-  if (config.alertWebhookSource !== "environment" || !config.alertWebhookUrl) return;
-  const webhook: NonNullable<IntegrationSecrets["webhook"]> = {
-    url: config.alertWebhookUrl,
-    ...(config.alertWebhookBearerToken ? { bearerToken: config.alertWebhookBearerToken } : {}),
-    ...(config.alertWebhookSigningSecret ? { signingSecret: config.alertWebhookSigningSecret } : {}),
-  };
+  const webhookDestinations = configuredAlertWebhookDestinations(config);
+  if (config.alertWebhookSource !== "environment" || webhookDestinations.length === 0) return;
   try {
     const fileExists = existsSync(config.integrationSecretsFile);
-    const existing = fileExists
-      ? readIntegrationSecrets(config.integrationSecretsFile).webhook
-      : undefined;
-    if (existing?.url === webhook.url && existing.bearerToken === webhook.bearerToken
-      && existing.signingSecret === webhook.signingSecret) return;
+    const secrets = fileExists ? readIntegrationSecrets(config.integrationSecretsFile) : null;
+    const existing = secrets?.webhookDestinations
+      ?? (secrets?.webhook ? [{ id: "primary", ...secrets.webhook }] : []);
+    if (JSON.stringify(existing) === JSON.stringify(webhookDestinations)) return;
     updateIntegrationSecrets(config.integrationSecretsFile, {
-      webhook,
+      webhook: null,
+      webhookDestinations,
       ...(!fileExists ? { metadataSnapshotIncomplete: true } : {}),
     });
   } catch {
@@ -1821,6 +1817,9 @@ function initializeIntegrationMetadata(config: AppConfig, database: ClimateDatab
         ...(protectedSecrets.appleNotesGrants
           ? { appleNotesGrants: protectedSecrets.appleNotesGrants.map((grant) => ({ ...grant })) }
           : {}),
+        ...(protectedSecrets.webhookDestinations
+          ? { webhookDestinations: protectedSecrets.webhookDestinations.map((destination) => ({ ...destination })) }
+          : {}),
       }
     : {
         version: 1,
@@ -1851,11 +1850,15 @@ function initializeIntegrationMetadata(config: AppConfig, database: ClimateDatab
         botToken: config.telegramBotToken, chatId: config.telegramChatId,
       }),
   );
-  const webhookFromEnvironment = config.alertWebhookSource === "environment" && Boolean(config.alertWebhookUrl);
+  const webhookFromEnvironment = config.alertWebhookSource === "environment"
+    && configuredAlertWebhookDestinations(config).length > 0;
   if (homeAssistantFromEnvironment) delete metadataSecrets.homeAssistant;
   if (tpLinkFromEnvironment) delete metadataSecrets.tpLink;
   if (telegramFromEnvironment) delete metadataSecrets.telegram;
-  if (webhookFromEnvironment) delete metadataSecrets.webhook;
+  if (webhookFromEnvironment) {
+    delete metadataSecrets.webhook;
+    delete metadataSecrets.webhookDestinations;
+  }
   store.reconcileEnvironment({
     homeAssistant: homeAssistantFromEnvironment && firstHouseId && config.haUrl
       ? { houseId: firstHouseId, url: config.haUrl }
@@ -1864,7 +1867,9 @@ function initializeIntegrationMetadata(config: AppConfig, database: ClimateDatab
       ? { houseId: firstHouseId, host: config.tpLinkHost }
       : null,
     telegramConfigured: telegramFromEnvironment,
-    webhookConfigured: webhookFromEnvironment,
+    webhookDestinationIds: webhookFromEnvironment
+      ? configuredAlertWebhookDestinations(config).map((destination) => destination.id)
+      : [],
   });
   store.reconcileProtectedFile({ authoritative, secrets: metadataSecrets, legacyHouseId: firstHouseId });
   return store;
@@ -1877,7 +1882,9 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   config.telegramChatId ??= null;
   config.alertWebhookSource ??= config.alertWebhookUrl ? "environment" : null;
   config.alertWebhookSigningSecret ??= null;
-  config.alertWebhookAllowedHosts ??= config.alertWebhookUrl ? [new URL(config.alertWebhookUrl).hostname.toLowerCase()] : [];
+  config.alertWebhookDestinations ??= configuredAlertWebhookDestinations(config);
+  config.alertWebhookAllowedHosts ??= config.alertWebhookDestinations
+    .map((destination) => new URL(destination.url).hostname.toLowerCase());
   config.appleNotesGrants ??= [];
   config.homeAssistantLegacyDisabled ??= false;
   config.tpLinkLegacyDisabled ??= false;
@@ -4043,7 +4050,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     }).slice(0, limit);
     response.json({ deliveries });
   });
-  app.post(`${prefix}/notification-deliveries/:id/retry`, (request, response) => {
+  app.post(`${prefix}/notification-deliveries/:id/retry`, requireWorkspaceAdmin, (request, response) => {
     if (!database.retryNotificationDelivery(request.params.id as string)) {
       throw new HttpError(409, "NOT_RETRYABLE", "Notification delivery is not dead-lettered or abandoned");
     }

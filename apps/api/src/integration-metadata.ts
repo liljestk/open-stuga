@@ -65,7 +65,7 @@ export interface EnvironmentIntegrationMetadataSnapshot {
   homeAssistant: { houseId: string; url: string } | null;
   tpLink: { houseId: string; host: string } | null;
   telegramConfigured: boolean;
-  webhookConfigured: boolean;
+  webhookDestinationIds: string[];
 }
 
 interface UpsertInput {
@@ -131,6 +131,10 @@ export function sanitizedHttpIntegrationEndpoint(value: string): string {
 
 function homeAssistantSecretRef(houseId: string): string {
   return `house:${houseId}`;
+}
+
+function webhookSecretRef(destinationId: string): string {
+  return destinationId === "primary" ? "singleton" : `destination:${destinationId}`;
 }
 
 /**
@@ -386,9 +390,11 @@ export class IntegrationMetadataStore {
           reason: "reconciled",
         });
       }
-      if (secrets.webhook) {
+      const webhookDestinations = secrets.webhookDestinations
+        ?? (secrets.webhook ? [{ id: "primary", ...secrets.webhook }] : []);
+      for (const destination of webhookDestinations) {
         add({
-          kind: "webhook", secretRef: "singleton", secretSource: "protected-file",
+          kind: "webhook", secretRef: webhookSecretRef(destination.id), secretSource: "protected-file",
           reason: "reconciled",
         });
       }
@@ -435,9 +441,11 @@ export class IntegrationMetadataStore {
       if (snapshot.telegramConfigured) add({
         kind: "telegram", secretRef: "singleton", secretSource: "environment", reason: "reconciled",
       });
-      if (snapshot.webhookConfigured) add({
-        kind: "webhook", secretRef: "singleton", secretSource: "environment", reason: "reconciled",
-      });
+      for (const destinationId of snapshot.webhookDestinationIds) {
+        add({
+          kind: "webhook", secretRef: webhookSecretRef(destinationId), secretSource: "environment", reason: "reconciled",
+        });
+      }
       const rows = this.database.db.prepare(`SELECT kind, secret_ref FROM integration_metadata
         WHERE secret_source = 'environment' AND retired_at IS NULL`).all() as unknown as Array<{
           kind: IntegrationMetadataKind;

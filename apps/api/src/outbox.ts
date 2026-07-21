@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import type { AppConfig } from "./config.js";
+import { configuredAlertWebhookDestinations, type AppConfig } from "./config.js";
 import type { ClimateDatabase, NotificationOutboxItem } from "./db.js";
 import type { RuntimeStatus } from "./services.js";
 import { TelegramService } from "./telegram.js";
@@ -93,10 +93,11 @@ export class NotificationOutboxWorker extends DurableWorker {
     const telegramGeneration = this.telegramConfigurationGeneration();
     const telegramToken = this.config.telegramBotToken;
     const telegramChatId = this.config.telegramChatId;
-    const webhookUrl = this.config.alertWebhookUrl;
-    const webhookBearerToken = this.config.alertWebhookBearerToken;
+    const webhookDestination = item.channel === "webhook"
+      ? configuredAlertWebhookDestinations(this.config).find((destination) => destination.id === item.destinationId)
+      : undefined;
     try {
-      const currentDestinationRef = notificationDestinationRef(item.channel, this.config);
+      const currentDestinationRef = notificationDestinationRef(item.channel, this.config, item.destinationId);
       if (item.destinationRef !== currentDestinationRef) {
         this.database.abandonNotificationOutbox(
           item.id,
@@ -107,8 +108,8 @@ export class NotificationOutboxWorker extends DurableWorker {
         return;
       }
       if (item.channel === "webhook") {
-        if (!webhookUrl) throw new Error("Alert webhook is not configured");
-        const webhookHost = new URL(webhookUrl).hostname.toLowerCase();
+        if (!webhookDestination) throw new Error("Alert webhook destination is not configured");
+        const webhookHost = new URL(webhookDestination.url).hostname.toLowerCase();
         if (!(this.config.alertWebhookAllowedHosts ?? []).includes(webhookHost)) {
           throw new Error("Alert webhook destination is not on the configured allowlist");
         }
@@ -116,16 +117,16 @@ export class NotificationOutboxWorker extends DurableWorker {
           "content-type": "application/json",
           "idempotency-key": `stuga-${item.subjectKind}-${item.subjectId}-${item.stage}-${item.sequence}-${item.destinationId}`,
         };
-        if (webhookBearerToken) headers.authorization = `Bearer ${webhookBearerToken}`;
-        if (this.config.alertWebhookSigningSecret) {
+        if (webhookDestination.bearerToken) headers.authorization = `Bearer ${webhookDestination.bearerToken}`;
+        if (webhookDestination.signingSecret) {
           const timestamp = Math.floor(Date.now() / 1_000).toString();
-          const signature = createHmac("sha256", this.config.alertWebhookSigningSecret)
+          const signature = createHmac("sha256", webhookDestination.signingSecret)
             .update(`${timestamp}.${item.payloadJson}`, "utf8")
             .digest("hex");
           headers["x-stuga-timestamp"] = timestamp;
           headers["x-stuga-signature"] = `sha256=${signature}`;
         }
-        const response = await this.fetchImpl(webhookUrl, {
+        const response = await this.fetchImpl(webhookDestination.url, {
           method: "POST",
           headers,
           body: item.payloadJson,
@@ -138,8 +139,7 @@ export class NotificationOutboxWorker extends DurableWorker {
           return;
         }
         if (!response.ok) throw new Error(`Webhook returned HTTP ${response.status}`);
-        this.status.value.webhook.lastDeliveryAt = new Date().toISOString();
-        this.status.value.webhook.error = null;
+        this.updateWebhookStatus(item.destinationId, new Date().toISOString(), null);
       } else {
         if (!telegramToken || !telegramChatId) throw new Error("Telegram is not configured");
         const payload = parseTelegramNotificationPayload(item.payloadJson);
@@ -180,12 +180,31 @@ export class NotificationOutboxWorker extends DurableWorker {
           new Date(Date.now() + retryDelay(item.attempts)),
         );
       }
-      if (item.channel === "webhook") this.status.value.webhook.error = message;
+      if (item.channel === "webhook") this.updateWebhookStatus(item.destinationId, null, message);
       else {
         this.status.value.telegram!.connected = false;
         this.status.value.telegram!.error = "Telegram alert delivery failed";
       }
     }
     this.status.changed();
+  }
+
+  private updateWebhookStatus(destinationId: string, deliveredAt: string | null, error: string | null): void {
+    const webhook = this.status.value.webhook;
+    const destinations = webhook.destinations ?? [];
+    const destination = destinations.find((candidate) => candidate.id === destinationId);
+    if (destination) {
+      if (deliveredAt) destination.lastDeliveryAt = deliveredAt;
+      destination.error = error;
+    }
+    webhook.lastDeliveryAt = destinations.map((candidate) => candidate.lastDeliveryAt)
+      .filter((value): value is string => value !== null)
+      .sort().at(-1) ?? deliveredAt ?? webhook.lastDeliveryAt;
+    const failing = destinations.filter((candidate) => candidate.error !== null).length;
+    webhook.error = failing > 0
+      ? `${failing} webhook destination${failing === 1 ? "" : "s"} failing`
+      : destinations.length > 0
+        ? null
+        : error;
   }
 }

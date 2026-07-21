@@ -167,7 +167,7 @@ describe("durable non-secret integration metadata", () => {
     expect(readIntegrationSecrets(secretsPath)).toMatchObject({
       version: 1,
       metadataSnapshotIncomplete: true,
-      webhook: { url: webhookUrl, bearerToken: webhookBearer },
+      webhookDestinations: [{ id: "primary", url: webhookUrl, bearerToken: webhookBearer }],
     });
     expect(fromEnvironment.integrationMetadata.get("webhook", "singleton")).toMatchObject({
       active: true,
@@ -183,6 +183,53 @@ describe("durable non-secret integration metadata", () => {
       active: true,
       secretSource: "protected-file",
       endpoint: null,
+    });
+  });
+
+  it("reconciles every environment webhook destination without persisting secret material in SQLite", async () => {
+    const { databasePath, secretsPath } = paths("stuga-webhook-destinations-");
+    const destinations = [
+      {
+        id: "operations",
+        url: "https://ops.example.test/notify?capability=ops-secret",
+        bearerToken: "ops-bearer-secret",
+      },
+      {
+        id: "archive",
+        url: "https://archive.example.test/events?capability=archive-secret",
+        signingSecret: "archive-signing-secret".padEnd(32, "x"),
+      },
+    ];
+    const fromEnvironment = boot(databasePath, secretsPath, {
+      ALERT_WEBHOOK_DESTINATIONS_JSON: JSON.stringify(destinations),
+    });
+
+    expect(fromEnvironment.status.value.webhook.destinations?.map((destination) => destination.id))
+      .toEqual(["operations", "archive"]);
+    expect(readIntegrationSecrets(secretsPath).webhookDestinations).toEqual(destinations);
+    expect(fromEnvironment.integrationMetadata.get("webhook", "destination:operations")).toMatchObject({
+      active: true,
+      secretSource: "environment",
+      endpoint: null,
+    });
+    expect(fromEnvironment.integrationMetadata.get("webhook", "destination:archive")).toMatchObject({
+      active: true,
+      secretSource: "environment",
+      endpoint: null,
+    });
+    const sqliteMetadata = JSON.stringify(fromEnvironment.integrationMetadata.list());
+    for (const secret of ["ops-secret", "ops-bearer-secret", "archive-secret", destinations[1]!.signingSecret]) {
+      expect(sqliteMetadata).not.toContain(secret);
+    }
+
+    const restored = await restart(databasePath, secretsPath);
+    expect(restored.integrationMetadata.get("webhook", "destination:operations")).toMatchObject({
+      active: true,
+      secretSource: "protected-file",
+    });
+    expect(restored.integrationMetadata.get("webhook", "destination:archive")).toMatchObject({
+      active: true,
+      secretSource: "protected-file",
     });
   });
 });

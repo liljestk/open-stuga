@@ -424,8 +424,11 @@ take precedence after restart.
 | `TAPO_ACTION_TIMEOUT_MS` | `15000` | default per-action selector/command timeout in the pinned flow |
 | `TAPO_RUNNER_ARTIFACT_DIR` | `data/tapo-runner-artifacts` | protected diagnostic screenshot directory; apply short retention |
 | `TAPO_RUNNER_ARTIFACT_RETENTION_DAYS` | `30` | automatic protected screenshot retention, from 1 through 365 days |
-| `ALERT_WEBHOOK_URL` | empty | optional outbound alert destination |
-| `ALERT_WEBHOOK_BEARER_TOKEN` | empty | optional destination bearer token |
+| `ALERT_WEBHOOK_DESTINATIONS_JSON` | empty | optional array of 1-16 `{id,url,bearerToken?,signingSecret?}` destinations; cannot be combined with the legacy singleton tuple |
+| `ALERT_WEBHOOK_URL` | empty | optional legacy singleton outbound destination |
+| `ALERT_WEBHOOK_BEARER_TOKEN` | empty | optional legacy singleton bearer token; requires `ALERT_WEBHOOK_URL` |
+| `ALERT_WEBHOOK_SIGNING_SECRET` | empty | optional legacy singleton HMAC key of at least 32 UTF-8 bytes; requires `ALERT_WEBHOOK_URL` |
+| `ALERT_WEBHOOK_ALLOWED_HOSTS` | configured destination hosts | exact comma-separated outbound host allowlist; every configured destination must be present |
 | `CORS_ORIGIN` | empty | exact trusted browser origin for a split-origin or non-loopback deployment |
 | `LOCAL_AUTH_BOOTSTRAP_SECRET` | empty | optional high-entropy secret for an explicitly authorized first-owner setup outside loopback |
 | `LOCAL_AUTH_PROXY_SECRET` | empty | advanced non-Compose shared secret authenticating one immediate reverse proxy; minimum 32 bytes |

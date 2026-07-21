@@ -24,8 +24,17 @@ export interface IntegrationSecrets {
   tpLinkLegacyDisabled?: true;
   tpLinkConnections?: TpLinkConnectionSecret[];
   webhook?: { url: string; bearerToken?: string; signingSecret?: string };
+  webhookDestinations?: WebhookDestinationSecret[];
   telegram?: { botToken: string; chatId: string };
   appleNotesGrants?: AppleNotesGrantSecret[];
+}
+
+export interface WebhookDestinationSecret {
+  /** Stable, non-secret identifier used in delivery status and idempotency keys. */
+  id: string;
+  url: string;
+  bearerToken?: string;
+  signingSecret?: string;
 }
 
 export interface HomeAssistantConnectionSecret {
@@ -64,6 +73,36 @@ function protectedHttpEndpoint(value: unknown, label: string): string {
     throw new Error(`${label} is invalid`);
   }
   return url.toString().replace(/\/$/, "");
+}
+
+export function normalizedWebhookDestinations(value: unknown, label: string): WebhookDestinationSecret[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 16) {
+    throw new Error(`${label} must contain between 1 and 16 webhook destinations`);
+  }
+  const ids = new Set<string>();
+  return value.map((candidate) => {
+    const item = candidate as Record<string, unknown>;
+    if (!item || typeof item !== "object" || Array.isArray(item)
+      || typeof item.id !== "string" || !/^[a-z0-9](?:[a-z0-9._-]{0,63})$/u.test(item.id)
+      || ids.has(item.id)) {
+      throw new Error(`${label} contains an invalid or duplicate destination id`);
+    }
+    if (item.bearerToken !== undefined
+      && (typeof item.bearerToken !== "string" || !item.bearerToken || item.bearerToken.length > 8_192)) {
+      throw new Error(`${label} contains invalid webhook bearer credentials`);
+    }
+    if (item.signingSecret !== undefined && (typeof item.signingSecret !== "string"
+      || Buffer.byteLength(item.signingSecret, "utf8") < 32 || item.signingSecret.length > 8_192)) {
+      throw new Error(`${label} contains an invalid webhook signing secret`);
+    }
+    ids.add(item.id);
+    return {
+      id: item.id,
+      url: protectedHttpEndpoint(item.url, `${label} destination URL`),
+      ...(typeof item.bearerToken === "string" ? { bearerToken: item.bearerToken } : {}),
+      ...(typeof item.signingSecret === "string" ? { signingSecret: item.signingSecret } : {}),
+    };
+  });
 }
 
 function normalizedTpLinkConnections(value: unknown): TpLinkConnectionSecret[] {
@@ -170,6 +209,13 @@ export function readIntegrationSecrets(path: string): IntegrationSecrets {
       ...(typeof value.signingSecret === "string" ? { signingSecret: value.signingSecret } : {}),
     };
   }
+  if (parsed.webhookDestinations !== undefined) {
+    if (result.webhook) throw new Error("The integration secrets file cannot configure both legacy and multi-destination webhooks");
+    result.webhookDestinations = normalizedWebhookDestinations(
+      parsed.webhookDestinations,
+      "The webhook destinations in the integration secrets file",
+    );
+  }
   if (parsed.telegram !== undefined) {
     const value = parsed.telegram as Record<string, unknown>;
     if (!value || typeof value.botToken !== "string" || !/^[A-Za-z0-9:_-]{1,256}$/.test(value.botToken.trim())
@@ -208,9 +254,18 @@ export function readIntegrationSecrets(path: string): IntegrationSecrets {
 }
 
 export function writeIntegrationSecrets(path: string, secrets: IntegrationSecrets): void {
-  const validatedSecrets: IntegrationSecrets = secrets.tpLinkConnections === undefined
-    ? secrets
-    : { ...secrets, tpLinkConnections: normalizedTpLinkConnections(secrets.tpLinkConnections) };
+  if (secrets.webhook && secrets.webhookDestinations) {
+    throw new Error("Integration secrets cannot configure both legacy and multi-destination webhooks");
+  }
+  const validatedSecrets: IntegrationSecrets = {
+    ...secrets,
+    ...(secrets.tpLinkConnections === undefined
+      ? {}
+      : { tpLinkConnections: normalizedTpLinkConnections(secrets.tpLinkConnections) }),
+    ...(secrets.webhookDestinations === undefined
+      ? {}
+      : { webhookDestinations: normalizedWebhookDestinations(secrets.webhookDestinations, "Webhook destinations") }),
+  };
   const directory = dirname(path);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   try { chmodSync(directory, 0o700); } catch { /* Windows ACLs are managed by the host. */ }
@@ -247,6 +302,7 @@ export function updateIntegrationSecrets(
     tpLinkLegacyDisabled?: boolean;
     tpLinkConnections?: TpLinkConnectionSecret[];
     webhook?: IntegrationSecrets["webhook"] | null;
+    webhookDestinations?: WebhookDestinationSecret[] | null;
     telegram?: IntegrationSecrets["telegram"] | null;
     appleNotesGrants?: AppleNotesGrantSecret[];
     addAppleNotesGrant?: AppleNotesGrantSecret;
@@ -270,7 +326,15 @@ export function updateIntegrationSecrets(
     else if (patch.tpLinkLegacyDisabled === false) delete next.tpLinkLegacyDisabled;
     if (patch.tpLinkConnections !== undefined) next.tpLinkConnections = normalizedTpLinkConnections(patch.tpLinkConnections);
     if (patch.webhook === null) delete next.webhook;
-    else if (patch.webhook !== undefined) next.webhook = { ...patch.webhook };
+    else if (patch.webhook !== undefined) {
+      next.webhook = { ...patch.webhook };
+      delete next.webhookDestinations;
+    }
+    if (patch.webhookDestinations === null) delete next.webhookDestinations;
+    else if (patch.webhookDestinations !== undefined) {
+      next.webhookDestinations = normalizedWebhookDestinations(patch.webhookDestinations, "Webhook destinations");
+      delete next.webhook;
+    }
     if (patch.telegram === null) delete next.telegram;
     else if (patch.telegram !== undefined) next.telegram = patch.telegram;
     if (patch.appleNotesGrants !== undefined) next.appleNotesGrants = patch.appleNotesGrants.map((grant) => ({ ...grant }));

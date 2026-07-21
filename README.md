@@ -48,8 +48,9 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
   official CAP warnings, provenance, partial/stale-data state, and a
   provider-neutral event broker that turns scheduled pulls into live SSE weather
   snapshots
-- Threshold alerts with independent Telegram and generic webhook delivery;
-  Telegram includes guided bot/chat discovery, a delivery test, and per-rule opt-in
+- Threshold alerts with independent Telegram and multi-destination generic
+  webhook delivery; Telegram includes guided bot/chat discovery, a delivery
+  test, and per-rule opt-in
 - A Home-scoped Apple Notes bridge for iOS Shortcuts: use revocable Shortcut
   grants, capture selected note text as maintenance work, and create dated Stuga
   snapshots without sharing an Apple Account credential or pretending Notes
