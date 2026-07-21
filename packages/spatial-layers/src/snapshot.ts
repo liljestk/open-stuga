@@ -63,6 +63,7 @@ export function snapshotBase(input: SpatialLayerEngineInput, options: SnapshotBa
     inputDigest: stableDigest({
       scope: input.scope,
       topology: input.topology,
+      connectionStateIntervals: input.connectionStateIntervals ?? [],
       samples: input.samples,
       calibrations: input.calibrations ?? [],
       contextEvents: input.contextEvents ?? [],

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { createInterface } from "node:readline";
-import type { Reading, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
+import type { OpeningStateObservation, Reading, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
 import type { AppConfig } from "./config.js";
 import type { ClimateDatabase } from "./db.js";
 import type {
@@ -102,6 +102,7 @@ export interface TpLinkConnectionUpdate {
 export interface TpLinkBridgeOptions {
   onConnectionUpdate?: (update: TpLinkConnectionUpdate) => void;
   onAvailabilityChange?: () => void;
+  onOpeningStateRecorded?: (observation: OpeningStateObservation) => void;
   historyFallback?: {
     recoverHistory(sensorId: string, metric: string, from: string, to: string): Promise<SensorHistoryRecoveryResult>;
     consumeRecovered?(sensorId: string, metric: string, from: string, to: string): void | Promise<void>;
@@ -300,6 +301,7 @@ class TpLinkConnectionBridge {
       deviceId?: string;
       onUpdate?: (update: TpLinkConnectionUpdate) => void;
       onAvailabilityChange?: () => void;
+      onOpeningStateRecorded?: (observation: OpeningStateObservation) => void;
     },
   ) {}
 
@@ -1050,7 +1052,7 @@ class TpLinkConnectionBridge {
       const previous = this.#lastIngestedOpeningStates.get(targetKey);
       if (previous?.state === state && timestampMs - previous.ingestedAt < STATE_UNCHANGED_HEARTBEAT_MS) continue;
       try {
-        this.database.recordOpeningStateObservation(target.houseId, {
+        const observation = this.database.recordOpeningStateObservation(target.houseId, {
           floorId: target.floorId,
           elementId: target.elementId,
           state,
@@ -1059,6 +1061,7 @@ class TpLinkConnectionBridge {
           externalId: target.deviceId,
           connectionId: target.connectionId,
         });
+        this.managedConnection?.onOpeningStateRecorded?.(observation);
         this.#lastIngestedOpeningStates.set(targetKey, { state, ingestedAt: timestampMs });
       } catch (error) {
         const reason = error instanceof Error ? error.message : "ingestion failed";
@@ -1300,6 +1303,7 @@ export class TpLinkBridge implements SensorGapRecoveryAdapter {
           ...(connection.deviceId ? { deviceId: connection.deviceId } : {}),
           ...(this.options.onConnectionUpdate ? { onUpdate: this.options.onConnectionUpdate } : {}),
           ...(this.options.onAvailabilityChange ? { onAvailabilityChange: this.options.onAvailabilityChange } : {}),
+          ...(this.options.onOpeningStateRecorded ? { onOpeningStateRecorded: this.options.onOpeningStateRecorded } : {}),
         },
       );
       this.#workers.set(connection.id, { bridge, status: localStatus, houseId: connection.houseId });

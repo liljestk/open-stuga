@@ -5,8 +5,69 @@ import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import { definitionFor } from "../measurements";
 import { FloorPlan } from "./FloorPlan";
+import { openingStateKey } from "../openingState";
 
 describe("FloorPlan editor disclosure", () => {
+  it("opens and closes runtime openings without changing the building layout", () => {
+    const state = createDemoState();
+    const baseFloor = state.houses[0]!.floors[0]!;
+    const floor = {
+      ...baseFloor,
+      planElements: [
+        { id: "runtime-door", kind: "door" as const, wallId: baseFloor.walls[0]!.id, position: { x: 220, y: 45 }, rotationDegrees: 0, state: "closed" as const },
+        { id: "fixed-window", kind: "window" as const, variant: "fixed" as const, wallId: baseFloor.walls[0]!.id, position: { x: 420, y: 45 }, rotationDegrees: 0 },
+      ],
+    };
+    const house = { ...state.houses[0]!, floors: [floor] };
+    const definition = definitionFor(state.measurementDefinitions, "temperature");
+    const onOpeningStateChange = vi.fn();
+    const onFloorChange = vi.fn();
+    const common = {
+      floor, house, sensors: [], samples: {}, observations: [], definition, units: "metric" as const,
+      viewMode: "plan" as const, selectedSensorId: null, editing: false, observationPlacement: false,
+      onSensorSelect: vi.fn(), onSensorMove: vi.fn(), onFloorChange, onObservationPoint: vi.fn(),
+      onCancelObservationPlacement: vi.fn(), onOpeningStateChange,
+    };
+    const view = render(<I18nProvider><FloorPlan {...common} referenceTimeMs={Date.parse("2026-07-21T08:00:00.000Z")} /></I18nProvider>);
+
+    const closedDoor = screen.getByRole("button", { name: /Door 1, Closed.*Open/i });
+    fireEvent.click(closedDoor);
+    expect(onOpeningStateChange).toHaveBeenCalledWith(floor.id, "runtime-door", "open");
+    expect(onFloorChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /Window 2/i })).toBeNull();
+
+    onOpeningStateChange.mockClear();
+    view.rerender(<I18nProvider><FloorPlan
+      {...common}
+      referenceTimeMs={Date.parse("2026-07-21T08:01:00.000Z")}
+      openingStateObservations={[{
+        id: "manual-open", houseId: house.id, floorId: floor.id, elementId: "runtime-door",
+        state: "open", source: "manual", observedAt: "2026-07-21T08:00:30.000Z",
+      }, {
+        id: "other-house-closed", houseId: "other-house", floorId: floor.id, elementId: "runtime-door",
+        state: "closed", source: "manual", observedAt: "2026-07-21T08:00:50.000Z",
+      }]}
+    /></I18nProvider>);
+    const openDoor = screen.getByRole("button", { name: /Door 1, Open.*Closed/i });
+    expect(openDoor.getAttribute("aria-pressed")).toBe("true");
+    expect(openDoor.getAttribute("data-opening-state")).toBe("open");
+    fireEvent.keyDown(openDoor, { key: " " });
+    expect(onOpeningStateChange).toHaveBeenCalledWith(floor.id, "runtime-door", "closed");
+
+    onOpeningStateChange.mockClear();
+    view.rerender(<I18nProvider><FloorPlan
+      {...common}
+      referenceTimeMs={Date.parse("2026-07-21T08:01:00.000Z")}
+      openingStateObservations={[{
+        id: "manual-open", houseId: house.id, floorId: floor.id, elementId: "runtime-door",
+        state: "open", source: "manual", observedAt: "2026-07-21T08:00:30.000Z",
+      }]}
+      pendingOpeningStateKeys={new Set([openingStateKey(floor.id, "runtime-door")])}
+    /></I18nProvider>);
+    fireEvent.click(screen.getByRole("button", { name: /Door 1, Open.*Closed/i }));
+    expect(onOpeningStateChange).not.toHaveBeenCalled();
+  });
+
   it("shows roof geometry and inherited chimney penetrations in the 2D attic plan", () => {
     const state = createDemoState();
     const [ground, upper] = state.houses[0]!.floors;

@@ -1,11 +1,12 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { Floor, ManualObservation, MeasurementDefinition, MeasurementSample, Sensor, UnitSystem } from "@climate-twin/contracts";
+import type { ConfiguredOpeningState, Floor, ManualObservation, MeasurementDefinition, MeasurementSample, OpeningStateObservation, Sensor, UnitSystem } from "@climate-twin/contracts";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import { definitionFor } from "../measurements";
 import { TwinDashboard } from "../pages/TwinDashboard";
+import { api } from "../api";
 import { BuildingScene } from "./BuildingScene";
 
 function renderScene(options: {
@@ -18,6 +19,10 @@ function renderScene(options: {
   editing?: boolean;
   sensorMeasurements?: Record<string, Record<string, MeasurementSample>>;
   energyDevicesVisible?: boolean;
+  referenceTimeMs?: number;
+  openingStateObservations?: OpeningStateObservation[];
+  pendingOpeningStateKeys?: ReadonlySet<string>;
+  onOpeningStateChange?: (floorId: string, elementId: string, state: ConfiguredOpeningState) => void;
 } = {}) {
   const state = createDemoState();
   const house = { ...state.houses[0]!, floors: options.floors ?? state.houses[0]!.floors };
@@ -30,6 +35,7 @@ function renderScene(options: {
   const onFloorSelect = vi.fn();
   const onSensorSelect = vi.fn();
   const onFloorChange = vi.fn();
+  const onOpeningStateChange = options.onOpeningStateChange ?? vi.fn();
   const view = render(
     <I18nProvider>
       <BuildingScene
@@ -38,15 +44,60 @@ function renderScene(options: {
         {...(options.energyDevicesVisible === undefined ? {} : { energyDevicesVisible: options.energyDevicesVisible })}
         observations={options.observations ?? state.observations} definition={definition} units={options.units ?? "metric"}
         activeFloorId={house.floors[0]!.id} selectedSensorId={sensors.find((sensor) => sensor.enabled)?.id ?? null}
+        {...(options.referenceTimeMs === undefined ? {} : { referenceTimeMs: options.referenceTimeMs })}
+        openingStateObservations={options.openingStateObservations ?? []}
+        pendingOpeningStateKeys={options.pendingOpeningStateKeys ?? new Set()}
+        onOpeningStateChange={onOpeningStateChange}
         editing={options.editing ?? false}
         onFloorSelect={onFloorSelect} onSensorSelect={onSensorSelect} onFloorChange={onFloorChange}
       />
     </I18nProvider>,
   );
-  return { ...view, state, house, sensors, samples, definition, onFloorSelect, onSensorSelect, onFloorChange };
+  return { ...view, state, house, sensors, samples, definition, onFloorSelect, onSensorSelect, onFloorChange, onOpeningStateChange };
 }
 
 describe("BuildingScene", () => {
+  it("uses effective runtime opening state and toggles it without selecting or editing the floor", () => {
+    const state = createDemoState();
+    const base = state.houses[0]!.floors[0]!;
+    const floor: Floor = {
+      ...base,
+      planElements: [
+        { id: "runtime-door", kind: "door", wallId: base.walls[0]!.id, position: { x: 220, y: 45 }, rotationDegrees: 0, state: "closed" },
+        { id: "fixed-window", kind: "window", variant: "fixed", wallId: base.walls[0]!.id, position: { x: 420, y: 45 }, rotationDegrees: 0 },
+      ],
+    };
+    const observation: OpeningStateObservation = {
+      id: "manual-open", houseId: state.houses[0]!.id, floorId: floor.id, elementId: "runtime-door",
+      state: "open", source: "manual", observedAt: "2026-07-21T08:00:30.000Z",
+    };
+    const onOpeningStateChange = vi.fn();
+    const view = renderScene({
+      floors: [floor], sensors: [], samples: {}, observations: [], referenceTimeMs: Date.parse("2026-07-21T08:01:00.000Z"),
+      openingStateObservations: [observation],
+      onOpeningStateChange,
+    });
+
+    const door = screen.getByRole("button", { name: /Door 1.*Open.*Closed/i });
+    expect(door.getAttribute("aria-label")).toContain(floor.name);
+    expect(door.getAttribute("data-opening-state")).toBe("open");
+    expect(door.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.pointerDown(door);
+    fireEvent.click(door);
+    expect(onOpeningStateChange).toHaveBeenCalledWith(floor.id, "runtime-door", "closed");
+    expect(view.onFloorSelect).not.toHaveBeenCalled();
+    expect(view.onFloorChange).not.toHaveBeenCalled();
+    const fixedWindow = view.container.querySelector<SVGGElement>('[data-element-id="fixed-window"]');
+    expect(fixedWindow?.getAttribute("role")).toBe("img");
+    expect(fixedWindow?.hasAttribute("tabindex")).toBe(false);
+
+    onOpeningStateChange.mockClear();
+    fireEvent.keyDown(door, { key: "Enter" });
+    expect(onOpeningStateChange).toHaveBeenCalledOnce();
+    expect(onOpeningStateChange).toHaveBeenCalledWith(floor.id, "runtime-door", "closed");
+    expect(view.onFloorSelect).not.toHaveBeenCalled();
+  });
+
   it("extrudes each floor using its independently configured wall height", () => {
     const state = createDemoState();
     const floors = state.houses[0]!.floors.map((floor, index) => ({ ...floor, wallHeight: index === 0 ? 3.4 : 2.2 }));
@@ -412,6 +463,58 @@ describe("BuildingScene", () => {
 });
 
 describe("TwinDashboard whole-building replay", () => {
+  it("persists a live map toggle as runtime state instead of a layout edit", async () => {
+    const user = userEvent.setup();
+    const demo = createDemoState();
+    const baseFloor = demo.houses[0]!.floors[0]!;
+    const floor: Floor = {
+      ...baseFloor,
+      planElements: [{
+        id: "runtime-door", kind: "door", wallId: baseFloor.walls[0]!.id,
+        position: { x: 220, y: 45 }, rotationDegrees: 0, state: "closed",
+      }],
+    };
+    const house = { ...demo.houses[0]!, floors: [floor] };
+    const state = { ...demo, houses: [house] };
+    const openingStates = vi.spyOn(api, "openingStates").mockResolvedValue({
+      snapshot: { houseId: house.id, at: "2026-07-21T08:00:00.000Z", states: [] }, observations: [],
+    });
+    const recordOpeningState = vi.spyOn(api, "recordOpeningState").mockImplementation(async (houseId, input) => ({
+      ...input, id: "manual-runtime-toggle", houseId, observedAt: "2026-07-21T08:00:30.000Z",
+    }));
+    const onFloorChange = vi.fn();
+    try {
+      render(
+        <I18nProvider>
+          <TwinDashboard
+            state={state} house={house} floor={floor} houseId={house.id} floorId={floor.id}
+            metric="temperature" units="metric" viewMode="plan" selectedSensorId={demo.sensors[0]!.id}
+            saveState="idle" scenario="normal" onHouse={vi.fn()} onFloor={vi.fn()} onMetric={vi.fn()}
+            onViewMode={vi.fn()} onSensorSelect={vi.fn()} onSensorMove={vi.fn()} onSensorUpdate={vi.fn()}
+            onFloorChange={onFloorChange} onSaveLayout={vi.fn()} onLoadSeries={vi.fn()} onRunScenario={vi.fn()}
+            onCreateObservation={vi.fn().mockResolvedValue(demo.observations[0]!)}
+            onCreateStaticParameter={vi.fn().mockResolvedValue(demo.staticParameters[0]!)}
+          />
+        </I18nProvider>,
+      );
+
+      await waitFor(() => expect(openingStates).toHaveBeenCalledWith(house.id, undefined, expect.any(AbortSignal)));
+      expect(screen.getByText(/Select a door, window, or vent/i)).not.toBeNull();
+      await user.click(screen.getByRole("button", { name: /Door 1, Closed.*Open/i }));
+      await waitFor(() => expect(recordOpeningState).toHaveBeenCalledOnce());
+      expect(recordOpeningState).toHaveBeenCalledWith(house.id, expect.objectContaining({
+        floorId: floor.id, elementId: "runtime-door", state: "open", source: "manual",
+      }));
+      expect(recordOpeningState.mock.calls[0]?.[1]).not.toHaveProperty("observedAt");
+      await waitFor(() => expect(screen.getByRole("button", { name: /Door 1, Open.*Closed/i }).getAttribute("data-opening-state")).toBe("open"));
+      expect(onFloorChange).not.toHaveBeenCalled();
+      expect(screen.getByText("Door 1 is now Open.", { selector: ".sr-only" })).not.toBeNull();
+    } finally {
+      openingStates.mockRestore();
+      recordOpeningState.mockRestore();
+    }
+  });
+
   it("suppresses derived summaries when there are no usable readings", () => {
     const demo = createDemoState();
     const house = demo.houses[0]!;

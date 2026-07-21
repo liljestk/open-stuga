@@ -589,6 +589,12 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); opacity: 1; }
 .opening-state-swatch.open { background: var(--positive); }
 .opening-state-label { padding: 2px 6px; border-radius: 999px; color: var(--muted); background: var(--panel); font-size: 8px; font-weight: 750; }
 .opening-state-label.open { color: var(--positive); background: var(--pine-soft); }
+.opening-runtime-bar { min-height: 35px; display: flex; align-items: center; gap: 9px; padding: 7px 13px; border-top: 1px solid var(--line); color: var(--muted); background: var(--panel-soft); font-size: 10.5px; line-height: 1.35; }
+.opening-runtime-states { display: inline-flex; align-items: center; flex: 0 0 auto; }
+.opening-runtime-states i { width: 10px; height: 10px; display: block; border: 2px solid var(--panel); border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 1px var(--line-strong); }
+.opening-runtime-states i + i { margin-left: -2px; }
+.opening-runtime-states i.open { background: var(--positive); }
+.opening-state-error { margin-bottom: 0; }
 .editor-hint { flex: 1 0 100%; min-width: 0; margin: 0; padding-top: 7px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10.5px; line-height: 1.45; text-align: left; }
 .editor-error { width: 100%; color: var(--red); font-size: 10.5px; }
 .placement-banner { position: absolute; z-index: 8; top: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; max-width: calc(100% - 30px); padding: 8px 12px; border-radius: 9px; background: var(--ink); color: var(--on-ink); box-shadow: var(--shadow-lg); font-size: 11px; pointer-events: none; }
@@ -657,6 +663,9 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); opacity: 1; }
 .fire-escape-glyph .plan-element-detail, .fire-escape-glyph .plan-element-stroke { stroke: #4f5e59; }
 .plan-element:hover .plan-element-stroke, .plan-element:focus-visible .plan-element-stroke, .plan-element.selected .plan-element-stroke { stroke: var(--action); stroke-width: 5; }
 .plan-element:hover .plan-element-body, .plan-element:focus-visible .plan-element-body, .plan-element.selected .plan-element-body { stroke: var(--action); }
+.plan-opening-state-dot { fill: var(--muted); stroke: #fff; stroke-width: 2; pointer-events: none; vector-effect: non-scaling-stroke; }
+.plan-element.opening-open .plan-opening-state-dot { fill: var(--positive); }
+.plan-element.opening-control.pending { opacity: .58; cursor: wait; }
 .plan-element.preview { cursor: crosshair; opacity: .68; pointer-events: none; }
 .chimney-penetration { pointer-events: none; }
 .chimney-penetration rect { fill: rgb(84 78 71 / .12); stroke: #5a544d; stroke-width: 2.5; stroke-dasharray: 7 4; vector-effect: non-scaling-stroke; }
@@ -855,7 +864,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); opacity: 1; }
 .building-wall-top { stroke: #343733; stroke-width: 3.2; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .building-plan-elements { isolation: isolate; }
 .building-plan-element { outline: none; }
-.building-plan-element.editable { cursor: pointer; }
+.building-plan-element.editable, .building-plan-element.opening-control { cursor: pointer; }
 .building-element-hit-target { fill: transparent; stroke: transparent; pointer-events: all; }
 .building-plan-element .building-element-front { stroke-width: 2.1; vector-effect: non-scaling-stroke; transition: filter .12s ease, stroke .12s ease; }
 .building-plan-element .building-element-side { stroke-width: 1.2; vector-effect: non-scaling-stroke; }
@@ -871,7 +880,8 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); opacity: 1; }
 .building-plan-element.opening-open .building-element-side { fill-opacity: .3; }
 .building-opening-state-dot { fill: var(--muted); stroke: #fff; stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
 .building-plan-element.opening-open .building-opening-state-dot { fill: var(--positive); }
-.building-plan-element.editable:hover .building-element-front, .building-plan-element.editable:focus-visible .building-element-front { stroke: var(--action); stroke-width: 3.2; filter: drop-shadow(0 3px 5px rgb(7 85 201 / .24)); }
+.building-plan-element.editable:hover .building-element-front, .building-plan-element.editable:focus-visible .building-element-front, .building-plan-element.opening-control:hover .building-element-front, .building-plan-element.opening-control:focus-visible .building-element-front { stroke: var(--action); stroke-width: 3.2; filter: drop-shadow(0 3px 5px rgb(7 85 201 / .24)); }
+.building-plan-element.opening-control.pending { opacity: .58; cursor: wait; }
 .building-element-selection { fill: rgb(7 85 201 / .08); stroke: var(--action); stroke-width: 4; stroke-dasharray: 7 4; vector-effect: non-scaling-stroke; pointer-events: none; }
 .building-window-frame { stroke: rgb(255 255 255 / .9); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
 .building-door-handle { fill: #f1d278; stroke: #6b482c; stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }

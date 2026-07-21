@@ -83,6 +83,23 @@ export interface SpatialConnection {
   tags?: string[];
 }
 
+/**
+ * Effective connection availability over a half-open interval `[startAt, endAt)`.
+ *
+ * Opening-controlled connections use this history so an inference window is
+ * not incorrectly evaluated using only the state at `generatedAt`. Intervals
+ * for a connection are expected to be ordered, non-overlapping, and to cover
+ * the complete analysis window.
+ */
+export interface SpatialConnectionStateInterval {
+  connectionId: string;
+  startAt: string;
+  endAt: string;
+  enabled: boolean;
+  /** Effective aperture, from fully shut (0) to fully open (1). */
+  openFraction?: number;
+}
+
 export interface SpatialSensorBinding {
   sensorId: string;
   zoneId: string;
@@ -283,6 +300,8 @@ export interface SpatialLayerEngineManifest {
 export interface SpatialLayerEngineInput {
   scope: SpatialScopeRef;
   topology: SpatialTopology;
+  /** Effective-dated availability for connections whose state can change. */
+  connectionStateIntervals?: SpatialConnectionStateInterval[];
   samples: SpatialClimateSample[];
   calibrations?: SpatialSensorCalibration[];
   contextEvents?: SpatialContextEvent[];

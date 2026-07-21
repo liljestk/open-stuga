@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
@@ -295,6 +295,7 @@ describe("direct TP-Link H100/H200 bridge", () => {
     `);
     const config: AppConfig = {
       port: 0, apiHost: "127.0.0.1", databasePath: ":memory:", integrationSecretsFile: join(temporaryDirectory, "secrets.json"), assetDirectory: temporaryDirectory,
+      spatialLayersEnabled: true, spatialLayersDatabasePath: join(temporaryDirectory, "spatial.sqlite"),
       mockEnabled: false, mockIntervalMs: 2_000, retentionDays: 730, ingestApiKey: null,
       haUrl: null, haToken: null, haEntityMapFile: null,
       tpLinkHost: "192.0.2.11", tpLinkUsername: "local@example.test", tpLinkPassword: "secret",
@@ -303,6 +304,7 @@ describe("direct TP-Link H100/H200 bridge", () => {
       alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
     };
     runtime = createApi({ config, startBackground: false });
+    const wakeHouse = vi.spyOn(runtime.spatialLayers!.scheduler, "wakeHouse");
     const house = runtime.database.getHouse("house-main")!;
     const floors = structuredClone(house.floors);
     floors[0]!.planElements = [...(floors[0]!.planElements ?? []), {
@@ -318,11 +320,13 @@ describe("direct TP-Link H100/H200 bridge", () => {
     runtime.tpLink.start();
 
     await waitFor(() => runtime!.database.listOpeningStateObservations(house.id).length === 1);
-    expect(runtime.database.listOpeningStateObservations(house.id)[0]).toMatchObject({
+    const observation = runtime.database.listOpeningStateObservations(house.id)[0]!;
+    expect(observation).toMatchObject({
       floorId: floors[0]!.id, elementId: "entry-door", state: "open", source: "tapo",
       externalId: "contact-entry", connectionId: "legacy",
     });
     expect(runtime.status.value.tpLink.mappedDevices).toBe(1);
+    expect(wakeHouse).toHaveBeenCalledWith(house.id, house.propertyId, observation.observedAt, "property-context-changed");
   });
 
   it("imports the legacy child map into SQLite and uses it after the file is removed", async () => {

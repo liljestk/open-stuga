@@ -671,7 +671,7 @@ export const api = {
     `/houses/${encodeURIComponent(houseId)}/opening-states${at ? `?at=${encodeURIComponent(at)}` : ""}`,
     signal ? { signal } : undefined,
   ),
-  recordOpeningState: async (houseId: string, observation: OpeningStateObservationInput) => {
+  recordOpeningState: async (houseId: string, observation: Omit<OpeningStateObservationInput, "observedAt"> & { observedAt?: string }) => {
     const response = await request<OpeningStateObservation | { observation: OpeningStateObservation }>(`/houses/${encodeURIComponent(houseId)}/opening-states`, { method: "POST", body: JSON.stringify(observation) });
     return "observation" in response ? response.observation : response;
   },

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Activity, AlertTriangle, BatteryMedium, Bolt, Box, Check, ChevronDown, Droplets, Edit3, Gauge, History, Home, Map, MapPinPlus, Maximize2, Minimize2, Save, Sparkles, Thermometer, Wind } from "lucide-react";
-import type { ConnectionState, Floor, House, ManualObservation, ManualObservationInput, ManualObservationPatch, MeasurementDefinition, MeasurementSample, Metric, MockScenario, ObservationConfidence, ObservationRevision, ObservationSource, ObservationTimePrecision, OpeningStateObservation, Point, Reading, Sensor, StaticParameter, UnitSystem } from "@climate-twin/contracts";
+import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectionState, type Floor, type House, type ManualObservation, type ManualObservationInput, type ManualObservationPatch, type MeasurementDefinition, type MeasurementSample, type Metric, type MockScenario, type ObservationConfidence, type ObservationRevision, type ObservationSource, type ObservationTimePrecision, type OpeningStateObservation, type Point, type Reading, type Sensor, type StaticParameter, type UnitSystem } from "@climate-twin/contracts";
 import { BuildingScene } from "../components/BuildingScene";
 import { FloorPlan } from "../components/FloorPlan";
 import { ReplayControls } from "../components/ReplayControls";
@@ -43,6 +43,7 @@ import {
 } from "../experimentalSpatialLayers";
 import { readLocalStorage, writeLocalStorage } from "../browserStorage";
 import { detectReplayClimateEvents, type ReplayClimateEvent } from "../replayEvents";
+import { openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../openingState";
 
 interface TwinDashboardProps {
   state: ClimateState;
@@ -112,6 +113,17 @@ function initialExperimentalVisualizations(): ExperimentalVisualizationId[] {
 
 function initialEnergyDeviceLayerVisibility(): boolean {
   return readLocalStorage(energyDeviceLayerPreferenceKey) !== "false";
+}
+
+export function mergeOpeningStateObservations(
+  current: readonly OpeningStateObservation[],
+  incoming: readonly OpeningStateObservation[],
+): OpeningStateObservation[] {
+  const merged = new globalThis.Map(current.map((observation) => [observation.id, observation]));
+  for (const observation of incoming) merged.set(observation.id, observation);
+  return [...merged.values()].sort((left, right) => (
+    Date.parse(right.observedAt) - Date.parse(left.observedAt) || right.id.localeCompare(left.id)
+  ));
 }
 
 function zonedDateTimeParts(date: Date, timeZone: string): number[] {
@@ -659,9 +671,37 @@ export function TwinDashboard(props: TwinDashboardProps) {
   const coverageSelected = spatialLayers.available && experimentalVisualizations.includes("sensor-coverage");
   const openingStateAt = replayActive ? new Date(replayTimestamp).toISOString() : undefined;
   const [openingStateObservations, setOpeningStateObservations] = useState<OpeningStateObservation[]>([]);
+  const [pendingOpeningStateKeys, setPendingOpeningStateKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [openingStateError, setOpeningStateError] = useState<string | null>(null);
+  const [openingStateAnnouncement, setOpeningStateAnnouncement] = useState("");
+  const openingStateRequestsRef = useRef(new Set<string>());
+  const openingStateContextRef = useRef({ houseId });
+  if (openingStateContextRef.current.houseId !== houseId) openingStateContextRef.current = { houseId };
+  const houseOpeningStateObservations = useMemo(
+    () => openingStateObservationsForHouse(houseId, openingStateObservations),
+    [houseId, openingStateObservations],
+  );
+  const controllableOpenings = useMemo(() => house.floors.flatMap((candidateFloor) => (
+    (candidateFloor.planElements ?? []).flatMap((element, index) => (
+      isAirflowPlanElement(element) && openingStateCanChange(element)
+        ? [{ floor: candidateFloor, element, index }]
+        : []
+    ))
+  )), [house.floors]);
+  const hasOpeningElements = useMemo(() => house.floors.some((candidateFloor) => (
+    (candidateFloor.planElements ?? []).some(isAirflowPlanElement)
+  )), [house.floors]);
+
   useEffect(() => {
     setOpeningStateObservations([]);
-    if (!airMovementSelected) return;
+    setPendingOpeningStateKeys(new Set());
+    setOpeningStateError(null);
+    setOpeningStateAnnouncement("");
+    openingStateRequestsRef.current.clear();
+  }, [houseId]);
+
+  useEffect(() => {
+    if (!hasOpeningElements) return;
     const controller = new AbortController();
     let loading = false;
     const load = async () => {
@@ -669,7 +709,9 @@ export function TwinDashboard(props: TwinDashboardProps) {
       loading = true;
       try {
         const result = await api.openingStates(houseId, openingStateAt, controller.signal);
-        if (!controller.signal.aborted) setOpeningStateObservations(result.observations);
+        if (!controller.signal.aborted) {
+          setOpeningStateObservations((current) => mergeOpeningStateObservations(current, result.observations));
+        }
       } catch {
         // Keep the last-good states; configured/manual fallbacks remain authoritative.
       } finally {
@@ -682,7 +724,49 @@ export function TwinDashboard(props: TwinDashboardProps) {
       controller.abort();
       if (timer !== null) window.clearInterval(timer);
     };
-  }, [airMovementSelected, houseId, openingStateAt]);
+  }, [hasOpeningElements, houseId, openingStateAt]);
+
+  const changeOpeningState = async (targetFloorId: string, elementId: string, nextState: ConfiguredOpeningState) => {
+    if (readOnly || replayActive) return;
+    const requestContext = openingStateContextRef.current;
+    const requestKey = openingStateKey(targetFloorId, elementId);
+    if (openingStateRequestsRef.current.has(requestKey)) return;
+    const targetFloor = house.floors.find((candidate) => candidate.id === targetFloorId);
+    const elementIndex = targetFloor?.planElements?.findIndex((candidate) => candidate.id === elementId) ?? -1;
+    const element = elementIndex >= 0 ? targetFloor?.planElements?.[elementIndex] : undefined;
+    if (!element || !isAirflowPlanElement(element) || !openingStateCanChange(element)) return;
+    const openingName = element.label ?? `${t(`planElement.${element.kind}` as TranslationKey)} ${elementIndex + 1}`;
+    openingStateRequestsRef.current.add(requestKey);
+    setPendingOpeningStateKeys((current) => new Set([...current, requestKey]));
+    setOpeningStateError(null);
+    try {
+      const observation = await api.recordOpeningState(requestContext.houseId, {
+        floorId: targetFloorId,
+        elementId,
+        state: nextState,
+        source: "manual",
+      });
+      if (openingStateContextRef.current !== requestContext) return;
+      setLiveSpatialClockMs((current) => Math.max(current, Date.parse(observation.observedAt), Date.now()));
+      setOpeningStateObservations((current) => mergeOpeningStateObservations(current, [observation]));
+      setOpeningStateAnnouncement(t("opening.updated", {
+        opening: openingName,
+        state: t(`opening.state.${nextState}` as TranslationKey),
+      }));
+    } catch {
+      if (openingStateContextRef.current === requestContext) {
+        setOpeningStateError(t("opening.updateError", { opening: openingName }));
+      }
+    } finally {
+      if (openingStateContextRef.current !== requestContext) return;
+      openingStateRequestsRef.current.delete(requestKey);
+      setPendingOpeningStateKeys((current) => {
+        const next = new Set(current);
+        next.delete(requestKey);
+        return next;
+      });
+    }
+  };
   const experimentalFloorAirflow = useMemo<FloorAirflowEstimate | null>(() => (
     spatialLayers.available && viewMode === "plan" ? simulateFloorAirflow({
       floor,
@@ -690,9 +774,9 @@ export function TwinDashboard(props: TwinDashboardProps) {
       samples: airflowSamples,
       freshness: spatialFreshness,
       outdoor: replayActive ? null : outdoorContext,
-      openingStateObservations,
+      openingStateObservations: houseOpeningStateObservations,
     }, 9) : null
-  ), [spatialLayers.available, viewMode, floor, floorSensors, airflowSamples, spatialFreshness, replayActive, outdoorContext, openingStateObservations]);
+  ), [spatialLayers.available, viewMode, floor, floorSensors, airflowSamples, spatialFreshness, replayActive, outdoorContext, houseOpeningStateObservations]);
   const experimentalBuildingAirflow = useMemo<BuildingAirflowEstimate | null>(() => (
     spatialLayers.available && viewMode === "isometric" ? simulateBuildingAirflow({
       house,
@@ -700,9 +784,9 @@ export function TwinDashboard(props: TwinDashboardProps) {
       samples: airflowSamples,
       freshness: spatialFreshness,
       outdoor: replayActive ? null : outdoorContext,
-      openingStateObservations,
+      openingStateObservations: houseOpeningStateObservations,
     }, 14) : null
-  ), [spatialLayers.available, viewMode, house, houseSensors, airflowSamples, spatialFreshness, replayActive, outdoorContext, openingStateObservations]);
+  ), [spatialLayers.available, viewMode, house, houseSensors, airflowSamples, spatialFreshness, replayActive, outdoorContext, houseOpeningStateObservations]);
   const experimentalAirflowEvidence = experimentalFloorAirflow?.evidence ?? experimentalBuildingAirflow?.evidence ?? null;
   const experimentalSuggestions = useMemo(() => experimentalLayerSuggestions({
     house,
@@ -976,6 +1060,12 @@ export function TwinDashboard(props: TwinDashboardProps) {
           </div>
         </div>
         {props.saveState === "error" && <p className="inline-error" role="alert">{t("twin.layoutSaveError")}</p>}
+        {!editing && !replayActive && !readOnly && controllableOpenings.length > 0 && <div className="opening-runtime-bar">
+          <span className="opening-runtime-states" aria-hidden="true"><i className="closed" /><i className="open" /></span>
+          <span>{t("opening.controlHint")}</span>
+        </div>}
+        {openingStateError && !replayActive && <p className="inline-error opening-state-error" role="alert">{openingStateError}</p>}
+        <p className="sr-only" role="status" aria-live="polite">{openingStateAnnouncement}</p>
         {!editing && <SpatialLayerPanel
           layers={spatialLayers}
           timeZone={house.timezone}
@@ -1017,6 +1107,9 @@ export function TwinDashboard(props: TwinDashboardProps) {
               experimentalAirflowEnabled={airMovementSelected}
               experimentalAirflow={airMovementSelected ? experimentalFloorAirflow : null}
               experimentalSensorCoverage={coverageSelected ? sensorCoverage : null}
+              openingStateObservations={houseOpeningStateObservations}
+              pendingOpeningStateKeys={pendingOpeningStateKeys}
+              {...(!readOnly && !replayActive ? { onOpeningStateChange: (targetFloorId: string, elementId: string, nextState: ConfiguredOpeningState) => { void changeOpeningState(targetFloorId, elementId, nextState); } } : {})}
               onSensorSelect={props.onSensorSelect} onSensorMove={props.onSensorMove} onFloorChange={props.onFloorChange} onObservationPoint={placeObservation}
               onCancelObservationPlacement={cancelObservationPlacement}
             />
@@ -1033,6 +1126,9 @@ export function TwinDashboard(props: TwinDashboardProps) {
               experimentalAirflowEnabled={airMovementSelected}
               experimentalAirflow={airMovementSelected ? experimentalBuildingAirflow : null}
               experimentalSensorCoverage={coverageSelected ? sensorCoverage : null}
+              openingStateObservations={houseOpeningStateObservations}
+              pendingOpeningStateKeys={pendingOpeningStateKeys}
+              {...(!readOnly && !replayActive ? { onOpeningStateChange: (targetFloorId: string, elementId: string, nextState: ConfiguredOpeningState) => { void changeOpeningState(targetFloorId, elementId, nextState); } } : {})}
               onFloorChange={props.onFloorChange}
               onSensorSelect={(sensorId) => props.onSensorSelect(sensorId)}
             />

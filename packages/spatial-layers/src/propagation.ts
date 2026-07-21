@@ -1,6 +1,7 @@
 import type {
   ConnectionLayerValue,
   SpatialConnection,
+  SpatialConnectionStateInterval,
   SpatialLayerEngine,
   SpatialLayerEngineInput,
   SpatialLayerEngineManifest,
@@ -264,7 +265,14 @@ function withCommonModeFractions(
   });
 }
 
-function segmentCorrelation(source: SignalSeries, target: SignalSeries, sourceEvent: ClimatePropagationEvent, lag: number): number {
+function segmentCorrelation(
+  source: SignalSeries,
+  target: SignalSeries,
+  sourceEvent: ClimatePropagationEvent,
+  lag: number,
+  connection: SpatialConnection,
+  stateIntervals?: readonly SpatialConnectionStateInterval[],
+): number {
   const left: number[] = [];
   const right: number[] = [];
   const start = Math.max(1, sourceEvent.startIndex - 2);
@@ -272,10 +280,52 @@ function segmentCorrelation(source: SignalSeries, target: SignalSeries, sourceEv
   for (let index = start; index <= end; index += 1) {
     const targetIndex = index + lag;
     if (targetIndex <= 0 || targetIndex >= target.adjusted.length) continue;
+    const sourceAt = source.buckets[index];
+    const targetAt = target.buckets[targetIndex];
+    if (sourceAt === undefined || targetAt === undefined || connectionOpenFractionThroughout(
+      stateIntervals,
+      connection.enabled,
+      sourceAt,
+      targetAt,
+    ) <= 0) continue;
     left.push((source.adjusted[index] ?? 0) - (source.adjusted[index - 1] ?? 0));
     right.push((target.adjusted[targetIndex] ?? 0) - (target.adjusted[targetIndex - 1] ?? 0));
   }
   return pearson(left, right);
+}
+
+function intervalOpenFraction(interval: SpatialConnectionStateInterval): number {
+  return interval.enabled ? clamp(interval.openFraction ?? 1) : 0;
+}
+
+/**
+ * Returns the minimum effective aperture over the complete transit interval.
+ * Missing coverage is treated as closed: API-supplied histories promise full
+ * coverage, and conservative handling is safer for malformed external input.
+ */
+function connectionOpenFractionThroughout(
+  intervals: readonly SpatialConnectionStateInterval[] | undefined,
+  fallbackEnabled: boolean,
+  startAt: string,
+  endAt: string,
+): number {
+  if (intervals === undefined) return fallbackEnabled ? 1 : 0;
+  let cursor = Date.parse(startAt);
+  const end = Date.parse(endAt);
+  if (!Number.isFinite(cursor) || !Number.isFinite(end) || end < cursor) return 0;
+  let fraction = 1;
+  for (const interval of intervals) {
+    const intervalStart = Date.parse(interval.startAt);
+    const intervalEnd = Date.parse(interval.endAt);
+    if (!Number.isFinite(intervalStart) || !Number.isFinite(intervalEnd) || intervalEnd <= intervalStart) continue;
+    if (intervalEnd <= cursor) continue;
+    if (intervalStart > cursor) return 0;
+    fraction = Math.min(fraction, intervalOpenFraction(interval));
+    if (fraction <= 0) return 0;
+    cursor = Math.max(cursor, intervalEnd);
+    if (cursor >= end) return fraction;
+  }
+  return cursor >= end ? fraction : 0;
 }
 
 function directedEvidence(
@@ -285,6 +335,7 @@ function directedEvidence(
   events: ClimatePropagationEvent[],
   series: SignalSeries[],
   config: PropagationConfig,
+  stateIntervals?: readonly SpatialConnectionStateInterval[],
 ): DirectedPropagationEvidence {
   const sourceEvents = events.filter((event) => event.zoneId === fromZoneId && event.commonModeFraction < 0.75);
   const targetEvents = events.filter((event) => event.zoneId === toZoneId);
@@ -298,7 +349,13 @@ function directedEvidence(
         target.signal === sourceEvent.signal &&
         target.sign === sourceEvent.sign &&
         lag >= config.minimumLagBuckets &&
-        lag <= config.maximumLagBuckets
+        lag <= config.maximumLagBuckets &&
+        connectionOpenFractionThroughout(
+          stateIntervals,
+          connection.enabled,
+          sourceEvent.peakAt,
+          target.peakAt,
+        ) > 0
       );
     });
     let best: MatchedPropagationEvent | undefined;
@@ -311,7 +368,14 @@ function directedEvidence(
         (item) => item.zoneId === toZoneId && item.signal === sourceEvent.signal,
       );
       if (sourceSeries === undefined || targetSeries === undefined) continue;
-      const correlation = Math.max(0, segmentCorrelation(sourceSeries, targetSeries, sourceEvent, lagBuckets));
+      const correlation = Math.max(0, segmentCorrelation(
+        sourceSeries,
+        targetSeries,
+        sourceEvent,
+        lagBuckets,
+        connection,
+        stateIntervals,
+      ));
       const amplitudeRatio =
         Math.min(sourceEvent.amplitudeZ, targetEvent.amplitudeZ) /
         Math.max(sourceEvent.amplitudeZ, targetEvent.amplitudeZ, 1e-6);
@@ -328,11 +392,18 @@ function directedEvidence(
       const timingCompatibility = clamp(
         lagSeconds / Math.max(sourceSeries.timingResolutionSeconds, targetSeries.timingResolutionSeconds),
       );
+      const openingFraction = connectionOpenFractionThroughout(
+        stateIntervals,
+        connection.enabled,
+        sourceEvent.peakAt,
+        targetEvent.peakAt,
+      );
       const score = clamp(
         (0.4 * correlation + 0.25 * amplitudeRatio + 0.2 * sourceStrength + 0.15 * targetStrength) *
           Math.sqrt(sourceQuality * targetQuality) *
           commonPenalty *
-          timingCompatibility,
+          timingCompatibility *
+          openingFraction,
       );
       const match: MatchedPropagationEvent = {
         connectionId: connection.id,
@@ -394,7 +465,22 @@ export function analyseGraphPropagation(
   ];
   const detected = signalSeries.flatMap((series) => detectEvents(series, config));
   const events = withCommonModeFractions(detected, prepared.zoneSeries.size, signalSeries, config);
-  const edges = input.topology.connections.filter((connection) => connection.enabled).map((connection) => {
+  const intervalsByConnection = new Map<string, SpatialConnectionStateInterval[]>();
+  for (const interval of input.connectionStateIntervals ?? []) {
+    const intervals = intervalsByConnection.get(interval.connectionId) ?? [];
+    intervals.push(interval);
+    intervalsByConnection.set(interval.connectionId, intervals);
+  }
+  for (const intervals of intervalsByConnection.values()) {
+    intervals.sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt));
+  }
+  const edges = input.topology.connections.filter((connection) => {
+    const intervals = intervalsByConnection.get(connection.id);
+    return intervals === undefined
+      ? connection.enabled
+      : intervals.some((interval) => intervalOpenFraction(interval) > 0);
+  }).map((connection) => {
+    const stateIntervals = intervalsByConnection.get(connection.id);
     const forward = directedEvidence(
       connection,
       connection.zoneAId,
@@ -402,6 +488,7 @@ export function analyseGraphPropagation(
       events,
       signalSeries,
       config,
+      stateIntervals,
     );
     const reverse = directedEvidence(
       connection,
@@ -410,6 +497,7 @@ export function analyseGraphPropagation(
       events,
       signalSeries,
       config,
+      stateIntervals,
     );
     const expected = Math.max(1, prepared.resampled.expectedBucketCount);
     const leftCoverage = (prepared.zoneSeries.get(connection.zoneAId)?.length ?? 0) / expected;
@@ -598,7 +686,7 @@ function connectionValue(
 export class GraphPropagationEngine implements SpatialLayerEngine {
   readonly manifest: SpatialLayerEngineManifest = {
     id: 'graph-propagation',
-    version: '1.0.0',
+    version: '1.1.0',
     maturity: 'experimental',
     title: 'Recent climate propagation',
     description: 'Event-conditioned, graph-constrained evidence of recent inter-zone climate propagation.',

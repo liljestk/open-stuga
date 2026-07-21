@@ -5143,6 +5143,26 @@ export class ClimateDatabase {
       .slice(0, boundedLimit).map(openingStateObservationFromRow);
   }
 
+  listOpeningStateObservationHistory(
+    houseId: string,
+    from: string | number | Date,
+    to: string | number | Date,
+    limit = 10_000,
+  ): OpeningStateObservation[] {
+    const fromMs = from instanceof Date ? from.getTime() : typeof from === "number" ? from : Date.parse(from);
+    const toMs = to instanceof Date ? to.getTime() : typeof to === "number" ? to : Date.parse(to);
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs < fromMs) return [];
+    const boundedLimit = Math.min(10_000, Math.max(1, Math.trunc(limit)));
+    const rows = this.db.prepare(`SELECT id, house_id, floor_id, element_id, state, open_fraction, source, observed_at, valid_until, external_id, connection_id
+      FROM opening_state_observations
+      WHERE house_id = ? AND observed_at >= ? AND observed_at <= ?
+      ORDER BY observed_at DESC, id DESC LIMIT ?`)
+      .all(houseId, new Date(fromMs).toISOString(), new Date(toMs).toISOString(), boundedLimit) as unknown as OpeningStateObservationRow[];
+    return rows.map(openingStateObservationFromRow).sort((left, right) => (
+      left.observedAt.localeCompare(right.observedAt) || left.id.localeCompare(right.id)
+    ));
+  }
+
   recordOpeningStateObservation(houseId: string, input: OpeningStateObservationInput): OpeningStateObservation {
     const house = this.getHouse(houseId);
     if (!house) throw new ClimateDataValidationError(404, "HOUSE_NOT_FOUND", `House ${houseId} does not exist`);

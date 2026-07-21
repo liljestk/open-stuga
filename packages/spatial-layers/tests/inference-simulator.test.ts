@@ -36,6 +36,39 @@ describe('deterministic five-zone inference replay', () => {
     expect(snapshot.connections.some((edge) => edge.connectionId === 'kitchen-bedroom')).toBe(false);
   });
 
+  it('matches propagation only during intervals when the connection stays open', () => {
+    const { input } = createFiveZoneSimulation({ scenario: 'humidity-propagation' });
+    const start = Date.parse(input.windowStart);
+    const atMinute = (minute: number): string => new Date(start + minute * 60_000).toISOString();
+    input.topology.connections.find((connection) => connection.id === 'kitchen-main')!.enabled = false;
+
+    input.connectionStateIntervals = [
+      { connectionId: 'kitchen-main', startAt: atMinute(0), endAt: atMinute(40), enabled: false, openFraction: 0 },
+      { connectionId: 'kitchen-main', startAt: atMinute(40), endAt: atMinute(65), enabled: true, openFraction: 1 },
+      { connectionId: 'kitchen-main', startAt: atMinute(65), endAt: atMinute(121), enabled: false, openFraction: 0 },
+    ];
+    const closedDuringEvents = new GraphPropagationEngine().infer(input)[0]!;
+    expect(closedDuringEvents.connections.find((edge) => edge.connectionId === 'kitchen-main')).toMatchObject({
+      state: 'no-detectable-propagation',
+      fromZoneId: null,
+      toZoneId: null,
+    });
+
+    input.connectionStateIntervals = [
+      { connectionId: 'kitchen-main', startAt: atMinute(0), endAt: atMinute(40), enabled: true, openFraction: 1 },
+      { connectionId: 'kitchen-main', startAt: atMinute(40), endAt: atMinute(65), enabled: false, openFraction: 0 },
+      { connectionId: 'kitchen-main', startAt: atMinute(65), endAt: atMinute(90), enabled: true, openFraction: 1 },
+      { connectionId: 'kitchen-main', startAt: atMinute(90), endAt: atMinute(121), enabled: false, openFraction: 0 },
+    ];
+    const openDuringEvents = new GraphPropagationEngine().infer(input)[0]!;
+    expect(openDuringEvents.connections.find((edge) => edge.connectionId === 'kitchen-main')).toMatchObject({
+      state: 'directed',
+      fromZoneId: 'kitchen',
+      toZoneId: 'main',
+    });
+    expect(openDuringEvents.inputDigest).not.toBe(closedDuringEvents.inputDigest);
+  });
+
   it('abstains from direction on a simultaneous common-mode heating event', () => {
     const { input } = createFiveZoneSimulation({ scenario: 'common-mode-heating' });
     const snapshot = new GraphPropagationEngine().infer(input)[0]!;

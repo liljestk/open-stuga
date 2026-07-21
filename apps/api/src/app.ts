@@ -28,6 +28,7 @@ import type {
   MaintenanceTask,
   ManualObservationInput,
   ManualObservationPatch,
+  OpeningStateObservation,
   OpeningStateObservationInput,
   MeasurementDefinition,
   MeasurementSample,
@@ -2026,6 +2027,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   const replay = new ReplayEngine(database, bus);
   let sensorGapRecovery: SensorGapRecoveryCoordinator | null = null;
   let tpLink: TpLinkBridge;
+  let notifyOpeningStateRecorded = (_observation: OpeningStateObservation): void => undefined;
   const wakeSensorGapRecovery = (): void => sensorGapRecovery?.wake();
   const tapoHistory = new TapoHistoryExportService(config, database, {
     onHistoryReady: wakeSensorGapRecovery,
@@ -2035,9 +2037,11 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   });
   const homeAssistant = new HomeAssistantBridge(config, telemetry, measurements, database, status, {
     onAvailabilityChange: wakeSensorGapRecovery,
+    onOpeningStateRecorded: (observation) => notifyOpeningStateRecorded(observation),
   });
   tpLink = new TpLinkBridge(config, telemetry, measurements, database, status, {
     onAvailabilityChange: wakeSensorGapRecovery,
+    onOpeningStateRecorded: (observation) => notifyOpeningStateRecorded(observation),
     historyFallback: tapoHistory,
     onConnectionUpdate: (update) => {
       const existing = config.tpLinkConnections ?? [];
@@ -2147,6 +2151,15 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       // into an HTTP failure; its periodic scheduler can reconcile later.
       console.error(`[spatial-layers] Optional change notification failed: ${message}`);
     }
+  };
+  notifyOpeningStateRecorded = (observation): void => {
+    const house = database.getHouse(observation.houseId);
+    notifySpatial((runtime) => runtime.scheduler.wakeHouse(
+      observation.houseId,
+      house?.propertyId ?? null,
+      observation.observedAt,
+      "property-context-changed",
+    ));
   };
   const notifySpatialSensorChange = (before: Sensor | null, after: Sensor | null): void => {
     const houseIds = [...new Set([before?.houseId, after?.houseId].filter((id): id is string => Boolean(id)))];

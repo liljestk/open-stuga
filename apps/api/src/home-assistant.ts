@@ -4,7 +4,7 @@ import { Agent as HttpsAgent } from "node:https";
 import type { Socket } from "node:net";
 import { resolve } from "node:path";
 import WebSocket from "ws";
-import type { MeasurementSample, OpeningState, Reading } from "@climate-twin/contracts";
+import type { MeasurementSample, OpeningState, OpeningStateObservation, Reading } from "@climate-twin/contracts";
 import type { AppConfig } from "./config.js";
 import type { ClimateDatabase } from "./db.js";
 import type {
@@ -63,6 +63,7 @@ interface HaState {
 export interface HomeAssistantBridgeOptions {
   fetcher?: typeof fetch;
   onAvailabilityChange?: () => void;
+  onOpeningStateRecorded?: (observation: OpeningStateObservation) => void;
 }
 
 interface CachedValue {
@@ -923,7 +924,7 @@ class HomeAssistantConnectionBridge {
 
   private recordOpeningState(target: OpeningTarget, state: OpeningState, timestamp: string): string | null {
     try {
-      this.database.recordOpeningStateObservation(target.houseId, {
+      const observation = this.database.recordOpeningStateObservation(target.houseId, {
         floorId: target.floorId,
         elementId: target.elementId,
         state,
@@ -932,6 +933,7 @@ class HomeAssistantConnectionBridge {
         externalId: target.externalId,
         connectionId: target.connectionId,
       });
+      this.options.onOpeningStateRecorded?.(observation);
       return timestamp;
     } catch (error) {
       this.status.value.homeAssistant.error = error instanceof Error ? error.message : `Could not ingest opening state for ${target.externalId}`;

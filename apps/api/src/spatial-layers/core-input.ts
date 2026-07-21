@@ -2,6 +2,7 @@ import {
   configuredPlanElementOpeningState,
   floorMetersPerPlanUnit,
   resolvePlanElementOpeningState,
+  type AirflowPlanElement,
   type Floor,
   type House,
   type MeasurementSample,
@@ -17,6 +18,7 @@ import {
   type CoordinateFrame,
   type SpatialClimateSample,
   type SpatialConnection,
+  type SpatialConnectionStateInterval,
   type SpatialContextEvent,
   type SpatialLayerEngineInput,
   type SpatialSensorBinding,
@@ -52,6 +54,12 @@ export interface CoreClimateReader {
   getHouse(id: string): House | null;
   listHouses(): House[];
   listOpeningStateObservations(houseId: string, limit?: number, at?: string | number | Date): OpeningStateObservation[];
+  listOpeningStateObservationHistory(
+    houseId: string,
+    from: string | number | Date,
+    to: string | number | Date,
+    limit?: number,
+  ): OpeningStateObservation[];
   listProperties(limit?: number, offset?: number): Property[];
   getProperty(id: string): Property | null;
   listPropertyAreas(propertyId?: string, limit?: number, offset?: number): PropertyArea[];
@@ -194,7 +202,7 @@ function deriveOpeningConnections(house: House, zones: SpatialZone[], observatio
       const bottom = element.bottomOffsetM ?? (element.kind === "window" ? Math.max(0, Math.min((floor.ceilingHeight ?? 2.8) - height, .9)) : 0);
       const metresPerPlanUnit = floorMetersPerPlanUnit(floor, house);
       connections.push({
-        id: `house:${house.id}:opening:${element.id}`,
+        id: openingConnectionId(house.id, floor.id, element),
         zoneAId: left.id,
         zoneBId: right.id,
         kind: element.kind === "door" && element.variant === "open-passage" ? "open-passage" : element.kind,
@@ -202,7 +210,7 @@ function deriveOpeningConnections(house: House, zones: SpatialZone[], observatio
         normallyOpen: configured.state === "open",
         ...(metresPerPlanUnit ? { openingAreaM2: (element.width ?? 1) * metresPerPlanUnit * height * effective.openFraction } : {}),
         anchors: [{ x: element.position.x, y: element.position.y, z: floor.elevation + bottom + height / 2 }],
-        tags: ["derived-conservatively", `state:${effective.state}`, `state-source:${effective.source}`],
+        tags: ["derived-conservatively", planElementReferenceTag(floor.id, element.id), `state:${effective.state}`, `state-source:${effective.source}`],
       });
     }
     if (boundaryUsed) boundaryZones.push(boundaryZone);
@@ -243,7 +251,7 @@ function deriveVentConnections(house: House, zones: SpatialZone[], observations:
         continue;
       }
       connections.push({
-        id: `house:${house.id}:vent:${vent.id}`,
+        id: openingConnectionId(house.id, floor.id, vent),
         zoneAId: zoneA.id,
         zoneBId: zoneB.id,
         kind: "vent",
@@ -251,7 +259,7 @@ function deriveVentConnections(house: House, zones: SpatialZone[], observations:
         normallyOpen: configured.state === "open",
         ...(metresPerPlanUnit ? { openingAreaM2: (vent.width ?? .3) * metresPerPlanUnit * height * effective.openFraction } : {}),
         anchors: [{ x: vent.position.x, y: vent.position.y, z: floor.elevation + bottom + height / 2 }],
-        tags: ["derived-conservatively", `vent:${vent.variant ?? "passive"}`, `state:${effective.state}`, `state-source:${effective.source}`],
+        tags: ["derived-conservatively", planElementReferenceTag(floor.id, vent.id), `vent:${vent.variant ?? "passive"}`, `state:${effective.state}`, `state-source:${effective.source}`],
       });
     }
     if (boundaryUsed) boundaryZones.push(boundaryZone);
@@ -335,6 +343,131 @@ function configuredTopology(config: Record<string, unknown>, scope: SpatialScope
   return topology as SpatialTopology;
 }
 
+const PLAN_ELEMENT_REFERENCE_PREFIX = "plan-element-ref:";
+
+function planElementReferenceTag(floorId: string, elementId: string): string {
+  return `${PLAN_ELEMENT_REFERENCE_PREFIX}${encodeURIComponent(floorId)}/${encodeURIComponent(elementId)}`;
+}
+
+interface ArchitecturalOpeningReference {
+  floor: Floor;
+  element: AirflowPlanElement;
+}
+
+function architecturalOpeningReferences(house: House): ArchitecturalOpeningReference[] {
+  return house.floors.flatMap((floor) => (floor.planElements ?? []).flatMap((element) => (
+    element.kind === "door" || element.kind === "window" || element.kind === "vent"
+      ? [{ floor, element }]
+      : []
+  )));
+}
+
+function parsePlanElementReference(tag: string): { floorId: string; elementId: string } | null {
+  if (!tag.startsWith(PLAN_ELEMENT_REFERENCE_PREFIX)) return null;
+  const reference = tag.slice(PLAN_ELEMENT_REFERENCE_PREFIX.length);
+  const separator = reference.indexOf("/");
+  if (separator < 1 || separator === reference.length - 1) return null;
+  try {
+    return {
+      floorId: decodeURIComponent(reference.slice(0, separator)),
+      elementId: decodeURIComponent(reference.slice(separator + 1)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function connectionMatchesOpeningKind(connection: SpatialConnection, element: AirflowPlanElement): boolean {
+  if (element.kind === "door") return connection.kind === "door" || connection.kind === "open-passage";
+  return connection.kind === element.kind;
+}
+
+function legacyOpeningConnectionId(houseId: string, element: AirflowPlanElement): string {
+  return element.kind === "vent"
+    ? `house:${houseId}:vent:${element.id}`
+    : `house:${houseId}:opening:${element.id}`;
+}
+
+function openingConnectionId(houseId: string, floorId: string, element: AirflowPlanElement): string {
+  const kind = element.kind === "vent" ? "vent" : "opening";
+  return `house:${houseId}:${kind}:${encodeURIComponent(floorId)}/${encodeURIComponent(element.id)}`;
+}
+
+function architecturalOpeningAreaM2(house: House, floor: Floor, element: AirflowPlanElement): number | null {
+  const scale = floorMetersPerPlanUnit(floor, house);
+  if (scale === null) return null;
+  const height = element.height ?? (element.kind === "door" ? 2.1 : element.kind === "window" ? 1.2 : .3);
+  const width = element.width ?? (element.kind === "vent" ? .3 : 1);
+  return width * scale * height;
+}
+
+function applyArchitecturalOpeningStates(
+  house: House,
+  connections: readonly SpatialConnection[],
+  observations: readonly OpeningStateObservation[] = [],
+  at = new Date().toISOString(),
+): { connections: SpatialConnection[]; warnings: string[] } {
+  const references = architecturalOpeningReferences(house);
+  const warnings: string[] = [];
+  const resolvedConnections = connections.map((connection): SpatialConnection => {
+    const disabled = (): SpatialConnection => ({ ...connection, enabled: false });
+    const referenceTags = [...new Set((connection.tags ?? []).filter((tag) => tag.startsWith(PLAN_ELEMENT_REFERENCE_PREFIX)))];
+    let candidates: ArchitecturalOpeningReference[] = [];
+    if (referenceTags.length > 0) {
+      if (referenceTags.length !== 1) {
+        warnings.push("OPENING_STATE_REFERENCE_AMBIGUOUS");
+        return disabled();
+      }
+      const parsed = parsePlanElementReference(referenceTags[0]!);
+      if (!parsed) {
+        warnings.push("OPENING_STATE_REFERENCE_INVALID");
+        return disabled();
+      }
+      candidates = references.filter(({ floor, element }) => floor.id === parsed.floorId && element.id === parsed.elementId);
+      if (candidates.length === 0) {
+        warnings.push("OPENING_STATE_REFERENCE_NOT_FOUND");
+        return disabled();
+      }
+    } else {
+      candidates = references.filter(({ element }) => legacyOpeningConnectionId(house.id, element) === connection.id);
+      if (candidates.length === 0) {
+        if (references.some(({ element }) => connectionMatchesOpeningKind(connection, element))) {
+          warnings.push("OPENING_STATE_REFERENCE_MISSING");
+          return disabled();
+        }
+        return connection;
+      }
+    }
+    if (candidates.length !== 1) {
+      warnings.push("OPENING_STATE_REFERENCE_AMBIGUOUS");
+      return disabled();
+    }
+    const { floor, element } = candidates[0]!;
+    if (!connectionMatchesOpeningKind(connection, element)) {
+      warnings.push("OPENING_STATE_KIND_MISMATCH");
+      return disabled();
+    }
+    const floorObservations = observations.filter((observation) => observation.floorId === floor.id);
+    const effective = floorObservations.length
+      ? resolvePlanElementOpeningState(element, floorObservations, at)
+      : configuredPlanElementOpeningState(element);
+    const configured = configuredPlanElementOpeningState(element);
+    const fullAreaM2 = connection.openingAreaM2 ?? architecturalOpeningAreaM2(house, floor, element);
+    const referenceTag = planElementReferenceTag(floor.id, element.id);
+    const stableTags = (connection.tags ?? []).filter((tag) => (
+      !tag.startsWith(PLAN_ELEMENT_REFERENCE_PREFIX) && !tag.startsWith("state:") && !tag.startsWith("state-source:")
+    ));
+    return {
+      ...connection,
+      enabled: connection.enabled && effective.openFraction > 0,
+      normallyOpen: connection.normallyOpen ?? configured.state === "open",
+      ...(fullAreaM2 == null ? {} : { openingAreaM2: fullAreaM2 * effective.openFraction }),
+      tags: [...new Set([...stableTags, referenceTag, `state:${effective.state}`, `state-source:${effective.source}`])],
+    };
+  });
+  return { connections: resolvedConnections, warnings };
+}
+
 export function buildHouseTopology(input: {
   house: House;
   sensors: Sensor[];
@@ -345,6 +478,7 @@ export function buildHouseTopology(input: {
 }): BuiltTopology {
   const scope: SpatialScope = { kind: "house", id: input.house.id };
   const configured = configuredTopology(input.configuration ?? {}, scope);
+  let configuredOpeningWarnings: string[] = [];
   if (configured) {
     const resolvedBindings = defaultHouseBindings(
       input.house,
@@ -354,12 +488,20 @@ export function buildHouseTopology(input: {
       input.at,
       configured.sensorBindings,
     );
-    const resolved = { ...configured, sensorBindings: resolvedBindings.bindings };
+    const openingOverlay = applyArchitecturalOpeningStates(
+      input.house,
+      configured.connections,
+      input.openingStateObservations,
+      input.at,
+    );
+    configuredOpeningWarnings = openingOverlay.warnings;
+    const resolved = { ...configured, connections: openingOverlay.connections, sensorBindings: resolvedBindings.bindings };
     const validation = validateTopology(resolved);
-    if (validation.valid) return {
+    if (validation.valid && openingOverlay.warnings.length === 0) return {
       topology: resolved,
       warnings: [
         ...resolvedBindings.warnings,
+        ...openingOverlay.warnings,
         ...validation.issues.filter((issue) => issue.severity === "warning").map((issue) => issue.code.toUpperCase()),
       ],
     };
@@ -403,11 +545,17 @@ export function buildHouseTopology(input: {
   const configuredConnections = Array.isArray(input.configuration?.connections)
     ? structuredClone(input.configuration.connections) as SpatialConnection[]
     : [];
+  const configuredConnectionOverlay = applyArchitecturalOpeningStates(
+    input.house,
+    configuredConnections,
+    input.openingStateObservations,
+    input.at,
+  );
   const topology: SpatialTopology = {
     scope,
     frames,
     zones: topologyZones,
-    connections: [...openings.connections, ...vents.connections, ...configuredConnections],
+    connections: [...openings.connections, ...vents.connections, ...configuredConnectionOverlay.connections],
     sensorBindings: bindingResult.bindings,
   };
   const validation = validateTopology(topology);
@@ -415,8 +563,10 @@ export function buildHouseTopology(input: {
     topology,
     warnings: [
       ...(configured ? ["CONFIGURED_TOPOLOGY_INVALID"] : []),
+      ...configuredOpeningWarnings,
       ...openings.warnings,
       ...vents.warnings,
+      ...configuredConnectionOverlay.warnings,
       ...bindingResult.warnings,
       ...validation.issues.map((issue) => issue.code.toUpperCase()),
     ],
@@ -552,6 +702,101 @@ function queryMetrics(requiredMetrics: string[]): string[] {
   return [...metrics];
 }
 
+/**
+ * Builds a complete effective-state timeline for every architectural opening
+ * connection in an inference window. A synthetic open snapshot is used only
+ * to recover whether the underlying connection is structurally/admin enabled;
+ * actual interval states always come from the persisted observation history.
+ */
+export function buildOpeningConnectionStateIntervals(input: {
+  house: House;
+  sensors: Sensor[];
+  bindings: StoredSpatialSensorBinding[];
+  topology: SpatialTopology;
+  openingStateObservations: OpeningStateObservation[];
+  windowStart: string;
+  windowEnd: string;
+  configuration?: Record<string, unknown>;
+}): SpatialConnectionStateInterval[] {
+  const windowStart = Date.parse(input.windowStart);
+  const windowEnd = Date.parse(input.windowEnd);
+  if (!Number.isFinite(windowStart) || !Number.isFinite(windowEnd) || windowEnd <= windowStart) return [];
+
+  const references = architecturalOpeningReferences(input.house);
+  const forcedOpenObservations: OpeningStateObservation[] = references.map(({ floor, element }) => ({
+    id: `spatial-force-open:${encodeURIComponent(floor.id)}/${encodeURIComponent(element.id)}`,
+    houseId: input.house.id,
+    floorId: floor.id,
+    elementId: element.id,
+    state: "open",
+    openFraction: 1,
+    source: "api",
+    observedAt: input.windowEnd,
+  }));
+  const forcedOpenTopology = buildHouseTopology({
+    house: input.house,
+    sensors: input.sensors,
+    bindings: input.bindings,
+    at: input.windowEnd,
+    openingStateObservations: forcedOpenObservations,
+    ...(input.configuration === undefined ? {} : { configuration: input.configuration }),
+  }).topology;
+  const forcedConnections = new Map(forcedOpenTopology.connections.map((connection) => [connection.id, connection]));
+  const intervals: SpatialConnectionStateInterval[] = [];
+
+  for (const connection of input.topology.connections) {
+    const referenceTags = [...new Set((connection.tags ?? []).filter((tag) => tag.startsWith(PLAN_ELEMENT_REFERENCE_PREFIX)))];
+    if (referenceTags.length !== 1) continue;
+    const parsed = parsePlanElementReference(referenceTags[0]!);
+    if (!parsed) continue;
+    const reference = references.find(({ floor, element }) => floor.id === parsed.floorId && element.id === parsed.elementId);
+    if (!reference) continue;
+
+    const observations = input.openingStateObservations.filter((observation) => (
+      observation.floorId === reference.floor.id && observation.elementId === reference.element.id
+    ));
+    const boundaries = new Set<number>([windowStart, windowEnd]);
+    const addBoundary = (value: number): void => {
+      if (Number.isFinite(value) && value > windowStart && value < windowEnd) boundaries.add(value);
+    };
+    for (const observation of observations) {
+      const observedAt = Date.parse(observation.observedAt);
+      addBoundary(observedAt);
+      if (observation.validUntil !== undefined) addBoundary(Date.parse(observation.validUntil));
+      if (observation.source === "home-assistant" || observation.source === "tapo") {
+        addBoundary(observedAt + (reference.element.stateBinding?.staleAfterSeconds ?? 900) * 1_000);
+      }
+    }
+
+    const structurallyEnabled = forcedConnections.get(connection.id)?.enabled === true;
+    const ordered = [...boundaries].sort((left, right) => left - right);
+    for (let index = 0; index < ordered.length - 1; index += 1) {
+      const start = ordered[index]!;
+      const end = ordered[index + 1]!;
+      const effectiveAt = new Date(start + Math.floor((end - start) / 2)).toISOString();
+      const effective = resolvePlanElementOpeningState(reference.element, observations, effectiveAt);
+      const enabled = structurallyEnabled && effective.openFraction > 0;
+      const next: SpatialConnectionStateInterval = {
+        connectionId: connection.id,
+        startAt: new Date(start).toISOString(),
+        endAt: new Date(end).toISOString(),
+        enabled,
+        openFraction: enabled ? effective.openFraction : 0,
+      };
+      const previous = intervals.at(-1);
+      if (previous?.connectionId === next.connectionId
+        && previous.endAt === next.startAt
+        && previous.enabled === next.enabled
+        && previous.openFraction === next.openFraction) {
+        previous.endAt = next.endAt;
+      } else {
+        intervals.push(next);
+      }
+    }
+  }
+  return intervals;
+}
+
 interface ResolvedSpatialControlData {
   house: House | null;
   property: Property | null;
@@ -626,6 +871,13 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
       request.configuration,
       request.bindings,
     );
+    const openingStateObservations = resolved.house === null
+      ? []
+      : [...new Map([
+          ...this.core.listOpeningStateObservations(resolved.house.id, 10_000, windowStart),
+          ...this.core.listOpeningStateObservationHistory(resolved.house.id, windowStart, windowEnd, 10_000),
+        ].map((observation) => [observation.id, observation])).values()]
+        .sort((left, right) => left.observedAt.localeCompare(right.observedAt) || left.id.localeCompare(right.id));
     const measurements = await this.telemetry.measurementWindow({
       sensorIds: resolved.sensors.map((sensor) => sensor.id),
       metrics: queryMetrics(request.requiredMetrics),
@@ -645,6 +897,18 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
     const engineInput: SpatialLayerEngineInput = {
       scope: request.scope,
       topology: resolved.built.topology,
+      ...(resolved.house === null ? {} : {
+        connectionStateIntervals: buildOpeningConnectionStateIntervals({
+          house: resolved.house,
+          sensors: resolved.sensors,
+          bindings: request.bindings,
+          topology: resolved.built.topology,
+          openingStateObservations,
+          windowStart,
+          windowEnd,
+          configuration: request.configuration.config,
+        }),
+      }),
       samples: pairSparseClimateSamples(sparseSamples),
       calibrations: canonicalCalibrations(request.calibrations),
       contextEvents: canonicalContextEvents(request.contextEvents),
@@ -688,9 +952,12 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
       throw new Error(`${scope.kind} ${scope.id} does not exist`);
     }
     const sensors = houses.flatMap((candidate) => this.core.listSensors(candidate.id)).filter((sensor) => sensor.enabled);
+    const openingStateObservations = house
+      ? this.core.listOpeningStateObservations(house.id, 10_000, bucketAt)
+      : [];
     const built = house
       ? buildHouseTopology({ house, sensors, bindings, at: bucketAt, configuration: configuration.config,
-        openingStateObservations: this.core.listOpeningStateObservations(house.id, 10_000, bucketAt) })
+        openingStateObservations })
       : buildPropertyTopology({ property: property!, houses, sensors, at: bucketAt, configuration: configuration.config });
     return {
       house,

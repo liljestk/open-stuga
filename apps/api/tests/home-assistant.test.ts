@@ -435,6 +435,7 @@ describe("Home Assistant normalization and state cache", () => {
     });
     const config: AppConfig = {
       port: 0, apiHost: "127.0.0.1", databasePath: ":memory:", integrationSecretsFile: join(temporaryDirectory, "secrets.json"), assetDirectory: temporaryDirectory,
+      spatialLayersEnabled: true, spatialLayersDatabasePath: join(temporaryDirectory, "spatial.sqlite"),
       mockEnabled: false, mockIntervalMs: 2_000, retentionDays: 730, ingestApiKey: null,
       haUrl: `http://127.0.0.1:${address.port}`, haToken: "test-token", haEntityMapFile: null,
       tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null, tpLinkDeviceMapFile: null,
@@ -442,6 +443,7 @@ describe("Home Assistant normalization and state cache", () => {
       alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
     };
     runtime = createApi({ config, startBackground: false });
+    const wakeHouse = vi.spyOn(runtime.spatialLayers!.scheduler, "wakeHouse");
     const house = runtime.database.getHouse("house-main")!;
     const floors = structuredClone(house.floors);
     floors[0]!.planElements = [...(floors[0]!.planElements ?? []), {
@@ -458,7 +460,9 @@ describe("Home Assistant normalization and state cache", () => {
       externalId: "binary_sensor.entry", connectionId: "house-main" });
     expect(Date.parse(initial.observedAt)).toBeGreaterThanOrEqual(startedAt);
     expect(runtime.status.value.homeAssistant.mappedEntities).toBe(1);
+    expect(wakeHouse).toHaveBeenCalledWith(house.id, house.propertyId, initial.observedAt, "property-context-changed");
 
+    wakeHouse.mockClear();
     const changedAt = new Date().toISOString();
     client?.send(JSON.stringify({ type: "event", event: {
       event_type: "state_changed", time_fired: changedAt, data: { entity_id: "binary_sensor.entry", new_state: {
@@ -466,7 +470,9 @@ describe("Home Assistant normalization and state cache", () => {
       } },
     } }));
     await waitFor(() => runtime!.database.listOpeningStateObservations(house.id).length === 2);
-    expect(runtime.database.listOpeningStateObservations(house.id)[0]).toMatchObject({ state: "closed", source: "home-assistant" });
+    const changed = runtime.database.listOpeningStateObservations(house.id)[0]!;
+    expect(changed).toMatchObject({ state: "closed", source: "home-assistant" });
+    expect(wakeHouse).toHaveBeenCalledWith(house.id, house.propertyId, changed.observedAt, "property-context-changed");
   });
 
   it("does not report connected or request a snapshot when the subscription is rejected", async () => {

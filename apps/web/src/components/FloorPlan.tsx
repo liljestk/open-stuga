@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { BoxSelect, Grid3X3, ImagePlus, MapPinPlus, MousePointer2, PenLine, Plus, RotateCcw, RotateCw, Trash2 } from "lucide-react";
-import { configuredPlanElementOpeningState, floorMetersPerPlanUnit, isAirflowPlanElement, wallLengthPlanUnits, type ConfiguredOpeningState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type PlanElement, type PlanElementKind, type Point, type Room, type Sensor, type UnitSystem, type Wall } from "@climate-twin/contracts";
+import { floorMetersPerPlanUnit, isAirflowPlanElement, wallLengthPlanUnits, type ConfiguredOpeningState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type PlanElementKind, type Point, type Room, type Sensor, type UnitSystem, type Wall } from "@climate-twin/contracts";
 import { clamp, round, type ViewMode } from "../domain";
 import { useI18n, type TranslationKey } from "../i18n";
 import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue, type LatestMeasurements } from "../measurements";
@@ -39,6 +39,7 @@ import {
 } from "../planElementGeometry";
 import { chimneyPenetrationsForFloor, fireplaceChimneyDimensions } from "../architecturalGeometry";
 import { MapInformationToggle, useMapInformationVisibility } from "./MapInformationToggle";
+import { effectiveOpeningState, openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../openingState";
 
 export { heatColor, interpolateHeat } from "../spatialField";
 export { clampPlanElementWidth, defaultPlanElementWidth, planElementWidthBounds } from "../planElementGeometry";
@@ -69,6 +70,9 @@ interface FloorPlanProps {
   experimentalAirflowEnabled?: boolean;
   experimentalAirflow?: FloorAirflowEstimate | null;
   experimentalSensorCoverage?: SensorCoverageAssessment | null;
+  openingStateObservations?: readonly OpeningStateObservation[];
+  pendingOpeningStateKeys?: ReadonlySet<string>;
+  onOpeningStateChange?: (floorId: string, elementId: string, state: ConfiguredOpeningState) => void;
   onSensorSelect: (sensorId: string) => void;
   onSensorMove: (sensorId: string, point: Point) => void;
   onFloorChange: (floor: Floor) => void;
@@ -357,9 +361,14 @@ export function FloorPlan({
   referenceTimeMs, maxSampleAgeMs,
   outdoor, spatialLayerSnapshots = [], spatialLayerTopology = null,
   experimentalAirflowEnabled = false, experimentalAirflow = null, experimentalSensorCoverage = null,
+  openingStateObservations = [], pendingOpeningStateKeys = new Set<string>(), onOpeningStateChange,
   sensorMeasurements = {}, energyDevicesVisible = true,
 }: FloorPlanProps) {
   const { locale, t } = useI18n();
+  const houseOpeningStateObservations = useMemo(
+    () => openingStateObservationsForHouse(house?.id, openingStateObservations),
+    [house?.id, openingStateObservations],
+  );
   const metricLabel = measurementLabel(definition, locale);
   const svgRef = useRef<SVGSVGElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1231,8 +1240,9 @@ export function FloorPlan({
       samples: climateSamples,
       freshness: spatialFreshness,
       outdoor: outdoorContext,
+      openingStateObservations: houseOpeningStateObservations,
     }, 9) : null;
-  }, [experimentalAirflowEnabled, experimentalAirflow, layoutEditing, climateSamples, floor, sensors, spatialFreshness, outdoorContext]);
+  }, [experimentalAirflowEnabled, experimentalAirflow, layoutEditing, climateSamples, floor, sensors, spatialFreshness, outdoorContext, houseOpeningStateObservations]);
   const airflowPaths = airflow?.paths ?? [];
   const activeGradientFlows = airflowPaths.length ? [] : gradientFlows;
   const hasMapInformation = clouds.length > 0 || airflowPaths.length > 0 || activeGradientFlows.length > 0
@@ -1877,13 +1887,31 @@ export function FloorPlan({
               })}
               {planElements.map((element, index) => {
                 const selected = element.id === selectedPlanElementId;
-                const openingState = isAirflowPlanElement(element) ? configuredPlanElementOpeningState(element) : null;
+                const airflowElement = isAirflowPlanElement(element) ? element : null;
+                const openingState = airflowElement
+                  ? effectiveOpeningState(house?.id, floor.id, airflowElement, houseOpeningStateObservations, resolvedReferenceTimeMs)
+                  : null;
+                const openingControlEnabled = Boolean(
+                  airflowElement && openingState && !layoutEditing && !observationPlacement
+                    && onOpeningStateChange && openingStateCanChange(airflowElement),
+                );
+                const openingPending = openingControlEnabled && pendingOpeningStateKeys.has(openingStateKey(floor.id, element.id));
+                const interactive = planElementSelectionActive || openingControlEnabled;
                 const symbolWidth = Math.max(28, (element.width ?? defaultPlanElementWidth(floor, element.kind)) * renderScale);
                 const baseLabel = t("twin.elementAria", {
                   element: t(`planElement.${element.kind}` as TranslationKey),
                   number: index + 1,
                 });
-                const label = openingState ? `${baseLabel}, ${t(`opening.state.${openingState.state}` as TranslationKey)}` : baseLabel;
+                const nextOpeningState: ConfiguredOpeningState | null = openingState?.state === "open" ? "closed" : openingState ? "open" : null;
+                const label = openingState
+                  ? openingControlEnabled && nextOpeningState
+                    ? t("opening.toggleAria", {
+                      opening: baseLabel,
+                      state: t(`opening.state.${openingState.state}` as TranslationKey),
+                      action: t(`opening.state.${nextOpeningState}` as TranslationKey),
+                    })
+                    : `${baseLabel}, ${t(`opening.state.${openingState.state}` as TranslationKey)}`
+                  : baseLabel;
                 const glyphHeight = element.kind === "door"
                   ? symbolWidth
                   : element.kind === "window"
@@ -1897,23 +1925,44 @@ export function FloorPlan({
                     key={element.id}
                     ref={(node) => { if (node) planElementRefs.current.set(element.id, node); else planElementRefs.current.delete(element.id); }}
                     transform={`translate(${element.position.x * renderScale} ${element.position.y * renderScale}) rotate(${element.rotationDegrees})`}
-                    className={`plan-element ${element.kind} ${openingState ? `opening-${openingState.state}` : ""} ${selected ? "selected" : ""}`}
+                    className={`plan-element ${element.kind} ${openingState ? `opening-${openingState.state}` : ""} ${openingControlEnabled ? "opening-control" : ""} ${openingPending ? "pending" : ""} ${selected ? "selected" : ""}`}
                     data-opening-state={openingState?.state}
-                    role={planElementSelectionActive ? "button" : "img"}
-                    tabIndex={planElementSelectionActive ? 0 : undefined}
+                    data-opening-source={openingState?.source}
+                    role={interactive ? "button" : "img"}
+                    tabIndex={interactive ? 0 : undefined}
                     aria-label={label}
-                    aria-pressed={planElementSelectionActive ? selected : undefined}
+                    aria-pressed={planElementSelectionActive ? selected : openingControlEnabled ? openingState?.state === "open" : undefined}
+                    aria-busy={openingPending || undefined}
                     aria-keyshortcuts={planElementSelectionActive ? isWallAttachedPlanElement(element) ? "R Delete Backspace" : "R Shift+R Delete Backspace" : undefined}
-                    onPointerDown={planElementSelectionActive ? (event) => planElementPointerDown(event, element.id) : undefined}
+                    onPointerDown={planElementSelectionActive
+                      ? (event) => planElementPointerDown(event, element.id)
+                      : openingControlEnabled
+                        ? (event) => { event.stopPropagation(); }
+                        : undefined}
                     onPointerMove={planElementSelectionActive ? (event) => planElementPointerMove(event, element.id) : undefined}
                     onPointerUp={() => { draggingElement.current = null; }}
                     onPointerCancel={() => { draggingElement.current = null; }}
                     onLostPointerCapture={() => { draggingElement.current = null; }}
-                    onKeyDown={planElementSelectionActive ? (event) => planElementKeyDown(event, element) : undefined}
+                    onClick={openingControlEnabled ? (event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (!openingPending && nextOpeningState) onOpeningStateChange?.(floor.id, element.id, nextOpeningState);
+                    } : undefined}
+                    onKeyDown={planElementSelectionActive
+                      ? (event) => planElementKeyDown(event, element)
+                      : openingControlEnabled
+                        ? (event) => {
+                          if (event.key !== "Enter" && event.key !== " ") return;
+                          event.preventDefault();
+                          event.stopPropagation();
+                          if (!openingPending && nextOpeningState) onOpeningStateChange?.(floor.id, element.id, nextOpeningState);
+                        }
+                        : undefined}
                   >
                     <rect x={-symbolWidth / 2 - 12} y={glyphTop - 12} width={symbolWidth + 24} height={glyphHeight + 24} className="plan-element-hit-target" />
                     {selected && <rect x={-symbolWidth / 2 - 9} y={glyphTop - 9} width={symbolWidth + 18} height={glyphHeight + 18} rx="8" className="plan-element-selection" />}
                     <PlanElementGlyph kind={element.kind} width={symbolWidth} state={openingState?.state} projection={element.kind === "fireEscape" ? (element.projection ?? defaultFireEscapeProjection(floor, element.width ?? defaultPlanElementWidth(floor, "fireEscape"))) * renderScale : undefined} />
+                    {openingState && <circle cx={symbolWidth / 2 - 3} cy={glyphTop + 3} r="6" className="plan-opening-state-dot" aria-hidden="true" />}
                   </g>
                 );
               })}

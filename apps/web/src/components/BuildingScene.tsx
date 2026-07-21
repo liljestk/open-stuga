@@ -2,7 +2,7 @@ import {
   useEffect, useId, useMemo, useRef, useState,
   type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent,
 } from "react";
-import { configuredPlanElementOpeningState, isAirflowPlanElement, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type PlanElement, type Sensor, type UnitSystem } from "@climate-twin/contracts";
+import { isAirflowPlanElement, type ConfiguredOpeningState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type Sensor, type UnitSystem } from "@climate-twin/contracts";
 import { useI18n, type TranslationKey } from "../i18n";
 import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue, type LatestMeasurements } from "../measurements";
 import { energyDeviceMapStats, isEnergyDeviceSensor } from "../energyDeviceMap";
@@ -46,6 +46,7 @@ import {
 } from "../planElementGeometry";
 import { fireplaceChimneyDimensions, fireplaceChimneyTop, isRoofSpanningFireplace, roofEavesZ, roofPeakZ, roofSurfaces } from "../architecturalGeometry";
 import { MapInformationToggle, useMapInformationVisibility } from "./MapInformationToggle";
+import { effectiveOpeningState, openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../openingState";
 
 interface BuildingSceneProps {
   house: House;
@@ -70,6 +71,9 @@ interface BuildingSceneProps {
   experimentalAirflowEnabled?: boolean;
   experimentalAirflow?: BuildingAirflowEstimate | null;
   experimentalSensorCoverage?: SensorCoverageAssessment | null;
+  openingStateObservations?: readonly OpeningStateObservation[];
+  pendingOpeningStateKeys?: ReadonlySet<string>;
+  onOpeningStateChange?: (floorId: string, elementId: string, state: ConfiguredOpeningState) => void;
   onFloorSelect: (floorId: string) => void;
   onSensorSelect: (sensorId: string, floorId: string) => void;
   onFloorChange?: (floor: Floor) => void;
@@ -265,10 +269,15 @@ export function BuildingScene({
   house, sensors, samples, climateSamples, observations, definition, colorDomain, units, activeFloorId, selectedSensorId,
   referenceTimeMs, maxSampleAgeMs, outdoor, editing = false, spatialLayerSnapshots = [], spatialLayerTopology = null,
   experimentalAirflowEnabled = false, experimentalAirflow = null, experimentalSensorCoverage = null,
+  openingStateObservations = [], pendingOpeningStateKeys = new Set<string>(), onOpeningStateChange,
   sensorMeasurements = {}, energyDevicesVisible = true,
   onFloorSelect, onSensorSelect, onFloorChange,
 }: BuildingSceneProps) {
   const { locale, t } = useI18n();
+  const houseOpeningStateObservations = useMemo(
+    () => openingStateObservationsForHouse(house.id, openingStateObservations),
+    [house.id, openingStateObservations],
+  );
   const metricLabel = measurementLabel(definition, locale);
   const markerId = `building-flow-${useId().replace(/:/g, "")}`;
   const [camera, setCamera] = useState<CameraOrbit>(DEFAULT_CAMERA);
@@ -341,8 +350,9 @@ export function BuildingScene({
       samples: climateSamples,
       freshness,
       outdoor: outdoorContext,
+      openingStateObservations: houseOpeningStateObservations,
     }, 14) : null;
-  }, [experimentalAirflowEnabled, experimentalAirflow, editing, climateSamples, house, sensors, freshness, outdoorContext]);
+  }, [experimentalAirflowEnabled, experimentalAirflow, editing, climateSamples, house, sensors, freshness, outdoorContext, houseOpeningStateObservations]);
   const airflowPaths = airflow?.paths ?? [];
   const activeGradientFlows = editing || airflowPaths.length ? [] : gradientFlows;
   const airflowSupport = airflow
@@ -661,9 +671,25 @@ export function BuildingScene({
     const right = geometry.right?.map(project);
     const top = geometry.top?.map(project);
     const selected = selectedElementKey?.floorId === floor.id && selectedElementKey.elementId === element.id;
-    const openingState = isAirflowPlanElement(element) ? configuredPlanElementOpeningState(element) : null;
+    const airflowElement = isAirflowPlanElement(element) ? element : null;
+    const openingState = airflowElement
+      ? effectiveOpeningState(house.id, floor.id, airflowElement, houseOpeningStateObservations, effectiveReferenceTimeMs)
+      : null;
+    const openingControlEnabled = Boolean(
+      airflowElement && openingState && !editing && onOpeningStateChange && openingStateCanChange(airflowElement),
+    );
+    const openingPending = openingControlEnabled && pendingOpeningStateKeys.has(openingStateKey(floor.id, element.id));
+    const nextOpeningState: ConfiguredOpeningState | null = openingState?.state === "open" ? "closed" : openingState ? "open" : null;
+    const openingName = `${element.label ?? t(`planElement.${element.kind}` as TranslationKey)} ${index + 1}`;
     const stateLabel = openingState ? ` ${t("opening.state")} ${t(`opening.state.${openingState.state}` as TranslationKey)}.` : "";
-    const label = `${element.label ?? t(`planElement.${element.kind}` as TranslationKey)} ${index + 1}, ${floor.name}.${stateLabel} ${t("twin.elementWidth")} ${Number(geometry.width.toFixed(2))} ${t("twin.planUnit")}. ${t("twin.elementHeight")} ${geometry.height.toFixed(2)} m.`;
+    const geometryLabel = `${openingName}, ${floor.name}.${stateLabel} ${t("twin.elementWidth")} ${Number(geometry.width.toFixed(2))} ${t("twin.planUnit")}. ${t("twin.elementHeight")} ${geometry.height.toFixed(2)} m.`;
+    const label = openingControlEnabled && openingState && nextOpeningState
+      ? t("opening.toggleAria", {
+        opening: `${openingName}, ${floor.name}`,
+        state: t(`opening.state.${openingState.state}` as TranslationKey),
+        action: t(`opening.state.${nextOpeningState}` as TranslationKey),
+      })
+      : geometryLabel;
     const verticalMidpoint = (a: ProjectedPoint3D, b: ProjectedPoint3D) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
     const bottomMid = verticalMidpoint(front[0]!, front[1]!);
     const topMid = verticalMidpoint(front[3]!, front[2]!);
@@ -674,12 +700,13 @@ export function BuildingScene({
     const hitPadding = 12;
     return (
       <g
-        key={element.id}
-        className={`building-plan-element ${element.kind} ${openingState ? `opening-${openingState.state}` : ""} ${selected ? "selected" : ""} ${editing ? "editable" : ""}`}
-        role={editing ? "button" : "img"}
-        tabIndex={editing ? 0 : undefined}
+        key={`${floor.id}:${element.id}`}
+        className={`building-plan-element ${element.kind} ${openingState ? `opening-${openingState.state}` : ""} ${openingControlEnabled ? "opening-control" : ""} ${openingPending ? "pending" : ""} ${selected ? "selected" : ""} ${editing ? "editable" : ""}`}
+        role={editing || openingControlEnabled ? "button" : "img"}
+        tabIndex={editing || openingControlEnabled ? 0 : undefined}
         aria-label={label}
-        aria-pressed={editing ? selected : undefined}
+        aria-pressed={editing ? selected : openingControlEnabled ? openingState?.state === "open" : undefined}
+        aria-busy={openingPending || undefined}
         data-element-id={element.id}
         data-floor-id={floor.id}
         data-kind={element.kind}
@@ -688,12 +715,37 @@ export function BuildingScene({
           data-bottom={geometry.bottom.toFixed(4)}
           data-depth={geometry.depth.toFixed(4)}
         data-opening-state={openingState?.state}
-        onPointerDown={editing ? (event) => selectArchitecturalElement(event, floor.id, element.id) : undefined}
-        onClick={editing ? (event) => event.stopPropagation() : undefined}
-        onKeyDown={editing ? (event) => selectArchitecturalElement(event, floor.id, element.id) : undefined}
+        data-opening-source={openingState?.source}
+        onPointerDown={editing
+          ? (event) => selectArchitecturalElement(event, floor.id, element.id)
+          : openingControlEnabled
+            ? (event) => { event.stopPropagation(); }
+            : undefined}
+        onClick={editing
+          ? (event) => event.stopPropagation()
+          : openingControlEnabled
+            ? (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (!openingPending && nextOpeningState) onOpeningStateChange?.(floor.id, element.id, nextOpeningState);
+            }
+            : (event) => {
+              event.stopPropagation();
+              activateFloor(floor.id);
+            }}
+        onKeyDown={editing
+          ? (event) => selectArchitecturalElement(event, floor.id, element.id)
+          : openingControlEnabled
+            ? (event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              event.stopPropagation();
+              if (!openingPending && nextOpeningState) onOpeningStateChange?.(floor.id, element.id, nextOpeningState);
+            }
+            : undefined}
       >
         <title>{label}</title>
-        {editing && <rect
+        {(editing || openingControlEnabled) && <rect
           x={Math.min(...frontXs) - hitPadding}
           y={Math.min(...frontYs) - hitPadding}
           width={Math.max(...frontXs) - Math.min(...frontXs) + hitPadding * 2}
@@ -921,7 +973,6 @@ export function BuildingScene({
                       <line x1={face[3]!.x} y1={face[3]!.y} x2={face[2]!.x} y2={face[2]!.y} className="building-wall-top" />
                     </g>;
                   })}</g>
-                  {!editing && <g className="building-plan-elements">{(floor.planElements ?? []).map((element, index) => renderArchitecturalElement(floor, element, index))}</g>}
                   <g className="building-floor-label" aria-hidden="true" transform={`translate(${Math.min(VIEW_WIDTH - 184, labelPoint.x + 10)} ${Math.max(8, labelPoint.y - 40)})`}>
                     <rect width="176" height="43" rx="9" />
                     <text x="11" y="17">{visualLabel(floor.name, 22)}</text>
@@ -931,6 +982,10 @@ export function BuildingScene({
               );
             })}
           </g>
+
+          {!editing && <g className="building-plan-elements building-plan-elements-live">
+            {orderedFloors.flatMap(({ floor }) => (floor.planElements ?? []).map((element, index) => renderArchitecturalElement(floor, element, index)))}
+          </g>}
 
           <g className="building-roofs">
             {orderedFloors.flatMap(({ floor }) => roofSurfaces(floor).map((surface, index) => (

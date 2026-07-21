@@ -404,6 +404,66 @@ describe("failure-isolated engine host", () => {
     ]));
   });
 
+  it("loads every opening transition in the inference window while excluding future replay state", async () => {
+    const core = new ClimateDatabase(":memory:", true);
+    const stored = core.listHouses()[0]!;
+    const floors = structuredClone(stored.floors);
+    floors[0]!.planElements = [...(floors[0]!.planElements ?? []), {
+      id: "history-vent",
+      kind: "vent",
+      position: { x: 4, y: 5 },
+      rotationDegrees: 0,
+      width: .3,
+      state: "closed",
+    }];
+    const house = core.updateHouse(stored.id, { floors })!;
+    const record = (id: string, state: "open" | "closed", observedAt: string): void => {
+      core.recordOpeningStateObservation(house.id, {
+        id,
+        floorId: floors[0]!.id,
+        elementId: "history-vent",
+        state,
+        source: "manual",
+        observedAt,
+      });
+    };
+    record("history-closed-1", "closed", "2035-01-01T11:35:00.000Z");
+    record("history-open", "open", "2035-01-01T11:40:00.000Z");
+    record("history-closed-2", "closed", "2035-01-01T11:50:00.000Z");
+    record("future-open", "open", "2035-01-01T12:05:00.000Z");
+
+    const runtime = createLocalSpatialLayerRuntime({
+      coreDatabase: core,
+      coreDatabasePath: ":memory:",
+      sourceDbId: "opening-history-test",
+      dataMode: "demo",
+      statePath: ":memory:",
+    });
+    coreDatabases.push(core);
+    runtimes.push(runtime);
+    const scope = { kind: "house" as const, id: house.id };
+    const configuration = runtime.state.getCurrentConfiguration(runtime.host.partition, scope);
+    const dataset = await runtime.input.load({
+      partition: runtime.host.partition,
+      scope,
+      bucketAt: "2035-01-01T12:00:00.000Z",
+      windowMinutes: 30,
+      requiredMetrics: ["temperatureC", "relativeHumidityPct"],
+      configuration,
+      bindings: [],
+      calibrations: [],
+      contextEvents: [],
+    });
+    const connectionId = `house:${house.id}:vent:${floors[0]!.id}/history-vent`;
+
+    expect(dataset.engineInput.connectionStateIntervals?.filter((interval) => interval.connectionId === connectionId)).toEqual([
+      { connectionId, startAt: "2035-01-01T11:30:00.000Z", endAt: "2035-01-01T11:40:00.000Z", enabled: false, openFraction: 0 },
+      { connectionId, startAt: "2035-01-01T11:40:00.000Z", endAt: "2035-01-01T11:50:00.000Z", enabled: true, openFraction: 1 },
+      { connectionId, startAt: "2035-01-01T11:50:00.000Z", endAt: "2035-01-01T12:00:00.000Z", enabled: false, openFraction: 0 },
+    ]);
+    expect(dataset.topology.connections.find((connection) => connection.id === connectionId)?.enabled).toBe(false);
+  });
+
   it("hard-terminates blocking research code without blocking the API event loop", async () => {
     const executor = new WorkerThreadSpatialEngineExecutor({
       workerSource: `const { parentPort } = require("node:worker_threads"); parentPort.once("message", () => { while (true) {} });`,
