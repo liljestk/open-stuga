@@ -57,6 +57,10 @@ import type {
   PropertyPatch,
   Reading,
   Sensor,
+  SecurityAuditEvent,
+  SecurityAuditEventType,
+  SecurityAuditOutcome,
+  SecurityAuditSubjectType,
   StaticParameter,
   Wall,
   WeatherBackfillState,
@@ -123,6 +127,17 @@ export interface DemoTelemetryPurgeResult {
   measurementSamples: number;
   outdoorTemperatureSamples: number;
   alertEvents: number;
+}
+
+export interface SecurityAuditEventInput {
+  eventType: SecurityAuditEventType;
+  outcome?: SecurityAuditOutcome;
+  actorUserId: string | null;
+  actorRole: SecurityAuditEvent["actorRole"];
+  subjectType: SecurityAuditSubjectType;
+  subjectId: string;
+  details?: SecurityAuditEvent["details"];
+  createdAt?: string;
 }
 
 export type NotificationChannel = "webhook" | "telegram";
@@ -218,6 +233,18 @@ interface HouseRow {
   floors_json: string;
   created_at: string;
   updated_at: string;
+}
+
+interface SecurityAuditEventRow {
+  id: string;
+  event_type: SecurityAuditEvent["eventType"];
+  outcome: SecurityAuditEvent["outcome"];
+  actor_user_id: string | null;
+  actor_role: SecurityAuditEvent["actorRole"];
+  subject_type: SecurityAuditEvent["subjectType"];
+  subject_id: string;
+  details_json: string;
+  created_at: string;
 }
 
 interface OpeningStateObservationRow {
@@ -911,6 +938,20 @@ export type SensorUpdate = Partial<Omit<Sensor, "id" | "tpLinkDeviceId" | "tpLin
 
 function parseJson<T>(value: string): T {
   return JSON.parse(value) as T;
+}
+
+function securityAuditEventFromRow(row: SecurityAuditEventRow): SecurityAuditEvent {
+  return {
+    id: row.id,
+    eventType: row.event_type,
+    outcome: row.outcome,
+    actorUserId: row.actor_user_id,
+    actorRole: row.actor_role,
+    subjectType: row.subject_type,
+    subjectId: row.subject_id,
+    details: parseJson<SecurityAuditEvent["details"]>(row.details_json),
+    createdAt: row.created_at,
+  };
 }
 
 type CanonicalJsonValue = null | boolean | number | string | CanonicalJsonValue[] | { [key: string]: CanonicalJsonValue };
@@ -1787,6 +1828,51 @@ export class ClimateDatabase {
 
   mockScenarioId(): string | null {
     return (this.db.prepare("SELECT value FROM metadata WHERE key = 'mock_scenario_id'").get() as { value: string } | undefined)?.value ?? null;
+  }
+
+  recordSecurityAuditEvent(input: SecurityAuditEventInput): SecurityAuditEvent {
+    const subjectId = input.subjectId.trim();
+    if (!subjectId || subjectId.length > 512) throw new Error("Security audit subject id must contain 1 to 512 characters");
+    if (input.actorUserId !== null && (!input.actorUserId.trim() || input.actorUserId.length > 200)) {
+      throw new Error("Security audit actor id must contain 1 to 200 characters when present");
+    }
+    const details = input.details ?? {};
+    const entries = Object.entries(details);
+    if (entries.length > 32 || entries.some(([key, value]) => (
+      !key || key.length > 80
+      || (typeof value === "string" && value.length > 512)
+      || (value !== null && !["string", "number", "boolean"].includes(typeof value))
+      || (typeof value === "number" && !Number.isFinite(value))
+    ))) {
+      throw new Error("Security audit details must contain at most 32 bounded scalar fields");
+    }
+    const detailsJson = JSON.stringify(details);
+    if (Buffer.byteLength(detailsJson, "utf8") > 8_192) throw new Error("Security audit details exceed 8 KiB");
+    const event: SecurityAuditEvent = {
+      id: randomUUID(),
+      eventType: input.eventType,
+      outcome: input.outcome ?? "succeeded",
+      actorUserId: input.actorUserId,
+      actorRole: input.actorRole,
+      subjectType: input.subjectType,
+      subjectId,
+      details,
+      createdAt: input.createdAt ? new Date(input.createdAt).toISOString() : new Date().toISOString(),
+    };
+    this.db.prepare(`INSERT INTO security_audit_events
+      (id, event_type, outcome, actor_user_id, actor_role, subject_type, subject_id, details_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(event.id, event.eventType, event.outcome, event.actorUserId, event.actorRole, event.subjectType,
+        event.subjectId, detailsJson, event.createdAt);
+    return event;
+  }
+
+  listSecurityAuditEvents(limit = 100, offset = 0): SecurityAuditEvent[] {
+    const rows = this.db.prepare(`SELECT id, event_type, outcome, actor_user_id, actor_role,
+        subject_type, subject_id, details_json, created_at
+      FROM security_audit_events ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`)
+      .all(boundedCollectionLimit(limit), boundedCollectionOffset(offset)) as unknown as SecurityAuditEventRow[];
+    return rows.map(securityAuditEventFromRow);
   }
 
   setMockScenarioId(scenario: string): void {
@@ -3881,6 +3967,21 @@ export class ClimateDatabase {
         created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_data_audit_events_created ON data_audit_events(created_at DESC);
+      CREATE TABLE IF NOT EXISTS security_audit_events (
+        id TEXT PRIMARY KEY,
+        event_type TEXT NOT NULL,
+        outcome TEXT NOT NULL CHECK(outcome IN ('succeeded', 'denied')),
+        actor_user_id TEXT,
+        actor_role TEXT CHECK(actor_role IS NULL OR actor_role IN ('owner', 'admin', 'member', 'guest', 'service')),
+        subject_type TEXT NOT NULL CHECK(subject_type IN ('account', 'workspace-member', 'integration', 'integration-grant')),
+        subject_id TEXT NOT NULL CHECK(length(subject_id) BETWEEN 1 AND 512),
+        details_json TEXT NOT NULL CHECK(json_valid(details_json) AND json_type(details_json) = 'object'),
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_security_audit_events_created
+        ON security_audit_events(created_at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_security_audit_events_type_created
+        ON security_audit_events(event_type, created_at DESC);
       INSERT OR IGNORE INTO action_playbooks(
         id, name, description, instructions_json, metric, goal, minimum_improvement, target_value,
         wait_seconds, verification_window_seconds, enabled, built_in, created_at, updated_at

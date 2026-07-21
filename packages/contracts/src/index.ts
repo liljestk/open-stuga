@@ -840,6 +840,38 @@ export interface TenantInvitationCreated {
   cloudflareAccess?: CloudflareAccessSyncSummary;
 }
 
+export type SecurityAuditOutcome = "succeeded" | "denied";
+
+export type SecurityAuditEventType =
+  | "auth.owner.created"
+  | "auth.invitation.accepted"
+  | "auth.login"
+  | "auth.logout"
+  | "membership.invitation.created"
+  | "membership.grants.replaced"
+  | "membership.revoked"
+  | "integration.credentials.configured"
+  | "integration.credentials.rotated"
+  | "integration.credentials.revoked"
+  | "integration.grant.issued"
+  | "integration.grant.revoked";
+
+export type SecurityAuditSubjectType = "account" | "workspace-member" | "integration" | "integration-grant";
+export type SecurityAuditDetailValue = string | number | boolean | null;
+
+/** Append-only, secret-free evidence for authentication and privileged credential changes. */
+export interface SecurityAuditEvent {
+  id: string;
+  eventType: SecurityAuditEventType;
+  outcome: SecurityAuditOutcome;
+  actorUserId: string | null;
+  actorRole: TenantMemberRole | null;
+  subjectType: SecurityAuditSubjectType;
+  subjectId: string;
+  details: Record<string, SecurityAuditDetailValue>;
+  createdAt: string;
+}
+
 export interface House {
   id: string;
   /** Every current house belongs to exactly one property. Legacy records are backfilled at deserialization/migration time. */

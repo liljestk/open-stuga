@@ -4,6 +4,10 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+- Added an Owner/Admin-only append-only security audit API for authentication,
+  membership, integration credential, and bridge-grant lifecycles, plus
+  restart-persistent automated credential rotation/revocation drills that prove
+  retired secrets do not remain in the protected secrets file or audit records.
 - Verified restart-safe wall-clock alert deadlines: durable sustained
   conditions now have explicit integration coverage proving they open without
   a second sensor sample and without inventing telemetry.

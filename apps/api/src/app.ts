@@ -53,6 +53,7 @@ import {
   ClimateDatabase,
   ClimateDataValidationError,
   outdoorLocationKey,
+  type SecurityAuditEventInput,
   type SensorUpdate,
   type TapoHistoryExportJob,
   type TelemetryCascadeScope,
@@ -1001,6 +1002,14 @@ function requestPrincipal(response: Response): LocalRequestPrincipal {
   return principal;
 }
 
+function auditAccountSubject(value: unknown): string {
+  if (typeof value !== "string") return "invalid-account";
+  const email = value.trim().toLowerCase();
+  return email.length >= 3 && email.length <= 320 && /^[^@\s]+@[^@\s]+$/u.test(email)
+    ? email
+    : "invalid-account";
+}
+
 function requireWorkspaceAdmin(_request: Request, response: Response, next: NextFunction): void {
   const principal = requestPrincipal(response);
   if (principal.role !== "owner" && principal.role !== "admin") {
@@ -1928,6 +1937,16 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   const energyOptimizer = new EnergyOptimizer(database);
   const integrationMetadata = initializeIntegrationMetadata(config, database);
   const localAuth = new LocalAuthStore(database);
+  const recordSecurityAudit = (
+    actor: Pick<LocalAuthIdentity, "userId" | "role"> | null,
+    event: Omit<SecurityAuditEventInput, "actorUserId" | "actorRole">,
+  ): void => {
+    database.recordSecurityAuditEvent({
+      ...event,
+      actorUserId: actor?.userId ?? null,
+      actorRole: actor?.role ?? null,
+    });
+  };
   const cloudflareAccess = config.cloudflareAccessAccountId
     && config.cloudflareAccessGroupId
     && config.cloudflareAccessGroupName
@@ -2708,6 +2727,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       const identity = await localAuth.createFirstOwner(body.email, body.password);
       const issued = localAuth.issueSession(identity);
       setLocalSessionCookies(response, request, config, issued.token, issued.session.csrfToken);
+      recordSecurityAudit(identity, {
+        eventType: "auth.owner.created",
+        subjectType: "account",
+        subjectId: identity.email,
+        details: { role: identity.role },
+      });
       const cloudflareAccessStatus = await synchronizeCloudflareAccess();
       response.status(201).json({
         ...sessionDocument(issued.session, issued.session.csrfToken),
@@ -2729,6 +2754,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       const identity = await localAuth.registerInvitation(body.token, body.password, body.email);
       const issued = localAuth.issueSession(identity);
       setLocalSessionCookies(response, request, config, issued.token, issued.session.csrfToken);
+      recordSecurityAudit(identity, {
+        eventType: "auth.invitation.accepted",
+        subjectType: "account",
+        subjectId: identity.email,
+        details: { role: identity.role, grantCount: identity.grants.length },
+      });
       response.status(201).json(sessionDocument(issued.session, issued.session.csrfToken));
     } finally {
       release();
@@ -2743,12 +2774,39 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     const body = bodyObject(request.body);
     const release = authAbuseLimiter.enter(authAttemptKeys(request, config, "login", body.email), response);
     try {
-      const identity = await localAuth.verifyCredentials(body.email, body.password);
-      if (!identity) throw new HttpError(401, "INVALID_CREDENTIALS", "Email or password is incorrect");
+      let identity: LocalAuthIdentity | null;
+      try {
+        identity = await localAuth.verifyCredentials(body.email, body.password);
+      } catch (error) {
+        recordSecurityAudit(null, {
+          eventType: "auth.login",
+          outcome: "denied",
+          subjectType: "account",
+          subjectId: auditAccountSubject(body.email),
+          details: { reason: error instanceof LocalAuthError ? error.code : "VERIFICATION_FAILED" },
+        });
+        throw error;
+      }
+      if (!identity) {
+        recordSecurityAudit(null, {
+          eventType: "auth.login",
+          outcome: "denied",
+          subjectType: "account",
+          subjectId: auditAccountSubject(body.email),
+          details: { reason: "INVALID_CREDENTIALS" },
+        });
+        throw new HttpError(401, "INVALID_CREDENTIALS", "Email or password is incorrect");
+      }
       const previousToken = cookieValue(request, LOCAL_SESSION_COOKIE);
       if (previousToken) localAuth.revokeSession(previousToken);
       const issued = localAuth.issueSession(identity);
       setLocalSessionCookies(response, request, config, issued.token, issued.session.csrfToken);
+      recordSecurityAudit(identity, {
+        eventType: "auth.login",
+        subjectType: "account",
+        subjectId: identity.email,
+        details: { role: identity.role },
+      });
       response.json(sessionDocument(issued.session, issued.session.csrfToken));
     } finally {
       release();
@@ -2756,7 +2814,13 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   });
 
   app.post(`${prefix}/auth/logout`, (request, response) => {
+    const principal = requestPrincipal(response);
     localAuth.revokeSession(cookieValue(request, LOCAL_SESSION_COOKIE));
+    recordSecurityAudit(principal, {
+      eventType: "auth.logout",
+      subjectType: "account",
+      subjectId: principal.email || principal.userId,
+    });
     clearLocalSessionCookies(response, request, config);
     response.status(204).end();
   });
@@ -2774,6 +2838,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     const grants = body.grants === undefined ? [] : body.grants;
     if (!Array.isArray(grants)) throw new HttpError(400, "INVALID_GRANTS", "grants must be an array");
     const created = localAuth.inviteMember(principal, body.email, role, grants as GuestAccessGrant[]);
+    recordSecurityAudit(principal, {
+      eventType: "membership.invitation.created",
+      subjectType: "workspace-member",
+      subjectId: created.invitation.email,
+      details: { role: created.invitation.role, grantCount: created.invitation.grants.length },
+    });
     const cloudflareAccessStatus = await synchronizeCloudflareAccess();
     response.status(201).json({
       invitation: created.invitation,
@@ -2790,14 +2860,31 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     const body = bodyObject(request.body);
     if (!Array.isArray(body.grants)) throw new HttpError(400, "INVALID_GRANTS", "grants must be an array");
     const member = localAuth.updateMemberAccess(request.params.email, body.grants as GuestAccessGrant[]);
+    recordSecurityAudit(requestPrincipal(response), {
+      eventType: "membership.grants.replaced",
+      subjectType: "workspace-member",
+      subjectId: member.email,
+      details: { grantCount: member.grants.length },
+    });
     response.json({ member });
   });
   app.delete(`${prefix}/tenant/members/:email`, requireWorkspaceAdmin, async (request, response) => {
-    if (!localAuth.removeMember(request.params.email, requestPrincipal(response))) {
+    const principal = requestPrincipal(response);
+    if (!localAuth.removeMember(request.params.email, principal)) {
       throw new HttpError(404, "MEMBER_NOT_FOUND", "Member or invitation not found");
     }
+    recordSecurityAudit(principal, {
+      eventType: "membership.revoked",
+      subjectType: "workspace-member",
+      subjectId: auditAccountSubject(request.params.email),
+    });
     await synchronizeCloudflareAccess();
     response.status(204).end();
+  });
+  app.get(`${prefix}/security/audit-events`, requireWorkspaceAdmin, (request, response) => {
+    const limit = boundedQueryInteger(request.query.limit, "limit", 1, 500) ?? 100;
+    const offset = boundedQueryInteger(request.query.offset, "offset", 0, 1_000_000) ?? 0;
+    response.json({ events: database.listSecurityAuditEvents(limit, offset) });
   });
   app.get(`${prefix}/locations/search`, requireNonGuest, async (request, response) => {
     const query = typeof request.query.q === "string" ? request.query.q.trim() : "";
@@ -4319,6 +4406,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     const body = bodyObject(request.body);
     const botToken = credentialString(body, "botToken", 256, true);
     const chatId = credentialString(body, "chatId", 32, true);
+    const rotatingCredentials = Boolean(config.telegramBotToken && config.telegramChatId);
     const identity = await telegram.verify(botToken, chatId);
     if (generation !== telegramConfigurationGeneration) {
       throw new HttpError(409, "INTEGRATION_CONFIG_SUPERSEDED", "A newer Telegram configuration change superseded this request");
@@ -4340,6 +4428,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     telegramStatus.lastDeliveryAt = null;
     telegramStatus.error = null;
     status.changed();
+    recordSecurityAudit(requestPrincipal(response), {
+      eventType: rotatingCredentials ? "integration.credentials.rotated" : "integration.credentials.configured",
+      subjectType: "integration",
+      subjectId: "telegram",
+      details: { integration: "telegram" },
+    });
     response.json({ ok: true, configured: true, integration: structuredClone(status.value) });
   });
   app.post(`${prefix}/integrations/telegram/test`, async (_request, response) => {
@@ -4387,6 +4481,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     telegramStatus.lastDeliveryAt = null;
     telegramStatus.error = null;
     status.changed();
+    recordSecurityAudit(requestPrincipal(response), {
+      eventType: "integration.credentials.revoked",
+      subjectType: "integration",
+      subjectId: "telegram",
+      details: { integration: "telegram" },
+    });
     response.json({ ok: true, integration: structuredClone(status.value) });
   });
   app.get(`${prefix}/integrations/telegram/setup`, (_request, response) => response.json({
@@ -4436,6 +4536,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     integrationMetadata.saveAppleNotesGrant(grant);
     config.appleNotesGrants = secrets.appleNotesGrants ?? [];
     refreshAppleNotesStatus(config, status);
+    recordSecurityAudit(requestPrincipal(response), {
+      eventType: "integration.grant.issued",
+      subjectType: "integration-grant",
+      subjectId: `apple-notes:${grant.id}`,
+      details: { integration: "apple-notes", houseId: grant.houseId },
+    });
     response.status(201).json({ ...appleNotesGrantSummary(grant), token, integration: structuredClone(status.value) });
   });
   app.delete(`${prefix}/integrations/apple-notes/grants/:id`, (request, response) => {
@@ -4447,6 +4553,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     integrationMetadata.retireAppleNotesGrant(id);
     config.appleNotesGrants = secrets.appleNotesGrants ?? [];
     refreshAppleNotesStatus(config, status);
+    recordSecurityAudit(requestPrincipal(response), {
+      eventType: "integration.grant.revoked",
+      subjectType: "integration-grant",
+      subjectId: `apple-notes:${id}`,
+      details: { integration: "apple-notes" },
+    });
     response.json({ ok: true, integration: structuredClone(status.value) });
   });
   app.get(`${prefix}/integrations/apple-notes/setup`, (_request, response) => response.json({
@@ -4540,6 +4652,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     const existingConnections = config.homeAssistantConnections ?? [];
     const replacingLegacy = existingConnections.length === 0 && !config.homeAssistantLegacyDisabled
       && Boolean(config.haUrl && config.haToken);
+    const rotatingCredentials = replacingLegacy || existingConnections.some((connection) => connection.houseId === houseId);
     const connections = [...existingConnections.filter((connection) => connection.houseId !== houseId), { houseId, url, token }];
     updateIntegrationSecrets(config.integrationSecretsFile, {
       homeAssistant: null,
@@ -4560,6 +4673,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     dataMode.activate();
     if (wasRealMode) status.changed();
     if (options.startBackground) homeAssistant.restart();
+    recordSecurityAudit(requestPrincipal(response), {
+      eventType: rotatingCredentials ? "integration.credentials.rotated" : "integration.credentials.configured",
+      subjectType: "integration",
+      subjectId: `home-assistant:${houseId}`,
+      details: { integration: "home-assistant", houseId },
+    });
     response.json({ ok: true, configured: true, houseId, integration: structuredClone(status.value) });
   });
   app.put(`${prefix}/integrations/tp-link/config`, async (request, response) => {
@@ -4762,6 +4881,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     dataMode.activate();
     if (wasRealMode) status.changed();
     if (options.startBackground) tpLink.restart();
+    recordSecurityAudit(requestPrincipal(response), {
+      eventType: matching ? "integration.credentials.rotated" : "integration.credentials.configured",
+      subjectType: "integration",
+      subjectId: `tp-link:${connection.id}`,
+      details: { integration: "tp-link", connectionId: connection.id, houseId },
+    });
     response.json({ ok: true, configured: true, connectionId: connection.id, houseId, integration: structuredClone(status.value) });
   });
   app.patch(`${prefix}/integrations/tp-link/config/:connectionId`, (request, response) => {
@@ -4906,6 +5031,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       status.value.tpLink.connections = (status.value.tpLink.connections ?? []).filter((candidate) => candidate.id !== connectionId);
       status.changed();
     }
+    recordSecurityAudit(requestPrincipal(response), {
+      eventType: "integration.credentials.revoked",
+      subjectType: "integration",
+      subjectId: `tp-link:${connectionId}`,
+      details: { integration: "tp-link", connectionId, houseId: connection.houseId },
+    });
     response.json({ ok: true, detachedSensorIds, integration: structuredClone(status.value) });
   });
   app.delete(`${prefix}/integrations/home-assistant/config/:houseId`, (request, response) => {
@@ -4935,6 +5066,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       status.value.homeAssistant.configured = (status.value.homeAssistant.connections?.length ?? 0) > 0;
       status.changed();
     }
+    recordSecurityAudit(requestPrincipal(response), {
+      eventType: "integration.credentials.revoked",
+      subjectType: "integration",
+      subjectId: `home-assistant:${houseId}`,
+      details: { integration: "home-assistant", houseId },
+    });
     response.json({ ok: true, integration: structuredClone(status.value) });
   });
   app.post(`${prefix}/integrations/home-assistant/test`, (request, response) => {

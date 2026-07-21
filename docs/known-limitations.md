@@ -376,7 +376,9 @@ system described in the roadmap.
 - The backup CLI creates and verifies consistent SQLite snapshots and an
   opt-in full TimescaleDB dump. Restoration remains an explicit operator
   procedure, and each new recovery point still needs an isolated restore drill.
-  There is not yet a comprehensive operator audit log.
+  The security ledger covers authentication, membership, integration credential,
+  and bridge-grant lifecycles. It is not yet a comprehensive audit of every
+  Property, layout, observation, maintenance, export, or data-lifecycle mutation.
 - Home Assistant and direct TP-Link configuration are Home-scoped. Several
   Homes may use independent credentials and local endpoints in one Stuga
   installation. A Home Assistant connection remains one URL/token per Home;

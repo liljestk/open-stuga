@@ -428,6 +428,21 @@ const localAuthPaths = {
     parameters: [{ name: "email", in: "path", required: true, schema: { type: "string", format: "email" } }],
     delete: { tags: ["Context"], operationId: "removeLocalWorkspaceMember", security: [{ localSession: [], csrfToken: [] }], responses: { "204": { description: "Member or invitation removed" }, "404": { description: "Member not found" } } },
   },
+  "/security/audit-events": {
+    get: {
+      tags: ["Security"], operationId: "listSecurityAuditEvents",
+      description: "Owner/Admin-only append-only evidence for authentication, membership, credential, and grant lifecycle changes. Secret material is never recorded.",
+      security: [{ localSession: [] }],
+      parameters: [
+        { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 100 } },
+        { name: "offset", in: "query", schema: { type: "integer", minimum: 0, maximum: 1_000_000, default: 0 } },
+      ],
+      responses: {
+        "200": spatialJsonResponse("Newest security audit events first.", { $ref: "#/components/schemas/SecurityAuditEventsResponse" }),
+        "403": { description: "Owner or Admin role required" },
+      },
+    },
+  },
 } as const;
 
 const localAuthSchemas = {
@@ -458,6 +473,33 @@ const localAuthSchemas = {
   TenantInvitationCreated: {
     type: "object", additionalProperties: false, required: ["invitation", "registrationToken", "activationPath", "expiresAt"],
     properties: { invitation: { $ref: "#/components/schemas/TenantMemberSummary" }, registrationToken: { type: "string", readOnly: true }, activationPath: { type: "string", description: "Client-side fragment path; the token is never placed in an HTTP query string." }, expiresAt: { type: "string", format: "date-time" } },
+  },
+  SecurityAuditEvent: {
+    type: "object", additionalProperties: false,
+    required: ["id", "eventType", "outcome", "actorUserId", "actorRole", "subjectType", "subjectId", "details", "createdAt"],
+    properties: {
+      id: { type: "string", format: "uuid" },
+      eventType: { enum: [
+        "auth.owner.created", "auth.invitation.accepted", "auth.login", "auth.logout",
+        "membership.invitation.created", "membership.grants.replaced", "membership.revoked",
+        "integration.credentials.configured", "integration.credentials.rotated", "integration.credentials.revoked",
+        "integration.grant.issued", "integration.grant.revoked",
+      ] },
+      outcome: { enum: ["succeeded", "denied"] },
+      actorUserId: { type: ["string", "null"] },
+      actorRole: { enum: ["owner", "admin", "member", "guest", "service", null] },
+      subjectType: { enum: ["account", "workspace-member", "integration", "integration-grant"] },
+      subjectId: { type: "string", minLength: 1, maxLength: 512 },
+      details: {
+        type: "object", maxProperties: 32,
+        additionalProperties: { oneOf: [{ type: "string", maxLength: 512 }, { type: "number" }, { type: "boolean" }, { type: "null" }] },
+      },
+      createdAt: { type: "string", format: "date-time" },
+    },
+  },
+  SecurityAuditEventsResponse: {
+    type: "object", additionalProperties: false, required: ["events"],
+    properties: { events: { type: "array", items: { $ref: "#/components/schemas/SecurityAuditEvent" } } },
   },
   StreamAuthorizationEvent: {
     type: "object", additionalProperties: false, required: ["status"],
@@ -501,7 +543,7 @@ const combinedOpenApiDocument = {
   servers: [{ url: "/api/v1", description: "Legacy climate tuple API" }, { url: "/api/v2", description: "Registry-driven measurements API" }],
   tags: [
     { name: "Telemetry" }, { name: "Digital twin" }, { name: "Alerts" },
-    { name: "Context" }, { name: "Weather" }, { name: "Physics" }, { name: "Integrations" }, { name: "Testing" }, { name: "Measurements" },
+    { name: "Context" }, { name: "Security" }, { name: "Weather" }, { name: "Physics" }, { name: "Integrations" }, { name: "Testing" }, { name: "Measurements" },
     { name: "Spatial layers", description: "Optional local research engines that emit renderer-neutral, versioned 2D/3D semantic layers without mutating core climate state." },
   ],
   security: [{ localSession: [] }],

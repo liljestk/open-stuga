@@ -33,8 +33,10 @@ no secrets enter the browser/database/image.
   reconnect/conformance tests.
 - Built-in API authentication/authorization, resource-scoped Guest grants,
   rate/body/query limits, and an optional lockout-safe Cloudflare Access/Tunnel
-  recipe are in place. Continue structured security audit events, credential
-  rotation drills, and additional TLS/VPN/reverse-proxy recipes.
+  recipe are in place. The append-only structured security ledger and automated
+  credential rotation/revocation drills are also in place; continue additional
+  TLS/VPN/reverse-proxy recipes and expand audit coverage with future privileged
+  capabilities.
 - Webhook signature, destination allowlist, multi-destination fan-out, and a
   maximum-attempt/dead-letter policy on top of the durable retry outbox.
 - Wall-clock sustained-condition timers now fire without waiting for the next

@@ -108,6 +108,31 @@ coordinates change or are cleared, and follow normal sample retention. The
 digest is pseudonymisation, not encryption; protect the SQLite database and its
 backups as location-sensitive data.
 
+## Security audit trail
+
+Owners and Administrators can inspect the newest append-only security events at
+`GET /api/v1/security/audit-events?limit=100&offset=0`. Guests and ordinary
+Members cannot read this Workspace-wide ledger. It records successful owner
+setup, invitation acceptance, login/logout, membership invitation/grant/removal
+changes, integration credential configuration/rotation/revocation, and Apple
+Notes grant issue/revocation. Rejected credential logins are recorded with a
+bounded reason code and no actor identity.
+
+Each event contains a random event ID, event type, outcome, actor user ID and
+role when authenticated, typed target, bounded scalar details, and API-clock
+timestamp. Account and membership targets use their normalized email; integration
+targets use non-secret local IDs. The ledger deliberately excludes passwords,
+session/CSRF/invitation tokens, integration tokens, integration account names,
+URLs, hosts, chat IDs, request headers, and network addresses. It is stored in
+core SQLite and therefore follows that database's backup and retention boundary;
+there is no mutation or deletion API for individual audit rows.
+
+`apps/api/tests/security-audit.test.ts` performs file-backed credential drills:
+it configures, rotates, and revokes Home Assistant and TP-Link credentials,
+issues and revokes an Apple Notes grant, verifies superseded/revoked bytes are
+absent from the protected secrets file, restarts the API, and verifies only
+secret-free lifecycle evidence remains in SQLite.
+
 `.dockerignore` excludes local `.env` files and runtime data from image build
 context. That is defense in depth, not a substitute for checking commits and
 built image layers.
