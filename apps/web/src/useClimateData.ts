@@ -904,6 +904,7 @@ export function useClimateData() {
     houseId: string,
     includeGlobalData = false,
     streamReady: Promise<void> | null = null,
+    includeAdministrativeData = true,
   ) => {
     const bufferedLiveTelemetry = new Map<string, BufferedLiveTelemetry>();
     const bufferedHouseMutations: HouseMutationBuffer = new Map();
@@ -945,10 +946,12 @@ export function useClimateData() {
       const alertsRequest = includeGlobalData
         ? optionalResource("alerts", api.alerts())
         : Promise.resolve(null);
-      const scenariosRequest = includeGlobalData
+      const scenariosRequest = includeGlobalData && includeAdministrativeData
         ? optionalResource("scenarios", api.scenarios())
         : Promise.resolve(null);
-      const integrationRequest = includeGlobalData ? api.integrations() : Promise.resolve(null);
+      const integrationRequest = includeGlobalData && includeAdministrativeData
+        ? api.integrations()
+        : Promise.resolve(null);
       const [snapshot, integration] = await Promise.all([
         api.snapshot(houseId), integrationRequest,
       ]);
@@ -1336,7 +1339,7 @@ export function useClimateData() {
           if (legacyStreamOpened && measurementStreamOpened) releaseStreamGate?.();
         };
         streamGateTimer = window.setTimeout(() => releaseStreamGate?.(), STREAM_BOOTSTRAP_WAIT_MS);
-        const activeHouseLoad = loadHouseData(activeHouse.id, true, streamReady);
+        const activeHouseLoad = loadHouseData(activeHouse.id, true, streamReady, !session.readOnly);
         // A synchronous subscription setup failure must not leave a later load
         // rejection unobserved; the awaited branch still drives normal errors.
         settleInBackground(activeHouseLoad);
@@ -1361,7 +1364,7 @@ export function useClimateData() {
         streamGateTimer = null;
         if (invalidated()) return;
         hasHydratedActiveHouse.current = true;
-        settleInBackground(refreshTpLinkDevices());
+        if (!session.readOnly) settleInBackground(refreshTpLinkDevices());
         setBootstrapStatus("ready");
         const secondaryHouseIds = houses.filter((house) => house.id !== activeHouse.id).map((house) => house.id);
         settleInBackground(loadPortfolioInBackground(

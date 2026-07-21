@@ -621,6 +621,37 @@ describe("useClimateData", () => {
     expect(mocks.maintenanceTasks).toHaveBeenCalledWith({ houseId: visibleHouse.id });
   });
 
+  it("does not treat guest-forbidden administrative bootstrap resources as a service outage", async () => {
+    const demo = createDemoState();
+    const visibleHouse = demo.houses[0]!;
+    const forbidden = Object.assign(
+      new Error("Guest accounts cannot access administrative configuration"),
+      { status: 403 },
+    );
+    mocks.session.mockResolvedValue({
+      authenticated: true,
+      principal: { type: "access", email: "guest@example.test" },
+      tenant: { id: "tenant-1", name: "Pine Estate", role: "guest" },
+      availableTenants: [{ id: "tenant-1", name: "Pine Estate", role: "guest" }],
+      readOnly: true,
+      grants: [{ scopeType: "house", scopeId: visibleHouse.id }],
+    });
+    mocks.houses.mockResolvedValue([visibleHouse]);
+    mocks.integrations.mockRejectedValue(forbidden);
+    mocks.scenarios.mockRejectedValue(forbidden);
+    mocks.tpLinkDevices.mockRejectedValue(forbidden);
+
+    const { result } = renderHook(() => useClimateData());
+    await waitFor(() => expect(result.current.bootstrapStatus).toBe("ready"));
+
+    expect(result.current.bootstrapError).toBeNull();
+    expect(result.current.state.session.readOnly).toBe(true);
+    expect(mocks.snapshot).toHaveBeenCalledWith(visibleHouse.id);
+    expect(mocks.integrations).not.toHaveBeenCalled();
+    expect(mocks.scenarios).not.toHaveBeenCalled();
+    expect(mocks.tpLinkDevices).not.toHaveBeenCalled();
+  });
+
   it("creates and reconciles property maintenance without any house", async () => {
     const demo = createDemoState();
     const propertyId = demo.properties[0]!.id;
