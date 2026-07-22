@@ -69,7 +69,7 @@ function result(): ThermalIsolationResult {
   const sensor = entry("sensor", "sensor:sensor-01", "Window sensor", 61, { parentId: room.scope.id, floorId: "floor-ground", sensorIds: ["sensor-01"] });
   return {
     generatedAt: "2026-07-14T12:00:00.000Z",
-    systemVersion: "0.4.0",
+    systemVersion: "0.4.1",
     houseId: "house-main",
     from: "2026-07-07T12:00:00.000Z",
     to: "2026-07-14T12:00:00.000Z",
