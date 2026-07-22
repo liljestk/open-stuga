@@ -94,7 +94,13 @@ export function SpatialLayerOverlay2D({ floor, snapshots, topology, scale }: Spa
     });
     const zoneMap = new Map(zones.map((zone) => [zone.zone.zoneId, zone]));
     const activity = isActivityLayer(snapshot.layerId);
-    const label = `${spatialLayerLabel(snapshot.layerId, t)}. ${t("spatial.inferenceDisclaimer")}`;
+    const zoneSummary = zones.map(({ zone, label: zoneLabel }) => `${zoneLabel}: ${layerMetricText(snapshot.layerId, zone, locale) ?? t("common.noData")}, ${Math.round(layerConfidence(zone) * 100)}%`).join("; ");
+    const connectionSummary = snapshot.connections.flatMap((connection) => {
+      const from = connection.fromZoneId ? zoneMap.get(connection.fromZoneId)?.label : undefined;
+      const to = connection.toZoneId ? zoneMap.get(connection.toZoneId)?.label : undefined;
+      return from || to ? [`${from ?? connection.fromZoneId ?? "?"} → ${to ?? connection.toZoneId ?? "?"}: ${(connection.state ?? "uncertain").replaceAll("_", " ")}, ${Math.round(layerConfidence(connection) * 100)}%`] : [];
+    }).join("; ");
+    const label = [spatialLayerLabel(snapshot.layerId, t), zoneSummary, connectionSummary, t("spatial.inferenceDisclaimer")].filter(Boolean).join(". ");
     const token = `${markerId}-${snapshotIndex}`;
     return <g key={`${snapshot.layerId}:${snapshot.generatedAt}`} className="spatial-backend-layer" data-layer-id={snapshot.layerId} data-maturity={snapshot.model.maturity} role="img" aria-label={label}>
       <title>{label}</title>

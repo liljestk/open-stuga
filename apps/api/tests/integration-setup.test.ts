@@ -177,6 +177,99 @@ describe("guided integration setup", () => {
 
   });
 
+  it("keeps multiple P110 energy monitors connected and independently mapped in one Home", async () => {
+    directory = mkdtempSync(join(tmpdir(), "climate-twin-multiple-p110-"));
+    const secretsPath = join(directory, "integrations.json");
+    const helperPath = join(directory, "fake-p110-sources.mjs");
+    const sources = {
+      "192.168.1.61": { deviceId: "p110-laundry", alias: "Laundry plug", power: 410 },
+      "192.168.1.62": { deviceId: "p110-kitchen", alias: "Kitchen plug", power: 825 },
+    } as const;
+    writeFileSync(helperPath, `
+      const sources = ${JSON.stringify(sources)};
+      const source = sources[process.env.TP_LINK_HOST];
+      if (!source) throw new Error("Unexpected TP-Link host");
+      process.stdout.write(JSON.stringify({
+        type: "snapshot",
+        timestamp: new Date().toISOString(),
+        sourceType: "energy-device",
+        sourceDeviceId: source.deviceId,
+        hubModel: "P110",
+        devices: [{
+          deviceId: source.deviceId,
+          model: "P110",
+          alias: source.alias,
+          status: "online",
+          power: source.power,
+          energy: null
+        }]
+      }) + "\\n");
+      setInterval(() => {}, 1000);
+    `);
+    const config = loadConfig({
+      NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
+      INTEGRATION_SECRETS_FILE: secretsPath,
+    });
+    config.tpLinkPython = process.execPath;
+    config.tpLinkBridgeScript = helperPath;
+    runtime = createApi({
+      config,
+      startBackground: false,
+      tpLinkCredentialTester: async (host) => {
+        const source = sources[host as keyof typeof sources];
+        return source
+          ? {
+              ok: true,
+              connected: true,
+              message: "validated",
+              details: { sourceDeviceId: source.deviceId, deviceIds: [source.deviceId] },
+            }
+          : { ok: false, connected: false, message: "unknown source" };
+      },
+    });
+
+    const connectionIds: string[] = [];
+    for (const host of Object.keys(sources)) {
+      const configured = await request(runtime.app).put("/api/v1/integrations/tp-link/config").send({
+        houseId: "house-main",
+        host,
+        username: "owner@example.test",
+        password: "secret",
+      }).expect(200);
+      connectionIds.push(configured.body.connectionId as string);
+    }
+
+    expect(new Set(connectionIds).size).toBe(2);
+    expect(readIntegrationSecrets(secretsPath).tpLinkConnections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: connectionIds[0], houseId: "house-main", deviceId: "p110-laundry" }),
+      expect.objectContaining({ id: connectionIds[1], houseId: "house-main", deviceId: "p110-kitchen" }),
+    ]));
+    runtime.database.updateSensor("sensor-01", {
+      tpLinkDeviceId: "p110-laundry",
+      tpLinkConnectionId: connectionIds[0],
+    });
+    runtime.database.updateSensor("sensor-02", {
+      tpLinkDeviceId: "p110-kitchen",
+      tpLinkConnectionId: connectionIds[1],
+    });
+
+    runtime.tpLink.start();
+    await waitFor(() => runtime?.database.getLatestMeasurementSample("sensor-01", "power")?.value === 410);
+    await waitFor(() => runtime?.database.getLatestMeasurementSample("sensor-02", "power")?.value === 825);
+
+    await request(runtime.app).get("/api/v1/integrations/status?houseId=house-main").expect(200).expect(({ body }) => {
+      expect(body.tpLink.connections).toHaveLength(2);
+      expect(body.tpLink.connections.every((connection: { connected: boolean }) => connection.connected)).toBe(true);
+    });
+    await request(runtime.app).get("/api/v1/integrations/tp-link/devices?houseId=house-main").expect(200).expect(({ body }) => {
+      expect(body.devices).toEqual(expect.arrayContaining([
+        expect.objectContaining({ connectionId: connectionIds[0], deviceId: "p110-laundry", mappedSensorId: "sensor-01", power: 410 }),
+        expect.objectContaining({ connectionId: connectionIds[1], deviceId: "p110-kitchen", mappedSensorId: "sensor-02", power: 825 }),
+      ]));
+    });
+  });
+
   it("materializes an environment-backed TP-Link source before adding different hardware", async () => {
     directory = mkdtempSync(join(tmpdir(), "climate-twin-tp-link-legacy-addition-"));
     const secretsPath = join(directory, "integrations.json");

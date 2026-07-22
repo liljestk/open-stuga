@@ -249,7 +249,7 @@ export function RoomComparisonChart(props: Readonly<RoomComparisonChartProps>) {
       : formatInTimeZone(focusedTimestamp, locale, props.timeZone, { dateStyle: "medium", timeStyle: "short" });
     chartContent = (
       <>
-      <div className="comparison-chart-wrap">
+      <div className="comparison-chart-wrap" role="region" aria-label={chartLabel} tabIndex={0}>
         <p id={comparisonSummaryId} className="sr-only">{chartSummary}</p>
         <svg className="comparison-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={chartLabel} aria-describedby={comparisonSummaryId}>
           <g className="chart-grid" aria-hidden="true">{yTicks.map((tick) => <line key={tick} x1={margin.left} x2={width - margin.right} y1={y(tick)} y2={y(tick)} />)}</g>
@@ -280,7 +280,7 @@ export function RoomComparisonChart(props: Readonly<RoomComparisonChartProps>) {
       </div>
       <details className="chart-data-disclosure comparison-data-disclosure" open={dataOpen}>
         <summary onClick={(event) => { event.preventDefault(); setDataOpen((value) => !value); }}>{t("common.showDataTable")}</summary>
-        {dataOpen && <div className="chart-data-table-wrap">
+        {dataOpen && <div className="chart-data-table-wrap" role="region" aria-label={chartLabel} tabIndex={0}>
           <table>
             <caption className="sr-only">{chartLabel}</caption>
             <thead><tr><th scope="col">{t("historyImport.dateTime")}</th><th scope="col">{t("historyImport.value")}</th><th scope="col">{t("observations.kind")}</th></tr></thead>

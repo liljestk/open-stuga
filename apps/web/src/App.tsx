@@ -116,6 +116,7 @@ export function App() {
   const initialSelectedHouse = initialHouse
     ?? (!initialRoute.houseId ? state.houses.find((candidate) => candidate.propertyId === initialPropertyId) : undefined);
   const [page, setPage] = useState<AppPage>(initialRoute.page);
+  const routeLoading = <output className="page-loading"><LoaderCircle className="spin" size={20} aria-hidden="true" />{t("common.loading")}: {t(pageTitleKeys[page])}</output>;
   const [routeNotFound, setRouteNotFound] = useState(Boolean(initialRoute.notFound));
   const [, setRouteRevision] = useState(0);
   const [propertyId, setPropertyId] = useState(initialPropertyId);
@@ -597,7 +598,7 @@ export function App() {
             <button type="button" className="primary-button" onClick={reload}><RotateCcw size={16} aria-hidden="true" />{t("route.reload")}</button>
           </section>
         )}
-      ><Suspense fallback={<output className="page-loading"><LoaderCircle className="spin" size={20} aria-hidden="true" />{t("common.loading")}</output>}><>
+      ><Suspense fallback={routeLoading}><>
         {page === "overview" && <PortfolioOverview
           properties={state.properties}
           propertyAreas={state.propertyAreas}
@@ -671,7 +672,7 @@ export function App() {
       principalEmail={state.session?.principal.email ?? null}
       onLogout={logout}
       onRetryConnection={climate.retryBootstrap}
-    ><Suspense fallback={<output className="page-loading"><LoaderCircle className="spin" size={20} aria-hidden="true" />{t("common.loading")}</output>}><MaintenancePage
+    ><Suspense fallback={routeLoading}><MaintenancePage
       state={state}
       propertyId={property.id}
       {...(locationRoute.houseId && selectedPropertyHouse ? { house: selectedPropertyHouse } : {})}
@@ -722,7 +723,7 @@ export function App() {
       <ShieldCheck size={24} aria-hidden="true" />
       <div><span className="eyebrow">{t("properties.guestReadOnly")}</span><h1 id="property-electricity-access-title">{t("properties.adminOnlyTitle")}</h1><p>{t("properties.adminOnlyBody")}</p></div>
       <button type="button" className="primary-button" onClick={() => navigate("properties", null, true, window.location.pathname, property.id)}>{t("bootstrap.propertyForHome")}</button>
-    </section> : <Suspense fallback={<output className="page-loading"><LoaderCircle className="spin" size={20} aria-hidden="true" />{t("common.loading")}</output>}><EnergyPage
+    </section> : <Suspense fallback={routeLoading}><EnergyPage
       state={state}
       house={contextualHouse}
       propertyId={property.id}
@@ -760,7 +761,7 @@ export function App() {
       principalEmail={state.session?.principal.email ?? null}
       onLogout={logout}
       onRetryConnection={climate.retryBootstrap}
-    ><Suspense fallback={<output className="page-loading"><LoaderCircle className="spin" size={20} aria-hidden="true" />{t("common.loading")}</output>}><PropertyManagementPage
+    ><Suspense fallback={routeLoading}><PropertyManagementPage
       state={state}
       initialTab="overview"
       indexMode={propertyIndex}
@@ -896,7 +897,7 @@ export function App() {
             <button type="button" className="primary-button" onClick={reload}><RotateCcw size={16} aria-hidden="true" />{t("route.reload")}</button>
           </section>
         )}
-      ><Suspense fallback={<output className="page-loading"><LoaderCircle className="spin" size={20} aria-hidden="true" />{t("common.loading")}</output>}><>
+      ><Suspense fallback={routeLoading}><>
       {page === "twin" && (
         <TwinDashboard
           state={{ ...state, houses: propertyHouses }} house={house} floor={floor} houseId={house.id} floorId={floor.id} metric={metric} units={units} viewMode={viewMode}
@@ -912,10 +913,12 @@ export function App() {
           onLoadObservationRevisions={climate.observationRevisions}
           onCreateStaticParameter={climate.createStaticParameter}
           onOpenSensors={(id) => { applyHouse(id); navigate("sensors", id); }}
+          onOpenConnections={(id) => { applyHouse(id); navigate("integrations", id, false, "/setup/connections"); }}
           onOpenActivity={() => navigate("activity", house.id)}
           onOpenMaintenance={() => navigate("maintenance", house.id)}
           onOpenEnergy={() => navigate("energy", house.id)}
           onOpenOutdoor={() => navigate("outdoor", house.id)}
+          onOpenAnalytics={() => navigate("analytics", house.id)}
           readOnly={readOnly}
         />
       )}

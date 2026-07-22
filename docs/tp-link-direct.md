@@ -69,6 +69,13 @@ an H100/H200 plus one or more directly polled energy sockets, and each connectio
 runs independently with its own LAN host and status. `TP_LINK_HOST` remains a
 single advanced environment override for legacy deployments.
 
+To add several P110-style energy monitors to one Home, keep that Home selected
+and repeat **Find devices**, choose the next socket, then **Save and connect** for
+each device. Saving a newly identified socket appends a connection; it does not
+replace the connections that are already polling. Add each discovered energy
+endpoint as its own sensor afterward so Stuga stores both its connection ID and
+device ID and keeps readings from the sockets independent.
+
 An H200 may initially connect without returning its child list. After saving,
 the setup page checks the integration status and child-device endpoint for up
 to 30 seconds. Keep the page open while it reports that discovery is settling.

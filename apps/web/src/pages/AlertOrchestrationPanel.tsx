@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { CheckCircle2, ChevronDown, CirclePlay, Clock3, LoaderCircle, RefreshCw, RotateCcw, Send, ShieldAlert } from "lucide-react";
 import type { ActionPlaybook, ActionRun, AlertEvent, NotificationDeliveryStatus } from "@climate-twin/contracts";
 import { api } from "../api";
@@ -94,11 +94,26 @@ export function AlertOrchestrationPanel() {
 
 export function ActionPlaybookLauncher({ alert }: Readonly<{ alert: AlertEvent }>) {
   const { locale, t } = useI18n();
+  const menuId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [playbooks, setPlaybooks] = useState<ActionPlaybook[]>([]);
   const [run, setRun] = useState<ActionRun | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    window.requestAnimationFrame(() => menuRef.current?.focus());
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [open]);
   const toggle = () => {
     setOpen((current) => !current);
     if (!open && !playbooks.length) {
@@ -133,8 +148,8 @@ export function ActionPlaybookLauncher({ alert }: Readonly<{ alert: AlertEvent }
     }
   };
   return <div className="action-playbook-launcher">
-    <button type="button" className="secondary-button" aria-expanded={open} onClick={toggle}><CirclePlay size={15} aria-hidden="true" /> {t("alerts.orchestration.actionPlan")}</button>
-    {open && <div className="action-playbook-menu">
+    <button ref={triggerRef} type="button" className="secondary-button" aria-expanded={open} aria-controls={menuId} onClick={toggle}><CirclePlay size={15} aria-hidden="true" /> {t("alerts.orchestration.actionPlan")}</button>
+    {open && <div ref={menuRef} id={menuId} className="action-playbook-menu" role="region" aria-label={t("alerts.orchestration.actionPlan")} tabIndex={-1}>
       {busy && !run && <p><LoaderCircle className="spin" size={15} aria-hidden="true" /> {t("alerts.orchestration.loadingActions")}</p>}
       {run ? <>
         <strong>{playbooks.find((item) => item.id === run.playbookId)?.name ?? t("alerts.orchestration.actionInProgress")}</strong>

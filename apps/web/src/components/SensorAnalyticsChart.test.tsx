@@ -74,6 +74,14 @@ describe("SensorAnalyticsChart", () => {
     expect(onLoadSeries).toHaveBeenCalledTimes(sensors.length);
     expect(screen.getByRole("option", { name: "Power" })).not.toBeNull();
     expect(screen.getByRole("button", { name: "1 year" })).not.toBeNull();
+    const observedLines = Array.from(container.querySelectorAll<SVGPathElement>(".sensor-series-line"));
+    expect(observedLines.some((line) => Boolean(line.getAttribute("stroke-dasharray")))).toBe(true);
+
+    await user.click(screen.getByText(/Show accessible data table/));
+    expect(screen.getByRole("region", { name: "Analytics source data" })).not.toBeNull();
+    expect(screen.getByRole("link", { name: "Download exact data as CSV" }).getAttribute("download")).toBe("stuga-temperature-24h.csv");
+    expect(screen.getByRole("columnheader", { name: "Coverage" })).not.toBeNull();
+    expect(screen.getByRole("columnheader", { name: "Gap before reading" })).not.toBeNull();
 
     await user.click(screen.getByLabelText("Choose data series"));
     await user.click(screen.getByRole("checkbox", { name: sensors[0]!.name }));

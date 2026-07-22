@@ -101,7 +101,24 @@ describe("application routes", () => {
   it("keeps the active Setup section while changing scope", () => {
     expect(locationForRoute("integrations", scope, "/setup/homes")).toBe("/properties/property-main/homes/home-1/setup");
     expect(locationForRoute("integrations", scope, "/properties/old/homes/old/setup/weather/")).toBe("/properties/property-main/homes/home-1/setup/weather");
+    expect(locationForRoute("integrations", scope, "/properties/old/homes/old/setup/operations")).toBe("/properties/property-main/homes/home-1/setup/operations");
     expect(locationForRoute("integrations", scope, "/overview")).toBe("/properties/property-main/homes/home-1/setup");
+  });
+
+  it("restores every bookmarkable Setup section, including Operations", () => {
+    for (const section of ["overview", "layout", "connections", "weather", "operations", "automations"]) {
+      expect(routeFromUrl(`/properties/property-main/homes/home-1/setup/${section}`)).toEqual({
+        page: "integrations",
+        propertyId: "property-main",
+        houseId: "home-1",
+      });
+    }
+    expect(routeFromUrl("/setup/operations?site=home-1")).toEqual({
+      page: "integrations",
+      propertyId: null,
+      houseId: "home-1",
+      legacy: true,
+    });
   });
 
   it.each([

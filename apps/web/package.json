@@ -1,6 +1,6 @@
 {
   "name": "@climate-twin/web",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,8 +13,8 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@climate-twin/contracts": "0.3.0",
-    "@climate-twin/spatial-layers": "0.3.0",
+    "@climate-twin/contracts": "0.4.0",
+    "@climate-twin/spatial-layers": "0.4.0",
     "@fontsource/dm-sans": "^5.2.8",
     "@fontsource/manrope": "^5.2.8",
     "@vitejs/plugin-react": "^4.4.1",

@@ -9,7 +9,7 @@
   --panel-soft: #f5f3ed;
   --ink: #1b1d1a;
   --muted: #60635d;
-  --muted-2: #70736c;
+  --muted-2: #666a62;
   --line: #dedbd2;
   --line-strong: #919088;
   --brand-red: #b54122;
@@ -987,6 +987,7 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); opacity: 1; }
 .history-events-heading h2 { margin-top: 4px; }
 .history-events-heading .panel-intro { max-width: 78ch; }
 .history-events-heading .count-badge { flex: 0 0 auto; }
+.history-events-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 9px; }
 .history-events-workspace > .replay-bar { margin: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; box-shadow: none; }
 .replay-bar { min-width: 0; margin: 14px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); }
 .replay-bar.active { border-color: color-mix(in srgb, var(--action) 60%, var(--line)); background: var(--panel); box-shadow: inset 3px 0 0 var(--action), var(--shadow); }

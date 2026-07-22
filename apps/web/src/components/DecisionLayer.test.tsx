@@ -401,7 +401,7 @@ describe("decision layer", () => {
   it("opens the representative sensor from a room card", () => {
     const onOpenRoom = vi.fn();
     render(<I18nProvider><RoomComfortBoard sensors={[sensor]} latestMeasurements={{ [sensor.id]: { temperature: sample("temperature", 22), humidity: sample("humidity", 45), co2: sample("co2", 700) } }} measurementHistory={{}} definitions={BUILTIN_MEASUREMENTS} alerts={[]} units="metric" now={now} onOpenRoom={onOpenRoom} /></I18nProvider>);
-    fireEvent.click(screen.getByRole("button", { name: "Open Office. Status: Comfortable" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Open Office\. Status: Comfortable\./ }));
     expect(onOpenRoom).toHaveBeenCalledWith("floor", "sensor-room");
   });
 
@@ -419,7 +419,7 @@ describe("decision layer", () => {
 
     render(<I18nProvider><RoomComfortBoard sensors={sensors} latestMeasurements={latestMeasurements} measurementHistory={{}} definitions={BUILTIN_MEASUREMENTS} alerts={[]} units="metric" now={now} onOpenRoom={vi.fn()} /></I18nProvider>);
 
-    for (const item of sensors) expect(screen.getByRole("button", { name: `Open ${item.room}. Status: Needs attention` })).not.toBeNull();
+    for (const item of sensors) expect(screen.getByRole("button", { name: new RegExp(`^Open ${item.room}\\. Status: Needs attention\\.`) })).not.toBeNull();
     expect(screen.queryByText(/Show .* more rooms/)).toBeNull();
   });
 

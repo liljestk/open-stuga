@@ -79,30 +79,29 @@ jobs:
         shell: bash
         run: node -e "process.stdout.write('version=' + require('./package.json').version + '\n')" >> "$GITHUB_OUTPUT"
 
-      - name: Require SonarQube credentials
-        if: >-
-          github.event_name == 'push' ||
-          (
-            github.event_name == 'pull_request' &&
-            github.event.pull_request.head.repo.full_name == github.repository &&
-            github.actor != 'dependabot[bot]'
-          )
+      - name: Detect optional SonarQube credentials
+        id: sonar
         shell: bash
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          if [[ -z "$SONAR_TOKEN" ]]; then
-            echo "::error::SONAR_TOKEN is not configured for this repository."
-            exit 1
+          if [[ -n "$SONAR_TOKEN" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SONAR_TOKEN is not configured; skipping optional SonarQube analysis."
           fi
 
       - name: SonarQube Cloud analysis and quality gate
         if: >-
-          github.event_name == 'push' ||
+          steps.sonar.outputs.enabled == 'true' &&
           (
-            github.event_name == 'pull_request' &&
-            github.event.pull_request.head.repo.full_name == github.repository &&
-            github.actor != 'dependabot[bot]'
+            github.event_name == 'push' ||
+            (
+              github.event_name == 'pull_request' &&
+              github.event.pull_request.head.repo.full_name == github.repository &&
+              github.actor != 'dependabot[bot]'
+            )
           )
         uses: SonarSource/sonarqube-scan-action@713881670b6b3676cda39549040e2d88c70d582e # v8.2.0
         env:

@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { Braces, Check, ChevronDown, Clipboard, ExternalLink, Radio, ServerCog, TerminalSquare, TriangleAlert } from "lucide-react";
 import { API_BASE, API_V2_BASE } from "../api";
 import { useI18n } from "../i18n";
+import { SystemOperationsPanel } from "./SetupOperationsPanel";
 
 export function DeveloperPage() {
   const { t } = useI18n();
   const [copyResult, setCopyResult] = useState<{ id: string; status: "copied" | "failed" } | null>(null);
+  const [operationsOpen, setOperationsOpen] = useState(false);
   const clearCopyResultTimer = useRef<number | null>(null);
   const origin = typeof window === "undefined" ? "http://localhost:8787" : window.location.origin;
   const absoluteBase = API_BASE.startsWith("http") ? API_BASE : `${origin}${API_BASE}`;
@@ -80,6 +82,10 @@ export function DeveloperPage() {
           <tr><td><code>GET v2</code></td><td><code>/measurements/forecast?sensorId=…&amp;metric=…&amp;hours=…</code></td><td>{t("developer.routeMeasurementForecast")}</td></tr>
           <tr><td><code>GET v2</code></td><td><code>/measurements/events</code></td><td>{t("developer.routeMeasurementEvents")}</td></tr>
         </tbody></table></div>
+      </details>
+      <details className="panel route-table developer-route-disclosure" open={operationsOpen} onToggle={(event) => setOperationsOpen(event.currentTarget.open)}>
+        <summary><span><span className="eyebrow">{t("nav.advanced")}</span><strong>{t("setup.operations.dataTitle")}</strong><small>{t("setup.operations.doctorTitle")}</small></span><ChevronDown size={18} aria-hidden="true" /></summary>
+        {operationsOpen && <SystemOperationsPanel />}
       </details>
     </>
   );

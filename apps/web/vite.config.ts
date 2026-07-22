@@ -8,7 +8,13 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://127.0.0.1:8787",
+      // Preserve the browser-facing Host header. The API's same-origin CSRF
+      // check compares it with Origin; rewriting Host to the upstream address
+      // makes the documented local `npm run dev` flow reject every mutation.
+      "/api": {
+        target: "http://127.0.0.1:8787",
+        changeOrigin: false,
+      },
     },
   },
   build: {

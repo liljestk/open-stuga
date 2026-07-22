@@ -1,16 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Activity, AlertTriangle, BatteryMedium, Bolt, Box, Check, ChevronDown, Droplets, Edit3, Gauge, History, Home, Map, MapPinPlus, Maximize2, Minimize2, Save, Sparkles, Thermometer, Wind } from "lucide-react";
 import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectionState, type Floor, type House, type ManualObservation, type ManualObservationInput, type ManualObservationPatch, type MeasurementDefinition, type MeasurementSample, type Metric, type MockScenario, type ObservationConfidence, type ObservationRevision, type ObservationSource, type ObservationTimePrecision, type OpeningStateObservation, type Point, type Reading, type Sensor, type StaticParameter, type UnitSystem } from "@climate-twin/contracts";
-import { BuildingScene } from "../components/BuildingScene";
-import { FloorPlan } from "../components/FloorPlan";
 import { ReplayControls } from "../components/ReplayControls";
-import { ThermalSimulationPanel } from "../components/ThermalSimulationPanel";
 import { RoomComfortBoard } from "../components/RoomComfortBoard";
 import { MoistureCoach } from "../components/MoistureCoach";
-import { RoomComparisonChart } from "../components/RoomComparisonChart";
-import { HomeActivityTimeline } from "../components/HomeActivityTimeline";
 import { HomePulsePanel } from "../components/HomePulsePanel";
-import { ObservationComposer } from "../components/ObservationComposer";
 import { HomeOperationsPreview } from "../components/HomeOperationsPreview";
 import "../components/decisionLayer.css";
 import "./OperationsPages.css";
@@ -23,7 +17,7 @@ import { configuredSpatialMaxSampleAgeMs, configuredSpatialReplayMaxSampleAgeMs,
 import { createOutdoorBoundaryContext } from "../outdoorContext";
 import { useHouseWeather } from "../useHouseWeather";
 import type { OutdoorVisualizationState } from "../components/OutdoorConditionsBadge";
-import { StructureEditor, type CreateHouseInput } from "../components/StructureEditor";
+import type { CreateHouseInput } from "../components/StructureEditor";
 import {
   simulateBuildingAirflow,
   simulateFloorAirflow,
@@ -35,7 +29,6 @@ import type { DataMode } from "../useClimateData";
 import { api, type MeasurementHistoryPage, type SensorPatch } from "../api";
 import { useSpatialLayers } from "../useSpatialLayers";
 import { SpatialLayerPanel } from "../components/SpatialLayerPanel";
-import { SpatialLayerLab } from "../components/SpatialLayerLab";
 import {
   assessSensorCoverage,
   experimentalLayerSuggestions,
@@ -44,6 +37,15 @@ import {
 import { readLocalStorage, writeLocalStorage } from "../browserStorage";
 import { detectReplayClimateEvents, type ReplayClimateEvent } from "../replayEvents";
 import { openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../openingState";
+import { integrationForHouse } from "../integrationScope";
+
+const BuildingScene = lazy(() => import("../components/BuildingScene").then((module) => ({ default: module.BuildingScene })));
+const FloorPlan = lazy(() => import("../components/FloorPlan").then((module) => ({ default: module.FloorPlan })));
+const StructureEditor = lazy(() => import("../components/StructureEditor").then((module) => ({ default: module.StructureEditor })));
+const ThermalSimulationPanel = lazy(() => import("../components/ThermalSimulationPanel").then((module) => ({ default: module.ThermalSimulationPanel })));
+const SpatialLayerLab = lazy(() => import("../components/SpatialLayerLab").then((module) => ({ default: module.SpatialLayerLab })));
+const RoomComparisonChart = lazy(() => import("../components/RoomComparisonChart").then((module) => ({ default: module.RoomComparisonChart })));
+const HomeActivityTimeline = lazy(() => import("../components/HomeActivityTimeline").then((module) => ({ default: module.HomeActivityTimeline })));
 
 interface TwinDashboardProps {
   state: ClimateState;
@@ -73,6 +75,7 @@ interface TwinDashboardProps {
   onHouseCreate?: (input: CreateHouseInput) => Promise<House>;
   onHouseDelete?: (houseId: string) => Promise<void>;
   onOpenSensors?: (houseId: string) => void;
+  onOpenConnections?: (houseId: string) => void;
   onLoadSeries: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported: boolean) => void;
   onLoadReplaySeries?: (
     sensorId: string,
@@ -89,6 +92,7 @@ interface TwinDashboardProps {
   onOpenMaintenance?: () => void;
   onOpenEnergy?: () => void;
   onOpenOutdoor?: () => void;
+  onOpenAnalytics?: () => void;
 }
 
 const observationKinds: ManualObservation["kind"][] = ["leak", "condensation", "mould", "ventilation", "maintenance", "note"];
@@ -212,8 +216,15 @@ export function observationTimeFields(
 export function TwinDashboard(props: TwinDashboardProps) {
   const { state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection = "live", dataMode = "unknown" } = props;
   const { locale, t } = useI18n();
+  const scopedIntegration = useMemo(() => integrationForHouse(state.integration, houseId, Boolean(house.location)), [house.location, houseId, state.integration]);
+  const sensorSourceHealthy = scopedIntegration.homeAssistant.connected || scopedIntegration.tpLink.connected;
   const [editing, setEditing] = useState(false);
   const [fullPage, setFullPage] = useState(false);
+  const [liveMapOpen, setLiveMapOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const fullPagePanelRef = useRef<HTMLElement>(null);
+  const fullPageTriggerRef = useRef<HTMLButtonElement>(null);
   const readOnly = props.readOnly ?? false;
   const [range, setRange] = useState<TimeRange>("24h");
   const [replayActive, setReplayActive] = useState(false);
@@ -274,14 +285,56 @@ export function TwinDashboard(props: TwinDashboardProps) {
   useEffect(() => {
     if (!fullPage) return;
     const previousOverflow = document.body.style.overflow;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setFullPage(false);
+    const panel = fullPagePanelRef.current;
+    if (!panel) return;
+    const isolated: Array<{ element: HTMLElement; alreadyInert: boolean }> = [];
+    const isolate = (element: Element | null) => {
+      if (!(element instanceof HTMLElement) || element === panel || isolated.some((item) => item.element === element)) return;
+      const alreadyInert = element.hasAttribute("inert");
+      isolated.push({ element, alreadyInert });
+      element.setAttribute("inert", "");
+    };
+    isolate(document.getElementById("primary-sidebar"));
+    document.querySelectorAll(".app-main-column > :not(#main-content)").forEach(isolate);
+    const main = panel.closest("main");
+    if (main) {
+      let branch: Element = panel;
+      while (branch.parentElement && branch.parentElement !== main) {
+        [...branch.parentElement.children].filter((candidate) => candidate !== branch).forEach(isolate);
+        branch = branch.parentElement;
+      }
+      [...main.children].filter((candidate) => candidate !== branch).forEach(isolate);
+    }
+    const handleDialogKeys = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setFullPage(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = [...panel.querySelectorAll<HTMLElement>("button:not([disabled]), select:not([disabled]), input:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])")]
+        .filter((element) => element.getClientRects().length > 0);
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("keydown", handleDialogKeys);
+    window.requestAnimationFrame(() => {
+      if (!panel.contains(document.activeElement)) panel.querySelector<HTMLElement>("button:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])")?.focus();
+    });
     return () => {
       document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("keydown", handleDialogKeys);
+      isolated.forEach(({ element, alreadyInert }) => { if (!alreadyInert) element.removeAttribute("inert"); });
+      window.requestAnimationFrame(() => fullPageTriggerRef.current?.focus());
     };
   }, [fullPage]);
 
@@ -898,6 +951,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
       ...time,
     });
     props.onViewMode("plan");
+    setLiveMapOpen(true);
     setObservationPlacement(true);
     setObservationStatus(false);
     setObservationError(false);
@@ -984,15 +1038,19 @@ export function TwinDashboard(props: TwinDashboardProps) {
     props.onFloor(targetFloorId);
     props.onSensorSelect(sensorId);
     props.onViewMode("plan");
+    setLiveMapOpen(true);
   };
+  const liveMapVisible = liveMapOpen || editing || replayActive || fullPage;
 
   return (
     <>
       <header className="page-heading twin-heading">
         <div className="twin-heading-copy"><span className={`eyebrow twin-status ${dataMode === "demo" ? "demo" : connection}`}>{dataMode === "demo" ? t("demo.bannerTitle") : t(`status.${connection}`)}</span><h1>{t("twin.title")}</h1><p>{t("twin.description")}</p></div>
         <div className="context-controls">
+          {props.onOpenActivity && <button type="button" className="secondary-button" onClick={props.onOpenActivity}><Activity size={15} aria-hidden="true" />{t("nav.activity")}</button>}
           {props.onOpenOutdoor && <button type="button" className="secondary-button" onClick={props.onOpenOutdoor}><Wind size={15} aria-hidden="true" />{t("nav.outdoor")}</button>}
           {props.onOpenEnergy && <button type="button" className="secondary-button" onClick={props.onOpenEnergy}><Bolt size={15} aria-hidden="true" />{t("nav.energyUse")}</button>}
+          {props.onOpenAnalytics && <button type="button" className="secondary-button" onClick={props.onOpenAnalytics}><Gauge size={15} aria-hidden="true" />{t("nav.analytics")}</button>}
         </div>
       </header>
 
@@ -1009,7 +1067,10 @@ export function TwinDashboard(props: TwinDashboardProps) {
             weather={houseWeather.weather}
             referenceTime={liveSpatialClockMs}
             onOpenTarget={openDecisionSensor}
-            {...(!readOnly && props.onOpenSensors ? { onOpenSetup: () => props.onOpenSensors?.(houseId) } : {})}
+            {...(!readOnly && (sensorSourceHealthy ? props.onOpenSensors : props.onOpenConnections) ? {
+              onOpenSetup: sensorSourceHealthy ? () => props.onOpenSensors?.(houseId) : () => props.onOpenConnections?.(houseId),
+              setupDestination: sensorSourceHealthy ? "sensors" as const : "connections" as const,
+            } : {})}
           />
           {hasUsableReadings && <MoistureCoach
             sensors={houseSensors}
@@ -1038,10 +1099,12 @@ export function TwinDashboard(props: TwinDashboardProps) {
         </section>}
       </>}
 
+      {!liveMapVisible && <section className="panel home-live-launcher" aria-labelledby="home-live-launcher-title"><div><span className="eyebrow">{t("home.liveEyebrow")}</span><h2 id="home-live-launcher-title">{t("home.liveTitle")}</h2><p>{t("home.liveDescription")}</p></div><button type="button" className="secondary-button" aria-expanded="false" onClick={() => setLiveMapOpen(true)}><Map size={15} aria-hidden="true" />{t("home.openLiveView")}</button></section>}
+      {liveMapVisible && <>
       {!editing && <div className="decision-section-heading home-live-heading"><div><span className="eyebrow">{replayActive ? t("replay.title") : t("home.liveEyebrow")}</span><h2>{replayActive
         ? t("replay.active", { time: formatInTimeZone(replayTimestamp, locale, house.timezone, { dateStyle: "medium", timeStyle: "short" }) })
         : t("home.liveTitle")}</h2></div><p>{replayActive ? t("replay.description") : t("home.liveDescription")}</p></div>}
-      <section className={`panel twin-panel ${fullPage ? "is-full-page" : ""}`}>
+      <section ref={fullPagePanelRef} className={`panel twin-panel ${fullPage ? "is-full-page" : ""}`} role={fullPage ? "dialog" : undefined} aria-modal={fullPage ? true : undefined} aria-label={fullPage ? t("home.liveTitle") : undefined}>
         <div className="twin-toolbar">
           <div className="toolbar-title">
             {editing
@@ -1054,7 +1117,8 @@ export function TwinDashboard(props: TwinDashboardProps) {
             {!editing && <label className="metric-picker"><span>{t("common.metric")}</span><select value={definition.id} onChange={(event) => props.onMetric(event.target.value)}>{metricOptions.map((item) => <option key={item.id} value={item.id}>{measurementLabel(item, locale)} · {displayUnit(item, units)}</option>)}</select></label>}
             <div className="segmented" role="group" aria-label={t("common.view")}><button type="button" aria-pressed={viewMode === "plan"} onClick={() => props.onViewMode("plan")}><Map size={15} aria-hidden="true" />{t("twin.mode2d")}</button><button type="button" aria-pressed={viewMode === "isometric"} onClick={() => { cancelObservationPlacement(); props.onViewMode("isometric"); }}><Box size={15} aria-hidden="true" />{t("twin.modeIso")}</button></div>
             {!editing && energyDeviceCount > 0 && <div className="segmented compact map-device-layers" role="group" aria-label={t("twin.mapLayers")}><button type="button" aria-pressed={energyDevicesVisible} onClick={() => setEnergyDevicesVisible((current) => !current)}><Bolt size={15} aria-hidden="true" />{t("twin.energyDeviceLayer")}</button></div>}
-            {!editing && <button type="button" className="secondary-button twin-full-page-button" aria-pressed={fullPage} onClick={() => setFullPage((current) => !current)}>{fullPage ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}{fullPage ? t("twin.exitFullPage") : t("twin.fullPage")}</button>}
+            {!editing && <button ref={fullPageTriggerRef} type="button" className="secondary-button twin-full-page-button" aria-pressed={fullPage} onClick={() => setFullPage((current) => !current)}>{fullPage ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}{fullPage ? t("twin.exitFullPage") : t("twin.fullPage")}</button>}
+            {!editing && !replayActive && !fullPage && <button type="button" className="secondary-button" onClick={() => setLiveMapOpen(false)}><Minimize2 size={15} aria-hidden="true" />{t("home.hideLiveView")}</button>}
             {!readOnly && !editing && <button type="button" className="secondary-button" onClick={startEditing}><Edit3 size={15} aria-hidden="true" />{t("common.edit")}</button>}
             {editing && <><button type="button" className="primary-button" onClick={() => void finishEditing()} disabled={props.saveState === "saving"}><Save size={15} aria-hidden="true" />{props.saveState === "saving" ? t("common.saving") : t("common.saveAndFinish")}</button><button type="button" className="secondary-button" onClick={() => setEditing(false)} disabled={props.saveState === "saving"}>{t("common.cancel")}</button></>}
           </div>
@@ -1084,7 +1148,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
             setReplayTimestamp(clamp(timestamp, replayMin, replayMax));
           }}
         />}
-        <div className={`twin-grid ${editing ? "is-editing" : ""}`}>
+        <Suspense fallback={<output className="page-loading">{t("common.loading")}</output>}><div className={`twin-grid ${editing ? "is-editing" : ""}`}>
           {editing && (
             <StructureEditor
               houses={state.houses} house={house} floor={floor} sensors={state.sensors}
@@ -1138,8 +1202,9 @@ export function TwinDashboard(props: TwinDashboardProps) {
             definitions={definitions} selectedDefinition={definition} units={units}
             house={house} floor={selectedFloor} editing={editing} onSensorUpdate={props.onSensorUpdate} onFloorSelect={props.onFloor}
           />
-        </div>
+        </div></Suspense>
       </section>
+      </>}
 
       {!editing && <>
       {!replayActive && hasUsableReadings && <RoomComfortBoard
@@ -1170,9 +1235,9 @@ export function TwinDashboard(props: TwinDashboardProps) {
       <section className="panel history-events-workspace" aria-labelledby="history-events-heading">
         <div className="panel-header history-events-heading">
           <div><span className="eyebrow"><History size={14} aria-hidden="true" />{t("historyEvents.eyebrow")}</span><h2 id="history-events-heading">{t("historyEvents.title")}</h2><p className="panel-intro">{t("historyEvents.description")}</p></div>
-          <span className="count-badge">{t("historyEvents.detectedCount", { count: replayEvents.length })}</span>
+          <div className="history-events-actions"><span className="count-badge">{t("historyEvents.detectedCount", { count: replayEvents.length })}</span>{!replayActive && <button type="button" className="secondary-button" aria-expanded={historyOpen} onClick={() => setHistoryOpen((current) => !current)}><History size={15} aria-hidden="true" />{t(historyOpen ? "historyEvents.close" : "historyEvents.open")}</button>}</div>
         </div>
-        <ReplayControls
+        {(historyOpen || replayActive) && <ReplayControls
           active={replayActive}
           playing={replayPlaying}
           timestamp={replayTimestamp}
@@ -1184,7 +1249,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
           sensors={houseSensors}
           definitions={definitions}
           units={units}
-          onActive={setReplayActive}
+          onActive={(active) => { setReplayActive(active); if (active) { setHistoryOpen(true); setLiveMapOpen(true); } }}
           onPlaying={changeReplayPlaying}
           onTimestamp={setReplayTimestamp}
           onSpeed={setReplaySpeed}
@@ -1202,16 +1267,16 @@ export function TwinDashboard(props: TwinDashboardProps) {
             onLoadWindow: () => { void loadReplayWindow(); },
           } : {})}
           {...(replaySampleCount === null ? {} : { sampleCount: replaySampleCount })}
-        />
+        />}
       </section>
 
-      <details className="home-tools-disclosure">
-        <summary>
+      <details className="home-tools-disclosure" open={analysisOpen}>
+        <summary onClick={(event) => { event.preventDefault(); setAnalysisOpen((current) => !current); }}>
           <span className="home-tools-icon" aria-hidden="true"><History size={20} /></span>
           <span><span className="eyebrow">{t("home.toolsSummary")}</span><strong>{t("home.toolsTitle")}</strong><small>{t("home.toolsDescription")}</small></span>
           <ChevronDown className="disclosure-chevron" size={19} aria-hidden="true" />
         </summary>
-        <div className="home-tools-content">
+        {analysisOpen && <Suspense fallback={<output className="page-loading">{t("common.loading")}</output>}><div className="home-tools-content">
           <ThermalSimulationPanel
             houseId={houseId}
             sensor={selectedSensor}
@@ -1294,7 +1359,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
           </section>
         </div>
           </div>
-        </div>
+        </div></Suspense>}
       </details>
       </>}
     </>

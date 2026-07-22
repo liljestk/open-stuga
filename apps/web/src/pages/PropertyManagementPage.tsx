@@ -400,6 +400,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
   const { state } = props;
   const { t } = useI18n();
   const now = useNow();
+  const propertySummary = (homeCount: number, areaCount: number) => `${t(homeCount === 1 ? "properties.homeCountOne" : "properties.homeCountMany", { count: homeCount })} · ${t(areaCount === 1 ? "properties.areaCountOne" : "properties.areaCountMany", { count: areaCount })}`;
   const readOnly = state.session.readOnly;
   const canManageAccess = !readOnly && (state.session.tenant.role === "owner" || state.session.tenant.role === "admin");
   const [tab, setTab] = useState<WorkspaceTab>(() => props.initialTab ?? "map");
@@ -448,6 +449,8 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
   const [areaDestinationPropertyId, setAreaDestinationPropertyId] = useState("");
   const [equipmentDestinationAreaId, setEquipmentDestinationAreaId] = useState("");
   const [editingProperty, setEditingProperty] = useState(false);
+  const propertyEditButtonRef = useRef<HTMLButtonElement>(null);
+  const propertyNameInputRef = useRef<HTMLInputElement>(null);
   const [propertyName, setPropertyName] = useState("");
   const [propertyDescription, setPropertyDescription] = useState("");
   const [pending, setPending] = useState(false);
@@ -472,9 +475,29 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
   const [placementAssetId, setPlacementAssetId] = useState("");
   const [assetPlacementEditing, setAssetPlacementEditing] = useState(false);
   const [assetDraftLocation, setAssetDraftLocation] = useState<GeoCoordinate | null>(null);
+  const [assetLatitudeInput, setAssetLatitudeInput] = useState("");
+  const [assetLongitudeInput, setAssetLongitudeInput] = useState("");
 
   const placementAsset = areas.find((area) => area.id === placementAssetId);
   const editingFixedAsset = isNewFixedAsset || Boolean(selectedArea && selectedArea.polygon.length === 0);
+  const assetLatitude = Number(assetLatitudeInput);
+  const assetLongitude = Number(assetLongitudeInput);
+  const assetCoordinateInputsValid = assetLatitudeInput.trim() !== "" && assetLongitudeInput.trim() !== ""
+    && Number.isFinite(assetLatitude) && assetLatitude >= -90 && assetLatitude <= 90
+    && Number.isFinite(assetLongitude) && assetLongitude >= -180 && assetLongitude <= 180;
+  const updateFixedAssetCoordinate = (axis: "latitude" | "longitude", value: string) => {
+    const latitudeText = axis === "latitude" ? value : assetLatitudeInput;
+    const longitudeText = axis === "longitude" ? value : assetLongitudeInput;
+    if (axis === "latitude") setAssetLatitudeInput(value);
+    else setAssetLongitudeInput(value);
+    const latitude = Number(latitudeText);
+    const longitude = Number(longitudeText);
+    if (!latitudeText.trim() || !longitudeText.trim() || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) return;
+    const location = { latitude, longitude };
+    setAreaForm((current) => ({ ...current, location }));
+    setAssetDraftLocation(location);
+    setAssetPlacementEditing(true);
+  };
   const mapAreas = useMemo(() => {
     const positioned = areas.map((area) => area.id === placementAsset?.id && assetPlacementEditing
       ? { ...area, ...(assetDraftLocation ? { location: assetDraftLocation } : {}) }
@@ -540,6 +563,8 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
     setPlacementAssetId("");
     setAssetPlacementEditing(false);
     setAssetDraftLocation(null);
+    setAssetLatitudeInput("");
+    setAssetLongitudeInput("");
     setNewHouseName("");
     setAreaDestinationPropertyId(property?.id ?? "");
   }, [property?.id]);
@@ -622,6 +647,8 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
     setDrawing(false);
     setPlacementAssetId(selectedArea.id);
     setAssetDraftLocation(selectedArea.location ? { ...selectedArea.location } : null);
+    setAssetLatitudeInput(selectedArea.location ? String(selectedArea.location.latitude) : "");
+    setAssetLongitudeInput(selectedArea.location ? String(selectedArea.location.longitude) : "");
     setAssetPlacementEditing(false);
   }, [assetPlacementEditing, placementAssetId, selectedArea?.id, selectedArea?.updatedAt]);
 
@@ -672,6 +699,8 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
     setAreaForm(emptyAreaDraft());
     setPlacementAssetId(NEW_FIXED_ASSET_ID);
     setAssetDraftLocation(null);
+    setAssetLatitudeInput("");
+    setAssetLongitudeInput("");
     setAssetPlacementEditing(true);
     setAreaDestinationPropertyId(property?.id ?? "");
     setRedoVertices([]);
@@ -744,7 +773,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
 
   const saveArea = async () => {
     if (!property || readOnly || pending || !areaForm.name.trim()
-      || (editingFixedAsset ? !areaForm.location : areaForm.polygon.length < 3)) return;
+      || (editingFixedAsset ? !areaForm.location || !assetCoordinateInputsValid : areaForm.polygon.length < 3)) return;
     setPending(true);
     setFeedback(null);
     try {
@@ -810,6 +839,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
     try {
       await props.onUpdateProperty(property.id, { name: propertyName.trim(), description: propertyDescription.trim() || null });
       setEditingProperty(false);
+      window.requestAnimationFrame(() => propertyEditButtonRef.current?.focus());
       setFeedback({ kind: "success", text: t("properties.propertySaved") });
     } catch { setFeedback({ kind: "error", text: t("properties.propertySaveFailed") }); }
     finally { setPending(false); }
@@ -1007,6 +1037,8 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
     setAssetPlacementEditing(false);
     setPlacementAssetId(asset.id);
     setAssetDraftLocation(asset.location ? { ...asset.location } : null);
+    setAssetLatitudeInput(asset.location ? String(asset.location.latitude) : "");
+    setAssetLongitudeInput(asset.location ? String(asset.location.longitude) : "");
     setAreaForm(areaDraft(asset));
     setSelectedAreaId(asset.id);
     setFeedback(null);
@@ -1020,6 +1052,8 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
     if (assetId === NEW_FIXED_ASSET_ID && isNewArea && isNewFixedAsset) {
       setAreaForm((current) => ({ ...current, location: point }));
       setAssetDraftLocation(point);
+      setAssetLatitudeInput(String(point.latitude));
+      setAssetLongitudeInput(String(point.longitude));
       setAssetPlacementEditing(true);
       setFeedback(null);
       return;
@@ -1029,6 +1063,8 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
     setSelectedAreaId(asset.id);
     setPlacementAssetId(asset.id);
     setAssetDraftLocation(point);
+    setAssetLatitudeInput(String(point.latitude));
+    setAssetLongitudeInput(String(point.longitude));
     setAreaForm({ ...areaDraft(asset), location: point });
     setAssetPlacementEditing(true);
     setFeedback(null);
@@ -1041,6 +1077,10 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
     try {
       const saved = await props.onUpdateArea(placementAsset.id, { location: assetDraftLocation });
       setSelectedAreaId(saved.id);
+      setAreaForm(areaDraft(saved));
+      setAssetDraftLocation(saved.location ? { ...saved.location } : null);
+      setAssetLatitudeInput(saved.location ? String(saved.location.latitude) : "");
+      setAssetLongitudeInput(saved.location ? String(saved.location.longitude) : "");
       setAssetPlacementEditing(false);
       setFeedback({ kind: "success", text: t("properties.assetPlacementSaved") });
     } catch { setFeedback({ kind: "error", text: t("properties.assetPlacementFailed") }); }
@@ -1053,8 +1093,11 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
     setPending(true);
     setFeedback(null);
     try {
-      await props.onUpdateArea(placementAsset.id, { location: null });
+      const saved = await props.onUpdateArea(placementAsset.id, { location: null });
+      setAreaForm(areaDraft(saved));
       setAssetDraftLocation(null);
+      setAssetLatitudeInput("");
+      setAssetLongitudeInput("");
       setAssetPlacementEditing(false);
       setFeedback({ kind: "success", text: t("properties.assetPlacementRemoved") });
     } catch { setFeedback({ kind: "error", text: t("properties.assetPlacementFailed") }); }
@@ -1111,7 +1154,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
       {properties.map((item) => {
         const homeCount = state.houses.filter((home) => home.propertyId === item.id).length;
         const areaCount = state.propertyAreas.filter((area) => area.propertyId === item.id).length;
-        return <article className="panel property-index-card" key={item.id}><span className="property-index-icon" aria-hidden="true"><MapPin size={19} /></span><div><h2>{item.name}</h2>{item.description && <p>{item.description}</p>}<small>{t("properties.summary", { houses: homeCount, areas: areaCount })}</small></div><button type="button" className="secondary-button" onClick={() => setPropertyId(item.id)}>{t("properties.openProperty", { property: item.name })}</button></article>;
+        return <article className="panel property-index-card" key={item.id}><span className="property-index-icon" aria-hidden="true"><MapPin size={19} /></span><div><h2>{item.name}</h2>{item.description && <p>{item.description}</p>}<small>{propertySummary(homeCount, areaCount)}</small></div><button type="button" className="secondary-button" onClick={() => setPropertyId(item.id)}>{t("properties.openProperty", { property: item.name })}</button></article>;
       })}
     </section>
     {!readOnly && <form className="panel property-index-create" onSubmit={(event) => void createProperty(event)}><label className="field"><span>{t("properties.addAnotherProperty")}</span><input value={newPropertyName} onChange={(event) => setNewPropertyName(event.target.value)} /></label><button type="submit" className="primary-button" disabled={pending || !newPropertyName.trim()}><Plus size={14} />{t("properties.addProperty")}</button></form>}
@@ -1124,7 +1167,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
     <div className="property-layout">
       <aside className="panel property-sidebar">
         {!props.onProperty && <label className="field"><span>{t("properties.activeProperty")}</span><select value={property.id} onChange={(event) => setPropertyId(event.target.value)}>{properties.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
-        {editingProperty && !readOnly ? <form className="property-edit-form" onSubmit={(event) => void saveProperty(event)}><label className="field"><span>{t("properties.propertyName")}</span><input required value={propertyName} onChange={(event) => setPropertyName(event.target.value)} /></label><label className="field"><span>{t("properties.propertyDescription")}</span><textarea rows={3} value={propertyDescription} onChange={(event) => setPropertyDescription(event.target.value)} /></label><div><button type="button" className="secondary-button" onClick={() => setEditingProperty(false)}>{t("common.cancel")}</button><button type="submit" className="primary-button"><Save size={14} />{t("properties.saveProperty")}</button></div></form> : <div className="property-summary"><strong>{property.name}</strong>{property.description && <p>{property.description}</p>}<small>{t("properties.summary", { houses: houses.length, areas: areas.length })}</small>{!readOnly && <button type="button" className="text-button" onClick={() => setEditingProperty(true)}>{t("properties.editProperty")}</button>}</div>}
+        {editingProperty && !readOnly ? <form className="property-edit-form" onSubmit={(event) => void saveProperty(event)}><label className="field"><span>{t("properties.propertyName")}</span><input ref={propertyNameInputRef} autoFocus required value={propertyName} onChange={(event) => setPropertyName(event.target.value)} /></label><label className="field"><span>{t("properties.propertyDescription")}</span><textarea rows={3} value={propertyDescription} onChange={(event) => setPropertyDescription(event.target.value)} /></label><div><button type="button" className="secondary-button" onClick={() => { setEditingProperty(false); window.requestAnimationFrame(() => propertyEditButtonRef.current?.focus()); }}>{t("common.cancel")}</button><button type="submit" className="primary-button"><Save size={14} />{t("properties.saveProperty")}</button></div></form> : <div className="property-summary"><strong>{property.name}</strong>{property.description && <p>{property.description}</p>}<small>{propertySummary(houses.length, areas.length)}</small>{!readOnly && <button ref={propertyEditButtonRef} type="button" className="text-button" onClick={() => { setEditingProperty(true); window.requestAnimationFrame(() => propertyNameInputRef.current?.focus()); }}>{t("properties.editProperty")}</button>}</div>}
         {!readOnly && property.id !== "property-main" && properties.length > 1 && houses.length === 0 && areas.length === 0 && equipment.length === 0 && notes.length === 0 && !state.maintenanceTasks.some((task) => task.propertyId === property.id) && <button type="button" className="text-button danger-text" disabled={pending} onClick={() => void removeProperty()}><Trash2 size={14} />{t("properties.deleteEmptyProperty")}</button>}
         <section className="property-house-group">
           <h2><Building2 size={15} />{t("properties.houses")}</h2>
@@ -1143,7 +1186,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
             <PropertyStatusLights lights={propertyTrafficLights} />
           </section>
           <div className="property-overview-actions">
-            <button type="button" className="panel" onClick={() => setTab("map")}><MapIcon size={22} aria-hidden="true" /><span><strong>{t("properties.map")}</strong><small>{t("properties.summary", { houses: houses.length, areas: areas.length })}</small></span><ChevronRight size={18} aria-hidden="true" /></button>
+            <button type="button" className="panel" onClick={() => setTab("map")}><MapIcon size={22} aria-hidden="true" /><span><strong>{t("properties.map")}</strong><small>{propertySummary(houses.length, areas.length)}</small></span><ChevronRight size={18} aria-hidden="true" /></button>
             <button type="button" className="panel" onClick={() => setTab("notes")}><NotebookPen size={22} aria-hidden="true" /><span><strong>{t("properties.notes")}</strong><small>{notes.length}</small></span><ChevronRight size={18} aria-hidden="true" /></button>
             {props.onOpenMaintenance && <button type="button" className="panel" onClick={props.onOpenMaintenance}><Wrench size={22} aria-hidden="true" /><span><strong>{t("nav.maintenance")}</strong><small>{state.maintenanceTasks.filter((task) => task.propertyId === property.id && task.status !== "verified" && task.status !== "cancelled").length}</small></span><ChevronRight size={18} aria-hidden="true" /></button>}
           </div>
@@ -1215,7 +1258,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
               </div> : <p className="property-empty-copy">{t("properties.noFixedAssets")}</p>}
               {placementAsset && <div className="property-placement-actions">
                 {!assetPlacementEditing && <button type="button" className="primary-button" onClick={() => { setMapLoaded(true); setDrawing(false); setPlacementEditing(false); setAssetDraftLocation(placementAsset.location ? { ...placementAsset.location } : null); setAssetPlacementEditing(true); setFeedback(null); }}><MapPin size={15} aria-hidden="true" />{placementAsset.location ? t("properties.moveAsset") : t("properties.placeAsset")}</button>}
-                {assetPlacementEditing && <><button type="button" className="primary-button" disabled={pending || !assetDraftLocation} onClick={() => void saveAssetPlacement()}><Save size={15} aria-hidden="true" />{pending ? t("common.saving") : t("placement.save")}</button><button type="button" className="secondary-button" disabled={pending} onClick={() => { setAssetDraftLocation(placementAsset.location ? { ...placementAsset.location } : null); setAssetPlacementEditing(false); }}>{t("common.cancel")}</button></>}
+                {assetPlacementEditing && <><button type="button" className="primary-button" disabled={pending || !assetDraftLocation || !assetCoordinateInputsValid} onClick={() => void saveAssetPlacement()}><Save size={15} aria-hidden="true" />{pending ? t("common.saving") : t("placement.save")}</button><button type="button" className="secondary-button" disabled={pending} onClick={() => { const location = placementAsset.location ? { ...placementAsset.location } : null; setAreaForm(areaDraft(placementAsset)); setAssetDraftLocation(location); setAssetLatitudeInput(location ? String(location.latitude) : ""); setAssetLongitudeInput(location ? String(location.longitude) : ""); setAssetPlacementEditing(false); }}>{t("common.cancel")}</button></>}
                 {placementAsset.location && <button type="button" className="secondary-button danger-text" disabled={pending} onClick={() => void removeAssetPlacement()}><Trash2 size={15} aria-hidden="true" />{t("placement.remove")}</button>}
               </div>}
             </section>
@@ -1227,12 +1270,15 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
               {selectedArea && properties.length > 1 && <label className="field area-description"><span>{t("properties.moveAreaTo")}</span><select value={areaDestinationPropertyId} disabled={readOnly || pending} onChange={(event) => setAreaDestinationPropertyId(event.target.value)}>{properties.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select><small>{t("properties.moveAreaHelp")}</small></label>}
               <label className="field area-description"><span>{t("properties.areaDescription")}</span><textarea rows={2} value={areaForm.description} disabled={readOnly} onChange={(event) => setAreaForm((current) => ({ ...current, description: event.target.value }))} /></label>
             </div>
-            {editingFixedAsset ? <p className={`property-asset-location-status ${areaForm.location ? "placed" : ""}`}><MapPin size={15} aria-hidden="true" />{areaForm.location ? t("properties.assetDraftPlaced") : t("properties.assetDraftHint")}</p> : <>
+            {editingFixedAsset ? <><div className="property-placement-fields area-fixed-asset-coordinates">
+              <label className="field"><span>{t("weather.latitude")}</span><input type="number" min={-90} max={90} step="any" required value={assetLatitudeInput} disabled={readOnly} onChange={(event) => updateFixedAssetCoordinate("latitude", event.target.value)} /></label>
+              <label className="field"><span>{t("weather.longitude")}</span><input type="number" min={-180} max={180} step="any" required value={assetLongitudeInput} disabled={readOnly} onChange={(event) => updateFixedAssetCoordinate("longitude", event.target.value)} /></label>
+            </div>{!assetCoordinateInputsValid && (assetLatitudeInput || assetLongitudeInput) && <p className="inline-error" role="alert">{t("weather.invalidLocation")}</p>}<p className={`property-asset-location-status ${assetCoordinateInputsValid ? "placed" : ""}`}><MapPin size={15} aria-hidden="true" />{assetCoordinateInputsValid ? t("properties.assetDraftPlaced") : t("properties.assetDraftHint")}</p></> : <>
               {!readOnly && <div className="area-drawing-actions"><button type="button" className={drawing ? "secondary-button active" : "secondary-button"} onClick={() => setDrawing((value) => !value)}><MapPin size={14} />{drawing ? t("properties.finishDrawing") : t("properties.editBoundary")}</button><button type="button" className="secondary-button" disabled={!areaForm.polygon.length} onClick={undoVertex}><Undo2 size={14} />{t("common.undo")}</button><button type="button" className="secondary-button" disabled={!redoVertices.length} onClick={redoVertex}><Redo2 size={14} />{t("common.redo")}</button><button type="button" className="secondary-button" disabled={!areaForm.polygon.length} onClick={() => { setAreaForm((current) => ({ ...current, polygon: [] })); setCoordinateInput(""); setRedoVertices([]); }}>{t("properties.clear")}</button></div>}
               <details className="area-coordinate-editor"><summary>{t("properties.manualCoordinates")}</summary><p>{t("properties.manualCoordinatesHelp")}</p><label className="field"><span>{t("properties.vertices")}</span><textarea rows={Math.max(4, areaForm.polygon.length)} value={coordinateInput} disabled={readOnly} onChange={(event) => { setCoordinateInput(event.target.value); setCoordinateError(false); }} /></label>{coordinateError && <p className="inline-error" role="alert">{t("properties.invalidCoordinates")}</p>}{!readOnly && <button type="button" className="secondary-button" onClick={applyCoordinates}><Check size={14} />{t("properties.applyCoordinates")}</button>}</details>
               <p className="property-help">{t("properties.vertexCount", { count: areaForm.polygon.length })}</p>
             </>}
-            {!readOnly && <div className="area-editor-actions"><button type="button" className="primary-button" disabled={pending || !areaForm.name.trim() || (editingFixedAsset ? !areaForm.location : areaForm.polygon.length < 3)} onClick={() => void saveArea()}><Save size={15} />{pending ? t("common.saving") : editingFixedAsset ? t("properties.saveFixedAsset") : t("properties.saveArea")}</button>{selectedArea && <button type="button" className="secondary-button danger-text" disabled={pending} onClick={() => void removeArea()}><Trash2 size={14} />{t("common.delete")}</button>}</div>}
+            {!readOnly && <div className="area-editor-actions"><button type="button" className="primary-button" disabled={pending || !areaForm.name.trim() || (editingFixedAsset ? !areaForm.location || !assetCoordinateInputsValid : areaForm.polygon.length < 3)} onClick={() => void saveArea()}><Save size={15} />{pending ? t("common.saving") : editingFixedAsset ? t("properties.saveFixedAsset") : t("properties.saveArea")}</button>{selectedArea && <button type="button" className="secondary-button danger-text" disabled={pending} onClick={() => void removeArea()}><Trash2 size={14} />{t("common.delete")}</button>}</div>}
           </section>}
         </section>}
 

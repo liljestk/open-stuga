@@ -158,13 +158,44 @@ function fixedAssetIcon(kind: PropertyArea["kind"], selected: boolean): L.DivIco
 }
 
 function vertexIcon(kind: "vertex" | "midpoint"): L.DivIcon {
-  const size = kind === "vertex" ? 18 : 12;
+  const size = kind === "vertex" ? 32 : 28;
   return L.divIcon({
     className: `property-map-handle-wrap ${kind}`,
     html: `<span class="property-map-handle" aria-hidden="true"></span>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
+}
+
+export function makeEditableHandleAccessible(
+  marker: Marker,
+  label: string,
+  onActivate: () => void,
+  onMove?: (point: GeoCoordinate) => void,
+) {
+  const element = marker.getElement();
+  if (!element) return;
+  element.setAttribute("title", label);
+  element.setAttribute("aria-label", label);
+  element.setAttribute("role", "button");
+  element.tabIndex = 0;
+  element.onkeydown = (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      event.stopPropagation();
+      onActivate();
+      return;
+    }
+    if (!onMove || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const current = marker.getLatLng();
+    const step = event.shiftKey ? .0001 : .00001;
+    const latitude = current.lat + (event.key === "ArrowUp" ? step : event.key === "ArrowDown" ? -step : 0);
+    const longitude = current.lng + (event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0);
+    marker.setLatLng([latitude, longitude]);
+    onMove({ latitude, longitude });
+  };
 }
 
 function midpoint(left: GeoCoordinate, right: GeoCoordinate): GeoCoordinate {
@@ -499,6 +530,12 @@ export function PropertyAreaMap({
         const latLng = marker.getLatLng();
         onMoveRef.current?.(index, { latitude: latLng.lat, longitude: latLng.lng });
       });
+      makeEditableHandleAccessible(
+        marker,
+        vertexLabel(index, index === 0 && points.length >= 3),
+        () => { if (index === 0 && points.length >= 3) onFinishRef.current?.(); },
+        (next) => onMoveRef.current?.(index, next),
+      );
       editHandlesRef.current.push(marker);
     });
 
@@ -513,6 +550,7 @@ export function PropertyAreaMap({
         L.DomEvent.stopPropagation(event);
         onInsertRef.current?.(nextIndex, center);
       });
+      makeEditableHandleAccessible(marker, midpointLabel(index), () => onInsertRef.current?.(nextIndex, center));
       editHandlesRef.current.push(marker);
     });
   }, [draftPolygon, drawing, midpointLabel, selectedAreaId, vertexLabel]);

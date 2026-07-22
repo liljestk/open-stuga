@@ -60,6 +60,20 @@ test("the appliance orders both shared container stores before container startup
   assert.match(growService, /Before=persistent-shared-init\.service containerd\.service docker\.service stuga\.service/);
 });
 
+test("the release workflow builds recoverable images on a hosted native ARM64 runner", async () => {
+  const workflow = await readFile(
+    new URL("../../.github/workflows/rpi-release.yml", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(workflow, /runs-on: ubuntu-24\.04-arm/);
+  assert.match(workflow, /docker run --rm --privileged --platform linux\/arm64/);
+  assert.match(workflow, /RPI_FACTORY_SSH_PUBLIC_KEY/);
+  assert.match(workflow, /actions\/upload-artifact@[0-9a-f]{40}/);
+  assert.match(workflow, /retention-days: 3/);
+  assert.doesNotMatch(workflow, /runs-on: \[self-hosted/);
+});
+
 test("ensureArtefact reuses an identical registered artifact", async () => {
   const config = readConfig(baseEnv);
   const existing = {

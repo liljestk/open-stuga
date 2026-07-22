@@ -98,6 +98,11 @@ button.pulse-insight:hover { border-color: var(--action); background: var(--acti
 .home-status-zone { margin-bottom: 18px; }
 .home-status-zone .summary-strip { margin-bottom: 0; }
 .home-live-heading { margin-top: 24px; }
+.home-live-launcher { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 18px; padding: 18px 20px; }
+.home-live-launcher > div { min-width: 0; }
+.home-live-launcher h2 { margin: 3px 0 4px; font-size: 20px; }
+.home-live-launcher p { max-width: 68ch; margin: 0; color: var(--muted); }
+.home-live-launcher > button { flex: 0 0 auto; }
 
 .pulse-insight { display: block; padding: 0; }
 .pulse-insight > summary {
@@ -360,6 +365,8 @@ button.pulse-insight:hover { border-color: var(--action); background: var(--acti
 
 @media (max-width: 700px) {
   .home-live-heading { margin-top: 18px; }
+  .home-live-launcher { align-items: stretch; flex-direction: column; padding: 15px; }
+  .home-live-launcher > button { justify-content: center; }
   .decision-section-heading { display: grid; gap: 6px; margin-bottom: 8px; }
   .decision-section-heading h2 { font-size: 18px; }
   .decision-section-heading p { font-size: 11.5px; }

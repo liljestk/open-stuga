@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { makeAreaLayerAccessible, PropertyAreaMap, propertyViewportPlan } from "./PropertyAreaMap";
+import { makeAreaLayerAccessible, makeEditableHandleAccessible, PropertyAreaMap, propertyViewportPlan } from "./PropertyAreaMap";
 
 const leaflet = vi.hoisted(() => {
   type Handler = (event?: any) => void;
@@ -67,6 +67,29 @@ describe("property area map accessibility", () => {
     fireEvent.keyDown(path, { key: "Enter" });
     fireEvent.keyDown(path, { key: " " });
     expect(onActivate).toHaveBeenCalledTimes(2);
+  });
+
+  it("moves editable boundary handles with the keyboard", () => {
+    const element = document.createElement("div");
+    let point = { lat: 60.17, lng: 24.93 };
+    const marker = {
+      getElement: () => element,
+      getLatLng: () => point,
+      setLatLng: ([lat, lng]: [number, number]) => { point = { lat, lng }; },
+    };
+    const onActivate = vi.fn();
+    const onMove = vi.fn();
+
+    makeEditableHandleAccessible(marker as never, "Move boundary point 1", onActivate, onMove);
+    expect(element.getAttribute("role")).toBe("button");
+    expect(element.tabIndex).toBe(0);
+    fireEvent.keyDown(element, { key: "ArrowRight" });
+    expect(onMove).toHaveBeenLastCalledWith({ latitude: 60.17, longitude: 24.93001 });
+    fireEvent.keyDown(element, { key: "ArrowUp", shiftKey: true });
+    expect(onMove.mock.calls.at(-1)?.[0].latitude).toBeCloseTo(60.1701, 6);
+    expect(onMove.mock.calls.at(-1)?.[0].longitude).toBeCloseTo(24.93001, 6);
+    fireEvent.keyDown(element, { key: "Enter" });
+    expect(onActivate).toHaveBeenCalledOnce();
   });
 
   it("places a selected home by map click, marker drag, or dropping its card", async () => {

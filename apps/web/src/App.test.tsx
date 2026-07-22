@@ -426,7 +426,8 @@ describe("Stuga app", () => {
     const user = userEvent.setup();
     renderApp();
     expect(await findPageHeading("Your home, at a glance")).not.toBeNull();
-    expect(screen.getByRole("group", { name: /Temperature map/i })).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Open live home view" }));
+    expect(await screen.findByRole("group", { name: /Temperature map/i })).not.toBeNull();
     const metric = screen.getByRole("combobox", { name: "Metric" });
     expect(within(metric).getByRole("option", { name: /Carbon dioxide.*ppm/ })).not.toBeNull();
     await user.selectOptions(metric, "humidity");

@@ -90,6 +90,18 @@ describe("LocalAuthPage", () => {
     await waitFor(() => expect(onAuthStateChanged).toHaveBeenCalledOnce());
   });
 
+  it("turns a rejected local origin into actionable setup guidance", async () => {
+    vi.spyOn(api, "setupOwner").mockRejectedValue(new ApiRequestError(403, "CROSS_SITE_REQUEST_REJECTED", "Rejected"));
+    renderPage({ mode: "setup", onAuthenticated: vi.fn() });
+
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "owner@example.test" } });
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: "correct horse battery staple" } });
+    fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "correct horse battery staple" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create owner account" }));
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(/npm run dev|CORS_ORIGIN/i);
+  });
+
   it("shows sign-out uncertainty without attempting an automatic request", () => {
     renderPage({ mode: "login", noticeKey: "auth.logoutUncertain", onAuthenticated: vi.fn() });
     expect(screen.getByRole("alert").textContent).toContain("server could not confirm sign-out");

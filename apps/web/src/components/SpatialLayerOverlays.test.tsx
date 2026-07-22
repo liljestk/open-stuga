@@ -75,7 +75,8 @@ describe("snapshot-backed spatial render adapters", () => {
     const view = render(<I18nProvider><svg><SpatialLayerOverlay2D floor={floor} snapshots={[snapshot!]} topology={null} scale={1} /></svg></I18nProvider>);
 
     expect(view.container.querySelectorAll(".spatial-zone-value polygon")).toHaveLength(1);
-    expect(view.getByText(/21.5/)).not.toBeNull();
+    expect(view.getAllByText(/21.5/).length).toBeGreaterThan(0);
+    expect(view.getByRole("img").getAttribute("aria-label")).toMatch(new RegExp(`${floor.rooms[0]!.name}.*21\\.5.*80%`, "i"));
   });
 
   it("uses absolute snapshot z coordinates in 3D and never renders activity as an exact trail or point", () => {

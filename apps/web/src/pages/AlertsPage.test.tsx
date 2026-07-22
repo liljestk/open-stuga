@@ -1,9 +1,12 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { api } from "../api";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import { AlertsPage, countActionableAlertGroups } from "./AlertsPage";
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("AlertsPage monitoring coverage", () => {
   it("does not present missing sensor data as an all-clear", () => {
@@ -62,6 +65,24 @@ describe("AlertsPage monitoring coverage", () => {
     expect(onInspectAlert).toHaveBeenCalledWith(state.alerts[0]);
   });
 
+  it("focuses an opened action plan and returns focus when Escape closes it", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "alertActionPlaybooks").mockResolvedValue([]);
+    vi.spyOn(api, "actionRuns").mockResolvedValue([]);
+    const state = createDemoState();
+    render(
+      <I18nProvider><AlertsPage state={state} units="metric" onCreateRule={vi.fn()} onUpdateRule={vi.fn()} onAcknowledge={vi.fn()} /></I18nProvider>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Action plan" });
+    await user.click(trigger);
+    const plan = await screen.findByRole("region", { name: "Action plan" });
+    await waitFor(() => expect(document.activeElement).toBe(plan));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Action plan" })).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
   it("keeps Guest access observational and removes alert mutations", async () => {
     const user = userEvent.setup();
     const state = createDemoState();
@@ -87,6 +108,34 @@ describe("AlertsPage monitoring coverage", () => {
     await user.click(screen.getByRole("button", { name: "Inspect" }));
     expect(onInspectAlert).toHaveBeenCalledWith(state.alerts[0]);
     expect(onAcknowledge).not.toHaveBeenCalled();
+  });
+
+  it("explains when a Guest has no shared alert inventory", () => {
+    const state = createDemoState();
+    render(
+      <I18nProvider><AlertsPage
+        state={{
+          ...state,
+          properties: [],
+          houses: [],
+          sensors: [],
+          alerts: [],
+          latestMeasurements: {},
+          measurementHistory: {},
+          readings: {},
+          history: {},
+        }}
+        units="metric"
+        readOnly
+        onCreateRule={vi.fn()}
+        onUpdateRule={vi.fn()}
+        onAcknowledge={vi.fn()}
+      /></I18nProvider>,
+    );
+
+    expect(screen.getByText("No property access")).toBeTruthy();
+    expect(screen.getByText(/administrator has not shared a property, home, or area/i)).toBeTruthy();
+    expect(screen.queryByText("Monitoring confirmed")).toBeNull();
   });
 
   it("exports the same actionable grouping count used by the page", () => {

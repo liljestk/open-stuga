@@ -435,7 +435,7 @@ describe("BuildingScene", () => {
     expect(svg.dataset.cameraZoom).not.toBe(initialZoom);
   });
 
-  it("keeps the 3D view active and the view switch available while editing", () => {
+  it("keeps the 3D view active and the view switch available while editing", async () => {
     const demo = createDemoState();
     const house = demo.houses[0]!;
     const floor = house.floors[0]!;
@@ -454,9 +454,10 @@ describe("BuildingScene", () => {
       </I18nProvider>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit layout" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit layout" }));
     expect(onViewMode).not.toHaveBeenCalled();
-    expect(view.container.querySelector(".building-scene")).not.toBeNull();
+    await waitFor(() => expect(view.container.querySelector(".building-scene")).not.toBeNull());
     expect(screen.getByRole("button", { name: "3D building" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("region", { name: "Element properties" })).not.toBeNull();
   });
@@ -499,8 +500,9 @@ describe("TwinDashboard whole-building replay", () => {
       );
 
       await waitFor(() => expect(openingStates).toHaveBeenCalledWith(house.id, undefined, expect.any(AbortSignal)));
-      expect(screen.getByText(/Select a door, window, or vent/i)).not.toBeNull();
-      await user.click(screen.getByRole("button", { name: /Door 1, Closed.*Open/i }));
+      await user.click(screen.getByRole("button", { name: "Open live home view" }));
+      expect(await screen.findByText(/Select a door, window, or vent/i)).not.toBeNull();
+      await user.click(await screen.findByRole("button", { name: /Door 1, Closed.*Open/i }));
       await waitFor(() => expect(recordOpeningState).toHaveBeenCalledOnce());
       expect(recordOpeningState).toHaveBeenCalledWith(house.id, expect.objectContaining({
         floorId: floor.id, elementId: "runtime-door", state: "open", source: "manual",
@@ -521,6 +523,7 @@ describe("TwinDashboard whole-building replay", () => {
     const floor = house.floors[0]!;
     const state = { ...demo, latestMeasurements: {}, measurementHistory: {} };
     const onOpenSensors = vi.fn();
+    const onOpenConnections = vi.fn();
     const view = render(
       <I18nProvider>
         <TwinDashboard
@@ -532,6 +535,7 @@ describe("TwinDashboard whole-building replay", () => {
           onCreateObservation={vi.fn().mockResolvedValue(demo.observations[0]!)}
           onCreateStaticParameter={vi.fn().mockResolvedValue(demo.staticParameters[0]!)}
           onOpenSensors={onOpenSensors}
+          onOpenConnections={onOpenConnections}
         />
       </I18nProvider>,
     );
@@ -540,7 +544,8 @@ describe("TwinDashboard whole-building replay", () => {
     expect(view.container.querySelector(".moisture-coach")).toBeNull();
     expect(view.container.querySelector(".room-comfort-section")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
-    expect(onOpenSensors).toHaveBeenCalledWith(house.id);
+    expect(onOpenConnections).toHaveBeenCalledWith(house.id);
+    expect(onOpenSensors).not.toHaveBeenCalled();
   });
 
   it("loads every airflow driver for every enabled house sensor in isometric replay", async () => {
@@ -570,6 +575,7 @@ describe("TwinDashboard whole-building replay", () => {
       </I18nProvider>,
     );
 
+    await user.click(screen.getByRole("button", { name: "Open history and replay" }));
     await user.click(screen.getByRole("button", { name: "Play replay" }));
     await waitFor(() => expect(onLoadSeries).toHaveBeenCalledTimes(enabledHouseSensors.length * 3));
     for (const metric of ["temperature", "humidity", "co2"]) {
@@ -597,6 +603,7 @@ describe("TwinDashboard whole-building replay", () => {
       onCreateStaticParameter: vi.fn().mockResolvedValue(demo.staticParameters[0]!),
     };
     const view = render(<I18nProvider><TwinDashboard state={stateWithoutHistory} {...commonProps} /></I18nProvider>);
+    await user.click(screen.getByRole("button", { name: "Open history and replay" }));
     await user.click(screen.getByRole("button", { name: "Play replay" }));
 
     const oldSample = {
@@ -640,7 +647,8 @@ describe("TwinDashboard whole-building replay", () => {
     );
 
     expect(screen.queryByLabelText("Sensor floor")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Edit layout" }));
+    await user.click(screen.getByRole("button", { name: "Open live home view" }));
+    await user.click(await screen.findByRole("button", { name: "Edit layout" }));
     expect(screen.queryByRole("combobox", { name: "Metric" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Replay" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Room thermal model" })).toBeNull();
