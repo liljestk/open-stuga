@@ -126,7 +126,9 @@ class FakePowerHistoryDevice(FakeEnergyDevice):
         self.queries.append((method, params))
         assert params is not None
         interval_seconds = int(params["interval"]) * 60
-        count = (int(params["end_timestamp"]) - int(params["start_timestamp"])) // interval_seconds
+        count = (
+            int(params["end_timestamp"]) - int(params["start_timestamp"])
+        ) // interval_seconds
         return {
             method: {
                 "data": list(range(1, count + 1)),
@@ -157,6 +159,129 @@ def emitted_lines(capsys: pytest.CaptureFixture[str]) -> list[dict[str, Any]]:
 )
 def test_optional_number_rejects_non_numeric_values(value: Any, expected: Any) -> None:
     assert bridge.optional_number(value) == expected
+
+
+def test_optional_device_accessors_fail_closed() -> None:
+    class BrokenDevice:
+        @property
+        def modules(self) -> dict[Any, Any]:
+            raise RuntimeError("modules unavailable")
+
+    class BrokenAttribute:
+        @property
+        def current_consumption(self) -> float:
+            raise RuntimeError("measurement unavailable")
+
+    device = BrokenDevice()
+    assert bridge.energy_module(device) is None
+    assert bridge.contact_open(device, {"open": 1}) is True
+    assert bridge.contact_open(device, {"open": False}) is False
+    assert (
+        bridge.optional_attribute_number(BrokenAttribute(), "current_consumption")
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        None,
+        {"type": "not-history"},
+        {
+            "type": "history-request",
+            "deviceId": "",
+            "metric": "temperature",
+            "from": "2026-01-01T00:00:00Z",
+            "to": "2026-01-01T01:00:00Z",
+        },
+        {
+            "type": "history-request",
+            "deviceId": "sensor-1",
+            "metric": "",
+            "from": "2026-01-01T00:00:00Z",
+            "to": "2026-01-01T01:00:00Z",
+        },
+        {
+            "type": "history-request",
+            "requestId": "",
+            "deviceId": "sensor-1",
+            "metric": "temperature",
+            "from": "2026-01-01T00:00:00Z",
+            "to": "2026-01-01T01:00:00Z",
+        },
+        {
+            "type": "history-request",
+            "deviceId": "sensor-1",
+            "metric": "temperature",
+            "from": "2026-01-02T00:00:00Z",
+            "to": "2026-01-01T00:00:00Z",
+        },
+        {
+            "type": "history-request",
+            "deviceId": "sensor-1",
+            "metric": "temperature",
+            "from": "2026-01-01T00:00:00Z",
+            "to": "2026-02-02T00:00:00Z",
+        },
+    ],
+)
+def test_parse_history_request_rejects_invalid_protocol_shapes(candidate: Any) -> None:
+    with pytest.raises(bridge.HistoryRequestError):
+        bridge.parse_history_request(candidate)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    ["", "{not-json}", "x" * 65_537],
+    ids=["empty", "malformed", "oversized"],
+)
+def test_read_history_request_rejects_missing_malformed_or_oversized_input(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: str,
+) -> None:
+    monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+    with pytest.raises(bridge.HistoryRequestError):
+        bridge.read_history_request()
+
+
+def test_source_device_id_uses_the_public_fallback_when_sys_info_fails() -> None:
+    class Device:
+        device_id = " fallback-id "
+
+        @property
+        def sys_info(self) -> dict[str, Any]:
+            raise RuntimeError("sys_info unavailable")
+
+    assert bridge.source_device_id(Device()) == "fallback-id"
+
+
+@pytest.mark.asyncio
+async def test_recover_source_host_accepts_one_identity_matched_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    match = {"host": "192.168.1.24", "sourceDeviceId": "hub-1"}
+
+    async def scan(
+        reference_hosts: list[str],
+        username: str,
+        password: str,
+        expected_device_id: str | None = None,
+        targets: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        assert (reference_hosts, username, password, expected_device_id, targets) == (
+            ["192.168.1.20"],
+            "user",
+            "secret",
+            "hub-1",
+            None,
+        )
+        return [match]
+
+    monkeypatch.setattr(bridge, "scan_recovery_subnets", scan)
+    assert (
+        await bridge.recover_source_host("192.168.1.20", "user", "secret", "hub-1")
+        == match
+    )
 
 
 @pytest.mark.parametrize(
@@ -347,7 +472,7 @@ async def test_recover_device_history_queries_the_matching_hub_child(
     child = FakeHistoryChild(
         {
             "get_temp_humidity_records": {
-                    "local_time": 1_752_926_851,
+                "local_time": 1_752_926_851,
                 "past24h_temp": [200, 210],
                 "past24h_temp_exception": [0, 0],
                 "temp_unit": "celsius",
@@ -448,8 +573,7 @@ async def test_recover_device_power_history_chunks_and_uses_hourly_data(
     assert len(device.queries) == 4
     assert all(query[1]["interval"] == 60 for query in device.queries)
     assert all(
-        query[1]["end_timestamp"] - query[1]["start_timestamp"]
-        <= 144 * 60 * 60
+        query[1]["end_timestamp"] - query[1]["start_timestamp"] <= 144 * 60 * 60
         for query in device.queries
     )
     assert device.disconnected
@@ -824,13 +948,15 @@ async def test_discovery_supplements_a_partial_broadcast_with_energy_devices(
         targets = _kwargs.get("targets")
         scan_targets.append(targets)
         if targets and "192.168.68.57" in targets:
-            return [{
-                "host": "192.168.68.57",
-                "model": "HS110",
-                "alias": "Workshop plug",
-                "sourceType": "energy-device",
-                "sourceDeviceId": "legacy-plug",
-            }]
+            return [
+                {
+                    "host": "192.168.68.57",
+                    "model": "HS110",
+                    "alias": "Workshop plug",
+                    "sourceType": "energy-device",
+                    "sourceDeviceId": "legacy-plug",
+                }
+            ]
         return []
 
     monkeypatch.setattr(bridge, "Discover", SimpleNamespace(discover=discover))

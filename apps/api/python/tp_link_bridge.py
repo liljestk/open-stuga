@@ -137,11 +137,7 @@ def parse_history_timestamp(value: Any, field: str) -> datetime:
 
 
 def history_timestamp(epoch_seconds: int | float) -> str:
-    return (
-        datetime.fromtimestamp(epoch_seconds, UTC)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+    return datetime.fromtimestamp(epoch_seconds, UTC).isoformat().replace("+00:00", "Z")
 
 
 def _finite_protocol_number(value: Any) -> float | int | None:
@@ -193,7 +189,11 @@ def _history_state(
         from_timestamp, to_timestamp, interval_seconds
     )
     available = {
-        int(datetime.fromisoformat(sample["timestamp"].replace("Z", "+00:00")).timestamp())
+        int(
+            datetime.fromisoformat(
+                sample["timestamp"].replace("Z", "+00:00")
+            ).timestamp()
+        )
         for sample in samples
     }
     expected_count = (
@@ -202,9 +202,7 @@ def _history_state(
         else 0
     )
     available_count = sum(
-        1
-        for timestamp in available
-        if first_expected <= timestamp <= last_expected
+        1 for timestamp in available if first_expected <= timestamp <= last_expected
     )
     # Retained records are interval buckets. Sub-interval seconds at either
     # edge do not require a synthetic bucket and must not trigger an app export.
@@ -241,7 +239,9 @@ def parse_climate_history(
     local_time = _finite_protocol_number(raw.get("local_time"))
     if local_time is None or local_time <= 0:
         raise ValueError("TP-Link climate history has an invalid local_time")
-    anchor = (int(local_time) // CLIMATE_HISTORY_INTERVAL_SECONDS) * CLIMATE_HISTORY_INTERVAL_SECONDS
+    anchor = (
+        int(local_time) // CLIMATE_HISTORY_INTERVAL_SECONDS
+    ) * CLIMATE_HISTORY_INTERVAL_SECONDS
     if metric == "temperature":
         values_key = "past24h_temp"
         exceptions_key = "past24h_temp_exception"
@@ -423,9 +423,7 @@ def _history_target(device: Any, device_id: str) -> Any | None:
     )
 
 
-def _not_supported_history(
-    device_id: str, metric: str, message: str
-) -> dict[str, Any]:
+def _not_supported_history(device_id: str, metric: str, message: str) -> dict[str, Any]:
     return {
         "state": "not-supported",
         "samples": [],
@@ -476,11 +474,16 @@ async def recover_device_history(
                 target_info = target.sys_info
             except Exception:
                 target_info = {}
-            model = str(
-                target_info.get("model", getattr(target, "model", ""))
-                if isinstance(target_info, dict)
-                else getattr(target, "model", "")
-            ).upper().split("(", 1)[0].strip()
+            model = (
+                str(
+                    target_info.get("model", getattr(target, "model", ""))
+                    if isinstance(target_info, dict)
+                    else getattr(target, "model", "")
+                )
+                .upper()
+                .split("(", 1)[0]
+                .strip()
+            )
             if model not in {"T310", "T315"}:
                 return _not_supported_history(
                     device_id,
@@ -488,9 +491,7 @@ async def recover_device_history(
                     f"Local retained climate history is unsupported for {model or 'this device'}",
                 )
             try:
-                payload = await _raw_history_query(
-                    target, "get_temp_humidity_records"
-                )
+                payload = await _raw_history_query(target, "get_temp_humidity_records")
             except NotImplementedError as error:
                 return _not_supported_history(device_id, metric, str(error))
             return {
@@ -533,8 +534,7 @@ async def recover_device_history(
             while cursor < after_last:
                 request_end = min(
                     after_last,
-                    cursor
-                    + interval_seconds * POWER_HISTORY_MAX_POINTS_PER_REQUEST,
+                    cursor + interval_seconds * POWER_HISTORY_MAX_POINTS_PER_REQUEST,
                 )
                 try:
                     payload = await _raw_history_query(
@@ -565,14 +565,16 @@ async def recover_device_history(
                     else min(retained_from, chunk_from)
                 )
                 retained_to = (
-                    chunk_to
-                    if retained_to is None
-                    else max(retained_to, chunk_to)
+                    chunk_to if retained_to is None else max(retained_to, chunk_to)
                 )
                 cursor = request_end
-            samples = [samples_by_timestamp[key] for key in sorted(samples_by_timestamp)]
+            samples = [
+                samples_by_timestamp[key] for key in sorted(samples_by_timestamp)
+            ]
             effective_from = retained_from if retained_from is not None else first
-            effective_to = retained_to if retained_to is not None else first - interval_seconds
+            effective_to = (
+                retained_to if retained_to is not None else first - interval_seconds
+            )
             state, error = _history_state(
                 samples,
                 from_timestamp,
@@ -864,11 +866,7 @@ async def serve_live_history_requests(
                 emit(
                     {
                         "type": "history-result",
-                        **(
-                            {"requestId": request_id}
-                            if request_id is not None
-                            else {}
-                        ),
+                        **({"requestId": request_id} if request_id is not None else {}),
                         **result,
                     }
                 )
@@ -878,11 +876,7 @@ async def serve_live_history_requests(
                 emit(
                     {
                         "type": "error",
-                        **(
-                            {"requestId": request_id}
-                            if request_id is not None
-                            else {}
-                        ),
+                        **({"requestId": request_id} if request_id is not None else {}),
                         "message": str(error),
                     }
                 )
@@ -890,11 +884,7 @@ async def serve_live_history_requests(
                 emit(
                     {
                         "type": "error",
-                        **(
-                            {"requestId": request_id}
-                            if request_id is not None
-                            else {}
-                        ),
+                        **({"requestId": request_id} if request_id is not None else {}),
                         "message": f"TP-Link history recovery failed: {error}",
                     }
                 )
@@ -1102,9 +1092,13 @@ async def discover_sources(username: str, password: str) -> None:
         # responding H200 cannot mask a legacy HS110 or another energy device.
         known_hosts = {source["host"] for source in sources}
         direct_targets = [host for host in recovery_hosts if host not in known_hosts]
-        recovered = await scan_recovery_subnets(
-            recovery_hosts, username, password, targets=direct_targets
-        ) if direct_targets else []
+        recovered = (
+            await scan_recovery_subnets(
+                recovery_hosts, username, password, targets=direct_targets
+            )
+            if direct_targets
+            else []
+        )
         known_hosts.update(result["host"] for result in recovered)
         subnet_targets = [
             host for host in recovery_targets(recovery_hosts) if host not in known_hosts
