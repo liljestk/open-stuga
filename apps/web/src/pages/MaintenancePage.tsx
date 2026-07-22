@@ -280,7 +280,7 @@ export function MaintenancePage(props: Readonly<MaintenancePageProps>) {
   const fallbackTimeZone = props.house?.propertyId === propertyId
     ? props.house.timezone
     : houses[0]?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
-  const defaultHouseId = props.propertyId === undefined ? props.house?.id ?? "" : "";
+  const defaultHouseId = props.house?.propertyId === propertyId ? props.house.id : "";
   const areas = props.areas ?? [];
   const equipment = props.equipment ?? [];
   const readOnly = props.readOnly ?? false;
@@ -357,7 +357,7 @@ export function MaintenancePage(props: Readonly<MaintenancePageProps>) {
   const group = (title: string, items: MaintenanceTask[], icon: ReactNode) => items.length > 0 && <section className="maintenance-group"><header>{icon}<div><h3>{title}</h3><span>{items.length}</span></div></header><div>{items.map((task) => <TaskCard key={task.id} task={task} houses={houses} fallbackTimeZone={fallbackTimeZone} observations={observations} areas={areas} equipment={equipment} readOnly={readOnly} onEdit={() => openEditor(task.id)} onUpdate={props.onUpdateTask} onReload={props.onReloadTask} onLoadRevisions={props.onLoadTaskRevisions} />)}</div></section>;
 
   return <div className="page-stack operations-page maintenance-page">
-    <header className="page-heading operations-heading"><div><span className="eyebrow"><Wrench size={14} aria-hidden="true" />{property?.name ?? t("nav.properties")}</span><h1>{t("maintenance.pageTitle")}</h1><p>{t("maintenance.pageDescription")}</p></div>{!readOnly && <button ref={headerActionRef} type="button" className="primary-button" onClick={() => { if (editorOpen && !editingId) closeEditor(); else openEditor(); }}>{editorOpen && !editingId ? <X size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}{t(editorOpen && !editingId ? "common.close" : "maintenance.planWork")}</button>}</header>
+    <header className="page-heading operations-heading"><div><span className="eyebrow"><Wrench size={14} aria-hidden="true" />{props.house?.name ?? property?.name ?? t("nav.properties")}</span><h1>{t("maintenance.pageTitle")}</h1><p>{t("maintenance.pageDescription")}</p></div>{!readOnly && <button ref={headerActionRef} type="button" className="primary-button" onClick={() => { if (editorOpen && !editingId) closeEditor(); else openEditor(); }}>{editorOpen && !editingId ? <X size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}{t(editorOpen && !editingId ? "common.close" : "maintenance.planWork")}</button>}</header>
     <section className="operations-summary maintenance-summary" aria-label={t("maintenance.summary") }>
       <button type="button" aria-pressed={filter === "active"} className={filter === "active" ? "active" : ""} onClick={() => setFilter("active")}><span className="operations-summary-icon"><Wrench size={18} aria-hidden="true" /></span><span><small>{t("maintenance.allActive")}</small><strong>{active.length}</strong></span></button>
       <button type="button" aria-pressed={filter === "overdue"} className={filter === "overdue" ? "active attention" : overdueCount > 0 ? "attention" : ""} onClick={() => setFilter("overdue")}><span className="operations-summary-icon critical"><AlertTriangle size={18} aria-hidden="true" /></span><span><small>{t("maintenance.overdue")}</small><strong>{overdueCount}</strong></span></button>

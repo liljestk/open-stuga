@@ -191,4 +191,31 @@ describe("PortfolioOverview", () => {
     await user.click(screen.getByRole("button", { name: "Properties: Forest parcel" }));
     expect(onOpenProperty).toHaveBeenCalledWith(landOnly.id);
   });
+
+  it("explains an empty Guest scope instead of presenting an empty healthy portfolio", () => {
+    render(
+      <I18nProvider>
+        <PortfolioOverview
+          properties={[]}
+          propertyAreas={[]}
+          houses={[]}
+          sensors={[]}
+          latestMeasurements={{}}
+          measurementHistory={{}}
+          alerts={[]}
+          alertRules={[]}
+          integration={integration}
+          readOnly
+          onOpenProperty={vi.fn()}
+          onOpenTwin={vi.fn()}
+          onOpenOutdoor={vi.fn()}
+          onOpenSetup={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByRole("heading", { name: "No property access" })).toBeTruthy();
+    expect(screen.getByText(/administrator has not shared a property, home, or area/i)).toBeTruthy();
+    expect(screen.queryByText("Monitoring confirmed")).toBeNull();
+  });
 });

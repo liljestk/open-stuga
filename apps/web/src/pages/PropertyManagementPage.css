@@ -47,9 +47,9 @@
 .property-area-map { width: 100%; height: 520px; z-index: 0; }
 .property-area-map.is-drawing, .property-area-map.is-placing-house { cursor: crosshair; }
 .property-map-handle-wrap { border: 0; background: transparent; }
-.property-map-handle { display: block; width: 14px; height: 14px; border: 3px solid #fff; border-radius: 50%; background: var(--action); box-shadow: 0 1px 5px rgb(7 42 34 / .45); transition: transform 120ms ease; }
+.property-map-handle { display: block; width: 18px; height: 18px; margin: 7px; border: 3px solid #fff; border-radius: 50%; background: var(--action); box-shadow: 0 1px 5px rgb(7 42 34 / .45); transition: transform 120ms ease; }
 .property-map-handle-wrap:hover .property-map-handle, .property-map-handle-wrap:focus .property-map-handle { transform: scale(1.25); }
-.property-map-handle-wrap.midpoint .property-map-handle { width: 8px; height: 8px; border-width: 2px; background: #fff; box-shadow: 0 0 0 2px var(--action), 0 1px 5px rgb(7 42 34 / .35); opacity: .82; }
+.property-map-handle-wrap.midpoint .property-map-handle { width: 14px; height: 14px; margin: 7px; border-width: 2px; background: #fff; box-shadow: 0 0 0 2px var(--action), 0 1px 5px rgb(7 42 34 / .35); opacity: .82; }
 .property-map-handle-wrap.midpoint:hover .property-map-handle, .property-map-handle-wrap.midpoint:focus .property-map-handle { opacity: 1; }
 .property-area-map .leaflet-control-attribution { color: #44534d; font-size: 10px; }
 .property-house-marker-wrap { border: 0; background: transparent; }

@@ -83,7 +83,7 @@ Clone Stuga and check out the exact release you want to install:
 ```sh
 git clone https://github.com/liljestk/open-stuga.git
 cd open-stuga
-RELEASE_TAG=v0.3.0  # replace with the first release containing this automation
+RELEASE_TAG=v0.4.0  # replace with the release you want to install
 git switch --detach "$RELEASE_TAG"
 ```
 
@@ -155,7 +155,7 @@ verified. OTA artifacts do not contain the persistent Connect identity.
 ## 4. Publish the matching application images
 
 The appliance pulls immutable images tagged with the Git release, for example
-`v0.3.0`. Configure the ARM64 build runner before publishing the release:
+`v0.4.0`. Configure the ARM64 build runner before publishing the release:
 
 1. In GitHub, open **Settings → Actions → Runners → New self-hosted runner**.
 2. Follow GitHub's ARM64 Linux instructions on the build host.
@@ -190,7 +190,7 @@ Verify the image before writing it:
 
 ```sh
 cd dist/rpi
-VERSION=0.3.0  # the release tag without its leading v
+VERSION=0.4.0  # the release tag without its leading v
 sha256sum --check "stuga-rpi4-${VERSION}.sha256"
 ```
 

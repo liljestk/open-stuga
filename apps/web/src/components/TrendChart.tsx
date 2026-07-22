@@ -161,7 +161,7 @@ export function TrendChart({ sensor, history, forecast, definition, units, range
     <section className="panel chart-panel">
       <ChartHeader sensor={sensor} heading={heading} range={range} onRange={onRange} />
       <div className="chart-legend" aria-hidden="true"><span><i className="legend-line observed" />{t("chart.observed")}</span>{definition.forecastSupported && <><span><i className="legend-line predicted" />{t("chart.predicted")}</span><span><i className="legend-area" />{t("chart.confidence")}</span></>}</div>
-      <div className="chart-wrap">
+      <div className="chart-wrap" role="region" aria-label={chartLabel} tabIndex={0}>
         <p id={chartSummaryId} className="sr-only">{chartSummary}</p>
         <svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="group" aria-label={chartLabel} aria-describedby={chartSummaryId}>
           <title>{chartLabel}</title>
@@ -193,7 +193,7 @@ export function TrendChart({ sensor, history, forecast, definition, units, range
       </div>
       <details className="chart-data-disclosure" open={dataOpen}>
         <summary onClick={(event) => { event.preventDefault(); setDataOpen((value) => !value); }}>{t("common.showDataTable")}</summary>
-        {dataOpen && <div className="chart-data-table-wrap">
+        {dataOpen && <div className="chart-data-table-wrap" role="region" aria-label={chartLabel} tabIndex={0}>
           <table>
             <caption className="sr-only">{chartLabel}</caption>
             <thead><tr><th scope="col">{t("historyImport.dateTime")}</th><th scope="col">{t("historyImport.value")}</th><th scope="col">{t("observations.kind")}</th></tr></thead>

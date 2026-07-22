@@ -4,6 +4,13 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+## 0.4.0 - 2026-07-22
+
+- Refined the primary Home, property, setup, alert, and analytics workflows
+  with progressive disclosure, lazy-loaded specialist surfaces, exact CSV
+  export, correct connection-first remediation, multi-P110 integration
+  coverage, actionable local-origin guidance, and extensive keyboard and
+  screen-reader improvements.
 - Added an idempotent daily Home analytics run with persisted month-to-date
   findings for indoor sensors, observed outdoor weather, electricity
   power/energy, and heartbeat-deduplicated door/window openings, plus an

@@ -44,6 +44,7 @@ function authError(error: unknown): AuthError {
     case "INVALID_CREDENTIALS": return { key: "auth.invalidCredentials", field: "password" };
     case "AUTH_RATE_LIMITED": return { key: "auth.rateLimited", field: null };
     case "BOOTSTRAP_LOCAL_ONLY": return { key: "auth.setupLocalOnly", field: null };
+    case "CROSS_SITE_REQUEST_REJECTED": return { key: "auth.originRejected", field: null };
     case "AUTH_ALREADY_INITIALIZED":
     case "SETUP_REQUIRED": return { key: "auth.stateChanged", field: null };
     case "INVITATION_EMAIL_MISMATCH": return { key: "auth.invitationEmailMismatch", field: "email" };

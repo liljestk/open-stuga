@@ -169,6 +169,35 @@ describe("PropertyManagementPage", () => {
     expect(screen.getByText("Home placement and scale saved.")).not.toBeNull();
   });
 
+  it("lets keyboard users place a fixed asset with exact coordinates", async () => {
+    const state = createDemoState();
+    const handlers = callbacks();
+    const fixedAsset: PropertyArea = {
+      ...area,
+      id: "asset-generator",
+      name: "Backup generator",
+      kind: "other",
+      polygon: [],
+      location: { latitude: 60.175, longitude: 24.95 },
+    };
+    handlers.onCreateArea.mockResolvedValue(fixedAsset);
+
+    const { container } = render(<I18nProvider><PropertyManagementPage state={state} {...handlers} /></I18nProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Add fixed asset" }));
+    const editor = container.querySelector<HTMLElement>(".area-editor")!;
+    fireEvent.change(within(editor).getByLabelText("Asset name"), { target: { value: fixedAsset.name } });
+    fireEvent.change(within(editor).getByLabelText("Latitude"), { target: { value: String(fixedAsset.location!.latitude) } });
+    fireEvent.change(within(editor).getByLabelText("Longitude"), { target: { value: String(fixedAsset.location!.longitude) } });
+    fireEvent.click(within(editor).getByRole("button", { name: "Save fixed asset" }));
+
+    await waitFor(() => expect(handlers.onCreateArea).toHaveBeenCalledWith(expect.objectContaining({
+      propertyId: state.properties[0]!.id,
+      name: fixedAsset.name,
+      polygon: [],
+      location: fixedAsset.location,
+    })));
+  });
+
   it("plans area and equipment work for a property with no houses", async () => {
     const state = createDemoState();
     state.houses = [];

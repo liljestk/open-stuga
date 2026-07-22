@@ -1277,6 +1277,12 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
     { id: "automations", label: t("setup.workspaceAutomations"), detail: t("setup.workspaceAutomationsDetail", { count: notesGrantCount }) },
   ];
   const activeSectionLabel = setupSections.find((section) => section.id === activeSection)?.label ?? t("setup.workspaceOverview");
+  const sectionHeading = activeSection === "overview"
+    ? t("setup.title")
+    : activeSection === "connections"
+      ? t("setup.connectionsTitle")
+      : activeSectionLabel;
+  const sectionDescription = activeSection === "connections" ? t("setup.connectionsDescription") : t("setup.description");
 
   const activateSection = (section: SetupSection) => {
     setActiveSection(section);
@@ -1319,7 +1325,7 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
   return (
     <>
       <header className="page-heading">
-        <div><span className="eyebrow"><RadioTower size={14} aria-hidden="true" />{activeSectionLabel}</span><h1>{connectionWorkspaceActive ? t("setup.connectionsTitle") : t("setup.title")}</h1><p>{connectionWorkspaceActive ? t("setup.connectionsDescription") : t("setup.description")}</p></div>
+        <div><span className="eyebrow"><RadioTower size={14} aria-hidden="true" />{activeSectionLabel}</span><h1>{sectionHeading}</h1><p>{sectionDescription}</p></div>
         {!connectionWorkspaceActive && <span className={`integration-pill ${sensorSourceConnected ? "connected" : ""}`}><span aria-hidden="true" />{connectedSourceLabel}</span>}
       </header>
       <div className="setup-workspace-tabs" role="tablist" aria-label={t("setup.workspaceNavigation")}>

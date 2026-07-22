@@ -56,6 +56,9 @@ describe("AppShell local account controls", () => {
 
     expect(screen.getByRole("link", { name: "Set up" }).getAttribute("href"))
       .toBe("/properties/property-main/homes/home-main/setup");
+    expect(screen.queryByRole("link", { name: "Activity" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Outdoor" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Data & analytics" })).toBeNull();
     const homePicker = screen.getByLabelText("Home shown on this page") as HTMLSelectElement;
     expect(Array.from(homePicker.options, (option) => option.textContent)).toEqual(["Main home", "Guest home"]);
     expect(screen.queryByRole("option", { name: "Lake home" })).toBeNull();

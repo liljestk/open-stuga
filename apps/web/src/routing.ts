@@ -21,7 +21,7 @@ function decoded(value: string | undefined): string | null {
   }
 }
 
-const setupSectionPattern = "overview|homes|layout|connections|weather|automations";
+const setupSectionPattern = "overview|homes|layout|connections|weather|automations|operations";
 
 /**
  * Parse Stuga's explicit Workspace -> Property -> Home route hierarchy.

@@ -19,6 +19,7 @@ interface HomePulsePanelProps {
   referenceTime: number;
   onOpenTarget: (floorId: string, sensorId: string) => void;
   onOpenSetup?: () => void;
+  setupDestination?: "connections" | "sensors";
 }
 
 const hiddenPulseStoragePrefix = "stuga-home-pulse-hidden:v1";
@@ -286,7 +287,7 @@ export function HomePulsePanel(props: HomePulsePanelProps) {
         const display = displayHomeInsight(insight, locale, t);
         return <li key={insight.id} className={insight.severity}><span>{t(`decision.severity.${insight.severity}`)}</span><strong>{display.title}</strong></li>;
       })}</ul> : pulse.insights.length === 0 ? <div className="pulse-calm"><CheckCircle2 size={18} aria-hidden="true" /><span><strong>{t("decision.pulseCalmTitle")}</strong></span></div> : null}
-      {monitoringUnavailable && props.onOpenSetup && <button type="button" className="secondary-button home-pulse-remediation" data-remediation="sensors" onClick={props.onOpenSetup}>{t("overview.finishSetup")}<ArrowRight size={15} aria-hidden="true" /></button>}
+      {monitoringUnavailable && props.onOpenSetup && <button type="button" className="secondary-button home-pulse-remediation" data-remediation={props.setupDestination ?? "sensors"} onClick={props.onOpenSetup}>{t("overview.finishSetup")}<ArrowRight size={15} aria-hidden="true" /></button>}
       <details className="home-pulse-more">
         <summary><span>{t("home.moreInformation")}</span>{visibleInsights.length > 0 && <small>{visibleInsights.length}</small>}<ChevronDown size={15} aria-hidden="true" /></summary>
         <div className="home-pulse-more-content">

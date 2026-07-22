@@ -93,7 +93,15 @@ export function SpatialLayerOverlay3D({ house, snapshots, topology, project }: S
     });
     const zoneMap = new Map(zones.map((zone) => [zone.zone.zoneId, zone]));
     const activity = isActivityLayer(snapshot.layerId);
-    const label = `${spatialLayerLabel(snapshot.layerId, t)}. ${t("spatial.inferenceDisclaimer")}`;
+    const zoneSummary = zones.map(({ zone, floor, room }) => `${room?.name ?? zone.label ?? zone.zoneId} (${floor.name}): ${layerMetricText(snapshot.layerId, zone, locale) ?? t("common.noData")}, ${Math.round(layerConfidence(zone) * 100)}%`).join("; ");
+    const connectionSummary = snapshot.connections.flatMap((connection) => {
+      const fromZone = connection.fromZoneId ? zoneMap.get(connection.fromZoneId) : undefined;
+      const toZone = connection.toZoneId ? zoneMap.get(connection.toZoneId) : undefined;
+      const from = fromZone?.room?.name ?? fromZone?.zone.label ?? connection.fromZoneId;
+      const to = toZone?.room?.name ?? toZone?.zone.label ?? connection.toZoneId;
+      return from || to ? [`${from ?? "?"} → ${to ?? "?"}: ${(connection.state ?? "uncertain").replaceAll("_", " ")}, ${Math.round(layerConfidence(connection) * 100)}%`] : [];
+    }).join("; ");
+    const label = [spatialLayerLabel(snapshot.layerId, t), zoneSummary, connectionSummary, t("spatial.inferenceDisclaimer")].filter(Boolean).join(". ");
     const token = `${markerId}-${snapshotIndex}`;
     return <g key={`${snapshot.layerId}:${snapshot.generatedAt}`} className="spatial-backend-layer" data-layer-id={snapshot.layerId} data-maturity={snapshot.model.maturity} role="img" aria-label={label}>
       <title>{label}</title>

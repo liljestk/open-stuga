@@ -48,6 +48,7 @@ export function AlertsPage({ state, units, onCreateRule, onUpdateRule, onAcknowl
   const definitions = enabledDefinitions(state.measurementDefinitions);
   const definition = definitionFor(definitions, metric);
   const telegramReady = Boolean(state.integration.telegram?.available && state.integration.telegram.configured && state.integration.telegram.connected);
+  const inventoryUnavailable = readOnly && state.houses.length === 0;
   const coverageExceptions = state.houses.flatMap((house) => {
     const result = deriveHouseMonitoring({
       house,
@@ -103,20 +104,23 @@ export function AlertsPage({ state, units, onCreateRule, onUpdateRule, onAcknowl
       </header>
       <section className="panel alerts-open-panel" aria-labelledby="open-alerts-heading">
         <div className="panel-header alerts-open-heading"><div><span className="eyebrow">{t("alerts.open")}</span><h2 id="open-alerts-heading">{t("alerts.needsAttention")}</h2></div><span className="alerts-open-count" aria-label={`${actionableGroups.length} ${t("alerts.open")}`}>{actionableGroups.length}</span></div>
-        {actionableGroups.length === 0 ? <div className="empty-state success"><ShieldCheck size={34} aria-hidden="true" /><strong>{t("alerts.noThresholdAlerts")}</strong><span>{t(acknowledgedGroups.length ? "alerts.noneActionable" : coverageExceptions.length ? "alerts.noThresholdAlertsUnknown" : "alerts.noThresholdAlertsConfirmed")}</span></div> : <div className="event-list">{actionableGroups.map((group) => { const sensor = state.sensors.find((candidate) => candidate.id === group.primary.sensorId); const sensorHouse = state.houses.find((candidate) => candidate.id === sensor?.houseId); return <AlertRow key={group.key} alerts={group.alerts} rule={group.rule} sensor={sensor} houseName={sensorHouse?.name} timeZone={sensorHouse?.timezone} definitions={definitions} units={units} locale={locale} onAcknowledge={readOnly ? undefined : onAcknowledge} onInspect={onInspectAlert} />; })}</div>}
+        {actionableGroups.length === 0 ? inventoryUnavailable
+          ? <div className="empty-state"><HelpCircle size={34} aria-hidden="true" /><strong>{t("properties.noAccessTitle")}</strong><span>{t("properties.noAccessBody")}</span></div>
+          : <div className="empty-state success"><ShieldCheck size={34} aria-hidden="true" /><strong>{t("alerts.noThresholdAlerts")}</strong><span>{t(acknowledgedGroups.length ? "alerts.noneActionable" : coverageExceptions.length ? "alerts.noThresholdAlertsUnknown" : "alerts.noThresholdAlertsConfirmed")}</span></div>
+          : <div className="event-list">{actionableGroups.map((group) => { const sensor = state.sensors.find((candidate) => candidate.id === group.primary.sensorId); const sensorHouse = state.houses.find((candidate) => candidate.id === sensor?.houseId); return <AlertRow key={group.key} alerts={group.alerts} rule={group.rule} sensor={sensor} houseName={sensorHouse?.name} timeZone={sensorHouse?.timezone} definitions={definitions} units={units} locale={locale} onAcknowledge={readOnly ? undefined : onAcknowledge} onInspect={onInspectAlert} />; })}</div>}
         {acknowledgedGroups.length > 0 && <details className="acknowledged-alerts">
           <summary><span><Check size={15} aria-hidden="true" />{t("alerts.acknowledgedOpen")}</span><small>{t("alerts.acknowledgedCount", { count: acknowledgedGroups.length })}</small><ChevronDown size={16} aria-hidden="true" /></summary>
           <div className="event-list">{acknowledgedGroups.map((group) => { const sensor = state.sensors.find((candidate) => candidate.id === group.primary.sensorId); const sensorHouse = state.houses.find((candidate) => candidate.id === sensor?.houseId); return <AlertRow key={`acknowledged:${group.key}`} alerts={group.alerts} rule={group.rule} sensor={sensor} houseName={sensorHouse?.name} timeZone={sensorHouse?.timezone} definitions={definitions} units={units} locale={locale} onAcknowledge={readOnly ? undefined : onAcknowledge} onInspect={onInspectAlert} />; })}</div>
         </details>}
       </section>
 
-      {coverageExceptions.length ? <section className="alerts-monitoring-summary unknown" aria-labelledby="alerts-monitoring-heading">
+      {!inventoryUnavailable && (coverageExceptions.length ? <section className="alerts-monitoring-summary unknown" aria-labelledby="alerts-monitoring-heading">
         <span aria-hidden="true"><HelpCircle size={19} /></span>
         <div><h2 id="alerts-monitoring-heading">{t("alerts.monitoringUnknown")}</h2><ul>{coverageExceptions.map(({ house, blocker }) => <li key={house.id}><b>{house.name}</b><span>{coverageBlockerText(blocker, t)}</span></li>)}</ul></div>
       </section> : <details className="alerts-monitoring-summary confirmed">
         <summary><ShieldCheck size={19} aria-hidden="true" /><strong>{t("alerts.monitoringConfirmed")}</strong><ChevronDown size={16} aria-hidden="true" /></summary>
         <p>{t("alerts.monitoringConfirmedBody")}</p>
-      </details>}
+      </details>)}
 
       {!readOnly && onIntegrationChange && <section className="alerts-delivery-settings" aria-labelledby="alerts-delivery-settings-title">
         <header className="alerts-delivery-settings-heading">

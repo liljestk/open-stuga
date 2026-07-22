@@ -65,6 +65,34 @@ const pageIcons = {
 
 const navigationPreferenceKey = "climate-twin-navigation";
 
+function NavigationGroup({
+  label,
+  active,
+  children,
+}: {
+  label: string;
+  active: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(active);
+
+  useEffect(() => {
+    if (active) setOpen(true);
+  }, [active]);
+
+  return (
+    <details
+      className="sidebar-nav-group"
+      aria-label={label}
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary><span>{label}</span><ChevronDown size={15} aria-hidden="true" /></summary>
+      <div>{children}</div>
+    </details>
+  );
+}
+
 export function AppShell({
   page,
   onPage,
@@ -134,13 +162,7 @@ export function AppShell({
   ] : [];
   const homeNavItems: NavigationItem[] = activeHome && homeAvailable ? [
     { id: "twin", label: t("nav.twin"), scope: "home" },
-    { id: "activity", label: t("nav.activity"), scope: "home" },
-    { id: "outdoor", label: t("nav.outdoor"), scope: "home" },
-    ...(propertyElectricityAvailable ? [
-      { id: "energy" as const, label: t("nav.energyUse"), scope: "home" as const },
-    ] : []),
     { id: "sensors", label: t("nav.sensors"), scope: "home" },
-    { id: "analytics", label: t("nav.analytics"), scope: "home" },
     ...(!readOnly ? [
       { id: "integrations" as const, label: t("nav.integrations"), scope: "home" as const },
     ] : []),
@@ -148,6 +170,11 @@ export function AppShell({
   const advancedNavItems: NavigationItem[] = [
     { id: "developer", label: t("nav.developer"), scope: "workspace" },
   ];
+  const currentPath = window.location.pathname.replace(/\/+$/, "") || "/";
+  const homeGroupActive = currentPath.includes("/homes/");
+  const propertyGroupActive = !homeGroupActive && /^\/properties\/[^/]+/.test(currentPath);
+  const workspaceGroupActive = !homeGroupActive && !propertyGroupActive && page !== "developer";
+  const advancedGroupActive = page === "developer";
 
   const closeMenu = () => {
     const activeElement = document.activeElement;
@@ -263,7 +290,6 @@ export function AppShell({
       : item.scope === "property"
         ? { propertyId, houseId: null }
         : { propertyId, houseId };
-    const currentPath = window.location.pathname.replace(/\/+$/, "") || "/";
     const href = locationForRoute(item.id, scope, currentPath);
     const active = page === item.id && currentPath === href;
     return (
@@ -329,22 +355,22 @@ export function AppShell({
           </button>
         </div>
         <div className="sidebar-nav">
-          <details className="sidebar-nav-group" aria-label={t("tenant.active")} open>
-            <summary><span>{t("tenant.active")}</span><ChevronDown size={15} aria-hidden="true" /></summary>
-            <div>{workspaceNavItems.map(navigationItem)}</div>
-          </details>
-          {propertyNavItems.length > 0 && <details className="sidebar-nav-group" aria-label={t("nav.propertyGroup", { name: activeProperty?.name ?? t("nav.properties") })} open>
-            <summary><span>{t("nav.propertyGroup", { name: activeProperty?.name ?? t("nav.properties") })}</span><ChevronDown size={15} aria-hidden="true" /></summary>
-            <div>{propertyNavItems.map(navigationItem)}</div>
-          </details>}
-          {homeNavItems.length > 0 && <details className="sidebar-nav-group" aria-label={t("nav.homeGroup", { name: activeHome?.name ?? t("nav.twin") })} open>
-            <summary><span>{t("nav.homeGroup", { name: activeHome?.name ?? t("nav.twin") })}</span><ChevronDown size={15} aria-hidden="true" /></summary>
-            <div>{homeNavItems.map(navigationItem)}</div>
-          </details>}
-          <details className="sidebar-nav-group" aria-label={t("nav.advanced")} open={advancedNavItems.some((item) => item.id === page) || undefined}>
-            <summary><span>{t("nav.advanced")}</span><ChevronDown size={15} aria-hidden="true" /></summary>
-            <div>{advancedNavItems.map(navigationItem)}</div>
-          </details>
+          <NavigationGroup label={t("tenant.active")} active={workspaceGroupActive}>
+            {workspaceNavItems.map(navigationItem)}
+          </NavigationGroup>
+          {propertyNavItems.length > 0 && (
+            <NavigationGroup label={t("nav.propertyGroup", { name: activeProperty?.name ?? t("nav.properties") })} active={propertyGroupActive}>
+              {propertyNavItems.map(navigationItem)}
+            </NavigationGroup>
+          )}
+          {homeNavItems.length > 0 && (
+            <NavigationGroup label={t("nav.homeGroup", { name: activeHome?.name ?? t("nav.twin") })} active={homeGroupActive}>
+              {homeNavItems.map(navigationItem)}
+            </NavigationGroup>
+          )}
+          <NavigationGroup label={t("nav.advanced")} active={advancedGroupActive}>
+            {advancedNavItems.map(navigationItem)}
+          </NavigationGroup>
         </div>
         <div className="sidebar-foot">
           {readOnly && <div className="guest-session-badge"><ShieldCheck size={15} aria-hidden="true" /><span><strong>{t("properties.guestReadOnly")}</strong>{principalEmail && <small>{principalEmail}</small>}</span></div>}

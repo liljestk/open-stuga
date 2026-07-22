@@ -404,11 +404,14 @@ export function FloorPlan({
   const [addToolsOpen, setAddToolsOpen] = useState(false);
   const [editorOptionsOpen, setEditorOptionsOpen] = useState(false);
   const [keyboardPoint, setKeyboardPoint] = useState<Point>({ x: floor.width / 2, y: floor.height / 2 });
+  const [placementAnnouncement, setPlacementAnnouncement] = useState("");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [reducedMotion, setReducedMotion] = useState(false);
   const { expanded: mapInformationExpanded, setMapInformationExpanded } = useMapInformationVisibility();
   const renderScale = floorRenderScale(floor.width);
   const metresPerPlanUnit = floorMetersPerPlanUnit(floor, house);
+  const placementCoordinateScale = metresPerPlanUnit ?? 1;
+  const placementCoordinateUnit = metresPerPlanUnit === null ? "" : " m";
   const renderWidth = floor.width * renderScale;
   const renderHeight = floor.height * renderScale;
   const gridSize = floorGridSize(floor, gridDensity);
@@ -586,6 +589,7 @@ export function FloorPlan({
     setWallStart(null);
     setRoomStart(null);
     setPlacementError(null);
+    setPlacementAnnouncement("");
     if (tool !== "select") clearLayoutSelection();
     if (tool !== "select") setAddToolsOpen(false);
   };
@@ -952,6 +956,7 @@ export function FloorPlan({
     if (!keyboardPlacementActive) return;
     if (event.key === "Escape") {
       event.preventDefault();
+      setPlacementAnnouncement("");
       if (observationPlacement) {
         onCancelObservationPlacement();
       } else if (wallStart) {
@@ -975,12 +980,15 @@ export function FloorPlan({
           x: clamp(current.x + (event.key === "ArrowRight" ? xStep : event.key === "ArrowLeft" ? -xStep : 0), 0, floor.width),
           y: clamp(current.y + (event.key === "ArrowDown" ? yStep : event.key === "ArrowUp" ? -yStep : 0), 0, floor.height),
         };
-        return useGrid ? snapPointToGrid(point, floor, gridSize) : point;
+        const next = useGrid ? snapPointToGrid(point, floor, gridSize) : point;
+        setPlacementAnnouncement(`${floor.name}: x ${(next.x * placementCoordinateScale).toFixed(1)}${placementCoordinateUnit}, y ${(next.y * placementCoordinateScale).toFixed(1)}${placementCoordinateUnit}`);
+        return next;
       });
       return;
     }
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
+    setPlacementAnnouncement("");
     if (observationPlacement) {
       onObservationPoint(keyboardPoint);
       return;
@@ -1204,7 +1212,9 @@ export function FloorPlan({
       x: clamp(sensor.x + (event.key === "ArrowRight" ? xDistance : event.key === "ArrowLeft" ? -xDistance : 0), 0, floor.width),
       y: clamp(sensor.y + (event.key === "ArrowDown" ? yDistance : event.key === "ArrowUp" ? -yDistance : 0), 0, floor.height),
     };
-    onSensorMove(sensor.id, useGrid ? snapPointToGrid(point, floor, gridSize) : point);
+    const next = useGrid ? snapPointToGrid(point, floor, gridSize) : point;
+    onSensorMove(sensor.id, next);
+    setPlacementAnnouncement(`${sensor.name}, ${floor.name}: x ${(next.x * placementCoordinateScale).toFixed(1)}${placementCoordinateUnit}, y ${(next.y * placementCoordinateScale).toFixed(1)}${placementCoordinateUnit}`);
   };
 
   const uploadBackground = (event: ChangeEvent<HTMLInputElement>) => {
@@ -1477,11 +1487,12 @@ export function FloorPlan({
               {selectedPlanElement && <button type="button" className="tool-button danger-tool" onClick={() => deletePlanElement()}><Trash2 size={16} aria-hidden="true" />{t("twin.deleteElement")}</button>}
             </div>
           </details>
-          <span className="editor-hint" role="status" aria-live="polite">{editorHint}</span>
+          <span className="editor-hint">{editorHint}</span>
           {uploadError && <span className="editor-error" role="alert">{uploadError}</span>}
         </div>
       )}
-      {observationPlacement && <div className="placement-banner" role="status"><MapPinPlus size={17} aria-hidden="true" /><span>{t("observations.locationHint")}<small>{t("twin.keyboardPlacement")}</small></span></div>}
+      {observationPlacement && <div className="placement-banner"><MapPinPlus size={17} aria-hidden="true" /><span>{t("observations.locationHint")}<small>{t("twin.keyboardPlacement")}</small></span></div>}
+      {(placementAnnouncement || editing || observationPlacement) && <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{placementAnnouncement || (observationPlacement ? `${t("observations.locationHint")} ${t("twin.keyboardPlacement")}` : editorHint)}</p>}
       <div className={`plan-stage ${viewMode === "isometric" ? "isometric" : ""}`}>
         <svg
           ref={svgRef}

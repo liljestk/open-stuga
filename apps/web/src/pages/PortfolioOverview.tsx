@@ -69,6 +69,7 @@ export function PortfolioOverview({
 }: PortfolioOverviewProps) {
   const { locale, t } = useI18n();
   const now = useNow();
+  const propertySummary = (homeCount: number, areaCount: number) => `${t(homeCount === 1 ? "properties.homeCountOne" : "properties.homeCountMany", { count: homeCount })} · ${t(areaCount === 1 ? "properties.areaCountOne" : "properties.areaCountMany", { count: areaCount })}`;
   const monitoring = new Map(houses.map((house) => [house.id, deriveHouseMonitoring({
     house,
     sensors,
@@ -89,6 +90,13 @@ export function PortfolioOverview({
       confirmedHomes: homes.filter(({ result }) => result.status === "monitoring-ok"),
     };
   });
+
+  if (readOnly && properties.length === 0 && houses.length === 0) {
+    return <div className="page-stack portfolio-overview">
+      <header className="page-heading portfolio-heading"><div><span className="eyebrow">{t("properties.guestReadOnly")}</span><h1>{t("overview.title")}</h1><p>{t("overview.description")}</p></div></header>
+      <section className="property-empty-page" aria-labelledby="portfolio-no-access-title"><MapPin size={28} aria-hidden="true" /><h2 id="portfolio-no-access-title">{t("properties.noAccessTitle")}</h2><p>{t("properties.noAccessBody")}</p></section>
+    </div>;
+  }
 
   const renderHouseCard = ({ house, result }: (typeof monitoredHouses)[number], Heading: "h3" | "h4" = "h3") => {
     const houseSensors = sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled);
@@ -149,7 +157,7 @@ export function PortfolioOverview({
     <div className="page-stack portfolio-overview">
       <header className="page-heading portfolio-heading">
         <div>
-          <span className="eyebrow">{t("overview.eyebrow", { count: properties.length })}</span>
+          <span className="eyebrow">{t(properties.length === 1 ? "overview.propertyCountOne" : "overview.propertyCountMany", { count: properties.length })}</span>
           <h1>{t("overview.title")}</h1>
           <p>{t("overview.description")}</p>
         </div>
@@ -161,7 +169,7 @@ export function PortfolioOverview({
           <div>
             <span className="eyebrow">{t("properties.activeProperty")}</span>
             <h2 id={`portfolio-property-${property.id}`}>{property.name}</h2>
-            <p>{t("properties.summary", { houses: attentionHomes.length + confirmedHomes.length, areas: areaCount })}</p>
+            <p>{propertySummary(attentionHomes.length + confirmedHomes.length, areaCount)}</p>
           </div>
           <button type="button" className="secondary-button" aria-label={`${t("nav.properties")}: ${property.name}`} onClick={() => onOpenProperty(property.id)}>{t("nav.properties")}<ArrowRight size={15} aria-hidden="true" /></button>
         </div>

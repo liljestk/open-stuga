@@ -10,7 +10,7 @@ type Feedback = { kind: "success" | "error"; text: string };
 
 const initial = <T,>(): LoadState<T> => ({ value: null, loading: true, error: null });
 
-export function SetupOperationsPanel({ house }: Readonly<{ house: House }>) {
+export function SystemOperationsPanel() {
   const { locale, t } = useI18n();
   const [doctor, setDoctor] = useState<LoadState<SetupDoctorReport>>(initial);
   const [backup, setBackup] = useState<LoadState<BackupOperationStatus>>(initial);
@@ -93,8 +93,11 @@ export function SetupOperationsPanel({ house }: Readonly<{ house: House }>) {
       <button type="button" className="secondary-button" disabled={requestingBackup || backup.value?.state === "running" || backup.value?.state === "requested"} onClick={() => void requestBackup()}><Archive size={15} aria-hidden="true" />{requestingBackup ? t("setup.operations.requestingBackup") : t("setup.operations.runBackup")}</button>
     </section>
 
-    <BulkMappingAssistant house={house} />
   </div>;
+}
+
+export function SetupOperationsPanel({ house }: Readonly<{ house: House }>) {
+  return <div className="setup-operations-grid"><BulkMappingAssistant house={house} /></div>;
 }
 
 function BulkMappingAssistant({ house }: Readonly<{ house: House }>) {

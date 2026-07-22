@@ -177,7 +177,7 @@ export function RoomComfortBoard(props: Readonly<RoomComfortBoardProps>) {
         className={`room-comfort-card ${room.state}`}
         key={room.key}
         onClick={() => props.onOpenRoom(room.floorId, room.sensorId)}
-        aria-label={t("decision.openRoom", { room: room.room, status: t(`decision.state.${room.state}`) })}
+        aria-label={`${t("decision.openRoom", { room: room.room, status: t(`decision.state.${room.state}`) })}. ${t("common.temperature")}: ${formattedReading(room.temperature, temperatureDefinition, props.units)}. ${t("common.humidity")}: ${formattedReading(room.humidity, humidityDefinition, props.units)}. ${t("common.co2")}: ${formattedReading(room.co2, co2Definition, props.units)}. ${updated}.`}
       >
         <span className="room-card-topline"><strong>{room.room}</strong><span className={`comfort-state ${room.state}`}><ComfortStateIcon state={room.state} />{t(`decision.state.${room.state}`)}</span></span>
         <span className="room-card-readings">

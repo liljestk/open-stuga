@@ -152,7 +152,7 @@ export function ThermalSimulationPanel({
         </button>
       </div>
 
-      {simulation.loading && <div className="simulation-message collecting" role="status" aria-live="polite"><RotateCcw className="spin" size={18} aria-hidden="true" /><span><strong>{t(simulation.elapsedSeconds < 3 ? "simulation.progressPreparing" : simulation.elapsedSeconds < 10 ? "simulation.progressCalibrating" : "simulation.progressFinishing")}</strong><small>{t("simulation.progressElapsed", { seconds: simulation.elapsedSeconds })}</small></span></div>}
+      {simulation.loading && <div className="simulation-message collecting"><RotateCcw className="spin" size={18} aria-hidden="true" /><span><strong role="status" aria-live="polite">{t(simulation.elapsedSeconds < 3 ? "simulation.progressPreparing" : simulation.elapsedSeconds < 10 ? "simulation.progressCalibrating" : "simulation.progressFinishing")}</strong><small aria-hidden="true">{t("simulation.progressElapsed", { seconds: simulation.elapsedSeconds })}</small></span></div>}
 
       {simulation.error && <div className="simulation-message error" role="alert"><AlertCircle size={18} aria-hidden="true" /><span><strong>{t("simulation.error")}</strong><small>{t("simulation.errorHelp")}</small></span></div>}
       {!result && !simulation.error && <div className="simulation-empty"><Activity size={24} aria-hidden="true" /><span><strong>{t("simulation.empty")}</strong><small>{t("simulation.emptyHelp")}</small></span></div>}
