@@ -74,6 +74,16 @@ test("the release workflow builds recoverable images on a hosted native ARM64 ru
   assert.doesNotMatch(workflow, /runs-on: \[self-hosted/);
 });
 
+test("the factory image export uses the portable zstd output option", async () => {
+  const buildScript = await readFile(
+    new URL("../build-rpi-image.sh", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(buildScript, /zstd[^\n]+ -o "\$dist_dir\/\$factory_name"/);
+  assert.doesNotMatch(buildScript, /--output/);
+});
+
 test("ensureArtefact reuses an identical registered artifact", async () => {
   const config = readConfig(baseEnv);
   const existing = {
