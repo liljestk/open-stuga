@@ -178,7 +178,7 @@ if [[ "$export_factory_image" == "1" ]]; then
     echo "rpi-image-gen did not produce $raw_image" >&2
     exit 1
   fi
-  zstd --threads=0 -6 --force "$raw_image" --output "$dist_dir/$factory_name"
+  zstd --threads=0 -6 --force "$raw_image" -o "$dist_dir/$factory_name"
   chmod 0600 "$dist_dir/$factory_name"
   checksum_files+=("$factory_name")
 fi

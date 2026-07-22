@@ -218,7 +218,7 @@ describe("thermal simulation API and outdoor persistence", () => {
 
   it("exposes the product release independently from the API contract version", async () => {
     const response = await request(runtime.app).get("/api/v1/health").expect(200);
-    expect(response.body).toMatchObject({ status: "ok", systemVersion: "0.4.0", apiVersion: "v1" });
+    expect(response.body).toMatchObject({ status: "ok", systemVersion: "0.4.1", apiVersion: "v1" });
   });
 
   it("stores boundary samples idempotently and isolates changed locations", () => {
@@ -318,7 +318,7 @@ describe("thermal simulation API and outdoor persistence", () => {
       .query({ sensorId: "sensor-01", horizonHours: 3, scenarioOutdoorTemperatureC: -15 })
       .expect(200);
     expect(response.body.simulation).toMatchObject({
-      systemVersion: "0.4.0",
+      systemVersion: "0.4.1",
       houseId: "house-main",
       sensorId: "sensor-01",
       horizonHours: 3,
@@ -351,7 +351,7 @@ describe("thermal simulation API and outdoor persistence", () => {
 
     expect(response.headers["cache-control"]).toBe("no-store");
     expect(response.body.isolation).toMatchObject({
-      systemVersion: "0.4.0",
+      systemVersion: "0.4.1",
       houseId: "house-main",
       methodology: {
         scoreMethod: "modeled-24h-retention-v1",

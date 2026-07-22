@@ -4,6 +4,11 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+## 0.4.1 - 2026-07-22
+
+- Fixed the Raspberry Pi factory-image export on Debian Trixie by using the
+  portable `zstd -o` output option after the hosted ARM64 build completes.
+
 ## 0.4.0 - 2026-07-22
 
 - Refined the primary Home, property, setup, alert, and analytics workflows
