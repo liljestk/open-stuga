@@ -800,12 +800,12 @@ describe("frontend regressions", () => {
     await user.click(screen.getByRole("button", { name: "Open live home view" }));
     const metricPicker = await screen.findByRole("combobox", { name: "Metric" });
     expect(within(metricPicker).getByRole("option", { name: /Carbon dioxide.*ppm/ })).not.toBeNull();
-    let measurements = screen.getByRole("list", { name: "Available measurements" });
+    let measurements = await screen.findByRole("list", { name: "Available measurements" });
     let co2Item = within(measurements).getByText("Carbon dioxide").closest("[role=listitem]") as HTMLElement;
     expect(within(co2Item).getByText(`${co2Sample.value.toFixed(0)} ppm`)).not.toBeNull();
 
     view.rerender(withI18n(dashboard("imperial")));
-    measurements = screen.getByRole("list", { name: "Available measurements" });
+    measurements = await screen.findByRole("list", { name: "Available measurements" });
     co2Item = within(measurements).getByText("Carbon dioxide").closest("[role=listitem]") as HTMLElement;
     expect(within(co2Item).getByText(`${co2Sample.value.toFixed(0)} ppm`)).not.toBeNull();
     expect(co2Item.textContent).not.toMatch(/[Â°%]/);
@@ -816,7 +816,8 @@ describe("frontend regressions", () => {
     await user.click(screen.getByRole("button", { name: "Avaa kodin reaaliaikainen näkymä" }));
     const finnishPicker = await screen.findByRole("combobox", { name: "Mittari" });
     expect(within(finnishPicker).getByRole("option", { name: /Hiilidioksidi.*ppm/ })).not.toBeNull();
-    expect(within(screen.getByRole("list", { name: "Saatavilla olevat mittaukset" })).getByText("Hiilidioksidi")).not.toBeNull();
+    const finnishMeasurements = await screen.findByRole("list", { name: "Saatavilla olevat mittaukset" });
+    expect(within(finnishMeasurements).getByText("Hiilidioksidi")).not.toBeNull();
   });
 
   it("renders custom non-spatial measurements at sensor markers without a heat field or legend", () => {

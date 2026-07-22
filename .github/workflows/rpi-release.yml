@@ -125,10 +125,10 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   ota:
-    name: A/B image and deployment
+    name: A/B and factory images
     needs: resolve_images
-    runs-on: [self-hosted, linux, ARM64, rpi-image-gen]
-    timeout-minutes: 180
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
     env:
       RPI_CONNECT_API_TOKEN: ${{ secrets.RPI_CONNECT_API_TOKEN }}
       RPI_CONNECT_DEVICE_ID: ${{ secrets.RPI_CONNECT_DEVICE_ID }}
@@ -143,7 +143,15 @@ jobs:
         with:
           node-version: 22.13
 
-      - name: Build Raspberry Pi OTA artifact
+      - name: Check native ARM64 runner capacity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "aarch64"
+          df -h "$GITHUB_WORKSPACE"
+          docker version
+
+      - name: Build Raspberry Pi OTA and factory artifacts
         shell: bash
         env:
           STUGA_VERSION: ${{ env.RELEASE_TAG }}
@@ -153,11 +161,50 @@ jobs:
           STUGA_WEB_IMAGE: ${{ needs.resolve_images.outputs.web_ref }}
           STUGA_BACKUP_IMAGE: ${{ needs.resolve_images.outputs.backup_ref }}
           STUGA_TAPO_RUNNER_IMAGE: ${{ needs.resolve_images.outputs.tapo_ref }}
-          RPI_FACTORY_BUILD: "0"
-          RPI_EXPORT_FACTORY_IMAGE: "0"
-        run: bash scripts/build-rpi-image.sh
+          RPI_FACTORY_SSH_PUBLIC_KEY: ${{ secrets.RPI_FACTORY_SSH_PUBLIC_KEY }}
+          RPI_FACTORY_BUILD: "1"
+          RPI_EXPORT_FACTORY_IMAGE: "1"
+          RPI_IMAGE_GEN_INSTALL_DEPS: "1"
+        run: |
+          set -Eeuo pipefail
+          if [[ ! "$RPI_FACTORY_SSH_PUBLIC_KEY" =~ ^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp[0-9]+)[[:space:]] ]]; then
+            echo "::error::RPI_FACTORY_SSH_PUBLIC_KEY must contain a valid SSH public key"
+            exit 1
+          fi
 
-      - name: Locate and checksum OTA artifact
+          ssh_key_path="$RUNNER_TEMP/stuga-appliance.pub"
+          install -m 0600 /dev/null "$ssh_key_path"
+          printf '%s\n' "$RPI_FACTORY_SSH_PUBLIC_KEY" > "$ssh_key_path"
+          export HOST_UID="$(id -u)"
+          export HOST_GID="$(id -g)"
+
+          docker run --rm --privileged --platform linux/arm64 \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --volume "$ssh_key_path:/run/secrets/stuga-appliance.pub:ro" \
+            --workdir /workspace \
+            --env HOST_UID \
+            --env HOST_GID \
+            --env STUGA_VERSION \
+            --env STUGA_IMAGE_TAG \
+            --env STUGA_IMAGE_REGISTRY_PREFIX \
+            --env STUGA_API_IMAGE \
+            --env STUGA_WEB_IMAGE \
+            --env STUGA_BACKUP_IMAGE \
+            --env STUGA_TAPO_RUNNER_IMAGE \
+            --env RPI_FACTORY_BUILD \
+            --env RPI_EXPORT_FACTORY_IMAGE \
+            --env RPI_IMAGE_GEN_INSTALL_DEPS \
+            --env RPI_SSH_PUBLIC_KEY_FILE=/run/secrets/stuga-appliance.pub \
+            debian:trixie-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd \
+            bash -c '
+              set -Eeuo pipefail
+              apt-get update
+              apt-get install --yes --no-install-recommends ca-certificates git zstd
+              bash scripts/build-rpi-image.sh
+              chown -R "$HOST_UID:$HOST_GID" dist/rpi
+            '
+
+      - name: Locate and checksum release artifacts
         id: ota
         shell: bash
         run: |
@@ -166,8 +213,16 @@ jobs:
           name="stuga-rpi4-${version}-ota.tar.zst"
           path="$GITHUB_WORKSPACE/dist/rpi/$name"
           checksum_path="$GITHUB_WORKSPACE/dist/rpi/stuga-rpi4-${version}.sha256"
+          factory_name="stuga-rpi4-${version}.img.zst"
+          factory_path="$GITHUB_WORKSPACE/dist/rpi/$factory_name"
+          factory_checksum_path="$GITHUB_WORKSPACE/dist/rpi/stuga-rpi4-${version}-factory.sha256"
           test -s "$path"
-          test -s "$checksum_path"
+          test -s "$factory_path"
+          (
+            cd "$GITHUB_WORKSPACE/dist/rpi"
+            sha256sum "$name" > "$(basename "$checksum_path")"
+            sha256sum "$factory_name" > "$(basename "$factory_checksum_path")"
+          )
           checksum="$(sha256sum "$path" | cut -d ' ' -f 1)"
           {
             echo "version=$version"
@@ -175,8 +230,22 @@ jobs:
             echo "path=$path"
             echo "checksum_path=$checksum_path"
             echo "checksum=$checksum"
+            echo "factory_name=$factory_name"
+            echo "factory_path=$factory_path"
+            echo "factory_checksum_path=$factory_checksum_path"
             echo "uri=https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$name"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Upload short-lived factory image
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stuga-rpi4-${{ steps.ota.outputs.version }}-factory
+          path: |
+            ${{ steps.ota.outputs.factory_path }}
+            ${{ steps.ota.outputs.factory_checksum_path }}
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
 
       - name: Attach OTA artifact to GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2

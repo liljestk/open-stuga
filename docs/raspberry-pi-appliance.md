@@ -18,8 +18,8 @@ package updates.
 - The first boot expands the final persistent partition to fill the external
   disk.
 - Docker and containerd state are shared across both OS slots.
-- CI-built OTA releases pull release-tagged, digest-pinned ARM64 images and
-  wait for their health checks. The one-time local factory build uses the
+- CI-built factory and OTA images pull release-tagged, digest-pinned ARM64
+  containers and wait for their health checks. A local factory build uses the
   release tag unless you supply exact image references.
 - If new application containers fail, the startup service restores the last
   known-good image set.
@@ -44,16 +44,18 @@ For the appliance:
 
 For image builds:
 
-- A persistent ARM64 build machine running current 64-bit Raspberry Pi OS
-  Trixie, Debian Trixie, or Debian Bookworm. A second Pi is sufficient.
-- At least 20 GB of free build space.
-- A GitHub Actions self-hosted runner on that machine with the additional label
-  `rpi-image-gen`.
+- The release workflow uses GitHub's native `ubuntu-24.04-arm` runner and runs
+  `rpi-image-gen` in a privileged, digest-pinned Debian Trixie container.
+- Add the recovery public key as the repository secret
+  `RPI_FACTORY_SSH_PUBLIC_KEY`. Keep the matching private key off GitHub.
+- `rpi-image-gen` recommends at least 20 GB of free build space. The workflow
+  reports the hosted runner's allocation before building. If a standard runner
+  is too small for a future image, use an ARM64 larger or self-hosted runner
+  with at least 20 GB while keeping the Debian build container unchanged.
 
-The build host is deliberately separate from the immutable appliance. If you
-only have one Pi, you can initially boot it from a temporary Raspberry Pi OS
-SD card to make the factory image, but future unattended releases still need
-an ARM64 build host or runner.
+The build runner is deliberately separate from the immutable appliance. A
+local build remains available on a current 64-bit Raspberry Pi OS Trixie,
+Debian Trixie, or Debian Bookworm host.
 
 ## 1. Prepare USB boot
 
@@ -148,22 +150,28 @@ The outputs are written to `dist/rpi/`:
 - `stuga-rpi4-<version>-ota.tar.zst` — remote A/B update.
 - `stuga-rpi4-<version>.sha256` — checksums for both.
 
-The factory image contains the single-use Connect key, so it is mode `0600`.
-Do not upload it to a public release. Delete it after the disk is installed and
-verified. OTA artifacts do not contain the persistent Connect identity.
+If supplied, the factory image contains the single-use Connect key, so it is
+mode `0600`. Do not upload such an image to a public release. Delete it after
+the disk is installed and verified. OTA artifacts do not contain the
+persistent Connect identity. The CI factory image described below embeds only
+the recovery SSH public key, never its private key or a Connect auth key.
 
 ## 4. Publish the matching application images
 
 The appliance pulls immutable images tagged with the Git release, for example
-`v0.4.0`. Configure the ARM64 build runner before publishing the release:
+`v0.4.0`. Before publishing the first release:
 
-1. In GitHub, open **Settings → Actions → Runners → New self-hosted runner**.
-2. Follow GitHub's ARM64 Linux instructions on the build host.
-3. Add the custom label `rpi-image-gen` when configuring the runner.
-4. Run `RPI_IMAGE_GEN_INSTALL_DEPS=1 bash scripts/build-rpi-image.sh` once with
-   the required access variables if CI uses a different build account, or run
-   the checked-out `rpi-image-gen/install_deps.sh` directly.
-5. Publish the existing tag as a GitHub Release.
+1. Create a dedicated recovery key with
+   `ssh-keygen -t ed25519 -f ~/.ssh/stuga_appliance`.
+2. Add `~/.ssh/stuga_appliance.pub` as the repository secret
+   `RPI_FACTORY_SSH_PUBLIC_KEY`.
+3. Publish the existing tag as a GitHub Release.
+
+The workflow builds on GitHub's native hosted ARM64 runner. It attaches only
+the OTA image and its checksum to the public release. The factory image and a
+separate factory checksum are uploaded to that workflow run as an uncompressed
+Actions artifact retained for three days. Download it before the retention
+window expires; it can be rebuilt by rerunning the release workflow.
 
 The `Raspberry Pi release` workflow publishes these GHCR packages:
 
@@ -191,8 +199,11 @@ Verify the image before writing it:
 ```sh
 cd dist/rpi
 VERSION=0.4.0  # the release tag without its leading v
-sha256sum --check "stuga-rpi4-${VERSION}.sha256"
+sha256sum --check "stuga-rpi4-${VERSION}-factory.sha256"
 ```
+
+For a manual local build, use its combined
+`stuga-rpi4-${VERSION}.sha256` file instead.
 
 Open a current Raspberry Pi Imager:
 

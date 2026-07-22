@@ -109,7 +109,11 @@ git -C "$rpi_image_gen_dir" fetch --depth 1 origin "$rpi_image_gen_ref"
 git -C "$rpi_image_gen_dir" checkout --detach "$rpi_image_gen_ref"
 
 if [[ "${RPI_IMAGE_GEN_INSTALL_DEPS:-0}" == "1" ]]; then
-  sudo "$rpi_image_gen_dir/install_deps.sh"
+  if (( EUID == 0 )); then
+    "$rpi_image_gen_dir/install_deps.sh"
+  else
+    sudo "$rpi_image_gen_dir/install_deps.sh"
+  fi
 fi
 
 stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/stuga-rpi.XXXXXX")"
