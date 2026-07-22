@@ -22,6 +22,13 @@ export interface MeasurementSampleRecord {
   metadata?: TelemetryMetadata;
 }
 
+export interface MeasurementCoverageRecord {
+  sensorId: string;
+  metric: string;
+  start: string;
+  end: string;
+}
+
 export interface LegacyReadingRecord {
   sensorId: string;
   timestamp: string;
@@ -121,6 +128,13 @@ export interface MeasurementWindowQuery extends QueryControl {
   from: string;
   to: string;
   limit?: number;
+}
+
+export interface MeasurementCoverageQuery extends QueryControl {
+  sensorIds: readonly string[];
+  metrics: readonly string[];
+  /** Real-data mode must not let archived mock/replay rows widen the visible range. */
+  excludeSynthetic?: boolean;
 }
 
 export interface MeasurementBucketQuery extends MeasurementHistoryQuery {

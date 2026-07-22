@@ -343,4 +343,32 @@ describe("thermal simulation API and outdoor persistence", () => {
       .expect(400)
       .expect(({ body }) => expect(body.error.code).toBe("RANGE_TOO_LARGE"));
   });
+
+  it("compares thermal isolation across rooms, floors, and the whole demo home", async () => {
+    const response = await request(runtime.app)
+      .get("/api/v1/houses/house-main/thermal-isolation")
+      .expect(200);
+
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body.isolation).toMatchObject({
+      systemVersion: "0.3.0",
+      houseId: "house-main",
+      methodology: {
+        scoreMethod: "modeled-24h-retention-v1",
+        aggregationMethod: "median-child-score-v1",
+      },
+    });
+    const entries = response.body.isolation.entries as Array<{
+      scope: { type: string };
+      score: number | null;
+    }>;
+    expect(new Set(entries.map((entry) => entry.scope.type))).toEqual(new Set(["house", "floor", "room", "sensor"]));
+    expect(entries.find((entry) => entry.scope.type === "house")?.score).toEqual(expect.any(Number));
+
+    await request(runtime.app)
+      .get("/api/v1/houses/house-main/thermal-isolation")
+      .query({ from: "2026-01-01T00:00:00.000Z", to: "2026-01-16T00:00:00.000Z" })
+      .expect(400)
+      .expect(({ body }) => expect(body.error.code).toBe("RANGE_TOO_LARGE"));
+  });
 });

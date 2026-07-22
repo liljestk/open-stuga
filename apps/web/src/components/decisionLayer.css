@@ -359,7 +359,10 @@ button.pulse-insight:hover { border-color: var(--action); background: var(--acti
 }
 
 @media (max-width: 700px) {
-  .decision-section-heading { display: grid; }
+  .home-live-heading { margin-top: 18px; }
+  .decision-section-heading { display: grid; gap: 6px; margin-bottom: 8px; }
+  .decision-section-heading h2 { font-size: 18px; }
+  .decision-section-heading p { font-size: 11.5px; }
   .room-comfort-scroll { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: 1fr; overflow: visible; }
   .room-comfort-card { min-height: 156px; }
   .moisture-evidence { grid-template-columns: 1fr 1fr; }

@@ -67,6 +67,43 @@ describe("analytics query API", () => {
     expect(response.body.series[0].points).toHaveLength(3);
   });
 
+  it("treats the requested end as exclusive", async () => {
+    runtime.database.insertMeasurementSamples([
+      { sensorId: "sensor-01", metric: "temperature", value: 99, canonicalUnit: "Â°C", timestamp: "2026-07-19T10:15:00.000Z", source: "api", quality: "good" },
+    ]);
+
+    const response = await request(runtime.app).post("/api/v2/analytics/query").send(query()).expect(200);
+
+    expect(response.body.quality).toMatchObject({ sampleCount: 3, excludedSampleCount: 0 });
+    expect(response.body.series[0].points.map((point: { value: number | null }) => point.value)).toEqual([20, 21, 22]);
+  });
+
+  it("discovers the complete recorded span for calendar comparisons", async () => {
+    const response = await request(runtime.app).post("/api/v2/analytics/coverage").send({
+      apiVersion: "1.0",
+      dataMode: "live",
+      scope: { kind: "house", id: "house-main", entityIds: ["sensor-01"] },
+      measurementIds: ["temperature"],
+      requestId: "analytics-coverage-test",
+    }).expect(200);
+
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.body).toMatchObject({
+      apiVersion: "1.0",
+      requestId: "analytics-coverage-test",
+      dataMode: "live",
+      range: { start: "2026-07-19T10:00:00.000Z", end: "2026-07-19T10:10:00.000Z" },
+      complete: true,
+      archiveState: "not-configured",
+      series: [{
+        entityId: "sensor-01",
+        measurementId: "temperature",
+        start: "2026-07-19T10:00:00.000Z",
+        end: "2026-07-19T10:10:00.000Z",
+      }],
+    });
+  });
+
   it("rejects a missing or mismatched data mode and invalid measurement aggregation", async () => {
     const missing = query();
     delete (missing as { dataMode?: string }).dataMode;

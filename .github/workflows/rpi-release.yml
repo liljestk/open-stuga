@@ -1,0 +1,202 @@
+name: Raspberry Pi release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing GitHub release tag to build (for example v0.3.0)
+        required: true
+        type: string
+      deploy:
+        description: Deploy to the configured Raspberry Pi after publishing
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: rpi-release-${{ github.event.release.tag_name || inputs.release_tag }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+  IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+
+jobs:
+  containers:
+    name: Container (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: api
+            suffix: api
+          - target: web
+            suffix: web
+          - target: backup
+            suffix: backup
+          - target: tapo-export-runner
+            suffix: tapo-export-runner
+    steps:
+      - name: Check out the released source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Verify tag and package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version="$(node -p "require('./package.json').version")"
+          test "${RELEASE_TAG#v}" = "$package_version"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Sign in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish ${{ matrix.target }}
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.IMAGE_PREFIX }}-${{ matrix.suffix }}:${{ env.RELEASE_TAG }}
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+          provenance: mode=max
+          sbom: true
+
+  resolve_images:
+    name: Freeze release image digests
+    needs: containers
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      api_ref: ${{ steps.images.outputs.api_ref }}
+      web_ref: ${{ steps.images.outputs.web_ref }}
+      backup_ref: ${{ steps.images.outputs.backup_ref }}
+      tapo_ref: ${{ steps.images.outputs.tapo_ref }}
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Sign in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve immutable image references
+        id: images
+        shell: bash
+        run: |
+          set -euo pipefail
+          resolve() {
+            local ref="$1"
+            local digest
+            digest="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}')"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            printf '%s@%s' "$ref" "$digest"
+          }
+          {
+            echo "api_ref=$(resolve "${IMAGE_PREFIX}-api:${RELEASE_TAG}")"
+            echo "web_ref=$(resolve "${IMAGE_PREFIX}-web:${RELEASE_TAG}")"
+            echo "backup_ref=$(resolve "${IMAGE_PREFIX}-backup:${RELEASE_TAG}")"
+            echo "tapo_ref=$(resolve "${IMAGE_PREFIX}-tapo-export-runner:${RELEASE_TAG}")"
+          } >> "$GITHUB_OUTPUT"
+
+  ota:
+    name: A/B image and deployment
+    needs: resolve_images
+    runs-on: [self-hosted, linux, ARM64, rpi-image-gen]
+    timeout-minutes: 180
+    env:
+      RPI_CONNECT_API_TOKEN: ${{ secrets.RPI_CONNECT_API_TOKEN }}
+      RPI_CONNECT_DEVICE_ID: ${{ secrets.RPI_CONNECT_DEVICE_ID }}
+    steps:
+      - name: Check out the released source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up Node.js for deployment
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.13
+
+      - name: Build Raspberry Pi OTA artifact
+        shell: bash
+        env:
+          STUGA_VERSION: ${{ env.RELEASE_TAG }}
+          STUGA_IMAGE_TAG: ${{ env.RELEASE_TAG }}
+          STUGA_IMAGE_REGISTRY_PREFIX: ${{ env.IMAGE_PREFIX }}
+          STUGA_API_IMAGE: ${{ needs.resolve_images.outputs.api_ref }}
+          STUGA_WEB_IMAGE: ${{ needs.resolve_images.outputs.web_ref }}
+          STUGA_BACKUP_IMAGE: ${{ needs.resolve_images.outputs.backup_ref }}
+          STUGA_TAPO_RUNNER_IMAGE: ${{ needs.resolve_images.outputs.tapo_ref }}
+          RPI_FACTORY_BUILD: "0"
+          RPI_EXPORT_FACTORY_IMAGE: "0"
+        run: bash scripts/build-rpi-image.sh
+
+      - name: Locate and checksum OTA artifact
+        id: ota
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          name="stuga-rpi4-${version}-ota.tar.zst"
+          path="$GITHUB_WORKSPACE/dist/rpi/$name"
+          checksum_path="$GITHUB_WORKSPACE/dist/rpi/stuga-rpi4-${version}.sha256"
+          test -s "$path"
+          test -s "$checksum_path"
+          checksum="$(sha256sum "$path" | cut -d ' ' -f 1)"
+          {
+            echo "version=$version"
+            echo "name=$name"
+            echo "path=$path"
+            echo "checksum_path=$checksum_path"
+            echo "checksum=$checksum"
+            echo "uri=https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$name"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Attach OTA artifact to GitHub release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            ${{ steps.ota.outputs.path }}
+            ${{ steps.ota.outputs.checksum_path }}
+          fail_on_unmatched_files: true
+          overwrite_files: true
+
+      - name: Register and deploy through Raspberry Pi Connect
+        if: >-
+          env.RPI_CONNECT_API_TOKEN != '' &&
+          env.RPI_CONNECT_DEVICE_ID != '' &&
+          (github.event_name == 'release' || inputs.deploy)
+        env:
+          RPI_OTA_VERSION: ${{ steps.ota.outputs.version }}
+          RPI_OTA_URI: ${{ steps.ota.outputs.uri }}
+          RPI_OTA_CHECKSUM: ${{ steps.ota.outputs.checksum }}
+          RPI_OTA_DEPLOY: "true"
+          RPI_OTA_WAIT_MINUTES: "30"
+        run: node scripts/deploy-rpi-ota.mjs

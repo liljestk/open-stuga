@@ -9,6 +9,8 @@ import type {
   EnergyCostAggregateRecord,
   LegacyReadingHistoryQuery,
   LegacyReadingRecord,
+  MeasurementCoverageQuery,
+  MeasurementCoverageRecord,
   MeasurementHistoryQuery,
   MeasurementSampleRecord,
   OutdoorTemperatureHistoryQuery,
@@ -43,6 +45,13 @@ export interface HybridTelemetryReadResult<T> {
   provenance: HybridTelemetryReadProvenance;
 }
 
+export interface HybridMeasurementCoverageResult {
+  records: MeasurementCoverageRecord[];
+  archiveState: HybridArchiveReadState;
+  /** True when SQLite is complete or archive coverage was merged successfully. */
+  complete: boolean;
+}
+
 export interface MeasurementWindowQuery extends QueryControl {
   sensorIds: readonly string[];
   metrics: readonly string[];
@@ -54,6 +63,7 @@ export interface MeasurementWindowQuery extends QueryControl {
 /** The synchronous, crash-safe SQLite reads needed by the facade. */
 export interface LocalTelemetryReader {
   isRealDataMode(): boolean;
+  measurementCoverage?(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[];
   measurementHistory(sensorId: string, metric: string, from: string, to: string, limit?: number): MeasurementSample[];
   measurementWindow(sensorIds: string[], metrics: string[], from: string, to: string, limit?: number): MeasurementSample[];
   history(sensorIds: string[], from: string, to: string, limit?: number): Reading[];
@@ -73,6 +83,7 @@ export interface LocalTelemetryReader {
  * when one is available.
  */
 export interface ArchiveTelemetryReader {
+  measurementCoverage?(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]>;
   measurementHistory(query: MeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
   measurementWindow?(query: MeasurementWindowQuery): Promise<MeasurementSampleRecord[]>;
   legacyReadingHistory(query: LegacyReadingHistoryQuery): Promise<LegacyReadingRecord[]>;
@@ -145,6 +156,10 @@ function compareOutdoor(left: OutdoorTemperatureSample, right: OutdoorTemperatur
 
 function measurementKey(record: MeasurementSample): string {
   return JSON.stringify([record.sensorId, record.metric, record.timestamp, record.source]);
+}
+
+function measurementCoverageKey(record: MeasurementCoverageRecord): string {
+  return JSON.stringify([record.sensorId, record.metric]);
 }
 
 function readingKey(record: Reading): string {
@@ -341,6 +356,51 @@ export class HybridTelemetryReader {
       key: measurementKey,
       compare: compareMeasurements,
     });
+  }
+
+  async measurementCoverage(query: MeasurementCoverageQuery): Promise<HybridMeasurementCoverageResult> {
+    const cancellation = aborted(query.signal);
+    if (cancellation) throw cancellation;
+    const sensorIds = unique(query.sensorIds);
+    const metrics = unique(query.metrics);
+    const local = this.#local.measurementCoverage?.(sensorIds, metrics) ?? [];
+    const localComplete = this.#localHistoryComplete === true && this.#local.measurementCoverage !== undefined;
+    if (!this.#archive) return { records: local, archiveState: "not-configured", complete: localComplete };
+    const phase = this.#archivePhase ? this.#safeArchivePhase() : "ready";
+    if (phase !== "ready" && phase !== "syncing") {
+      return { records: local, archiveState: "not-ready", complete: localComplete };
+    }
+    if (!this.#archive.measurementCoverage) {
+      return { records: local, archiveState: "failed", complete: localComplete };
+    }
+    try {
+      const archived = await this.#archive.measurementCoverage({
+        ...query,
+        sensorIds,
+        metrics,
+        excludeSynthetic: this.#local.isRealDataMode(),
+      });
+      const merged = new Map<string, MeasurementCoverageRecord>();
+      for (const record of [...archived, ...local]) {
+        const key = measurementCoverageKey(record);
+        const current = merged.get(key);
+        merged.set(key, current ? {
+          ...current,
+          start: current.start < record.start ? current.start : record.start,
+          end: current.end > record.end ? current.end : record.end,
+        } : record);
+      }
+      return {
+        records: [...merged.values()].sort((left, right) => compareText(left.sensorId, right.sensorId) || compareText(left.metric, right.metric)),
+        archiveState: "merged",
+        complete: true,
+      };
+    } catch (error) {
+      const afterFailureCancellation = aborted(query.signal);
+      if (afterFailureCancellation) throw afterFailureCancellation;
+      this.#requestReconciliation();
+      return { records: local, archiveState: "failed", complete: localComplete };
+    }
   }
 
   async legacyReadingHistory(query: LegacyReadingHistoryQuery): Promise<HybridTelemetryReadResult<Reading>> {

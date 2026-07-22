@@ -47,6 +47,13 @@ credentials.json
 secrets.json
 secrets/
 
+# Raspberry Pi image build output and local provisioning secrets
+.rpi-image-gen/
+.rpi-build/
+dist/rpi/
+deploy/rpi/*.psk
+deploy/rpi/*.authkey
+
 # Local agent/editor metadata
 .agents/
 .codex/

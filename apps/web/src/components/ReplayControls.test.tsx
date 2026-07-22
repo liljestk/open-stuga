@@ -148,7 +148,8 @@ describe("ReplayControls time and speed labels", () => {
       onEventSelect,
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Temperature fell 2\.0°C in Living room/ }));
+    const events = screen.getByLabelText("Auto-tagged events");
+    fireEvent.click(within(events).getByRole("button", { name: /Temperature fell 2\.0°C in Living room/ }));
 
     expect(calls).toEqual([
       ["playing", false],
@@ -164,6 +165,7 @@ describe("ReplayControls time and speed labels", () => {
 
   it("filters event buttons and visual ticks to the inclusive replay range", () => {
     const atMinimum = climateEvent({ id: "inside", timestamp: min });
+    const onTimestamp = vi.fn();
     renderControls("Europe/Helsinki", {
       timestamp: min,
       events: [
@@ -173,6 +175,7 @@ describe("ReplayControls time and speed labels", () => {
       ],
       sensors: demo.sensors,
       definitions: demo.measurementDefinitions,
+      onTimestamp,
     });
 
     const events = screen.getByLabelText("Auto-tagged events");
@@ -180,7 +183,11 @@ describe("ReplayControls time and speed labels", () => {
     expect(events.querySelector('[data-replay-event-id="inside"]')).not.toBeNull();
     expect(events.querySelector('[data-replay-event-id="before"]')).toBeNull();
     expect(events.querySelector('[data-replay-event-id="after"]')).toBeNull();
-    expect(document.querySelectorAll(".replay-event-ticks i")).toHaveLength(1);
+    const timelineEvents = document.querySelector<HTMLElement>(".replay-event-ticks")!;
+    expect(within(timelineEvents).getAllByRole("button")).toHaveLength(1);
+    const timelineEvent = within(timelineEvents).getByRole("button", { name: /Temperature fell 2\.0°C in Living room/ });
+    fireEvent.click(timelineEvent);
+    expect(onTimestamp).toHaveBeenCalledWith(min);
   });
 
   it("localizes every speed option", () => {

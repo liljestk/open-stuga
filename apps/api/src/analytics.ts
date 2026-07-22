@@ -1,6 +1,7 @@
 import type {
   AggregationSemantic,
   AnalyticsAggregation,
+  AnalyticsCoverageRequest,
   AnalyticsPoint,
   AnalyticsQueryRequest,
   AnalyticsQueryResponse,
@@ -170,6 +171,34 @@ export function parseAnalyticsQueryRequest(value: unknown, now = Date.now()): An
     ...(qualityFilter ? { qualityFilter } : {}),
     include: [...includes] as NonNullable<AnalyticsQueryRequest["include"]>,
     maxPointsPerSeries: maxPoints as number,
+    requestId: requiredString(body.requestId, "requestId"),
+  };
+}
+
+export function parseAnalyticsCoverageRequest(value: unknown): AnalyticsCoverageRequest {
+  const body = objectValue(value);
+  rejectUnknown(body, ["apiVersion", "dataMode", "scope", "measurementIds", "requestId"], "request");
+  if (body.apiVersion !== "1.0") {
+    throw new AnalyticsQueryError(400, "UNSUPPORTED_ANALYTICS_VERSION", "apiVersion must be 1.0");
+  }
+  if (body.dataMode !== "live" && body.dataMode !== "demo") {
+    throw new AnalyticsQueryError(400, "DATA_MODE_REQUIRED", "dataMode must be explicitly set to live or demo");
+  }
+  const scopeBody = objectValue(body.scope, "scope");
+  rejectUnknown(scopeBody, ["kind", "id", "entityIds"], "scope");
+  if (scopeBody.kind !== "house") {
+    throw new AnalyticsQueryError(422, "UNSUPPORTED_ANALYTICS_SCOPE", "This release supports house-scoped analytics queries");
+  }
+  const entityIds = optionalStringList(scopeBody.entityIds, "scope.entityIds", 50);
+  return {
+    apiVersion: "1.0",
+    dataMode: body.dataMode,
+    scope: {
+      kind: "house",
+      id: requiredString(scopeBody.id, "scope.id"),
+      ...(entityIds ? { entityIds } : {}),
+    },
+    measurementIds: stringList(body.measurementIds, "measurementIds", 8),
     requestId: requiredString(body.requestId, "requestId"),
   };
 }
@@ -416,8 +445,14 @@ export function buildAnalyticsResponse(input: BuildAnalyticsResponseInput): Anal
   const rangeSeconds = (end - start) / 1_000;
   const includedQualities = input.request.qualityFilter?.include ?? ["good", "estimated", "stale"];
   const includedQualitySet = new Set(includedQualities);
-  const includedSamples = input.samples.filter((sample) => includedQualitySet.has(sample.quality));
-  const excludedSampleCount = input.samples.length - includedSamples.length;
+  // Analytics ranges are half-open. Filtering here keeps aggregation correct even
+  // when a telemetry backend uses an inclusive upper bound for its read window.
+  const rangeSamples = input.samples.filter((sample) => {
+    const timestamp = Date.parse(sample.timestamp);
+    return timestamp >= start && timestamp < end;
+  });
+  const includedSamples = rangeSamples.filter((sample) => includedQualitySet.has(sample.quality));
+  const excludedSampleCount = rangeSamples.length - includedSamples.length;
   const bucketMs = resolution === "raw" ? null : RESOLUTION_SECONDS[resolution] * 1_000;
   const bucketCount = bucketMs === null ? null : Math.ceil((end - Math.floor(start / bucketMs) * bucketMs) / bucketMs);
   if (bucketCount !== null && bucketCount > maxPoints) {

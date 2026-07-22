@@ -1,0 +1,38 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+readonly persistent_mount=/persistent
+readonly marker_file=/persistent/.stuga-expanded
+
+if [[ -e "$marker_file" ]]; then
+  exit 0
+fi
+
+partition="$(findmnt --noheadings --output SOURCE --target "$persistent_mount")"
+partition="$(readlink -f "$partition")"
+parent_name="$(lsblk --noheadings --nodeps --output PKNAME "$partition" | xargs)"
+partition_number="$(lsblk --noheadings --nodeps --output PARTN "$partition" | xargs)"
+
+if [[ -z "$parent_name" || ! "$partition_number" =~ ^[0-9]+$ ]]; then
+  echo "Cannot identify the parent disk for $partition" >&2
+  exit 1
+fi
+
+disk="/dev/$parent_name"
+echo "Expanding $partition on $disk to use the remaining storage"
+
+set +e
+grow_output="$(growpart "$disk" "$partition_number" 2>&1)"
+grow_status=$?
+set -e
+printf '%s\n' "$grow_output"
+
+if (( grow_status != 0 )) && [[ "$grow_output" != *NOCHANGE* ]]; then
+  echo "growpart failed with status $grow_status" >&2
+  exit "$grow_status"
+fi
+
+udevadm settle
+resize2fs "$partition"
+touch "$marker_file"
+sync

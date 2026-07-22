@@ -8,10 +8,33 @@ system described in the roadmap.
 
 - The analytics query is a bounded, on-demand first slice, not the complete
   Graphing and Stats subsystem. It supports house-scoped sensor series and
-  deterministic descriptive summaries, explicit evidence-query controls, and
-  ranges through one year; saved views, comparison periods, brush selection,
-  distributions, scientific derived metrics, findings, topology models,
+  deterministic descriptive summaries, explicit evidence-query controls,
+  rolling ranges through one year, and calendar day/week/month/year/decade
+  comparisons over available history. It also has daily practical-effect
+  peer-period findings. Saved views, brush selection, distributions,
+  scientific derived metrics, statistical anomaly models, topology models,
   validated forecasts, and predictive-maintenance signals remain deferred.
+- Daily findings compare the completed month-to-date span with at most five
+  matching prior years and retain only the latest snapshot per Home. Their
+  fixed practical thresholds are useful for surfacing candidates, not p-values,
+  diagnoses, causal explanations, or proof that a change is abnormal.
+- A daily Home run examines at most 80 recorded sensor/measurement series and
+  retains at most 16 ranked findings. Electricity series are prioritized and
+  the UI warns when the scope bound excluded other series.
+- A sensor or weather comparison requires usable samples and at least 50%
+  inferred coverage in the current and one earlier peer period. Door/window
+  findings require recorded contact activity in both periods. Event-stream
+  uptime cannot be reconstructed from transitions, so opening evidence shows
+  observation counts and leaves coverage unspecified rather than claiming
+  continuous monitoring.
+- Door/window counts include confirmed closed-to-open transitions from the
+  configured provider (or API/manual fallback). Repeated open heartbeats,
+  startup open snapshots, transitions through `unknown`, fixed windows, vents,
+  and open passages are not counted. A provider outage can therefore suppress
+  events; absence of events is not assumed to mean a continuously closed door.
+- Electricity findings currently cover registered sensor measurements whose
+  semantics are power or energy. Property spot-price history and bill/tariff
+  decomposition are not yet part of this daily detector.
 - Stuga currently uses a database-wide, one-way demo-to-real transition rather
   than `dataMode` columns and composite constraints on every telemetry row. The
   analytics request, response, and export require an explicit mode and reject a
@@ -20,6 +43,10 @@ system described in the roadmap.
 - Rollups are computed in memory from a bounded SQLite/Timescale read. Requests
   fail at the source or output budget instead of truncating silently. There are
   no persisted rollups, semantic cache, or late-data invalidation jobs yet.
+- Calendar comparison discovers the selected series' range on demand and splits
+  large periods into bounded queries. When a configured archive is unavailable,
+  the UI warns that older matching periods may be absent instead of claiming the
+  locally visible range is complete.
 - Buckets are aligned to UTC. The requested house timezone is preserved for
   rendering and export, but local-calendar daily aggregation and explicit
   23/24/25-hour daylight-saving behavior are not implemented yet.

@@ -263,6 +263,20 @@ describe("guest access API client", () => {
   });
 });
 
+describe("daily analytics findings API client", () => {
+  it("loads the latest house-scoped snapshot from v2", async () => {
+    const result = { snapshot: null, status: { state: "pending", lastAttemptAt: null, lastError: null } } as const;
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => result } as Response);
+
+    await expect(api.analyticsFindings("house/main")).resolves.toEqual(result);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v2/analytics/findings?houseId=house%2Fmain",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+});
+
 describe("maintenance task API client", () => {
   it("combines property, house, area, and equipment list filters", async () => {
     const fetchMock = vi.mocked(fetch);
@@ -409,6 +423,20 @@ describe("thermal simulation API client", () => {
 
     const [url] = fetchMock.mock.calls[0]!;
     expect(url).toBe("/api/v1/houses/house%2Fmain/thermal-simulation?sensorId=sensor%2Foffice&from=2026-07-13T10%3A00%3A00.000Z&to=2026-07-14T10%3A00%3A00.000Z&horizonHours=12&scenarioOutdoorTemperatureC=-10");
+  });
+
+  it("encodes the whole-home thermal isolation window", async () => {
+    const isolation = { houseId: "house/main", entries: [] };
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ isolation }) } as Response);
+
+    await expect(api.thermalIsolation("house/main", {
+      from: "2026-07-07T10:00:00.000Z",
+      to: "2026-07-14T10:00:00.000Z",
+    })).resolves.toEqual(isolation);
+
+    const [url] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/v1/houses/house%2Fmain/thermal-isolation?from=2026-07-07T10%3A00%3A00.000Z&to=2026-07-14T10%3A00%3A00.000Z");
   });
 });
 

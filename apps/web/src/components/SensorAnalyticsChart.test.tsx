@@ -42,6 +42,8 @@ describe("SensorAnalyticsChart", () => {
     const { container } = render(
       <I18nProvider>
         <SensorAnalyticsChart
+          houseId={house.id}
+          dataMode="demo"
           sensors={sensors}
           history={state.measurementHistory}
           forecasts={state.measurementForecasts}
@@ -91,6 +93,8 @@ describe("SensorAnalyticsChart", () => {
     const { container } = render(
       <I18nProvider>
         <SensorAnalyticsChart
+          houseId={house.id}
+          dataMode="demo"
           sensors={sensors}
           history={state.measurementHistory}
           forecasts={state.measurementForecasts}
@@ -128,6 +132,8 @@ describe("SensorAnalyticsChart", () => {
     const { container } = render(
       <I18nProvider>
         <SensorAnalyticsChart
+          houseId={house.id}
+          dataMode="demo"
           sensors={sensors}
           history={state.measurementHistory}
           forecasts={state.measurementForecasts}
@@ -163,6 +169,8 @@ describe("SensorAnalyticsChart", () => {
     const { container } = render(
       <I18nProvider>
         <SensorAnalyticsChart
+          houseId={house.id}
+          dataMode="demo"
           sensors={[]}
           history={{}}
           forecasts={{}}

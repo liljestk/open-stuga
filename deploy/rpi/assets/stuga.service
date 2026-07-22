@@ -1,0 +1,17 @@
+[Unit]
+Description=Stuga appliance
+Wants=network-online.target
+Requires=docker.service stuga-data-grow.service
+After=network-online.target docker.service stuga-data-grow.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/stuga-compose-start
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=60s
+TimeoutStartSec=30min
+
+[Install]
+WantedBy=multi-user.target

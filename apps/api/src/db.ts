@@ -14,6 +14,7 @@ import type {
   AlertEvent,
   AlertDeliveryPolicy,
   AlertRule,
+  DailyAnalyticsFindingsSnapshot,
   NotificationDeliveryStage,
   NotificationDeliveryStatus,
   NotificationSubjectKind,
@@ -81,7 +82,7 @@ import {
   policyFromJson,
   policyJson,
 } from "./notification-policy.js";
-import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord } from "./timeseries/types.js";
+import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord } from "./timeseries/types.js";
 
 type JsonValue = string | number | boolean;
 const MIN_SEED_OUTDOOR_READINGS = 48;
@@ -127,6 +128,23 @@ export interface DemoTelemetryPurgeResult {
   measurementSamples: number;
   outdoorTemperatureSamples: number;
   alertEvents: number;
+}
+
+export interface StoredDailyAnalyticsFindings {
+  snapshot: DailyAnalyticsFindingsSnapshot | null;
+  lastAttemptAt: string;
+  lastError: string | null;
+}
+
+export interface OpeningStateActivityRecord {
+  floorId: string;
+  elementId: string;
+  source: OpeningStateObservation["source"];
+  externalId: string | null;
+  connectionId: string | null;
+  observationCount: number;
+  openedCount: number;
+  closedCount: number;
 }
 
 export interface SecurityAuditEventInput {
@@ -2012,6 +2030,7 @@ export class ClimateDatabase {
       // so an event or active condition derived from mock samples cannot cross it.
       const alertEvents = Number(this.db.prepare("DELETE FROM alert_events").run().changes);
       this.db.prepare("DELETE FROM alert_evaluation_state").run();
+      this.db.prepare("DELETE FROM analytics_daily_findings").run();
       this.db.prepare(`INSERT INTO metadata(key, value) VALUES ('data_mode', 'real')
         ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run();
       this.db.prepare("INSERT OR IGNORE INTO metadata(key, value) VALUES ('real_data_mode_activated_at', ?)").run(activatedAt);
@@ -2024,6 +2043,7 @@ export class ClimateDatabase {
       this.db.prepare("DELETE FROM measurement_samples WHERE source IN ('mock', 'replay')").run();
       this.db.prepare("DELETE FROM readings WHERE source IN ('mock', 'replay')").run();
       this.db.prepare("DELETE FROM outdoor_temperature_samples WHERE source = 'mock'").run();
+      this.db.prepare("DELETE FROM analytics_daily_findings WHERE data_mode = 'demo'").run();
     });
   }
 
@@ -2187,6 +2207,16 @@ export class ClimateDatabase {
         ON opening_state_observations(house_id, floor_id, element_id, observed_at DESC);
       CREATE INDEX IF NOT EXISTS idx_opening_state_external_time
         ON opening_state_observations(source, external_id, observed_at DESC);
+      CREATE TABLE IF NOT EXISTS analytics_daily_findings (
+        house_id TEXT PRIMARY KEY REFERENCES houses(id) ON DELETE CASCADE,
+        data_mode TEXT NOT NULL CHECK (data_mode IN ('live', 'demo')),
+        evaluated_through TEXT,
+        generated_at TEXT,
+        algorithm_version TEXT,
+        snapshot_json TEXT CHECK (snapshot_json IS NULL OR json_valid(snapshot_json)),
+        last_attempt_at TEXT NOT NULL,
+        last_error TEXT
+      );
       CREATE TABLE IF NOT EXISTS property_areas (
         id TEXT PRIMARY KEY,
         property_id TEXT NOT NULL REFERENCES properties(id) ON DELETE RESTRICT,
@@ -5267,6 +5297,117 @@ export class ClimateDatabase {
     ));
   }
 
+  /**
+   * Counts confirmed contact-state transitions without treating repeated
+   * provider heartbeats, startup snapshots, or unknown states as openings.
+   */
+  openingStateActivity(
+    houseId: string,
+    from: string | number | Date,
+    to: string | number | Date,
+  ): OpeningStateActivityRecord[] {
+    const fromMs = from instanceof Date ? from.getTime() : typeof from === "number" ? from : Date.parse(from);
+    const toMs = to instanceof Date ? to.getTime() : typeof to === "number" ? to : Date.parse(to);
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs) return [];
+    const rows = this.db.prepare(`WITH ordered AS (
+        SELECT floor_id, element_id, source, external_id, connection_id, state, observed_at,
+          LAG(state) OVER (
+            PARTITION BY floor_id, element_id, source, COALESCE(external_id, ''), COALESCE(connection_id, '')
+            ORDER BY observed_at, id
+          ) AS previous_state
+        FROM opening_state_observations
+        WHERE house_id = ? AND observed_at < ?
+      )
+      SELECT floor_id, element_id, source, external_id, connection_id,
+        COUNT(*) AS observation_count,
+        SUM(CASE WHEN state = 'open' AND previous_state = 'closed' THEN 1 ELSE 0 END) AS opened_count,
+        SUM(CASE WHEN state = 'closed' AND previous_state = 'open' THEN 1 ELSE 0 END) AS closed_count
+      FROM ordered
+      WHERE observed_at >= ?
+      GROUP BY floor_id, element_id, source, external_id, connection_id
+      ORDER BY floor_id, element_id, source, external_id, connection_id`)
+      .all(houseId, new Date(toMs).toISOString(), new Date(fromMs).toISOString()) as unknown as Array<{
+        floor_id: string;
+        element_id: string;
+        source: OpeningStateObservation["source"];
+        external_id: string | null;
+        connection_id: string | null;
+        observation_count: number;
+        opened_count: number;
+        closed_count: number;
+      }>;
+    return rows.map((row) => ({
+      floorId: row.floor_id,
+      elementId: row.element_id,
+      source: row.source,
+      externalId: row.external_id,
+      connectionId: row.connection_id,
+      observationCount: Number(row.observation_count),
+      openedCount: Number(row.opened_count),
+      closedCount: Number(row.closed_count),
+    }));
+  }
+
+  dailyAnalyticsFindings(houseId: string, dataMode: "live" | "demo"): StoredDailyAnalyticsFindings | null {
+    const row = this.db.prepare(`SELECT snapshot_json, last_attempt_at, last_error
+      FROM analytics_daily_findings WHERE house_id = ? AND data_mode = ?`)
+      .get(houseId, dataMode) as { snapshot_json: string | null; last_attempt_at: string; last_error: string | null } | undefined;
+    if (!row) return null;
+    let snapshot: DailyAnalyticsFindingsSnapshot | null = null;
+    if (row.snapshot_json) {
+      try {
+        snapshot = JSON.parse(row.snapshot_json) as DailyAnalyticsFindingsSnapshot;
+      } catch {
+        return { snapshot: null, lastAttemptAt: row.last_attempt_at, lastError: "Stored daily findings are unreadable" };
+      }
+    }
+    return { snapshot, lastAttemptAt: row.last_attempt_at, lastError: row.last_error };
+  }
+
+  saveDailyAnalyticsFindings(snapshot: DailyAnalyticsFindingsSnapshot): void {
+    if (!this.getHouse(snapshot.houseId)) throw new Error(`House ${snapshot.houseId} does not exist`);
+    const snapshotJson = JSON.stringify(snapshot);
+    if (Buffer.byteLength(snapshotJson, "utf8") > 1_000_000) throw new Error("Daily analytics snapshot exceeds 1 MB");
+    this.db.prepare(`INSERT INTO analytics_daily_findings
+        (house_id, data_mode, evaluated_through, generated_at, algorithm_version, snapshot_json, last_attempt_at, last_error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+      ON CONFLICT(house_id) DO UPDATE SET
+        data_mode = excluded.data_mode,
+        evaluated_through = excluded.evaluated_through,
+        generated_at = excluded.generated_at,
+        algorithm_version = excluded.algorithm_version,
+        snapshot_json = excluded.snapshot_json,
+        last_attempt_at = excluded.last_attempt_at,
+        last_error = NULL`)
+      .run(snapshot.houseId, snapshot.dataMode, snapshot.evaluatedThrough, snapshot.generatedAt,
+        snapshot.algorithmVersion, snapshotJson, snapshot.generatedAt);
+  }
+
+  recordDailyAnalyticsFindingsFailure(
+    houseId: string,
+    dataMode: "live" | "demo",
+    attemptedAt: string,
+    error: string,
+  ): void {
+    const detail = error.trim().slice(0, 1_000) || "Daily analytics run failed";
+    this.db.prepare(`INSERT INTO analytics_daily_findings
+        (house_id, data_mode, evaluated_through, generated_at, algorithm_version, snapshot_json, last_attempt_at, last_error)
+      VALUES (?, ?, NULL, NULL, NULL, NULL, ?, ?)
+      ON CONFLICT(house_id) DO UPDATE SET
+        data_mode = excluded.data_mode,
+        evaluated_through = CASE WHEN analytics_daily_findings.data_mode = excluded.data_mode
+          THEN analytics_daily_findings.evaluated_through ELSE NULL END,
+        generated_at = CASE WHEN analytics_daily_findings.data_mode = excluded.data_mode
+          THEN analytics_daily_findings.generated_at ELSE NULL END,
+        algorithm_version = CASE WHEN analytics_daily_findings.data_mode = excluded.data_mode
+          THEN analytics_daily_findings.algorithm_version ELSE NULL END,
+        snapshot_json = CASE WHEN analytics_daily_findings.data_mode = excluded.data_mode
+          THEN analytics_daily_findings.snapshot_json ELSE NULL END,
+        last_attempt_at = excluded.last_attempt_at,
+        last_error = excluded.last_error`)
+      .run(houseId, dataMode, attemptedAt, detail);
+  }
+
   recordOpeningStateObservation(houseId: string, input: OpeningStateObservationInput): OpeningStateObservation {
     const house = this.getHouse(houseId);
     if (!house) throw new ClimateDataValidationError(404, "HOUSE_NOT_FOUND", `House ${houseId} does not exist`);
@@ -5472,6 +5613,9 @@ export class ClimateDatabase {
         this.db.prepare("DELETE FROM outdoor_temperature_samples WHERE house_id = ?").run(id);
         this.db.prepare("DELETE FROM weather_outages WHERE house_id = ?").run(id);
       }
+      if (patch.floors !== undefined || patch.location !== undefined || patch.timezone !== undefined) {
+        this.db.prepare("DELETE FROM analytics_daily_findings WHERE house_id = ?").run(id);
+      }
       return next;
     });
   }
@@ -5604,6 +5748,7 @@ export class ClimateDatabase {
       });
       this.validateTpLinkDeviceBinding(sensor);
       this.writeSensor(sensor, true);
+      this.db.prepare("DELETE FROM analytics_daily_findings WHERE house_id = ?").run(sensor.houseId);
       return sensor;
     });
   }
@@ -5629,6 +5774,8 @@ export class ClimateDatabase {
       });
       this.validateTpLinkDeviceBinding(normalizedSensor);
       this.writeSensor(normalizedSensor, false);
+      this.db.prepare("DELETE FROM analytics_daily_findings WHERE house_id IN (?, ?)")
+        .run(current.houseId, normalizedSensor.houseId);
       if (normalizedSensor.enabled && normalizedSensor.tpLinkDeviceId
         && (!current.enabled || !current.tpLinkDeviceId
           || current.tpLinkDeviceId !== normalizedSensor.tpLinkDeviceId)) {
@@ -6249,6 +6396,7 @@ export class ClimateDatabase {
 
   deleteSensor(id: string): boolean {
     return this.immediateTransaction(() => {
+      const sensor = this.getSensor(id);
       const historicalAlert = this.db.prepare(`SELECT id FROM alert_events
         WHERE sensor_id = ? LIMIT 1`).get(id) as { id: string } | undefined;
       if (historicalAlert) {
@@ -6263,6 +6411,7 @@ export class ClimateDatabase {
       if (!deleted) return false;
       this.db.prepare(`DELETE FROM static_parameters
         WHERE scope_type = 'sensor' AND scope_id = ?`).run(id);
+      if (sensor) this.db.prepare("DELETE FROM analytics_daily_findings WHERE house_id = ?").run(sensor.houseId);
       return true;
     });
   }
@@ -6428,6 +6577,30 @@ export class ClimateDatabase {
     ) ORDER BY timestamp ASC, id ASC`)
       .all(...sensorIds, ...metrics, from, to, limit) as unknown as MeasurementSampleRow[];
     return rows.map(measurementSampleFromRow);
+  }
+
+  measurementCoverage(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[] {
+    if (sensorIds.length === 0 || metrics.length === 0) return [];
+    const sensorPlaceholders = sensorIds.map(() => "?").join(",");
+    const metricPlaceholders = metrics.map(() => "?").join(",");
+    const rows = this.db.prepare(`SELECT sensor_id, metric,
+        MIN(timestamp) AS coverage_start, MAX(timestamp) AS coverage_end
+      FROM measurement_samples
+      WHERE sensor_id IN (${sensorPlaceholders}) AND metric IN (${metricPlaceholders})
+      GROUP BY sensor_id, metric
+      ORDER BY sensor_id, metric`)
+      .all(...sensorIds, ...metrics) as Array<{
+        sensor_id: string;
+        metric: string;
+        coverage_start: string;
+        coverage_end: string;
+      }>;
+    return rows.map((row) => ({
+      sensorId: row.sensor_id,
+      metric: row.metric,
+      start: row.coverage_start,
+      end: row.coverage_end,
+    }));
   }
 
   measurementHistoryBucketed(

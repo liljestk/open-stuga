@@ -16,6 +16,8 @@ import type {
 import { timeRangeHours, type ClimateState, type TimeRange } from "../domain";
 import { api } from "../api";
 import { SensorAnalyticsChart } from "../components/SensorAnalyticsChart";
+import { DailyAnalyticsFindings } from "../components/DailyAnalyticsFindings";
+import { ThermalIsolationPanel } from "../components/ThermalIsolationPanel";
 import { chartGapThresholdMs, detectSeriesGaps } from "../chartGaps";
 import { formatInTimeZone } from "../dateTime";
 import { useHouseWeather } from "../useHouseWeather";
@@ -314,7 +316,16 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
         <button type="button" className="secondary-button" onClick={refresh} disabled={loading}><RefreshCw className={loading ? "spin" : ""} size={15} aria-hidden="true" />{t("common.refresh")}</button>
       </header>
 
+      <DailyAnalyticsFindings
+        house={props.house}
+        definitions={props.state.measurementDefinitions}
+        units={props.units}
+        refreshRevision={refreshRevision}
+      />
+
       {definitions.length > 0 && sensors.length > 0 ? <SensorAnalyticsChart
+        houseId={props.house.id}
+        dataMode={props.dataMode}
         sensors={metricSensors}
         history={props.state.measurementHistory}
         forecasts={props.state.measurementForecasts}
@@ -337,6 +348,8 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
         onWeatherForecastVisible={setWeatherForecastVisible}
         onLoadSeries={props.onLoadSeries}
       /> : <div className="empty-state">{t("common.noData")}</div>}
+
+      <ThermalIsolationPanel house={props.house} units={props.units} />
 
       <section className="panel analytics-evidence-panel" aria-labelledby="analytics-evidence-title">
         <header className="panel-header">

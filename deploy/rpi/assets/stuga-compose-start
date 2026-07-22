@@ -1,0 +1,103 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+readonly project_dir=/opt/stuga
+readonly state_dir=/persistent/stuga
+readonly local_env="$state_dir/stuga.env"
+readonly release_env="$project_dir/release.env"
+readonly known_good_env="$state_dir/last-known-good.env"
+readonly docker_config="$state_dir/docker-config"
+readonly status_file="$state_dir/release-status"
+readonly appliance_user=stuga
+readonly lock_file=/run/lock/stuga-compose.lock
+
+install -d -m 0750 -o "$appliance_user" -g "$appliance_user" "$state_dir"
+install -d -m 0700 -o "$appliance_user" -g "$appliance_user" "$docker_config"
+install -d -m 0750 -o "$appliance_user" -g "$appliance_user" \
+  "$state_dir/backups" \
+  "$state_dir/config" \
+  "$state_dir/secrets" \
+  "$state_dir/secrets/cloudflare" \
+  "$state_dir/secrets/tapo-history-api" \
+  "$state_dir/secrets/tapo-history-runner"
+
+if [[ ! -e "$local_env" ]]; then
+  install -m 0640 -o "$appliance_user" -g "$appliance_user" \
+    "$project_dir/stuga.env.example" "$local_env"
+fi
+
+if [[ ! -e "$state_dir/config/tapo-flow.json" ]]; then
+  install -m 0640 -o "$appliance_user" -g "$appliance_user" \
+    "$project_dir/apps/tapo-export-runner/flow.example.json" \
+    "$state_dir/config/tapo-flow.json"
+fi
+
+while IFS= read -r -d '' source_file; do
+  destination="$state_dir/config/${source_file#"$project_dir/config/"}"
+  if [[ ! -e "$destination" ]]; then
+    install -d -m 0750 -o "$appliance_user" -g "$appliance_user" \
+      "$(dirname "$destination")"
+    install -m 0640 -o "$appliance_user" -g "$appliance_user" \
+      "$source_file" "$destination"
+  fi
+done < <(find "$project_dir/config" -type f -print0)
+
+exec 9>"$lock_file"
+flock 9
+
+compose() {
+  local selected_release_env="$1"
+  shift
+  DOCKER_CONFIG="$docker_config" docker compose \
+    --project-name stuga \
+    --project-directory "$project_dir" \
+    --env-file "$local_env" \
+    --env-file "$selected_release_env" \
+    --file "$project_dir/docker-compose.yml" \
+    "$@"
+}
+
+start_release() {
+  local selected_release_env="$1"
+  compose "$selected_release_env" up \
+    --detach \
+    --no-build \
+    --pull never \
+    --remove-orphans \
+    --wait \
+    --wait-timeout 600
+}
+
+echo "Pulling the pinned Stuga release"
+if ! compose "$release_env" pull; then
+  echo "Registry pull failed; attempting to use already-cached images" >&2
+fi
+
+if start_release "$release_env"; then
+  install -m 0640 -o "$appliance_user" -g "$appliance_user" \
+    "$release_env" "$known_good_env"
+  {
+    printf 'version=%s\n' "$(cat /etc/stuga-version)"
+    printf 'healthy_at=%s\n' "$(date --utc +%Y-%m-%dT%H:%M:%SZ)"
+  } > "$status_file"
+  chown "$appliance_user:$appliance_user" "$status_file"
+  chmod 0640 "$status_file"
+  echo "Stuga $(cat /etc/stuga-version) is healthy"
+  exit 0
+fi
+
+echo "The new release did not become healthy" >&2
+if [[ -s "$known_good_env" ]] && ! cmp --silent "$release_env" "$known_good_env"; then
+  echo "Restoring the last known-good application containers" >&2
+  if start_release "$known_good_env"; then
+    printf 'failed_version=%s\nrolled_back_at=%s\n' \
+      "$(cat /etc/stuga-version)" "$(date --utc +%Y-%m-%dT%H:%M:%SZ)" \
+      > "$status_file"
+    chown "$appliance_user:$appliance_user" "$status_file"
+    chmod 0640 "$status_file"
+    echo "The last known-good application release is running" >&2
+    exit 0
+  fi
+fi
+
+exit 1

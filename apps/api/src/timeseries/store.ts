@@ -27,6 +27,8 @@ import type {
   LegacyReadingRecord,
   MeasurementBucketQuery,
   MeasurementBucketRecord,
+  MeasurementCoverageQuery,
+  MeasurementCoverageRecord,
   MeasurementHistoryQuery,
   MeasurementSampleRecord,
   MeasurementWindowQuery,
@@ -135,6 +137,13 @@ interface MeasurementBucketRow extends QueryResultRow {
   minimum: number;
   maximum: number;
   canonical_unit: string;
+}
+
+interface MeasurementCoverageRow extends QueryResultRow {
+  sensor_id: string;
+  metric: string;
+  coverage_start: string | Date;
+  coverage_end: string | Date;
 }
 
 interface HealthRow extends QueryResultRow {
@@ -895,6 +904,23 @@ export class TimeseriesStore {
       limit,
     ], query);
     return result.rows.map(measurementFromRow);
+  }
+
+  async measurementCoverage(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]> {
+    if (query.sensorIds.length === 0 || query.metrics.length === 0) return [];
+    const result = await this.#query<MeasurementCoverageRow>(`SELECT sensor_id, metric,
+        MIN(observed_at) AS coverage_start, MAX(observed_at) AS coverage_end
+      FROM ${qualifiedName(this.schema, "measurement_samples")}
+      WHERE sensor_id = ANY($1::TEXT[]) AND metric = ANY($2::TEXT[])
+        ${query.excludeSynthetic ? "AND source NOT IN ('mock', 'replay')" : ""}
+      GROUP BY sensor_id, metric
+      ORDER BY sensor_id, metric`, [[...query.sensorIds], [...query.metrics]], query);
+    return result.rows.map((row) => ({
+      sensorId: row.sensor_id,
+      metric: row.metric,
+      start: timestamp(row.coverage_start),
+      end: timestamp(row.coverage_end),
+    }));
   }
 
   async measurementBuckets(query: MeasurementBucketQuery): Promise<MeasurementBucketRecord[]> {

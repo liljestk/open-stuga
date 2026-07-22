@@ -198,7 +198,7 @@ services:
       - stuga-proxy-secret:/app/runtime/proxy:ro
       - stuga-tapo-worker-secret:/app/runtime/tapo:ro
       - stuga-backup-operations:/app/runtime/backup-operations
-      - ./config:/app/config:ro
+      - ${STUGA_CONFIG_DIRECTORY:-./config}:/app/config:ro
       - ${TAPO_HISTORY_API_SECRET_DIR:-./secrets/tapo-history-api}:/run/secrets/tapo-history:ro
       - ${STUGA_CLOUDFLARE_SECRET_DIR:-./secrets/cloudflare}:/run/secrets/cloudflare:ro
     read_only: true
@@ -213,6 +213,7 @@ services:
 
   tapo-export-runner:
     profiles: ["tapo-history"]
+    image: ${STUGA_TAPO_RUNNER_IMAGE:-stuga-tapo-export-runner:local}
     build:
       context: .
       target: tapo-export-runner
@@ -387,6 +388,7 @@ services:
       - backend
 
   web:
+    image: ${STUGA_WEB_IMAGE:-stuga-web:local}
     build:
       context: .
       target: web

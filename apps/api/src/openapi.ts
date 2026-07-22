@@ -608,6 +608,35 @@ const combinedOpenApiDocument = {
         },
       },
     },
+    "/analytics/findings": {
+      get: {
+        servers: [{ url: "/api/v2" }],
+        tags: ["Measurements"],
+        operationId: "dailyAnalyticsFindings",
+        description: "Returns the latest persisted daily month-to-date peer-period findings. Findings are descriptive differences with evidence and never causal claims.",
+        parameters: [{ name: "houseId", in: "query", required: true, schema: { type: "string", minLength: 1, maxLength: 200 } }],
+        responses: {
+          "200": { description: "Latest snapshot and last daily-run status", content: { "application/json": { schema: { $ref: "#/components/schemas/DailyAnalyticsFindingsResponse" } } } },
+          "400": { description: "houseId is missing or invalid" },
+          "404": { description: "The house is absent or outside the caller's visibility" },
+        },
+      },
+    },
+    "/analytics/coverage": {
+      post: {
+        servers: [{ url: "/api/v2" }],
+        tags: ["Measurements"],
+        operationId: "analyticsCoverage",
+        description: "Discovers the complete recorded span for selected analytics series before calendar-period comparison. An unavailable archive is reported explicitly.",
+        requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/AnalyticsCoverageRequest" } } } },
+        responses: {
+          "200": { description: "Earliest and latest recorded sample for every selected sensor/measurement pair", content: { "application/json": { schema: { $ref: "#/components/schemas/AnalyticsCoverageResponse" } } } },
+          "400": { description: "Malformed request or missing dataMode" },
+          "409": { description: "Requested dataMode does not match the isolated local database mode" },
+          "422": { description: "Unsupported scope or analytics-disabled measurement" },
+        },
+      },
+    },
     "/measurements": {
       post: { servers: [{ url: "/api/v2" }], tags: ["Measurements"], operationId: "ingestMeasurements", security: [{ ingestKey: [] }], requestBody: { required: true, content: { "application/json": { schema: { oneOf: [{ $ref: "#/components/schemas/MeasurementSampleInput" }, { type: "array", minItems: 1, maxItems: 1000, items: { $ref: "#/components/schemas/MeasurementSampleInput" } }, { type: "object", required: ["sample"], properties: { sample: { $ref: "#/components/schemas/MeasurementSampleInput" } } }, { type: "object", required: ["samples"], properties: { samples: { type: "array", minItems: 1, maxItems: 1000, items: { $ref: "#/components/schemas/MeasurementSampleInput" } } } }] } } } }, responses: { "201": { description: "Atomically accepted unique samples", content: { "application/json": { schema: { type: "object", required: ["accepted", "samples"], properties: { accepted: { type: "integer" }, samples: { type: "array", items: { $ref: "#/components/schemas/MeasurementSample" } } } } } } }, "422": { description: "Unit or value range mismatch" } } },
     },
@@ -800,6 +829,24 @@ const combinedOpenApiDocument = {
           "400": { description: "Malformed timestamp, range, or scenario" },
           "404": { $ref: "#/components/responses/NotFound" },
           "409": { description: "The sensor belongs to another house" },
+        },
+      },
+    },
+    "/houses/{id}/thermal-isolation": {
+      get: {
+        tags: ["Physics"],
+        operationId: "compareThermalIsolation",
+        description: "Compares empirical outdoor-temperature response across sensors, rooms, floors, and the whole house. The 0-100 score is modeled 24-hour thermal retention, not a U-value, airtightness test, energy label, or code assessment.",
+        parameters: [
+          { $ref: "#/components/parameters/Id" },
+          { name: "from", in: "query", schema: { type: "string", format: "date-time" }, description: "Calibration start; the requested range may not exceed 14 days." },
+          { name: "to", in: "query", schema: { type: "string", format: "date-time" }, description: "Calibration end; defaults to now." },
+        ],
+        responses: {
+          "200": { description: "Room, floor, house, and sensor thermal-isolation comparison", content: { "application/json": { schema: { type: "object", required: ["isolation"], properties: { isolation: { $ref: "#/components/schemas/ThermalIsolationResult" } } } } } },
+          "400": { description: "Malformed timestamp or calibration range" },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "422": { description: "The enabled sensor scope exceeds the bounded synchronous comparison limit" },
         },
       },
     },
@@ -1327,6 +1374,82 @@ const combinedOpenApiDocument = {
           include: { type: "array", maxItems: 4, uniqueItems: true, items: { enum: ["series", "summary", "provenance", "quality"] } },
           maxPointsPerSeries: { type: "integer", minimum: 100, maximum: 5000, default: 800 },
           requestId: { type: "string", minLength: 1, maxLength: 200 },
+        },
+      },
+      AnalyticsCoverageRequest: {
+        type: "object",
+        additionalProperties: false,
+        required: ["apiVersion", "dataMode", "scope", "measurementIds", "requestId"],
+        properties: {
+          apiVersion: { const: "1.0" },
+          dataMode: { enum: ["live", "demo"] },
+          scope: { $ref: "#/components/schemas/AnalyticsQueryRequest/properties/scope" },
+          measurementIds: { $ref: "#/components/schemas/AnalyticsQueryRequest/properties/measurementIds" },
+          requestId: { type: "string", minLength: 1, maxLength: 200 },
+        },
+      },
+      AnalyticsCoverageResponse: {
+        type: "object",
+        additionalProperties: false,
+        required: ["apiVersion", "requestId", "dataMode", "range", "series", "complete", "archiveState", "generatedAt"],
+        properties: {
+          apiVersion: { const: "1.0" }, requestId: { type: "string" }, dataMode: { enum: ["live", "demo"] },
+          range: { type: "object", additionalProperties: false, required: ["start", "end"], properties: {
+            start: { type: ["string", "null"], format: "date-time" }, end: { type: ["string", "null"], format: "date-time" },
+          } },
+          series: { type: "array", items: { type: "object", additionalProperties: false,
+            required: ["entityId", "entityLabel", "measurementId", "start", "end"], properties: {
+              entityId: { type: "string" }, entityLabel: { type: "string" }, measurementId: { type: "string" },
+              start: { type: "string", format: "date-time" }, end: { type: "string", format: "date-time" },
+            } } },
+          complete: { type: "boolean" },
+          archiveState: { enum: ["not-configured", "not-ready", "merged", "failed"] },
+          generatedAt: { type: "string", format: "date-time" },
+        },
+      },
+      AnalyticsFindingPeriodEvidence: {
+        type: "object", additionalProperties: false,
+        required: ["key", "year", "start", "end", "value", "sampleCount", "coverage"],
+        properties: {
+          key: { type: "string" }, year: { type: "integer" },
+          start: { type: "string", format: "date-time" }, end: { type: "string", format: "date-time" },
+          value: { type: "number" }, sampleCount: { type: "integer", minimum: 0 },
+          coverage: { type: ["number", "null"], minimum: 0, maximum: 1 },
+        },
+      },
+      AnalyticsFinding: {
+        type: "object", additionalProperties: false,
+        required: ["id", "category", "subjectId", "subjectLabel", "metric", "unit", "statistic", "direction", "strength", "current", "baseline", "baselineMedian", "absoluteDifference", "percentDifference"],
+        properties: {
+          id: { type: "string" }, category: { enum: ["sensor", "outdoor-weather", "electricity", "opening"] },
+          subjectId: { type: "string" }, subjectLabel: { type: "string" }, metric: { type: "string" }, unit: { type: "string" },
+          statistic: { enum: ["mean", "sum", "delta", "open-count"] }, direction: { enum: ["higher", "lower"] },
+          strength: { enum: ["notable", "strong"] }, current: { $ref: "#/components/schemas/AnalyticsFindingPeriodEvidence" },
+          baseline: { type: "array", minItems: 1, maxItems: 5, items: { $ref: "#/components/schemas/AnalyticsFindingPeriodEvidence" } },
+          baselineMedian: { type: "number" }, absoluteDifference: { type: "number", minimum: 0 },
+          percentDifference: { type: ["number", "null"], minimum: 0 },
+        },
+      },
+      DailyAnalyticsFindingsSnapshot: {
+        type: "object", additionalProperties: false,
+        required: ["apiVersion", "houseId", "dataMode", "periodKind", "evaluatedThrough", "algorithmVersion", "generatedAt", "findings", "warnings"],
+        properties: {
+          apiVersion: { const: "1.0" }, houseId: { type: "string" }, dataMode: { enum: ["live", "demo"] },
+          periodKind: { const: "month-to-date" }, evaluatedThrough: { type: "string", pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+          algorithmVersion: { type: "string" }, generatedAt: { type: "string", format: "date-time" },
+          findings: { type: "array", maxItems: 16, items: { $ref: "#/components/schemas/AnalyticsFinding" } },
+          warnings: { type: "array", uniqueItems: true, items: { enum: ["archive-incomplete", "source-truncated", "scope-limited"] } },
+        },
+      },
+      DailyAnalyticsFindingsResponse: {
+        type: "object", additionalProperties: false, required: ["snapshot", "status"],
+        properties: {
+          snapshot: { oneOf: [{ $ref: "#/components/schemas/DailyAnalyticsFindingsSnapshot" }, { type: "null" }] },
+          status: { type: "object", additionalProperties: false, required: ["state", "lastAttemptAt", "lastError"], properties: {
+            state: { enum: ["pending", "ready", "failed"] },
+            lastAttemptAt: { type: ["string", "null"], format: "date-time" },
+            lastError: { type: ["string", "null"] },
+          } },
         },
       },
       AnalyticsProvenance: {
@@ -1969,6 +2092,65 @@ const combinedOpenApiDocument = {
             },
           },
           points: { type: "array", items: { $ref: "#/components/schemas/ThermalSimulationPoint" } },
+        },
+      },
+      ThermalIsolationMetrics: {
+        type: "object",
+        additionalProperties: false,
+        required: ["effectiveTimeConstantHours", "halfResponseHours", "retainedAfter24HoursPct", "outdoorResponseAfter24HoursPct", "modelSkillPct", "typicalTemperatureSpreadC", "p90TemperatureSpreadC"],
+        properties: {
+          effectiveTimeConstantHours: { type: ["number", "null"] },
+          halfResponseHours: { type: ["number", "null"] },
+          retainedAfter24HoursPct: { type: ["number", "null"], minimum: 0, maximum: 100 },
+          outdoorResponseAfter24HoursPct: { type: ["number", "null"], minimum: 0, maximum: 100 },
+          modelSkillPct: { type: ["number", "null"], minimum: -100, maximum: 100 },
+          typicalTemperatureSpreadC: { type: ["number", "null"], minimum: 0 },
+          p90TemperatureSpreadC: { type: ["number", "null"], minimum: 0 },
+        },
+      },
+      ThermalIsolationEntry: {
+        type: "object",
+        additionalProperties: false,
+        required: ["scope", "calibrationStatus", "confidence", "rating", "score", "rank", "comparedWithHousePoints", "childCoveragePct", "sensorCount", "eligibleSensorCount", "metrics", "quality", "warnings"],
+        properties: {
+          scope: { type: "object", additionalProperties: false, required: ["type", "id", "label", "sensorIds"], properties: {
+            type: { enum: ["house", "floor", "room", "sensor"] }, id: { type: "string" }, label: { type: "string" },
+            parentId: { type: "string" }, floorId: { type: "string" }, sensorIds: { type: "array", items: { type: "string" } },
+          } },
+          calibrationStatus: { enum: ["ready", "provisional", "insufficient-data"] },
+          confidence: { enum: ["high", "medium", "low", "unavailable"] },
+          rating: { enum: ["low", "moderate", "high", "very-high", null] },
+          score: { type: ["number", "null"], minimum: 0, maximum: 100 },
+          rank: { type: ["integer", "null"], minimum: 1 },
+          comparedWithHousePoints: { type: ["number", "null"] },
+          childCoveragePct: { type: "number", minimum: 0, maximum: 100 },
+          sensorCount: { type: "integer", minimum: 0 },
+          eligibleSensorCount: { type: "integer", minimum: 0 },
+          metrics: { $ref: "#/components/schemas/ThermalIsolationMetrics" },
+          quality: { type: "object", additionalProperties: false, required: ["durationHours", "outdoorRangeC", "validationMaeC", "persistenceMaeC", "scoreLow", "scoreHigh"], properties: {
+            durationHours: { type: "number", minimum: 0 }, outdoorRangeC: { type: "number", minimum: 0 },
+            validationMaeC: { type: ["number", "null"], minimum: 0 }, persistenceMaeC: { type: ["number", "null"], minimum: 0 },
+            scoreLow: { type: ["number", "null"], minimum: 0, maximum: 100 }, scoreHigh: { type: ["number", "null"], minimum: 0, maximum: 100 },
+          } },
+          warnings: { type: "array", items: { type: "string" } },
+        },
+      },
+      ThermalIsolationResult: {
+        type: "object",
+        additionalProperties: false,
+        required: ["generatedAt", "systemVersion", "houseId", "from", "to", "entries", "insights", "methodology"],
+        properties: {
+          generatedAt: { type: "string", format: "date-time" }, systemVersion: { type: "string" }, houseId: { type: "string" },
+          from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" },
+          entries: { type: "array", items: { $ref: "#/components/schemas/ThermalIsolationEntry" } },
+          insights: { type: "array", items: { type: "object", additionalProperties: false, required: ["code", "scopeIds", "value", "unit"], properties: {
+            code: { enum: ["LOWEST_BUFFERING_ROOM", "FLOOR_CONTRAST", "ROOM_SENSOR_SPREAD", "LIMITED_EVIDENCE"] },
+            scopeIds: { type: "array", items: { type: "string" } }, value: { type: "number" }, unit: { enum: ["score-points", "celsius", "percent"] },
+          } } },
+          methodology: { type: "object", additionalProperties: false, required: ["scoreMethod", "aggregationMethod", "interpretation", "limitations"], properties: {
+            scoreMethod: { const: "modeled-24h-retention-v1" }, aggregationMethod: { const: "median-child-score-v1" },
+            interpretation: { type: "string" }, limitations: { type: "array", items: { type: "string" } },
+          } },
         },
       },
       Sensor: {
@@ -2635,6 +2817,8 @@ const combinedOpenApiDocument = {
 const V2_PATHS = new Set([
   "/measurement-definitions",
   "/measurement-definitions/{id}",
+  "/analytics/findings",
+  "/analytics/coverage",
   "/analytics/query",
   "/measurements",
   "/measurements/import",

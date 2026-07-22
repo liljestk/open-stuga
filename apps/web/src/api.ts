@@ -3,6 +3,8 @@ import type {
   ActionRun,
   ActionRunStartInput,
   AppSession,
+  AnalyticsCoverageRequest,
+  AnalyticsCoverageResponse,
   AnalyticsQueryRequest,
   AnalyticsQueryResponse,
   AreaEquipment,
@@ -11,6 +13,7 @@ import type {
   BackupOperationStatus,
   DataExportPreview,
   DataExportPrivacyLevel,
+  DailyAnalyticsFindingsResponse,
   EnergyOptimizationReport,
   AlertRulePatch,
   AppleNotesGrantCreated,
@@ -71,6 +74,7 @@ import type {
   TelemetryEvent,
   TelegramConfigInput,
   TelegramDiscoveryResult,
+  ThermalIsolationResult,
   ThermalSimulationResult,
   TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
@@ -878,6 +882,15 @@ export const api = {
   scenarios: async () => list<MockScenario>(await request<unknown>("/mock/scenarios"), ["scenarios", "data"]),
   runScenario: (scenarioId: MockScenario["id"]) => request<{ ok: boolean }>("/mock/scenario", { method: "POST", body: JSON.stringify({ scenarioId }) }),
   measurementDefinitions: async () => (await requestV2<{ definitions: MeasurementDefinition[] }>("/measurement-definitions")).definitions,
+  analyticsFindings: (houseId: string, signal?: AbortSignal) => requestV2<DailyAnalyticsFindingsResponse>(
+    `/analytics/findings?houseId=${encodeURIComponent(houseId)}`,
+    signal ? { signal } : undefined,
+  ),
+  analyticsCoverage: (input: AnalyticsCoverageRequest, signal?: AbortSignal) => requestV2<AnalyticsCoverageResponse>("/analytics/coverage", {
+    method: "POST",
+    body: JSON.stringify(input),
+    ...(signal ? { signal } : {}),
+  }),
   analyticsQuery: (input: AnalyticsQueryRequest, signal?: AbortSignal) => requestV2<AnalyticsQueryResponse>("/analytics/query", {
     method: "POST",
     body: JSON.stringify(input),
@@ -962,6 +975,17 @@ export const api = {
     return (await request<{ simulation: ThermalSimulationResult }>(
       `/houses/${encodeURIComponent(houseId)}/thermal-simulation?${query.toString()}`,
     )).simulation;
+  },
+  thermalIsolation: async (
+    houseId: string,
+    options: { from: string; to: string },
+    signal?: AbortSignal,
+  ) => {
+    const query = new URLSearchParams({ from: options.from, to: options.to });
+    return (await request<{ isolation: ThermalIsolationResult }>(
+      `/houses/${encodeURIComponent(houseId)}/thermal-isolation?${query.toString()}`,
+      signal ? { signal } : undefined,
+    )).isolation;
   },
   spatialLayerEngines: async (): Promise<SpatialLayerEngineManifest[]> => spatialLayerEngines(
     await request<unknown>("/layer-engines"),

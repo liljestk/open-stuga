@@ -1,0 +1,33 @@
+# Build on Raspberry Pi's supported Trixie A/B base. Values that identify a
+# specific installation are supplied by scripts/build-rpi-image.sh.
+include:
+  file: trixie-minbase-ab.yaml
+
+device:
+  layer: rpi4
+  hostname: stuga
+  user1: stuga
+  # Keep sudo installed, but the account remains password-locked. The Stuga
+  # layer grants passwordless access only to its own systemd unit.
+  user1sudo: passwd
+
+artefact:
+  version: 0.0.0
+
+image:
+  name: stuga
+  boot_part_size: 256M
+  system_part_size: 3G
+  # The first-boot grow service expands this final partition to fill the disk.
+  data_part_size: 1G
+
+ssh:
+  pubkey_only: y
+
+docker:
+  # This is a dedicated appliance account. Membership of the Docker group is
+  # root-equivalent and is required by the operator helper (`stugactl`).
+  trust_user1: y
+
+layer:
+  app: stuga-appliance

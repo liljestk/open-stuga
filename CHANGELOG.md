@@ -4,6 +4,14 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+- Added an idempotent daily Home analytics run with persisted month-to-date
+  findings for indoor sensors, observed outdoor weather, electricity
+  power/energy, and heartbeat-deduplicated door/window openings, plus an
+  evidence-first responsive UI and read-only v2 endpoint.
+- Added house-timezone calendar comparisons for sensor days, ISO weeks,
+  months, years, and decades across all available SQLite/Timescale history,
+  reusing the all/single/multiple-series selection with coverage-aware
+  aggregation, archive warnings, and an accessible responsive table and chart.
 - Added webhook fan-out to as many as 16 stable destinations with independent
   credentials and health, optional HMAC-SHA256 signatures, exact host
   allowlisting, immutable per-destination outbox rows, bounded attempts, durable

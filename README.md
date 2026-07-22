@@ -20,9 +20,16 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
   ventilation coach, indoor/outdoor comparison, an activity timeline, and
   explainable monitoring blockers that distinguish current coverage from
   missing or stale data
+- Data & analytics with coverage-aware evidence, CSV/JSON export, and
+  house-local day/week/month/year/decade comparisons across the selected
+  single, multiple, or aggregated sensor series
+- Persisted daily notable comparisons for indoor sensors, observed outdoor
+  temperature, electricity power/energy, and available door/window opening
+  activity, with like-for-like month-to-date evidence and no causal claims
 - Guided Excel/CSV history import with automatic column matching, preview,
   timezone/unit checks, and duplicate-safe retries
-- Experimental effective room thermal calibration with durable outdoor
+- Experimental effective room thermal calibration plus room, floor, and
+  whole-home 24-hour thermal-isolation comparison with durable outdoor
   boundary observations, fitted reconstructions, untouched holdout metrics,
   empirical bands, residuals, and a bounded
   weather scenario; observed and simulated values remain separate

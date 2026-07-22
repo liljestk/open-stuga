@@ -1,0 +1,129 @@
+# METABEGIN
+# X-Env-Layer-Name: stuga-appliance
+# X-Env-Layer-Version: 1.0.0
+# X-Env-Layer-Category: application
+# X-Env-Layer-Desc: Stuga appliance services, persistent Docker state, and
+#  pinned release containers for Raspberry Pi 4 A/B updates.
+# X-Env-Layer-Requires: docker-debian-trixie,rpi-connect-lite,rpi-connect-ota
+#
+# X-Env-VarPrefix: stuga
+#
+# X-Env-Var-assetdir: ${@SRCROOT}/assets
+# X-Env-Var-assetdir-Desc: Staged Stuga appliance assets.
+# X-Env-Var-assetdir-Required: y
+# X-Env-Var-assetdir-Valid: dir
+# X-Env-Var-assetdir-Set: y
+#
+# X-Env-Var-api_image: ghcr.io/liljestk/open-stuga-api:${IGconf_artefact_version}
+# X-Env-Var-api_image-Desc: Immutable API container reference.
+# X-Env-Var-api_image-Required: y
+# X-Env-Var-api_image-Valid: string
+# X-Env-Var-api_image-Set: y
+#
+# X-Env-Var-web_image: ghcr.io/liljestk/open-stuga-web:${IGconf_artefact_version}
+# X-Env-Var-web_image-Desc: Immutable web container reference.
+# X-Env-Var-web_image-Required: y
+# X-Env-Var-web_image-Valid: string
+# X-Env-Var-web_image-Set: y
+#
+# X-Env-Var-backup_image: ghcr.io/liljestk/open-stuga-backup:${IGconf_artefact_version}
+# X-Env-Var-backup_image-Desc: Immutable backup container reference.
+# X-Env-Var-backup_image-Required: y
+# X-Env-Var-backup_image-Valid: string
+# X-Env-Var-backup_image-Set: y
+#
+# X-Env-Var-tapo_image: ghcr.io/liljestk/open-stuga-tapo-export-runner:${IGconf_artefact_version}
+# X-Env-Var-tapo_image-Desc: Immutable optional Tapo worker container reference.
+# X-Env-Var-tapo_image-Required: y
+# X-Env-Var-tapo_image-Valid: string
+# X-Env-Var-tapo_image-Set: y
+# METAEND
+---
+mmdebstrap:
+  packages:
+    - ca-certificates
+    - cloud-guest-utils
+    - curl
+    - nano
+  customize-hooks:
+    - |-
+      set -eu
+
+      install -d -m 0755 "$1/opt/stuga/config"
+      install -d -m 0755 "$1/opt/stuga/scripts"
+      install -d -m 0755 "$1/opt/stuga/apps/tapo-export-runner"
+      install -d -m 0755 "$1/usr/local/sbin"
+      install -d -m 0755 "$1/usr/local/bin"
+      install -d -m 0755 "$1/etc/systemd/system"
+      install -d -m 0755 "$1/etc/systemd/system/containerd.service.d"
+      install -d -m 0755 "$1/etc/systemd/system/docker.service.d"
+      install -d -m 0755 "$1/etc/rpi-image-gen/slot-shared.d"
+      install -d -m 0755 "$1/etc/sudoers.d"
+
+      install -m 0644 "${IGconf_stuga_assetdir}/docker-compose.yml" \
+        "$1/opt/stuga/docker-compose.yml"
+      install -m 0644 "${IGconf_stuga_assetdir}/stuga.env.example" \
+        "$1/opt/stuga/stuga.env.example"
+      install -m 0644 "${IGconf_stuga_assetdir}/full.env.example" \
+        "$1/opt/stuga/full.env.example"
+      install -m 0644 "${IGconf_stuga_assetdir}/tapo-flow.example.json" \
+        "$1/opt/stuga/apps/tapo-export-runner/flow.example.json"
+      cp -a "${IGconf_stuga_assetdir}/config/." "$1/opt/stuga/config/"
+      install -m 0755 "${IGconf_stuga_assetdir}/bootstrap-timescale.sh" \
+        "$1/opt/stuga/scripts/bootstrap-timescale.sh"
+      install -m 0755 "${IGconf_stuga_assetdir}/reconcile-timescale-credentials.sh" \
+        "$1/opt/stuga/scripts/reconcile-timescale-credentials.sh"
+
+      install -m 0755 "${IGconf_stuga_assetdir}/stuga-compose-start" \
+        "$1/usr/local/sbin/stuga-compose-start"
+      install -m 0755 "${IGconf_stuga_assetdir}/stuga-grow-persistent" \
+        "$1/usr/local/sbin/stuga-grow-persistent"
+      install -m 0755 "${IGconf_stuga_assetdir}/stugactl" \
+        "$1/usr/local/bin/stugactl"
+      install -m 0644 "${IGconf_stuga_assetdir}/stuga.service" \
+        "$1/etc/systemd/system/stuga.service"
+      install -m 0644 "${IGconf_stuga_assetdir}/stuga-data-grow.service" \
+        "$1/etc/systemd/system/stuga-data-grow.service"
+
+      cat > "$1/opt/stuga/release.env" <<-EOF
+      STUGA_API_IMAGE=${IGconf_stuga_api_image}
+      STUGA_WEB_IMAGE=${IGconf_stuga_web_image}
+      STUGA_BACKUP_IMAGE=${IGconf_stuga_backup_image}
+      STUGA_TAPO_RUNNER_IMAGE=${IGconf_stuga_tapo_image}
+      EOF
+      chmod 0444 "$1/opt/stuga/release.env"
+
+      printf '%s\n' "${IGconf_artefact_version}" > "$1/etc/stuga-version"
+      chmod 0444 "$1/etc/stuga-version"
+
+      cat > "$1/etc/rpi-image-gen/slot-shared.d/stuga.conf" <<-'EOF'
+      Version=1
+      Path=/var/lib/docker
+      Path=/var/lib/containerd
+      EOF
+      chmod 0644 "$1/etc/rpi-image-gen/slot-shared.d/stuga.conf"
+
+      # The pinned image-rota generator emits both mount units but currently
+      # enables only its final generated unit. Pull both mounts directly into
+      # the container services so Docker state is always shared across slots.
+      cat > "$1/etc/systemd/system/containerd.service.d/stuga-shared-storage.conf" <<-'EOF'
+      [Unit]
+      Requires=stuga-data-grow.service var-lib-containerd.mount
+      After=stuga-data-grow.service var-lib-containerd.mount
+      EOF
+      chmod 0644 "$1/etc/systemd/system/containerd.service.d/stuga-shared-storage.conf"
+
+      cat > "$1/etc/systemd/system/docker.service.d/stuga-shared-storage.conf" <<-'EOF'
+      [Unit]
+      Requires=stuga-data-grow.service var-lib-docker.mount var-lib-containerd.mount
+      After=stuga-data-grow.service var-lib-docker.mount var-lib-containerd.mount
+      EOF
+      chmod 0644 "$1/etc/systemd/system/docker.service.d/stuga-shared-storage.conf"
+
+      cat > "$1/etc/sudoers.d/020_stugactl" <<-EOF
+      ${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/systemctl start stuga.service
+      ${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/systemctl stop stuga.service
+      ${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/systemctl restart stuga.service
+      EOF
+      chmod 0440 "$1/etc/sudoers.d/020_stugactl"
+    - $BDEBSTRAP_HOOKS/enable-units "$1" stuga-data-grow stuga

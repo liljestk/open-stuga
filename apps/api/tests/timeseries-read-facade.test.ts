@@ -48,6 +48,7 @@ function outdoor(timestamp: string, temperatureC: number): OutdoorTemperatureSam
 function localReader(overrides: Partial<LocalTelemetryReader> = {}): LocalTelemetryReader {
   return {
     isRealDataMode: vi.fn(() => false),
+    measurementCoverage: vi.fn(() => []),
     measurementHistory: vi.fn(() => []),
     measurementWindow: vi.fn(() => []),
     history: vi.fn(() => []),
@@ -66,6 +67,39 @@ function archiveReader(overrides: Partial<ArchiveTelemetryReader> = {}): Archive
 }
 
 describe("HybridTelemetryReader", () => {
+  it("merges local and archive coverage for each selected series", async () => {
+    const localCoverage = vi.fn(() => [{
+      sensorId: "sensor-a", metric: "temperature",
+      start: "2026-01-01T00:00:00.000Z", end: "2026-07-01T00:00:00.000Z",
+    }]);
+    const archiveCoverage = vi.fn(async () => [{
+      sensorId: "sensor-a", metric: "temperature",
+      start: "2020-01-01T00:00:00.000Z", end: "2026-02-01T00:00:00.000Z",
+    }]);
+    const reader = new HybridTelemetryReader({
+      local: localReader({ isRealDataMode: vi.fn(() => true), measurementCoverage: localCoverage }),
+      archive: { ...archiveReader(), measurementCoverage: archiveCoverage },
+      archivePhase: () => "ready",
+    });
+
+    const result = await reader.measurementCoverage({
+      sensorIds: ["sensor-a", "sensor-a"], metrics: ["temperature", "temperature"],
+    });
+
+    expect(localCoverage).toHaveBeenCalledWith(["sensor-a"], ["temperature"]);
+    expect(archiveCoverage).toHaveBeenCalledWith(expect.objectContaining({
+      sensorIds: ["sensor-a"], metrics: ["temperature"], excludeSynthetic: true,
+    }));
+    expect(result).toEqual({
+      records: [{
+        sensorId: "sensor-a", metric: "temperature",
+        start: "2020-01-01T00:00:00.000Z", end: "2026-07-01T00:00:00.000Z",
+      }],
+      archiveState: "merged",
+      complete: true,
+    });
+  });
+
   it("merges archive history with the SQLite hot tail, gives SQLite conflict precedence, and applies one global limit", async () => {
     const calls: string[] = [];
     const overlapAt = "2026-07-18T00:20:00.000Z";

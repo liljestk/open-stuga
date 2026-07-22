@@ -1,0 +1,66 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+readonly project_dir=/opt/stuga
+readonly state_dir=/persistent/stuga
+readonly local_env="$state_dir/stuga.env"
+readonly release_env="$project_dir/release.env"
+readonly docker_config="$state_dir/docker-config"
+
+compose() {
+  DOCKER_CONFIG="$docker_config" docker compose \
+    --project-name stuga \
+    --project-directory "$project_dir" \
+    --env-file "$local_env" \
+    --env-file "$release_env" \
+    --file "$project_dir/docker-compose.yml" \
+    "$@"
+}
+
+usage() {
+  cat <<'EOF'
+Usage: stugactl <command>
+
+Commands:
+  status      Show the installed version, update status, and containers
+  logs        Follow Stuga container logs
+  system-log  Follow the appliance startup/update log
+  config      Edit persistent appliance settings
+  restart     Pull the pinned images and restart the appliance
+  backup      Create a complete Stuga backup
+  images      Show the immutable container references for this OS release
+EOF
+}
+
+case "${1:-}" in
+  status)
+    echo "OS release: $(cat /etc/stuga-version)"
+    [[ -r "$state_dir/release-status" ]] && cat "$state_dir/release-status"
+    systemctl --no-pager --full status stuga.service || true
+    compose ps
+    ;;
+  logs)
+    shift
+    compose logs --follow --tail 200 "$@"
+    ;;
+  system-log)
+    journalctl --unit stuga.service --follow --lines 200
+    ;;
+  config)
+    "${EDITOR:-nano}" "$local_env"
+    echo "Run 'stugactl restart' to apply changes."
+    ;;
+  restart)
+    sudo -n systemctl restart stuga.service
+    ;;
+  backup)
+    compose --profile maintenance run --rm stuga-backup
+    ;;
+  images)
+    cat "$release_env"
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac

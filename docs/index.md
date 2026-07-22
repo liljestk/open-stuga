@@ -50,6 +50,10 @@ Start here:
 21. [Known MVP limitations](known-limitations.md) — correctness and operational
    constraints to review before using physical data or notifications.
 
+22. [Raspberry Pi 4 appliance](raspberry-pi-appliance.md) — one-time USB disk
+   installation, immutable A/B system images, persistent Docker data, and
+   automatic Raspberry Pi Connect OTA releases.
+
 Reference configuration:
 
 - [`config/home-assistant.entities.example.json`](../config/home-assistant.entities.example.json)

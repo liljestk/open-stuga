@@ -93,10 +93,12 @@ import {
   TelemetryService,
 } from "./services.js";
 import { runThermalSimulation } from "./thermal-simulation.js";
+import { runThermalIsolation } from "./thermal-isolation.js";
 import { SYSTEM_VERSION } from "./version.js";
 import { LocationDiscoveryService } from "./location-discovery.js";
 import { AutomaticWeatherProvider, OpenMeteoWeatherProvider, prefersFmi } from "./open-meteo.js";
 import { WeatherMonitor } from "./weather-monitor.js";
+import { DailyAnalyticsFindingsWorker } from "./daily-analytics-findings.js";
 import { WeatherRecoveryCoordinator } from "./weather-recovery.js";
 import { SensorGapRecoveryCoordinator } from "./sensor-gap-recovery.js";
 import {
@@ -150,6 +152,7 @@ import { TelemetryRetentionWorker } from "./timeseries/retention-worker.js";
 import {
   AnalyticsQueryError,
   buildAnalyticsResponse,
+  parseAnalyticsCoverageRequest,
   parseAnalyticsQueryRequest,
 } from "./analytics.js";
 
@@ -1638,6 +1641,7 @@ export interface ApiRuntime {
   telegram: TelegramService;
   weather: WeatherService;
   weatherMonitor: WeatherMonitor;
+  dailyAnalyticsFindings: DailyAnalyticsFindingsWorker;
   weatherRecovery: WeatherRecoveryCoordinator;
   sensorGapRecovery: SensorGapRecoveryCoordinator;
   weatherEvents: WeatherEventBroker;
@@ -1744,6 +1748,8 @@ export interface CreateApiOptions {
   tapoHistoryDeviceNameFor?: (sensorId: string, deviceId: string) => string | null;
   /** Test/embedding clock for durable Tapo history transitions. */
   tapoHistoryNow?: () => Date;
+  /** Test/embedding clock for house-local daily peer-period findings. */
+  dailyAnalyticsNow?: () => number;
   timeseriesStore?: TimeseriesStore;
   telemetryReader?: HybridTelemetryReader;
   startBackground?: boolean;
@@ -2036,6 +2042,11 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     localHistoryComplete: !telemetryRetention
       ? true
       : (query) => Date.parse(query.from) >= Date.now() - config.retentionDays * 86_400_000,
+  });
+  const dailyAnalyticsFindings = new DailyAnalyticsFindingsWorker({
+    database,
+    telemetryReader,
+    ...(options.dailyAnalyticsNow ? { now: options.dailyAnalyticsNow } : {}),
   });
   const measurementSnapshotCache = new LruTtlCache<MeasurementSample[]>({
     maxEntries: 64,
@@ -2544,7 +2555,9 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       next(new HttpError(401, "UNAUTHORIZED", "Sign in to access this endpoint"));
       return;
     }
-    const sideEffectFreePost = request.method === "POST" && request.path === `${v2Prefix}/analytics/query`;
+    const sideEffectFreePost = request.method === "POST" && [
+      `${v2Prefix}/analytics/query`, `${v2Prefix}/analytics/coverage`,
+    ].includes(request.path);
     const unsafe = !SAFE_HTTP_METHODS.has(request.method) && !sideEffectFreePost;
     if (unsafe && principal.role === "guest" && request.path !== `${prefix}/auth/logout`) {
       next(new HttpError(403, "GUEST_READ_ONLY", "Guest accounts are read-only"));
@@ -2590,7 +2603,9 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   // all open browsers to refresh properties, tasks, notes, access grants, and
   // configuration without a manual reload.
   app.use((request, response, next) => {
-    const sideEffectFreePost = request.method === "POST" && request.path === `${v2Prefix}/analytics/query`;
+    const sideEffectFreePost = request.method === "POST" && [
+      `${v2Prefix}/analytics/query`, `${v2Prefix}/analytics/coverage`,
+    ].includes(request.path);
     const unsafe = !SAFE_HTTP_METHODS.has(request.method) && request.method !== "OPTIONS" && !sideEffectFreePost;
     const excluded = request.path.startsWith(`${prefix}/auth/`)
       || request.path === `${prefix}/readings`
@@ -2942,6 +2957,90 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     response.json({ definition });
   });
 
+  app.get(`${v2Prefix}/analytics/findings`, (request, response) => {
+    const houseId = typeof request.query.houseId === "string" ? request.query.houseId.trim() : "";
+    if (!houseId || houseId.length > 200) throw new HttpError(400, "INVALID_FIELD", "houseId is required");
+    const house = database.getHouse(houseId);
+    if (!house || !visibility(response).house(house.id)) {
+      throw new HttpError(404, "ANALYTICS_SCOPE_NOT_FOUND", "Analytics house scope was not found");
+    }
+    const dataMode = database.isRealDataMode() ? "live" : "demo";
+    const stored = database.dailyAnalyticsFindings(house.id, dataMode);
+    response.setHeader("cache-control", "no-store");
+    response.json({
+      snapshot: stored?.snapshot ?? null,
+      status: {
+        state: stored?.lastError ? "failed" : stored?.snapshot ? "ready" : "pending",
+        lastAttemptAt: stored?.lastAttemptAt ?? null,
+        lastError: stored?.lastError ?? null,
+      },
+    });
+  });
+
+  app.post(`${v2Prefix}/analytics/coverage`, async (request, response) => {
+    try {
+      const coverageRequest = parseAnalyticsCoverageRequest(request.body);
+      const activeDataMode = database.isRealDataMode() ? "live" : "demo";
+      if (coverageRequest.dataMode !== activeDataMode) {
+        throw new AnalyticsQueryError(
+          409,
+          "ANALYTICS_DATA_MODE_MISMATCH",
+          `This local database is in ${activeDataMode} mode; cross-mode analytics queries are not allowed`,
+        );
+      }
+      const house = database.getHouse(coverageRequest.scope.id);
+      if (!house || !visibility(response).house(house.id)) {
+        throw new AnalyticsQueryError(404, "ANALYTICS_SCOPE_NOT_FOUND", "Analytics house scope was not found");
+      }
+      const accessibleSensors = database.listSensors(house.id)
+        .filter((sensor) => sensor.enabled && visibility(response).sensor(sensor.id));
+      const byId = new Map(accessibleSensors.map((sensor) => [sensor.id, sensor]));
+      const requestedSensorIds = coverageRequest.scope.entityIds ?? accessibleSensors.map((sensor) => sensor.id);
+      const sensors = requestedSensorIds.map((sensorId) => {
+        const sensor = byId.get(sensorId);
+        if (!sensor) {
+          throw new AnalyticsQueryError(404, "ANALYTICS_ENTITY_NOT_FOUND", `Sensor ${sensorId} is not available in the requested house`);
+        }
+        return sensor;
+      });
+      for (const metric of coverageRequest.measurementIds) {
+        const definition = database.getMeasurementDefinition(metric);
+        if (!definition) throw new AnalyticsQueryError(404, "UNKNOWN_ANALYTICS_MEASUREMENT", `Unknown measurement: ${metric}`);
+        if (definition.genericHistoryEnabled === false || definition.genericStatsEnabled === false) {
+          throw new AnalyticsQueryError(422, "ANALYTICS_MEASUREMENT_DISABLED", `Analytics is disabled for measurement: ${metric}`);
+        }
+      }
+      const coverage = await telemetryReader.measurementCoverage({
+        sensorIds: sensors.map((sensor) => sensor.id),
+        metrics: coverageRequest.measurementIds,
+      });
+      const labels = new Map(sensors.map((sensor) => [sensor.id, sensor.name]));
+      const series = coverage.records.map((record) => ({
+        entityId: record.sensorId,
+        entityLabel: labels.get(record.sensorId) ?? record.sensorId,
+        measurementId: record.metric,
+        start: record.start,
+        end: record.end,
+      }));
+      const starts = series.map((item) => item.start).sort();
+      const ends = series.map((item) => item.end).sort();
+      response.setHeader("cache-control", "no-store");
+      response.json({
+        apiVersion: "1.0",
+        requestId: coverageRequest.requestId,
+        dataMode: coverageRequest.dataMode,
+        range: { start: starts[0] ?? null, end: ends.at(-1) ?? null },
+        series,
+        complete: coverage.complete,
+        archiveState: coverage.archiveState,
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      if (error instanceof AnalyticsQueryError) throw new HttpError(error.status, error.code, error.message);
+      throw error;
+    }
+  });
+
   app.post(`${v2Prefix}/analytics/query`, async (request, response) => {
     try {
       const analyticsRequest = parseAnalyticsQueryRequest(request.body);
@@ -2977,7 +3076,9 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
         sensorIds: sensors.map((sensor) => sensor.id),
         metrics: definitions.map((definition) => definition.id),
         from: analyticsRequest.range.start,
-        to: analyticsRequest.range.end,
+        // The shared telemetry readers use inclusive upper bounds, while an
+        // analytics range is [start, end) so adjacent requests never overlap.
+        to: new Date(Date.parse(analyticsRequest.range.end) - 1).toISOString(),
         limit: 250_000,
       });
       if (read.records.length >= 250_000) {
@@ -3632,6 +3733,43 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       scenarioOutdoorTemperatureC,
     });
     response.json({ simulation });
+  });
+  app.get(`${prefix}/houses/:id/thermal-isolation`, (request, response) => {
+    const house = database.getHouse(request.params.id as string);
+    if (!house || !visibility(response).house(house.id)) throw new HttpError(404, "NOT_FOUND", "House not found");
+    const to = dateValue(request.query.to, new Date(), "to");
+    const from = dateValue(request.query.from, new Date(Date.parse(to) - 7 * 24 * 3_600_000), "from");
+    if (Date.parse(from) >= Date.parse(to)) throw new HttpError(400, "INVALID_RANGE", "from must be before to");
+    if (Date.parse(to) - Date.parse(from) > 14 * 24 * 3_600_000) {
+      throw new HttpError(400, "RANGE_TOO_LARGE", "thermal isolation range cannot exceed 14 days");
+    }
+    const sensors = database.listSensors(house.id)
+      .filter((sensor) => sensor.enabled && visibility(response).sensor(sensor.id));
+    if (sensors.length > 64) {
+      throw new HttpError(422, "THERMAL_SCOPE_TOO_LARGE", "thermal isolation comparison supports at most 64 enabled sensors per request");
+    }
+    const boundaryPaddingMs = 2 * 3_600_000;
+    const outdoorSamples = database.outdoorTemperatureHistory(
+      house.id,
+      outdoorLocationKey(house.location),
+      new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
+      new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
+      50_000,
+    );
+    const indoorSamplesBySensor = new Map(sensors.map((sensor) => [
+      sensor.id,
+      database.thermalTemperatureHistory(sensor.id, from, to, 5, 5_000),
+    ]));
+    const isolation = runThermalIsolation({
+      house,
+      sensors,
+      indoorSamplesBySensor,
+      outdoorSamples,
+      from,
+      to,
+    });
+    response.setHeader("cache-control", "no-store");
+    response.json({ isolation });
   });
   app.patch(`${prefix}/houses/:id`, async (request, response) => {
     const houseId = request.params.id as string;
@@ -5453,6 +5591,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     sensorGapRecovery.start();
     electricityPrices.start();
     weatherMonitor.start();
+    dailyAnalyticsFindings.start();
     notifySpatial((runtime) => runtime.start());
   }
 
@@ -5468,6 +5607,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     tpLink.stop();
     electricityPrices.stop();
     weatherMonitor.stop();
+    const stoppingDailyAnalyticsFindings = dailyAnalyticsFindings.stop();
     for (const closeStream of [...activeEventStreams]) closeStream(true);
     shutdownPromise = Promise.all([
       notificationOutbox.stop(),
@@ -5475,6 +5615,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       stoppingSensorGapRecovery,
       stoppingTapoHistory,
       weatherRecovery.stop(),
+      stoppingDailyAnalyticsFindings,
       spatialLayers?.stop() ?? Promise.resolve(),
       (telemetryRetention?.stop() ?? Promise.resolve()).then(() => telemetryArchive?.stop()),
     ]).then(() => undefined);
@@ -5496,7 +5637,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   };
 
   return {
-    app, database, integrationMetadata, bus, telemetry, measurements, mock, replay, status, homeAssistant, tpLink, tapoHistory, electricityPrices, telegram, weather, weatherMonitor,
+    app, database, integrationMetadata, bus, telemetry, measurements, mock, replay, status, homeAssistant, tpLink, tapoHistory, electricityPrices, telegram, weather, weatherMonitor, dailyAnalyticsFindings,
     weatherRecovery, sensorGapRecovery, weatherEvents, dataMode, notificationOutbox, dataOperations, energyOptimizer, energyCost, setupDoctor, cloudflareAccess, spatialLayers, timeseries, telemetryArchive, telemetryReader,
     ready: () => runtimeReady,
     beginShutdown,

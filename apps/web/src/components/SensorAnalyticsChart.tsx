@@ -27,8 +27,11 @@ import {
 } from "../measurements";
 import { useNow } from "../useNow";
 import { chartGapThresholdMs, splitSeriesAtGaps } from "../chartGaps";
+import { CalendarPeriodComparison } from "./CalendarPeriodComparison";
 
 interface SensorAnalyticsChartProps {
+  houseId: string;
+  dataMode: "demo" | "real" | "unknown";
   sensors: Sensor[];
   history: MeasurementHistory;
   forecasts: MeasurementForecasts;
@@ -495,6 +498,15 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
           {latestAggregate && <g className="sensor-analytics-end-label" aria-hidden="true"><circle cx={x(latestAggregate.timestamp)} cy={y(latestAggregate.value)} r="4" /><text x={Math.min(width - margin.right - 4, x(latestAggregate.timestamp) + 8)} y={y(latestAggregate.value) - 8} textAnchor={x(latestAggregate.timestamp) > width - 120 ? "end" : "start"}>{formatMeasurement(latestAggregate.value, definition, props.units)}</text></g>}
         </svg>
       </div> : <div className="empty-state">{t("common.noData")}</div>}
+      <CalendarPeriodComparison
+        houseId={props.houseId}
+        timeZone={props.timeZone}
+        dataMode={props.dataMode}
+        sensors={activeSensors}
+        metric={definition.id}
+        definition={definition}
+        units={props.units}
+      />
     </section>
   );
 }

@@ -1,9 +1,9 @@
 # Analytics foundation and Explorer
 
 This document records the first production-usable slice of the Graphing,
-Statistics, Prediction and Findings specification. It deliberately implements
-the evidence foundation before psychrometrics, inference, findings, or new
-forecast models.
+Statistics, Prediction and Findings specification. It implements the evidence
+foundation plus a deliberately narrow daily descriptive-finding layer before
+psychrometrics, causal inference, or new forecast models.
 
 ## What is implemented
 
@@ -33,7 +33,29 @@ forecast models.
 - Explorer ranges for 6 hours, 24 hours, 7 days, 30 days, 90 days, and 1 year,
   with range-aware server buckets, query budgets, labels, and visible-gap
   thresholds.
-- OpenAPI and shared TypeScript contracts for the query and response.
+- Calendar-period comparison for the active all/single/multiple-sensor
+  selection. A user can compare the same house-local calendar day, ISO week, or
+  month across years, every recorded calendar year, or calendar decades. The
+  view preserves missing periods, exposes sample coverage, and supports the
+  registry-valid calculation and source-quality choices.
+- A side-effect-free `POST /api/v2/analytics/coverage` discovery endpoint. It
+  merges the SQLite hot tail and Timescale archive span for each selected series
+  and marks the result incomplete when an unavailable archive could contain
+  older matching periods.
+- A persisted daily month-to-date comparison run for each Home. It evaluates
+  only fully completed house-local dates and compares the same number of days
+  with up to five earlier matching months. This prevents a partial July from
+  being compared with a complete prior July.
+- Versioned, deterministic notable-difference detectors for registered indoor
+  sensor series, observed outdoor temperature, electricity power/energy
+  measurements, and door/window open transitions. Repeated open heartbeats,
+  startup snapshots, and `unknown` states are not counted as opening events.
+- A read-only `GET /api/v2/analytics/findings?houseId=…` endpoint and a Data &
+  analytics panel with the current value, prior-period median, direction,
+  practical effect, peer years, sample counts, coverage where it can be
+  estimated, and explicit archive/truncation warnings.
+- OpenAPI and shared TypeScript contracts for the query, coverage discovery,
+  daily findings, and responses.
 
 ## Repository assessment
 
@@ -43,13 +65,46 @@ The implementation reuses the existing architecture:
 | --- | --- | --- |
 | Canonical measurements | `packages/contracts`, v2 measurement definitions and samples | Extend the registry without changing package names or the ingest contract. |
 | Primary telemetry | SQLite measurement samples | Read through the database's bounded multi-series window. |
-| Historical archive | Hybrid SQLite/Timescale reader | Merge through the existing read facade and expose archive state in provenance. |
+| Historical archive | Hybrid SQLite/Timescale reader | Merge samples and per-series coverage through the existing read facade, exposing incomplete archive state instead of silently shortening comparisons. |
 | Data-mode isolation | One-way database-wide demo-to-real transition | Require `demo` or `live` in every analytics request and reject the mode not active in the local database. |
 | API conventions | Express v1/v2 routes, local authorization, OpenAPI parity tests | Put registry analytics in v2 and treat the complex POST as read-only for guest/CSRF/mutation-event rules. |
 | UI | Existing Data & analytics route and SVG sensor chart | Add evidence below the chart; do not replace the chart renderer in this slice. |
 | State and requests | Existing React state and API client | Use an abortable query tied to house, metric, entities, range, mode, and refresh revision. |
-| Jobs | Existing background-worker patterns | No job is needed for bounded, on-demand descriptive queries. Persisted rollups and expensive models remain future work. |
+| Jobs | Existing background-worker patterns | A six-hourly idempotent worker guarantees at most one successful snapshot per house-local completed date; interactive rollups remain on demand. |
 | LLM use | None required | All values are deterministic; no raw series is sent to an LLM. |
+
+## Daily finding contract
+
+The background worker wakes at startup and every six hours, but the
+`evaluatedThrough` fence permits only one normal successful snapshot for each
+completed house-local date unless a sensor, timezone, location, or opening
+configuration change invalidates it. This accommodates Homes in different timezones
+without one global midnight assumption. A forced test/embedding run can replace
+the same date atomically; production has no mutation endpoint for findings.
+
+The current window begins on the first local date of the month containing the
+last completed local date. Each peer window uses the same month and completed
+day number in up to five prior years. February peers clamp to the final valid
+date where necessary. Baselines use the median of usable peers, and every card
+retains the individual peer values instead of hiding them behind the median.
+
+Initial practical reporting thresholds are versioned with
+`calendar-peer-findings-v1.0.0`:
+
+- temperature: at least 1 °C (strong at 2 °C);
+- relative humidity: at least 5 percentage points (strong at 10);
+- CO2: at least 100 ppm (strong at 250 ppm);
+- electricity: at least 10% plus a unit-specific floor (0.5 kWh or 50 W for
+  the built-ins; strong at 25%);
+- opening activity: at least three confirmed opens (strong at ten);
+- other registered finite measurements: at least the registry interpolation
+  delta and 20% (strong at 40%).
+
+Sensor and outdoor periods require at least 50% inferred coverage. Opening
+streams expose observation counts but use `coverage: null`, because transition
+history cannot prove continuous source uptime. The persisted response contains
+at most 16 ranked findings; source scope is bounded to 80 recorded
+sensor/measurement series with an explicit warning when that limit is reached.
 
 ## Query contract
 
@@ -121,19 +176,21 @@ cadence so a lone old value cannot silently fill a long gap.
 2. **No cache in the first slice.** Responses use `Cache-Control: no-store` and
    report `cache.hit: false`. This avoids stale results while late-data
    invalidation and semantic cache keys are not implemented.
-3. **Keep the current chart renderer.** The existing chart already supports the
-   selected multi-sensor use case and visible gaps. A general chart-spec adapter
-   and ECharts evaluation belong in a later Explorer slice with saved views,
-   brushing, overlays, and linked panels.
+3. **Keep the current rolling chart renderer.** The existing chart continues to
+   handle rolling multi-sensor history and visible gaps. Calendar comparisons
+   use a focused renderer below it and reuse the same sensor selection. A
+   general chart-spec adapter and ECharts evaluation belong in a later Explorer
+   slice with saved views, brushing, overlays, and linked panels.
 4. **Use the current database-wide data partition.** Stuga already permanently
    purges demo telemetry when real mode is activated and filters synthetic
    archive rows in real mode. The analytics API adds mandatory mode guards but
    does not pretend that current telemetry rows have the per-row `dataMode`
    schema required by the complete specification.
-5. **No statistical or scientific claims yet.** Robust descriptive summaries
-   are included. Correlation, causality, psychrometrics, anomalies, forecasts,
-   and findings need separately versioned methods, validation data, and user
-   wording rules.
+5. **Descriptive findings only.** The daily detector uses versioned practical
+   thresholds and peer-period medians. It says warmer/cooler, higher/lower, or
+   more/fewer; it does not call a cause, diagnose equipment, or claim a formal
+   statistical anomaly. Correlation, causality, psychrometrics, and scientific
+   anomaly detection still need separate validated methods.
 
 ## Gap matrix and next increments
 
@@ -141,39 +198,45 @@ cadence so a lone old value cannot silently fill a long gap.
 | --- | --- | --- |
 | Live/demo isolation | Explicit and fail-closed at query/export boundaries; database remains a single irreversible mode | Add per-row mode keys only as a coordinated storage/archive migration with cross-mode constraint tests. |
 | Registry and units | Core semantics persisted and exposed; canonical ingest validation already exists | Add dimension-checked transformations and explicit conversion registry. |
-| Explorer | Multi-sensor/single-measurement chart, explicit or auto rollup evidence controls, 6h-1y ranges, table, CSV/JSON | Add brush selection, comparison periods, and saved views. |
+| Explorer | Multi-sensor/single-measurement rolling chart, explicit or auto rollup evidence controls, 6h-1y ranges, calendar day/week/month/year/decade comparisons, accessible tables, CSV/JSON | Add brush selection and saved views. |
 | Quality | Missing, stale, source-estimated, low-coverage, and counter-reset flags; source-quality inclusion is explicit and exportable | Preserve richer source timestamps/flags and add declared interpolation policies. |
 | Rollups | Correct bounded on-demand UTC buckets | Add persisted rollups, source watermarks, late-data invalidation, and local-time daily buckets with 23/24/25-hour DST tests. |
 | Descriptive statistics | Core robust summaries | Add histogram/distribution and duration statistics where registry semantics allow them. |
 | Psychrometrics | Deferred | Pin a trusted library and add reference vectors before dew point or moisture claims. |
-| Statistics/findings | Deferred | Add versioned detectors only after autocorrelation, practical-effect, coverage, and multiple-testing policies exist. |
+| Statistics/findings | Daily practical-effect peer-period findings with persisted evidence; no causal or inferential claims | Add source-declared cadence, robust seasonal models, autocorrelation-aware uncertainty, multiple-testing control, user confirmation, and longer detector validation before calling results statistical anomalies. |
 | Topology dynamics | Deferred | First version topology snapshots and placement intervals; then validate lag/coupling models on synthetic scenarios. |
 | Forecasts | Existing simple forecast paths are unchanged and are not promoted by this work | Add naive baselines, rolling-origin evaluation, intervals, promotion gates, and model cards before new production forecast claims. |
 | Predictive maintenance | Deferred | Build only from registered evidence outputs with persistence, confirmation, and maintenance linkage. |
 
 ## Migration and rollback
 
-Startup migration adds registry columns with conservative defaults and backfills
-an existing definition's allowed-unit list with its canonical unit. Built-in
-definitions are then assigned explicit semantics. No telemetry sample is
-rewritten and no analytic result is persisted.
+Startup migration adds registry columns with conservative defaults, backfills
+an existing definition's allowed-unit list with its canonical unit, and creates
+one cascade-deleted latest-findings row per Home. Built-in definitions are then
+assigned explicit semantics. No telemetry sample is rewritten. Crossing the
+one-way demo-to-real boundary deletes demo findings before live findings can be
+written.
 
-An older application can ignore the additive SQLite columns. The endpoint and
-Explorer evidence section can be rolled back without deleting source history or
-losing stored analytic artifacts because this slice creates none.
+An older application can ignore the additive SQLite table. The endpoint, worker,
+and panels can be rolled back without deleting source history; only the latest
+derived findings snapshot would become unused.
 
 ## Verification
 
-Focused coverage includes strict/mismatched data modes, invalid aggregation,
-source-quality inclusion and rejection, raw labelling, output budgets,
-reset-aware deltas across bucket boundaries, registry migration compatibility,
-OpenAPI parity, Explorer controls and long-range rendering, visible-gap
-thresholds, and safe CSV metadata/export. Run:
+Focused coverage includes strict/mismatched data modes, archive-aware coverage
+discovery, invalid aggregation, source-quality inclusion and rejection, raw
+labelling, output budgets, reset-aware deltas across bucket boundaries,
+registry migration compatibility, OpenAPI parity, house-timezone calendar
+boundaries, DST, leap days, ISO week 53, decade segmentation, fair partial-month
+windows, persisted daily idempotency, weather/electricity/opening detection,
+heartbeat-safe opening counts, Explorer controls and long-range rendering,
+visible-gap thresholds, and safe CSV metadata/export.
+Run:
 
 ```powershell
 npm run build:packages
-npm run test --workspace @climate-twin/api -- tests/analytics.test.ts tests/measurements.test.ts tests/openapi-parity.test.ts
-npm run test --workspace @climate-twin/web -- src/pages/DataAnalyticsPage.test.tsx src/components/SensorAnalyticsChart.test.tsx src/chartGaps.test.ts src/measurements.test.ts
+npm run test --workspace @climate-twin/api -- tests/analytics.test.ts tests/timeseries-read-facade.test.ts tests/measurements.test.ts tests/openapi-parity.test.ts
+npm run test --workspace @climate-twin/web -- src/calendarComparison.test.ts src/components/CalendarPeriodComparison.test.tsx src/pages/DataAnalyticsPage.test.tsx src/components/SensorAnalyticsChart.test.tsx src/chartGaps.test.ts src/measurements.test.ts
 npm run typecheck --workspace @climate-twin/api
 npm run typecheck --workspace @climate-twin/web
 ```

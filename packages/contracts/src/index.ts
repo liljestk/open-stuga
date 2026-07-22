@@ -145,6 +145,38 @@ export interface AnalyticsQueryRequest {
   requestId: string;
 }
 
+/** Lightweight scope used to discover the complete recorded analytics span before calendar comparison. */
+export interface AnalyticsCoverageRequest {
+  apiVersion: "1.0";
+  dataMode: DataMode;
+  scope: AnalyticsEntityScope;
+  measurementIds: string[];
+  requestId: string;
+}
+
+export type AnalyticsArchiveState = "not-configured" | "not-ready" | "merged" | "failed";
+
+export interface AnalyticsCoverageSeries {
+  entityId: string;
+  entityLabel: string;
+  measurementId: string;
+  start: string;
+  end: string;
+}
+
+export interface AnalyticsCoverageResponse {
+  apiVersion: "1.0";
+  requestId: string;
+  dataMode: DataMode;
+  /** Earliest and latest selected sample across every returned series. */
+  range: { start: string | null; end: string | null };
+  series: AnalyticsCoverageSeries[];
+  /** False means an unavailable archive may contain older periods than those returned here. */
+  complete: boolean;
+  archiveState: AnalyticsArchiveState;
+  generatedAt: string;
+}
+
 export interface AnalyticsProvenance {
   algorithmKey: string;
   algorithmVersion: string;
@@ -152,7 +184,7 @@ export interface AnalyticsProvenance {
   inputStart: string;
   inputEnd: string;
   sourceIds: string[];
-  archiveState: "not-configured" | "not-ready" | "merged" | "failed";
+  archiveState: AnalyticsArchiveState;
 }
 
 export interface AnalyticsPoint {
@@ -222,6 +254,68 @@ export interface AnalyticsQueryResponse {
   warnings: AnalyticsWarning[];
   generatedAt: string;
   cache: { hit: false; keyVersion: "analytics-query-v1" };
+}
+
+export type AnalyticsFindingCategory = "sensor" | "outdoor-weather" | "electricity" | "opening";
+export type AnalyticsFindingDirection = "higher" | "lower";
+export type AnalyticsFindingStatistic = "mean" | "sum" | "delta" | "open-count";
+export type AnalyticsFindingStrength = "notable" | "strong";
+
+/** One like-for-like calendar window retained as auditable evidence for a daily finding. */
+export interface AnalyticsFindingPeriodEvidence {
+  key: string;
+  year: number;
+  start: string;
+  end: string;
+  value: number;
+  sampleCount: number;
+  /** Null for event streams whose continuous source uptime cannot be reconstructed. */
+  coverage: number | null;
+}
+
+/**
+ * A descriptive peer-period difference. It deliberately reports association,
+ * not causality: no weather, occupancy, tariff, or equipment cause is inferred.
+ */
+export interface AnalyticsFinding {
+  id: string;
+  category: AnalyticsFindingCategory;
+  subjectId: string;
+  subjectLabel: string;
+  metric: string;
+  unit: string;
+  statistic: AnalyticsFindingStatistic;
+  direction: AnalyticsFindingDirection;
+  strength: AnalyticsFindingStrength;
+  current: AnalyticsFindingPeriodEvidence;
+  baseline: AnalyticsFindingPeriodEvidence[];
+  baselineMedian: number;
+  absoluteDifference: number;
+  percentDifference: number | null;
+}
+
+export interface DailyAnalyticsFindingsSnapshot {
+  apiVersion: "1.0";
+  houseId: string;
+  dataMode: DataMode;
+  periodKind: "month-to-date";
+  /** Last fully completed date in the house timezone, formatted YYYY-MM-DD. */
+  evaluatedThrough: string;
+  algorithmVersion: string;
+  generatedAt: string;
+  findings: AnalyticsFinding[];
+  warnings: Array<"archive-incomplete" | "source-truncated" | "scope-limited">;
+}
+
+export interface DailyAnalyticsFindingsStatus {
+  state: "pending" | "ready" | "failed";
+  lastAttemptAt: string | null;
+  lastError: string | null;
+}
+
+export interface DailyAnalyticsFindingsResponse {
+  snapshot: DailyAnalyticsFindingsSnapshot | null;
+  status: DailyAnalyticsFindingsStatus;
 }
 export type UnitSystem = "metric" | "imperial";
 export type ConnectionState = "live" | "reconnecting" | "offline";
@@ -1163,6 +1257,86 @@ export interface ThermalSimulationResult {
   scenarioAnchorTimestamp: string | null;
   calibration: ThermalCalibrationResult;
   points: ThermalSimulationPoint[];
+}
+
+/** Scope levels exposed by the whole-home thermal-isolation comparison. */
+export type ThermalIsolationScopeType = "house" | "floor" | "room" | "sensor";
+export type ThermalIsolationConfidence = "high" | "medium" | "low" | "unavailable";
+export type ThermalIsolationRating = "low" | "moderate" | "high" | "very-high";
+
+export interface ThermalIsolationMetrics {
+  /** Median fitted time constant for this scope. */
+  effectiveTimeConstantHours: number | null;
+  /** Time for the fitted first-order response to move halfway toward equilibrium. */
+  halfResponseHours: number | null;
+  /** Modeled percentage of the initial indoor state retained after a 24-hour outdoor step. */
+  retainedAfter24HoursPct: number | null;
+  /** Complement of retainedAfter24HoursPct. */
+  outdoorResponseAfter24HoursPct: number | null;
+  /** Improvement over a last-value persistence baseline on chronological validation. */
+  modelSkillPct: number | null;
+  /** Median synchronous max-minus-min temperature across sensors in this scope. */
+  typicalTemperatureSpreadC: number | null;
+  /** 90th-percentile synchronous max-minus-min temperature across sensors in this scope. */
+  p90TemperatureSpreadC: number | null;
+}
+
+export interface ThermalIsolationEntry {
+  scope: {
+    type: ThermalIsolationScopeType;
+    id: string;
+    label: string;
+    parentId?: string;
+    floorId?: string;
+    sensorIds: string[];
+  };
+  calibrationStatus: ThermalCalibrationStatus;
+  confidence: ThermalIsolationConfidence;
+  rating: ThermalIsolationRating | null;
+  /** 0-100 modeled 24-hour retention index; null when calibration is unavailable. */
+  score: number | null;
+  /** Rank among entries at the same scope level; 1 is the strongest buffering. */
+  rank: number | null;
+  comparedWithHousePoints: number | null;
+  /** Share of immediate child scopes with a usable model. */
+  childCoveragePct: number;
+  sensorCount: number;
+  eligibleSensorCount: number;
+  metrics: ThermalIsolationMetrics;
+  quality: {
+    durationHours: number;
+    outdoorRangeC: number;
+    validationMaeC: number | null;
+    persistenceMaeC: number | null;
+    /** Lower and upper score implied by the fitted time-constant sensitivity profile. */
+    scoreLow: number | null;
+    scoreHigh: number | null;
+  };
+  /** Stable machine-readable warning/reason identifiers. */
+  warnings: string[];
+}
+
+export interface ThermalIsolationInsight {
+  code: "LOWEST_BUFFERING_ROOM" | "FLOOR_CONTRAST" | "ROOM_SENSOR_SPREAD" | "LIMITED_EVIDENCE";
+  scopeIds: string[];
+  value: number;
+  unit: "score-points" | "celsius" | "percent";
+}
+
+export interface ThermalIsolationResult {
+  generatedAt: string;
+  systemVersion: typeof SYSTEM_VERSION;
+  houseId: string;
+  from: string;
+  to: string;
+  entries: ThermalIsolationEntry[];
+  insights: ThermalIsolationInsight[];
+  methodology: {
+    scoreMethod: "modeled-24h-retention-v1";
+    aggregationMethod: "median-child-score-v1";
+    interpretation: string;
+    limitations: string[];
+  };
 }
 
 export interface Sensor {

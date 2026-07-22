@@ -1,4 +1,4 @@
-# Effective room thermal simulation
+# Effective room thermal simulation and isolation comparison
 
 Stuga 0.2.0 adds an experimental, sensor-scoped first-order thermal
 model. Its purpose is to compare measured indoor temperature with a transparent
@@ -79,6 +79,41 @@ The Twin renders four distinct concepts:
 - simulated temperature;
 - an empirical model band;
 - a separate signed residual plot.
+
+The Data & analytics page also exposes a whole-home comparison:
+
+```http
+GET /api/v1/houses/{houseId}/thermal-isolation
+    ?from={ISO timestamp}
+    &to={ISO timestamp}
+```
+
+Each enabled temperature sensor is calibrated independently against the same
+outdoor boundary. A usable fitted time constant `tau` is converted into a
+0–100 **24-hour thermal-retention score**:
+
+```text
+score = 100 * exp(-24 / tau)
+```
+
+The score is the percentage of the fitted indoor state retained 24 hours after
+an outdoor-temperature step under the model assumptions. Higher means slower
+weather response. It is accompanied by the effective time constant, the 50%
+response time (`tau * ln(2)`), the modeled 24-hour outdoor response, validation
+skill relative to last-value persistence, synchronized sensor temperature
+spread, confidence, and sensitivity bounds.
+
+Sensor scores are combined with medians: sensor → room, room → floor, and floor
+→ house. This prevents one densely instrumented room from dominating a floor or
+the house. Rooms without a usable sensor remain visible as missing evidence;
+they are never assigned an inferred score. The API ranks only scored peers at
+the same scope level and reports partial coverage explicitly.
+
+Despite the product label, this remains an empirical **thermal isolation
+comparison**, not a physical insulation measurement. The response mixes the
+envelope, thermal mass, HVAC, ventilation, solar and internal gains, occupancy,
+and sensor placement. It must not be presented as a U-value, airtightness or
+blower-door result, energy certificate, or building-code assessment.
 
 Simulated points are computed on demand and are never written to measurement
 history. The historical line is an in-sample fitted reconstruction, not a

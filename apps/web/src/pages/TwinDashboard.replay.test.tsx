@@ -354,13 +354,14 @@ describe("TwinDashboard replay timing", () => {
       expect([...loaded]).toEqual(expect.arrayContaining(expectedClimateLoads));
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Humidity fell 14 percentage points in Bathroom/ }));
+    const events = screen.getByLabelText("Auto-tagged events");
+    fireEvent.click(within(events).getByRole("button", { name: /Humidity fell 14 percentage points in Bathroom/ }));
 
     await waitFor(() => expect(Number((screen.getByRole("slider", { name: "Replay time" }) as HTMLInputElement).value)).toBe(eventTimestamp));
     expect(view.onMetric).toHaveBeenLastCalledWith("humidity");
     expect(view.onFloor).toHaveBeenLastCalledWith(eventSensor.floorId);
     expect(view.onSensorSelect).toHaveBeenLastCalledWith(eventSensor.id);
-    expect(screen.getByRole("button", { name: /Humidity fell 14 percentage points in Bathroom/ }).getAttribute("aria-current")).toBe("time");
+    expect(within(screen.getByLabelText("Auto-tagged events")).getByRole("button", { name: /Humidity fell 14 percentage points in Bathroom/ }).getAttribute("aria-current")).toBe("time");
   });
 
   it("starts first play at the beginning and advances at the selected minutes-per-second rate", () => {

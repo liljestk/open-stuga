@@ -145,6 +145,7 @@ export function ReplayControls({
   const visibleEvents = events
     .filter((event) => Number.isFinite(event.timestamp) && event.timestamp >= min && event.timestamp <= max)
     .sort((left, right) => left.timestamp - right.timestamp);
+  const replayProgress = Math.max(0, Math.min(100, (timestamp - min) / Math.max(max - min, 1) * 100));
   const selectedEventId = visibleEvents.find((event) => Math.abs(event.timestamp - timestamp) <= 1_000)?.id ?? null;
   const previousEvent = visibleEvents.filter((event) => event.timestamp < timestamp - 1_000).at(-1);
   const nextEvent = visibleEvents.find((event) => event.timestamp > timestamp + 1_000);
@@ -181,11 +182,12 @@ export function ReplayControls({
     if (!active || timestamp >= max) onTimestamp(min);
     onPlaying(true);
   };
-  const selectEvent = (event: ReplayClimateEvent) => {
+  const selectEvent = (event: ReplayClimateEvent, focusEventCard = true) => {
     onPlaying(false);
     onActive(true);
     onTimestamp(event.timestamp);
     onEventSelect?.(event);
+    if (!focusEventCard) return;
     window.setTimeout(() => {
       const matchingButton = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-replay-event-id]"))
         .find((button) => button.dataset.replayEventId === event.id);
@@ -240,17 +242,26 @@ export function ReplayControls({
         </div>
         <div className="timeline-field">
           <label className="sr-only" htmlFor={timelineId}>{t("replay.timeline")}</label>
-          <div className="replay-track">
-            <input id={timelineId} type="range" min={min} max={max} step={frameStepMs} value={timestamp} aria-valuetext={activeTime} onChange={(event) => { onActive(true); onTimestamp(Number(event.target.value)); }} />
-            {visibleEvents.length > 0 && <span className="replay-event-ticks" aria-hidden="true">
+          <div className="replay-track" style={{ "--replay-progress": `${replayProgress}%` } as CSSProperties}>
+            <output className="replay-current-time" htmlFor={timelineId}>{eventTimeFormatter.format(timestamp)}</output>
+            <input id={timelineId} type="range" min={min} max={max} step={frameStepMs} value={timestamp} aria-valuetext={activeTime} onChange={(event) => { onPlaying(false); onActive(true); onTimestamp(Number(event.target.value)); }} />
+            {visibleEvents.length > 0 && <span className="replay-event-ticks">
               {visibleEvents.map((event) => {
                 const position = (event.timestamp - min) / Math.max(max - min, 1) * 100;
-                return <i
+                const description = describeEvent(event);
+                const eventTime = eventTimeFormatter.format(event.timestamp);
+                return <button
                   key={event.id}
+                  type="button"
                   className={selectedEventId === event.id ? "selected" : ""}
+                  aria-current={selectedEventId === event.id ? "time" : undefined}
+                  aria-label={t("replay.seekEvent", { event: description, time: eventTime })}
+                  title={`${eventTime} · ${description}`}
                   data-direction={event.direction}
+                  data-edge={position < 15 ? "start" : position > 85 ? "end" : undefined}
                   style={{ "--replay-event-position": `${Math.max(0, Math.min(100, position))}%` } as CSSProperties}
-                />;
+                  onClick={() => selectEvent(event, false)}
+                ><span aria-hidden="true"><strong>{eventTime}</strong>{description}</span></button>;
               })}
             </span>}
           </div>
