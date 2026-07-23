@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Activity, Bell, Bolt, Braces, ChartLine, ChevronDown, ChevronLeft, CloudSun, House, Languages, LayoutDashboard, ListChecks, LogOut, MapPinned, Menu, Network, PanelLeftClose, PanelLeftOpen, RadioTower, RotateCcw, Settings2, ShieldCheck, Users, Wrench, X } from "lucide-react";
+import { Activity, Bell, Bolt, Braces, ChartLine, ChevronDown, ChevronLeft, CloudDownload, CloudSun, House, Languages, LayoutDashboard, ListChecks, LogOut, MapPinned, Menu, Network, PanelLeftClose, PanelLeftOpen, RadioTower, RotateCcw, Settings2, ShieldCheck, Users, Wrench, X } from "lucide-react";
 import type { AppPage } from "../domain";
 import { useI18n, type Locale } from "../i18n";
 import type { ConnectionState, House as Home, Property, UnitSystem } from "@climate-twin/contracts";
@@ -62,6 +62,7 @@ const pageIcons = {
   alerts: Bell,
   integrations: Settings2,
   developer: Braces,
+  updates: CloudDownload,
 };
 
 const navigationPreferenceKey = "climate-twin-navigation";
@@ -170,13 +171,14 @@ export function AppShell({
     ] : []),
   ] : [];
   const advancedNavItems: NavigationItem[] = [
+    ...(canManagePeople ? [{ id: "updates" as const, label: t("nav.updates"), scope: "workspace" as const }] : []),
     { id: "developer", label: t("nav.developer"), scope: "workspace" },
   ];
   const currentPath = window.location.pathname.replace(/\/+$/, "") || "/";
   const homeGroupActive = currentPath.includes("/homes/");
   const propertyGroupActive = !homeGroupActive && /^\/properties\/[^/]+/.test(currentPath);
-  const workspaceGroupActive = !homeGroupActive && !propertyGroupActive && page !== "developer";
-  const advancedGroupActive = page === "developer";
+  const workspaceGroupActive = !homeGroupActive && !propertyGroupActive && page !== "developer" && page !== "updates";
+  const advancedGroupActive = page === "developer" || page === "updates";
 
   const closeMenu = () => {
     const activeElement = document.activeElement;
@@ -457,7 +459,7 @@ export function AppShell({
             : <button className="icon-button" type="button" onClick={() => onBack ? onBack() : choosePage({ id: "overview", label: t("nav.overview"), scope: "workspace" })} aria-label={onBackLabel ?? t("header.overview")}><ChevronLeft size={20} /></button>}
         </header>
         <main id="main-content" className={`main-content page-${page}`} tabIndex={-1}>
-          {properties.length > 0 && onProperty && !["overview", "people", "stugbys", "alerts", "developer"].includes(page)
+          {properties.length > 0 && onProperty && !["overview", "people", "stugbys", "alerts", "developer", "updates"].includes(page)
             && !(page === "properties" && /^\/properties\/?$/.test(window.location.pathname)) && (
             <div className="page-home-switcher">
               <div className="page-home-switcher-group">

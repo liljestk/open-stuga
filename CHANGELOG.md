@@ -4,6 +4,19 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+## 0.6.0 - 2026-07-23
+
+- Added Owner/Admin system-update management backed by GitHub Releases,
+  including installed/latest version visibility, release notes, stable or
+  preview channels, configurable checks and local-time maintenance windows,
+  manual update requests, and live operation status.
+- Added a platform-neutral Docker update agent with trusted GHCR release
+  validation, pre-update backup, health-gated replacement, and automatic
+  rollback. Docker Desktop and ordinary Docker Engine can run it on the host;
+  Raspberry Pi appliance images enable the isolated `self-update` sidecar and
+  preserve the selected container release across A/B operating-system slots.
+  No database migration is required.
+
 ## 0.5.0 - 2026-07-23
 
 - Added resumable live Stuga-to-Stuga migration over authenticated SSH with

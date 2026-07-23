@@ -31,6 +31,12 @@ export interface AppConfig {
   backupOperationsDirectory?: string;
   /** Read-only manifest discovery path for local/non-Compose operation. */
   backupDirectory?: string;
+  /** Shared coordination directory consumed by the external, self-replacing update agent. */
+  systemUpdateOperationsDirectory?: string | null;
+  /** Public GitHub repository used only for release discovery. */
+  systemUpdateRepository?: string;
+  /** Trusted GHCR image prefix; release data can never override this registry namespace. */
+  systemUpdateImagePrefix?: string;
   mockEnabled: boolean;
   mockIntervalMs: number;
   retentionDays: number;
@@ -317,6 +323,22 @@ function stugbyPublicOrigin(value: string | undefined): string | null {
   return url.origin;
 }
 
+function githubRepository(value: string | undefined): string {
+  const normalized = optional(value) ?? "liljestk/open-stuga";
+  if (!/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/u.test(normalized)) {
+    throw new Error("SYSTEM_UPDATE_REPOSITORY must use the GitHub owner/repository form");
+  }
+  return normalized;
+}
+
+function systemUpdateImagePrefix(value: string | undefined, repository: string): string {
+  const normalized = optional(value) ?? `ghcr.io/${repository.toLowerCase()}`;
+  if (!/^ghcr\.io\/[a-z0-9_.-]{1,100}\/[a-z0-9_.-]{1,100}$/u.test(normalized)) {
+    throw new Error("SYSTEM_UPDATE_IMAGE_PREFIX must be a lower-case ghcr.io owner/image prefix");
+  }
+  return normalized;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const databasePath = env.DATABASE_PATH === ":memory:"
     ? ":memory:"
@@ -333,6 +355,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     || (configuredSpatialLayersPath === null && databasePath === ":memory:")
     ? ":memory:"
     : resolve(configuredSpatialLayersPath ?? join(dirname(databasePath), "experimental-spatial-layers.sqlite"));
+  const systemUpdateRepository = githubRepository(env.SYSTEM_UPDATE_REPOSITORY);
   const stored = env.NODE_ENV === "test" && env.INTEGRATION_SECRETS_FILE === undefined
     ? { version: 1 as const }
     : readIntegrationSecrets(integrationSecretsFile);
@@ -537,6 +560,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     stugbyPublicOrigin: stugbyPublicOrigin(env.STUGBY_PUBLIC_ORIGIN),
     backupOperationsDirectory: resolve(env.BACKUP_OPERATIONS_DIRECTORY ?? "./data/backup-operations"),
     backupDirectory: resolve(env.BACKUP_DIRECTORY ?? "./backups"),
+    systemUpdateOperationsDirectory: resolve(env.SYSTEM_UPDATE_OPERATIONS_DIRECTORY
+      ?? (databasePath === ":memory:" ? "./data/update-operations" : join(dirname(databasePath), "update-operations"))),
+    systemUpdateRepository,
+    systemUpdateImagePrefix: systemUpdateImagePrefix(env.SYSTEM_UPDATE_IMAGE_PREFIX, systemUpdateRepository),
     mockEnabled: booleanValue(env.MOCK_ENABLED, false),
     mockIntervalMs: positiveInteger(env.MOCK_INTERVAL_MS, 2_000),
     // Zero keeps the complete redundant SQLite copy. A positive value bounds

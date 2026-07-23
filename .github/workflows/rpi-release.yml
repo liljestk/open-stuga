@@ -44,6 +44,8 @@ jobs:
             suffix: backup
           - target: tapo-export-runner
             suffix: tapo-export-runner
+          - target: update-agent
+            suffix: update-agent
     steps:
       - name: Check out the released source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -94,6 +96,7 @@ jobs:
       web_ref: ${{ steps.images.outputs.web_ref }}
       backup_ref: ${{ steps.images.outputs.backup_ref }}
       tapo_ref: ${{ steps.images.outputs.tapo_ref }}
+      update_agent_ref: ${{ steps.images.outputs.update_agent_ref }}
     steps:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -122,6 +125,7 @@ jobs:
             echo "web_ref=$(resolve "${IMAGE_PREFIX}-web:${RELEASE_TAG}")"
             echo "backup_ref=$(resolve "${IMAGE_PREFIX}-backup:${RELEASE_TAG}")"
             echo "tapo_ref=$(resolve "${IMAGE_PREFIX}-tapo-export-runner:${RELEASE_TAG}")"
+            echo "update_agent_ref=$(resolve "${IMAGE_PREFIX}-update-agent:${RELEASE_TAG}")"
           } >> "$GITHUB_OUTPUT"
 
   ota:
@@ -161,6 +165,7 @@ jobs:
           STUGA_WEB_IMAGE: ${{ needs.resolve_images.outputs.web_ref }}
           STUGA_BACKUP_IMAGE: ${{ needs.resolve_images.outputs.backup_ref }}
           STUGA_TAPO_RUNNER_IMAGE: ${{ needs.resolve_images.outputs.tapo_ref }}
+          STUGA_UPDATE_AGENT_IMAGE: ${{ needs.resolve_images.outputs.update_agent_ref }}
           RPI_FACTORY_SSH_PUBLIC_KEY: ${{ secrets.RPI_FACTORY_SSH_PUBLIC_KEY }}
           RPI_FACTORY_BUILD: "1"
           RPI_EXPORT_FACTORY_IMAGE: "1"
@@ -191,6 +196,7 @@ jobs:
             --env STUGA_WEB_IMAGE \
             --env STUGA_BACKUP_IMAGE \
             --env STUGA_TAPO_RUNNER_IMAGE \
+            --env STUGA_UPDATE_AGENT_IMAGE \
             --env RPI_FACTORY_BUILD \
             --env RPI_EXPORT_FACTORY_IMAGE \
             --env RPI_IMAGE_GEN_INSTALL_DEPS \

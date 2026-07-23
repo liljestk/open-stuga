@@ -15,7 +15,7 @@ Optional environment variables:
   STUGA_VERSION                  Package/release version (default: package.json)
   STUGA_IMAGE_TAG                Container tag (default: v<version>)
   STUGA_IMAGE_REGISTRY_PREFIX    Image prefix (default: ghcr.io/liljestk/open-stuga)
-  STUGA_{API,WEB,BACKUP,TAPO_RUNNER}_IMAGE
+  STUGA_{API,WEB,BACKUP,TAPO_RUNNER,UPDATE_AGENT}_IMAGE
                                  Exact image refs (CI supplies tag + digest)
   RPI_HOSTNAME                   Device hostname (default: stuga)
   RPI_WIFI_PROFILE               iwd .psk profile to embed
@@ -62,6 +62,7 @@ readonly api_image="${STUGA_API_IMAGE:-${image_prefix}-api:${image_tag}}"
 readonly web_image="${STUGA_WEB_IMAGE:-${image_prefix}-web:${image_tag}}"
 readonly backup_image="${STUGA_BACKUP_IMAGE:-${image_prefix}-backup:${image_tag}}"
 readonly tapo_image="${STUGA_TAPO_RUNNER_IMAGE:-${image_prefix}-tapo-export-runner:${image_tag}}"
+readonly update_agent_image="${STUGA_UPDATE_AGENT_IMAGE:-${image_prefix}-update-agent:${image_tag}}"
 readonly hostname="${RPI_HOSTNAME:-stuga}"
 readonly rpi_image_gen_ref="${RPI_IMAGE_GEN_REF:-17e53bca56c8d6bed273a6faa7412b296e4c0937}"
 readonly rpi_image_gen_dir="${RPI_IMAGE_GEN_DIR:-$repo_root/.rpi-image-gen}"
@@ -70,7 +71,7 @@ readonly dist_dir="${RPI_DIST_DIR:-$repo_root/dist/rpi}"
 readonly factory_build="${RPI_FACTORY_BUILD:-1}"
 readonly export_factory_image="${RPI_EXPORT_FACTORY_IMAGE:-1}"
 
-for image_ref in "$api_image" "$web_image" "$backup_image" "$tapo_image"; do
+for image_ref in "$api_image" "$web_image" "$backup_image" "$tapo_image" "$update_agent_image"; do
   if [[ "$image_ref" =~ [[:space:]] ]]; then
     echo "Container references cannot contain whitespace: $image_ref" >&2
     exit 1
@@ -143,6 +144,7 @@ build_options=(
   "IGconf_stuga_web_image=$web_image"
   "IGconf_stuga_backup_image=$backup_image"
   "IGconf_stuga_tapo_image=$tapo_image"
+  "IGconf_stuga_update_agent_image=$update_agent_image"
   "IGconf_sys_workroot=$build_root"
 )
 [[ -n "$ssh_key_file" ]] && build_options+=("IGconf_ssh_pubkey_user1=$(realpath "$ssh_key_file")")

@@ -54,6 +54,9 @@ Start here:
    installation, immutable A/B system images, persistent Docker data, and
    automatic Raspberry Pi Connect OTA releases.
 
+23. [System updates](system-updates.md) — GitHub release discovery, UI-managed
+   maintenance windows, Docker/Desktop installation, health checks, and rollback.
+
 Reference configuration:
 
 - [`config/home-assistant.entities.example.json`](../config/home-assistant.entities.example.json)

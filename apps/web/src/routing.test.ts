@@ -88,6 +88,7 @@ describe("application routes", () => {
     expect(locationForRoute("overview", scope)).toBe("/overview");
     expect(locationForRoute("properties", scope)).toBe("/properties/property-main");
     expect(locationForRoute("stugbys", scope)).toBe("/stugbys");
+    expect(locationForRoute("updates", scope)).toBe("/system/updates");
     expect(locationForRoute("twin", scope)).toBe("/properties/property-main/homes/home-1");
     expect(locationForRoute("outdoor", scope)).toBe("/properties/property-main/homes/home-1/outdoor");
     expect(locationForRoute("activity", scope)).toBe("/properties/property-main/homes/home-1/activity");
@@ -137,6 +138,7 @@ describe("application routes", () => {
     ["developer", "/developer", null, null],
     ["people", "/people", null, null],
     ["stugbys", "/stugbys", null, null],
+    ["updates", "/system/updates", null, null],
   ] satisfies Array<[AppPage, string, string | null, string | null]>) (
     "round-trips the %s route without losing its ownership scope",
     (page, expectedUrl, expectedPropertyId, expectedHouseId) => {
@@ -153,5 +155,6 @@ describe("application routes", () => {
     expect(routeFromUrl("/properties")).toEqual({ page: "properties", propertyId: null, houseId: null });
     expect(routeFromUrl("/people")).toEqual({ page: "people", propertyId: null, houseId: null });
     expect(routeFromUrl("/stugbys")).toEqual({ page: "stugbys", propertyId: null, houseId: null });
+    expect(routeFromUrl("/system/updates")).toEqual({ page: "updates", propertyId: null, houseId: null });
   });
 });

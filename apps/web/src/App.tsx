@@ -23,6 +23,7 @@ import { integrationForHouse } from "./integrationScope";
 
 const AlertsPage = lazy(() => import("./pages/AlertsPage").then((module) => ({ default: module.AlertsPage })));
 const DeveloperPage = lazy(() => import("./pages/DeveloperPage").then((module) => ({ default: module.DeveloperPage })));
+const SystemUpdatesPage = lazy(() => import("./pages/SystemUpdatesPage").then((module) => ({ default: module.SystemUpdatesPage })));
 const IntegrationsPage = lazy(() => import("./pages/IntegrationsPage").then((module) => ({ default: module.IntegrationsPage })));
 const SensorManagementPage = lazy(() => import("./pages/SensorManagementPage").then((module) => ({ default: module.SensorManagementPage })));
 const DataAnalyticsPage = lazy(() => import("./pages/DataAnalyticsPage").then((module) => ({ default: module.DataAnalyticsPage })));
@@ -51,6 +52,7 @@ const pageTitleKeys = {
   alerts: "nav.alerts",
   integrations: "nav.integrations",
   developer: "nav.developer",
+  updates: "nav.updates",
 } as const;
 
 const dismissedTpLinkDevicesKey = "stuga-dismissed-tp-link-device-notices";
@@ -568,7 +570,7 @@ export function App() {
     </AppShell>;
   }
 
-  if (page === "overview" || page === "people" || page === "stugbys" || page === "alerts" || page === "developer") {
+  if (page === "overview" || page === "people" || page === "stugbys" || page === "alerts" || page === "developer" || page === "updates") {
     return <AppShell
       page={page}
       onPage={(next, scope) => navigate(next, scope?.houseId, false, window.location.pathname, scope?.propertyId)}
@@ -654,6 +656,9 @@ export function App() {
           ? <StugbyPage houses={state.houses} />
           : <section className="route-recovery" aria-labelledby="stugby-access-title"><ShieldCheck size={24} aria-hidden="true" /><div><span className="eyebrow">{t("properties.guestReadOnly")}</span><h1 id="stugby-access-title">{t("properties.adminOnlyTitle")}</h1><p>{t("properties.adminOnlyBody")}</p></div><button type="button" className="primary-button" onClick={() => navigate("overview", null, true, window.location.pathname, null)}>{t("route.openOverview")}</button></section>)}
         {page === "developer" && <DeveloperPage />}
+        {page === "updates" && (canManagePeople
+          ? <SystemUpdatesPage />
+          : <section className="route-recovery" aria-labelledby="updates-access-title"><ShieldCheck size={24} aria-hidden="true" /><div><span className="eyebrow">{t("properties.guestReadOnly")}</span><h1 id="updates-access-title">{t("properties.adminOnlyTitle")}</h1><p>{t("properties.adminOnlyBody")}</p></div><button type="button" className="primary-button" onClick={() => navigate("overview", null, true, window.location.pathname, null)}>{t("route.openOverview")}</button></section>)}
       </></Suspense></RouteErrorBoundary>}
     </AppShell>;
   }

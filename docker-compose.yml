@@ -37,6 +37,24 @@ services:
       - no-new-privileges:true
     network_mode: none
 
+  update-operations-init:
+    image: ${STUGA_API_IMAGE:-stuga-api:local}
+    build:
+      context: .
+      target: api
+    restart: "no"
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["chown -R 1000:$${STUGA_UPDATE_OPERATIONS_GID} /app/runtime/update-operations && chmod 2770 /app/runtime/update-operations"]
+    environment:
+      STUGA_UPDATE_OPERATIONS_GID: ${STUGA_UPDATE_OPERATIONS_GID:-1000}
+    volumes:
+      - ${STUGA_UPDATE_OPERATIONS_DIRECTORY:-./data/update-operations}:/app/runtime/update-operations
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+
   timescaledb:
     image: ${TIMESCALE_IMAGE:-timescale/timescaledb:2.28.3-pg17}
     restart: unless-stopped
@@ -121,6 +139,8 @@ services:
         condition: service_completed_successfully
       backup-operations-init:
         condition: service_completed_successfully
+      update-operations-init:
+        condition: service_completed_successfully
       timescaledb:
         condition: service_started
     env_file:
@@ -141,6 +161,9 @@ services:
       INTEGRATION_SECRETS_FILE: /app/data/integration-secrets.json
       BACKUP_OPERATIONS_DIRECTORY: /app/runtime/backup-operations
       BACKUP_DIRECTORY: /app/backups
+      SYSTEM_UPDATE_OPERATIONS_DIRECTORY: /app/runtime/update-operations
+      SYSTEM_UPDATE_REPOSITORY: ${SYSTEM_UPDATE_REPOSITORY:-liljestk/open-stuga}
+      SYSTEM_UPDATE_IMAGE_PREFIX: ${SYSTEM_UPDATE_IMAGE_PREFIX:-ghcr.io/liljestk/open-stuga}
       MOCK_ENABLED: ${MOCK_ENABLED:-false}
       MOCK_INTERVAL_MS: ${MOCK_INTERVAL_MS:-2000}
       # Zero retains the complete SQLite copy. Values >=30 retain a bounded
@@ -201,6 +224,7 @@ services:
       - stuga-proxy-secret:/app/runtime/proxy:ro
       - stuga-tapo-worker-secret:/app/runtime/tapo:ro
       - stuga-backup-operations:/app/runtime/backup-operations
+      - ${STUGA_UPDATE_OPERATIONS_DIRECTORY:-./data/update-operations}:/app/runtime/update-operations
       - ${STUGA_CONFIG_DIRECTORY:-./config}:/app/config:ro
       - ${TAPO_HISTORY_API_SECRET_DIR:-./secrets/tapo-history-api}:/run/secrets/tapo-history:ro
       - ${STUGA_CLOUDFLARE_SECRET_DIR:-./secrets/cloudflare}:/run/secrets/cloudflare:ro
@@ -213,6 +237,38 @@ services:
       - frontend
       - backend
       - automation
+
+  # This privileged helper is opt-in because access to the Docker socket is
+  # equivalent to host administration. On Windows/macOS Docker Desktop, run
+  # `npm run update-agent` on the host instead.
+  stuga-update-agent:
+    profiles: ["self-update"]
+    image: ${STUGA_UPDATE_AGENT_IMAGE:-stuga-update-agent:local}
+    build:
+      context: .
+      target: update-agent
+    init: true
+    restart: unless-stopped
+    environment:
+      STUGA_PROJECT_DIRECTORY: /opt/stuga
+      SYSTEM_UPDATE_OPERATIONS_DIRECTORY: /persistent/stuga/update-operations
+      STUGA_RELEASE_ENV_FILE: /persistent/stuga/update-release/release.env
+      SYSTEM_UPDATE_REPOSITORY: ${SYSTEM_UPDATE_REPOSITORY:-liljestk/open-stuga}
+      SYSTEM_UPDATE_IMAGE_PREFIX: ${SYSTEM_UPDATE_IMAGE_PREFIX:-ghcr.io/liljestk/open-stuga}
+      SYSTEM_UPDATE_RUNTIME: ${SYSTEM_UPDATE_RUNTIME:-docker}
+      STUGA_COMPOSE_PROJECT_NAME: stuga
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/opt/stuga:ro
+      - ${STUGA_UPDATE_OPERATIONS_DIRECTORY:-./data/update-operations}:/persistent/stuga/update-operations
+      - ${STUGA_UPDATE_RELEASE_DIRECTORY:-./data/update-release}:/persistent/stuga/update-release
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
 
   tapo-export-runner:
     profiles: ["tapo-history"]

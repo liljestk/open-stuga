@@ -1,7 +1,7 @@
 # Versioning and pre-1.0 change policy
 
 Stuga uses Semantic Versioning for the product release shown by the local API,
-web/API packages, and shared contracts. The current release is `0.4.0`.
+web/API packages, and shared contracts. The current release is `0.6.0`.
 
 Before `1.0.0`, the data model, API, configuration, and UI may change in
 backwards-incompatible ways while the architecture is still being established.

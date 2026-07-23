@@ -5,6 +5,7 @@ readonly project_dir=/opt/stuga
 readonly state_dir=/persistent/stuga
 readonly local_env="$state_dir/stuga.env"
 readonly release_env="$project_dir/release.env"
+readonly update_release_env="$state_dir/update-release/release.env"
 readonly known_good_env="$state_dir/last-known-good.env"
 readonly docker_config="$state_dir/docker-config"
 readonly status_file="$state_dir/release-status"
@@ -20,6 +21,8 @@ install -d -m 0750 -o "$appliance_user" -g "$appliance_user" \
   "$state_dir/migrations/incoming" \
   "$state_dir/migrations/chunks" \
   "$state_dir/config" \
+  "$state_dir/update-operations" \
+  "$state_dir/update-release" \
   "$state_dir/secrets" \
   "$state_dir/secrets/cloudflare" \
   "$state_dir/secrets/tapo-history-api" \
@@ -95,6 +98,25 @@ compose() {
     "$@"
 }
 
+valid_ui_release() {
+  local candidate="$1"
+  [[ -f "$candidate" && ! -L "$candidate" ]] || return 1
+  [[ "$(wc -l < "$candidate")" -eq 6 ]] || return 1
+  local version
+  version="$(sed -n 's/^STUGA_VERSION=//p' "$candidate")"
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] \
+    && [[ "$(grep -c '^STUGA_VERSION=' "$candidate")" -eq 1 ]] \
+    && grep -Fxq "STUGA_API_IMAGE=ghcr.io/liljestk/open-stuga-api:v$version" "$candidate" \
+    && grep -Fxq "STUGA_WEB_IMAGE=ghcr.io/liljestk/open-stuga-web:v$version" "$candidate" \
+    && grep -Fxq "STUGA_BACKUP_IMAGE=ghcr.io/liljestk/open-stuga-backup:v$version" "$candidate" \
+    && grep -Fxq "STUGA_TAPO_RUNNER_IMAGE=ghcr.io/liljestk/open-stuga-tapo-export-runner:v$version" "$candidate" \
+    && grep -Fxq "STUGA_UPDATE_AGENT_IMAGE=ghcr.io/liljestk/open-stuga-update-agent:v$version" "$candidate"
+}
+
+release_version() {
+  sed -n 's/^STUGA_VERSION=//p' "$1" | tail -n 1
+}
+
 start_release() {
   local selected_release_env="$1"
   compose "$selected_release_env" up \
@@ -106,30 +128,35 @@ start_release() {
     --wait-timeout 600
 }
 
+selected_release_env="$release_env"
+if valid_ui_release "$update_release_env"; then
+  selected_release_env="$update_release_env"
+fi
+
 echo "Pulling the pinned Stuga release"
-if ! compose "$release_env" pull; then
+if ! compose "$selected_release_env" pull; then
   echo "Registry pull failed; attempting to use already-cached images" >&2
 fi
 
-if start_release "$release_env"; then
+if start_release "$selected_release_env"; then
   install -m 0640 -o "$appliance_user" -g "$appliance_user" \
-    "$release_env" "$known_good_env"
+    "$selected_release_env" "$known_good_env"
   {
-    printf 'version=%s\n' "$(cat /etc/stuga-version)"
+    printf 'version=%s\n' "$(release_version "$selected_release_env")"
     printf 'healthy_at=%s\n' "$(date --utc +%Y-%m-%dT%H:%M:%SZ)"
   } > "$status_file"
   chown "$appliance_user:$appliance_user" "$status_file"
   chmod 0640 "$status_file"
-  echo "Stuga $(cat /etc/stuga-version) is healthy"
+  echo "Stuga $(release_version "$selected_release_env") is healthy"
   exit 0
 fi
 
 echo "The new release did not become healthy" >&2
-if [[ -s "$known_good_env" ]] && ! cmp --silent "$release_env" "$known_good_env"; then
+if [[ -s "$known_good_env" ]] && ! cmp --silent "$selected_release_env" "$known_good_env"; then
   echo "Restoring the last known-good application containers" >&2
   if start_release "$known_good_env"; then
     printf 'failed_version=%s\nrolled_back_at=%s\n' \
-      "$(cat /etc/stuga-version)" "$(date --utc +%Y-%m-%dT%H:%M:%SZ)" \
+      "$(release_version "$selected_release_env")" "$(date --utc +%Y-%m-%dT%H:%M:%SZ)" \
       > "$status_file"
     chown "$appliance_user:$appliance_user" "$status_file"
     chmod 0640 "$status_file"

@@ -96,6 +96,7 @@ import {
 import { runThermalSimulation } from "./thermal-simulation.js";
 import { runThermalIsolation } from "./thermal-isolation.js";
 import { SYSTEM_VERSION } from "./version.js";
+import { SystemUpdateError, SystemUpdateService } from "./system-updates.js";
 import { LocationDiscoveryService } from "./location-discovery.js";
 import { AutomaticWeatherProvider, OpenMeteoWeatherProvider, prefersFmi } from "./open-meteo.js";
 import { WeatherMonitor } from "./weather-monitor.js";
@@ -1662,6 +1663,7 @@ export interface ApiRuntime {
   telemetryArchive: TelemetryArchiveWorker | null;
   telemetryReader: HybridTelemetryReader;
   stugby: StugbyService;
+  systemUpdates: SystemUpdateService;
   ready: () => Promise<void>;
   beginShutdown: () => Promise<void>;
   close: () => Promise<void>;
@@ -1936,6 +1938,9 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     throw new Error("Cloudflare Access synchronization requires a group identity, a static operator email, and an API token");
   }
   config.electricityAllowPrivateEndpoints ??= false;
+  config.systemUpdateOperationsDirectory ??= null;
+  config.systemUpdateRepository ??= "liljestk/open-stuga";
+  config.systemUpdateImagePrefix ??= `ghcr.io/${config.systemUpdateRepository.toLowerCase()}`;
   config.stugbyIdentityFile ??= config.databasePath === ":memory:" ? null : join(dirname(config.databasePath), "stugby-identity.json");
   config.stugbyNodeName ??= "Stuga";
   config.stugbySyncIntervalMs ??= 15_000;
@@ -1957,6 +1962,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     throw new Error("timeseriesRequired=true requires timeseriesEnabled=true");
   }
   const database = options.database ?? new ClimateDatabase(config.databasePath);
+  const systemUpdates = new SystemUpdateService({
+    currentVersion: SYSTEM_VERSION,
+    repository: config.systemUpdateRepository,
+    imagePrefix: config.systemUpdateImagePrefix,
+    operationsDirectory: config.systemUpdateOperationsDirectory,
+  });
   const dataOperations = new DataOperationsService(database, config);
   const energyOptimizer = new EnergyOptimizer(database);
   const integrationMetadata = initializeIntegrationMetadata(config, database);
@@ -2935,6 +2946,56 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     const limit = boundedQueryInteger(request.query.limit, "limit", 1, 500) ?? 100;
     const offset = boundedQueryInteger(request.query.offset, "offset", 0, 1_000_000) ?? 0;
     response.json({ events: database.listSecurityAuditEvents(limit, offset) });
+  });
+
+  app.get(`${prefix}/system/updates`, requireWorkspaceAdmin, (_request, response) => {
+    response.setHeader("cache-control", "no-store");
+    response.json(systemUpdates.status());
+  });
+
+  app.post(`${prefix}/system/updates/check`, requireWorkspaceAdmin, async (_request, response, next) => {
+    try {
+      response.setHeader("cache-control", "no-store");
+      response.json(await systemUpdates.check());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch(`${prefix}/system/updates/settings`, requireWorkspaceAdmin, (request, response, next) => {
+    try {
+      const status = systemUpdates.updateSettings(bodyObject(request.body));
+      const principal = requestPrincipal(response);
+      recordSecurityAudit(principal, {
+        eventType: "system.update.settings.changed",
+        subjectType: "system-update-settings",
+        subjectId: "local",
+        details: { mode: status.settings.mode, timezone: status.settings.timezone },
+      });
+      response.setHeader("cache-control", "no-store");
+      response.json(status);
+    } catch (error) {
+      next(error instanceof TypeError ? new HttpError(400, "INVALID_UPDATE_SETTINGS", error.message) : error);
+    }
+  });
+
+  app.post(`${prefix}/system/updates/install`, requireWorkspaceAdmin, async (_request, response, next) => {
+    try {
+      const status = await systemUpdates.queueLatest();
+      const principal = requestPrincipal(response);
+      recordSecurityAudit(principal, {
+        eventType: "system.update.requested",
+        subjectType: "system-update",
+        subjectId: status.operation?.id ?? "unknown",
+        details: { version: status.operation?.version ?? status.latestVersion ?? "unknown" },
+      });
+      response.setHeader("cache-control", "no-store");
+      response.status(202).json(status);
+    } catch (error) {
+      next(error instanceof SystemUpdateError
+        ? new HttpError(error.status, error.code, error.message)
+        : error);
+    }
   });
   app.get(`${prefix}/locations/search`, requireNonGuest, async (request, response) => {
     const query = typeof request.query.q === "string" ? request.query.q.trim() : "";
@@ -5610,6 +5671,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   }
 
   if (options.startBackground) {
+    systemUpdates.start();
     stugby?.start();
     cloudflareAccess?.start();
     alertEngine.start();
@@ -5628,6 +5690,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     if (shutdownPromise) return shutdownPromise;
     shutdownStarted = true;
     alertEngine.stop();
+    systemUpdates.stop();
     mock.stop();
     replay.stop();
     const stoppingStugby = stugby?.stop() ?? Promise.resolve();
@@ -5669,7 +5732,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
 
   return {
     app, database, integrationMetadata, bus, telemetry, measurements, mock, replay, status, homeAssistant, tpLink, tapoHistory, electricityPrices, telegram, weather, weatherMonitor, dailyAnalyticsFindings,
-    weatherRecovery, sensorGapRecovery, weatherEvents, dataMode, notificationOutbox, dataOperations, energyOptimizer, energyCost, setupDoctor, cloudflareAccess, spatialLayers, timeseries, telemetryArchive, telemetryReader, stugby,
+    weatherRecovery, sensorGapRecovery, weatherEvents, dataMode, notificationOutbox, dataOperations, energyOptimizer, energyCost, setupDoctor, cloudflareAccess, spatialLayers, timeseries, telemetryArchive, telemetryReader, stugby, systemUpdates,
     ready: () => runtimeReady,
     beginShutdown,
     close,

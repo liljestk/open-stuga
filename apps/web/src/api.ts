@@ -345,6 +345,58 @@ export class ApiRequestError extends Error {
   }
 }
 
+export type SystemUpdateDay = "sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat";
+
+export interface SystemUpdateSettings {
+  mode: "manual" | "automatic";
+  includePrereleases: boolean;
+  checkIntervalHours: 6 | 12 | 24 | 168;
+  updateTime: string;
+  updateDays: SystemUpdateDay[];
+  timezone: string;
+}
+
+export interface SystemRelease {
+  version: string;
+  tagName: string;
+  name: string;
+  notes: string;
+  publishedAt: string;
+  url: string;
+  prerelease: boolean;
+}
+
+export interface SystemUpdateOperation {
+  id: string;
+  version: string;
+  tagName: string;
+  phase: "queued" | "backup" | "pulling" | "applying" | "verifying" | "complete" | "failed" | "rolling-back";
+  requestedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  detail: string | null;
+  previousVersion: string;
+}
+
+export interface SystemUpdateStatus {
+  currentVersion: string;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  latestRelease: SystemRelease | null;
+  releases: SystemRelease[];
+  lastCheckedAt: string | null;
+  checkError: string | null;
+  settings: SystemUpdateSettings;
+  nextUpdateWindowAt: string | null;
+  capability: {
+    available: boolean;
+    runtime: "docker" | "raspberry-pi" | null;
+    agentLastSeenAt: string | null;
+    reason: "ready" | "agent-not-connected" | "not-configured";
+  };
+  operation: SystemUpdateOperation | null;
+}
+
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") || "/api/v1";
 export const API_V2_BASE = API_BASE.replace(/\/v1$/, "/v2");
 export const API_REQUEST_TIMEOUT_MS = 30_000;
@@ -605,6 +657,13 @@ function observationResponse(value: ManualObservation | { observation: ManualObs
 
 export const api = {
   session: async () => rememberSession(await request<AppSession>("/session")),
+  systemUpdateStatus: () => request<SystemUpdateStatus>("/system/updates"),
+  checkSystemUpdates: () => request<SystemUpdateStatus>("/system/updates/check", { method: "POST" }),
+  updateSystemUpdateSettings: (settings: SystemUpdateSettings) => request<SystemUpdateStatus>("/system/updates/settings", {
+    method: "PATCH",
+    body: JSON.stringify(settings),
+  }),
+  installLatestSystemUpdate: () => request<SystemUpdateStatus>("/system/updates/install", { method: "POST" }),
   setupOwner: (input: LocalOwnerSetupInput) => completeAuthentication(request<AppSession>("/auth/setup", {
     method: "POST",
     body: JSON.stringify(input),

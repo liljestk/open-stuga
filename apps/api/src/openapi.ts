@@ -443,6 +443,65 @@ const localAuthPaths = {
       },
     },
   },
+  "/system/updates": {
+    get: {
+      tags: ["Context"], operationId: "getSystemUpdateStatus",
+      description: "Owner/Admin-only current/latest versions, GitHub release notes, schedule, agent capability, and operation state.",
+      security: [{ localSession: [] }],
+      responses: {
+        "200": spatialJsonResponse("Current system update status.", { type: "object", additionalProperties: true }),
+        "403": { description: "Owner or Admin role required" },
+      },
+    },
+  },
+  "/system/updates/check": {
+    post: {
+      tags: ["Context"], operationId: "checkSystemUpdates",
+      description: "Refreshes release metadata from the configured public GitHub repository without installing.",
+      security: [{ localSession: [], csrfToken: [] }],
+      responses: {
+        "200": spatialJsonResponse("Refreshed system update status.", { type: "object", additionalProperties: true }),
+        "403": { description: "Owner or Admin role required" },
+      },
+    },
+  },
+  "/system/updates/settings": {
+    patch: {
+      tags: ["Context"], operationId: "updateSystemUpdateSettings",
+      description: "Sets manual/automatic policy, release channel, check interval, and local maintenance windows.",
+      security: [{ localSession: [], csrfToken: [] }],
+      requestBody: spatialRequestBody({
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          mode: { enum: ["manual", "automatic"] },
+          includePrereleases: { type: "boolean" },
+          checkIntervalHours: { enum: [6, 12, 24, 168] },
+          updateTime: { type: "string", pattern: "^[0-2][0-9]:[0-5][0-9]$" },
+          updateDays: { type: "array", minItems: 1, uniqueItems: true, items: { enum: ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] } },
+          timezone: { type: "string", maxLength: 100 },
+        },
+      }),
+      responses: {
+        "200": spatialJsonResponse("Saved update settings and calculated next window.", { type: "object", additionalProperties: true }),
+        "400": { description: "Invalid update settings" },
+        "403": { description: "Owner or Admin role required" },
+      },
+    },
+  },
+  "/system/updates/install": {
+    post: {
+      tags: ["Context"], operationId: "installLatestSystemUpdate",
+      description: "Queues the latest eligible release for the connected external update agent.",
+      security: [{ localSession: [], csrfToken: [] }],
+      responses: {
+        "202": spatialJsonResponse("Update request queued.", { type: "object", additionalProperties: true }),
+        "403": { description: "Owner or Admin role required" },
+        "409": { description: "No update is available or another update is active" },
+        "503": { description: "External update agent is unavailable" },
+      },
+    },
+  },
 } as const;
 
 const localAuthSchemas = {

@@ -54,7 +54,7 @@ export type AggregationSemantic =
   | "custom";
 
 /** Product release version. Pre-1.0 minor releases may contain breaking changes. */
-export const SYSTEM_VERSION = "0.5.0" as const;
+export const SYSTEM_VERSION = "0.6.0" as const;
 
 export interface MeasurementDefinition {
   id: Metric;
@@ -948,9 +948,17 @@ export type SecurityAuditEventType =
   | "integration.credentials.rotated"
   | "integration.credentials.revoked"
   | "integration.grant.issued"
-  | "integration.grant.revoked";
+  | "integration.grant.revoked"
+  | "system.update.settings.changed"
+  | "system.update.requested";
 
-export type SecurityAuditSubjectType = "account" | "workspace-member" | "integration" | "integration-grant";
+export type SecurityAuditSubjectType =
+  | "account"
+  | "workspace-member"
+  | "integration"
+  | "integration-grant"
+  | "system-update-settings"
+  | "system-update";
 export type SecurityAuditDetailValue = string | number | boolean | null;
 
 /** Append-only, secret-free evidence for authentication and privileged credential changes. */

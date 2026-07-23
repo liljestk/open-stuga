@@ -37,6 +37,12 @@
 # X-Env-Var-tapo_image-Required: y
 # X-Env-Var-tapo_image-Valid: string
 # X-Env-Var-tapo_image-Set: y
+#
+# X-Env-Var-update_agent_image: ghcr.io/liljestk/open-stuga-update-agent:${IGconf_artefact_version}
+# X-Env-Var-update_agent_image-Desc: Immutable update coordinator image reference.
+# X-Env-Var-update_agent_image-Required: y
+# X-Env-Var-update_agent_image-Valid: string
+# X-Env-Var-update_agent_image-Set: y
 # METAEND
 ---
 mmdebstrap:
@@ -91,6 +97,7 @@ mmdebstrap:
       STUGA_WEB_IMAGE=${IGconf_stuga_web_image}
       STUGA_BACKUP_IMAGE=${IGconf_stuga_backup_image}
       STUGA_TAPO_RUNNER_IMAGE=${IGconf_stuga_tapo_image}
+      STUGA_UPDATE_AGENT_IMAGE=${IGconf_stuga_update_agent_image}
       EOF
       chmod 0444 "$1/opt/stuga/release.env"
 

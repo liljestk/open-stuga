@@ -152,6 +152,13 @@ USER 1000:1000
 
 ENTRYPOINT ["node", "/app/scripts/stuga-backup.mjs"]
 
+FROM docker:28-cli AS update-agent
+
+RUN apk add --no-cache nodejs
+WORKDIR /opt/stuga-agent
+COPY scripts/stuga-update-agent.mjs ./stuga-update-agent.mjs
+ENTRYPOINT ["node", "/opt/stuga-agent/stuga-update-agent.mjs"]
+
 FROM nginx:alpine AS web
 
 RUN rm -f /etc/nginx/conf.d/default.conf
