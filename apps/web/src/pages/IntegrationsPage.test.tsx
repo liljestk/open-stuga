@@ -141,6 +141,8 @@ describe("Setup workspace", () => {
     const user = userEvent.setup();
     renderPage({ integration: connectedTpLink() });
 
+    const historyPanel = await screen.findByRole("heading", { name: "Automated Tapo history exports" });
+    await user.click(historyPanel.closest("details")!.querySelector("summary")!);
     await user.click(await screen.findByRole("button", { name: "Run acceptance canary" }));
     expect(createCanary).toHaveBeenCalledWith(expect.objectContaining({
       sensorId: "sensor-hall",
@@ -234,7 +236,8 @@ describe("Setup workspace", () => {
     renderPage({ integration: connectedTpLink() });
 
     const panel = await screen.findByRole("heading", { name: "Automated Tapo history exports" });
-    const section = panel.closest("section")!;
+    const section = panel.closest("details")!;
+    await user.click(section.querySelector("summary")!);
     expect(within(section).getByText("Needs Attention")).not.toBeNull();
     expect(within(section).getByText("Tapo mobile app")).not.toBeNull();
     expect(within(section).getByText("Hall sensor")).not.toBeNull();
@@ -252,8 +255,11 @@ describe("Setup workspace", () => {
   it("clearly marks automated Tapo history exports as disabled", async () => {
     window.history.replaceState(null, "", "/setup/connections");
     vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
+    const user = userEvent.setup();
     renderPage({ integration: connectedTpLink() });
 
+    const historyPanel = await screen.findByRole("heading", { name: "Automated Tapo history exports" });
+    await user.click(historyPanel.closest("details")!.querySelector("summary")!);
     expect((await screen.findByText("Automated history exports are disabled on this server.")).getAttribute("aria-disabled")).toBe("true");
     expect((screen.getByRole("button", { name: "Refresh" }) as HTMLButtonElement).disabled).toBe(true);
   });
@@ -268,10 +274,11 @@ describe("Setup workspace", () => {
 
     const liveStatus = screen.getByRole("region", { name: "Live TP-Link status" });
     expect(within(liveStatus).getByRole("heading", { name: "TP-Link H200 is connected" })).not.toBeNull();
-    expect(within(liveStatus).getByText("Live updates")).not.toBeNull();
+    expect(within(liveStatus).getByText("Connected")).not.toBeNull();
     const connectionDetails = within(liveStatus).getByText("Connection details").closest("details")!;
     expect(connectionDetails.hasAttribute("open")).toBe(false);
     await user.click(connectionDetails.querySelector("summary")!);
+    expect(within(liveStatus).getByText("Live updates")).not.toBeNull();
     expect(liveStatus.textContent).toMatch(/Last poll/i);
     expect(liveStatus.textContent).toMatch(/11:30/);
 
@@ -289,6 +296,26 @@ describe("Setup workspace", () => {
     expect(within(directSection).getByText("Change saved TP-Link connection")).not.toBeNull();
     await user.click(settings.querySelector("summary")!);
     expect(await within(directSection).findByRole("button", { name: "Check direct TP-Link connection" })).not.toBeNull();
+  });
+
+  it("does not present a healthy live status when the TP-Link source has failed", () => {
+    window.history.replaceState(null, "", "/setup/connections");
+    vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
+    renderPage({
+      integration: connectedTpLink({
+        connected: false,
+        error: "Timed out getting discovery response",
+      }),
+      streamConnection: "live",
+    });
+
+    const liveStatus = screen.getByRole("region", { name: "Live TP-Link status" });
+    expect(within(liveStatus).getByRole("heading", { name: "TP-Link H200 · Not connected" })).not.toBeNull();
+    const health = within(liveStatus).getByRole("status");
+    expect(health.textContent).toBe("Not connected");
+    expect(health.classList.contains("error")).toBe(true);
+    expect(within(liveStatus).getByText("Connection details").closest("details")!.hasAttribute("open")).toBe(false);
+    expect(within(liveStatus).getByRole("alert").textContent).toMatch(/saved connection needs attention/i);
   });
 
   it("automatically surfaces standalone electrical devices beside a configured hub", async () => {

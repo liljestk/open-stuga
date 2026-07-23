@@ -10,7 +10,7 @@ import {
   type StugbySharedProperty,
   type StugbySummary,
 } from "@climate-twin/stugby-protocol";
-import { Check, Copy, Database, KeyRound, Link, LoaderCircle, Network, Pencil, RefreshCw, ShieldCheck, Trash2, Users } from "lucide-react";
+import { Check, Copy, Database, KeyRound, Link, LoaderCircle, Network, Pencil, Plus, RefreshCw, Settings2, ShieldCheck, Sparkles, Trash2, Users } from "lucide-react";
 import {
   api,
   type StugbyDetailResponse,
@@ -75,7 +75,7 @@ const memberStateLabelKeys: Record<StugbyMember["state"], TranslationKey> = {
 
 function initialDatasetDraft(): Record<StugbyDataset, DatasetDraft> {
   return Object.fromEntries(STUGBY_DATASETS.map((dataset) => [dataset, {
-    enabled: dataset === "home.directory.v1",
+    enabled: ["home.directory.v1", "home.structure.v1", "home.sensor-catalog.v1"].includes(dataset),
     includeLocalIds: false,
     allowReplicaCache: true,
     retentionDays: dataset === "home.telemetry.v1" ? 7 : 30,
@@ -123,7 +123,7 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
   const [createdInvitation, setCreatedInvitation] = useState<StugbyInvitationCreated | null>(null);
   const [telemetrySamples, setTelemetrySamples] = useState<StugbyRemoteTelemetrySample[]>([]);
 
-  const [createName, setCreateName] = useState("");
+  const [createName, setCreateName] = useState(() => t("stugby.defaultName"));
   const [createDescription, setCreateDescription] = useState("");
   const [joinCoordinatorUrl, setJoinCoordinatorUrl] = useState(() => window.location.origin);
   const [joinUrl, setJoinUrl] = useState("");
@@ -307,7 +307,7 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
     event.preventDefault();
     void withBusy("create", async () => {
       const created = await api.createStugby({ name: createName, description: createDescription || null });
-      setCreateName("");
+      setCreateName(t("stugby.defaultName"));
       setCreateDescription("");
       resetStugbyScopedUi();
       await load(created.id);
@@ -464,6 +464,35 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
     ? publicationCatalog.data
     : null;
   const catalogMatches = matchingCatalog !== null;
+  const connectionSetup = <div className="stugby-onboarding-grid">
+    <form className="stugby-card stugby-setup-card" onSubmit={createStugby}>
+      <div className="stugby-card-title"><Network size={19} aria-hidden="true" /><div><h2>{t("stugby.createTitle")}</h2><p>{t("stugby.createBody")}</p></div></div>
+      <label className="field"><span>{t("stugby.name")}</span><input required maxLength={200} value={createName} onChange={(event) => setCreateName(event.target.value)} /></label>
+      {!index?.publicOrigin && <p className="stugby-capability-note">{t("stugby.httpsHelp")}</p>}
+      <details className="stugby-subdetails">
+        <summary>{t("nav.advanced")}</summary>
+        <div className="stugby-subdetails-body">
+          <label className="field"><span>{t("stugby.descriptionField")}</span><textarea value={createDescription} onChange={(event) => setCreateDescription(event.target.value)} /></label>
+          <label className="field"><span>{t("stugby.coordinatorUrl")}</span><input readOnly type="url" value={index?.publicOrigin ?? ""} placeholder={t("stugby.httpsHelp")} /></label>
+        </div>
+      </details>
+      <button className="primary-button" disabled={busy !== null || !index?.publicOrigin}>{busy === "create" ? <LoaderCircle className="spin" size={16} /> : <Network size={16} />}{t("stugby.create")}</button>
+    </form>
+
+    <form className="stugby-card stugby-setup-card" onSubmit={joinStugby}>
+      <div className="stugby-card-title"><Link size={19} aria-hidden="true" /><div><h2>{t("stugby.joinTitle")}</h2><p>{t("stugby.joinBody")}</p></div></div>
+      <label className="field"><span>{t("stugby.invitationLink")}</span><input type="url" value={joinUrl} onChange={(event) => setJoinUrl(event.target.value)} placeholder={t("stugby.invitationPlaceholder")} /><small>{t("stugby.invitationHelp")}</small></label>
+      <details className="stugby-subdetails">
+        <summary>{t("stugby.manualJoin")}</summary>
+        <div className="stugby-subdetails-body">
+          <label className="field"><span>{t("stugby.coordinatorUrl")}</span><input required type="url" value={joinCoordinatorUrl} onChange={(event) => setJoinCoordinatorUrl(event.target.value)} /></label>
+          <label className="field"><span>{t("stugby.invitationId")}</span><input required value={joinInvitationId} onChange={(event) => setJoinInvitationId(event.target.value)} /></label>
+          <label className="field"><span>{t("stugby.joinSecret")}</span><input required type="password" autoComplete="off" value={joinSecret} onChange={(event) => setJoinSecret(event.target.value)} /></label>
+        </div>
+      </details>
+      <button className="primary-button" disabled={busy !== null || !joinCoordinatorUrl || !joinInvitationId || !joinSecret}>{busy === "join" ? <LoaderCircle className="spin" size={16} /> : <Link size={16} />}{t("stugby.joinWithoutSharing")}</button>
+    </form>
+  </div>;
 
   return <div className="stugby-page">
     <header className="stugby-page-header">
@@ -486,24 +515,10 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
         <RefreshCw size={16} aria-hidden="true" />{t("stugby.retry")}
       </button>
     </section> : <>
-      <div className="stugby-onboarding-grid">
-      <form className="stugby-card" onSubmit={createStugby}>
-        <div className="stugby-card-title"><Network size={19} aria-hidden="true" /><div><h2>{t("stugby.createTitle")}</h2><p>{t("stugby.createBody")}</p></div></div>
-        <label className="field"><span>{t("stugby.name")}</span><input required maxLength={200} value={createName} onChange={(event) => setCreateName(event.target.value)} /></label>
-        <label className="field"><span>{t("stugby.descriptionField")}</span><textarea value={createDescription} onChange={(event) => setCreateDescription(event.target.value)} /></label>
-        <label className="field"><span>{t("stugby.coordinatorUrl")}</span><input readOnly type="url" value={index?.publicOrigin ?? ""} placeholder={t("stugby.httpsHelp")} /><small>{t("stugby.httpsHelp")}</small></label>
-        <button className="primary-button" disabled={busy !== null || !index?.publicOrigin}>{busy === "create" ? <LoaderCircle className="spin" size={16} /> : <Network size={16} />}{t("stugby.create")}</button>
-      </form>
-
-      <form className="stugby-card" onSubmit={joinStugby}>
-        <div className="stugby-card-title"><Link size={19} aria-hidden="true" /><div><h2>{t("stugby.joinTitle")}</h2><p>{t("stugby.joinBody")}</p></div></div>
-        <label className="field"><span>{t("stugby.invitationLink")}</span><input value={joinUrl} onChange={(event) => setJoinUrl(event.target.value)} placeholder={t("stugby.invitationPlaceholder")} /></label>
-        <label className="field"><span>{t("stugby.coordinatorUrl")}</span><input required type="url" value={joinCoordinatorUrl} onChange={(event) => setJoinCoordinatorUrl(event.target.value)} /></label>
-        <label className="field"><span>{t("stugby.invitationId")}</span><input required value={joinInvitationId} onChange={(event) => setJoinInvitationId(event.target.value)} /></label>
-        <label className="field"><span>{t("stugby.joinSecret")}</span><input required type="password" autoComplete="off" value={joinSecret} onChange={(event) => setJoinSecret(event.target.value)} /></label>
-        <button className="primary-button" disabled={busy !== null}>{busy === "join" ? <LoaderCircle className="spin" size={16} /> : <Link size={16} />}{t("stugby.joinWithoutSharing")}</button>
-      </form>
-      </div>
+      {index.stugbys.length === 0 ? connectionSetup : <details className="stugby-card stugby-collapsible stugby-connect-panel">
+        <summary><Plus size={18} aria-hidden="true" /><span><strong>{t("stugby.connectAnother")}</strong><small>{t("stugby.connectAnotherBody")}</small></span></summary>
+        <div className="stugby-collapsible-body">{connectionSetup}</div>
+      </details>}
 
     {index.stugbys.length > 0 && <>
       <nav className="stugby-selector" aria-label={t("nav.stugbys")}>
@@ -525,9 +540,12 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
       {detail && detail.stugby.id === selectedId && <div className="stugby-detail">
         <section className="stugby-card stugby-summary-card">
           <div><span className={`status-dot ${detail.stugby.lastSyncError ? "error" : ""}`} aria-hidden="true" /> <strong>{stateLabel(detail.stugby.localMemberState)}</strong></div>
-          <dl><div><dt>{t("stugby.localRole")}</dt><dd>{roleLabel(detail.stugby.localRole)}</dd></div><div><dt>{t("stugby.lastSync")}</dt><dd>{formattedTime(detail.stugby.lastSyncAt, t("stugby.never"), locale)}</dd></div><div><dt>{t("stugby.coordinator")}</dt><dd>{detail.stugby.coordinatorUrl}</dd></div></dl>
-          <button type="button" className="secondary-button" disabled={busy !== null || detail.stugby.localMemberState === "left" || detail.stugby.localMemberState === "revoked"} onClick={() => void withBusy("sync", async () => { await api.syncStugby(detail.stugby.id); await load(detail.stugby.id); })}><RefreshCw aria-hidden="true" className={busy === "sync" ? "spin" : ""} size={16} />{t("stugby.syncNow")}</button>
-          {detail.stugby.lastSyncError && <p className="inline-error" role="alert">{detail.stugby.lastSyncError}</p>}
+          <dl><div><dt>{t("stugby.localRole")}</dt><dd>{roleLabel(detail.stugby.localRole)}</dd></div><div><dt>{t("stugby.syncAutomatic")}</dt><dd>{formattedTime(detail.stugby.lastSyncAt, t("stugby.never"), locale)}</dd></div></dl>
+          <details className="stugby-summary-actions">
+            <summary>{t("nav.advanced")}</summary>
+            <div><small>{t("stugby.coordinator")}</small><code>{detail.stugby.coordinatorUrl}</code><button type="button" className="secondary-button" disabled={busy !== null || detail.stugby.localMemberState === "left" || detail.stugby.localMemberState === "revoked"} onClick={() => void withBusy("sync", async () => { await api.syncStugby(detail.stugby.id); await load(detail.stugby.id); })}><RefreshCw aria-hidden="true" className={busy === "sync" ? "spin" : ""} size={16} />{t("stugby.syncNow")}</button></div>
+          </details>
+          {detail.stugby.lastSyncError && <p className="inline-error stugby-summary-error" role="alert">{detail.stugby.lastSyncError}</p>}
         </section>
 
         <section className="stugby-card">
@@ -536,7 +554,7 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
             <div><strong>{member.displayName}</strong><small>{member.keyFingerprint.slice(0, 12)}… · {stateLabel(member.state)}</small></div>
             {coordinator && member.role !== "steward" ? <><select aria-label={`${t("stugby.localRole")}: ${member.displayName}`} value={member.role} disabled={busy !== null} onChange={(event) => updateMember(member, { role: event.target.value as StugbyRole })}><option value="property-manager">{t("stugby.role.propertyManager")}</option><option value="participant">{t("stugby.role.participant")}</option><option value="viewer">{t("stugby.role.viewer")}</option></select><select aria-label={`${t("stugby.memberState")}: ${member.displayName}`} value={member.state} disabled={busy !== null} onChange={(event) => updateMember(member, { state: event.target.value as StugbyMember["state"] })}><option value="active">{t("stugby.state.active")}</option><option value="suspended">{t("stugby.state.suspended")}</option><option value="left">{t("stugby.state.left")}</option><option value="revoked">{t("stugby.state.revoked")}</option></select></> : <span className="role-pill">{roleLabel(member.role)}</span>}
           </div>)}</div>
-          {coordinator && <form className="stugby-inline-form" onSubmit={(event) => {
+          {coordinator && <form className="stugby-invite-form" onSubmit={(event) => {
             event.preventDefault(); void withBusy("invite", async () => {
               setCreatedInvitation(await api.createStugbyInvitation(detail.stugby.id, {
                 role: inviteRole,
@@ -545,7 +563,16 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
               setInviteExpiresAt("");
               await loadDetail(detail.stugby.id);
             });
-          }}><label className="field"><span>{t("stugby.newRole")}</span><select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as typeof inviteRole)}><option value="participant">{t("stugby.role.participant")}</option><option value="property-manager">{t("stugby.role.propertyManager")}</option><option value="viewer">{t("stugby.role.viewer")}</option></select></label><label className="field"><span>{t("stugby.invitationExpiry")}</span><input type="datetime-local" value={inviteExpiresAt} onChange={(event) => setInviteExpiresAt(event.target.value)} /></label><button className="secondary-button" disabled={busy !== null}><KeyRound size={16} />{t("stugby.createInvitation")}</button></form>}
+          }}>
+            <div className="stugby-quick-action">
+              <div><strong>{t("stugby.createInvitation")}</strong><small>{inviteRole === "participant" && !inviteExpiresAt ? t("stugby.invitationDefaults") : `${roleLabel(inviteRole)} · ${inviteExpiresAt || t("stugby.never")}`}</small></div>
+              <button className="primary-button" disabled={busy !== null}>{busy === "invite" ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}{t("stugby.createInvitation")}</button>
+            </div>
+            <details className="stugby-subdetails">
+              <summary>{t("stugby.invitationOptions")}</summary>
+              <div className="stugby-form-grid stugby-subdetails-body"><label className="field"><span>{t("stugby.newRole")}</span><select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as typeof inviteRole)}><option value="participant">{t("stugby.role.participant")}</option><option value="property-manager">{t("stugby.role.propertyManager")}</option><option value="viewer">{t("stugby.role.viewer")}</option></select></label><label className="field"><span>{t("stugby.invitationExpiry")}</span><input type="datetime-local" value={inviteExpiresAt} onChange={(event) => setInviteExpiresAt(event.target.value)} /></label></div>
+            </details>
+          </form>}
           {createdInvitation?.stugbyId === detail.stugby.id && <div className="stugby-invitation" role="status"><strong>{t("stugby.invitationOnce")}</strong><code>{createdInvitation.joinUrl}</code><button type="button" className="secondary-button" onClick={() => void (async () => {
             try {
               if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
@@ -556,63 +583,85 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
               setError(t("stugby.copyFailed"));
             }
           })()}>{copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}{t(copied ? "stugby.copied" : "stugby.copy")}</button></div>}
-          {coordinator && <div className="stugby-existing-grants"><h3>{t("stugby.invitations")}</h3>{detail.invitations.length === 0 ? <p>{t("stugby.noInvitations")}</p> : detail.invitations.map((invitation) => {
+          {coordinator && <details className="stugby-subdetails"><summary>{t("stugby.invitations")} ({detail.invitations.length})</summary><div className="stugby-existing-grants stugby-subdetails-body">{detail.invitations.length === 0 ? <p>{t("stugby.noInvitations")}</p> : detail.invitations.map((invitation) => {
             const active = !invitation.usedAt && !invitation.revokedAt && Date.parse(invitation.expiresAt) > Date.now();
             const status = invitation.usedAt ? t("stugby.invitationUsed") : invitation.revokedAt ? t("stugby.invitationRevoked") : active ? t("stugby.invitationActive") : t("stugby.invitationExpired");
             return <article key={invitation.id}><div className="stugby-record-copy"><strong>{roleLabel(invitation.role)}</strong><span>{status} · {formattedTime(invitation.expiresAt, t("stugby.never"), locale)}</span><small>{invitation.id}</small></div>{active && <div className="stugby-record-actions"><button type="button" className="danger-button" disabled={busy !== null} onClick={() => {
               if (!window.confirm(t("stugby.confirmRevokeInvitation", { id: invitation.id.slice(0, 12) }))) return;
               void withBusy(`invitation:${invitation.id}`, async () => { await api.revokeStugbyInvitation(detail.stugby.id, invitation.id); setNotice(t("stugby.changesSaved")); await loadDetail(detail.stugby.id); });
             }}><Trash2 size={15} aria-hidden="true" />{t("stugby.revokeInvitation")}</button></div>}</article>;
-          })}</div>}
+          })}</div></details>}
         </section>
 
-        <form className="stugby-card stugby-property-editor" onSubmit={saveProperty}>
-          <div className="stugby-card-title"><Database size={19} aria-hidden="true" /><div><h2>{t("stugby.sharedProperty")}</h2><p>{t("stugby.sharedPropertyBody")}</p></div></div>
+        <details className="stugby-card stugby-collapsible stugby-property-editor">
+          <summary><Database size={19} aria-hidden="true" /><span><strong>{t("stugby.sharedProperty")}</strong><small>{t("stugby.sharedPropertyBody")}</small></span></summary>
+          <form className="stugby-collapsible-body" onSubmit={saveProperty}>
           {!detail.sharedProperty ? <p>{t("stugby.noSharedProperty")}</p> : <>
             {!propertyWriter && <p className="stugby-capability-note">{detail.stugby.localMemberState !== "active" ? t("stugby.inactiveCannotEdit", { state: stateLabel(detail.stugby.localMemberState) }) : t("stugby.roleCannotEdit")}</p>}
             <div className="stugby-form-grid"><label className="field"><span>{t("stugby.name")}</span><input required value={propertyName} disabled={!propertyWriter} onChange={(event) => setPropertyName(event.target.value)} /></label><label className="field"><span>{t("stugby.descriptionField")}</span><input value={propertyDescription} disabled={!propertyWriter} onChange={(event) => setPropertyDescription(event.target.value)} /></label><label className="field"><span>{t("stugby.latitude")}</span><input type="number" min="-90" max="90" step="any" value={propertyLatitude} disabled={!propertyWriter} onChange={(event) => setPropertyLatitude(event.target.value)} /></label><label className="field"><span>{t("stugby.longitude")}</span><input type="number" min="-180" max="180" step="any" value={propertyLongitude} disabled={!propertyWriter} onChange={(event) => setPropertyLongitude(event.target.value)} /></label><label className="field"><span>{t("stugby.locationLabel")}</span><input value={propertyLocationLabel} disabled={!propertyWriter} onChange={(event) => setPropertyLocationLabel(event.target.value)} /></label></div>
-            <p className="stugby-json-help">{t("stugby.jsonHelp")}</p>
-            <div className="stugby-json-grid"><label className="field"><span>{t("stugby.areas")}</span><textarea value={areasJson} disabled={!propertyWriter} onChange={(event) => setAreasJson(event.target.value)} /></label><label className="field"><span>{t("stugby.equipment")}</span><textarea value={equipmentJson} disabled={!propertyWriter} onChange={(event) => setEquipmentJson(event.target.value)} /></label><label className="field"><span>{t("stugby.notes")}</span><textarea value={notesJson} disabled={!propertyWriter} onChange={(event) => setNotesJson(event.target.value)} /></label><label className="field"><span>{t("stugby.maintenance")}</span><textarea value={maintenanceJson} disabled={!propertyWriter} onChange={(event) => setMaintenanceJson(event.target.value)} /></label></div>
+            <details className="stugby-subdetails">
+              <summary>{t("nav.advanced")}</summary>
+              <div className="stugby-subdetails-body"><p className="stugby-json-help">{t("stugby.jsonHelp")}</p>
+                <div className="stugby-json-grid"><label className="field"><span>{t("stugby.areas")}</span><textarea value={areasJson} disabled={!propertyWriter} onChange={(event) => setAreasJson(event.target.value)} /></label><label className="field"><span>{t("stugby.equipment")}</span><textarea value={equipmentJson} disabled={!propertyWriter} onChange={(event) => setEquipmentJson(event.target.value)} /></label><label className="field"><span>{t("stugby.notes")}</span><textarea value={notesJson} disabled={!propertyWriter} onChange={(event) => setNotesJson(event.target.value)} /></label><label className="field"><span>{t("stugby.maintenance")}</span><textarea value={maintenanceJson} disabled={!propertyWriter} onChange={(event) => setMaintenanceJson(event.target.value)} /></label></div>
+              </div>
+            </details>
             {propertyWriter && <button className="primary-button" disabled={busy !== null}>{busy === "property" ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}{t("stugby.saveRevision", { revision: detail.sharedProperty.revision + 1 })}</button>}
           </>}
-        </form>
+          </form>
+        </details>
 
         <section className="stugby-card stugby-grants">
           <div className="stugby-card-title"><ShieldCheck size={19} aria-hidden="true" /><div><h2>{t("stugby.grantsTitle")}</h2><p>{t("stugby.grantsBody")}</p></div></div>
           {canPublish ? <form onSubmit={saveGrant}>
-            <div className="stugby-form-grid"><label className="field"><span>{t("stugby.localHome")}</span><select required disabled={editingGrantId !== null} value={grantHouseId} onChange={(event) => { setGrantHouseId(event.target.value); setTelemetrySensors(""); }}><option value="" disabled>{t("stugby.chooseHome")}</option>{houses.map((house) => <option key={house.id} value={house.id}>{house.name}</option>)}</select></label><label className="field"><span>{t("stugby.audience")}</span><select value={audienceKind} onChange={(event) => { setAudienceKind(event.target.value as typeof audienceKind); setAudienceNodes([]); }}><option value="all-members">{t("stugby.audienceAll")}</option><option value="members">{t("stugby.audienceSelected")}</option></select></label><label className="field"><span>{t("stugby.expiresAt")}</span><input type="datetime-local" value={grantExpiresAt} onChange={(event) => setGrantExpiresAt(event.target.value)} /></label></div>
+            <div className="stugby-form-grid"><label className="field"><span>{t("stugby.localHome")}</span><select required disabled={editingGrantId !== null} value={grantHouseId} onChange={(event) => { setGrantHouseId(event.target.value); setTelemetrySensors(""); }}><option value="" disabled>{t("stugby.chooseHome")}</option>{houses.map((house) => <option key={house.id} value={house.id}>{house.name}</option>)}</select></label><label className="field"><span>{t("stugby.audience")}</span><select value={audienceKind} onChange={(event) => { setAudienceKind(event.target.value as typeof audienceKind); setAudienceNodes([]); }}><option value="all-members">{t("stugby.audienceAll")}</option><option value="members">{t("stugby.audienceSelected")}</option></select></label></div>
             {audienceKind === "members" && <fieldset className="stugby-audience"><legend>{t("stugby.recipients")}</legend>{activeRemoteMembers.length === 0 ? <p>{t("stugby.noEligibleRecipients")}</p> : activeRemoteMembers.map((member) => <label key={member.nodeId}><input type="checkbox" checked={audienceNodes.includes(member.nodeId)} onChange={(event) => setAudienceNodes((current) => event.target.checked ? [...current, member.nodeId] : current.filter((id) => id !== member.nodeId))} />{member.displayName} ({roleLabel(member.role)})</label>)}{activeRemoteMembers.length > 0 && audienceNodes.length === 0 && <p className="stugby-capability-note">{t("stugby.audienceRequired")}</p>}</fieldset>}
-            <div className="stugby-dataset-table" role="group" aria-label={t("stugby.sharedDatasets")}>
+            {!editingGrantId && <div className="stugby-recommended-profile"><Sparkles size={20} aria-hidden="true" /><div><strong>{t("stugby.recommendedProfile")}</strong><p>{t("stugby.recommendedProfileBody")}</p></div></div>}
+            <details key={editingGrantId ?? "new-grant"} className="stugby-subdetails stugby-sharing-options" open={editingGrantId !== null ? true : undefined}>
+              <summary>{t("stugby.customizeSharing")}</summary>
+              <div className="stugby-subdetails-body">
+              <label className="field stugby-expiry-field"><span>{t("stugby.expiresAt")}</span><input type="datetime-local" value={grantExpiresAt} onChange={(event) => setGrantExpiresAt(event.target.value)} /></label>
+              <div className="stugby-dataset-table" role="group" aria-label={t("stugby.sharedDatasets")}>
               <div className="stugby-dataset-heading"><span>{t("stugby.dataset")}</span><span>{t("stugby.localIds")}</span><span>{t("stugby.cache")}</span><span>{t("stugby.days")}</span></div>
               {STUGBY_DATASETS.map((dataset) => {
                 const draft = datasetDraft[dataset];
                 const label = t(datasetLabelKeys[dataset]);
-                return <div className={`stugby-dataset-row ${dataset === "home.location.v1" ? "sensitive" : ""}`} key={dataset}><label><input type="checkbox" checked={draft.enabled} onChange={(event) => setDatasetDraft((current) => ({ ...current, [dataset]: { ...current[dataset], enabled: event.target.checked } }))} /><span><strong>{label}</strong><small>{dataset}</small></span></label><input aria-label={`${t("stugby.localIds")}: ${label}`} type="checkbox" disabled={!draft.enabled} checked={draft.includeLocalIds} onChange={(event) => setDatasetDraft((current) => ({ ...current, [dataset]: { ...current[dataset], includeLocalIds: event.target.checked } }))} /><input aria-label={`${t("stugby.cache")}: ${label}`} type="checkbox" disabled={!draft.enabled} checked={draft.allowReplicaCache} onChange={(event) => setDatasetDraft((current) => ({ ...current, [dataset]: { ...current[dataset], allowReplicaCache: event.target.checked } }))} /><input aria-label={`${t("stugby.days")}: ${label}`} type="number" min="0" max="3650" disabled={!draft.enabled} value={draft.retentionDays} onChange={(event) => setDatasetDraft((current) => ({ ...current, [dataset]: { ...current[dataset], retentionDays: Number(event.target.value) } }))} /></div>;
+                return <div className={`stugby-dataset-row ${dataset === "home.location.v1" ? "sensitive" : ""}`} key={dataset}>
+                  <label><input type="checkbox" checked={draft.enabled} onChange={(event) => setDatasetDraft((current) => ({ ...current, [dataset]: { ...current[dataset], enabled: event.target.checked } }))} /><span><strong>{label}</strong><small>{dataset}</small></span></label>
+                  <label className="stugby-dataset-option"><span>{t("stugby.localIds")}</span><input aria-label={`${t("stugby.localIds")}: ${label}`} type="checkbox" disabled={!draft.enabled} checked={draft.includeLocalIds} onChange={(event) => setDatasetDraft((current) => ({ ...current, [dataset]: { ...current[dataset], includeLocalIds: event.target.checked } }))} /></label>
+                  <label className="stugby-dataset-option"><span>{t("stugby.cache")}</span><input aria-label={`${t("stugby.cache")}: ${label}`} type="checkbox" disabled={!draft.enabled} checked={draft.allowReplicaCache} onChange={(event) => setDatasetDraft((current) => ({ ...current, [dataset]: { ...current[dataset], allowReplicaCache: event.target.checked } }))} /></label>
+                  <label className="stugby-dataset-option"><span>{t("stugby.days")}</span><input aria-label={`${t("stugby.days")}: ${label}`} type="number" min="0" max="3650" disabled={!draft.enabled} value={draft.retentionDays} onChange={(event) => setDatasetDraft((current) => ({ ...current, [dataset]: { ...current[dataset], retentionDays: Number(event.target.value) } }))} /></label>
+                </div>;
               })}
-            </div>
+              </div>
             {datasetDraft["home.location.v1"].enabled && <p className="stugby-sensitive-warning">{t("stugby.locationWarning")}</p>}
             {datasetDraft["home.telemetry.v1"].enabled && <><div className="stugby-telemetry-options"><label><input type="checkbox" checked={telemetryLive} onChange={(event) => setTelemetryLive(event.target.checked)} />{t("stugby.telemetryLive")}</label><label className="field"><span>{t("stugby.historyHours")}</span><input type="number" min="0" value={telemetryHistoryHours} onChange={(event) => setTelemetryHistoryHours(event.target.value)} /></label><label className="field"><span>{t("stugby.metrics")}</span><input value={telemetryMetrics} onChange={(event) => setTelemetryMetrics(event.target.value)} /></label><label className="field"><span>{t("stugby.maximumSamples")}</span><input type="number" min="1" max="1000000" value={telemetryRate} onChange={(event) => setTelemetryRate(event.target.value)} /></label></div>{publicationCatalog.status === "loading" && publicationCatalog.houseId === grantHouseId && <p role="status">{t("stugby.sensorCatalogLoading")}</p>}{publicationCatalog.status === "error" && publicationCatalog.houseId === grantHouseId && <div className="stugby-catalog-error" role="alert"><p>{publicationCatalog.error}</p><button type="button" className="secondary-button" onClick={() => setCatalogRevision((current) => current + 1)}>{t("stugby.retry")}</button></div>}{matchingCatalog && <fieldset className="stugby-audience"><legend>{t("stugby.sensorScope")}</legend><label><input type="checkbox" checked={!telemetrySensors} onChange={() => setTelemetrySensors("")} />{t("stugby.allSensors")}</label>{matchingCatalog.sensors.map((sensor) => { const selected = telemetrySensors.split(",").map((item) => item.trim()).filter(Boolean); return <label key={sensor.sensorPublicationId}><input type="checkbox" checked={selected.includes(sensor.sensorPublicationId)} onChange={(event) => setTelemetrySensors(event.target.checked ? [...selected, sensor.sensorPublicationId].join(",") : selected.filter((id) => id !== sensor.sensorPublicationId).join(","))} />{sensor.name}<small>{sensor.metricIds.join(", ") || t("stugby.noMetrics")}</small></label>; })}</fieldset>}</>}
-            <div className="stugby-grant-submit"><button className="primary-button" disabled={busy !== null || !grantHouseId || (audienceKind === "members" && audienceNodes.length === 0) || (datasetDraft["home.telemetry.v1"].enabled && !catalogMatches)}>{busy === "grant" ? <LoaderCircle aria-hidden="true" className="spin" size={16} /> : <ShieldCheck aria-hidden="true" size={16} />}{t(editingGrantId ? "stugby.updateGrant" : "stugby.createGrant")}</button>{editingGrantId && <button type="button" className="secondary-button" onClick={resetGrantDraft}>{t("stugby.cancelEdit")}</button>}</div>
+              </div>
+            </details>
+            <div className="stugby-grant-submit"><button className="primary-button" disabled={busy !== null || !grantHouseId || (audienceKind === "members" && audienceNodes.length === 0) || (datasetDraft["home.telemetry.v1"].enabled && !catalogMatches)}>{busy === "grant" ? <LoaderCircle aria-hidden="true" className="spin" size={16} /> : <ShieldCheck aria-hidden="true" size={16} />}{t(editingGrantId ? "stugby.updateGrant" : "stugby.startSharing")}</button>{editingGrantId && <button type="button" className="secondary-button" onClick={resetGrantDraft}>{t("stugby.cancelEdit")}</button>}</div>
           </form> : <p>{cannotPublishMessage}</p>}
           <div className="stugby-existing-grants">{detail.grants.length === 0 ? <p>{t("stugby.noGrants")}</p> : detail.grants.map((grant) => <article key={grant.id}><div className="stugby-record-copy"><strong>{grant.publicationId.slice(0, 12)}…</strong><span>{t("stugby.grantSummary", { authority: t(grant.authorityNodeId === index.identity.nodeId ? "stugby.localAuthority" : "stugby.remoteAuthority"), epoch: grant.epoch, state: t(grant.revokedAt ? "stugby.state.revoked" : "stugby.state.active") })}</span><small>{grant.datasets.filter((dataset) => dataset.enabled).map((dataset) => t(datasetLabelKeys[dataset.dataset])).join(" · ")}</small></div>{grant.authorityNodeId === index.identity.nodeId && !grant.revokedAt && <div className="stugby-record-actions"><button type="button" className="secondary-button" disabled={busy !== null} onClick={() => editGrant(grant)}><Pencil size={15} aria-hidden="true" />{t("stugby.editGrant")}</button><button type="button" className="secondary-button" disabled={busy !== null} onClick={() => void withBusy(`republish:${grant.id}`, async () => { await api.republishStugbyGrant(detail.stugby.id, grant.id); setNotice(t("stugby.republishQueued")); })}><RefreshCw size={15} aria-hidden="true" />{t("stugby.republish")}</button><button type="button" className="danger-button" disabled={busy !== null} onClick={() => { if (window.confirm(t("stugby.confirmRevoke"))) void withBusy(`revoke:${grant.id}`, async () => { await api.revokeStugbyGrant(detail.stugby.id, grant.id); setNotice(t("stugby.changesSaved")); await loadDetail(detail.stugby.id); }); }}><Trash2 size={15} aria-hidden="true" />{t("stugby.revoke")}</button></div>}</article>)}</div>
         </section>
 
-        <section className="stugby-card">
-          <div className="stugby-card-title"><Database size={19} aria-hidden="true" /><div><h2>{t("stugby.remoteTitle")}</h2><p>{t("stugby.remoteBody")}</p></div></div>
+        <details className="stugby-card stugby-collapsible">
+          <summary><Database size={19} aria-hidden="true" /><span><strong>{t("stugby.remoteTitle")}</strong><small>{t("stugby.remoteBody")}</small></span></summary>
+          <div className="stugby-collapsible-body">
           {detail.remoteResources.length === 0 ? <p>{t("stugby.noRemote")}</p> : <div className="stugby-resource-list">{detail.remoteResources.map((resource) => {
             const resourceLabel = t(datasetLabelKeys[resource.schema]);
             return <details key={`${resource.authorityNodeId}:${resource.schema}:${resource.resourceId}`}><summary><span><strong>{resourceLabel}</strong><small>{t("stugby.resourceSummary", { authority: `${resource.authorityNodeId.slice(0, 12)}…`, revision: resource.revision })} · {t("stugby.receivedAt", { time: formattedTime(resource.receivedAt, t("stugby.never"), locale) })}</small></span><span className={resource.stale ? "stale" : "fresh"}>{t(resource.stale ? "stugby.stale" : "stugby.current")}</span></summary><pre tabIndex={0} role="region" aria-label={resourceLabel}>{JSON.stringify(resource.payload, null, 2)}</pre></details>;
           })}</div>}
           <div className="stugby-telemetry-preview"><h3>{t("stugby.telemetryPreview")}</h3>{telemetryError ? <p className="inline-error" role="alert">{telemetryError}</p> : telemetrySamples.length === 0 ? <p>{t("stugby.noTelemetry")}</p> : <p>{t("stugby.telemetryPreviewBody", { count: telemetrySamples.length })}</p>}{telemetrySamples.length > 0 && <details><summary>{t("stugby.showTelemetry")}</summary><pre tabIndex={0} role="region" aria-label={t("stugby.telemetryPreview")}>{JSON.stringify(telemetrySamples, null, 2)}</pre></details>}</div>
-        </section>
+          </div>
+        </details>
 
-        <section className="stugby-card">
-          <div className="stugby-card-title"><ShieldCheck size={19} aria-hidden="true" /><div><h2>{t("stugby.operations")}</h2><p>{t("stugby.operationsBody")}</p></div></div>
+        <details className="stugby-card stugby-collapsible">
+          <summary><Settings2 size={19} aria-hidden="true" /><span><strong>{t("stugby.operations")}</strong><small>{t("stugby.operationsBody")}</small></span></summary>
+          <div className="stugby-collapsible-body">
           <h3>{t("stugby.deletionReceipts")}</h3>
           {detail.deletionReceipts.length === 0 ? <p>{t("stugby.noDeletionReceipts")}</p> : <div className="stugby-resource-list">{detail.deletionReceipts.map((receipt) => <div className="stugby-operation" key={`${receipt.nodeId}:${receipt.grantId}:${receipt.grantEpoch}`}><strong>{t("stugby.receiptSummary", { grant: receipt.grantId.slice(0, 12), epoch: receipt.grantEpoch })}</strong><small>{receipt.nodeId.slice(0, 12)}… · {formattedTime(receipt.deletedAt, t("stugby.never"), locale)}</small></div>)}</div>}
           <h3>{t("stugby.audit")}</h3>
           {detail.audit.length === 0 ? <p>{t("stugby.noAuditEvents")}</p> : <div className="stugby-resource-list">{detail.audit.slice(0, 25).map((entry) => <div className="stugby-operation" key={entry.id}><strong>{entry.eventType}</strong><small>{formattedTime(entry.createdAt, t("stugby.never"), locale)} · {entry.subjectId ?? "—"}</small></div>)}</div>}
-        </section>
+          </div>
+        </details>
       </div>}
     </>}
     </>}

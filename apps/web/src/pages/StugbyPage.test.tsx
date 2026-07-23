@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StugbyShareGrant, StugbySummary } from "@climate-twin/stugby-protocol";
 import { api, type StugbyDetailResponse, type StugbyListResponse } from "../api";
@@ -122,6 +123,29 @@ describe("StugbyPage", () => {
     expect(screen.getByRole("button", { name: "Join without sharing" })).toBeTruthy();
   });
 
+  it("has no automated accessibility violations in onboarding", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        identity,
+        publicOrigin: "https://stuga.example.test",
+        stugbys: [],
+      }),
+    } as Response);
+
+    const { container } = render(<I18nProvider><StugbyPage houses={[]} /></I18nProvider>);
+    await screen.findByRole("heading", { name: "Create a Stugby" });
+    const result = await axe.run(container, {
+      rules: {
+        // jsdom does not compute the visual styles needed for a reliable contrast result.
+        "color-contrast": { enabled: false },
+      },
+    });
+
+    expect(result.violations).toEqual([]);
+  });
+
   it("clears the prior detail and locks selection until the chosen Stugby resolves", async () => {
     const user = userEvent.setup();
     const first = summary("stugby-a", "North grounds");
@@ -143,6 +167,33 @@ describe("StugbyPage", () => {
     resolveSecond(detail(second));
     await waitFor(() => expect(screen.getByRole("button", { name: /South grounds/ }).getAttribute("aria-current")).toBe("true"));
     expect(await screen.findByText("No Home sharing grants have been created.")).toBeTruthy();
+  });
+
+  it("keeps connected homes focused and applies the recommended sharing defaults in one action", async () => {
+    const user = userEvent.setup();
+    const stugby = summary("stugby-a", "North grounds");
+    mockLoadedStugbys([stugby], { [stugby.id]: detail(stugby) });
+    const createGrant = vi.spyOn(api, "createStugbyGrant").mockResolvedValue({} as StugbyShareGrant);
+
+    render(<I18nProvider><StugbyPage houses={[{ id: "home-1", propertyId: "property-1", name: "Main Home" }]} /></I18nProvider>);
+    const startSharing = await screen.findByRole("button", { name: "Start sharing" });
+
+    const connectAnother = screen.getByText("Connect another Stugby").closest("details");
+    expect(connectAnother?.open).toBe(false);
+    expect(screen.getByText("Recommended home overview")).toBeTruthy();
+
+    await user.click(startSharing);
+    await waitFor(() => expect(createGrant).toHaveBeenCalledTimes(1));
+
+    const input = createGrant.mock.calls[0]![1];
+    expect(input.localHouseId).toBe("home-1");
+    expect(input.audience).toEqual({ kind: "all-members", nodeIds: [] });
+    expect(input.expiresAt).toBeNull();
+    expect(input.datasets.map((dataset) => dataset.dataset)).toEqual([
+      "home.directory.v1",
+      "home.structure.v1",
+      "home.sensor-catalog.v1",
+    ]);
   });
 
   it("resets an edited grant instead of carrying it into another Stugby", async () => {
@@ -177,7 +228,7 @@ describe("StugbyPage", () => {
     expect(screen.getByRole("button", { name: "Update grant" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /South grounds/ }));
-    expect(await screen.findByRole("button", { name: "Create grant" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Start sharing" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Update grant" })).toBeNull();
     expect(screen.getByRole<HTMLInputElement>("checkbox", { name: /^Precise location home\.location/ }).checked).toBe(false);
   });
@@ -189,11 +240,12 @@ describe("StugbyPage", () => {
     vi.mocked(api.stugbyPublications).mockRejectedValue(new Error("Catalog unavailable"));
 
     render(<I18nProvider><StugbyPage houses={[{ id: "home-1", propertyId: "property-1", name: "Main Home" }]} /></I18nProvider>);
-    await screen.findByRole("button", { name: "Create grant" });
+    await screen.findByRole("button", { name: "Start sharing" });
+    await user.click(screen.getByText("Customize what is shared"));
     await user.click(screen.getByRole("checkbox", { name: /^Raw telemetry home\.telemetry/ }));
     await screen.findByText("Catalog unavailable");
 
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Create grant" }).disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Start sharing" }).disabled).toBe(true);
     expect(screen.queryByRole("checkbox", { name: "All sensors in this Home" })).toBeNull();
   });
 
@@ -204,6 +256,7 @@ describe("StugbyPage", () => {
     const update = vi.spyOn(api, "updateStugbyProperty");
 
     render(<I18nProvider><StugbyPage houses={[]} /></I18nProvider>);
+    await user.click(await screen.findByText("Shared property"));
     await user.type(await screen.findByLabelText("Latitude"), "60.17");
     await user.click(screen.getByRole("button", { name: "Save revision 2" }));
 

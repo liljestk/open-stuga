@@ -1106,21 +1106,27 @@ export function TwinDashboard(props: TwinDashboardProps) {
         : t("home.liveTitle")}</h2></div><p>{replayActive ? t("replay.description") : t("home.liveDescription")}</p></div>}
       <section ref={fullPagePanelRef} className={`panel twin-panel ${fullPage ? "is-full-page" : ""}`} role={fullPage ? "dialog" : undefined} aria-modal={fullPage ? true : undefined} aria-label={fullPage ? t("home.liveTitle") : undefined}>
         <div className="twin-toolbar">
-          <div className="toolbar-title">
-            {editing
-              ? <><span className="eyebrow">{house.name}</span><strong>{t("twin.editingFloor", { floor: floor.name })}</strong></>
-              : house.floors.length > 1
-                ? <><label className="toolbar-floor-picker"><span>{t("common.floor")}</span><select value={floorId} onChange={(event) => props.onFloor(event.target.value)}>{house.floors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><strong>{viewSensors.length} {t("twin.sensors")}</strong></>
-                : <><span className="eyebrow">{floor.name}</span><strong>{viewSensors.length} {t("twin.sensors")}</strong></>}
+          <div className="toolbar-context">
+            <div className="toolbar-title">
+              {editing
+                ? <><span className="eyebrow">{house.name}</span><strong>{t("twin.editingFloor", { floor: floor.name })}</strong></>
+                : house.floors.length > 1
+                  ? <><label className="toolbar-floor-picker"><span>{t("common.floor")}</span><select value={floorId} onChange={(event) => props.onFloor(event.target.value)}>{house.floors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><strong>{viewSensors.length} {t("twin.sensors")}</strong></>
+                  : <><span className="eyebrow">{floor.name}</span><strong>{viewSensors.length} {t("twin.sensors")}</strong></>}
+            </div>
+            {!editing && <label className="metric-picker"><span>{t("common.metric")}</span><select value={definition.id} onChange={(event) => props.onMetric(event.target.value)}>{metricOptions.map((item) => <option key={item.id} value={item.id}>{measurementLabel(item, locale)} · {displayUnit(item, units)}</option>)}</select></label>}
           </div>
           <div className="toolbar-groups">
-            {!editing && <label className="metric-picker"><span>{t("common.metric")}</span><select value={definition.id} onChange={(event) => props.onMetric(event.target.value)}>{metricOptions.map((item) => <option key={item.id} value={item.id}>{measurementLabel(item, locale)} · {displayUnit(item, units)}</option>)}</select></label>}
-            <div className="segmented" role="group" aria-label={t("common.view")}><button type="button" aria-pressed={viewMode === "plan"} onClick={() => props.onViewMode("plan")}><Map size={15} aria-hidden="true" />{t("twin.mode2d")}</button><button type="button" aria-pressed={viewMode === "isometric"} onClick={() => { cancelObservationPlacement(); props.onViewMode("isometric"); }}><Box size={15} aria-hidden="true" />{t("twin.modeIso")}</button></div>
-            {!editing && energyDeviceCount > 0 && <div className="segmented compact map-device-layers" role="group" aria-label={t("twin.mapLayers")}><button type="button" aria-pressed={energyDevicesVisible} onClick={() => setEnergyDevicesVisible((current) => !current)}><Bolt size={15} aria-hidden="true" />{t("twin.energyDeviceLayer")}</button></div>}
-            {!editing && <button ref={fullPageTriggerRef} type="button" className="secondary-button twin-full-page-button" aria-pressed={fullPage} onClick={() => setFullPage((current) => !current)}>{fullPage ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}{fullPage ? t("twin.exitFullPage") : t("twin.fullPage")}</button>}
-            {!editing && !replayActive && !fullPage && <button type="button" className="secondary-button" onClick={() => setLiveMapOpen(false)}><Minimize2 size={15} aria-hidden="true" />{t("home.hideLiveView")}</button>}
-            {!readOnly && !editing && <button type="button" className="secondary-button" onClick={startEditing}><Edit3 size={15} aria-hidden="true" />{t("common.edit")}</button>}
-            {editing && <><button type="button" className="primary-button" onClick={() => void finishEditing()} disabled={props.saveState === "saving"}><Save size={15} aria-hidden="true" />{props.saveState === "saving" ? t("common.saving") : t("common.saveAndFinish")}</button><button type="button" className="secondary-button" onClick={() => setEditing(false)} disabled={props.saveState === "saving"}>{t("common.cancel")}</button></>}
+            <div className="toolbar-view-controls">
+              <div className="segmented" role="group" aria-label={t("common.view")}><button type="button" aria-pressed={viewMode === "plan"} onClick={() => props.onViewMode("plan")}><Map size={15} aria-hidden="true" />{t("twin.mode2d")}</button><button type="button" aria-pressed={viewMode === "isometric"} onClick={() => { cancelObservationPlacement(); props.onViewMode("isometric"); }}><Box size={15} aria-hidden="true" />{t("twin.modeIso")}</button></div>
+              {!editing && energyDeviceCount > 0 && <div className="segmented compact map-device-layers" role="group" aria-label={t("twin.mapLayers")}><button type="button" aria-pressed={energyDevicesVisible} onClick={() => setEnergyDevicesVisible((current) => !current)}><Bolt size={15} aria-hidden="true" />{t("twin.energyDeviceLayer")}</button></div>}
+            </div>
+            <div className="toolbar-actions">
+              {!editing && <button ref={fullPageTriggerRef} type="button" className="secondary-button twin-full-page-button" aria-pressed={fullPage} onClick={() => setFullPage((current) => !current)}>{fullPage ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}{fullPage ? t("twin.exitFullPage") : t("twin.fullPage")}</button>}
+              {!editing && !replayActive && !fullPage && <button type="button" className="secondary-button" onClick={() => setLiveMapOpen(false)}><Minimize2 size={15} aria-hidden="true" />{t("home.hideLiveView")}</button>}
+              {!readOnly && !editing && <button type="button" className="secondary-button" onClick={startEditing}><Edit3 size={15} aria-hidden="true" />{t("common.edit")}</button>}
+              {editing && <><button type="button" className="primary-button" onClick={() => void finishEditing()} disabled={props.saveState === "saving"}><Save size={15} aria-hidden="true" />{props.saveState === "saving" ? t("common.saving") : t("common.saveAndFinish")}</button><button type="button" className="secondary-button" onClick={() => setEditing(false)} disabled={props.saveState === "saving"}>{t("common.cancel")}</button></>}
+            </div>
           </div>
         </div>
         {props.saveState === "error" && <p className="inline-error" role="alert">{t("twin.layoutSaveError")}</p>}

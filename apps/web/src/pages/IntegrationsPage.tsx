@@ -1252,6 +1252,17 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
         ? t("setup.homeAssistantConnectedShort")
         : t("common.notConnected");
   const streamStatusLabel = t(`setup.stream.${streamConnection}`);
+  const tpLinkHealthState = integration.tpLink.error
+    ? integration.tpLink.connected ? "warning" : "error"
+    : integration.tpLink.connected ? "connected" : "reconnecting";
+  const tpLinkHealthLabel = tpLinkHealthState === "connected"
+    ? t("common.connected")
+    : tpLinkHealthState === "warning"
+      ? t("setup.tpLinkWarning")
+      : t("common.notConnected");
+  const tpLinkStatusTitle = tpLinkHealthState === "error"
+    ? `TP-Link ${tpLinkHubName} · ${t("common.notConnected")}`
+    : t(integration.tpLink.connected ? "setup.tpLinkConnectedTitle" : "setup.tpLinkConnectingTitle", { hub: tpLinkHubName });
   const connectionWorkspaceActive = activeSection === "connections" && sensorSourceConfigured;
   const steps = [
     { icon: Router, title: t("setup.step1"), body: t("setup.step1body"), complete: sensorHardwareDetected },
@@ -1381,18 +1392,18 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
         </section>}
         <div className="setup-side">
           {activeSection === "connections" && integration.tpLink.configured && <section
-            className={`panel tp-link-live-status ${integration.tpLink.connected ? integration.tpLink.error ? "warning" : "connected" : "waiting"}`}
+            className={`panel tp-link-live-status ${tpLinkHealthState}`}
             aria-label={t("setup.tpLinkLiveRegion")}
             aria-busy={tpLinkDevicesLoading || refreshingTpLinkInventory}
           >
             <header className="tp-link-live-header">
-              <span className={`tp-link-live-icon ${integration.tpLink.connected ? "connected" : "waiting"}`} aria-hidden="true"><Router size={24} /></span>
+              <span className={`tp-link-live-icon ${tpLinkHealthState}`} aria-hidden="true"><Router size={24} /></span>
               <span className="tp-link-live-copy">
                 <span className="eyebrow">{t("setup.tpLinkLiveEyebrow")}</span>
-                <h2 id="tp-link-live-status-heading">{t(integration.tpLink.connected ? "setup.tpLinkConnectedTitle" : "setup.tpLinkConnectingTitle", { hub: tpLinkHubName })}</h2>
+                <h2 id="tp-link-live-status-heading">{tpLinkStatusTitle}</h2>
                 <p>{t(integration.tpLink.connected ? "setup.tpLinkConnectedBody" : "setup.tpLinkConnectingBody")}</p>
               </span>
-              <span className={`live-stream-pill ${streamConnection}`} role="status"><span aria-hidden="true" />{streamStatusLabel}</span>
+              <span className={`source-health-pill ${tpLinkHealthState}`} role="status"><span aria-hidden="true" />{tpLinkHealthLabel}</span>
             </header>
 
             {onOpenSensors && <div className="tp-link-live-next">
@@ -1428,8 +1439,8 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
                   <div><dt>{t("setup.tpLinkReady")}</dt><dd>{tpLinkReadyDevices}</dd></div>
                 </dl>
                 <div className="tp-link-polling-note">
-                  <span className={`status-pulse ${integration.tpLink.connected ? "live" : "reconnecting"}`} aria-hidden="true" />
-                  <span><strong>{t("setup.tpLinkPollingTitle")}</strong><small>{t(`setup.streamHelp.${streamConnection}`)}</small></span>
+                  <RadioTower size={17} aria-hidden="true" />
+                  <span><strong>{streamStatusLabel}</strong><small>{t(`setup.streamHelp.${streamConnection}`)}</small></span>
                 </div>
                 <div className="tp-link-live-actions">
                   <button type="button" className="secondary-button" disabled={tpLinkDevicesLoading || refreshingTpLinkInventory} onClick={() => void refreshTpLinkInventory()}>{tpLinkDevicesLoading || refreshingTpLinkInventory ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <RefreshCw size={16} aria-hidden="true" />}{t("setup.tpLinkRefreshInventory")}</button>
@@ -1439,14 +1450,17 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
               </div>
             </details>
           </section>}
-          {activeSection === "connections" && integration.tpLink.configured && <section className="panel connection-card" aria-labelledby="tp-link-history-export-heading">
-            <div className="panel-header">
-              <div><span className="eyebrow">{t("setup.tpLinkHistoryEyebrow")}</span><h2 id="tp-link-history-export-heading">{t("setup.tpLinkHistoryTitle")}</h2></div>
+          {activeSection === "connections" && integration.tpLink.configured && <details className="panel connection-card connection-tool-disclosure" aria-labelledby="tp-link-history-export-heading">
+            <summary className="connection-card-summary">
+              <span className="connection-card-summary-copy"><span className="eyebrow">{t("setup.tpLinkHistoryEyebrow")}</span><h2 id="tp-link-history-export-heading">{t("setup.tpLinkHistoryTitle")}</h2><small>{t("setup.tpLinkHistoryDescription")}</small></span>
+              <span className="ha-mark" aria-hidden="true"><RefreshCw size={22} /></span>
+            </summary>
+            <div className="connection-tool-content">
+              <div className="connection-tool-actions">
               <button type="button" className="secondary-button" disabled={tpLinkExportJobsLoading || tpLinkExportEnabled === false} onClick={() => void loadTpLinkExportJobs()}>
                 {tpLinkExportJobsLoading ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <RefreshCw size={16} aria-hidden="true" />}{t("common.refresh")}
               </button>
-            </div>
-            <p className="connection-card-description">{t("setup.tpLinkHistoryDescription")}</p>
+              </div>
             {tpLinkExportEnabled === true && tpLinkExportAutomation && <div
               className={`tp-link-live-alert ${tpLinkExportAutomation.operational && tpLinkExportAutomation.mailbox.consecutiveFailures === 0 ? "warning" : "error"}`}
               role={tpLinkExportAutomation.mailbox.consecutiveFailures > 0 ? "alert" : "status"}
@@ -1473,7 +1487,7 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
             </div>}
             {tpLinkExportEnabled === true && <p className="setup-help">{t("setup.tpLinkHistoryCanaryHelp")}</p>}
             {tpLinkExportEnabled === true && !tpLinkExportJobsLoading && tpLinkExportJobs.length === 0 && <p className="setup-help">{t("setup.tpLinkHistoryNoJobs")}</p>}
-            {tpLinkExportEnabled === true && tpLinkExportJobs.length > 0 && <div className="table-scroll" tabIndex={0} aria-label={t("setup.tpLinkHistoryJobsLabel")}>
+              {tpLinkExportEnabled === true && tpLinkExportJobs.length > 0 && <div className="table-scroll" tabIndex={0} aria-label={t("setup.tpLinkHistoryJobsLabel")}>
               <table>
                 <thead><tr><th scope="col">{t("setup.tpLinkHistoryColumnStatus")}</th><th scope="col">{t("setup.tpLinkHistoryColumnProvider")}</th><th scope="col">{t("setup.tpLinkHistoryColumnDevice")}</th><th scope="col">{t("setup.tpLinkHistoryColumnRange")}</th><th scope="col">{t("setup.tpLinkHistoryColumnAttempt")}</th><th scope="col">{t("setup.tpLinkHistoryColumnError")}</th><th scope="col">{t("setup.tpLinkHistoryColumnActions")}</th></tr></thead>
                 <tbody>{tpLinkExportJobs.map((job) => {
@@ -1495,8 +1509,9 @@ export function IntegrationsPage({ integration: aggregateIntegration, house: ini
                   </tr>;
                 })}</tbody>
               </table>
-            </div>}
-          </section>}
+              </div>}
+            </div>
+          </details>}
           {activeSection === "connections" && <details className={`panel connection-card discovery-card ${sensorSourceConfigured ? "optional" : ""}`} aria-labelledby="network-discovery-heading" open={!sensorSourceConfigured || discovering || discoveryOutcome !== "idle"}>
             <summary className="connection-card-summary">
               <span className="connection-card-summary-copy"><span className="eyebrow">{t(sensorSourceConfigured ? "setup.addConnectionEyebrow" : "setup.scanTitle")}</span><strong id="network-discovery-heading">{t(sensorSourceConfigured ? "setup.addConnectionTitle" : "setup.scanDescription")}</strong><small>{t(sensorSourceConfigured ? "setup.addConnectionDescription" : "setup.scanScope")}</small></span>

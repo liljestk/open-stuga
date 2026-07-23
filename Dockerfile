@@ -91,6 +91,9 @@ RUN mkdir -p /app/data /app/config /app/runtime/admin /app/runtime/db /app/runti
 FROM api-runtime AS api
 
 COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
+# npm may keep workspace-only dependencies nested instead of hoisting them to
+# the repository root. Preserve the API workspace's pruned production modules.
+COPY --from=production-dependencies --chown=node:node /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=api-build --chown=node:node /app/apps/api/package.json ./apps/api/package.json
 COPY --from=api-build --chown=node:node /app/apps/api/dist ./apps/api/dist
 COPY --from=api-build --chown=node:node /app/apps/api/python ./apps/api/python
