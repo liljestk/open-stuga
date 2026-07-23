@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Activity, Bell, Bolt, Braces, ChartLine, ChevronDown, ChevronLeft, CloudSun, House, Languages, LayoutDashboard, ListChecks, LogOut, MapPinned, Menu, PanelLeftClose, PanelLeftOpen, RadioTower, RotateCcw, Settings2, ShieldCheck, Users, Wrench, X } from "lucide-react";
+import { Activity, Bell, Bolt, Braces, ChartLine, ChevronDown, ChevronLeft, CloudSun, House, Languages, LayoutDashboard, ListChecks, LogOut, MapPinned, Menu, Network, PanelLeftClose, PanelLeftOpen, RadioTower, RotateCcw, Settings2, ShieldCheck, Users, Wrench, X } from "lucide-react";
 import type { AppPage } from "../domain";
 import { useI18n, type Locale } from "../i18n";
 import type { ConnectionState, House as Home, Property, UnitSystem } from "@climate-twin/contracts";
@@ -51,6 +51,7 @@ const pageIcons = {
   overview: LayoutDashboard,
   properties: MapPinned,
   people: Users,
+  stugbys: Network,
   twin: House,
   activity: ListChecks,
   maintenance: Wrench,
@@ -151,6 +152,7 @@ export function AppShell({
     { id: "overview", label: t("nav.overview"), scope: "workspace" },
     { id: "properties", label: t("nav.properties"), scope: "workspace" },
     ...(canManagePeople ? [{ id: "people" as const, label: t("nav.people"), scope: "workspace" as const }] : []),
+    ...(canManagePeople ? [{ id: "stugbys" as const, label: t("nav.stugbys"), scope: "workspace" as const }] : []),
     { id: "alerts", label: t("nav.alerts"), scope: "workspace" },
   ];
   const propertyNavItems: NavigationItem[] = activeProperty ? [
@@ -455,7 +457,7 @@ export function AppShell({
             : <button className="icon-button" type="button" onClick={() => onBack ? onBack() : choosePage({ id: "overview", label: t("nav.overview"), scope: "workspace" })} aria-label={onBackLabel ?? t("header.overview")}><ChevronLeft size={20} /></button>}
         </header>
         <main id="main-content" className={`main-content page-${page}`} tabIndex={-1}>
-          {properties.length > 0 && onProperty && page !== "overview" && page !== "alerts" && page !== "developer"
+          {properties.length > 0 && onProperty && !["overview", "people", "stugbys", "alerts", "developer"].includes(page)
             && !(page === "properties" && /^\/properties\/?$/.test(window.location.pathname)) && (
             <div className="page-home-switcher">
               <div className="page-home-switcher-group">

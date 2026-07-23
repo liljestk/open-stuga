@@ -6,7 +6,7 @@ Stuga uses a hybrid local-first backend. Core SQLite keeps the transactional con
 
 | Layer | Owns | Does not own |
 | --- | --- | --- |
-| Core SQLite (`DATABASE_PATH`) | Authentication and access state, canonical properties/houses/areas/floor plans and sensors, alerts and automation state, local ingestion, and the hot safety copy | Long-term analytical scaling or experimental model state |
+| Core SQLite (`DATABASE_PATH`) | Authentication and access state, canonical properties/houses/areas/floor plans and sensors, alerts and automation state, local ingestion, the hot safety copy, and opt-in Stugby federation state/replicas | Long-term analytical scaling, experimental model state, Stugby private keys, or integration secrets |
 | TimescaleDB (`telemetry` schema) | Raw measurement, legacy reading, outdoor-temperature, and electricity-price history; time bucketing; cold-chunk optimization | Identity, authorization, configuration, or secrets |
 | Spatial SQLite (`SPATIAL_LAYERS_DATABASE_PATH`) | Experimental overlays/configuration, bindings, calibrations, context, jobs/checkpoints, model runs, ground truth, and derived snapshot revisions | Property/sensor masters or raw telemetry samples |
 | In-process cache | Small, bounded, reconstructible response DTOs and snapshots | Writes, sessions, credentials, queues, or durable state |
@@ -22,6 +22,10 @@ All authoritative non-time-series application state is durable in SQLite. The co
 - sensors, measurement definitions, Home Assistant entity bindings, TP-Link device bindings, alert rules, alert history, alert evaluation state, and the notification outbox;
 - observations and revision history, maintenance tasks and revision/evidence links, static parameters, weather-outage recovery state, operational latches, and selected demo state;
 - non-secret integration identity, ownership, endpoint metadata, lifecycle state, and revision history.
+- Stugby rosters, invitation hashes, Home publication/grant metadata, durable
+  outbox/inbox/cursors, per-recipient event logs, replay IDs, common-property
+  aggregates, read-only remote projections, separately indexed remote raw
+  telemetry, asset authorization, deletion receipts, and federation audit rows.
 
 Property creation and other multi-row aggregate changes use SQLite transactions. Foreign keys are enabled on every connection, WAL mode permits concurrent readers during writes, and the configured busy timeout handles short writer overlap without a heavyweight database service. Complete floor plans intentionally remain one JSON aggregate inside SQLite: ownership and lookup fields are relational and indexed, while one edit commits the internally consistent plan as a unit instead of exposing half-written rooms or walls.
 
@@ -42,6 +46,28 @@ Regular raw-history APIs and experimental spatial inference share `HybridTelemet
 The time-series schema uses seven-day chunks for indoor measurements/readings, 30-day chunks for outdoor temperature, and 90-day chunks for electricity prices. Where supported, TimescaleDB configures columnstore or compression after 30, 90, and 180 days respectively. Measurement rollups are available at 5-minute, 1-hour, and 1-day resolutions. These policies change representation, not retention: they do not delete raw rows.
 
 The base tables and query API also work on ordinary PostgreSQL. When the TimescaleDB extension is unavailable, Stuga uses ordinary aggregate views and forgoes hypertables, continuous refresh, and cold-chunk optimization; initialization reports those capabilities instead of silently claiming them.
+
+## Stugby storage boundary
+
+Stugby never inserts remote data into the canonical local Property, Home,
+floor-plan, sensor, note, observation, account, integration, or automation
+tables. Structured replicas live in `stugby_remote_resources`; remote raw
+samples live in `stugby_remote_telemetry` and are queried through the Stugby API.
+Raw telemetry chunks are not duplicated in the generic JSON resource table.
+This remote telemetry is not copied into the local Timescale archive. Grant
+cache permissions and retention are enforced when events are applied and by
+periodic cleanup. A zero-day or no-cache dataset is not written as a durable
+replica.
+
+The node's Ed25519 private key is stored only in `STUGBY_IDENTITY_FILE`, beside
+the core database by default. It is not in SQLite, an event, an exportable
+grant, or an API response. Floor-plan replicas are content-addressed files below
+the configured asset directory; SQLite stores their digest, media type, size,
+reference ownership, and audience/grant authorization. Revocation and retention
+remove unreferenced replica files; pre-event uploads have a bounded temporary
+staging allowance. Back up the identity, database, and assets as
+one recovery unit. For the complete protocol and lifecycle, see
+[Stugby federation](stugby.md).
 
 ## Retention and idempotency
 
@@ -157,7 +183,7 @@ Treat one target schema as one logical deployment. Import multiple historical SQ
 
 Back up both authoritative stores. A PostgreSQL dump alone omits control-plane data and integration configuration; a SQLite snapshot alone omits the durable archive. Every backup is sensitive: core SQLite contains authentication/session hashes and household state, assets may reveal the home, and Timescale contains occupancy-adjacent telemetry. Keep sets outside Docker volumes on a protected, encrypted destination and encrypt every off-host copy, whether or not integration secrets are included.
 
-The repository backup CLI produces a transparent directory with consistent SQLite snapshots, copied assets, an optional full-database custom-format PostgreSQL dump, and a checksummed manifest. It creates the root as `0700` and files as `0600` where POSIX permissions apply; on Windows it removes inherited access and grants the current account a private ACL, failing closed if that cannot be done. These controls do not replace disk encryption. The full database is required to preserve TimescaleDB hypertable chunks and catalog relationships; a schema-filtered dump is not a safe substitute. By default the CLI backs up the core database, the spatial database when present, and the assets directory. Secrets and TimescaleDB are explicit opt-ins. It never overwrites an existing output directory; an interrupted or failed run remains marked `INCOMPLETE`.
+The repository backup CLI produces a transparent directory with consistent SQLite snapshots, copied assets, the Stugby node identity when present, an optional full-database custom-format PostgreSQL dump, and a checksummed manifest. It creates the root as `0700` and files as `0600` where POSIX permissions apply; on Windows it removes inherited access and grants the current account a private ACL, failing closed if that cannot be done. These controls do not replace disk encryption. The full database is required to preserve TimescaleDB hypertable chunks and catalog relationships; a schema-filtered dump is not a safe substitute. By default the CLI backs up the core database, the spatial database when present, the Stugby identity, and the assets directory. Integration secrets and TimescaleDB are explicit opt-ins. It never overwrites an existing output directory; an interrupted or failed run remains marked `INCOMPLETE`.
 
 For Compose, the preferred complete backup path is the maintenance-only image. It contains matching PostgreSQL 17 client tools without adding them to the production API image, reads the databases through private volumes/networking, and writes to `./backups` (or `STUGA_BACKUP_DIRECTORY`):
 

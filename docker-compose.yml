@@ -135,6 +135,9 @@ services:
       LOCAL_AUTH_PROXY_SECRET_FILE: /app/runtime/proxy/secret
       LOCAL_AUTH_BOOTSTRAP_SECRET: ${LOCAL_AUTH_BOOTSTRAP_SECRET:-}
       DATABASE_PATH: /app/data/climate-twin.sqlite
+      STUGBY_IDENTITY_FILE: /app/data/stugby-identity.json
+      STUGBY_NODE_NAME: ${STUGBY_NODE_NAME:-Stuga}
+      STUGBY_SYNC_INTERVAL_MS: ${STUGBY_SYNC_INTERVAL_MS:-15000}
       INTEGRATION_SECRETS_FILE: /app/data/integration-secrets.json
       BACKUP_OPERATIONS_DIRECTORY: /app/runtime/backup-operations
       BACKUP_DIRECTORY: /app/backups

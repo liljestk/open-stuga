@@ -10,6 +10,10 @@ edge identity first passes the managed Access policy, then signs in to a local
 Stuga owner, administrator, member, or Guest account. Local roles and resource
 grants remain authoritative for every API request.
 
+For a Stugby, only the coordinator needs an inbound hostname. Every participant
+opens outbound HTTPS/SSE connections to that coordinator, so participant-only
+Stuga systems need neither a Tunnel nor an inbound firewall rule.
+
 ## What the provisioner owns
 
 `scripts/cloudflare-stuga.mjs` creates or reuses a narrowly named set of
@@ -22,6 +26,21 @@ resources for one hostname:
 - a remotely managed Tunnel whose only application ingress is the Compose web
   service, followed by a catch-all 404; and
 - one proxied CNAME pointing the chosen hostname to that Tunnel.
+
+`provision-coordinator` adds exactly one more Access application:
+`<hostname>/api/v1/stugby-protocol/*`. Its more-specific path policy bypasses
+the human identity prompt so independently administered nodes can reach
+Stuga's Ed25519 verifier without receiving Cloudflare credentials. The
+owner/admin `/api/v1/stugbys*` API and all other paths remain covered by the
+root Access application. The generated runtime also pins
+`STUGBY_PUBLIC_ORIGIN`; the browser cannot choose or change it.
+
+Cloudflare does not authenticate or create Access logs for a Bypass policy.
+This narrow exception is intentional: the Stugby protocol itself authenticates
+the exact method, path, body digest, node, timestamp, and replay ID, and checks
+active membership and grants. The bundled proxy rate-limits join and signed
+protocol requests before request-body parsing. Do not widen the exception or
+use it for owner/admin routes.
 
 The script refuses ambiguous names, conflicting DNS, unexpected application
 destinations, and group/policy rules it does not own. It does not delete
@@ -106,6 +125,36 @@ docker compose up -d --build cloudflared
 docker compose ps
 ```
 
+### Provision a Stugby coordinator
+
+Use the coordinator command instead when this Stuga will create and coordinate
+a Stugby:
+
+```powershell
+npm run cloudflare:provision-coordinator -- `
+  --hostname stugby.example.com `
+  --zone example.com `
+  --owner-email edge-owner@example.com `
+  --account-id 0123456789abcdef0123456789abcdef `
+  --zone-id fedcba9876543210fedcba9876543210 `
+  --provision-token-file C:\protected\stuga-provision-token `
+  --access-token-file C:\protected\stuga-access-group-token
+
+docker compose up -d --build cloudflared
+npm run cloudflare:verify-coordinator
+```
+
+The verifier makes unauthenticated probes and fails unless all three boundary
+conditions hold:
+
+1. `/` is challenged by Cloudflare Access;
+2. `/api/v1/stugbys` is challenged by Cloudflare Access; and
+3. an intentionally invalid join reaches Stuga and is rejected by application
+   validation at `/api/v1/stugby-protocol/join`.
+
+Run it after every Access, Tunnel, hostname, or reverse-proxy change. It sends no
+credential, invitation, Home data, or valid protocol request.
+
 Visit the HTTPS hostname, authenticate with the edge operator email, and create
 or sign in to the local Stuga owner. Verify all of these before considering the
 rollout complete:
@@ -140,6 +189,13 @@ Comma-separate multiple recovery operators inside the quotes. Use real
 Cloudflare login identities, not a private local Stuga name unless that address
 can actually receive one-time PINs. Rerunning the provisioner with the original
 hostname and the desired `--owner-email` also writes the field safely.
+
+An existing remote-UI deployment becomes a coordinator by rerunning the same
+inputs with `provision-coordinator`. The script upgrades `deployment.json`,
+adds the exact machine-path application and policy, and writes
+`STUGBY_PUBLIC_ORIGIN`; it does not delete or replace unrelated resources.
+Start/recreate the local containers, then run `verify-coordinator` before
+creating invitations.
 
 ## Rotation, recovery, and rollback
 

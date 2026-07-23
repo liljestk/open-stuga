@@ -36,7 +36,7 @@ import {
 } from "./measurements";
 
 export type ViewMode = "plan" | "isometric";
-export type AppPage = "overview" | "properties" | "people" | "twin" | "activity" | "maintenance" | "outdoor" | "energy" | "sensors" | "analytics" | "alerts" | "integrations" | "developer";
+export type AppPage = "overview" | "properties" | "people" | "stugbys" | "twin" | "activity" | "maintenance" | "outdoor" | "energy" | "sensors" | "analytics" | "alerts" | "integrations" | "developer";
 export const ANALYTICS_TIME_RANGES = ["6h", "24h", "7d", "30d", "90d", "1y"] as const;
 export type TimeRange = typeof ANALYTICS_TIME_RANGES[number];
 

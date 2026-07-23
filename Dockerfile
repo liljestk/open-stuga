@@ -12,6 +12,7 @@ COPY apps/web/package*.json ./apps/web/
 COPY apps/tapo-export-runner/package*.json ./apps/tapo-export-runner/
 COPY packages/contracts/package*.json ./packages/contracts/
 COPY packages/spatial-layers/package*.json ./packages/spatial-layers/
+COPY packages/stugby-protocol/package*.json ./packages/stugby-protocol/
 
 RUN --mount=type=cache,target=/root/.npm \
   if [ -f package-lock.json ]; then \
@@ -25,6 +26,7 @@ FROM dependencies AS api-build
 COPY apps/api ./apps/api
 COPY packages/contracts ./packages/contracts
 COPY packages/spatial-layers ./packages/spatial-layers
+COPY packages/stugby-protocol ./packages/stugby-protocol
 COPY scripts/init-runtime-secrets.mjs scripts/migrate-telemetry-to-timescale.mjs \
   scripts/sqlite-snapshot-utils.mjs scripts/stuga-backup.mjs ./scripts/
 
@@ -38,6 +40,7 @@ FROM dependencies AS web-build
 COPY apps/web ./apps/web
 COPY packages/contracts ./packages/contracts
 COPY packages/spatial-layers ./packages/spatial-layers
+COPY packages/stugby-protocol ./packages/stugby-protocol
 
 # An empty value makes the browser use the same-origin /api/v1 default.
 ARG VITE_API_BASE_URL=
@@ -61,6 +64,7 @@ ENV NODE_ENV=production \
     PORT=8787 \
     API_HOST=0.0.0.0 \
     DATABASE_PATH=/app/data/climate-twin.sqlite \
+    STUGBY_IDENTITY_FILE=/app/data/stugby-identity.json \
     SPATIAL_LAYERS_ENABLED=true \
     SPATIAL_LAYERS_DATABASE_PATH=/app/data/experimental-spatial-layers.sqlite \
     INTEGRATION_SECRETS_FILE=/app/data/integration-secrets.json \
@@ -96,6 +100,8 @@ COPY --from=api-build --chown=node:node /app/packages/contracts/package.json ./p
 COPY --from=api-build --chown=node:node /app/packages/contracts/dist ./packages/contracts/dist
 COPY --from=api-build --chown=node:node /app/packages/spatial-layers/package.json ./packages/spatial-layers/package.json
 COPY --from=api-build --chown=node:node /app/packages/spatial-layers/dist ./packages/spatial-layers/dist
+COPY --from=api-build --chown=node:node /app/packages/stugby-protocol/package.json ./packages/stugby-protocol/package.json
+COPY --from=api-build --chown=node:node /app/packages/stugby-protocol/dist ./packages/stugby-protocol/dist
 COPY --from=api-build --chown=node:node /app/scripts/init-runtime-secrets.mjs ./scripts/init-runtime-secrets.mjs
 COPY --from=api-build --chown=node:node /app/scripts/migrate-telemetry-to-timescale.mjs ./scripts/migrate-telemetry-to-timescale.mjs
 COPY --from=api-build --chown=node:node /app/scripts/sqlite-snapshot-utils.mjs ./scripts/sqlite-snapshot-utils.mjs

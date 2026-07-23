@@ -11,7 +11,8 @@
   "scripts": {
     "build:contracts": "npm run build --workspace @climate-twin/contracts",
     "build:spatial-layers": "npm run build --workspace @climate-twin/spatial-layers",
-    "build:packages": "npm run build:contracts && npm run build:spatial-layers",
+    "build:stugby-protocol": "npm run build --workspace @climate-twin/stugby-protocol",
+    "build:packages": "npm run build:contracts && npm run build:spatial-layers && npm run build:stugby-protocol",
     "dev": "npm run build:packages && concurrently -k -n api,web -c blue,green \"npm run dev --workspace @climate-twin/api\" \"npm run dev --workspace @climate-twin/web\"",
     "dev:api": "npm run build:packages && npm run dev --workspace @climate-twin/api",
     "dev:web": "npm run build:packages && npm run dev --workspace @climate-twin/web",
@@ -20,6 +21,9 @@
     "test:data-safety": "node --test scripts/tests/data-safety.test.mjs",
     "test:live-migration": "node --test scripts/tests/live-migration.test.mjs",
     "test:cloudflare": "node --test scripts/tests/cloudflare-stuga.test.mjs",
+    "cloudflare:provision": "node scripts/cloudflare-stuga.mjs provision",
+    "cloudflare:provision-coordinator": "node scripts/cloudflare-stuga.mjs provision-coordinator",
+    "cloudflare:verify-coordinator": "node scripts/cloudflare-stuga.mjs verify-coordinator",
     "test:rpi-ota": "node --test scripts/tests/rpi-ota.test.mjs",
     "test:coverage": "npm run build:packages && npm run test:coverage --workspaces --if-present",
     "test:coverage:python": "python -m pytest apps/api/python_tests --cov=apps/api/python --cov-report=term-missing --cov-report=xml:apps/api/coverage-python.xml --cov-fail-under=80",
@@ -38,7 +42,9 @@
     "node": ">=22.13"
   },
   "overrides": {
-    "@types/node": "22.13.14"
+    "@types/node": "22.13.14",
+    "@hono/node-server": "2.0.11",
+    "fast-uri": "3.1.4"
   },
   "devDependencies": {
     "@types/node": "22.13.14",

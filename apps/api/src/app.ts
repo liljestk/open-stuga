@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { isIP } from "node:net";
+import { dirname, join } from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, resolvePlanElementOpeningState } from "@climate-twin/contracts";
 import type {
@@ -155,6 +156,10 @@ import {
   parseAnalyticsCoverageRequest,
   parseAnalyticsQueryRequest,
 } from "./analytics.js";
+import { loadOrCreateStugbyNodeKeys } from "./stugby/identity.js";
+import { registerStugbyLocalRoutes, registerStugbyProtocolRoutes } from "./stugby/routes.js";
+import { StugbyService } from "./stugby/service.js";
+import { StugbyStore } from "./stugby/store.js";
 
 class HttpError extends Error {
   constructor(readonly status: number, readonly code: string, message: string, readonly details?: unknown) {
@@ -1656,6 +1661,7 @@ export interface ApiRuntime {
   timeseries: TimeseriesStore | null;
   telemetryArchive: TelemetryArchiveWorker | null;
   telemetryReader: HybridTelemetryReader;
+  stugby: StugbyService;
   ready: () => Promise<void>;
   beginShutdown: () => Promise<void>;
   close: () => Promise<void>;
@@ -1743,6 +1749,7 @@ export interface CreateApiOptions {
   tpLinkCredentialTester?: (host: string, username: string, password: string) => Promise<IntegrationDraftTestResult>;
   electricityPriceFetcher?: typeof fetch;
   cloudflareAccessFetcher?: typeof fetch;
+  stugbyFetcher?: typeof fetch;
   electricityEndpointResolver?: ElectricityEndpointResolver;
   /** Test/embedding hook; normal deployments resolve aliases from live TP-Link discovery. */
   tapoHistoryDeviceNameFor?: (sensorId: string, deviceId: string) => string | null;
@@ -1929,6 +1936,10 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     throw new Error("Cloudflare Access synchronization requires a group identity, a static operator email, and an API token");
   }
   config.electricityAllowPrivateEndpoints ??= false;
+  config.stugbyIdentityFile ??= config.databasePath === ":memory:" ? null : join(dirname(config.databasePath), "stugby-identity.json");
+  config.stugbyNodeName ??= "Stuga";
+  config.stugbySyncIntervalMs ??= 15_000;
+  config.stugbyPublicOrigin ??= null;
   config.timeseriesEnabled ??= false;
   config.timeseriesRequired ??= false;
   config.timeseriesHost ??= "127.0.0.1";
@@ -1996,6 +2007,20 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     dataMode.activate();
   }
   const bus = new TelemetryBus();
+  const stugby = (() => {
+    const keys = loadOrCreateStugbyNodeKeys(config.stugbyIdentityFile ?? null, config.stugbyNodeName);
+    const store = new StugbyStore(database.db, keys.identity.nodeId);
+    return new StugbyService({
+      database,
+      store,
+      keys,
+      bus,
+      assetDirectory: config.assetDirectory,
+      syncIntervalMs: config.stugbySyncIntervalMs,
+      publicOrigin: config.stugbyPublicOrigin,
+      ...(options.stugbyFetcher ? { fetcher: options.stugbyFetcher } : {}),
+    });
+  })();
   const timeseriesSsl = config.timeseriesSslMode === "disable"
     ? undefined
     : config.timeseriesSslMode === "require"
@@ -2467,6 +2492,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     if (request.method === "OPTIONS") { response.status(204).end(); return; }
     next();
   });
+  registerStugbyProtocolRoutes(app, stugby);
   const authJsonParser = express.json({ limit: "8kb" });
   app.use((request, response, next) => {
     if (request.path.startsWith(`${prefix}/auth/`)) {
@@ -2625,6 +2651,8 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     });
     next();
   });
+
+  registerStugbyLocalRoutes(app, stugby, { requireAdmin: requireWorkspaceAdmin });
 
   const requireIngestKey = (request: Request, _response: Response, next: NextFunction): void => {
     if (!config.ingestApiKey) { next(); return; }
@@ -5582,6 +5610,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   }
 
   if (options.startBackground) {
+    stugby?.start();
     cloudflareAccess?.start();
     alertEngine.start();
     mock.start();
@@ -5601,6 +5630,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     alertEngine.stop();
     mock.stop();
     replay.stop();
+    const stoppingStugby = stugby?.stop() ?? Promise.resolve();
     const stoppingSensorGapRecovery = sensorGapRecovery.stop();
     const stoppingTapoHistory = tapoHistory.stop();
     homeAssistant.stop();
@@ -5611,6 +5641,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     for (const closeStream of [...activeEventStreams]) closeStream(true);
     shutdownPromise = Promise.all([
       notificationOutbox.stop(),
+      stoppingStugby,
       cloudflareAccess?.stop() ?? Promise.resolve(),
       stoppingSensorGapRecovery,
       stoppingTapoHistory,
@@ -5638,7 +5669,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
 
   return {
     app, database, integrationMetadata, bus, telemetry, measurements, mock, replay, status, homeAssistant, tpLink, tapoHistory, electricityPrices, telegram, weather, weatherMonitor, dailyAnalyticsFindings,
-    weatherRecovery, sensorGapRecovery, weatherEvents, dataMode, notificationOutbox, dataOperations, energyOptimizer, energyCost, setupDoctor, cloudflareAccess, spatialLayers, timeseries, telemetryArchive, telemetryReader,
+    weatherRecovery, sensorGapRecovery, weatherEvents, dataMode, notificationOutbox, dataOperations, energyOptimizer, energyCost, setupDoctor, cloudflareAccess, spatialLayers, timeseries, telemetryArchive, telemetryReader, stugby,
     ready: () => runtimeReady,
     beginShutdown,
     close,

@@ -61,4 +61,27 @@ describe("API shutdown", () => {
     const response = await fetch(`http://127.0.0.1:${address.port}/api/v2/measurements/events`);
     await expect(response.text()).resolves.toContain(": server shutting down");
   });
+
+  it("stops accepting connections before asynchronous lifecycle shutdown finishes", async () => {
+    let finishLifecycle: (() => void) | null = null;
+    const lifecycle = new Promise<void>((resolve) => { finishLifecycle = resolve; });
+    const calls: string[] = [];
+    server = createServer((_request, response) => response.end("ok"));
+    await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
+
+    const shutdown = shutdownHttpServer(server, {
+      beginShutdown: () => {
+        calls.push("begin");
+        return lifecycle;
+      },
+      close: () => { calls.push("close"); },
+    }, 1_000);
+    expect(server.listening).toBe(false);
+    await Promise.resolve();
+    expect(calls).toEqual(["begin"]);
+
+    finishLifecycle?.();
+    await expect(shutdown).resolves.toEqual({ forced: false });
+    expect(calls).toEqual(["begin", "close"]);
+  });
 });

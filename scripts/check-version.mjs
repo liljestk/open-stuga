@@ -50,6 +50,10 @@ const lockedWebContractsVersion = lock.packages?.["apps/web"]?.dependencies?.["@
 if (lockedWebContractsVersion !== expected) {
   mismatches.push(`package-lock.json apps/web @climate-twin/contracts: ${lockedWebContractsVersion ?? "missing"}`);
 }
+for (const dependency of ["@climate-twin/spatial-layers", "@climate-twin/stugby-protocol"]) {
+  const version = lock.packages?.["apps/web"]?.dependencies?.[dependency];
+  if (version !== expected) mismatches.push(`package-lock.json apps/web ${dependency}: ${version ?? "missing"}`);
+}
 const changelog = readFileSync(resolve(root, "CHANGELOG.md"), "utf8");
 const escapedVersion = expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 if (!new RegExp(`^## ${escapedVersion}(?:\\s|$)`, "m").test(changelog)) {

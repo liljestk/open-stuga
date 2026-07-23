@@ -4,14 +4,25 @@ import { API_BASE, API_V2_BASE } from "../api";
 import { useI18n } from "../i18n";
 import { SystemOperationsPanel } from "./SetupOperationsPanel";
 
+export function browserFacingApiBase(base: string, browserOrigin: string): string {
+  if (base.startsWith("http://") || base.startsWith("https://")) return base;
+  try {
+    const apiOrigin = new URL(browserOrigin);
+    if (apiOrigin.port === "5173" || apiOrigin.port === "4173") apiOrigin.port = "8787";
+    return `${apiOrigin.origin}${base}`;
+  } catch {
+    return `${browserOrigin}${base}`;
+  }
+}
+
 export function DeveloperPage() {
   const { t } = useI18n();
   const [copyResult, setCopyResult] = useState<{ id: string; status: "copied" | "failed" } | null>(null);
   const [operationsOpen, setOperationsOpen] = useState(false);
   const clearCopyResultTimer = useRef<number | null>(null);
   const origin = typeof window === "undefined" ? "http://localhost:8787" : window.location.origin;
-  const absoluteBase = API_BASE.startsWith("http") ? API_BASE : `${origin}${API_BASE}`;
-  const absoluteV2Base = API_V2_BASE.startsWith("http") ? API_V2_BASE : `${origin}${API_V2_BASE}`;
+  const absoluteBase = browserFacingApiBase(API_BASE, origin);
+  const absoluteV2Base = browserFacingApiBase(API_V2_BASE, origin);
   const mcpCommand = "node apps/api/dist/mcp-server.js";
 
   useEffect(() => () => {
