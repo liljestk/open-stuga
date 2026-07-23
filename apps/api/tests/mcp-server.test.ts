@@ -53,7 +53,7 @@ describe("MCP server policy", () => {
     await client.connect(transport);
     let closeDurationMs = Number.POSITIVE_INFINITY;
     try {
-      expect(client.getServerVersion()).toEqual({ name: "stuga-local", version: "0.4.1" });
+      expect(client.getServerVersion()).toEqual({ name: "stuga-local", version: "0.5.0" });
       expect(client.getInstructions()).toContain("not an administration API");
       expect(client.getInstructions()).toContain("Raw integration credentials");
       const listedTools = await client.listTools();

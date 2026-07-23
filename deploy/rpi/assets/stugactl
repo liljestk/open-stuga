@@ -6,6 +6,13 @@ readonly state_dir=/persistent/stuga
 readonly local_env="$state_dir/stuga.env"
 readonly release_env="$project_dir/release.env"
 readonly docker_config="$state_dir/docker-config"
+readonly migration_dir="$state_dir/migrations"
+readonly compose_lock=/run/lock/stuga-compose.lock
+readonly migration_health_authorization="$migration_dir/.health-check-authorization"
+readonly -a migration_application_services=(
+  cloudflared web api stuga-backup-scheduler tapo-export-runner
+  telemetry-migrate timeseries-credential-reconcile
+)
 
 compose() {
   DOCKER_CONFIG="$docker_config" docker compose \
@@ -28,8 +35,86 @@ Commands:
   config      Edit persistent appliance settings
   restart     Pull the pinned images and restart the appliance
   backup      Create a complete Stuga backup
+  migration   Receive, verify, apply, or roll back a live system migration
   images      Show the immutable container references for this OS release
 EOF
+}
+
+migration_usage() {
+  cat <<'EOF'
+Usage: stugactl migration <command> [arguments]
+
+Commands used by the authenticated source controller:
+  init
+  status <migration-id>
+  missing <migration-id> <plan-sha256>
+  assemble <migration-id> <plan-sha256>
+  apply <migration-id> <plan-sha256>
+  resume <migration-id>
+  rollback <migration-id>
+  gc
+EOF
+}
+
+validate_migration_id() {
+  [[ "$1" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ ]]
+}
+
+validate_sha256() {
+  [[ "$1" =~ ^[0-9a-f]{64}$ ]]
+}
+
+migration_tool() {
+  compose --profile migration run --rm stuga-migration "$@"
+}
+
+stop_application_containers() {
+  compose stop --timeout 30 "${migration_application_services[@]}"
+}
+
+application_containers_are_stopped() {
+  local running
+  running="$(compose ps --services --filter status=running)" || return 1
+  local service
+  for service in "${migration_application_services[@]}"; do
+    if grep -Fxq "$service" <<<"$running"; then return 1; fi
+  done
+}
+
+quiesce_for_migration_rollback() {
+  stop_application_containers || true
+  if application_containers_are_stopped; then return 0; fi
+  local service
+  for service in "${migration_application_services[@]}"; do
+    compose stop --timeout 30 "$service" || true
+  done
+  application_containers_are_stopped
+}
+
+authorize_pending_health_check() {
+  local migration_id="$1"
+  local temporary="${migration_health_authorization}.$$"
+  printf '%s %s\n' "$(cat /proc/sys/kernel/random/boot_id)" "$migration_id" > "$temporary"
+  chmod 0600 "$temporary"
+  mv -f "$temporary" "$migration_health_authorization"
+}
+
+expected_release_is_healthy() {
+  local expected_version
+  expected_version="$(cat /etc/stuga-version)"
+  [[ -r "$state_dir/release-status" ]] \
+    && grep -Fxq "version=$expected_version" "$state_dir/release-status" \
+    && grep -Eq '^healthy_at=' "$state_dir/release-status" \
+    && ! grep -Eq '^failed_version=' "$state_dir/release-status"
+}
+
+commit_healthy_migration() {
+  local migration_id="$1"
+  expected_release_is_healthy || return 1
+  local version healthy_at
+  version="$(sed -n 's/^version=//p' "$state_dir/release-status" | tail -n 1)"
+  healthy_at="$(sed -n 's/^healthy_at=//p' "$state_dir/release-status" | tail -n 1)"
+  migration_tool commit "$migration_id" "$version" "$healthy_at"
 }
 
 case "${1:-}" in
@@ -55,6 +140,145 @@ case "${1:-}" in
     ;;
   backup)
     compose --profile maintenance run --rm stuga-backup
+    ;;
+  migration)
+    shift
+    migration_action="${1:-}"
+    case "$migration_action" in
+      init)
+        install -d -m 0700 \
+          "$migration_dir" \
+          "$migration_dir/incoming" \
+          "$migration_dir/chunks" \
+          "$migration_dir/staged" \
+          "$migration_dir/receipts" \
+          "$migration_dir/rollback"
+        migration_tool preflight
+        ;;
+      gc)
+        migration_tool gc
+        ;;
+      status)
+        migration_id="${2:-}"
+        validate_migration_id "$migration_id" || { echo "Invalid migration id" >&2; exit 2; }
+        migration_tool status "$migration_id"
+        ;;
+      missing|assemble)
+        migration_id="${2:-}"
+        plan_sha256="${3:-}"
+        validate_migration_id "$migration_id" || { echo "Invalid migration id" >&2; exit 2; }
+        validate_sha256 "$plan_sha256" || { echo "Invalid plan SHA-256" >&2; exit 2; }
+        migration_tool "$migration_action" "$migration_id" "$plan_sha256"
+        ;;
+      apply)
+        migration_id="${2:-}"
+        plan_sha256="${3:-}"
+        validate_migration_id "$migration_id" || { echo "Invalid migration id" >&2; exit 2; }
+        validate_sha256 "$plan_sha256" || { echo "Invalid plan SHA-256" >&2; exit 2; }
+
+        exec 9>"$compose_lock"
+        flock 9
+        migration_tool intent "$migration_id" "$plan_sha256"
+
+        # Preserve the target's current state after a durable apply intent is
+        # visible. An interrupted controller can no longer mistake a missing
+        # receipt for proof that the target is idle.
+        if ! compose --profile maintenance run --rm stuga-backup; then
+          migration_tool rollback "$migration_id" || true
+          flock -u 9
+          sudo -n systemctl restart stuga.service || true
+          echo "Target safety backup failed; migration intent was cancelled." >&2
+          exit 1
+        fi
+        if ! stop_application_containers; then
+          migration_tool rollback "$migration_id" || true
+          flock -u 9
+          sudo -n systemctl restart stuga.service || true
+          echo "Target quiescence failed; prior target services were restarted." >&2
+          exit 1
+        fi
+        if ! migration_tool apply "$migration_id" "$plan_sha256"; then
+          migration_tool rollback "$migration_id" || true
+          flock -u 9
+          sudo -n systemctl restart stuga.service || true
+          echo "Migration apply failed; the receiver rolled back before target restart." >&2
+          exit 1
+        fi
+        flock -u 9
+
+        authorize_pending_health_check "$migration_id"
+        if sudo -n systemctl restart stuga.service && expected_release_is_healthy; then
+          if commit_healthy_migration "$migration_id"; then
+            echo "Migration $migration_id committed after target health checks."
+            exit 0
+          fi
+          echo "Target is healthy, but durable commit failed; the migration remains pending." >&2
+          echo "Source writers must remain stopped. Run 'stugactl migration resume $migration_id'." >&2
+          exit 1
+        fi
+
+        echo "Target health check failed; rolling back migration $migration_id." >&2
+        flock 9
+        if ! quiesce_for_migration_rollback; then
+          flock -u 9
+          authorize_pending_health_check "$migration_id"
+          sudo -n systemctl restart stuga.service || true
+          echo "Target could not be quiesced; rollback was not attempted and the migration remains pending." >&2
+          echo "Resolve the container stop failure, then run 'stugactl migration resume $migration_id' or rollback." >&2
+          exit 1
+        fi
+        if ! migration_tool rollback "$migration_id"; then
+          flock -u 9
+          echo "Migration rollback failed; application startup remains interlocked." >&2
+          exit 1
+        fi
+        flock -u 9
+        sudo -n systemctl restart stuga.service || {
+          echo "Migration rolled back, but the prior target release did not restart." >&2
+          exit 1
+        }
+        exit 1
+        ;;
+      resume)
+        migration_id="${2:-}"
+        validate_migration_id "$migration_id" || { echo "Invalid migration id" >&2; exit 2; }
+        exec 9>"$compose_lock"
+        flock 9
+        if ! commit_healthy_migration "$migration_id"; then
+          flock -u 9
+          echo "No fresh exact-release health proof is available; the migration remains pending." >&2
+          exit 1
+        fi
+        flock -u 9
+        sudo -n systemctl restart stuga.service
+        echo "Migration $migration_id resumed and committed from durable health evidence."
+        ;;
+      rollback)
+        migration_id="${2:-}"
+        validate_migration_id "$migration_id" || { echo "Invalid migration id" >&2; exit 2; }
+        exec 9>"$compose_lock"
+        flock 9
+        if ! quiesce_for_migration_rollback; then
+          flock -u 9
+          authorize_pending_health_check "$migration_id"
+          sudo -n systemctl restart stuga.service || true
+          echo "Target could not be quiesced; rollback was not attempted." >&2
+          exit 1
+        fi
+        if ! migration_tool rollback "$migration_id"; then
+          flock -u 9
+          sudo -n systemctl restart stuga.service || true
+          echo "Migration rollback was refused or failed; current committed data was preserved." >&2
+          exit 1
+        fi
+        flock -u 9
+        sudo -n systemctl restart stuga.service
+        ;;
+      *)
+        migration_usage
+        exit 2
+        ;;
+    esac
     ;;
   images)
     cat "$release_env"

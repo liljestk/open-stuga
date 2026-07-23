@@ -34,11 +34,13 @@ const ActivityPage = lazy(() => import("./pages/ActivityPage").then((module) => 
 const MaintenancePage = lazy(() => import("./pages/MaintenancePage").then((module) => ({ default: module.MaintenancePage })));
 const EnergyPage = lazy(() => import("./pages/EnergyPage").then((module) => ({ default: module.EnergyPage })));
 const PeopleAccessPage = lazy(() => import("./pages/PeopleAccessPage").then((module) => ({ default: module.PeopleAccessPage })));
+const StugbyPage = lazy(() => import("./pages/StugbyPage").then((module) => ({ default: module.StugbyPage })));
 
 const pageTitleKeys = {
   overview: "nav.overview",
   properties: "nav.properties",
   people: "nav.people",
+  stugbys: "nav.stugbys",
   twin: "nav.twin",
   activity: "nav.activity",
   maintenance: "nav.maintenance",
@@ -498,6 +500,13 @@ export function App() {
       </form>
     </section>
   );
+  const renderNoAccessCard = () => (
+    <section className="property-empty-page" aria-labelledby="workspace-no-access-title">
+      <ShieldCheck size={28} aria-hidden="true" />
+      <h1 id="workspace-no-access-title">{t("properties.noAccessTitle")}</h1>
+      <p>{t("properties.noAccessBody")}</p>
+    </section>
+  );
 
   if (climate.loading || climate.bootstrapStatus === "loading") {
     return <output className="loading-screen"><span className="loading-logo" aria-hidden="true" /><strong>{t("app.name")}</strong><span>{t("common.loading")}</span></output>;
@@ -559,7 +568,7 @@ export function App() {
     </AppShell>;
   }
 
-  if (page === "overview" || page === "people" || page === "alerts" || page === "developer") {
+  if (page === "overview" || page === "people" || page === "stugbys" || page === "alerts" || page === "developer") {
     return <AppShell
       page={page}
       onPage={(next, scope) => navigate(next, scope?.houseId, false, window.location.pathname, scope?.propertyId)}
@@ -641,6 +650,9 @@ export function App() {
           }}
         />}
         {page === "people" && <PeopleAccessPage state={state} />}
+        {page === "stugbys" && (canManagePeople
+          ? <StugbyPage houses={state.houses} />
+          : <section className="route-recovery" aria-labelledby="stugby-access-title"><ShieldCheck size={24} aria-hidden="true" /><div><span className="eyebrow">{t("properties.guestReadOnly")}</span><h1 id="stugby-access-title">{t("properties.adminOnlyTitle")}</h1><p>{t("properties.adminOnlyBody")}</p></div><button type="button" className="primary-button" onClick={() => navigate("overview", null, true, window.location.pathname, null)}>{t("route.openOverview")}</button></section>)}
         {page === "developer" && <DeveloperPage />}
       </></Suspense></RouteErrorBoundary>}
     </AppShell>;
@@ -808,11 +820,11 @@ export function App() {
       principalEmail={state.session?.principal.email ?? null}
       onLogout={logout}
       onRetryConnection={climate.retryBootstrap}
-    ><div className="home-empty-state">{renderFirstHomeCard()}</div></AppShell>;
+    ><div className="home-empty-state">{readOnly ? renderNoAccessCard() : renderFirstHomeCard()}</div></AppShell>;
   }
 
   if (!house) {
-    return <main className="bootstrap-screen"><section className="bootstrap-card"><AlertTriangle size={24} aria-hidden="true" /><h1>{t("bootstrap.inventoryUnavailable")}</h1><button type="button" className="primary-button" onClick={climate.retryBootstrap}><RotateCcw size={16} aria-hidden="true" />{t("bootstrap.retry")}</button></section></main>;
+    return <main className="bootstrap-screen">{readOnly ? renderNoAccessCard() : <section className="bootstrap-card"><AlertTriangle size={24} aria-hidden="true" /><h1>{t("bootstrap.inventoryUnavailable")}</h1><button type="button" className="primary-button" onClick={climate.retryBootstrap}><RotateCcw size={16} aria-hidden="true" />{t("bootstrap.retry")}</button></section>}</main>;
   }
 
   if (!floor) {

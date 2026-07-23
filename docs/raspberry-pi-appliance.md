@@ -304,12 +304,19 @@ stugactl system-log   # image/container startup and fallback log
 stugactl config       # persistent appliance settings
 stugactl restart      # pull/reconcile the images pinned by this OS release
 stugactl backup       # complete application backup
+stugactl migration    # authenticated live-migration receiver and rollback tools
 stugactl images       # exact immutable image references
 ```
 
 Backups under `/persistent/stuga/backups` survive A/B updates, but they are on
 the same physical disk. Copy verified backups to another machine or encrypted
 off-site storage.
+
+The appliance is also a guarded target for Stuga's resumable system-to-system
+migration. Seed chunks while the source remains online, then perform a final
+health-gated cutover with `npm run migrate` from the source project. See the
+[live migration runbook](live-migration.md); do not manually restart the old
+source after an ambiguous network failure until the target receipt is known.
 
 ## Recovery notes
 

@@ -27,6 +27,33 @@ describe("AppShell local account controls", () => {
     expect(properties.getAttribute("href")).toBe("/properties");
   });
 
+  it("does not imply Property scope on the workspace-wide Stugbys page", () => {
+    render(
+      <I18nProvider>
+        <AppShell
+          page="stugbys"
+          canManagePeople
+          onPage={vi.fn()}
+          connection="live"
+          units="metric"
+          onUnits={vi.fn()}
+          lastUpdated={null}
+          dataMode="real"
+          properties={[{ id: "property-main", name: "Main estate" }]}
+          propertyId="property-main"
+          onProperty={vi.fn()}
+          houses={[{ id: "home-main", propertyId: "property-main", name: "Main home", timezone: "Europe/Helsinki" }]}
+          houseId="home-main"
+        >
+          <div>Stugby content</div>
+        </AppShell>
+      </I18nProvider>,
+    );
+
+    expect(screen.getByRole("link", { name: "Stugbys" }).getAttribute("href")).toBe("/stugbys");
+    expect(screen.queryByLabelText("Active property")).toBeNull();
+  });
+
   it("keeps Setup visibly scoped and filters the Home picker to the active Property", () => {
     render(
       <I18nProvider>

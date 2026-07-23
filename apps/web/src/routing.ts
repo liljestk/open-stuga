@@ -86,6 +86,7 @@ export function routeFromLocation(location: Pick<Location, "pathname" | "search"
   if (path === "/overview") return { page: "overview", propertyId: null, houseId: null };
   if (path === "/properties") return { page: "properties", propertyId: null, houseId: null };
   if (path === "/people") return { page: "people", propertyId: null, houseId: null };
+  if (path === "/stugbys") return { page: "stugbys", propertyId: null, houseId: null };
   if (path === "/alerts") return { page: "alerts", propertyId: null, houseId: null };
   if (path === "/developer") return { page: "developer", propertyId: null, houseId: null };
 
@@ -115,6 +116,7 @@ export function locationForRoute(
     case "overview": return "/overview";
     case "properties": return propertyBase;
     case "people": return "/people";
+    case "stugbys": return "/stugbys";
     case "twin": return homeBase || propertyBase;
     case "activity": return homeBase ? `${homeBase}/activity` : propertyBase;
     case "maintenance": return homeBase ? `${homeBase}/maintenance` : property ? `${propertyBase}/maintenance` : "/properties";

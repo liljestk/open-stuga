@@ -53,6 +53,36 @@ describe("Climate Twin API v1", () => {
     expect(loadConfig({ NODE_ENV: "production", DATABASE_PATH: ":memory:", MOCK_ENABLED: "false" }).mockEnabled).toBe(false);
   });
 
+  it("keeps Stugby inert but available and validates its node configuration", async () => {
+    const defaults = loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" });
+    expect(defaults).toMatchObject({
+      stugbyIdentityFile: null,
+      stugbyNodeName: "Stuga",
+      stugbySyncIntervalMs: 15_000,
+      stugbyPublicOrigin: null,
+    });
+    expect(loadConfig({
+      NODE_ENV: "test", DATABASE_PATH: "./data/test.sqlite",
+      STUGBY_IDENTITY_FILE: "./data/test-stugby.json", STUGBY_NODE_NAME: "Shore household",
+      STUGBY_SYNC_INTERVAL_MS: "2000", STUGBY_PUBLIC_ORIGIN: "https://stugby.example.test",
+    })).toMatchObject({
+      stugbyNodeName: "Shore household",
+      stugbySyncIntervalMs: 2_000,
+      stugbyPublicOrigin: "https://stugby.example.test",
+    });
+    expect(() => loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", STUGBY_SYNC_INTERVAL_MS: "1999" })).toThrow(/STUGBY_SYNC_INTERVAL_MS/);
+    expect(() => loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", STUGBY_NODE_NAME: "x".repeat(201) })).toThrow(/STUGBY_NODE_NAME/);
+    expect(() => loadConfig({
+      NODE_ENV: "test", DATABASE_PATH: ":memory:", STUGBY_PUBLIC_ORIGIN: "http://stugby.example.test",
+    })).toThrow(/must use HTTPS/);
+    expect(() => loadConfig({
+      NODE_ENV: "test", DATABASE_PATH: ":memory:", STUGBY_PUBLIC_ORIGIN: "https://stugby.example.test/path",
+    })).toThrow(/must be an origin/);
+    const available = await request(runtime.app).get("/api/v1/stugbys").expect(200);
+    expect(available.body.stugbys).toEqual([]);
+    expect(available.body.identity.nodeId).toBeTruthy();
+  });
+
   it("rejects a required time-series archive that is disabled", () => {
     expect(() => loadConfig({
       NODE_ENV: "test",
@@ -1082,6 +1112,9 @@ describe("Climate Twin API v1", () => {
     expect(openapi.body.paths["/snapshot"]).toBeDefined();
     expect(openapi.body.paths["/readings"].get).toBeDefined();
     expect(openapi.body.paths["/integrations/tp-link/devices"].get.operationId).toBe("listTpLinkDevices");
+    expect(openapi.body.paths["/stugbys"].post.operationId).toBe("createStugby");
+    expect(openapi.body.paths["/stugby-protocol/stugbys/{stugbyId}/events/stream"].get.description).toContain("SSE");
+    expect(openapi.body.components.securitySchemes.stugbyNodeSignature.type).toBe("apiKey");
     expect(openapi.body.paths["/sensors/{id}"].patch.requestBody.content["application/json"].schema.$ref).toContain("SensorPatch");
     const sensorCoordinates = openapi.body.components.schemas.SensorInput.properties;
     expect(sensorCoordinates.x.minimum).toBe(0);

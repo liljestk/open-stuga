@@ -78,6 +78,20 @@ import type {
   ThermalSimulationResult,
   TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
+import type {
+  StugbyDatasetGrant,
+  StugbyDeletionReceipt,
+  StugbyGrantAudience,
+  StugbyInvitation,
+  StugbyMember,
+  StugbyMemberState,
+  StugbyNodeIdentity,
+  StugbyRemoteResource,
+  StugbyRole,
+  StugbyShareGrant,
+  StugbySharedProperty,
+  StugbySummary,
+} from "@climate-twin/stugby-protocol";
 import {
   spatialCalibrationSessionResult,
   spatialCalibrationSessions,
@@ -272,6 +286,51 @@ export interface AppleNotesSetupMetadata {
 export interface TenantMembersResponse {
   members: TenantMemberSummary[];
   invitations: TenantMemberSummary[];
+}
+
+export interface StugbyListResponse {
+  identity: StugbyNodeIdentity;
+  publicOrigin: string | null;
+  stugbys: StugbySummary[];
+}
+
+export interface StugbyInvitationCreated extends StugbyInvitation {
+  joinSecret: string;
+  joinUrl: string;
+}
+
+export interface StugbyLocalPublicationCatalog {
+  house: { localHouseId: string; publicationId: string; name: string };
+  sensors: Array<{ localSensorId: string; sensorPublicationId: string; name: string; metricIds: string[] }>;
+}
+
+export interface StugbyDetailResponse {
+  stugby: StugbySummary;
+  members: StugbyMember[];
+  invitations: StugbyInvitation[];
+  grants: StugbyShareGrant[];
+  sharedProperty: StugbySharedProperty | null;
+  remoteResources: StugbyRemoteResource[];
+  deletionReceipts: StugbyDeletionReceipt[];
+  audit: Array<{
+    id: number;
+    eventType: string;
+    actorNodeId: string | null;
+    subjectId: string | null;
+    details: Record<string, unknown>;
+    createdAt: string;
+  }>;
+}
+
+export interface StugbyRemoteTelemetrySample {
+  authorityNodeId: string;
+  publicationId: string;
+  sensorPublicationId: string;
+  metricId: string;
+  timestamp: string;
+  value: number;
+  quality: string;
+  correctionOf: string | null;
 }
 
 export class ApiRequestError extends Error {
@@ -571,6 +630,67 @@ export const api = {
     }
     if (completed) publishAuthEpoch();
   },
+  stugbys: () => request<StugbyListResponse>("/stugbys"),
+  stugby: (id: string) => request<StugbyDetailResponse>(`/stugbys/${encodeURIComponent(id)}`),
+  createStugby: (input: { name: string; description?: string | null }) => request<StugbySummary>("/stugbys", {
+    method: "POST",
+    body: JSON.stringify(input),
+  }),
+  joinStugby: (input: { coordinatorUrl: string; invitationId: string; joinSecret: string }) => request<StugbySummary>("/stugbys/join", {
+    method: "POST",
+    body: JSON.stringify(input),
+  }),
+  createStugbyInvitation: (id: string, input: { role: Exclude<StugbyRole, "steward">; expiresAt?: string }) => request<StugbyInvitationCreated>(
+    `/stugbys/${encodeURIComponent(id)}/invitations`,
+    { method: "POST", body: JSON.stringify(input) },
+  ),
+  revokeStugbyInvitation: (id: string, invitationId: string) => request<void>(
+    `/stugbys/${encodeURIComponent(id)}/invitations/${encodeURIComponent(invitationId)}`,
+    { method: "DELETE" },
+  ),
+  updateStugbyMember: (id: string, nodeId: string, input: { role: StugbyRole; state: StugbyMemberState }) => request<StugbyMember>(
+    `/stugbys/${encodeURIComponent(id)}/members/${encodeURIComponent(nodeId)}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  ),
+  updateStugbyProperty: (id: string, baseRevision: number, property: Pick<StugbySharedProperty,
+    "name" | "description" | "location" | "areas" | "equipment" | "notes" | "maintenance"
+  >) => request<StugbySharedProperty>(`/stugbys/${encodeURIComponent(id)}/property`, {
+    method: "PUT",
+    body: JSON.stringify({ baseRevision, property }),
+  }),
+  createStugbyGrant: (id: string, input: {
+    localHouseId: string;
+    audience: StugbyGrantAudience;
+    datasets: StugbyDatasetGrant[];
+    expiresAt?: string | null;
+  }) => request<StugbyShareGrant>(`/stugbys/${encodeURIComponent(id)}/grants`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  }),
+  stugbyPublications: (id: string, houseId: string) => request<StugbyLocalPublicationCatalog>(
+    `/stugbys/${encodeURIComponent(id)}/publications/${encodeURIComponent(houseId)}`,
+  ),
+  updateStugbyGrant: (id: string, grantId: string, input: {
+    baseRevision: number;
+    audience: StugbyGrantAudience;
+    datasets: StugbyDatasetGrant[];
+    expiresAt: string | null;
+  }) => request<StugbyShareGrant>(`/stugbys/${encodeURIComponent(id)}/grants/${encodeURIComponent(grantId)}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  }),
+  revokeStugbyGrant: (id: string, grantId: string) => request<StugbyShareGrant>(
+    `/stugbys/${encodeURIComponent(id)}/grants/${encodeURIComponent(grantId)}`,
+    { method: "DELETE" },
+  ),
+  republishStugbyGrant: (id: string, grantId: string) => request<{ queued: boolean }>(
+    `/stugbys/${encodeURIComponent(id)}/grants/${encodeURIComponent(grantId)}/republish`,
+    { method: "POST" },
+  ),
+  syncStugby: (id: string) => request<StugbySummary>(`/stugbys/${encodeURIComponent(id)}/sync`, { method: "POST" }),
+  stugbyTelemetry: (id: string, limit = 250) => request<{ samples: StugbyRemoteTelemetrySample[] }>(
+    `/stugbys/${encodeURIComponent(id)}/telemetry?limit=${encodeURIComponent(String(limit))}`,
+  ),
   properties: () => completeCollection<Property>("/properties", ["properties", "data"]),
   createProperty: async (input: PropertyCreateInput) => entity<Property>(await request<Property | { property: Property }>("/properties", {
     method: "POST",

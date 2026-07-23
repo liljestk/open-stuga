@@ -8,6 +8,7 @@ readonly release_env="$project_dir/release.env"
 readonly known_good_env="$state_dir/last-known-good.env"
 readonly docker_config="$state_dir/docker-config"
 readonly status_file="$state_dir/release-status"
+readonly migration_health_authorization="$state_dir/migrations/.health-check-authorization"
 readonly appliance_user=stuga
 readonly lock_file=/run/lock/stuga-compose.lock
 
@@ -15,11 +16,48 @@ install -d -m 0750 -o "$appliance_user" -g "$appliance_user" "$state_dir"
 install -d -m 0700 -o "$appliance_user" -g "$appliance_user" "$docker_config"
 install -d -m 0750 -o "$appliance_user" -g "$appliance_user" \
   "$state_dir/backups" \
+  "$state_dir/migrations" \
+  "$state_dir/migrations/incoming" \
+  "$state_dir/migrations/chunks" \
   "$state_dir/config" \
   "$state_dir/secrets" \
   "$state_dir/secrets/cloudflare" \
   "$state_dir/secrets/tapo-history-api" \
   "$state_dir/secrets/tapo-history-runner"
+
+# Never boot application containers over a partially mutated migration. The
+# receipt is a write-ahead journal; an operator must finish rollback before the
+# service can expose SQLite, WAL sidecars, settings, or database names.
+authorized_pending_id=""
+if [[ -f "$migration_health_authorization" && ! -L "$migration_health_authorization" ]]; then
+  authorized_boot_id=""
+  candidate_id=""
+  read -r authorized_boot_id candidate_id < "$migration_health_authorization" || true
+  rm -f "$migration_health_authorization"
+  current_boot_id="$(cat /proc/sys/kernel/random/boot_id)"
+  if [[ "$authorized_boot_id" == "$current_boot_id"
+    && "$candidate_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ ]]; then
+    authorized_pending_id="${candidate_id,,}"
+  fi
+fi
+shopt -s nullglob
+for migration_receipt in "$state_dir"/migrations/receipts/*.json; do
+  if grep -Eq '"status"[[:space:]]*:[[:space:]]*"(apply-intent|applying|rolling-back)"' \
+      "$migration_receipt"; then
+    echo "Refusing to start over incomplete migration receipt: $migration_receipt" >&2
+    echo "Run 'stugactl migration status <id>' and 'stugactl migration rollback <id>'." >&2
+    exit 1
+  fi
+  if grep -Eq '"status"[[:space:]]*:[[:space:]]*"applied-pending-health-check"' \
+      "$migration_receipt"; then
+    receipt_id="$(basename "$migration_receipt" .json)"
+    if [[ "${receipt_id,,}" != "$authorized_pending_id" ]]; then
+      echo "Refusing to start over an uncommitted migration: $migration_receipt" >&2
+      echo "Run 'stugactl migration resume $receipt_id' after inspecting its health evidence." >&2
+      exit 1
+    fi
+  fi
+done
 
 if [[ ! -e "$local_env" ]]; then
   install -m 0640 -o "$appliance_user" -g "$appliance_user" \

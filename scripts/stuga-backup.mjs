@@ -46,6 +46,7 @@ Create options:
   --output <directory>     New backup directory (default: ./backups/stuga-backup-<UTC timestamp>)
   --assets <directory>     External assets directory (default: ASSET_DIRECTORY or ./data/assets)
   --spatial-db <file>      Spatial SQLite DB (default: SPATIAL_LAYERS_DATABASE_PATH or next to core DB)
+  --stugby-identity <file> Persistent Stugby node identity (default: STUGBY_IDENTITY_FILE or next to core DB)
   --include-secrets        Opt in to copying the integration secrets file
   --secrets-file <file>    Secrets path (default: INTEGRATION_SECRETS_FILE or next to core DB)
   --include-timescale      Opt in to a pg_dump custom-format telemetry backup
@@ -132,6 +133,9 @@ export function parseBackupArgs(argv, env = process.env, now = new Date()) {
     } else if (argument === "--spatial-db") {
       parsed.spatialDatabase = argumentValue(argv, index, argument);
       index += 1;
+    } else if (argument === "--stugby-identity") {
+      parsed.stugbyIdentityFile = argumentValue(argv, index, argument);
+      index += 1;
     } else if (argument === "--secrets-file") {
       parsed.secretsFile = argumentValue(argv, index, argument);
       index += 1;
@@ -163,7 +167,7 @@ export function parseBackupArgs(argv, env = process.env, now = new Date()) {
   if (parsed.verify !== undefined) {
     const incompatible = parsed.includeSecrets || parsed.includeTimescale
       || parsed.database !== undefined || parsed.output !== undefined || parsed.assets !== undefined
-      || parsed.spatialDatabase !== undefined || parsed.secretsFile !== undefined
+      || parsed.spatialDatabase !== undefined || parsed.stugbyIdentityFile !== undefined || parsed.secretsFile !== undefined
       || parsed.applicationRole !== undefined || parsed.adminRole !== undefined;
     if (incompatible) throw new Error("--verify cannot be combined with backup creation options");
     parsed.verify = resolve(parsed.verify);
@@ -179,6 +183,11 @@ export function parseBackupArgs(argv, env = process.env, now = new Date()) {
     parsed.spatialDatabase
       ?? env.SPATIAL_LAYERS_DATABASE_PATH
       ?? join(dirname(parsed.database), "experimental-spatial-layers.sqlite"),
+  );
+  parsed.stugbyIdentityFile = resolve(
+    parsed.stugbyIdentityFile
+      ?? env.STUGBY_IDENTITY_FILE
+      ?? join(dirname(parsed.database), "stugby-identity.json"),
   );
   parsed.secretsFile = resolve(
     parsed.secretsFile
@@ -313,17 +322,98 @@ async function copyAssets(source, destination, backupRoot) {
   if (within(source, backupRoot)) throw new Error("The backup output cannot be inside the assets directory");
   const files = walkAssets(source);
   let bytes = 0;
-  const records = [];
   for (const sourceFile of files) {
     const relativePath = relative(source, sourceFile);
     const destinationFile = join(destination, relativePath);
     mkdirSync(dirname(destinationFile), { recursive: true });
     copyFileSync(sourceFile, destinationFile);
-    const record = await fileRecord(backupRoot, destinationFile, "asset");
-    bytes += record.size;
-    records.push(record);
+    bytes += statSync(destinationFile).size;
   }
-  return { status: "included", files: files.length, bytes, records };
+  return { status: "included", files: files.length, bytes };
+}
+
+function requiredStugbyBlobs(snapshotPath) {
+  const database = openReadOnlySqlite(snapshotPath);
+  try {
+    const tables = new Set(database.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()
+      .map(({ name }) => String(name)));
+    const dependentTables = ["stugby_blob_references", "stugby_blob_access"].filter((table) => tables.has(table));
+    if (!tables.has("stugby_blob_metadata")) {
+      if (dependentTables.length > 0) throw new Error("Core snapshot has Stugby blob references but no blob metadata table");
+      return [];
+    }
+    for (const table of dependentTables) {
+      const missing = database.prepare(`SELECT DISTINCT dependency.digest FROM ${table} dependency
+        LEFT JOIN stugby_blob_metadata metadata ON metadata.digest=dependency.digest
+        WHERE metadata.digest IS NULL LIMIT 1`).get();
+      if (missing) throw new Error(`Core snapshot has ${table} entry without Stugby blob metadata: ${missing.digest}`);
+    }
+    return database.prepare(`SELECT digest,byte_length AS byteLength,relative_path AS relativePath
+      FROM stugby_blob_metadata ORDER BY digest`).all().map((row) => {
+      const digest = String(row.digest);
+      const relativePath = String(row.relativePath);
+      const byteLength = Number(row.byteLength);
+      if (!/^[a-f0-9]{64}$/u.test(digest) || relativePath !== digest
+        || !Number.isSafeInteger(byteLength) || byteLength < 1) {
+        throw new Error(`Core snapshot has invalid Stugby blob metadata: ${digest}`);
+      }
+      return { digest, byteLength, relativePath };
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function matchesStugbyBlob(path, blob) {
+  if (!existsSync(path)) return false;
+  const details = lstatSync(path);
+  return details.isFile() && !details.isSymbolicLink()
+    && details.size === blob.byteLength && await sha256File(path) === blob.digest;
+}
+
+async function ensureSnapshotStugbyAssets(snapshotPath, sourceRoot, destinationRoot) {
+  const blobs = requiredStugbyBlobs(snapshotPath);
+  for (const blob of blobs) {
+    const destination = join(destinationRoot, "stugby", blob.relativePath);
+    if (await matchesStugbyBlob(destination, blob)) continue;
+    const source = join(sourceRoot, "stugby", blob.relativePath);
+    let copied = false;
+    for (let attempt = 0; attempt < 3 && !copied; attempt += 1) {
+      if (!existsSync(source)) continue;
+      const details = lstatSync(source);
+      if (details.isSymbolicLink() || !details.isFile()) {
+        throw new Error(`Stugby asset required by the core snapshot is not a regular file: ${source}`);
+      }
+      mkdirSync(dirname(destination), { recursive: true });
+      copyFileSync(source, destination);
+      copied = await matchesStugbyBlob(destination, blob);
+    }
+    if (!copied) {
+      throw new Error(
+        `Stugby asset required by the core snapshot could not be copied with its recorded checksum: ${blob.digest}`,
+      );
+    }
+  }
+  return blobs.length;
+}
+
+async function assetRecords(destination, backupRoot) {
+  if (!existsSync(destination)) return [];
+  const records = [];
+  for (const path of walkAssets(destination)) records.push(await fileRecord(backupRoot, path, "asset"));
+  return records;
+}
+
+function verifySnapshotStugbyAssetInventory(snapshotPath, files) {
+  const records = new Map(files.map((record) => [record.path, record]));
+  for (const blob of requiredStugbyBlobs(snapshotPath)) {
+    const path = `assets/stugby/${blob.relativePath}`;
+    const record = records.get(path);
+    if (!record || record.category !== "asset"
+      || record.size !== blob.byteLength || record.sha256 !== blob.digest) {
+      throw new Error(`Backup is missing the checksummed Stugby asset required by its core snapshot: ${blob.digest}`);
+    }
+  }
 }
 
 function redact(text, environment) {
@@ -361,6 +451,37 @@ function runDirect(executable, arguments_, environment) {
     child.on("error", (error) => reject(new Error(`${basename(executable)} could not start: ${error.message}`)));
     child.on("close", (code, signal) => {
       if (code === 0) accept();
+      else {
+        const detail = redact(standardError.trim(), environment);
+        reject(new Error(
+          `${basename(executable)} failed (${signal ? `signal ${signal}` : `exit ${code}`})${detail ? `: ${detail}` : ""}`,
+        ));
+      }
+    });
+  });
+}
+
+function runCapture(executable, arguments_, environment) {
+  return new Promise((accept, reject) => {
+    const child = spawn(executable, arguments_, {
+      env: environment,
+      shell: false,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let standardOutput = "";
+    let standardError = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      if (standardOutput.length < 64 * 1024) standardOutput += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      if (standardError.length < 64 * 1024) standardError += chunk;
+    });
+    child.on("error", (error) => reject(new Error(`${basename(executable)} could not start: ${error.message}`)));
+    child.on("close", (code, signal) => {
+      if (code === 0) accept(standardOutput);
       else {
         const detail = redact(standardError.trim(), environment);
         reject(new Error(
@@ -544,6 +665,14 @@ export function timescaleRestorePlan(options, dumpDestination, validationDestina
 async function createTimescaleDump(options, destination, validationDestination) {
   mkdirSync(dirname(destination), { recursive: true });
   const environment = postgresEnvironment(options);
+  const logicalBytesText = await runCapture("psql", [
+    "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1",
+    "-c", "SELECT pg_database_size(current_database())::bigint;",
+  ], environment);
+  const logicalBytes = Number(logicalBytesText.trim());
+  if (!Number.isSafeInteger(logicalBytes) || logicalBytes < 0) {
+    throw new Error("TimescaleDB returned an invalid logical database size");
+  }
   await runDirect(options.pgDump, timescaleDumpArguments(destination), environment);
   if (!existsSync(destination) || statSync(destination).size === 0) {
     throw new Error("pg_dump did not produce a non-empty custom-format backup");
@@ -558,6 +687,7 @@ async function createTimescaleDump(options, destination, validationDestination) 
   return {
     status: "included",
     scope: "full-database",
+    logicalBytes,
     telemetrySchema: options.schema,
     format: "postgresql-custom",
     catalogVerification: "passed",
@@ -592,8 +722,12 @@ export async function verifyBackup(path, pgRestore = "pg_restore", env = process
     }
   }
   let totalBytes = 0;
+  let coreSnapshotPath;
+  const seenPaths = new Set();
   for (const record of manifest.files ?? []) {
     if (typeof record.path !== "string" || isAbsolute(record.path)) throw new Error("Manifest contains an unsafe file path");
+    if (seenPaths.has(record.path)) throw new Error(`Manifest contains a duplicate file path: ${record.path}`);
+    seenPaths.add(record.path);
     const artifact = resolve(root, record.path);
     if (!within(root, artifact)) throw new Error("Manifest contains a path outside the backup directory");
     const details = statSync(artifact);
@@ -602,10 +736,16 @@ export async function verifyBackup(path, pgRestore = "pg_restore", env = process
     if (checksum !== record.sha256) throw new Error(`Backup checksum mismatch: ${record.path}`);
     totalBytes += details.size;
     if (record.category === "core-sqlite" || record.category === "spatial-sqlite") sqliteInventory(artifact);
+    if (record.category === "core-sqlite") {
+      if (coreSnapshotPath) throw new Error("Backup manifest contains more than one core SQLite snapshot");
+      coreSnapshotPath = artifact;
+    }
     if (record.category === "timescale-pgdump") {
       await runDirect(pgRestore, ["--list", artifact], env);
     }
   }
+  if (!coreSnapshotPath) throw new Error("Backup manifest has no core SQLite snapshot");
+  verifySnapshotStugbyAssetInventory(coreSnapshotPath, manifest.files);
   return {
     status: "passed",
     verifiedAt: new Date().toISOString(),
@@ -615,7 +755,7 @@ export async function verifyBackup(path, pgRestore = "pg_restore", env = process
   };
 }
 
-export async function createBackup(options) {
+export async function createBackup(options, { afterCoreSnapshot } = {}) {
   if (existsSync(options.output)) throw new Error(`Refusing to overwrite existing backup output: ${options.output}`);
   if (!existsSync(options.database)) throw new Error(`Core SQLite database does not exist: ${options.database}`);
   hardenPrivateDirectory(options.output);
@@ -638,6 +778,13 @@ export async function createBackup(options) {
     verification: { status: "pending" },
   };
 
+  // Copy the live asset tree before taking the SQLite snapshot. A concurrent
+  // revoke may delete an old blob immediately after the snapshot; pre-copying
+  // preserves that exact blob, while the snapshot-driven pass below fills any
+  // files created during this first traversal.
+  const assetDestination = join(options.output, "assets");
+  const assetResult = await copyAssets(options.assets, assetDestination, options.output);
+
   const databaseDirectory = join(options.output, "databases");
   const coreDestination = join(databaseDirectory, "climate-twin.sqlite");
   const core = await createVerifiedSqliteSnapshot({
@@ -645,12 +792,27 @@ export async function createBackup(options) {
     destinationPath: coreDestination,
     hashSource: false,
   });
+  await afterCoreSnapshot?.({ snapshotPath: coreDestination });
+  const requiredStugbyBlobCount = await ensureSnapshotStugbyAssets(
+    coreDestination,
+    options.assets,
+    assetDestination,
+  );
   manifest.files.push(describedFileRecord(options.output, core.snapshot, "core-sqlite"));
   manifest.sources.coreDatabase = {
     status: "included",
     originalPath: options.database,
     snapshotChecks: core.checks,
     inventory: sqliteInventory(coreDestination, { checkIntegrity: false }),
+  };
+  const copiedAssetRecords = await assetRecords(assetDestination, options.output);
+  manifest.files.push(...copiedAssetRecords);
+  manifest.sources.assets = {
+    ...assetResult,
+    files: copiedAssetRecords.length,
+    bytes: copiedAssetRecords.reduce((total, record) => total + record.size, 0),
+    requiredStugbyBlobs: requiredStugbyBlobCount,
+    originalPath: options.assets,
   };
 
   if (existsSync(options.spatialDatabase)) {
@@ -671,10 +833,18 @@ export async function createBackup(options) {
     manifest.sources.spatialDatabase = { status: "missing" };
   }
 
-  const assetResult = await copyAssets(options.assets, join(options.output, "assets"), options.output);
-  manifest.files.push(...(assetResult.records ?? []));
-  delete assetResult.records;
-  manifest.sources.assets = { ...assetResult, originalPath: options.assets };
+  if (existsSync(options.stugbyIdentityFile)) {
+    if (!statSync(options.stugbyIdentityFile).isFile()) throw new Error("The Stugby identity path is not a regular file");
+    const identityDestination = join(options.output, "secrets", "stugby-identity.json");
+    mkdirSync(dirname(identityDestination), { recursive: true, mode: 0o700 });
+    hardenPrivateDirectory(dirname(identityDestination));
+    copyFileSync(options.stugbyIdentityFile, identityDestination);
+    hardenPrivateFile(identityDestination);
+    manifest.files.push(await fileRecord(options.output, identityDestination, "stugby-identity"));
+    manifest.sources.stugbyIdentity = { status: "included", sensitive: true, originalPath: options.stugbyIdentityFile };
+  } else {
+    manifest.sources.stugbyIdentity = { status: "missing", originalPath: options.stugbyIdentityFile };
+  }
 
   if (options.includeSecrets) {
     if (!existsSync(options.secretsFile)) {

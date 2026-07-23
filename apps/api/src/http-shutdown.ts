@@ -10,21 +10,24 @@ export interface HttpShutdownResult {
 }
 
 /**
- * Stops producers and long-lived event streams before asking Node to drain the
- * remaining requests. The database stays open until every normal request has
- * finished, while a bounded fallback prevents a stuck client from hanging the
- * process forever.
+ * Stops accepting new connections immediately while producers and long-lived
+ * streams begin shutting down. The database stays open until both lifecycle
+ * shutdown and the accepted HTTP requests have drained, while a bounded
+ * fallback prevents a stuck client from hanging the process forever.
  */
 export function shutdownHttpServer(
   server: Server,
   runtime: DrainableApiRuntime,
   timeoutMs = 10_000,
 ): Promise<HttpShutdownResult> {
-  const begin = runtime.beginShutdown();
-
-  return Promise.resolve(begin).then(() => new Promise<HttpShutdownResult>((resolve, reject) => {
+  let forced = false;
+  const lifecycle = Promise.resolve().then(() => runtime.beginShutdown());
+  void lifecycle.then(
+    () => server.closeIdleConnections(),
+    () => server.closeIdleConnections(),
+  );
+  const drained = new Promise<void>((resolve, reject) => {
     let settled = false;
-    let forced = false;
     const timer = setTimeout(() => {
       forced = true;
       server.closeAllConnections();
@@ -35,17 +38,8 @@ export function shutdownHttpServer(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      let closing: void | Promise<void>;
-      try {
-        closing = runtime.close();
-      } catch (closeError) {
-        reject(closeError);
-        return;
-      }
-      void Promise.resolve(closing).then(() => {
-        if (error) reject(error);
-        else resolve({ forced });
-      }, reject);
+      if (error) reject(error);
+      else resolve();
     };
 
     try {
@@ -54,5 +48,12 @@ export function shutdownHttpServer(
     } catch (error) {
       finish(error instanceof Error ? error : new Error("HTTP server shutdown failed"));
     }
-  }));
+  });
+
+  return Promise.allSettled([lifecycle, drained]).then(async ([lifecycleResult, drainResult]) => {
+    await runtime.close();
+    if (lifecycleResult.status === "rejected") throw lifecycleResult.reason;
+    if (drainResult.status === "rejected") throw drainResult.reason;
+    return { forced };
+  });
 }

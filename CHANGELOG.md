@@ -4,6 +4,23 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+## 0.5.0 - 2026-07-23
+
+- Added resumable live Stuga-to-Stuga migration over authenticated SSH with
+  online seed snapshots, content-addressed chunks, portable settings and secret
+  transfer, final writer quiescence, isolated TimescaleDB candidate restore,
+  full backup verification, health-gated commit, automatic target rollback,
+  durable receipts, and fail-closed split-brain protection.
+- Added inert-until-granted Stugby federation for independently administered Stuga nodes,
+  including shared common-property management, per-Home/per-dataset consent,
+  privacy-preserving publication IDs, signed and replay-protected HTTPS events,
+  durable SSE cursor notifications, bounded raw telemetry sharing, replica
+  retention and deletion receipts, a translated owner UI, and strict protocol
+  rejection of integrations, secrets, account identities, and remote control.
+  The coordinator-only Cloudflare path is now automated with a server-pinned
+  origin, narrowly scoped Access exception, origin rate limits, and fail-closed
+  boundary verification; participants remain outbound-only.
+
 ## 0.4.1 - 2026-07-22
 
 - Fixed the Raspberry Pi factory-image export on Debian Trixie by using the

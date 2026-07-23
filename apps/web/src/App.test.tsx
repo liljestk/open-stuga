@@ -293,6 +293,79 @@ describe("Stuga app", () => {
     logout.mockRestore();
   });
 
+  it("shows a no-access state instead of inventory failure when a guest has no grants", () => {
+    const climate = mockClimateData();
+    climate.state = {
+      ...climate.state,
+      properties: [],
+      propertyAreas: [],
+      houses: [],
+      sensors: [],
+      session: {
+        ...climate.state.session,
+        principal: { type: "local", email: "guest@example.test" },
+        tenant: { id: "local", name: "Local Stuga", role: "guest" },
+        availableTenants: [{ id: "local", name: "Local Stuga", role: "guest" }],
+        readOnly: true,
+        grants: [],
+      },
+    };
+    vi.mocked(useClimateData).mockReturnValue(climate);
+
+    renderApp();
+
+    expect(screen.getByRole("heading", { name: "No property access" })).toBeTruthy();
+    expect(screen.queryByText("The local inventory could not be loaded")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Create Home" })).toBeNull();
+  });
+
+  it("does not offer Home creation to a guest whose granted Property has no Home", () => {
+    const climate = mockClimateData();
+    const property = climate.state.properties[0]!;
+    climate.state = {
+      ...climate.state,
+      houses: [],
+      sensors: [],
+      session: {
+        ...climate.state.session,
+        principal: { type: "local", email: "guest@example.test" },
+        tenant: { id: "local", name: "Local Stuga", role: "guest" },
+        availableTenants: [{ id: "local", name: "Local Stuga", role: "guest" }],
+        readOnly: true,
+        grants: [{ scopeType: "property", scopeId: property.id }],
+      },
+    };
+    vi.mocked(useClimateData).mockReturnValue(climate);
+
+    renderApp();
+
+    expect(screen.getByRole("heading", { name: "Pine Estate" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Create Home" })).toBeNull();
+  });
+
+  it("does not call the Stugby administration API for a direct guest route", async () => {
+    const climate = mockClimateData();
+    climate.state = {
+      ...climate.state,
+      session: {
+        ...climate.state.session,
+        principal: { type: "local", email: "guest@example.test" },
+        tenant: { id: "local", name: "Local Stuga", role: "guest" },
+        availableTenants: [{ id: "local", name: "Local Stuga", role: "guest" }],
+        readOnly: true,
+        grants: [{ scopeType: "house", scopeId: climate.state.houses[0]!.id }],
+      },
+    };
+    vi.mocked(useClimateData).mockReturnValue(climate);
+    const stugbys = vi.spyOn(api, "stugbys");
+    window.history.replaceState(null, "", "/stugbys");
+
+    renderApp();
+
+    expect(await findPageHeading("Administrator access required")).toBeTruthy();
+    expect(stugbys).not.toHaveBeenCalled();
+  });
+
   it("gives a Home-scoped guest read-only access to that Home's sensor inventory", async () => {
     const climate = mockClimateData();
     const home = climate.state.houses[0]!;

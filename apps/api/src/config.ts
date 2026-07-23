@@ -21,6 +21,12 @@ export interface AppConfig {
   spatialLayersRetentionDays?: number;
   integrationSecretsFile: string;
   assetDirectory: string;
+  /** Protected internal Ed25519 identity. Never exposed through configuration APIs. */
+  stugbyIdentityFile?: string | null;
+  stugbyNodeName?: string;
+  stugbySyncIntervalMs?: number;
+  /** Server-owned coordinator origin. Participants never need to configure one. */
+  stugbyPublicOrigin?: string | null;
   /** Shared, non-secret coordination directory used by the isolated backup worker. */
   backupOperationsDirectory?: string;
   /** Read-only manifest discovery path for local/non-Compose operation. */
@@ -293,12 +299,35 @@ function httpEndpoint(value: string, label: string): string {
   return url.toString().replace(/\/$/, "");
 }
 
+function stugbyPublicOrigin(value: string | undefined): string | null {
+  const configured = optional(value);
+  if (!configured) return null;
+  let url: URL;
+  try { url = new URL(configured); } catch { throw new Error("STUGBY_PUBLIC_ORIGIN must be a valid absolute URL"); }
+  const loopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+    throw new Error("STUGBY_PUBLIC_ORIGIN must use HTTPS (HTTP is allowed only on loopback)");
+  }
+  if (url.username || url.password || (url.pathname !== "/" && url.pathname !== "")
+    || url.search || url.hash) {
+    throw new Error(
+      "STUGBY_PUBLIC_ORIGIN must be an origin without credentials, a path, query parameters, or a fragment",
+    );
+  }
+  return url.origin;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const databasePath = env.DATABASE_PATH === ":memory:"
     ? ":memory:"
     : resolve(env.DATABASE_PATH ?? "./data/climate-twin.sqlite");
   const integrationSecretsFile = resolve(env.INTEGRATION_SECRETS_FILE
     ?? (databasePath === ":memory:" ? "./data/integration-secrets.json" : join(dirname(databasePath), "integration-secrets.json")));
+  const stugbyIdentityFile = databasePath === ":memory:"
+    ? null
+    : resolve(env.STUGBY_IDENTITY_FILE ?? join(dirname(databasePath), "stugby-identity.json"));
+  const stugbyNodeName = optional(env.STUGBY_NODE_NAME) ?? "Stuga";
+  if (stugbyNodeName.length > 200) throw new Error("STUGBY_NODE_NAME must contain at most 200 characters");
   const configuredSpatialLayersPath = optional(env.SPATIAL_LAYERS_DATABASE_PATH);
   const spatialLayersDatabasePath = configuredSpatialLayersPath === ":memory:"
     || (configuredSpatialLayersPath === null && databasePath === ":memory:")
@@ -502,6 +531,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     spatialLayersRetentionDays: positiveInteger(env.SPATIAL_LAYERS_RETENTION_DAYS, 30),
     integrationSecretsFile,
     assetDirectory: resolve(env.ASSET_DIRECTORY ?? "./data/assets"),
+    stugbyIdentityFile,
+    stugbyNodeName,
+    stugbySyncIntervalMs: boundedInteger(env.STUGBY_SYNC_INTERVAL_MS, 15_000, 2_000, 300_000, "STUGBY_SYNC_INTERVAL_MS"),
+    stugbyPublicOrigin: stugbyPublicOrigin(env.STUGBY_PUBLIC_ORIGIN),
     backupOperationsDirectory: resolve(env.BACKUP_OPERATIONS_DIRECTORY ?? "./data/backup-operations"),
     backupDirectory: resolve(env.BACKUP_DIRECTORY ?? "./backups"),
     mockEnabled: booleanValue(env.MOCK_ENABLED, false),

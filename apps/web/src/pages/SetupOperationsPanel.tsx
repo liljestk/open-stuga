@@ -10,6 +10,22 @@ type Feedback = { kind: "success" | "error"; text: string };
 
 const initial = <T,>(): LoadState<T> => ({ value: null, loading: true, error: null });
 
+export function setupDoctorRemediationHref(checkId: string): string | null {
+  switch (checkId) {
+    case "sensor-coverage": return "/sensors";
+    case "sensor-bindings": return "/setup/operations";
+    case "integration": return "/setup/connections";
+    case "notification-route": return "/setup/automations";
+    case "sqlite-integrity":
+    case "timescale-archive":
+    case "backup":
+    case "restore-drill":
+      return "#data-operations-heading";
+    default:
+      return null;
+  }
+}
+
 export function SystemOperationsPanel() {
   const { locale, t } = useI18n();
   const [doctor, setDoctor] = useState<LoadState<SetupDoctorReport>>(initial);
@@ -65,7 +81,10 @@ export function SystemOperationsPanel() {
           <strong>{doctor.value.overall === "ready" ? t("setup.operations.ready") : doctor.value.overall === "blocked" ? t("setup.operations.blocked") : t("setup.operations.attention")}</strong>
           <span>{t("setup.operations.checksClear", { clear: doctor.value.checks.filter((check) => check.status === "pass" || check.status === "not-applicable").length, total: doctor.value.checks.length })}</span>
         </p>
-        <ul className="setup-doctor-list">{doctor.value.checks.map((check) => <li key={check.id} className={check.status}><DoctorIcon status={check.status} /><span><strong>{check.title}</strong><small>{check.detail}</small>{check.action && <em>{check.action}</em>}</span></li>)}</ul>
+        <ul className="setup-doctor-list">{doctor.value.checks.map((check) => {
+          const href = setupDoctorRemediationHref(check.id);
+          return <li key={check.id} className={check.status}><DoctorIcon status={check.status} /><span><strong>{check.title}</strong><small>{check.detail}</small>{check.action && (href ? <a className="setup-doctor-action" href={href}>{check.action}</a> : <em>{check.action}</em>)}</span></li>;
+        })}</ul>
       </>}
     </section>
 

@@ -10,6 +10,7 @@
 .setup-doctor-list span { display: grid; gap: 2px; }
 .setup-doctor-list small, .setup-doctor-list em { font-size: .82rem; }
 .setup-doctor-list em { font-style: normal; color: var(--warning, #805613); }
+.setup-doctor-action { width: fit-content; color: var(--action, #0755c9); font-size: .82rem; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 .data-operation-controls { display: flex; gap: 14px; align-items: end; flex-wrap: wrap; }
 .export-preview { display: grid; gap: 3px; margin: 12px 0; }
 .backup-status { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }

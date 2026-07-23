@@ -47,6 +47,7 @@ function runBackup(output) {
     "--database", "/app/data/climate-twin.sqlite",
     "--assets", "/app/data/assets",
     "--spatial-db", "/app/data/experimental-spatial-layers.sqlite",
+    "--stugby-identity", "/app/data/stugby-identity.json",
     "--include-timescale", "--include-secrets",
     "--secrets-file", "/app/data/integration-secrets.json",
     "--output", output,

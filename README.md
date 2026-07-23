@@ -1,4 +1,4 @@
-# Stuga 0.3.0
+# Stuga 0.5.0
 
 Stuga is a local-first digital twin for understanding how environmental conditions change and move through one or more homes. Temperature and relative humidity are the starting point; a measurement registry also supports CO2 and other finite numeric scalar measurements without coupling ingestion, history, alerts, or visualisation to one sensor model. It is designed around TP-Link Tapo H100/H200 hubs with T310/T315 sensors, while keeping ingestion vendor-neutral through a direct local bridge, Home Assistant, and versioned APIs. Internal package names retain the original `climate-twin` identifier for compatibility.
 
@@ -16,6 +16,10 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
 - A transactional SQLite control plane and crash-safe hot telemetry buffer,
   with TimescaleDB for durable multi-year history, rollups, and efficient trend
   queries
+- Resumable live system-to-system migration over authenticated SSH, with an
+  online seed, content-addressed chunk reuse, verified final snapshot, isolated
+  TimescaleDB candidate restore, portable settings transfer, health-gated
+  cutover, rollback, and split-brain protection
 - A decision layer with Home Pulse, prioritized room comfort, a moisture and
   ventilation coach, indoor/outdoor comparison, an activity timeline, and
   explainable monitoring blockers that distinguish current coverage from
@@ -47,6 +51,10 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
   floor-plan footprints and pin fallback for legacy weather locations
 - Property management with Homes grouped into Properties, user-drawn outdoor
   areas, area equipment, contextual notes, and area/equipment-linked maintenance
+- Inert-until-granted Stugby federation between independently administered Stuga systems,
+  with coordinator-owned common-property management, explicit per-Home and
+  per-dataset read-only grants, signed HTTPS synchronization, and durable SSE
+  availability notifications; only the coordinator needs an inbound endpoint
 - Built-in local owner, administrator, and Guest accounts in one workspace;
   Guests are always read-only and can be restricted to selected properties,
   Homes, and mapped areas
@@ -105,9 +113,22 @@ Create and verify a complete online recovery set with:
 docker compose --profile maintenance run --rm stuga-backup
 ```
 
-The output under `backups/` contains both SQLite databases, assets, protected
-integration secrets, and a full TimescaleDB dump. Treat it as sensitive and
-copy it to encrypted off-host storage.
+The output under `backups/` contains both SQLite databases, assets, the Stugby
+node identity, protected integration secrets, and a full
+TimescaleDB dump. Treat it as sensitive and copy it to encrypted off-host
+storage.
+
+Move a running Compose installation to a booted Stuga appliance with an
+optional online seed followed by a short, explicit cutover:
+
+```powershell
+npm run migrate -- seed --target stuga@stuga.local --identity-file "$HOME/.ssh/stuga_appliance"
+npm run migrate -- cutover --target stuga@stuga.local --identity-file "$HOME/.ssh/stuga_appliance"
+```
+
+See [live system-to-system migration](docs/live-migration.md) before the first
+cutover; it documents host-key verification, included settings, rollback, and
+the fail-closed response to an ambiguous network failure.
 
 ## Real sensors
 
@@ -155,7 +176,7 @@ persistent banner and visually distinct shell while navigating the product.
 Use a separate database or deployment for later demonstrations; setting
 `MOCK_ENABLED=true` cannot undo the real-data latch.
 
-See [direct TP-Link setup](docs/tp-link-direct.md), [automated Tapo history recovery](docs/tapo-history-automation.md), [electricity prices and contracts](docs/electricity-prices.md), [Home Assistant setup](docs/home-assistant.md), [property management and Guest access](docs/property-management.md), [Cloudflare Tunnel and Access](docs/cloudflare-access.md), [manual observation semantics](docs/observations.md), [activity and maintenance work](docs/maintenance.md), [Apple Notes and Telegram setup](docs/apple-notes-telegram.md), [architecture](docs/architecture.md), and [API/MCP integration](docs/integrations.md) for details.
+See [direct TP-Link setup](docs/tp-link-direct.md), [automated Tapo history recovery](docs/tapo-history-automation.md), [electricity prices and contracts](docs/electricity-prices.md), [Home Assistant setup](docs/home-assistant.md), [property management and Guest access](docs/property-management.md), [Stugby federation](docs/stugby.md), [Cloudflare Tunnel and Access](docs/cloudflare-access.md), [live system migration](docs/live-migration.md), [manual observation semantics](docs/observations.md), [activity and maintenance work](docs/maintenance.md), [Apple Notes and Telegram setup](docs/apple-notes-telegram.md), [architecture](docs/architecture.md), and [API/MCP integration](docs/integrations.md) for details.
 
 The thermal model is documented in [effective room thermal
 simulation](docs/thermal-simulation.md), and the 2D/3D dynamics layer in
@@ -221,7 +242,9 @@ loopback binding, or put Stuga behind TLS and a trusted VPN or reverse proxy
 before allowing access from another network. The optional
 [Cloudflare Tunnel and Access recipe](docs/cloudflare-access.md) keeps a
 permanent edge-recovery identity separate from the local Stuga owner and
-reconciles invited members without exposing the host port.
+reconciles invited members without exposing the host port. Its coordinator
+mode also automates and verifies the one narrow signed-machine path required by
+a Stugby; participant nodes remain outbound-only.
 
 ## MCP
 

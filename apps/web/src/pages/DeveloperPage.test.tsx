@@ -2,7 +2,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../i18n";
-import { DeveloperPage } from "./DeveloperPage";
+import { browserFacingApiBase, DeveloperPage } from "./DeveloperPage";
+import { setupDoctorRemediationHref } from "./SetupOperationsPanel";
 
 const originalClipboard = navigator.clipboard;
 
@@ -15,6 +16,20 @@ afterEach(() => {
 });
 
 describe("DeveloperPage", () => {
+  it("advertises the API listener rather than the Vite development proxy", () => {
+    expect(browserFacingApiBase("/api/v1", "http://localhost:5173")).toBe("http://localhost:8787/api/v1");
+    expect(browserFacingApiBase("/api/v2", "http://192.0.2.10:5173")).toBe("http://192.0.2.10:8787/api/v2");
+    expect(browserFacingApiBase("/api/v1", "https://stuga.example.test")).toBe("https://stuga.example.test/api/v1");
+  });
+
+  it("routes actionable doctor findings to their remediation workspace", () => {
+    expect(setupDoctorRemediationHref("sensor-coverage")).toBe("/sensors");
+    expect(setupDoctorRemediationHref("sensor-bindings")).toBe("/setup/operations");
+    expect(setupDoctorRemediationHref("integration")).toBe("/setup/connections");
+    expect(setupDoctorRemediationHref("notification-route")).toBe("/setup/automations");
+    expect(setupDoctorRemediationHref("webhook-signing")).toBeNull();
+  });
+
   it("documents and copies the local integrations", async () => {
     const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);

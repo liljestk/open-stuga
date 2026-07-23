@@ -95,7 +95,11 @@ function auditDocument(document: OpenApiDocument): void {
 describe("local Express/OpenAPI parity", () => {
   it("documents every runtime operation exactly once with resolvable schemas", async () => {
     const runtime = createApi({
-      config: loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", MOCK_ENABLED: "false" }),
+      config: loadConfig({
+        NODE_ENV: "test",
+        DATABASE_PATH: ":memory:",
+        MOCK_ENABLED: "false",
+      }),
       startBackground: false,
     });
     try {
@@ -115,8 +119,8 @@ describe("local Express/OpenAPI parity", () => {
         ...documentOperations(v2, "v2"),
       ].sort();
 
-      expect(runtimeOperations).toHaveLength(196);
-      expect(documentOperations(v1, "v1")).toHaveLength(180);
+      expect(runtimeOperations).toHaveLength(221);
+      expect(documentOperations(v1, "v1")).toHaveLength(205);
       expect(documentOperations(v2, "v2")).toHaveLength(16);
       expect(documentedOperations).toEqual(runtimeOperations);
       auditDocument(v1);
