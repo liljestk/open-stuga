@@ -133,7 +133,9 @@ FROM postgres:17-bookworm AS backup
 WORKDIR /app
 
 COPY --from=node-base /usr/local/bin/node /usr/local/bin/node
-COPY scripts/sqlite-snapshot-utils.mjs scripts/stuga-backup.mjs scripts/stuga-backup-scheduler.mjs scripts/stuga-restore-drill.mjs ./scripts/
+COPY package.json ./package.json
+COPY scripts/sqlite-snapshot-utils.mjs scripts/stuga-backup.mjs scripts/stuga-backup-scheduler.mjs scripts/stuga-restore-drill.mjs \
+  scripts/stuga-migration-common.mjs scripts/stuga-migration-bundle.mjs scripts/stuga-migration-target.mjs ./scripts/
 
 RUN mkdir -p /app/backups
 

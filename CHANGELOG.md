@@ -4,6 +4,14 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+## 0.5.0 - 2026-07-22
+
+- Added resumable live Stuga-to-Stuga migration over authenticated SSH with
+  online seed snapshots, content-addressed chunks, portable settings and secret
+  transfer, final writer quiescence, isolated TimescaleDB candidate restore,
+  full backup verification, health-gated commit, automatic target rollback,
+  durable receipts, and fail-closed split-brain protection.
+
 ## 0.4.1 - 2026-07-22
 
 - Fixed the Raspberry Pi factory-image export on Debian Trixie by using the

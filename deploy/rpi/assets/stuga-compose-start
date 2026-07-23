@@ -15,6 +15,9 @@ install -d -m 0750 -o "$appliance_user" -g "$appliance_user" "$state_dir"
 install -d -m 0700 -o "$appliance_user" -g "$appliance_user" "$docker_config"
 install -d -m 0750 -o "$appliance_user" -g "$appliance_user" \
   "$state_dir/backups" \
+  "$state_dir/migrations" \
+  "$state_dir/migrations/incoming" \
+  "$state_dir/migrations/chunks" \
   "$state_dir/config" \
   "$state_dir/secrets" \
   "$state_dir/secrets/cloudflare" \

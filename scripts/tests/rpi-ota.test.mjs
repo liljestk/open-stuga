@@ -84,6 +84,28 @@ test("the factory image export uses the portable zstd output option", async () =
   assert.doesNotMatch(buildScript, /--output/);
 });
 
+test("the appliance exposes a health-gated migration receiver with rollback", async () => {
+  const [control, compose, environment, layer] = await Promise.all([
+    readFile(new URL("../../deploy/rpi/assets/stugactl", import.meta.url), "utf8"),
+    readFile(new URL("../../docker-compose.yml", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stuga.env.example", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/layer/stuga.yaml", import.meta.url), "utf8"),
+  ]);
+  assert.match(control, /migration_tool apply[\s\S]*systemctl restart stuga\.service[\s\S]*migration_tool commit/);
+  assert.match(control, /Target health check failed; rolling back[\s\S]*migration_tool rollback/);
+  assert.match(compose, /stuga-migration:[\s\S]*stuga-migration-target\.mjs/);
+  assert.match(compose, /STUGA_MIGRATION_DIRECTORY[^\n]*:\/app\/migrations/);
+  assert.match(environment, /STUGA_MIGRATION_DIRECTORY=\/persistent\/stuga\/migrations/);
+  assert.match(layer, /STUGA_VERSION=\$\{IGconf_artefact_version\}/);
+});
+
+test("live cutover fails closed when target state is ambiguous", async () => {
+  const controller = await readFile(new URL("../stuga-live-migrate.mjs", import.meta.url), "utf8");
+  assert.match(controller, /Source writers remain stopped to prevent split-brain/);
+  assert.match(controller, /statusQueried && \(targetState === "rolled-back" \|\| status\?\.receipt === null\)/);
+  assert.match(controller, /Cutover always creates a fresh snapshot/);
+});
+
 test("ensureArtefact reuses an identical registered artifact", async () => {
   const config = readConfig(baseEnv);
   const existing = {

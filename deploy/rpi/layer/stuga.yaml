@@ -86,6 +86,7 @@ mmdebstrap:
         "$1/etc/systemd/system/stuga-data-grow.service"
 
       cat > "$1/opt/stuga/release.env" <<-EOF
+      STUGA_VERSION=${IGconf_artefact_version}
       STUGA_API_IMAGE=${IGconf_stuga_api_image}
       STUGA_WEB_IMAGE=${IGconf_stuga_web_image}
       STUGA_BACKUP_IMAGE=${IGconf_stuga_backup_image}

@@ -1,6 +1,6 @@
 {
   "name": "climate-twin",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "private": true,
   "license": "MIT",
   "description": "A local-first digital twin for extensible whole-home environmental telemetry.",
@@ -16,8 +16,9 @@
     "dev:api": "npm run build:packages && npm run dev --workspace @climate-twin/api",
     "dev:web": "npm run build:packages && npm run dev --workspace @climate-twin/web",
     "build": "npm run build:packages && npm run build --workspace @climate-twin/api && npm run build --workspace @climate-twin/web",
-    "test": "npm run build:packages && npm run test --workspaces --if-present && npm run test:data-safety && npm run test:cloudflare && npm run test:rpi-ota",
+    "test": "npm run build:packages && npm run test --workspaces --if-present && npm run test:data-safety && npm run test:live-migration && npm run test:cloudflare && npm run test:rpi-ota",
     "test:data-safety": "node --test scripts/tests/data-safety.test.mjs",
+    "test:live-migration": "node --test scripts/tests/live-migration.test.mjs",
     "test:cloudflare": "node --test scripts/tests/cloudflare-stuga.test.mjs",
     "test:rpi-ota": "node --test scripts/tests/rpi-ota.test.mjs",
     "test:coverage": "npm run build:packages && npm run test:coverage --workspaces --if-present",
@@ -28,6 +29,7 @@
     "smoke:built-api": "node scripts/smoke-built-api.mjs",
     "telemetry:migrate": "node scripts/migrate-telemetry-to-timescale.mjs",
     "backup": "node scripts/stuga-backup.mjs",
+    "migrate": "node scripts/stuga-live-migrate.mjs",
     "version:check": "node scripts/check-version.mjs",
     "version:check-pr": "node scripts/check-version.mjs --require-base-bump",
     "mcp": "npm run build:packages && npm run mcp --workspace @climate-twin/api"

@@ -56,6 +56,9 @@ jobs:
       - name: Test with coverage
         run: npm run test:coverage
 
+      - name: Test backup, migration, Cloudflare, and Raspberry Pi tooling
+        run: npm run test:data-safety && npm run test:live-migration && npm run test:cloudflare && npm run test:rpi-ota
+
       - name: Test TP-Link bridge with coverage
         run: npm run test:coverage:python
 

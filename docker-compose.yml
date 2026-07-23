@@ -344,6 +344,47 @@ services:
     networks:
       - backend
 
+  stuga-migration:
+    profiles: ["migration"]
+    image: ${STUGA_BACKUP_IMAGE:-stuga-backup:local}
+    build:
+      context: .
+      target: backup
+    restart: "no"
+    depends_on:
+      runtime-secrets:
+        condition: service_completed_successfully
+      timescaledb:
+        condition: service_healthy
+    entrypoint: ["node", "/app/scripts/stuga-migration-target.mjs"]
+    environment:
+      STUGA_MIGRATION_ROOT: /app/migrations
+      STUGA_MIGRATION_HOST_ROOT: ${STUGA_MIGRATION_DIRECTORY:-./data/migrations}
+      STUGA_TARGET_DATA_DIRECTORY: /app/data
+      STUGA_TARGET_ENV_FILE: /app/target-settings/stuga.env
+      STUGA_TARGET_CONFIG_DIRECTORY: /app/target-settings/config
+      STUGA_TARGET_SECRETS_DIRECTORY: /app/target-settings/secrets
+      TIMESERIES_HOST: timescaledb
+      TIMESERIES_PORT: "5432"
+      TIMESERIES_DATABASE: ${TIMESERIES_DATABASE:-stuga}
+      TIMESERIES_ADMIN_USER: stuga_admin
+      TIMESERIES_ADMIN_PASSWORD_FILE: /app/runtime/admin/password
+      TIMESERIES_SSL_MODE: disable
+    volumes:
+      - climate-twin-data:/app/data
+      - stuga-timeseries-admin-secret:/app/runtime/admin:ro
+      - ${STUGA_MIGRATION_DIRECTORY:-./data/migrations}:/app/migrations
+      - ${STUGA_MIGRATION_ENV_FILE:-./.env}:/app/target-settings/stuga.env
+      - ${STUGA_CONFIG_DIRECTORY:-./config}:/app/target-settings/config
+      - ${STUGA_MIGRATION_SECRETS_DIRECTORY:-./secrets}:/app/target-settings/secrets
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
   stuga-backup-scheduler:
     image: ${STUGA_BACKUP_IMAGE:-stuga-backup:local}
     build:

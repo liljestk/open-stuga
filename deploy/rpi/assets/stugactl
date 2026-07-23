@@ -6,6 +6,8 @@ readonly state_dir=/persistent/stuga
 readonly local_env="$state_dir/stuga.env"
 readonly release_env="$project_dir/release.env"
 readonly docker_config="$state_dir/docker-config"
+readonly migration_dir="$state_dir/migrations"
+readonly compose_lock=/run/lock/stuga-compose.lock
 
 compose() {
   DOCKER_CONFIG="$docker_config" docker compose \
@@ -28,8 +30,39 @@ Commands:
   config      Edit persistent appliance settings
   restart     Pull the pinned images and restart the appliance
   backup      Create a complete Stuga backup
+  migration   Receive, verify, apply, or roll back a live system migration
   images      Show the immutable container references for this OS release
 EOF
+}
+
+migration_usage() {
+  cat <<'EOF'
+Usage: stugactl migration <command> [arguments]
+
+Commands used by the authenticated source controller:
+  init
+  status <migration-id>
+  missing <migration-id> <plan-sha256>
+  assemble <migration-id> <plan-sha256>
+  apply <migration-id> <plan-sha256>
+  rollback <migration-id>
+EOF
+}
+
+validate_migration_id() {
+  [[ "$1" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ ]]
+}
+
+validate_sha256() {
+  [[ "$1" =~ ^[0-9a-f]{64}$ ]]
+}
+
+migration_tool() {
+  compose --profile migration run --rm stuga-migration "$@"
+}
+
+stop_application_containers() {
+  compose stop api stuga-backup-scheduler tapo-export-runner web cloudflared
 }
 
 case "${1:-}" in
@@ -55,6 +88,82 @@ case "${1:-}" in
     ;;
   backup)
     compose --profile maintenance run --rm stuga-backup
+    ;;
+  migration)
+    shift
+    migration_action="${1:-}"
+    case "$migration_action" in
+      init)
+        install -d -m 0700 \
+          "$migration_dir" \
+          "$migration_dir/incoming" \
+          "$migration_dir/chunks" \
+          "$migration_dir/staged" \
+          "$migration_dir/receipts" \
+          "$migration_dir/rollback"
+        migration_tool preflight
+        ;;
+      status)
+        migration_id="${2:-}"
+        validate_migration_id "$migration_id" || { echo "Invalid migration id" >&2; exit 2; }
+        migration_tool status "$migration_id"
+        ;;
+      missing|assemble)
+        migration_id="${2:-}"
+        plan_sha256="${3:-}"
+        validate_migration_id "$migration_id" || { echo "Invalid migration id" >&2; exit 2; }
+        validate_sha256 "$plan_sha256" || { echo "Invalid plan SHA-256" >&2; exit 2; }
+        migration_tool "$migration_action" "$migration_id" "$plan_sha256"
+        ;;
+      apply)
+        migration_id="${2:-}"
+        plan_sha256="${3:-}"
+        validate_migration_id "$migration_id" || { echo "Invalid migration id" >&2; exit 2; }
+        validate_sha256 "$plan_sha256" || { echo "Invalid plan SHA-256" >&2; exit 2; }
+
+        # Preserve the target's current state before the explicit destructive
+        # cutover. The imported state also keeps its own database/file rollback.
+        compose --profile maintenance run --rm stuga-backup
+        exec 9>"$compose_lock"
+        flock 9
+        stop_application_containers
+        if ! migration_tool apply "$migration_id" "$plan_sha256"; then
+          flock -u 9
+          sudo -n systemctl restart stuga.service || true
+          echo "Migration apply failed; the receiver rolled back before target restart." >&2
+          exit 1
+        fi
+        flock -u 9
+
+        if sudo -n systemctl restart stuga.service; then
+          migration_tool commit "$migration_id"
+          echo "Migration $migration_id committed after target health checks."
+          exit 0
+        fi
+
+        echo "Target health check failed; rolling back migration $migration_id." >&2
+        flock 9
+        stop_application_containers
+        migration_tool rollback "$migration_id"
+        flock -u 9
+        sudo -n systemctl restart stuga.service
+        exit 1
+        ;;
+      rollback)
+        migration_id="${2:-}"
+        validate_migration_id "$migration_id" || { echo "Invalid migration id" >&2; exit 2; }
+        exec 9>"$compose_lock"
+        flock 9
+        stop_application_containers
+        migration_tool rollback "$migration_id"
+        flock -u 9
+        sudo -n systemctl restart stuga.service
+        ;;
+      *)
+        migration_usage
+        exit 2
+        ;;
+    esac
     ;;
   images)
     cat "$release_env"
