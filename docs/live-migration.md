@@ -20,6 +20,7 @@ Every cutover requires the complete verified Stuga backup set:
 - the online-consistent core and spatial SQLite snapshots;
 - the full TimescaleDB custom-format dump and ownership contract;
 - assets and the protected integration-secrets file;
+- the persistent Stugby node identity and private signing key;
 - portable application settings from the source environment file;
 - files under the configured Stuga config directory; and
 - the known runtime secret directories for Cloudflare and Tapo history.
@@ -39,8 +40,11 @@ period.
 
 ## Preconditions
 
-1. Run the same or a newer Stuga release on the target. A newer source is
-   rejected before transfer and again before apply.
+1. Run the controller from the same or a newer checkout than the live source,
+   and run the same or a newer Stuga release on the target. The 0.5 controller
+   can migrate the live 0.4.1 source without upgrading it first. A source newer
+   than the controller, or a target older than the running source, is rejected
+   before transfer; target compatibility is checked again before apply.
 2. Boot the target appliance, connect it to the network, and confirm
    `stugactl status` is healthy.
 3. Confirm the target SSH host-key fingerprint through a trusted channel. The
@@ -85,8 +89,9 @@ npm run migrate -- cutover `
 The controller performs these guarded steps:
 
 1. proves target reachability, receiver version, and free space;
-2. records the source services that are running and gracefully stops the API,
-   backup scheduler, and optional Tapo writer;
+2. records the source services that are running, stops ingress, then gracefully
+   stops the API, backup scheduler, telemetry migration, credential reconcile,
+   and optional Tapo writer;
 3. creates and verifies a final complete backup with TimescaleDB still online;
 4. transfers only content hashes absent from the target and verifies the
    reassembled backup there;
@@ -124,11 +129,20 @@ operator on the appliance can inspect or roll back a known migration:
 
 ```sh
 stugactl migration status <migration-id>
+stugactl migration resume <migration-id>
 stugactl migration rollback <migration-id>
 ```
 
+The appliance refuses ordinary startup while a receipt is
+`applied-pending-health-check`. If power is lost after the target passed its
+health check but before the receipt was committed, `resume` verifies that the
+persisted health timestamp is newer than the apply and belongs to the exact
+target release, commits the receipt, and restarts. If that evidence is absent,
+it leaves the target interlocked for inspection or rollback.
+
 Rollback stops target writers, restores the pre-migration database/files and
-overwritten settings, and restarts the previous target. A committed migration
+overwritten settings, and restarts the previous target. Rollback is refused
+after commit so newer target writes cannot be discarded. A committed migration
 is retained deliberately; take and export a new verified backup before removing
 its rollback state. Never use `docker compose down -v` as cleanup because it
 deletes Stuga's named data and credential volumes.

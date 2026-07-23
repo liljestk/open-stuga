@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { createPrivateKey, createPublicKey } from "node:crypto";
 import {
   chmodSync,
   closeSync,
@@ -24,6 +25,7 @@ import {
   assembleMigrationBundle,
   missingMigrationChunks,
   validateMigrationPlan,
+  verifyAssembledMigrationBundle,
 } from "./stuga-migration-bundle.mjs";
 import {
   assertMigrationId,
@@ -69,6 +71,31 @@ function atomicJson(path, value) {
   writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", flag: "wx", flush: true, mode: 0o600 });
   hardenPrivateFile(temporary);
   renameSync(temporary, path);
+  fsyncDirectory(dirname(path));
+}
+
+function fsyncDirectory(path) {
+  let descriptor;
+  try {
+    descriptor = openSync(path, "r");
+    fsyncSync(descriptor);
+  } catch (error) {
+    if (process.platform !== "win32") throw error;
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+}
+
+function durableRename(source, destination) {
+  renameSync(source, destination);
+  fsyncDirectory(dirname(source));
+  if (dirname(destination) !== dirname(source)) fsyncDirectory(dirname(destination));
+}
+
+function durableRemove(path, options = {}) {
+  if (!existsSync(path)) return;
+  rmSync(path, options);
+  fsyncDirectory(dirname(path));
 }
 
 function readJson(path, label) {
@@ -102,6 +129,48 @@ function installedVersion() {
 function freeBytes(path) {
   const stats = statfsSync(path, { bigint: true });
   return Number(stats.bavail * stats.bsize);
+}
+
+function storageStats(path, label) {
+  if (!existsSync(path)) throw new Error(`${label} storage path is missing`);
+  const details = lstatSync(path);
+  if (!details.isDirectory() || details.isSymbolicLink()) throw new Error(`${label} storage path is not a real directory`);
+  return {
+    device: String(statSync(path).dev),
+    freeBytes: freeBytes(path),
+  };
+}
+
+function assertRestoreCapacity(plan) {
+  const data = environmentPath("STUGA_TARGET_DATA_DIRECTORY", "/app/data");
+  const timeseries = environmentPath("STUGA_TARGET_TIMESERIES_DIRECTORY", "/app/timeseries-data");
+  const requirements = new Map();
+  const add = (stats, bytes) => {
+    const current = requirements.get(stats.device) ?? { freeBytes: stats.freeBytes, requiredBytes: 0 };
+    current.freeBytes = Math.min(current.freeBytes, stats.freeBytes);
+    current.requiredBytes += bytes;
+    requirements.set(stats.device, current);
+  };
+  add(storageStats(data, "Application data"), plan.estimatedDataBytes);
+  add(storageStats(timeseries, "TimescaleDB"), plan.estimatedDatabaseBytes);
+  for (const capacity of requirements.values()) {
+    if (capacity.freeBytes < capacity.requiredBytes + REQUIRED_FREE_HEADROOM) {
+      throw new Error("Target does not have enough free space for migration staging and rollback");
+    }
+  }
+}
+
+function directoryBytes(root) {
+  if (!existsSync(root)) return 0;
+  let total = 0;
+  const visit = (path) => {
+    const details = lstatSync(path);
+    if (details.isSymbolicLink()) throw new Error(`Cannot size a symbolic link: ${path}`);
+    if (details.isFile()) total += details.size;
+    else if (details.isDirectory()) for (const entry of readdirSync(path)) visit(join(path, entry));
+  };
+  visit(root);
+  return total;
 }
 
 function ensureDirectories() {
@@ -168,6 +237,17 @@ async function psql(configuration, database, sql) {
   return run("psql", [...postgresConnection(configuration, database), "-X", "-v", "ON_ERROR_STOP=1", "-c", sql], configuration.environment);
 }
 
+async function currentDatabaseBytes(configuration) {
+  const output = await run("psql", [
+    ...postgresConnection(configuration, configuration.database),
+    "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1",
+    "-c", "SELECT pg_database_size(current_database())::bigint;",
+  ], configuration.environment);
+  const bytes = Number(output.trim());
+  if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error("Target returned an invalid database size");
+  return bytes;
+}
+
 async function databaseExists(configuration, database) {
   const output = await psql(configuration, "postgres", `SELECT 1 FROM pg_database WHERE datname = ${sqlLiteral(database)};`);
   return /\b1\b/u.test(output);
@@ -181,12 +261,65 @@ async function dropDatabase(configuration, database) {
   ], configuration.environment);
 }
 
-function completeBackupManifest(backupDirectory) {
+function validateStugbyIdentity(backupDirectory, record) {
+  const identityPath = resolve(backupDirectory, assertSafeRelativePath(record?.path, "Stugby identity path"));
+  if (!pathWithin(backupDirectory, identityPath) || !existsSync(identityPath)) {
+    throw new Error("Live migration Stugby identity artifact is missing");
+  }
+  const details = lstatSync(identityPath);
+  if (!details.isFile() || details.isSymbolicLink()) {
+    throw new Error("Live migration Stugby identity artifact is not a private regular file");
+  }
+  if (process.platform !== "win32" && (details.mode & 0o077) !== 0) {
+    throw new Error("Live migration Stugby identity artifact permissions are not private");
+  }
+  let identity;
+  try {
+    identity = JSON.parse(readFileSync(identityPath, "utf8"));
+  } catch {
+    throw new Error("Live migration Stugby identity artifact is not valid JSON");
+  }
+  if (identity?.version !== 1
+    || typeof identity.nodeId !== "string"
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(identity.nodeId)
+    || typeof identity.displayName !== "string"
+    || !identity.displayName.trim()
+    || typeof identity.publicKey !== "string"
+    || typeof identity.privateKey !== "string"
+    || typeof identity.createdAt !== "string"
+    || !Number.isFinite(Date.parse(identity.createdAt))) {
+    throw new Error("Live migration Stugby identity artifact has invalid fields");
+  }
+  try {
+    const privateBytes = Buffer.from(identity.privateKey, "base64");
+    const publicBytes = Buffer.from(identity.publicKey, "base64");
+    if (privateBytes.toString("base64") !== identity.privateKey || publicBytes.toString("base64") !== identity.publicKey) {
+      throw new Error("non-canonical key encoding");
+    }
+    const privateKey = createPrivateKey({ key: privateBytes, format: "der", type: "pkcs8" });
+    const publicKey = createPublicKey({ key: publicBytes, format: "der", type: "spki" });
+    if (privateKey.asymmetricKeyType !== "ed25519" || publicKey.asymmetricKeyType !== "ed25519") {
+      throw new Error("unsupported key type");
+    }
+    const derivedPublic = createPublicKey(privateKey).export({ format: "der", type: "spki" }).toString("base64");
+    if (derivedPublic !== identity.publicKey) throw new Error("key pair mismatch");
+  } catch {
+    throw new Error("Live migration Stugby identity key pair is invalid");
+  }
+  return identity;
+}
+
+function completeBackupManifest(backupDirectory, sourceVersion = "0.5.0") {
   const manifest = readJson(join(backupDirectory, "manifest.json"), "staged backup manifest");
   const category = (name) => manifest.files?.find((file) => file.category === name);
   if (!category("core-sqlite")) throw new Error("Live migration backup has no core SQLite snapshot");
   if (!category("integration-secrets")) throw new Error("Live migration backup has no integration secrets");
   if (!category("timescale-pgdump")) throw new Error("Live migration backup has no TimescaleDB dump");
+  const identityRecord = category("stugby-identity");
+  if (compareReleaseVersions(sourceVersion, "0.5.0") >= 0 && !identityRecord) {
+    throw new Error("Live migration backup has no Stugby node identity");
+  }
+  if (identityRecord) validateStugbyIdentity(backupDirectory, identityRecord);
   if (manifest.sources?.timescale?.scope !== "full-database") throw new Error("Live migration requires a full-database TimescaleDB dump");
   return manifest;
 }
@@ -244,9 +377,12 @@ function fsyncFile(path) {
 
 function copyVerified(source, destination, mode = 0o600) {
   mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
-  copyFileSync(source, destination);
-  chmodSync(destination, mode);
-  fsyncFile(destination);
+  const temporary = `${destination}.${process.pid}.${Date.now()}.copying`;
+  copyFileSync(source, temporary);
+  chmodSync(temporary, mode);
+  fsyncFile(temporary);
+  if (existsSync(destination)) durableRemove(destination, { recursive: true, force: true });
+  durableRename(temporary, destination);
 }
 
 function ensureNoSymlinkParents(root, candidate) {
@@ -276,6 +412,7 @@ function prepareDataSwap(paths, manifest, receipt) {
   copyCategory("core-sqlite", "climate-twin.sqlite");
   copyCategory("spatial-sqlite", "experimental-spatial-layers.sqlite");
   copyCategory("integration-secrets", "integration-secrets.json");
+  copyCategory("stugby-identity", "stugby-identity.json");
   const stagedAssets = join(stage, "assets");
   mkdirSync(stagedAssets, { mode: 0o700 });
   for (const record of manifest.files.filter((file) => file.category === "asset")) {
@@ -293,29 +430,44 @@ function prepareDataSwap(paths, manifest, receipt) {
       "climate-twin.sqlite-wal",
       "climate-twin.sqlite-shm",
       "integration-secrets.json",
+      "stugby-identity.json",
       "assets",
       "experimental-spatial-layers.sqlite",
       "experimental-spatial-layers.sqlite-wal",
       "experimental-spatial-layers.sqlite-shm",
     ],
-    originals: {},
-    processed: [],
+    items: {},
   };
   atomicJson(paths.receipt, receipt);
   return { data, stage, rollback };
 }
 
-function swapData(paths, receipt) {
+function swapData(paths, receipt, { afterMutation = () => {} } = {}) {
   const { data, stage, rollback } = receipt.data;
   for (const name of receipt.data.targets) {
     const live = join(data, name);
     const old = join(rollback, name);
     const staged = join(stage, name);
-    receipt.data.originals[name] = existsSync(live);
-    if (existsSync(live)) renameSync(live, old);
-    receipt.data.processed.push(name);
+    const item = receipt.data.items[name] ?? {
+      original: existsSync(live),
+      staged: existsSync(staged),
+      phase: "prepared",
+    };
+    receipt.data.items[name] = item;
     atomicJson(paths.receipt, receipt);
-    if (existsSync(staged)) renameSync(staged, live);
+    if (item.original && existsSync(live) && !existsSync(old)) {
+      durableRename(live, old);
+      afterMutation("old-moved", name);
+    }
+    item.phase = "old-moved";
+    atomicJson(paths.receipt, receipt);
+    item.phase = "installing";
+    atomicJson(paths.receipt, receipt);
+    if (item.staged && existsSync(staged)) {
+      durableRename(staged, live);
+      afterMutation("new-installed", name);
+    }
+    item.phase = "installed";
     atomicJson(paths.receipt, receipt);
   }
   receipt.dataSwapped = true;
@@ -341,33 +493,98 @@ function targetForDeploymentPath(logicalPath) {
   throw new Error(`Unsupported deployment path: ${logicalPath}`);
 }
 
+function walkTargetFiles(root) {
+  if (!existsSync(root)) return [];
+  const files = [];
+  const visit = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      const details = lstatSync(path);
+      if (details.isSymbolicLink()) throw new Error(`Migration target contains a symbolic link: ${path}`);
+      if (details.isDirectory()) visit(path);
+      else if (details.isFile()) files.push(path);
+      else throw new Error(`Migration target contains an unsupported entry: ${path}`);
+    }
+  };
+  visit(root);
+  return files;
+}
+
+function applyDeploymentFile(paths, receipt, target, source, { authoritativeEnvironment = false } = {}) {
+  ensureNoSymlinkParents(target.root, target.path);
+  const rollbackName = `${receipt.settings.length.toString().padStart(5, "0")}.bin`;
+  const rollbackPath = join(paths.settingsRollback, rollbackName);
+  const existed = existsSync(target.path);
+  if (existed) {
+    const details = lstatSync(target.path);
+    if (!details.isFile() || details.isSymbolicLink()) throw new Error(`Migration target is not a regular file: ${target.path}`);
+    copyVerified(target.path, rollbackPath);
+  }
+  const settingsRecord = {
+    kind: target.kind,
+    relativePath: target.relativePath,
+    existed,
+    rollbackName,
+    phase: "prepared",
+  };
+  receipt.settings.push(settingsRecord);
+  atomicJson(paths.receipt, receipt);
+  settingsRecord.phase = "applying";
+  atomicJson(paths.receipt, receipt);
+  if (source === null) {
+    durableRemove(target.path, { force: true });
+  } else if (target.kind === "environment") {
+    const current = existed ? readFileSync(target.path, "utf8") : "";
+    const merged = mergePortableEnvironment(
+      current,
+      readFileSync(source, "utf8"),
+      undefined,
+      { authoritative: authoritativeEnvironment },
+    );
+    mkdirSync(dirname(target.path), { recursive: true, mode: 0o700 });
+    const temporary = `${target.path}.${process.pid}.${Date.now()}.settings`;
+    writeFileSync(temporary, merged, { encoding: "utf8", flag: "wx", flush: true, mode: 0o600 });
+    hardenPrivateFile(temporary);
+    if (existsSync(target.path)) durableRemove(target.path, { force: true });
+    durableRename(temporary, target.path);
+  } else {
+    copyVerified(source, target.path);
+  }
+  settingsRecord.phase = "applied";
+  atomicJson(paths.receipt, receipt);
+}
+
 function applyDeploymentSettings(paths, plan, receipt) {
   const deploymentFiles = plan.files.filter((file) => file.path.startsWith("deployment/"));
   receipt.settings = [];
+  const desiredTargets = new Set(deploymentFiles.map((file) => targetForDeploymentPath(file.path).path));
+  if (plan.deployment?.exactConfig) {
+    const root = environmentPath("STUGA_TARGET_CONFIG_DIRECTORY", "/app/target-settings/config");
+    for (const path of walkTargetFiles(root)) {
+      if (desiredTargets.has(path)) continue;
+      const child = assertSafeRelativePath(relative(root, path).split(sep).join("/"));
+      applyDeploymentFile(paths, receipt, {
+        kind: "config", relativePath: child, root, path,
+      }, null);
+    }
+  }
+  for (const name of plan.deployment?.exactSecretRoots ?? []) {
+    const secretsRoot = environmentPath("STUGA_TARGET_SECRETS_DIRECTORY", "/app/target-settings/secrets");
+    const root = join(secretsRoot, name);
+    for (const path of walkTargetFiles(root)) {
+      if (desiredTargets.has(path)) continue;
+      const child = assertSafeRelativePath(relative(secretsRoot, path).split(sep).join("/"));
+      applyDeploymentFile(paths, receipt, {
+        kind: "secret", relativePath: child, root: secretsRoot, path,
+      }, null);
+    }
+  }
   for (const file of deploymentFiles) {
     const target = targetForDeploymentPath(file.path);
-    ensureNoSymlinkParents(target.root, target.path);
-    const rollbackName = `${receipt.settings.length.toString().padStart(5, "0")}.bin`;
-    const rollbackPath = join(paths.settingsRollback, rollbackName);
-    const existed = existsSync(target.path);
-    if (existed) {
-      const details = lstatSync(target.path);
-      if (!details.isFile() || details.isSymbolicLink()) throw new Error(`Migration target is not a regular file: ${target.path}`);
-      copyVerified(target.path, rollbackPath);
-    }
-    const settingsRecord = { kind: target.kind, relativePath: target.relativePath, existed, rollbackName };
-    receipt.settings.push(settingsRecord);
-    atomicJson(paths.receipt, receipt);
     const source = resolve(paths.staged, file.path);
-    mkdirSync(dirname(target.path), { recursive: true, mode: 0o700 });
-    if (target.kind === "environment") {
-      const current = existed ? readFileSync(target.path, "utf8") : "";
-      writeFileSync(target.path, mergePortableEnvironment(current, readFileSync(source, "utf8")), { encoding: "utf8", flush: true, mode: 0o600 });
-      chmodSync(target.path, 0o600);
-    } else {
-      copyVerified(source, target.path);
-    }
-    atomicJson(paths.receipt, receipt);
+    applyDeploymentFile(paths, receipt, target, source, {
+      authoritativeEnvironment: plan.deployment?.authoritativeEnvironment === true,
+    });
   }
   receipt.settingsApplied = true;
   atomicJson(paths.receipt, receipt);
@@ -385,11 +602,16 @@ async function swapDatabases(configuration, paths, receipt) {
   const candidate = safeIdentifier(receipt.candidateDatabase, "Candidate database");
   const rollback = safeIdentifier(receipt.rollbackDatabase, "Rollback database");
   receipt.databaseSwapStarted = true;
+  receipt.databasePhase = "renaming-old";
   atomicJson(paths.receipt, receipt);
   await psql(configuration, "postgres", `ALTER DATABASE ${sqlIdentifier(target)} WITH ALLOW_CONNECTIONS false;`);
   await psql(configuration, "postgres", `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname IN (${sqlLiteral(target)}, ${sqlLiteral(candidate)}) AND pid <> pg_backend_pid();`);
   await psql(configuration, "postgres", `ALTER DATABASE ${sqlIdentifier(target)} RENAME TO ${sqlIdentifier(rollback)};`);
+  receipt.databasePhase = "old-renamed";
+  atomicJson(paths.receipt, receipt);
   try {
+    receipt.databasePhase = "installing-candidate";
+    atomicJson(paths.receipt, receipt);
     await psql(configuration, "postgres", `ALTER DATABASE ${sqlIdentifier(candidate)} RENAME TO ${sqlIdentifier(target)};`);
   } catch (error) {
     await psql(configuration, "postgres", `ALTER DATABASE ${sqlIdentifier(rollback)} RENAME TO ${sqlIdentifier(target)};`).catch(() => {});
@@ -397,6 +619,7 @@ async function swapDatabases(configuration, paths, receipt) {
     throw error;
   }
   receipt.databaseSwapped = true;
+  receipt.databasePhase = "installed";
   atomicJson(paths.receipt, receipt);
 }
 
@@ -404,50 +627,164 @@ async function rollbackMigration(id, { automatic = false } = {}) {
   const paths = migrationPaths(id);
   if (!existsSync(paths.receipt)) throw new Error("Migration receipt does not exist");
   const receipt = readJson(paths.receipt, "migration receipt");
-  if (receipt.status === "committed" && automatic) throw new Error("A committed migration cannot be rolled back automatically");
-  const configuration = postgresConfiguration();
-  if (receipt.databaseSwapped) {
+  if (receipt.status === "rolled-back") return receipt;
+  if (receipt.status === "committed") throw new Error("A committed migration cannot be rolled back");
+  receipt.status = "rolling-back";
+  atomicJson(paths.receipt, receipt);
+  if (receipt.candidateDatabase || receipt.databaseSwapStarted) {
+    const configuration = postgresConfiguration();
     const target = safeIdentifier(receipt.targetDatabase, "Target database");
+    const candidate = safeIdentifier(receipt.candidateDatabase, "Candidate database");
     const rollback = safeIdentifier(receipt.rollbackDatabase, "Rollback database");
     const failed = safeIdentifier(`stuga_failed_${paths.id.replaceAll("-", "").slice(0, 16)}`, "Failed database");
-    await dropDatabase(configuration, failed);
-    await psql(configuration, "postgres", `ALTER DATABASE ${sqlIdentifier(target)} WITH ALLOW_CONNECTIONS false;`);
-    await psql(configuration, "postgres", `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname IN (${sqlLiteral(target)}, ${sqlLiteral(rollback)}) AND pid <> pg_backend_pid();`);
-    await psql(configuration, "postgres", `ALTER DATABASE ${sqlIdentifier(target)} RENAME TO ${sqlIdentifier(failed)};`);
-    await psql(configuration, "postgres", `ALTER DATABASE ${sqlIdentifier(rollback)} RENAME TO ${sqlIdentifier(target)};`);
-    await psql(configuration, "postgres", `ALTER DATABASE ${sqlIdentifier(target)} WITH ALLOW_CONNECTIONS true;`);
-    receipt.databaseSwapped = false;
-  } else if (receipt.candidateDatabase) {
-    await dropDatabase(configuration, safeIdentifier(receipt.candidateDatabase, "Candidate database"));
-    if (receipt.databaseSwapStarted) {
-      const target = safeIdentifier(receipt.targetDatabase, "Target database");
-      const rollback = safeIdentifier(receipt.rollbackDatabase, "Rollback database");
-      if (!await databaseExists(configuration, target) && await databaseExists(configuration, rollback)) {
-        await psql(configuration, "postgres", `ALTER DATABASE ${sqlIdentifier(rollback)} RENAME TO ${sqlIdentifier(target)};`);
-      }
-      if (await databaseExists(configuration, target)) {
-        await psql(configuration, "postgres", `ALTER DATABASE ${sqlIdentifier(target)} WITH ALLOW_CONNECTIONS true;`);
-      }
+    receipt.databaseRollbackPhase = "inspecting";
+    atomicJson(paths.receipt, receipt);
+    let targetExists = await databaseExists(configuration, target);
+    let candidateExists = await databaseExists(configuration, candidate);
+    let rollbackExists = await databaseExists(configuration, rollback);
+    if (rollbackExists && targetExists) {
+      receipt.databaseRollbackPhase = "removing-migrated-target";
+      atomicJson(paths.receipt, receipt);
+      await dropDatabase(configuration, failed);
+      await psql(configuration, "postgres", `ALTER DATABASE ${sqlIdentifier(target)} WITH ALLOW_CONNECTIONS false;`);
+      await psql(configuration, "postgres", `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = ${sqlLiteral(target)} AND pid <> pg_backend_pid();`);
+      await psql(configuration, "postgres", `ALTER DATABASE ${sqlIdentifier(target)} RENAME TO ${sqlIdentifier(failed)};`);
+      targetExists = false;
     }
+    if (candidateExists) {
+      receipt.databaseRollbackPhase = "dropping-candidate";
+      atomicJson(paths.receipt, receipt);
+      await dropDatabase(configuration, candidate);
+      candidateExists = false;
+    }
+    rollbackExists = await databaseExists(configuration, rollback);
+    targetExists = await databaseExists(configuration, target);
+    receipt.databaseRollbackPhase = "restoring-old";
+    atomicJson(paths.receipt, receipt);
+    if (!targetExists && rollbackExists) {
+      await psql(configuration, "postgres", `ALTER DATABASE ${sqlIdentifier(rollback)} RENAME TO ${sqlIdentifier(target)};`);
+      targetExists = true;
+    }
+    if (targetExists) {
+      await psql(configuration, "postgres", `ALTER DATABASE ${sqlIdentifier(target)} WITH ALLOW_CONNECTIONS true;`);
+    } else if (receipt.databaseSwapStarted) {
+      throw new Error("Migration rollback could not locate the original target database");
+    }
+    receipt.databaseSwapped = false;
+    receipt.databasePhase = "rolled-back";
+    receipt.databaseRollbackPhase = "complete";
+    atomicJson(paths.receipt, receipt);
   }
   if (receipt.data) {
-    for (const name of [...(receipt.data.processed ?? [])].reverse()) {
+    const legacyItems = Object.fromEntries((receipt.data.processed ?? []).map((name) => [name, {
+      original: receipt.data.originals?.[name] === true,
+      staged: true,
+      phase: "installed",
+    }]));
+    receipt.data.items ??= legacyItems;
+    for (const name of [...Object.keys(receipt.data.items)].reverse()) {
+      const item = receipt.data.items[name];
+      if (item.phase === "rolled-back") continue;
       const live = join(receipt.data.data, name);
       const old = join(receipt.data.rollback, name);
-      if (existsSync(live)) rmSync(live, { recursive: true, force: true });
-      if (receipt.data.originals[name] && existsSync(old)) renameSync(old, live);
+      const priorRollbackPhase = item.rollbackPhase;
+      item.rollbackPhase = "removing-new";
+      atomicJson(paths.receipt, receipt);
+      if (existsSync(old) && existsSync(live)) durableRemove(live, { recursive: true, force: true });
+      else if (!item.original && existsSync(live)) durableRemove(live, { recursive: true, force: true });
+      item.rollbackPhase = "restoring-old";
+      atomicJson(paths.receipt, receipt);
+      if (item.original && existsSync(old)) {
+        if (existsSync(live)) durableRemove(live, { recursive: true, force: true });
+        durableRename(old, live);
+      } else if (item.original && !existsSync(live)
+        && priorRollbackPhase !== "restoring-old" && item.phase !== "prepared") {
+        throw new Error(`Migration rollback is missing the original data path: ${name}`);
+      }
+      item.phase = "rolled-back";
+      item.rollbackPhase = "complete";
+      atomicJson(paths.receipt, receipt);
     }
     receipt.dataSwapped = false;
   }
   for (const record of [...(receipt.settings ?? [])].reverse()) {
+    if (record.phase === "rolled-back") continue;
     const target = deploymentTargetFromReceipt(record);
     const backup = join(paths.settingsRollback, record.rollbackName);
-    if (record.existed) copyVerified(backup, target);
-    else rmSync(target, { force: true });
+    record.rollbackPhase = "restoring";
+    atomicJson(paths.receipt, receipt);
+    if (record.existed) {
+      if (!existsSync(backup)) throw new Error(`Migration settings rollback is missing: ${record.relativePath}`);
+      copyVerified(backup, target);
+    } else durableRemove(target, { force: true });
+    record.phase = "rolled-back";
+    record.rollbackPhase = "complete";
+    atomicJson(paths.receipt, receipt);
   }
   receipt.settingsApplied = false;
   receipt.status = "rolled-back";
   receipt.rolledBackAt = new Date().toISOString();
+  atomicJson(paths.receipt, receipt);
+  return receipt;
+}
+
+async function createApplyIntent(id, expectedSha256) {
+  const { paths, plan } = loadPlan(id, expectedSha256);
+  if (plan.phase !== "cutover") throw new Error("Only a cutover migration can be applied");
+  const targetVersion = installedVersion();
+  if (compareReleaseVersions(plan.sourceVersion, targetVersion) > 0) {
+    throw new Error(`Source Stuga ${plan.sourceVersion} is newer than target ${targetVersion}`);
+  }
+  const markerPath = join(paths.staged, ".stuga-assembled.json");
+  if (!existsSync(markerPath)) throw new Error("Migration has not been assembled and verified");
+  const marker = readJson(markerPath, "assembly marker");
+  if (marker.planSha256 !== expectedSha256 || marker.backupVerified !== true) {
+    throw new Error("Migration assembly marker does not match the requested plan");
+  }
+  await verifyAssembledMigrationBundle({ plan, outputDirectory: paths.staged });
+  if (existsSync(paths.receipt)) {
+    const existing = readJson(paths.receipt, "migration receipt");
+    if (existing.planSha256 === expectedSha256 && existing.status === "apply-intent") return existing;
+    throw new Error("This migration already has an apply receipt");
+  }
+  const receipt = {
+    format: "stuga-migration-receipt",
+    version: 1,
+    migrationId: paths.id,
+    planSha256: expectedSha256,
+    sourceVersion: plan.sourceVersion,
+    targetVersion,
+    status: "apply-intent",
+    intentAt: new Date().toISOString(),
+    candidateReady: false,
+    databaseSwapStarted: false,
+    databaseSwapped: false,
+    databasePhase: "not-started",
+    dataSwapped: false,
+    settingsApplied: false,
+  };
+  atomicJson(paths.receipt, receipt);
+  return receipt;
+}
+
+function commitMigration(id, healthVersion, healthyAt) {
+  const paths = migrationPaths(id);
+  const receipt = readJson(paths.receipt, "migration receipt");
+  if (receipt.status !== "applied-pending-health-check") {
+    throw new Error("Only a health-checked pending migration can be committed");
+  }
+  const version = assertReleaseVersion(healthVersion, "Healthy release version");
+  const healthTime = Date.parse(healthyAt);
+  const appliedTime = Date.parse(receipt.appliedAt);
+  if (version !== receipt.targetVersion
+    || !Number.isFinite(healthTime)
+    || !Number.isFinite(appliedTime)
+    || healthTime < appliedTime) {
+    throw new Error("Migration health proof does not match the applied target release");
+  }
+  receipt.status = "committed";
+  receipt.healthConfirmedAt = new Date(healthTime).toISOString();
+  receipt.committedAt = new Date().toISOString();
   atomicJson(paths.receipt, receipt);
   return receipt;
 }
@@ -464,27 +801,18 @@ async function applyMigration(id, expectedSha256) {
   if (!existsSync(markerPath)) throw new Error("Migration has not been assembled and verified");
   const marker = readJson(markerPath, "assembly marker");
   if (marker.planSha256 !== expectedSha256 || marker.backupVerified !== true) throw new Error("Migration assembly marker does not match the requested plan");
-  if (existsSync(paths.receipt)) throw new Error("This migration already has an apply receipt");
-  const available = freeBytes(environmentPath("STUGA_TARGET_DATA_DIRECTORY", "/app/data"));
-  if (available < plan.totalBytes + REQUIRED_FREE_HEADROOM) throw new Error("Target does not have enough free space for migration staging and rollback");
+  if (!existsSync(paths.receipt)) throw new Error("Migration apply intent is missing");
+  const receipt = readJson(paths.receipt, "migration receipt");
+  if (receipt.planSha256 !== expectedSha256 || receipt.status !== "apply-intent") {
+    throw new Error("Migration apply intent does not match this request");
+  }
+  assertRestoreCapacity(plan);
   const backupDirectory = join(paths.staged, "backup");
+  await verifyAssembledMigrationBundle({ plan, outputDirectory: paths.staged });
   await verifyBackup(backupDirectory);
-  const manifest = completeBackupManifest(backupDirectory);
-  const receipt = {
-    format: "stuga-migration-receipt",
-    version: 1,
-    migrationId: paths.id,
-    planSha256: expectedSha256,
-    sourceVersion: plan.sourceVersion,
-    targetVersion,
-    status: "applying",
-    startedAt: new Date().toISOString(),
-    candidateReady: false,
-    databaseSwapStarted: false,
-    databaseSwapped: false,
-    dataSwapped: false,
-    settingsApplied: false,
-  };
+  const manifest = completeBackupManifest(backupDirectory, plan.sourceVersion);
+  receipt.status = "applying";
+  receipt.startedAt = new Date().toISOString();
   atomicJson(paths.receipt, receipt);
   try {
     const configuration = await createCandidateDatabase(paths, plan, manifest, receipt);
@@ -518,38 +846,113 @@ async function assembleCommand(id, expectedSha256) {
       throw new Error("An unrecognized staging directory already exists for this migration");
     }
     if (marker) {
+      await verifyAssembledMigrationBundle({ plan, outputDirectory: paths.staged });
       await verifyBackup(join(paths.staged, "backup"));
       return { reused: true, files: plan.files.length, totalBytes: plan.totalBytes };
     }
     rmSync(paths.staged, { recursive: true, force: true });
   }
   const result = await assembleMigrationBundle({ plan, chunkDirectory: paths.chunks, outputDirectory: paths.staged });
+  await verifyAssembledMigrationBundle({ plan, outputDirectory: paths.staged });
   await verifyBackup(join(paths.staged, "backup"));
   completeBackupManifest(join(paths.staged, "backup"));
   atomicJson(markerPath, { version: 1, planSha256, backupVerified: true, verifiedAt: new Date().toISOString() });
   return { ...result, reused: false };
 }
 
+function boundedEnvironmentInteger(name, fallback, minimum, maximum) {
+  const value = Number(process.env[name] ?? fallback);
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    throw new Error(`${name} must be an integer from ${minimum} to ${maximum}`);
+  }
+  return value;
+}
+
+function garbageCollectMigrations() {
+  const root = environmentPath("STUGA_MIGRATION_ROOT", "/app/migrations");
+  const incoming = join(root, "incoming");
+  const chunks = join(root, "chunks");
+  const staged = join(root, "staged");
+  const receipts = join(root, "receipts");
+  const retentionDays = boundedEnvironmentInteger("STUGA_MIGRATION_SEED_RETENTION_DAYS", 14, 1, 365);
+  const maxSeeds = boundedEnvironmentInteger("STUGA_MIGRATION_MAX_RETAINED_SEEDS", 4, 1, 32);
+  const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1_000;
+  const seeds = [];
+  for (const entry of readdirSync(incoming, { withFileTypes: true })) {
+    if (!entry.isFile() || !/^[0-9a-f-]{36}\.json$/iu.test(entry.name)) continue;
+    const path = join(incoming, entry.name);
+    try {
+      const plan = validateMigrationPlan(readJson(path, "migration plan"));
+      if (plan.phase === "seed" && !existsSync(join(receipts, `${plan.id}.json`))) {
+        seeds.push({ plan, path, created: Date.parse(plan.createdAt) || statSync(path).mtimeMs });
+      }
+    } catch {
+      // Invalid incoming files are retained for operator inspection and never
+      // become an excuse to delete chunks that another valid plan references.
+    }
+  }
+  seeds.sort((left, right) => right.created - left.created);
+  const removedPlans = new Set();
+  for (const [index, seed] of seeds.entries()) {
+    if (index < maxSeeds && seed.created >= cutoff) continue;
+    durableRemove(join(staged, seed.plan.id), { recursive: true, force: true });
+    durableRemove(seed.path, { force: true });
+    removedPlans.add(seed.plan.id);
+  }
+  const referenced = new Set();
+  for (const entry of readdirSync(incoming, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    try {
+      const plan = validateMigrationPlan(readJson(join(incoming, entry.name), "migration plan"));
+      for (const file of plan.files) for (const chunk of file.chunks) referenced.add(chunk.sha256);
+    } catch {
+      // Preserve all chunks when an unrecognized plan remains.
+      return { removedPlans: removedPlans.size, removedChunks: 0, skippedChunkGc: true };
+    }
+  }
+  let removedChunks = 0;
+  for (const entry of readdirSync(chunks, { withFileTypes: true })) {
+    if (!entry.isFile() || !isSha256(entry.name) || referenced.has(entry.name)) continue;
+    durableRemove(join(chunks, entry.name), { force: true });
+    removedChunks += 1;
+  }
+  return { removedPlans: removedPlans.size, removedChunks, skippedChunkGc: false };
+}
+
 async function main(argv = process.argv.slice(2)) {
   const command = argv[0];
   ensureDirectories();
   if (command === "preflight") {
+    const cleanup = garbageCollectMigrations();
     const root = environmentPath("STUGA_MIGRATION_ROOT", "/app/migrations");
     const data = environmentPath("STUGA_TARGET_DATA_DIRECTORY", "/app/data");
+    const timeseries = environmentPath("STUGA_TARGET_TIMESERIES_DIRECTORY", "/app/timeseries-data");
     const hostRoot = process.env.STUGA_MIGRATION_HOST_ROOT ?? "/persistent/stuga/migrations";
     if (!/^\/[A-Za-z0-9._/-]+$/u.test(hostRoot) || hostRoot.split("/").some((part) => part === "..")) {
       throw new Error("STUGA_MIGRATION_HOST_ROOT must be a safe absolute target path");
     }
+    const configuration = postgresConfiguration();
+    const migrationStorage = storageStats(root, "Migration");
+    const dataStorage = storageStats(data, "Application data");
+    const timeseriesStorage = storageStats(timeseries, "TimescaleDB");
     return {
       format: "stuga-migration-preflight",
       version: TARGET_SCRIPT_VERSION,
       targetVersion: installedVersion(),
-      migrationFreeBytes: freeBytes(root),
-      dataFreeBytes: freeBytes(data),
+      migrationFreeBytes: migrationStorage.freeBytes,
+      dataFreeBytes: dataStorage.freeBytes,
+      timeseriesFreeBytes: timeseriesStorage.freeBytes,
+      migrationDevice: migrationStorage.device,
+      dataDevice: dataStorage.device,
+      timeseriesDevice: timeseriesStorage.device,
+      currentDataBytes: directoryBytes(data),
+      currentDatabaseBytes: await currentDatabaseBytes(configuration),
       incomingDirectory: `${hostRoot.replace(/\/$/u, "")}/incoming`,
       chunkDirectory: `${hostRoot.replace(/\/$/u, "")}/chunks`,
+      cleanup,
     };
   }
+  if (command === "gc") return garbageCollectMigrations();
   const id = assertMigrationId(argv[1]);
   if (command === "status") {
     const paths = migrationPaths(id);
@@ -568,18 +971,11 @@ async function main(argv = process.argv.slice(2)) {
       .filter(([digest]) => missing.includes(digest)).reduce((total, [, size]) => total + size, 0) };
   }
   if (command === "assemble") return assembleCommand(id, argv[2]);
+  if (command === "intent") return createApplyIntent(id, argv[2]);
   if (command === "apply") return applyMigration(id, argv[2]);
   if (command === "rollback") return rollbackMigration(id);
-  if (command === "commit") {
-    const paths = migrationPaths(id);
-    const receipt = readJson(paths.receipt, "migration receipt");
-    if (receipt.status !== "applied-pending-health-check") throw new Error("Only a health-checked pending migration can be committed");
-    receipt.status = "committed";
-    receipt.committedAt = new Date().toISOString();
-    atomicJson(paths.receipt, receipt);
-    return receipt;
-  }
-  throw new Error("Usage: stuga-migration-target.mjs <preflight|status|missing|assemble|apply|rollback|commit> [migration-id] [plan-sha256]");
+  if (command === "commit") return commitMigration(id, argv[2], argv[3]);
+  throw new Error("Usage: stuga-migration-target.mjs <preflight|gc|status|missing|assemble|intent|apply|rollback|commit> [migration-id] [plan-sha256]");
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : undefined;
@@ -593,8 +989,13 @@ if (invokedPath === import.meta.url) {
 export {
   applyDeploymentSettings,
   completeBackupManifest,
+  commitMigration,
+  createApplyIntent,
+  garbageCollectMigrations,
   installedVersion,
   main as runMigrationTarget,
+  rollbackMigration,
   safeIdentifier,
+  swapData,
   targetForDeploymentPath,
 };

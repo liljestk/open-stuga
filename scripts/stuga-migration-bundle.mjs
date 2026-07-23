@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
   existsSync,
+  fsyncSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -88,31 +89,46 @@ function backupInputs(backupDirectory) {
   return { root, manifest, expectedManifestHash, inputs };
 }
 
-function deploymentInputs({ workspaceDirectory, settingsFile, configDirectory, secretsDirectory }) {
+function deploymentInputs({
+  workspaceDirectory,
+  settingsFile,
+  configDirectory,
+  secretsDirectory,
+  secretDirectories,
+}) {
   const inputs = [];
-  if (settingsFile && existsSync(settingsFile)) {
-    if (!statSync(settingsFile).isFile()) throw new Error(`Settings path is not a file: ${settingsFile}`);
+  if (settingsFile) {
+    if (!existsSync(settingsFile) || !lstatSync(settingsFile).isFile() || lstatSync(settingsFile).isSymbolicLink()) {
+      throw new Error(`Authoritative settings path is missing or not a regular file: ${settingsFile}`);
+    }
     const generated = join(workspaceDirectory, "generated", `settings-${randomUUID()}.env`);
     hardenPrivateDirectory(dirname(generated));
     writeFileSync(generated, portableEnvironmentFromFile(settingsFile), { encoding: "utf8", flag: "wx", mode: 0o600 });
     hardenPrivateFile(generated);
     inputs.push({ sourcePath: generated, logicalPath: "deployment/settings.env", category: "settings" });
   }
-  if (configDirectory && existsSync(configDirectory)) {
+  if (configDirectory) {
+    if (!existsSync(configDirectory) || !lstatSync(configDirectory).isDirectory() || lstatSync(configDirectory).isSymbolicLink()) {
+      throw new Error(`Authoritative config path is missing or not a real directory: ${configDirectory}`);
+    }
     const root = resolve(configDirectory);
     for (const sourcePath of walkRegularFiles(root)) {
       const child = portable(relative(root, sourcePath));
       inputs.push({ sourcePath, logicalPath: `deployment/config/${assertSafeRelativePath(child)}`, category: "config" });
     }
   }
-  if (secretsDirectory && existsSync(secretsDirectory)) {
-    const root = resolve(secretsDirectory);
-    for (const name of SECRET_DIRECTORIES) {
-      const directory = join(root, name);
-      for (const sourcePath of walkRegularFiles(directory)) {
-        const child = portable(relative(directory, sourcePath));
-        inputs.push({ sourcePath, logicalPath: `deployment/secrets/${name}/${assertSafeRelativePath(child)}`, category: "secret" });
-      }
+  const configuredSecretDirectories = secretDirectories
+    ?? Object.fromEntries(SECRET_DIRECTORIES.map((name) => [name, secretsDirectory ? join(resolve(secretsDirectory), name) : undefined]));
+  for (const name of SECRET_DIRECTORIES) {
+    const configured = configuredSecretDirectories?.[name];
+    if (!configured) continue;
+    const directory = resolve(configured);
+    if (!existsSync(directory) || !lstatSync(directory).isDirectory() || lstatSync(directory).isSymbolicLink()) {
+      throw new Error(`Authoritative ${name} secret path is missing or not a real directory: ${directory}`);
+    }
+    for (const sourcePath of walkRegularFiles(directory)) {
+      const child = portable(relative(directory, sourcePath));
+      inputs.push({ sourcePath, logicalPath: `deployment/secrets/${name}/${assertSafeRelativePath(child)}`, category: "secret" });
     }
   }
   let total = 0;
@@ -122,7 +138,26 @@ function deploymentInputs({ workspaceDirectory, settingsFile, configDirectory, s
     total += size;
   }
   if (total > MAX_DEPLOYMENT_TOTAL_BYTES) throw new Error(`Deployment settings exceed ${MAX_DEPLOYMENT_TOTAL_BYTES} bytes`);
-  return inputs;
+  return {
+    inputs,
+    deployment: {
+      authoritativeEnvironment: Boolean(settingsFile),
+      exactConfig: Boolean(configDirectory),
+      exactSecretRoots: SECRET_DIRECTORIES.filter((name) => Boolean(configuredSecretDirectories?.[name])),
+    },
+  };
+}
+
+function fsyncDirectory(path) {
+  let descriptor;
+  try {
+    descriptor = openSync(path, "r");
+    fsyncSync(descriptor);
+  } catch (error) {
+    if (process.platform !== "win32") throw error;
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
 }
 
 async function storeChunk(chunkDirectory, buffer) {
@@ -138,7 +173,10 @@ async function storeChunk(chunkDirectory, buffer) {
   const temporary = `${destination}.${process.pid}.${Date.now()}.tmp`;
   writeFileSync(temporary, buffer, { flag: "wx", mode: 0o600 });
   hardenPrivateFile(temporary);
+  const descriptor = openSync(temporary, "r+");
+  try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
   renameSync(temporary, destination);
+  fsyncDirectory(chunkDirectory);
   return digest;
 }
 
@@ -217,6 +255,23 @@ export function validateMigrationPlan(plan) {
   if (plan.totalBytes !== totalBytes) throw new Error("Migration plan total byte count is inconsistent");
   const uniqueChunkBytes = [...chunkSizes.values()].reduce((total, size) => total + size, 0);
   if (plan.uniqueChunkBytes !== uniqueChunkBytes) throw new Error("Migration plan unique chunk byte count is inconsistent");
+  if (!Number.isSafeInteger(plan.estimatedRestoreBytes) || plan.estimatedRestoreBytes < totalBytes) {
+    throw new Error("Migration plan restore byte estimate is invalid");
+  }
+  if (!Number.isSafeInteger(plan.estimatedDataBytes) || plan.estimatedDataBytes < 0
+    || !Number.isSafeInteger(plan.estimatedDatabaseBytes) || plan.estimatedDatabaseBytes < 0
+    || plan.estimatedRestoreBytes !== plan.estimatedDataBytes + plan.estimatedDatabaseBytes) {
+    throw new Error("Migration plan split restore byte estimates are invalid");
+  }
+  if (plan.deployment !== undefined) {
+    if (!plan.deployment || typeof plan.deployment !== "object" || Array.isArray(plan.deployment)
+      || typeof plan.deployment.authoritativeEnvironment !== "boolean"
+      || typeof plan.deployment.exactConfig !== "boolean"
+      || !Array.isArray(plan.deployment.exactSecretRoots)
+      || plan.deployment.exactSecretRoots.some((name) => !SECRET_DIRECTORIES.includes(name))) {
+      throw new Error("Migration deployment inventory is malformed");
+    }
+  }
   return plan;
 }
 
@@ -228,6 +283,7 @@ export async function createMigrationBundle({
   settingsFile,
   configDirectory,
   secretsDirectory,
+  secretDirectories,
   chunkSize = DEFAULT_MIGRATION_CHUNK_BYTES,
   now = new Date(),
   id = randomUUID(),
@@ -243,9 +299,16 @@ export async function createMigrationBundle({
   if (await sha256File(join(backup.root, "manifest.json")) !== backup.expectedManifestHash) {
     throw new Error("Backup manifest checksum mismatch");
   }
+  const deployment = deploymentInputs({
+    workspaceDirectory: workspace,
+    settingsFile,
+    configDirectory,
+    secretsDirectory,
+    secretDirectories,
+  });
   const inputs = [
     ...backup.inputs,
-    ...deploymentInputs({ workspaceDirectory: workspace, settingsFile, configDirectory, secretsDirectory }),
+    ...deployment.inputs,
   ];
   const files = [];
   for (const input of inputs.sort((left, right) => left.logicalPath.localeCompare(right.logicalPath))) {
@@ -253,6 +316,15 @@ export async function createMigrationBundle({
   }
   const uniqueChunks = new Map();
   for (const file of files) for (const chunk of file.chunks) uniqueChunks.set(chunk.sha256, chunk.size);
+  const logicalTimescaleBytes = Number(backup.manifest?.sources?.timescale?.logicalBytes);
+  const dumpBytes = backup.manifest.files
+    .filter((file) => file.category === "timescale-pgdump")
+    .reduce((total, file) => total + Number(file.size ?? 0), 0);
+  const estimatedDatabaseBytes = Number.isSafeInteger(logicalTimescaleBytes) && logicalTimescaleBytes >= 0
+    ? logicalTimescaleBytes
+    : dumpBytes * 4;
+  const totalBytes = files.reduce((total, file) => total + file.size, 0);
+  const estimatedDataBytes = totalBytes - dumpBytes;
   const plan = validateMigrationPlan({
     format: STUGA_MIGRATION_FORMAT,
     version: STUGA_MIGRATION_VERSION,
@@ -263,15 +335,35 @@ export async function createMigrationBundle({
     sensitivity: "confidential-household-authentication-settings-and-telemetry-data",
     backupManifestSha256: backup.expectedManifestHash,
     chunkSize: bytesPerChunk,
-    totalBytes: files.reduce((total, file) => total + file.size, 0),
+    totalBytes,
     uniqueChunkBytes: [...uniqueChunks.values()].reduce((total, size) => total + size, 0),
+    estimatedDataBytes,
+    estimatedDatabaseBytes,
+    estimatedRestoreBytes: estimatedDataBytes + estimatedDatabaseBytes,
+    deployment: deployment.deployment,
     files,
   });
   const planPath = join(planDirectory, `${migrationId}.json`);
   const serialized = `${JSON.stringify(plan, null, 2)}\n`;
-  writeFileSync(planPath, serialized, { encoding: "utf8", flag: "wx", mode: 0o600 });
+  writeFileSync(planPath, serialized, { encoding: "utf8", flag: "wx", flush: true, mode: 0o600 });
   hardenPrivateFile(planPath);
+  fsyncDirectory(planDirectory);
   return { plan, planPath, planSha256: sha256Text(serialized), chunkDirectory };
+}
+
+export async function verifyAssembledMigrationBundle({ plan, outputDirectory }) {
+  validateMigrationPlan(plan);
+  const output = resolve(outputDirectory);
+  for (const file of plan.files) {
+    const path = resolve(output, file.path);
+    if (!pathWithin(output, path) || !existsSync(path)) throw new Error(`Assembled migration file is missing: ${file.path}`);
+    const details = lstatSync(path);
+    if (!details.isFile() || details.isSymbolicLink() || details.size !== file.size) {
+      throw new Error(`Assembled migration file is invalid: ${file.path}`);
+    }
+    if (await sha256File(path) !== file.sha256) throw new Error(`Assembled migration checksum mismatch: ${file.path}`);
+  }
+  return { files: plan.files.length, totalBytes: plan.totalBytes };
 }
 
 export async function missingMigrationChunks(plan, chunkDirectory) {
@@ -321,8 +413,13 @@ export async function assembleMigrationBundle({ plan, chunkDirectory, outputDire
       }
       hardenPrivateFile(destination);
       if (size !== file.size || fileHash.digest("hex") !== file.sha256) throw new Error(`Reassembled migration file failed verification: ${file.path}`);
+      const verificationDescriptor = openSync(destination, "r+");
+      try { fsyncSync(verificationDescriptor); } finally { closeSync(verificationDescriptor); }
+      fsyncDirectory(dirname(destination));
     }
     renameSync(temporary, output);
+    fsyncDirectory(dirname(output));
+    await verifyAssembledMigrationBundle({ plan, outputDirectory: output });
   } catch (error) {
     // The caller retains an incomplete directory for inspection; it is never
     // accepted as staged because the final atomic rename did not occur.

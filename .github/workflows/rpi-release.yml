@@ -259,9 +259,10 @@ jobs:
 
       - name: Register and deploy through Raspberry Pi Connect
         if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.deploy &&
           env.RPI_CONNECT_API_TOKEN != '' &&
-          env.RPI_CONNECT_DEVICE_ID != '' &&
-          (github.event_name == 'release' || inputs.deploy)
+          env.RPI_CONNECT_DEVICE_ID != ''
         env:
           RPI_OTA_VERSION: ${{ steps.ota.outputs.version }}
           RPI_OTA_URI: ${{ steps.ota.outputs.uri }}

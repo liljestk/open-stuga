@@ -71,6 +71,8 @@ test("the release workflow builds recoverable images on a hosted native ARM64 ru
   assert.match(workflow, /RPI_FACTORY_SSH_PUBLIC_KEY/);
   assert.match(workflow, /actions\/upload-artifact@[0-9a-f]{40}/);
   assert.match(workflow, /retention-days: 3/);
+  assert.match(workflow, /github\.event_name == 'workflow_dispatch' &&[\s\S]*inputs\.deploy &&/);
+  assert.doesNotMatch(workflow, /github\.event_name == 'release' \|\| inputs\.deploy/);
   assert.doesNotMatch(workflow, /runs-on: \[self-hosted/);
 });
 
@@ -85,16 +87,28 @@ test("the factory image export uses the portable zstd output option", async () =
 });
 
 test("the appliance exposes a health-gated migration receiver with rollback", async () => {
-  const [control, compose, environment, layer] = await Promise.all([
+  const [control, compose, composeStart, environment, layer] = await Promise.all([
     readFile(new URL("../../deploy/rpi/assets/stugactl", import.meta.url), "utf8"),
     readFile(new URL("../../docker-compose.yml", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stuga-compose-start", import.meta.url), "utf8"),
     readFile(new URL("../../deploy/rpi/assets/stuga.env.example", import.meta.url), "utf8"),
     readFile(new URL("../../deploy/rpi/layer/stuga.yaml", import.meta.url), "utf8"),
   ]);
-  assert.match(control, /migration_tool apply[\s\S]*systemctl restart stuga\.service[\s\S]*migration_tool commit/);
-  assert.match(control, /Target health check failed; rolling back[\s\S]*migration_tool rollback/);
+  assert.match(control, /migration_tool intent[\s\S]*stuga-backup[\s\S]*stop_application_containers[\s\S]*migration_tool apply/);
+  assert.match(control, /migration_tool apply[\s\S]*authorize_pending_health_check[\s\S]*systemctl restart stuga\.service && expected_release_is_healthy[\s\S]*commit_healthy_migration/);
+  assert.match(control, /migration_tool commit "\$migration_id" "\$version" "\$healthy_at"/);
+  assert.match(control, /resume\)[\s\S]*commit_healthy_migration[\s\S]*systemctl restart stuga\.service/);
+  assert.match(control, /grep -Fxq "version=\$expected_version"/);
+  assert.match(control, /Target health check failed; rolling back[\s\S]*quiesce_for_migration_rollback[\s\S]*migration_tool rollback/);
+  assert.match(control, /current committed data was preserved/);
+  assert.match(composeStart, /apply-intent\|applying\|rolling-back/);
+  assert.match(composeStart, /applied-pending-health-check/);
+  assert.match(composeStart, /health-check-authorization/);
+  assert.match(composeStart, /stugactl migration resume/);
+  assert.match(composeStart, /Refusing to start over incomplete migration receipt/);
   assert.match(compose, /stuga-migration:[\s\S]*stuga-migration-target\.mjs/);
   assert.match(compose, /STUGA_MIGRATION_DIRECTORY[^\n]*:\/app\/migrations/);
+  assert.match(compose, /stuga-timeseries-data:\/app\/timeseries-data:ro/);
   assert.match(environment, /STUGA_MIGRATION_DIRECTORY=\/persistent\/stuga\/migrations/);
   assert.match(layer, /STUGA_VERSION=\$\{IGconf_artefact_version\}/);
 });
@@ -102,7 +116,8 @@ test("the appliance exposes a health-gated migration receiver with rollback", as
 test("live cutover fails closed when target state is ambiguous", async () => {
   const controller = await readFile(new URL("../stuga-live-migrate.mjs", import.meta.url), "utf8");
   assert.match(controller, /Source writers remain stopped to prevent split-brain/);
-  assert.match(controller, /statusQueried && \(targetState === "rolled-back" \|\| status\?\.receipt === null\)/);
+  assert.match(controller, /statusQueried && targetState === "rolled-back"/);
+  assert.doesNotMatch(controller, /status\?\.receipt === null/);
   assert.match(controller, /Cutover always creates a fresh snapshot/);
 });
 

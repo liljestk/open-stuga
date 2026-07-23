@@ -3,10 +3,12 @@
 import { spawn } from "node:child_process";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
@@ -17,6 +19,7 @@ import {
 } from "./stuga-migration-bundle.mjs";
 import {
   assertReleaseVersion,
+  assertMigrationId,
   compareReleaseVersions,
   isSha256,
   parseEnvironmentAssignments,
@@ -24,7 +27,6 @@ import {
 } from "./stuga-migration-common.mjs";
 import { hardenPrivateDirectory, hardenPrivateFile, sha256File } from "./sqlite-snapshot-utils.mjs";
 
-const CUTOVER_FREE_SPACE_MULTIPLIER = 3;
 const CUTOVER_FREE_SPACE_HEADROOM = 1024 * 1024 * 1024;
 
 function help() {
@@ -89,7 +91,13 @@ function packageVersion(projectDirectory) {
 }
 
 export function parseLiveMigrationArgs(argv, environment = process.env, cwd = process.cwd()) {
-  const options = { phase: argv[0], acceptNewHostKey: false, deploymentSettings: true, help: false };
+  const options = {
+    phase: argv[0],
+    acceptNewHostKey: false,
+    deploymentSettings: true,
+    help: false,
+    explicit: new Set(),
+  };
   if (options.phase === "-h" || options.phase === "--help" || options.phase === undefined) options.help = true;
   for (let index = 1; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -106,6 +114,7 @@ export function parseLiveMigrationArgs(argv, environment = process.env, cwd = pr
         "--project-directory": "projectDirectory", "--compose-file": "composeFile", "--migration-id": "migrationId",
       }[argument];
       options[key] = valueAfter(argv, index, argument);
+      options.explicit.add(key);
       index += 1;
     } else throw new Error(`Unknown argument: ${argument}`);
   }
@@ -135,6 +144,7 @@ export function parseLiveMigrationArgs(argv, environment = process.env, cwd = pr
     if (!existsSync(options.composeFile)) throw new Error("Compose file does not exist");
     options.sourceVersion = packageVersion(options.projectDirectory);
   } else if (!options.migrationId) throw new Error("status requires --migration-id");
+  else options.migrationId = assertMigrationId(options.migrationId);
   return options;
 }
 
@@ -191,6 +201,69 @@ function composeArguments(options, ...arguments_) {
   return ["compose", "--project-directory", options.projectDirectory, "--file", options.composeFile, ...arguments_];
 }
 
+function composeBindSource(configuration, serviceName, target) {
+  const volumes = configuration?.services?.[serviceName]?.volumes;
+  if (!Array.isArray(volumes)) return undefined;
+  const volume = volumes.find((entry) => entry?.type === "bind" && entry?.target === target);
+  return typeof volume?.source === "string" && volume.source ? resolve(volume.source) : undefined;
+}
+
+async function resolveComposeDeploymentInputs(options) {
+  const result = await run("docker", composeArguments(options, "config", "--format", "json"), {
+    cwd: options.projectDirectory,
+  });
+  let configuration;
+  try {
+    configuration = JSON.parse(result.stdout);
+  } catch {
+    throw new Error("Docker Compose did not return its resolved JSON configuration");
+  }
+  if (!options.explicit.has("backupRoot")) {
+    options.backupRoot = composeBindSource(configuration, "stuga-backup", "/app/backups") ?? options.backupRoot;
+    if (!options.explicit.has("workspace")) options.workspace = resolve(options.backupRoot, ".live-migration");
+  }
+  if (!options.explicit.has("configDirectory")) {
+    options.configDirectory = composeBindSource(configuration, "api", "/app/config") ?? options.configDirectory;
+  }
+  if (options.explicit.has("secretsDirectory")) {
+    options.secretDirectories = Object.fromEntries([
+      ["cloudflare", join(options.secretsDirectory, "cloudflare")],
+      ["tapo-history-api", join(options.secretsDirectory, "tapo-history-api")],
+      ["tapo-history-runner", join(options.secretsDirectory, "tapo-history-runner")],
+    ]);
+  } else {
+    options.secretDirectories = {
+      cloudflare: composeBindSource(configuration, "api", "/run/secrets/cloudflare")
+        ?? join(options.secretsDirectory, "cloudflare"),
+      "tapo-history-api": composeBindSource(configuration, "api", "/run/secrets/tapo-history")
+        ?? join(options.secretsDirectory, "tapo-history-api"),
+      "tapo-history-runner": composeBindSource(configuration, "tapo-export-runner", "/run/secrets/tapo-history")
+        ?? join(options.secretsDirectory, "tapo-history-runner"),
+    };
+  }
+  return configuration;
+}
+
+async function assertRunningSourceVersion(options, { runCommand = run } = {}) {
+  const controllerVersion = options.sourceVersion;
+  const result = await runCommand("docker", composeArguments(
+    options,
+    "exec",
+    "--no-TTY",
+    "api",
+    "node",
+    "-p",
+    "require('/app/apps/api/package.json').version",
+  ), { cwd: options.projectDirectory });
+  const runningVersion = assertReleaseVersion(result.stdout.trim(), "Running source version");
+  if (compareReleaseVersions(runningVersion, controllerVersion) > 0) {
+    throw new Error(`Running source Stuga ${runningVersion} is newer than controller ${controllerVersion}`);
+  }
+  options.controllerVersion = controllerVersion;
+  options.sourceVersion = runningVersion;
+  return runningVersion;
+}
+
 function backupDirectories(root) {
   if (!existsSync(root)) return [];
   return readdirSync(root, { withFileTypes: true })
@@ -228,14 +301,52 @@ async function runningComposeServices(options) {
   return result.stdout.trim().split(/\r?\n/u).filter(Boolean);
 }
 
-async function stopSourceWriters(options) {
-  const running = await runningComposeServices(options);
-  const writers = ["api", "stuga-backup-scheduler", "tapo-export-runner"].filter((service) => running.includes(service));
-  if (!writers.includes("api")) throw new Error("The source API is not running under this Compose project; refusing an uncoordinated cutover");
-  await run("docker", composeArguments(options, "stop", ...writers), { cwd: options.projectDirectory, stream: true });
-  const stillRunning = await runningComposeServices(options);
-  if (writers.some((service) => stillRunning.includes(service))) throw new Error("One or more source writers did not stop cleanly");
-  return { writers, running };
+async function stopSourceWriters(options, {
+  listRunning = runningComposeServices,
+  runCommand = run,
+  restart = restartSource,
+} = {}) {
+  const running = await listRunning(options);
+  const ingress = ["cloudflared", "web"].filter((service) => running.includes(service));
+  const mutators = [
+    "api",
+    "stuga-backup-scheduler",
+    "tapo-export-runner",
+    "telemetry-migrate",
+    "timeseries-credential-reconcile",
+  ].filter((service) => running.includes(service));
+  if (!mutators.includes("api")) throw new Error("The source API is not running under this Compose project; refusing an uncoordinated cutover");
+  const cutoverServices = [...ingress, ...mutators];
+  try {
+    if (ingress.length > 0) {
+      await runCommand("docker", composeArguments(options, "stop", "--timeout", "30", ...ingress), {
+        cwd: options.projectDirectory,
+        stream: true,
+      });
+    }
+    await runCommand("docker", composeArguments(options, "stop", "--timeout", "30", ...mutators), {
+      cwd: options.projectDirectory,
+      stream: true,
+    });
+    const stillRunning = await listRunning(options);
+    if (cutoverServices.some((service) => stillRunning.includes(service))) {
+      throw new Error("One or more source cutover services did not stop cleanly");
+    }
+    return { writers: cutoverServices, running };
+  } catch (error) {
+    const afterFailure = await listRunning(options).catch(() => []);
+    const stopped = cutoverServices.filter((service) => !afterFailure.includes(service));
+    let recoveryError;
+    try {
+      await restart(options, stopped);
+    } catch (restartError) {
+      recoveryError = restartError;
+    }
+    if (recoveryError) {
+      throw new Error(`Source quiescence failed and partial-stop recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`);
+    }
+    throw error;
+  }
 }
 
 async function restartSource(options, services) {
@@ -255,7 +366,12 @@ function unquotedEnvironmentValue(value) {
 
 function effectiveSettingsFile(options, runningServices) {
   if (!options.deploymentSettings) return undefined;
-  const original = existsSync(options.settingsFile) ? readFileSync(options.settingsFile, "utf8") : "";
+  if (!existsSync(options.settingsFile)
+    || !lstatSync(options.settingsFile).isFile()
+    || lstatSync(options.settingsFile).isSymbolicLink()) {
+    throw new Error(`Authoritative settings path is missing or not a regular file: ${options.settingsFile}`);
+  }
+  const original = readFileSync(options.settingsFile, "utf8");
   const configured = unquotedEnvironmentValue(parseEnvironmentAssignments(original).get("COMPOSE_PROFILES"));
   const profiles = new Set(configured.split(/[\s,]+/u).filter(Boolean));
   if (runningServices.includes("cloudflared")) profiles.add("cloudflare");
@@ -286,7 +402,11 @@ async function sftpBatch(options, commands, workspace) {
   const args = sshOptions(options);
   const portIndex = args.indexOf("-p");
   args[portIndex] = "-P";
-  await run("sftp", ["-b", batch, ...args, options.target], { cwd: options.projectDirectory, stream: true });
+  try {
+    await run("sftp", ["-b", batch, ...args, options.target], { cwd: options.projectDirectory, stream: true });
+  } finally {
+    if (existsSync(batch)) unlinkSync(batch);
+  }
 }
 
 async function uploadPlan(options, target, bundle) {
@@ -300,30 +420,65 @@ async function uploadPlan(options, target, bundle) {
   ], options.workspace);
 }
 
-async function uploadMissingChunks(options, target, bundle, missing) {
+async function uploadMissingChunks(options, target, bundle, missing, { transfer = sftpBatch } = {}) {
   const chunks = assertRemoteDirectory(target.chunkDirectory, "Chunk directory");
-  const planDigests = new Set(bundle.plan.files.flatMap((file) => file.chunks.map((chunk) => chunk.sha256)));
-  if (!Array.isArray(missing) || missing.some((digest) => !isSha256(digest) || !planDigests.has(digest))) {
+  const planChunks = new Map(bundle.plan.files.flatMap((file) => file.chunks.map((chunk) => [chunk.sha256, chunk.size])));
+  if (!Array.isArray(missing) || missing.some((digest) => !isSha256(digest) || !planChunks.has(digest))) {
     throw new Error("Target requested a chunk that is not in the migration plan");
   }
   if (missing.length === 0) return;
   const commands = [];
   for (const digest of missing) {
     const local = join(bundle.chunkDirectory, digest);
+    const details = existsSync(local) ? lstatSync(local) : null;
+    if (!details?.isFile() || details.isSymbolicLink() || details.size !== planChunks.get(digest) || await sha256File(local) !== digest) {
+      throw new Error(`Local migration chunk failed verification before upload: ${digest}`);
+    }
     const remote = `${chunks}/${digest}`;
     const temporary = `${remote}.${bundle.plan.id}.upload`;
     commands.push(`put ${sftpQuote(local)} ${sftpQuote(temporary)}`);
+    commands.push(`-rm ${sftpQuote(remote)}`);
     commands.push(`rename ${sftpQuote(temporary)} ${sftpQuote(remote)}`);
   }
-  await sftpBatch(options, commands, options.workspace);
+  await transfer(options, commands, options.workspace);
+}
+
+function assertTargetCapacity(target, plan) {
+  validateMigrationPlan(plan);
+  const number = (value, label) => {
+    const parsed = Number(value);
+    if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`Target preflight returned invalid ${label}`);
+    return parsed;
+  };
+  const devices = new Map();
+  const add = (label, device, free, required) => {
+    if (typeof device !== "string" || !device) throw new Error(`Target preflight returned invalid ${label} device`);
+    const capacity = devices.get(device) ?? {
+      labels: [],
+      freeBytes: number(free, `${label} free bytes`),
+      requiredBytes: 0,
+    };
+    capacity.labels.push(label);
+    capacity.freeBytes = Math.min(capacity.freeBytes, number(free, `${label} free bytes`));
+    capacity.requiredBytes += required;
+    devices.set(device, capacity);
+  };
+  const targetSafetyBackupBytes = number(target.currentDataBytes, "current data bytes")
+    + number(target.currentDatabaseBytes, "current database bytes");
+  add("migration", target.migrationDevice, target.migrationFreeBytes, plan.totalBytes * 2 + targetSafetyBackupBytes);
+  add("application data", target.dataDevice, target.dataFreeBytes, plan.estimatedDataBytes);
+  add("TimescaleDB", target.timeseriesDevice, target.timeseriesFreeBytes, plan.estimatedDatabaseBytes);
+  for (const capacity of devices.values()) {
+    const requiredWithHeadroom = capacity.requiredBytes + CUTOVER_FREE_SPACE_HEADROOM;
+    if (capacity.freeBytes < requiredWithHeadroom) {
+      throw new Error(`Target preflight reports insufficient ${capacity.labels.join("/")} free space; need at least ${requiredWithHeadroom} bytes`);
+    }
+  }
+  return devices;
 }
 
 async function stageBundle(options, target, bundle) {
-  validateMigrationPlan(bundle.plan);
-  const required = bundle.plan.totalBytes * CUTOVER_FREE_SPACE_MULTIPLIER + CUTOVER_FREE_SPACE_HEADROOM;
-  if (Number(target.migrationFreeBytes) < required || Number(target.dataFreeBytes) < required) {
-    throw new Error(`Target preflight reports insufficient free space; need at least ${required} bytes`);
-  }
+  assertTargetCapacity(target, bundle.plan);
   await uploadPlan(options, target, bundle);
   let missingResult = await remoteJson(options, ["stugactl", "migration", "missing", bundle.plan.id, bundle.planSha256]);
   process.stdout.write(`Target needs ${missingResult.missing.length} chunk(s), ${missingResult.missingBytes} byte(s).\n`);
@@ -344,9 +499,13 @@ async function main(argv = process.argv.slice(2)) {
     process.stdout.write(`${JSON.stringify(await targetStatus(options, options.migrationId), null, 2)}\n`);
     return;
   }
+  await resolveComposeDeploymentInputs(options);
   hardenPrivateDirectory(options.workspace);
+  await assertRunningSourceVersion(options);
   const target = await remoteJson(options, ["stugactl", "migration", "init"]);
-  if (target.format !== "stuga-migration-preflight") throw new Error("Target does not expose a compatible migration receiver");
+  if (target.format !== "stuga-migration-preflight" || target.version !== 1) {
+    throw new Error("Target does not expose a compatible migration receiver");
+  }
   if (compareReleaseVersions(options.sourceVersion, target.targetVersion) > 0) {
     throw new Error(`Target Stuga ${target.targetVersion} is older than source ${options.sourceVersion}`);
   }
@@ -371,6 +530,7 @@ async function main(argv = process.argv.slice(2)) {
       settingsFile: effectiveSettingsFile(options, sourceRunningServices),
       configDirectory: options.deploymentSettings ? options.configDirectory : undefined,
       secretsDirectory: options.deploymentSettings ? options.secretsDirectory : undefined,
+      secretDirectories: options.deploymentSettings ? options.secretDirectories : undefined,
       chunkSize: options.chunkSize,
     });
     process.stdout.write(`Migration ${bundle.plan.id}: ${bundle.plan.files.length} files, ${bundle.plan.totalBytes} bytes, ${bundle.plan.uniqueChunkBytes} unique chunk bytes.\n`);
@@ -390,7 +550,7 @@ async function main(argv = process.argv.slice(2)) {
         statusQueried = true;
       } catch { /* Fail closed below. */ }
       const targetState = status?.receipt?.status;
-      if (statusQueried && (targetState === "rolled-back" || status?.receipt === null)) {
+      if (statusQueried && targetState === "rolled-back") {
         await restartSource(options, stoppedServices);
         stoppedServices = [];
         throw new Error(`Target cutover failed or rolled back; source writers were restarted. ${error instanceof Error ? error.message : String(error)}`);
@@ -416,4 +576,12 @@ if (invokedPath === import.meta.url) {
   });
 }
 
-export { effectiveSettingsFile, main as runLiveMigration, safeSshTarget };
+export {
+  effectiveSettingsFile,
+  main as runLiveMigration,
+  safeSshTarget,
+  assertTargetCapacity,
+  assertRunningSourceVersion,
+  stopSourceWriters,
+  uploadMissingChunks,
+};

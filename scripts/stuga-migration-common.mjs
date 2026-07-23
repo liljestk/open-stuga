@@ -31,6 +31,8 @@ export const PORTABLE_ENVIRONMENT_KEYS = new Set([
   "SPATIAL_LAYERS_ENABLED",
   "SPATIAL_LAYERS_INTERVAL_MS",
   "SPATIAL_LAYERS_RETENTION_DAYS",
+  "STUGBY_NODE_NAME",
+  "STUGBY_SYNC_INTERVAL_MS",
   "TAPO_ACTION_TIMEOUT_MS",
   "TAPO_APP_VERSION",
   "TAPO_APPIUM_CAPABILITIES_JSON",
@@ -123,7 +125,13 @@ export function parseEnvironmentAssignments(text) {
   const assignments = new Map();
   for (const line of String(text).replaceAll("\r\n", "\n").split("\n")) {
     const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/u.exec(line);
-    if (match) assignments.set(match[1], match[2]);
+    if (!match) continue;
+    const value = match[2].trim();
+    if ((value.startsWith("'") && !value.endsWith("'"))
+      || (value.startsWith('"') && !value.endsWith('"'))) {
+      throw new Error(`Multiline environment values are not supported for migration: ${match[1]}`);
+    }
+    assignments.set(match[1], match[2]);
   }
   return assignments;
 }
@@ -144,7 +152,12 @@ export function portableEnvironmentFromFile(path) {
   return portableEnvironment(readFileSync(resolve(path), "utf8"));
 }
 
-export function mergePortableEnvironment(targetText, migratedText, allowed = PORTABLE_ENVIRONMENT_KEYS) {
+export function mergePortableEnvironment(
+  targetText,
+  migratedText,
+  allowed = PORTABLE_ENVIRONMENT_KEYS,
+  { authoritative = false } = {},
+) {
   const migrated = parseEnvironmentAssignments(migratedText);
   for (const key of [...migrated.keys()]) {
     if (!allowed.has(key)) throw new Error(`Migration settings contain a non-portable key: ${key}`);
@@ -153,6 +166,7 @@ export function mergePortableEnvironment(targetText, migratedText, allowed = POR
   const lines = String(targetText).replaceAll("\r\n", "\n").split("\n").filter((line, index, all) => {
     if (index === all.length - 1 && line === "") return false;
     const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=/u.exec(line);
+    if (authoritative && match && allowed.has(match[1]) && !migrated.has(match[1])) return false;
     if (!match || !migrated.has(match[1])) return true;
     if (seen.has(match[1])) return false;
     seen.add(match[1]);

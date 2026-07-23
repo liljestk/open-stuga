@@ -371,6 +371,37 @@ function runDirect(executable, arguments_, environment) {
   });
 }
 
+function runCapture(executable, arguments_, environment) {
+  return new Promise((accept, reject) => {
+    const child = spawn(executable, arguments_, {
+      env: environment,
+      shell: false,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let standardOutput = "";
+    let standardError = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      if (standardOutput.length < 64 * 1024) standardOutput += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      if (standardError.length < 64 * 1024) standardError += chunk;
+    });
+    child.on("error", (error) => reject(new Error(`${basename(executable)} could not start: ${error.message}`)));
+    child.on("close", (code, signal) => {
+      if (code === 0) accept(standardOutput);
+      else {
+        const detail = redact(standardError.trim(), environment);
+        reject(new Error(
+          `${basename(executable)} failed (${signal ? `signal ${signal}` : `exit ${code}`})${detail ? `: ${detail}` : ""}`,
+        ));
+      }
+    });
+  });
+}
+
 function postgresEnvironment(options, env = process.env) {
   return { ...env, ...options.pgConnectionEnvironment };
 }
@@ -544,6 +575,14 @@ export function timescaleRestorePlan(options, dumpDestination, validationDestina
 async function createTimescaleDump(options, destination, validationDestination) {
   mkdirSync(dirname(destination), { recursive: true });
   const environment = postgresEnvironment(options);
+  const logicalBytesText = await runCapture("psql", [
+    "-X", "-A", "-t", "-v", "ON_ERROR_STOP=1",
+    "-c", "SELECT pg_database_size(current_database())::bigint;",
+  ], environment);
+  const logicalBytes = Number(logicalBytesText.trim());
+  if (!Number.isSafeInteger(logicalBytes) || logicalBytes < 0) {
+    throw new Error("TimescaleDB returned an invalid logical database size");
+  }
   await runDirect(options.pgDump, timescaleDumpArguments(destination), environment);
   if (!existsSync(destination) || statSync(destination).size === 0) {
     throw new Error("pg_dump did not produce a non-empty custom-format backup");
@@ -558,6 +597,7 @@ async function createTimescaleDump(options, destination, validationDestination) 
   return {
     status: "included",
     scope: "full-database",
+    logicalBytes,
     telemetrySchema: options.schema,
     format: "postgresql-custom",
     catalogVerification: "passed",

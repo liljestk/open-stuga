@@ -361,9 +361,12 @@ services:
       STUGA_MIGRATION_ROOT: /app/migrations
       STUGA_MIGRATION_HOST_ROOT: ${STUGA_MIGRATION_DIRECTORY:-./data/migrations}
       STUGA_TARGET_DATA_DIRECTORY: /app/data
+      STUGA_TARGET_TIMESERIES_DIRECTORY: /app/timeseries-data
       STUGA_TARGET_ENV_FILE: /app/target-settings/stuga.env
       STUGA_TARGET_CONFIG_DIRECTORY: /app/target-settings/config
       STUGA_TARGET_SECRETS_DIRECTORY: /app/target-settings/secrets
+      STUGA_MIGRATION_SEED_RETENTION_DAYS: ${STUGA_MIGRATION_SEED_RETENTION_DAYS:-14}
+      STUGA_MIGRATION_MAX_RETAINED_SEEDS: ${STUGA_MIGRATION_MAX_RETAINED_SEEDS:-4}
       TIMESERIES_HOST: timescaledb
       TIMESERIES_PORT: "5432"
       TIMESERIES_DATABASE: ${TIMESERIES_DATABASE:-stuga}
@@ -372,6 +375,7 @@ services:
       TIMESERIES_SSL_MODE: disable
     volumes:
       - climate-twin-data:/app/data
+      - stuga-timeseries-data:/app/timeseries-data:ro
       - stuga-timeseries-admin-secret:/app/runtime/admin:ro
       - ${STUGA_MIGRATION_DIRECTORY:-./data/migrations}:/app/migrations
       - ${STUGA_MIGRATION_ENV_FILE:-./.env}:/app/target-settings/stuga.env

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -12,11 +12,10 @@ const compareSemver = (first, second) => {
   }
   return 0;
 };
-const workspaceManifests = [
-  "apps/api/package.json",
-  "apps/web/package.json",
-  "packages/contracts/package.json",
-];
+const workspaceManifests = ["apps", "packages"].flatMap((directory) => readdirSync(resolve(root, directory), {
+  withFileTypes: true,
+}).filter((entry) => entry.isDirectory() && existsSync(resolve(root, directory, entry.name, "package.json")))
+  .map((entry) => `${directory}/${entry.name}/package.json`));
 const productManifests = workspaceManifests;
 const mismatches = productManifests.flatMap((path) => {
   const version = json(path).version;
@@ -27,6 +26,11 @@ if (!currentTuple) mismatches.push(`package.json version must use stable x.y.z S
 const webContractsVersion = json("apps/web/package.json").dependencies?.["@climate-twin/contracts"];
 if (webContractsVersion !== expected) {
   mismatches.push(`apps/web/package.json @climate-twin/contracts: ${webContractsVersion ?? "missing"}`);
+}
+for (const [name, version] of Object.entries(json("apps/web/package.json").dependencies ?? {})) {
+  if (name.startsWith("@climate-twin/") && version !== expected) {
+    mismatches.push(`apps/web/package.json ${name}: ${version}`);
+  }
 }
 const contractsSource = readFileSync(resolve(root, "packages/contracts/src/index.ts"), "utf8");
 const runtimeVersion = /export const SYSTEM_VERSION = "([^"]+)"/.exec(contractsSource)?.[1];
