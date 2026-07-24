@@ -49,7 +49,7 @@ services:
     environment:
       STUGA_UPDATE_OPERATIONS_GID: ${STUGA_UPDATE_OPERATIONS_GID:-1000}
     volumes:
-      - ${STUGA_UPDATE_OPERATIONS_DIRECTORY:-./data/update-operations}:/app/runtime/update-operations
+      - ${STUGA_UPDATE_OPERATIONS_DIRECTORY:-./data/update-operations}:/app/runtime/update-operations:${STUGA_UPDATE_OPERATIONS_MOUNT_OPTIONS:-z}
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -88,7 +88,7 @@ services:
       - stuga-timeseries-socket:/var/run/postgresql
       - stuga-timeseries-admin-secret:/run/stuga-admin:ro
       - stuga-timeseries-app-secret:/run/stuga-app:ro
-      - ./scripts/bootstrap-timescale.sh:/docker-entrypoint-initdb.d/20-stuga-app-role.sh:ro
+      - ./scripts/bootstrap-timescale.sh:/docker-entrypoint-initdb.d/20-stuga-app-role.sh:ro,z
     depends_on:
       runtime-secrets:
         condition: service_completed_successfully
@@ -121,7 +121,7 @@ services:
       - stuga-timeseries-socket:/var/run/postgresql
       - stuga-timeseries-admin-secret:/run/stuga-admin:ro
       - stuga-timeseries-app-secret:/run/stuga-app:ro
-      - ./scripts/reconcile-timescale-credentials.sh:/opt/stuga/reconcile-timescale-credentials.sh:ro
+      - ./scripts/reconcile-timescale-credentials.sh:/opt/stuga/reconcile-timescale-credentials.sh:ro,z
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -224,10 +224,11 @@ services:
       - stuga-proxy-secret:/app/runtime/proxy:ro
       - stuga-tapo-worker-secret:/app/runtime/tapo:ro
       - stuga-backup-operations:/app/runtime/backup-operations
-      - ${STUGA_UPDATE_OPERATIONS_DIRECTORY:-./data/update-operations}:/app/runtime/update-operations
-      - ${STUGA_CONFIG_DIRECTORY:-./config}:/app/config:ro
-      - ${TAPO_HISTORY_API_SECRET_DIR:-./secrets/tapo-history-api}:/run/secrets/tapo-history:ro
-      - ${STUGA_CLOUDFLARE_SECRET_DIR:-./secrets/cloudflare}:/run/secrets/cloudflare:ro
+      - stuga-scheduled-backups:/app/backups:ro
+      - ${STUGA_UPDATE_OPERATIONS_DIRECTORY:-./data/update-operations}:/app/runtime/update-operations:${STUGA_UPDATE_OPERATIONS_MOUNT_OPTIONS:-z}
+      - ${STUGA_CONFIG_DIRECTORY:-./config}:/app/config:ro,z
+      - ${TAPO_HISTORY_API_SECRET_DIR:-./secrets/tapo-history-api}:/run/secrets/tapo-history:ro,z
+      - ${STUGA_CLOUDFLARE_SECRET_DIR:-./secrets/cloudflare}:/run/secrets/cloudflare:ro,z
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777
@@ -259,9 +260,9 @@ services:
       STUGA_COMPOSE_PROJECT_NAME: stuga
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - .:/opt/stuga:ro
-      - ${STUGA_UPDATE_OPERATIONS_DIRECTORY:-./data/update-operations}:/persistent/stuga/update-operations
-      - ${STUGA_UPDATE_RELEASE_DIRECTORY:-./data/update-release}:/persistent/stuga/update-release
+      - .:/opt/stuga:ro,z
+      - ${STUGA_UPDATE_OPERATIONS_DIRECTORY:-./data/update-operations}:/persistent/stuga/update-operations:${STUGA_UPDATE_OPERATIONS_MOUNT_OPTIONS:-z}
+      - ${STUGA_UPDATE_RELEASE_DIRECTORY:-./data/update-release}:/persistent/stuga/update-release:z
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777
@@ -311,11 +312,11 @@ services:
     volumes:
       - stuga-tapo-runner-data:/app/data
       - stuga-tapo-worker-secret:/app/runtime/tapo:ro
-      - ${TAPO_HISTORY_RUNNER_SECRET_DIR:-./secrets/tapo-history-runner}:/run/secrets/tapo-history:ro
+      - ${TAPO_HISTORY_RUNNER_SECRET_DIR:-./secrets/tapo-history-runner}:/run/secrets/tapo-history:ro,z
       # The checked-in example keeps `docker compose config` reproducible while
       # the runner remains disabled. Point TAPO_RUNNER_FLOW_FILE at the
       # installation-specific selector flow before enabling automation.
-      - ${TAPO_RUNNER_FLOW_FILE:-./apps/tapo-export-runner/flow.example.json}:/app/config/tapo-flow.json:ro
+      - ${TAPO_RUNNER_FLOW_FILE:-./apps/tapo-export-runner/flow.example.json}:/app/config/tapo-flow.json:ro,z
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777
@@ -368,6 +369,7 @@ services:
       context: .
       target: backup
     restart: "no"
+    user: ${STUGA_HOST_BIND_USER:-1000:1000}
     depends_on:
       runtime-secrets:
         condition: service_completed_successfully
@@ -394,7 +396,7 @@ services:
     volumes:
       - climate-twin-data:/app/data:ro
       - stuga-timeseries-app-secret:/app/runtime/db:ro
-      - ${STUGA_BACKUP_DIRECTORY:-./backups}:/app/backups
+      - ${STUGA_BACKUP_DIRECTORY:-./backups}:/app/backups:z
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777
@@ -403,6 +405,23 @@ services:
     networks:
       - backend
 
+  stuga-backup-export:
+    profiles: ["maintenance"]
+    image: ${STUGA_BACKUP_IMAGE:-stuga-backup:local}
+    build:
+      context: .
+      target: backup
+    restart: "no"
+    user: ${STUGA_HOST_BIND_USER:-1000:1000}
+    entrypoint: ["/app/scripts/export-scheduled-backups.sh"]
+    volumes:
+      - stuga-scheduled-backups:/app/scheduled-backups:ro
+      - ${STUGA_BACKUP_DIRECTORY:-./backups}:/app/backups:z
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+
   stuga-migration:
     profiles: ["migration"]
     image: ${STUGA_BACKUP_IMAGE:-stuga-backup:local}
@@ -410,6 +429,7 @@ services:
       context: .
       target: backup
     restart: "no"
+    user: ${STUGA_HOST_BIND_USER:-1000:1000}
     depends_on:
       runtime-secrets:
         condition: service_completed_successfully
@@ -436,10 +456,10 @@ services:
       - climate-twin-data:/app/data
       - stuga-timeseries-data:/app/timeseries-data:ro
       - stuga-timeseries-admin-secret:/app/runtime/admin:ro
-      - ${STUGA_MIGRATION_DIRECTORY:-./data/migrations}:/app/migrations
-      - ${STUGA_MIGRATION_ENV_FILE:-./.env}:/app/target-settings/stuga.env
-      - ${STUGA_CONFIG_DIRECTORY:-./config}:/app/target-settings/config
-      - ${STUGA_MIGRATION_SECRETS_DIRECTORY:-./secrets}:/app/target-settings/secrets
+      - ${STUGA_MIGRATION_DIRECTORY:-./data/migrations}:/app/migrations:z
+      - ${STUGA_MIGRATION_ENV_FILE:-./.env}:/app/target-settings/stuga.env:z
+      - ${STUGA_CONFIG_DIRECTORY:-./config}:/app/target-settings/config:z
+      - ${STUGA_MIGRATION_SECRETS_DIRECTORY:-./secrets}:/app/target-settings/secrets:z
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
@@ -460,6 +480,8 @@ services:
         condition: service_completed_successfully
       backup-operations-init:
         condition: service_completed_successfully
+      api:
+        condition: service_healthy
       timescaledb:
         condition: service_healthy
     entrypoint: ["node", "/app/scripts/stuga-backup-scheduler.mjs"]
@@ -482,7 +504,7 @@ services:
       - stuga-timeseries-app-secret:/app/runtime/db:ro
       - stuga-timeseries-admin-secret:/app/runtime/admin:ro
       - stuga-backup-operations:/app/runtime/backup-operations
-      - ${STUGA_BACKUP_DIRECTORY:-./backups}:/app/backups
+      - stuga-scheduled-backups:/app/backups
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
@@ -536,7 +558,7 @@ services:
       - --token-file
       - /run/secrets/cloudflare/tunnel-token
     volumes:
-      - ${STUGA_CLOUDFLARE_SECRET_DIR:-./secrets/cloudflare}:/run/secrets/cloudflare:ro
+      - ${STUGA_CLOUDFLARE_SECRET_DIR:-./secrets/cloudflare}:/run/secrets/cloudflare:ro,z
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
@@ -560,6 +582,8 @@ volumes:
   stuga-proxy-secret:
   stuga-tapo-worker-secret:
   stuga-backup-operations:
+  stuga-scheduled-backups:
+  stuga-update-operations:
   stuga-timeseries-data:
   stuga-timeseries-socket:
   stuga-tapo-runner-data:

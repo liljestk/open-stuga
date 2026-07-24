@@ -42,6 +42,12 @@ running as a background service if automatic installation is enabled. The
 agent uses the host's existing Docker Desktop CLI and Compose project, which
 keeps Windows bind-mount paths intact.
 
+Rootless Docker and Podman installations instead use the
+`stuga-update-operations` named volume because subordinate container IDs cannot
+be made safely writable by an unrelated host process. Their supported update
+path is to fetch the desired release and rerun Compose; the setup wizard
+selects this mode automatically.
+
 ## Docker Engine on Linux
 
 The same host process works on Linux:
