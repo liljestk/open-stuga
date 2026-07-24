@@ -448,10 +448,30 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
     });
   };
 
+  const deleteStugby = () => {
+    if (!detail || detail.stugby.id !== selectedIdRef.current) return;
+    const selected = detail.stugby;
+    if (!window.confirm(t("stugby.confirmDelete", { name: selected.name }))) return;
+    void withBusy("delete", async () => {
+      await api.deleteStugby(selected.id);
+      detailRequest.current += 1;
+      beginSelection("");
+      await load();
+      setNotice(t("stugby.deleted", { name: selected.name }));
+    });
+  };
+
   if (loading) return <output className="page-loading"><LoaderCircle className="spin" size={20} aria-hidden="true" />{t("common.loading")}</output>;
 
   const currentDetail = detail?.stugby.id === selectedId ? detail : null;
   const coordinator = currentDetail?.stugby.localMemberState === "active" && currentDetail.stugby.localRole === "steward";
+  const deletionBlocked = Boolean(currentDetail && (
+    (!coordinator && !["left", "revoked"].includes(currentDetail.stugby.localMemberState))
+    || (coordinator && currentDetail.members.some((member) => (
+      member.nodeId !== index?.identity.nodeId && !["left", "revoked"].includes(member.state)
+    )))
+    || currentDetail.grants.some((grant) => !grant.revokedAt)
+  ));
   const coordinatorInvitationReady = Boolean(
     coordinator && index?.publicOrigin && currentDetail.stugby.coordinatorUrl === index.publicOrigin,
   );
@@ -546,7 +566,16 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
           <dl><div><dt>{t("stugby.localRole")}</dt><dd>{roleLabel(detail.stugby.localRole)}</dd></div><div><dt>{t("stugby.syncAutomatic")}</dt><dd>{formattedTime(detail.stugby.lastSyncAt, t("stugby.never"), locale)}</dd></div></dl>
           <details className="stugby-summary-actions">
             <summary>{t("nav.advanced")}</summary>
-            <div><small>{t("stugby.coordinator")}</small><code>{detail.stugby.coordinatorUrl}</code><button type="button" className="secondary-button" disabled={busy !== null || detail.stugby.localMemberState === "left" || detail.stugby.localMemberState === "revoked"} onClick={() => void withBusy("sync", async () => { await api.syncStugby(detail.stugby.id); await load(detail.stugby.id); })}><RefreshCw aria-hidden="true" className={busy === "sync" ? "spin" : ""} size={16} />{t("stugby.syncNow")}</button></div>
+            <div>
+              <small>{t("stugby.coordinator")}</small>
+              <code>{detail.stugby.coordinatorUrl}</code>
+              <button type="button" className="secondary-button" disabled={busy !== null || detail.stugby.localMemberState === "left" || detail.stugby.localMemberState === "revoked"} onClick={() => void withBusy("sync", async () => { await api.syncStugby(detail.stugby.id); await load(detail.stugby.id); })}><RefreshCw aria-hidden="true" className={busy === "sync" ? "spin" : ""} size={16} />{t("stugby.syncNow")}</button>
+              <div className="stugby-delete-action">
+                <strong>{t("stugby.delete")}</strong>
+                <small>{t(deletionBlocked ? "stugby.deleteBlocked" : "stugby.deleteHelp")}</small>
+                <button type="button" className="danger-button" disabled={busy !== null || deletionBlocked} onClick={deleteStugby}>{busy === "delete" ? <LoaderCircle aria-hidden="true" className="spin" size={16} /> : <Trash2 aria-hidden="true" size={16} />}{t("stugby.delete")}</button>
+              </div>
+            </div>
           </details>
           {detail.stugby.lastSyncError && <p className="inline-error stugby-summary-error" role="alert">{detail.stugby.lastSyncError}</p>}
         </section>

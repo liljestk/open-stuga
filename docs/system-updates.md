@@ -28,39 +28,45 @@ Only an Owner or Admin can read update configuration, change the schedule, or
 request an installation. Settings changes and manual installation requests are
 recorded in the append-only security audit log.
 
-## Docker Desktop on Windows or macOS
+## Docker host service
 
-Start the application normally, then run the update agent from the repository
-root in a host terminal:
+During guided Docker setup, explicitly choose the update-agent service. For an
+existing installation, use:
 
-```powershell
-npm run update-agent
+```sh
+npm run update-agent:service:install
 ```
 
-The default shared directory is `data/update-operations`. Keep the agent
-running as a background service if automatic installation is enabled. The
-agent uses the host's existing Docker Desktop CLI and Compose project, which
-keeps Windows bind-mount paths intact.
+The wizard warns before granting this authority, then installs and starts a
+per-user service through Task Scheduler on Windows, systemd on Linux, or
+launchd on macOS. It runs as the current Docker-authorized account, never as an
+elevated system service. Remove it with:
 
-Rootless Docker and Podman installations instead use the
-`stuga-update-operations` named volume because subordinate container IDs cannot
-be made safely writable by an unrelated host process. Their supported update
-path is to fetch the desired release and rerun Compose; the setup wizard
-selects this mode automatically.
+```sh
+npm run update-agent:service:uninstall
+```
 
-## Docker Engine on Linux
-
-The same host process works on Linux:
+For a foreground session instead, run:
 
 ```sh
 npm run update-agent
 ```
 
-For a long-running installation, supervise it with systemd or another process
-manager. Run it as an account that is deliberately authorized to manage this
-Compose project. Set `STUGA_UPDATE_OPERATIONS_GID` in `.env` to that account's
-numeric `id -g` before starting Compose, so the API and host agent share the
-setgid operations directory. Docker access is host-administrator access.
+The default shared directory is `data/update-operations`. On Linux, the
+installer sets `STUGA_UPDATE_OPERATIONS_GID` to the service account's primary
+group and reapplies the bounded directory permissions so the API and host
+agent can share it. A systemd user service starts with that user's service
+manager; enable user lingering separately if the agent must run before login.
+Docker access is host-administrator access.
+
+The agent deliberately runs on the Docker Desktop host rather than in the
+privileged Compose profile, preserving Windows and macOS bind-mount paths.
+
+Rootless Docker and Podman installations instead use the
+`stuga-update-operations` named volume because subordinate container IDs cannot
+be made safely writable by an unrelated host process. Their supported update
+path is to fetch the desired release and rerun Compose; the setup wizard
+selects this mode automatically and refuses the incompatible host-agent option.
 
 Useful overrides:
 
@@ -71,10 +77,15 @@ STUGA_UPDATE_OPERATIONS_DIRECTORY=/srv/stuga/update-operations
 STUGA_UPDATE_OPERATIONS_GID=1001
 STUGA_PROJECT_DIRECTORY=/srv/stuga
 STUGA_RELEASE_ENV_FILE=/srv/stuga/.stuga-release.env
+# Only if the stack was started with `docker compose --project-name stuga`:
+STUGA_COMPOSE_PROJECT_NAME=stuga
 ```
 
 The repository and image prefix are deployment configuration, not browser
-settings. Update requests cannot override them.
+settings. Update requests cannot override them. By default the host agent uses
+the Compose project derived from `STUGA_PROJECT_DIRECTORY`, matching a normal
+`docker compose up`; set `STUGA_COMPOSE_PROJECT_NAME` only for an installation
+that was started with an explicit `--project-name`.
 
 ## Raspberry Pi appliance
 

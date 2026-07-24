@@ -89,7 +89,9 @@ containers, which local port to use. Docker and Podman users can optionally
 choose guided Cloudflare Tunnel + Access setup for a protected remote UI or a
 Stugby coordinator. The wizard takes tokens through hidden prompts or protected
 files, provisions the edge, starts it, and fails closed unless every protected
-and intentionally public path verifies. The host port stays on loopback.
+and intentionally public path verifies. Docker users can also explicitly
+install the host update agent as a per-user startup service. The host port
+stays on loopback.
 
 The wizard changes only basic `.env` values and preserves existing secrets and
 advanced settings. Cloudflare runtime credentials go into the ignored,
@@ -117,7 +119,7 @@ npm run build
 Non-interactive container examples:
 
 ```sh
-npm run setup -- --mode docker --real --start --no-cloudflare --yes
+npm run setup -- --mode docker --real --start --install-update-agent --no-cloudflare --yes
 npm run setup -- --mode podman --real --start --no-cloudflare --yes
 ```
 

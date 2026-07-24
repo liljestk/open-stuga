@@ -84,7 +84,7 @@ describe("system updates page", () => {
     expect(
       (await screen.findByRole("button", { name: "Update now" }) as HTMLButtonElement).disabled
     ).toBe(true);
-    expect(screen.getByText(/Start the update agent/)).toBeTruthy();
+    expect(screen.getByText(/update-agent:service:install/)).toBeTruthy();
   });
 
   it("queues an ad-hoc update after explicit confirmation", async () => {

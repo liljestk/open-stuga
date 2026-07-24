@@ -4,13 +4,29 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
-## 0.9.1 - 2026-07-24
+- Added a guarded **Delete Stugby** action under Advanced. It removes local
+  federation records and cached assets without touching Home data, and refuses
+  deletion while memberships, Home grants, or replica deletion receipts remain
+  active.
+
+## 0.10.1 - 2026-07-24
 
 - Fixed Docker and Podman startup permissions across Linux, macOS, and Windows
   by selecting rootless-safe named volumes, applying shared SELinux labels to
   host binds, and writing explicit exports with the runtime-mapped identity.
 - Added portable local-mode CI, verified scheduled-backup export, dynamic
   container DNS for API recreation, and cross-platform setup/runtime checks.
+
+## 0.10.0 - 2026-07-24
+
+- Added an explicit Docker setup option to install and immediately start the
+  host update agent as a per-user startup service. The opt-in wizard warns that
+  the agent has Docker-administrator authority; unattended setup must pass
+  `--install-update-agent`.
+- Fixed host update agents to target the Compose project derived from the
+  installation directory instead of an unrelated hard-coded project. The
+  agent now verifies the running API and web before backup and never attempts
+  rollback when a pre-update backup fails before release state changes.
 
 ## 0.9.0 - 2026-07-24
 

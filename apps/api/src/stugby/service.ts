@@ -311,6 +311,55 @@ export class StugbyService {
   listStugbys(): StugbySummary[] { return this.store.listStugbys(); }
   getStugby(id: string): StugbySummary { return this.requireStugby(id); }
 
+  deleteStugby(id: string): void {
+    const stugby = this.requireStugby(id);
+    const coordinator = this.store.isCoordinator(id);
+    if (!coordinator && !["left", "revoked"].includes(stugby.localMemberState)) {
+      throw new StugbyError(
+        409,
+        "STUGBY_MEMBERSHIP_ACTIVE",
+        "Leave this Stugby or have its coordinator revoke this node before deleting the local record",
+      );
+    }
+    const connectedMembers = coordinator ? this.store.listMembers(id).filter((member) => (
+      member.nodeId !== this.identity.nodeId && !["left", "revoked"].includes(member.state)
+    )) : [];
+    if (connectedMembers.length > 0) {
+      throw new StugbyError(
+        409,
+        "STUGBY_MEMBERS_ACTIVE",
+        "Mark every other Stugby member left or revoked before deleting this Stugby",
+      );
+    }
+    if (this.store.listGrants(id).some((grant) => !grant.revokedAt)) {
+      throw new StugbyError(
+        409,
+        "STUGBY_SHARING_ACTIVE",
+        "Revoke every active Home sharing grant before deleting this Stugby",
+      );
+    }
+    if (this.store.pendingDeletionsForStugby(id) > 0) {
+      throw new StugbyError(
+        409,
+        "STUGBY_DELETION_PENDING",
+        "Wait for every replica deletion acknowledgement before deleting this Stugby",
+      );
+    }
+
+    const outgoingStream = this.#streamControllers.get(id);
+    outgoingStream?.abort();
+    this.#streamControllers.delete(id);
+    for (const [key, close] of this.#incomingNotificationStreams) {
+      if (!key.startsWith(`${id}\n`)) continue;
+      this.#incomingNotificationStreams.delete(key);
+      close();
+    }
+    if (this.#deferredNotifications) {
+      this.#deferredNotifications = this.#deferredNotifications.filter((notification) => notification.stugbyId !== id);
+    }
+    this.deleteUnreferencedBlobs(this.store.deleteStugby(id));
+  }
+
   createStugby(input: { name: string; description?: string | null; coordinatorUrl: string }): StugbySummary {
     const summary = this.store.createCoordinatedStugby({
       name: requiredText(input.name, "Name"),
