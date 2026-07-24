@@ -4,6 +4,17 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+## 0.9.0 - 2026-07-24
+
+- Added guided Cloudflare Tunnel + Access onboarding to the setup wizard for
+  Docker and Podman. It accepts tokens only through hidden input or protected
+  files, enforces separate setup/runtime credentials, provisions least-scope
+  path policies, starts the connector, verifies the complete edge boundary,
+  and stops public ingress automatically if verification fails.
+- Fixed Stugby coordinator upgrades to repin unjoined loopback federations,
+  revoke stale origin-bound invitations, block unusable admissions, recreate
+  origin-consuming services, and verify the complete public invitation handoff.
+
 ## 0.8.0 - 2026-07-24
 
 - Added a cross-platform setup wizard for local Node.js, Docker, Podman, and

@@ -188,7 +188,7 @@ normal operation uses SSE wake-ups and the configured safety interval.
 | --- | --- | --- |
 | `STUGBY_IDENTITY_FILE` | beside the core SQLite database | Persistent node ID and Ed25519 key pair |
 | `STUGBY_NODE_NAME` | `Stuga` | Human-readable node name shown to participants |
-| `STUGBY_PUBLIC_ORIGIN` | empty | Server-owned HTTPS coordinator origin; required only to create a Stugby and written automatically by the coordinator provisioner |
+| `STUGBY_PUBLIC_ORIGIN` | empty | Server-owned HTTPS coordinator origin; required to create or admit members and written automatically by the coordinator provisioner |
 | `STUGBY_SYNC_INTERVAL_MS` | `15000` | Durable pull/outbox safety interval, 2–300 seconds |
 
 The Compose setup stores `stugby-identity.json` and federation SQLite rows in
@@ -211,6 +211,13 @@ protected by active membership, Ed25519 signatures, clock bounds, replay
 prevention, bounded bodies, and origin-side rate limits; it does not accept
 browser sessions or integration credentials. Cloudflare Access Bypass itself
 does not authenticate or log the machine request, so never broaden that path.
+
+If an unjoined Stugby was first created through loopback, configuring the public
+origin and restarting Stuga repins that local-only coordinator automatically.
+Any still-active invitations are revoked because their copied links contain the
+old origin; create new invitations after the restart. Once another node has
+joined, the coordinator origin is stable and a mismatched configuration fails
+closed instead of silently moving the federation.
 
 ## Failure behavior and operations
 

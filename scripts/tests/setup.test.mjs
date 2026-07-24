@@ -2,14 +2,17 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 import {
+  activateCloudflare,
   basicEnvironmentUpdates,
   configureEnvironment,
   environmentValues,
   ensureEnvironmentFile,
   parseSetupArgs,
   parseVersion,
+  readHiddenValue,
   resolveConfiguration,
   supportsNode,
   updateEnvironmentText,
@@ -41,12 +44,23 @@ test("parses explicit install modes and non-interactive choices", () => {
   assert.deepEqual(
     parseSetupArgs(["--mode", "podman", "--demo", "--port=9090", "--start", "--yes"]),
     {
+      cloudflare: {
+        accessTokenFile: null,
+        accountId: null,
+        hostname: null,
+        ownerEmail: null,
+        provisionTokenFile: null,
+        secretDirectory: null,
+        zone: null,
+        zoneId: null,
+      },
       data: "demo",
       dryRun: false,
       help: false,
       mode: "podman",
       piAction: null,
       port: 9090,
+      remoteAccess: null,
       skipInstall: false,
       start: true,
       yes: true,
@@ -58,7 +72,7 @@ test("parses explicit install modes and non-interactive choices", () => {
 });
 
 test("interactive setup asks for runtime and only basic choices", async () => {
-  const answers = ["3", "yes", "9090", "no"];
+  const answers = ["3", "yes", "9090", "1", "no"];
   let closed = false;
   const configuration = await resolveConfiguration(parseSetupArgs([]), {
     interactive: true,
@@ -69,6 +83,7 @@ test("interactive setup asks for runtime and only basic choices", async () => {
   });
 
   assert.deepEqual(configuration, {
+    cloudflare: null,
     data: "demo",
     installDependencies: false,
     mode: "podman",
@@ -77,6 +92,91 @@ test("interactive setup asks for runtime and only basic choices", async () => {
   });
   assert.equal(closed, true);
   assert.deepEqual(answers, []);
+});
+
+test("interactive setup guides a Cloudflare deployment without asking for IDs", async () => {
+  const root = mkdtempSync(join(tmpdir(), "stuga-cloudflare-setup-"));
+  const answers = [
+    "2",
+    "no",
+    "",
+    "2",
+    "stuga.example.test",
+    "",
+    "owner@example.test",
+    "",
+  ];
+  let closed = false;
+  try {
+    const configuration = await resolveConfiguration(parseSetupArgs([]), {
+      interactive: true,
+      root,
+      readline: {
+        close: () => { closed = true; },
+        question: async () => answers.shift(),
+      },
+    });
+
+    assert.equal(configuration.mode, "docker");
+    assert.equal(configuration.start, true);
+    assert.deepEqual(configuration.cloudflare, {
+      accessTokenFile: null,
+      accountId: null,
+      command: "provision",
+      composeSecretDirectory: "./secrets/cloudflare",
+      hostname: "stuga.example.test",
+      mode: "remote-ui",
+      ownerEmail: "owner@example.test",
+      provisionTokenFile: null,
+      secretDirectory: join(root, "secrets", "cloudflare"),
+      tokenInput: "prompt",
+      zone: "example.test",
+      zoneId: null,
+    });
+    assert.equal(closed, true);
+    assert.deepEqual(answers, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("non-interactive Cloudflare setup requires explicit protected token files", async () => {
+  const root = mkdtempSync(join(tmpdir(), "stuga-cloudflare-options-"));
+  try {
+    const base = [
+      "--mode", "docker",
+      "--real",
+      "--cloudflare", "coordinator",
+      "--cloudflare-hostname", "stuga.example.test",
+      "--cloudflare-zone", "example.test",
+      "--cloudflare-owner-email", "owner@example.test",
+      "--yes",
+    ];
+    await assert.rejects(
+      resolveConfiguration(parseSetupArgs(base), { interactive: false, root }),
+      /requires both --cloudflare-provision-token-file/u,
+    );
+    await assert.rejects(
+      resolveConfiguration(parseSetupArgs([...base, "--no-start", "--dry-run"]), {
+        interactive: false,
+        root,
+      }),
+      /must start and verify/u,
+    );
+
+    const configuration = await resolveConfiguration(parseSetupArgs([
+      ...base,
+      "--cloudflare-provision-token-file", "setup-token",
+      "--cloudflare-access-token-file", "access-token",
+    ]), { interactive: false, root });
+    assert.equal(configuration.start, true);
+    assert.equal(configuration.cloudflare.mode, "stugby-coordinator");
+    assert.equal(configuration.cloudflare.command, "provision-coordinator");
+    assert.equal(configuration.cloudflare.provisionTokenFile, join(root, "setup-token"));
+    assert.equal(configuration.cloudflare.accessTokenFile, join(root, "access-token"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("updates only selected environment values", () => {
@@ -136,6 +236,21 @@ test("uses the minimum settings for each runtime", () => {
     { APP_PORT: "8081", MOCK_ENABLED: "true" },
   );
   assert.deepEqual(
+    basicEnvironmentUpdates({
+      cloudflare: { composeSecretDirectory: "./secrets/cloudflare", mode: "remote-ui" },
+      data: "real",
+      mode: "docker",
+      port: 8080,
+    }),
+    {
+      APP_PORT: "8080",
+      BIND_ADDRESS: "127.0.0.1",
+      MOCK_ENABLED: "false",
+      STUGA_CLOUDFLARE_ENV_FILE: "./secrets/cloudflare/config.env",
+      STUGA_CLOUDFLARE_SECRET_DIR: "./secrets/cloudflare",
+    },
+  );
+  assert.deepEqual(
     basicEnvironmentUpdates({ data: "real", mode: "podman", port: 8080 }),
     { APP_PORT: "8080", COMPOSE_PROFILES: "", MOCK_ENABLED: "false" },
   );
@@ -157,4 +272,105 @@ test("validates the selected Compose runtime before launch", () => {
     () => verifyContainerRuntime("docker", () => ({ error: { code: "ENOENT" }, status: null })),
     /Docker is not available/u,
   );
+});
+
+test("hidden input returns the token without echoing it", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (value) => { input.isRaw = value; };
+  output.isTTY = true;
+  let visible = "";
+  output.on("data", (chunk) => { visible += chunk.toString("utf8"); });
+
+  const answer = readHiddenValue("Secret: ", { input, output });
+  input.write("hidden-test-token\r");
+  assert.equal(await answer, "hidden-test-token");
+  assert.equal(visible, "Secret: \n");
+});
+
+test("Cloudflare activation keeps pasted tokens out of commands and logs", async () => {
+  const provisionToken = "p".repeat(40);
+  const accessToken = "a".repeat(40);
+  const tokenAnswers = [provisionToken, accessToken];
+  const calls = [];
+  const logs = [];
+  const configuration = {
+    cloudflare: {
+      command: "provision",
+      hostname: "stuga.example.test",
+      mode: "remote-ui",
+      secretDirectory: "C:\\protected\\cloudflare",
+      tokenInput: "prompt",
+    },
+    mode: "docker",
+    port: 8080,
+  };
+
+  const result = await activateCloudflare(configuration, {
+    logger: { log: (message) => logs.push(message) },
+    provisioner: async (_options, dependencies) => {
+      calls.push(["provision", dependencies.provisionToken, dependencies.accessToken]);
+    },
+    runner: (command, args) => {
+      calls.push([command, ...args]);
+      return { status: 0 };
+    },
+    tokenReader: async () => tokenAnswers.shift(),
+    verifier: async () => ({ origin: "https://stuga.example.test" }),
+    verifyAttempts: 1,
+  });
+
+  assert.deepEqual(result, { origin: "https://stuga.example.test" });
+  assert.deepEqual(calls, [
+    ["provision", provisionToken, accessToken],
+    [
+      "docker",
+      "compose",
+      "up",
+      "-d",
+      "--build",
+      "--force-recreate",
+      "api",
+      "web",
+      "cloudflared",
+    ],
+  ]);
+  assert.doesNotMatch(logs.join("\n"), new RegExp(`${provisionToken}|${accessToken}`, "u"));
+});
+
+test("Cloudflare activation stops the connector when boundary verification fails", async () => {
+  const calls = [];
+  await assert.rejects(
+    activateCloudflare(
+      {
+        cloudflare: {
+          command: "provision",
+          hostname: "stuga.example.test",
+          mode: "remote-ui",
+          secretDirectory: "C:\\protected\\cloudflare",
+          tokenInput: "files",
+        },
+        mode: "podman",
+        port: 8080,
+      },
+      {
+        logger: { log() {} },
+        provisioner: async () => {},
+        runner: (command, args) => {
+          calls.push([command, ...args]);
+          return { status: 0 };
+        },
+        verifier: async () => {
+          throw new Error("root is exposed");
+        },
+        verifyAttempts: 2,
+        verifyDelayMs: 0,
+        waitForRetry: async () => {},
+      },
+    ),
+    /public connector was stopped/u,
+  );
+  assert.deepEqual(calls.at(-1), ["podman", "compose", "stop", "cloudflared"]);
 });

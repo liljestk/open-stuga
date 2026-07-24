@@ -49,6 +49,7 @@ export const svOverrides = {
   "stugby.newRole": "Roll för ny deltagare",
   "stugby.invitationExpiry": "Inbjudans sluttid (valfri)",
   "stugby.createInvitation": "Skapa engångsinbjudan",
+  "stugby.invitationUnavailable": "Inbjudningar är pausade tills denna Stugbys samordnar-URL matchar serverns publika origin. Provisionera eller återställ samordnaren och starta sedan om Stuga.",
   "stugby.invitationDefaults": "Deltagarbehörighet · upphör om 7 dagar",
   "stugby.invitationOptions": "Ändra roll eller giltighetstid",
   "stugby.invitationOnce": "Kopiera inbjudan nu; inträdeshemligheten visas bara en gång.",

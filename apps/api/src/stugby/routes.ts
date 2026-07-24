@@ -106,6 +106,7 @@ export function registerStugbyProtocolRoutes(app: Express, service: StugbyServic
   });
 
   app.post(`${PROTOCOL_PREFIX}/join`, joinRaw, route((request, response) => {
+    coordinatorOrigin(request, service);
     response.type(STUGBY_MEDIA_TYPE).status(201).send(JSON.stringify(service.acceptJoin(rawJson(request) as never)));
   }));
 
@@ -257,6 +258,7 @@ export function registerStugbyLocalRoutes(app: Express, service: StugbyService, 
   }));
 
   app.post(`${LOCAL_PREFIX}/:stugbyId/invitations`, admin, route((request, response) => {
+    coordinatorOrigin(request, service);
     const body = objectBody(request.body);
     response.status(201).json(service.createInvitation(stugbyId(request), {
       role: stringValue(body.role, "Role") as "property-manager" | "participant" | "viewer",

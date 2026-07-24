@@ -110,10 +110,14 @@ function asJson(value: unknown): JsonValue {
   return value as JsonValue;
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(hostname);
+}
+
 function normalizedBaseUrl(value: string): string {
   let url: URL;
   try { url = new URL(value); } catch { throw new StugbyError(400, "INVALID_COORDINATOR_URL", "Coordinator URL must be an absolute URL"); }
-  const loopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname);
+  const loopback = isLoopbackHostname(url.hostname);
   if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
     throw new StugbyError(400, "HTTPS_REQUIRED", "Stugby federation requires HTTPS (HTTP is allowed only on loopback for development)");
   }
@@ -258,6 +262,7 @@ export class StugbyService {
     this.#fetcher = options.fetcher ?? fetch;
     this.#syncIntervalMs = Math.max(2_000, options.syncIntervalMs ?? 15_000);
     this.publicOrigin = options.publicOrigin ? normalizedBaseUrl(options.publicOrigin) : null;
+    if (this.publicOrigin) this.store.reconcileUnjoinedCoordinatorOrigins(this.publicOrigin);
   }
 
   get identity(): StugbyNodeIdentity {
@@ -316,7 +321,7 @@ export class StugbyService {
   }
 
   createInvitation(stugbyId: string, input: { role: Exclude<StugbyRole, "steward">; expiresAt?: string }): StugbyInvitation & { joinSecret: string; joinUrl: string } {
-    const stugby = this.requireCoordinator(stugbyId);
+    const stugby = this.requireReadyCoordinator(stugbyId);
     if (!["property-manager", "participant", "viewer"].includes(input.role)) {
       throw new StugbyError(400, "INVALID_ROLE", "Invitation role must be property-manager, participant, or viewer");
     }
@@ -435,6 +440,8 @@ export class StugbyService {
     if (!this.keys.verify(joinSigningValue(normalized), normalized.signature, normalized.identity.publicKey)) {
       throw new StugbyError(401, "INVALID_JOIN_PROOF", "Join request proof is invalid");
     }
+    const pendingInvitation = this.store.getInvitation(normalized.invitationId);
+    if (pendingInvitation) this.requireReadyCoordinator(pendingInvitation.stugbyId);
     const secretHash = sha256(normalized.joinSecret);
     const admission = this.store.admitInvitation(normalized.invitationId, secretHash, normalized.identity);
     if (admission.status === "invalid") {
@@ -443,7 +450,7 @@ export class StugbyService {
     if (admission.status === "node-conflict") {
       throw new StugbyError(409, "NODE_ALREADY_MEMBER", "That node identity is already registered in this Stugby");
     }
-    const stugby = this.requireCoordinator(admission.invitation.stugbyId);
+    const stugby = this.requireReadyCoordinator(admission.invitation.stugbyId);
     const member = admission.member;
     if (!admission.provisioned) {
       this.publishMember(member);
@@ -1874,6 +1881,21 @@ export class StugbyService {
   private requireCoordinator(id: string): StugbySummary {
     const stugby = this.requireStugby(id);
     if (!this.store.isCoordinator(id)) throw new StugbyError(409, "COORDINATOR_REQUIRED", "This operation must be performed by the Stugby coordinator");
+    return stugby;
+  }
+
+  private requireReadyCoordinator(id: string): StugbySummary {
+    const stugby = this.requireCoordinator(id);
+    const loopback = (() => {
+      try { return isLoopbackHostname(new URL(stugby.coordinatorUrl).hostname); } catch { return false; }
+    })();
+    if ((this.publicOrigin && stugby.coordinatorUrl !== this.publicOrigin) || (!this.publicOrigin && !loopback)) {
+      throw new StugbyError(
+        503,
+        "STUGBY_COORDINATOR_ORIGIN_MISMATCH",
+        "The stored Stugby coordinator URL does not match this server's configured public origin",
+      );
+    }
     return stugby;
   }
 }

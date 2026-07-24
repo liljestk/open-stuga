@@ -23,7 +23,7 @@ function summary(id: string, name: string): StugbySummary {
     name,
     description: null,
     coordinatorNodeId: "node-local",
-    coordinatorUrl: "https://coordinator.example.test",
+    coordinatorUrl: "https://stuga.example.test",
     localRole: "steward",
     localMemberState: "active",
     memberCount: 1,
@@ -121,6 +121,22 @@ describe("StugbyPage", () => {
     expect(await screen.findByRole("heading", { name: "A read-only sharing boundary" })).toBeTruthy();
     expect(screen.getByText(/Integration settings, endpoints, credentials, secrets, local account identities, remote control, commands and automations cannot be federated/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Join without sharing" })).toBeTruthy();
+  });
+
+  it("pauses invitations when the stored coordinator origin is stale", async () => {
+    const stugby = {
+      ...summary("stugby-a", "North grounds"),
+      coordinatorUrl: "http://127.0.0.1:8080",
+    };
+    mockLoadedStugbys([stugby], { [stugby.id]: detail(stugby) });
+    const createInvitation = vi.spyOn(api, "createStugbyInvitation");
+
+    render(<I18nProvider><StugbyPage houses={[]} /></I18nProvider>);
+
+    const button = await screen.findByRole<HTMLButtonElement>("button", { name: "Create one-time invitation" });
+    expect(button.disabled).toBe(true);
+    expect(screen.getByText(/Invitations are paused until this Stugby's coordinator URL matches/)).toBeTruthy();
+    expect(createInvitation).not.toHaveBeenCalled();
   });
 
   it("has no automated accessibility violations in onboarding", async () => {
