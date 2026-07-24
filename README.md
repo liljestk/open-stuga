@@ -141,6 +141,16 @@ node identity, protected integration secrets, and a full
 TimescaleDB dump. Treat it as sensitive and copy it to encrypted off-host
 storage.
 
+The always-on scheduler keeps its private recovery sets in an engine-managed
+volume so Docker and rootless Podman behave consistently on Linux, macOS, and
+Windows. Export verified scheduled sets to `backups/` with:
+
+```powershell
+docker compose --profile maintenance run --rm stuga-backup-export
+```
+
+Use `podman compose` in both commands when Podman is the selected runtime.
+
 Move a running Compose installation to a booted Stuga appliance with an
 optional online seed followed by a short, explicit cutover:
 

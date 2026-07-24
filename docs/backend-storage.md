@@ -195,6 +195,23 @@ docker compose --profile maintenance run --rm --no-deps stuga-backup `
 
 This command deliberately includes both SQLite databases, assets, integration secrets, and a full TimescaleDB dump. Its output therefore contains the complete sensitive household recovery set; move the verified directory to encrypted off-host storage. The service does not publish PostgreSQL or require `pg_dump` on the host.
 
+The always-on scheduler writes verified sets and performs restore drills from
+the private `stuga-scheduled-backups` named volume. Keeping that writable path
+engine-managed avoids host UID/GID and ACL differences across rootful Docker,
+rootless Docker/Podman, Docker Desktop, and Podman machine. Export scheduled
+sets to the protected host backup directory with:
+
+```powershell
+docker compose --profile maintenance run --rm stuga-backup-export
+```
+
+The exporter copies only completed sets with a manifest and preserves any
+same-named host export. Use `podman compose` for Podman. A fresh installation
+with no integration-secrets file can still produce a scheduled recovery set;
+the manifest records the protected source as excluded until credentials exist.
+The explicit `stuga-backup` command continues to require the secrets file
+because it promises a complete operator-requested recovery set.
+
 Create and verify a complete recovery set before a risky migration or upgrade:
 
 ```powershell

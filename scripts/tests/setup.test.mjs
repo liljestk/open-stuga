@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   activateCloudflare,
   basicEnvironmentUpdates,
+  containerRuntimeEnvironmentUpdates,
   configureEnvironment,
   environmentValues,
   ensureEnvironmentFile,
@@ -305,17 +306,36 @@ test("uses the minimum settings for each runtime", () => {
     { APP_PORT: "8080", COMPOSE_PROFILES: "", MOCK_ENABLED: "false" },
   );
   assert.deepEqual(basicEnvironmentUpdates({ mode: "rpi" }), {});
+  assert.deepEqual(
+    containerRuntimeEnvironmentUpdates("docker", { rootless: false }),
+    {
+      STUGA_HOST_BIND_USER: "1000:1000",
+      STUGA_UPDATE_OPERATIONS_DIRECTORY: "./data/update-operations",
+      STUGA_UPDATE_OPERATIONS_MOUNT_OPTIONS: "z",
+    },
+  );
+  assert.deepEqual(
+    containerRuntimeEnvironmentUpdates("podman", { rootless: true }),
+    {
+      STUGA_HOST_BIND_USER: "0:0",
+      STUGA_UPDATE_OPERATIONS_DIRECTORY: "stuga-update-operations",
+      STUGA_UPDATE_OPERATIONS_MOUNT_OPTIONS: "rw",
+    },
+  );
+  assert.deepEqual(containerRuntimeEnvironmentUpdates("local", {}), {});
 });
 
 test("validates the selected Compose runtime before launch", () => {
   const calls = [];
-  verifyContainerRuntime("podman", (command, args) => {
+  const runtime = verifyContainerRuntime("podman", (command, args) => {
     calls.push([command, ...args]);
-    return { status: 0 };
+    return { status: 0, stdout: args[0] === "info" ? "true\n" : "" };
   });
+  assert.deepEqual(runtime, { rootless: true });
   assert.deepEqual(calls, [
     ["podman", "--version"],
     ["podman", "compose", "config"],
+    ["podman", "info", "--format", "{{.Host.Security.Rootless}}"],
   ]);
 
   assert.throws(

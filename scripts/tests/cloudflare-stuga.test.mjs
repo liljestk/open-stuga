@@ -165,6 +165,9 @@ test("provisioning refuses to retain a broad setup token as the runtime token", 
 test("bundled reverse proxy rate-limits the machine exception before the generic API route", () => {
   const nginx = readFileSync(new URL("../../config/nginx.conf", import.meta.url), "utf8");
   assert.match(nginx, /client_max_body_size 16m;/u);
+  assert.match(nginx, /resolver \$\{STUGA_CONTAINER_DNS_RESOLVER\} valid=10s ipv6=off;/u);
+  assert.match(nginx, /set \$stuga_api_host api;/u);
+  assert.equal((nginx.match(/proxy_pass http:\/\/\$stuga_api_host:8787;/gu) ?? []).length, 3);
   assert.match(nginx, /limit_req_zone \$stuga_client_address zone=stugby_join:10m rate=6r\/m;/u);
   assert.match(nginx, /limit_req_zone \$stuga_client_address zone=stugby_protocol:10m rate=30r\/s;/u);
   const join = nginx.indexOf("location = /api/v1/stugby-protocol/join");

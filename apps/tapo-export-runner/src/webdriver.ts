@@ -158,7 +158,12 @@ export class AppiumClient {
     try {
       contents = await readFile(this.options.sessionFile, "utf8");
     } catch (error) {
-      if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return null;
+      if (
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        (error.code === "ENOENT" || error.code === "ENOTDIR")
+      ) return null;
       throw new WebDriverError("Cannot read persisted Appium session state", "unsafe session state", 500);
     }
     try {

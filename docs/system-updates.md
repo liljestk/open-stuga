@@ -62,6 +62,12 @@ Docker access is host-administrator access.
 The agent deliberately runs on the Docker Desktop host rather than in the
 privileged Compose profile, preserving Windows and macOS bind-mount paths.
 
+Rootless Docker and Podman installations instead use the
+`stuga-update-operations` named volume because subordinate container IDs cannot
+be made safely writable by an unrelated host process. Their supported update
+path is to fetch the desired release and rerun Compose; the setup wizard
+selects this mode automatically and refuses the incompatible host-agent option.
+
 Useful overrides:
 
 ```dotenv

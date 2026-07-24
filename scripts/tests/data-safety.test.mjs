@@ -30,6 +30,7 @@ import {
   timescaleRestorePlan,
   verifyBackup,
 } from "../stuga-backup.mjs";
+import { backupArguments } from "../stuga-backup-scheduler.mjs";
 import { openReadOnlySqlite, sha256File } from "../sqlite-snapshot-utils.mjs";
 
 function temporaryDirectory(t) {
@@ -130,6 +131,19 @@ function createTelemetryFixture(path, {
   }
   return database;
 }
+
+test("scheduled backups include protected integration data only when its file exists", () => {
+  const withoutSecrets = backupArguments("/app/backups/without-secrets", false);
+  assert.equal(withoutSecrets.includes("--include-timescale"), true);
+  assert.equal(withoutSecrets.includes("--include-secrets"), false);
+  assert.deepEqual(withoutSecrets.slice(-2), ["--output", "/app/backups/without-secrets"]);
+
+  const withSecrets = backupArguments("/app/backups/with-secrets", true);
+  assert.deepEqual(
+    withSecrets.slice(-5),
+    ["--include-secrets", "--secrets-file", "/app/data/integration-secrets.json", "--output", "/app/backups/with-secrets"],
+  );
+});
 
 test("dry-run inventories all telemetry without changing the SQLite source", async (t) => {
   const directory = temporaryDirectory(t);
