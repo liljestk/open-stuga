@@ -489,6 +489,43 @@ export class StugbyStore {
     return row ? this.summaryFromRow(row) : null;
   }
 
+  deleteStugby(stugbyId: string): string[] {
+    return this.transaction(() => {
+      const candidates = this.db.prepare(`SELECT digest FROM stugby_blob_references WHERE stugby_id=?
+        UNION SELECT digest FROM stugby_blob_access WHERE stugby_id=?`)
+        .all(stugbyId, stugbyId) as unknown as Array<{ digest: string }>;
+
+      this.db.prepare("DELETE FROM stugby_join_admissions WHERE stugby_id=?").run(stugbyId);
+      this.db.prepare("DELETE FROM stugby_publications WHERE stugby_id=?").run(stugbyId);
+      this.db.prepare("DELETE FROM stugby_publication_ids WHERE stugby_id=?").run(stugbyId);
+      this.db.prepare("DELETE FROM stugby_remote_resources WHERE stugby_id=?").run(stugbyId);
+      this.db.prepare("DELETE FROM stugby_remote_telemetry WHERE stugby_id=?").run(stugbyId);
+      this.db.prepare("DELETE FROM stugby_stream_sequences WHERE stugby_id=?").run(stugbyId);
+      this.db.prepare("DELETE FROM stugby_live_telemetry_usage WHERE stugby_id=?").run(stugbyId);
+      this.db.prepare("DELETE FROM stugby_outbox WHERE stugby_id=?").run(stugbyId);
+      this.db.prepare("DELETE FROM stugby_event_log WHERE stugby_id=?").run(stugbyId);
+      this.db.prepare("DELETE FROM stugby_blob_access WHERE stugby_id=?").run(stugbyId);
+      this.db.prepare("DELETE FROM stugby_blob_references WHERE stugby_id=?").run(stugbyId);
+      this.db.prepare("DELETE FROM stugby_deletion_receipts WHERE stugby_id=?").run(stugbyId);
+      this.db.prepare("DELETE FROM stugby_pending_deletions WHERE stugby_id=?").run(stugbyId);
+      this.db.prepare("DELETE FROM stugby_audit_events WHERE stugby_id=?").run(stugbyId);
+      this.db.prepare("DELETE FROM stugby_share_grants WHERE stugby_id=?").run(stugbyId);
+      this.db.prepare("DELETE FROM stugby_shared_properties WHERE stugby_id=?").run(stugbyId);
+      this.db.prepare("DELETE FROM stugby_invitations WHERE stugby_id=?").run(stugbyId);
+      this.db.prepare("DELETE FROM stugby_members WHERE stugby_id=?").run(stugbyId);
+      const deleted = this.db.prepare("DELETE FROM stugby_federations WHERE id=?").run(stugbyId);
+      if (Number(deleted.changes) !== 1) throw new Error("Stugby was not found");
+
+      const queuedAt = new Date().toISOString();
+      const unreferenced = candidates.map((row) => row.digest).filter((digest) => !this.hasBlobReferences(digest));
+      for (const digest of unreferenced) {
+        this.db.prepare("INSERT OR IGNORE INTO stugby_blob_deletion_queue(digest,queued_at) VALUES (?,?)")
+          .run(digest, queuedAt);
+      }
+      return unreferenced;
+    });
+  }
+
   isCoordinator(stugbyId: string): boolean {
     return Boolean((this.db.prepare("SELECT is_coordinator FROM stugby_federations WHERE id=?").get(stugbyId) as { is_coordinator?: number } | undefined)?.is_coordinator);
   }
@@ -1342,6 +1379,11 @@ export class StugbyStore {
   pendingDeletions(stugbyId: string, nodeId: string): number {
     return Number((this.db.prepare(`SELECT count(*) AS count FROM stugby_pending_deletions
       WHERE stugby_id=? AND node_id=? AND acknowledged_at IS NULL`).get(stugbyId, nodeId) as { count: number }).count);
+  }
+
+  pendingDeletionsForStugby(stugbyId: string): number {
+    return Number((this.db.prepare(`SELECT count(*) AS count FROM stugby_pending_deletions
+      WHERE stugby_id=? AND acknowledged_at IS NULL`).get(stugbyId) as { count: number }).count);
   }
 
   audit(stugbyId: string | null, eventType: string, actorNodeId: string | null, subjectId: string | null,

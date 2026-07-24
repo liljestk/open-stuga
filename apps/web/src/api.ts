@@ -691,6 +691,7 @@ export const api = {
   },
   stugbys: () => request<StugbyListResponse>("/stugbys"),
   stugby: (id: string) => request<StugbyDetailResponse>(`/stugbys/${encodeURIComponent(id)}`),
+  deleteStugby: (id: string) => request<void>(`/stugbys/${encodeURIComponent(id)}`, { method: "DELETE" }),
   createStugby: (input: { name: string; description?: string | null }) => request<StugbySummary>("/stugbys", {
     method: "POST",
     body: JSON.stringify(input),

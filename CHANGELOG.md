@@ -4,6 +4,11 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+- Added a guarded **Delete Stugby** action under Advanced. It removes local
+  federation records and cached assets without touching Home data, and refuses
+  deletion while memberships, Home grants, or replica deletion receipts remain
+  active.
+
 ## 0.10.0 - 2026-07-24
 
 - Added an explicit Docker setup option to install and immediately start the

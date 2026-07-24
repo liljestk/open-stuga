@@ -1205,6 +1205,7 @@ describe("Climate Twin API v1", () => {
     expect(openapi.body.paths["/readings"].get).toBeDefined();
     expect(openapi.body.paths["/integrations/tp-link/devices"].get.operationId).toBe("listTpLinkDevices");
     expect(openapi.body.paths["/stugbys"].post.operationId).toBe("createStugby");
+    expect(openapi.body.paths["/stugbys/{stugbyId}"].delete.operationId).toBe("deleteStugby");
     expect(openapi.body.paths["/stugby-protocol/stugbys/{stugbyId}/events/stream"].get.description).toContain("SSE");
     expect(openapi.body.components.securitySchemes.stugbyNodeSignature.type).toBe("apiKey");
     expect(openapi.body.paths["/sensors/{id}"].patch.requestBody.content["application/json"].schema.$ref).toContain("SensorPatch");

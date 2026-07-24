@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -137,6 +137,30 @@ describe("StugbyPage", () => {
     expect(button.disabled).toBe(true);
     expect(screen.getByText(/Invitations are paused until this Stugby's coordinator URL matches/)).toBeTruthy();
     expect(createInvitation).not.toHaveBeenCalled();
+  });
+
+  it("deletes a closed Stugby from Advanced after explicit confirmation", async () => {
+    const user = userEvent.setup();
+    const stugby = summary("stugby-a", "Faulty Stugby");
+    mockLoadedStugbys([stugby], { [stugby.id]: detail(stugby) });
+    const listStugbys = vi.mocked(api.stugbys);
+    const remove = vi.spyOn(api, "deleteStugby").mockImplementation(async () => {
+      listStugbys.mockResolvedValue({ identity, publicOrigin: "https://stuga.example.test", stugbys: [] });
+    });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(<I18nProvider><StugbyPage houses={[]} /></I18nProvider>);
+    const summaryCard = (await screen.findByText("Automatic sync")).closest("section");
+    expect(summaryCard).not.toBeNull();
+    await user.click(within(summaryCard!).getByText("Advanced"));
+    await user.click(within(summaryCard!).getByRole("button", { name: "Delete Stugby" }));
+
+    expect(confirm).toHaveBeenCalledWith(
+      "Delete Faulty Stugby permanently from this Stuga? Its roster, invitations, shared property, sharing records, and cached remote data will be removed. Local Homes and sensor data are unchanged.",
+    );
+    await waitFor(() => expect(remove).toHaveBeenCalledWith(stugby.id));
+    expect(await screen.findByRole("heading", { name: "Create a Stugby" })).toBeTruthy();
+    expect(screen.getByText("Faulty Stugby was deleted. Local Home data was unchanged.")).toBeTruthy();
   });
 
   it("has no automated accessibility violations in onboarding", async () => {

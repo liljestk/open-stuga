@@ -144,6 +144,89 @@ describe("Stugby federation", () => {
     expect(unavailableAdmission.body.error.code).toBe("STUGBY_PUBLIC_ORIGIN_REQUIRED");
   });
 
+  it("deletes a closed local-only Stugby and its federation records", async () => {
+    const coordinator = await node("Disposable coordinator");
+    nodes.push(coordinator);
+    const created = await request(coordinator.url).post("/api/v1/stugbys")
+      .send({ name: "Disposable Stugby" }).expect(201);
+    const invitation = await request(coordinator.runtime.app)
+      .post(`/api/v1/stugbys/${created.body.id}/invitations`)
+      .send({ role: "participant" }).expect(201);
+    coordinator.runtime.stugby.store.publicationId(created.body.id, "home", "home-local");
+    const digest = "a".repeat(64);
+    coordinator.runtime.stugby.store.registerBlob(digest, 1, "image/png", digest);
+    coordinator.runtime.stugby.store.registerBlobReference(created.body.id, digest, "retired-grant", 1, "local");
+
+    await request(coordinator.runtime.app).delete(`/api/v1/stugbys/${created.body.id}`).expect(204);
+
+    await request(coordinator.runtime.app).get(`/api/v1/stugbys/${created.body.id}`).expect(404);
+    expect(coordinator.runtime.stugby.store.getInvitation(invitation.body.id)).toBeNull();
+    expect(coordinator.runtime.stugby.store.getBlob(digest)).toBeNull();
+    for (const table of [
+      "stugby_federations",
+      "stugby_members",
+      "stugby_invitations",
+      "stugby_publication_ids",
+      "stugby_shared_properties",
+      "stugby_blob_references",
+      "stugby_audit_events",
+    ]) {
+      const row = coordinator.runtime.database.db.prepare(`SELECT count(*) AS count FROM ${table} WHERE ${table === "stugby_federations" ? "id" : "stugby_id"}=?`)
+        .get(created.body.id) as { count: number };
+      expect(row.count, table).toBe(0);
+    }
+    expect(coordinator.runtime.database.db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  });
+
+  it("refuses to delete a Stugby while membership or sharing is active", async () => {
+    const coordinator = await node("Protected coordinator");
+    nodes.push(coordinator);
+    const created = await request(coordinator.url).post("/api/v1/stugbys")
+      .send({ name: "Protected Stugby" }).expect(201);
+    coordinator.runtime.stugby.store.upsertMember({
+      stugbyId: created.body.id,
+      nodeId: "00000000-0000-4000-8000-000000000001",
+      displayName: "Connected participant",
+      role: "participant",
+      state: "active",
+      publicKey: "participant-public-key",
+      keyFingerprint: "0".repeat(64),
+      joinedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const memberConflict = await request(coordinator.runtime.app)
+      .delete(`/api/v1/stugbys/${created.body.id}`).expect(409);
+    expect(memberConflict.body.error.code).toBe("STUGBY_MEMBERS_ACTIVE");
+
+    coordinator.runtime.stugby.store.upsertMember({
+      ...coordinator.runtime.stugby.store.getMember(created.body.id, "00000000-0000-4000-8000-000000000001")!,
+      state: "revoked",
+      updatedAt: new Date().toISOString(),
+    });
+    const now = new Date().toISOString();
+    coordinator.runtime.stugby.store.upsertGrant({
+      id: "00000000-0000-4000-8000-000000000002",
+      stugbyId: created.body.id,
+      authorityNodeId: coordinator.runtime.stugby.identity.nodeId,
+      publicationId: "00000000-0000-4000-8000-000000000003",
+      localHouseId: "home-local",
+      audience: { kind: "all-members", nodeIds: [] },
+      datasets: [],
+      epoch: 1,
+      revision: 1,
+      expiresAt: null,
+      revokedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const sharingConflict = await request(coordinator.runtime.app)
+      .delete(`/api/v1/stugbys/${created.body.id}`).expect(409);
+    expect(sharingConflict.body.error.code).toBe("STUGBY_SHARING_ACTIVE");
+    await request(coordinator.runtime.app).get(`/api/v1/stugbys/${created.body.id}`).expect(200);
+  });
+
   it("repins an unjoined loopback coordinator and revokes origin-bound invitations", async () => {
     const coordinator = await node("Migrating coordinator");
     nodes.push(coordinator);

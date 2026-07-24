@@ -178,6 +178,13 @@ only to let an image arrive immediately before its signed event.
    node keeps a read-only event pull so it can receive a later reactivation and
    fresh snapshots, but it cannot publish or edit shared property.
 
+Delete a closed Stugby from **Workspace > Stugbys > Advanced**. A participant
+must first be left or revoked; a coordinator must first mark every other member
+left or revoked. Every Home grant must also be revoked and all replica deletion
+acknowledgements must have arrived. Deletion removes federation records and
+cached federation assets from this Stuga; canonical local Home, Sensor, and
+telemetry data is unchanged.
+
 Use **Republish** after correcting a failed or incomplete snapshot. The manual
 **Sync now** action flushes the outbox and pulls all available cursor pages;
 normal operation uses SSE wake-ups and the configured safety interval.

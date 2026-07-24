@@ -257,6 +257,11 @@ export function registerStugbyLocalRoutes(app: Express, service: StugbyService, 
     });
   }));
 
+  app.delete(`${LOCAL_PREFIX}/:stugbyId`, admin, route((request, response) => {
+    service.deleteStugby(stugbyId(request));
+    response.status(204).end();
+  }));
+
   app.post(`${LOCAL_PREFIX}/:stugbyId/invitations`, admin, route((request, response) => {
     coordinatorOrigin(request, service);
     const body = objectBody(request.body);
