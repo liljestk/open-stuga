@@ -1,3 +1,4 @@
+import axe from "axe-core";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -82,6 +83,9 @@ describe("DataAnalyticsPage", () => {
       cache: { hit: false, keyVersion: "analytics-query-v1" },
     } satisfies AnalyticsQueryResponse;
     vi.spyOn(api, "analyticsQuery").mockResolvedValue(analyticsResponse);
+    const thermalIsolation = vi.spyOn(api, "thermalIsolation").mockRejectedValue(new Error("Unavailable"));
+    vi.spyOn(api, "openingStateHistory").mockResolvedValue([]);
+    vi.spyOn(api, "actionRuns").mockResolvedValue([]);
     vi.spyOn(api, "sensorDataGaps").mockResolvedValue([{
       id: 1,
       sensorId: sensor.id,
@@ -109,11 +113,33 @@ describe("DataAnalyticsPage", () => {
     /></I18nProvider>);
 
     expect(screen.getByRole("heading", { name: "Data & analytics", level: 1 })).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "How the Home has been performing", level: 2 })).not.toBeNull();
     expect(screen.getByRole("heading", { name: "Home sensor analytics" })).not.toBeNull();
     await waitFor(() => expect(screen.getByText("Source has no history")).not.toBeNull());
+    const performancePanel = screen.getByRole("region", { name: "How the Home has been performing" });
+    const accessibility = await axe.run(performancePanel, {
+      rules: {
+        // jsdom does not compute the visual styles needed for a reliable contrast result.
+        "color-contrast": { enabled: false },
+      },
+    });
+    expect(accessibility.violations).toEqual([]);
     expect(screen.getByText("Missing TP-Link history?")).not.toBeNull();
     expect(screen.getByText(/History → View All → Download/)).not.toBeNull();
     expect(screen.getAllByText(sensor.name).length).toBeGreaterThan(0);
+    expect(thermalIsolation).not.toHaveBeenCalled();
+    expect(vi.mocked(api.analyticsQuery).mock.calls.some(([input]) => input.requestId.startsWith("explorer-"))).toBe(false);
+    const isolationSummary = screen.getByText("Thermal isolation comparison").closest("summary");
+    await user.click(isolationSummary!);
+    await waitFor(() => expect(thermalIsolation).toHaveBeenCalledOnce());
+    const isolationSignal = thermalIsolation.mock.calls[0]?.[2];
+    expect(isolationSignal?.aborted).toBe(false);
+    await user.click(isolationSummary!);
+    await waitFor(() => expect(isolationSignal?.aborted).toBe(true));
+    const evidenceSummary = screen.getByText("Summary and source data").closest("summary");
+    expect(evidenceSummary?.closest("details")?.open).toBe(false);
+    await user.click(evidenceSummary!);
+    expect(evidenceSummary?.closest("details")?.open).toBe(true);
     await waitFor(() => expect(screen.getByText("4 samples")).not.toBeNull());
     expect(screen.getByRole("button", { name: "Export CSV" })).not.toBeNull();
     const csv = analyticsCsv({

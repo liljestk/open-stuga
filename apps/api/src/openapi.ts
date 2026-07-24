@@ -578,8 +578,8 @@ const operationalOrchestrationPaths = {
   "/action-playbooks/{id}": { patch: { tags: ["Alerts"], operationId: "updateActionPlaybook", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: { required: true, content: { "application/json": { schema: { type: "object" } } } }, responses: { "200": { description: "Updated playbook", content: { "application/json": { schema: { type: "object", required: ["playbook"], properties: { playbook: { type: "object" } } } } } } } } },
   "/alerts/{id}/action-playbooks": { get: { tags: ["Alerts"], operationId: "listAlertActionPlaybooks", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Enabled playbooks matching an alert metric", content: { "application/json": { schema: { type: "object", required: ["playbooks"], properties: { playbooks: { type: "array", items: { type: "object" } } } } } } } } } },
   "/action-runs": {
-    get: { tags: ["Alerts"], operationId: "listActionRuns", parameters: [{ name: "active", in: "query", schema: { type: "boolean" } }, { name: "sensorId", in: "query", schema: { type: "string" } }, { name: "alertEventId", in: "query", schema: { type: "string" } }], responses: { "200": { description: "Before/after action evidence", content: { "application/json": { schema: { type: "object", required: ["runs"], properties: { runs: { type: "array", items: { type: "object" } } } } } } } } },
-    post: { tags: ["Alerts"], operationId: "startActionRun", requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["playbookId", "sensorId"] } } } }, responses: { "201": { description: "Action started with a fresh baseline", content: { "application/json": { schema: { type: "object", required: ["run"], properties: { run: { type: "object" } } } } } } } },
+    get: { tags: ["Alerts"], operationId: "listActionRuns", parameters: [{ name: "active", in: "query", schema: { type: "boolean" } }, { name: "houseId", in: "query", schema: { type: "string" } }, { name: "sensorId", in: "query", schema: { type: "string" } }, { name: "alertEventId", in: "query", schema: { type: "string" } }, { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 500 } }], responses: { "200": { description: "Before/after action evidence", content: { "application/json": { schema: { type: "object", required: ["runs"], properties: { runs: { type: "array", items: { type: "object" } } } } } } }, "400": { description: "Invalid house identifier or limit" }, "404": { description: "House not found or not visible" } } },
+    post: { tags: ["Alerts"], operationId: "startActionRun", requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["playbookId", "sensorId"] } } } }, responses: { "201": { description: "Action started with a fresh baseline", content: { "application/json": { schema: { type: "object", required: ["run"], properties: { run: { type: "object" } } } } } }, "400": { description: "Invalid action run" }, "404": { description: "Playbook, sensor, or maintenance task not found" }, "409": { description: "Baseline unavailable, action already active, or linked alert/task scope mismatch" } } },
   },
   "/action-runs/{id}/complete": { post: { tags: ["Alerts"], operationId: "completeActionRun", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Action completed and automatic verification scheduled", content: { "application/json": { schema: { type: "object", required: ["run"], properties: { run: { type: "object" } } } } } } } } },
   "/action-runs/{id}/cancel": { post: { tags: ["Alerts"], operationId: "cancelActionRun", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: { content: { "application/json": { schema: { type: "object", properties: { note: { type: ["string", "null"] } } } } } }, responses: { "200": { description: "Action run cancelled", content: { "application/json": { schema: { type: "object", required: ["run"], properties: { run: { type: "object" } } } } } } } } },
@@ -843,9 +843,15 @@ const combinedOpenApiDocument = {
     "/houses/{id}/opening-states": {
       get: {
         tags: ["Physics"], operationId: "getOpeningStates",
-        description: "Returns the effective state of every door, window, and vent plus the bounded observation candidates used at the requested time. Stale or unknown contact readings fall back to the configured manual/default state.",
-        parameters: [{ $ref: "#/components/parameters/Id" }, { name: "at", in: "query", schema: { type: "string", format: "date-time" } }],
-        responses: { "200": { description: "Effective opening-state snapshot and observations", content: { "application/json": { schema: { type: "object", required: ["snapshot", "observations"], properties: { snapshot: { $ref: "#/components/schemas/OpeningStateSnapshot" }, observations: { type: "array", items: { $ref: "#/components/schemas/OpeningStateObservation" } } } } } } }, "404": { $ref: "#/components/responses/NotFound" } },
+        description: "Returns the effective state of every door, window, and vent plus the bounded observation candidates used at the requested time. Stale or unknown contact readings fall back to the configured manual/default state. Supplying from adds a bounded history seeded with the effective leading-edge observations so transition analysis does not mistake startup heartbeats for opening events.",
+        parameters: [
+          { $ref: "#/components/parameters/Id" },
+          { name: "at", in: "query", schema: { type: "string", format: "date-time" } },
+          { $ref: "#/components/parameters/FromQuery" },
+          { $ref: "#/components/parameters/ToQuery" },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 10_000, default: 10_000 } },
+        ],
+        responses: { "200": { description: "Effective opening-state snapshot and observations, with optional bounded history", content: { "application/json": { schema: { type: "object", required: ["snapshot", "observations"], properties: { snapshot: { $ref: "#/components/schemas/OpeningStateSnapshot" }, observations: { type: "array", items: { $ref: "#/components/schemas/OpeningStateObservation" } }, history: { type: "array", items: { $ref: "#/components/schemas/OpeningStateObservation" } }, from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" } } } } } }, "400": { description: "Invalid range or limit" }, "404": { $ref: "#/components/responses/NotFound" } },
       },
       post: {
         tags: ["Physics"], operationId: "recordOpeningState",
@@ -1036,12 +1042,12 @@ const combinedOpenApiDocument = {
     "/action-runs": {
       get: {
         tags: ["Alerts"], operationId: "listActionRuns",
-        parameters: [{ name: "sensorId", in: "query", schema: { type: "string" } }, { name: "alertEventId", in: "query", schema: { type: "string" } }, { name: "active", in: "query", schema: { type: "boolean", default: false } }],
-        responses: { "200": jsonResponse("Durable before-and-after action evidence.", { type: "object", additionalProperties: false, required: ["runs"], properties: { runs: { type: "array", items: { $ref: "#/components/schemas/ActionRun" } } } }) },
+        parameters: [{ name: "houseId", in: "query", schema: { type: "string" } }, { name: "sensorId", in: "query", schema: { type: "string" } }, { name: "alertEventId", in: "query", schema: { type: "string" } }, { name: "active", in: "query", schema: { type: "boolean", default: false } }, { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 500 } }],
+        responses: { "200": jsonResponse("Durable before-and-after action evidence.", { type: "object", additionalProperties: false, required: ["runs"], properties: { runs: { type: "array", items: { $ref: "#/components/schemas/ActionRun" } } } }), "400": { description: "Invalid house identifier or limit" }, "404": { $ref: "#/components/responses/NotFound" } },
       },
       post: {
         tags: ["Alerts"], operationId: "startActionRun", requestBody: jsonRequestBody({ $ref: "#/components/schemas/ActionRunStartInput" }),
-        responses: { "201": jsonResponse("Started action run with a captured baseline.", { type: "object", additionalProperties: false, required: ["run"], properties: { run: { $ref: "#/components/schemas/ActionRun" } } }), "400": { description: "Invalid action run" } },
+        responses: { "201": jsonResponse("Started action run with a captured baseline.", { type: "object", additionalProperties: false, required: ["run"], properties: { run: { $ref: "#/components/schemas/ActionRun" } } }), "400": { description: "Invalid action run" }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Baseline unavailable, action already active, or linked alert/task scope mismatch" } },
       },
     },
     "/action-runs/{id}/complete": {

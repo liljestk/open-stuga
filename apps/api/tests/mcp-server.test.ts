@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH } from "@climate-twin/contracts";
+import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, SYSTEM_VERSION } from "@climate-twin/contracts";
 import { describe, expect, it } from "vitest";
 
 describe("MCP server policy", () => {
@@ -53,7 +53,7 @@ describe("MCP server policy", () => {
     await client.connect(transport);
     let closeDurationMs = Number.POSITIVE_INFINITY;
     try {
-      expect(client.getServerVersion()).toEqual({ name: "stuga-local", version: "0.6.0" });
+      expect(client.getServerVersion()).toEqual({ name: "stuga-local", version: SYSTEM_VERSION });
       expect(client.getInstructions()).toContain("not an administration API");
       expect(client.getInstructions()).toContain("Raw integration credentials");
       const listedTools = await client.listTools();

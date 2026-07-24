@@ -97,6 +97,10 @@ describe("operational orchestration", () => {
         improvement: 6,
         sampleCount: 1,
       });
+      expect(database.listActionRuns({ houseId: "house-main", limit: 1 })).toEqual([
+        expect.objectContaining({ id: run.id }),
+      ]);
+      expect(database.listActionRuns({ houseId: "missing-house" })).toEqual([]);
     } finally {
       database.close();
     }

@@ -9192,15 +9192,29 @@ export class ClimateDatabase {
     return this.getActionPlaybook(id);
   }
 
-  listActionRuns(options: { sensorId?: string; alertEventId?: string; activeOnly?: boolean } = {}): ActionRun[] {
+  listActionRuns(options: {
+    houseId?: string;
+    sensorId?: string;
+    alertEventId?: string;
+    activeOnly?: boolean;
+    limit?: number;
+  } = {}): ActionRun[] {
     const clauses: string[] = [];
-    const parameters: string[] = [];
+    const parameters: Array<string | number> = [];
+    if (options.houseId) {
+      clauses.push("sensor_id IN (SELECT id FROM sensors WHERE house_id = ?)");
+      parameters.push(options.houseId);
+    }
     if (options.sensorId) { clauses.push("sensor_id = ?"); parameters.push(options.sensorId); }
     if (options.alertEventId) { clauses.push("alert_event_id = ?"); parameters.push(options.alertEventId); }
     if (options.activeOnly) clauses.push("status IN ('active', 'waiting')");
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    return (this.db.prepare(`SELECT * FROM action_runs ${where} ORDER BY updated_at DESC LIMIT 500`)
-      .all(...parameters) as unknown as ActionRunRow[]).map(actionRunFromRow);
+    const requestedLimit = options.limit ?? 500;
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(500, Math.max(1, Math.trunc(requestedLimit)))
+      : 500;
+    return (this.db.prepare(`SELECT * FROM action_runs ${where} ORDER BY updated_at DESC, id DESC LIMIT ?`)
+      .all(...parameters, limit) as unknown as ActionRunRow[]).map(actionRunFromRow);
   }
 
   getActionRun(id: string): ActionRun | null {
@@ -9223,8 +9237,19 @@ export class ClimateDatabase {
         throw new ClimateDataValidationError(409, "ALERT_MISMATCH", "The alert does not match the selected sensor and playbook metric");
       }
     }
-    if (input.maintenanceTaskId && !this.getMaintenanceTask(input.maintenanceTaskId)) {
-      throw new ClimateDataValidationError(404, "MAINTENANCE_TASK_NOT_FOUND", "Maintenance task not found");
+    if (input.maintenanceTaskId) {
+      const task = this.getMaintenanceTask(input.maintenanceTaskId);
+      if (!task) {
+        throw new ClimateDataValidationError(404, "MAINTENANCE_TASK_NOT_FOUND", "Maintenance task not found");
+      }
+      const house = this.getHouse(sensor.houseId);
+      if (!house || task.propertyId !== house.propertyId || (task.houseId !== null && task.houseId !== house.id)) {
+        throw new ClimateDataValidationError(
+          409,
+          "MAINTENANCE_TASK_SCOPE_MISMATCH",
+          "Maintenance task does not belong to the selected sensor's Home or property",
+        );
+      }
     }
     const duplicate = this.db.prepare(`SELECT 1 FROM action_runs
       WHERE playbook_id = ? AND sensor_id = ? AND status IN ('active', 'waiting') LIMIT 1`)

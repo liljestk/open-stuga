@@ -854,6 +854,21 @@ export const api = {
     `/houses/${encodeURIComponent(houseId)}/opening-states${at ? `?at=${encodeURIComponent(at)}` : ""}`,
     signal ? { signal } : undefined,
   ),
+  openingStateHistory: async (
+    houseId: string,
+    from: string,
+    to: string,
+    limit = 10_000,
+    signal?: AbortSignal,
+  ): Promise<OpeningStateObservation[]> => {
+    const query = new URLSearchParams({ from, to, limit: String(limit) });
+    const result = await request<{
+      snapshot: OpeningStateSnapshot;
+      observations: OpeningStateObservation[];
+      history?: OpeningStateObservation[];
+    }>(`/houses/${encodeURIComponent(houseId)}/opening-states?${query}`, signal ? { signal } : undefined);
+    return result.history ?? [];
+  },
   recordOpeningState: async (houseId: string, observation: Omit<OpeningStateObservationInput, "observedAt"> & { observedAt?: string }) => {
     const response = await request<OpeningStateObservation | { observation: OpeningStateObservation }>(`/houses/${encodeURIComponent(houseId)}/opening-states`, { method: "POST", body: JSON.stringify(observation) });
     return "observation" in response ? response.observation : response;
@@ -929,13 +944,20 @@ export const api = {
   retryNotificationDelivery: async (id: string) => entity(await request<NotificationDeliveryStatus | { delivery: NotificationDeliveryStatus }>(`/notification-deliveries/${encodeURIComponent(id)}/retry`, { method: "POST" }), "delivery"),
   actionPlaybooks: async (metric?: string) => list<ActionPlaybook>(await request<unknown>(`/action-playbooks${metric ? `?metric=${encodeURIComponent(metric)}` : ""}`), ["playbooks", "data"]),
   alertActionPlaybooks: async (alertId: string) => list<ActionPlaybook>(await request<unknown>(`/alerts/${encodeURIComponent(alertId)}/action-playbooks`), ["playbooks", "data"]),
-  actionRuns: async (options: { active?: boolean; sensorId?: string; alertEventId?: string; limit?: number } = {}) => {
+  actionRuns: async (
+    options: { active?: boolean; houseId?: string; sensorId?: string; alertEventId?: string; limit?: number } = {},
+    signal?: AbortSignal,
+  ) => {
     const query = new URLSearchParams();
     if (options.active) query.set("active", "true");
+    if (options.houseId) query.set("houseId", options.houseId);
     if (options.sensorId) query.set("sensorId", options.sensorId);
     if (options.alertEventId) query.set("alertEventId", options.alertEventId);
     if (options.limit) query.set("limit", String(options.limit));
-    return list<ActionRun>(await request<unknown>(`/action-runs${query.size ? `?${query}` : ""}`), ["runs", "data"]);
+    return list<ActionRun>(await request<unknown>(
+      `/action-runs${query.size ? `?${query}` : ""}`,
+      signal ? { signal } : undefined,
+    ), ["runs", "data"]);
   },
   startActionRun: async (input: ActionRunStartInput) => entity(await request<ActionRun | { run: ActionRun }>("/action-runs", { method: "POST", body: JSON.stringify(input) }), "run"),
   completeActionRun: async (id: string) => entity(await request<ActionRun | { run: ActionRun }>(`/action-runs/${encodeURIComponent(id)}/complete`, { method: "POST" }), "run"),

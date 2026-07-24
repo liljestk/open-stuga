@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChartLine, CloudSun, Database, Download, FileJson, FileSpreadsheet, RefreshCw, Table2, TriangleAlert } from "lucide-react";
+import { ChartLine, ChevronDown, CloudSun, Database, Download, FileJson, FileSpreadsheet, RefreshCw, ShieldCheck, Table2, TriangleAlert } from "lucide-react";
 import type {
   AnalyticsAggregation,
   AnalyticsQueryResponse,
@@ -17,6 +17,7 @@ import { timeRangeHours, type ClimateState, type TimeRange } from "../domain";
 import { api } from "../api";
 import { SensorAnalyticsChart } from "../components/SensorAnalyticsChart";
 import { DailyAnalyticsFindings } from "../components/DailyAnalyticsFindings";
+import { HomePerformancePanel } from "../components/HomePerformancePanel";
 import { ThermalIsolationPanel } from "../components/ThermalIsolationPanel";
 import { chartGapThresholdMs, detectSeriesGaps } from "../chartGaps";
 import { formatInTimeZone } from "../dateTime";
@@ -134,6 +135,8 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [refreshRevision, setRefreshRevision] = useState(0);
+  const [isolationOpen, setIsolationOpen] = useState(false);
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
   const weather = useHouseWeather(props.house);
   const sensors = useMemo(
     () => props.state.sensors.filter((sensor) => sensor.houseId === props.house.id && sensor.enabled),
@@ -170,9 +173,16 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   }, [metricSensors, selectedSensorIds]);
 
   useEffect(() => {
+    setSelectedSensorIds(null);
+  }, [props.house.id]);
+
+  useEffect(() => {
     const controller = new AbortController();
     const to = new Date();
     const from = new Date(to.getTime() - timeRangeHours(range) * 3_600_000);
+    setOutdoorHistory([]);
+    setElectricityPrices([]);
+    setSensorGaps([]);
     setLoading(true);
     setHistoryError(null);
     Promise.all([
@@ -201,7 +211,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const fromMs = now - timeRangeHours(range) * 3_600_000;
   const selectedSensorKey = selectedSensors.map((sensor) => sensor.id).sort().join("\u0000");
   useEffect(() => {
-    if (props.dataMode === "unknown" || !selectedDefinition || selectedSensors.length === 0) {
+    if (!evidenceOpen || props.dataMode === "unknown" || !selectedDefinition || selectedSensors.length === 0) {
       setAnalytics(null);
       setAnalyticsError(null);
       setAnalyticsLoading(false);
@@ -210,6 +220,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     const controller = new AbortController();
     const end = new Date();
     const start = new Date(end.getTime() - timeRangeHours(range) * 3_600_000);
+    setAnalytics(null);
     setAnalyticsLoading(true);
     setAnalyticsError(null);
     void api.analyticsQuery({
@@ -234,7 +245,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
       if (!controller.signal.aborted) setAnalyticsLoading(false);
     });
     return () => controller.abort();
-  }, [aggregation, metric, props.dataMode, props.house.id, props.house.timezone, qualityPreset, range, refreshRevision, resolution, selectedDefinition, selectedSensorKey, t]);
+  }, [aggregation, evidenceOpen, metric, props.dataMode, props.house.id, props.house.timezone, qualityPreset, range, refreshRevision, resolution, selectedDefinition, selectedSensorKey, t]);
   const thresholdMs = chartGapThresholdMs(range);
   const visibleSensorGaps = useMemo(() => selectedSensors.flatMap((sensor) => {
     const points = (props.state.measurementHistory[sensor.id]?.[metric] ?? [])
@@ -323,6 +334,16 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
         refreshRevision={refreshRevision}
       />
 
+      <HomePerformancePanel
+        house={props.house}
+        sensors={sensors}
+        definitions={props.state.measurementDefinitions}
+        maintenanceTasks={props.state.maintenanceTasks}
+        observations={props.state.observations}
+        dataMode={props.dataMode}
+        refreshRevision={refreshRevision}
+      />
+
       {definitions.length > 0 && sensors.length > 0 ? <SensorAnalyticsChart
         houseId={props.house.id}
         dataMode={props.dataMode}
@@ -349,13 +370,25 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
         onLoadSeries={props.onLoadSeries}
       /> : <div className="empty-state">{t("common.noData")}</div>}
 
-      <ThermalIsolationPanel house={props.house} units={props.units} />
+      <div className="analytics-tool-stack">
+        <details className="analytics-tool" onToggle={(event) => setIsolationOpen(event.currentTarget.open)}>
+          <summary>
+            <span className="analytics-tool-icon"><ShieldCheck size={18} aria-hidden="true" /></span>
+            <span className="analytics-tool-copy"><strong>{t("isolation.title")}</strong><small>{t("isolation.description")}</small></span>
+            <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
+          </summary>
+          {isolationOpen && <ThermalIsolationPanel house={props.house} units={props.units} embedded />}
+        </details>
 
-      <section className="panel analytics-evidence-panel" aria-labelledby="analytics-evidence-title">
-        <header className="panel-header">
-          <div><span className="eyebrow"><Table2 size={13} aria-hidden="true" />{t("analytics.evidenceEyebrow")}</span><h2 id="analytics-evidence-title">{t("analytics.evidenceTitle")}</h2><p>{t("analytics.evidenceDescription")}</p></div>
+        <details className="analytics-tool analytics-evidence-tool" onToggle={(event) => setEvidenceOpen(event.currentTarget.open)}>
+          <summary>
+            <span className="analytics-tool-icon"><Table2 size={18} aria-hidden="true" /></span>
+            <span className="analytics-tool-copy"><strong id="analytics-evidence-title">{t("analytics.evidenceTitle")}</strong><small>{t("analytics.evidenceDescription")}</small></span>
+            {analytics && <span className={`analytics-coverage ${analytics.quality.coverage < 0.75 ? "warning" : "healthy"}`}>{t("analytics.coverage", { percent: Math.round(analytics.quality.coverage * 100) })}</span>}
+            <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
+          </summary>
+          <section className="analytics-evidence-panel analytics-tool-content" aria-labelledby="analytics-evidence-title">
           {analytics && <div className="analytics-export-actions">
-            <span className={`analytics-coverage ${analytics.quality.coverage < 0.75 ? "warning" : "healthy"}`}>{t("analytics.coverage", { percent: Math.round(analytics.quality.coverage * 100) })}</span>
             <button type="button" className="secondary-button" onClick={() => downloadText(
               `stuga-${metric}-${range}.csv`, analyticsCsv(analytics), "text/csv;charset=utf-8",
             )}><Download size={14} aria-hidden="true" />{t("analytics.exportCsv")}</button>
@@ -363,7 +396,6 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
               `stuga-${metric}-${range}.json`, JSON.stringify(analytics, null, 2), "application/json;charset=utf-8",
             )}><FileJson size={14} aria-hidden="true" />{t("analytics.exportJson")}</button>
           </div>}
-        </header>
         <div className="analytics-query-controls" role="group" aria-label={t("analytics.queryControls")}>
           <label className="field"><span>{t("analytics.resolution")}</span><select value={resolution} onChange={(event) => setResolution(event.target.value as AnalyticsResolution)}>
             {ANALYTICS_RESOLUTIONS.map((option) => <option key={option} value={option}>{t(`analytics.resolution_${option}`)}</option>)}
@@ -415,20 +447,24 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
           })}</p>
         </>}
         {!analyticsLoading && !analytics && !analyticsError && <p className="analytics-no-gaps">{t("analytics.noEvidence")}</p>}
-      </section>
+          </section>
+        </details>
 
-      <section className="panel analytics-continuity-panel" aria-labelledby="analytics-continuity-title">
-        <header className="panel-header">
-          <div><span className="eyebrow"><Database size={13} aria-hidden="true" />{t("analytics.continuityEyebrow")}</span><h2 id="analytics-continuity-title">{t("analytics.continuityTitle")}</h2><p>{t("analytics.continuityDescription")}</p></div>
-          <span className={`analytics-gap-count ${visibleGapCount > 0 ? "warning" : "healthy"}`}><TriangleAlert size={14} aria-hidden="true" />{t("analytics.visibleGapCount", { count: visibleGapCount })}</span>
-        </header>
+        <details className="analytics-tool analytics-continuity-tool">
+          <summary>
+            <span className="analytics-tool-icon"><Database size={18} aria-hidden="true" /></span>
+            <span className="analytics-tool-copy"><strong id="analytics-continuity-title">{t("analytics.continuityTitle")}</strong><small>{t("analytics.continuityDescription")}</small></span>
+            <span className={`analytics-gap-count ${visibleGapCount > 0 ? "warning" : "healthy"}`}><TriangleAlert size={14} aria-hidden="true" />{t("analytics.visibleGapCount", { count: visibleGapCount })}</span>
+            <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
+          </summary>
+          <section className="analytics-continuity-panel analytics-tool-content" aria-labelledby="analytics-continuity-title">
         {historyError && <p className="inline-error" role="alert">{historyError}</p>}
         {showTpLinkImportHelp && <aside className="analytics-gap-import-help">
           <FileSpreadsheet size={17} aria-hidden="true" />
           <p><strong>{t("analytics.tpLinkImportTitle")}</strong>{t("analytics.tpLinkImportHelp")}</p>
         </aside>}
-        {continuityRows.length > 0 ? <details className="analytics-gap-details"><summary>{t("analytics.showGapDetails", { count: continuityRows.length })}</summary><div className="analytics-gap-table-wrap"><table className="analytics-gap-table">
-          <thead><tr><th>{t("analytics.series")}</th><th>{t("sensors.analyticsMetric")}</th><th>{t("analytics.interval")}</th><th>{t("analytics.duration")}</th><th>{t("analytics.recovery")}</th></tr></thead>
+        {continuityRows.length > 0 ? <details className="analytics-gap-details"><summary>{t("analytics.showGapDetails", { count: continuityRows.length })}</summary><div className="analytics-gap-table-wrap" role="region" aria-label={t("analytics.continuityTitle")} tabIndex={0}><table className="analytics-gap-table">
+          <thead><tr><th scope="col">{t("analytics.series")}</th><th scope="col">{t("sensors.analyticsMetric")}</th><th scope="col">{t("analytics.interval")}</th><th scope="col">{t("analytics.duration")}</th><th scope="col">{t("analytics.recovery")}</th></tr></thead>
           <tbody>{continuityRows.map((row) => <tr key={row.id}>
             <td>{row.source === t("decision.outdoor") && <CloudSun size={13} aria-hidden="true" />}{row.source}</td>
             <td>{row.metric}</td>
@@ -437,7 +473,9 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
             <td><span className={`analytics-recovery-state ${row.state}`}>{t(`analytics.recovery_${row.state}`)}</span>{row.recoveredPoints > 0 && <small>{t("analytics.recoveredPoints", { count: row.recoveredPoints })}</small>}{row.detail && <small>{row.detail}</small>}</td>
           </tr>)}</tbody>
         </table></div></details> : <p className="analytics-no-gaps">{t("analytics.noRecordedGaps")}</p>}
-      </section>
+          </section>
+        </details>
+      </div>
     </>
   );
 }

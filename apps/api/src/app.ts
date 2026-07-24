@@ -3650,14 +3650,40 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     const houseId = request.params.id as string;
     const house = database.getHouse(houseId);
     if (!house || !visibility(response).house(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
-    const at = dateValue(request.query.at, new Date(), "at");
+    const at = request.query.at === undefined && request.query.to !== undefined
+      ? dateValue(request.query.to, new Date(), "to")
+      : dateValue(request.query.at, new Date(), "at");
     const observations = database.listOpeningStateObservations(houseId, 10_000, at);
     const states = house.floors.flatMap((floor) => (floor.planElements ?? []).flatMap((element) => {
       if (element.kind !== "door" && element.kind !== "window" && element.kind !== "vent") return [];
       return [{ floorId: floor.id, elementId: element.id, kind: element.kind, ...(element.label ? { label: element.label } : {}),
         ...resolvePlanElementOpeningState(element, observations.filter((observation) => observation.floorId === floor.id), at) }];
     }));
-    response.json({ snapshot: { houseId, at, states }, observations });
+    if (request.query.from === undefined) {
+      response.json({ snapshot: { houseId, at, states }, observations });
+      return;
+    }
+    const from = dateValue(request.query.from, new Date(Date.parse(at) - 7 * 86_400_000), "from");
+    const to = dateValue(request.query.to, new Date(at), "to");
+    const durationMs = Date.parse(to) - Date.parse(from);
+    if (durationMs <= 0 || durationMs > 366 * 86_400_000) {
+      throw new HttpError(400, "INVALID_OPENING_HISTORY_RANGE", "Opening-state history must cover more than zero and at most 366 days");
+    }
+    const limit = boundedQueryInteger(request.query.limit, "limit", 1, 10_000) ?? 10_000;
+    // Seed the requested interval with the effective candidates at its leading
+    // edge so clients can distinguish a real closed-to-open transition from a
+    // startup heartbeat whose previous state lies just outside the range.
+    const initial = database.listOpeningStateObservations(houseId, limit, from);
+    const history = database.listOpeningStateObservationHistory(
+      houseId,
+      from,
+      to,
+      Math.max(1, limit - Math.min(initial.length, limit - 1)),
+    );
+    const mergedHistory = [...new Map([...initial, ...history].map((observation) => [observation.id, observation])).values()]
+      .sort((left, right) => Date.parse(left.observedAt) - Date.parse(right.observedAt) || left.id.localeCompare(right.id))
+      .slice(-limit);
+    response.json({ snapshot: { houseId, at, states }, observations, history: mergedHistory, from, to });
   });
   app.post(`${prefix}/houses/:id/opening-states`, (request, response) => {
     const houseId = request.params.id as string;
@@ -4308,10 +4334,17 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   });
   app.get(`${prefix}/action-runs`, (request, response) => {
     const access = visibility(response);
+    const houseId = optionalResourceQuery(request.query.houseId, "houseId");
+    if (houseId) {
+      const house = database.getHouse(houseId);
+      if (!house || !access.house(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
+    }
     response.json({ runs: database.listActionRuns({
+      ...(houseId ? { houseId } : {}),
       ...(typeof request.query.sensorId === "string" ? { sensorId: request.query.sensorId } : {}),
       ...(typeof request.query.alertEventId === "string" ? { alertEventId: request.query.alertEventId } : {}),
       activeOnly: request.query.active === "true",
+      limit: boundedQueryInteger(request.query.limit, "limit", 1, 500) ?? 500,
     }).filter((run) => access.sensor(run.sensorId)) });
   });
   app.post(`${prefix}/action-runs`, (request, response) => {

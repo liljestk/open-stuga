@@ -4,6 +4,16 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+## 0.7.0 - 2026-07-24
+
+- Added an evidence-led Home performance review covering comfort exposure,
+  ventilation recovery, opening effectiveness, heating-energy normalization,
+  measured maintenance outcomes, and sensor health, with explicit provenance,
+  coverage limits, responsive presentation, and English, Finnish, and Swedish
+  guidance.
+- Added bounded opening-state history and Home-scoped action-run queries, while
+  enforcing maintenance-task ownership across Home and property boundaries.
+
 ## 0.6.0 - 2026-07-23
 
 - Added Owner/Admin system-update management backed by GitHub Releases,

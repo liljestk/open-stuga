@@ -981,6 +981,7 @@ export function App() {
       )}
       {page === "analytics" && (
         <DataAnalyticsPage
+          key={house.id}
           state={state}
           house={house}
           units={units}

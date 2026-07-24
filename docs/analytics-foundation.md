@@ -54,6 +54,15 @@ psychrometrics, causal inference, or new forecast models.
   analytics panel with the current value, prior-period median, direction,
   practical effect, peer years, sample counts, coverage where it can be
   estimated, and explicit archive/truncation warnings.
+- A coverage-aware Home performance layer that derives six practical checks
+  from existing climate, opening, outdoor, electricity, maintenance, and
+  observation evidence. It keeps missing evidence unavailable, marks limited
+  confidence explicitly, and exposes the algorithm version and source scope.
+- Optional bounded history on the existing
+  `GET /api/v1/houses/:id/opening-states` endpoint. The response preserves the
+  current snapshot contract while adding ordered observations for a requested
+  `from`/`to` window, including the effective leading state needed to identify
+  real closed-to-open transitions.
 - OpenAPI and shared TypeScript contracts for the query, coverage discovery,
   daily findings, and responses.
 
@@ -105,6 +114,79 @@ streams expose observation counts but use `coverage: null`, because transition
 history cannot prove continuous source uptime. The persisted response contains
 at most 16 ranked findings; source scope is bounded to 80 recorded
 sensor/measurement series with an explicit warning when that limit is reached.
+
+## Home performance checks
+
+The Data & analytics page now adds a Home-owned, progressively disclosed
+performance panel. Its collapsed view shows four conclusions: the share of
+available room-climate measurement-hours inside their guide, median moisture
+half-recovery time, weather-normalized energy, and monitoring coverage. Opening
+all checks reveals the six derivations, typed limitations, room/sensor evidence,
+and provenance. The implementation is deterministic and versioned as
+`home-performance-v1.0.0`.
+
+The current derivations are:
+
+1. **Comfort and air-quality exposure.** Up to 30 days of hourly temperature,
+   relative-humidity, and CO2 rollups are compared with the initial guide bands
+   of 18-25 C, 30-60% RH, and 1,000 ppm CO2. The result reports coverage-weighted
+   share of available metric-hours in range, sensor-hours outside the
+   humidity/CO2 guides, and temperature degree-hours outside the guide. Missing
+   buckets contribute no duration and are never treated as normal readings.
+2. **Moisture recovery.** Seven days of 15-minute temperature and humidity
+   evidence are converted to absolute humidity with the pinned Magnus formula.
+   Rises of at least 0.8 g/m3 are treated as candidate moisture episodes. For
+   episodes with enough before-and-after evidence, the check reports the median
+   time to recover half of the rise, bounded to a six-hour recovery window.
+   Buckets must have at least 50% coverage and be adjacent 15-minute buckets; a
+   missing interval ends the candidate rather than being bridged.
+   This is an event-recovery comparison, not a mould or ventilation diagnosis.
+3. **Fresh-air response after openings.** Recorded closed-to-open transitions
+   are de-duplicated from state heartbeats, associated with a nearby same-floor
+   climate sensor, and evaluated for a material CO2 or absolute-humidity
+   decline. An `unknown` contact state or expired prior observation breaks the
+   transition sequence instead of carrying an older closed state across an
+   evidence gap. The same coverage and continuity gates prevent sparse
+   after-data from being interpreted as a response. The result reports evaluable
+   and effective events plus median clearance time. It does not infer airflow
+   rate or claim that the opening caused the change.
+4. **Weather-normalized energy.** Recorded kWh, or integrated power when a
+   cumulative energy series is unavailable, is divided by heating degree-hours
+   from the same hourly buckets using an 18 C base. At least 24 overlapping
+   hourly buckets and 24 heating degree-hours are required. A bucket needs at
+   least 75% source coverage, and multi-meter totals use only hours represented
+   by every selected meter. Per meter, a usable cumulative-energy delta is
+   preferred and integrated power fills its missing hours. Heating-tagged
+   meters are preferred. A bidirectional power series is not reinterpreted as
+   consumption without an explicit import/export semantic. Totals from meters
+   not identified as heating-specific are allowed only as explicitly limited
+   context because they may include non-heating loads or cover only part of the
+   Home. The value is not a certified efficiency rating.
+5. **Measured action outcomes.** Completed action-verification runs are grouped
+   into goals met and not improved, linked back to maintenance items, and
+   compared with completed items that do not yet have measured before/after
+   evidence. Recurring observations are retained in the derived result as
+   supporting context. No result is created merely because a task was marked
+   complete.
+6. **Sensor reliability.** Recorded series are checked for less than 75%
+   coverage, unusually flat climate/power values, and a material change in
+   offset from peer sensors between the two halves of the window. Findings are
+   phrased as placement/calibration checks to review, not confirmed sensor
+   failures.
+
+The interactive panel is limited to the first 40 enabled sensors in stable
+identifier order so each query stays within the existing 100,000-point analytics
+budget. Action evidence is requested for the selected Home rather than from the
+cross-Home ledger. A history that reaches its fixed request cap is also marked
+limited rather than silently treated as complete. Truncation, incomplete archive
+state, missing opening history, unclassified electricity evidence, incomplete
+maintenance verification, and low coverage are all surfaced as explicit
+limitations. A failed evidence request does not suppress the other checks; the
+panel presents the remaining results with a partial-evidence notice.
+
+The evidence query and thermal-isolation calculation are lazy: opening their
+disclosures starts the request, and closing an in-flight thermal calculation
+cancels it.
 
 ## Query contract
 
@@ -202,11 +284,11 @@ cadence so a lone old value cannot silently fill a long gap.
 | Quality | Missing, stale, source-estimated, low-coverage, and counter-reset flags; source-quality inclusion is explicit and exportable | Preserve richer source timestamps/flags and add declared interpolation policies. |
 | Rollups | Correct bounded on-demand UTC buckets | Add persisted rollups, source watermarks, late-data invalidation, and local-time daily buckets with 23/24/25-hour DST tests. |
 | Descriptive statistics | Core robust summaries | Add histogram/distribution and duration statistics where registry semantics allow them. |
-| Psychrometrics | Deferred | Pin a trusted library and add reference vectors before dew point or moisture claims. |
+| Psychrometrics | A pinned Magnus calculation supports bounded within-event absolute-humidity recovery comparisons; no dew point, mould, or diagnostic claim is exposed | Add independent reference vectors and a reviewed library before broader psychrometric outputs. |
 | Statistics/findings | Daily practical-effect peer-period findings with persisted evidence; no causal or inferential claims | Add source-declared cadence, robust seasonal models, autocorrelation-aware uncertainty, multiple-testing control, user confirmation, and longer detector validation before calling results statistical anomalies. |
 | Topology dynamics | Deferred | First version topology snapshots and placement intervals; then validate lag/coupling models on synthetic scenarios. |
 | Forecasts | Existing simple forecast paths are unchanged and are not promoted by this work | Add naive baselines, rolling-origin evaluation, intervals, promotion gates, and model cards before new production forecast claims. |
-| Predictive maintenance | Deferred | Build only from registered evidence outputs with persistence, confirmation, and maintenance linkage. |
+| Predictive maintenance | Completed measured-action outcomes and recurring observations are linked as descriptive evidence; no failure forecast or diagnosis | Add persisted confirmation workflows and validated failure labels before predictive models. |
 
 ## Migration and rollback
 
@@ -235,8 +317,8 @@ Run:
 
 ```powershell
 npm run build:packages
-npm run test --workspace @climate-twin/api -- tests/analytics.test.ts tests/timeseries-read-facade.test.ts tests/measurements.test.ts tests/openapi-parity.test.ts
-npm run test --workspace @climate-twin/web -- src/calendarComparison.test.ts src/components/CalendarPeriodComparison.test.tsx src/pages/DataAnalyticsPage.test.tsx src/components/SensorAnalyticsChart.test.tsx src/chartGaps.test.ts src/measurements.test.ts
+npm run test --workspace @climate-twin/api -- tests/analytics.test.ts tests/timeseries-read-facade.test.ts tests/measurements.test.ts tests/openapi-parity.test.ts tests/app.test.ts
+npm run test --workspace @climate-twin/web -- src/homePerformance.test.ts src/calendarComparison.test.ts src/components/CalendarPeriodComparison.test.tsx src/pages/DataAnalyticsPage.test.tsx src/components/SensorAnalyticsChart.test.tsx src/chartGaps.test.ts src/measurements.test.ts
 npm run typecheck --workspace @climate-twin/api
 npm run typecheck --workspace @climate-twin/web
 ```

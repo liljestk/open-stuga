@@ -13,6 +13,7 @@ import { useThermalIsolation } from "../useThermalIsolation";
 interface ThermalIsolationPanelProps {
   house: House;
   units: UnitSystem;
+  embedded?: boolean;
 }
 
 const WINDOW_OPTIONS = [24, 7 * 24, 14 * 24] as const;
@@ -89,7 +90,7 @@ function ComparisonRows({
   </div>;
 }
 
-export function ThermalIsolationPanel({ house, units }: Readonly<ThermalIsolationPanelProps>) {
+export function ThermalIsolationPanel({ house, units, embedded = false }: Readonly<ThermalIsolationPanelProps>) {
   const { locale, t } = useI18n();
   const [windowHours, setWindowHours] = useState<number>(7 * 24);
   const { result, loading, error, run } = useThermalIsolation(house.id);
@@ -108,8 +109,15 @@ export function ThermalIsolationPanel({ house, units }: Readonly<ThermalIsolatio
   const sensorEntries = result?.entries.filter((entry) => entry.scope.type === "sensor") ?? [];
   const entryById = useMemo(() => new Map(result?.entries.map((entry) => [entry.scope.id, entry]) ?? []), [result]);
 
-  return <section className="panel thermal-isolation-panel" aria-labelledby="thermal-isolation-title">
-    <header className="panel-header isolation-panel-header">
+  return <section className={`${embedded ? "analytics-tool-content" : "panel"} thermal-isolation-panel`} aria-label={embedded ? t("isolation.title") : undefined} aria-labelledby={embedded ? undefined : "thermal-isolation-title"}>
+    {embedded ? <div className="isolation-embedded-toolbar">
+      <div className="isolation-controls">
+        <label className="field"><span>{t("isolation.window")}</span><select value={windowHours} onChange={(event) => setWindowHours(Number(event.target.value))}>
+          {WINDOW_OPTIONS.map((hours) => <option key={hours} value={hours}>{hours === 24 ? t("isolation.window24h") : t("isolation.windowDays", { count: hours / 24 })}</option>)}
+        </select></label>
+        <button type="button" className="secondary-button" onClick={refresh} disabled={loading}><RefreshCw className={loading ? "spin" : ""} size={14} aria-hidden="true" />{t("common.refresh")}</button>
+      </div>
+    </div> : <header className="panel-header isolation-panel-header">
       <div><span className="eyebrow"><ShieldCheck size={13} aria-hidden="true" />{t("isolation.eyebrow")}</span><h2 id="thermal-isolation-title">{t("isolation.title")}</h2><p>{t("isolation.description")}</p></div>
       <div className="isolation-controls">
         <label className="field"><span>{t("isolation.window")}</span><select value={windowHours} onChange={(event) => setWindowHours(Number(event.target.value))}>
@@ -117,7 +125,7 @@ export function ThermalIsolationPanel({ house, units }: Readonly<ThermalIsolatio
         </select></label>
         <button type="button" className="secondary-button" onClick={refresh} disabled={loading}><RefreshCw className={loading ? "spin" : ""} size={14} aria-hidden="true" />{t("common.refresh")}</button>
       </div>
-    </header>
+    </header>}
 
     {loading && !result && <output className="isolation-loading">{t("isolation.calculating")}</output>}
     {error && <div className="isolation-error" role="alert"><TriangleAlert size={18} aria-hidden="true" /><div><strong>{t("isolation.error")}</strong><p>{t("isolation.errorHelp")}</p></div></div>}

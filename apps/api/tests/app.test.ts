@@ -633,11 +633,44 @@ describe("Climate Twin API v1", () => {
       expect(body.snapshot.states.some((state: { elementId: string }) => state.elementId === "escape-1")).toBe(false);
     });
     await request(runtime.app).post("/api/v1/houses/house-elements/opening-states").send({
+      floorId: "main", elementId: "door-1", state: "closed", source: "api", observedAt: "2026-07-18T12:00:30.000Z",
+    }).expect(201);
+    await request(runtime.app).post("/api/v1/houses/house-elements/opening-states").send({
       floorId: "main", elementId: "door-1", state: "open", openFraction: .6, source: "manual", observedAt: "2026-07-18T12:01:00.000Z",
     }).expect(201).expect(({ body }) => expect(body.observation).toMatchObject({ houseId: "house-elements", elementId: "door-1", state: "open", openFraction: .6, source: "manual" }));
     await request(runtime.app).get("/api/v1/houses/house-elements/opening-states?at=2026-07-18T12:02:00.000Z").expect(200)
       .expect(({ body }) => expect(body.snapshot.states.find((state: { elementId: string }) => state.elementId === "door-1"))
         .toMatchObject({ state: "open", openFraction: .6, source: "manual", assumed: false }));
+    await request(runtime.app).get("/api/v1/houses/house-elements/opening-states?from=2026-07-18T12:00:00.000Z&to=2026-07-18T12:02:00.000Z&limit=20")
+      .expect(200).expect(({ body }) => {
+        expect(body).toMatchObject({
+          from: "2026-07-18T12:00:00.000Z",
+          to: "2026-07-18T12:02:00.000Z",
+          snapshot: { at: "2026-07-18T12:02:00.000Z" },
+        });
+        expect(body.history).toEqual(expect.arrayContaining([
+          expect.objectContaining({ state: "closed", observedAt: "2026-07-18T12:00:30.000Z" }),
+          expect.objectContaining({ state: "open", observedAt: "2026-07-18T12:01:00.000Z" }),
+        ]));
+        expect(body.history.map((item: { observedAt: string }) => item.observedAt)).toEqual(
+          [...body.history.map((item: { observedAt: string }) => item.observedAt)].sort(),
+        );
+      });
+    await request(runtime.app).get("/api/v1/houses/house-elements/opening-states?from=2026-07-18T12:00:45.000Z&to=2026-07-18T12:02:00.000Z&limit=20")
+      .expect(200).expect(({ body }) => {
+        expect(body.history).toEqual([
+          expect.objectContaining({ state: "closed", observedAt: "2026-07-18T12:00:30.000Z" }),
+          expect.objectContaining({ state: "open", observedAt: "2026-07-18T12:01:00.000Z" }),
+        ]);
+      });
+    await request(runtime.app).get("/api/v1/houses/house-elements/opening-states?from=2026-07-18T12:00:45.000Z&to=2026-07-18T12:02:00.000Z&limit=1")
+      .expect(200).expect(({ body }) => {
+        expect(body.history).toEqual([
+          expect.objectContaining({ state: "open", observedAt: "2026-07-18T12:01:00.000Z" }),
+        ]);
+      });
+    await request(runtime.app).get("/api/v1/houses/house-elements/opening-states?from=2026-07-18T12:02:00.000Z&to=2026-07-18T12:00:00.000Z")
+      .expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_OPENING_HISTORY_RANGE"));
     await request(runtime.app).post("/api/v1/houses/house-elements/opening-states").send({
       floorId: "main", elementId: "door-1", state: "closed", source: "home-assistant", observedAt: "2026-07-18T12:03:00.000Z", externalId: "binary_sensor.entry",
     }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_FIELD"));
@@ -796,6 +829,65 @@ describe("Climate Twin API v1", () => {
     const cottageSnapshot = await request(runtime.app).get("/api/v1/snapshot?houseId=house-cottage").expect(200);
     expect(cottageSnapshot.body.snapshot).toHaveLength(1);
     expect(cottageSnapshot.body.snapshot[0]).toMatchObject({ id: "sensor-cottage", reading: null });
+  });
+
+  it("bounds and scopes action-run evidence to the requested house", async () => {
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-actions", name: "Action house", timezone: "Europe/Helsinki",
+      floors: [{ id: "floor-actions", name: "Main", width: 4, height: 4, elevation: 0, walls: [], rooms: [] }],
+    }).expect(201);
+    await request(runtime.app).post("/api/v1/sensors").send({
+      id: "sensor-actions", houseId: "house-actions", floorId: "floor-actions",
+      name: "Action sensor", room: "Main", model: "Test", x: 2, y: 2, z: 1,
+      tags: [], enabled: true,
+    }).expect(201);
+    const observedAt = new Date().toISOString();
+    runtime.database.insertMeasurementSamples([
+      {
+        sensorId: "sensor-01", metric: "humidity", value: 55, canonicalUnit: "%",
+        timestamp: observedAt, source: "api", quality: "good",
+      },
+      {
+        sensorId: "sensor-actions", metric: "humidity", value: 65, canonicalUnit: "%",
+        timestamp: observedAt, source: "api", quality: "good",
+      },
+    ]);
+    const playbook = runtime.database.saveActionPlaybook({
+      name: "Scoped action",
+      description: "Verify house-scoped action reads.",
+      instructions: ["Observe"],
+      metric: "humidity",
+      goal: "decrease",
+      minimumImprovement: 1,
+      targetValue: null,
+      waitSeconds: 0,
+      verificationWindowSeconds: 300,
+    });
+    const otherTask = runtime.database.createMaintenanceTask({
+      houseId: "house-actions",
+      title: "Other Home task",
+      basis: "condition-based",
+    });
+    await request(runtime.app).post("/api/v1/action-runs").send({
+      playbookId: playbook.id,
+      sensorId: "sensor-01",
+      maintenanceTaskId: otherTask.id,
+    }).expect(409).expect(({ body }) => {
+      expect(body.error.code).toBe("MAINTENANCE_TASK_SCOPE_MISMATCH");
+    });
+    const mainRun = runtime.database.startActionRun({ playbookId: playbook.id, sensorId: "sensor-01" });
+    const otherRun = runtime.database.startActionRun({ playbookId: playbook.id, sensorId: "sensor-actions" });
+
+    await request(runtime.app).get("/api/v1/action-runs").query({ houseId: "house-main", limit: 1 })
+      .expect(200).expect(({ body }) => {
+        expect(body.runs).toEqual([expect.objectContaining({ id: mainRun.id, sensorId: "sensor-01" })]);
+      });
+    await request(runtime.app).get("/api/v1/action-runs").query({ houseId: "house-actions" })
+      .expect(200).expect(({ body }) => {
+        expect(body.runs).toEqual([expect.objectContaining({ id: otherRun.id, sensorId: "sensor-actions" })]);
+      });
+    await request(runtime.app).get("/api/v1/action-runs").query({ houseId: "missing-house" }).expect(404);
+    await request(runtime.app).get("/api/v1/action-runs").query({ houseId: "house-main", limit: 0 }).expect(400);
   });
 
   it("persists optional house locations and reports the real weather configuration count", async () => {
