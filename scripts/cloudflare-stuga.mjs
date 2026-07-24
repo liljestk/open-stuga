@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { parse as parsePath, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const API_BASE = "https://api.cloudflare.com/client/v4";
@@ -41,9 +41,12 @@ function usage() {
   node scripts/cloudflare-stuga.mjs verify-coordinator \\
     [--secret-dir ./secrets/cloudflare]
 
+  node scripts/cloudflare-stuga.mjs verify \\
+    [--secret-dir ./secrets/cloudflare]
+
 The temporary provisioning token is read but never copied. The runtime token
 must have only Account > Access: Organizations, Identity Providers, and Groups
-Edit. Token values are never accepted as command-line arguments.
+Write. Token values are never accepted as command-line arguments.
 
 provision exposes only the human UI through Access. provision-coordinator also
 publishes the signed machine protocol path and pins STUGBY_PUBLIC_ORIGIN.`;
@@ -52,8 +55,8 @@ publishes the signed machine protocol path and pins STUGBY_PUBLIC_ORIGIN.`;
 function parseArguments(argv) {
   if (argv.includes("--help") || argv.includes("-h")) return { help: true };
   const [command, ...rest] = argv;
-  if (!["provision", "provision-coordinator", "verify-coordinator"].includes(command)) {
-    throw new UsageError("The provision, provision-coordinator, or verify-coordinator command is required");
+  if (!["provision", "provision-coordinator", "verify", "verify-coordinator"].includes(command)) {
+    throw new UsageError("The provision, provision-coordinator, verify, or verify-coordinator command is required");
   }
   const values = {};
   for (let index = 0; index < rest.length; index += 2) {
@@ -69,10 +72,11 @@ function parseArguments(argv) {
     "--hostname", "--zone", "--owner-email", "--provision-token-file", "--access-token-file",
     "--account-id", "--zone-id", "--secret-dir",
   ];
-  const allowed = new Set(command === "verify-coordinator" ? ["--secret-dir"] : provisioningOptions);
+  const verifying = command === "verify" || command === "verify-coordinator";
+  const allowed = new Set(verifying ? ["--secret-dir"] : provisioningOptions);
   const unknown = Object.keys(values).find((key) => !allowed.has(key));
   if (unknown) throw new UsageError(`Unknown option ${unknown}`);
-  if (command === "verify-coordinator") {
+  if (verifying) {
     return {
       help: false,
       command,
@@ -109,19 +113,33 @@ function validateOptions(options) {
   for (const [label, value] of [["--account-id", options.accountId], ["--zone-id", options.zoneId]]) {
     if (value && !/^[a-f0-9]{32}$/i.test(value)) throw new UsageError(`${label} must be a 32-character hexadecimal ID`);
   }
+  if (options.secretDirectory && resolve(options.secretDirectory) === parsePath(resolve(options.secretDirectory)).root) {
+    throw new UsageError("--secret-dir must be a dedicated subdirectory");
+  }
+}
+
+function validateToken(token, label) {
+  const normalized = typeof token === "string" ? token.trim() : "";
+  if (Buffer.byteLength(normalized, "utf8") < 32 || /[\r\n]/.test(normalized)) {
+    throw new UsageError(`${label} does not contain one valid token`);
+  }
+  return normalized;
 }
 
 function readToken(path, label) {
   let token;
   try {
+    const stats = statSync(path);
+    if (!stats.isFile()) throw new Error("not a regular file");
+    if (process.platform !== "win32" && (stats.mode & 0o077) !== 0) {
+      throw new UsageError(`${label} is readable by another user; restrict it to mode 0600`);
+    }
     token = readFileSync(path, "utf8").trim();
-  } catch {
+  } catch (error) {
+    if (error instanceof UsageError) throw error;
     throw new UsageError(`${label} could not be read`);
   }
-  if (Buffer.byteLength(token, "utf8") < 32 || /[\r\n]/.test(token)) {
-    throw new UsageError(`${label} does not contain one valid token`);
-  }
-  return token;
+  return validateToken(token, label);
 }
 
 function safeErrorMessages(errors) {
@@ -389,38 +407,68 @@ function stugbyProtocolPolicySpec(hostname) {
   };
 }
 
-async function provision(options) {
+function readExistingDeployment(deploymentPath, options) {
+  if (!existsSync(deploymentPath)) return null;
+  let previous;
+  try { previous = JSON.parse(readFileSync(deploymentPath, "utf8")); } catch {
+    throw new UsageError(`Refusing to overwrite invalid deployment metadata at ${deploymentPath}`);
+  }
+  const validVersion = previous?.version === 1 || previous?.version === 2;
+  const validMode = previous?.version === 1
+    ? previous.mode === undefined
+    : ["remote-ui", "stugby-coordinator"].includes(previous?.mode);
+  const hostname = typeof previous?.hostname === "string" ? previous.hostname.trim().toLowerCase() : "";
+  if (!validVersion || !validMode || !hostname) {
+    throw new UsageError(`Refusing to overwrite unsupported deployment metadata at ${deploymentPath}`);
+  }
+  if (hostname !== options.hostname) {
+    throw new UsageError(`The existing deployment in ${deploymentPath} belongs to ${hostname}, not ${options.hostname}`);
+  }
+  if (options.command === "provision" && previous.mode === "stugby-coordinator") {
+    throw new UsageError(
+      "Refusing to downgrade a Stugby coordinator with provision; rerun provision-coordinator or stop cloudflared",
+    );
+  }
+  return previous;
+}
+
+async function provision(options, dependencies = {}) {
   validateOptions(options);
   const coordinator = options.command === "provision-coordinator";
   const deploymentPath = resolve(options.secretDirectory, "deployment.json");
-  if (!coordinator && existsSync(deploymentPath)) {
-    let previous;
-    try { previous = JSON.parse(readFileSync(deploymentPath, "utf8")); } catch {
-      throw new UsageError(`Refusing to overwrite invalid deployment metadata at ${deploymentPath}`);
-    }
-    if (previous?.mode === "stugby-coordinator") {
-      throw new UsageError(
-        "Refusing to downgrade a Stugby coordinator with provision; rerun provision-coordinator or stop cloudflared",
-      );
-    }
+  const previous = readExistingDeployment(deploymentPath, options);
+  const provisionToken = dependencies.provisionToken === undefined
+    ? readToken(options.provisionTokenFile, "Provisioning token file")
+    : validateToken(dependencies.provisionToken, "Provisioning token");
+  const accessToken = dependencies.accessToken === undefined
+    ? readToken(options.accessTokenFile, "Runtime Access token file")
+    : validateToken(dependencies.accessToken, "Runtime Access token");
+  if (provisionToken === accessToken) {
+    throw new UsageError("Provisioning and runtime Access tokens must be different");
   }
-  const provisionToken = readToken(options.provisionTokenFile, "Provisioning token file");
-  const accessToken = readToken(options.accessTokenFile, "Runtime Access token file");
+  const logger = dependencies.logger ?? console;
+  const composeCommand = dependencies.composeCommand ?? "docker compose";
   const api = cloudflareClient(provisionToken);
   const accessApi = cloudflareClient(accessToken);
   const accountId = await findAccount(api, options.accountId);
   const zoneId = await findZone(api, accountId, options.zone, options.zoneId);
+  if (previous?.accountId && previous.accountId !== accountId) {
+    throw new UsageError("The existing deployment belongs to a different Cloudflare account");
+  }
+  if (previous?.zoneId && previous.zoneId !== zoneId) {
+    throw new UsageError("The existing deployment belongs to a different Cloudflare zone");
+  }
   const hostname = options.hostname;
   const groupName = `Stuga (${hostname}) members`;
   const applicationName = `Stuga (${hostname})`;
   const handoffName = `Stuga (${hostname}) invitation handoff`;
   const tunnelName = `stuga-${hostname.replace(/[^a-z0-9]+/g, "-")}`;
 
-  console.log("Configuring Cloudflare One-time PIN login and managed member group…");
+  logger.log("Configuring Cloudflare One-time PIN login and managed member group…");
   const otp = await ensureOtp(accessApi, accountId);
   const group = await ensureGroup(accessApi, accessApi, accountId, groupName, options.ownerEmail);
 
-  console.log("Configuring protected application and invitation handoff…");
+  logger.log("Configuring protected application and invitation handoff…");
   const application = await ensureApplication(api, accountId, {
     name: applicationName,
     type: "self_hosted",
@@ -461,7 +509,7 @@ async function provision(options) {
   });
   let protocolApplication = null;
   if (coordinator) {
-    console.log("Configuring the narrowly scoped signed Stugby machine path...");
+    logger.log("Configuring the narrowly scoped signed Stugby machine path...");
     const applicationSpec = stugbyProtocolApplicationSpec(hostname);
     protocolApplication = await ensureApplication(api, accountId, applicationSpec);
     await ensureApplicationPolicy(
@@ -472,7 +520,7 @@ async function provision(options) {
     );
   }
 
-  console.log("Configuring named Tunnel and proxied DNS record…");
+  logger.log("Configuring named Tunnel and proxied DNS record…");
   const tunnel = await ensureTunnel(api, accountId, tunnelName, hostname);
   await ensureDns(api, zoneId, hostname, tunnel.id);
   const tunnelToken = await api(`/accounts/${accountId}/cfd_tunnel/${tunnel.id}/token`);
@@ -481,6 +529,7 @@ async function provision(options) {
   }
 
   mkdirSync(options.secretDirectory, { recursive: true, mode: 0o700 });
+  try { chmodSync(options.secretDirectory, 0o700); } catch { /* Windows uses inherited user ACLs. */ }
   writeProtected(resolve(options.secretDirectory, "access-group-token"), `${accessToken}\n`);
   writeProtected(resolve(options.secretDirectory, "tunnel-token"), `${tunnelToken}\n`);
   writeProtected(resolve(options.secretDirectory, "config.env"), renderRuntimeEnvironment({
@@ -505,24 +554,29 @@ async function provision(options) {
     identityProviderId: otp.id,
   }, null, 2)}\n`);
 
-  console.log(`Cloudflare is configured for https://${hostname}`);
-  console.log("Start or update the local stack with: docker compose up -d --build cloudflared");
-  if (coordinator) {
-    console.log(`Then verify the security boundary with: node scripts/cloudflare-stuga.mjs verify-coordinator --secret-dir ${options.secretDirectory}`);
+  logger.log(`Cloudflare is configured for https://${hostname}`);
+  if (dependencies.printGuidance !== false) {
+    logger.log("Recreate the services that consume the generated runtime with:");
+    logger.log(`  ${composeCommand} up -d --build --force-recreate api web cloudflared`);
+    if (coordinator) {
+      logger.log(`Then verify the security boundary with: node scripts/cloudflare-stuga.mjs verify-coordinator --secret-dir ${options.secretDirectory}`);
+    } else {
+      logger.log(`Then verify the security boundary with: node scripts/cloudflare-stuga.mjs verify --secret-dir ${options.secretDirectory}`);
+    }
+    logger.log(`Rollback the public connection at any time with: ${composeCommand} stop cloudflared`);
   }
-  console.log("Rollback the public connection at any time with: docker compose stop cloudflared");
 }
 
-function readCoordinatorDeployment(secretDirectory) {
+function readDeployment(secretDirectory) {
   let deployment;
   try {
     deployment = JSON.parse(readFileSync(resolve(secretDirectory, "deployment.json"), "utf8"));
   } catch {
     throw new UsageError(`Could not read a valid deployment.json from ${secretDirectory}`);
   }
-  if (deployment?.version !== 2 || deployment?.mode !== "stugby-coordinator"
+  if (deployment?.version !== 2 || !["remote-ui", "stugby-coordinator"].includes(deployment?.mode)
     || typeof deployment.hostname !== "string") {
-    throw new UsageError("deployment.json is not a version 2 Stugby coordinator deployment");
+    throw new UsageError("deployment.json is not a supported version 2 Cloudflare deployment");
   }
   const options = {
     hostname: deployment.hostname.trim().toLowerCase(),
@@ -535,6 +589,14 @@ function readCoordinatorDeployment(secretDirectory) {
   return { ...deployment, hostname: options.hostname };
 }
 
+function readCoordinatorDeployment(secretDirectory) {
+  const deployment = readDeployment(secretDirectory);
+  if (deployment.mode !== "stugby-coordinator") {
+    throw new UsageError("deployment.json is not a version 2 Stugby coordinator deployment");
+  }
+  return deployment;
+}
+
 function isAccessChallenge(response) {
   if ([301, 302, 303, 307, 308].includes(response.status)) {
     const location = response.headers.get("location") ?? "";
@@ -545,10 +607,10 @@ function isAccessChallenge(response) {
   return Boolean(response.headers.get("cf-ray")) && !contentType.includes("application/json");
 }
 
-async function verifyCoordinator(options, dependencies = {}) {
-  const deployment = readCoordinatorDeployment(options.secretDirectory);
+async function verifyBoundary(deployment, dependencies = {}) {
   const fetcher = dependencies.fetcher ?? fetch;
   const logger = dependencies.logger ?? console;
+  const composeCommand = dependencies.composeCommand ?? "docker compose";
   const origin = `https://${deployment.hostname}`;
   const probe = (path, init = {}) => fetcher(`${origin}${path}`, {
     ...init,
@@ -569,20 +631,50 @@ async function verifyCoordinator(options, dependencies = {}) {
   if (!isAccessChallenge(administration)) {
     throw new Error(`Stugby administration is not protected by Cloudflare Access (HTTP ${administration.status})`);
   }
+  const handoff = await probe("/invite-bootstrap", { headers: { accept: "text/html" } });
+  if (handoff.status !== 200 || !handoff.headers.get("content-type")?.includes("text/html")) {
+    throw new Error(`Invitation handoff page is not publicly reachable (HTTP ${handoff.status})`);
+  }
+  const handoffScript = await probe("/invite-bootstrap.js", { headers: { accept: "application/javascript" } });
+  if (handoffScript.status !== 200 || !/(?:java|ecma)script/u.test(handoffScript.headers.get("content-type") ?? "")) {
+    throw new Error(`Invitation handoff script is not publicly reachable (HTTP ${handoffScript.status})`);
+  }
   const machine = await probe("/api/v1/stugby-protocol/join", { method: "POST", body: "{}" });
-  let payload = null;
-  try { payload = await machine.json(); } catch { /* Report the boundary failure below without echoing a body. */ }
-  const errorCode = payload?.error?.code;
-  if (machine.status !== 400 || typeof errorCode !== "string" || errorCode === "STUGBY_DISABLED") {
-    throw new Error(
-      `Signed Stugby machine path did not reach the coordinator's validation boundary (HTTP ${machine.status})`,
-    );
+  if (deployment.mode === "stugby-coordinator") {
+    let payload = null;
+    try { payload = await machine.json(); } catch { /* Report the boundary failure below without echoing a body. */ }
+    const errorCode = payload?.error?.code;
+    if (machine.status !== 400 || typeof errorCode !== "string" || errorCode === "STUGBY_DISABLED") {
+      throw new Error(
+        `Signed Stugby machine path did not reach the coordinator's validation boundary (HTTP ${machine.status})`,
+      );
+    }
+  } else if (!isAccessChallenge(machine)) {
+    throw new Error(`Stugby machine path is not protected by Cloudflare Access (HTTP ${machine.status})`);
   }
   logger.log(`Verified Cloudflare boundary for ${origin}`);
   logger.log("  protected: / and /api/v1/stugbys");
-  logger.log("  reachable but application-authenticated: /api/v1/stugby-protocol/*");
-  logger.log("Rollback: docker compose stop cloudflared");
-  return { origin, rootStatus: root.status, administrationStatus: administration.status, machineStatus: machine.status };
+  logger.log("  public: /invite-bootstrap and /invite-bootstrap.js");
+  logger.log(deployment.mode === "stugby-coordinator"
+    ? "  reachable but application-authenticated: /api/v1/stugby-protocol/*"
+    : "  protected: /api/v1/stugby-protocol/*");
+  logger.log(`Rollback: ${composeCommand} stop cloudflared`);
+  return {
+    origin,
+    rootStatus: root.status,
+    administrationStatus: administration.status,
+    handoffStatus: handoff.status,
+    handoffScriptStatus: handoffScript.status,
+    machineStatus: machine.status,
+  };
+}
+
+async function verifyDeployment(options, dependencies = {}) {
+  return verifyBoundary(readDeployment(options.secretDirectory), dependencies);
+}
+
+async function verifyCoordinator(options, dependencies = {}) {
+  return verifyBoundary(readCoordinatorDeployment(options.secretDirectory), dependencies);
 }
 
 async function main() {
@@ -593,6 +685,7 @@ async function main() {
       return;
     }
     if (options.command === "verify-coordinator") await verifyCoordinator(options);
+    else if (options.command === "verify") await verifyDeployment(options);
     else await provision(options);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown provisioning failure";
@@ -609,11 +702,15 @@ export {
   parseArguments,
   provision,
   readCoordinatorDeployment,
+  readDeployment,
+  readExistingDeployment,
   renderRuntimeEnvironment,
   stugbyProtocolApplicationSpec,
   stugbyProtocolPolicySpec,
   validateOptions,
+  validateToken,
   verifyCoordinator,
+  verifyDeployment,
 };
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {

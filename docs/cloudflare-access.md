@@ -59,21 +59,26 @@ prevents first-owner setup from replacing the only working edge identity.
 
 ## Prerequisites and token scope
 
-Use a hostname in a DNS zone already managed by the intended Cloudflare
-account. Keep the host port on its default loopback binding; `cloudflared`
-reaches the web container over the private Compose network.
+Use a hostname in an active DNS zone already managed by the intended Cloudflare
+account. New accounts must open the Zero Trust dashboard and complete its
+initial organization setup once. Keep the host port on its default loopback
+binding; `cloudflared` reaches the web container over the private Compose
+network.
 
 Create two API tokens and store each value in a protected file outside source
-control:
+control, or paste them only into the setup wizard's hidden prompts:
 
 1. A short-lived provisioning token, scoped to the one account and zone, with
-   the current Cloudflare permissions needed to edit Access applications and
-   policies, Access organizations/identity providers/groups, Cloudflare
-   Tunnel, and DNS. Pass `--account-id` and `--zone-id` to avoid broad discovery
-   when practical.
-2. A runtime token scoped to the one account with only **Access:
-   Organizations, Identity Providers, and Groups Edit**. Stuga uses it only to
+   **Access: Apps and Policies Write**, **Cloudflare Tunnel Write**, and
+   **DNS Write**. Add zone-read permission when using automatic zone discovery;
+   pass `--account-id` and `--zone-id` to avoid discovery when practical.
+2. A different runtime token scoped to the one account with only **Access:
+   Organizations, Identity Providers, and Groups Write**. Stuga uses it only to
    read and replace the exact-email rules in its managed group.
+
+On macOS/Linux, token files must be regular files with mode `0600`; the
+provisioner rejects group/world-readable files. On Windows, store them under
+the installing user's private profile and do not grant other users access.
 
 The relevant Cloudflare API references are the current documentation for
 [Access groups](https://developers.cloudflare.com/api/resources/zero_trust/subresources/access/subresources/groups/),
@@ -82,10 +87,52 @@ The relevant Cloudflare API references are the current documentation for
 and [DNS records](https://developers.cloudflare.com/api/resources/dns/subresources/records/).
 Review them when creating tokens because provider permission names can evolve.
 
-Do not pass either token value on the command line. Command-line arguments are
-commonly retained in shell history and process inspection.
+The provisioner rejects identical setup/runtime tokens so a broad temporary
+credential cannot accidentally become the retained runtime credential. Do not
+pass either value on the command line. Command-line arguments are commonly
+retained in shell history and process inspection.
 
-## Provision
+## Recommended guided setup
+
+For a new Docker or Podman installation, run:
+
+```powershell
+npm run setup
+```
+
+Choose the container runtime, then either **Secure remote access with
+Cloudflare Tunnel + Access** or **Remote access plus a Stugby coordinator**.
+The wizard asks only for the hostname, DNS zone, recovery email, and how to
+supply the two tokens. Account and zone IDs are discovered when unambiguous.
+
+The default hidden-paste path keeps both token values out of command arguments,
+shell history, logs, and `.env`; the temporary token stays only in process
+memory. The wizard provisions Access before public ingress, writes the retained
+runtime files under ignored `secrets/cloudflare/`, recreates `api`, `web`, and
+`cloudflared`, and retries the external verifier while DNS/Tunnel state
+converges. If verification does not pass, it stops `cloudflared` automatically.
+It also pins `BIND_ADDRESS=127.0.0.1`; the loopback URL remains available for
+recovery.
+
+Preview the complete plan without reading tokens or changing local/provider
+state:
+
+```powershell
+npm run setup -- --mode docker --real `
+  --cloudflare remote-ui `
+  --cloudflare-hostname stuga.example.com `
+  --cloudflare-zone example.com `
+  --cloudflare-owner-email edge-owner@example.com `
+  --dry-run --yes
+```
+
+For non-interactive automation, remove `--dry-run` and add both
+`--cloudflare-provision-token-file` and
+`--cloudflare-access-token-file`. Token values themselves are never CLI
+options. Use `--cloudflare stugby-coordinator` only on the node that will create
+the Stugby.
+
+## Manual provision
 
 From the repository root, run the idempotent provisioner. In PowerShell:
 
@@ -118,11 +165,12 @@ the deployment. Protect and back up the generated directory separately in
 encrypted off-host storage; the normal Stuga data backup is not a substitute
 for these deployment credentials.
 
-Start or reconcile the local services:
+Recreate the services that consume the generated runtime:
 
 ```powershell
-docker compose up -d --build cloudflared
+docker compose up -d --build --force-recreate api web cloudflared
 docker compose ps
+npm run cloudflare:verify
 ```
 
 ### Provision a Stugby coordinator
@@ -140,20 +188,24 @@ npm run cloudflare:provision-coordinator -- `
   --provision-token-file C:\protected\stuga-provision-token `
   --access-token-file C:\protected\stuga-access-group-token
 
-docker compose up -d --build cloudflared
+docker compose up -d --build --force-recreate api web cloudflared
 npm run cloudflare:verify-coordinator
 ```
 
-The verifier makes unauthenticated probes and fails unless all three boundary
-conditions hold:
+Both verifier commands make unauthenticated probes and fail unless all five
+boundary conditions hold:
 
 1. `/` is challenged by Cloudflare Access;
-2. `/api/v1/stugbys` is challenged by Cloudflare Access; and
-3. an intentionally invalid join reaches Stuga and is rejected by application
-   validation at `/api/v1/stugby-protocol/join`.
+2. `/api/v1/stugbys` is challenged by Cloudflare Access;
+3. `/invite-bootstrap` is publicly reachable;
+4. `/invite-bootstrap.js` is publicly reachable; and
+5. the machine-protocol path stays behind Access in remote-UI mode, or an
+   intentionally invalid join reaches and is rejected by Stuga's application
+   verifier in coordinator mode.
 
-Run it after every Access, Tunnel, hostname, or reverse-proxy change. It sends no
-credential, invitation, Home data, or valid protocol request.
+Run the matching verifier after every Access, Tunnel, hostname, or reverse-proxy
+change. It sends no credential, invitation, Home data, or valid protocol
+request.
 
 Visit the HTTPS hostname, authenticate with the edge operator email, and create
 or sign in to the local Stuga owner. Verify all of these before considering the
@@ -194,8 +246,11 @@ An existing remote-UI deployment becomes a coordinator by rerunning the same
 inputs with `provision-coordinator`. The script upgrades `deployment.json`,
 adds the exact machine-path application and policy, and writes
 `STUGBY_PUBLIC_ORIGIN`; it does not delete or replace unrelated resources.
-Start/recreate the local containers, then run `verify-coordinator` before
-creating invitations.
+Recreate `api`, `web`, and `cloudflared`, then run `verify-coordinator` before
+creating invitations. When a Stugby was created on loopback and no remote node
+has joined, startup safely pins it to the configured origin and revokes its old
+origin-bound invitations; create fresh invitations after verification. An
+established Stugby is not silently moved to another origin.
 
 ## Rotation, recovery, and rollback
 

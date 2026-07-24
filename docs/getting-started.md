@@ -28,22 +28,38 @@ npm run setup
 ```
 
 The wizard asks for the runtime, real or disposable demo data, the container
-port when applicable, and whether to start containers. It creates `.env` only
-when missing and changes only `MOCK_ENABLED`, `APP_PORT`, and the Podman profile
-guard. Existing credentials and advanced settings are preserved. Integration
-credentials are deliberately entered later through Stuga's guided web setup.
+port when applicable, and whether remote access is needed. Docker and Podman
+can provision either a protected remote UI or a Stugby coordinator through
+Cloudflare Tunnel + Access. Local-only remains the default.
+
+Cloudflare setup explains the two least-scope tokens, accepts them through
+hidden terminal input or protected files, and never puts them in arguments,
+logs, or `.env`. It configures Access before DNS/Tunnel ingress, recreates the
+services that consume the generated runtime, then checks the edge from an
+unauthenticated client. If any protected route is exposed, any public handoff
+asset is blocked, or the Stugby machine boundary has the wrong policy, setup
+stops `cloudflared` automatically while leaving loopback recovery available.
+
+The wizard creates `.env` only when missing and ordinarily changes only
+`MOCK_ENABLED`, `APP_PORT`, and the Podman profile guard. Choosing Cloudflare
+also pins `BIND_ADDRESS=127.0.0.1`; existing credentials and all other advanced
+settings are preserved. Other integration credentials are deliberately entered
+later through Stuga's guided web setup.
 
 Automation can select the same paths explicitly:
 
 ```sh
-npm run setup -- --mode local --real
-npm run setup -- --mode docker --real --start
-npm run setup -- --mode podman --demo --no-start
+npm run setup -- --mode local --real --yes
+npm run setup -- --mode docker --real --start --no-cloudflare --yes
+npm run setup -- --mode podman --demo --no-start --no-cloudflare --yes
 npm run setup -- --mode rpi --pi-action flash
 ```
 
 Add `--dry-run` to inspect a plan without changing files, packages, or
-containers.
+containers or Cloudflare. For the shortest secure remote-access path, choose
+Docker or Podman in the interactive wizard. See
+[Cloudflare Tunnel and Access](cloudflare-access.md) for token scopes,
+non-interactive flags, rotation, and rollback.
 
 ## Docker Compose
 

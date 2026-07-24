@@ -452,6 +452,9 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
 
   const currentDetail = detail?.stugby.id === selectedId ? detail : null;
   const coordinator = currentDetail?.stugby.localMemberState === "active" && currentDetail.stugby.localRole === "steward";
+  const coordinatorInvitationReady = Boolean(
+    coordinator && index?.publicOrigin && currentDetail.stugby.coordinatorUrl === index.publicOrigin,
+  );
   const propertyWriter = currentDetail?.stugby.localMemberState === "active"
     && ["steward", "property-manager"].includes(currentDetail.stugby.localRole);
   const canPublish = currentDetail?.stugby.localMemberState === "active" && currentDetail.stugby.localRole !== "viewer";
@@ -554,8 +557,11 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
             <div><strong>{member.displayName}</strong><small>{member.keyFingerprint.slice(0, 12)}… · {stateLabel(member.state)}</small></div>
             {coordinator && member.role !== "steward" ? <><select aria-label={`${t("stugby.localRole")}: ${member.displayName}`} value={member.role} disabled={busy !== null} onChange={(event) => updateMember(member, { role: event.target.value as StugbyRole })}><option value="property-manager">{t("stugby.role.propertyManager")}</option><option value="participant">{t("stugby.role.participant")}</option><option value="viewer">{t("stugby.role.viewer")}</option></select><select aria-label={`${t("stugby.memberState")}: ${member.displayName}`} value={member.state} disabled={busy !== null} onChange={(event) => updateMember(member, { state: event.target.value as StugbyMember["state"] })}><option value="active">{t("stugby.state.active")}</option><option value="suspended">{t("stugby.state.suspended")}</option><option value="left">{t("stugby.state.left")}</option><option value="revoked">{t("stugby.state.revoked")}</option></select></> : <span className="role-pill">{roleLabel(member.role)}</span>}
           </div>)}</div>
+          {coordinator && !coordinatorInvitationReady && <p className="stugby-capability-note" role="note">{t("stugby.invitationUnavailable")}</p>}
           {coordinator && <form className="stugby-invite-form" onSubmit={(event) => {
-            event.preventDefault(); void withBusy("invite", async () => {
+            event.preventDefault();
+            if (!coordinatorInvitationReady) return;
+            void withBusy("invite", async () => {
               setCreatedInvitation(await api.createStugbyInvitation(detail.stugby.id, {
                 role: inviteRole,
                 ...(inviteExpiresAt ? { expiresAt: new Date(inviteExpiresAt).toISOString() } : {}),
@@ -566,7 +572,7 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
           }}>
             <div className="stugby-quick-action">
               <div><strong>{t("stugby.createInvitation")}</strong><small>{inviteRole === "participant" && !inviteExpiresAt ? t("stugby.invitationDefaults") : `${roleLabel(inviteRole)} · ${inviteExpiresAt || t("stugby.never")}`}</small></div>
-              <button className="primary-button" disabled={busy !== null}>{busy === "invite" ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}{t("stugby.createInvitation")}</button>
+              <button className="primary-button" disabled={busy !== null || !coordinatorInvitationReady}>{busy === "invite" ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}{t("stugby.createInvitation")}</button>
             </div>
             <details className="stugby-subdetails">
               <summary>{t("stugby.invitationOptions")}</summary>

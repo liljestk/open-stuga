@@ -1,6 +1,6 @@
 {
   "name": "climate-twin",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "license": "MIT",
   "description": "A local-first digital twin for extensible whole-home environmental telemetry.",
@@ -25,6 +25,7 @@
     "test:cloudflare": "node --test scripts/tests/cloudflare-stuga.test.mjs",
     "cloudflare:provision": "node scripts/cloudflare-stuga.mjs provision",
     "cloudflare:provision-coordinator": "node scripts/cloudflare-stuga.mjs provision-coordinator",
+    "cloudflare:verify": "node scripts/cloudflare-stuga.mjs verify",
     "cloudflare:verify-coordinator": "node scripts/cloudflare-stuga.mjs verify-coordinator",
     "test:rpi-ota": "node --test scripts/tests/rpi-ota.test.mjs",
     "test:update-agent": "node --test scripts/tests/system-update-agent.test.mjs",

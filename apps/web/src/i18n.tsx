@@ -133,6 +133,7 @@ const en = {
   "stugby.newRole": "New participant role",
   "stugby.invitationExpiry": "Invitation expiry (optional)",
   "stugby.createInvitation": "Create one-time invitation",
+  "stugby.invitationUnavailable": "Invitations are paused until this Stugby's coordinator URL matches the server-owned public origin. Provision or restore the coordinator, then restart Stuga.",
   "stugby.invitationDefaults": "Participant access · expires in 7 days",
   "stugby.invitationOptions": "Change role or expiry",
   "stugby.invitationOnce": "Copy this invitation now; the join secret is shown once.",

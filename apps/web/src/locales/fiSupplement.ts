@@ -48,6 +48,7 @@ export const fiSupplement = {
   "stugby.newRole": "Uuden osallistujan rooli",
   "stugby.invitationExpiry": "Kutsun päättymisaika (valinnainen)",
   "stugby.createInvitation": "Luo kertakäyttöinen kutsu",
+  "stugby.invitationUnavailable": "Kutsut ovat poissa käytöstä, kunnes tämän Stugbyn koordinaattorin URL vastaa palvelimen hallitsemaa julkista originia. Ota koordinaattori käyttöön tai palauta se ja käynnistä Stuga uudelleen.",
   "stugby.invitationDefaults": "Osallistujan käyttöoikeus · vanhenee 7 päivässä",
   "stugby.invitationOptions": "Muuta roolia tai vanhenemista",
   "stugby.invitationOnce": "Kopioi kutsu nyt; liittymissalaisuus näytetään vain kerran.",

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import type { MeasurementSample } from "@climate-twin/contracts";
 import {
+  STUGBY_MEDIA_TYPE,
   STUGBY_PROTOCOL_VERSION,
   assertSafeFederationPayload,
   validateDatasetPayload,
@@ -124,6 +125,85 @@ describe("Stugby federation", () => {
       .send({ name: "No public origin" })
       .expect(503);
     expect(unavailable.body.error.code).toBe("STUGBY_PUBLIC_ORIGIN_REQUIRED");
+
+    const localOnly = await request(unconfigured.url).post("/api/v1/stugbys")
+      .send({ name: "Local-only Stugby" }).expect(201);
+    const unavailableInvitation = await request(unconfigured.runtime.app)
+      .post(`/api/v1/stugbys/${localOnly.body.id}/invitations`)
+      .set("host", "unconfigured.example.test")
+      .send({ role: "participant" })
+      .expect(503);
+    expect(unavailableInvitation.body.error.code).toBe("STUGBY_PUBLIC_ORIGIN_REQUIRED");
+
+    const unavailableAdmission = await request(unconfigured.runtime.app)
+      .post("/api/v1/stugby-protocol/join")
+      .set("host", "unconfigured.example.test")
+      .set("content-type", STUGBY_MEDIA_TYPE)
+      .send("{}")
+      .expect(503);
+    expect(unavailableAdmission.body.error.code).toBe("STUGBY_PUBLIC_ORIGIN_REQUIRED");
+  });
+
+  it("repins an unjoined loopback coordinator and revokes origin-bound invitations", async () => {
+    const coordinator = await node("Migrating coordinator");
+    nodes.push(coordinator);
+    const created = await request(coordinator.url).post("/api/v1/stugbys")
+      .send({ name: "Migrating Stugby" }).expect(201);
+    const staleInvitation = await request(coordinator.runtime.app)
+      .post(`/api/v1/stugbys/${created.body.id}/invitations`)
+      .send({ role: "participant" }).expect(201);
+    expect(new URL(staleInvitation.body.joinUrl).origin).toBe(coordinator.url);
+
+    const migrated = new StugbyService({
+      database: coordinator.runtime.database,
+      store: coordinator.runtime.stugby.store,
+      keys: coordinator.runtime.stugby.keys,
+      bus: coordinator.runtime.bus,
+      assetDirectory: coordinator.directory,
+      publicOrigin: "https://stugby.example.test",
+    });
+
+    expect(migrated.getStugby(created.body.id).coordinatorUrl).toBe("https://stugby.example.test");
+    expect(migrated.store.getInvitation(staleInvitation.body.id)?.revokedAt).not.toBeNull();
+    expect(migrated.store.listAudit(created.body.id)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: "coordinator.origin.updated",
+        details: expect.objectContaining({ revokedInvitations: 1 }),
+      }),
+    ]));
+    const freshInvitation = migrated.createInvitation(created.body.id, { role: "participant" });
+    expect(new URL(freshInvitation.joinUrl).origin).toBe("https://stugby.example.test");
+  });
+
+  it("fails closed instead of moving a coordinator that already has another node", async () => {
+    const coordinator = await node("Established coordinator");
+    nodes.push(coordinator);
+    const created = await request(coordinator.url).post("/api/v1/stugbys")
+      .send({ name: "Established Stugby" }).expect(201);
+    coordinator.runtime.stugby.store.upsertMember({
+      stugbyId: created.body.id,
+      nodeId: "00000000-0000-4000-8000-000000000001",
+      displayName: "Existing participant",
+      role: "participant",
+      state: "active",
+      publicKey: "existing-public-key",
+      keyFingerprint: "0".repeat(64),
+      joinedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const reconfigured = new StugbyService({
+      database: coordinator.runtime.database,
+      store: coordinator.runtime.stugby.store,
+      keys: coordinator.runtime.stugby.keys,
+      bus: coordinator.runtime.bus,
+      assetDirectory: coordinator.directory,
+      publicOrigin: "https://replacement.example.test",
+    });
+
+    expect(reconfigured.getStugby(created.body.id).coordinatorUrl).toBe(coordinator.url);
+    expect(() => reconfigured.createInvitation(created.body.id, { role: "participant" }))
+      .toThrow(/does not match this server's configured public origin/u);
   });
 
   it("makes one-time admission atomic and recoverable after a lost join response", async () => {

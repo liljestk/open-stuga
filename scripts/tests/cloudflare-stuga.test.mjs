@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, parse as parsePath, resolve } from "node:path";
 import test from "node:test";
 import {
   parseArguments,
+  provision,
+  readExistingDeployment,
   renderRuntimeEnvironment,
   stugbyProtocolApplicationSpec,
   stugbyProtocolPolicySpec,
   validateOptions,
   verifyCoordinator,
+  verifyDeployment,
 } from "../cloudflare-stuga.mjs";
 
 test("generated Cloudflare runtime config pins the edge operator independently of the local owner", () => {
@@ -71,6 +74,14 @@ test("Cloudflare owner email rejects the comma reserved for the runtime operator
     "--access-token-file", "access-token",
   ]);
   assert.throws(() => validateOptions(options), /valid email address/u);
+  assert.throws(
+    () => validateOptions({
+      ...options,
+      ownerEmail: "owner@example.test",
+      secretDirectory: parsePath(resolve(".")).root,
+    }),
+    /dedicated subdirectory/u,
+  );
 });
 
 test("coordinator and verification commands have distinct fail-closed arguments", () => {
@@ -83,11 +94,72 @@ test("coordinator and verification commands have distinct fail-closed arguments"
     "--access-token-file", "access-token",
   ]);
   assert.equal(coordinator.command, "provision-coordinator");
+  assert.equal(parseArguments(["verify"]).command, "verify");
   assert.equal(parseArguments(["verify-coordinator"]).command, "verify-coordinator");
   assert.throws(
     () => parseArguments(["verify-coordinator", "--hostname", "stuga.example.test"]),
     /Unknown option/u,
   );
+});
+
+test("coordinator upgrades accept legacy metadata but refuse another deployment or a downgrade", () => {
+  const directory = mkdtempSync(join(tmpdir(), "stuga-cloudflare-upgrade-test-"));
+  const deploymentPath = join(directory, "deployment.json");
+  try {
+    writeFileSync(deploymentPath, JSON.stringify({
+      version: 1,
+      hostname: "stuga.example.test",
+      accountId: "0123456789abcdef0123456789abcdef",
+      zoneId: "fedcba9876543210fedcba9876543210",
+    }));
+    assert.equal(readExistingDeployment(deploymentPath, {
+      command: "provision-coordinator",
+      hostname: "stuga.example.test",
+    }).version, 1);
+    assert.throws(() => readExistingDeployment(deploymentPath, {
+      command: "provision-coordinator",
+      hostname: "other.example.test",
+    }), /belongs to stuga\.example\.test/u);
+
+    writeFileSync(deploymentPath, JSON.stringify({
+      version: 2,
+      mode: "stugby-coordinator",
+      hostname: "stuga.example.test",
+    }));
+    assert.throws(() => readExistingDeployment(deploymentPath, {
+      command: "provision",
+      hostname: "stuga.example.test",
+    }), /Refusing to downgrade/u);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("provisioning refuses to retain a broad setup token as the runtime token", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "stuga-cloudflare-token-test-"));
+  const provisionTokenFile = join(directory, "provision-token");
+  const accessTokenFile = join(directory, "access-token");
+  const token = "same-token-value-which-is-longer-than-thirty-two-bytes";
+  try {
+    writeFileSync(provisionTokenFile, token, { mode: 0o600 });
+    writeFileSync(accessTokenFile, token, { mode: 0o600 });
+    await assert.rejects(
+      provision({
+        accessTokenFile,
+        accountId: null,
+        command: "provision",
+        hostname: "stuga.example.test",
+        ownerEmail: "owner@example.test",
+        provisionTokenFile,
+        secretDirectory: join(directory, "runtime"),
+        zone: "example.test",
+        zoneId: null,
+      }),
+      /must be different/u,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("bundled reverse proxy rate-limits the machine exception before the generic API route", () => {
@@ -111,21 +183,82 @@ function accessRedirect() {
   });
 }
 
-function coordinatorDeployment() {
+function publicAsset(contentType) {
+  return new Response("", { status: 200, headers: { "content-type": contentType } });
+}
+
+function cloudflareDeployment(mode) {
   const directory = mkdtempSync(join(tmpdir(), "stuga-cloudflare-test-"));
   writeFileSync(join(directory, "deployment.json"), JSON.stringify({
     version: 2,
-    mode: "stugby-coordinator",
+    mode,
     hostname: "stuga.example.test",
   }));
   return directory;
 }
+
+function coordinatorDeployment() {
+  return cloudflareDeployment("stugby-coordinator");
+}
+
+test("remote-UI verifier proves that every non-static path remains behind Access", async () => {
+  const directory = cloudflareDeployment("remote-ui");
+  const responses = [
+    accessRedirect(),
+    accessRedirect(),
+    publicAsset("text/html; charset=utf-8"),
+    publicAsset("application/javascript"),
+    accessRedirect(),
+  ];
+  try {
+    const result = await verifyDeployment(
+      { secretDirectory: directory },
+      {
+        fetcher: async () => responses.shift(),
+        logger: { log() {} },
+      },
+    );
+    assert.equal(result.machineStatus, 302);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("remote-UI verifier fails closed if the machine path is exposed", async () => {
+  const directory = cloudflareDeployment("remote-ui");
+  const responses = [
+    accessRedirect(),
+    accessRedirect(),
+    publicAsset("text/html"),
+    publicAsset("application/javascript"),
+    new Response(JSON.stringify({ error: { code: "STUGBY_DISABLED" } }), {
+      status: 403,
+      headers: { "content-type": "application/json" },
+    }),
+  ];
+  try {
+    await assert.rejects(
+      verifyDeployment(
+        { secretDirectory: directory },
+        {
+          fetcher: async () => responses.shift(),
+          logger: { log() {} },
+        },
+      ),
+      /machine path is not protected/u,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test("coordinator verifier proves that human/admin paths are protected and machine validation is reachable", async () => {
   const directory = coordinatorDeployment();
   const responses = [
     accessRedirect(),
     accessRedirect(),
+    publicAsset("text/html; charset=utf-8"),
+    publicAsset("application/javascript"),
     new Response(JSON.stringify({ error: { code: "INVALID_INPUT", message: "Invitation id is required" } }), {
       status: 400,
       headers: { "content-type": "application/json" },
@@ -147,11 +280,15 @@ test("coordinator verifier proves that human/admin paths are protected and machi
       origin: "https://stuga.example.test",
       rootStatus: 302,
       administrationStatus: 302,
+      handoffStatus: 200,
+      handoffScriptStatus: 200,
       machineStatus: 400,
     });
     assert.deepEqual(urls, [
       "https://stuga.example.test/",
       "https://stuga.example.test/api/v1/stugbys",
+      "https://stuga.example.test/invite-bootstrap",
+      "https://stuga.example.test/invite-bootstrap.js",
       "https://stuga.example.test/api/v1/stugby-protocol/join",
     ]);
   } finally {
@@ -169,13 +306,27 @@ test("coordinator verifier fails closed for an exposed root or Access-blocked ma
       ),
       /Human root is not protected/u,
     );
-    const responses = [accessRedirect(), accessRedirect(), accessRedirect()];
+    const responses = [
+      accessRedirect(),
+      accessRedirect(),
+      publicAsset("text/html"),
+      publicAsset("application/javascript"),
+      accessRedirect(),
+    ];
     await assert.rejects(
       verifyCoordinator(
         { secretDirectory: directory },
         { fetcher: async () => responses.shift(), logger: { log() {} } },
       ),
       /machine path did not reach/u,
+    );
+    const blockedHandoff = [accessRedirect(), accessRedirect(), accessRedirect()];
+    await assert.rejects(
+      verifyCoordinator(
+        { secretDirectory: directory },
+        { fetcher: async () => blockedHandoff.shift(), logger: { log() {} } },
+      ),
+      /Invitation handoff page is not publicly reachable/u,
     );
   } finally {
     rmSync(directory, { recursive: true, force: true });

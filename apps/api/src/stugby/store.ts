@@ -493,6 +493,41 @@ export class StugbyStore {
     return Boolean((this.db.prepare("SELECT is_coordinator FROM stugby_federations WHERE id=?").get(stugbyId) as { is_coordinator?: number } | undefined)?.is_coordinator);
   }
 
+  reconcileUnjoinedCoordinatorOrigins(coordinatorUrl: string, now = new Date().toISOString()): number {
+    return this.transaction(() => {
+      const rows = this.db.prepare(`SELECT federation.id,federation.coordinator_url
+        FROM stugby_federations federation
+        WHERE federation.is_coordinator=1 AND federation.coordinator_url<>?
+          AND NOT EXISTS (
+            SELECT 1 FROM stugby_members member
+            WHERE member.stugby_id=federation.id AND member.node_id<>?
+          )`).all(coordinatorUrl, this.localNodeId) as unknown as Array<{
+          id: string;
+          coordinator_url: string;
+        }>;
+      for (const row of rows) {
+        const invitations = this.db.prepare(`SELECT id FROM stugby_invitations
+          WHERE stugby_id=? AND used_at IS NULL AND revoked_at IS NULL AND expires_at>?`)
+          .all(row.id, now) as unknown as Array<{ id: string }>;
+        this.db.prepare("UPDATE stugby_federations SET coordinator_url=?,updated_at=? WHERE id=?")
+          .run(coordinatorUrl, now, row.id);
+        for (const invitation of invitations) {
+          this.db.prepare("UPDATE stugby_invitations SET revoked_at=? WHERE id=? AND used_at IS NULL AND revoked_at IS NULL")
+            .run(now, invitation.id);
+          this.audit(row.id, "invitation.revoked", this.localNodeId, invitation.id, {
+            reason: "coordinator-origin-changed",
+          }, now);
+        }
+        this.audit(row.id, "coordinator.origin.updated", this.localNodeId, row.id, {
+          previousOrigin: row.coordinator_url,
+          coordinatorOrigin: coordinatorUrl,
+          revokedInvitations: invitations.length,
+        }, now);
+      }
+      return rows.length;
+    });
+  }
+
   private summaryFromRow(row: StugbyRow): StugbySummary {
     const memberCount = Number((this.db.prepare(`SELECT count(*) AS count FROM stugby_members WHERE stugby_id=? AND state='active'`)
       .get(row.id) as { count: number }).count);
@@ -567,6 +602,12 @@ export class StugbyStore {
   listInvitations(stugbyId: string): StugbyInvitation[] {
     return (this.db.prepare("SELECT * FROM stugby_invitations WHERE stugby_id=? ORDER BY created_at DESC")
       .all(stugbyId) as unknown as InvitationRow[]).map(invitationFromRow);
+  }
+
+  getInvitation(id: string): StugbyInvitation | null {
+    const row = this.db.prepare("SELECT * FROM stugby_invitations WHERE id=?")
+      .get(id) as unknown as InvitationRow | undefined;
+    return row ? invitationFromRow(row) : null;
   }
 
   admitInvitation(id: string, secretHash: string, identity: StugbyNodeIdentity,

@@ -85,14 +85,20 @@ npm run setup
 
 It asks whether to use local Node.js, Docker, Podman, or the Raspberry Pi
 appliance flow; whether this is a real home or a disposable demo; and, for
-containers, which local port to use and whether to start now. The wizard
-changes only the basic `.env` values, preserves existing secrets and advanced
-settings, and keeps new installs on loopback.
+containers, which local port to use. Docker and Podman users can optionally
+choose guided Cloudflare Tunnel + Access setup for a protected remote UI or a
+Stugby coordinator. The wizard takes tokens through hidden prompts or protected
+files, provisions the edge, starts it, and fails closed unless every protected
+and intentionally public path verifies. The host port stays on loopback.
+
+The wizard changes only basic `.env` values and preserves existing secrets and
+advanced settings. Cloudflare runtime credentials go into the ignored,
+protected `secrets/cloudflare/` directory, never `.env`.
 
 For a non-interactive local development setup:
 
 ```sh
-npm run setup -- --mode local --real
+npm run setup -- --mode local --real --yes
 npm run dev
 ```
 
@@ -111,8 +117,8 @@ npm run build
 Non-interactive container examples:
 
 ```sh
-npm run setup -- --mode docker --real --start
-npm run setup -- --mode podman --real --start
+npm run setup -- --mode docker --real --start --no-cloudflare --yes
+npm run setup -- --mode podman --real --start --no-cloudflare --yes
 ```
 
 Both default to <http://localhost:8080>. Podman setup enables the core stack
