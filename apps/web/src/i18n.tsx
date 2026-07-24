@@ -57,7 +57,7 @@ const en = {
   "updates.noNotes": "This release has no change notes.",
   "updates.installNow": "Update now",
   "updates.requesting": "Requesting update…",
-  "updates.agentHelp": "Start the update agent on the Docker host to enable installation.",
+  "updates.agentHelp": "Run npm run update-agent:service:install on the Docker host.",
   "updates.lastChecked": "Last checked {date}",
   "updates.scheduleEyebrow": "Maintenance window",
   "updates.scheduleTitle": "When should updates install?",

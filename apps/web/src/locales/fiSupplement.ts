@@ -1667,7 +1667,7 @@ export const fiSupplement = {
   "updates.noNotes": "Julkaisulla ei ole muutosmerkintöjä.",
   "updates.installNow": "Päivitä nyt",
   "updates.requesting": "Pyydetään päivitystä…",
-  "updates.agentHelp": "Käynnistä päivitysagentti Docker-isännällä, jotta asennus voidaan tehdä.",
+  "updates.agentHelp": "Suorita Docker-isännällä npm run update-agent:service:install.",
   "updates.lastChecked": "Tarkistettu viimeksi {date}",
   "updates.scheduleEyebrow": "Huoltoikkuna",
   "updates.scheduleTitle": "Milloin päivitykset asennetaan?",

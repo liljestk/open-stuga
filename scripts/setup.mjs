@@ -21,6 +21,7 @@ import {
   validateToken as validateCloudflareToken,
   verifyDeployment as verifyCloudflareDeployment,
 } from "./cloudflare-stuga.mjs";
+import { installUpdateAgentService } from "./stuga-update-agent-service.mjs";
 
 export const MINIMUM_NODE_VERSION = Object.freeze([22, 13, 0]);
 export const INSTALL_MODES = Object.freeze(["local", "docker", "podman", "rpi"]);
@@ -99,6 +100,7 @@ export function parseSetupArgs(args) {
     data: null,
     dryRun: false,
     help: false,
+    installUpdateAgent: null,
     mode: null,
     piAction: null,
     port: null,
@@ -118,7 +120,13 @@ export function parseSetupArgs(args) {
     else if (option === "--yes" || option === "-y") options.yes = true;
     else if (option === "--dry-run") options.dryRun = true;
     else if (option === "--skip-install") options.skipInstall = true;
-    else if (option === "--no-cloudflare") {
+    else if (option === "--install-update-agent" || option === "--no-update-agent") {
+      const installUpdateAgent = option === "--install-update-agent";
+      if (options.installUpdateAgent !== null && options.installUpdateAgent !== installUpdateAgent) {
+        throw new Error("--install-update-agent and --no-update-agent cannot be combined");
+      }
+      options.installUpdateAgent = installUpdateAgent;
+    } else if (option === "--no-cloudflare") {
       if (options.remoteAccess && options.remoteAccess !== "none") {
         throw new Error("--cloudflare and --no-cloudflare cannot be combined");
       }
@@ -287,6 +295,11 @@ export function basicEnvironmentUpdates(configuration) {
     // The Docker-socket self-update helper is intentionally unavailable here.
     updates.COMPOSE_PROFILES = "";
   }
+  if (configuration.mode === "docker"
+    && configuration.installUpdateAgent
+    && Number.isInteger(configuration.updateAgentGroupId)) {
+    updates.STUGA_UPDATE_OPERATIONS_GID = String(configuration.updateAgentGroupId);
+  }
   return updates;
 }
 
@@ -303,6 +316,9 @@ Options:
   --port <number>     Container web port (default: 8080).
   --start             Start Docker/Podman containers after configuration.
   --no-start          Configure containers without starting them.
+  --install-update-agent
+                      Install and start the per-user Docker update service.
+  --no-update-agent   Do not install the update service (the secure default).
   --cloudflare <mode> Provision and verify remote-ui or stugby-coordinator.
   --no-cloudflare     Keep the installation local only.
   --cloudflare-hostname <host>        Public hostname, such as stuga.example.com.
@@ -521,6 +537,9 @@ export async function resolveConfiguration(options, interaction = {}) {
     if (options.start !== null && mode !== "docker" && mode !== "podman") {
       throw new Error("--start and --no-start are only valid with Docker or Podman");
     }
+    if (options.installUpdateAgent !== null && mode !== "docker") {
+      throw new Error("--install-update-agent and --no-update-agent are only valid with Docker");
+    }
     if (options.piAction && mode !== "rpi") {
       throw new Error("--pi-action is only valid with --mode rpi");
     }
@@ -559,13 +578,42 @@ export async function resolveConfiguration(options, interaction = {}) {
         ? true
         : options.start ?? (readline ? await askYesNo(readline, "Start the containers now?", true) : options.yes)
       : false;
+    let installUpdateAgent = false;
+    if (mode === "docker") {
+      if (options.installUpdateAgent !== null) {
+        installUpdateAgent = options.installUpdateAgent;
+      } else if (readline) {
+        console.log(`
+The update agent can administer Docker and replace this Stuga installation.
+Install it only on a trusted host under a Docker-authorized user account.`);
+        installUpdateAgent = await askYesNo(
+          readline,
+          "Install and start the automatic update agent as a per-user service?",
+          false,
+        );
+      }
+    }
     const installDependencies = mode === "local"
       ? !options.skipInstall && (readline
         ? await askYesNo(readline, "Install exact Node.js dependencies now?", true)
         : true)
       : false;
 
-    return { cloudflare, data, installDependencies, mode, port, start };
+    const updateAgentGroupId = mode === "docker"
+      && installUpdateAgent
+      && (interaction.platform ?? process.platform) === "linux"
+      ? interaction.groupId ?? process.getgid?.() ?? null
+      : null;
+    return {
+      cloudflare,
+      data,
+      installDependencies,
+      installUpdateAgent,
+      mode,
+      port,
+      start,
+      updateAgentGroupId,
+    };
   } finally {
     readline?.close();
   }
@@ -816,6 +864,11 @@ function printCloudflareDryRun(configuration) {
   console.log(`[setup] Would recreate api, web, and cloudflared, verify every public/protected path, and stop the connector if verification failed`);
 }
 
+function printUpdateAgentDryRun(configuration) {
+  if (!configuration.installUpdateAgent) return;
+  console.log("[setup] Would install and start a per-user update-agent service with this account's Docker access");
+}
+
 export async function runSetup(args = process.argv.slice(2)) {
   let options;
   try {
@@ -879,6 +932,7 @@ export async function runSetup(args = process.argv.slice(2)) {
 
   if (options.dryRun) {
     printCloudflareDryRun(configuration);
+    printUpdateAgentDryRun(configuration);
     console.log("[setup] Dry run: no files, packages, or containers were changed");
     printNextSteps(configuration, false);
     return 0;
@@ -913,6 +967,7 @@ export async function runSetup(args = process.argv.slice(2)) {
     return 1;
   }
 
+  let started = false;
   if (configuration.cloudflare) {
     try {
       await activateCloudflare(configuration);
@@ -920,20 +975,29 @@ export async function runSetup(args = process.argv.slice(2)) {
       console.error(`[setup] ${error instanceof Error ? error.message : String(error)}`);
       return 1;
     }
-    printNextSteps(configuration, true);
-    return 0;
-  }
-
-  if (configuration.start) {
+    started = true;
+  } else if (configuration.start) {
     console.log(`[setup] Starting with ${configuration.mode} compose`);
     const result = run(configuration.mode, ["compose", "up", "--build", "-d"]);
     if (result.error || result.status !== 0) {
       console.error(`[setup] ${configuration.mode} compose could not start Stuga`);
       return result.status ?? 1;
     }
+    started = true;
   }
 
-  printNextSteps(configuration, configuration.start);
+  if (configuration.installUpdateAgent) {
+    try {
+      const service = installUpdateAgentService(projectRoot);
+      console.log(`[setup] Installed and started ${service.kind}: ${service.name}`);
+    } catch (error) {
+      console.error(`[setup] Could not install the update-agent service: ${error instanceof Error ? error.message : String(error)}`);
+      console.error("[setup] Stuga remains configured; rerun setup or start the agent manually with npm run update-agent.");
+      return 1;
+    }
+  }
+
+  printNextSteps(configuration, started);
   return 0;
 }
 

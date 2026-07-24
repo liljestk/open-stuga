@@ -53,10 +53,25 @@ function updateRuntime(value) {
   return runtime;
 }
 
-export function readAgentConfig(env = process.env, cwd = process.cwd()) {
-  const projectDirectory = resolve(optional(env.STUGA_PROJECT_DIRECTORY) ?? cwd);
-  const operationsDirectory = resolve(optional(env.SYSTEM_UPDATE_OPERATIONS_DIRECTORY)
-    ?? join(projectDirectory, "data", "update-operations"));
+function optionValue(args, option) {
+  const prefix = `${option}=`;
+  const inline = args.find((argument) => argument.startsWith(prefix));
+  if (inline) return inline.slice(prefix.length);
+  const index = args.indexOf(option);
+  if (index === -1) return null;
+  const value = args[index + 1];
+  if (!value || value.startsWith("--")) throw new Error(`${option} requires a value`);
+  return value;
+}
+
+export function readAgentConfig(env = process.env, cwd = process.cwd(), args = process.argv.slice(2)) {
+  const projectDirectory = resolve(optionValue(args, "--project-directory")
+    ?? optional(env.STUGA_PROJECT_DIRECTORY)
+    ?? cwd);
+  const operationsDirectory = resolve(
+    projectDirectory,
+    optional(env.SYSTEM_UPDATE_OPERATIONS_DIRECTORY) ?? join("data", "update-operations"),
+  );
   const repository = trustedRepository(env.SYSTEM_UPDATE_REPOSITORY);
   return {
     projectDirectory,
@@ -64,9 +79,12 @@ export function readAgentConfig(env = process.env, cwd = process.cwd()) {
     repository,
     imagePrefix: trustedImagePrefix(env.SYSTEM_UPDATE_IMAGE_PREFIX, repository),
     runtime: updateRuntime(env.SYSTEM_UPDATE_RUNTIME),
-    releaseEnvFile: resolve(optional(env.STUGA_RELEASE_ENV_FILE) ?? join(projectDirectory, ".stuga-release.env")),
-    composeProjectName: optional(env.STUGA_COMPOSE_PROJECT_NAME) ?? "stuga",
-    once: process.argv.includes("--once"),
+    releaseEnvFile: resolve(
+      projectDirectory,
+      optional(env.STUGA_RELEASE_ENV_FILE) ?? ".stuga-release.env",
+    ),
+    composeProjectName: optional(env.STUGA_COMPOSE_PROJECT_NAME),
+    once: args.includes("--once"),
   };
 }
 
@@ -175,8 +193,9 @@ function releaseEnvironment(request) {
   ].join("\n");
 }
 
-function composeArguments(config) {
-  const args = ["compose", "--project-name", config.composeProjectName];
+export function composeArguments(config) {
+  const args = ["compose"];
+  if (config.composeProjectName) args.push("--project-name", config.composeProjectName);
   const localEnv = join(config.projectDirectory, ".env");
   if (existsSync(localEnv)) args.push("--env-file", localEnv);
   if (existsSync(config.releaseEnvFile)) args.push("--env-file", config.releaseEnvFile);
@@ -205,17 +224,25 @@ function operation(request, phase, detail, startedAt, completedAt = null) {
   };
 }
 
-async function activeServices(config) {
-  const output = await compose(config, ["ps", "--services", "--filter", "status=running"], 30_000);
+async function activeServices(config, composeCommand = compose) {
+  const output = await composeCommand(config, ["ps", "--services", "--filter", "status=running"], 30_000);
   const active = new Set(output.split(/\r?\n/).map((value) => value.trim()).filter(Boolean));
-  const services = ["api", "web", "stuga-backup-scheduler"];
+  const missing = ["api", "web"].filter((service) => !active.has(service));
+  if (missing.length > 0) {
+    const selected = config.composeProjectName
+      ? ` "${config.composeProjectName}"`
+      : " derived from the project directory";
+    throw new Error(`Compose project${selected} is not the running Stuga installation (missing ${missing.join(", ")})`);
+  }
+  const services = ["api", "web"];
+  if (active.has("stuga-backup-scheduler")) services.push("stuga-backup-scheduler");
   if (active.has("tapo-export-runner")) services.push("tapo-export-runner");
   return services;
 }
 
-async function exactApiVersion(config) {
+async function exactApiVersion(config, composeCommand = compose) {
   const script = "fetch('http://127.0.0.1:8787/api/v1/health').then(r=>r.json()).then(x=>process.stdout.write(String(x.systemVersion||'')))";
-  return compose(config, ["exec", "-T", "api", "node", "-e", script], 30_000);
+  return composeCommand(config, ["exec", "-T", "api", "node", "-e", script], 30_000);
 }
 
 async function restoreReleaseEnvironment(path, previous) {
@@ -226,7 +253,8 @@ async function restoreReleaseEnvironment(path, previous) {
   writeTextAtomic(path, previous);
 }
 
-export async function applyRequest(config, requestPath) {
+export async function applyRequest(config, requestPath, dependencies = {}) {
+  const composeCommand = dependencies.compose ?? compose;
   const statusPath = join(config.operationsDirectory, "status.json");
   const raw = readJson(requestPath);
   const startedAt = new Date().toISOString();
@@ -251,27 +279,36 @@ export async function applyRequest(config, requestPath) {
   }
 
   const previousRelease = existsSync(config.releaseEnvFile) ? readFileSync(config.releaseEnvFile, "utf8") : null;
-  let services = ["api", "web", "stuga-backup-scheduler"];
+  let services = [];
+  let releaseChanged = false;
   const setStatus = (phase, detail, completedAt = null) => writeJson(
     statusPath,
     operation(request, phase, detail, startedAt, completedAt),
   );
 
   try {
-    setStatus("backup", "Creating a verified pre-update backup");
-    await compose(config, ["--profile", "maintenance", "run", "--rm", "stuga-backup"]);
+    services = await activeServices(config, composeCommand);
+    const previousVersion = (await exactApiVersion(config, composeCommand)).trim();
+    if (previousVersion !== request.previousVersion) {
+      throw new Error(
+        `Compose target reported version ${previousVersion || "unknown"} instead of ${request.previousVersion}`,
+      );
+    }
 
-    services = await activeServices(config);
+    setStatus("backup", "Creating a verified pre-update backup");
+    await composeCommand(config, ["--profile", "maintenance", "run", "--rm", "stuga-backup"]);
+
     writeTextAtomic(config.releaseEnvFile, releaseEnvironment(request));
+    releaseChanged = true;
 
     setStatus("pulling", `Pulling Stuga ${request.version} images`);
-    await compose(config, ["pull", ...services]);
+    await composeCommand(config, ["pull", ...services]);
 
     setStatus("applying", `Starting Stuga ${request.version}`);
-    await compose(config, ["up", "--detach", "--no-deps", "--wait", "--wait-timeout", "600", ...services]);
+    await composeCommand(config, ["up", "--detach", "--no-deps", "--wait", "--wait-timeout", "600", ...services]);
 
     setStatus("verifying", `Verifying Stuga ${request.version}`);
-    const runningVersion = (await exactApiVersion(config)).trim();
+    const runningVersion = (await exactApiVersion(config, composeCommand)).trim();
     if (runningVersion !== request.version) {
       throw new Error(`Updated API reported version ${runningVersion || "unknown"} instead of ${request.version}`);
     }
@@ -281,10 +318,15 @@ export async function applyRequest(config, requestPath) {
     rmSync(requestPath, { force: true });
   } catch (error) {
     const failure = error instanceof Error ? bounded(error.message) : "The update failed";
+    if (!releaseChanged) {
+      setStatus("failed", failure, new Date().toISOString());
+      rmSync(requestPath, { force: true });
+      return;
+    }
     setStatus("rolling-back", "The new release was unhealthy; restoring the previous image set");
     try {
       await restoreReleaseEnvironment(config.releaseEnvFile, previousRelease);
-      await compose(config, ["up", "--detach", "--no-deps", "--wait", "--wait-timeout", "600", ...services]);
+      await composeCommand(config, ["up", "--detach", "--no-deps", "--wait", "--wait-timeout", "600", ...services]);
       setStatus("failed", `${failure} Previous release restored.`, new Date().toISOString());
     } catch (rollbackError) {
       const rollback = rollbackError instanceof Error ? bounded(rollbackError.message) : "rollback failed";

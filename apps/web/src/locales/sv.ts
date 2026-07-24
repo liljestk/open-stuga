@@ -3099,7 +3099,7 @@ export const svOverrides = {
   "updates.noNotes": "Den här versionen saknar ändringsanteckningar.",
   "updates.installNow": "Uppdatera nu",
   "updates.requesting": "Begär uppdatering…",
-  "updates.agentHelp": "Starta uppdateringsagenten på Docker-värden för att aktivera installation.",
+  "updates.agentHelp": "Kör npm run update-agent:service:install på Docker-värden.",
   "updates.lastChecked": "Senast kontrollerad {date}",
   "updates.scheduleEyebrow": "Underhållsfönster",
   "updates.scheduleTitle": "När ska uppdateringar installeras?",

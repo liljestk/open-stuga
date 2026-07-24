@@ -28,9 +28,11 @@ npm run setup
 ```
 
 The wizard asks for the runtime, real or disposable demo data, the container
-port when applicable, and whether remote access is needed. Docker and Podman
-can provision either a protected remote UI or a Stugby coordinator through
-Cloudflare Tunnel + Access. Local-only remains the default.
+port when applicable, and whether remote access is needed. Docker users may
+also install the host update agent as a per-user startup service after
+acknowledging its Docker-administrator authority. The option defaults to off.
+Docker and Podman can provision either a protected remote UI or a Stugby
+coordinator through Cloudflare Tunnel + Access. Local-only remains the default.
 
 Cloudflare setup explains the two least-scope tokens, accepts them through
 hidden terminal input or protected files, and never puts them in arguments,
@@ -41,16 +43,17 @@ asset is blocked, or the Stugby machine boundary has the wrong policy, setup
 stops `cloudflared` automatically while leaving loopback recovery available.
 
 The wizard creates `.env` only when missing and ordinarily changes only
-`MOCK_ENABLED`, `APP_PORT`, and the Podman profile guard. Choosing Cloudflare
-also pins `BIND_ADDRESS=127.0.0.1`; existing credentials and all other advanced
-settings are preserved. Other integration credentials are deliberately entered
-later through Stuga's guided web setup.
+`MOCK_ENABLED`, `APP_PORT`, and the Podman profile guard. Choosing the Linux
+host update service also aligns `STUGA_UPDATE_OPERATIONS_GID` with the current
+account. Choosing Cloudflare pins `BIND_ADDRESS=127.0.0.1`; existing
+credentials and all other advanced settings are preserved. Other integration
+credentials are deliberately entered later through Stuga's guided web setup.
 
 Automation can select the same paths explicitly:
 
 ```sh
 npm run setup -- --mode local --real --yes
-npm run setup -- --mode docker --real --start --no-cloudflare --yes
+npm run setup -- --mode docker --real --start --install-update-agent --no-cloudflare --yes
 npm run setup -- --mode podman --demo --no-start --no-cloudflare --yes
 npm run setup -- --mode rpi --pi-action flash
 ```
@@ -90,9 +93,21 @@ Prerequisites: a current Docker Engine with Compose v2.
    docker compose up --build -d
    ```
 
-4. Open <http://localhost:8080> and check API health at
+4. To enable UI-managed installation, answer yes to the wizard's update-agent
+   question or rerun:
+
+   ```sh
+   npm run update-agent:service:install
+   ```
+
+   This installs and starts a service for the current user: Task Scheduler on
+   Windows, a systemd user service on Linux, or a LaunchAgent on macOS. It
+   starts again when that user session starts and uses that account's existing
+   Docker access. Remove it with `npm run update-agent:service:uninstall`.
+
+5. Open <http://localhost:8080> and check API health at
    <http://localhost:8080/api/v1/health>.
-5. Follow logs when diagnosing startup:
+6. Follow logs when diagnosing startup:
 
    ```sh
    docker compose logs -f api web
@@ -110,7 +125,7 @@ Prerequisites: a current Docker Engine with Compose v2.
    [Automated Tapo history recovery](tapo-history-automation.md) before enabling
    `TAPO_RUNNER_ENABLED`.
 
-6. Stop without deleting history:
+7. Stop without deleting history:
 
    ```sh
    docker compose down

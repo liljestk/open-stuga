@@ -57,6 +57,7 @@ test("parses explicit install modes and non-interactive choices", () => {
       data: "demo",
       dryRun: false,
       help: false,
+      installUpdateAgent: null,
       mode: "podman",
       piAction: null,
       port: 9090,
@@ -67,7 +68,13 @@ test("parses explicit install modes and non-interactive choices", () => {
     },
   );
   assert.equal(parseSetupArgs(["--mode=pi", "--pi-action", "build"]).mode, "rpi");
+  assert.equal(parseSetupArgs(["--install-update-agent"]).installUpdateAgent, true);
+  assert.equal(parseSetupArgs(["--no-update-agent"]).installUpdateAgent, false);
   assert.throws(() => parseSetupArgs(["--demo", "--real"]), /cannot be combined/u);
+  assert.throws(
+    () => parseSetupArgs(["--install-update-agent", "--no-update-agent"]),
+    /cannot be combined/u,
+  );
   assert.throws(() => parseSetupArgs(["--port", "70000"]), /1 through 65535/u);
 });
 
@@ -86,9 +93,11 @@ test("interactive setup asks for runtime and only basic choices", async () => {
     cloudflare: null,
     data: "demo",
     installDependencies: false,
+    installUpdateAgent: false,
     mode: "podman",
     port: 9090,
     start: false,
+    updateAgentGroupId: null,
   });
   assert.equal(closed, true);
   assert.deepEqual(answers, []);
@@ -105,6 +114,7 @@ test("interactive setup guides a Cloudflare deployment without asking for IDs", 
     "",
     "owner@example.test",
     "",
+    "no",
   ];
   let closed = false;
   try {
@@ -119,6 +129,7 @@ test("interactive setup guides a Cloudflare deployment without asking for IDs", 
 
     assert.equal(configuration.mode, "docker");
     assert.equal(configuration.start, true);
+    assert.equal(configuration.installUpdateAgent, false);
     assert.deepEqual(configuration.cloudflare, {
       accessTokenFile: null,
       accountId: null,
@@ -138,6 +149,31 @@ test("interactive setup guides a Cloudflare deployment without asking for IDs", 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("Docker setup requires explicit consent before installing the update service", async () => {
+  const answers = ["2", "no", "", "1", "no", "yes"];
+  const configuration = await resolveConfiguration(parseSetupArgs([]), {
+    groupId: 4321,
+    interactive: true,
+    platform: "linux",
+    readline: {
+      close() {},
+      question: async () => answers.shift(),
+    },
+  });
+
+  assert.equal(configuration.mode, "docker");
+  assert.equal(configuration.installUpdateAgent, true);
+  assert.equal(configuration.updateAgentGroupId, 4321);
+  assert.deepEqual(answers, []);
+
+  await assert.rejects(
+    resolveConfiguration(parseSetupArgs(["--mode", "podman", "--install-update-agent"]), {
+      interactive: false,
+    }),
+    /only valid with Docker/u,
+  );
 });
 
 test("non-interactive Cloudflare setup requires explicit protected token files", async () => {
@@ -234,6 +270,20 @@ test("uses the minimum settings for each runtime", () => {
   assert.deepEqual(
     basicEnvironmentUpdates({ data: "demo", mode: "docker", port: 8081 }),
     { APP_PORT: "8081", MOCK_ENABLED: "true" },
+  );
+  assert.deepEqual(
+    basicEnvironmentUpdates({
+      data: "real",
+      installUpdateAgent: true,
+      mode: "docker",
+      port: 8080,
+      updateAgentGroupId: 4321,
+    }),
+    {
+      APP_PORT: "8080",
+      MOCK_ENABLED: "false",
+      STUGA_UPDATE_OPERATIONS_GID: "4321",
+    },
   );
   assert.deepEqual(
     basicEnvironmentUpdates({
