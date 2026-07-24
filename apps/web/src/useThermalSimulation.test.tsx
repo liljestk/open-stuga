@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ThermalSimulationResult } from "@climate-twin/contracts";
+import { SYSTEM_VERSION, type ThermalSimulationResult } from "@climate-twin/contracts";
 
 const mocks = vi.hoisted(() => ({ thermalSimulation: vi.fn() }));
 vi.mock("./api", () => ({ api: { thermalSimulation: mocks.thermalSimulation } }));
@@ -16,7 +16,7 @@ function deferred<T>() {
 function simulation(houseId: string, sensorId: string): ThermalSimulationResult {
   return {
     generatedAt: "2026-07-14T12:00:00.000Z",
-    systemVersion: "0.6.0",
+    systemVersion: SYSTEM_VERSION,
     houseId,
     sensorId,
     roomLabel: "Room",

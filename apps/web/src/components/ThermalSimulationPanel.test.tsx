@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ThermalSimulationResult } from "@climate-twin/contracts";
+import { SYSTEM_VERSION, type ThermalSimulationResult } from "@climate-twin/contracts";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 
@@ -24,7 +24,7 @@ import {
 function result(status: "ready" | "provisional" | "insufficient-data" = "provisional"): ThermalSimulationResult {
   return {
     generatedAt: "2026-07-14T12:00:00.000Z",
-    systemVersion: "0.6.0",
+    systemVersion: SYSTEM_VERSION,
     houseId: "house-main",
     sensorId: "sensor-01",
     roomLabel: "Living room",

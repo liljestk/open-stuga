@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ThermalIsolationEntry, ThermalIsolationResult } from "@climate-twin/contracts";
+import { SYSTEM_VERSION, type ThermalIsolationEntry, type ThermalIsolationResult } from "@climate-twin/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
@@ -69,7 +69,7 @@ function result(): ThermalIsolationResult {
   const sensor = entry("sensor", "sensor:sensor-01", "Window sensor", 61, { parentId: room.scope.id, floorId: "floor-ground", sensorIds: ["sensor-01"] });
   return {
     generatedAt: "2026-07-14T12:00:00.000Z",
-    systemVersion: "0.6.0",
+    systemVersion: SYSTEM_VERSION,
     houseId: "house-main",
     from: "2026-07-07T12:00:00.000Z",
     to: "2026-07-14T12:00:00.000Z",
