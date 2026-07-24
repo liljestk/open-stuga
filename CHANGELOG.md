@@ -4,6 +4,14 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+## 0.9.1 - 2026-07-24
+
+- Fixed Docker and Podman startup permissions across Linux, macOS, and Windows
+  by selecting rootless-safe named volumes, applying shared SELinux labels to
+  host binds, and writing explicit exports with the runtime-mapped identity.
+- Added portable local-mode CI, verified scheduled-backup export, dynamic
+  container DNS for API recreation, and cross-platform setup/runtime checks.
+
 ## 0.9.0 - 2026-07-24
 
 - Added guided Cloudflare Tunnel + Access onboarding to the setup wizard for
