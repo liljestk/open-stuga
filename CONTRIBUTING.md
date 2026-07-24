@@ -5,9 +5,9 @@ Thanks for helping improve Stuga.
 ## Development
 
 1. Install Node.js 22.13 or newer.
-2. Run `npm ci`.
-3. Copy `.env.example` to `.env` and keep all values local.
-4. Run `npm run typecheck`, `npm test`, `npm run build`, and
+2. Run `npm run setup -- --mode local --real`; it creates a missing `.env`
+   without replacing local settings and installs dependencies with `npm ci`.
+3. Run `npm run typecheck`, `npm test`, `npm run build`, and
    `npm run smoke:built-api` before opening a pull request.
 
 ## Continuous quality

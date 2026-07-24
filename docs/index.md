@@ -2,8 +2,8 @@
 
 Start here:
 
-1. [Install and run](getting-started.md) — Docker Compose, local development,
-   mock data, configuration, backup, and uninstall.
+1. [Install and run](getting-started.md) — guided local, Docker, Podman, and
+   Raspberry Pi paths, mock data, configuration, backup, and uninstall.
 2. [Direct TP-Link H100/H200](tp-link-direct.md) — poll T310/T315 child sensors
    over the local LAN without requiring Home Assistant.
 3. [Electricity prices and contracts](electricity-prices.md) — Property-owned
@@ -64,7 +64,8 @@ Reference configuration:
 - [`config/tp-link.devices.example.json`](../config/tp-link.devices.example.json)
   shows the stable direct hub-child-to-sensor mapping format.
 - [`docker-compose.yml`](../docker-compose.yml) and [`Dockerfile`](../Dockerfile)
-  provide the isolated web/API/Timescale runtime and maintenance images.
+  provide the isolated Docker/Podman web, API, Timescale, and maintenance
+  images.
 
 Stuga is local-first and has one local workspace with built-in accounts.
 Browser sign-in uses a server-managed HttpOnly session, while Guest read-only

@@ -1,20 +1,20 @@
 {
   "name": "@climate-twin/api",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=22.13"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
+    "dev": "cd ../.. && tsx --env-file-if-exists=.env watch apps/api/src/index.ts",
+    "start": "cd ../.. && node --env-file-if-exists=.env apps/api/dist/index.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --coverage.reporter=text --coverage.reporter=lcov",
     "test:watch": "vitest",
-    "mcp": "tsx src/mcp-server.ts"
+    "mcp": "cd ../.. && tsx --env-file-if-exists=.env apps/api/src/mcp-server.ts"
   },
   "dependencies": {
     "@climate-twin/contracts": "*",

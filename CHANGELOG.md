@@ -4,6 +4,15 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+## 0.8.0 - 2026-07-24
+
+- Added a cross-platform setup wizard for local Node.js, Docker, Podman, and
+  Raspberry Pi appliance onboarding. It configures only the essential data
+  mode and container port, preserves existing secrets and advanced settings,
+  validates container Compose configuration, and supports dry-run automation.
+- Fixed local API, development, and MCP commands to load the root `.env` and
+  resolve runtime paths from the repository root. No data migration is needed.
+
 ## 0.7.0 - 2026-07-24
 
 - Added an evidence-led Home performance review covering comfort exposure,

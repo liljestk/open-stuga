@@ -1,6 +1,6 @@
 {
   "name": "climate-twin",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "license": "MIT",
   "description": "A local-first digital twin for extensible whole-home environmental telemetry.",
@@ -9,6 +9,7 @@
     "packages/*"
   ],
   "scripts": {
+    "setup": "node scripts/setup.mjs",
     "build:contracts": "npm run build --workspace @climate-twin/contracts",
     "build:spatial-layers": "npm run build --workspace @climate-twin/spatial-layers",
     "build:stugby-protocol": "npm run build --workspace @climate-twin/stugby-protocol",
@@ -17,7 +18,8 @@
     "dev:api": "npm run build:packages && npm run dev --workspace @climate-twin/api",
     "dev:web": "npm run build:packages && npm run dev --workspace @climate-twin/web",
     "build": "npm run build:packages && npm run build --workspace @climate-twin/api && npm run build --workspace @climate-twin/web",
-    "test": "npm run build:packages && npm run test --workspaces --if-present && npm run test:data-safety && npm run test:live-migration && npm run test:cloudflare && npm run test:rpi-ota && npm run test:update-agent",
+    "test": "npm run build:packages && npm run test --workspaces --if-present && npm run test:setup && npm run test:data-safety && npm run test:live-migration && npm run test:cloudflare && npm run test:rpi-ota && npm run test:update-agent",
+    "test:setup": "node --test scripts/tests/setup.test.mjs",
     "test:data-safety": "node --test scripts/tests/data-safety.test.mjs",
     "test:live-migration": "node --test scripts/tests/live-migration.test.mjs",
     "test:cloudflare": "node --test scripts/tests/cloudflare-stuga.test.mjs",

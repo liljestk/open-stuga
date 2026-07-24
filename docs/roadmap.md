@@ -16,7 +16,8 @@ usable local install.
 - Responsive accessible 2D authoring and whole-building stacked 3D views,
   current values, history, alerts, observations, static parameters, forecast
   baseline, and replay controls.
-- Node and Docker Compose install paths with health checks.
+- Guided Node, Docker Compose, Podman Compose, and Raspberry Pi appliance paths
+  with health checks or an explicit verification flow.
 
 Exit gate: clean install from documented commands; build/typecheck/test pass;
 mock readings reach storage and UI; reconnect/stale states are understandable;

@@ -1,4 +1,4 @@
-# Stuga 0.5.0
+# Stuga 0.8.0
 
 Stuga is a local-first digital twin for understanding how environmental conditions change and move through one or more homes. Temperature and relative humidity are the starting point; a measurement registry also supports CO2 and other finite numeric scalar measurements without coupling ingestion, history, alerts, or visualisation to one sensor model. It is designed around TP-Link Tapo H100/H200 hubs with T310/T315 sensors, while keeping ingestion vendor-neutral through a direct local bridge, Home Assistant, and versioned APIs. Internal package names retain the original `climate-twin` identifier for compatibility.
 
@@ -77,18 +77,28 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
 
 ## Quick start
 
-Requires Node.js 22.13 or newer.
+With Node.js available, run the guided setup:
 
-```powershell
-Copy-Item .env.example .env
-npm install
+```sh
+npm run setup
+```
+
+It asks whether to use local Node.js, Docker, Podman, or the Raspberry Pi
+appliance flow; whether this is a real home or a disposable demo; and, for
+containers, which local port to use and whether to start now. The wizard
+changes only the basic `.env` values, preserves existing secrets and advanced
+settings, and keeps new installs on loopback.
+
+For a non-interactive local development setup:
+
+```sh
+npm run setup -- --mode local --real
 npm run dev
 ```
 
 Open <http://localhost:5173>. The API exposes the v1 compatibility contract at
 <http://localhost:8787/api/v1> and registered measurements at
-<http://localhost:8787/api/v2>; local development keeps SQLite under `data/`
-by default, while the Compose stack also maintains the Timescale archive.
+<http://localhost:8787/api/v2>.
 
 Run all checks with:
 
@@ -98,14 +108,19 @@ npm test
 npm run build
 ```
 
-For a container install:
+Non-interactive container examples:
 
-```powershell
-Copy-Item .env.example .env
-docker compose up --build
+```sh
+npm run setup -- --mode docker --real --start
+npm run setup -- --mode podman --real --start
 ```
 
-Then open <http://localhost:8080>.
+Both default to <http://localhost:8080>. Podman setup enables the core stack
+and disables the Docker-socket self-update profile.
+
+See [the complete getting-started guide](docs/getting-started.md) for manual
+Docker/Podman setup, direct TP-Link dependencies, demo mode, LAN access, and
+the [Raspberry Pi appliance flow](docs/raspberry-pi-appliance.md).
 
 Create and verify a complete online recovery set with:
 

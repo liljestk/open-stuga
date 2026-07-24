@@ -8,20 +8,55 @@ additional finite numeric scalar measurements can be registered later.
 
 ## Choose a run mode
 
-| Mode | Best for | Public URL |
+| Mode | Best for | Default URL |
 | --- | --- | --- |
 | Docker Compose | normal home installation and evaluation | `http://localhost:8080` |
+| Podman Compose | rootless/container-focused core installation | `http://localhost:8080` |
 | Local Node.js | development and contributing | `http://localhost:5173` |
+| Raspberry Pi 4 appliance | dedicated, immutable home appliance | SSH tunnel to `http://localhost:8080` |
 
-The API listens on port `8787` in both modes. In Docker it is private to the
-Compose network; the web container exposes the complete versioned API by
-reverse-proxying `/api/*` on port `8080`.
+The API listens on port `8787` in local development. In a container or
+appliance it is private to the Compose network; the web container exposes the
+complete versioned API by reverse-proxying `/api/*`.
+
+## Guided setup
+
+With Node.js available, run:
+
+```sh
+npm run setup
+```
+
+The wizard asks for the runtime, real or disposable demo data, the container
+port when applicable, and whether to start containers. It creates `.env` only
+when missing and changes only `MOCK_ENABLED`, `APP_PORT`, and the Podman profile
+guard. Existing credentials and advanced settings are preserved. Integration
+credentials are deliberately entered later through Stuga's guided web setup.
+
+Automation can select the same paths explicitly:
+
+```sh
+npm run setup -- --mode local --real
+npm run setup -- --mode docker --real --start
+npm run setup -- --mode podman --demo --no-start
+npm run setup -- --mode rpi --pi-action flash
+```
+
+Add `--dry-run` to inspect a plan without changing files, packages, or
+containers.
 
 ## Docker Compose
 
 Prerequisites: a current Docker Engine with Compose v2.
 
-1. Create a private environment file:
+1. Run the wizard:
+
+   ```sh
+   npm run setup -- --mode docker
+   ```
+
+   If Node.js is intentionally not installed, create the private environment
+   file manually:
 
    ```powershell
    Copy-Item .env.example .env
@@ -33,7 +68,7 @@ Prerequisites: a current Docker Engine with Compose v2.
    property/home setup. Set it to `true` before the first start only for an
    isolated demo. Do not put real tokens in `.env.example`; add them only to
    `.env`.
-3. Build and start:
+3. If the wizard did not start the stack, build and start:
 
    ```sh
    docker compose up --build -d
@@ -83,17 +118,44 @@ To update an installation, back up the data volume/database, fetch the desired
 release, then run `docker compose up --build -d` again. Pin a release tag in a
 long-lived deployment instead of running an arbitrary moving branch.
 
+## Podman Compose
+
+Prerequisites: Podman plus a Compose provider. `podman compose` is a wrapper
+around an external provider, so verify that `podman compose config` succeeds
+on the target host.
+
+```sh
+npm run setup -- --mode podman
+```
+
+The wizard validates the provider before starting. Without Node.js, copy
+`.env.example` to `.env`, keep `COMPOSE_PROFILES` empty, then run:
+
+```sh
+podman compose config
+podman compose up --build -d
+```
+
+Open <http://localhost:8080>. The basic Podman path runs the core web, API,
+Timescale, and backup services. The privileged Docker-socket self-update helper
+is disabled; update by fetching the desired release and rerunning
+`podman compose up --build -d`. Compose-provider behavior can vary, so this
+path should be validated on the exact host before relying on advanced profiles.
+See [Podman's Compose documentation](https://docs.podman.io/en/stable/markdown/podman-compose.1.html).
+
 ## Local Node.js development
 
 Prerequisites: Node.js 22.13 or newer and npm.
 
-```powershell
-Copy-Item .env.example .env
-npm install
+```sh
+npm run setup -- --mode local --real
 npm run dev
 ```
 
-On macOS/Linux, replace the first line with `cp .env.example .env`.
+The local path checks the Node.js version, creates
+`.env` only when missing, preserves existing local settings, and installs the
+committed lockfile with `npm ci`. Use `npm run setup -- --skip-install` when
+dependencies are already available and only the environment file is needed.
 
 The Vite app runs on <http://localhost:5173> and proxies `/api` to the API at
 `127.0.0.1:8787`. Keep `VITE_API_BASE_URL` empty for this same-origin/proxy
@@ -113,6 +175,20 @@ Run only one workspace when iterating:
 npm run dev --workspace @climate-twin/api
 npm run dev --workspace @climate-twin/web
 ```
+
+## Raspberry Pi 4 appliance
+
+The appliance uses an immutable factory image with persistent A/B-safe data;
+it is not a normal Compose install on Raspberry Pi OS. Run:
+
+```sh
+npm run setup -- --mode rpi
+```
+
+The wizard routes to either image flashing or a supported ARM64 image build
+without changing the workstation's `.env`. Follow the complete
+[Raspberry Pi appliance guide](raspberry-pi-appliance.md) before writing a
+disk; flashing destroys the selected disk.
 
 ## Optional first-run mock workflow
 
