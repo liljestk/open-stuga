@@ -13,7 +13,6 @@ import {
   requireMcpHouseSensor,
   requireMcpConfirmation,
   requireMcpMeasurementTarget,
-  requireMcpRealDataPersistenceConfirmation,
   requireMcpSensor,
   summarizeMcpHouse,
   validateMcpToolRegistry,
@@ -97,14 +96,16 @@ describe("MCP measurement argument validation", () => {
   });
 
   it("requires one unique handler for every advertised MCP tool", () => {
-    expect(() => validateMcpToolRegistry(["list_houses", "create_house"], ["create_house", "list_houses"]))
+    expect(() => validateMcpToolRegistry(["list_houses", "list_sensors"], ["list_sensors", "list_houses"]))
       .not.toThrow();
     expect(() => validateMcpToolRegistry(["list_houses", "list_houses"], ["list_houses"]))
       .toThrow("Duplicate MCP tools: list_houses");
-    expect(() => validateMcpToolRegistry(["list_houses", "create_house"], ["list_houses", "delete_house"]))
-      .toThrow("Missing MCP handlers: create_house; Unlisted MCP handlers: delete_house");
+    expect(() => validateMcpToolRegistry(["list_houses", "list_sensors"], ["list_houses", "get_house"]))
+      .toThrow("Missing MCP handlers: list_sensors; Unlisted MCP handlers: get_house");
     expect(() => validateMcpToolRegistry(["configure_home_assistant"], ["configure_home_assistant"]))
       .toThrow("Raw credential-writing MCP tools are forbidden: configure_home_assistant");
+    expect(() => validateMcpToolRegistry(["create_house"], ["create_house"]))
+      .toThrow("State-changing MCP tools are forbidden: create_house");
   });
 
   it("requires explicit confirmation for destructive tools", () => {
@@ -113,14 +114,11 @@ describe("MCP measurement argument validation", () => {
     expect(() => requireMcpConfirmation(undefined)).toThrow("confirm must be true for this destructive operation");
   });
 
-  it("requires an explicit opt-in before a weather read may cross the real-data boundary", () => {
-    expect(() => requireMcpRealDataPersistenceConfirmation(true)).not.toThrow();
-    expect(() => requireMcpRealDataPersistenceConfirmation(false))
-      .toThrow("confirmRealDataPersistence must be true");
+  it("keeps weather inspection read-only while marking its provider access", () => {
     expect(mcpToolAnnotations("get_house_weather")).toEqual({
-      readOnlyHint: false,
-      destructiveHint: true,
-      idempotentHint: false,
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
       openWorldHint: true,
     });
   });

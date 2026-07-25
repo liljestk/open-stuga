@@ -96,6 +96,50 @@ describe("AppShell local account controls", () => {
     expect(screen.queryByRole("option", { name: "Lake home" })).toBeNull();
   });
 
+  it("marks a shared Home with the Stugby three-cottage logo in normal Home pages", () => {
+    const { container } = render(
+      <I18nProvider>
+        <AppShell
+          page="twin"
+          onPage={vi.fn()}
+          connection="live"
+          units="metric"
+          onUnits={vi.fn()}
+          lastUpdated={null}
+          dataMode="real"
+          properties={[{ id: "property-main", name: "Host Property" }]}
+          propertyId="property-main"
+          onProperty={vi.fn()}
+          houses={[{
+            id: "home-shared",
+            propertyId: "property-main",
+            name: "Client Home",
+            timezone: "Europe/Helsinki",
+            stugby: {
+              stugbyId: "stugby-1",
+              authorityNodeId: "node-client",
+              publicationId: "publication-client-home",
+              ownership: "shared",
+              editPolicy: "read-only",
+              syncState: "current",
+              authorityEpoch: 1,
+              pendingChangeCount: 0,
+              conflictCount: 0,
+              recoveryState: "not-enabled",
+            },
+          }]}
+          houseId="home-shared"
+          onHouse={vi.fn()}
+        >
+          <div>Shared Home content</div>
+        </AppShell>
+      </I18nProvider>,
+    );
+
+    expect(screen.getByLabelText("Home shown on this page")).toBeTruthy();
+    expect(container.querySelector(".page-home-switcher-group .stugby-mark")).toBeTruthy();
+  });
+
   it("lets a read-only Guest sign out without exposing a workspace switcher", async () => {
     const onLogout = vi.fn().mockResolvedValue(undefined);
     render(

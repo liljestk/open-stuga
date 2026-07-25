@@ -143,6 +143,20 @@ const PROPERTY_AREA_KINDS = new Set<PropertyAreaKind>([
   "yard", "building", "other",
 ]);
 
+function recommendedHomeOverviewDatasets(): StugbyDatasetGrant[] {
+  return [
+    "home.directory.v1",
+    "home.structure.v1",
+    "home.sensor-catalog.v1",
+  ].map((dataset) => ({
+    dataset: dataset as StugbyDataset,
+    enabled: true,
+    includeLocalIds: false,
+    allowReplicaCache: true,
+    retentionDays: 30,
+  }));
+}
+
 function sha256(value: string | Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -829,7 +843,7 @@ export class StugbyService {
       let target: Property;
       if (localPropertyId) {
         if (!this.store.isCoordinator(stugbyId)) {
-          throw new StugbyError(400, "MIGRATION_REQUIRED", "A Client adopts the Server Property first, then migrates a local Property into it");
+          throw new StugbyError(400, "MIGRATION_REQUIRED", "A Client uses the Host Property first, then moves its local Property into it");
         }
         const local = this.database.getProperty(localPropertyId);
         if (!local) throw new StugbyError(404, "PROPERTY_NOT_FOUND", "The local Property was not found");
@@ -873,11 +887,20 @@ export class StugbyService {
     adoption: StugbyPropertyAdoption;
     migrationSnapshotId: string;
     moved: ReturnType<ClimateDatabase["migratePropertyInto"]>;
+    createdGrants: StugbyShareGrant[];
   } {
     const stugby = this.requireStugby(stugbyId);
+    if (this.store.isCoordinator(stugbyId)) {
+      throw new StugbyError(
+        409,
+        "HOST_PROPERTY_MIGRATION_NOT_ALLOWED",
+        "The Host selects the shared Property directly. Moving a local Property into it is available only on Clients",
+      );
+    }
+    this.requireLocalPublisher(stugbyId);
     const adoption = this.store.getPropertyAdoption(stugbyId);
     if (!adoption || adoption.state !== "adopted") {
-      throw new StugbyError(409, "PROPERTY_NOT_ADOPTED", "Adopt the Server Property before migrating a local Property");
+      throw new StugbyError(409, "PROPERTY_NOT_ADOPTED", "Use the Host Property before moving a local Property into it");
     }
     const source = this.database.getProperty(requiredText(sourcePropertyId, "Source Property id"));
     if (!source) throw new StugbyError(404, "PROPERTY_NOT_FOUND", "The local Property was not found");
@@ -926,6 +949,10 @@ export class StugbyService {
         recoveryState: "not-enabled",
       } satisfies StugbyHouseLink]));
       const moved = this.database.migratePropertyInto(source.id, adoption.localPropertyId, houseLinks);
+      const createdGrants = houses.flatMap((house) => {
+        const grant = this.ensureRecommendedHomeOverviewGrant(stugbyId, house.id);
+        return grant ? [grant] : [];
+      });
 
       for (const area of areas) this.enqueueCorePropertyMutation(stugbyId, "area", area.id, "upsert", this.sharedArea(area));
       for (const item of equipment) this.enqueueCorePropertyMutation(stugbyId, "equipment", item.id, "upsert", this.sharedEquipment(item));
@@ -938,8 +965,9 @@ export class StugbyService {
         houses: houses.length,
         areas: areas.length,
         equipment: equipment.length,
+        overviewGrants: createdGrants.length,
       });
-      return { adoption: this.store.getPropertyAdoption(stugbyId)!, migrationSnapshotId, moved };
+      return { adoption: this.store.getPropertyAdoption(stugbyId)!, migrationSnapshotId, moved, createdGrants };
     });
   }
 
@@ -951,10 +979,26 @@ export class StugbyService {
     const property = this.database.getProperty(adoption.localPropertyId);
     const propertyLink = property?.stugby;
     if (!property || !propertyLink) throw new StugbyError(409, "PROPERTY_PROJECTION_MISSING", "The adopted Property projection is missing");
-    return this.atomicPublication(() => {
+    const detached = this.atomicPublication(() => {
       const now = new Date().toISOString();
       const cancelledPropertyCommands = this.store.cancelPendingPropertyCommands(stugbyId, now);
       const cancelledHomeCommands = this.store.cancelPendingHomeCommands(stugbyId, now);
+      const adoptedLocalHouseIds = new Set(this.database.listHouses(property.id)
+        .filter((house) => house.stugby?.stugbyId === stugbyId && house.stugby.ownership === "local")
+        .map((house) => house.id));
+      const localGrants = this.store.listGrants(stugbyId, this.identity.nodeId)
+        .filter((grant) => !grant.revokedAt && typeof grant.localHouseId === "string"
+          && adoptedLocalHouseIds.has(grant.localHouseId));
+      for (const grant of localGrants) {
+        this.store.discardOutboxGrantEpoch(stugbyId, grant.id, grant.epoch);
+        const revoked = this.store.revokeGrant(grant.id);
+        this.publishGrant({ ...revoked, audience: grant.audience }, "grant.revoked");
+        this.store.retireLocalBlobReferences(stugbyId, grant.id, grant.epoch);
+        this.store.audit(stugbyId, "grant.revoked", this.identity.nodeId, grant.id, {
+          epoch: revoked.epoch,
+          reason: "property-disconnected",
+        }, now);
+      }
       this.database.setPropertyStugbyLink(property.id, {
         ...propertyLink,
         editPolicy: "collaborative",
@@ -991,9 +1035,12 @@ export class StugbyService {
       this.store.audit(stugbyId, "property.detached", this.identity.nodeId, property.id, {
         cancelledPropertyCommands,
         cancelledHomeCommands,
+        revokedLocalGrants: localGrants.length,
       }, now);
       return detached;
     });
+    this.deleteUnreferencedBlobs(this.store.pendingBlobDeletions(1_000));
+    return detached;
   }
 
   private promoteFullRecovery(stugbyId: string, house: House): void {
@@ -2601,6 +2648,39 @@ export class StugbyService {
     });
   }
 
+  private ensureRecommendedHomeOverviewGrant(stugbyId: string, localHouseId: string): StugbyShareGrant | null {
+    const existing = this.store.listGrants(stugbyId, this.identity.nodeId)
+      .find((grant) => grant.localHouseId === localHouseId && !grant.revokedAt && !grantExpired(grant));
+    if (existing) return null;
+    return this.createGrant(stugbyId, {
+      localHouseId,
+      audience: { kind: "all-members", nodeIds: [] },
+      datasets: recommendedHomeOverviewDatasets(),
+      housePolicy: {
+        editPolicy: "read-only",
+        recoveryMode: "none",
+        designatedSuccessorNodeId: null,
+      },
+      expiresAt: null,
+    });
+  }
+
+  private backfillRecommendedHomeOverviews(stugbyId: string): void {
+    const stugby = this.store.getStugby(stugbyId);
+    const adoption = this.store.getPropertyAdoption(stugbyId);
+    if (!stugby || stugby.localMemberState !== "active" || stugby.localRole === "viewer"
+      || !adoption || adoption.state !== "adopted") return;
+    const grants = this.store.listGrants(stugbyId, this.identity.nodeId);
+    for (const house of this.database.listHouses(adoption.localPropertyId)) {
+      if (house.stugby?.stugbyId !== stugbyId || house.stugby.ownership !== "local") continue;
+      // Never replace an explicitly revoked or expired grant. This only repairs
+      // Homes linked by the older Property flow, which created no grant at all.
+      if (!grants.some((grant) => grant.localHouseId === house.id)) {
+        this.ensureRecommendedHomeOverviewGrant(stugbyId, house.id);
+      }
+    }
+  }
+
   createGrant(stugbyId: string, input: {
     localHouseId: string;
     audience: StugbyGrantAudience;
@@ -2824,7 +2904,7 @@ export class StugbyService {
       && house.stugby.syncState !== "detached") {
       throw new StugbyError(409, "HOUSE_ALREADY_SHARED", "This Home already belongs to another Stugby");
     }
-    return this.database.setHouseStugbyLink(house.id, {
+    const linked = this.database.setHouseStugbyLink(house.id, {
       stugbyId: propertyLink.stugbyId,
       authorityNodeId: this.identity.nodeId,
       publicationId: this.store.publicationId(propertyLink.stugbyId, "home", house.id),
@@ -2836,6 +2916,8 @@ export class StugbyService {
       conflictCount: 0,
       recoveryState: "not-enabled",
     })!;
+    this.ensureRecommendedHomeOverviewGrant(propertyLink.stugbyId, house.id);
+    return linked;
   }
 
   private markLocalSharedHouse(grant: StugbyShareGrant, house: House): void {
@@ -2860,7 +2942,11 @@ export class StugbyService {
     if (!house?.stugby || house.stugby.stugbyId !== stugbyId || house.stugby.ownership !== "local") return;
     const stillShared = this.store.listGrants(stugbyId, this.identity.nodeId)
       .some((grant) => grant.localHouseId === houseId && !grant.revokedAt && !grantExpired(grant));
-    if (!stillShared) this.database.setHouseStugbyLink(houseId, null);
+    if (stillShared) return;
+    const propertyLink = this.database.getProperty(house.propertyId)?.stugby;
+    if (!propertyLink || propertyLink.stugbyId !== stugbyId || propertyLink.syncState === "detached") {
+      this.database.setHouseStugbyLink(houseId, null);
+    }
   }
 
   private publishGrant(grant: StugbyShareGrant, eventKind: "grant.upserted" | "grant.revoked"): void {
@@ -3775,6 +3861,7 @@ export class StugbyService {
 
   async syncNow(stugbyId: string): Promise<StugbySummary> {
     this.requireStugby(stugbyId);
+    this.backfillRecommendedHomeOverviews(stugbyId);
     await this.trackSync(this.syncOne(stugbyId, true));
     return this.requireStugby(stugbyId);
   }
@@ -3785,6 +3872,7 @@ export class StugbyService {
       this.deleteUnreferencedBlobs(this.store.staleUnreferencedBlobs(new Date(Date.now() - 86_400_000).toISOString()));
       this.ensureNotificationStreams();
       for (const stugby of this.store.listStugbys()) {
+        this.backfillRecommendedHomeOverviews(stugby.id);
         this.expireLocalGrants(stugby.id);
         if (this.store.isCoordinator(stugby.id) || !["active", "suspended"].includes(stugby.localMemberState)) continue;
         await this.syncOne(stugby.id, false);

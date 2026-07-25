@@ -215,9 +215,11 @@ production rollout.
   verify `X-Stuga-Signature` against the raw body in constant time and enforce
   an `X-Stuga-Timestamp` replay window. HMAC alone does not prevent replay, and
   bearer tokens alone do not provide body-level integrity.
-- MCP is a privileged local automation interface. Run the stdio process only for
-  a trusted MCP host, expose the minimum tools, validate every argument, and
-  require confirmation for destructive or notification-producing actions.
+- MCP is a local read-only inspection interface. Run the stdio process only for
+  a trusted MCP host: it bypasses browser sessions and Guest grants even though
+  SQLite query-only enforcement and the fail-closed tool registry prevent
+  mutations. Provider lookup and LAN-discovery tools still make explicit
+  outbound or local-network requests.
 
 ## Data minimisation
 

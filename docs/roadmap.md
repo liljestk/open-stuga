@@ -97,8 +97,9 @@ used as the release claim.
 - Generated typed client from the published OpenAPI documents, additive
   evolution policies for the v1 compatibility and v2 measurement APIs, and
   deprecation windows before any future major version.
-- Expand the initial MCP tools with resources, pagination, read-only defaults,
-  capability discovery, confirmation boundaries, and conformance tests.
+- Extend the read-only MCP inspection surface with resources, pagination,
+  capability discovery, and additional conformance fixtures while retaining
+  SQLite query-only enforcement.
 - Versioned DayOps/OpenWearable adapter packages with field-level consent,
   pseudonymous identities, signed idempotent events, and contract fixtures.
 - MQTT and additional vendor adapters without changing domain services.

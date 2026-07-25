@@ -4,6 +4,7 @@ import type { AppPage } from "../domain";
 import { useI18n, type Locale } from "../i18n";
 import type { ConnectionState, House as Home, Property, UnitSystem } from "@climate-twin/contracts";
 import { StugaMark } from "./StugaMark";
+import { StugbyMark } from "./StugbyMark";
 import { formatInTimeZone } from "../dateTime";
 import type { DataMode } from "../useClimateData";
 import { locationForRoute } from "../routing";
@@ -28,7 +29,7 @@ interface AppShellProps {
   properties?: Array<Pick<Property, "id" | "name">>;
   propertyId?: string;
   onProperty?: (propertyId: string) => void;
-  houses?: Array<Pick<Home, "id" | "propertyId" | "name" | "timezone">>;
+  houses?: Array<Pick<Home, "id" | "propertyId" | "name" | "timezone" | "stugby">>;
   houseId?: string;
   onHouse?: (houseId: string) => void;
   homeAvailable?: boolean;
@@ -478,7 +479,7 @@ export function AppShell({
               {onHouse && propertyHouses.length > 0 && (["twin", "activity", "outdoor", "sensors", "analytics", "integrations"].includes(page)
                 || (page === "energy" && /\/homes\/[^/]+\/electricity\/?$/.test(window.location.pathname))) && (
                 <div className="page-home-switcher-group">
-                  <House size={16} aria-hidden="true" />
+                  {activeHome?.stugby ? <StugbyMark className="small" /> : <House size={16} aria-hidden="true" />}
                   <label>
                     <span>{t("header.activeHome")}</span>
                     <select value={houseId} onChange={(event) => onHouse(event.target.value)}>

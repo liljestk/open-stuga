@@ -310,13 +310,14 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
 
   useEffect(() => {
     const available = properties.filter((property) => !property.stugby || property.stugby.syncState === "detached");
+    const migrationAvailable = available.filter((property) => property.id !== detail?.propertyAdoption?.localPropertyId);
     setAdoptionPropertyId((current) => available.some((property) => property.id === current)
       ? current
       : available[0]?.id ?? "");
-    setMigrationPropertyId((current) => available.some((property) => property.id === current)
+    setMigrationPropertyId((current) => migrationAvailable.some((property) => property.id === current)
       ? current
-      : available[0]?.id ?? "");
-  }, [properties]);
+      : migrationAvailable[0]?.id ?? "");
+  }, [detail?.propertyAdoption?.localPropertyId, properties]);
 
   useEffect(() => {
     if (!joinUrl.trim()) return;
@@ -484,6 +485,8 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
       if (editingGrantId && !existing) throw new Error(t("stugby.grantScopeChanged"));
       if (existing) await api.updateStugbyGrant(selectedDetail.stugby.id, existing.id, { baseRevision: existing.revision, audience, datasets, housePolicy, expiresAt });
       else await api.createStugbyGrant(selectedDetail.stugby.id, { localHouseId: grantHouseId, audience, datasets, housePolicy, expiresAt });
+      await api.syncStugby(selectedDetail.stugby.id);
+      onInventoryChange?.();
       setNotice(t("stugby.changesSaved"));
       resetGrantDraft();
       await loadDetail(selectedDetail.stugby.id);
@@ -566,10 +569,12 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
     if (!detail || detail.stugby.id !== selectedIdRef.current) return;
     const selected = detail;
     void withBusy("adopt-property", async () => {
+      if (!coordinator) await api.syncStugby(selected.stugby.id);
       await api.adoptStugbyProperty(
         selected.stugby.id,
         coordinator && adoptionPropertyId ? adoptionPropertyId : undefined,
       );
+      if (coordinator) await api.syncStugby(selected.stugby.id);
       onInventoryChange?.();
       setNotice(t("stugby.propertyAdopted"));
       await loadDetail(selected.stugby.id);
@@ -582,10 +587,13 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
     if (!source || !window.confirm(t("stugby.confirmPropertyMigration", { name: source.name }))) return;
     const selected = detail;
     void withBusy("migrate-property", async () => {
-      await api.migratePropertyToStugby(selected.stugby.id, source.id);
+      const migrated = await api.migratePropertyToStugby(selected.stugby.id, source.id);
+      await api.syncStugby(selected.stugby.id);
       onInventoryChange?.();
       setMigrationPropertyId("");
-      setNotice(t("stugby.propertyMigrated"));
+      setNotice(t(migrated.moved.houseIds.length === 1
+        ? "stugby.propertyMigratedOne"
+        : "stugby.propertyMigratedMany", { count: migrated.moved.houseIds.length }));
       await loadDetail(selected.stugby.id);
     });
   };
@@ -757,7 +765,7 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
             <div>
               <small>{t("stugby.coordinator")}</small>
               <code>{detail.stugby.coordinatorUrl}</code>
-              <button type="button" className="secondary-button" disabled={busy !== null || detail.stugby.localMemberState === "left" || detail.stugby.localMemberState === "revoked"} onClick={() => void withBusy("sync", async () => { await api.syncStugby(detail.stugby.id); await load(detail.stugby.id); })}><RefreshCw aria-hidden="true" className={busy === "sync" ? "spin" : ""} size={16} />{t("stugby.syncNow")}</button>
+              <button type="button" className="secondary-button" disabled={busy !== null || detail.stugby.localMemberState === "left" || detail.stugby.localMemberState === "revoked"} onClick={() => void withBusy("sync", async () => { await api.syncStugby(detail.stugby.id); onInventoryChange?.(); await load(detail.stugby.id); })}><RefreshCw aria-hidden="true" className={busy === "sync" ? "spin" : ""} size={16} />{t("stugby.syncNow")}</button>
               <div className="stugby-delete-action">
                 <strong>{t("stugby.delete")}</strong>
                 <small>{t(deletionBlocked ? "stugby.deleteBlocked" : "stugby.deleteHelp")}</small>
@@ -833,7 +841,7 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
               <div><AlertTriangle size={18} aria-hidden="true" /><div><h3 id="stugby-conflicts-title">{t("stugby.conflictsTitle")}</h3><p>{t("stugby.conflictsBody")}</p></div></div>
               {detail.propertyConflicts.map((conflict) => <article key={conflict.commandId}><div><strong>{t("stugby.conflictItem", { item: conflict.entityId, fields: conflict.fields.join(", ") })}</strong><small>{conflict.message}</small></div><button type="button" className="secondary-button" disabled={busy !== null} onClick={() => void withBusy(`conflict:${conflict.commandId}`, async () => { await api.resolveStugbyPropertyConflict(detail.stugby.id, conflict.commandId); setNotice(t("stugby.conflictAcknowledged")); await loadDetail(detail.stugby.id); })}>{t("stugby.acknowledgeConflict")}</button></article>)}
             </section>}
-            {detail.propertyAdoption.state === "adopted" && <details className="stugby-subdetails">
+            {canPublish && !coordinator && detail.propertyAdoption.state === "adopted" && <details className="stugby-subdetails">
               <summary>{t("stugby.localPropertyMigration")}</summary>
               <div className="stugby-subdetails-body stugby-migration">
                 <p>{t("stugby.localPropertyMigrationBody")}</p>

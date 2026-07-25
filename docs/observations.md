@@ -137,12 +137,12 @@ ledger, including changed fields and actor attribution.
 Calendar-only and ranged observations remain calendar evidence; they are not
 coerced into misleading instant markers on the comparison chart.
 
-REST and MCP changes retain their local channel attribution; authenticated REST
-requests are authorized against the signed-in account before a write reaches
-the observation service. Pre-0.3 baselines are conservatively attributed as
-`local-migration` rather than inventing their original authoring channel.
+Authenticated REST requests are authorized against the signed-in account before
+a write reaches the observation service. Pre-0.3 baselines are conservatively
+attributed as `local-migration` rather than inventing their original authoring
+channel.
 
-The local MCP exposes `create_observation`, `update_observation`, and
-`list_observation_revisions` with the same validation and optimistic
-concurrency rules. Deletion is still permanent in this release and cascades to
-the revision history; export evidence before deleting it.
+The local read-only MCP exposes `list_observations` and
+`list_observation_revisions`. Observation creation, editing, resolution, and
+deletion remain REST/UI operations. Deletion is permanent in this release and
+cascades to the revision history; export evidence before deleting it.

@@ -1834,7 +1834,13 @@ export class ClimateDatabase {
   readonly db: DatabaseSync;
   #transactionDepth = 0;
 
-  constructor(path: string, seed = true) {
+  constructor(path: string, seed = true, options: { readOnly?: boolean } = {}) {
+    if (options.readOnly) {
+      if (path === ":memory:") throw new Error("A read-only ClimateDatabase requires an existing database file");
+      this.db = new DatabaseSync(path, { readOnly: true });
+      this.db.exec("PRAGMA query_only = ON; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+      return;
+    }
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");

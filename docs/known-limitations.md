@@ -341,9 +341,10 @@ system described in the roadmap.
   subscribes before hydrating, buffers intervening events, and refreshes the
   relevant snapshot/history after reconnects. Other clients must do the same.
 - MCP authorization is the ability to launch the local stdio process and access
-  its database; it does not use browser account sessions or Guest grants.
-  `create_observation` and `update_observation` mutate data. Their revision actor
-  identifies the trusted local channel rather than a browser account.
+  its database; it does not use browser account sessions or Guest grants. The
+  current MCP surface is inspection-only and opens SQLite read-only. It cannot
+  create, update, delete, import, migrate, share, synchronize, or control local
+  state.
 - SQLite is the single-host store. Multi-process MCP/API access is appropriate
   for this scale but not a substitute for a multi-user database deployment.
 

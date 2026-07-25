@@ -41,6 +41,7 @@ describe("DeveloperPage", () => {
     expect(screen.getByRole("heading", { name: "Local MCP server" })).toBeTruthy();
     expect(screen.getByText("Local integration contracts")).toBeTruthy();
     expect(screen.getByText("Use Stuga locally through the versioned HTTP API and trusted stdio MCP server.")).toBeTruthy();
+    expect(screen.getByText(/trusted, read-only stdio/i)).toBeTruthy();
 
     const baseUrl = screen.getByRole("textbox", { name: "Local v1 base URL" }) as HTMLInputElement;
     expect(baseUrl.value).toBe(window.location.origin + "/api/v1");

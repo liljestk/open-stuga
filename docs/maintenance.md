@@ -134,7 +134,8 @@ Every effective change increments `revision`. A stale `baseRevision` returns
 HTTP 409 and must be reloaded before retrying. A no-op does not create a new
 revision, but still checks that the base revision is current. Revision rows are
 append-only and record the authenticated REST account or trusted local
-MCP/migration channel where available.
+migration channel. Older databases may retain historical `local-mcp` actors
+from releases that allowed MCP writes; the current MCP is inspection-only.
 
 ## Deliberate scope
 

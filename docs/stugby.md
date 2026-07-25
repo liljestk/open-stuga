@@ -2,11 +2,11 @@
 
 Stugby connects independently administered Stuga installations around a shared
 property without turning them into one account, database, or control system.
-Each Stuga normally remains authoritative for its own Homes. A coordinator
-maintains the participant roster, distributes signed events, and owns the
-shared Property aggregate. One explicitly designated successor may also keep a
-complete, sanitized recovery copy of a Home for a planned Server
-decommissioning.
+Each Stuga normally remains authoritative for its own Homes. The UI calls the
+coordinator the **Host** and every participant a **Client**. The Host maintains
+the participant roster, distributes signed events, and owns the shared Property
+aggregate. One explicitly designated successor may also keep a complete,
+sanitized recovery copy of a Home for a planned Host decommissioning.
 
 This supports both common ownership patterns:
 
@@ -15,12 +15,14 @@ This supports both common ownership patterns:
 - one owner with several Homes in one Stuga, where each Home can have a separate
   grant and audience.
 
-Stugby is available but inert on every Stuga. Merely running Stuga, creating a
-Stugby, or joining one shares no Home data. A Client explicitly adopts the
-Server Property while its other local Properties remain separate. Shared
-Property editing is collaborative by default; shared Homes are read-only by
-default and become editable only when their owner enables it. Local owners and
-administrators configure this in **Workspace > Stugbys**.
+Stugby is available but inert on every Stuga. Merely running Stuga or creating
+a Stugby shares no Home data. Joining never publishes the Client's local Homes,
+though it may receive Homes already shared by the Host or other Clients. The
+Host explicitly connects the common Property; each Client explicitly chooses
+**Use Host Property** while its other local Properties remain separate. Shared
+Property editing is collaborative by default, while shared Homes are read-only
+by default. Local owners and administrators configure additional access in
+**Workspace > Stugbys**.
 
 ## Create the secure coordinator
 
@@ -89,10 +91,11 @@ shown once.
 
 ## Topology and authority
 
-Every Stugby has one coordinator node and any number of participant nodes. The
-coordinator is an event relay and the authority for membership and the common
-property. A Home dataset event always retains the originating Stuga node as its
-authority; the coordinator cannot rewrite or impersonate it.
+Every Stugby has one Host (the protocol's coordinator node) and any number of
+Clients (participant nodes). The Host is an event relay and the authority for
+membership and the common Property. A Home dataset event always retains the
+originating Stuga node as its authority; the Host cannot rewrite or impersonate
+it.
 
 Property changes are queued durably while a node is offline. The coordinator
 applies non-conflicting field changes and is authoritative when both sides
@@ -111,13 +114,14 @@ processes and durably queues the plaintext events it relays, even when only a
 different participant is named in the grant audience. Operate the coordinator
 as a trusted member of the Stugby and do not use an untrusted third-party relay.
 
-Roles are:
+Protocol role IDs remain stable; the UI presents them as:
 
-- **steward**: coordinator membership and common-property authority;
-- **property-manager**: may edit common-property records through the
-  coordinator;
-- **participant**: may receive grants and publish grants for its own Homes; and
-- **viewer**: read-only participant.
+- **steward**: Host membership and common-Property authority;
+- **property-manager**: Client that may edit common-Property records through
+  the Host;
+- **participant**: Client that may receive grants and publish grants for its
+  own Homes; and
+- **viewer**: read-only Client.
 
 Local Stuga owner/administrator authorization is required for every browser API
 operation. Stugby roles govern node-to-node common-property writes; they do not
@@ -125,8 +129,8 @@ create or manage local Stuga accounts.
 
 ## Consent and grants
 
-Joining shares no Home data. The authoritative Stuga must create a grant for one
-local Home and choose:
+Joining never publishes the joining Client's Home data. The authoritative Stuga
+normally creates a grant for one local Home and chooses:
 
 1. all active members or an explicit node list;
 2. each enabled dataset;
@@ -137,8 +141,21 @@ local Home and choose:
 6. whether the Home remains read-only or accepts synchronized edits, plus
    whether one named Client receives a full recovery copy.
 
+Two explicit Property actions create the recommended grant automatically:
+connecting the Host Property publishes an overview of each Host Home, and
+moving a Client Property into the Host Property publishes an overview of each
+moved Client Home. A new Home created directly in that connected Property gets
+the same overview. The overview contains the Home name and timezone, room
+structure, and sensor labels. It is available to all active members, is
+read-only, and excludes precise location, floor-plan images, notes, readings,
+integration details, and secrets. The Home remains authoritative and fully
+editable on its owning Stuga. Any broader sharing still requires an explicit
+grant change by that owner. On upgrade, the next sync adds this overview to an
+already-linked local Home only when that Home has never had a grant; an expired
+or explicitly revoked grant is never recreated.
+
 Read-only is the default Home policy. Full recovery is intended for a planned
-change of Server, not routine offline use. It retains the complete Home
+change of Host, not routine offline use. It retains the complete Home
 inventory, supported operational records, assets, and recorded history.
 While that grant remains active, the designated recovery replica is not
 age-pruned; its configured retention value does not discard older transfer
@@ -168,6 +185,16 @@ data cannot be published after consent is withdrawn. Retention maintenance
 deletes expired cached resources. A dataset with replica caching disabled or
 retention set to zero is validated in transit but is not written to the durable
 remote projection.
+
+### Read-only MCP inspection
+
+The local MCP exposes `list_stugbys` and `get_stugby`. They report Host/Client
+roles, adopted Property state, owned versus shared Homes, edit policy, sync
+state, sanitized grant policy, and pending command counts. `list_properties`,
+`list_houses`, and `get_house` also include their Stugby links. MCP cannot join,
+adopt, migrate, share, revoke, synchronize, edit, or disconnect a Stugby.
+Invitation material, member keys, signed events, remote resource payloads, and
+audit records are omitted.
 
 ## Protocol and transport
 
@@ -210,31 +237,35 @@ only to let an image arrive immediately before its signed event.
 
 ## Lifecycle
 
-1. Run `npm run setup` on the coordinator and choose **Create a shared Stugby
+1. Run `npm run setup` on the Host and choose **Create a shared Stugby
    for several homes**. Setup reuses an existing Stuga address when available,
    provisions the required secure connection, and verifies it automatically.
-   Participants remain outbound-only and need no Tunnel or inbound port.
+   Clients remain outbound-only and need no Tunnel or inbound port.
 2. Create the Stugby after setup reports that the connection is ready. With a
    custom reverse proxy, the Owner/Admin form suggests the current secure
    address and verifies it automatically before saving.
-3. Create a time-limited, one-use invitation with the intended role. Transfer
+3. On the Host, connect the common Property. The Host never receives a
+   Client-style Property migration action. Existing Homes stay owned by the
+   Host and receive the recommended read-only overview grant.
+4. Create a time-limited, one-use invitation with the intended role. Transfer
    the invitation link through a trusted channel.
-4. On the joining Stuga, paste the invitation link into **Workspace > Stugbys**.
+5. On the joining Stuga, paste the invitation link into **Workspace > Stugbys**.
    The joining node proves possession of its private key and receives the roster
-   and common-property snapshot. No Home data is shared.
-5. On a Client, choose **Adopt Server Property**. It appears beside local
-   Properties in Property management. Optionally use **Merge and delete
-   source** to move every Home and Property item from a local Property into the
-   adopted Property; this destructive action deletes the source Property.
-   Moving a Home into or out of an adopted Property requires this reviewed
-   migration flow rather than the ordinary Home selector.
-6. On each authoritative Stuga, create separate Home grants and review the
+   and common-Property snapshot. Joining does not publish any Client Home.
+6. On a Client, choose **Use Host Property**. It appears beside local Properties
+   in Property management. Optionally use **Move my Homes into the Host
+   Property** to move every Home and Property item from a local Property into
+   the adopted Property. The empty source Property is deleted, but Home IDs,
+   history, local authority, and full local editing remain unchanged. Each moved
+   Home receives the recommended read-only overview grant so it appears on the
+   Host and other Clients with the Stugby mark.
+7. On each authoritative Stuga, review or create separate Home grants and set the
    audience, datasets, retention, edit policy, and optional designated recovery
    successor.
-7. Edit the shared Property in the normal Property workspace. Offline changes
-   queue; same-field conflicts keep the Server value and are explained in the
+8. Edit the shared Property in the normal Property workspace. Offline changes
+   queue; same-field conflicts keep the Host value and are explained in the
    UI.
-8. Before removing a participant, revoke or narrow every grant involving it,
+9. Before removing a Client, revoke or narrow every grant involving it,
    let the node synchronize, verify deletion receipts, and then suspend, mark
    left, or revoke the membership. The coordinator queues one final signed
    membership event; after pulling it, the departing node removes its remote
@@ -242,7 +273,7 @@ only to let an image arrive immediately before its signed event.
    node keeps a read-only event pull so it can receive a later reactivation and
    fresh snapshots, but it cannot publish or edit shared Property data.
 
-Use **Permanent disconnect** only for an intentional departure or Server
+Use **Permanent disconnect** only for an intentional departure or Host
 decommission. It promotes the inherited Property to local, retains
 Client-owned Homes, and promotes only complete recovery Homes for which this
 Client is the designated successor. An internet outage never triggers this

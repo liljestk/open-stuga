@@ -65,7 +65,9 @@ flowchart LR
         WX --> API
         API --> LD[Location discovery]
         API --> UI[2D digital-twin web app]
+        API --> IOSAPP[Native iOS companion]
         E --> UI
+        E --> IOSAPP
         MCP[MCP stdio server] --> Q
     end
 
@@ -91,6 +93,10 @@ third-party browser flow and are loaded only after an explicit action. Browser
 geolocation is requested only after **Use this device's location**; the selected
 coordinates then flow through the API. See
 [Outdoor weather and home location](weather.md) for those privacy boundaries.
+The native iOS companion uses the same server-managed session, permission
+checks, measurement snapshots/history, alerts, and authenticated event stream
+as the browser. It connects directly to the selected Stuga origin and does not
+introduce an intermediary telemetry service.
 Telegram is an explicit, per-rule server-side outbound flow. Apple Notes is not
 a server integration: a user-run Shortcut calls a Home-scoped bridge and then
 creates or reads a note on the device. Stuga never receives an Apple Account
@@ -101,8 +107,10 @@ reverse-proxies `/api/*` to the API, including the server-sent event stream.
 The HTTP boundary resolves a built-in local account from a server-managed
 HttpOnly session. One installation has one workspace. The API enforces roles
 and property/house/area grants for every list, detail, history, and mutation
-request; Guest mutations are rejected. The MCP server is a separate privileged
-local process and does not use browser sessions.
+request; Guest mutations are rejected. The MCP server is a separate local
+read-only inspection process and does not use browser sessions. It opens the
+existing SQLite database with SQLite read-only and query-only enforcement;
+schema migrations and all mutations remain the API process's responsibility.
 
 The web information architecture follows ownership. Workspace navigation holds
 **Overview**, **Properties**, and **Alerts**. A selected Property owns its
@@ -382,7 +390,7 @@ retention, migration, backup, and restore contract.
 | Weather adapters and monitor | automatic FMI/Open-Meteo routing, source mapping, warning authority, bounded cache/concurrency, jitter, per-home backoff, stale-write fencing | browser map tiles, event transports, or indoor measurement history |
 | Weather event broker | provider-neutral acceptance, durable projection ordering, cache-replay deduplication, stable event identity, live fan-out | upstream provider protocols or UI rendering |
 | REST/SSE transport | versioning, validation, errors, live fan-out | Home Assistant device protocol |
-| MCP server | tool schemas and domain-service calls | direct database access |
+| MCP server | read-only tool schemas and privacy-safe SQLite projections | writes, schema migration, credentials, binary assets, or browser authorization |
 | Web app | accessible interaction and rendering | secrets or authoritative storage |
 
 Adapters depend inward on domain services. Domain services depend on repository

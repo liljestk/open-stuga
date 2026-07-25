@@ -1,7 +1,8 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH } from "@climate-twin/contracts";
+import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, resolvePlanElementOpeningState } from "@climate-twin/contracts";
+import type { StugbyRole, StugbySummary } from "@climate-twin/stugby-protocol";
 import type {
   AreaEquipment,
   AreaEquipmentInput,
@@ -38,8 +39,12 @@ import {
   parseSensorPatch,
 } from "./app.js";
 import { loadConfig } from "./config.js";
+import { DataOperationsService } from "./data-operations.js";
 import { ClimateDatabase, outdoorLocationKey } from "./db.js";
 import { discoverHomeAssistant } from "./discovery.js";
+import { EnergyCostService } from "./energy-cost.js";
+import { EnergyOptimizer } from "./energy-optimizer.js";
+import { publicElectricityConfiguration } from "./electricity-prices.js";
 import { TelemetryBus } from "./events.js";
 import { HomeAssistantBridge } from "./home-assistant.js";
 import { McpOperationTracker } from "./mcp-lifecycle.js";
@@ -56,7 +61,6 @@ import {
   requireMcpHouseSensor,
   requireMcpConfirmation,
   requireMcpMeasurementTarget,
-  requireMcpRealDataPersistenceConfirmation,
   requireMcpSensor,
   summarizeMcpAreaEquipment,
   summarizeMcpHouse,
@@ -79,37 +83,33 @@ import {
   RuntimeStatus,
   TelemetryService,
 } from "./services.js";
+import { SetupDoctor } from "./setup-doctor.js";
+import { HybridTelemetryReader } from "./timeseries/read-facade.js";
+import { runThermalIsolation } from "./thermal-isolation.js";
 import { runThermalSimulation } from "./thermal-simulation.js";
 import { TpLinkBridge } from "./tp-link.js";
 import { SYSTEM_VERSION } from "./version.js";
 import { FmiWeatherProvider, WeatherRequestSupersededError, WeatherService } from "./weather.js";
-import { loadOrCreateStugbyNodeKeys } from "./stugby/identity.js";
-import { StugbyService } from "./stugby/service.js";
+import type { StugbyService } from "./stugby/service.js";
 import { StugbyStore } from "./stugby/store.js";
 
 const config = loadConfig();
-const database = new ClimateDatabase(config.databasePath, config.mockEnabled);
+const database = new ClimateDatabase(config.databasePath, false, { readOnly: true });
 const locationDiscovery = new LocationDiscoveryService();
 const bus = new TelemetryBus();
-const stugbyKeys = loadOrCreateStugbyNodeKeys(config.stugbyIdentityFile ?? null, config.stugbyNodeName ?? "Stuga");
-const stugby = new StugbyService({
-  database,
-  store: new StugbyStore(database.db, stugbyKeys.identity.nodeId),
-  keys: stugbyKeys,
-  bus,
-  assetDirectory: config.assetDirectory,
-  ...(config.stugbySyncIntervalMs !== undefined ? { syncIntervalMs: config.stugbySyncIntervalMs } : {}),
-  ...(config.stugbyPublicOrigin !== undefined ? { publicOrigin: config.stugbyPublicOrigin } : {}),
-  ...(config.stugbySuggestedPublicOrigin !== undefined
-    ? { suggestedPublicOrigin: config.stugbySuggestedPublicOrigin }
-    : {}),
-  allowUiPublicOrigin: !config.stugbyCoordinatorProvisioningRequired,
+const stugbyStore = new StugbyStore(database.db, "mcp-read-only", { readOnly: true });
+const stugby = new Proxy({} as StugbyService, {
+  get: () => () => {
+    throw new Error("The Stuga MCP server is read-only");
+  },
 });
 const dataMode = new DataModeCoordinator(database);
-if ((config.haUrl && config.haToken) || (config.tpLinkHost && config.tpLinkUsername && config.tpLinkPassword)) {
-  dataMode.activate();
-}
 const status = new RuntimeStatus(config, bus, database);
+const dataOperations = new DataOperationsService(database, config);
+const telemetryReader = new HybridTelemetryReader({ local: database });
+const energyCost = new EnergyCostService(telemetryReader);
+const energyOptimizer = new EnergyOptimizer(database);
+const setupDoctor = new SetupDoctor(database, config, status, dataOperations, null);
 const alertEngine = new AlertEngine(database, bus, config, status);
 const telemetry = new TelemetryService(database, bus, alertEngine, dataMode);
 const measurements = new MeasurementService(database, bus, alertEngine, dataMode);
@@ -327,28 +327,8 @@ function measurementSnapshot(houseId?: string): MeasurementSnapshotEntry[] {
   }));
 }
 
-function persistFreshWeatherObservation(result: HouseWeather): boolean {
-  if (result.stale || !result.current || !Number.isFinite(result.current.temperatureC)) return false;
-  database.upsertCurrentOutdoorTemperatureSample({
-    houseId: result.houseId,
-    locationKey: outdoorLocationKey(result.location),
-    timestamp: result.current.timestamp,
-    temperatureC: result.current.temperatureC as number,
-    source: result.provider === "fmi" ? "fmi-observation" : "open-meteo-current",
-    fetchedAt: result.fetchedAt,
-    stationId: result.observationStation?.id ?? null,
-    stationName: result.observationStation?.name ?? null,
-    conditions: result.current,
-  });
-  dataMode.synchronize();
-  return true;
-}
-
-async function getHouseWeather(houseId: string, hours: number, persistObservation: boolean): Promise<HouseWeather & {
-  persistence: { requested: boolean; persisted: boolean; realDataMode: boolean };
-}> {
+async function getHouseWeather(houseId: string, hours: number): Promise<HouseWeather> {
   const house = requireMcpHouse(database, houseId);
-  if (persistObservation) stugby.assertHouseLocalAuthority(houseId);
   if (!house.location) throw new Error(`House ${houseId} does not have a weather location`);
   const result = await weather.get(house, hours);
   const current = database.getHouse(house.id);
@@ -356,11 +336,7 @@ async function getHouseWeather(houseId: string, hours: number, persistObservatio
     || outdoorLocationKey(current.location) !== outdoorLocationKey(result.location)) {
     throw new WeatherRequestSupersededError();
   }
-  const persisted = persistObservation ? persistFreshWeatherObservation(result) : false;
-  return {
-    ...result,
-    persistence: { requested: persistObservation, persisted, realDataMode: dataMode.isRealMode },
-  };
+  return result;
 }
 
 function thermalSimulation(args: Record<string, unknown>): unknown {
@@ -1220,14 +1196,308 @@ const maintenanceTaskPatchProperties = {
 
 const confirmationProperty = { confirm: { const: true, description: "Must be true to authorize this destructive operation." } } as const;
 
+function stugbySide(role: StugbyRole): "host" | "client" {
+  return role === "steward" ? "host" : "client";
+}
+
+function activeStugbyGrant(grant: ReturnType<StugbyStore["listGrants"]>[number]): boolean {
+  return !grant.revokedAt && (!grant.expiresAt || Date.parse(grant.expiresAt) > Date.now());
+}
+
+function recommendedOverviewGrant(grant: ReturnType<StugbyStore["listGrants"]>[number]): boolean {
+  const enabled = grant.datasets.filter((dataset) => dataset.enabled);
+  return grant.housePolicy.editPolicy === "read-only"
+    && grant.housePolicy.recoveryMode === "none"
+    && enabled.length === 3
+    && ["home.directory.v1", "home.sensor-catalog.v1", "home.structure.v1"]
+      .every((dataset) => enabled.some((candidate) => candidate.dataset === dataset
+        && !candidate.includeLocalIds
+        && candidate.allowReplicaCache
+        && candidate.retentionDays === 30));
+}
+
+function summarizeMcpStugby(summary: StugbySummary): object {
+  const adoption = stugbyStore.getPropertyAdoption(summary.id);
+  const houses = database.listHouses().filter((house) => house.stugby?.stugbyId === summary.id);
+  const grants = stugbyStore.listGrants(summary.id);
+  return {
+    id: summary.id,
+    name: summary.name,
+    descriptionConfigured: summary.description !== null,
+    coordinatorUrl: summary.coordinatorUrl,
+    side: stugbySide(summary.localRole),
+    accessRole: summary.localRole,
+    memberState: summary.localMemberState,
+    memberCount: summary.memberCount,
+    adoptedPropertyId: adoption?.state === "adopted" ? adoption.localPropertyId : null,
+    ownedHomeCount: houses.filter((house) => house.stugby?.ownership === "local").length,
+    sharedHomeCount: houses.filter((house) => house.stugby?.ownership === "shared").length,
+    activeGrantCount: grants.filter(activeStugbyGrant).length,
+    lastSyncAt: summary.lastSyncAt,
+    lastSyncError: summary.lastSyncError,
+    updatedAt: summary.updatedAt,
+  };
+}
+
+function getMcpStugby(args: Record<string, unknown>): object {
+  const stugbyId = requiredString(args, "stugbyId");
+  const summary = stugbyStore.getStugby(stugbyId);
+  if (!summary) throw new Error(`Unknown Stugby: ${stugbyId}`);
+  const adoption = stugbyStore.getPropertyAdoption(stugbyId);
+  const adoptedProperty = adoption ? database.getProperty(adoption.localPropertyId) : null;
+  const members = stugbyStore.listMembers(stugbyId);
+  const sharedProperty = stugbyStore.getSharedProperty(stugbyId);
+  return {
+    stugby: summarizeMcpStugby(summary),
+    members: members.map((member) => ({
+      nodeId: member.nodeId,
+      displayName: member.displayName,
+      side: stugbySide(member.role),
+      accessRole: member.role,
+      state: member.state,
+      isHost: member.nodeId === summary.coordinatorNodeId,
+      joinedAt: member.joinedAt,
+      updatedAt: member.updatedAt,
+    })),
+    property: {
+      adoption,
+      local: adoptedProperty ? summarizeMcpProperty(adoptedProperty) : null,
+      shared: sharedProperty ? {
+        revision: sharedProperty.revision,
+        editPolicy: sharedProperty.editPolicy,
+        locationConfigured: sharedProperty.location !== null,
+        areaCount: sharedProperty.areas.length,
+        equipmentCount: sharedProperty.equipment.length,
+        noteCount: sharedProperty.notes.length,
+        maintenanceTaskCount: sharedProperty.maintenance.length,
+        updatedAt: sharedProperty.updatedAt,
+      } : null,
+      conflicts: stugbyStore.listPropertyConflicts(stugbyId).length,
+      commands: stugbyStore.propertyCommandCounts(stugbyId),
+    },
+    homes: database.listHouses()
+      .filter((house) => house.stugby?.stugbyId === stugbyId)
+      .map(summarizeMcpHouse),
+    grants: stugbyStore.listGrants(stugbyId).map((grant) => ({
+      id: grant.id,
+      authorityNodeId: grant.authorityNodeId,
+      publicationId: grant.publicationId,
+      localHouseId: grant.localHouseId ?? null,
+      audience: {
+        kind: grant.audience.kind,
+        recipientCount: grant.audience.kind === "all-members"
+          ? Math.max(0, members.filter((member) => member.state === "active").length - 1)
+          : grant.audience.nodeIds.length,
+      },
+      datasets: grant.datasets.filter((dataset) => dataset.enabled).map((dataset) => ({
+        dataset: dataset.dataset,
+        includeLocalIds: dataset.includeLocalIds,
+        allowReplicaCache: dataset.allowReplicaCache,
+        retentionDays: dataset.retentionDays,
+        ...(dataset.telemetry ? { telemetry: dataset.telemetry } : {}),
+      })),
+      editPolicy: grant.housePolicy.editPolicy,
+      recoveryMode: grant.housePolicy.recoveryMode,
+      recommendedReadOnlyOverview: recommendedOverviewGrant(grant),
+      active: activeStugbyGrant(grant),
+      expiresAt: grant.expiresAt,
+      revokedAt: grant.revokedAt,
+      updatedAt: grant.updatedAt,
+    })),
+    homeCommands: stugbyStore.homeCommandCounts(stugbyId),
+  };
+}
+
+function mcpDateTime(args: Record<string, unknown>, key: string, fallback: Date): string {
+  const value = optionalString(args, key);
+  return value === undefined ? fallback.toISOString() : mcpIsoDate(value, key);
+}
+
+function dailyAnalyticsFindings(args: Record<string, unknown>): object {
+  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const dataMode = database.isRealDataMode() ? "live" : "demo";
+  const stored = database.dailyAnalyticsFindings(house.id, dataMode);
+  return {
+    snapshot: stored?.snapshot ?? null,
+    status: {
+      state: stored?.lastError ? "failed" : stored?.snapshot ? "ready" : "pending",
+      lastAttemptAt: stored?.lastAttemptAt ?? null,
+      lastError: stored?.lastError ?? null,
+    },
+  };
+}
+
+function propertyElectricity(args: Record<string, unknown>): object {
+  const propertyId = requiredString(args, "propertyId");
+  if (!database.getProperty(propertyId)) throw new Error(`Unknown property: ${propertyId}`);
+  const electricity = database.getPropertyElectricityConfig(propertyId);
+  if (!electricity) throw new Error(`Property ${propertyId} does not have electricity configuration`);
+  const to = mcpDateTime(args, "to", new Date(Date.now() + 48 * 3_600_000));
+  const from = mcpDateTime(args, "from", new Date(Date.now() - 24 * 3_600_000));
+  validateMcpDateRange(from, to);
+  return {
+    config: publicElectricityConfiguration(electricity, true),
+    current: database.getCurrentPropertyElectricityPrice(propertyId),
+    prices: database.listPropertyElectricityPrices(propertyId, from, to),
+  };
+}
+
+function listPropertyNotes(args: Record<string, unknown>): unknown {
+  return database.listPropertyNotes({
+    ...(args.propertyId === undefined ? {} : { propertyId: requiredString(args, "propertyId") }),
+    ...(args.houseId === undefined ? {} : { houseId: requiredString(args, "houseId") }),
+    ...(args.areaId === undefined ? {} : { areaId: requiredString(args, "areaId") }),
+    ...(args.equipmentId === undefined ? {} : { equipmentId: requiredString(args, "equipmentId") }),
+    limit: mcpBoundedInteger(args.limit, "limit", 200, 1, 500),
+  });
+}
+
+function houseOpeningStates(args: Record<string, unknown>): object {
+  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const at = mcpDateTime(args, "at", new Date());
+  const observations = database.listOpeningStateObservations(house.id, 10_000, at);
+  const states = house.floors.flatMap((floor) => (floor.planElements ?? []).flatMap((element) => {
+    if (element.kind !== "door" && element.kind !== "window" && element.kind !== "vent") return [];
+    return [{
+      floorId: floor.id,
+      elementId: element.id,
+      kind: element.kind,
+      ...(element.label ? { label: element.label } : {}),
+      ...resolvePlanElementOpeningState(
+        element,
+        observations.filter((observation) => observation.floorId === floor.id),
+        at,
+      ),
+    }];
+  }));
+  if (args.from === undefined) return { snapshot: { houseId: house.id, at, states }, observations };
+  const from = mcpIsoDate(requiredString(args, "from"), "from");
+  const to = mcpDateTime(args, "to", new Date(at));
+  const durationMs = Date.parse(to) - Date.parse(from);
+  if (durationMs <= 0 || durationMs > 366 * 86_400_000) {
+    throw new Error("Opening-state history must cover more than zero and at most 366 days");
+  }
+  const limit = mcpBoundedInteger(args.limit, "limit", 10_000, 1, 10_000);
+  const initial = database.listOpeningStateObservations(house.id, limit, from);
+  const history = database.listOpeningStateObservationHistory(
+    house.id,
+    from,
+    to,
+    Math.max(1, limit - Math.min(initial.length, limit - 1)),
+  );
+  const merged = [...new Map([...initial, ...history].map((observation) => [observation.id, observation])).values()]
+    .sort((left, right) => Date.parse(left.observedAt) - Date.parse(right.observedAt) || left.id.localeCompare(right.id))
+    .slice(-limit);
+  return { snapshot: { houseId: house.id, at, states }, observations, history: merged, from, to };
+}
+
+function houseElectricityPrice(args: Record<string, unknown>): object {
+  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const toHomePrice = (price: NonNullable<ReturnType<ClimateDatabase["getCurrentPropertyElectricityPrice"]>>) => ({
+    startAt: price.startAt,
+    endAt: price.endAt,
+    effectivePriceCentsPerKwh: price.effectivePriceCentsPerKwh,
+    effectivePriceEurPerKwh: price.effectivePriceEurPerKwh,
+    fetchedAt: price.fetchedAt,
+  });
+  const propertyPrice = database.getCurrentPropertyElectricityPrice(house.propertyId);
+  const current = propertyPrice ? toHomePrice(propertyPrice) : null;
+  if (args.from === undefined && args.to === undefined) return { current };
+  const to = mcpDateTime(args, "to", new Date(Date.now() + 48 * 3_600_000));
+  const from = mcpDateTime(args, "from", new Date(Date.now() - 24 * 3_600_000));
+  validateMcpDateRange(from, to);
+  return {
+    current,
+    prices: database.listPropertyElectricityPrices(house.propertyId, from, to).map(toHomePrice),
+  };
+}
+
+async function houseEnergyCost(args: Record<string, unknown>): Promise<unknown> {
+  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const sensor = requireMcpHouseSensor(database, house.id, requiredString(args, "sensorId"));
+  const to = mcpDateTime(args, "to", new Date());
+  const from = mcpDateTime(args, "from", new Date(Date.parse(to) - 30 * 86_400_000));
+  const durationMs = Date.parse(to) - Date.parse(from);
+  if (durationMs <= 0 || durationMs > 366 * 86_400_000) {
+    throw new Error("Energy cost range must be greater than zero and at most 366 days");
+  }
+  return energyCost.calculate({
+    houseId: house.id,
+    propertyId: house.propertyId,
+    sensorId: sensor.id,
+    from,
+    to,
+  });
+}
+
+function outdoorTemperatureHistory(args: Record<string, unknown>): object {
+  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const to = mcpDateTime(args, "to", new Date());
+  const from = mcpDateTime(args, "from", new Date(Date.parse(to) - 24 * 3_600_000));
+  validateMcpDateRange(from, to);
+  const limit = mcpBoundedInteger(args.limit, "limit", 20_000, 1, 50_000);
+  if (!house.location) return { samples: [], from, to, truncated: false };
+  const samples = database.outdoorTemperatureHistory(
+    house.id,
+    outdoorLocationKey(house.location),
+    from,
+    to,
+    limit + 1,
+  );
+  const truncated = samples.length > limit;
+  return { samples: truncated ? samples.slice(-limit) : samples, from, to, truncated };
+}
+
+function thermalIsolation(args: Record<string, unknown>): unknown {
+  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const { from, to } = mcpThermalDateRange(optionalString(args, "from"), optionalString(args, "to"));
+  const sensors = database.listSensors(house.id).filter((sensor) => sensor.enabled);
+  if (sensors.length > 64) throw new Error("Thermal isolation comparison supports at most 64 enabled sensors");
+  const boundaryPaddingMs = 2 * 3_600_000;
+  const outdoorSamples = database.outdoorTemperatureHistory(
+    house.id,
+    outdoorLocationKey(house.location),
+    new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
+    new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
+    50_000,
+  );
+  return runThermalIsolation({
+    house,
+    sensors,
+    indoorSamplesBySensor: new Map(sensors.map((sensor) => [
+      sensor.id,
+      database.thermalTemperatureHistory(sensor.id, from, to, 5, 5_000),
+    ])),
+    outdoorSamples,
+    from,
+    to,
+  });
+}
+
+function backupStatus(): object {
+  const { backupPath, ...backup } = dataOperations.backupStatus();
+  return { ...backup, backupPathConfigured: backupPath !== null };
+}
+
+function sensorDataGaps(args: Record<string, unknown>): unknown {
+  const houseId = optionalString(args, "houseId");
+  if (houseId) requireMcpHouse(database, houseId);
+  const sensorId = optionalString(args, "sensorId");
+  if (sensorId) requireMcpSensor(database, sensorId);
+  return database.listSensorDataGaps(
+    sensorId,
+    mcpBoundedInteger(args.limit, "limit", 100, 1, 1_000),
+  ).filter((gap) => !houseId || database.getSensor(gap.sensorId)?.houseId === houseId);
+}
+
 const server = new Server(
   { name: "stuga-local", version: SYSTEM_VERSION },
   {
     capabilities: { tools: {} },
     instructions: [
-      "This Stuga stdio MCP operates only on its configured local SQLite workspace and is not an administration API.",
+      "This Stuga stdio MCP is a read-only inspection surface over its configured local SQLite workspace.",
       "It cannot inspect a separately running API process's in-memory connections or event bus.",
-      "Raw integration credentials, SSE streams, and binary asset downloads are intentionally excluded from MCP tool arguments and results.",
+      "Create, update, delete, import, migration, sharing, synchronization, control, raw credentials, SSE streams, and binary asset downloads are intentionally excluded.",
     ].join(" "),
   },
 );
@@ -1240,11 +1510,105 @@ const resultOutputSchema = {
   additionalProperties: false,
 } as const;
 
+const READ_ONLY_MCP_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "list_properties",
+  "get_property",
+  "get_property_electricity",
+  "get_property_energy_optimization",
+  "list_property_areas",
+  "list_area_equipment",
+  "list_property_notes",
+  "list_houses",
+  "get_house",
+  "get_daily_analytics_findings",
+  "list_stugbys",
+  "get_stugby",
+  "search_locations",
+  "resolve_coordinate_defaults",
+  "get_house_weather",
+  "get_house_opening_states",
+  "get_house_electricity_price",
+  "get_house_energy_cost",
+  "query_outdoor_temperature_history",
+  "run_thermal_simulation",
+  "get_house_thermal_isolation",
+  "list_sensors",
+  "list_measurement_definitions",
+  "get_measurement_snapshot",
+  "query_measurement_history",
+  "forecast_measurement",
+  "get_sensor_snapshot",
+  "query_history",
+  "forecast_sensor",
+  "list_active_alerts",
+  "list_alert_rules",
+  "list_alert_events",
+  "list_notification_deliveries",
+  "list_action_playbooks",
+  "list_action_runs",
+  "list_observations",
+  "list_observation_revisions",
+  "list_maintenance_tasks",
+  "list_maintenance_task_revisions",
+  "list_static_parameters",
+  "list_assets",
+  "get_asset_metadata",
+  "get_integration_status",
+  "list_sensor_data_gaps",
+  "discover_integrations",
+  "get_home_assistant_setup",
+  "test_home_assistant_connection",
+  "get_tp_link_setup",
+  "list_tp_link_devices",
+  "test_tp_link_connection",
+  "list_mock_scenarios",
+  "get_replay_status",
+  "get_backup_status",
+  "get_setup_doctor",
+]);
+
 const mcpTools = [
     {
       name: "list_properties",
       description: "List compact property summaries without exact map-centre coordinates or free-form descriptions.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    },
+    {
+      name: "get_property",
+      description: "Get one explicitly selected Property with its description, location, and Stugby authority/edit/sync metadata.",
+      inputSchema: {
+        type: "object",
+        properties: { propertyId: { type: "string", minLength: 1, maxLength: 200 } },
+        required: ["propertyId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "get_property_electricity",
+      description: "Inspect one Property's redacted electricity configuration, current price, and bounded price history. Endpoint query parameters are omitted.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          propertyId: { type: "string", minLength: 1, maxLength: 200 },
+          from: { type: "string", format: "date-time" },
+          to: { type: "string", format: "date-time" },
+        },
+        required: ["propertyId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "get_property_energy_optimization",
+      description: "Generate the advisory, read-only electricity-price and measured-load optimization report for one Property.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          propertyId: { type: "string", minLength: 1, maxLength: 200 },
+          windowHours: { type: "integer", minimum: 1, maximum: 12, default: 2 },
+        },
+        required: ["propertyId"],
+        additionalProperties: false,
+      },
     },
     {
       name: "create_property",
@@ -1329,6 +1693,21 @@ const mcpTools = [
       },
     },
     {
+      name: "list_property_notes",
+      description: "List Property, Home, area, and equipment notes, optionally filtered to one related resource.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          propertyId: { type: "string", minLength: 1, maxLength: 200 },
+          houseId: { type: "string", minLength: 1, maxLength: 200 },
+          areaId: { type: "string", minLength: 1, maxLength: 200 },
+          equipmentId: { type: "string", minLength: 1, maxLength: 200 },
+          limit: { type: "integer", minimum: 1, maximum: 500, default: 200 },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
       name: "list_houses",
       description: "List compact house and floor summaries. Coordinates, map placement, detailed geometry, and embedded floor-plan images are omitted; request get_house for one explicitly selected house when those details are needed.",
       inputSchema: { type: "object", properties: { propertyId: { type: "string" } }, additionalProperties: false },
@@ -1337,6 +1716,31 @@ const mcpTools = [
       name: "get_house",
       description: "Get one house with its location, map placement, orientation, and floor layout.",
       inputSchema: { type: "object", properties: { houseId: { type: "string" } }, required: ["houseId"], additionalProperties: false },
+    },
+    {
+      name: "get_daily_analytics_findings",
+      description: "Get the latest stored daily analytics findings and worker status for one Home without triggering a new analysis.",
+      inputSchema: {
+        type: "object",
+        properties: { houseId: { type: "string", minLength: 1, maxLength: 200 } },
+        required: ["houseId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "list_stugbys",
+      description: "List compact Host/Client federation, adopted-Property, Home ownership, sharing, and sync summaries.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    },
+    {
+      name: "get_stugby",
+      description: "Inspect one Stugby, including sanitized Host/Client membership, adopted Property state, local and shared Homes, read-only overview grants, and pending command counts. Secrets, invitation material, event payloads, and audit records are omitted.",
+      inputSchema: {
+        type: "object",
+        properties: { stugbyId: { type: "string", minLength: 1, maxLength: 200 } },
+        required: ["stugbyId"],
+        additionalProperties: false,
+      },
     },
     {
       name: "create_house",
@@ -1413,21 +1817,72 @@ const mcpTools = [
     },
     {
       name: "get_house_weather",
-      description: "Fetch provider-neutral current conditions, forecasts, and warning coverage for a located house. This contacts the configured public weather provider but does not write by default. Setting persistObservation=true stores a fresh current temperature, can permanently activate real-data mode, and can purge demo telemetry; it requires confirmRealDataPersistence=true.",
+      description: "Fetch provider-neutral current conditions, forecasts, and warning coverage for a located house without storing the result.",
       inputSchema: {
         type: "object",
         properties: {
           houseId: { type: "string" },
           hours: { type: "integer", minimum: 1, maximum: 240, default: 48 },
-          persistObservation: {
-            type: "boolean",
-            default: false,
-            description: "Opt in to storing a fresh current observation for thermal calibration.",
-          },
-          confirmRealDataPersistence: {
-            const: true,
-            description: "Required when persistObservation=true because the one-way real-data latch can purge demo telemetry.",
-          },
+        },
+        required: ["houseId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "get_house_opening_states",
+      description: "Inspect effective door, window, and vent opening states and optionally their bounded observation history.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          houseId: { type: "string", minLength: 1, maxLength: 200 },
+          at: { type: "string", format: "date-time" },
+          from: { type: "string", format: "date-time" },
+          to: { type: "string", format: "date-time" },
+          limit: { type: "integer", minimum: 1, maximum: 10_000, default: 10_000 },
+        },
+        required: ["houseId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "get_house_electricity_price",
+      description: "Inspect the current effective electricity price for one Home and optional bounded price history inherited from its Property.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          houseId: { type: "string", minLength: 1, maxLength: 200 },
+          from: { type: "string", format: "date-time" },
+          to: { type: "string", format: "date-time" },
+        },
+        required: ["houseId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "get_house_energy_cost",
+      description: "Calculate read-only energy consumption, price coverage, and cost for one Home energy sensor over a bounded range.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          houseId: { type: "string", minLength: 1, maxLength: 200 },
+          sensorId: { type: "string", minLength: 1, maxLength: 200 },
+          from: { type: "string", format: "date-time" },
+          to: { type: "string", format: "date-time" },
+        },
+        required: ["houseId", "sensorId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "query_outdoor_temperature_history",
+      description: "Query locally retained outdoor-temperature history for a located Home.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          houseId: { type: "string", minLength: 1, maxLength: 200 },
+          from: { type: "string", format: "date-time" },
+          to: { type: "string", format: "date-time" },
+          limit: { type: "integer", minimum: 1, maximum: 50_000, default: 20_000 },
         },
         required: ["houseId"],
         additionalProperties: false,
@@ -1447,6 +1902,20 @@ const mcpTools = [
           scenarioOutdoorTemperatureC: { type: "number" },
         },
         required: ["houseId", "sensorId"],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "get_house_thermal_isolation",
+      description: "Compare the experimental thermal-isolation model across up to 64 enabled sensors in one Home.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          houseId: { type: "string", minLength: 1, maxLength: 200 },
+          from: { type: "string", format: "date-time" },
+          to: { type: "string", format: "date-time" },
+        },
+        required: ["houseId"],
         additionalProperties: false,
       },
     },
@@ -1626,6 +2095,42 @@ const mcpTools = [
       name: "list_alert_events",
       description: "List recent alert events, optionally only unresolved events.",
       inputSchema: { type: "object", properties: { activeOnly: { type: "boolean", default: false }, limit: { type: "integer", minimum: 1, maximum: 1000, default: 200 } }, additionalProperties: false },
+    },
+    {
+      name: "list_notification_deliveries",
+      description: "List recent webhook and Telegram notification-delivery state, including retry/dead-letter status but no credentials.",
+      inputSchema: {
+        type: "object",
+        properties: { limit: { type: "integer", minimum: 1, maximum: 500, default: 200 } },
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "list_action_playbooks",
+      description: "List advisory action playbooks, optionally for one metric or only enabled playbooks.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          metric: { type: "string", minLength: 1, maxLength: 200 },
+          enabledOnly: { type: "boolean", default: false },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "list_action_runs",
+      description: "List recent guided action runs, optionally filtered by Home, sensor, alert, or active state.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          houseId: { type: "string", minLength: 1, maxLength: 200 },
+          sensorId: { type: "string", minLength: 1, maxLength: 200 },
+          alertEventId: { type: "string", minLength: 1, maxLength: 200 },
+          activeOnly: { type: "boolean", default: false },
+          limit: { type: "integer", minimum: 1, maximum: 500, default: 500 },
+        },
+        additionalProperties: false,
+      },
     },
     {
       name: "acknowledge_alert",
@@ -1808,6 +2313,19 @@ const mcpTools = [
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
     },
     {
+      name: "list_sensor_data_gaps",
+      description: "List detected sensor-data gaps and recovery state, optionally filtered by Home or sensor.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          houseId: { type: "string", minLength: 1, maxLength: 200 },
+          sensorId: { type: "string", minLength: 1, maxLength: 200 },
+          limit: { type: "integer", minimum: 1, maximum: 1_000, default: 100 },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
       name: "discover_integrations",
       description: "Run best-effort LAN discovery for Home Assistant and supported TP-Link hubs or energy devices.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -1858,6 +2376,16 @@ const mcpTools = [
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
     },
     {
+      name: "get_backup_status",
+      description: "Inspect backup scheduler and verification status without exposing a local backup path or requesting a backup.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    },
+    {
+      name: "get_setup_doctor",
+      description: "Run read-only SQLite integrity, sensor coverage, integration, notification, backup, and restore-drill readiness checks.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    },
+    {
       name: "start_replay",
       description: "Report that live replay is unavailable over stdio; use the long-running API replay endpoint for observable SSE playback.",
       inputSchema: {
@@ -1874,7 +2402,7 @@ const mcpTools = [
       description: "Stop replay on this MCP process's in-memory event bus.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
     },
-  ].map((tool) => ({
+  ].filter((tool) => READ_ONLY_MCP_TOOL_NAMES.has(tool.name)).map((tool) => ({
     ...tool,
     outputSchema: resultOutputSchema,
     annotations: {
@@ -1886,8 +2414,19 @@ server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: mcpTools }));
 
 type ToolHandler = (args: Record<string, unknown>) => unknown | Promise<unknown>;
 
-const toolHandlers: Record<string, ToolHandler> = {
+const allToolHandlers: Record<string, ToolHandler> = {
   list_properties: () => database.listProperties().map(summarizeMcpProperty),
+  get_property: (args) => {
+    const propertyId = requiredString(args, "propertyId");
+    const property = database.getProperty(propertyId);
+    if (!property) throw new Error(`Unknown property: ${propertyId}`);
+    return property;
+  },
+  get_property_electricity: propertyElectricity,
+  get_property_energy_optimization: (args) => energyOptimizer.report(
+    requiredString(args, "propertyId"),
+    mcpBoundedInteger(args.windowHours, "windowHours", 2, 1, 12),
+  ),
   create_property: createProperty,
   list_property_areas: (args) => database.listPropertyAreas(optionalString(args, "propertyId"))
     .map(summarizeMcpPropertyArea),
@@ -1899,8 +2438,12 @@ const toolHandlers: Record<string, ToolHandler> = {
   }).map(summarizeMcpAreaEquipment),
   create_area_equipment: createAreaEquipment,
   update_area_equipment: updateAreaEquipment,
+  list_property_notes: listPropertyNotes,
   list_houses: (args) => database.listHouses(args.propertyId === undefined ? undefined : requiredString(args, "propertyId")).map(summarizeMcpHouse),
   get_house: (args) => requireMcpHouse(database, requiredString(args, "houseId")),
+  get_daily_analytics_findings: dailyAnalyticsFindings,
+  list_stugbys: () => stugbyStore.listStugbys().map(summarizeMcpStugby),
+  get_stugby: getMcpStugby,
   create_house: createHouse,
   update_house: updateHouse,
   replace_house_layout: replaceHouseLayout,
@@ -1915,16 +2458,16 @@ const toolHandlers: Record<string, ToolHandler> = {
     mcpBoundedNumber(args.latitude, "latitude", -90, 90),
     mcpBoundedNumber(args.longitude, "longitude", -180, 180),
   ),
-  get_house_weather: (args) => {
-    const persistObservation = optionalBoolean(args, "persistObservation", false);
-    if (persistObservation) requireMcpRealDataPersistenceConfirmation(args.confirmRealDataPersistence);
-    return getHouseWeather(
-      requiredString(args, "houseId"),
-      mcpBoundedInteger(args.hours, "hours", 48, 1, 240),
-      persistObservation,
-    );
-  },
+  get_house_weather: (args) => getHouseWeather(
+    requiredString(args, "houseId"),
+    mcpBoundedInteger(args.hours, "hours", 48, 1, 240),
+  ),
+  get_house_opening_states: houseOpeningStates,
+  get_house_electricity_price: houseElectricityPrice,
+  get_house_energy_cost: houseEnergyCost,
+  query_outdoor_temperature_history: outdoorTemperatureHistory,
   run_thermal_simulation: thermalSimulation,
+  get_house_thermal_isolation: thermalIsolation,
   list_sensors: (args) => database.listSensors(optionalString(args, "houseId")),
   create_sensor: createSensor,
   update_sensor: updateSensor,
@@ -1967,6 +2510,20 @@ const toolHandlers: Record<string, ToolHandler> = {
     mcpBoundedInteger(args.limit, "limit", 200, 1, 1_000),
     optionalBoolean(args, "activeOnly", false),
   ),
+  list_notification_deliveries: (args) => database.listNotificationDeliveries(
+    mcpBoundedInteger(args.limit, "limit", 200, 1, 500),
+  ),
+  list_action_playbooks: (args) => database.listActionPlaybooks(
+    optionalString(args, "metric"),
+    optionalBoolean(args, "enabledOnly", false),
+  ),
+  list_action_runs: (args) => database.listActionRuns({
+    ...(args.houseId === undefined ? {} : { houseId: requiredString(args, "houseId") }),
+    ...(args.sensorId === undefined ? {} : { sensorId: requiredString(args, "sensorId") }),
+    ...(args.alertEventId === undefined ? {} : { alertEventId: requiredString(args, "alertEventId") }),
+    activeOnly: optionalBoolean(args, "activeOnly", false),
+    limit: mcpBoundedInteger(args.limit, "limit", 500, 1, 500),
+  }),
   acknowledge_alert: acknowledgeAlert,
   list_observations: (args) => database.listObservations(optionalString(args, "houseId")),
   list_observation_revisions: listObservationRevisions,
@@ -1999,6 +2556,7 @@ const toolHandlers: Record<string, ToolHandler> = {
       note: "This stdio process does not start live integration adapters and cannot inspect the API process's connection state.",
     };
   },
+  list_sensor_data_gaps: sensorDataGaps,
   discover_integrations: discoverIntegrations,
   get_home_assistant_setup: homeAssistantSetup,
   test_home_assistant_connection: homeAssistantConnectionTest,
@@ -2017,9 +2575,15 @@ const toolHandlers: Record<string, ToolHandler> = {
   select_mock_scenario: selectMockScenario,
   generate_mock_tick: () => ({ readings: mock.generate(), scenario: mock.scenario }),
   get_replay_status: () => ({ available: false, replay: { ...replay.state, count: 0 }, runtimeScope: "mcp-process" }),
+  get_backup_status: backupStatus,
+  get_setup_doctor: () => setupDoctor.report(),
   start_replay: startReplay,
   stop_replay: () => ({ available: false, replay: replay.stop(), runtimeScope: "mcp-process" }),
 };
+
+const toolHandlers = Object.fromEntries(
+  Object.entries(allToolHandlers).filter(([name]) => READ_ONLY_MCP_TOOL_NAMES.has(name)),
+) as Record<string, ToolHandler>;
 
 validateMcpToolRegistry(mcpTools.map((tool) => tool.name), Object.keys(toolHandlers));
 

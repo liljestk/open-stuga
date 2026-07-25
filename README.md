@@ -71,6 +71,9 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
   snapshots without sharing an Apple Account credential or pretending Notes
   supports live server sync; operator device labels are informational, and the
   setup warns that iCloud may copy a Shortcut bearer to other devices
+- A native iOS companion for direct, authenticated Home monitoring, sensor
+  history, and alert acknowledgement without copying telemetry through an
+  intermediary app service
 - Versioned REST API, OpenAPI description, and a local stdio MCP server
 - English, Finnish, and Swedish UI foundations, metric/imperial display,
   responsive layout, and accessible controls
@@ -306,8 +309,12 @@ Build once, then configure a local MCP host to spawn:
 ```
 
 The MCP process uses the same `DATABASE_PATH` as the API, so it can discover
-measurement definitions, query metric history/forecasts and current conditions,
-or record an observation without copying telemetry into an AI provider. Run
+Properties, Homes, Stugbys, measurement definitions, metric history/forecasts,
+current conditions, electricity/energy analysis, alerts, actions, maintenance,
+integrations, backups, and setup readiness without copying telemetry into an AI
+provider. It opens the existing SQLite database read-only and exposes no create,
+update, delete, import, sharing, synchronization, or control tools.
+Start the API once after an upgrade so migrations are current, and run
 `npm run build` before launching the compiled server.
 
 ## Project layout
@@ -315,6 +322,7 @@ or record an observation without copying telemetry into an AI provider. Run
 ```text
 apps/web/             React/Vite digital-twin UI
 apps/api/             API, SQLite store, live ingestion, alerts, MCP
+apps/ios/             Native SwiftUI monitoring companion
 packages/contracts/   Shared domain and API types
 config/               Integration mapping examples
 docs/                 Setup, architecture, security, and roadmap

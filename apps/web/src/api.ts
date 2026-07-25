@@ -840,12 +840,15 @@ export const api = {
     adoption: StugbyPropertyAdoption;
     migrationSnapshotId: string;
     moved: {
-      houses: string[];
-      areas: string[];
-      equipment: string[];
-      notes: string[];
-      maintenance: string[];
+      sourcePropertyId: string;
+      targetPropertyId: string;
+      houseIds: string[];
+      areaIds: string[];
+      equipmentIds: string[];
+      noteIds: string[];
+      maintenanceTaskIds: string[];
     };
+    createdGrants: StugbyShareGrant[];
   }>(`/stugbys/${encodeURIComponent(id)}/property/migrate`, {
     method: "POST",
     body: JSON.stringify({ sourcePropertyId, confirmation: "MIGRATE" }),

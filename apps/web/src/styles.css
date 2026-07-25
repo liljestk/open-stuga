@@ -376,6 +376,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 .page-twin > .page-home-switcher > .page-home-switcher-group { align-items: flex-end; gap: 7px; }
 .page-twin > .page-home-switcher .page-home-switcher-group > svg { width: 14px; height: 14px; margin-bottom: 13px; }
+.page-twin > .page-home-switcher .page-home-switcher-group > .stugby-mark { width: 28px; height: 20px; margin-bottom: 10px; }
 .page-twin > .page-home-switcher label { width: clamp(150px, 15vw, 190px); display: grid; align-items: stretch; gap: 4px; }
 .page-twin > .page-home-switcher label > span { font-size: 10px; }
 .page-twin > .page-home-switcher select { width: 100%; min-width: 0; min-height: 40px; color: var(--ink); background: var(--panel); }
@@ -2628,6 +2629,7 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
   .page-home-switcher { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); align-items: end; margin: 0 0 17px; }
   .page-home-switcher-group { align-items: flex-start; }
   .page-home-switcher-group > svg { display: none; }
+  .page-home-switcher-group > .stugby-mark { width: 28px; height: 20px; display: block; margin: 0; }
   .page-home-switcher label { min-width: 0; flex: 1; display: grid; gap: 5px; }
   .page-home-switcher select { width: 100%; min-width: 0; }
   .page-twin > .page-home-switcher { gap: 8px; }

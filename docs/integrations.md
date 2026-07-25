@@ -591,41 +591,51 @@ An MCP client's executable can similarly be `docker` with arguments `compose`,
 `exec`, `-T`, `api`, `node`, `apps/api/dist/mcp-server.js` and the repository as
 its working directory.
 
-The trusted local stdio server currently exposes 58 tools. They operate on
-the configured local SQLite database; they do not expose raw credentials,
-binary asset downloads, SSE streams, or browser account/session administration.
+The local stdio server exposes 54 inspection tools. It opens the existing
+SQLite database in read-only/query-only mode and has a fail-closed allowlist:
+there are no create, update, delete, import, migration, sharing,
+synchronization, or control tools. Start the API once after an upgrade so the
+database schema is current. Raw credentials, binary asset downloads, SSE
+streams, invitation secrets, federation event payloads, and browser
+account/session administration are also excluded.
 
-### Homes, location, weather, and modelling
+### Properties, Homes, and Stugby
 
 | Tool | Behaviour |
 | --- | --- |
-| <code>list_houses</code> | Privacy-safe compact house and floor summaries |
-| <code>get_house</code> | One selected house with location, map placement, orientation, and floor layout |
-| <code>create_house</code> | Create a house with a validated floor layout |
-| <code>update_house</code> | Update house metadata, location, placement, orientation, or floors |
-| <code>replace_house_layout</code> | Replace all validated floors for one house |
-| <code>replace_house_floor</code> | Replace one existing floor |
-| <code>delete_house</code> | Permanently delete a house and dependent local data; requires <code>confirm=true</code> |
+| <code>list_properties</code> | Privacy-safe Property summaries, including Stugby authority/edit/sync metadata |
+| <code>get_property</code> | One selected Property with description, location, and Stugby metadata |
+| <code>get_property_electricity</code> | Redacted electricity configuration, current price, and bounded price history |
+| <code>get_property_energy_optimization</code> | Advisory price/load optimization report; never controls equipment |
+| <code>list_property_areas</code> | Privacy-safe mapped-area summaries without coordinates or free-form descriptions |
+| <code>list_area_equipment</code> | Equipment summaries without serial numbers or free-form notes |
+| <code>list_property_notes</code> | Property, Home, area, and equipment notes with optional resource filters |
+| <code>list_houses</code> | Privacy-safe Home/floor summaries, including local/shared ownership and edit policy |
+| <code>get_house</code> | One selected Home with location, placement, orientation, floor layout, and Stugby metadata |
+| <code>get_daily_analytics_findings</code> | Latest stored daily Home findings and worker status without triggering analysis |
+| <code>list_stugbys</code> | Compact Host/Client, adopted-Property, Home ownership, grant, and sync summaries |
+| <code>get_stugby</code> | Sanitized Host/Client membership, Property state, local/shared Homes, overview grants, and command counts |
+
+### Location, weather, and modelling
+
+| Tool | Behaviour |
+| --- | --- |
 | <code>search_locations</code> | Search Open-Meteo place and timezone suggestions on explicit request |
 | <code>resolve_coordinate_defaults</code> | Resolve an IANA timezone for explicit WGS84 coordinates |
-| <code>get_house_weather</code> | Fetch provider-neutral conditions, forecasts, and warning coverage; optional persistence has an explicit real-data confirmation gate |
+| <code>get_house_weather</code> | Fetch provider-neutral conditions, forecasts, and warning coverage without storing them |
+| <code>get_house_opening_states</code> | Effective door, window, and vent state with optional bounded history |
+| <code>get_house_electricity_price</code> | Current effective Home electricity price and optional Property price history |
+| <code>get_house_energy_cost</code> | Energy consumption, price coverage, and cost for one energy sensor |
+| <code>query_outdoor_temperature_history</code> | Locally retained outdoor-temperature history |
 | <code>run_thermal_simulation</code> | Fit and run the experimental first-order room thermal model |
+| <code>get_house_thermal_isolation</code> | Experimental cross-sensor Home thermal-isolation comparison |
 
 ### Sensors and measurement data
 
 | Tool | Behaviour |
 | --- | --- |
 | <code>list_sensors</code> | List configured sensors, optionally for one house |
-| <code>create_sensor</code> | Create and place a sensor with optional integration bindings |
-| <code>update_sensor</code> | Atomically update sensor metadata, placement, state, or bindings |
-| <code>delete_sensor</code> | Permanently delete a sensor and dependent data; requires <code>confirm=true</code> |
 | <code>list_measurement_definitions</code> | List built-in and custom metric definitions and capabilities |
-| <code>create_measurement_definition</code> | Create a custom numeric metric definition |
-| <code>update_measurement_definition</code> | Update mutable fields of a metric definition |
-| <code>disable_measurement_definition</code> | Disable a metric without deleting history or alert rules |
-| <code>ingest_measurements</code> | Validate and ingest registry samples with normal live events and alert evaluation |
-| <code>import_measurements</code> | Duplicate-safe historical import without live events or alert evaluation |
-| <code>ingest_readings</code> | Ingest v1 temperature/humidity tuples and optional registry projections |
 | <code>get_measurement_snapshot</code> | Latest independently timestamped sample for every metric and sensor |
 | <code>query_measurement_history</code> | Bounded history for any registered sensor metric |
 | <code>forecast_measurement</code> | Forecast a metric whose definition enables forecasting |
@@ -639,39 +649,29 @@ binary asset downloads, SSE streams, or browser account/session administration.
 | --- | --- |
 | <code>list_active_alerts</code> | List unresolved alert events |
 | <code>list_alert_rules</code> | List configured alert rules |
-| <code>create_alert_rule</code> | Create a metric threshold rule |
-| <code>update_alert_rule</code> | Update mutable rule fields |
-| <code>delete_alert_rule</code> | Permanently delete a rule; requires <code>confirm=true</code> |
 | <code>list_alert_events</code> | List recent alert events, optionally unresolved only |
-| <code>acknowledge_alert</code> | Acknowledge an alert at the current server time |
+| <code>list_notification_deliveries</code> | Webhook/Telegram delivery, retry, and dead-letter status without credentials |
+| <code>list_action_playbooks</code> | Advisory action playbooks, optionally filtered by metric or enabled state |
+| <code>list_action_runs</code> | Guided action runs filtered by Home, sensor, alert, or active state |
 | <code>list_observations</code> | List manual incident, maintenance, ventilation, and note observations |
-| <code>create_observation</code> | Record a manual observation |
-| <code>update_observation</code> | Update an observation with an optimistic base revision |
 | <code>list_observation_revisions</code> | List its immutable revision snapshots and local actor provenance |
-| <code>delete_observation</code> | Permanently delete an observation; requires <code>confirm=true</code> |
 | <code>list_maintenance_tasks</code> | List Property-owned maintenance work, optionally filtered by Home, floor, area, or equipment |
-| <code>create_maintenance_task</code> | Plan classified work and optionally link observations |
-| <code>update_maintenance_task</code> | Edit, start, complete, verify, or cancel work with an optimistic base revision |
 | <code>list_maintenance_task_revisions</code> | List immutable task snapshots and actor provenance |
-| <code>delete_maintenance_task</code> | Permanently delete a task; requires <code>confirm=true</code> |
 | <code>list_static_parameters</code> | List house, floor, room, and sensor context |
-| <code>upsert_static_parameter</code> | Create or update static context |
-| <code>delete_static_parameter</code> | Permanently delete static context; requires <code>confirm=true</code> |
 
-### Trusted assets
+### Asset metadata
 
 | Tool | Behaviour |
 | --- | --- |
 | <code>list_assets</code> | List floor-plan and 3D asset metadata without binary content |
 | <code>get_asset_metadata</code> | Get metadata for one asset without binary content |
-| <code>upload_asset</code> | Upload a trusted PNG, JPEG, WebP, glTF, or GLB asset up to 10 MiB decoded |
-| <code>delete_asset</code> | Permanently delete an asset; requires <code>confirm=true</code> |
 
 ### Local integrations and devices
 
 | Tool | Behaviour |
 | --- | --- |
 | <code>get_integration_status</code> | Get redacted integration and data-mode status for this MCP process |
+| <code>list_sensor_data_gaps</code> | Sensor-data gaps and recovery status, optionally filtered by Home or sensor |
 | <code>discover_integrations</code> | Run best-effort LAN discovery for Home Assistant and supported TP-Link hubs or energy devices |
 | <code>get_home_assistant_setup</code> | Get Home Assistant setup guidance without credentials |
 | <code>test_home_assistant_connection</code> | Report redacted Home Assistant state visible to this process |
@@ -684,23 +684,25 @@ binary asset downloads, SSE streams, or browser account/session administration.
 | Tool | Behaviour |
 | --- | --- |
 | <code>list_mock_scenarios</code> | List bundled scenarios and the current demo/real-data state |
-| <code>select_mock_scenario</code> | Select a scenario unless the database has entered real-data mode |
-| <code>generate_mock_tick</code> | Persist one mock tick unless the database has entered real-data mode |
 | <code>get_replay_status</code> | Get replay state for this process's in-memory event bus |
-| <code>start_replay</code> | Start bounded replay on this process's event bus |
-| <code>stop_replay</code> | Stop replay on this process's event bus |
+
+### Operational readiness
+
+| Tool | Behaviour |
+| --- | --- |
+| <code>get_backup_status</code> | Backup scheduler and verification state without local backup paths |
+| <code>get_setup_doctor</code> | Read-only integrity, coverage, integration, notification, backup, and restore-drill checks |
 
 Every tool returns the same result in structured content and as JSON text.
-Mutating tools carry MCP annotations so clients can distinguish read-only,
-idempotent, destructive, and open-world operations. Permanent deletes require
-<code>confirm=true</code>. Persisting a weather observation requires
-<code>persistObservation=true</code> together with
-<code>confirmRealDataPersistence=true</code> because the one-way real-data latch
-can purge demo telemetry.
+Every advertised tool carries <code>readOnlyHint=true</code>,
+<code>destructiveHint=false</code>, and <code>idempotentHint=true</code>.
+Location search, coordinate defaults, weather, and LAN discovery additionally
+carry <code>openWorldHint=true</code> because they contact a provider or local
+network when explicitly called.
 
 The stdio process itself is the authorization boundary, so only a trusted host
-should launch it. Agent policies should require user confirmation for writes
-appropriate to their risk. Credentials cannot be configured through MCP, and
+should launch it. Browser sessions and Guest grants do not constrain its
+inspection results. Credentials cannot be configured through MCP, and
 connection and replay status are process-local: the MCP process cannot inspect
 a separately running API process's WebSocket, TP-Link poller, or event bus.
 

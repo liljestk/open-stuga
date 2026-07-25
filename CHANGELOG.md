@@ -6,6 +6,14 @@ All notable Stuga releases are recorded here.
 
 ## 0.11.1 - 2026-07-25
 
+- Clarified the Stugby Host and Client flow: Hosts connect their Property
+  without migration, moved Client Homes retain their authority and full edit
+  access, and other participants receive a read-only overview marked with the
+  three-cottage Stugby symbol unless broader access is explicitly shared.
+- Expanded the local MCP server to a strictly read-only 54-tool inspection
+  surface covering current Stugby, analytics, energy, actions, maintenance,
+  integrations, backup, and readiness data, with SQLite read-only and
+  query-only enforcement.
 - Added a guarded maintenance script for removing an orphaned legacy Stugby
   when malformed pre-0.11 grant data prevents the normal UI lifecycle. It
   requires exact identity confirmation, creates and verifies a complete backup,

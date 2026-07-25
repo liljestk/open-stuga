@@ -255,8 +255,9 @@ export class StugbyStore {
   constructor(
     private readonly db: DatabaseSync,
     readonly localNodeId: string,
+    options: { readOnly?: boolean } = {},
   ) {
-    this.migrate();
+    if (!options.readOnly) this.migrate();
   }
 
   private migrate(): void {

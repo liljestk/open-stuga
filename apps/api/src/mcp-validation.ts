@@ -14,7 +14,7 @@ const EXTERNALLY_CONNECTED_MCP_TOOLS = new Set([
 
 const STATE_CHANGING_MCP_TOOLS = new Set([
   "create_property", "create_property_area", "update_property_area", "create_area_equipment", "update_area_equipment",
-  "create_house", "update_house", "replace_house_layout", "replace_house_floor", "delete_house", "get_house_weather",
+  "create_house", "update_house", "replace_house_layout", "replace_house_floor", "delete_house",
   "create_sensor", "update_sensor", "delete_sensor", "create_measurement_definition", "update_measurement_definition",
   "disable_measurement_definition", "ingest_measurements", "import_measurements", "ingest_readings",
   "create_alert_rule", "update_alert_rule", "delete_alert_rule", "acknowledge_alert",
@@ -31,15 +31,13 @@ const DESTRUCTIVE_MCP_TOOLS = new Set([
   "update_house", "replace_house_layout", "replace_house_floor",
   "delete_house", "delete_sensor", "delete_alert_rule", "delete_observation", "delete_maintenance_task",
   "delete_static_parameter", "delete_asset",
-  // Opt-in persistence can cross the irreversible real-data boundary and purge demo data.
-  "get_house_weather",
 ]);
 
 const NON_IDEMPOTENT_MCP_TOOLS = new Set([
   "create_property", "create_property_area", "create_area_equipment",
   "create_house", "create_sensor", "create_measurement_definition", "ingest_measurements",
   "ingest_readings", "create_alert_rule", "create_observation", "create_maintenance_task", "upload_asset", "generate_mock_tick",
-  "get_house_weather", "start_replay",
+  "start_replay",
 ]);
 
 export interface McpToolAnnotations {
@@ -77,6 +75,7 @@ export interface McpHouseSummary {
     planElementCount: number;
     visualReferenceConfigured: boolean;
   }>;
+  stugby?: NonNullable<House["stugby"]>;
   updatedAt: string;
 }
 
@@ -85,6 +84,7 @@ export interface McpPropertySummary {
   name: string;
   descriptionConfigured: boolean;
   locationConfigured: boolean;
+  stugby?: NonNullable<Property["stugby"]>;
   createdAt: string;
   updatedAt: string;
 }
@@ -96,6 +96,7 @@ export function summarizeMcpProperty(property: Property): McpPropertySummary {
     name: property.name,
     descriptionConfigured: property.description !== null,
     locationConfigured: property.location !== null,
+    ...(property.stugby ? { stugby: property.stugby } : {}),
     createdAt: property.createdAt,
     updatedAt: property.updatedAt,
   };
@@ -182,6 +183,7 @@ export function summarizeMcpHouse(house: House): McpHouseSummary {
       planElementCount: floor.planElements?.length ?? 0,
       visualReferenceConfigured: floor.backgroundImage !== undefined,
     })),
+    ...(house.stugby ? { stugby: house.stugby } : {}),
     updatedAt: house.updatedAt,
   };
 }
@@ -240,14 +242,6 @@ export function requireMcpConfirmation(value: unknown): void {
   if (value !== true) throw new Error("confirm must be true for this destructive operation");
 }
 
-export function requireMcpRealDataPersistenceConfirmation(value: unknown): void {
-  if (value !== true) {
-    throw new Error(
-      "confirmRealDataPersistence must be true because persisting provider data can permanently activate real-data mode and purge demo telemetry",
-    );
-  }
-}
-
 export function mcpThermalDateRange(
   fromValue: string | undefined,
   toValue: string | undefined,
@@ -293,6 +287,10 @@ export function validateMcpToolRegistry(toolNames: string[], handlerNames: strin
   const credentialTools = toolNames.filter((name) => RAW_CREDENTIAL_WRITING_MCP_TOOLS.has(name));
   if (credentialTools.length) {
     throw new Error(`Raw credential-writing MCP tools are forbidden: ${credentialTools.join(", ")}`);
+  }
+  const stateChangingTools = toolNames.filter((name) => STATE_CHANGING_MCP_TOOLS.has(name));
+  if (stateChangingTools.length) {
+    throw new Error(`State-changing MCP tools are forbidden: ${stateChangingTools.join(", ")}`);
   }
   const tools = new Set(toolNames);
   const handlers = new Set(handlerNames);

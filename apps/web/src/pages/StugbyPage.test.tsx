@@ -80,6 +80,7 @@ function detail(stugby: StugbySummary, grants: StugbyShareGrant[] = []): StugbyD
 function mockLoadedStugbys(stugbys: StugbySummary[], details: Record<string, StugbyDetailResponse | Promise<StugbyDetailResponse>>) {
   vi.spyOn(api, "stugbys").mockResolvedValue({ identity, publicOrigin: "https://stuga.example.test", stugbys });
   vi.spyOn(api, "stugby").mockImplementation((id) => Promise.resolve(details[id]!));
+  vi.spyOn(api, "syncStugby").mockImplementation(async (id) => stugbys.find((candidate) => candidate.id === id)!);
   vi.spyOn(api, "stugbyTelemetry").mockResolvedValue({ samples: [] });
   vi.spyOn(api, "stugbyPublications").mockImplementation(async (_id, houseId) => ({
     house: { localHouseId: houseId, publicationId: `publication-${houseId}`, name: "Main Home" },
@@ -217,7 +218,7 @@ describe("StugbyPage", () => {
     expect(await screen.findByRole("heading", { name: "A deliberate sharing boundary" })).toBeTruthy();
     expect(screen.getByText(/Shared Homes are read-only unless their owner enables edits/)).toBeTruthy();
     expect(screen.getByText(/Integration settings, endpoints, credentials, secrets, account identities, controls and automations are never shared/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Join without sharing" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Join without publishing my Homes" })).toBeTruthy();
   });
 
   it("pauses invitations when the stored coordinator origin is stale", async () => {
@@ -336,6 +337,86 @@ describe("StugbyPage", () => {
       "home.structure.v1",
       "home.sensor-catalog.v1",
     ]);
+    expect(api.syncStugby).toHaveBeenCalledWith(stugby.id);
+  });
+
+  it("keeps Client migration out of the Host UI", async () => {
+    const stugby = summary("stugby-a", "North grounds");
+    const hostDetail = detail(stugby);
+    hostDetail.propertyAdoption = {
+      stugbyId: stugby.id,
+      localPropertyId: "property-host",
+      state: "adopted",
+      adoptedAt: "2026-07-23T06:00:00.000Z",
+      detachedAt: null,
+      lastMaterializedRevision: 1,
+    };
+    mockLoadedStugbys([stugby], { [stugby.id]: hostDetail });
+
+    render(<I18nProvider><StugbyPage
+      houses={[]}
+      properties={[
+        { id: "property-host", name: "Host Property" },
+        { id: "property-spare", name: "Spare Property" },
+      ]}
+    /></I18nProvider>);
+
+    expect(await screen.findByText("Connected and synchronized")).toBeTruthy();
+    expect(screen.queryByText("Move my Homes into the Host Property")).toBeNull();
+    expect(screen.getAllByText("Host").length).toBeGreaterThan(0);
+  });
+
+  it("explains and completes a Client Home migration before refreshing the shared inventory", async () => {
+    const user = userEvent.setup();
+    const stugby = {
+      ...summary("stugby-a", "North grounds"),
+      coordinatorNodeId: "node-host",
+      localRole: "participant" as const,
+    };
+    const clientDetail = detail(stugby);
+    clientDetail.propertyAdoption = {
+      stugbyId: stugby.id,
+      localPropertyId: "property-host",
+      state: "adopted",
+      adoptedAt: "2026-07-23T06:00:00.000Z",
+      detachedAt: null,
+      lastMaterializedRevision: 1,
+    };
+    mockLoadedStugbys([stugby], { [stugby.id]: clientDetail });
+    const migrate = vi.spyOn(api, "migratePropertyToStugby").mockResolvedValue({
+      adoption: clientDetail.propertyAdoption,
+      migrationSnapshotId: "snapshot-1",
+      moved: {
+        sourcePropertyId: "property-client",
+        targetPropertyId: "property-host",
+        houseIds: ["home-client"],
+        areaIds: [],
+        equipmentIds: [],
+        noteIds: [],
+        maintenanceTaskIds: [],
+      },
+      createdGrants: [],
+    });
+    const onInventoryChange = vi.fn();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(<I18nProvider><StugbyPage
+      houses={[{ id: "home-client", propertyId: "property-client", name: "Client Home" }]}
+      properties={[
+        { id: "property-host", name: "Host Property" },
+        { id: "property-client", name: "My Property" },
+      ]}
+      onInventoryChange={onInventoryChange}
+    /></I18nProvider>);
+
+    await user.click(await screen.findByText("Move my Homes into the Host Property"));
+    expect(screen.getByText(/You keep full control of your Homes/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Move Homes and keep control" }));
+
+    await waitFor(() => expect(migrate).toHaveBeenCalledWith(stugby.id, "property-client"));
+    expect(api.syncStugby).toHaveBeenCalledWith(stugby.id);
+    expect(onInventoryChange).toHaveBeenCalledOnce();
+    expect(await screen.findByText(/1 Home moved into the Host Property/)).toBeTruthy();
   });
 
   it("resets an edited grant instead of carrying it into another Stugby", async () => {
