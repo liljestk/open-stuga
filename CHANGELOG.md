@@ -4,6 +4,14 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+## 0.11.1 - 2026-07-25
+
+- Added a guarded maintenance script for removing an orphaned legacy Stugby
+  when malformed pre-0.11 grant data prevents the normal UI lifecycle. It
+  requires exact identity confirmation, creates and verifies a complete backup,
+  refuses adopted Properties, preserves Home and Property rows, restores
+  stopped services after failure, and verifies SQLite after restart.
+
 ## 0.11.0 - 2026-07-25
 
 - Added Stugby Property adoption with clear separation from local Properties,

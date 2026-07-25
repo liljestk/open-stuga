@@ -255,6 +255,24 @@ acknowledgements must have arrived. Deletion removes federation records and
 cached federation assets from this Stuga; canonical local Home, Sensor, and
 telemetry data is unchanged.
 
+If malformed legacy grant data makes that UI unavailable and the Stugby is
+already orphaned, use the guarded maintenance command from the installation
+directory:
+
+```sh
+npm run stugby:remove -- \
+  --id <stugby-uuid> \
+  --name "<exact Stugby name>" \
+  --confirm <same-stugby-uuid> \
+  --detach-links
+```
+
+Omit `--detach-links` when the inspection reports no linked records. The
+command takes and verifies a complete backup before stopping the API, refuses
+an adopted Property, preserves Home and Property rows, and restores the
+services it stopped. This bypasses the distributed revocation handshake and is
+not a shortcut for removing a healthy Stugby.
+
 Use **Republish** after correcting a failed or incomplete snapshot. The manual
 **Sync now** action flushes the outbox and pulls all available cursor pages;
 normal operation uses SSE wake-ups and the configured safety interval.
