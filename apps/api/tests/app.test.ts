@@ -70,6 +70,21 @@ describe("Climate Twin API v1", () => {
       stugbySyncIntervalMs: 2_000,
       stugbyPublicOrigin: "https://stugby.example.test",
     });
+    expect(loadConfig({
+      NODE_ENV: "test", DATABASE_PATH: ":memory:", CORS_ORIGIN: "https://stuga.example.test",
+    })).toMatchObject({
+      stugbyPublicOrigin: null,
+      stugbySuggestedPublicOrigin: "https://stuga.example.test",
+      stugbyCoordinatorProvisioningRequired: false,
+    });
+    expect(loadConfig({
+      NODE_ENV: "test", DATABASE_PATH: ":memory:",
+      CORS_ORIGIN: "https://browser.example.test",
+      STUGBY_PUBLIC_ORIGIN: "https://coordinator.example.test",
+    }).stugbyPublicOrigin).toBe("https://coordinator.example.test");
+    expect(loadConfig({
+      NODE_ENV: "test", DATABASE_PATH: ":memory:", CORS_ORIGIN: "http://lan.example.test",
+    }).stugbySuggestedPublicOrigin).toBeNull();
     expect(() => loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", STUGBY_SYNC_INTERVAL_MS: "1999" })).toThrow(/STUGBY_SYNC_INTERVAL_MS/);
     expect(() => loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", STUGBY_NODE_NAME: "x".repeat(201) })).toThrow(/STUGBY_NODE_NAME/);
     expect(() => loadConfig({
@@ -200,6 +215,20 @@ describe("Climate Twin API v1", () => {
       cloudflareAccessSyncIntervalMs: 60_000,
       corsOrigin: "https://stuga.example.test",
     });
+    expect(loadConfig({
+      NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
+      STUGA_CLOUDFLARE_OAUTH_CLIENT_ID: "stuga-private-client",
+      STUGA_LOCAL_UI_PORT: "9090",
+    })).toMatchObject({
+      cloudflareSetupOAuthClientId: "stuga-private-client",
+      cloudflareSetupLocalUiPort: 9_090,
+    });
+    expect(() => loadConfig({
+      NODE_ENV: "test",
+      DATABASE_PATH: ":memory:",
+      STUGA_CLOUDFLARE_OAUTH_CLIENT_ID: "bad id",
+    })).toThrow("STUGA_CLOUDFLARE_OAUTH_CLIENT_ID");
     expect(() => loadConfig({
       NODE_ENV: "test",
       DATABASE_PATH: ":memory:",
@@ -208,6 +237,73 @@ describe("Climate Twin API v1", () => {
       CLOUDFLARE_ACCESS_API_TOKEN: "runtime-token-that-is-long-enough-for-tests",
       CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS: "1000",
     })).toThrow("CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS");
+  });
+
+  it("exposes only redacted Cloudflare setup status and rejects setup without the host agent", async () => {
+    const status = await request(runtime.app)
+      .get("/api/v1/cloudflare/setup")
+      .set("Host", "127.0.0.1:8080")
+      .expect(200);
+    expect(status.body).toMatchObject({
+      canConfigure: true,
+      localConfigureUrl: "http://127.0.0.1:8080/stugbys",
+      capability: { available: false, reason: "not-configured" },
+    });
+    expect(JSON.stringify(status.body)).not.toContain("test-ingest-key");
+
+    const start = await request(runtime.app)
+      .post("/api/v1/cloudflare/setup/start")
+      .set("Host", "127.0.0.1:8080")
+      .send({
+        mode: "stugby-coordinator",
+        hostname: "stuga.example.test",
+        zone: "example.test",
+        ownerEmail: "owner@example.test",
+        accountId: "0123456789abcdef0123456789abcdef",
+        zoneId: "abcdef0123456789abcdef0123456789",
+        oauthClientToken: "oauth-client-write-token-that-is-long-enough",
+        runtimeToken: "runtime-access-group-token-that-is-long-enough",
+      })
+      .expect(503);
+    expect(start.body.error.code).toBe("CLOUDFLARE_SETUP_AGENT_UNAVAILABLE");
+    expect(JSON.stringify(start.body)).not.toContain("oauth-client-write-token");
+    expect(JSON.stringify(start.body)).not.toContain("runtime-access-group-token");
+  });
+
+  it("returns an accepted Cloudflare approval after the external operation starts even if local auditing fails", async () => {
+    const operation = {
+      id: "2fc58aab-24fb-4aa3-894a-2a0811497d76",
+      mode: "stugby-coordinator" as const,
+      hostname: "stuga.example.test",
+      phase: "awaiting-approval" as const,
+      requestedAt: "2026-07-24T08:00:00.000Z",
+      completedAt: null,
+      detail: "Waiting for approval in Cloudflare",
+    };
+    vi.spyOn(runtime.cloudflareSetup, "start").mockResolvedValue({
+      operation,
+      authorizationUrl: "https://dash.cloudflare.com/oauth2/auth?client_id=stuga-client",
+    });
+    vi.spyOn(runtime.database, "recordSecurityAuditEvent").mockImplementation(() => {
+      throw new Error("audit unavailable");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const start = await request(runtime.app)
+      .post("/api/v1/cloudflare/setup/start")
+      .set("Host", "127.0.0.1:8080")
+      .send({
+        mode: "stugby-coordinator",
+        hostname: "stuga.example.test",
+        zone: "example.test",
+        ownerEmail: "owner@example.test",
+      })
+      .expect(202);
+
+    expect(start.body).toEqual({
+      operation,
+      authorizationUrl: "https://dash.cloudflare.com/oauth2/auth?client_id=stuga-client",
+    });
   });
 
   it("keeps the starter inventory independent from mock telemetry", async () => {

@@ -4,6 +4,26 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+- Stugby coordinators can now be connected to Cloudflare from the authenticated
+  local Stuga UI. Stuga registers a private OAuth client from a one-time OAuth
+  Client Write bootstrap token, completes PKCE consent, hands the in-memory
+  grant once to the trusted host agent, provisions and verifies the boundary,
+  and revokes temporary access. Existing installations reuse their runtime
+  Access-group token; new installations enter it once in the UI. No provider
+  token is stored in browser storage or the host-agent queue. Interactive
+  Docker installs and remote-UI upgrades now continue in this UI automatically;
+  explicit Cloudflare CLI flags remain available for automation and recovery.
+- Stugby setup now asks how people will use Stuga, suggests and verifies the
+  existing secure address, and gives plain recovery guidance instead of a
+  disabled technical form. Existing Cloudflare remote access upgrades reuse
+  the retained runtime approval, request one temporary owner approval, then
+  provision and verify the coordinator automatically. Reruns preserve the
+  installed runtime, data mode, web port, and connected update helper.
+- Cloudflare provisioning can now obtain its temporary approval through an
+  Authorization Code + PKCE browser flow. Setup validates a loopback callback,
+  never retains the OAuth token, revokes the access token after success or
+  failure, and keeps the exact-zone API-token path available for multi-zone
+  accounts.
 - Added a guarded **Delete Stugby** action under Advanced. It removes local
   federation records and cached assets without touching Home data, and refuses
   deletion while memberships, Home grants, or replica deletion receipts remain

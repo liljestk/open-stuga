@@ -16,8 +16,15 @@ import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import {
+  provision as provisionCloudflare,
+  validateToken as validateCloudflareToken,
+  verifyCoordinator as verifyCloudflareCoordinator,
+  verifyDeployment as verifyCloudflareDeployment,
+} from "./cloudflare-stuga.mjs";
+import { revokeAccessToken } from "./cloudflare-oauth.mjs";
 
-const AGENT_VERSION = "1.0.0";
+const AGENT_VERSION = "1.1.0";
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_COMMAND_OUTPUT = 16 * 1024;
 const POLL_MS = 5_000;
@@ -84,6 +91,10 @@ export function readAgentConfig(env = process.env, cwd = process.cwd(), args = p
       optional(env.STUGA_RELEASE_ENV_FILE) ?? ".stuga-release.env",
     ),
     composeProjectName: optional(env.STUGA_COMPOSE_PROJECT_NAME),
+    cloudflareSecretDirectory: resolve(
+      projectDirectory,
+      optional(env.STUGA_CLOUDFLARE_SECRET_DIR) ?? join("secrets", "cloudflare"),
+    ),
     once: args.includes("--once"),
   };
 }
@@ -124,7 +135,7 @@ export async function runCommand(command, args, options = {}) {
     let output = "";
     const append = (chunk) => { output = bounded(output + chunk.toString("utf8")); };
     child.stdout.on("data", append);
-    child.stderr.on("data", append);
+    if (!options.ignoreStderr) child.stderr.on("data", append);
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
       rejectCommand(new Error(`${command} timed out`));
@@ -178,6 +189,77 @@ export function validatedRequest(value, config) {
     requestedAt: new Date(value.requestedAt).toISOString(),
     previousVersion: value.previousVersion,
     images,
+  };
+}
+
+function validatedCloudflareHostname(value, label) {
+  const hostname = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(hostname)) {
+    throw new Error(`${label} is invalid`);
+  }
+  return hostname;
+}
+
+export function validatedCloudflareSetupRequest(value) {
+  if (!value || typeof value !== "object" || value.schema !== "stuga-cloudflare-setup-request/v1") {
+    throw new Error("Unsupported Cloudflare setup request");
+  }
+  const mode = value.mode;
+  const command = value.command;
+  const hostname = validatedCloudflareHostname(value.hostname, "Stuga address");
+  const zone = validatedCloudflareHostname(value.zone, "Cloudflare zone");
+  if (
+    typeof value.id !== "string"
+    || !/^[0-9a-f-]{36}$/i.test(value.id)
+    || (mode !== "remote-ui" && mode !== "stugby-coordinator")
+    || command !== (mode === "stugby-coordinator" ? "provision-coordinator" : "provision")
+    || typeof value.requestedAt !== "string"
+    || !Number.isFinite(Date.parse(value.requestedAt))
+    || (hostname !== zone && !hostname.endsWith(`.${zone}`))
+    || typeof value.ownerEmail !== "string"
+    || value.ownerEmail.length > 254
+    || !/^[^\s@<>,]+@[^\s@<>,]+$/.test(value.ownerEmail)
+    || typeof value.accountId !== "string"
+    || !/^[a-f0-9]{32}$/i.test(value.accountId)
+    || (value.zoneId !== null && (typeof value.zoneId !== "string" || !/^[a-f0-9]{32}$/i.test(value.zoneId)))
+    || typeof value.oauthClientId !== "string"
+    || value.oauthClientId.length < 8
+    || value.oauthClientId.length > 200
+    || !/^[A-Za-z0-9._~-]+$/.test(value.oauthClientId)
+    || typeof value.oauthRedirectUri !== "string"
+    || typeof value.claimSecret !== "string"
+    || !/^[A-Za-z0-9_-]{43,128}$/.test(value.claimSecret)
+  ) throw new Error("Cloudflare setup request contains invalid configuration");
+  let redirect;
+  try { redirect = new URL(value.oauthRedirectUri); } catch {
+    throw new Error("Cloudflare setup callback is invalid");
+  }
+  const redirectPort = Number(redirect.port);
+  if (
+    redirect.protocol !== "http:"
+    || redirect.hostname !== "127.0.0.1"
+    || !Number.isInteger(redirectPort)
+    || redirectPort < 1024
+    || redirectPort > 65_535
+    || redirect.pathname !== "/api/v1/cloudflare/setup/oauth/callback"
+    || redirect.username
+    || redirect.password
+    || redirect.search
+    || redirect.hash
+  ) throw new Error("Cloudflare setup callback is not an explicit loopback address");
+  return {
+    id: value.id,
+    mode,
+    command,
+    hostname,
+    zone,
+    ownerEmail: value.ownerEmail.trim().toLowerCase(),
+    accountId: value.accountId,
+    zoneId: value.zoneId,
+    oauthClientId: value.oauthClientId,
+    oauthRedirectUri: redirect.href,
+    claimSecret: value.claimSecret,
+    requestedAt: new Date(value.requestedAt).toISOString(),
   };
 }
 
@@ -243,6 +325,173 @@ async function activeServices(config, composeCommand = compose) {
 async function exactApiVersion(config, composeCommand = compose) {
   const script = "fetch('http://127.0.0.1:8787/api/v1/health').then(r=>r.json()).then(x=>process.stdout.write(String(x.systemVersion||'')))";
   return composeCommand(config, ["exec", "-T", "api", "node", "-e", script], 30_000);
+}
+
+function cloudflareOperation(request, phase, detail, completedAt = null) {
+  return {
+    id: request.id,
+    mode: request.mode,
+    hostname: request.hostname,
+    phase,
+    requestedAt: request.requestedAt,
+    completedAt,
+    detail,
+  };
+}
+
+async function claimCloudflareSetup(config, request) {
+  const claimScript = [
+    "const secret=process.env.STUGA_CLOUDFLARE_CLAIM_SECRET||'';",
+    `fetch('http://127.0.0.1:8787/api/v1/internal/cloudflare-setup/claims/${request.id}',`,
+    "{headers:{authorization:'Bearer '+secret},signal:AbortSignal.timeout(15000)})",
+    ".then(async response=>{const text=await response.text();if(!response.ok)throw new Error('HTTP '+response.status);process.stdout.write(text)})",
+    ".catch(error=>{process.stderr.write(String(error.message||error));process.exitCode=1})",
+  ].join("");
+  const output = await runCommand("docker", [
+    ...composeArguments(config),
+    "exec",
+    "-T",
+    "-e",
+    `STUGA_CLOUDFLARE_CLAIM_SECRET=${request.claimSecret}`,
+    "api",
+    "node",
+    "-e",
+    claimScript,
+  ], {
+    cwd: config.projectDirectory,
+    timeoutMs: 30_000,
+    ignoreStderr: true,
+  });
+  let claim;
+  try { claim = JSON.parse(output); } catch {
+    throw new Error("The API did not return a valid in-memory Cloudflare setup claim");
+  }
+  if (!claim || claim.schema !== "stuga-cloudflare-setup-claim/v1"
+    || claim.oauthClientId !== request.oauthClientId) {
+    throw new Error("The Cloudflare setup claim did not match the queued operation");
+  }
+  return {
+    provisionToken: validateCloudflareToken(claim.provisionToken, "Temporary Cloudflare OAuth approval"),
+    accessToken: validateCloudflareToken(claim.accessToken, "Runtime Access token"),
+    oauthClientId: claim.oauthClientId,
+  };
+}
+
+async function verifyCloudflareWithRetry(config, request, dependencies) {
+  const verifier = request.mode === "stugby-coordinator"
+    ? dependencies.verifyCoordinator ?? verifyCloudflareCoordinator
+    : dependencies.verifyDeployment ?? verifyCloudflareDeployment;
+  const waitForRetry = dependencies.waitForRetry
+    ?? ((delayMs) => new Promise((resolveDelay) => setTimeout(resolveDelay, delayMs)));
+  let lastError = null;
+  for (let attempt = 1; attempt <= 12; attempt += 1) {
+    try {
+      return await verifier(
+        { secretDirectory: config.cloudflareSecretDirectory },
+        { logger: { log: () => undefined } },
+      );
+    } catch (error) {
+      lastError = error;
+      if (attempt < 12) await waitForRetry(5_000);
+    }
+  }
+  throw lastError ?? new Error("Cloudflare verification failed");
+}
+
+export async function applyCloudflareSetupRequest(config, requestPath, dependencies = {}) {
+  const composeCommand = dependencies.compose ?? compose;
+  const provisioner = dependencies.provisioner ?? provisionCloudflare;
+  const claimer = dependencies.claim ?? claimCloudflareSetup;
+  const revoker = dependencies.revoke ?? revokeAccessToken;
+  const statusPath = join(config.operationsDirectory, "cloudflare-status.json");
+  const raw = readJson(requestPath);
+  let request;
+  try {
+    request = validatedCloudflareSetupRequest(raw);
+  } catch (error) {
+    const completedAt = new Date().toISOString();
+    writeJson(statusPath, {
+      id: typeof raw?.id === "string" ? raw.id : randomUUID(),
+      mode: raw?.mode === "remote-ui" ? "remote-ui" : "stugby-coordinator",
+      hostname: typeof raw?.hostname === "string" ? raw.hostname : "invalid.example",
+      phase: "failed",
+      requestedAt: typeof raw?.requestedAt === "string" ? raw.requestedAt : completedAt,
+      completedAt,
+      detail: error instanceof Error ? bounded(error.message) : "Invalid Cloudflare setup request",
+    });
+    rmSync(requestPath, { force: true });
+    return;
+  }
+
+  const setStatus = (phase, detail, completedAt = null) => writeJson(
+    statusPath,
+    cloudflareOperation(request, phase, detail, completedAt),
+  );
+  let claim = null;
+  let finalPhase = "failed";
+  let finalDetail = "Cloudflare setup did not complete";
+  try {
+    setStatus("provisioning", "Configuring the secure Cloudflare connection");
+    claim = await claimer(config, request);
+    await provisioner({
+      command: request.command,
+      hostname: request.hostname,
+      zone: request.zone,
+      ownerEmail: request.ownerEmail,
+      accountId: request.accountId,
+      zoneId: request.zoneId,
+      secretDirectory: config.cloudflareSecretDirectory,
+      provisionTokenFile: null,
+      accessTokenFile: null,
+      oauthClientId: request.oauthClientId,
+      oauthRedirectUri: request.oauthRedirectUri,
+    }, {
+      provisionToken: claim.provisionToken,
+      accessToken: claim.accessToken,
+      composeCommand: "docker compose",
+      logger: { log: () => undefined },
+      printGuidance: false,
+    });
+
+    setStatus("applying", "Restarting Stuga with the secure connection");
+    await composeCommand(config, [
+      "up",
+      "--detach",
+      "--no-deps",
+      "--force-recreate",
+      "--wait",
+      "--wait-timeout",
+      "600",
+      "api",
+      "web",
+      "cloudflared",
+    ]);
+
+    setStatus("verifying", "Checking every public and protected path");
+    await verifyCloudflareWithRetry(config, request, dependencies);
+    finalPhase = "complete";
+    finalDetail = `Secure connection verified at https://${request.hostname}`;
+  } catch (error) {
+    finalDetail = error instanceof Error ? bounded(error.message) : "Cloudflare setup failed";
+    if (!claim) {
+      finalDetail = `${finalDetail} Stuga could not confirm approval revocation; revoke Stuga Setup from the Cloudflare OAuth authorizations page.`;
+    }
+    try { await composeCommand(config, ["stop", "cloudflared"], 30_000); } catch { /* Keep the original failure. */ }
+  }
+
+  if (claim) {
+    try {
+      await revoker({
+        accessToken: claim.provisionToken,
+        clientId: claim.oauthClientId,
+      });
+    } catch {
+      finalDetail = `${finalDetail} Cloudflare did not confirm approval revocation; revoke Stuga Setup from the Cloudflare OAuth authorizations page.`;
+    }
+  }
+  setStatus(finalPhase, finalDetail, new Date().toISOString());
+  claim = null;
+  rmSync(requestPath, { force: true });
 }
 
 async function restoreReleaseEnvironment(path, previous) {
@@ -336,11 +585,16 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
   }
 }
 
-function pendingRequest(config) {
-  return readdirSync(config.operationsDirectory)
-    .filter((name) => /^request-.*\.json$/.test(name))
+function pendingWork(config) {
+  const name = readdirSync(config.operationsDirectory)
+    .filter((candidate) => /^(?:request-|cloudflare-request-).*\.json$/.test(candidate))
     .sort()
-    .map((name) => join(config.operationsDirectory, name))[0] ?? null;
+    .find(Boolean);
+  if (!name) return null;
+  return {
+    kind: name.startsWith("cloudflare-request-") ? "cloudflare" : "update",
+    path: join(config.operationsDirectory, name),
+  };
 }
 
 function acquireLock(config) {
@@ -371,6 +625,7 @@ function heartbeat(config, ready, detail = null) {
     schema: "stuga-update-agent/v1",
     runtime: config.runtime,
     agentVersion: AGENT_VERSION,
+    capabilities: ["system-update", "cloudflare-setup"],
     ready,
     detail,
     updatedAt: new Date().toISOString(),
@@ -405,12 +660,13 @@ export async function main() {
   );
   heartbeatTimer.unref?.();
   const processOne = async () => {
-    const requestPath = pendingRequest(config);
-    if (!requestPath) return false;
+    const work = pendingWork(config);
+    if (!work) return false;
     const lock = acquireLock(config);
     if (!lock) return false;
     try {
-      await applyRequest(config, requestPath);
+      if (work.kind === "cloudflare") await applyCloudflareSetupRequest(config, work.path);
+      else await applyRequest(config, work.path);
     } finally {
       releaseLock(lock);
       await publishDockerHeartbeat(config);

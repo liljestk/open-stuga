@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../i18n";
@@ -74,7 +74,9 @@ describe("DeveloperPage", () => {
     render(<I18nProvider><DeveloperPage /></I18nProvider>);
 
     fireEvent.click(screen.getByRole("button", { name: "Copy: Local v1 base URL" }));
-    await vi.advanceTimersByTimeAsync(1500);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
 
     expect(screen.getByText("Copy failed. Select the value and copy it manually.").getAttribute("role")).toBe("status");
   });

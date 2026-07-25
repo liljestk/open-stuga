@@ -327,7 +327,7 @@ export function AppShell({
         aria-label={t("nav.primary")}
         aria-modal={mainIsolated ? true : undefined}
         aria-hidden={navigationHidden ? true : undefined}
-        {...(navigationHidden ? { inert: "" } : {})}
+        {...(navigationHidden ? { inert: true } : {})}
         onKeyDown={containMenuFocus}
         onTransitionEnd={(event) => {
           if (menuOpen && event.target === event.currentTarget && event.propertyName === "transform") closeButtonRef.current?.focus();
@@ -422,7 +422,7 @@ export function AppShell({
       <div
         className={`app-main-column${sensorDiscoveryNotice && !menuOpen ? " has-sensor-found-toast" : ""}`}
         aria-hidden={mainIsolated ? true : undefined}
-        {...(mainIsolated ? { inert: "" } : {})}
+        {...(mainIsolated ? { inert: true } : {})}
       >
         <a className="skip-link" href="#main-content">{t("header.skipToContent")}</a>
         {dataMode !== "demo" && <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{t("connectionBanner.announcement", { status: t(`status.${connection}`) })}</p>}

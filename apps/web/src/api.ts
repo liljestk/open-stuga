@@ -291,7 +291,66 @@ export interface TenantMembersResponse {
 export interface StugbyListResponse {
   identity: StugbyNodeIdentity;
   publicOrigin: string | null;
+  suggestedPublicOrigin?: string | null;
+  publicOriginConfigurable?: boolean;
   stugbys: StugbySummary[];
+}
+
+export type CloudflareSetupPhase =
+  | "awaiting-approval"
+  | "queued"
+  | "provisioning"
+  | "applying"
+  | "verifying"
+  | "complete"
+  | "failed";
+
+export interface CloudflareSetupOperation {
+  id: string;
+  mode: "remote-ui" | "stugby-coordinator";
+  hostname: string;
+  phase: CloudflareSetupPhase;
+  requestedAt: string;
+  completedAt: string | null;
+  detail: string | null;
+}
+
+export interface CloudflareSetupStatus {
+  canConfigure: boolean;
+  localConfigureUrl: string;
+  capability: {
+    available: boolean;
+    agentLastSeenAt: string | null;
+    reason: "ready" | "agent-not-connected" | "not-configured" | "agent-upgrade-required";
+  };
+  configuration: {
+    configured: boolean;
+    mode: "remote-ui" | "stugby-coordinator" | null;
+    hostname: string | null;
+    suggestedZone: string | null;
+    accountIdKnown: boolean;
+    zoneIdKnown: boolean;
+    oauthClientConfigured: boolean;
+    runtimeTokenAvailable: boolean;
+    ownerEmail: string | null;
+  };
+  operation: CloudflareSetupOperation | null;
+}
+
+export interface CloudflareSetupStartInput {
+  mode: "remote-ui" | "stugby-coordinator";
+  hostname: string;
+  zone: string;
+  ownerEmail: string;
+  accountId: string | null;
+  zoneId: string | null;
+  oauthClientToken: string | null;
+  runtimeToken: string | null;
+}
+
+export interface CloudflareSetupStartResult {
+  operation: CloudflareSetupOperation;
+  authorizationUrl: string;
 }
 
 export interface StugbyInvitationCreated extends StugbyInvitation {
@@ -664,6 +723,11 @@ export const api = {
     body: JSON.stringify(settings),
   }),
   installLatestSystemUpdate: () => request<SystemUpdateStatus>("/system/updates/install", { method: "POST" }),
+  cloudflareSetupStatus: () => request<CloudflareSetupStatus>("/cloudflare/setup"),
+  startCloudflareSetup: (input: CloudflareSetupStartInput) => request<CloudflareSetupStartResult>("/cloudflare/setup/start", {
+    method: "POST",
+    body: JSON.stringify(input),
+  }),
   setupOwner: (input: LocalOwnerSetupInput) => completeAuthentication(request<AppSession>("/auth/setup", {
     method: "POST",
     body: JSON.stringify(input),
@@ -690,6 +754,10 @@ export const api = {
     if (completed) publishAuthEpoch();
   },
   stugbys: () => request<StugbyListResponse>("/stugbys"),
+  configureStugbyCoordinator: (publicOrigin: string) => request<{ publicOrigin: string }>("/stugbys/configuration", {
+    method: "PUT",
+    body: JSON.stringify({ publicOrigin }),
+  }),
   stugby: (id: string) => request<StugbyDetailResponse>(`/stugbys/${encodeURIComponent(id)}`),
   deleteStugby: (id: string) => request<void>(`/stugbys/${encodeURIComponent(id)}`, { method: "DELETE" }),
   createStugby: (input: { name: string; description?: string | null }) => request<StugbySummary>("/stugbys", {

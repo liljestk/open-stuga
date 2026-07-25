@@ -23,8 +23,12 @@ export default defineConfig({
         // Route modules are already lazy-loaded. Keep the stable React runtime
         // out of the application entry as well so both chunks remain below the
         // production warning threshold and can be cached independently.
-        manualChunks: {
-          "vendor-react": ["react", "react-dom"],
+        manualChunks(id) {
+          const normalizedId = id.replaceAll("\\", "/");
+          if (normalizedId.includes("/node_modules/react/") || normalizedId.includes("/node_modules/react-dom/")) {
+            return "vendor-react";
+          }
+          return undefined;
         },
       },
     },

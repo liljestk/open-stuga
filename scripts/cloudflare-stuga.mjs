@@ -113,6 +113,36 @@ function validateOptions(options) {
   for (const [label, value] of [["--account-id", options.accountId], ["--zone-id", options.zoneId]]) {
     if (value && !/^[a-f0-9]{32}$/i.test(value)) throw new UsageError(`${label} must be a 32-character hexadecimal ID`);
   }
+  if (options.oauthClientId
+    && (options.oauthClientId.length < 8
+      || options.oauthClientId.length > 200
+      || !/^[A-Za-z0-9._~-]+$/.test(options.oauthClientId))) {
+    throw new UsageError("Cloudflare OAuth client ID is invalid");
+  }
+  if (options.oauthRedirectUri) {
+    let redirect;
+    try { redirect = new URL(options.oauthRedirectUri); } catch {
+      throw new UsageError("Cloudflare OAuth redirect URI is invalid");
+    }
+    const port = Number(redirect.port);
+    if (
+      redirect.protocol !== "http:"
+      || redirect.hostname !== "127.0.0.1"
+      || !Number.isInteger(port)
+      || port < 1024
+      || port > 65_535
+      || ![
+        "/cloudflare/oauth/callback",
+        "/api/v1/cloudflare/setup/oauth/callback",
+      ].includes(redirect.pathname)
+      || redirect.username
+      || redirect.password
+      || redirect.search
+      || redirect.hash
+    ) {
+      throw new UsageError("Cloudflare OAuth redirect URI must use Stuga's explicit local callback");
+    }
+  }
   if (options.secretDirectory && resolve(options.secretDirectory) === parsePath(resolve(options.secretDirectory)).root) {
     throw new UsageError("--secret-dir must be a dedicated subdirectory");
   }
@@ -552,6 +582,8 @@ async function provision(options, dependencies = {}) {
     stugbyProtocolApplicationId: protocolApplication?.id ?? null,
     accessGroupId: group.id,
     identityProviderId: otp.id,
+    oauthClientId: options.oauthClientId ?? previous?.oauthClientId ?? null,
+    oauthRedirectUri: options.oauthRedirectUri ?? previous?.oauthRedirectUri ?? null,
   }, null, 2)}\n`);
 
   logger.log(`Cloudflare is configured for https://${hostname}`);
@@ -574,9 +606,13 @@ function readDeployment(secretDirectory) {
   } catch {
     throw new UsageError(`Could not read a valid deployment.json from ${secretDirectory}`);
   }
-  if (deployment?.version !== 2 || !["remote-ui", "stugby-coordinator"].includes(deployment?.mode)
-    || typeof deployment.hostname !== "string") {
-    throw new UsageError("deployment.json is not a supported version 2 Cloudflare deployment");
+  const mode = deployment?.version === 1
+    ? "remote-ui"
+    : deployment?.version === 2 && ["remote-ui", "stugby-coordinator"].includes(deployment?.mode)
+      ? deployment.mode
+      : null;
+  if (!mode || typeof deployment.hostname !== "string") {
+    throw new UsageError("deployment.json is not a supported Cloudflare deployment");
   }
   const options = {
     hostname: deployment.hostname.trim().toLowerCase(),
@@ -586,7 +622,7 @@ function readDeployment(secretDirectory) {
     zoneId: null,
   };
   validateOptions(options);
-  return { ...deployment, hostname: options.hostname };
+  return { ...deployment, mode, hostname: options.hostname };
 }
 
 function readCoordinatorDeployment(secretDirectory) {

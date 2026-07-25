@@ -162,6 +162,11 @@ export class StugbyStore {
 
   private migrate(): void {
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS stugby_node_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS stugby_federations (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 200),
@@ -484,6 +489,21 @@ export class StugbyStore {
     return rows.map((row) => this.summaryFromRow(row));
   }
 
+  getNodePublicOrigin(): string | null {
+    const row = this.db.prepare("SELECT value FROM stugby_node_settings WHERE key='public-origin'")
+      .get() as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  setNodePublicOrigin(value: string, now = new Date().toISOString()): number {
+    return this.transaction(() => {
+      this.db.prepare(`INSERT INTO stugby_node_settings(key,value,updated_at) VALUES ('public-origin',?,?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`)
+        .run(value, now);
+      return this.reconcileUnjoinedCoordinatorOriginsInTransaction(value, now);
+    });
+  }
+
   getStugby(id: string): StugbySummary | null {
     const row = this.db.prepare("SELECT * FROM stugby_federations WHERE id=?").get(id) as unknown as StugbyRow | undefined;
     return row ? this.summaryFromRow(row) : null;
@@ -531,38 +551,40 @@ export class StugbyStore {
   }
 
   reconcileUnjoinedCoordinatorOrigins(coordinatorUrl: string, now = new Date().toISOString()): number {
-    return this.transaction(() => {
-      const rows = this.db.prepare(`SELECT federation.id,federation.coordinator_url
-        FROM stugby_federations federation
-        WHERE federation.is_coordinator=1 AND federation.coordinator_url<>?
-          AND NOT EXISTS (
-            SELECT 1 FROM stugby_members member
-            WHERE member.stugby_id=federation.id AND member.node_id<>?
-          )`).all(coordinatorUrl, this.localNodeId) as unknown as Array<{
-          id: string;
-          coordinator_url: string;
-        }>;
-      for (const row of rows) {
-        const invitations = this.db.prepare(`SELECT id FROM stugby_invitations
-          WHERE stugby_id=? AND used_at IS NULL AND revoked_at IS NULL AND expires_at>?`)
-          .all(row.id, now) as unknown as Array<{ id: string }>;
-        this.db.prepare("UPDATE stugby_federations SET coordinator_url=?,updated_at=? WHERE id=?")
-          .run(coordinatorUrl, now, row.id);
-        for (const invitation of invitations) {
-          this.db.prepare("UPDATE stugby_invitations SET revoked_at=? WHERE id=? AND used_at IS NULL AND revoked_at IS NULL")
-            .run(now, invitation.id);
-          this.audit(row.id, "invitation.revoked", this.localNodeId, invitation.id, {
-            reason: "coordinator-origin-changed",
-          }, now);
-        }
-        this.audit(row.id, "coordinator.origin.updated", this.localNodeId, row.id, {
-          previousOrigin: row.coordinator_url,
-          coordinatorOrigin: coordinatorUrl,
-          revokedInvitations: invitations.length,
+    return this.transaction(() => this.reconcileUnjoinedCoordinatorOriginsInTransaction(coordinatorUrl, now));
+  }
+
+  private reconcileUnjoinedCoordinatorOriginsInTransaction(coordinatorUrl: string, now: string): number {
+    const rows = this.db.prepare(`SELECT federation.id,federation.coordinator_url
+      FROM stugby_federations federation
+      WHERE federation.is_coordinator=1 AND federation.coordinator_url<>?
+        AND NOT EXISTS (
+          SELECT 1 FROM stugby_members member
+          WHERE member.stugby_id=federation.id AND member.node_id<>?
+        )`).all(coordinatorUrl, this.localNodeId) as unknown as Array<{
+        id: string;
+        coordinator_url: string;
+      }>;
+    for (const row of rows) {
+      const invitations = this.db.prepare(`SELECT id FROM stugby_invitations
+        WHERE stugby_id=? AND used_at IS NULL AND revoked_at IS NULL AND expires_at>?`)
+        .all(row.id, now) as unknown as Array<{ id: string }>;
+      this.db.prepare("UPDATE stugby_federations SET coordinator_url=?,updated_at=? WHERE id=?")
+        .run(coordinatorUrl, now, row.id);
+      for (const invitation of invitations) {
+        this.db.prepare("UPDATE stugby_invitations SET revoked_at=? WHERE id=? AND used_at IS NULL AND revoked_at IS NULL")
+          .run(now, invitation.id);
+        this.audit(row.id, "invitation.revoked", this.localNodeId, invitation.id, {
+          reason: "coordinator-origin-changed",
         }, now);
       }
-      return rows.length;
-    });
+      this.audit(row.id, "coordinator.origin.updated", this.localNodeId, row.id, {
+        previousOrigin: row.coordinator_url,
+        coordinatorOrigin: coordinatorUrl,
+        revokedInvitations: invitations.length,
+      }, now);
+    }
+    return rows.length;
   }
 
   private summaryFromRow(row: StugbyRow): StugbySummary {

@@ -28,19 +28,25 @@ npm run setup
 ```
 
 The wizard asks for the runtime, real or disposable demo data, the container
-port when applicable, and whether remote access is needed. Docker users may
+port when applicable, and how people will use Stuga: only at home, securely
+away from home, or as the creator of a shared Stugby. Docker users may
 also install the host update agent as a per-user startup service after
-acknowledging its Docker-administrator authority. The option defaults to off.
+acknowledging its Docker-administrator authority. It defaults to off for
+ordinary installs and is recommended when secure sharing is selected because
+the UI needs it to apply host networking changes.
 Docker and Podman can provision either a protected remote UI or a Stugby
 coordinator through Cloudflare Tunnel + Access. Local-only remains the default.
 
-Cloudflare setup explains the two least-scope tokens, accepts them through
-hidden terminal input or protected files, and never puts them in arguments,
-logs, or `.env`. It configures Access before DNS/Tunnel ingress, recreates the
-services that consume the generated runtime, then checks the edge from an
-unauthenticated client. If any protected route is exposed, any public handoff
-asset is blocked, or the Stugby machine boundary has the wrong policy, setup
-stops `cloudflared` automatically while leaving loopback recovery available.
+The normal Stugby Cloudflare flow is in the authenticated local Stuga UI. One
+token with **OAuth Client Write** lets Stuga register its private OAuth client;
+the browser then shows Cloudflare consent for temporary provisioning. Existing
+remote installations reuse their retained narrow Access-group token. New
+installations enter that separate runtime token once in the UI. Stuga keeps
+provider grants in memory, sends no provider token through the host-agent
+queue, configures Access before DNS/Tunnel ingress, recreates the affected
+services, verifies the edge, and revokes the OAuth grant. If verification
+fails, it stops `cloudflared` while leaving loopback recovery available. The
+terminal wizard and protected token files remain an advanced fallback.
 
 The wizard creates `.env` only when missing and ordinarily changes only
 `MOCK_ENABLED`, `APP_PORT`, and the Podman profile guard. Choosing the Linux
@@ -58,11 +64,13 @@ npm run setup -- --mode podman --demo --no-start --no-cloudflare --yes
 npm run setup -- --mode rpi --pi-action flash
 ```
 
-Add `--dry-run` to inspect a plan without changing files, packages, or
-containers or Cloudflare. For the shortest secure remote-access path, choose
-Docker or Podman in the interactive wizard. See
-[Cloudflare Tunnel and Access](cloudflare-access.md) for token scopes,
-non-interactive flags, rotation, and rollback.
+Add `--dry-run` to inspect a plan without changing files, packages, containers,
+or Cloudflare. For a UI-managed Stugby connection, use Docker with the host
+agent, start on loopback, create the first Owner, and continue in **Stugbys →
+Set up secure sharing**. See
+[Cloudflare Tunnel and Access](cloudflare-access.md) for the one-time
+bootstrap scope, new/existing installation paths, CLI fallback, rotation, and
+rollback.
 
 ## Docker Compose
 
@@ -93,7 +101,7 @@ Prerequisites: a current Docker Engine with Compose v2.
    docker compose up --build -d
    ```
 
-4. To enable UI-managed installation, answer yes to the wizard's update-agent
+4. To enable UI-managed installation and Cloudflare setup, answer yes to the wizard's update-agent
    question or rerun:
 
    ```sh
@@ -105,9 +113,14 @@ Prerequisites: a current Docker Engine with Compose v2.
    starts again when that user session starts and uses that account's existing
    Docker access. Remove it with `npm run update-agent:service:uninstall`.
 
-5. Open <http://localhost:8080> and check API health at
+5. Open <http://localhost:8080>, create the first Owner, and check API health at
    <http://localhost:8080/api/v1/health>.
-6. Follow logs when diagnosing startup:
+6. To create a Stugby for other homes, open **Stugbys**, choose **Set up secure
+   sharing**, and complete Cloudflare approval there. Stuga creates the private
+   OAuth client, applies the connection through the host agent, and verifies it
+   before enabling invitations. Provider tokens are never written to browser
+   storage or the host-agent queue.
+7. Follow logs when diagnosing startup:
 
    ```sh
    docker compose logs -f api web
@@ -125,7 +138,7 @@ Prerequisites: a current Docker Engine with Compose v2.
    [Automated Tapo history recovery](tapo-history-automation.md) before enabling
    `TAPO_RUNNER_ENABLED`.
 
-7. Stop without deleting history:
+8. Stop without deleting history:
 
    ```sh
    docker compose down

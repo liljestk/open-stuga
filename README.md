@@ -85,13 +85,19 @@ npm run setup
 
 It asks whether to use local Node.js, Docker, Podman, or the Raspberry Pi
 appliance flow; whether this is a real home or a disposable demo; and, for
-containers, which local port to use. Docker and Podman users can optionally
-choose guided Cloudflare Tunnel + Access setup for a protected remote UI or a
-Stugby coordinator. The wizard takes tokens through hidden prompts or protected
-files, provisions the edge, starts it, and fails closed unless every protected
-and intentionally public path verifies. Docker users can also explicitly
-install the host update agent as a per-user startup service. The host port
-stays on loopback.
+containers, which local port to use. Docker users can explicitly install the
+trusted host agent as a per-user startup service. The host port stays on
+loopback.
+
+For the normal Stugby path, start locally, create the Owner, then open
+**Stugbys → Set up secure sharing** on the Stuga computer. Stuga registers its
+private Cloudflare OAuth client from one API token with **OAuth Client Write**,
+opens Cloudflare consent, provisions Tunnel, DNS, and Access through the host
+agent, verifies the boundary, and revokes the temporary OAuth grant. The
+bootstrap token is used once and never saved. Existing online installations
+reuse their retained narrow Access-group token; a new installation asks for
+that separate runtime token once in the UI. The CLI provisioner remains an
+advanced fallback.
 
 The wizard changes only basic `.env` values and preserves existing secrets and
 advanced settings. Cloudflare runtime credentials go into the ignored,

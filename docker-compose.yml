@@ -164,6 +164,9 @@ services:
       SYSTEM_UPDATE_OPERATIONS_DIRECTORY: /app/runtime/update-operations
       SYSTEM_UPDATE_REPOSITORY: ${SYSTEM_UPDATE_REPOSITORY:-liljestk/open-stuga}
       SYSTEM_UPDATE_IMAGE_PREFIX: ${SYSTEM_UPDATE_IMAGE_PREFIX:-ghcr.io/liljestk/open-stuga}
+      CLOUDFLARE_SETUP_DEPLOYMENT_FILE: /run/secrets/cloudflare/deployment.json
+      STUGA_CLOUDFLARE_OAUTH_CLIENT_ID: ${STUGA_CLOUDFLARE_OAUTH_CLIENT_ID:-}
+      STUGA_LOCAL_UI_PORT: ${APP_PORT:-8080}
       MOCK_ENABLED: ${MOCK_ENABLED:-false}
       MOCK_INTERVAL_MS: ${MOCK_INTERVAL_MS:-2000}
       # Zero retains the complete SQLite copy. Values >=30 retain a bounded
@@ -258,11 +261,13 @@ services:
       SYSTEM_UPDATE_IMAGE_PREFIX: ${SYSTEM_UPDATE_IMAGE_PREFIX:-ghcr.io/liljestk/open-stuga}
       SYSTEM_UPDATE_RUNTIME: ${SYSTEM_UPDATE_RUNTIME:-docker}
       STUGA_COMPOSE_PROJECT_NAME: stuga
+      STUGA_CLOUDFLARE_SECRET_DIR: /persistent/stuga/cloudflare
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - .:/opt/stuga:ro,z
       - ${STUGA_UPDATE_OPERATIONS_DIRECTORY:-./data/update-operations}:/persistent/stuga/update-operations:${STUGA_UPDATE_OPERATIONS_MOUNT_OPTIONS:-z}
       - ${STUGA_UPDATE_RELEASE_DIRECTORY:-./data/update-release}:/persistent/stuga/update-release:z
+      - ${STUGA_CLOUDFLARE_SECRET_DIR:-./secrets/cloudflare}:/persistent/stuga/cloudflare:z
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777

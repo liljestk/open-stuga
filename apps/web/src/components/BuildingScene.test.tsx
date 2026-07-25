@@ -440,7 +440,7 @@ describe("BuildingScene", () => {
     const house = demo.houses[0]!;
     const floor = house.floors[0]!;
     const onViewMode = vi.fn();
-    const view = render(
+    render(
       <I18nProvider>
         <TwinDashboard
           state={demo} house={house} floor={floor} houseId={house.id} floorId={floor.id}
@@ -457,9 +457,8 @@ describe("BuildingScene", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
     fireEvent.click(await screen.findByRole("button", { name: "Edit layout" }));
     expect(onViewMode).not.toHaveBeenCalled();
-    await waitFor(() => expect(view.container.querySelector(".building-scene")).not.toBeNull());
     expect(screen.getByRole("button", { name: "3D building" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByRole("region", { name: "Element properties" })).not.toBeNull();
+    expect(await screen.findByRole("region", { name: "Element properties" })).not.toBeNull();
   });
 });
 

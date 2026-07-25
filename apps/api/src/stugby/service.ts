@@ -72,6 +72,8 @@ export interface StugbyServiceOptions {
   fetcher?: typeof fetch;
   syncIntervalMs?: number;
   publicOrigin?: string | null;
+  suggestedPublicOrigin?: string | null;
+  allowUiPublicOrigin?: boolean;
 }
 
 export interface MachineRequestProof {
@@ -236,7 +238,10 @@ export class StugbyService {
   readonly database: ClimateDatabase;
   readonly store: StugbyStore;
   readonly keys: StugbyNodeKeys;
-  readonly publicOrigin: string | null;
+  readonly suggestedPublicOrigin: string | null;
+  readonly #deploymentPublicOrigin: boolean;
+  readonly #uiPublicOriginAllowed: boolean;
+  #publicOrigin: string | null;
   readonly #bus: TelemetryBus;
   readonly #assetDirectory: string;
   readonly #fetcher: typeof fetch;
@@ -261,8 +266,26 @@ export class StugbyService {
     this.#assetDirectory = join(options.assetDirectory, "stugby");
     this.#fetcher = options.fetcher ?? fetch;
     this.#syncIntervalMs = Math.max(2_000, options.syncIntervalMs ?? 15_000);
-    this.publicOrigin = options.publicOrigin ? normalizedBaseUrl(options.publicOrigin) : null;
+    this.#deploymentPublicOrigin = Boolean(options.publicOrigin);
+    this.#uiPublicOriginAllowed = options.allowUiPublicOrigin ?? true;
+    this.suggestedPublicOrigin = options.suggestedPublicOrigin
+      ? normalizedBaseUrl(options.suggestedPublicOrigin)
+      : null;
+    const storedPublicOrigin = this.#deploymentPublicOrigin ? null : this.store.getNodePublicOrigin();
+    this.#publicOrigin = options.publicOrigin
+      ? normalizedBaseUrl(options.publicOrigin)
+      : storedPublicOrigin
+        ? normalizedBaseUrl(storedPublicOrigin)
+        : null;
     if (this.publicOrigin) this.store.reconcileUnjoinedCoordinatorOrigins(this.publicOrigin);
+  }
+
+  get publicOrigin(): string | null {
+    return this.#publicOrigin;
+  }
+
+  get publicOriginConfigurable(): boolean {
+    return !this.#deploymentPublicOrigin && this.#uiPublicOriginAllowed;
   }
 
   get identity(): StugbyNodeIdentity {
@@ -310,6 +333,82 @@ export class StugbyService {
 
   listStugbys(): StugbySummary[] { return this.store.listStugbys(); }
   getStugby(id: string): StugbySummary { return this.requireStugby(id); }
+
+  async configurePublicOrigin(value: string): Promise<string> {
+    const publicOrigin = normalizedBaseUrl(value);
+    if (this.#deploymentPublicOrigin) {
+      if (publicOrigin === this.publicOrigin) return publicOrigin;
+      throw new StugbyError(
+        409,
+        "STUGBY_PUBLIC_ORIGIN_MANAGED",
+        "The coordinator origin is managed by this deployment and cannot be changed in the UI",
+      );
+    }
+    if (!this.#uiPublicOriginAllowed) {
+      throw new StugbyError(
+        409,
+        "STUGBY_COORDINATOR_PROVISIONING_REQUIRED",
+        "Reopen Stuga setup and choose Create a shared Stugby for several homes",
+      );
+    }
+    const establishedCoordinator = this.store.listStugbys().find((stugby) => (
+      this.store.isCoordinator(stugby.id)
+      && stugby.coordinatorUrl !== publicOrigin
+      && this.store.listMembers(stugby.id).some((member) => member.nodeId !== this.identity.nodeId)
+    ));
+    if (establishedCoordinator) {
+      throw new StugbyError(
+        409,
+        "STUGBY_COORDINATOR_ORIGIN_LOCKED",
+        "A Stugby with another node already uses a different coordinator origin",
+      );
+    }
+    if (publicOrigin === this.publicOrigin) return publicOrigin;
+    await this.verifyPublicOrigin(publicOrigin);
+    this.store.setNodePublicOrigin(publicOrigin);
+    this.#publicOrigin = publicOrigin;
+    return publicOrigin;
+  }
+
+  private async verifyPublicOrigin(publicOrigin: string): Promise<void> {
+    try {
+      const response = await this.#fetcher(`${publicOrigin}/api/v1/stugby-protocol/join`, {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+        },
+        body: "{}",
+        redirect: "manual",
+        signal: AbortSignal.timeout(15_000),
+      });
+      const body = await this.readBoundedResponse(
+        response,
+        8 * 1024,
+        "STUGBY_ADDRESS_UNREACHABLE",
+        "Stuga could not verify its secure address",
+      );
+      let errorCode: unknown;
+      try {
+        const payload = JSON.parse(Buffer.from(body).toString("utf8")) as { error?: { code?: unknown } };
+        errorCode = payload.error?.code;
+      } catch {
+        errorCode = null;
+      }
+      if (
+        ![400, 503].includes(response.status)
+        || !["INVALID_BODY", "INVALID_INPUT", "STUGBY_PUBLIC_ORIGIN_REQUIRED"].includes(String(errorCode))
+      ) {
+        throw new Error(`Unexpected verification response ${response.status}`);
+      }
+    } catch {
+      throw new StugbyError(
+        422,
+        "STUGBY_ADDRESS_UNREACHABLE",
+        "Stuga could not reach its secure address. Check that the address opens this Stuga, then try again",
+      );
+    }
+  }
 
   deleteStugby(id: string): void {
     const stugby = this.requireStugby(id);

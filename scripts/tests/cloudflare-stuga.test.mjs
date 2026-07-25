@@ -227,6 +227,33 @@ test("remote-UI verifier proves that every non-static path remains behind Access
   }
 });
 
+test("remote-UI verifier accepts legacy deployment metadata during guided upgrades", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "stuga-cloudflare-legacy-test-"));
+  writeFileSync(join(directory, "deployment.json"), JSON.stringify({
+    version: 1,
+    hostname: "stuga.example.test",
+  }));
+  const responses = [
+    accessRedirect(),
+    accessRedirect(),
+    publicAsset("text/html; charset=utf-8"),
+    publicAsset("application/javascript"),
+    accessRedirect(),
+  ];
+  try {
+    const result = await verifyDeployment(
+      { secretDirectory: directory },
+      {
+        fetcher: async () => responses.shift(),
+        logger: { log() {} },
+      },
+    );
+    assert.equal(result.machineStatus, 302);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("remote-UI verifier fails closed if the machine path is exposed", async () => {
   const directory = cloudflareDeployment("remote-ui");
   const responses = [

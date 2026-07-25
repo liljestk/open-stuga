@@ -79,26 +79,113 @@ function mockLoadedStugbys(stugbys: StugbySummary[], details: Record<string, Stu
 }
 
 describe("StugbyPage", () => {
-  it("keeps coordinator creation unavailable until the server owns a public origin", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        identity: {
-          nodeId: "node-local",
-          displayName: "Local Stuga",
-          publicKey: "public",
-          keyFingerprint: "fingerprint",
-          protocolVersion: "1.0",
-        },
+  it("asks for and saves a public coordinator origin before creation when none was detected", async () => {
+    const user = userEvent.setup();
+    const created = summary("stugby-a", "Configured Stugby");
+    vi.spyOn(api, "stugbys")
+      .mockResolvedValueOnce({
+        identity,
         publicOrigin: null,
+        suggestedPublicOrigin: "https://stuga.example.test",
+        publicOriginConfigurable: true,
         stugbys: [],
-      }),
-    } as Response);
+      })
+      .mockResolvedValue({ identity, publicOrigin: "https://stuga.example.test", stugbys: [created] });
+    const configure = vi.spyOn(api, "configureStugbyCoordinator")
+      .mockResolvedValue({ publicOrigin: "https://stuga.example.test" });
+    const create = vi.spyOn(api, "createStugby").mockResolvedValue(created);
+    vi.spyOn(api, "stugby").mockResolvedValue(detail(created));
+    vi.spyOn(api, "stugbyTelemetry").mockResolvedValue({ samples: [] });
+
     render(<I18nProvider><StugbyPage houses={[]} /></I18nProvider>);
-    expect(await screen.findByRole("heading", { name: "Create a Stugby" })).toBeTruthy();
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Create" }).disabled).toBe(true);
-    expect(screen.getAllByText(/Provision this coordinator first/).length).toBeGreaterThan(0);
+    const createForm = (await screen.findByRole("heading", { name: "Create a Stugby" })).closest("form");
+    expect(createForm).not.toBeNull();
+    const coordinatorUrl = createForm!.querySelector<HTMLInputElement>('input[type="url"]');
+    expect(coordinatorUrl).not.toBeNull();
+    expect(coordinatorUrl!.value).toBe("https://stuga.example.test");
+    await user.click(within(createForm!).getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(configure).toHaveBeenCalledWith("https://stuga.example.test"));
+    expect(create).toHaveBeenCalledWith({ name: "My Stugby", description: null });
+  });
+
+  it("offers UI-managed Cloudflare setup to a new local installation", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "stugbys").mockResolvedValue({
+      identity,
+      publicOrigin: "http://127.0.0.1:8080",
+      publicOriginConfigurable: true,
+      stugbys: [],
+    });
+    vi.spyOn(api, "cloudflareSetupStatus").mockResolvedValue({
+      canConfigure: true,
+      localConfigureUrl: "http://127.0.0.1:8080/stugbys",
+      capability: {
+        available: true,
+        agentLastSeenAt: "2026-07-24T08:00:00.000Z",
+        reason: "ready",
+      },
+      configuration: {
+        configured: false,
+        mode: null,
+        hostname: null,
+        suggestedZone: null,
+        accountIdKnown: false,
+        zoneIdKnown: false,
+        oauthClientConfigured: false,
+        runtimeTokenAvailable: false,
+        ownerEmail: "owner@example.test",
+      },
+      operation: null,
+    });
+
+    render(<I18nProvider><StugbyPage houses={[]} /></I18nProvider>);
+    expect(await screen.findByText("Connect other homes securely")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Set up secure sharing" }));
+
+    expect(await screen.findByLabelText(/^One-time OAuth client token/)).toBeTruthy();
+    expect(screen.getByLabelText(/^Runtime Access group token/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue with Cloudflare" })).toBeTruthy();
+  });
+
+  it("keeps Cloudflare changes on the Stuga computer before coordinator creation", async () => {
+    vi.spyOn(api, "stugbys").mockResolvedValue({
+      identity,
+      publicOrigin: null,
+      suggestedPublicOrigin: "https://stuga.example.test",
+      publicOriginConfigurable: false,
+      stugbys: [],
+    });
+    vi.spyOn(api, "cloudflareSetupStatus").mockResolvedValue({
+      canConfigure: false,
+      localConfigureUrl: "http://127.0.0.1:8080/stugbys",
+      capability: {
+        available: true,
+        agentLastSeenAt: "2026-07-24T08:00:00.000Z",
+        reason: "ready",
+      },
+      configuration: {
+        configured: true,
+        mode: "remote-ui",
+        hostname: "stuga.example.test",
+        suggestedZone: "example.test",
+        accountIdKnown: true,
+        zoneIdKnown: true,
+        oauthClientConfigured: false,
+        runtimeTokenAvailable: true,
+        ownerEmail: "owner@example.test",
+      },
+      operation: null,
+    });
+
+    render(<I18nProvider><StugbyPage houses={[]} /></I18nProvider>);
+    const createPanel = (await screen.findByRole("heading", { name: "Create a Stugby" })).closest("section");
+    expect(createPanel).not.toBeNull();
+    expect(createPanel!.querySelector('input[type="url"]')).toBeNull();
+    expect(within(createPanel!).queryByRole("button", { name: "Create" })).toBeNull();
+    expect(await within(createPanel!).findByText("Open this page on the Stuga computer")).toBeTruthy();
+    expect(within(createPanel!).getByRole("link", { name: "Open local Stuga" }).getAttribute("href"))
+      .toBe("http://127.0.0.1:8080/stugbys");
   });
 
   it("makes the enforced read-only federation boundary explicit before onboarding", async () => {

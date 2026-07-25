@@ -131,6 +131,12 @@ import {
 } from "./local-auth.js";
 import { CloudflareAccessGroupSynchronizer } from "./cloudflare-access.js";
 import {
+  CloudflareSetupError,
+  CloudflareSetupService,
+  cloudflareSetupCallbackPath,
+  type CloudflareSetupStartInput,
+} from "./cloudflare-setup.js";
+import {
   createLocalSpatialLayerRuntime,
   registerSpatialLayerRoutes,
   type LocalSpatialLayerRuntime,
@@ -978,6 +984,40 @@ function localSetupRequestAllowed(request: Request, config: AppConfig): boolean 
     && trustedProxyRequest(request, config);
 }
 
+function localCloudflareUiRequestAllowed(request: Request, config: AppConfig): boolean {
+  if (isLoopbackSocket(request)) return true;
+  if (!localSetupRequestAllowed(request, config)) return false;
+  const forwardedProtocol = request.header("x-forwarded-proto")?.trim().toLowerCase();
+  if (forwardedProtocol !== "http") return false;
+  try {
+    const hostname = new URL(`http://${request.header("host") ?? ""}`).hostname;
+    return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(hostname);
+  } catch {
+    return false;
+  }
+}
+
+function cloudflareUiRedirectUri(request: Request, config: AppConfig): string {
+  if (!localCloudflareUiRequestAllowed(request, config)) {
+    throw new HttpError(
+      403,
+      "CLOUDFLARE_SETUP_LOCAL_ONLY",
+      "Open Stuga on this computer through its local address to change the secure connection",
+    );
+  }
+  let port: number;
+  try {
+    const visible = new URL(`http://${request.header("host") ?? ""}`);
+    port = Number(visible.port || 80);
+  } catch {
+    throw new HttpError(400, "INVALID_LOCAL_ADDRESS", "Stuga could not determine its local browser address");
+  }
+  if (!Number.isInteger(port) || port < 1024 || port > 65_535) {
+    throw new HttpError(400, "INVALID_LOCAL_ADDRESS", "Stuga must use an explicit unprivileged local port for Cloudflare approval");
+  }
+  return `http://127.0.0.1:${port}${cloudflareSetupCallbackPath}`;
+}
+
 function requireJsonContentType(request: Request): void {
   if (!request.is("application/json")) {
     throw new HttpError(415, "JSON_REQUIRED", "This endpoint requires an application/json request body");
@@ -1658,6 +1698,7 @@ export interface ApiRuntime {
   energyCost: EnergyCostService;
   setupDoctor: SetupDoctor;
   cloudflareAccess: CloudflareAccessGroupSynchronizer | null;
+  cloudflareSetup: CloudflareSetupService;
   spatialLayers: LocalSpatialLayerRuntime | null;
   timeseries: TimeseriesStore | null;
   telemetryArchive: TelemetryArchiveWorker | null;
@@ -1751,6 +1792,8 @@ export interface CreateApiOptions {
   tpLinkCredentialTester?: (host: string, username: string, password: string) => Promise<IntegrationDraftTestResult>;
   electricityPriceFetcher?: typeof fetch;
   cloudflareAccessFetcher?: typeof fetch;
+  cloudflareSetupFetcher?: typeof fetch;
+  cloudflareSetup?: CloudflareSetupService;
   stugbyFetcher?: typeof fetch;
   electricityEndpointResolver?: ElectricityEndpointResolver;
   /** Test/embedding hook; normal deployments resolve aliases from live TP-Link discovery. */
@@ -1927,6 +1970,9 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   config.cloudflareAccessStaticEmails ??= [];
   config.cloudflareAccessApiToken ??= null;
   config.cloudflareAccessSyncIntervalMs ??= 5 * 60_000;
+  config.cloudflareSetupDeploymentFile ??= null;
+  config.cloudflareSetupOAuthClientId ??= null;
+  config.cloudflareSetupLocalUiPort ??= 8_080;
   const cloudflareAccessRuntimeValues = [
     config.cloudflareAccessAccountId,
     config.cloudflareAccessGroupId,
@@ -1967,6 +2013,14 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     repository: config.systemUpdateRepository,
     imagePrefix: config.systemUpdateImagePrefix,
     operationsDirectory: config.systemUpdateOperationsDirectory,
+  });
+  const cloudflareSetup = options.cloudflareSetup ?? new CloudflareSetupService({
+    operationsDirectory: config.systemUpdateOperationsDirectory,
+    deploymentFile: config.cloudflareSetupDeploymentFile,
+    runtimeToken: config.cloudflareAccessApiToken,
+    ownerEmail: config.cloudflareAccessStaticEmails[0] ?? null,
+    oauthClientId: config.cloudflareSetupOAuthClientId,
+    ...(options.cloudflareSetupFetcher ? { fetchImpl: options.cloudflareSetupFetcher } : {}),
   });
   const dataOperations = new DataOperationsService(database, config);
   const energyOptimizer = new EnergyOptimizer(database);
@@ -2029,6 +2083,8 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       assetDirectory: config.assetDirectory,
       syncIntervalMs: config.stugbySyncIntervalMs,
       publicOrigin: config.stugbyPublicOrigin,
+      suggestedPublicOrigin: config.stugbySuggestedPublicOrigin ?? null,
+      allowUiPublicOrigin: !config.stugbyCoordinatorProvisioningRequired,
       ...(options.stugbyFetcher ? { fetcher: options.stugbyFetcher } : {}),
     });
   })();
@@ -2503,6 +2559,52 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     if (request.method === "OPTIONS") { response.status(204).end(); return; }
     next();
   });
+  app.get(cloudflareSetupCallbackPath, async (request, response, next) => {
+    try {
+      if (!localCloudflareUiRequestAllowed(request, config)) {
+        throw new HttpError(403, "CLOUDFLARE_SETUP_LOCAL_ONLY", "Cloudflare approval must return to this Stuga's local address");
+      }
+      const query = new URLSearchParams();
+      for (const [key, value] of Object.entries(request.query)) {
+        if (typeof value === "string") query.set(key, value);
+      }
+      const operation = await cloudflareSetup.completeOAuth(query);
+      const successful = operation.phase !== "failed";
+      response.status(successful ? 200 : 400);
+      response.type("html");
+      response.setHeader("cache-control", "no-store");
+      response.setHeader("referrer-policy", "no-referrer");
+      response.setHeader("x-frame-options", "DENY");
+      response.setHeader(
+        "content-security-policy",
+        "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+      );
+      response.send(`<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>${successful ? "Cloudflare approved" : "Cloudflare approval not completed"}</title>
+<body style="font:16px system-ui,sans-serif;max-width:38rem;margin:10vh auto;padding:1.5rem;color:#1b1d1a;background:#f1efe9">
+<h1>${successful ? "Cloudflare approved" : "Approval not completed"}</h1>
+<p>${successful
+    ? "Stuga is finishing the secure connection. You can close this window and return to Stuga."
+    : "Return to Stuga to review the problem and try again."}</p>
+</body></html>`);
+    } catch (error) {
+      next(error instanceof CloudflareSetupError
+        ? new HttpError(error.status, error.code, error.message)
+        : error);
+    }
+  });
+  app.get(`${prefix}/internal/cloudflare-setup/claims/:id`, (request, response) => {
+    const authorization = request.header("authorization");
+    const bearer = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
+    const claim = cloudflareSetup.claim(request.params.id, bearer);
+    response.setHeader("cache-control", "no-store");
+    if (!claim) {
+      response.status(404).json({ error: { code: "CLOUDFLARE_SETUP_CLAIM_NOT_FOUND", message: "Setup claim was not found" } });
+      return;
+    }
+    response.json(claim);
+  });
   registerStugbyProtocolRoutes(app, stugby);
   const authJsonParser = express.json({ limit: "8kb" });
   app.use((request, response, next) => {
@@ -2618,6 +2720,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     next();
   });
 
+  const cloudflareSetupJsonParser = express.json({ limit: "16kb" });
   const memberJsonParser = express.json({ limit: "32kb" });
   const apiJsonParser = express.json({ limit: "15mb" });
   app.use((request, response, next) => {
@@ -2625,6 +2728,11 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     // themselves needed for authentication and abuse limiting. Everything else
     // is authorized before the server allocates a potentially large JSON body.
     if (request.path.startsWith(`${prefix}/auth/`)) { next(); return; }
+    if (request.path === `${prefix}/cloudflare/setup/start`) {
+      response.locals.accountBodyLimit = "16 KiB";
+      cloudflareSetupJsonParser(request, response, next);
+      return;
+    }
     if (request.path.startsWith(`${prefix}/tenant/members`)
       || request.path.startsWith(`${prefix}/internal/tapo-history/`)) {
       response.locals.accountBodyLimit = "32 KiB";
@@ -2993,6 +3101,63 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       response.status(202).json(status);
     } catch (error) {
       next(error instanceof SystemUpdateError
+        ? new HttpError(error.status, error.code, error.message)
+        : error);
+    }
+  });
+  app.get(`${prefix}/cloudflare/setup`, requireWorkspaceAdmin, (request, response) => {
+    const status = cloudflareSetup.status();
+    const principal = requestPrincipal(response);
+    response.setHeader("cache-control", "no-store");
+    response.json({
+      ...status,
+      canConfigure: localCloudflareUiRequestAllowed(request, config),
+      localConfigureUrl: `http://127.0.0.1:${config.cloudflareSetupLocalUiPort}/stugbys`,
+      configuration: {
+        ...status.configuration,
+        ownerEmail: status.configuration.ownerEmail ?? principal.email,
+      },
+    });
+  });
+  app.post(`${prefix}/cloudflare/setup/start`, requireWorkspaceAdmin, async (request, response, next) => {
+    try {
+      requireJsonContentType(request);
+      const redirectUri = cloudflareUiRedirectUri(request, config);
+      const body = bodyObject(request.body);
+      const optionalText = (key: string): string | null => {
+        const value = body[key];
+        if (value === undefined || value === null || value === "") return null;
+        if (typeof value !== "string") throw new HttpError(400, "INVALID_FIELD", `${key} must be a string`);
+        return value;
+      };
+      const input: CloudflareSetupStartInput = {
+        mode: requiredString(body, "mode") as CloudflareSetupStartInput["mode"],
+        hostname: requiredString(body, "hostname"),
+        zone: requiredString(body, "zone"),
+        ownerEmail: requiredString(body, "ownerEmail"),
+        accountId: optionalText("accountId"),
+        zoneId: optionalText("zoneId"),
+        oauthClientToken: optionalText("oauthClientToken"),
+        runtimeToken: optionalText("runtimeToken"),
+      };
+      const result = await cloudflareSetup.start(input, redirectUri);
+      const principal = requestPrincipal(response);
+      try {
+        recordSecurityAudit(principal, {
+          eventType: "cloudflare.setup.started",
+          subjectType: "cloudflare-connection",
+          subjectId: result.operation.hostname,
+          details: { mode: result.operation.mode, operationId: result.operation.id },
+        });
+      } catch {
+        // Cloudflare has already accepted the external operation. Do not turn
+        // that success into a retryable 500 and create a duplicate setup.
+        console.error("[security-audit] Cloudflare setup started, but its local audit event could not be recorded");
+      }
+      response.setHeader("cache-control", "no-store");
+      response.status(202).json(result);
+    } catch (error) {
+      next(error instanceof CloudflareSetupError
         ? new HttpError(error.status, error.code, error.message)
         : error);
     }
@@ -5739,6 +5904,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       notificationOutbox.stop(),
       stoppingStugby,
       cloudflareAccess?.stop() ?? Promise.resolve(),
+      cloudflareSetup.stop(),
       stoppingSensorGapRecovery,
       stoppingTapoHistory,
       weatherRecovery.stop(),
@@ -5765,7 +5931,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
 
   return {
     app, database, integrationMetadata, bus, telemetry, measurements, mock, replay, status, homeAssistant, tpLink, tapoHistory, electricityPrices, telegram, weather, weatherMonitor, dailyAnalyticsFindings,
-    weatherRecovery, sensorGapRecovery, weatherEvents, dataMode, notificationOutbox, dataOperations, energyOptimizer, energyCost, setupDoctor, cloudflareAccess, spatialLayers, timeseries, telemetryArchive, telemetryReader, stugby, systemUpdates,
+    weatherRecovery, sensorGapRecovery, weatherEvents, dataMode, notificationOutbox, dataOperations, energyOptimizer, energyCost, setupDoctor, cloudflareAccess, cloudflareSetup, spatialLayers, timeseries, telemetryArchive, telemetryReader, stugby, systemUpdates,
     ready: () => runtimeReady,
     beginShutdown,
     close,

@@ -33,7 +33,9 @@ the human identity prompt so independently administered nodes can reach
 Stuga's Ed25519 verifier without receiving Cloudflare credentials. The
 owner/admin `/api/v1/stugbys*` API and all other paths remain covered by the
 root Access application. The generated runtime also pins
-`STUGBY_PUBLIC_ORIGIN`; the browser cannot choose or change it.
+`STUGBY_PUBLIC_ORIGIN`; the browser cannot override this deployment-managed
+value. Without deployment configuration, the Owner/Admin UI can persist a
+coordinator origin, but it cannot create or widen Cloudflare policies.
 
 Cloudflare does not authenticate or create Access logs for a Bypass policy.
 This narrow exception is intentional: the Stugby protocol itself authenticates
@@ -65,16 +67,15 @@ initial organization setup once. Keep the host port on its default loopback
 binding; `cloudflared` reaches the web container over the private Compose
 network.
 
-Create two API tokens and store each value in a protected file outside source
-control, or paste them only into the setup wizard's hidden prompts:
+Stuga always retains one runtime API token scoped to the intended account with
+only **Access: Organizations, Identity Providers, and Groups Write**. It uses
+this token only to read and replace the exact-email rules in its managed group.
 
-1. A short-lived provisioning token, scoped to the one account and zone, with
-   **Access: Apps and Policies Write**, **Cloudflare Tunnel Write**, and
-   **DNS Write**. Add zone-read permission when using automatic zone discovery;
-   pass `--account-id` and `--zone-id` to avoid discovery when practical.
-2. A different runtime token scoped to the one account with only **Access:
-   Organizations, Identity Providers, and Groups Write**. Stuga uses it only to
-   read and replace the exact-email rules in its managed group.
+Temporary provisioning can use either Cloudflare OAuth or a second API token.
+The manual token must be scoped to the one account and zone with **Access: Apps
+and Policies Write**, **Cloudflare Tunnel Write**, and **DNS Write**. Add Zone
+Read only when setup must discover the zone; pass `--account-id` and
+`--zone-id` to avoid discovery when practical.
 
 On macOS/Linux, token files must be regular files with mode `0600`; the
 provisioner rejects group/world-readable files. On Windows, store them under
@@ -92,27 +93,133 @@ credential cannot accidentally become the retained runtime credential. Do not
 pass either value on the command line. Command-line arguments are commonly
 retained in shell history and process inspection.
 
-## Recommended guided setup
+## UI-managed setup
 
-For a new Docker or Podman installation, run:
+The normal Stugby path no longer requires an operator to create a private OAuth
+client manually:
 
-```powershell
-npm run setup
+1. Open Stuga from the coordinator computer at
+   `http://127.0.0.1:<port>/stugbys`. The public Cloudflare URL is deliberately
+   read-only for this security-boundary change.
+2. On a new local installation, choose **Set up secure sharing**. On an
+   existing remote-UI installation, the Cloudflare panel opens automatically.
+3. Create one Cloudflare API token with **OAuth Client Write** for the intended
+   account and paste it into Stuga. This is the unavoidable bootstrap
+   credential: an application cannot register its first OAuth client through
+   that not-yet-existing client.
+4. Stuga uses the token once to call Cloudflare's OAuth-client API, registers a
+   private Authorization Code + PKCE client with the exact local callback, and
+   never saves the token. Revoke the bootstrap API token in Cloudflare after
+   setup.
+5. Approve the temporary Access, Tunnel, DNS, and optional Zone Read scopes in
+   Cloudflare's consent window. Stuga applies and verifies the connection, then
+   revokes this OAuth grant.
+
+Existing online installations reuse the narrow Access-group runtime token
+already stored under `secrets/cloudflare/`. New installations enter that
+separate **Access: Organizations, Identity Providers, and Groups Write** token
+once in the Stuga UI; the host agent stores it in the protected secret
+directory because invitation membership must continue to synchronize after
+setup.
+
+Temporary provider tokens remain in API/host-agent process memory. The shared
+operation marker contains only bounded configuration and a one-time claim
+capability, never a Cloudflare provider token. The trusted host agent claims
+the grant once, runs the existing idempotent provisioner, recreates only
+`api`, `web`, and `cloudflared`, verifies the complete boundary, and revokes
+the OAuth grant. If verification fails, it stops `cloudflared` and preserves
+the loopback recovery URL.
+
+The UI requires a current host agent advertising the `cloudflare-setup`
+capability. An installation whose agent predates this feature needs one host
+service refresh after updating the deployment bundle:
+
+```sh
+npm run update-agent:service:install
 ```
 
-Choose the container runtime, then either **Secure remote access with
-Cloudflare Tunnel + Access** or **Remote access plus a Stugby coordinator**.
-The wizard asks only for the hostname, DNS zone, recovery email, and how to
-supply the two tokens. Account and zone IDs are discovered when unambiguous.
+Automatic application-image updates remain connected; this one transition is
+needed because the older host process cannot retroactively acquire a new
+capability. New installations receive the capable agent when they enable it
+during setup.
 
-The default hidden-paste path keeps both token values out of command arguments,
-shell history, logs, and `.env`; the temporary token stays only in process
-memory. The wizard provisions Access before public ingress, writes the retained
-runtime files under ignored `secrets/cloudflare/`, recreates `api`, `web`, and
-`cloudflared`, and retries the external verifier while DNS/Tunnel state
-converges. If verification does not pass, it stops `cloudflared` automatically.
-It also pins `BIND_ADDRESS=127.0.0.1`; the loopback URL remains available for
-recovery.
+### CLI browser approval fallback
+
+For unattended or advanced CLI provisioning, Cloudflare OAuth removes the
+temporary provisioning-token copy/paste step. Register a
+Cloudflare OAuth client under **Manage Account > OAuth clients** with:
+
+- Authorization Code grant, token authentication method `none`, and the exact
+  redirect URI
+  `http://127.0.0.1:8976/cloudflare/oauth/callback`;
+- **Access: Apps and Policies Write** (`access.write`), **Cloudflare Tunnel
+  Write** (`argotunnel.write`), and **DNS Write** (`dns.write`); and
+- **Zone Read** (`zone.read`) in the client's allowed scopes when setup may
+  need zone discovery.
+
+Stuga is a public/native client and uses S256 PKCE; do not create or configure
+a client secret. A private client is sufficient for one Cloudflare account.
+Making the client available to other accounts requires Cloudflare public-client
+visibility and publisher-domain verification. See Cloudflare's current
+[OAuth client](https://developers.cloudflare.com/fundamentals/oauth/create-an-oauth-client/)
+and [authorization](https://developers.cloudflare.com/fundamentals/oauth/authorizing-an-application/)
+documentation.
+
+Add the non-secret client ID to `.env`:
+
+```dotenv
+STUGA_CLOUDFLARE_OAUTH_CLIENT_ID=your-client-id
+STUGA_CLOUDFLARE_OAUTH_REDIRECT_URI=http://127.0.0.1:8976/cloudflare/oauth/callback
+```
+
+Setup binds that callback only on loopback for up to five minutes, validates
+OAuth state, exchanges the code with PKCE, and keeps the access token only in
+process memory. It revokes the token after verification and also attempts
+access-token revocation when provisioning fails. If Cloudflare does not confirm
+revocation,
+setup reports the
+[OAuth authorizations page](https://dash.cloudflare.com/profile/oauth-authorizations)
+for manual recovery.
+
+Cloudflare's documented consent screen selects accounts, not one exact DNS
+zone. In an account containing other sensitive zones, choose the manual
+exact-zone token path instead.
+
+## New installation path
+
+For a new Docker installation, start locally with the trusted host agent:
+
+```powershell
+npm run setup -- --mode docker --real --start --install-update-agent --no-cloudflare --yes
+```
+
+Open `http://127.0.0.1:8080`, create the first Owner, then use **Stugbys → Set
+up secure sharing**. Enter the hostname, DNS zone, recovery email, one-time
+OAuth Client Write bootstrap token, and the separate narrow runtime token.
+Account and zone IDs are advanced fields used only when discovery is ambiguous.
+
+## Existing installation path
+
+After installing the release and refreshing a pre-feature host agent once,
+open the local Stugby page. Stuga detects the current hostname, account, zone,
+and retained runtime token. Paste only the one-time OAuth Client Write token,
+approve Cloudflare consent, and leave the page open while Stuga applies and
+verifies the coordinator. No terminal Cloudflare provisioning or manually
+created OAuth client is required.
+
+## CLI guided fallback
+
+`npm run setup` still supports interactive Cloudflare provisioning and
+protected token files for recovery, automation, Podman, or installations
+without the trusted Docker host agent.
+
+The fallback hidden-paste path keeps token values out of command arguments,
+shell history, logs, and `.env`. The wizard provisions Access before public
+ingress, writes the retained runtime files under ignored
+`secrets/cloudflare/`, recreates `api`, `web`, and `cloudflared`, and retries
+the external verifier while DNS/Tunnel state converges. If verification does
+not pass, it stops `cloudflared` automatically. It also pins
+`BIND_ADDRESS=127.0.0.1`; the loopback URL remains available for recovery.
 
 Preview the complete plan without reading tokens or changing local/provider
 state:
@@ -126,10 +233,11 @@ npm run setup -- --mode docker --real `
   --dry-run --yes
 ```
 
-For non-interactive automation, remove `--dry-run` and add both
+For unattended automation, remove `--dry-run` and add both
 `--cloudflare-provision-token-file` and
 `--cloudflare-access-token-file`. Token values themselves are never CLI
-options. Use `--cloudflare stugby-coordinator` only on the node that will create
+options. OAuth always requires an account owner to approve the browser consent
+screen. Use `--cloudflare stugby-coordinator` only on the node that will create
 the Stugby.
 
 ## Manual provision
@@ -175,11 +283,21 @@ npm run cloudflare:verify
 
 ### Provision a Stugby coordinator
 
-Use the coordinator command instead when this Stuga will create and coordinate
-a Stugby:
+When this Stuga will create and coordinate a Stugby, use the guided command:
 
 ```powershell
-npm run cloudflare:provision-coordinator -- `
+npm run cloudflare:provision-coordinator
+```
+
+It reuses an existing hostname and runtime approval when possible, asks only
+for missing information, starts the affected services, and verifies the public
+boundary before it succeeds.
+
+For unattended infrastructure automation, the low-level command remains
+available explicitly:
+
+```powershell
+npm run cloudflare:provision-coordinator:advanced -- `
   --hostname stugby.example.com `
   --zone example.com `
   --owner-email edge-owner@example.com `
@@ -242,15 +360,17 @@ Cloudflare login identities, not a private local Stuga name unless that address
 can actually receive one-time PINs. Rerunning the provisioner with the original
 hostname and the desired `--owner-email` also writes the field safely.
 
-An existing remote-UI deployment becomes a coordinator by rerunning the same
-inputs with `provision-coordinator`. The script upgrades `deployment.json`,
-adds the exact machine-path application and policy, and writes
-`STUGBY_PUBLIC_ORIGIN`; it does not delete or replace unrelated resources.
-Recreate `api`, `web`, and `cloudflared`, then run `verify-coordinator` before
-creating invitations. When a Stugby was created on loopback and no remote node
-has joined, startup safely pins it to the configured origin and revokes its old
-origin-bound invitations; create fresh invitations after verification. An
-established Stugby is not silently moved to another origin.
+For an existing remote-UI deployment, open the local **Stugbys** page. It
+detects the current address and retained, narrowly scoped runtime token,
+creates or reuses the private OAuth client, requests one temporary Cloudflare
+approval, adds only the exact machine-path application and policy, recreates
+the affected services, verifies the result, and revokes the OAuth access
+token. `npm run setup` remains a recovery fallback. Neither path deletes or
+replaces unrelated resources. When a
+Stugby was created on loopback and no remote node has joined, startup safely
+pins it to the configured origin and revokes its old origin-bound invitations;
+create fresh invitations after verification. An established Stugby is not
+silently moved to another origin.
 
 ## Rotation, recovery, and rollback
 

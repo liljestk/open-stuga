@@ -502,6 +502,82 @@ const localAuthPaths = {
       },
     },
   },
+  "/cloudflare/setup": {
+    get: {
+      tags: ["Context"],
+      operationId: "getCloudflareSetupStatus",
+      description: "Owner/Admin status for UI-managed Cloudflare setup. Sensitive changes remain local-machine-only.",
+      security: [{ localSession: [] }],
+      responses: {
+        "200": spatialJsonResponse("Cloudflare setup capability, configuration summary, and operation state.", { type: "object", additionalProperties: true }),
+        "403": { description: "Owner or Admin role required" },
+      },
+    },
+  },
+  "/cloudflare/setup/start": {
+    post: {
+      tags: ["Context"],
+      operationId: "startCloudflareSetup",
+      description: "From the local Stuga UI, registers or reuses a PKCE OAuth client and begins one-time Cloudflare approval.",
+      security: [{ localSession: [], csrfToken: [] }],
+      requestBody: spatialRequestBody({
+        type: "object",
+        additionalProperties: false,
+        required: ["mode", "hostname", "zone", "ownerEmail"],
+        properties: {
+          mode: { enum: ["remote-ui", "stugby-coordinator"] },
+          hostname: { type: "string", format: "hostname" },
+          zone: { type: "string", format: "hostname" },
+          ownerEmail: { type: "string", format: "email" },
+          accountId: { type: ["string", "null"], pattern: "^[a-fA-F0-9]{32}$" },
+          zoneId: { type: ["string", "null"], pattern: "^[a-fA-F0-9]{32}$" },
+          oauthClientToken: { type: ["string", "null"], writeOnly: true },
+          runtimeToken: { type: ["string", "null"], writeOnly: true },
+        },
+      }),
+      responses: {
+        "202": spatialJsonResponse("Cloudflare authorization URL and non-secret operation state.", { type: "object", additionalProperties: true }),
+        "403": { description: "Owner/Admin role and local-machine access required" },
+        "409": { description: "Another setup operation is active or the existing deployment conflicts" },
+        "503": { description: "Trusted host agent unavailable" },
+      },
+    },
+  },
+  "/cloudflare/setup/oauth/callback": {
+    get: {
+      tags: ["Context"],
+      operationId: "completeCloudflareSetupOAuth",
+      description: "Exact loopback OAuth callback protected by cryptographic state and PKCE.",
+      security: [],
+      responses: {
+        "200": { description: "Approval accepted and queued.", content: { "text/html": { schema: { type: "string" } } } },
+        "400": { description: "Approval was refused, expired, or did not match an active setup" },
+      },
+    },
+  },
+  "/internal/cloudflare-setup/claims/{id}": {
+    parameters: [{ $ref: "#/components/parameters/Id" }],
+    get: {
+      tags: ["Context"],
+      operationId: "claimCloudflareSetupCredentials",
+      description: "Internal one-time in-memory credential handoff to the trusted host agent. The bundled web proxy blocks this path.",
+      security: [],
+      responses: {
+        "200": spatialJsonResponse("One-time setup claim.", {
+          type: "object",
+          additionalProperties: false,
+          required: ["schema", "provisionToken", "accessToken", "oauthClientId"],
+          properties: {
+            schema: { const: "stuga-cloudflare-setup-claim/v1" },
+            provisionToken: { type: "string", writeOnly: true },
+            accessToken: { type: "string", writeOnly: true },
+            oauthClientId: { type: "string" },
+          },
+        }),
+        "404": { description: "Claim absent, expired, already consumed, or incorrectly authorized" },
+      },
+    },
+  },
 } as const;
 
 const localAuthSchemas = {
@@ -600,6 +676,7 @@ const stugbyPaths = {
     get: { tags: ["Stugby"], operationId: "listStugbys", responses: { "200": jsonResponse("Local node identity, server-owned coordinator origin, and joined Stugbys.", stugbyObject) } },
     post: { tags: ["Stugby"], operationId: "createStugby", description: "Creates a coordinator-led federation at the server-owned STUGBY_PUBLIC_ORIGIN. Joining or creating shares no Home data.", requestBody: jsonRequestBody({ type: "object", additionalProperties: false, required: ["name"], properties: { name: { type: "string", maxLength: 200 }, description: { type: ["string", "null"] } } }), responses: { "201": jsonResponse("Created Stugby.", stugbyObject), "503": { description: "A public coordinator origin is not configured" } } },
   },
+  "/stugbys/configuration": { put: { tags: ["Stugby"], operationId: "configureStugbyCoordinator", description: "Verifies and saves the server-owned public HTTPS coordinator origin when deployment configuration did not provide one.", requestBody: jsonRequestBody({ type: "object", additionalProperties: false, required: ["publicOrigin"], properties: { publicOrigin: { type: "string", format: "uri" } } }), responses: { "200": jsonResponse("Verified and saved coordinator configuration.", { type: "object", required: ["publicOrigin"], properties: { publicOrigin: { type: "string", format: "uri" } } }), "409": { description: "The origin is deployment-managed or already pinned by an established Stugby" }, "422": { description: "The secure Stuga address could not be reached and verified" } } } },
   "/stugbys/join": { post: { tags: ["Stugby"], operationId: "joinStugby", description: "Consumes a one-time node invitation. No dataset is shared by joining.", requestBody: jsonRequestBody({ type: "object", additionalProperties: false, required: ["coordinatorUrl", "invitationId", "joinSecret"], properties: { coordinatorUrl: { type: "string", format: "uri" }, invitationId: { type: "string" }, joinSecret: { type: "string", writeOnly: true } } }), responses: { "201": jsonResponse("Joined Stugby.", stugbyObject) } } },
   "/stugbys/{stugbyId}": { parameters: [stugbyIdParameter], get: { tags: ["Stugby"], operationId: "getStugby", responses: { "200": jsonResponse("Roster, grants, common property and read-only remote projections.", stugbyObject) } }, delete: { tags: ["Stugby"], operationId: "deleteStugby", description: "Permanently removes local federation state after memberships, grants, and replica-deletion acknowledgements are closed. Local Home data is unchanged.", responses: { "204": { description: "Stugby deleted from this Stuga" }, "409": { description: "Membership, sharing, or deletion obligations remain active" } } } },
   "/stugbys/{stugbyId}/invitations": { parameters: [stugbyIdParameter], post: { tags: ["Stugby"], operationId: "createStugbyInvitation", requestBody: jsonRequestBody({ type: "object", required: ["role"], properties: { role: { enum: ["property-manager", "participant", "viewer"] }, expiresAt: { type: "string", format: "date-time" } } }), responses: { "201": jsonResponse("One-time invitation; its join secret is returned only once.", stugbyObject), "503": { description: "The configured coordinator origin is unavailable or does not match this Stugby" } } } },

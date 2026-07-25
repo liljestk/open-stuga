@@ -18,6 +18,31 @@ plane. Merely running Stuga, creating a Stugby, or joining one shares no Home
 data. Local owners and administrators configure explicit grants in
 **Workspace > Stugbys**.
 
+## Create the secure coordinator
+
+Open Stuga on the coordinator computer through its loopback URL, then go to
+**Stugbys**:
+
+- On a new local installation, choose **Set up secure sharing** before creating
+  the Stugby.
+- On an existing Cloudflare remote-UI installation, the same panel appears
+  automatically because the machine protocol path still needs provisioning.
+
+The panel collects the hostname, zone, Cloudflare recovery identity, and—when
+Stuga has not registered one yet—one API token with **OAuth Client Write** for
+the account. Stuga uses that token once to create a private OAuth client and
+does not save it. Cloudflare consent supplies the temporary Access, Tunnel,
+DNS, and optional Zone Read grant. A new installation also needs the separate
+narrow runtime token used to synchronize the managed Access group; an existing
+installation reuses it.
+
+The API keeps the temporary grant in memory. Its operation marker contains no
+Cloudflare provider token. The trusted host agent claims the grant once, calls
+the idempotent provisioner, restarts only `api`, `web`, and `cloudflared`,
+verifies public and protected paths, and revokes the temporary OAuth grant.
+Failure stops public ingress and leaves the loopback URL available. The public
+Stuga URL may show progress but cannot start or alter this operation.
+
 ## Hard boundary
 
 The protocol can share only these versioned datasets:
@@ -153,13 +178,13 @@ only to let an image arrive immediately before its signed event.
 
 ## Lifecycle
 
-1. Give the coordinator one externally reachable HTTPS origin. With the
-   bundled Cloudflare deployment, run `npm run cloudflare:provision-coordinator`
-   and start `cloudflared`. Participants remain outbound-only and need no
-   Tunnel or inbound port.
-2. Verify the coordinator boundary with
-   `npm run cloudflare:verify-coordinator`, then create the Stugby. Its origin
-   is server-owned and cannot be supplied by the browser.
+1. Run `npm run setup` on the coordinator and choose **Create a shared Stugby
+   for several homes**. Setup reuses an existing Stuga address when available,
+   provisions the required secure connection, and verifies it automatically.
+   Participants remain outbound-only and need no Tunnel or inbound port.
+2. Create the Stugby after setup reports that the connection is ready. With a
+   custom reverse proxy, the Owner/Admin form suggests the current secure
+   address and verifies it automatically before saving.
 3. Create a time-limited, one-use invitation with the intended role. Transfer
    the invitation link through a trusted channel.
 4. On the joining Stuga, paste the invitation link into **Workspace > Stugbys**.
@@ -195,8 +220,18 @@ normal operation uses SSE wake-ups and the configured safety interval.
 | --- | --- | --- |
 | `STUGBY_IDENTITY_FILE` | beside the core SQLite database | Persistent node ID and Ed25519 key pair |
 | `STUGBY_NODE_NAME` | `Stuga` | Human-readable node name shown to participants |
-| `STUGBY_PUBLIC_ORIGIN` | empty | Server-owned HTTPS coordinator origin; required to create or admit members and written automatically by the coordinator provisioner |
+| `STUGBY_PUBLIC_ORIGIN` | empty | Optional explicit server-owned HTTPS coordinator origin; setup suggests a valid browser/edge origin and the coordinator provisioner writes it automatically |
 | `STUGBY_SYNC_INTERVAL_MS` | `15000` | Durable pull/outbox safety interval, 2–300 seconds |
+
+An explicit `STUGBY_PUBLIC_ORIGIN` is authoritative. Otherwise Stuga suggests
+a valid HTTPS `CORS_ORIGIN`, Cloudflare public origin, or current browser
+origin. For a custom reverse proxy, the Owner/Admin creation form checks and
+persists that suggestion in the core SQLite database without a restart.
+When Cloudflare is configured for the human UI only, Stuga keeps creation
+unavailable and gives plain guidance to reopen setup. Setup detects the
+existing address, reuses the retained runtime approval, and asks only for one
+temporary Cloudflare approval before provisioning and verification. Deployment
+configuration cannot be replaced through the UI.
 
 The Compose setup stores `stugby-identity.json` and federation SQLite rows in
 the existing `/app/data` volume. Keep the identity file owner-readable and back
@@ -218,6 +253,8 @@ protected by active membership, Ed25519 signatures, clock bounds, replay
 prevention, bounded bodies, and origin-side rate limits; it does not accept
 browser sessions or integration credentials. Cloudflare Access Bypass itself
 does not authenticate or log the machine request, so never broaden that path.
+Saving an origin in the UI cannot create this Cloudflare path policy; run and
+verify the provisioner before creating invitations.
 
 If an unjoined Stugby was first created through loopback, configuring the public
 origin and restarting Stuga repins that local-only coordinator automatically.
