@@ -14,7 +14,7 @@ const identity: StugbyListResponse["identity"] = {
   displayName: "Local Stuga",
   publicKey: "public",
   keyFingerprint: "fingerprint",
-  protocolVersion: "1.0",
+  protocolVersion: "2.0",
 };
 
 function summary(id: string, name: string): StugbySummary {
@@ -59,9 +59,18 @@ function detail(stugby: StugbySummary, grants: StugbyShareGrant[] = []): StugbyD
       equipment: [],
       notes: [],
       maintenance: [],
+      editPolicy: "collaborative",
+      authorityEpoch: 1,
+      designatedSuccessorNodeId: null,
       revision: 1,
       updatedAt: "2026-07-23T06:00:00.000Z",
     },
+    propertyAdoption: null,
+    propertyConflicts: [],
+    propertyCommandCounts: { pending: 0, conflicts: 0 },
+    homeCommandCounts: { pending: 0, conflicts: 0 },
+    homeProjections: [],
+    authorityTransfers: [],
     remoteResources: [],
     deletionReceipts: [],
     audit: [],
@@ -188,7 +197,7 @@ describe("StugbyPage", () => {
       .toBe("http://127.0.0.1:8080/stugbys");
   });
 
-  it("makes the enforced read-only federation boundary explicit before onboarding", async () => {
+  it("makes the deliberate federation boundary explicit before onboarding", async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -198,15 +207,16 @@ describe("StugbyPage", () => {
           displayName: "Local Stuga",
           publicKey: "public",
           keyFingerprint: "fingerprint",
-          protocolVersion: "1.0",
+          protocolVersion: "2.0",
         },
         publicOrigin: "https://stuga.example.test",
         stugbys: [],
       }),
     } as Response);
     render(<I18nProvider><StugbyPage houses={[]} /></I18nProvider>);
-    expect(await screen.findByRole("heading", { name: "A read-only sharing boundary" })).toBeTruthy();
-    expect(screen.getByText(/Integration settings, endpoints, credentials, secrets, local account identities, remote control, commands and automations cannot be federated/)).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "A deliberate sharing boundary" })).toBeTruthy();
+    expect(screen.getByText(/Shared Homes are read-only unless their owner enables edits/)).toBeTruthy();
+    expect(screen.getByText(/Integration settings, endpoints, credentials, secrets, account identities, controls and automations are never shared/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Join without sharing" })).toBeTruthy();
   });
 
@@ -316,6 +326,11 @@ describe("StugbyPage", () => {
     expect(input.localHouseId).toBe("home-1");
     expect(input.audience).toEqual({ kind: "all-members", nodeIds: [] });
     expect(input.expiresAt).toBeNull();
+    expect(input.housePolicy).toEqual({
+      editPolicy: "read-only",
+      recoveryMode: "none",
+      designatedSuccessorNodeId: null,
+    });
     expect(input.datasets.map((dataset) => dataset.dataset)).toEqual([
       "home.directory.v1",
       "home.structure.v1",
@@ -334,6 +349,11 @@ describe("StugbyPage", () => {
       publicationId: "publication-a",
       localHouseId: "home-1",
       audience: { kind: "all-members", nodeIds: [] },
+      housePolicy: {
+        editPolicy: "read-only",
+        recoveryMode: "none",
+        designatedSuccessorNodeId: null,
+      },
       datasets: [{
         dataset: "home.location.v1",
         enabled: true,

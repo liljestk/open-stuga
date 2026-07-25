@@ -7,9 +7,15 @@ import {
   type StugbyDataset,
   type StugbyDeletionReceipt,
   type StugbyInvitation,
+  type StugbyHomeCommand,
+  type StugbyHomeCommandResult,
   type StugbyMember,
   type StugbyMemberState,
   type StugbyNodeIdentity,
+  type StugbyPropertyCommand,
+  type StugbyPropertyCommandResult,
+  type StugbyPropertyConflict,
+  type StugbyPropertyEntityKind,
   type StugbyRemoteResource,
   type StugbyRole,
   type StugbyShareGrant,
@@ -92,6 +98,71 @@ export interface StugbyEventLogPage {
   hasMore: boolean;
 }
 
+export interface StugbyPropertyAdoption {
+  stugbyId: string;
+  localPropertyId: string;
+  state: "adopted" | "detached";
+  adoptedAt: string;
+  detachedAt: string | null;
+  lastMaterializedRevision: number;
+}
+
+export interface StugbyStoredPropertyCommand {
+  command: StugbyPropertyCommand;
+  status: "pending" | "applied" | "conflict" | "cancelled";
+  result: StugbyPropertyCommandResult | null;
+  attempts: number;
+  nextAttemptAt: string;
+  updatedAt: string;
+}
+
+export interface StugbyStoredHomeCommand {
+  command: StugbyHomeCommand;
+  status: "pending" | "applied" | "conflict" | "cancelled";
+  result: StugbyHomeCommandResult | null;
+  attempts: number;
+  nextAttemptAt: string;
+  updatedAt: string;
+}
+
+type ProjectionResourceType =
+  | "area" | "equipment" | "note" | "maintenance"
+  | "home" | "floor" | "room" | "wall" | "plan-element" | "sensor"
+  | "home-note" | "observation" | "asset";
+
+type PublicationResourceType =
+  | "home" | "floor" | "room" | "wall" | "plan-element" | "sensor" | "note" | "observation";
+
+export interface StugbyHomeProjection {
+  stugbyId: string;
+  authorityNodeId: string;
+  publicationId: string;
+  localHouseId: string;
+  editPolicy: "read-only" | "editable";
+  recoveryMode: "none" | "full";
+  recoveryState: "not-enabled" | "syncing" | "ready" | "incomplete";
+  designatedSuccessorNodeId: string | null;
+  recoverySyncedThrough: string | null;
+  authorityEpoch: number;
+  detachedAt: string | null;
+  updatedAt: string;
+}
+
+export interface StugbyAuthorityTransfer {
+  id: string;
+  stugbyId: string;
+  scope: "property" | "home";
+  resourceId: string;
+  fromNodeId: string;
+  toNodeId: string;
+  fromEpoch: number;
+  toEpoch: number;
+  status: "prepared" | "completed" | "cancelled";
+  snapshotHash: string;
+  requestedAt: string;
+  completedAt: string | null;
+}
+
 export type StugbyInvitationAdmission =
   | {
     status: "accepted";
@@ -150,6 +221,34 @@ function invitationFromRow(row: InvitationRow): StugbyInvitation {
 
 function boundedLimit(value: number | undefined, fallback: number, maximum: number): number {
   return Number.isSafeInteger(value) && value! > 0 ? Math.min(value!, maximum) : fallback;
+}
+
+function resourceBlobDigests(schemaName: string, payload: unknown): string[] {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+  const value = payload as Record<string, unknown>;
+  if (schemaName === "home.floorplan.v1") {
+    if (!Array.isArray(value.assets)) return [];
+    return value.assets.flatMap((asset) => {
+      if (!asset || typeof asset !== "object" || Array.isArray(asset)) return [];
+      const image = (asset as Record<string, unknown>).image;
+      if (!image || typeof image !== "object" || Array.isArray(image)) return [];
+      const digest = (image as Record<string, unknown>).digest;
+      return typeof digest === "string" ? [digest] : [];
+    });
+  }
+  if (schemaName === "home.recovery.v1" && value.kind === "assets") {
+    if (!Array.isArray(value.records)) return [];
+    return value.records.flatMap((record) => {
+      if (!record || typeof record !== "object" || Array.isArray(record)) return [];
+      const digest = (record as Record<string, unknown>).digest;
+      return typeof digest === "string" ? [digest] : [];
+    });
+  }
+  return [];
+}
+
+function eventBlobDigests(event: StugbySignedEvent): string[] {
+  return event.operation === "upsert" ? resourceBlobDigests(event.schema, event.payload) : [];
 }
 
 export class StugbyStore {
@@ -261,6 +360,127 @@ export class StugbyStore {
         updated_at TEXT NOT NULL,
         FOREIGN KEY (stugby_id) REFERENCES stugby_federations(id) ON DELETE CASCADE
       );
+      CREATE TABLE IF NOT EXISTS stugby_property_adoptions (
+        stugby_id TEXT PRIMARY KEY,
+        local_property_id TEXT NOT NULL UNIQUE,
+        state TEXT NOT NULL CHECK (state IN ('adopted','detached')),
+        adopted_at TEXT NOT NULL,
+        detached_at TEXT,
+        last_materialized_revision INTEGER NOT NULL CHECK (last_materialized_revision >= 0),
+        FOREIGN KEY (stugby_id) REFERENCES stugby_federations(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS stugby_property_commands (
+        id TEXT PRIMARY KEY,
+        stugby_id TEXT NOT NULL,
+        actor_node_id TEXT NOT NULL,
+        command_json TEXT NOT NULL CHECK (json_valid(command_json)),
+        status TEXT NOT NULL CHECK (status IN ('pending','applied','conflict','cancelled')),
+        result_json TEXT CHECK (result_json IS NULL OR json_valid(result_json)),
+        attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+        next_attempt_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (stugby_id) REFERENCES stugby_federations(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_stugby_property_commands_due
+        ON stugby_property_commands(stugby_id,status,next_attempt_at,created_at);
+      CREATE TABLE IF NOT EXISTS stugby_property_entity_fields (
+        stugby_id TEXT NOT NULL,
+        entity_kind TEXT NOT NULL CHECK (entity_kind IN ('property','area','equipment','note','maintenance')),
+        entity_id TEXT NOT NULL,
+        field_name TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        PRIMARY KEY (stugby_id,entity_kind,entity_id,field_name),
+        FOREIGN KEY (stugby_id) REFERENCES stugby_federations(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS stugby_property_conflicts (
+        command_id TEXT PRIMARY KEY,
+        stugby_id TEXT NOT NULL,
+        conflict_json TEXT NOT NULL CHECK (json_valid(conflict_json)),
+        detected_at TEXT NOT NULL,
+        resolved_at TEXT,
+        FOREIGN KEY (stugby_id) REFERENCES stugby_federations(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_stugby_property_conflicts_open
+        ON stugby_property_conflicts(stugby_id,resolved_at,detected_at DESC);
+      CREATE TABLE IF NOT EXISTS stugby_home_revisions (
+        stugby_id TEXT NOT NULL,
+        authority_node_id TEXT NOT NULL,
+        publication_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (stugby_id,authority_node_id,publication_id),
+        FOREIGN KEY (stugby_id) REFERENCES stugby_federations(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS stugby_home_commands (
+        id TEXT PRIMARY KEY,
+        stugby_id TEXT NOT NULL,
+        authority_node_id TEXT NOT NULL,
+        publication_id TEXT NOT NULL,
+        command_json TEXT NOT NULL CHECK (json_valid(command_json)),
+        status TEXT NOT NULL CHECK (status IN ('pending','applied','conflict','cancelled')),
+        result_json TEXT CHECK (result_json IS NULL OR json_valid(result_json)),
+        attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+        next_attempt_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (stugby_id,authority_node_id,publication_id),
+        FOREIGN KEY (stugby_id) REFERENCES stugby_federations(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_stugby_home_commands_due
+        ON stugby_home_commands(stugby_id,status,next_attempt_at,created_at);
+      CREATE TABLE IF NOT EXISTS stugby_projection_ids (
+        stugby_id TEXT NOT NULL,
+        authority_node_id TEXT NOT NULL,
+        resource_type TEXT NOT NULL CHECK (resource_type IN ('area','equipment','note','maintenance','home','floor','room','wall','plan-element','sensor','home-note','observation','asset')),
+        remote_id TEXT NOT NULL,
+        local_id TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (stugby_id,authority_node_id,resource_type,remote_id),
+        FOREIGN KEY (stugby_id) REFERENCES stugby_federations(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS stugby_home_projections (
+        stugby_id TEXT NOT NULL,
+        authority_node_id TEXT NOT NULL,
+        publication_id TEXT NOT NULL,
+        local_house_id TEXT NOT NULL UNIQUE,
+        edit_policy TEXT NOT NULL CHECK (edit_policy IN ('read-only','editable')),
+        recovery_mode TEXT NOT NULL CHECK (recovery_mode IN ('none','full')),
+        recovery_state TEXT NOT NULL CHECK (recovery_state IN ('not-enabled','syncing','ready','incomplete')),
+        designated_successor_node_id TEXT,
+        recovery_synced_through TEXT,
+        authority_epoch INTEGER NOT NULL CHECK (authority_epoch >= 1),
+        detached_at TEXT,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (stugby_id,authority_node_id,publication_id),
+        FOREIGN KEY (stugby_id) REFERENCES stugby_federations(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS stugby_authority_transfers (
+        id TEXT PRIMARY KEY,
+        stugby_id TEXT NOT NULL,
+        scope TEXT NOT NULL CHECK (scope IN ('property','home')),
+        resource_id TEXT NOT NULL,
+        from_node_id TEXT NOT NULL,
+        to_node_id TEXT NOT NULL,
+        from_epoch INTEGER NOT NULL CHECK (from_epoch >= 1),
+        to_epoch INTEGER NOT NULL CHECK (to_epoch > from_epoch),
+        status TEXT NOT NULL CHECK (status IN ('prepared','completed','cancelled')),
+        snapshot_hash TEXT NOT NULL CHECK (length(snapshot_hash) = 64),
+        requested_at TEXT NOT NULL,
+        completed_at TEXT,
+        FOREIGN KEY (stugby_id) REFERENCES stugby_federations(id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_stugby_authority_transfer_epoch
+        ON stugby_authority_transfers(stugby_id,scope,resource_id,to_epoch);
+      CREATE TABLE IF NOT EXISTS stugby_migration_snapshots (
+        id TEXT PRIMARY KEY,
+        stugby_id TEXT NOT NULL,
+        source_property_id TEXT NOT NULL,
+        target_property_id TEXT NOT NULL,
+        snapshot_json TEXT NOT NULL CHECK (json_valid(snapshot_json)),
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (stugby_id) REFERENCES stugby_federations(id) ON DELETE CASCADE
+      );
       CREATE TABLE IF NOT EXISTS stugby_remote_resources (
         stugby_id TEXT NOT NULL,
         authority_node_id TEXT NOT NULL,
@@ -348,7 +568,9 @@ export class StugbyStore {
       CREATE TABLE IF NOT EXISTS stugby_blob_metadata (
         digest TEXT PRIMARY KEY CHECK (length(digest) = 64),
         byte_length INTEGER NOT NULL,
-        media_type TEXT NOT NULL CHECK (media_type IN ('image/png','image/jpeg','image/webp')),
+        media_type TEXT NOT NULL CHECK (media_type IN (
+          'image/png','image/jpeg','image/webp','model/gltf+json','model/gltf-binary'
+        )),
         relative_path TEXT NOT NULL,
         created_at TEXT NOT NULL
       );
@@ -448,6 +670,9 @@ export class StugbyStore {
         equipment: [],
         notes: [],
         maintenance: [],
+        editPolicy: "collaborative",
+        authorityEpoch: 1,
+        designatedSuccessorNodeId: null,
         revision: 1,
         updatedAt: now,
       };
@@ -775,7 +1000,7 @@ export class StugbyStore {
       .run(grant.stugbyId, grant.publicationId, grant.authorityNodeId, grant.localHouseId ?? null, grant.publicationId, grant.updatedAt);
   }
 
-  publicationId(stugbyId: string, resourceType: "home" | "floor" | "room" | "wall" | "plan-element" | "sensor" | "note" | "observation", localId: string): string {
+  publicationId(stugbyId: string, resourceType: PublicationResourceType, localId: string): string {
     const existing = this.db.prepare(`SELECT publication_id FROM stugby_publication_ids
       WHERE stugby_id=? AND authority_node_id=? AND resource_type=? AND local_id=?`)
       .get(stugbyId, this.localNodeId, resourceType, localId) as { publication_id: string } | undefined;
@@ -834,6 +1059,475 @@ export class StugbyStore {
       WHERE excluded.revision > stugby_shared_properties.revision`)
       .run(property.stugbyId, property.revision, JSON.stringify(property), property.updatedAt);
     return this.getSharedProperty(property.stugbyId)!;
+  }
+
+  getPropertyAdoption(stugbyId: string): StugbyPropertyAdoption | null {
+    const row = this.db.prepare("SELECT * FROM stugby_property_adoptions WHERE stugby_id=?")
+      .get(stugbyId) as {
+        stugby_id: string;
+        local_property_id: string;
+        state: StugbyPropertyAdoption["state"];
+        adopted_at: string;
+        detached_at: string | null;
+        last_materialized_revision: number;
+      } | undefined;
+    return row ? {
+      stugbyId: row.stugby_id,
+      localPropertyId: row.local_property_id,
+      state: row.state,
+      adoptedAt: row.adopted_at,
+      detachedAt: row.detached_at,
+      lastMaterializedRevision: Number(row.last_materialized_revision),
+    } : null;
+  }
+
+  adoptProperty(stugbyId: string, localPropertyId: string, revision: number, now = new Date().toISOString()): StugbyPropertyAdoption {
+    const existing = this.getPropertyAdoption(stugbyId);
+    if (existing && existing.localPropertyId !== localPropertyId) {
+      throw new Error("This Stugby is already adopted by another local Property");
+    }
+    this.db.prepare(`INSERT INTO stugby_property_adoptions
+      (stugby_id,local_property_id,state,adopted_at,detached_at,last_materialized_revision)
+      VALUES (?,?,'adopted',?,NULL,?)
+      ON CONFLICT(stugby_id) DO UPDATE SET state='adopted',detached_at=NULL,
+        last_materialized_revision=MAX(stugby_property_adoptions.last_materialized_revision,excluded.last_materialized_revision)`)
+      .run(stugbyId, localPropertyId, now, revision);
+    return this.getPropertyAdoption(stugbyId)!;
+  }
+
+  releaseDetachedProperty(localPropertyId: string, exceptStugbyId: string): number {
+    return Number(this.db.prepare(`DELETE FROM stugby_property_adoptions
+      WHERE local_property_id=? AND stugby_id<>? AND state='detached'`)
+      .run(localPropertyId, exceptStugbyId).changes);
+  }
+
+  markPropertyMaterialized(stugbyId: string, revision: number): void {
+    this.db.prepare(`UPDATE stugby_property_adoptions
+      SET last_materialized_revision=MAX(last_materialized_revision,?) WHERE stugby_id=? AND state='adopted'`)
+      .run(revision, stugbyId);
+  }
+
+  detachProperty(stugbyId: string, now = new Date().toISOString()): StugbyPropertyAdoption {
+    const changed = this.db.prepare(`UPDATE stugby_property_adoptions
+      SET state='detached',detached_at=? WHERE stugby_id=? AND state='adopted'`).run(now, stugbyId);
+    if (Number(changed.changes) !== 1) throw new Error("An adopted Stugby Property was not found");
+    return this.getPropertyAdoption(stugbyId)!;
+  }
+
+  projectionId(
+    stugbyId: string,
+    authorityNodeId: string,
+    resourceType: ProjectionResourceType,
+    remoteId: string,
+    preferredLocalId?: string,
+  ): string {
+    const get = (): string | null => {
+      const row = this.db.prepare(`SELECT local_id FROM stugby_projection_ids
+        WHERE stugby_id=? AND authority_node_id=? AND resource_type=? AND remote_id=?`)
+        .get(stugbyId, authorityNodeId, resourceType, remoteId) as { local_id: string } | undefined;
+      return row?.local_id ?? null;
+    };
+    const existing = get();
+    if (existing) return existing;
+    const now = new Date().toISOString();
+    const insert = (localId: string): boolean => {
+      try {
+        this.db.prepare(`INSERT INTO stugby_projection_ids
+          (stugby_id,authority_node_id,resource_type,remote_id,local_id,created_at) VALUES (?,?,?,?,?,?)`)
+          .run(stugbyId, authorityNodeId, resourceType, remoteId, localId, now);
+        return true;
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("UNIQUE constraint failed")) return false;
+        throw error;
+      }
+    };
+    if (preferredLocalId && insert(preferredLocalId)) return preferredLocalId;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const localId = randomUUID();
+      if (insert(localId)) return localId;
+      const concurrent = get();
+      if (concurrent) return concurrent;
+    }
+    throw new Error("Could not allocate a local Stugby projection id");
+  }
+
+  listProjectionIds(
+    stugbyId: string,
+    authorityNodeId: string,
+    resourceType: ProjectionResourceType,
+  ): Array<{ remoteId: string; localId: string }> {
+    const rows = this.db.prepare(`SELECT remote_id,local_id FROM stugby_projection_ids
+      WHERE stugby_id=? AND authority_node_id=? AND resource_type=? ORDER BY remote_id`)
+      .all(stugbyId, authorityNodeId, resourceType) as Array<{ remote_id: string; local_id: string }>;
+    return rows.map((row) => ({ remoteId: row.remote_id, localId: row.local_id }));
+  }
+
+  projectionRemoteId(
+    stugbyId: string,
+    authorityNodeId: string,
+    resourceType: ProjectionResourceType,
+    localId: string,
+  ): string {
+    const existing = this.db.prepare(`SELECT remote_id FROM stugby_projection_ids
+      WHERE stugby_id=? AND authority_node_id=? AND resource_type=? AND local_id=?`)
+      .get(stugbyId, authorityNodeId, resourceType, localId) as { remote_id: string } | undefined;
+    if (existing) return existing.remote_id;
+    const remoteId = randomUUID();
+    const allocated = this.projectionId(stugbyId, authorityNodeId, resourceType, remoteId, localId);
+    if (allocated !== localId) throw new Error("Could not bind the local Home item to its shared id");
+    return remoteId;
+  }
+
+  publicationLocalId(
+    stugbyId: string,
+    authorityNodeId: string,
+    resourceType: PublicationResourceType,
+    publicationId: string,
+    create = false,
+  ): string | null {
+    const existing = this.db.prepare(`SELECT local_id FROM stugby_publication_ids
+      WHERE stugby_id=? AND authority_node_id=? AND resource_type=? AND publication_id=?`)
+      .get(stugbyId, authorityNodeId, resourceType, publicationId) as { local_id: string } | undefined;
+    if (existing) return existing.local_id;
+    if (!create) return null;
+    const localId = randomUUID();
+    this.db.prepare(`INSERT INTO stugby_publication_ids
+      (stugby_id,authority_node_id,resource_type,local_id,publication_id,created_at) VALUES (?,?,?,?,?,?)`)
+      .run(stugbyId, authorityNodeId, resourceType, localId, publicationId, new Date().toISOString());
+    return localId;
+  }
+
+  enqueuePropertyCommand(command: StugbyPropertyCommand): StugbyStoredPropertyCommand {
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT INTO stugby_property_commands
+      (id,stugby_id,actor_node_id,command_json,status,result_json,attempts,next_attempt_at,created_at,updated_at)
+      VALUES (?,?,?,?,'pending',NULL,0,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET command_json=excluded.command_json,
+        attempts=0,next_attempt_at=excluded.next_attempt_at,updated_at=excluded.updated_at
+      WHERE stugby_property_commands.status='pending'`)
+      .run(command.id, command.stugbyId, command.actorNodeId, JSON.stringify(command), now, command.createdAt, now);
+    return this.getPropertyCommand(command.id)!;
+  }
+
+  pendingPropertyCommandFor(
+    stugbyId: string,
+    actorNodeId: string,
+    entityKind: StugbyPropertyEntityKind,
+    entityId: string,
+  ): StugbyStoredPropertyCommand | null {
+    const row = this.db.prepare(`SELECT id FROM stugby_property_commands
+      WHERE stugby_id=? AND actor_node_id=? AND status='pending'
+        AND json_extract(command_json,'$.entityKind')=?
+        AND json_extract(command_json,'$.entityId')=?
+      ORDER BY created_at DESC,id DESC LIMIT 1`)
+      .get(stugbyId, actorNodeId, entityKind, entityId) as { id: string } | undefined;
+    return row ? this.getPropertyCommand(row.id) : null;
+  }
+
+  getPropertyCommand(commandId: string): StugbyStoredPropertyCommand | null {
+    const row = this.db.prepare("SELECT * FROM stugby_property_commands WHERE id=?").get(commandId) as {
+      command_json: string;
+      status: StugbyStoredPropertyCommand["status"];
+      result_json: string | null;
+      attempts: number;
+      next_attempt_at: string;
+      updated_at: string;
+    } | undefined;
+    return row ? {
+      command: JSON.parse(row.command_json) as StugbyPropertyCommand,
+      status: row.status,
+      result: row.result_json ? JSON.parse(row.result_json) as StugbyPropertyCommandResult : null,
+      attempts: Number(row.attempts),
+      nextAttemptAt: row.next_attempt_at,
+      updatedAt: row.updated_at,
+    } : null;
+  }
+
+  pendingPropertyCommands(stugbyId: string, limit = 100): StugbyStoredPropertyCommand[] {
+    const rows = this.db.prepare(`SELECT id FROM stugby_property_commands
+      WHERE stugby_id=? AND status='pending' AND next_attempt_at<=?
+      ORDER BY created_at,id LIMIT ?`).all(stugbyId, new Date().toISOString(), boundedLimit(limit, 100, 250)) as Array<{ id: string }>;
+    return rows.flatMap((row) => {
+      const command = this.getPropertyCommand(row.id);
+      return command ? [command] : [];
+    });
+  }
+
+  propertyCommandCounts(stugbyId: string): { pending: number; conflicts: number } {
+    const row = this.db.prepare(`SELECT
+      SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
+      SUM(CASE WHEN status='conflict' THEN 1 ELSE 0 END) AS conflicts
+      FROM stugby_property_commands WHERE stugby_id=?`).get(stugbyId) as { pending: number | null; conflicts: number | null };
+    return { pending: Number(row.pending ?? 0), conflicts: Number(row.conflicts ?? 0) };
+  }
+
+  deferPropertyCommand(commandId: string, attempts: number, nextAttemptAt: string): void {
+    this.db.prepare(`UPDATE stugby_property_commands SET attempts=?,next_attempt_at=?,updated_at=?
+      WHERE id=? AND status='pending'`).run(attempts, nextAttemptAt, new Date().toISOString(), commandId);
+  }
+
+  cancelPendingPropertyCommands(stugbyId: string, now = new Date().toISOString()): number {
+    return Number(this.db.prepare(`UPDATE stugby_property_commands SET status='cancelled',updated_at=?
+      WHERE stugby_id=? AND status='pending'`).run(now, stugbyId).changes);
+  }
+
+  completePropertyCommand(result: StugbyPropertyCommandResult): StugbyStoredPropertyCommand {
+    const now = new Date().toISOString();
+    const changed = this.db.prepare(`UPDATE stugby_property_commands
+      SET status=?,result_json=?,updated_at=? WHERE id=?`)
+      .run(result.status, JSON.stringify(result), now, result.commandId);
+    if (Number(changed.changes) !== 1) throw new Error("Property command was not found");
+    if (result.conflict) {
+      this.db.prepare(`INSERT INTO stugby_property_conflicts
+        (command_id,stugby_id,conflict_json,detected_at,resolved_at) VALUES (?,?,?,?,NULL)
+        ON CONFLICT(command_id) DO UPDATE SET conflict_json=excluded.conflict_json,
+          detected_at=excluded.detected_at,resolved_at=NULL`)
+        .run(result.commandId, result.property.stugbyId, JSON.stringify(result.conflict), result.conflict.detectedAt);
+    }
+    return this.getPropertyCommand(result.commandId)!;
+  }
+
+  homeRevision(stugbyId: string, authorityNodeId: string, publicationId: string): number {
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT OR IGNORE INTO stugby_home_revisions
+      (stugby_id,authority_node_id,publication_id,revision,updated_at) VALUES (?,?,?,1,?)`)
+      .run(stugbyId, authorityNodeId, publicationId, now);
+    return Number((this.db.prepare(`SELECT revision FROM stugby_home_revisions
+      WHERE stugby_id=? AND authority_node_id=? AND publication_id=?`)
+      .get(stugbyId, authorityNodeId, publicationId) as { revision: number }).revision);
+  }
+
+  bumpHomeRevision(stugbyId: string, authorityNodeId: string, publicationId: string): number {
+    this.homeRevision(stugbyId, authorityNodeId, publicationId);
+    this.db.prepare(`UPDATE stugby_home_revisions SET revision=revision+1,updated_at=?
+      WHERE stugby_id=? AND authority_node_id=? AND publication_id=?`)
+      .run(new Date().toISOString(), stugbyId, authorityNodeId, publicationId);
+    return this.homeRevision(stugbyId, authorityNodeId, publicationId);
+  }
+
+  pendingHomeCommandFor(
+    stugbyId: string,
+    authorityNodeId: string,
+    publicationId: string,
+  ): StugbyStoredHomeCommand | null {
+    const row = this.db.prepare(`SELECT id FROM stugby_home_commands
+      WHERE stugby_id=? AND authority_node_id=? AND publication_id=? AND status='pending'`)
+      .get(stugbyId, authorityNodeId, publicationId) as { id: string } | undefined;
+    return row ? this.getHomeCommand(row.id) : null;
+  }
+
+  enqueueHomeCommand(command: StugbyHomeCommand): StugbyStoredHomeCommand {
+    const now = new Date().toISOString();
+    this.db.prepare(`INSERT INTO stugby_home_commands
+      (id,stugby_id,authority_node_id,publication_id,command_json,status,result_json,attempts,next_attempt_at,created_at,updated_at)
+      VALUES (?,?,?,?,?,'pending',NULL,0,?,?,?)
+      ON CONFLICT(stugby_id,authority_node_id,publication_id) DO UPDATE SET
+        id=excluded.id,command_json=excluded.command_json,status='pending',result_json=NULL,
+        attempts=0,next_attempt_at=excluded.next_attempt_at,created_at=excluded.created_at,updated_at=excluded.updated_at`)
+      .run(command.id, command.stugbyId, command.authorityNodeId, command.publicationId,
+        JSON.stringify(command), now, command.createdAt, now);
+    return this.getHomeCommand(command.id)!;
+  }
+
+  getHomeCommand(commandId: string): StugbyStoredHomeCommand | null {
+    const row = this.db.prepare("SELECT * FROM stugby_home_commands WHERE id=?").get(commandId) as {
+      command_json: string;
+      status: StugbyStoredHomeCommand["status"];
+      result_json: string | null;
+      attempts: number;
+      next_attempt_at: string;
+      updated_at: string;
+    } | undefined;
+    return row ? {
+      command: JSON.parse(row.command_json) as StugbyHomeCommand,
+      status: row.status,
+      result: row.result_json ? JSON.parse(row.result_json) as StugbyHomeCommandResult : null,
+      attempts: Number(row.attempts),
+      nextAttemptAt: row.next_attempt_at,
+      updatedAt: row.updated_at,
+    } : null;
+  }
+
+  pendingHomeCommands(stugbyId: string, limit = 100): StugbyStoredHomeCommand[] {
+    const rows = this.db.prepare(`SELECT id FROM stugby_home_commands
+      WHERE stugby_id=? AND status='pending' AND next_attempt_at<=?
+      ORDER BY created_at,id LIMIT ?`).all(stugbyId, new Date().toISOString(), boundedLimit(limit, 100, 250)) as Array<{ id: string }>;
+    return rows.flatMap((row) => {
+      const command = this.getHomeCommand(row.id);
+      return command ? [command] : [];
+    });
+  }
+
+  homeCommandCounts(stugbyId: string): { pending: number; conflicts: number } {
+    const row = this.db.prepare(`SELECT
+      SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
+      SUM(CASE WHEN status='conflict' THEN 1 ELSE 0 END) AS conflicts
+      FROM stugby_home_commands WHERE stugby_id=?`).get(stugbyId) as { pending: number | null; conflicts: number | null };
+    return { pending: Number(row.pending ?? 0), conflicts: Number(row.conflicts ?? 0) };
+  }
+
+  homeCommandCountsFor(
+    stugbyId: string,
+    authorityNodeId: string,
+    publicationId: string,
+  ): { pending: number; conflicts: number } {
+    const row = this.db.prepare(`SELECT
+      SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
+      SUM(CASE WHEN status='conflict' THEN 1 ELSE 0 END) AS conflicts
+      FROM stugby_home_commands
+      WHERE stugby_id=? AND authority_node_id=? AND publication_id=?`)
+      .get(stugbyId, authorityNodeId, publicationId) as { pending: number | null; conflicts: number | null };
+    return { pending: Number(row.pending ?? 0), conflicts: Number(row.conflicts ?? 0) };
+  }
+
+  deferHomeCommand(commandId: string, attempts: number, nextAttemptAt: string): void {
+    this.db.prepare(`UPDATE stugby_home_commands SET attempts=?,next_attempt_at=?,updated_at=?
+      WHERE id=? AND status='pending'`).run(attempts, nextAttemptAt, new Date().toISOString(), commandId);
+  }
+
+  completeHomeCommand(result: StugbyHomeCommandResult): StugbyStoredHomeCommand {
+    const changed = this.db.prepare(`UPDATE stugby_home_commands SET status=?,result_json=?,updated_at=?
+      WHERE id=?`).run(result.status, JSON.stringify(result), new Date().toISOString(), result.commandId);
+    if (Number(changed.changes) !== 1) throw new Error("Home command was not found");
+    return this.getHomeCommand(result.commandId)!;
+  }
+
+  cancelPendingHomeCommands(stugbyId: string, now = new Date().toISOString()): number {
+    return Number(this.db.prepare(`UPDATE stugby_home_commands SET status='cancelled',updated_at=?
+      WHERE stugby_id=? AND status='pending'`).run(now, stugbyId).changes);
+  }
+
+  propertyFieldRevisions(stugbyId: string, entityKind: StugbyPropertyEntityKind, entityId: string): Record<string, number> {
+    const rows = this.db.prepare(`SELECT field_name,revision FROM stugby_property_entity_fields
+      WHERE stugby_id=? AND entity_kind=? AND entity_id=?`)
+      .all(stugbyId, entityKind, entityId) as Array<{ field_name: string; revision: number }>;
+    return Object.fromEntries(rows.map((row) => [row.field_name, Number(row.revision)]));
+  }
+
+  setPropertyFieldRevisions(
+    stugbyId: string,
+    entityKind: StugbyPropertyEntityKind,
+    entityId: string,
+    fields: readonly string[],
+    revision: number,
+  ): void {
+    const statement = this.db.prepare(`INSERT INTO stugby_property_entity_fields
+      (stugby_id,entity_kind,entity_id,field_name,revision) VALUES (?,?,?,?,?)
+      ON CONFLICT(stugby_id,entity_kind,entity_id,field_name) DO UPDATE SET revision=excluded.revision`);
+    for (const field of fields) statement.run(stugbyId, entityKind, entityId, field, revision);
+  }
+
+  listPropertyConflicts(stugbyId: string, includeResolved = false): StugbyPropertyConflict[] {
+    const rows = this.db.prepare(`SELECT conflict_json,resolved_at FROM stugby_property_conflicts
+      WHERE stugby_id=? ${includeResolved ? "" : "AND resolved_at IS NULL"}
+      ORDER BY detected_at DESC`).all(stugbyId) as Array<{ conflict_json: string; resolved_at: string | null }>;
+    return rows.map((row) => ({
+      ...JSON.parse(row.conflict_json) as StugbyPropertyConflict,
+      resolvedAt: row.resolved_at,
+    }));
+  }
+
+  resolvePropertyConflict(stugbyId: string, commandId: string, now = new Date().toISOString()): boolean {
+    return Number(this.db.prepare(`UPDATE stugby_property_conflicts SET resolved_at=?
+      WHERE stugby_id=? AND command_id=? AND resolved_at IS NULL`).run(now, stugbyId, commandId).changes) === 1;
+  }
+
+  saveMigrationSnapshot(
+    stugbyId: string,
+    sourcePropertyId: string,
+    targetPropertyId: string,
+    snapshot: JsonValue,
+    now = new Date().toISOString(),
+  ): string {
+    const id = randomUUID();
+    this.db.prepare(`INSERT INTO stugby_migration_snapshots
+      (id,stugby_id,source_property_id,target_property_id,snapshot_json,created_at) VALUES (?,?,?,?,?,?)`)
+      .run(id, stugbyId, sourcePropertyId, targetPropertyId, JSON.stringify(snapshot), now);
+    return id;
+  }
+
+  upsertHomeProjection(projection: StugbyHomeProjection): StugbyHomeProjection {
+    this.db.prepare(`INSERT INTO stugby_home_projections
+      (stugby_id,authority_node_id,publication_id,local_house_id,edit_policy,recovery_mode,recovery_state,
+       designated_successor_node_id,recovery_synced_through,authority_epoch,detached_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(stugby_id,authority_node_id,publication_id) DO UPDATE SET
+        local_house_id=excluded.local_house_id,edit_policy=excluded.edit_policy,recovery_mode=excluded.recovery_mode,
+        recovery_state=excluded.recovery_state,designated_successor_node_id=excluded.designated_successor_node_id,
+        recovery_synced_through=excluded.recovery_synced_through,authority_epoch=excluded.authority_epoch,
+        detached_at=excluded.detached_at,updated_at=excluded.updated_at`)
+      .run(projection.stugbyId, projection.authorityNodeId, projection.publicationId, projection.localHouseId,
+        projection.editPolicy, projection.recoveryMode, projection.recoveryState, projection.designatedSuccessorNodeId,
+        projection.recoverySyncedThrough, projection.authorityEpoch, projection.detachedAt, projection.updatedAt);
+    return this.getHomeProjection(projection.stugbyId, projection.authorityNodeId, projection.publicationId)!;
+  }
+
+  getHomeProjection(stugbyId: string, authorityNodeId: string, publicationId: string): StugbyHomeProjection | null {
+    const row = this.db.prepare(`SELECT * FROM stugby_home_projections
+      WHERE stugby_id=? AND authority_node_id=? AND publication_id=?`)
+      .get(stugbyId, authorityNodeId, publicationId) as {
+        stugby_id: string; authority_node_id: string; publication_id: string; local_house_id: string;
+        edit_policy: StugbyHomeProjection["editPolicy"]; recovery_mode: StugbyHomeProjection["recoveryMode"];
+        recovery_state: StugbyHomeProjection["recoveryState"]; designated_successor_node_id: string | null;
+        recovery_synced_through: string | null; authority_epoch: number; detached_at: string | null; updated_at: string;
+      } | undefined;
+    return row ? {
+      stugbyId: row.stugby_id,
+      authorityNodeId: row.authority_node_id,
+      publicationId: row.publication_id,
+      localHouseId: row.local_house_id,
+      editPolicy: row.edit_policy,
+      recoveryMode: row.recovery_mode,
+      recoveryState: row.recovery_state,
+      designatedSuccessorNodeId: row.designated_successor_node_id,
+      recoverySyncedThrough: row.recovery_synced_through,
+      authorityEpoch: Number(row.authority_epoch),
+      detachedAt: row.detached_at,
+      updatedAt: row.updated_at,
+    } : null;
+  }
+
+  listHomeProjections(stugbyId: string): StugbyHomeProjection[] {
+    const rows = this.db.prepare(`SELECT authority_node_id,publication_id FROM stugby_home_projections
+      WHERE stugby_id=? ORDER BY updated_at DESC`).all(stugbyId) as Array<{ authority_node_id: string; publication_id: string }>;
+    return rows.flatMap((row) => {
+      const projection = this.getHomeProjection(stugbyId, row.authority_node_id, row.publication_id);
+      return projection ? [projection] : [];
+    });
+  }
+
+  removeHomeProjection(stugbyId: string, authorityNodeId: string, publicationId: string): StugbyHomeProjection | null {
+    const existing = this.getHomeProjection(stugbyId, authorityNodeId, publicationId);
+    if (!existing) return null;
+    this.db.prepare(`DELETE FROM stugby_home_projections
+      WHERE stugby_id=? AND authority_node_id=? AND publication_id=?`)
+      .run(stugbyId, authorityNodeId, publicationId);
+    return existing;
+  }
+
+  saveAuthorityTransfer(transfer: StugbyAuthorityTransfer): StugbyAuthorityTransfer {
+    this.db.prepare(`INSERT INTO stugby_authority_transfers
+      (id,stugby_id,scope,resource_id,from_node_id,to_node_id,from_epoch,to_epoch,status,snapshot_hash,requested_at,completed_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET status=excluded.status,completed_at=excluded.completed_at`)
+      .run(transfer.id, transfer.stugbyId, transfer.scope, transfer.resourceId, transfer.fromNodeId, transfer.toNodeId,
+        transfer.fromEpoch, transfer.toEpoch, transfer.status, transfer.snapshotHash, transfer.requestedAt, transfer.completedAt);
+    return transfer;
+  }
+
+  listAuthorityTransfers(stugbyId: string): StugbyAuthorityTransfer[] {
+    const rows = this.db.prepare(`SELECT * FROM stugby_authority_transfers
+      WHERE stugby_id=? ORDER BY requested_at DESC`).all(stugbyId) as Array<{
+        id: string; stugby_id: string; scope: StugbyAuthorityTransfer["scope"]; resource_id: string;
+        from_node_id: string; to_node_id: string; from_epoch: number; to_epoch: number;
+        status: StugbyAuthorityTransfer["status"]; snapshot_hash: string; requested_at: string; completed_at: string | null;
+      }>;
+    return rows.map((row) => ({
+      id: row.id, stugbyId: row.stugby_id, scope: row.scope, resourceId: row.resource_id,
+      fromNodeId: row.from_node_id, toNodeId: row.to_node_id, fromEpoch: Number(row.from_epoch),
+      toEpoch: Number(row.to_epoch), status: row.status, snapshotHash: row.snapshot_hash,
+      requestedAt: row.requested_at, completedAt: row.completed_at,
+    }));
   }
 
   nextSequence(stugbyId: string, streamId: string): number {
@@ -1087,6 +1781,28 @@ export class StugbyStore {
       .all(...parameters) as unknown as Array<Record<string, string | number | null>>;
   }
 
+  remoteTelemetryCount(stugbyId: string, authorityNodeId: string, publicationId: string): number {
+    return Number((this.db.prepare(`SELECT count(*) AS count FROM stugby_remote_telemetry
+      WHERE stugby_id=? AND authority_node_id=? AND publication_id=?`)
+      .get(stugbyId, authorityNodeId, publicationId) as { count: number }).count);
+  }
+
+  promoteRecoveryTelemetry(stugbyId: string, authorityNodeId: string, publicationId: string): number {
+    const result = this.db.prepare(`INSERT OR IGNORE INTO measurement_samples
+      (sensor_id,metric,value,canonical_unit,timestamp,source,quality)
+      SELECT projection.local_id,remote.metric_id,remote.value,definition.unit,remote.timestamp,'import',remote.quality
+      FROM stugby_remote_telemetry remote
+      JOIN stugby_projection_ids projection
+        ON projection.stugby_id=remote.stugby_id
+       AND projection.authority_node_id=remote.authority_node_id
+       AND projection.resource_type='sensor'
+       AND projection.remote_id=remote.sensor_publication_id
+      JOIN measurement_definitions definition ON definition.id=remote.metric_id
+      WHERE remote.stugby_id=? AND remote.authority_node_id=? AND remote.publication_id=?`)
+      .run(stugbyId, authorityNodeId, publicationId);
+    return Number(result.changes);
+  }
+
   markRemoteStale(stugbyId: string): void {
     this.db.prepare("UPDATE stugby_remote_resources SET stale=1 WHERE stugby_id=?").run(stugbyId);
   }
@@ -1116,6 +1832,10 @@ export class StugbyStore {
         this.db.prepare("DELETE FROM stugby_remote_telemetry WHERE stugby_id=? AND grant_id=?").run(stugbyId, grant.id);
         continue;
       }
+      // A designated full-recovery replica is ownership-transfer material.
+      // Keep its complete archive for the lifetime of the active grant instead
+      // of aging out the oldest history before a planned decommission.
+      if (grant.housePolicy.recoveryMode === "full") continue;
       for (const dataset of grant.datasets) {
         if (!dataset.enabled || !dataset.allowReplicaCache || dataset.retentionDays === 0) {
           this.db.prepare("DELETE FROM stugby_remote_resources WHERE stugby_id=? AND grant_id=? AND schema_name=?")
@@ -1197,20 +1917,19 @@ export class StugbyStore {
     if (cursor <= 0) return [];
     const rows = this.db.prepare(`SELECT event_json FROM stugby_event_log
       WHERE stugby_id=? AND target_node_id=? AND cursor<=?`).all(stugbyId, nodeId, cursor) as unknown as Array<{ event_json: string }>;
-    const floorEvents = rows.map((row) => JSON.parse(row.event_json) as StugbySignedEvent)
-      .filter((event) => event.schema === "home.floorplan.v1" && event.operation === "upsert" && event.grantId && event.grantEpoch !== null);
+    const blobEvents = rows.map((row) => JSON.parse(row.event_json) as StugbySignedEvent)
+      .filter((event) => eventBlobDigests(event).length > 0 && event.grantId && event.grantEpoch !== null);
     const released = new Set<string>();
     this.db.exec("BEGIN IMMEDIATE");
     try {
       this.db.prepare("DELETE FROM stugby_event_log WHERE stugby_id=? AND target_node_id=? AND cursor<=?")
         .run(stugbyId, nodeId, cursor);
-      for (const event of floorEvents) {
-        const payload = event.payload as unknown as { assets: Array<{ image: { digest: string } }> };
-        for (const asset of payload.assets) {
+      for (const event of blobEvents) {
+        for (const digest of eventBlobDigests(event)) {
           this.db.prepare(`DELETE FROM stugby_blob_access
             WHERE stugby_id=? AND digest=? AND node_id=? AND grant_id=? AND grant_epoch=?`)
-            .run(stugbyId, asset.image.digest, nodeId, event.grantId, event.grantEpoch);
-          released.add(asset.image.digest);
+            .run(stugbyId, digest, nodeId, event.grantId, event.grantEpoch);
+          released.add(digest);
         }
       }
       this.db.exec("COMMIT");
@@ -1218,7 +1937,7 @@ export class StugbyStore {
       this.db.exec("ROLLBACK");
       throw error;
     }
-    for (const event of floorEvents) this.releaseRelayReferencesWithoutAccess(stugbyId, event.grantId!, event.grantEpoch!);
+    for (const event of blobEvents) this.releaseRelayReferencesWithoutAccess(stugbyId, event.grantId!, event.grantEpoch!);
     return [...released].filter((digest) => !this.hasBlobReferences(digest));
   }
 
@@ -1252,14 +1971,13 @@ export class StugbyStore {
 
   reconcileReplicaBlobReferences(stugbyId: string): string[] {
     const retained = new Set<string>();
-    const resources = this.db.prepare(`SELECT grant_id,grant_epoch,payload_json FROM stugby_remote_resources
-      WHERE stugby_id=? AND schema_name='home.floorplan.v1'`).all(stugbyId) as unknown as Array<{
-        grant_id: string; grant_epoch: number; payload_json: string;
+    const resources = this.db.prepare(`SELECT grant_id,grant_epoch,schema_name,payload_json FROM stugby_remote_resources
+      WHERE stugby_id=? AND schema_name IN ('home.floorplan.v1','home.recovery.v1')`).all(stugbyId) as unknown as Array<{
+        grant_id: string; grant_epoch: number; schema_name: string; payload_json: string;
       }>;
     for (const resource of resources) {
-      const payload = JSON.parse(resource.payload_json) as { assets?: Array<{ image?: { digest?: string } }> };
-      for (const asset of payload.assets ?? []) {
-        if (asset.image?.digest) retained.add(`${resource.grant_id}\n${resource.grant_epoch}\n${asset.image.digest}`);
+      for (const digest of resourceBlobDigests(resource.schema_name, JSON.parse(resource.payload_json))) {
+        retained.add(`${resource.grant_id}\n${resource.grant_epoch}\n${digest}`);
       }
     }
     const references = this.db.prepare(`SELECT digest,grant_id,grant_epoch FROM stugby_blob_references

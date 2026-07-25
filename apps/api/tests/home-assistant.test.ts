@@ -475,6 +475,134 @@ describe("Home Assistant normalization and state cache", () => {
     expect(wakeHouse).toHaveBeenCalledWith(house.id, house.propertyId, changed.observedAt, "property-context-changed");
   });
 
+  it("uses one sensor with direct TP-Link as the live primary and Home Assistant as failover", async () => {
+    temporaryDirectory = mkdtempSync(join(tmpdir(), "climate-twin-redundant-source-"));
+    const mappingPath = join(temporaryDirectory, "entities.json");
+    const helperPath = join(temporaryDirectory, "fake-redundant-tp-link-helper.mjs");
+    const offlineFlagPath = join(temporaryDirectory, "tp-link-offline");
+    writeFileSync(mappingPath, JSON.stringify({ entities: [{
+      sensorId: "sensor-01",
+      temperature: "sensor.redundant_temperature",
+      humidity: "sensor.redundant_humidity",
+    }] }));
+    writeFileSync(helperPath, `
+      import { existsSync } from "node:fs";
+      const offlineFlag = ${JSON.stringify(offlineFlagPath)};
+      const emit = (status) => process.stdout.write(JSON.stringify({
+        type: "snapshot",
+        timestamp: new Date().toISOString(),
+        hubModel: "H200",
+        devices: [{
+          deviceId: "redundant-t315",
+          model: "T315",
+          alias: "Redundant sensor",
+          status,
+          temperature: 21,
+          temperatureUnit: "celsius",
+          humidity: 45,
+          battery: 90
+        }]
+      }) + "\\n");
+      emit("online");
+      let offline = false;
+      setInterval(() => {
+        if (!offline && existsSync(offlineFlag)) {
+          offline = true;
+          emit("offline");
+        }
+      }, 10);
+    `);
+    server = new WebSocketServer({ port: 0, host: "127.0.0.1", path: "/api/websocket" });
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("HA test server did not bind");
+    let client: WebSocket | null = null;
+    server.on("connection", (socket) => {
+      client = socket;
+      socket.send(JSON.stringify({ type: "auth_required" }));
+      socket.on("message", (raw) => {
+        const message = JSON.parse(raw.toString()) as { id?: number; type?: string };
+        if (message.type === "auth") socket.send(JSON.stringify({ type: "auth_ok" }));
+        if (message.type === "subscribe_events") {
+          socket.send(JSON.stringify({ id: message.id, type: "result", success: true, result: null }));
+        }
+        if (message.type === "get_states") {
+          const timestamp = new Date().toISOString();
+          socket.send(JSON.stringify({
+            id: message.id,
+            type: "result",
+            success: true,
+            result: [
+              {
+                entity_id: "sensor.redundant_temperature",
+                state: "21",
+                last_updated: timestamp,
+                attributes: { unit_of_measurement: "\u00b0C" },
+              },
+              {
+                entity_id: "sensor.redundant_humidity",
+                state: "45",
+                last_updated: timestamp,
+                attributes: { unit_of_measurement: "%" },
+              },
+            ],
+          }));
+        }
+      });
+    });
+    const config: AppConfig = {
+      port: 0, apiHost: "127.0.0.1", databasePath: ":memory:",
+      integrationSecretsFile: join(temporaryDirectory, "secrets.json"), assetDirectory: temporaryDirectory,
+      mockEnabled: false, mockIntervalMs: 2_000, retentionDays: 730, ingestApiKey: null,
+      haUrl: `http://127.0.0.1:${address.port}`, haToken: "test-token", haEntityMapFile: mappingPath,
+      tpLinkHost: "192.0.2.10", tpLinkUsername: "local@example.test", tpLinkPassword: "secret",
+      tpLinkDeviceMapFile: null, tpLinkPollIntervalMs: 2_000,
+      tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
+      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+    };
+    runtime = createApi({ config, startBackground: false });
+    runtime.database.updateSensor("sensor-01", {
+      tpLinkDeviceId: "redundant-t315",
+      measurementEntityIds: {
+        temperature: "sensor.redundant_temperature",
+        humidity: "sensor.redundant_humidity",
+      },
+    });
+
+    runtime.tpLink.start();
+    await waitFor(() => runtime?.tpLink.isMetricAvailable("sensor-01", "temperature") === true);
+    runtime.homeAssistant.start();
+    await waitFor(() => runtime?.status.value.homeAssistant.connected === true);
+
+    const allHistory = () => runtime!.database.measurementHistory(
+      "sensor-01", "temperature", "2020-01-01T00:00:00Z", "2100-01-01T00:00:00Z", 100,
+    );
+    expect(allHistory().map((sample) => sample.source)).toEqual(["tp-link"]);
+
+    writeFileSync(offlineFlagPath, "offline");
+    await waitFor(() => runtime?.tpLink.isMetricAvailable("sensor-01", "temperature") === false);
+    const failoverTimestamp = new Date().toISOString();
+    client?.send(JSON.stringify({ type: "event", event: {
+      event_type: "state_changed",
+      time_fired: failoverTimestamp,
+      data: {
+        entity_id: "sensor.redundant_temperature",
+        new_state: {
+          entity_id: "sensor.redundant_temperature",
+          state: "22",
+          last_updated: failoverTimestamp,
+          attributes: { unit_of_measurement: "\u00b0C" },
+        },
+      },
+    } }));
+    await waitFor(() => allHistory().some((sample) => sample.source === "home-assistant" && sample.value === 22));
+    expect(runtime.database.listSensors().filter((sensor) => sensor.id === "sensor-01")).toHaveLength(1);
+    expect(runtime.database.getLatestMeasurementSample("sensor-01", "temperature")).toMatchObject({
+      source: "home-assistant",
+      value: 22,
+    });
+  });
+
   it("does not report connected or request a snapshot when the subscription is rejected", async () => {
     temporaryDirectory = mkdtempSync(join(tmpdir(), "climate-twin-ha-rejected-"));
     server = new WebSocketServer({ port: 0, host: "127.0.0.1", path: "/api/websocket" });

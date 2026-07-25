@@ -125,7 +125,8 @@ same Property and optional Home context.
 The permanent rail separates Workspace destinations from the selected
 Property and Home. Property contains its overview, map/assets, notes, and
 access sections; canonical Maintenance and Electricity contract management are
-Property-owned. Home contains indoor status, Sensors, and Set up. Legacy
+Property-owned. Home contains indoor status, Activity, Outdoor, Electricity
+use, Data & analytics, Sensors, and Set up. Legacy
 `/sites/{houseId}/...` links remain accepted and are redirected to canonical
 `/properties/{propertyId}/homes/{homeId}/...` routes.
 
@@ -136,7 +137,11 @@ The primary canonical destinations are:
 /properties/{propertyId}/maintenance
 /properties/{propertyId}/electricity
 /properties/{propertyId}/homes/{homeId}
+/properties/{propertyId}/homes/{homeId}/activity
+/properties/{propertyId}/homes/{homeId}/outdoor
+/properties/{propertyId}/homes/{homeId}/electricity
 /properties/{propertyId}/homes/{homeId}/sensors
+/properties/{propertyId}/homes/{homeId}/analytics
 /properties/{propertyId}/homes/{homeId}/setup/{section}
 ```
 

@@ -205,6 +205,7 @@ type CachedTpLinkDevice = Omit<TpLinkDiscoveredDevice, "mappedSensorId">;
 
 const CLIMATE_UNCHANGED_HEARTBEAT_MS = 60_000;
 const STATE_UNCHANGED_HEARTBEAT_MS = 5 * 60_000;
+const REDUNDANT_SOURCE_HANDOVER_MIN_MS = 15_000;
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -1113,12 +1114,19 @@ class TpLinkConnectionBridge {
             source: "tp-link",
             quality: "good",
           };
-          try {
-            this.telemetry.ingest(reading);
+          const redundantHandover = this.isRecentHomeAssistantEquivalent(
+            sensorId, "temperature", temperature, timestampMs,
+          ) && this.isRecentHomeAssistantEquivalent(sensorId, "humidity", humidity, timestampMs);
+          if (redundantHandover) {
             this.#lastIngested.set(deviceId, { sensorId, temperature, humidity, battery, ingestedAt: timestampMs });
-          } catch (error) {
-            const reason = error instanceof Error ? error.message : "ingestion failed";
-            issues.push(`Could not ingest TP-Link climate device ${deviceId}: ${reason}`);
+          } else {
+            try {
+              this.telemetry.ingest(reading);
+              this.#lastIngested.set(deviceId, { sensorId, temperature, humidity, battery, ingestedAt: timestampMs });
+            } catch (error) {
+              const reason = error instanceof Error ? error.message : "ingestion failed";
+              issues.push(`Could not ingest TP-Link climate device ${deviceId}: ${reason}`);
+            }
           }
         }
       }
@@ -1178,6 +1186,10 @@ class TpLinkConnectionBridge {
     const previous = this.#lastIngestedMeasurements.get(key);
     const unchanged = previous?.sensorId === sensorId && previous.value === value;
     if (unchanged && timestampMs - previous.ingestedAt < STATE_UNCHANGED_HEARTBEAT_MS) return;
+    if (this.isRecentHomeAssistantEquivalent(sensorId, metric, value, timestampMs)) {
+      this.#lastIngestedMeasurements.set(key, { sensorId, value, ingestedAt: timestampMs });
+      return;
+    }
     try {
       this.measurements.ingest({
         sensorId,
@@ -1193,6 +1205,22 @@ class TpLinkConnectionBridge {
       const reason = error instanceof Error ? error.message : "ingestion failed";
       issues.push(`Could not ingest TP-Link ${metric} from ${deviceId}: ${reason}`);
     }
+  }
+
+  private isRecentHomeAssistantEquivalent(
+    sensorId: string,
+    metric: string,
+    value: number,
+    timestampMs: number,
+  ): boolean {
+    const latest = this.database.getLatestMeasurementSample(sensorId, metric);
+    if (!latest || latest.source !== "home-assistant" || latest.value !== value) return false;
+    const latestMs = Date.parse(latest.timestamp);
+    const handoverWindowMs = Math.max(
+      REDUNDANT_SOURCE_HANDOVER_MIN_MS,
+      Math.min(CLIMATE_UNCHANGED_HEARTBEAT_MS, this.config.tpLinkPollIntervalMs * 3),
+    );
+    return Number.isFinite(latestMs) && Math.abs(timestampMs - latestMs) <= handoverWindowMs;
   }
 
   private scheduleRestart(): void {
@@ -1361,6 +1389,12 @@ export class TpLinkBridge implements SensorGapRecoveryAdapter {
 
   availability(now = new Date()): SensorMetricAvailability[] {
     return [...this.#workers.values()].flatMap((worker) => worker.bridge.availability(now));
+  }
+
+  /** True only while the exact direct binding is healthy and exposing this metric. */
+  isMetricAvailable(sensorId: string, metric: string, now = new Date()): boolean {
+    return this.availability(now).some((item) => item.sensorId === sensorId
+      && item.metric === metric && item.available);
   }
 
   async recoverHistory(sensorId: string, metric: string, from: string, to: string): Promise<SensorHistoryRecoveryResult> {

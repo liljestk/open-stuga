@@ -61,7 +61,7 @@ import {
 } from "./db.js";
 import { TelemetryBus } from "./events.js";
 import { HomeAssistantBridge, testHomeAssistantCredentials } from "./home-assistant.js";
-import { TpLinkBridge } from "./tp-link.js";
+import { mergeTpLinkHistoryRecovery, TpLinkBridge } from "./tp-link.js";
 import { discoverHomeAssistant } from "./discovery.js";
 import {
   readIntegrationSecrets,
@@ -165,7 +165,7 @@ import {
 } from "./analytics.js";
 import { loadOrCreateStugbyNodeKeys } from "./stugby/identity.js";
 import { registerStugbyLocalRoutes, registerStugbyProtocolRoutes } from "./stugby/routes.js";
-import { StugbyService } from "./stugby/service.js";
+import { StugbyError, StugbyService } from "./stugby/service.js";
 import { StugbyStore } from "./stugby/store.js";
 
 class HttpError extends Error {
@@ -2088,6 +2088,19 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       ...(options.stugbyFetcher ? { fetcher: options.stugbyFetcher } : {}),
     });
   })();
+  const assertSensorHouseMoveAllowed = (sourceHouseId: string, targetHouseId: string): void => {
+    const managed = [sourceHouseId, targetHouseId].some((houseId) => {
+      const link = database.getHouse(houseId)?.stugby;
+      return link?.ownership === "shared" && link.syncState !== "detached";
+    });
+    if (managed) {
+      throw new HttpError(
+        409,
+        "STUGBY_SENSOR_HOME_MANAGED",
+        "A sensor in a shared Home remains with that Home until permanent disconnect",
+      );
+    }
+  };
   const timeseriesSsl = config.timeseriesSslMode === "disable"
     ? undefined
     : config.timeseriesSslMode === "require"
@@ -2183,14 +2196,48 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     deviceNameFor: options.tapoHistoryDeviceNameFor
       ?? ((sensorId, deviceId) => tpLink?.tapoAppDeviceName(sensorId, deviceId) ?? null),
   });
+  const tapoHistoryFallbackKeys = new Set<string>();
+  const historyFallbackKey = (sensorId: string, metric: string, from: string, to: string): string => (
+    JSON.stringify([sensorId, metric, from, to])
+  );
   const homeAssistant = new HomeAssistantBridge(config, telemetry, measurements, database, status, {
     onAvailabilityChange: wakeSensorGapRecovery,
     onOpeningStateRecorded: (observation) => notifyOpeningStateRecorded(observation),
+    // Direct polling defaults to 2 s versus HA's current 5 s integration poll.
+    // Prefer it only while this exact metric is healthy; HA then fails over
+    // without requiring a configuration change or a second Sensor row.
+    shouldIngestLiveMeasurement: (sensorId, metric) => !tpLink?.isMetricAvailable(sensorId, metric),
   });
   tpLink = new TpLinkBridge(config, telemetry, measurements, database, status, {
     onAvailabilityChange: wakeSensorGapRecovery,
     onOpeningStateRecorded: (observation) => notifyOpeningStateRecorded(observation),
-    historyFallback: tapoHistory,
+    historyFallback: {
+      recoverHistory: async (sensorId, metric, from, to) => {
+        const key = historyFallbackKey(sensorId, metric, from, to);
+        tapoHistoryFallbackKeys.delete(key);
+        let homeAssistantResult;
+        try {
+          homeAssistantResult = await homeAssistant.recoverHistory(sensorId, metric, from, to);
+        } catch {
+          homeAssistantResult = {
+            state: "not-supported" as const,
+            samples: [],
+            error: "Home Assistant recorder history is temporarily unavailable",
+          };
+        }
+        if (homeAssistantResult.state === "complete" && homeAssistantResult.samples.length > 0) {
+          return homeAssistantResult;
+        }
+        tapoHistoryFallbackKeys.add(key);
+        const tapoResult = await tapoHistory.recoverHistory(sensorId, metric, from, to);
+        return mergeTpLinkHistoryRecovery(homeAssistantResult, tapoResult);
+      },
+      consumeRecovered: (sensorId, metric, from, to) => {
+        const key = historyFallbackKey(sensorId, metric, from, to);
+        if (!tapoHistoryFallbackKeys.delete(key)) return;
+        tapoHistory.consumeRecovered(sensorId, metric, from, to);
+      },
+    },
     onConnectionUpdate: (update) => {
       const existing = config.tpLinkConnections ?? [];
       const current = existing.find((connection) => connection.id === update.id);
@@ -3366,7 +3413,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       input = [(candidate as Record<string, unknown>).sample];
     } else input = [candidate];
     if (input.length === 0 || input.length > 1_000) throw new HttpError(400, "INVALID_BATCH", "Submit between 1 and 1000 measurement samples");
-    const samples = measurements.ingestBatch(input.map((item) => parseMeasurementSample(item, database)));
+    const submitted = input.map((item) => parseMeasurementSample(item, database));
+    for (const sample of submitted) {
+      const sensor = database.getSensor(sample.sensorId);
+      if (sensor) stugby.assertHouseLocalAuthority(sensor.houseId);
+    }
+    const samples = measurements.ingestBatch(submitted);
     response.status(201).json({ accepted: samples.length, samples });
   });
   app.post(`${v2Prefix}/measurements/import`, requireIngestKey, (request, response) => {
@@ -3378,6 +3430,10 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       throw new HttpError(400, "INVALID_BATCH", "Import between 1 and 10000 measurement samples at a time");
     }
     const submitted = input.map((item) => ({ ...parseMeasurementSample(item, database), source: "import" as const }));
+    for (const sample of submitted) {
+      const sensor = database.getSensor(sample.sensorId);
+      if (sensor) stugby.assertHouseLocalAuthority(sensor.houseId);
+    }
     const samples = measurements.ingestBatch(submitted, {
       allowDisabledSensors: true,
       publish: false,
@@ -3527,8 +3583,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     response.json({ property });
   });
   app.patch(`${prefix}/properties/:id`, (request, response) => {
-    const property = database.updateProperty(request.params.id as string, parsePropertyPatch(request.body));
+    const propertyId = request.params.id as string;
+    stugby.assertPropertyWriteAllowed(propertyId);
+    const patch = parsePropertyPatch(request.body);
+    const property = database.updateProperty(propertyId, patch);
     if (!property) throw new HttpError(404, "NOT_FOUND", "Property not found");
+    stugby.captureCurrentPropertyEntity(property.id, "property", property.id, "upsert", Object.keys(patch));
     notifySpatial((runtime) => runtime.scheduler.enqueueScope(
       { kind: "property", id: property.id },
       new Date().toISOString(),
@@ -3538,8 +3598,13 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     response.json({ property });
   });
   app.delete(`${prefix}/properties/:id`, async (request, response) => {
-    requireImmutableTelemetryLineage("property", request.params.id as string);
-    if (!database.deleteProperty(request.params.id as string)) throw new HttpError(404, "NOT_FOUND", "Property not found");
+    const propertyId = request.params.id as string;
+    const property = database.getProperty(propertyId);
+    if (property?.stugby && property.stugby.syncState !== "detached") {
+      throw new HttpError(409, "STUGBY_DISCONNECT_REQUIRED", "Disconnect the Stugby Property explicitly before deleting it");
+    }
+    requireImmutableTelemetryLineage("property", propertyId);
+    if (!database.deleteProperty(propertyId)) throw new HttpError(404, "NOT_FOUND", "Property not found");
     response.status(204).end();
   });
 
@@ -3626,7 +3691,10 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     });
   });
   app.post(`${prefix}/property-areas`, (request, response) => {
-    const area = database.createPropertyArea(parsePropertyAreaInput(request.body));
+    const input = parsePropertyAreaInput(request.body);
+    stugby.assertPropertyWriteAllowed(input.propertyId);
+    const area = database.createPropertyArea(input);
+    stugby.captureCurrentPropertyEntity(area.propertyId, "area", area.id, "upsert");
     notifySpatial((runtime) => runtime.scheduler.enqueueScope(
       { kind: "property", id: area.propertyId },
       new Date().toISOString(),
@@ -3643,8 +3711,19 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   app.patch(`${prefix}/property-areas/:id`, (request, response) => {
     const areaId = request.params.id as string;
     const previous = database.getPropertyArea(areaId);
-    const area = database.updatePropertyArea(areaId, parsePropertyAreaPatch(request.body));
+    if (!previous) throw new HttpError(404, "NOT_FOUND", "Property area not found");
+    stugby.assertPropertyWriteAllowed(previous.propertyId);
+    const patch = parsePropertyAreaPatch(request.body);
+    if (patch.propertyId && patch.propertyId !== previous.propertyId) stugby.assertPropertyWriteAllowed(patch.propertyId);
+    const area = database.updatePropertyArea(areaId, patch);
     if (!area) throw new HttpError(404, "NOT_FOUND", "Property area not found");
+    if (previous.propertyId !== area.propertyId) {
+      stugby.captureCurrentPropertyEntity(previous.propertyId, "area", area.id, "delete");
+      stugby.captureCurrentPropertyEntity(area.propertyId, "area", area.id, "upsert");
+    } else {
+      stugby.captureCurrentPropertyEntity(area.propertyId, "area", area.id, "upsert",
+        Object.keys(patch).filter((field) => field !== "propertyId"));
+    }
     if (previous) {
       const observedAt = new Date().toISOString();
       notifySpatial((runtime) => {
@@ -3659,9 +3738,11 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   app.delete(`${prefix}/property-areas/:id`, (request, response) => {
     const areaId = request.params.id as string;
     const previous = database.getPropertyArea(areaId);
+    if (previous) stugby.assertPropertyWriteAllowed(previous.propertyId);
     if (!database.deletePropertyArea(areaId)) {
       throw new HttpError(404, "NOT_FOUND", "Property area not found");
     }
+    if (previous) stugby.captureCurrentPropertyEntity(previous.propertyId, "area", areaId, "delete");
     if (previous) notifySpatial((runtime) => runtime.scheduler.enqueueScope(
       { kind: "property", id: previous.propertyId },
       new Date().toISOString(),
@@ -3690,7 +3771,11 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     });
   });
   app.post(`${prefix}/area-equipment`, (request, response) => {
-    const equipment = database.createAreaEquipment(parseAreaEquipmentInput(request.body));
+    const input = parseAreaEquipmentInput(request.body);
+    const area = database.getPropertyArea(input.areaId);
+    if (area) stugby.assertPropertyWriteAllowed(input.propertyId ?? area.propertyId);
+    const equipment = database.createAreaEquipment(input);
+    stugby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert");
     notifySpatial((runtime) => runtime.scheduler.enqueueScope(
       { kind: "property", id: equipment.propertyId },
       new Date().toISOString(),
@@ -3707,8 +3792,21 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   app.patch(`${prefix}/area-equipment/:id`, (request, response) => {
     const equipmentId = request.params.id as string;
     const previous = database.getAreaEquipment(equipmentId);
-    const equipment = database.updateAreaEquipment(equipmentId, parseAreaEquipmentPatch(request.body));
+    if (!previous) throw new HttpError(404, "NOT_FOUND", "Area equipment not found");
+    stugby.assertPropertyWriteAllowed(previous.propertyId);
+    const patch = parseAreaEquipmentPatch(request.body);
+    if (patch.areaId) {
+      const targetArea = database.getPropertyArea(patch.areaId);
+      if (targetArea && targetArea.propertyId !== previous.propertyId) stugby.assertPropertyWriteAllowed(targetArea.propertyId);
+    }
+    const equipment = database.updateAreaEquipment(equipmentId, patch);
     if (!equipment) throw new HttpError(404, "NOT_FOUND", "Area equipment not found");
+    if (previous.propertyId !== equipment.propertyId) {
+      stugby.captureCurrentPropertyEntity(previous.propertyId, "equipment", equipment.id, "delete");
+      stugby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert");
+    } else {
+      stugby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert", Object.keys(patch));
+    }
     if (previous && (previous.propertyId !== equipment.propertyId || previous.areaId !== equipment.areaId)) {
       const observedAt = new Date().toISOString();
       notifySpatial((runtime) => {
@@ -3723,9 +3821,11 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   app.delete(`${prefix}/area-equipment/:id`, (request, response) => {
     const equipmentId = request.params.id as string;
     const previous = database.getAreaEquipment(equipmentId);
+    if (previous) stugby.assertPropertyWriteAllowed(previous.propertyId);
     if (!database.deleteAreaEquipment(equipmentId)) {
       throw new HttpError(404, "NOT_FOUND", "Area equipment not found");
     }
+    if (previous) stugby.captureCurrentPropertyEntity(previous.propertyId, "equipment", equipmentId, "delete");
     if (previous) notifySpatial((runtime) => runtime.scheduler.enqueueScope(
       { kind: "property", id: previous.propertyId },
       new Date().toISOString(),
@@ -3758,7 +3858,14 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     });
   });
   app.post(`${prefix}/property-notes`, (request, response) => {
-    response.status(201).json({ note: database.createPropertyNote(parsePropertyNoteInput(request.body)) });
+    const input = parsePropertyNoteInput(request.body);
+    if (input.houseId) stugby.assertHouseWriteAllowed(input.houseId);
+    else stugby.assertPropertyWriteAllowed(input.propertyId);
+    const note = database.createPropertyNote(input);
+    const sharedHouse = note.houseId ? database.getHouse(note.houseId)?.stugby : null;
+    if (note.houseId && sharedHouse && sharedHouse.syncState !== "detached") stugby.captureHomeMutation(note.houseId);
+    else stugby.captureCurrentPropertyEntity(note.propertyId, "note", note.id, "upsert");
+    response.status(201).json({ note });
   });
   app.get(`${prefix}/property-notes/:id`, (request, response) => {
     const note = database.getPropertyNote(request.params.id as string);
@@ -3766,14 +3873,43 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     response.json({ note });
   });
   app.patch(`${prefix}/property-notes/:id`, (request, response) => {
-    const note = database.updatePropertyNote(request.params.id as string, parsePropertyNotePatch(request.body));
+    const noteId = request.params.id as string;
+    const previous = database.getPropertyNote(noteId);
+    if (!previous) throw new HttpError(404, "NOT_FOUND", "Property note not found");
+    const patch = parsePropertyNotePatch(request.body);
+    const targetHouseId = patch.houseId === undefined ? previous.houseId : patch.houseId;
+    if (previous.houseId) stugby.assertHouseWriteAllowed(previous.houseId);
+    else stugby.assertPropertyWriteAllowed(previous.propertyId);
+    if (targetHouseId !== previous.houseId) {
+      if (targetHouseId) stugby.assertHouseWriteAllowed(targetHouseId);
+      else stugby.assertPropertyWriteAllowed(previous.propertyId);
+    }
+    const note = database.updatePropertyNote(noteId, patch);
     if (!note) throw new HttpError(404, "NOT_FOUND", "Property note not found");
+    if (previous.houseId !== note.houseId) {
+      const previousSharedHouse = previous.houseId ? database.getHouse(previous.houseId)?.stugby : null;
+      if (previous.houseId && previousSharedHouse && previousSharedHouse.syncState !== "detached") {
+        stugby.captureHomeMutation(previous.houseId);
+      } else {
+        stugby.captureCurrentPropertyEntity(previous.propertyId, "note", note.id, "delete");
+      }
+    }
+    const sharedHouse = note.houseId ? database.getHouse(note.houseId)?.stugby : null;
+    if (note.houseId && sharedHouse && sharedHouse.syncState !== "detached") stugby.captureHomeMutation(note.houseId);
+    else stugby.captureCurrentPropertyEntity(note.propertyId, "note", note.id, "upsert", Object.keys(patch));
     response.json({ note });
   });
   app.delete(`${prefix}/property-notes/:id`, (request, response) => {
-    if (!database.deletePropertyNote(request.params.id as string)) {
+    const noteId = request.params.id as string;
+    const previous = database.getPropertyNote(noteId);
+    if (previous?.houseId) stugby.assertHouseWriteAllowed(previous.houseId);
+    else if (previous) stugby.assertPropertyWriteAllowed(previous.propertyId);
+    if (!database.deletePropertyNote(noteId)) {
       throw new HttpError(404, "NOT_FOUND", "Property note not found");
     }
+    const sharedHouse = previous?.houseId ? database.getHouse(previous.houseId)?.stugby : null;
+    if (previous?.houseId && sharedHouse && sharedHouse.syncState !== "detached") stugby.captureHomeMutation(previous.houseId);
+    else if (previous) stugby.captureCurrentPropertyEntity(previous.propertyId, "note", noteId, "delete");
     response.status(204).end();
   });
 
@@ -3787,9 +3923,13 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   app.post(`${prefix}/houses`, (request, response) => {
     const body = bodyObject(request.body);
     if (!Array.isArray(body.floors)) throw new HttpError(400, "INVALID_FIELD", "floors must be an array");
-    const house = database.createHouse({
+    const targetPropertyId = body.propertyId !== undefined ? requiredString(body, "propertyId") : undefined;
+    const propertyCandidates = targetPropertyId ? [] : database.listProperties(2, 0);
+    const inferredPropertyId = targetPropertyId ?? (propertyCandidates.length === 1 ? propertyCandidates[0]!.id : undefined);
+    if (inferredPropertyId) stugby.assertPropertyWriteAllowed(inferredPropertyId);
+    let house = database.createHouse({
       ...(typeof body.id === "string" ? { id: body.id } : {}),
-      ...(body.propertyId !== undefined ? { propertyId: requiredString(body, "propertyId") } : {}),
+      ...(targetPropertyId ? { propertyId: targetPropertyId } : {}),
       name: requiredString(body, "name"),
       timezone: requiredString(body, "timezone"),
       ...(body.location !== undefined ? { location: houseLocationValue(body.location) } : {}),
@@ -3797,6 +3937,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       ...(body.orientationDegrees !== undefined ? { orientationDegrees: requiredNumber(body, "orientationDegrees") } : {}),
       floors: body.floors as Floor[],
     });
+    house = stugby.markLocalHouseInAdoptedProperty(house.id);
     notifySpatial((runtime) => runtime.scheduler.wakeHouse(
       house.id,
       house.propertyId,
@@ -3854,6 +3995,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     const houseId = request.params.id as string;
     const house = database.getHouse(houseId);
     if (!house || !visibility(response).house(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
+    stugby.assertHouseLocalAuthority(houseId);
     const body = bodyObject(request.body);
     const source = body.source === undefined ? "api" : requiredString(body, "source");
     if (source !== "api" && source !== "manual") {
@@ -4054,6 +4196,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   app.patch(`${prefix}/houses/:id`, async (request, response) => {
     const houseId = request.params.id as string;
     const previous = database.getHouse(houseId);
+    stugby.assertHouseWriteAllowed(houseId);
     const body = bodyObject(request.body);
     const patch: {
       name?: string;
@@ -4076,6 +4219,26 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       if (!Array.isArray(body.floors)) throw new HttpError(400, "INVALID_FIELD", "floors must be an array");
       patch.floors = body.floors as Floor[];
     }
+    if (patch.propertyId !== undefined && patch.propertyId !== previous?.propertyId
+      && previous?.stugby?.ownership === "shared" && previous.stugby.syncState !== "detached") {
+      throw new HttpError(
+        409,
+        "STUGBY_HOME_PROPERTY_MANAGED",
+        "A shared Home remains in its adopted Stugby Property until permanent disconnect",
+      );
+    }
+    if (patch.propertyId !== undefined && patch.propertyId !== previous?.propertyId && previous) {
+      const sourceLink = database.getProperty(previous.propertyId)?.stugby;
+      const targetLink = database.getProperty(patch.propertyId)?.stugby;
+      if ((sourceLink && sourceLink.syncState !== "detached") || (targetLink && targetLink.syncState !== "detached")) {
+        throw new HttpError(
+          409,
+          "STUGBY_PROPERTY_MIGRATION_REQUIRED",
+          "Use the reviewed Stugby Property migration to move a local Home into or out of an adopted Property",
+        );
+      }
+    }
+    if (patch.floors) stugby.assertSharedHouseFloorPlanAssetsUnchanged(houseId, patch.floors);
     if (patch.location !== undefined) await requireArchivedBeforeCascade("house-location", houseId);
     const house = database.updateHouse(houseId, patch);
     if (!house) throw new HttpError(404, "NOT_FOUND", "House not found");
@@ -4100,12 +4263,16 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     weather.invalidate(house.id);
     weatherEvents.invalidate(house.id);
     status.refreshWeatherConfiguration();
+    stugby.captureHomeMutation(house.id);
     response.json({ house });
   });
   app.put(`${prefix}/houses/:id/layout`, (request, response) => {
+    const houseId = request.params.id as string;
+    stugby.assertHouseWriteAllowed(houseId);
     const body = bodyObject(request.body);
     if (!Array.isArray(body.floors)) throw new HttpError(400, "INVALID_FIELD", "floors must be an array");
-    const house = database.updateHouse(request.params.id as string, { floors: body.floors as Floor[] });
+    stugby.assertSharedHouseFloorPlanAssetsUnchanged(houseId, body.floors as Floor[]);
+    const house = database.updateHouse(houseId, { floors: body.floors as Floor[] });
     if (!house) throw new HttpError(404, "NOT_FOUND", "House not found");
     homeAssistant.refreshMappings();
     notifySpatial((runtime) => runtime.scheduler.wakeHouse(
@@ -4114,17 +4281,20 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       new Date().toISOString(),
       "property-context-changed",
     ));
+    stugby.captureHomeMutation(house.id);
     response.json({ house });
   });
   app.put(`${prefix}/houses/:id/floors/:floorId`, (request, response) => {
     const house = database.getHouse(request.params.id as string);
     if (!house) throw new HttpError(404, "NOT_FOUND", "House not found");
+    stugby.assertHouseWriteAllowed(house.id);
     const floor = bodyObject(request.body) as unknown as Floor;
     if (typeof floor.id !== "string" || floor.id !== request.params.floorId) throw new HttpError(400, "INVALID_FIELD", "Floor id must match the route");
     const index = house.floors.findIndex((candidate) => candidate.id === floor.id);
     if (index < 0) throw new HttpError(404, "NOT_FOUND", "Floor not found");
     const floors = house.floors.slice();
     floors[index] = floor;
+    stugby.assertSharedHouseFloorPlanAssetsUnchanged(house.id, floors);
     const updated = database.updateHouse(house.id, { floors });
     if (!updated) throw new HttpError(404, "NOT_FOUND", "House not found");
     homeAssistant.refreshMappings();
@@ -4134,11 +4304,14 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       new Date().toISOString(),
       "property-context-changed",
     ));
+    stugby.captureHomeMutation(updated.id);
     response.json(floor);
   });
   app.delete(`${prefix}/houses/:id`, async (request, response) => {
     const houseId = request.params.id as string;
     const previous = database.getHouse(houseId);
+    stugby.assertHouseWriteAllowed(houseId);
+    stugby.assertHouseLocalAuthority(houseId);
     requireImmutableTelemetryLineage("house", houseId);
     if (!database.deleteHouse(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
     if (previous) notifySpatial((runtime) => runtime.scheduler.enqueueScope(
@@ -4223,10 +4396,16 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
         : {}),
       ...(body.measurementEntityIds !== undefined ? { measurementEntityIds: measurementStringMap(body.measurementEntityIds, "measurementEntityIds") } : {}),
     };
+    stugby.assertHouseWriteAllowed(input.houseId);
+    if (input.temperatureEntityId || input.humidityEntityId || input.batteryEntityId
+      || input.tpLinkDeviceId || input.tpLinkConnectionId || Object.keys(input.measurementEntityIds ?? {}).length > 0) {
+      stugby.assertHouseLocalAuthority(input.houseId);
+    }
     assertTpLinkConnectionScope(input);
     const sensor = database.createSensor(input);
     homeAssistant.refreshMappings();
     notifySpatialSensorChange(null, sensor);
+    stugby.captureHomeMutation(sensor.houseId);
     response.status(201).json({ sensor });
   });
   app.get(`${prefix}/sensors/:id`, (request, response) => {
@@ -4236,7 +4415,14 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   });
   app.patch(`${prefix}/sensors/:id`, (request, response) => {
     const current = database.getSensor(request.params.id as string);
+    if (current) stugby.assertHouseWriteAllowed(current.houseId);
     const patch = parseSensorPatch(request.body);
+    if (current && patch.houseId && patch.houseId !== current.houseId) {
+      stugby.assertHouseWriteAllowed(patch.houseId);
+      assertSensorHouseMoveAllowed(current.houseId, patch.houseId);
+    }
+    if (current && ["temperatureEntityId", "humidityEntityId", "batteryEntityId", "tpLinkDeviceId", "tpLinkConnectionId", "measurementEntityIds"]
+      .some((field) => Object.hasOwn(patch, field))) stugby.assertHouseLocalAuthority(current.houseId);
     if (current && (Object.hasOwn(patch, "houseId") || Object.hasOwn(patch, "tpLinkDeviceId") || Object.hasOwn(patch, "tpLinkConnectionId"))) {
       const candidate = { ...current, ...patch };
       if (patch.tpLinkDeviceId === null) {
@@ -4250,11 +4436,20 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     if (!sensor) throw new HttpError(404, "NOT_FOUND", "Sensor not found");
     homeAssistant.refreshMappings();
     notifySpatialSensorChange(current, sensor);
+    if (current && current.houseId !== sensor.houseId) stugby.captureHomeMutation(current.houseId);
+    stugby.captureHomeMutation(sensor.houseId);
     response.json({ sensor });
   });
   app.put(`${prefix}/sensors/:id`, (request, response) => {
     const current = database.getSensor(request.params.id as string);
+    if (current) stugby.assertHouseWriteAllowed(current.houseId);
     const patch = parseSensorPatch(request.body);
+    if (current && patch.houseId && patch.houseId !== current.houseId) {
+      stugby.assertHouseWriteAllowed(patch.houseId);
+      assertSensorHouseMoveAllowed(current.houseId, patch.houseId);
+    }
+    if (current && ["temperatureEntityId", "humidityEntityId", "batteryEntityId", "tpLinkDeviceId", "tpLinkConnectionId", "measurementEntityIds"]
+      .some((field) => Object.hasOwn(patch, field))) stugby.assertHouseLocalAuthority(current.houseId);
     if (current && (Object.hasOwn(patch, "houseId") || Object.hasOwn(patch, "tpLinkDeviceId") || Object.hasOwn(patch, "tpLinkConnectionId"))) {
       const candidate = { ...current, ...patch };
       if (patch.tpLinkDeviceId === null) {
@@ -4268,14 +4463,18 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     if (!sensor) throw new HttpError(404, "NOT_FOUND", "Sensor not found");
     homeAssistant.refreshMappings();
     notifySpatialSensorChange(current, sensor);
+    if (current && current.houseId !== sensor.houseId) stugby.captureHomeMutation(current.houseId);
+    stugby.captureHomeMutation(sensor.houseId);
     response.json(sensor);
   });
   app.delete(`${prefix}/sensors/:id`, async (request, response) => {
     const current = database.getSensor(request.params.id as string);
+    if (current) stugby.assertHouseWriteAllowed(current.houseId);
     requireImmutableTelemetryLineage("sensor", request.params.id as string);
     if (!database.deleteSensor(request.params.id as string)) throw new HttpError(404, "NOT_FOUND", "Sensor not found");
     homeAssistant.refreshMappings();
     notifySpatialSensorChange(current, null);
+    if (current) stugby.captureHomeMutation(current.houseId);
     response.status(204).end();
   });
 
@@ -4287,6 +4486,10 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     );
     if (readingsInput.length === 0 || readingsInput.length > 1_000) throw new HttpError(400, "INVALID_BATCH", "Submit between 1 and 1000 readings");
     const submitted = readingsInput.map(parseReading);
+    for (const reading of submitted) {
+      const sensor = database.getSensor(reading.sensorId);
+      if (sensor) stugby.assertHouseLocalAuthority(sensor.houseId);
+    }
     const readings = telemetry.ingestBatch(submitted);
     response.status(201).json({ readings, ignoredDuplicates: submitted.length - readings.length });
   });
@@ -4394,11 +4597,22 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       !access.restricted || (rule.sensorId !== null && access.sensor(rule.sensorId))
     )) });
   });
-  app.post(`${prefix}/alert-rules`, (request, response) => response.status(201).json(database.saveAlertRule(parseAlertRule(request.body, database))));
+  app.post(`${prefix}/alert-rules`, (request, response) => {
+    const input = parseAlertRule(request.body, database);
+    const sensor = input.sensorId ? database.getSensor(input.sensorId) : null;
+    if (sensor) stugby.assertHouseLocalAuthority(sensor.houseId);
+    response.status(201).json(database.saveAlertRule(input));
+  });
   app.patch(`${prefix}/alert-rules/:id`, (request, response) => {
     const current = database.getAlertRule(request.params.id as string);
     if (!current) throw new HttpError(404, "NOT_FOUND", "Alert rule not found");
+    const currentSensor = current.sensorId ? database.getSensor(current.sensorId) : null;
+    if (currentSensor) stugby.assertHouseLocalAuthority(currentSensor.houseId);
     const body = bodyObject(request.body);
+    if (body.sensorId !== undefined && body.sensorId !== null) {
+      const nextSensor = database.getSensor(requiredString(body, "sensorId"));
+      if (nextSensor) stugby.assertHouseLocalAuthority(nextSensor.houseId);
+    }
     const rule = database.updateAlertRule(current.id, {
       ...(body.name !== undefined ? { name: requiredString(body, "name") } : {}),
       ...(body.sensorId !== undefined ? { sensorId: body.sensorId === null ? null : requiredString(body, "sensorId") } : {}),
@@ -4422,7 +4636,11 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     response.json({ rule });
   });
   app.delete(`${prefix}/alert-rules/:id`, (request, response) => {
-    if (!database.deleteAlertRule(request.params.id as string)) throw new HttpError(404, "NOT_FOUND", "Alert rule not found");
+    const id = request.params.id as string;
+    const current = database.getAlertRule(id);
+    const sensor = current?.sensorId ? database.getSensor(current.sensorId) : null;
+    if (sensor) stugby.assertHouseLocalAuthority(sensor.houseId);
+    if (!database.deleteAlertRule(id)) throw new HttpError(404, "NOT_FOUND", "Alert rule not found");
     response.status(204).end();
   });
   app.get(`${prefix}/alert-events`, (request, response) => {
@@ -4602,6 +4820,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   app.post(`${prefix}/setup/bulk-sensor-mappings`, (request, response) => {
     const body = bodyObject(request.body);
     const houseId = requiredString(body, "houseId");
+    stugby.assertHouseLocalAuthority(houseId);
     if (!Array.isArray(body.mappings)) throw new HttpError(400, "INVALID_FIELD", "mappings must be an array");
     const mappings = body.mappings.map((candidate) => {
       const mapping = bodyObject(candidate);
@@ -4626,16 +4845,22 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       .filter((observation) => access.house(observation.houseId)) });
   });
   app.post(`${prefix}/observations`, (request, response) => {
-    const observation = database.createObservation(parseObservationInput(request.body), "local-rest");
+    const input = parseObservationInput(request.body);
+    stugby.assertHouseWriteAllowed(input.houseId);
+    const observation = database.createObservation(input, "local-rest");
+    stugby.captureHomeMutation(observation.houseId);
     response.status(201).json(observation);
   });
   app.patch(`${prefix}/observations/:id`, (request, response) => {
+    const current = database.getObservation(request.params.id as string);
+    if (current) stugby.assertHouseWriteAllowed(current.houseId);
     const observation = database.updateObservation(
       request.params.id as string,
       parseObservationPatch(request.body),
       "local-rest",
     );
     if (!observation) throw new HttpError(404, "NOT_FOUND", "Observation not found");
+    stugby.captureHomeMutation(observation.houseId);
     response.json(observation);
   });
   app.get(`${prefix}/observations/:id/revisions`, (request, response) => {
@@ -4647,7 +4872,11 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     response.json({ revisions: database.listObservationRevisions(id) });
   });
   app.delete(`${prefix}/observations/:id`, (request, response) => {
-    if (!database.deleteObservation(request.params.id as string)) throw new HttpError(404, "NOT_FOUND", "Observation not found");
+    const id = request.params.id as string;
+    const current = database.getObservation(id);
+    if (current) stugby.assertHouseWriteAllowed(current.houseId);
+    if (!database.deleteObservation(id)) throw new HttpError(404, "NOT_FOUND", "Observation not found");
+    if (current) stugby.captureHomeMutation(current.houseId);
     response.status(204).end();
   });
 
@@ -4674,7 +4903,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     });
   });
   app.post(`${prefix}/maintenance-tasks`, (request, response) => {
-    response.status(201).json(database.createMaintenanceTask(parseMaintenanceTaskInput(request.body), "local-rest"));
+    const input = parseMaintenanceTaskInput(request.body);
+    const propertyId = input.propertyId ?? (input.houseId ? database.getHouse(input.houseId)?.propertyId : undefined);
+    if (propertyId) stugby.assertPropertyWriteAllowed(propertyId);
+    const task = database.createMaintenanceTask(input, "local-rest");
+    stugby.captureCurrentPropertyEntity(task.propertyId, "maintenance", task.id, "upsert");
+    response.status(201).json(task);
   });
   app.get(`${prefix}/maintenance-tasks/:id`, (request, response) => {
     const task = database.getMaintenanceTask(request.params.id as string);
@@ -4682,12 +4916,16 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     response.json(task);
   });
   app.patch(`${prefix}/maintenance-tasks/:id`, (request, response) => {
+    const taskId = request.params.id as string;
+    const previous = database.getMaintenanceTask(taskId);
+    if (previous) stugby.assertPropertyWriteAllowed(previous.propertyId);
     const task = database.updateMaintenanceTask(
-      request.params.id as string,
+      taskId,
       parseMaintenanceTaskPatch(request.body),
       "local-rest",
     );
     if (!task) throw new HttpError(404, "NOT_FOUND", "Maintenance task not found");
+    stugby.captureCurrentPropertyEntity(task.propertyId, "maintenance", task.id, "upsert");
     response.json(task);
   });
   app.get(`${prefix}/maintenance-tasks/:id/revisions`, (request, response) => {
@@ -4699,9 +4937,13 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     response.json({ revisions: database.listMaintenanceTaskRevisions(id) });
   });
   app.delete(`${prefix}/maintenance-tasks/:id`, (request, response) => {
-    if (!database.deleteMaintenanceTask(request.params.id as string)) {
+    const taskId = request.params.id as string;
+    const previous = database.getMaintenanceTask(taskId);
+    if (previous) stugby.assertPropertyWriteAllowed(previous.propertyId);
+    if (!database.deleteMaintenanceTask(taskId)) {
       throw new HttpError(404, "NOT_FOUND", "Maintenance task not found");
     }
+    if (previous) stugby.captureCurrentPropertyEntity(previous.propertyId, "maintenance", taskId, "delete");
     response.status(204).end();
   });
 
@@ -4713,9 +4955,11 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   app.post(`${prefix}/parameters`, (request, response) => {
     const body = bodyObject(request.body);
     if (!["string", "number", "boolean"].includes(typeof body.value)) throw new HttpError(400, "INVALID_FIELD", "value must be a string, number, or boolean");
+    const houseId = requiredString(body, "houseId");
+    stugby.assertHouseLocalAuthority(houseId);
     const parameter = database.saveParameter({
       ...(typeof body.id === "string" ? { id: body.id } : {}),
-      houseId: requiredString(body, "houseId"),
+      houseId,
       scopeType: enumValue(body.scopeType, ["house", "floor", "room", "sensor"] as const, "scopeType"),
       scopeId: requiredString(body, "scopeId"), key: requiredString(body, "key"),
       value: body.value as StaticParameter["value"], unit: body.unit === null ? null : optionalString(body, "unit") ?? null,
@@ -4731,15 +4975,20 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   app.post(`${prefix}/static-parameters`, (request, response) => {
     const body = bodyObject(request.body);
     if (!["string", "number", "boolean"].includes(typeof body.value)) throw new HttpError(400, "INVALID_FIELD", "value must be a string, number, or boolean");
+    const houseId = requiredString(body, "houseId");
+    stugby.assertHouseLocalAuthority(houseId);
     const parameter = database.saveParameter({
-      houseId: requiredString(body, "houseId"), scopeType: enumValue(body.scopeType, ["house", "floor", "room", "sensor"] as const, "scopeType"),
+      houseId, scopeType: enumValue(body.scopeType, ["house", "floor", "room", "sensor"] as const, "scopeType"),
       scopeId: requiredString(body, "scopeId"), key: requiredString(body, "key"), value: body.value as StaticParameter["value"],
       unit: body.unit === null ? null : optionalString(body, "unit") ?? null, label: requiredString(body, "label"),
     });
     response.status(201).json(parameter);
   });
   app.delete(`${prefix}/parameters/:id`, (request, response) => {
-    if (!database.deleteParameter(request.params.id as string)) throw new HttpError(404, "NOT_FOUND", "Static parameter not found");
+    const id = request.params.id as string;
+    const current = database.listParameters().find((parameter) => parameter.id === id);
+    if (current) stugby.assertHouseLocalAuthority(current.houseId);
+    if (!database.deleteParameter(id)) throw new HttpError(404, "NOT_FOUND", "Static parameter not found");
     response.status(204).end();
   });
 
@@ -4750,6 +4999,8 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   });
   app.post(`${prefix}/assets`, (request, response) => {
     const body = bodyObject(request.body);
+    const houseId = requiredString(body, "houseId");
+    stugby.assertHouseLocalAuthority(houseId);
     const mimeType = requiredString(body, "mimeType").toLowerCase();
     if (!SAFE_ASSET_MIME_TYPES.has(mimeType)) {
       throw new HttpError(415, "UNSUPPORTED_ASSET_TYPE", "Assets must be PNG, JPEG, WebP, glTF, or GLB");
@@ -4759,7 +5010,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     if (data.length === 0) throw new HttpError(400, "INVALID_ASSET", "data must contain valid base64 bytes");
     if (data.length > 10 * 1024 * 1024) throw new HttpError(413, "ASSET_TOO_LARGE", "Decoded assets are limited to 10 MiB");
     const asset = database.createAsset({
-      houseId: requiredString(body, "houseId"), name: requiredString(body, "name"), mimeType,
+      houseId, name: requiredString(body, "name"), mimeType,
       kind: enumValue(body.kind, ["floor-plan", "model-3d", "other"] as const, "kind"), data,
     });
     response.status(201).json({ asset, url: `${prefix}/assets/${asset.id}` });
@@ -4775,7 +5026,10 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     response.send(Buffer.from(asset.data));
   });
   app.delete(`${prefix}/assets/:id`, (request, response) => {
-    if (!database.deleteAsset(request.params.id as string)) throw new HttpError(404, "NOT_FOUND", "Asset not found");
+    const id = request.params.id as string;
+    const current = database.getAsset(id);
+    if (current) stugby.assertHouseLocalAuthority(current.houseId);
+    if (!database.deleteAsset(id)) throw new HttpError(404, "NOT_FOUND", "Asset not found");
     response.status(204).end();
   });
 
@@ -5808,6 +6062,10 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       return;
     }
     if (error instanceof ClimateDataValidationError) {
+      response.status(error.status).json({ error: { code: error.code, message: error.message } });
+      return;
+    }
+    if (error instanceof StugbyError) {
       response.status(error.status).json({ error: { code: error.code, message: error.message } });
       return;
     }

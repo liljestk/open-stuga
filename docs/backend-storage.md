@@ -22,10 +22,12 @@ All authoritative non-time-series application state is durable in SQLite. The co
 - sensors, measurement definitions, Home Assistant entity bindings, TP-Link device bindings, alert rules, alert history, alert evaluation state, and the notification outbox;
 - observations and revision history, maintenance tasks and revision/evidence links, static parameters, weather-outage recovery state, operational latches, and selected demo state;
 - non-secret integration identity, ownership, endpoint metadata, lifecycle state, and revision history.
-- Stugby rosters, invitation hashes, Home publication/grant metadata, durable
-  outbox/inbox/cursors, per-recipient event logs, replay IDs, common-property
-  aggregates, read-only remote projections, separately indexed remote raw
-  telemetry, asset authorization, deletion receipts, and federation audit rows.
+- Stugby rosters, invitation hashes, Home publication/grant metadata, Property
+  adoptions, Home projections, authority epochs/transfers, durable Property and
+  Home command queues/conflicts, outbox/inbox/cursors, per-recipient event logs,
+  replay IDs, shared-Property aggregates, separately indexed remote raw
+  telemetry, recovery manifests, asset authorization, deletion receipts, and
+  federation audit rows.
 
 Property creation and other multi-row aggregate changes use SQLite transactions. Foreign keys are enabled on every connection, WAL mode permits concurrent readers during writes, and the configured busy timeout handles short writer overlap without a heavyweight database service. Complete floor plans intentionally remain one JSON aggregate inside SQLite: ownership and lookup fields are relational and indexed, while one edit commits the internally consistent plan as a unit instead of exposing half-written rooms or walls.
 
@@ -49,23 +51,30 @@ The base tables and query API also work on ordinary PostgreSQL. When the Timesca
 
 ## Stugby storage boundary
 
-Stugby never inserts remote data into the canonical local Property, Home,
-floor-plan, sensor, note, observation, account, integration, or automation
-tables. Structured replicas live in `stugby_remote_resources`; remote raw
-samples live in `stugby_remote_telemetry` and are queried through the Stugby API.
-Raw telemetry chunks are not duplicated in the generic JSON resource table.
-This remote telemetry is not copied into the local Timescale archive. Grant
-cache permissions and retention are enforced when events are applied and by
-periodic cleanup. A zero-day or no-cache dataset is not written as a durable
-replica.
+Before adoption, structured replicas live in `stugby_remote_resources` and raw
+samples in `stugby_remote_telemetry`; raw chunks are not duplicated in the
+generic JSON resource table. Adoption materializes a sanitized projection in
+the canonical Property/Home tables so existing UI and APIs can display it.
+Ownership, authority epoch, edit policy, recovery state, pending/conflict
+counts, and detached state remain explicit Stugby metadata. Unrelated local
+Properties remain separate.
+
+Integration bindings, accounts, secrets, and automation/control capabilities
+are never projected. Normal remote telemetry is not copied into the local
+Timescale archive. Only an explicit permanent disconnect may promote a complete
+full-recovery Home for its designated successor and import that sanitized
+history as local historical data. Grant cache permissions and retention remain
+enforced for non-recovery replicas. A zero-day or no-cache dataset is not
+written as a durable replica.
 
 The node's Ed25519 private key is stored only in `STUGBY_IDENTITY_FILE`, beside
 the core database by default. It is not in SQLite, an event, an exportable
-grant, or an API response. Floor-plan replicas are content-addressed files below
-the configured asset directory; SQLite stores their digest, media type, size,
-reference ownership, and audience/grant authorization. Revocation and retention
-remove unreferenced replica files; pre-event uploads have a bounded temporary
-staging allowance. Back up the identity, database, and assets as
+grant, or an API response. Floor-plan and recovery replicas are
+content-addressed files below the configured asset directory; SQLite stores
+their digest, media type, size, reference ownership, and audience/grant
+authorization. Supported blobs are PNG, JPEG, WebP, glTF, and GLB. Revocation
+and retention remove unreferenced replica files; pre-event uploads have a
+bounded temporary staging allowance. Back up the identity, database, and assets as
 one recovery unit. For the complete protocol and lifecycle, see
 [Stugby federation](stugby.md).
 

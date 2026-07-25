@@ -70,9 +70,10 @@ an H100 result does not establish that the H200 child-command wrapper behaves
 identically, and protocol-fixture tests do not replace a read-only live-history
 check before a production firmware rollout.
 
-For a Home Assistant-mapped sensor, Stuga instead asks recorder for the missing
-entity history in bounded 24-hour chunks. It does not silently combine the same
-physical sensor from both adapters.
+For a dual-bound sensor, Stuga asks Home Assistant recorder for the missing
+entity history in bounded 24-hour chunks after local retained history and
+before mobile export. Cross-source rows are accepted only for the same canonical
+Stuga sensor and metric; Stuga never infers identity from names or aliases.
 
 Recovered rows pass the normal sensor, metric, canonical-unit, valid-range,
 source, and timestamp checks. The coordinator inserts batches without live

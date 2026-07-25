@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import type { House } from "@climate-twin/contracts";
+import type { House, Property } from "@climate-twin/contracts";
 import {
   STUGBY_DATASETS,
   type StugbyDataset,
@@ -10,7 +10,7 @@ import {
   type StugbySharedProperty,
   type StugbySummary,
 } from "@climate-twin/stugby-protocol";
-import { Check, Copy, Database, KeyRound, Link, LoaderCircle, Network, Pencil, Plus, RefreshCw, Settings2, ShieldCheck, Sparkles, Trash2, Users } from "lucide-react";
+import { AlertTriangle, Check, Copy, Database, KeyRound, Link, LoaderCircle, Network, Pencil, Plus, RefreshCw, Settings2, ShieldCheck, Sparkles, Trash2, Unplug, Users } from "lucide-react";
 import {
   api,
   type StugbyDetailResponse,
@@ -19,12 +19,15 @@ import {
   type StugbyLocalPublicationCatalog,
   type StugbyRemoteTelemetrySample,
 } from "../api";
+import { StugbyMark } from "../components/StugbyMark";
 import { useI18n, type TranslationKey } from "../i18n";
 import { CloudflareSetupPanel } from "./CloudflareSetupPanel";
 import "./StugbyPage.css";
 
 interface StugbyPageProps {
-  houses: Array<Pick<House, "id" | "name" | "propertyId">>;
+  houses: Array<Pick<House, "id" | "name" | "propertyId" | "stugby">>;
+  properties?: Array<Pick<Property, "id" | "name" | "stugby">>;
+  onInventoryChange?: () => void;
 }
 
 interface DatasetDraft {
@@ -57,7 +60,17 @@ const datasetLabelKeys: Record<StugbyDataset, TranslationKey> = {
   "home.telemetry.v1": "stugby.dataset.telemetry",
   "home.notes.v1": "stugby.dataset.notes",
   "home.observations.v1": "stugby.dataset.observations",
+  "home.recovery.v1": "stugby.dataset.recovery",
 };
+
+const editableHomeDatasets = new Set<StugbyDataset>([
+  "home.directory.v1",
+  "home.location.v1",
+  "home.structure.v1",
+  "home.sensor-catalog.v1",
+  "home.notes.v1",
+  "home.observations.v1",
+]);
 
 const roleLabelKeys: Record<StugbyRole, TranslationKey> = {
   steward: "stugby.role.steward",
@@ -126,7 +139,7 @@ function parseArray(value: string, label: string, invalidJson: string, notArray:
   return parsed;
 }
 
-export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
+export function StugbyPage({ houses, properties = [], onInventoryChange }: Readonly<StugbyPageProps>) {
   const { locale, t } = useI18n();
   const roleLabel = (role: StugbyRole) => t(roleLabelKeys[role]);
   const stateLabel = (state: StugbyMember["state"]) => t(memberStateLabelKeys[state]);
@@ -154,7 +167,8 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
   const [inviteRole, setInviteRole] = useState<Exclude<StugbyRole, "steward">>("participant");
   const [inviteExpiresAt, setInviteExpiresAt] = useState("");
 
-  const [grantHouseId, setGrantHouseId] = useState(() => houses[0]?.id ?? "");
+  const publishableHouses = useMemo(() => houses.filter((house) => !house.stugby || house.stugby.ownership === "local"), [houses]);
+  const [grantHouseId, setGrantHouseId] = useState(() => publishableHouses[0]?.id ?? "");
   const [audienceKind, setAudienceKind] = useState<"all-members" | "members">("all-members");
   const [audienceNodes, setAudienceNodes] = useState<string[]>([]);
   const [datasetDraft, setDatasetDraft] = useState(initialDatasetDraft);
@@ -164,6 +178,9 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
   const [telemetrySensors, setTelemetrySensors] = useState("");
   const [telemetryRate, setTelemetryRate] = useState("5000");
   const [grantExpiresAt, setGrantExpiresAt] = useState("");
+  const [houseEditPolicy, setHouseEditPolicy] = useState<StugbyShareGrant["housePolicy"]["editPolicy"]>("read-only");
+  const [recoveryMode, setRecoveryMode] = useState<StugbyShareGrant["housePolicy"]["recoveryMode"]>("none");
+  const [houseSuccessorNodeId, setHouseSuccessorNodeId] = useState("");
   const [editingGrantId, setEditingGrantId] = useState<string | null>(null);
   const [publicationCatalog, setPublicationCatalog] = useState<PublicationCatalogState>(idlePublicationCatalog);
   const [catalogRevision, setCatalogRevision] = useState(0);
@@ -177,12 +194,16 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
   const [equipmentJson, setEquipmentJson] = useState("[]");
   const [notesJson, setNotesJson] = useState("[]");
   const [maintenanceJson, setMaintenanceJson] = useState("[]");
+  const [propertyEditPolicy, setPropertyEditPolicy] = useState<StugbySharedProperty["editPolicy"]>("collaborative");
+  const [propertySuccessorNodeId, setPropertySuccessorNodeId] = useState("");
+  const [adoptionPropertyId, setAdoptionPropertyId] = useState("");
+  const [migrationPropertyId, setMigrationPropertyId] = useState("");
 
   const detailRequest = useRef(0);
   const selectedIdRef = useRef("");
 
   const resetGrantDraft = useCallback(() => {
-    setGrantHouseId(houses[0]?.id ?? "");
+    setGrantHouseId(publishableHouses[0]?.id ?? "");
     setAudienceKind("all-members");
     setAudienceNodes([]);
     setDatasetDraft(initialDatasetDraft());
@@ -192,10 +213,13 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
     setTelemetrySensors("");
     setTelemetryRate("5000");
     setGrantExpiresAt("");
+    setHouseEditPolicy("read-only");
+    setRecoveryMode("none");
+    setHouseSuccessorNodeId("");
     setEditingGrantId(null);
     setPublicationCatalog(idlePublicationCatalog());
     setCatalogRevision((current) => current + 1);
-  }, [houses]);
+  }, [publishableHouses]);
 
   const resetStugbyScopedUi = useCallback(() => {
     resetGrantDraft();
@@ -280,7 +304,19 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
     setEquipmentJson(JSON.stringify(property.equipment, null, 2));
     setNotesJson(JSON.stringify(property.notes, null, 2));
     setMaintenanceJson(JSON.stringify(property.maintenance, null, 2));
+    setPropertyEditPolicy(property.editPolicy);
+    setPropertySuccessorNodeId(property.designatedSuccessorNodeId ?? "");
   }, [detail?.sharedProperty]);
+
+  useEffect(() => {
+    const available = properties.filter((property) => !property.stugby || property.stugby.syncState === "detached");
+    setAdoptionPropertyId((current) => available.some((property) => property.id === current)
+      ? current
+      : available[0]?.id ?? "");
+    setMigrationPropertyId((current) => available.some((property) => property.id === current)
+      ? current
+      : available[0]?.id ?? "");
+  }, [properties]);
 
   useEffect(() => {
     if (!joinUrl.trim()) return;
@@ -357,10 +393,47 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
     member.state === "active" && member.nodeId !== index?.identity.nodeId
   )) ?? [], [detail?.members, index?.identity.nodeId]);
 
+  const selectRecoveryMode = (mode: StugbyShareGrant["housePolicy"]["recoveryMode"]) => {
+    setRecoveryMode(mode);
+    if (mode !== "full") {
+      setHouseSuccessorNodeId("");
+      return;
+    }
+    const successor = houseSuccessorNodeId || activeRemoteMembers[0]?.nodeId || "";
+    setHouseSuccessorNodeId(successor);
+    setAudienceKind("members");
+    setAudienceNodes(successor ? [successor] : []);
+    setTelemetryLive(true);
+    setTelemetryRate("1000000");
+    setDatasetDraft(Object.fromEntries(STUGBY_DATASETS.map((dataset) => [dataset, {
+      enabled: true,
+      includeLocalIds: false,
+      allowReplicaCache: true,
+      retentionDays: 3650,
+    }])) as Record<StugbyDataset, DatasetDraft>);
+  };
+
+  const selectHouseEditPolicy = (policy: StugbyShareGrant["housePolicy"]["editPolicy"]) => {
+    setHouseEditPolicy(policy);
+    if (policy !== "editable") return;
+    setDatasetDraft((current) => Object.fromEntries(STUGBY_DATASETS.map((dataset) => {
+      const draft = current[dataset];
+      return [dataset, editableHomeDatasets.has(dataset)
+        ? { ...draft, enabled: true, allowReplicaCache: true, retentionDays: Math.max(1, draft.retentionDays) }
+        : draft];
+    })) as Record<StugbyDataset, DatasetDraft>);
+  };
+
   const saveGrant = (event: FormEvent) => {
     event.preventDefault();
     if (!detail || detail.stugby.id !== selectedIdRef.current) return;
-    if (audienceKind === "members" && audienceNodes.length === 0) {
+    if (recoveryMode === "full" && !houseSuccessorNodeId) {
+      setError(t("stugby.recoverySuccessorRequired"));
+      return;
+    }
+    const effectiveAudienceKind = recoveryMode === "full" ? "members" : audienceKind;
+    const effectiveAudienceNodes = recoveryMode === "full" ? [houseSuccessorNodeId] : audienceNodes;
+    if (effectiveAudienceKind === "members" && effectiveAudienceNodes.length === 0) {
       setError(t("stugby.audienceRequired"));
       return;
     }
@@ -390,20 +463,27 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
         return {
           ...base,
           telemetry: {
-            sensorPublicationIds: telemetrySensors.split(",").map((sensor) => sensor.trim()).filter(Boolean),
-            metricIds: telemetryMetrics.split(",").map((metric) => metric.trim()).filter(Boolean),
-            historyFrom: Number.isFinite(hours) && hours > 0 ? new Date(Date.now() - hours * 3_600_000).toISOString() : null,
+            sensorPublicationIds: recoveryMode === "full" ? [] : telemetrySensors.split(",").map((sensor) => sensor.trim()).filter(Boolean),
+            metricIds: recoveryMode === "full" ? [] : telemetryMetrics.split(",").map((metric) => metric.trim()).filter(Boolean),
+            historyFrom: recoveryMode === "full"
+              ? "1970-01-01T00:00:00.000Z"
+              : Number.isFinite(hours) && hours > 0 ? new Date(Date.now() - hours * 3_600_000).toISOString() : null,
             live: telemetryLive,
             maxSamplesPerHour: Number.isSafeInteger(rate) && rate > 0 ? rate : 5_000,
           },
         };
       }).filter((dataset) => dataset.enabled);
-      const audience = { kind: audienceKind, nodeIds: audienceKind === "members" ? audienceNodes : [] } as const;
+      const audience = { kind: effectiveAudienceKind, nodeIds: effectiveAudienceKind === "members" ? effectiveAudienceNodes : [] } as const;
+      const housePolicy: StugbyShareGrant["housePolicy"] = {
+        editPolicy: houseEditPolicy,
+        recoveryMode,
+        designatedSuccessorNodeId: recoveryMode === "full" ? houseSuccessorNodeId : null,
+      };
       const expiresAt = grantExpiresAt ? new Date(grantExpiresAt).toISOString() : null;
       const existing = editingGrantId ? selectedDetail.grants.find((grant) => grant.id === editingGrantId) : null;
       if (editingGrantId && !existing) throw new Error(t("stugby.grantScopeChanged"));
-      if (existing) await api.updateStugbyGrant(selectedDetail.stugby.id, existing.id, { baseRevision: existing.revision, audience, datasets, expiresAt });
-      else await api.createStugbyGrant(selectedDetail.stugby.id, { localHouseId: grantHouseId, audience, datasets, expiresAt });
+      if (existing) await api.updateStugbyGrant(selectedDetail.stugby.id, existing.id, { baseRevision: existing.revision, audience, datasets, housePolicy, expiresAt });
+      else await api.createStugbyGrant(selectedDetail.stugby.id, { localHouseId: grantHouseId, audience, datasets, housePolicy, expiresAt });
       setNotice(t("stugby.changesSaved"));
       resetGrantDraft();
       await loadDetail(selectedDetail.stugby.id);
@@ -432,6 +512,9 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
     setTelemetryRate(String(telemetry?.maxSamplesPerHour ?? 5_000));
     setTelemetryHistoryHours(telemetry?.historyFrom ? String(Math.max(0, Math.round((Date.now() - Date.parse(telemetry.historyFrom)) / 3_600_000))) : "0");
     setGrantExpiresAt(localDateTimeInput(grant.expiresAt));
+    setHouseEditPolicy(grant.housePolicy.editPolicy);
+    setRecoveryMode(grant.housePolicy.recoveryMode);
+    setHouseSuccessorNodeId(grant.housePolicy.designatedSuccessorNodeId ?? "");
   };
 
   const saveProperty = (event: FormEvent) => {
@@ -450,7 +533,7 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
         || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)) {
         throw new Error(t("stugby.invalidCoordinates"));
       }
-      const property: Pick<StugbySharedProperty, "name" | "description" | "location" | "areas" | "equipment" | "notes" | "maintenance"> = {
+      const property: Pick<StugbySharedProperty, "name" | "description" | "location" | "areas" | "equipment" | "notes" | "maintenance" | "editPolicy" | "designatedSuccessorNodeId"> = {
         name: propertyName,
         description: propertyDescription || null,
         location: hasLocation ? { latitude, longitude, ...(propertyLocationLabel.trim() ? { label: propertyLocationLabel.trim() } : {}) } : null,
@@ -458,6 +541,8 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
         equipment: parseArray(equipmentJson, t("stugby.equipment"), t("stugby.invalidJson"), t("stugby.jsonArrayRequired")) as StugbySharedProperty["equipment"],
         notes: parseArray(notesJson, t("stugby.notes"), t("stugby.invalidJson"), t("stugby.jsonArrayRequired")) as StugbySharedProperty["notes"],
         maintenance: parseArray(maintenanceJson, t("stugby.maintenance"), t("stugby.invalidJson"), t("stugby.jsonArrayRequired")) as StugbySharedProperty["maintenance"],
+        editPolicy: propertyEditPolicy,
+        designatedSuccessorNodeId: propertySuccessorNodeId || null,
       };
       await api.updateStugbyProperty(selected.stugby.id, baseRevision, property);
       setNotice(t("stugby.changesSaved"));
@@ -474,6 +559,46 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
       await api.updateStugbyMember(detail.stugby.id, member.nodeId, { role: input.role ?? member.role, state: nextState });
       setNotice(t("stugby.changesSaved"));
       await loadDetail(detail.stugby.id);
+    });
+  };
+
+  const adoptSharedProperty = () => {
+    if (!detail || detail.stugby.id !== selectedIdRef.current) return;
+    const selected = detail;
+    void withBusy("adopt-property", async () => {
+      await api.adoptStugbyProperty(
+        selected.stugby.id,
+        coordinator && adoptionPropertyId ? adoptionPropertyId : undefined,
+      );
+      onInventoryChange?.();
+      setNotice(t("stugby.propertyAdopted"));
+      await loadDetail(selected.stugby.id);
+    });
+  };
+
+  const migrateLocalProperty = () => {
+    if (!detail || !migrationPropertyId || detail.stugby.id !== selectedIdRef.current) return;
+    const source = properties.find((property) => property.id === migrationPropertyId);
+    if (!source || !window.confirm(t("stugby.confirmPropertyMigration", { name: source.name }))) return;
+    const selected = detail;
+    void withBusy("migrate-property", async () => {
+      await api.migratePropertyToStugby(selected.stugby.id, source.id);
+      onInventoryChange?.();
+      setMigrationPropertyId("");
+      setNotice(t("stugby.propertyMigrated"));
+      await loadDetail(selected.stugby.id);
+    });
+  };
+
+  const disconnectProperty = () => {
+    if (!detail || detail.stugby.id !== selectedIdRef.current
+      || !window.confirm(t("stugby.confirmPropertyDisconnect"))) return;
+    const selected = detail;
+    void withBusy("disconnect-property", async () => {
+      await api.disconnectStugbyProperty(selected.stugby.id);
+      onInventoryChange?.();
+      setNotice(t("stugby.propertyDisconnected"));
+      await loadDetail(selected.stugby.id);
     });
   };
 
@@ -494,7 +619,11 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
 
   const currentDetail = detail?.stugby.id === selectedId ? detail : null;
   const coordinator = currentDetail?.stugby.localMemberState === "active" && currentDetail.stugby.localRole === "steward";
+  const unsharedProperties = properties.filter((property) => !property.stugby || property.stugby.syncState === "detached");
+  const migrationProperties = unsharedProperties.filter((property) => property.id !== currentDetail?.propertyAdoption?.localPropertyId);
   const deletionBlocked = Boolean(currentDetail && (
+    currentDetail.propertyAdoption?.state === "adopted"
+    ||
     (!coordinator && !["left", "revoked"].includes(currentDetail.stugby.localMemberState))
     || (coordinator && currentDetail.members.some((member) => (
       member.nodeId !== index?.identity.nodeId && !["left", "revoked"].includes(member.state)
@@ -579,7 +708,7 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
   return <div className="stugby-page">
     <header className="stugby-page-header">
       <div><span className="eyebrow">{t("stugby.eyebrow")}</span><h1>{t("nav.stugbys")}</h1><p>{t("stugby.description")}</p></div>
-      <Network size={30} aria-hidden="true" />
+      <StugbyMark />
     </header>
 
     <section className="stugby-boundary" aria-labelledby="stugby-boundary-title">
@@ -687,12 +816,48 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
           })}</div></details>}
         </section>
 
+        <section className="stugby-card stugby-property-connection">
+          <div className="stugby-card-title"><StugbyMark className="small" /><div><h2>{t("stugby.propertyConnection")}</h2><p>{t("stugby.propertyConnectionBody")}</p></div></div>
+          {!detail.propertyAdoption ? <div className="stugby-adoption-action">
+            {coordinator && unsharedProperties.length > 0 && <label className="field"><span>{t("stugby.coordinatorProperty")}</span><select value={adoptionPropertyId} onChange={(event) => setAdoptionPropertyId(event.target.value)}>{unsharedProperties.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select><small>{t("stugby.coordinatorPropertyHelp")}</small></label>}
+            <button type="button" className="primary-button" disabled={busy !== null || !detail.sharedProperty} onClick={adoptSharedProperty}>{busy === "adopt-property" ? <LoaderCircle className="spin" size={16} /> : <StugbyMark className="small" />}{coordinator && adoptionPropertyId ? t("stugby.connectProperty") : t("stugby.adoptProperty")}</button>
+          </div> : <>
+            <div className="stugby-property-state">
+              <span data-state={detail.propertyAdoption.state}>{detail.propertyAdoption.state === "adopted" ? t("stugby.propertyConnected") : t("stugby.propertyLocal")}</span>
+              <strong>{properties.find((candidate) => candidate.id === detail.propertyAdoption?.localPropertyId)?.name ?? detail.sharedProperty?.name ?? detail.propertyAdoption.localPropertyId}</strong>
+              {detail.propertyCommandCounts.pending > 0 && <small>{t("stugby.pendingPropertyChanges", { count: detail.propertyCommandCounts.pending })}</small>}
+              {detail.homeCommandCounts.pending > 0 && <small>{t("stugby.pendingHomeChanges", { count: detail.homeCommandCounts.pending })}</small>}
+              {detail.homeCommandCounts.conflicts > 0 && <small>{t("stugby.homeConflicts", { count: detail.homeCommandCounts.conflicts })}</small>}
+            </div>
+            {detail.propertyConflicts.length > 0 && <section className="stugby-conflicts" aria-labelledby="stugby-conflicts-title">
+              <div><AlertTriangle size={18} aria-hidden="true" /><div><h3 id="stugby-conflicts-title">{t("stugby.conflictsTitle")}</h3><p>{t("stugby.conflictsBody")}</p></div></div>
+              {detail.propertyConflicts.map((conflict) => <article key={conflict.commandId}><div><strong>{t("stugby.conflictItem", { item: conflict.entityId, fields: conflict.fields.join(", ") })}</strong><small>{conflict.message}</small></div><button type="button" className="secondary-button" disabled={busy !== null} onClick={() => void withBusy(`conflict:${conflict.commandId}`, async () => { await api.resolveStugbyPropertyConflict(detail.stugby.id, conflict.commandId); setNotice(t("stugby.conflictAcknowledged")); await loadDetail(detail.stugby.id); })}>{t("stugby.acknowledgeConflict")}</button></article>)}
+            </section>}
+            {detail.propertyAdoption.state === "adopted" && <details className="stugby-subdetails">
+              <summary>{t("stugby.localPropertyMigration")}</summary>
+              <div className="stugby-subdetails-body stugby-migration">
+                <p>{t("stugby.localPropertyMigrationBody")}</p>
+                {migrationProperties.length > 0 ? <><label className="field"><span>{t("stugby.propertyToMove")}</span><select value={migrationPropertyId} onChange={(event) => setMigrationPropertyId(event.target.value)}>{migrationProperties.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label><button type="button" className="danger-button" disabled={busy !== null || !migrationPropertyId} onClick={migrateLocalProperty}>{busy === "migrate-property" ? <LoaderCircle className="spin" size={16} /> : <Database size={16} />}{t("stugby.moveIntoSharedProperty")}</button></> : <p>{t("stugby.noLocalPropertyToMove")}</p>}
+              </div>
+            </details>}
+            {detail.propertyAdoption.state === "adopted" && <details className="stugby-subdetails stugby-disconnect">
+              <summary>{t("stugby.permanentDisconnect")}</summary>
+              <div className="stugby-subdetails-body"><p>{t("stugby.permanentDisconnectBody")}</p><button type="button" className="danger-button" disabled={busy !== null} onClick={disconnectProperty}>{busy === "disconnect-property" ? <LoaderCircle className="spin" size={16} /> : <Unplug size={16} />}{t("stugby.disconnectAndKeepLocal")}</button></div>
+            </details>}
+          </>}
+        </section>
+
         <details className="stugby-card stugby-collapsible stugby-property-editor">
           <summary><Database size={19} aria-hidden="true" /><span><strong>{t("stugby.sharedProperty")}</strong><small>{t("stugby.sharedPropertyBody")}</small></span></summary>
           <form className="stugby-collapsible-body" onSubmit={saveProperty}>
           {!detail.sharedProperty ? <p>{t("stugby.noSharedProperty")}</p> : <>
             {!propertyWriter && <p className="stugby-capability-note">{detail.stugby.localMemberState !== "active" ? t("stugby.inactiveCannotEdit", { state: stateLabel(detail.stugby.localMemberState) }) : t("stugby.roleCannotEdit")}</p>}
             <div className="stugby-form-grid"><label className="field"><span>{t("stugby.name")}</span><input required value={propertyName} disabled={!propertyWriter} onChange={(event) => setPropertyName(event.target.value)} /></label><label className="field"><span>{t("stugby.descriptionField")}</span><input value={propertyDescription} disabled={!propertyWriter} onChange={(event) => setPropertyDescription(event.target.value)} /></label><label className="field"><span>{t("stugby.latitude")}</span><input type="number" min="-90" max="90" step="any" value={propertyLatitude} disabled={!propertyWriter} onChange={(event) => setPropertyLatitude(event.target.value)} /></label><label className="field"><span>{t("stugby.longitude")}</span><input type="number" min="-180" max="180" step="any" value={propertyLongitude} disabled={!propertyWriter} onChange={(event) => setPropertyLongitude(event.target.value)} /></label><label className="field"><span>{t("stugby.locationLabel")}</span><input value={propertyLocationLabel} disabled={!propertyWriter} onChange={(event) => setPropertyLocationLabel(event.target.value)} /></label></div>
+            <section className="stugby-policy-panel">
+              <div><strong>{t("stugby.propertyEditing")}</strong><p>{t("stugby.propertyEditingBody")}</p></div>
+              <label className="field"><span>{t("stugby.editPermission")}</span><select value={propertyEditPolicy} disabled={!coordinator} onChange={(event) => setPropertyEditPolicy(event.target.value as StugbySharedProperty["editPolicy"])}><option value="collaborative">{t("stugby.propertyCollaborative")}</option><option value="read-only">{t("stugby.readOnly")}</option></select></label>
+              <label className="field"><span>{t("stugby.designatedPropertySuccessor")}</span><select value={propertySuccessorNodeId} disabled={!coordinator} onChange={(event) => setPropertySuccessorNodeId(event.target.value)}><option value="">{t("stugby.noSuccessor")}</option>{activeRemoteMembers.map((member) => <option key={member.nodeId} value={member.nodeId}>{member.displayName}</option>)}</select><small>{t("stugby.designatedPropertySuccessorHelp")}</small></label>
+            </section>
             <details className="stugby-subdetails">
               <summary>{t("nav.advanced")}</summary>
               <div className="stugby-subdetails-body"><p className="stugby-json-help">{t("stugby.jsonHelp")}</p>
@@ -707,8 +872,14 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
         <section className="stugby-card stugby-grants">
           <div className="stugby-card-title"><ShieldCheck size={19} aria-hidden="true" /><div><h2>{t("stugby.grantsTitle")}</h2><p>{t("stugby.grantsBody")}</p></div></div>
           {canPublish ? <form onSubmit={saveGrant}>
-            <div className="stugby-form-grid"><label className="field"><span>{t("stugby.localHome")}</span><select required disabled={editingGrantId !== null} value={grantHouseId} onChange={(event) => { setGrantHouseId(event.target.value); setTelemetrySensors(""); }}><option value="" disabled>{t("stugby.chooseHome")}</option>{houses.map((house) => <option key={house.id} value={house.id}>{house.name}</option>)}</select></label><label className="field"><span>{t("stugby.audience")}</span><select value={audienceKind} onChange={(event) => { setAudienceKind(event.target.value as typeof audienceKind); setAudienceNodes([]); }}><option value="all-members">{t("stugby.audienceAll")}</option><option value="members">{t("stugby.audienceSelected")}</option></select></label></div>
-            {audienceKind === "members" && <fieldset className="stugby-audience"><legend>{t("stugby.recipients")}</legend>{activeRemoteMembers.length === 0 ? <p>{t("stugby.noEligibleRecipients")}</p> : activeRemoteMembers.map((member) => <label key={member.nodeId}><input type="checkbox" checked={audienceNodes.includes(member.nodeId)} onChange={(event) => setAudienceNodes((current) => event.target.checked ? [...current, member.nodeId] : current.filter((id) => id !== member.nodeId))} />{member.displayName} ({roleLabel(member.role)})</label>)}{activeRemoteMembers.length > 0 && audienceNodes.length === 0 && <p className="stugby-capability-note">{t("stugby.audienceRequired")}</p>}</fieldset>}
+            <div className="stugby-form-grid"><label className="field"><span>{t("stugby.localHome")}</span><select required disabled={editingGrantId !== null} value={grantHouseId} onChange={(event) => { setGrantHouseId(event.target.value); setTelemetrySensors(""); }}><option value="" disabled>{t("stugby.chooseHome")}</option>{publishableHouses.map((house) => <option key={house.id} value={house.id}>{house.name}</option>)}</select></label><label className="field"><span>{t("stugby.audience")}</span><select value={audienceKind} disabled={recoveryMode === "full"} onChange={(event) => { setAudienceKind(event.target.value as typeof audienceKind); setAudienceNodes([]); }}><option value="all-members">{t("stugby.audienceAll")}</option><option value="members">{t("stugby.audienceSelected")}</option></select></label></div>
+            {audienceKind === "members" && <fieldset className="stugby-audience"><legend>{t("stugby.recipients")}</legend>{activeRemoteMembers.length === 0 ? <p>{t("stugby.noEligibleRecipients")}</p> : activeRemoteMembers.map((member) => <label key={member.nodeId}><input type="checkbox" disabled={recoveryMode === "full"} checked={audienceNodes.includes(member.nodeId)} onChange={(event) => setAudienceNodes((current) => event.target.checked ? [...current, member.nodeId] : current.filter((id) => id !== member.nodeId))} />{member.displayName} ({roleLabel(member.role)})</label>)}{activeRemoteMembers.length > 0 && audienceNodes.length === 0 && <p className="stugby-capability-note">{t("stugby.audienceRequired")}</p>}</fieldset>}
+            <section className="stugby-policy-panel stugby-home-policy">
+              <div><strong>{t("stugby.homePermission")}</strong><p>{t("stugby.homePermissionBody")}</p></div>
+              <label className="field"><span>{t("stugby.editPermission")}</span><select value={houseEditPolicy} onChange={(event) => selectHouseEditPolicy(event.target.value as typeof houseEditPolicy)}><option value="read-only">{t("stugby.readOnlyDefault")}</option><option value="editable" disabled={!coordinator}>{t("stugby.allowEdits")}</option></select></label>
+              <label className="field"><span>{t("stugby.recoveryCopy")}</span><select value={recoveryMode} onChange={(event) => selectRecoveryMode(event.target.value as typeof recoveryMode)}><option value="none">{t("stugby.noRecoveryCopy")}</option><option value="full">{t("stugby.fullRecoveryCopy")}</option></select><small>{t("stugby.recoveryCopyHelp")}</small></label>
+              {recoveryMode === "full" && <label className="field"><span>{t("stugby.designatedSuccessor")}</span><select required value={houseSuccessorNodeId} onChange={(event) => { setHouseSuccessorNodeId(event.target.value); setAudienceKind("members"); setAudienceNodes(event.target.value ? [event.target.value] : []); }}><option value="" disabled>{t("stugby.chooseSuccessor")}</option>{activeRemoteMembers.map((member) => <option key={member.nodeId} value={member.nodeId}>{member.displayName}</option>)}</select><small>{t("stugby.fullRecoveryBoundary")}</small></label>}
+            </section>
             {!editingGrantId && <div className="stugby-recommended-profile"><Sparkles size={20} aria-hidden="true" /><div><strong>{t("stugby.recommendedProfile")}</strong><p>{t("stugby.recommendedProfileBody")}</p></div></div>}
             <details key={editingGrantId ?? "new-grant"} className="stugby-subdetails stugby-sharing-options" open={editingGrantId !== null ? true : undefined}>
               <summary>{t("stugby.customizeSharing")}</summary>
@@ -720,20 +891,20 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
                 const draft = datasetDraft[dataset];
                 const label = t(datasetLabelKeys[dataset]);
                 return <div className={`stugby-dataset-row ${dataset === "home.location.v1" ? "sensitive" : ""}`} key={dataset}>
-                  <label><input type="checkbox" checked={draft.enabled} onChange={(event) => setDatasetDraft((current) => ({ ...current, [dataset]: { ...current[dataset], enabled: event.target.checked } }))} /><span><strong>{label}</strong><small>{dataset}</small></span></label>
-                  <label className="stugby-dataset-option"><span>{t("stugby.localIds")}</span><input aria-label={`${t("stugby.localIds")}: ${label}`} type="checkbox" disabled={!draft.enabled} checked={draft.includeLocalIds} onChange={(event) => setDatasetDraft((current) => ({ ...current, [dataset]: { ...current[dataset], includeLocalIds: event.target.checked } }))} /></label>
-                  <label className="stugby-dataset-option"><span>{t("stugby.cache")}</span><input aria-label={`${t("stugby.cache")}: ${label}`} type="checkbox" disabled={!draft.enabled} checked={draft.allowReplicaCache} onChange={(event) => setDatasetDraft((current) => ({ ...current, [dataset]: { ...current[dataset], allowReplicaCache: event.target.checked } }))} /></label>
-                  <label className="stugby-dataset-option"><span>{t("stugby.days")}</span><input aria-label={`${t("stugby.days")}: ${label}`} type="number" min="0" max="3650" disabled={!draft.enabled} value={draft.retentionDays} onChange={(event) => setDatasetDraft((current) => ({ ...current, [dataset]: { ...current[dataset], retentionDays: Number(event.target.value) } }))} /></label>
+                  <label><input type="checkbox" disabled={recoveryMode === "full" || (houseEditPolicy === "editable" && editableHomeDatasets.has(dataset))} checked={draft.enabled} onChange={(event) => setDatasetDraft((current) => ({ ...current, [dataset]: { ...current[dataset], enabled: event.target.checked } }))} /><span><strong>{label}</strong><small>{dataset}</small></span></label>
+                  <label className="stugby-dataset-option"><span>{t("stugby.localIds")}</span><input aria-label={`${t("stugby.localIds")}: ${label}`} type="checkbox" disabled={!draft.enabled || recoveryMode === "full"} checked={draft.includeLocalIds} onChange={(event) => setDatasetDraft((current) => ({ ...current, [dataset]: { ...current[dataset], includeLocalIds: event.target.checked } }))} /></label>
+                  <label className="stugby-dataset-option"><span>{t("stugby.cache")}</span><input aria-label={`${t("stugby.cache")}: ${label}`} type="checkbox" disabled={!draft.enabled || recoveryMode === "full" || (houseEditPolicy === "editable" && editableHomeDatasets.has(dataset))} checked={draft.allowReplicaCache} onChange={(event) => setDatasetDraft((current) => ({ ...current, [dataset]: { ...current[dataset], allowReplicaCache: event.target.checked } }))} /></label>
+                  <label className="stugby-dataset-option"><span>{t("stugby.days")}</span><input aria-label={`${t("stugby.days")}: ${label}`} type="number" min="0" max="3650" disabled={!draft.enabled || recoveryMode === "full" || (houseEditPolicy === "editable" && editableHomeDatasets.has(dataset))} value={draft.retentionDays} onChange={(event) => setDatasetDraft((current) => ({ ...current, [dataset]: { ...current[dataset], retentionDays: Number(event.target.value) } }))} /></label>
                 </div>;
               })}
               </div>
             {datasetDraft["home.location.v1"].enabled && <p className="stugby-sensitive-warning">{t("stugby.locationWarning")}</p>}
-            {datasetDraft["home.telemetry.v1"].enabled && <><div className="stugby-telemetry-options"><label><input type="checkbox" checked={telemetryLive} onChange={(event) => setTelemetryLive(event.target.checked)} />{t("stugby.telemetryLive")}</label><label className="field"><span>{t("stugby.historyHours")}</span><input type="number" min="0" value={telemetryHistoryHours} onChange={(event) => setTelemetryHistoryHours(event.target.value)} /></label><label className="field"><span>{t("stugby.metrics")}</span><input value={telemetryMetrics} onChange={(event) => setTelemetryMetrics(event.target.value)} /></label><label className="field"><span>{t("stugby.maximumSamples")}</span><input type="number" min="1" max="1000000" value={telemetryRate} onChange={(event) => setTelemetryRate(event.target.value)} /></label></div>{publicationCatalog.status === "loading" && publicationCatalog.houseId === grantHouseId && <p role="status">{t("stugby.sensorCatalogLoading")}</p>}{publicationCatalog.status === "error" && publicationCatalog.houseId === grantHouseId && <div className="stugby-catalog-error" role="alert"><p>{publicationCatalog.error}</p><button type="button" className="secondary-button" onClick={() => setCatalogRevision((current) => current + 1)}>{t("stugby.retry")}</button></div>}{matchingCatalog && <fieldset className="stugby-audience"><legend>{t("stugby.sensorScope")}</legend><label><input type="checkbox" checked={!telemetrySensors} onChange={() => setTelemetrySensors("")} />{t("stugby.allSensors")}</label>{matchingCatalog.sensors.map((sensor) => { const selected = telemetrySensors.split(",").map((item) => item.trim()).filter(Boolean); return <label key={sensor.sensorPublicationId}><input type="checkbox" checked={selected.includes(sensor.sensorPublicationId)} onChange={(event) => setTelemetrySensors(event.target.checked ? [...selected, sensor.sensorPublicationId].join(",") : selected.filter((id) => id !== sensor.sensorPublicationId).join(","))} />{sensor.name}<small>{sensor.metricIds.join(", ") || t("stugby.noMetrics")}</small></label>; })}</fieldset>}</>}
+            {datasetDraft["home.telemetry.v1"].enabled && <><div className="stugby-telemetry-options"><label><input type="checkbox" disabled={recoveryMode === "full"} checked={telemetryLive} onChange={(event) => setTelemetryLive(event.target.checked)} />{t("stugby.telemetryLive")}</label><label className="field"><span>{recoveryMode === "full" ? t("stugby.allHistory") : t("stugby.historyHours")}</span><input type="number" min="0" disabled={recoveryMode === "full"} value={telemetryHistoryHours} onChange={(event) => setTelemetryHistoryHours(event.target.value)} /></label><label className="field"><span>{t("stugby.metrics")}</span><input disabled={recoveryMode === "full"} value={telemetryMetrics} onChange={(event) => setTelemetryMetrics(event.target.value)} /></label><label className="field"><span>{t("stugby.maximumSamples")}</span><input type="number" min="1" max="1000000" disabled={recoveryMode === "full"} value={telemetryRate} onChange={(event) => setTelemetryRate(event.target.value)} /></label></div>{publicationCatalog.status === "loading" && publicationCatalog.houseId === grantHouseId && <p role="status">{t("stugby.sensorCatalogLoading")}</p>}{publicationCatalog.status === "error" && publicationCatalog.houseId === grantHouseId && <div className="stugby-catalog-error" role="alert"><p>{publicationCatalog.error}</p><button type="button" className="secondary-button" onClick={() => setCatalogRevision((current) => current + 1)}>{t("stugby.retry")}</button></div>}{matchingCatalog && <fieldset className="stugby-audience"><legend>{t("stugby.sensorScope")}</legend><label><input type="checkbox" disabled={recoveryMode === "full"} checked={!telemetrySensors} onChange={() => setTelemetrySensors("")} />{t("stugby.allSensors")}</label>{matchingCatalog.sensors.map((sensor) => { const selected = telemetrySensors.split(",").map((item) => item.trim()).filter(Boolean); return <label key={sensor.sensorPublicationId}><input type="checkbox" disabled={recoveryMode === "full"} checked={selected.includes(sensor.sensorPublicationId)} onChange={(event) => setTelemetrySensors(event.target.checked ? [...selected, sensor.sensorPublicationId].join(",") : selected.filter((id) => id !== sensor.sensorPublicationId).join(","))} />{sensor.name}<small>{sensor.metricIds.join(", ") || t("stugby.noMetrics")}</small></label>; })}</fieldset>}</>}
               </div>
             </details>
-            <div className="stugby-grant-submit"><button className="primary-button" disabled={busy !== null || !grantHouseId || (audienceKind === "members" && audienceNodes.length === 0) || (datasetDraft["home.telemetry.v1"].enabled && !catalogMatches)}>{busy === "grant" ? <LoaderCircle aria-hidden="true" className="spin" size={16} /> : <ShieldCheck aria-hidden="true" size={16} />}{t(editingGrantId ? "stugby.updateGrant" : "stugby.startSharing")}</button>{editingGrantId && <button type="button" className="secondary-button" onClick={resetGrantDraft}>{t("stugby.cancelEdit")}</button>}</div>
+            <div className="stugby-grant-submit"><button className="primary-button" disabled={busy !== null || !grantHouseId || (recoveryMode === "full" ? !houseSuccessorNodeId : audienceKind === "members" && audienceNodes.length === 0) || (datasetDraft["home.telemetry.v1"].enabled && !catalogMatches)}>{busy === "grant" ? <LoaderCircle aria-hidden="true" className="spin" size={16} /> : <ShieldCheck aria-hidden="true" size={16} />}{t(editingGrantId ? "stugby.updateGrant" : "stugby.startSharing")}</button>{editingGrantId && <button type="button" className="secondary-button" onClick={resetGrantDraft}>{t("stugby.cancelEdit")}</button>}</div>
           </form> : <p>{cannotPublishMessage}</p>}
-          <div className="stugby-existing-grants">{detail.grants.length === 0 ? <p>{t("stugby.noGrants")}</p> : detail.grants.map((grant) => <article key={grant.id}><div className="stugby-record-copy"><strong>{grant.publicationId.slice(0, 12)}…</strong><span>{t("stugby.grantSummary", { authority: t(grant.authorityNodeId === index.identity.nodeId ? "stugby.localAuthority" : "stugby.remoteAuthority"), epoch: grant.epoch, state: t(grant.revokedAt ? "stugby.state.revoked" : "stugby.state.active") })}</span><small>{grant.datasets.filter((dataset) => dataset.enabled).map((dataset) => t(datasetLabelKeys[dataset.dataset])).join(" · ")}</small></div>{grant.authorityNodeId === index.identity.nodeId && !grant.revokedAt && <div className="stugby-record-actions"><button type="button" className="secondary-button" disabled={busy !== null} onClick={() => editGrant(grant)}><Pencil size={15} aria-hidden="true" />{t("stugby.editGrant")}</button><button type="button" className="secondary-button" disabled={busy !== null} onClick={() => void withBusy(`republish:${grant.id}`, async () => { await api.republishStugbyGrant(detail.stugby.id, grant.id); setNotice(t("stugby.republishQueued")); })}><RefreshCw size={15} aria-hidden="true" />{t("stugby.republish")}</button><button type="button" className="danger-button" disabled={busy !== null} onClick={() => { if (window.confirm(t("stugby.confirmRevoke"))) void withBusy(`revoke:${grant.id}`, async () => { await api.revokeStugbyGrant(detail.stugby.id, grant.id); setNotice(t("stugby.changesSaved")); await loadDetail(detail.stugby.id); }); }}><Trash2 size={15} aria-hidden="true" />{t("stugby.revoke")}</button></div>}</article>)}</div>
+          <div className="stugby-existing-grants">{detail.grants.length === 0 ? <p>{t("stugby.noGrants")}</p> : detail.grants.map((grant) => <article key={grant.id}><div className="stugby-record-copy"><strong>{grant.publicationId.slice(0, 12)}…</strong><span>{t("stugby.grantSummary", { authority: t(grant.authorityNodeId === index.identity.nodeId ? "stugby.localAuthority" : "stugby.remoteAuthority"), epoch: grant.epoch, state: t(grant.revokedAt ? "stugby.state.revoked" : "stugby.state.active") })}</span><small>{t(grant.housePolicy.editPolicy === "read-only" ? "stugby.sharedHomeReadOnly" : "stugby.sharedHomeEditable")}{grant.housePolicy.recoveryMode === "full" ? ` · ${t("stugby.fullRecoveryEnabled")}` : ""}</small><small>{grant.datasets.filter((dataset) => dataset.enabled).map((dataset) => t(datasetLabelKeys[dataset.dataset])).join(" · ")}</small></div>{grant.authorityNodeId === index.identity.nodeId && !grant.revokedAt && <div className="stugby-record-actions"><button type="button" className="secondary-button" disabled={busy !== null} onClick={() => editGrant(grant)}><Pencil size={15} aria-hidden="true" />{t("stugby.editGrant")}</button><button type="button" className="secondary-button" disabled={busy !== null} onClick={() => void withBusy(`republish:${grant.id}`, async () => { await api.republishStugbyGrant(detail.stugby.id, grant.id); setNotice(t("stugby.republishQueued")); })}><RefreshCw size={15} aria-hidden="true" />{t("stugby.republish")}</button><button type="button" className="danger-button" disabled={busy !== null} onClick={() => { if (window.confirm(t("stugby.confirmRevoke"))) void withBusy(`revoke:${grant.id}`, async () => { await api.revokeStugbyGrant(detail.stugby.id, grant.id); setNotice(t("stugby.changesSaved")); await loadDetail(detail.stugby.id); }); }}><Trash2 size={15} aria-hidden="true" />{t("stugby.revoke")}</button></div>}</article>)}</div>
         </section>
 
         <details className="stugby-card stugby-collapsible">

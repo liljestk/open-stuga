@@ -150,6 +150,65 @@ describe("direct TP-Link H100/H200 bridge", () => {
     });
   });
 
+  it("coalesces an equivalent Home Assistant sample when direct polling takes over", async () => {
+    temporaryDirectory = mkdtempSync(join(tmpdir(), "climate-twin-tp-link-handover-"));
+    const helperPath = join(temporaryDirectory, "fake-tp-link-handover-helper.mjs");
+    writeFileSync(helperPath, `
+      const emit = (temperature, humidity) => process.stdout.write(JSON.stringify({
+        type: "snapshot",
+        timestamp: new Date().toISOString(),
+        hubModel: "H200",
+        devices: [{
+          deviceId: "t315-handover",
+          model: "T315",
+          alias: "Handover sensor",
+          status: "online",
+          temperature,
+          temperatureUnit: "celsius",
+          humidity,
+          battery: 90
+        }]
+      }) + "\\n");
+      emit(21, 45);
+      setTimeout(() => emit(22, 46), 50);
+      setInterval(() => {}, 1000);
+    `);
+    const config: AppConfig = {
+      port: 0, apiHost: "127.0.0.1", databasePath: ":memory:",
+      integrationSecretsFile: join(temporaryDirectory, "secrets.json"), assetDirectory: temporaryDirectory,
+      mockEnabled: false, mockIntervalMs: 2_000, retentionDays: 730, ingestApiKey: null,
+      haUrl: null, haToken: null, haEntityMapFile: null,
+      tpLinkHost: "192.0.2.10", tpLinkUsername: "local@example.test", tpLinkPassword: "secret",
+      tpLinkDeviceMapFile: null, tpLinkPollIntervalMs: 2_000,
+      tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
+      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+    };
+    runtime = createApi({ config, startBackground: false });
+    runtime.database.updateSensor("sensor-01", { tpLinkDeviceId: "t315-handover" });
+    const homeAssistantTimestamp = new Date().toISOString();
+    runtime.measurements.ingestBatch([
+      {
+        sensorId: "sensor-01", metric: "temperature", value: 21, canonicalUnit: "\u00b0C",
+        timestamp: homeAssistantTimestamp, source: "home-assistant", quality: "good",
+      },
+      {
+        sensorId: "sensor-01", metric: "humidity", value: 45, canonicalUnit: "%",
+        timestamp: homeAssistantTimestamp, source: "home-assistant", quality: "good",
+      },
+    ]);
+
+    runtime.tpLink.start();
+    await waitFor(() => runtime?.database.getLatestMeasurementSample("sensor-01", "temperature")?.value === 22);
+
+    const history = runtime.database.measurementHistory(
+      "sensor-01", "temperature", "2020-01-01T00:00:00Z", "2100-01-01T00:00:00Z", 100,
+    );
+    expect(history.map((sample) => [sample.source, sample.value])).toEqual([
+      ["home-assistant", 21],
+      ["tp-link", 22],
+    ]);
+  });
+
   it("persists every climate change and one unchanged heartbeat per minute", async () => {
     temporaryDirectory = mkdtempSync(join(tmpdir(), "climate-twin-tp-link-cadence-"));
     const mappingPath = join(temporaryDirectory, "devices.json");

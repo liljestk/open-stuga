@@ -63,6 +63,8 @@ import type {
   SecurityAuditOutcome,
   SecurityAuditSubjectType,
   StaticParameter,
+  StugbyHouseLink,
+  StugbyPropertyLink,
   Wall,
   WeatherBackfillState,
   WeatherOutageComponent,
@@ -134,6 +136,16 @@ export interface StoredDailyAnalyticsFindings {
   snapshot: DailyAnalyticsFindingsSnapshot | null;
   lastAttemptAt: string;
   lastError: string | null;
+}
+
+export interface PropertyMigrationResult {
+  sourcePropertyId: string;
+  targetPropertyId: string;
+  houseIds: string[];
+  areaIds: string[];
+  equipmentIds: string[];
+  noteIds: string[];
+  maintenanceTaskIds: string[];
 }
 
 export interface OpeningStateActivityRecord {
@@ -249,6 +261,7 @@ interface HouseRow {
   map_placement_json: string | null;
   orientation_degrees: number | null;
   floors_json: string;
+  stugby_json: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -284,6 +297,7 @@ interface PropertyRow {
   name: string;
   description: string | null;
   location_json: string | null;
+  stugby_json: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -551,7 +565,7 @@ type StoredObservation = ManualObservation & Required<Pick<ManualObservation,
   | "revision"
   | "updatedAt"
 >>;
-type LocalObservationRevisionActor = Extract<ObservationRevisionActor, "local-rest" | "local-mcp">;
+type LocalObservationRevisionActor = Extract<ObservationRevisionActor, "local-rest" | "local-mcp" | "system-service">;
 
 interface MaintenanceTaskRow {
   id: string;
@@ -1049,6 +1063,7 @@ function houseFromRow(row: HouseRow): House {
     ...(row.map_placement_json ? { mapPlacement: parseJson<HouseMapPlacement>(row.map_placement_json) } : {}),
     ...(row.orientation_degrees !== null ? { orientationDegrees: row.orientation_degrees } : {}),
     floors: parseJson<Floor[]>(row.floors_json),
+    ...(row.stugby_json ? { stugby: parseJson<StugbyHouseLink>(row.stugby_json) } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -1076,6 +1091,7 @@ function propertyFromRow(row: PropertyRow): Property {
     name: row.name,
     description: row.description,
     location: row.location_json ? parseJson<HouseLocation>(row.location_json) : null,
+    ...(row.stugby_json ? { stugby: parseJson<StugbyPropertyLink>(row.stugby_json) } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -2149,6 +2165,7 @@ export class ClimateDatabase {
         name TEXT NOT NULL CHECK (length(trim(name)) > 0),
         description TEXT,
         location_json TEXT,
+        stugby_json TEXT CHECK (stugby_json IS NULL OR json_valid(stugby_json)),
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -2186,6 +2203,7 @@ export class ClimateDatabase {
         map_placement_json TEXT,
         orientation_degrees REAL CHECK (orientation_degrees >= 0 AND orientation_degrees < 360),
         floors_json TEXT NOT NULL,
+        stugby_json TEXT CHECK (stugby_json IS NULL OR json_valid(stugby_json)),
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -3041,6 +3059,10 @@ export class ClimateDatabase {
       CREATE INDEX IF NOT EXISTS idx_opening_state_provider_time
         ON opening_state_observations(house_id, floor_id, element_id, source, external_id, connection_id, observed_at DESC);
     `);
+    const propertyColumns = this.db.prepare("PRAGMA table_info(properties)").all() as unknown as Array<{ name: string }>;
+    if (!propertyColumns.some((column) => column.name === "stugby_json")) {
+      this.db.exec("ALTER TABLE properties ADD COLUMN stugby_json TEXT");
+    }
     const houseColumns = this.db.prepare("PRAGMA table_info(houses)").all() as unknown as Array<{ name: string }>;
     const migrationTimestamp = new Date().toISOString();
     this.db.prepare(`INSERT OR IGNORE INTO properties
@@ -3066,6 +3088,9 @@ export class ClimateDatabase {
     }
     if (!houseColumns.some((column) => column.name === "orientation_degrees")) {
       this.db.exec("ALTER TABLE houses ADD COLUMN orientation_degrees REAL CHECK (orientation_degrees >= 0 AND orientation_degrees < 360)");
+    }
+    if (!houseColumns.some((column) => column.name === "stugby_json")) {
+      this.db.exec("ALTER TABLE houses ADD COLUMN stugby_json TEXT");
     }
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_houses_property_name ON houses(property_id, name, id);
@@ -4430,6 +4455,12 @@ export class ClimateDatabase {
     return row ? propertyFromRow(row) : null;
   }
 
+  setPropertyStugbyLink(id: string, link: StugbyPropertyLink | null): Property | null {
+    const result = this.db.prepare("UPDATE properties SET stugby_json = ? WHERE id = ?")
+      .run(link ? JSON.stringify(link) : null, id);
+    return Number(result.changes) === 1 ? this.getProperty(id) : null;
+  }
+
   private assertTelemetryResourceIdAvailable(
     resourceType: "property" | "house" | "sensor",
     resourceId: string,
@@ -5226,6 +5257,75 @@ export class ClimateDatabase {
     return row ? houseFromRow(row) : null;
   }
 
+  setHouseStugbyLink(id: string, link: StugbyHouseLink | null): House | null {
+    const result = this.db.prepare("UPDATE houses SET stugby_json = ? WHERE id = ?")
+      .run(link ? JSON.stringify(link) : null, id);
+    return Number(result.changes) === 1 ? this.getHouse(id) : null;
+  }
+
+  clearStugbyLinks(stugbyId: string): { properties: number; houses: number } {
+    return this.immediateTransaction(() => ({
+      properties: Number(this.db.prepare(`UPDATE properties SET stugby_json=NULL
+        WHERE stugby_json IS NOT NULL AND json_extract(stugby_json,'$.stugbyId')=?`).run(stugbyId).changes),
+      houses: Number(this.db.prepare(`UPDATE houses SET stugby_json=NULL
+        WHERE stugby_json IS NOT NULL AND json_extract(stugby_json,'$.stugbyId')=?`).run(stugbyId).changes),
+    }));
+  }
+
+  /**
+   * Destructively merges one local Property into an adopted Stugby Property.
+   * Home and telemetry identities are retained; only their Property parent and
+   * explicit Stugby provenance change.
+   */
+  migratePropertyInto(
+    sourcePropertyId: string,
+    targetPropertyId: string,
+    houseLinks: Readonly<Record<string, StugbyHouseLink>>,
+  ): PropertyMigrationResult {
+    return this.immediateTransaction(() => {
+      if (sourcePropertyId === targetPropertyId) {
+        throw new ClimateDataValidationError(409, "PROPERTY_MIGRATION_SAME_TARGET", "Source and target Property must differ");
+      }
+      if (!this.getProperty(sourcePropertyId)) {
+        throw new ClimateDataValidationError(404, "PROPERTY_NOT_FOUND", `Property ${sourcePropertyId} does not exist`);
+      }
+      if (!this.getProperty(targetPropertyId)) {
+        throw new ClimateDataValidationError(404, "PROPERTY_NOT_FOUND", `Property ${targetPropertyId} does not exist`);
+      }
+      const houseIds = this.listHouses(sourcePropertyId).map((item) => item.id);
+      const areaIds = this.listPropertyAreas(sourcePropertyId, MAX_COLLECTION_LIMIT).map((item) => item.id);
+      const equipmentIds = this.listAreaEquipment({ propertyId: sourcePropertyId, limit: MAX_COLLECTION_LIMIT }).map((item) => item.id);
+      const noteIds = this.listPropertyNotes({ propertyId: sourcePropertyId, limit: MAX_COLLECTION_LIMIT }).map((item) => item.id);
+      const maintenanceTaskIds = this.listMaintenanceTasks({ propertyId: sourcePropertyId, limit: MAX_COLLECTION_LIMIT }).map((item) => item.id);
+      for (const houseId of houseIds) {
+        const link = houseLinks[houseId];
+        if (!link) throw new ClimateDataValidationError(400, "HOUSE_STUGBY_LINK_REQUIRED", `Home ${houseId} is missing Stugby ownership metadata`);
+        this.db.prepare("UPDATE houses SET property_id = ?, stugby_json = ?, updated_at = ? WHERE id = ?")
+          .run(targetPropertyId, JSON.stringify(link), new Date().toISOString(), houseId);
+      }
+      this.db.prepare("UPDATE property_areas SET property_id = ? WHERE property_id = ?")
+        .run(targetPropertyId, sourcePropertyId);
+      this.db.prepare("UPDATE area_equipment SET property_id = ? WHERE property_id = ?")
+        .run(targetPropertyId, sourcePropertyId);
+      this.db.prepare("UPDATE property_notes SET property_id = ? WHERE property_id = ?")
+        .run(targetPropertyId, sourcePropertyId);
+      this.db.prepare("UPDATE maintenance_tasks SET property_id = ? WHERE property_id = ?")
+        .run(targetPropertyId, sourcePropertyId);
+      this.db.prepare(`UPDATE OR IGNORE local_guest_access_grants SET scope_id = ?
+        WHERE scope_type = 'property' AND scope_id = ?`).run(targetPropertyId, sourcePropertyId);
+      this.db.prepare("DELETE FROM properties WHERE id = ?").run(sourcePropertyId);
+      return {
+        sourcePropertyId,
+        targetPropertyId,
+        houseIds,
+        areaIds,
+        equipmentIds,
+        noteIds,
+        maintenanceTaskIds,
+      };
+    });
+  }
+
   listOpeningStateObservations(houseId: string, limit = 5_000, at?: string | number | Date): OpeningStateObservation[] {
     const boundedLimit = Math.min(10_000, Math.max(1, Math.trunc(limit)));
     if (at === undefined) {
@@ -5821,6 +5921,10 @@ export class ClimateDatabase {
       });
       return prepared.map(({ sensor, normalized }) => this.updateSensor(sensor.id, { measurementEntityIds: normalized })!);
     });
+  }
+
+  transaction<T>(operation: () => T): T {
+    return this.immediateTransaction(operation);
   }
 
   private immediateTransaction<T>(operation: () => T): T {

@@ -51,10 +51,10 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
   floor-plan footprints and pin fallback for legacy weather locations
 - Property management with Homes grouped into Properties, user-drawn outdoor
   areas, area equipment, contextual notes, and area/equipment-linked maintenance
-- Inert-until-granted Stugby federation between independently administered Stuga systems,
-  with coordinator-owned common-property management, explicit per-Home and
-  per-dataset read-only grants, signed HTTPS synchronization, and durable SSE
-  availability notifications; only the coordinator needs an inbound endpoint
+- Inert-until-granted Stugby federation between independently administered
+  Stuga systems, with Server Property adoption, offline collaborative Property
+  edits, read-only-by-default shared Homes, designated sanitized recovery, and
+  signed HTTPS synchronization; only the coordinator needs an inbound endpoint
 - Built-in local owner, administrator, and Guest accounts in one workspace;
   Guests are always read-only and can be restricted to selected properties,
   Homes, and mapped areas
@@ -185,8 +185,12 @@ Pair an H100 or H200 and its T310/T315 sensors in the Tapo app, then choose eith
 
 Home Assistant and direct TP-Link connections are owned by one Home. Different
 Homes can use independent credentials and endpoints, and both adapters can run
-concurrently for different sensors. Do not map the same physical child through
-both paths, or it will produce duplicate observations.
+concurrently. When both paths expose the same physical child, keep one Stuga
+sensor and attach both its direct device ID and Home Assistant entity IDs to
+that sensor. Stuga uses the healthy direct path for faster live updates and
+fails over to Home Assistant without duplicating live history or alert
+evaluation. The Sensors flow can attach a newly discovered direct device to an
+existing Home Assistant sensor; aliases are never guessed as identity.
 Credentials saved in the web flow are write-only to the browser and live in a
 server-side protected secrets file outside SQLite. Safe integration ownership,
 endpoint identity, lifecycle state, and revisions live in SQLite; environment

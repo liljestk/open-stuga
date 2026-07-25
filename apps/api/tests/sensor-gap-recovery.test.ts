@@ -405,6 +405,45 @@ describe("sensor data-gap recovery", () => {
     });
   });
 
+  it("accepts Home Assistant recorder rows as recovery for a dual-bound TP-Link sensor", async () => {
+    runtime = createApi({ config: config(), startBackground: false });
+    runtime.database.updateSensor("sensor-01", {
+      tpLinkDeviceId: "dual-bound-device",
+      measurementEntityIds: { temperature: "sensor.dual_temperature" },
+    });
+    const from = "2026-07-01T00:00:00.000Z";
+    const to = "2026-07-01T01:00:00.000Z";
+    runtime.database.noteHistoricalSensorDataGap("sensor-01", "temperature", "tp-link", from, to, from);
+    const adapter: SensorGapRecoveryAdapter = {
+      source: "tp-link",
+      availability: () => [],
+      recoverHistory: async (sensorId, metric) => ({
+        state: "complete",
+        error: null,
+        samples: [{
+          sensorId,
+          metric,
+          value: 21,
+          canonicalUnit: "\u00b0C",
+          timestamp: "2026-07-01T00:30:00.000Z",
+          source: "home-assistant",
+          quality: "good",
+        }],
+      }),
+    };
+    const recovery = new SensorGapRecoveryCoordinator(runtime.database, runtime.measurements, [adapter]);
+
+    await recovery.runOnce(new Date("2026-07-02T00:00:00.000Z"));
+
+    expect(runtime.database.listSensorDataGaps("sensor-01")[0]).toMatchObject({
+      recoveryState: "complete",
+      recoveredPoints: 1,
+    });
+    expect(runtime.database.measurementHistory("sensor-01", "temperature", from, to)).toEqual([
+      expect.objectContaining({ source: "home-assistant", value: 21 }),
+    ]);
+  });
+
   it("rearms a persisted not-supported TP-Link gap when the fallback is enabled", async () => {
     temporaryDirectory = mkdtempSync(join(tmpdir(), "stuga-tapo-gap-rearm-"));
     const databasePath = join(temporaryDirectory, "climate.sqlite");

@@ -60,6 +60,18 @@ function validIso(value: string): string | null {
   return Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
 }
 
+function hasHomeAssistantMetricBinding(
+  sensor: ReturnType<ClimateDatabase["getSensor"]>,
+  metric: string,
+): boolean {
+  if (!sensor) return false;
+  if (sensor.measurementEntityIds?.[metric]) return true;
+  if (metric === "temperature") return Boolean(sensor.temperatureEntityId);
+  if (metric === "humidity") return Boolean(sensor.humidityEntityId);
+  if (metric === "battery") return Boolean(sensor.batteryEntityId);
+  return false;
+}
+
 /**
  * Converts adapter availability transitions into durable gaps and repairs every
  * closed gap through the owning adapter. A periodic scan covers process restarts;
@@ -263,8 +275,15 @@ export class SensorGapRecoveryCoordinator {
         return;
       }
       let insertedCount = 0;
+      const sensor = this.database.getSensor(gap.sensorId);
+      const acceptedSources = new Set<SensorDataGapSource>([gap.source]);
+      // A TP-Link recovery adapter may use HA recorder history only when both
+      // bindings belong to the same canonical Stuga sensor/metric.
+      if (gap.source === "tp-link" && hasHomeAssistantMetricBinding(sensor, gap.metric)) {
+        acceptedSources.add("home-assistant");
+      }
       const accepted = result.samples.filter((sample) => sample.sensorId === gap.sensorId
-        && sample.metric === gap.metric && sample.source === gap.source
+        && sample.metric === gap.metric && acceptedSources.has(sample.source as SensorDataGapSource)
         && Date.parse(sample.timestamp) >= Date.parse(gap.startedAt)
         && Date.parse(sample.timestamp) <= Date.parse(gap.endedAt!));
       for (let offset = 0; offset < accepted.length; offset += 1_000) {
@@ -274,7 +293,8 @@ export class SensorGapRecoveryCoordinator {
         }).length;
       }
       const recoveredPoints = gap.recoveredPoints + insertedCount;
-      if (gap.source === "home-assistant" && (gap.metric === "temperature" || gap.metric === "humidity")) {
+      if ((gap.source === "home-assistant" || accepted.some((sample) => sample.source === "home-assistant"))
+        && (gap.metric === "temperature" || gap.metric === "humidity")) {
         this.#rebuildLegacyClimateProjection(gap);
       }
       const retryAt = result.state === "partial"

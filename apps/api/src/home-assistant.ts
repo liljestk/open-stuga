@@ -64,6 +64,11 @@ export interface HomeAssistantBridgeOptions {
   fetcher?: typeof fetch;
   onAvailabilityChange?: () => void;
   onOpeningStateRecorded?: (observation: OpeningStateObservation) => void;
+  /**
+   * Live-only source arbitration. History recovery remains available even when
+   * another adapter is currently preferred.
+   */
+  shouldIngestLiveMeasurement?: (sensorId: string, metric: string) => boolean;
 }
 
 interface CachedValue {
@@ -1023,6 +1028,14 @@ class HomeAssistantConnectionBridge {
       source: "home-assistant",
       quality: "good",
     };
+    if (this.options.shouldIngestLiveMeasurement?.(sample.sensorId, sample.metric) === false) {
+      // Keep connection freshness accurate while the faster direct source owns
+      // the canonical live stream. HA recorder history remains a recovery path.
+      this.status.value.homeAssistant.lastEventAt = sample.timestamp;
+      this.status.value.homeAssistant.error = this.#mappingWarning;
+      this.status.changed();
+      return;
+    }
     try {
       this.measurements.ingest(sample);
       this.status.value.homeAssistant.lastEventAt = sample.timestamp;
@@ -1035,6 +1048,8 @@ class HomeAssistantConnectionBridge {
   }
 
   private ingestCachedClimate(sensorId: string, timestamp: string): void {
+    if (this.options.shouldIngestLiveMeasurement?.(sensorId, "temperature") === false
+      || this.options.shouldIngestLiveMeasurement?.(sensorId, "humidity") === false) return;
     const cached = this.#cache.get(sensorId);
     if (!cached?.temperature || !cached.humidity) return;
     const temperatureMs = Date.parse(cached.temperature.timestamp);

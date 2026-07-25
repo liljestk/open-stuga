@@ -61,6 +61,8 @@ interface FloorPlanProps {
   viewMode: ViewMode;
   selectedSensorId: string | null;
   editing: boolean;
+  /** Blob-backed floor-plan images are changed only by the authoritative Home. */
+  allowBackgroundImageEditing?: boolean;
   observationPlacement: boolean;
   referenceTimeMs?: number;
   maxSampleAgeMs?: number;
@@ -362,7 +364,7 @@ export function FloorPlan({
   outdoor, spatialLayerSnapshots = [], spatialLayerTopology = null,
   experimentalAirflowEnabled = false, experimentalAirflow = null, experimentalSensorCoverage = null,
   openingStateObservations = [], pendingOpeningStateKeys = new Set<string>(), onOpeningStateChange,
-  sensorMeasurements = {}, energyDevicesVisible = true,
+  sensorMeasurements = {}, energyDevicesVisible = true, allowBackgroundImageEditing = true,
 }: FloorPlanProps) {
   const { locale, t } = useI18n();
   const houseOpeningStateObservations = useMemo(
@@ -1479,9 +1481,9 @@ export function FloorPlan({
                   <option value="coarse">{t("twin.gridCoarse")}</option>
                 </select>
               </label>
-              <button type="button" className="tool-button" onClick={() => fileRef.current?.click()}><ImagePlus size={16} aria-hidden="true" />{t("twin.uploadPlan")}</button>
+              {allowBackgroundImageEditing && <><button type="button" className="tool-button" onClick={() => fileRef.current?.click()}><ImagePlus size={16} aria-hidden="true" />{t("twin.uploadPlan")}</button>
               <input ref={fileRef} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" onChange={uploadBackground} aria-label={t("twin.uploadPlan")} />
-              {floor.backgroundImage && <button type="button" className="tool-button danger-tool" onClick={() => { const { backgroundImage: _, ...rest } = floor; applyFloorChange(rest); }}><Trash2 size={16} aria-hidden="true" />{t("twin.removePlan")}</button>}
+              {floor.backgroundImage && <button type="button" className="tool-button danger-tool" onClick={() => { const { backgroundImage: _, ...rest } = floor; applyFloorChange(rest); }}><Trash2 size={16} aria-hidden="true" />{t("twin.removePlan")}</button>}</>}
               {selectedWallId && <button type="button" className="tool-button danger-tool" disabled={viewMode !== "plan"} onClick={() => deleteWall()}><Trash2 size={16} aria-hidden="true" />{t("twin.deleteWall")}</button>}
               {selectedRoom && <button type="button" className="tool-button danger-tool" onClick={() => deleteRoom()} disabled={selectedRoomSensorCount > 0}><Trash2 size={16} aria-hidden="true" />{t("twin.deleteRoom")}</button>}
               {selectedPlanElement && <button type="button" className="tool-button danger-tool" onClick={() => deletePlanElement()}><Trash2 size={16} aria-hidden="true" />{t("twin.deleteElement")}</button>}
