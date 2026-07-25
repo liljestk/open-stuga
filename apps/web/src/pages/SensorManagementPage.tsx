@@ -76,6 +76,8 @@ export interface SensorManagementPageProps {
   /** Compatibility for older embedders; ambiguous across multiple connections. */
   requestedDeviceId?: string | null;
   readOnly?: boolean;
+  /** Integration bindings and historical imports remain with the authoritative Home. */
+  localAuthority?: boolean;
   units?: UnitSystem;
   onRequestedDeviceHandled?: () => void;
   onLoadSeries?: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported: boolean) => void;
@@ -228,6 +230,13 @@ function hasRealBinding(sensor: Pick<Sensor, "tpLinkDeviceId" | "temperatureEnti
     || Object.keys(sensor.measurementEntityIds ?? {}).length > 0);
 }
 
+function hasHomeAssistantBinding(
+  sensor: Pick<Sensor, "temperatureEntityId" | "humidityEntityId" | "batteryEntityId" | "measurementEntityIds">,
+): boolean {
+  return Boolean(sensor.temperatureEntityId || sensor.humidityEntityId || sensor.batteryEntityId
+    || Object.keys(sensor.measurementEntityIds ?? {}).length > 0);
+}
+
 function draftForSensor(sensor: Sensor, houses: House[]): SensorDraft {
   const house = houses.find((candidate) => candidate.id === sensor.houseId);
   const floor = house?.floors.find((candidate) => candidate.id === sensor.floorId);
@@ -334,6 +343,7 @@ export function SensorManagementPage({
   requestedDevice = null,
   requestedDeviceId = null,
   readOnly = false,
+  localAuthority = true,
   units = "metric",
   onRequestedDeviceHandled,
   onLoadSeries,
@@ -363,6 +373,7 @@ export function SensorManagementPage({
   const [mode, setMode] = useState<EditorMode>("closed");
   const [addStep, setAddStep] = useState<AddStep>(1);
   const [editingSensorId, setEditingSensorId] = useState<string | null>(null);
+  const [attachSensorId, setAttachSensorId] = useState("");
   const [draft, setDraft] = useState<SensorDraft>(() => initialDraft(house));
   const [errors, setErrors] = useState<DraftErrors>({});
   const [editorFeedback, setEditorFeedback] = useState<Feedback>(null);
@@ -429,6 +440,10 @@ export function SensorManagementPage({
   const addableDevices = useMemo(
     () => homeTpLinkDevices.filter((device) => availableForSensor(device, null, usedDeviceIds)),
     [homeTpLinkDevices, usedDeviceIds],
+  );
+  const attachableSensors = useMemo(
+    () => currentSensors.filter((sensor) => sensor.enabled && !sensor.tpLinkDeviceId && hasHomeAssistantBinding(sensor)),
+    [currentSensors],
   );
   const sensorStatuses = useMemo(
     () => new Map(currentSensors.map((sensor) => [sensor.id, sensorStatus(state, sensor, houses, now)])),
@@ -512,11 +527,12 @@ export function SensorManagementPage({
     if (readOnly) return;
     editorOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const next = initialDraft(house);
-    if (addableDevices.length === 0) next.source = "manual";
+    if (!localAuthority || addableDevices.length === 0) next.source = "manual";
     setDraft(next);
     setMode("add");
     setAddStep(1);
     setEditingSensorId(null);
+    setAttachSensorId("");
     setErrors({});
     setEditorFeedback(null);
   };
@@ -527,6 +543,7 @@ export function SensorManagementPage({
     setDraft(draftForSensor(sensor, houses));
     setMode("edit");
     setEditingSensorId(sensor.id);
+    setAttachSensorId("");
     setErrors({});
     setEditorFeedback(null);
   };
@@ -541,6 +558,7 @@ export function SensorManagementPage({
   const cancelEditor = () => {
     setMode("closed");
     setEditingSensorId(null);
+    setAttachSensorId("");
     setErrors({});
     setEditorFeedback(null);
     setSubmitting(false);
@@ -619,6 +637,11 @@ export function SensorManagementPage({
   };
 
   const chooseDevice = (device: TpLinkDiscoveredDevice) => {
+    const alias = device.alias?.trim().toLocaleLowerCase(locale);
+    const likelyExisting = alias
+      ? attachableSensors.find((sensor) => sensor.name.trim().toLocaleLowerCase(locale) === alias)
+      : undefined;
+    setAttachSensorId(likelyExisting?.id ?? attachableSensors[0]?.id ?? "");
     setDraft((current) => ({
       ...current,
       source: "tp-link",
@@ -631,9 +654,26 @@ export function SensorManagementPage({
     setEditorFeedback(null);
   };
 
+  const attachDeviceToExistingSensor = () => {
+    const sensor = attachableSensors.find((candidate) => candidate.id === attachSensorId);
+    const device = draftDevice;
+    if (!sensor || !device) return;
+    setDraft({
+      ...draftForSensor(sensor, houses),
+      source: "tp-link",
+      deviceId: device.deviceId,
+      connectionId: device.connectionId ?? "",
+    });
+    setMode("edit");
+    setEditingSensorId(sensor.id);
+    setAttachSensorId("");
+    setErrors({});
+    setEditorFeedback(null);
+  };
+
   useEffect(() => {
     const requested = requestedDevice ?? (requestedDeviceId ? { deviceId: requestedDeviceId, connectionId: null } : null);
-    if (readOnly || !requested || mode !== "closed") return;
+    if (readOnly || !localAuthority || !requested || mode !== "closed") return;
     const device = addableDevices.find((candidate) => candidate.deviceId === requested.deviceId
       && (requested.connectionId === null || (candidate.connectionId ?? null) === requested.connectionId));
     if (!device) {
@@ -655,7 +695,7 @@ export function SensorManagementPage({
     setErrors({});
     setEditorFeedback(null);
     onRequestedDeviceHandled?.();
-  }, [addableDevices, house, mode, onRequestedDeviceHandled, readOnly, requestedDevice, requestedDeviceId, tpLinkDevicesLoading]);
+  }, [addableDevices, house, localAuthority, mode, onRequestedDeviceHandled, readOnly, requestedDevice, requestedDeviceId, tpLinkDevicesLoading]);
 
   const changeDraftHouse = (houseId: string) => {
     const nextHouse = houses.find((candidate) => candidate.id === houseId);
@@ -821,12 +861,12 @@ export function SensorManagementPage({
         z: placement.z,
         enabled: draft.enabled,
         tags: editingSensor.tags.filter((tag) => tag !== UNPLACED_TAG),
-        tpLinkDeviceId: draft.deviceId || null,
-        ...((editingSensor.tpLinkConnectionId !== undefined || draft.connectionId)
-          ? { tpLinkConnectionId: draft.deviceId && draft.connectionId ? draft.connectionId : null }
-          : {}),
-        ...(measurementBindingsChanged ? {
-          measurementEntityIds,
+        ...(localAuthority ? {
+          tpLinkDeviceId: draft.deviceId || null,
+          ...((editingSensor.tpLinkConnectionId !== undefined || draft.connectionId)
+            ? { tpLinkConnectionId: draft.deviceId && draft.connectionId ? draft.connectionId : null }
+            : {}),
+          ...(measurementBindingsChanged ? { measurementEntityIds } : {}),
         } : {}),
       } as SensorPatch;
       const saved = await onUpdateSensor(editingSensor.id, patch);
@@ -984,7 +1024,7 @@ export function SensorManagementPage({
     </div>
   );
 
-  const renderBindingField = () => (
+  const renderBindingField = () => localAuthority ? (
     <label className="field sensor-binding-field">
       <span>{t("sensors.tpLinkBinding")}</span>
       <select
@@ -1011,9 +1051,9 @@ export function SensorManagementPage({
       </select>
       <small>{t("sensors.bindingHelp")}</small>
     </label>
-  );
+  ) : null;
 
-  const renderHomeAssistantBindings = () => (
+  const renderHomeAssistantBindings = () => localAuthority ? (
     <fieldset className="sensor-ha-bindings">
       <legend>{t("sensors.haBindings")}</legend>
       <p>{t("sensors.haBindingsHelp")}</p>
@@ -1041,7 +1081,7 @@ export function SensorManagementPage({
         })}
       </div>
     </fieldset>
-  );
+  ) : null;
 
   const renderLocationFields = () => draftFloor ? (
     <div className="sensor-location-editor">
@@ -1153,21 +1193,37 @@ export function SensorManagementPage({
         {addStep === 1 && (
           <fieldset className="sensor-source-fieldset">
             <legend className="sr-only">{t("sensors.chooseSource")}</legend>
-            <label className={`sensor-source-choice ${draft.source === "tp-link" ? "selected" : ""}`}>
+            {localAuthority && <label className={`sensor-source-choice ${draft.source === "tp-link" ? "selected" : ""}`}>
               <input type="radio" name={`${formId}-source`} checked={draft.source === "tp-link"} disabled={addableDevices.length === 0} onChange={() => chooseSource("tp-link")} />
               <span className="sensor-source-icon"><RadioTower size={20} aria-hidden="true" /></span>
               <span><strong>{t("sensors.discoveredSource")}</strong><small>{t("sensors.discoveredSourceHelp", { count: addableDevices.length })}</small></span>
-            </label>
-            {draft.source === "tp-link" && (
-              <div className="discovered-device-list" aria-label={t("sensors.availableDevices")}>
-                {addableDevices.map((device) => (
-                  <button key={deviceBindingKey(device.deviceId, device.connectionId)} type="button" className={draft.deviceId === device.deviceId && draft.connectionId === (device.connectionId ?? "") ? "selected" : ""} aria-pressed={draft.deviceId === device.deviceId && draft.connectionId === (device.connectionId ?? "")} onClick={() => chooseDevice(device)}>
-                    <span className="device-radio"><span /></span>
-                    <span><strong>{device.alias || t("sensors.unnamedDevice")}</strong><small>{tpLinkDeviceSummary(device, t, locale)}</small></span>
-                    <span className={`device-health ${device.status?.toLowerCase() === "online" ? "online" : ""}`}>{device.status || t("sensors.unknownStatus")}</span>
-                  </button>
-                ))}
-              </div>
+            </label>}
+            {localAuthority && draft.source === "tp-link" && (
+              <>
+                <div className="discovered-device-list" aria-label={t("sensors.availableDevices")}>
+                  {addableDevices.map((device) => (
+                    <button key={deviceBindingKey(device.deviceId, device.connectionId)} type="button" className={draft.deviceId === device.deviceId && draft.connectionId === (device.connectionId ?? "") ? "selected" : ""} aria-pressed={draft.deviceId === device.deviceId && draft.connectionId === (device.connectionId ?? "")} onClick={() => chooseDevice(device)}>
+                      <span className="device-radio"><span /></span>
+                      <span><strong>{device.alias || t("sensors.unnamedDevice")}</strong><small>{tpLinkDeviceSummary(device, t, locale)}</small></span>
+                      <span className={`device-health ${device.status?.toLowerCase() === "online" ? "online" : ""}`}>{device.status || t("sensors.unknownStatus")}</span>
+                    </button>
+                  ))}
+                </div>
+                {draft.deviceId && attachableSensors.length > 0 && (
+                  <div className="sensor-existing-source">
+                    <div><strong>{t("sensors.existingHaTitle")}</strong><p>{t("sensors.existingHaBody")}</p></div>
+                    <label className="field">
+                      <span>{t("sensors.existingHaSensor")}</span>
+                      <select value={attachSensorId} onChange={(event) => setAttachSensorId(event.target.value)}>
+                        {attachableSensors.map((sensor) => <option key={sensor.id} value={sensor.id}>{sensor.name} · {sensor.room}</option>)}
+                      </select>
+                    </label>
+                    <button type="button" className="secondary-button" disabled={!attachSensorId} onClick={attachDeviceToExistingSensor}>
+                      {t("sensors.attachExisting")}
+                    </button>
+                  </div>
+                )}
+              </>
             )}
             <label className={`sensor-source-choice ${draft.source === "manual" ? "selected" : ""}`}>
               <input id={`${formId}-source`} type="radio" name={`${formId}-source`} checked={draft.source === "manual"} aria-describedby={errors.source ? `${formId}-source-error` : undefined} onChange={() => chooseSource("manual")} />
@@ -1235,7 +1291,7 @@ export function SensorManagementPage({
         </div>}
       </header>
 
-      {!readOnly && importOpen && <Suspense fallback={<output className="history-import-loading"><LoaderCircle className="spin" size={18} aria-hidden="true" />{t("common.loading")}</output>}>
+      {!readOnly && localAuthority && importOpen && <Suspense fallback={<output className="history-import-loading"><LoaderCircle className="spin" size={18} aria-hidden="true" />{t("common.loading")}</output>}>
         <HistoricalImportWizard
           open
           house={house}
@@ -1248,7 +1304,7 @@ export function SensorManagementPage({
 
       {pageFeedback && <p className={`sensor-page-feedback ${pageFeedback.kind}`} role={pageFeedback.kind === "error" ? "alert" : "status"}>{pageFeedback.kind === "error" ? <TriangleAlert size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{pageFeedback.message}<button type="button" className="icon-button small" onClick={() => setPageFeedback(null)} aria-label={t("common.close")}><X size={14} /></button></p>}
 
-      {!readOnly && tpLinkStatus.configured && <section
+      {!readOnly && localAuthority && tpLinkStatus.configured && <section
         className={`sensor-discovery-watch ${tpLinkStatus.connected ? "active" : "waiting"}`}
         role="region"
         aria-label={t("sensors.discoveryStatus")}
@@ -1369,7 +1425,7 @@ export function SensorManagementPage({
           ) : <div className="sensor-list-empty"><Search size={22} aria-hidden="true" /><strong>{t("sensors.noMatches")}</strong><p>{t("sensors.noMatchesHelp")}</p></div>}
         </section>}
 
-        {!readOnly && <aside className="sensor-side-column">
+        {!readOnly && localAuthority && <aside className="sensor-side-column">
           {currentSensors.length > 0 && <details className="panel sensor-import-card">
             <summary><span><FileSpreadsheet size={16} aria-hidden="true" /><strong>{t("historyImport.open")}</strong></span><ChevronDown size={16} aria-hidden="true" /></summary>
             <button ref={importButtonRef} type="button" className="secondary-button full-width" disabled={mode !== "closed"} onClick={() => setImportOpen(true)}><FileSpreadsheet size={16} aria-hidden="true" />{t("historyImport.open")}</button>

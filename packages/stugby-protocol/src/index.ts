@@ -1,11 +1,13 @@
 /**
- * Stugby is a deliberately read-only federation protocol for independently
- * administered Stuga installations. Integration configuration, credentials,
- * account identities and device control are outside this protocol.
+ * Stugby v2 federates independently administered Stuga installations.
+ * Property changes may be collaborative, while shared Homes remain read-only
+ * unless their authority explicitly enables editing. Integration bindings,
+ * credentials, account identities and device control never cross this
+ * boundary, including during authority transfer.
  */
 
-export const STUGBY_PROTOCOL_VERSION = "1.0" as const;
-export const STUGBY_MEDIA_TYPE = "application/vnd.stugby.v1+json" as const;
+export const STUGBY_PROTOCOL_VERSION = "2.0" as const;
+export const STUGBY_MEDIA_TYPE = "application/vnd.stugby.v2+json" as const;
 export const STUGBY_MAX_EVENT_BYTES = 1_048_576 as const;
 export const STUGBY_MAX_EVENT_PAGE_BYTES = 4_194_304 as const;
 export const STUGBY_MAX_BATCH_EVENTS = 250 as const;
@@ -25,6 +27,7 @@ export const STUGBY_DATASETS = [
   "home.telemetry.v1",
   "home.notes.v1",
   "home.observations.v1",
+  "home.recovery.v1",
 ] as const;
 
 export type StugbyDataset = (typeof STUGBY_DATASETS)[number];
@@ -133,6 +136,17 @@ export interface StugbyDatasetGrant {
   telemetry?: StugbyTelemetryPolicy;
 }
 
+export interface StugbyHousePolicy extends JsonObject {
+  /** Shared Homes are read-only unless the authority explicitly opts in. */
+  editPolicy: "read-only" | "editable";
+  /**
+   * A full recovery replica is durable ownership-transfer material, not a
+   * revocable viewer cache. Exactly one active member may be designated.
+   */
+  recoveryMode: "none" | "full";
+  designatedSuccessorNodeId: string | null;
+}
+
 export interface StugbyShareGrant {
   id: string;
   stugbyId: string;
@@ -141,6 +155,7 @@ export interface StugbyShareGrant {
   localHouseId?: string;
   audience: StugbyGrantAudience;
   datasets: StugbyDatasetGrant[];
+  housePolicy: StugbyHousePolicy;
   epoch: number;
   revision: number;
   expiresAt: string | null;
@@ -149,10 +164,17 @@ export interface StugbyShareGrant {
   updatedAt: string;
 }
 
+export type StugbyBlobMediaType =
+  | "image/png"
+  | "image/jpeg"
+  | "image/webp"
+  | "model/gltf+json"
+  | "model/gltf-binary";
+
 export interface StugbyBlobReference extends JsonObject {
   digest: string;
   byteLength: number;
-  mediaType: "image/png" | "image/jpeg" | "image/webp";
+  mediaType: StugbyBlobMediaType;
 }
 
 export interface StugbyHomeDirectoryPayload extends JsonObject {
@@ -260,6 +282,9 @@ export interface StugbySensorCatalogItem extends JsonObject {
   floorPublicationId: string;
   roomPublicationId?: string;
   name: string;
+  model: string;
+  tags: string[];
+  enabled: boolean;
   x: number;
   y: number;
   z: number;
@@ -329,6 +354,59 @@ export interface StugbyHomeObservationsPayload extends JsonObject {
   observations: StugbyHomeObservation[];
 }
 
+export type StugbyHomeRecoveryKind =
+  | "manifest"
+  | "measurement-definitions"
+  | "alert-rules"
+  | "alert-events"
+  | "static-parameters"
+  | "opening-states"
+  | "weather-history"
+  | "electricity-history"
+  | "assets";
+
+/** Chunked, sanitized material used only by a designated full-recovery successor. */
+export interface StugbyHomeRecoveryPayload extends JsonObject {
+  publicationId: string;
+  chunkId: string;
+  generation: number;
+  kind: StugbyHomeRecoveryKind;
+  complete: boolean;
+  records: JsonObject[];
+}
+
+/** Sanitized editable Home state. It deliberately excludes every integration binding and secret. */
+export interface StugbyHomeCommandSnapshot extends JsonObject {
+  directory: StugbyHomeDirectoryPayload;
+  location: StugbyHomeLocationPayload | null;
+  structure: StugbyHomeStructurePayload;
+  sensorCatalog: StugbySensorCatalogPayload;
+  notes: StugbyHomeNotesPayload;
+  observations: StugbyHomeObservationsPayload;
+}
+
+/** Durable client intent. The authoritative Home accepts the snapshot or keeps its newer state. */
+export interface StugbyHomeCommand extends JsonObject {
+  id: string;
+  stugbyId: string;
+  actorNodeId: string;
+  authorityNodeId: string;
+  publicationId: string;
+  grantId: string;
+  grantEpoch: number;
+  authorityEpoch: number;
+  baseRevision: number;
+  snapshot: StugbyHomeCommandSnapshot;
+  createdAt: string;
+}
+
+export interface StugbyHomeCommandResult extends JsonObject {
+  commandId: string;
+  status: "applied" | "conflict";
+  authorityRevision: number;
+  message: string;
+}
+
 export interface StugbyPropertyArea extends JsonObject {
   id: string;
   name: string;
@@ -373,7 +451,7 @@ export interface StugbyMaintenanceItem extends JsonObject {
   updatedAt: string;
 }
 
-/** Coordinator-owned aggregate. It is not inserted into a participant's local Property tables. */
+/** Coordinator-owned aggregate materialized into an explicitly adopted local Property. */
 export interface StugbySharedProperty extends JsonObject {
   stugbyId: string;
   name: string;
@@ -383,8 +461,49 @@ export interface StugbySharedProperty extends JsonObject {
   equipment: StugbyPropertyEquipment[];
   notes: StugbyPropertyNote[];
   maintenance: StugbyMaintenanceItem[];
+  editPolicy: "collaborative" | "read-only";
+  authorityEpoch: number;
+  designatedSuccessorNodeId: string | null;
   revision: number;
   updatedAt: string;
+}
+
+export type StugbyPropertyEntityKind = "property" | "area" | "equipment" | "note" | "maintenance";
+export type StugbyPropertyCommandOperation = "upsert" | "delete";
+export type StugbyPropertyCommandStatus = "pending" | "applied" | "conflict" | "cancelled";
+
+/** Durable client intent sent to the coordinator for field-aware sequencing. */
+export interface StugbyPropertyCommand extends JsonObject {
+  id: string;
+  stugbyId: string;
+  actorNodeId: string;
+  baseRevision: number;
+  entityKind: StugbyPropertyEntityKind;
+  entityId: string;
+  operation: StugbyPropertyCommandOperation;
+  changedFields: string[];
+  value: JsonObject | null;
+  createdAt: string;
+}
+
+export interface StugbyPropertyConflict extends JsonObject {
+  commandId: string;
+  entityKind: StugbyPropertyEntityKind;
+  entityId: string;
+  fields: string[];
+  message: string;
+  serverValue: JsonObject | null;
+  clientValue: JsonObject | null;
+  detectedAt: string;
+  resolvedAt: string | null;
+}
+
+export interface StugbyPropertyCommandResult extends JsonObject {
+  commandId: string;
+  status: "applied" | "conflict";
+  appliedFields: string[];
+  conflict: StugbyPropertyConflict | null;
+  property: StugbySharedProperty;
 }
 
 export type StugbyDatasetPayload =
@@ -395,7 +514,8 @@ export type StugbyDatasetPayload =
   | StugbySensorCatalogPayload
   | StugbyTelemetryPayload
   | StugbyHomeNotesPayload
-  | StugbyHomeObservationsPayload;
+  | StugbyHomeObservationsPayload
+  | StugbyHomeRecoveryPayload;
 
 export interface StugbyWireEvent {
   protocolVersion: typeof STUGBY_PROTOCOL_VERSION;
@@ -405,7 +525,7 @@ export interface StugbyWireEvent {
   authorityNodeId: string;
   streamId: string;
   sequence: number;
-  schema: StugbyDataset | "stugby.grant.v1" | "stugby.member.v1" | "stugby.shared-property.v1";
+  schema: StugbyDataset | "stugby.grant.v2" | "stugby.member.v2" | "stugby.shared-property.v2";
   resourceId: string;
   operation: StugbyOperation;
   revision: number;
@@ -457,7 +577,7 @@ export interface StugbyDeletionReceipt {
 const DATASET_SET = new Set<string>(STUGBY_DATASETS);
 const ROLE_SET = new Set<string>(["steward", "property-manager", "participant", "viewer"]);
 const EVENT_KIND_SET = new Set<string>(["dataset.published", "grant.upserted", "grant.revoked", "member.updated", "shared-property.updated"]);
-const ENVELOPE_SCHEMA_SET = new Set<string>([...STUGBY_DATASETS, "stugby.grant.v1", "stugby.member.v1", "stugby.shared-property.v1"]);
+const ENVELOPE_SCHEMA_SET = new Set<string>([...STUGBY_DATASETS, "stugby.grant.v2", "stugby.member.v2", "stugby.shared-property.v2"]);
 const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 
 /**
@@ -561,6 +681,27 @@ function requireInteger(object: Record<string, unknown>, key: string, minimum = 
   return value;
 }
 
+function requireBoolean(object: Record<string, unknown>, key: string): boolean {
+  const value = object[key];
+  if (typeof value !== "boolean") fail(`${key} must be boolean`);
+  return value;
+}
+
+function requireNullableFiniteNumber(object: Record<string, unknown>, key: string): number | null {
+  if (object[key] === null) return null;
+  return requireFiniteNumber(object, key);
+}
+
+function requireEnumString(
+  object: Record<string, unknown>,
+  key: string,
+  allowed: readonly string[],
+): string {
+  const value = requireString(object, key);
+  if (!allowed.includes(value)) fail(`${key} has an unsupported value`);
+  return value;
+}
+
 function requireIsoDate(value: unknown, name: string, nullable = false): string | null {
   if (nullable && value === null) return null;
   if (typeof value !== "string" || !ISO_DATE_TIME.test(value) || !Number.isFinite(Date.parse(value))) fail(`${name} must be an ISO date-time${nullable ? " or null" : ""}`);
@@ -646,7 +787,7 @@ export function assertSafeFederationPayload(value: unknown, path = "$", depth = 
 export function validateShareGrant(value: unknown): StugbyShareGrant {
   assertSafeFederationPayload(value);
   if (!isObject(value)) fail("share grant must be an object");
-  onlyKeys(value, ["id", "stugbyId", "authorityNodeId", "publicationId", "localHouseId", "audience", "datasets", "epoch", "revision", "expiresAt", "revokedAt", "createdAt", "updatedAt"], "grant");
+  onlyKeys(value, ["id", "stugbyId", "authorityNodeId", "publicationId", "localHouseId", "audience", "datasets", "housePolicy", "epoch", "revision", "expiresAt", "revokedAt", "createdAt", "updatedAt"], "grant");
   requireIdentifier(value, "id");
   requireIdentifier(value, "stugbyId");
   requireIdentifier(value, "authorityNodeId");
@@ -659,6 +800,19 @@ export function validateShareGrant(value: unknown): StugbyShareGrant {
   const audienceNodeIds = requireStringArray(value.audience.nodeIds, "audience.nodeIds", 1_000);
   if (value.audience.kind === "all-members" && audienceNodeIds.length !== 0) fail("all-members audience must not list node ids");
   if (value.audience.kind === "members" && audienceNodeIds.length === 0) fail("members audience requires at least one node id");
+  if (!isObject(value.housePolicy)) fail("housePolicy must be an object");
+  onlyKeys(value.housePolicy, ["editPolicy", "recoveryMode", "designatedSuccessorNodeId"], "housePolicy");
+  if (!["read-only", "editable"].includes(String(value.housePolicy.editPolicy))) fail("invalid Home edit policy");
+  if (!["none", "full"].includes(String(value.housePolicy.recoveryMode))) fail("invalid Home recovery mode");
+  const successorNodeId = requireNullableString(value.housePolicy.designatedSuccessorNodeId, "housePolicy.designatedSuccessorNodeId");
+  if (value.housePolicy.recoveryMode === "full") {
+    if (!successorNodeId) fail("full Home recovery requires one designated successor");
+    if (value.audience.kind !== "members" || audienceNodeIds.length !== 1 || audienceNodeIds[0] !== successorNodeId) {
+      fail("full Home recovery must be shared only with its one designated successor");
+    }
+  } else if (successorNodeId) {
+    fail("a designated successor is only valid for full Home recovery");
+  }
   if (!Array.isArray(value.datasets) || value.datasets.length === 0 || value.datasets.length > STUGBY_DATASETS.length) fail("at least one unique supported dataset is required");
   requireIsoDate(value.expiresAt, "expiresAt", true);
   requireIsoDate(value.revokedAt, "revokedAt", true);
@@ -694,16 +848,39 @@ export function validateShareGrant(value: unknown): StugbyShareGrant {
     }
   }
   if (enabledCount === 0) fail("at least one dataset must be enabled");
+  const recoveryDataset = (value.datasets as unknown as StugbyDatasetGrant[])
+    .find((item) => item.dataset === "home.recovery.v1" && item.enabled);
+  if (recoveryDataset && value.housePolicy.recoveryMode !== "full") {
+    fail("the Home recovery dataset is only valid for a full recovery successor");
+  }
+  if (value.housePolicy.recoveryMode === "full") {
+    const enabled = new Map((value.datasets as unknown as StugbyDatasetGrant[])
+      .filter((item) => item.enabled).map((item) => [item.dataset, item]));
+    for (const dataset of STUGBY_DATASETS) {
+      const policy = enabled.get(dataset);
+      if (!policy || !policy.allowReplicaCache || policy.retentionDays < 1) {
+        fail("full Home recovery requires every dataset with durable replica retention");
+      }
+    }
+    const telemetry = enabled.get("home.telemetry.v1")?.telemetry;
+    if (!telemetry?.historyFrom) fail("full Home recovery requires a telemetry history start");
+    if (telemetry.sensorPublicationIds.length > 0 || telemetry.metricIds.length > 0) {
+      fail("full Home recovery must include every sensor and metric");
+    }
+  }
   return value as unknown as StugbyShareGrant;
 }
 
 export function validateSharedProperty(value: unknown): StugbySharedProperty {
   assertSafeFederationPayload(value);
   if (!isObject(value)) fail("shared property must be an object");
-  onlyKeys(value, ["stugbyId", "name", "description", "location", "areas", "equipment", "notes", "maintenance", "revision", "updatedAt"], "shared property");
+  onlyKeys(value, ["stugbyId", "name", "description", "location", "areas", "equipment", "notes", "maintenance", "editPolicy", "authorityEpoch", "designatedSuccessorNodeId", "revision", "updatedAt"], "shared property");
   requireString(value, "stugbyId");
   requireString(value, "name");
   requireInteger(value, "revision", 1);
+  requireInteger(value, "authorityEpoch", 1);
+  if (!["collaborative", "read-only"].includes(String(value.editPolicy))) fail("invalid shared Property edit policy");
+  requireNullableString(value.designatedSuccessorNodeId, "designatedSuccessorNodeId");
   requireIsoDate(value.updatedAt, "updatedAt");
   if (value.description !== null && typeof value.description !== "string") fail("description must be a string or null");
   if (value.location !== null) {
@@ -773,6 +950,109 @@ export function validateSharedProperty(value: unknown): StugbySharedProperty {
     if (Date.parse(String(item.updatedAt)) < Date.parse(String(item.createdAt))) fail(`maintenance item ${itemId} updatedAt precedes createdAt`);
   }
   return value as unknown as StugbySharedProperty;
+}
+
+export function validatePropertyCommand(value: unknown): StugbyPropertyCommand {
+  if (!isObject(value)) fail("property command must be an object");
+  onlyKeys(value, ["id", "stugbyId", "actorNodeId", "baseRevision", "entityKind", "entityId", "operation", "changedFields", "value", "createdAt"], "property command");
+  requireIdentifier(value, "id");
+  requireIdentifier(value, "stugbyId");
+  requireIdentifier(value, "actorNodeId");
+  requireInteger(value, "baseRevision", 1);
+  if (!["property", "area", "equipment", "note", "maintenance"].includes(String(value.entityKind))) {
+    fail("invalid property command entity kind");
+  }
+  requireString(value, "entityId");
+  if (!["upsert", "delete"].includes(String(value.operation))) fail("invalid property command operation");
+  const changedFields = requireStringArray(value.changedFields, "changedFields", 100);
+  if (new Set(changedFields).size !== changedFields.length) fail("changedFields must be unique");
+  if (value.operation === "upsert") {
+    if (!isObject(value.value)) fail("upsert property commands require an object value");
+    assertSafeFederationPayload(value.value, "$.value");
+  } else {
+    if (value.value !== null) fail("delete property commands require a null value");
+    if (changedFields.length !== 0) fail("delete property commands cannot list changed fields");
+  }
+  requireIsoDate(value.createdAt, "createdAt");
+  return value as unknown as StugbyPropertyCommand;
+}
+
+export function validatePropertyCommandResult(value: unknown): StugbyPropertyCommandResult {
+  if (!isObject(value)) fail("property command result must be an object");
+  onlyKeys(value, ["commandId", "status", "appliedFields", "conflict", "property"], "property command result");
+  requireIdentifier(value, "commandId");
+  if (!["applied", "conflict"].includes(String(value.status))) fail("invalid property command result status");
+  requireStringArray(value.appliedFields, "appliedFields", 100);
+  validateSharedProperty(value.property);
+  if (value.conflict !== null) {
+    if (!isObject(value.conflict)) fail("property command conflict must be an object or null");
+    onlyKeys(value.conflict, ["commandId", "entityKind", "entityId", "fields", "message", "serverValue", "clientValue", "detectedAt", "resolvedAt"], "property command conflict");
+    if (value.conflict.commandId !== value.commandId) fail("property command conflict id does not match");
+    if (!["property", "area", "equipment", "note", "maintenance"].includes(String(value.conflict.entityKind))) {
+      fail("invalid property command conflict entity kind");
+    }
+    requireString(value.conflict, "entityId");
+    requireStringArray(value.conflict.fields, "conflict.fields", 100);
+    requireString(value.conflict, "message");
+    if (value.conflict.serverValue !== null && !isObject(value.conflict.serverValue)) fail("conflict.serverValue must be an object or null");
+    if (value.conflict.clientValue !== null && !isObject(value.conflict.clientValue)) fail("conflict.clientValue must be an object or null");
+    if (value.conflict.serverValue !== null) assertSafeFederationPayload(value.conflict.serverValue, "$.conflict.serverValue");
+    if (value.conflict.clientValue !== null) assertSafeFederationPayload(value.conflict.clientValue, "$.conflict.clientValue");
+    requireIsoDate(value.conflict.detectedAt, "conflict.detectedAt");
+    requireIsoDate(value.conflict.resolvedAt, "conflict.resolvedAt", true);
+  }
+  if (value.status === "conflict" && value.conflict === null) fail("conflict result requires conflict details");
+  if (value.status === "applied" && value.conflict !== null) fail("applied result cannot include conflict details");
+  return value as unknown as StugbyPropertyCommandResult;
+}
+
+export function validateHomeCommand(value: unknown): StugbyHomeCommand {
+  assertSafeFederationPayload(value);
+  if (!isObject(value)) fail("Home command must be an object");
+  onlyKeys(value, [
+    "id", "stugbyId", "actorNodeId", "authorityNodeId", "publicationId", "grantId", "grantEpoch",
+    "authorityEpoch", "baseRevision", "snapshot", "createdAt",
+  ], "Home command");
+  for (const key of ["id", "stugbyId", "actorNodeId", "authorityNodeId", "publicationId", "grantId"] as const) {
+    requireString(value, key);
+  }
+  requireInteger(value, "grantEpoch", 1);
+  requireInteger(value, "authorityEpoch", 1);
+  requireInteger(value, "baseRevision", 1);
+  requireIsoDate(value.createdAt, "createdAt");
+  if (!isObject(value.snapshot)) fail("Home command snapshot must be an object");
+  onlyKeys(value.snapshot, ["directory", "location", "structure", "sensorCatalog", "notes", "observations"], "Home command snapshot");
+  validateDatasetPayload("home.directory.v1", value.snapshot.directory);
+  if (value.snapshot.location !== null) validateDatasetPayload("home.location.v1", value.snapshot.location);
+  validateDatasetPayload("home.structure.v1", value.snapshot.structure);
+  validateDatasetPayload("home.sensor-catalog.v1", value.snapshot.sensorCatalog);
+  validateDatasetPayload("home.notes.v1", value.snapshot.notes);
+  validateDatasetPayload("home.observations.v1", value.snapshot.observations);
+  const publicationId = String(value.publicationId);
+  for (const payload of [
+    value.snapshot.directory,
+    value.snapshot.location,
+    value.snapshot.structure,
+    value.snapshot.sensorCatalog,
+    value.snapshot.notes,
+    value.snapshot.observations,
+  ]) {
+    if (payload !== null && isObject(payload) && payload.publicationId !== publicationId) {
+      fail("Home command snapshot publication ids must match");
+    }
+  }
+  return value as unknown as StugbyHomeCommand;
+}
+
+export function validateHomeCommandResult(value: unknown): StugbyHomeCommandResult {
+  assertSafeFederationPayload(value);
+  if (!isObject(value)) fail("Home command result must be an object");
+  onlyKeys(value, ["commandId", "status", "authorityRevision", "message"], "Home command result");
+  requireString(value, "commandId");
+  if (!["applied", "conflict"].includes(String(value.status))) fail("invalid Home command result status");
+  requireInteger(value, "authorityRevision", 1);
+  requireString(value, "message");
+  return value as unknown as StugbyHomeCommandResult;
 }
 
 export function validateDatasetPayload(dataset: StugbyDataset, value: unknown): StugbyDatasetPayload {
@@ -884,12 +1164,15 @@ export function validateDatasetPayload(dataset: StugbyDataset, value: unknown): 
       const sensorIds = new Set<string>();
       for (const sensor of requireArray(value.sensors, "sensors", 100_000)) {
         if (!isObject(sensor)) fail("each sensor must be an object");
-        onlyKeys(sensor, ["sensorPublicationId", "localSensorId", "floorPublicationId", "roomPublicationId", "name", "x", "y", "z", "metricIds"], "sensor");
+        onlyKeys(sensor, ["sensorPublicationId", "localSensorId", "floorPublicationId", "roomPublicationId", "name", "model", "tags", "enabled", "x", "y", "z", "metricIds"], "sensor");
         const sensorId = requireIdentifier(sensor, "sensorPublicationId");
         if (sensorIds.has(sensorId)) fail(`duplicate sensor publication id ${sensorId}`);
         sensorIds.add(sensorId);
         requireIdentifier(sensor, "floorPublicationId");
         requireString(sensor, "name");
+        requireString(sensor, "model");
+        requireStringArray(sensor.tags, "sensor.tags", 100);
+        requireBoolean(sensor, "enabled");
         optionalString(sensor, "localSensorId"); optionalString(sensor, "roomPublicationId");
         requireFiniteNumber(sensor, "x");
         requireFiniteNumber(sensor, "y");
@@ -953,6 +1236,173 @@ export function validateDatasetPayload(dataset: StugbyDataset, value: unknown): 
       }
       }
       break;
+    case "home.recovery.v1": {
+      onlyKeys(value, ["publicationId", "chunkId", "generation", "kind", "complete", "records"], dataset);
+      requireString(value, "chunkId");
+      requireInteger(value, "generation", 1);
+      if (!["manifest", "measurement-definitions", "alert-rules", "alert-events", "static-parameters", "opening-states",
+        "weather-history", "electricity-history", "assets"].includes(String(value.kind))) fail("invalid Home recovery kind");
+      if (typeof value.complete !== "boolean") fail("recovery complete must be boolean");
+      const records = requireArray(value.records, "records", 25_000);
+      const allowed: Record<StugbyHomeRecoveryKind, readonly string[]> = {
+        manifest: ["telemetrySamples", "generatedAt"],
+        "measurement-definitions": ["id", "labels", "unit", "dimension", "allowedUnits", "kind", "defaultAggregation", "precision", "validMin", "validMax", "displayMin", "displayMax", "interpolationDelta", "colorScale", "enabled", "spatialInterpolation", "forecastSupported"],
+        "alert-rules": ["ruleKey", "name", "sensorPublicationId", "metric", "operator", "threshold", "durationSeconds", "severity", "enabled", "retiredAt"],
+        "alert-events": ["eventKey", "ruleKey", "sensorPublicationId", "metric", "value", "threshold", "severity", "startedAt", "acknowledgedAt", "resolvedAt"],
+        "static-parameters": ["parameterKey", "scopeType", "scopePublicationId", "key", "value", "unit", "label"],
+        "opening-states": ["openingKey", "floorPublicationId", "planElementPublicationId", "state", "openFraction", "observedAt", "validUntil"],
+        "weather-history": ["weatherKey", "locationKey", "timestamp", "temperatureC", "source", "fetchedAt", "stationId", "stationName", "conditions"],
+        "electricity-history": ["priceKey", "startAt", "endAt", "rawPriceCentsPerKwh", "marginCentsPerKwh", "fetchedAt"],
+        assets: ["assetKey", "name", "mimeType", "kind", "digest", "byteLength", "createdAt"],
+      };
+      for (const record of records) {
+        if (!isObject(record)) fail("each Home recovery record must be an object");
+        onlyKeys(record, allowed[value.kind as StugbyHomeRecoveryKind], `${String(value.kind)} recovery record`);
+      }
+      const kind = value.kind as StugbyHomeRecoveryKind;
+      const typedRecords = records as Array<Record<string, unknown>>;
+      const uniqueRecordKey: Partial<Record<StugbyHomeRecoveryKind, string>> = {
+        "measurement-definitions": "id",
+        "alert-rules": "ruleKey",
+        "alert-events": "eventKey",
+        "static-parameters": "parameterKey",
+        "opening-states": "openingKey",
+        "weather-history": "weatherKey",
+        "electricity-history": "priceKey",
+        assets: "assetKey",
+      };
+      const recordKey = uniqueRecordKey[kind];
+      if (recordKey) {
+        const seen = new Set<string>();
+        for (const record of typedRecords) {
+          const key = requireIdentifier(record, recordKey);
+          if (seen.has(key)) fail(`${kind} recovery records contain duplicate ${recordKey}`);
+          seen.add(key);
+        }
+      }
+      if (kind === "manifest") {
+        if (typedRecords.length !== 1) fail("Home recovery manifest requires exactly one record");
+        const record = typedRecords[0]!;
+        requireInteger(record, "telemetrySamples", 0);
+        requireIsoDate(record.generatedAt, "manifest.generatedAt");
+      } else if (kind === "measurement-definitions") {
+        for (const record of typedRecords) {
+          requireString(record, "unit");
+          if (!isObject(record.labels) || Object.keys(record.labels).length === 0
+            || Object.keys(record.labels).length > 100
+            || Object.values(record.labels).some((label) => typeof label !== "string" || label.length === 0 || label.length > 500)) {
+            fail("measurement definition labels must be a non-empty string map");
+          }
+          optionalString(record, "dimension");
+          if (record.allowedUnits !== undefined) requireStringArray(record.allowedUnits, "measurement definition allowedUnits", 100);
+          if (record.kind !== undefined) {
+            requireEnumString(record, "kind", ["gauge", "rate", "increment", "cumulative_counter", "binary_state", "categorical_state"]);
+          }
+          if (record.defaultAggregation !== undefined) {
+            requireEnumString(record, "defaultAggregation", ["mean", "sum", "delta", "last", "time_weighted_mean", "duration", "custom"]);
+          }
+          requireInteger(record, "precision", 0);
+          const validMin = requireNullableFiniteNumber(record, "validMin");
+          const validMax = requireNullableFiniteNumber(record, "validMax");
+          const displayMin = requireNullableFiniteNumber(record, "displayMin");
+          const displayMax = requireNullableFiniteNumber(record, "displayMax");
+          if (validMin !== null && validMax !== null && validMin > validMax) fail("measurement definition validMin exceeds validMax");
+          if (displayMin !== null && displayMax !== null && displayMin > displayMax) fail("measurement definition displayMin exceeds displayMax");
+          if (requireFiniteNumber(record, "interpolationDelta") < 0) fail("measurement definition interpolationDelta must not be negative");
+          requireEnumString(record, "colorScale", ["thermal", "humidity", "air-quality", "sequential"]);
+          requireBoolean(record, "enabled");
+          requireBoolean(record, "spatialInterpolation");
+          requireBoolean(record, "forecastSupported");
+        }
+      } else if (kind === "alert-rules") {
+        for (const record of typedRecords) {
+          requireString(record, "name");
+          requireIdentifier(record, "sensorPublicationId");
+          requireIdentifier(record, "metric");
+          requireEnumString(record, "operator", ["gt", "gte", "lt", "lte"]);
+          requireFiniteNumber(record, "threshold");
+          requireInteger(record, "durationSeconds", 0);
+          requireEnumString(record, "severity", ["info", "warning", "critical"]);
+          requireBoolean(record, "enabled");
+          requireIsoDate(record.retiredAt, "alert rule retiredAt", true);
+        }
+      } else if (kind === "alert-events") {
+        for (const record of typedRecords) {
+          requireIdentifier(record, "ruleKey");
+          requireIdentifier(record, "sensorPublicationId");
+          requireIdentifier(record, "metric");
+          requireFiniteNumber(record, "value");
+          requireFiniteNumber(record, "threshold");
+          requireEnumString(record, "severity", ["info", "warning", "critical"]);
+          const startedAt = requireIsoDate(record.startedAt, "alert event startedAt")!;
+          const acknowledgedAt = requireIsoDate(record.acknowledgedAt, "alert event acknowledgedAt", true);
+          const resolvedAt = requireIsoDate(record.resolvedAt, "alert event resolvedAt", true);
+          if (acknowledgedAt && Date.parse(acknowledgedAt) < Date.parse(startedAt)) fail("alert event acknowledgedAt precedes startedAt");
+          if (resolvedAt && Date.parse(resolvedAt) < Date.parse(startedAt)) fail("alert event resolvedAt precedes startedAt");
+        }
+      } else if (kind === "static-parameters") {
+        for (const record of typedRecords) {
+          requireEnumString(record, "scopeType", ["house", "floor", "room", "sensor"]);
+          requireIdentifier(record, "scopePublicationId");
+          requireString(record, "key");
+          if (!["string", "number", "boolean"].includes(typeof record.value)
+            || (typeof record.value === "number" && !Number.isFinite(record.value))) {
+            fail("static parameter value must be a finite scalar");
+          }
+          requireNullableString(record.unit, "static parameter unit");
+          requireString(record, "label");
+        }
+      } else if (kind === "opening-states") {
+        for (const record of typedRecords) {
+          requireIdentifier(record, "floorPublicationId");
+          requireIdentifier(record, "planElementPublicationId");
+          const state = requireEnumString(record, "state", ["open", "closed", "unknown"]);
+          const openFraction = requireNullableFiniteNumber(record, "openFraction");
+          if (openFraction !== null && (openFraction < 0 || openFraction > 1
+            || (state !== "open" && openFraction !== 0))) {
+            fail("opening-state openFraction is invalid");
+          }
+          const observedAt = requireIsoDate(record.observedAt, "opening-state observedAt")!;
+          const validUntil = requireIsoDate(record.validUntil, "opening-state validUntil", true);
+          if (validUntil && Date.parse(validUntil) <= Date.parse(observedAt)) fail("opening-state validUntil must follow observedAt");
+        }
+      } else if (kind === "weather-history") {
+        for (const record of typedRecords) {
+          requireString(record, "locationKey");
+          requireIsoDate(record.timestamp, "weather timestamp");
+          requireFiniteNumber(record, "temperatureC");
+          requireEnumString(record, "source", [
+            "fmi-observation", "open-meteo-current", "fmi-backfill", "open-meteo-backfill", "mock", "api",
+          ]);
+          requireIsoDate(record.fetchedAt, "weather fetchedAt");
+          requireNullableString(record.stationId, "weather stationId");
+          requireNullableString(record.stationName, "weather stationName");
+          if (record.conditions !== null && !isObject(record.conditions)) fail("weather conditions must be an object or null");
+        }
+      } else if (kind === "electricity-history") {
+        for (const record of typedRecords) {
+          const startAt = requireIsoDate(record.startAt, "electricity startAt")!;
+          const endAt = requireIsoDate(record.endAt, "electricity endAt")!;
+          if (Date.parse(endAt) <= Date.parse(startAt)) fail("electricity endAt must follow startAt");
+          requireFiniteNumber(record, "rawPriceCentsPerKwh");
+          requireFiniteNumber(record, "marginCentsPerKwh");
+          requireIsoDate(record.fetchedAt, "electricity fetchedAt");
+        }
+      } else {
+        for (const record of typedRecords) {
+          requireString(record, "name");
+          if (!["image/png", "image/jpeg", "image/webp", "model/gltf+json", "model/gltf-binary"].includes(String(record.mimeType))) {
+            fail("unsupported Home recovery asset media type");
+          }
+          if (!["floor-plan", "model-3d", "other"].includes(String(record.kind))) fail("invalid Home recovery asset kind");
+          if (!/^[a-f0-9]{64}$/.test(requireString(record, "digest"))) fail("Home recovery asset digest must be lowercase SHA-256");
+          const byteLength = requireInteger(record, "byteLength", 1);
+          if (byteLength > STUGBY_MAX_BLOB_BYTES) fail("Home recovery asset exceeds maximum size");
+          requireIsoDate(record.createdAt, "asset.createdAt");
+        }
+      }
+      break;
+    }
   }
   return value as unknown as StugbyDatasetPayload;
 }
@@ -981,7 +1431,7 @@ export function validateWireEvent(value: unknown): StugbyWireEvent {
     requireIdentifier(value, "grantId");
     requireInteger(value, "grantEpoch", 1);
     if (value.operation === "upsert") validateDatasetPayload(value.schema, value.payload);
-  } else if (value.schema === "stugby.grant.v1") {
+  } else if (value.schema === "stugby.grant.v2") {
     if (value.eventKind !== (value.operation === "tombstone" ? "grant.revoked" : "grant.upserted")) fail("grant event kind does not match operation");
     requireIdentifier(value, "grantId");
     requireInteger(value, "grantEpoch", 1);
@@ -989,7 +1439,7 @@ export function validateWireEvent(value: unknown): StugbyWireEvent {
       const grant = validateShareGrant(value.payload);
       if (grant.localHouseId !== undefined) fail("wire grants must not expose a local house id");
     }
-  } else if (value.schema === "stugby.member.v1") {
+  } else if (value.schema === "stugby.member.v2") {
     if (value.eventKind !== "member.updated" || value.operation !== "upsert" || !isObject(value.payload)) fail("invalid member event");
     if (value.grantId !== null || value.grantEpoch !== null) fail("member events cannot reference a grant");
     onlyKeys(value.payload, ["stugbyId", "nodeId", "displayName", "role", "state", "publicKey", "keyFingerprint", "joinedAt", "updatedAt"], "member");
@@ -1002,7 +1452,7 @@ export function validateWireEvent(value: unknown): StugbyWireEvent {
     requireString(value.payload, "keyFingerprint");
     requireIsoDate(value.payload.joinedAt, "member.joinedAt", true);
     requireIsoDate(value.payload.updatedAt, "member.updatedAt");
-  } else if (value.schema === "stugby.shared-property.v1") {
+  } else if (value.schema === "stugby.shared-property.v2") {
     if (value.eventKind !== "shared-property.updated" || value.operation !== "upsert") fail("invalid shared-property event");
     if (value.grantId !== null || value.grantEpoch !== null) fail("shared-property events cannot reference a grant");
     validateSharedProperty(value.payload);

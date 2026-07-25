@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import type { MeasurementSample } from "@climate-twin/contracts";
 import {
+  STUGBY_DATASETS,
   STUGBY_MEDIA_TYPE,
   STUGBY_PROTOCOL_VERSION,
   assertSafeFederationPayload,
@@ -57,6 +58,42 @@ async function stop(value: RunningNode): Promise<void> {
   rmSync(value.directory, { recursive: true, force: true });
 }
 
+function editableHomeDatasets(): StugbyDatasetGrant[] {
+  return [
+    "home.directory.v1",
+    "home.location.v1",
+    "home.structure.v1",
+    "home.sensor-catalog.v1",
+    "home.notes.v1",
+    "home.observations.v1",
+  ].map((dataset) => ({
+    dataset: dataset as StugbyDatasetGrant["dataset"],
+    enabled: true,
+    includeLocalIds: false,
+    allowReplicaCache: true,
+    retentionDays: 30,
+  }));
+}
+
+function fullRecoveryDatasets(): StugbyDatasetGrant[] {
+  return STUGBY_DATASETS.map((dataset) => ({
+    dataset,
+    enabled: true,
+    includeLocalIds: false,
+    allowReplicaCache: true,
+    retentionDays: 3_650,
+    ...(dataset === "home.telemetry.v1" ? {
+      telemetry: {
+        sensorPublicationIds: [],
+        metricIds: [],
+        historyFrom: "2000-01-01T00:00:00.000Z",
+        live: true,
+        maxSamplesPerHour: 1_000_000,
+      },
+    } : {}),
+  }));
+}
+
 describe("Stugby federation", () => {
   const nodes: RunningNode[] = [];
 
@@ -81,6 +118,24 @@ describe("Stugby federation", () => {
     expect(() => validateDatasetPayload("home.directory.v1", {
       publicationId: "home-1", name: "House", timezone: "Europe/Helsinki", undocumented: "not allowed",
     })).toThrow(/not part of the protocol schema/);
+    expect(() => validateDatasetPayload("home.recovery.v1", {
+      publicationId: "home-1",
+      chunkId: "weather-1",
+      generation: 1,
+      kind: "weather-history",
+      complete: true,
+      records: [{
+        weatherKey: "weather-1",
+        locationKey: "60.1,24.9",
+        timestamp: "2026-07-22T00:00:00.000Z",
+        temperatureC: "cold",
+        source: "api",
+        fetchedAt: "2026-07-22T00:01:00.000Z",
+        stationId: null,
+        stationName: null,
+        conditions: null,
+      }],
+    })).toThrow(/temperatureC must be a finite number/);
 
     const event = {
       protocolVersion: STUGBY_PROTOCOL_VERSION,
@@ -90,7 +145,7 @@ describe("Stugby federation", () => {
       authorityNodeId: "node-1",
       streamId: "members",
       sequence: 1,
-      schema: "stugby.member.v1",
+      schema: "stugby.member.v2",
       resourceId: "node-1",
       operation: "upsert",
       revision: 1,
@@ -251,10 +306,19 @@ describe("Stugby federation", () => {
     const digest = "a".repeat(64);
     coordinator.runtime.stugby.store.registerBlob(digest, 1, "image/png", digest);
     coordinator.runtime.stugby.store.registerBlobReference(created.body.id, digest, "retired-grant", 1, "local");
+    await request(coordinator.runtime.app)
+      .post(`/api/v1/stugbys/${created.body.id}/property/adopt`)
+      .send({ localPropertyId: "property-main" }).expect(201);
+    await request(coordinator.runtime.app)
+      .post(`/api/v1/stugbys/${created.body.id}/property/disconnect`)
+      .send({ confirmation: "DISCONNECT" }).expect(200);
+    expect(coordinator.runtime.database.getProperty("property-main")?.stugby)
+      .toMatchObject({ syncState: "detached" });
 
     await request(coordinator.runtime.app).delete(`/api/v1/stugbys/${created.body.id}`).expect(204);
 
     await request(coordinator.runtime.app).get(`/api/v1/stugbys/${created.body.id}`).expect(404);
+    expect(coordinator.runtime.database.getProperty("property-main")?.stugby).toBeUndefined();
     expect(coordinator.runtime.stugby.store.getInvitation(invitation.body.id)).toBeNull();
     expect(coordinator.runtime.stugby.store.getBlob(digest)).toBeNull();
     for (const table of [
@@ -507,6 +571,7 @@ describe("Stugby federation", () => {
       baseRevision: 1,
       audience: { kind: "all-members", nodeIds: [] },
       datasets: datasets.map((dataset) => ({ ...dataset, includeLocalIds: true })),
+      housePolicy: { editPolicy: "read-only", recoveryMode: "none", designatedSuccessorNodeId: null },
       expiresAt: null,
     }).expect(500);
     updateFault.mockRestore();
@@ -518,6 +583,7 @@ describe("Stugby federation", () => {
       baseRevision: 1,
       audience: { kind: "all-members", nodeIds: [] },
       datasets: datasets.map((dataset) => ({ ...dataset, includeLocalIds: true })),
+      housePolicy: { editPolicy: "read-only", recoveryMode: "none", designatedSuccessorNodeId: null },
       expiresAt: null,
     }).expect(200);
     expect(updated.body).toMatchObject({ epoch: 3, revision: 3 });
@@ -951,6 +1017,7 @@ describe("Stugby federation", () => {
       baseRevision: grantResponse.body.revision,
       audience: { kind: "members", nodeIds: [coordinator.runtime.stugby!.identity.nodeId] },
       datasets: updatedDatasets,
+      housePolicy: { editPolicy: "read-only", recoveryMode: "none", designatedSuccessorNodeId: null },
       expiresAt: null,
     }).expect(200);
     expect(updatedGrant.body).toMatchObject({ epoch: 3, revision: 3 });
@@ -993,6 +1060,8 @@ describe("Stugby federation", () => {
 
     await request(household.runtime.app).delete(`/api/v1/stugbys/${stugbyId}/grants/${grantResponse.body.id}`).expect(200);
     await request(household.runtime.app).delete(`/api/v1/stugbys/${stugbyId}/grants/${annexGrant.body.id}`).expect(200);
+    expect(household.runtime.database.getHouse("house-main")?.stugby).toBeUndefined();
+    expect(household.runtime.database.getHouse("house-annex")?.stugby).toBeUndefined();
     await request(household.runtime.app).post(`/api/v1/stugbys/${stugbyId}/sync`).expect(200);
     expect(coordinator.runtime.stugby!.store.listRemoteResources(stugbyId)).toEqual([]);
     expect(coordinator.runtime.stugby!.store.remoteTelemetry({ stugbyId })).toEqual([]);
@@ -1001,6 +1070,408 @@ describe("Stugby federation", () => {
     expect(coordinator.runtime.stugby!.store.listDeletionReceipts(stugbyId)).toEqual(expect.arrayContaining([
       expect.objectContaining({ grantId: grantResponse.body.id, nodeId: coordinator.runtime.stugby!.identity.nodeId }),
     ]));
+  }, 30_000);
+
+  it("adopts the Server Property separately, enforces read-only Homes, migrates a local Property, and retains owned Homes on detach", async () => {
+    const coordinator = await node("Adoption coordinator");
+    const participant = await node("Adoption participant");
+    nodes.push(coordinator, participant);
+    const localHome = participant.runtime.database.getHouse("house-main")!;
+    const sourcePropertyId = localHome.propertyId;
+
+    const created = await request(coordinator.url).post("/api/v1/stugbys")
+      .send({ name: "Adoption Stugby" }).expect(201);
+    const stugbyId = created.body.id as string;
+    const invitation = await request(coordinator.runtime.app)
+      .post(`/api/v1/stugbys/${stugbyId}/invitations`).send({ role: "participant" }).expect(201);
+    await request(participant.runtime.app).post("/api/v1/stugbys/join").send({
+      coordinatorUrl: coordinator.url,
+      invitationId: invitation.body.id,
+      joinSecret: invitation.body.joinSecret,
+    }).expect(201);
+    const grant = await request(coordinator.runtime.app).post(`/api/v1/stugbys/${stugbyId}/grants`).send({
+      localHouseId: "house-main",
+      audience: { kind: "members", nodeIds: [participant.runtime.stugby.identity.nodeId] },
+      datasets: editableHomeDatasets(),
+    }).expect(201);
+    expect(grant.body.housePolicy).toEqual({
+      editPolicy: "read-only",
+      recoveryMode: "none",
+      designatedSuccessorNodeId: null,
+    });
+
+    const propertySync = await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/sync`);
+    expect(propertySync.status, JSON.stringify(propertySync.body)).toBe(200);
+    const adoptedResponse = await request(participant.runtime.app)
+      .post(`/api/v1/stugbys/${stugbyId}/property/adopt`).send({}).expect(201);
+    const adoptedPropertyId = adoptedResponse.body.localPropertyId as string;
+    const adoptedDetail = await request(participant.runtime.app).get(`/api/v1/stugbys/${stugbyId}`).expect(200);
+    const sharedHomeId = adoptedDetail.body.homeProjections[0].localHouseId as string;
+
+    expect(adoptedPropertyId).not.toBe(sourcePropertyId);
+    expect(participant.runtime.database.getProperty(sourcePropertyId)).not.toBeNull();
+    expect(participant.runtime.database.getHouse(localHome.id)?.propertyId).toBe(sourcePropertyId);
+    expect(participant.runtime.database.getHouse(sharedHomeId)).toMatchObject({
+      propertyId: adoptedPropertyId,
+      stugby: { ownership: "shared", editPolicy: "read-only", syncState: "current" },
+    });
+    const createdOwnedHome = await request(participant.runtime.app).post("/api/v1/houses").send({
+      propertyId: adoptedPropertyId,
+      name: "Client-built Home",
+      timezone: "Europe/Helsinki",
+      floors: [{
+        id: "client-built-ground",
+        name: "Ground floor",
+        type: "ground",
+        width: 10,
+        height: 8,
+        elevation: 0,
+        walls: [],
+        rooms: [],
+        planElements: [],
+      }],
+    }).expect(201);
+    expect(createdOwnedHome.body.house.stugby).toMatchObject({
+      stugbyId,
+      ownership: "local",
+      syncState: "current",
+    });
+    const blocked = await request(participant.runtime.app)
+      .patch(`/api/v1/houses/${sharedHomeId}`).send({ name: "Must not change" }).expect(403);
+    expect(blocked.body.error.code).toBe("HOME_READ_ONLY");
+    const migrationRequired = await request(participant.runtime.app)
+      .patch(`/api/v1/houses/${localHome.id}`).send({ propertyId: adoptedPropertyId }).expect(409);
+    expect(migrationRequired.body.error.code).toBe("STUGBY_PROPERTY_MIGRATION_REQUIRED");
+
+    const firstPropertyEdit = await request(participant.runtime.app).patch(`/api/v1/properties/${adoptedPropertyId}`)
+      .send({ description: "First queued description" });
+    expect(firstPropertyEdit.status, JSON.stringify(firstPropertyEdit.body)).toBe(200);
+    const finalPropertyEdit = await request(participant.runtime.app).patch(`/api/v1/properties/${adoptedPropertyId}`)
+      .send({ description: "Final queued description" });
+    expect(finalPropertyEdit.status, JSON.stringify(finalPropertyEdit.body)).toBe(200);
+    expect(participant.runtime.stugby.store.propertyCommandCounts(stugbyId)).toEqual({
+      pending: 1,
+      conflicts: 0,
+    });
+    const queuedPropertySync = await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/sync`);
+    expect(queuedPropertySync.status, JSON.stringify(queuedPropertySync.body)).toBe(200);
+    expect(coordinator.runtime.stugby.store.getSharedProperty(stugbyId)?.description).toBe("Final queued description");
+    expect(participant.runtime.stugby.store.propertyCommandCounts(stugbyId)).toEqual({
+      pending: 0,
+      conflicts: 0,
+    });
+
+    const migrated = await request(participant.runtime.app)
+      .post(`/api/v1/stugbys/${stugbyId}/property/migrate`)
+      .send({ sourcePropertyId, confirmation: "MIGRATE" }).expect(200);
+    expect(migrated.body.moved.houseIds).toEqual([localHome.id]);
+    expect(participant.runtime.database.getProperty(sourcePropertyId)).toBeNull();
+    expect(participant.runtime.database.getHouse(localHome.id)).toMatchObject({
+      propertyId: adoptedPropertyId,
+      stugby: { ownership: "local" },
+    });
+
+    await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/property/disconnect`)
+      .send({ confirmation: "DISCONNECT" }).expect(200);
+    expect(participant.runtime.database.getHouse(sharedHomeId)).toBeNull();
+    expect(participant.runtime.database.getHouse(localHome.id)).toMatchObject({
+      propertyId: adoptedPropertyId,
+    });
+    expect(participant.runtime.database.getHouse(localHome.id)?.stugby).toBeUndefined();
+    expect(participant.runtime.database.getHouse(createdOwnedHome.body.house.id)?.stugby).toBeUndefined();
+    expect(participant.runtime.database.getProperty(adoptedPropertyId)?.stugby).toMatchObject({
+      syncState: "detached",
+    });
+  }, 30_000);
+
+  it("queues editable Home changes offline and reports a Server-wins conflict without detaching", async () => {
+    let coordinatorOnline = true;
+    const participantFetch: typeof fetch = async (input, init) => {
+      if (!coordinatorOnline) throw new Error("simulated coordinator outage");
+      return fetch(input, init);
+    };
+    const coordinator = await node("Editable Home coordinator");
+    const participant = await node("Editable Home participant", false, participantFetch);
+    nodes.push(coordinator, participant);
+    const created = await request(coordinator.url).post("/api/v1/stugbys")
+      .send({ name: "Editable Homes" }).expect(201);
+    const stugbyId = created.body.id as string;
+    const invitation = await request(coordinator.runtime.app)
+      .post(`/api/v1/stugbys/${stugbyId}/invitations`).send({ role: "participant" }).expect(201);
+    await request(participant.runtime.app).post("/api/v1/stugbys/join").send({
+      coordinatorUrl: coordinator.url,
+      invitationId: invitation.body.id,
+      joinSecret: invitation.body.joinSecret,
+    }).expect(201);
+    await request(coordinator.runtime.app).post(`/api/v1/stugbys/${stugbyId}/grants`).send({
+      localHouseId: "house-main",
+      audience: { kind: "members", nodeIds: [participant.runtime.stugby.identity.nodeId] },
+      datasets: editableHomeDatasets(),
+      housePolicy: { editPolicy: "editable", recoveryMode: "none", designatedSuccessorNodeId: null },
+    }).expect(201);
+    await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/sync`).expect(200);
+    await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/property/adopt`).send({}).expect(201);
+    const detail = await request(participant.runtime.app).get(`/api/v1/stugbys/${stugbyId}`).expect(200);
+    const sharedHomeId = detail.body.homeProjections[0].localHouseId as string;
+    const localPropertyId = participant.runtime.database.listProperties()
+      .find((property) => property.id !== participant.runtime.database.getHouse(sharedHomeId)?.propertyId)!.id;
+    const blockedMove = await request(participant.runtime.app).patch(`/api/v1/houses/${sharedHomeId}`)
+      .send({ propertyId: localPropertyId }).expect(409);
+    expect(blockedMove.body.error.code).toBe("STUGBY_HOME_PROPERTY_MANAGED");
+    const sharedSensorId = participant.runtime.database.listSensors(sharedHomeId)[0]!.id;
+    const localHouseId = participant.runtime.database.listHouses()
+      .find((candidate) => candidate.id !== sharedHomeId)!.id;
+    const blockedSensorMove = await request(participant.runtime.app).patch(`/api/v1/sensors/${sharedSensorId}`)
+      .send({ houseId: localHouseId }).expect(409);
+    expect(blockedSensorMove.body.error.code).toBe("STUGBY_SENSOR_HOME_MANAGED");
+    const sharedFloors = participant.runtime.database.getHouse(sharedHomeId)!.floors;
+    const blockedFloorPlanAsset = await request(participant.runtime.app)
+      .put(`/api/v1/houses/${sharedHomeId}/layout`)
+      .send({ floors: sharedFloors.map((floor, index) => index === 0
+        ? { ...floor, backgroundImage: "data:image/png;base64,iVBORw0KGgo=" }
+        : floor) })
+      .expect(403);
+    expect(blockedFloorPlanAsset.body.error.code).toBe("HOME_FLOORPLAN_ASSET_LOCAL_AUTHORITY");
+
+    coordinatorOnline = false;
+    await request(participant.runtime.app).patch(`/api/v1/houses/${sharedHomeId}`)
+      .send({ name: "Queued client name" }).expect(200);
+    await request(participant.runtime.app).patch(`/api/v1/sensors/${sharedSensorId}`)
+      .send({ name: "Queued client sensor", model: "Shared sensor model", tags: ["client-updated"] })
+      .expect(200);
+    expect(participant.runtime.database.getHouse(sharedHomeId)?.stugby).toMatchObject({
+      syncState: "pending",
+      pendingChangeCount: 1,
+    });
+    const failedSync = await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/sync`);
+    expect(failedSync.status).toBeGreaterThanOrEqual(500);
+    expect(participant.runtime.stugby.store.getPropertyAdoption(stugbyId)?.state).toBe("adopted");
+    expect(participant.runtime.database.getHouse(sharedHomeId)?.stugby).toMatchObject({
+      ownership: "shared",
+      syncState: "offline",
+      pendingChangeCount: 1,
+    });
+
+    coordinatorOnline = true;
+    participant.runtime.database.db.prepare(
+      "UPDATE stugby_home_commands SET next_attempt_at=? WHERE stugby_id=? AND status='pending'",
+    ).run("2000-01-01T00:00:00.000Z", stugbyId);
+    await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/sync`).expect(200);
+    expect(coordinator.runtime.database.getHouse("house-main")?.name).toBe("Queued client name");
+    expect(coordinator.runtime.database.listSensors("house-main")).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        name: "Queued client sensor",
+        model: "Shared sensor model",
+        tags: ["client-updated"],
+      }),
+    ]));
+    expect(participant.runtime.database.getHouse(sharedHomeId)?.stugby).toMatchObject({
+      syncState: "current",
+      pendingChangeCount: 0,
+    });
+
+    await request(participant.runtime.app).patch(`/api/v1/houses/${sharedHomeId}`)
+      .send({ name: "Client overlap" }).expect(200);
+    await request(coordinator.runtime.app).patch("/api/v1/houses/house-main")
+      .send({ name: "Server wins" }).expect(200);
+    await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/sync`).expect(200);
+    const conflicted = await request(participant.runtime.app).get(`/api/v1/stugbys/${stugbyId}`).expect(200);
+    expect(conflicted.body.homeCommandCounts).toEqual({ pending: 0, conflicts: 1 });
+    expect(coordinator.runtime.database.getHouse("house-main")?.name).toBe("Server wins");
+    expect(participant.runtime.database.getHouse(sharedHomeId)).toMatchObject({
+      name: "Server wins",
+      stugby: { ownership: "shared", syncState: "conflict", conflictCount: 1 },
+    });
+  }, 30_000);
+
+  it("promotes a designated full-recovery Home with telemetry and assets but no integration bindings", async () => {
+    const coordinator = await node("Recovery coordinator");
+    const participant = await node("Recovery successor");
+    nodes.push(coordinator, participant);
+    const sensor = coordinator.runtime.database.listSensors("house-main")[0]!;
+    coordinator.runtime.database.updateSensor(sensor.id, {
+      temperatureEntityId: "sensor.private_temperature",
+      tpLinkDeviceId: "private-device-id",
+    });
+    const sampleAt = "2026-07-24T10:00:00.000Z";
+    coordinator.runtime.database.insertMeasurementSamples([{
+      sensorId: sensor.id,
+      metric: "temperature",
+      value: 19.75,
+      canonicalUnit: "°C",
+      timestamp: sampleAt,
+      source: "api",
+      quality: "good",
+    }]);
+    const weatherAt = "2026-07-24T09:30:00.000Z";
+    const weatherLocationKey = "60.1699,24.9384";
+    coordinator.runtime.database.upsertOutdoorTemperatureSample({
+      houseId: "house-main",
+      locationKey: weatherLocationKey,
+      timestamp: weatherAt,
+      temperatureC: 11.25,
+      source: "fmi-backfill",
+      fetchedAt: "2026-07-24T10:05:00.000Z",
+      stationId: "helsinki-test",
+      stationName: "Helsinki test",
+    });
+    const gltfBytes = Buffer.from(JSON.stringify({ asset: { version: "2.0" }, scenes: [] }));
+    coordinator.runtime.database.createAsset({
+      houseId: "house-main",
+      name: "cottage.gltf",
+      mimeType: "model/gltf+json",
+      kind: "model-3d",
+      data: gltfBytes,
+    });
+
+    const created = await request(coordinator.url).post("/api/v1/stugbys")
+      .send({ name: "Recovery Stugby" }).expect(201);
+    const stugbyId = created.body.id as string;
+    const invitation = await request(coordinator.runtime.app)
+      .post(`/api/v1/stugbys/${stugbyId}/invitations`).send({ role: "participant" }).expect(201);
+    await request(participant.runtime.app).post("/api/v1/stugbys/join").send({
+      coordinatorUrl: coordinator.url,
+      invitationId: invitation.body.id,
+      joinSecret: invitation.body.joinSecret,
+    }).expect(201);
+    await request(coordinator.runtime.app).post(`/api/v1/stugbys/${stugbyId}/grants`).send({
+      localHouseId: "house-main",
+      audience: { kind: "members", nodeIds: [participant.runtime.stugby.identity.nodeId] },
+      datasets: fullRecoveryDatasets(),
+      housePolicy: {
+        editPolicy: "read-only",
+        recoveryMode: "full",
+        designatedSuccessorNodeId: participant.runtime.stugby.identity.nodeId,
+      },
+    }).expect(201);
+    const alternate = await node("Alternate recovery successor");
+    nodes.push(alternate);
+    const alternateInvitation = await request(coordinator.runtime.app)
+      .post(`/api/v1/stugbys/${stugbyId}/invitations`).send({ role: "participant" }).expect(201);
+    await request(alternate.runtime.app).post("/api/v1/stugbys/join").send({
+      coordinatorUrl: coordinator.url,
+      invitationId: alternateInvitation.body.id,
+      joinSecret: alternateInvitation.body.joinSecret,
+    }).expect(201);
+    const competingSuccessor = await request(coordinator.runtime.app)
+      .post(`/api/v1/stugbys/${stugbyId}/grants`).send({
+        localHouseId: "house-main",
+        audience: { kind: "members", nodeIds: [alternate.runtime.stugby.identity.nodeId] },
+        datasets: fullRecoveryDatasets(),
+        housePolicy: {
+          editPolicy: "read-only",
+          recoveryMode: "full",
+          designatedSuccessorNodeId: alternate.runtime.stugby.identity.nodeId,
+        },
+      }).expect(409);
+    expect(competingSuccessor.body.error.code).toBe("HOME_SUCCESSOR_ALREADY_DESIGNATED");
+
+    const recoveryAssetEvent = coordinator.runtime.stugby.store.eventPage(
+      stugbyId,
+      participant.runtime.stugby.identity.nodeId,
+      0,
+      250,
+    ).events.find((event) => event.schema === "home.recovery.v1"
+      && (event.payload as { kind?: string } | null)?.kind === "assets")!;
+    const recoveryAssetRecord = (recoveryAssetEvent.payload as unknown as {
+      records: Array<{ digest: string }>;
+    }).records[0]!;
+    expect(recoveryAssetRecord).toMatchObject({
+      name: "cottage.gltf",
+      mimeType: "model/gltf+json",
+      kind: "model-3d",
+    });
+    expect(coordinator.runtime.stugby.store.getBlob(recoveryAssetRecord.digest)).toMatchObject({
+      digest: recoveryAssetRecord.digest,
+      mediaType: "model/gltf+json",
+      byteLength: gltfBytes.byteLength,
+    });
+    expect(coordinator.runtime.stugby.store.canReadBlob(
+      stugbyId,
+      recoveryAssetRecord.digest,
+      participant.runtime.stugby.identity.nodeId,
+    )).toBe(true);
+
+    await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/sync`).expect(200);
+    await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/property/adopt`).send({}).expect(201);
+    const detail = await request(participant.runtime.app).get(`/api/v1/stugbys/${stugbyId}`).expect(200);
+    expect(detail.body.homeProjections[0]).toMatchObject({
+      recoveryMode: "full",
+      recoveryState: "ready",
+      designatedSuccessorNodeId: participant.runtime.stugby.identity.nodeId,
+    });
+    participant.runtime.database.db.prepare(
+      "UPDATE stugby_remote_resources SET received_at='2000-01-01T00:00:00.000Z' WHERE stugby_id=?",
+    ).run(stugbyId);
+    participant.runtime.database.db.prepare(
+      "UPDATE stugby_remote_telemetry SET received_at='2000-01-01T00:00:00.000Z' WHERE stugby_id=?",
+    ).run(stugbyId);
+    participant.runtime.stugby.store.enforceRetention(stugbyId);
+    expect(participant.runtime.stugby.store.listRemoteResources(stugbyId))
+      .toEqual(expect.arrayContaining([expect.objectContaining({ schema: "home.recovery.v1" })]));
+    expect(participant.runtime.stugby.store.remoteTelemetryCount(
+      stugbyId,
+      coordinator.runtime.stugby.identity.nodeId,
+      detail.body.homeProjections[0].publicationId,
+    )).toBeGreaterThan(0);
+    const recoveredHomeId = detail.body.homeProjections[0].localHouseId as string;
+    const projectedSensor = participant.runtime.database.listSensors(recoveredHomeId)[0]!;
+    expect(projectedSensor.temperatureEntityId).toBeUndefined();
+    expect(projectedSensor.tpLinkDeviceId).toBeUndefined();
+
+    await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/property/disconnect`)
+      .send({ confirmation: "DISCONNECT" }).expect(200);
+    expect(participant.runtime.database.getHouse(recoveredHomeId)?.stugby).toMatchObject({
+      ownership: "local",
+      syncState: "detached",
+      recoveryState: "ready",
+    });
+    expect(participant.runtime.database.measurementHistory(
+      projectedSensor.id,
+      "temperature",
+      "2026-07-24T09:00:00.000Z",
+      "2026-07-24T11:00:00.000Z",
+    )).toEqual(expect.arrayContaining([
+      expect.objectContaining({ timestamp: sampleAt, value: 19.75, source: "import" }),
+    ]));
+    expect(participant.runtime.database.outdoorTemperatureHistory(
+      recoveredHomeId,
+      weatherLocationKey,
+      "2026-07-24T09:00:00.000Z",
+      "2026-07-24T10:00:00.000Z",
+    )).toEqual(expect.arrayContaining([
+      expect.objectContaining({ timestamp: weatherAt, temperatureC: 11.25, source: "fmi-backfill" }),
+    ]));
+    const recoveredAsset = participant.runtime.database.listAssets(recoveredHomeId)[0]!;
+    expect(recoveredAsset).toMatchObject({
+      name: "cottage.gltf",
+      mimeType: "model/gltf+json",
+      kind: "model-3d",
+    });
+    expect(Buffer.from(participant.runtime.database.getAsset(recoveredAsset.id)!.data)).toEqual(gltfBytes);
+    expect(JSON.stringify({
+      house: participant.runtime.database.getHouse(recoveredHomeId),
+      sensors: participant.runtime.database.listSensors(recoveredHomeId),
+    })).not.toMatch(/private_temperature|private-device-id/);
+
+    const recoveredPropertyId = participant.runtime.database.getHouse(recoveredHomeId)!.propertyId;
+    const successor = await request(participant.url).post("/api/v1/stugbys")
+      .send({ name: "Successor Stugby" }).expect(201);
+    await request(participant.runtime.app)
+      .post(`/api/v1/stugbys/${successor.body.id}/property/adopt`)
+      .send({ localPropertyId: recoveredPropertyId })
+      .expect(201);
+    expect(participant.runtime.database.getProperty(recoveredPropertyId)?.stugby).toMatchObject({
+      stugbyId: successor.body.id,
+      isAuthority: true,
+      syncState: "current",
+    });
+    expect(participant.runtime.database.getHouse(recoveredHomeId)?.stugby).toMatchObject({
+      stugbyId: successor.body.id,
+      ownership: "local",
+      syncState: "current",
+    });
+    expect(participant.runtime.stugby.store.getPropertyAdoption(stugbyId)).toBeNull();
   }, 30_000);
 
   it("uses SSE availability hints to pull durable property events without waiting for the polling interval", async () => {
@@ -1175,6 +1646,7 @@ describe("Stugby federation", () => {
       baseRevision: 1,
       audience: { kind: "all-members", nodeIds: [] },
       datasets: [dataset],
+      housePolicy: { editPolicy: "read-only", recoveryMode: "none", designatedSuccessorNodeId: null },
       expiresAt: null,
     }).expect(200);
     const secondFloorPlan = store.dueOutbox(250)

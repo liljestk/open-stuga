@@ -106,7 +106,7 @@ export function App() {
   const { t } = useI18n();
   const climate = useClimateData();
   const { state } = climate;
-  const readOnly = state.session?.readOnly ?? true;
+  const workspaceReadOnly = state.session?.readOnly ?? true;
   const canManagePeople = state.session?.tenant.role === "owner" || state.session?.tenant.role === "admin";
   const loadSeriesInBackground = useCallback((...args: Parameters<typeof climate.loadSeries>) => {
     settleInBackground(climate.loadSeries(...args));
@@ -174,8 +174,14 @@ export function App() {
   }, [climate.endSession]);
 
   const property = state.properties.find((item) => item.id === propertyId);
+  const propertyReadOnly = workspaceReadOnly || Boolean(
+    property?.stugby
+    && !property.stugby.isAuthority
+    && property.stugby.syncState !== "detached"
+    && property.stugby.editPolicy === "read-only",
+  );
   const propertyElectricityAvailable = property ? (
-    !readOnly
+    !propertyReadOnly
     || (state.session?.grants ?? []).some((grant) => grant.scopeType === "property" && grant.scopeId === property.id)
   ) : false;
   const propertyHouses = useMemo(
@@ -184,6 +190,18 @@ export function App() {
   );
   const selectedPropertyHouse = propertyHouses.find((item) => item.id === houseId);
   const house = selectedPropertyHouse;
+  const activeSharedHouse = Boolean(
+    house?.stugby
+    && house.stugby.ownership === "shared"
+    && house.stugby.syncState !== "detached",
+  );
+  const houseReadOnly = workspaceReadOnly || Boolean(activeSharedHouse && house?.stugby?.editPolicy === "read-only");
+  const houseLocalAuthority = !activeSharedHouse;
+  const readOnly = page === "properties" || page === "maintenance" || page === "energy"
+    ? propertyReadOnly
+    : ["twin", "activity", "outdoor", "sensors", "integrations", "analytics"].includes(page)
+      ? houseReadOnly
+      : workspaceReadOnly;
   const locationRoute = routeFromLocation(window.location);
   const routeHouse = locationRoute.houseId
     ? state.houses.find((candidate) => candidate.id === locationRoute.houseId)
@@ -653,7 +671,7 @@ export function App() {
         />}
         {page === "people" && <PeopleAccessPage state={state} />}
         {page === "stugbys" && (canManagePeople
-          ? <StugbyPage houses={state.houses} />
+          ? <StugbyPage houses={state.houses} properties={state.properties} onInventoryChange={climate.retryBootstrap} />
           : <section className="route-recovery" aria-labelledby="stugby-access-title"><ShieldCheck size={24} aria-hidden="true" /><div><span className="eyebrow">{t("properties.guestReadOnly")}</span><h1 id="stugby-access-title">{t("properties.adminOnlyTitle")}</h1><p>{t("properties.adminOnlyBody")}</p></div><button type="button" className="primary-button" onClick={() => navigate("overview", null, true, window.location.pathname, null)}>{t("route.openOverview")}</button></section>)}
         {page === "developer" && <DeveloperPage />}
         {page === "updates" && (canManagePeople
@@ -937,6 +955,7 @@ export function App() {
           onOpenOutdoor={() => navigate("outdoor", house.id)}
           onOpenAnalytics={() => navigate("analytics", house.id)}
           readOnly={readOnly}
+          localAuthority={houseLocalAuthority}
         />
       )}
       {page === "activity" && <ActivityPage
@@ -954,20 +973,23 @@ export function App() {
         <OutdoorWeatherPage
           house={house}
           units={units}
-          {...(!readOnly ? { onConfigureLocation: () => navigate("integrations", house.id, false, "/setup/weather") } : {})}
+          {...(!readOnly && houseLocalAuthority
+            ? { onConfigureLocation: () => navigate("integrations", house.id, false, "/setup/weather") }
+            : {})}
         />
       )}
       {page === "sensors" && (
         <SensorManagementPage
           state={state}
           house={house}
-          houses={propertyHouses}
+          houses={houseLocalAuthority ? propertyHouses : [house]}
           integration={state.integration}
           tpLinkDevices={climate.tpLinkDevices}
           tpLinkDevicesLoading={climate.tpLinkDevicesLoading}
           tpLinkDevicesError={climate.tpLinkDevicesError}
           requestedDevice={requestedSensorDevice}
           readOnly={readOnly}
+          localAuthority={houseLocalAuthority}
           units={units}
           onLoadSeries={loadSeriesInBackground}
           onRequestedDeviceHandled={() => setRequestedSensorDevice(null)}
@@ -989,7 +1011,7 @@ export function App() {
           onLoadSeries={loadSeriesInBackground}
         />
       )}
-      {page === "integrations" && !readOnly && (
+      {page === "integrations" && !readOnly && houseLocalAuthority && (
         <IntegrationsPage
           integration={state.integration}
           house={house}
@@ -1012,7 +1034,7 @@ export function App() {
           onOpenLayout={() => navigate("twin", house.id)}
         />
       )}
-      {page === "integrations" && readOnly && <section className="route-recovery"><ShieldCheck size={24} aria-hidden="true" /><div><span className="eyebrow">{t("properties.guestReadOnly")}</span><h1>{t("properties.adminOnlyTitle")}</h1><p>{t("properties.adminOnlyBody")}</p></div><button type="button" className="primary-button" onClick={() => navigate("properties", house.id, true)}>{t("nav.properties")}</button></section>}
+      {page === "integrations" && (readOnly || !houseLocalAuthority) && <section className="route-recovery"><ShieldCheck size={24} aria-hidden="true" /><div><span className="eyebrow">{t(readOnly && workspaceReadOnly ? "properties.guestReadOnly" : "stugby.eyebrow")}</span><h1>{t(readOnly && workspaceReadOnly ? "properties.adminOnlyTitle" : "stugby.boundaryTitle")}</h1><p>{t(readOnly && workspaceReadOnly ? "properties.adminOnlyBody" : "stugby.boundaryBody")}</p></div><button type="button" className="primary-button" onClick={() => navigate("properties", house.id, true)}>{t("nav.properties")}</button></section>}
       </></Suspense></RouteErrorBoundary>}
     </AppShell>
   );

@@ -166,7 +166,7 @@ sequenceDiagram
 
     T->>H: device measurement
     par Direct path
-        D->>H: local poll (configurable, 10 s default)
+        D->>H: local poll (configurable, 2 s default)
         H-->>D: hub and child sensor states
         D->>D: child-device map, unit normalization, validation
         D->>DB: append temperature/humidity samples
@@ -174,8 +174,12 @@ sequenceDiagram
         HA->>H: local poll (currently every 5 s)
         H-->>HA: hub and child sensor states
         HA-->>B: state_changed over WebSocket
-        B->>B: entity-map lookup, unit normalization, validation
-        B->>DB: append sparse metric sample
+        B->>B: entity-map lookup, normalization, source arbitration
+        alt same metric has a healthy direct binding
+            B->>B: retain HA as failover; suppress duplicate live sample
+        else direct metric unavailable or unrelated metric
+            B->>DB: append sparse metric sample
+        end
     end
     B-->>SSE: measurement event
     SSE-->>UI: update current values and map
@@ -184,7 +188,7 @@ sequenceDiagram
 ```
 
 "Near real-time" is deliberately not called "instantaneous." Both TP-Link
-paths poll locally: Stuga's direct interval defaults to ten seconds and
+paths poll locally: Stuga's direct interval defaults to two seconds and
 Home Assistant's official integration currently polls every five seconds.
 End-to-end freshness is the device sampling delay plus the chosen polling path,
 network/processing time, and browser delivery. Stuga cannot make the
@@ -402,13 +406,16 @@ Recommended failure behaviour:
 1. Reconnect Home Assistant WebSocket with capped exponential backoff and jitter.
 2. After reconnect, retain durable latest values and reconcile the current
    mapped Home Assistant states without inventing missing historical samples.
-3. De-duplicate on sensor, metric, source timestamp, and source where an adapter
-   can repeat an event. A second metric at the same sensor/time/source remains a
-   distinct sample.
-4. Persist alert state and delivery work atomically. Treat delivery as
+3. For a sensor/metric bound through both adapters, use the healthy direct
+   TP-Link path as live primary and Home Assistant as failover. Keep one
+   canonical Sensor row; never infer physical identity from display names.
+4. Recover a direct gap in this order: local retained history, the matching
+   Home Assistant recorder entity, then configured Tapo private/app export.
+   De-duplicate retries on sensor, metric, source timestamp, and source.
+5. Persist alert state and delivery work atomically. Treat delivery as
    at-least-once: send a stable webhook idempotency key and accept that Telegram
    can duplicate after an ambiguous remote success.
-5. Mark each metric sample and its UI representation stale independently after
+6. Mark each metric sample and its UI representation stale independently after
    a configured freshness threshold.
 
 The production weather monitor runs only with background services enabled. It

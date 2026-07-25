@@ -211,6 +211,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .stuga-mark-house { fill: #fbf9f4; }
 .stuga-mark-window { fill: var(--brand-cobalt); }
 .stuga-mark-door { fill: #1b1d1a; }
+.stugby-mark { width: 56px; height: 40px; display: block; flex: 0 0 auto; filter: drop-shadow(0 5px 10px rgb(0 0 0 / .16)); }
+.stugby-mark.small { width: 39px; height: 28px; }
+.stugby-mark-tile { fill: var(--brand-red); }
+.stugby-mark-house { fill: #fbf9f4; }
+.stugby-mark-window { fill: var(--brand-cobalt); }
+.stugby-mark-door { fill: #1b1d1a; }
 .sidebar-nav { display: grid; gap: 4px; margin-top: 34px; }
 .nav-button { position: relative; min-height: 46px; width: 100%; display: flex; align-items: center; gap: 12px; padding: 0 13px; border: 0; border-radius: 4px; background: transparent; color: #c7cac3; text-align: left; text-decoration: none; transition: background .16s ease, color .16s ease, transform .16s ease; }
 .nav-button:hover { color: #fff; background: rgb(255 255 255 / .08); transform: translateX(2px); }
@@ -1963,6 +1969,9 @@ input::placeholder, textarea::placeholder { color: var(--muted-2); opacity: 1; }
 .device-radio { width: 15px; height: 15px; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--panel); }
 .discovered-device-list > button.selected .device-radio { border-color: var(--pine); }
 .discovered-device-list > button.selected .device-radio > span { width: 7px; height: 7px; border-radius: 50%; background: var(--pine); }
+.sensor-existing-source { margin: 10px 0 0 40px; padding: 12px; display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, .8fr) auto; align-items: end; gap: 12px; border: 1px solid var(--strong-line); border-radius: 10px; background: var(--panel); }
+.sensor-existing-source > div:first-child { align-self: center; }
+.sensor-existing-source p { margin: 3px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .device-health { padding: 3px 6px; border-radius: 7px; color: var(--muted); background: var(--panel-soft); font-size: 10px; text-transform: capitalize; }
 .device-health.online { color: var(--pine); background: var(--pine-soft); }
 .sensor-editor-section, .sensor-edit-form > section { display: grid; gap: 12px; }
@@ -2782,6 +2791,8 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
   .sensor-form-grid, .sensor-location-editor, .sensor-ha-binding-grid { grid-template-columns: 1fr; }
   .sensor-field-wide { grid-column: auto; }
   .discovered-device-list { grid-template-columns: 1fr; padding-left: 0; }
+  .sensor-existing-source { margin-left: 0; grid-template-columns: 1fr; align-items: stretch; }
+  .sensor-existing-source > button { width: 100%; }
   .sensor-review dl { grid-template-columns: 1fr; }
   .sensor-review dl > div { grid-template-columns: minmax(90px, .55fr) 1fr; }
   .sensor-editor-actions { grid-template-columns: 1fr 1fr; }
@@ -2850,8 +2861,9 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
   .demo-banner { border: 2px solid CanvasText; color: CanvasText; background: Canvas; }
   .nav-button.active { border: 2px solid Highlight; }
   .nav-button.active::before { background: Highlight; }
-  .stuga-mark-tile, .stuga-mark-window, .stuga-mark-door { fill: CanvasText; }
-  .stuga-mark-house { fill: Canvas; }
+  .stuga-mark-tile, .stuga-mark-window, .stuga-mark-door,
+  .stugby-mark-tile, .stugby-mark-window, .stugby-mark-door { fill: CanvasText; }
+  .stuga-mark-house, .stugby-mark-house { fill: Canvas; }
   .status-pulse, .quality-dot { border: 2px solid currentColor; background: Canvas; }
   .status-pulse.live, .quality-dot.good { background: CanvasText; }
   .heat-gradient { border: 2px solid CanvasText; }

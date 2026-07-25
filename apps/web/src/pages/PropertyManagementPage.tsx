@@ -45,6 +45,7 @@ import type {
   TenantMemberSummary,
 } from "@climate-twin/contracts";
 import { api, type HouseGeoreferencePatch } from "../api";
+import { StugbyMark } from "../components/StugbyMark";
 import type { ClimateState } from "../domain";
 import { useI18n, type TranslationKey } from "../i18n";
 import { derivePropertyTrafficLights, type PropertyTrafficLight } from "../propertyStatus";
@@ -401,8 +402,8 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
   const { t } = useI18n();
   const now = useNow();
   const propertySummary = (homeCount: number, areaCount: number) => `${t(homeCount === 1 ? "properties.homeCountOne" : "properties.homeCountMany", { count: homeCount })} · ${t(areaCount === 1 ? "properties.areaCountOne" : "properties.areaCountMany", { count: areaCount })}`;
-  const readOnly = state.session.readOnly;
-  const canManageAccess = !readOnly && (state.session.tenant.role === "owner" || state.session.tenant.role === "admin");
+  const workspaceReadOnly = state.session.readOnly;
+  const canManageAccess = !workspaceReadOnly && (state.session.tenant.role === "owner" || state.session.tenant.role === "admin");
   const [tab, setTab] = useState<WorkspaceTab>(() => props.initialTab ?? "map");
   const properties = state.properties;
   const initialPropertyAvailable = Boolean(props.initialPropertyId
@@ -420,7 +421,20 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
     props.onProperty?.(nextPropertyId);
   }, [props.onProperty]);
   const property = useMemo(() => properties.find((item) => item.id === propertyId) ?? properties[0], [properties, propertyId]);
+  const readOnly = workspaceReadOnly || Boolean(
+    property?.stugby
+    && !property.stugby.isAuthority
+    && property.stugby.syncState !== "detached"
+    && property.stugby.editPolicy === "read-only",
+  );
   const houses = useMemo(() => state.houses.filter((house) => house.propertyId === property?.id), [property?.id, state.houses]);
+  const houseReadOnly = useCallback((house: ClimateState["houses"][number]) => (
+    readOnly
+    || Boolean(house.stugby
+      && house.stugby.ownership === "shared"
+      && house.stugby.syncState !== "detached"
+      && house.stugby.editPolicy === "read-only")
+  ), [readOnly]);
   const [mapLoaded, setMapLoaded] = useState(false);
   const areas = useMemo(() => state.propertyAreas.filter((area) => area.propertyId === property?.id), [property?.id, state.propertyAreas]);
   const fixedAssets = useMemo(() => areas.filter((area) => area.location || area.polygon.length === 0 || fixedAssetKinds.has(area.kind)), [areas]);
@@ -822,7 +836,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
 
   const createProperty = async (event: FormEvent) => {
     event.preventDefault();
-    if (readOnly || pending || !newPropertyName.trim()) return;
+    if (workspaceReadOnly || pending || !newPropertyName.trim()) return;
     setPending(true);
     try {
       const saved = await props.onCreateProperty({ name: newPropertyName.trim() });
@@ -864,7 +878,8 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
   };
 
   const removeProperty = async () => {
-    if (!property || readOnly || pending || !window.confirm(t("properties.deletePropertyConfirm", { name: property.name }))) return;
+    if (!property || (property.stugby && property.stugby.syncState !== "detached")
+      || readOnly || pending || !window.confirm(t("properties.deletePropertyConfirm", { name: property.name }))) return;
     setPending(true);
     setFeedback(null);
     try {
@@ -909,6 +924,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
   const moveHouse = async (houseId: string, nextPropertyId: string) => {
     if (!property || readOnly || pending || nextPropertyId === property.id) return;
     const movingHouse = houses.find((house) => house.id === houseId);
+    if (!movingHouse || houseReadOnly(movingHouse)) return;
     if (movingHouse && !window.confirm(t("properties.moveHouseConfirm", { name: movingHouse.name }))) return;
     setPending(true);
     setFeedback(null);
@@ -1019,7 +1035,8 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
   };
 
   const updatePlacementFromMap = useCallback((houseId: string, point: GeoCoordinate) => {
-    if (readOnly || pending || !props.onSetHouseGeoreference || !houses.some((house) => house.id === houseId)) return;
+    const house = houses.find((candidate) => candidate.id === houseId);
+    if (!house || houseReadOnly(house) || pending || !props.onSetHouseGeoreference) return;
     setPlacementHouseId(houseId);
     setAssetPlacementEditing(false);
     setPlacementLatitude(String(point.latitude));
@@ -1027,7 +1044,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
     setPlacementEditing(true);
     setMapLoaded(true);
     setFeedback(null);
-  }, [houses, pending, props.onSetHouseGeoreference, readOnly]);
+  }, [houseReadOnly, houses, pending, props.onSetHouseGeoreference]);
 
   const selectPlacementAsset = (assetId: string) => {
     if (assetId === NEW_FIXED_ASSET_ID) return;
@@ -1106,7 +1123,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
 
   const saveHousePlacement = async (event: FormEvent) => {
     event.preventDefault();
-    if (!placementHouse || !props.onSetHouseGeoreference || readOnly || pending) return;
+    if (!placementHouse || !props.onSetHouseGeoreference || houseReadOnly(placementHouse) || pending) return;
     const latitude = Number(placementLatitude);
     const longitude = Number(placementLongitude);
     const width = Number(placementWidth);
@@ -1136,7 +1153,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
   };
 
   const removeHousePlacement = async () => {
-    if (!placementHouse?.mapPlacement || !props.onSetHouseGeoreference || readOnly || pending || !window.confirm(t("properties.removePlacementConfirm", { name: placementHouse.name }))) return;
+    if (!placementHouse?.mapPlacement || !props.onSetHouseGeoreference || houseReadOnly(placementHouse) || pending || !window.confirm(t("properties.removePlacementConfirm", { name: placementHouse.name }))) return;
     setPending(true);
     setFeedback(null);
     try {
@@ -1147,35 +1164,66 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
     finally { setPending(false); }
   };
 
-  if (properties.length === 0) return <section className="property-empty-page"><MapPin size={28} /><h1>{readOnly ? t("properties.noAccessTitle") : t("properties.emptyTitle")}</h1><p>{readOnly ? t("properties.noAccessBody") : t("properties.emptyBody")}</p>{!readOnly && <form onSubmit={(event) => void createProperty(event)}><label className="field"><span>{t("properties.propertyName")}</span><input autoFocus required value={newPropertyName} onChange={(event) => setNewPropertyName(event.target.value)} /></label><button type="submit" className="primary-button"><Plus size={15} />{t("properties.addProperty")}</button></form>}</section>;
+  const propertyShareLabel = (item: Property) => {
+    if (!item.stugby) return null;
+    if (item.stugby.syncState === "detached") return t("properties.stugby.detached");
+    if (item.stugby.syncState === "conflict") return t("properties.stugby.conflict");
+    if (item.stugby.syncState === "offline") return t("properties.stugby.offline");
+    if (item.stugby.pendingChangeCount > 0) return t("properties.stugby.pending", { count: item.stugby.pendingChangeCount });
+    if (item.stugby.isAuthority) return t("properties.stugby.authority");
+    return item.stugby.editPolicy === "read-only"
+      ? t("properties.stugby.inheritedReadOnly")
+      : t("properties.stugby.inheritedEditable");
+  };
+  const houseShareLabel = (house: ClimateState["houses"][number]) => {
+    if (!house.stugby) return null;
+    if (house.stugby.syncState === "detached") return t("properties.stugby.localAfterDisconnect");
+    if (house.stugby.syncState === "conflict") return t("properties.stugby.conflict");
+    if (house.stugby.syncState === "offline") return t("properties.stugby.offline");
+    if (house.stugby.pendingChangeCount > 0) return t("properties.stugby.pending", { count: house.stugby.pendingChangeCount });
+    if (house.stugby.ownership === "local") return t("properties.stugby.ownedHouse");
+    return house.stugby.editPolicy === "read-only"
+      ? t("properties.stugby.sharedHouseReadOnly")
+      : t("properties.stugby.sharedHouseEditable");
+  };
+
+  if (properties.length === 0) return <section className="property-empty-page"><MapPin size={28} /><h1>{workspaceReadOnly ? t("properties.noAccessTitle") : t("properties.emptyTitle")}</h1><p>{workspaceReadOnly ? t("properties.noAccessBody") : t("properties.emptyBody")}</p>{!workspaceReadOnly && <form onSubmit={(event) => void createProperty(event)}><label className="field"><span>{t("properties.propertyName")}</span><input autoFocus required value={newPropertyName} onChange={(event) => setNewPropertyName(event.target.value)} /></label><button type="submit" className="primary-button"><Plus size={15} />{t("properties.addProperty")}</button></form>}</section>;
   if (props.indexMode) return <div className="page-stack property-management-page property-index-page">
-    <header className="page-heading property-heading"><div><span className="eyebrow"><MapPin size={14} />{t("properties.eyebrow", { count: properties.length })}</span><h1>{t("properties.title")}</h1><p>{t("properties.description")}</p></div>{readOnly && <span className="read-only-badge"><ShieldCheck size={15} />{t("properties.guestReadOnly")}</span>}</header>
+    <header className="page-heading property-heading"><div><span className="eyebrow"><MapPin size={14} />{t("properties.eyebrow", { count: properties.length })}</span><h1>{t("properties.title")}</h1><p>{t("properties.description")}</p></div>{workspaceReadOnly && <span className="read-only-badge"><ShieldCheck size={15} />{t("properties.guestReadOnly")}</span>}</header>
     <section className="property-index-grid" aria-label={t("properties.title")}>
       {properties.map((item) => {
         const homeCount = state.houses.filter((home) => home.propertyId === item.id).length;
         const areaCount = state.propertyAreas.filter((area) => area.propertyId === item.id).length;
-        return <article className="panel property-index-card" key={item.id}><span className="property-index-icon" aria-hidden="true"><MapPin size={19} /></span><div><h2>{item.name}</h2>{item.description && <p>{item.description}</p>}<small>{propertySummary(homeCount, areaCount)}</small></div><button type="button" className="secondary-button" onClick={() => setPropertyId(item.id)}>{t("properties.openProperty", { property: item.name })}</button></article>;
+        const shareLabel = propertyShareLabel(item);
+        return <article className={`panel property-index-card${item.stugby ? " stugby-shared" : ""}`} key={item.id}><span className="property-index-icon" aria-hidden="true">{item.stugby ? <StugbyMark className="small" /> : <MapPin size={19} />}</span><div><h2>{item.name}</h2>{shareLabel && <span className="property-stugby-label">{shareLabel}</span>}{item.description && <p>{item.description}</p>}<small>{propertySummary(homeCount, areaCount)}</small></div><button type="button" className="secondary-button" onClick={() => setPropertyId(item.id)}>{t("properties.openProperty", { property: item.name })}</button></article>;
       })}
     </section>
-    {!readOnly && <form className="panel property-index-create" onSubmit={(event) => void createProperty(event)}><label className="field"><span>{t("properties.addAnotherProperty")}</span><input value={newPropertyName} onChange={(event) => setNewPropertyName(event.target.value)} /></label><button type="submit" className="primary-button" disabled={pending || !newPropertyName.trim()}><Plus size={14} />{t("properties.addProperty")}</button></form>}
+    {!workspaceReadOnly && <form className="panel property-index-create" onSubmit={(event) => void createProperty(event)}><label className="field"><span>{t("properties.addAnotherProperty")}</span><input value={newPropertyName} onChange={(event) => setNewPropertyName(event.target.value)} /></label><button type="submit" className="primary-button" disabled={pending || !newPropertyName.trim()}><Plus size={14} />{t("properties.addProperty")}</button></form>}
     {feedback && <p className={`property-feedback ${feedback.kind}`} role={feedback.kind === "error" ? "alert" : "status"}>{feedback.text}</p>}
   </div>;
   if (!property) return null;
 
   return <div className="page-stack property-management-page">
-    <header className="page-heading property-heading"><div><span className="eyebrow"><MapPin size={14} />{t("bootstrap.propertyForHome")}</span><h1>{property.name}</h1><p>{property.description || t("properties.description")}</p></div>{readOnly && <span className="read-only-badge"><ShieldCheck size={15} />{t("properties.guestReadOnly")}</span>}</header>
+    <header className="page-heading property-heading"><div><span className="eyebrow">{property.stugby ? <StugbyMark className="small" /> : <MapPin size={14} />}{property.stugby ? propertyShareLabel(property) : t("bootstrap.propertyForHome")}</span><h1>{property.name}</h1><p>{property.description || t("properties.description")}</p></div>{readOnly && <span className="read-only-badge"><ShieldCheck size={15} />{workspaceReadOnly ? t("properties.guestReadOnly") : t("properties.stugby.readOnly")}</span>}</header>
     <div className="property-layout">
       <aside className="panel property-sidebar">
         {!props.onProperty && <label className="field"><span>{t("properties.activeProperty")}</span><select value={property.id} onChange={(event) => setPropertyId(event.target.value)}>{properties.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
         {editingProperty && !readOnly ? <form className="property-edit-form" onSubmit={(event) => void saveProperty(event)}><label className="field"><span>{t("properties.propertyName")}</span><input ref={propertyNameInputRef} autoFocus required value={propertyName} onChange={(event) => setPropertyName(event.target.value)} /></label><label className="field"><span>{t("properties.propertyDescription")}</span><textarea rows={3} value={propertyDescription} onChange={(event) => setPropertyDescription(event.target.value)} /></label><div><button type="button" className="secondary-button" onClick={() => { setEditingProperty(false); window.requestAnimationFrame(() => propertyEditButtonRef.current?.focus()); }}>{t("common.cancel")}</button><button type="submit" className="primary-button"><Save size={14} />{t("properties.saveProperty")}</button></div></form> : <div className="property-summary"><strong>{property.name}</strong>{property.description && <p>{property.description}</p>}<small>{propertySummary(houses.length, areas.length)}</small>{!readOnly && <button ref={propertyEditButtonRef} type="button" className="text-button" onClick={() => { setEditingProperty(true); window.requestAnimationFrame(() => propertyNameInputRef.current?.focus()); }}>{t("properties.editProperty")}</button>}</div>}
-        {!readOnly && property.id !== "property-main" && properties.length > 1 && houses.length === 0 && areas.length === 0 && equipment.length === 0 && notes.length === 0 && !state.maintenanceTasks.some((task) => task.propertyId === property.id) && <button type="button" className="text-button danger-text" disabled={pending} onClick={() => void removeProperty()}><Trash2 size={14} />{t("properties.deleteEmptyProperty")}</button>}
+        {!readOnly && (!property.stugby || property.stugby.syncState === "detached") && property.id !== "property-main" && properties.length > 1 && houses.length === 0 && areas.length === 0 && equipment.length === 0 && notes.length === 0 && !state.maintenanceTasks.some((task) => task.propertyId === property.id) && <button type="button" className="text-button danger-text" disabled={pending} onClick={() => void removeProperty()}><Trash2 size={14} />{t("properties.deleteEmptyProperty")}</button>}
         <section className="property-house-group">
           <h2><Building2 size={15} />{t("properties.houses")}</h2>
-          {houses.length ? <ul>{houses.map((house) => <li key={house.id}><Building2 size={13} /><span><strong>{house.name}</strong><small>{house.location?.label ?? house.timezone}</small>{!readOnly && properties.length > 1 && <label><span>{t("properties.moveHouse")}</span><select value={property.id} disabled={pending} onChange={(event) => void moveHouse(house.id, event.target.value)}>{properties.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>}</span></li>)}</ul> : <p>{t("properties.noHouses")}</p>}
+          {houses.length ? <ul>{houses.map((house) => {
+            const shareLabel = houseShareLabel(house);
+            const locked = houseReadOnly(house);
+            const activeStugbyAssociation = Boolean(house.stugby && house.stugby.syncState !== "detached");
+            const moveTargets = properties.filter((candidate) => candidate.id === property.id
+              || !candidate.stugby || candidate.stugby.syncState === "detached");
+            return <li key={house.id} className={house.stugby ? "stugby-shared" : ""}>{house.stugby ? <StugbyMark className="small" /> : <Building2 size={13} />}<span><strong>{house.name}</strong>{shareLabel && <small className="property-stugby-label">{shareLabel}</small>}<small>{house.location?.label ?? house.timezone}</small>{!locked && !activeStugbyAssociation && moveTargets.length > 1 && <label><span>{t("properties.moveHouse")}</span><select value={property.id} disabled={pending} onChange={(event) => void moveHouse(house.id, event.target.value)}>{moveTargets.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>}</span></li>;
+          })}</ul> : <p>{t("properties.noHouses")}</p>}
           {!readOnly && <form className="property-create-form compact" onSubmit={(event) => void createHouse(event)}><label className="field"><span>{t("properties.addHomeToProperty")}</span><input value={newHouseName} onChange={(event) => setNewHouseName(event.target.value)} placeholder={t("bootstrap.defaultHomeName")} /></label><button type="submit" className="secondary-button" disabled={pending || !newHouseName.trim()}><Plus size={14} />{t("properties.addHome")}</button></form>}
         </section>
         <section className="property-area-list"><div><h2><MapIcon size={15} />{t("properties.areas")}</h2><span>{areas.length}</span></div>{areas.length ? <div>{areas.map((area) => <button key={area.id} type="button" aria-pressed={selectedAreaId === area.id} className={selectedAreaId === area.id ? "active" : ""} onClick={() => setSelectedAreaId(area.id)}><MapPin size={14} /><span><strong>{area.name}</strong><small>{t(`properties.areaKind.${area.kind}` as TranslationKey)}</small></span></button>)}</div> : <p>{t("properties.noAreas")}</p>}{!readOnly && <button type="button" className="structure-add-button" onClick={startArea}><Plus size={15} />{t("properties.addArea")}</button>}</section>
-        {!readOnly && <form className="property-create-form" onSubmit={(event) => void createProperty(event)}><label className="field"><span>{t("properties.addAnotherProperty")}</span><input value={newPropertyName} onChange={(event) => setNewPropertyName(event.target.value)} /></label><button type="submit" className="secondary-button" disabled={!newPropertyName.trim()}><Plus size={14} />{t("common.add")}</button></form>}
+        {!workspaceReadOnly && <form className="property-create-form" onSubmit={(event) => void createProperty(event)}><label className="field"><span>{t("properties.addAnotherProperty")}</span><input value={newPropertyName} onChange={(event) => setNewPropertyName(event.target.value)} /></label><button type="submit" className="secondary-button" disabled={!newPropertyName.trim()}><Plus size={14} />{t("common.add")}</button></form>}
       </aside>
       <div className="property-workspace">
         <div className="property-tabs" role="tablist" aria-label={t("properties.workspaceNavigation")}>{tabs.map(({ id, key, icon: Icon }, index) => <button key={id} id={`property-tab-${id}`} type="button" role="tab" aria-selected={tab === id} aria-controls={`property-panel-${id}`} tabIndex={tab === id ? 0 : -1} onKeyDown={(event) => chooseTabFromKeyboard(event, index)} onClick={() => setTab(id)}><Icon size={16} />{t(key)}</button>)}</div>
@@ -1203,7 +1251,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
                   propertyLocation={property.location}
                   selectedAreaId={selectedAreaId}
                   selectedHouseId={placementHouse?.id ?? null}
-                  editableHouseId={placementEditing && !readOnly ? placementHouse?.id ?? null : null}
+                  editableHouseId={placementEditing && placementHouse && !houseReadOnly(placementHouse) ? placementHouse.id : null}
                   selectedAssetId={isNewArea && isNewFixedAsset ? NEW_FIXED_ASSET_ID : placementAsset?.id ?? null}
                   editableAssetId={assetPlacementEditing && !readOnly ? (isNewArea && isNewFixedAsset ? NEW_FIXED_ASSET_ID : placementAsset?.id ?? null) : null}
                   draftPolygon={!isNewFixedAsset && (isNewArea || selectedArea) ? areaForm.polygon : null}
@@ -1233,21 +1281,23 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
             <p className="property-help">{t("properties.mapItemsHelp")}</p>
             {houses.length > 0 && props.onSetHouseGeoreference && <section className="property-placement-group">
             <h3><Building2 size={15} aria-hidden="true" />{t("properties.houses")}</h3>
-            <div className="property-placement-house-list" role="group" aria-label={t("placement.houseList")}>{houses.map((candidate) => <button key={candidate.id} type="button" draggable={!readOnly} aria-pressed={candidate.id === placementHouse?.id} onClick={() => selectPlacementHouse(candidate.id)} onDragStart={(event) => { selectPlacementHouse(candidate.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("application/x-stuga-house-id", candidate.id); }}><Building2 size={15} aria-hidden="true" /><span><strong>{candidate.name}</strong><small>{candidate.mapPlacement ? t("placement.scaled") : candidate.location ? t("placement.pinOnly") : t("placement.unplaced")}</small></span></button>)}</div>
+            <div className="property-placement-house-list" role="group" aria-label={t("placement.houseList")}>{houses.map((candidate) => <button key={candidate.id} type="button" draggable={!houseReadOnly(candidate)} aria-pressed={candidate.id === placementHouse?.id} onClick={() => selectPlacementHouse(candidate.id)} onDragStart={(event) => { if (houseReadOnly(candidate)) { event.preventDefault(); return; } selectPlacementHouse(candidate.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("application/x-stuga-house-id", candidate.id); }}>{candidate.stugby ? <StugbyMark className="small" /> : <Building2 size={15} aria-hidden="true" />}<span><strong>{candidate.name}</strong>{houseShareLabel(candidate) && <small className="property-stugby-label">{houseShareLabel(candidate)}</small>}<small>{candidate.mapPlacement ? t("placement.scaled") : candidate.location ? t("placement.pinOnly") : t("placement.unplaced")}</small></span></button>)}</div>
             {placementHouse && <form className="property-placement-form" onSubmit={(event) => void saveHousePlacement(event)}>
               <details className="property-placement-advanced">
                 <summary><span>{t("setup.advancedPlacement")}</span><small>{t("setup.manualCoordinates")}</small></summary>
                 <div className="property-placement-fields">
-                  <label className="field"><span>{t("weather.latitude")}</span><input type="number" min={-90} max={90} step="any" required value={placementLatitude} onChange={(event) => { setPlacementLatitude(event.target.value); setPlacementEditing(true); }} /></label>
-                  <label className="field"><span>{t("weather.longitude")}</span><input type="number" min={-180} max={180} step="any" required value={placementLongitude} onChange={(event) => { setPlacementLongitude(event.target.value); setPlacementEditing(true); }} /></label>
-                  <label className="field"><span>{t("placement.widthMeters")}</span><input type="number" min={1} max={500} step="0.1" required value={placementWidth} onChange={(event) => { setPlacementWidth(event.target.value); setPlacementEditing(true); }} /></label>
-                  <label className="field"><span>{t("orientation.degrees")}</span><input type="number" min={0} max={359} step={1} value={placementOrientation} onChange={(event) => { setPlacementOrientation(event.target.value); setPlacementEditing(true); }} /></label>
+                  <label className="field"><span>{t("weather.latitude")}</span><input type="number" min={-90} max={90} step="any" required disabled={houseReadOnly(placementHouse)} value={placementLatitude} onChange={(event) => { setPlacementLatitude(event.target.value); setPlacementEditing(true); }} /></label>
+                  <label className="field"><span>{t("weather.longitude")}</span><input type="number" min={-180} max={180} step="any" required disabled={houseReadOnly(placementHouse)} value={placementLongitude} onChange={(event) => { setPlacementLongitude(event.target.value); setPlacementEditing(true); }} /></label>
+                  <label className="field"><span>{t("placement.widthMeters")}</span><input type="number" min={1} max={500} step="0.1" required disabled={houseReadOnly(placementHouse)} value={placementWidth} onChange={(event) => { setPlacementWidth(event.target.value); setPlacementEditing(true); }} /></label>
+                  <label className="field"><span>{t("orientation.degrees")}</span><input type="number" min={0} max={359} step={1} disabled={houseReadOnly(placementHouse)} value={placementOrientation} onChange={(event) => { setPlacementOrientation(event.target.value); setPlacementEditing(true); }} /></label>
                 </div>
               </details>
               <div className="property-placement-actions">
-                {!placementEditing && <button type="button" className="primary-button" onClick={() => { setMapLoaded(true); setDrawing(false); setPlacementEditing(true); setFeedback(null); }}><Move size={15} aria-hidden="true" />{placementHouse.mapPlacement ? t("placement.move") : t("placement.place")}</button>}
-                {placementEditing && <><button type="submit" className="primary-button" disabled={pending || !placementDraftIsValid}>{pending ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Save size={15} aria-hidden="true" />}{pending ? t("common.saving") : t("placement.save")}</button><button type="button" className="secondary-button" disabled={pending} onClick={() => setPlacementEditing(false)}>{t("common.cancel")}</button></>}
-                {placementHouse.mapPlacement && <button type="button" className="secondary-button danger-text" disabled={pending} onClick={() => void removeHousePlacement()}><Trash2 size={15} aria-hidden="true" />{t("placement.remove")}</button>}
+                {houseReadOnly(placementHouse) ? <span className="property-stugby-read-only"><ShieldCheck size={14} />{t("properties.stugby.houseReadOnlyHelp")}</span> : <>
+                  {!placementEditing && <button type="button" className="primary-button" onClick={() => { setMapLoaded(true); setDrawing(false); setPlacementEditing(true); setFeedback(null); }}><Move size={15} aria-hidden="true" />{placementHouse.mapPlacement ? t("placement.move") : t("placement.place")}</button>}
+                  {placementEditing && <><button type="submit" className="primary-button" disabled={pending || !placementDraftIsValid}>{pending ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Save size={15} aria-hidden="true" />}{pending ? t("common.saving") : t("placement.save")}</button><button type="button" className="secondary-button" disabled={pending} onClick={() => setPlacementEditing(false)}>{t("common.cancel")}</button></>}
+                  {placementHouse.mapPlacement && <button type="button" className="secondary-button danger-text" disabled={pending} onClick={() => void removeHousePlacement()}><Trash2 size={15} aria-hidden="true" />{t("placement.remove")}</button>}
+                </>}
               </div>
             </form>}
             </section>}

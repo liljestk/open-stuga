@@ -13,6 +13,14 @@ placed sensor or to their own sensor locations. Each mapped measurement is
 stored independently; it does not need to arrive at the same time as the Tapo
 entities.
 
+A direct TP-Link connection may be kept alongside Home Assistant for the same
+physical child. Use one Stuga sensor row with both bindings: in **Sensors**,
+select the discovered direct device and choose **Attach to existing sensor**.
+The healthy two-second direct path is the live primary; Home Assistant takes
+over when that exact direct metric is unavailable and its recorder is the next
+history-recovery source after local retained history. Stuga never matches a
+friendly name or alias automatically.
+
 This is the current official Home Assistant path. Do not install a custom Tapo
 integration just for these devices. Home Assistant lists H100, H200, T310, and T315 as
 supported by its built-in

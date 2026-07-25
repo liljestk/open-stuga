@@ -62,6 +62,8 @@ interface TwinDashboardProps {
   dataMode?: DataMode;
   connection?: ConnectionState;
   readOnly?: boolean;
+  /** Owner-only integrations, imports, runtime controls, and local analysis configuration stay local. */
+  localAuthority?: boolean;
   onHouse: (id: string) => void;
   onFloor: (id: string) => void;
   onMetric: (metric: Metric) => void;
@@ -226,6 +228,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
   const fullPagePanelRef = useRef<HTMLElement>(null);
   const fullPageTriggerRef = useRef<HTMLButtonElement>(null);
   const readOnly = props.readOnly ?? false;
+  const localAuthority = props.localAuthority ?? true;
   const [range, setRange] = useState<TimeRange>("24h");
   const [replayActive, setReplayActive] = useState(false);
   const [replayPlaying, setReplayPlaying] = useState(false);
@@ -780,7 +783,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
   }, [hasOpeningElements, houseId, openingStateAt]);
 
   const changeOpeningState = async (targetFloorId: string, elementId: string, nextState: ConfiguredOpeningState) => {
-    if (readOnly || replayActive) return;
+    if (readOnly || !localAuthority || replayActive) return;
     const requestContext = openingStateContextRef.current;
     const requestKey = openingStateKey(targetFloorId, elementId);
     if (openingStateRequestsRef.current.has(requestKey)) return;
@@ -989,7 +992,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
     event.preventDefault();
     const label = parameterLabel.trim();
     const value = parameterValue.trim();
-    if (readOnly || !label || !value || parameterPending) return;
+    if (readOnly || !localAuthority || !label || !value || parameterPending) return;
     setParameterPending(true);
     setParameterFeedback(null);
     try {
@@ -1067,9 +1070,11 @@ export function TwinDashboard(props: TwinDashboardProps) {
             weather={houseWeather.weather}
             referenceTime={liveSpatialClockMs}
             onOpenTarget={openDecisionSensor}
-            {...(!readOnly && (sensorSourceHealthy ? props.onOpenSensors : props.onOpenConnections) ? {
-              onOpenSetup: sensorSourceHealthy ? () => props.onOpenSensors?.(houseId) : () => props.onOpenConnections?.(houseId),
-              setupDestination: sensorSourceHealthy ? "sensors" as const : "connections" as const,
+            {...(!readOnly && (localAuthority ? (sensorSourceHealthy ? props.onOpenSensors : props.onOpenConnections) : props.onOpenSensors) ? {
+              onOpenSetup: localAuthority && !sensorSourceHealthy
+                ? () => props.onOpenConnections?.(houseId)
+                : () => props.onOpenSensors?.(houseId),
+              setupDestination: localAuthority && !sensorSourceHealthy ? "connections" as const : "sensors" as const,
             } : {})}
           />
           {hasUsableReadings && <MoistureCoach
@@ -1130,7 +1135,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
           </div>
         </div>
         {props.saveState === "error" && <p className="inline-error" role="alert">{t("twin.layoutSaveError")}</p>}
-        {!editing && !replayActive && !readOnly && controllableOpenings.length > 0 && <div className="opening-runtime-bar">
+        {!editing && !replayActive && !readOnly && localAuthority && controllableOpenings.length > 0 && <div className="opening-runtime-bar">
           <span className="opening-runtime-states" aria-hidden="true"><i className="closed" /><i className="open" /></span>
           <span>{t("opening.controlHint")}</span>
         </div>}
@@ -1169,7 +1174,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
             <FloorPlan
               floor={floor} house={house} sensors={floorSensors} samples={displayedSamples} climateSamples={airflowSamples} observations={floorObservations} definition={definition} colorDomain={houseColorDomain} units={units}
               sensorMeasurements={mapSensorMeasurements} energyDevicesVisible={energyDevicesVisible}
-              viewMode="plan" selectedSensorId={selectedSensor?.id ?? null} editing={editing} observationPlacement={observationPlacement}
+              viewMode="plan" selectedSensorId={selectedSensor?.id ?? null} editing={editing} allowBackgroundImageEditing={localAuthority} observationPlacement={observationPlacement}
               referenceTimeMs={spatialReferenceTimeMs} maxSampleAgeMs={spatialMaxSampleAgeMs}
               outdoor={visualOutdoor}
               spatialLayerSnapshots={spatialLayers.snapshots}
@@ -1179,7 +1184,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
               experimentalSensorCoverage={coverageSelected ? sensorCoverage : null}
               openingStateObservations={houseOpeningStateObservations}
               pendingOpeningStateKeys={pendingOpeningStateKeys}
-              {...(!readOnly && !replayActive ? { onOpeningStateChange: (targetFloorId: string, elementId: string, nextState: ConfiguredOpeningState) => { void changeOpeningState(targetFloorId, elementId, nextState); } } : {})}
+              {...(!readOnly && localAuthority && !replayActive ? { onOpeningStateChange: (targetFloorId: string, elementId: string, nextState: ConfiguredOpeningState) => { void changeOpeningState(targetFloorId, elementId, nextState); } } : {})}
               onSensorSelect={props.onSensorSelect} onSensorMove={props.onSensorMove} onFloorChange={props.onFloorChange} onObservationPoint={placeObservation}
               onCancelObservationPlacement={cancelObservationPlacement}
             />
@@ -1198,7 +1203,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
               experimentalSensorCoverage={coverageSelected ? sensorCoverage : null}
               openingStateObservations={houseOpeningStateObservations}
               pendingOpeningStateKeys={pendingOpeningStateKeys}
-              {...(!readOnly && !replayActive ? { onOpeningStateChange: (targetFloorId: string, elementId: string, nextState: ConfiguredOpeningState) => { void changeOpeningState(targetFloorId, elementId, nextState); } } : {})}
+              {...(!readOnly && localAuthority && !replayActive ? { onOpeningStateChange: (targetFloorId: string, elementId: string, nextState: ConfiguredOpeningState) => { void changeOpeningState(targetFloorId, elementId, nextState); } } : {})}
               onFloorChange={props.onFloorChange}
               onSensorSelect={(sensorId) => props.onSensorSelect(sensorId)}
             />
@@ -1292,7 +1297,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
             currentOutdoorTemperatureC={houseWeather.weather?.current?.temperatureC}
             {...(replayActive ? { cursorTimestamp: replayTimestamp } : {})}
           />
-          {!readOnly && <SpatialLayerLab houseId={houseId} sensors={houseSensors} layers={spatialLayers} />}
+          {!readOnly && localAuthority && <SpatialLayerLab houseId={houseId} sensors={houseSensors} layers={spatialLayers} />}
 
           <div className="lower-grid">
         <RoomComparisonChart
@@ -1325,7 +1330,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
             onOpenSensor={openDecisionSensor}
             onOpenFloor={(targetFloorId) => { props.onFloor(targetFloorId); props.onViewMode("plan"); }}
           />
-          {!readOnly && dataMode === "demo" && <section className="panel compact-panel">
+          {!readOnly && localAuthority && dataMode === "demo" && <section className="panel compact-panel">
             <div className="panel-header"><div><h2>{t("mock.title")}</h2><p className="panel-intro">{t("mock.description")}</p></div></div>
             <label className="field"><span>{t("mock.scenario")}</span><select value={scenario} onChange={(event) => props.onRunScenario(event.target.value as MockScenario["id"])}>{state.scenarios.map((item) => <option key={item.id} value={item.id}>{t(`mock.${item.id}` as TranslationKey)}</option>)}</select></label>
             <p className="field-help">{t(`mock.${scenario}Description` as TranslationKey)}</p>
@@ -1355,7 +1360,7 @@ export function TwinDashboard(props: TwinDashboardProps) {
           <section className="panel compact-panel context-panel">
             <div className="panel-header"><div><h2>{t("context.title")}</h2><p className="panel-intro">{t("context.description")}</p></div><span className="count-badge">{houseParameters.length}</span></div>
             {houseParameters.length > 0 && <dl className="parameter-list">{houseParameters.slice(0, 5).map((parameter) => <div key={parameter.id}><dt>{parameter.label}</dt><dd>{String(parameter.value)}{parameter.unit ? ` ${parameter.unit}` : ""}</dd></div>)}</dl>}
-            {!readOnly && <form onSubmit={submitParameter} className="context-form">
+            {!readOnly && localAuthority && <form onSubmit={submitParameter} className="context-form">
               <label className="field"><span>{t("context.label")}</span><input required value={parameterLabel} onChange={(event) => setParameterLabel(event.target.value)} placeholder={t("context.labelPlaceholder")} /></label>
               <div className="field-row"><label className="field"><span>{t("context.value")}</span><input required value={parameterValue} onChange={(event) => setParameterValue(event.target.value)} placeholder={t("context.valuePlaceholder")} /></label><label className="field"><span>{t("context.unit")}</span><input value={parameterUnit} onChange={(event) => setParameterUnit(event.target.value)} placeholder={t("common.optional")} /></label></div>
               <button type="submit" className="secondary-button full-width" disabled={parameterPending}>{parameterPending ? t("common.saving") : t("context.add")}</button>

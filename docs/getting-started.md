@@ -281,7 +281,8 @@ The rail follows ownership rather than feature categories:
 
 - **Workspace:** Overview, Properties, and Alerts across everything you may see.
 - **Property:** the Property workspace, Maintenance, and Electricity contracts.
-- **Home:** indoor status, Sensors, and Set up for one Home.
+- **Home:** indoor status, Activity, Outdoor, Electricity use, Data & analytics,
+  Sensors, and Set up for one Home.
 - **Advanced:** API & MCP compatibility and integration contracts.
 
 Selecting a Home also selects its parent Property. Property-owned work remains
@@ -342,11 +343,12 @@ Home Assistant is not required for this path.
 
 Direct T310/T315 gaps first use the H100/H200's retained 15-minute buckets, and
 supported direct energy devices first use their retained power history. If that
-is incomplete, Stuga tries an explicitly configured experimental private
-adapter before it queues a durable Tapo Android export. The final path
+is incomplete for a sensor that also has Home Assistant entity bindings, Stuga
+tries Home Assistant recorder history next. Only then does it try an explicitly
+configured experimental private adapter or queue a durable Tapo Android export. The final path
 correlates an emailed CSV through Gmail OAuth, validates/stages the rows, and
-retries the original gap ingestion. Home Assistant-mapped sensors use their own
-recorder-history branch and are never silently merged with direct TP-Link data.
+retries the original gap ingestion. Every fallback must resolve to the same
+Stuga sensor and metric; names and aliases are never used as identity.
 
 This service is intentionally opt-in because it drives a third-party mobile UI:
 

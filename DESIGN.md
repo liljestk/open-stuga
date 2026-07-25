@@ -69,13 +69,14 @@ Primary navigation is scoped and deliberately short:
 
 - Workspace: **Overview**, **Properties**, **Alerts**.
 - Selected Property: **Property**, **Maintenance**, **Electricity**.
-- Selected Home: **Home**, **Sensors**, **Set up**.
+- Selected Home: **Home**, **Activity**, **Outdoor**, **Electricity use**,
+  **Data & analytics**, **Sensors**, **Set up**.
 - Advanced: **API & MCP**.
 
 Map & assets, Notes, and Access are sections inside Property. Activity,
-Outdoor, and Home electricity consumption are contextual detail routes reached
-from Home rather than permanent rail items. Property electricity covers the
-contract and price source; Home electricity covers meters and consumption.
+Outdoor, Home electricity consumption, and Data & analytics appear only in the
+selected Home group. Property electricity covers the contract and price source;
+Home electricity covers meters and consumption.
 
 ### Attention management and progressive disclosure
 
@@ -158,6 +159,19 @@ It remains recognisable in monochrome because the silhouette and openings do the
 **Do not:** rotate, outline, add gradients, round it into an app-circle, recolour individual forms, or place it over a busy image.
 
 The source mark is implemented in [`StugaMark.tsx`](apps/web/src/components/StugaMark.tsx) and [`stuga-mark.svg`](apps/web/public/stuga-mark.svg).
+
+### Stugby mark and ownership markers
+
+Stugby uses three close cottages built from the same forms and colours as the
+Stuga mark. Use the full mark only for Stugby identity and onboarding. In normal
+Property and Home views, preserve the established layout and add a small mark
+with a plain-language state such as **Shared**, **Read-only**, **Pending**, or
+**Offline**. The mark is not a replacement for the written state, and shared
+content must not become a separate visual theme.
+
+The source mark is implemented in
+[`StugbyMark.tsx`](apps/web/src/components/StugbyMark.tsx) and
+[`stugby-mark.svg`](apps/web/public/stugby-mark.svg).
 
 ### Wordmark
 
@@ -275,6 +289,10 @@ Preferred user-facing labels:
 - Maintenance
 - Electricity
 - Home
+- Activity
+- Outdoor
+- Electricity use
+- Data & analytics
 - Sensors
 - Alerts
 - Set up

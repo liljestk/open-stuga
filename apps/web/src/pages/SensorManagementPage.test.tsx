@@ -192,6 +192,26 @@ describe("sensor onboarding and management", () => {
     expect(await screen.findByText("Office window was added.")).not.toBeNull();
   });
 
+  it("attaches a discovered direct device to its existing Home Assistant sensor", async () => {
+    const user = userEvent.setup();
+    const { props } = renderPage();
+
+    await user.click(screen.getByRole("button", { name: "Add sensor" }));
+    await user.click(screen.getByRole("button", { name: /Office window.*tapo-child-office.*online/i }));
+    expect(screen.getByText("Already connected through Home Assistant?")).not.toBeNull();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Existing Stuga sensor" }), "sensor-office");
+    await user.click(screen.getByRole("button", { name: "Attach to existing sensor" }));
+
+    expect(screen.getByRole("heading", { name: "Edit Office" })).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(props.onUpdateSensor).toHaveBeenCalledTimes(1));
+    expect(props.onUpdateSensor).toHaveBeenCalledWith("sensor-office", expect.objectContaining({
+      tpLinkDeviceId: "tapo-child-office",
+    }));
+    expect(props.onCreateSensor).not.toHaveBeenCalled();
+  });
+
   it("offers and applies an experimental coverage-aware placement suggestion", async () => {
     const user = userEvent.setup();
     const rendered = renderPage();
@@ -257,6 +277,19 @@ describe("sensor onboarding and management", () => {
     expect(within(status).getByText("Looking for new TP-Link sensors")).not.toBeNull();
     expect(within(status).getByText(/Automatic hub checks are active\. Last checked/)).not.toBeNull();
     expect(within(status).getByRole("button", { name: "Refresh device list" })).not.toBeNull();
+  });
+
+  it("keeps owner-only integrations and imports out of an editable shared Home", async () => {
+    const user = userEvent.setup();
+    renderPage({ localAuthority: false });
+
+    expect(screen.queryByRole("region", { name: "Automatic sensor discovery status" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Import history" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Add sensor" }));
+    expect(screen.queryByText("Discovered TP-Link device")).toBeNull();
+    expect(screen.getByRole("radio", { name: /Set up manually/i })).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.queryByText("Home Assistant measurement entities")).toBeNull();
   });
 
   it("explains that an unavailable hub is retried automatically", () => {

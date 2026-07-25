@@ -4,6 +4,23 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+## 0.11.0 - 2026-07-25
+
+- Added Stugby Property adoption with clear separation from local Properties,
+  reviewed merge-and-delete migration, durable offline edits, coordinator-wins
+  conflict handling, and explicit permanent disconnect.
+- Shared Homes are read-only by default and can opt into synchronized manual
+  inventory edits. One designated successor can retain a complete sanitized
+  recovery copy and promote it during Server decommissioning; integrations,
+  endpoints, credentials, controls, and accounts remain local.
+- Added subtle Stugby ownership, edit, pending, conflict, recovery, and offline
+  states throughout the existing Property and Home interface, plus the
+  three-cottage Stugby mark.
+- Enforced the same Stugby ownership rules across REST and MCP, including
+  owner-only integrations and binary floor-plan authoring.
+- A sensor can now keep direct TP-Link and Home Assistant bindings together:
+  the healthy direct path is preferred for live data, Home Assistant provides
+  failover and recovery, and equivalent handover samples are not duplicated.
 - Stugby coordinators can now be connected to Cloudflare from the authenticated
   local Stuga UI. Stuga registers a private OAuth client from a one-time OAuth
   Client Write bootstrap token, completes PKCE consent, hands the in-memory

@@ -54,7 +54,7 @@ export type AggregationSemantic =
   | "custom";
 
 /** Product release version. Pre-1.0 minor releases may contain breaking changes. */
-export const SYSTEM_VERSION = "0.10.1" as const;
+export const SYSTEM_VERSION = "0.11.0" as const;
 
 export interface MeasurementDefinition {
   id: Metric;
@@ -656,6 +656,47 @@ export interface HouseMapPlacement {
   footprintFloorId?: string;
 }
 
+export type StugbySyncState = "current" | "pending" | "offline" | "conflict" | "detached";
+export type StugbyPropertyEditPolicy = "collaborative" | "read-only";
+export type StugbyHouseEditPolicy = "read-only" | "editable";
+export type StugbyHouseOwnership = "local" | "shared";
+export type StugbyRecoveryState = "not-enabled" | "syncing" | "ready" | "incomplete";
+
+/**
+ * Local projection metadata for a coordinator-owned Property. A temporary
+ * outage changes syncState only; ownership changes solely through an explicit
+ * detach or authority-transfer operation.
+ */
+export interface StugbyPropertyLink {
+  stugbyId: string;
+  authorityNodeId: string;
+  isAuthority: boolean;
+  editPolicy: StugbyPropertyEditPolicy;
+  syncState: StugbySyncState;
+  authorityEpoch: number;
+  lastSyncedRevision: number;
+  pendingChangeCount: number;
+  conflictCount: number;
+  detachedAt?: string;
+}
+
+/** Sharing, editing, and recovery are intentionally independent dimensions. */
+export interface StugbyHouseLink {
+  stugbyId: string;
+  authorityNodeId: string;
+  publicationId: string;
+  ownership: StugbyHouseOwnership;
+  editPolicy: StugbyHouseEditPolicy;
+  syncState: StugbySyncState;
+  authorityEpoch: number;
+  pendingChangeCount: number;
+  conflictCount: number;
+  recoveryState: StugbyRecoveryState;
+  designatedSuccessorNodeId?: string;
+  recoverySyncedThrough?: string;
+  detachedAt?: string;
+}
+
 /** A managed parcel or estate that groups buildings and outdoor areas. */
 export interface Property {
   id: string;
@@ -663,6 +704,8 @@ export interface Property {
   description: string | null;
   /** Optional map centre used before any house or area geometry is available. */
   location: HouseLocation | null;
+  /** Present only when this row is the local projection of a Stugby Property. */
+  stugby?: StugbyPropertyLink;
   createdAt: string;
   updatedAt: string;
 }
@@ -991,6 +1034,8 @@ export interface House {
    */
   orientationDegrees?: number;
   floors: Floor[];
+  /** Present for a Home shared through Stugby or owned inside an adopted Property. */
+  stugby?: StugbyHouseLink;
   createdAt: string;
   updatedAt: string;
 }

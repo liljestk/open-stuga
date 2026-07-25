@@ -166,13 +166,13 @@ Canary each hub model and firmware separately. An H100 fixture or live result
 does not prove that the H200 child-command wrapper is identical, and a firmware
 update can remove or reshape either retained-history command.
 
-When the optional automated history stack is enabled, a partial local result
-can fall through to the Tapo app export/mailbox queue. See
+For a dual-bound sensor, a partial local result next tries the matching Home
+Assistant recorder entity. When that is unavailable or incomplete, the optional
+automated history stack can fall through to the Tapo app export/mailbox queue. See
 [Automated Tapo history recovery](tapo-history-automation.md) for Appium flow
 capture, Gmail OAuth, worker leases, operator controls, and the experimental
-endpoint boundary. A Home Assistant-mapped sensor instead uses Home Assistant
-recorder history; Stuga does not merge the same physical sensor across both
-adapters automatically.
+endpoint boundary. Cross-source recovery is accepted only when both bindings
+belong to the same Stuga sensor and metric.
 
 Operators can inspect the persistent gap ledger and export-job ledger with:
 
@@ -192,8 +192,13 @@ bindings are architectural opening bindings and do not require creating a
 climate sensor record.
 
 The same devices can be used through Home Assistant at the same time, and Stuga
-can run both adapters. Map each physical device through only one adapter to
-avoid duplicate history and alert evaluation.
+can run both adapters. Represent one physical device with one Stuga sensor:
+open **Sensors**, select the discovered direct device, and choose **Attach to
+existing sensor** when Home Assistant already created its logical sensor. While
+the exact direct metric is healthy, its two-second local poll is the live
+primary and duplicate Home Assistant live samples are suppressed. Home
+Assistant takes over on the next valid update if direct availability is lost.
+Stuga never guesses this relationship from a friendly name or alias.
 
 ## Optional legacy mapping file
 

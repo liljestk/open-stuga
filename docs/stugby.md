@@ -2,9 +2,11 @@
 
 Stugby connects independently administered Stuga installations around a shared
 property without turning them into one account, database, or control system.
-Each Stuga remains authoritative for its own Homes. A coordinator maintains the
-participant roster, distributes signed events, and owns the common-property
-aggregate; it does not become the owner of participant Homes.
+Each Stuga normally remains authoritative for its own Homes. A coordinator
+maintains the participant roster, distributes signed events, and owns the
+shared Property aggregate. One explicitly designated successor may also keep a
+complete, sanitized recovery copy of a Home for a planned Server
+decommissioning.
 
 This supports both common ownership patterns:
 
@@ -13,10 +15,12 @@ This supports both common ownership patterns:
 - one owner with several Homes in one Stuga, where each Home can have a separate
   grant and audience.
 
-Stugby is available but inert on every Stuga and is a read-only federation data
-plane. Merely running Stuga, creating a Stugby, or joining one shares no Home
-data. Local owners and administrators configure explicit grants in
-**Workspace > Stugbys**.
+Stugby is available but inert on every Stuga. Merely running Stuga, creating a
+Stugby, or joining one shares no Home data. A Client explicitly adopts the
+Server Property while its other local Properties remain separate. Shared
+Property editing is collaborative by default; shared Homes are read-only by
+default and become editable only when their owner enables it. Local owners and
+administrators configure this in **Workspace > Stugbys**.
 
 ## Create the secure coordinator
 
@@ -53,14 +57,16 @@ The protocol can share only these versioned datasets:
 | `home.location.v1` | Precise coordinates, label, orientation, and map placement | Separate explicit switch and warning |
 | `home.structure.v1` | Floors, rooms, walls, and plan elements | Local IDs are optional; bindings are stripped |
 | `home.floorplan.v1` | Content-addressed PNG/JPEG/WebP plan images | 10 MiB limit, digest and file-signature checks |
-| `home.sensor-catalog.v1` | Sensor names, positions, metrics, and optional local IDs | No provider, entity, or connection binding |
+| `home.sensor-catalog.v1` | Sensor names, models, tags, enabled state, positions, metrics, and optional local IDs | No provider, entity, or connection binding |
 | `home.telemetry.v1` | Selected raw samples | Sensor/metric selection, history start, live switch, rate cap, cache and retention |
 | `home.notes.v1` | Selected Home notes | Explicit grant required |
 | `home.observations.v1` | Selected observations and their placement | Explicit grant required |
+| `home.recovery.v1` | Sanitized inventory, operational records, full telemetry history, and Home assets | Only for one designated full-recovery successor; durable caching required |
 
 The shared-property aggregate can contain common areas, equipment, notes,
-maintenance items, and an optional common location. It is separate from every
-participant's local Property tables.
+maintenance items, and an optional common location. An adopted copy is
+materialized in the normal Property workspace with Stugby ownership metadata;
+unrelated local Properties stay separate.
 
 The following are outside the protocol and cannot be enabled by a grant:
 
@@ -87,6 +93,18 @@ Every Stugby has one coordinator node and any number of participant nodes. The
 coordinator is an event relay and the authority for membership and the common
 property. A Home dataset event always retains the originating Stuga node as its
 authority; the coordinator cannot rewrite or impersonate it.
+
+Property changes are queued durably while a node is offline. The coordinator
+applies non-conflicting field changes and is authoritative when both sides
+change the same field; the Client retains a visible conflict record. Home
+changes use the same durable command pattern only when the Home owner has
+enabled synchronized edits. A temporary outage marks projections offline but
+never changes ownership.
+
+Editable shared Homes synchronize structural and manual inventory changes.
+Integration setup, device discovery, provider/entity bindings, historical
+provider imports, controls, and binary floor-plan authoring remain available
+only on the authoritative Stuga.
 
 Events are signed but not end-to-end encrypted. The coordinator necessarily
 processes and durably queues the plaintext events it relays, even when only a
@@ -115,7 +133,19 @@ local Home and choose:
 3. whether correlatable local IDs are included for that dataset;
 4. whether recipients may durably cache replicas and for how many days; and
 5. for telemetry, the sensor IDs, metric IDs, history boundary, live switch,
-   and maximum samples per hour.
+   and maximum samples per hour; and
+6. whether the Home remains read-only or accepts synchronized edits, plus
+   whether one named Client receives a full recovery copy.
+
+Read-only is the default Home policy. Full recovery is intended for a planned
+change of Server, not routine offline use. It retains the complete Home
+inventory, supported operational records, assets, and recorded history.
+While that grant remains active, the designated recovery replica is not
+age-pruned; its configured retention value does not discard older transfer
+material before decommission.
+Integration connections, provider/entity bindings, endpoints, credentials,
+secrets, controls, automations, and account identities are stripped. The new
+owner must configure integrations again.
 
 Home, floor, room, wall, plan-element, sensor, note, and observation publication
 IDs are stable random federation IDs rather than local database IDs. The local
@@ -141,7 +171,7 @@ remote projection.
 
 ## Protocol and transport
 
-Protocol v1 uses `application/vnd.stugby.v1+json` over HTTPS. Plain HTTP is
+Protocol v2 uses `application/vnd.stugby.v2+json` over HTTPS. Plain HTTP is
 accepted only for loopback development. Each node has a persistent Ed25519 key
 pair and UUID. Requests include the node ID, timestamp, unique request ID,
 protocol version, and a signature over the exact method, path, and body digest.
@@ -152,9 +182,10 @@ Events have an authority, stream, monotonic sequence, stable event ID, schema,
 resource revision, grant epoch, SHA-256 payload digest, and Ed25519 signature.
 Receivers validate the complete envelope and payload before applying it,
 deduplicate event IDs, reject non-monotonic events, and apply revisions
-idempotently. Participant events are accepted only for protocol grants and the
-approved read-only Home datasets. Durable per-recipient cursor logs and a
-retrying outbox provide at-least-once delivery. The receiver's next signed
+idempotently. Participant events and Property/Home commands are accepted only
+for active grants, roles, and edit policies. Durable per-recipient cursor logs
+and retrying command/outbox queues provide at-least-once delivery. The
+receiver's next signed
 cursor request acknowledges prior pages, allowing the coordinator to prune
 their event bodies. Deletion acknowledgements are durable and retried after a
 failed HTTP response.
@@ -168,10 +199,11 @@ Stugby deliberately uses SSE instead of WebSockets:
   drops SSE; and
 - no bidirectional command channel exists.
 
-Floor-plan images use separate content-addressed HTTPS transfer. The coordinator
-authorizes downloads against the recipient, grant ID, and epoch. Images are
-accepted only when the declared MIME type, magic bytes, size, and SHA-256 digest
-agree. Replica files are reference-counted and deleted when their grant is
+Floor-plan images and recovery assets use separate content-addressed HTTPS
+transfer. The coordinator authorizes downloads against the recipient, grant
+ID, and epoch. PNG, JPEG, WebP, glTF, and GLB assets are accepted only when the
+declared MIME type, file signature/structure, size, and SHA-256 digest agree.
+Replica files are reference-counted and deleted when their grant is
 purged and no other grant uses the same digest. Unreferenced uploads are capped
 at 256 MiB and garbage-collected after 24 hours; this staging allowance exists
 only to let an image arrive immediately before its signed event.
@@ -190,18 +222,31 @@ only to let an image arrive immediately before its signed event.
 4. On the joining Stuga, paste the invitation link into **Workspace > Stugbys**.
    The joining node proves possession of its private key and receives the roster
    and common-property snapshot. No Home data is shared.
-5. On each authoritative Stuga, create separate Home grants and review precise
-   location, local-ID, telemetry, cache, retention, and audience choices.
-6. Use the shared-property editor for common grounds, equipment, notes, and
-   maintenance. Revision conflicts require reloading rather than overwriting a
-   concurrent change.
-7. Before removing a participant, revoke or narrow every grant involving it,
+5. On a Client, choose **Adopt Server Property**. It appears beside local
+   Properties in Property management. Optionally use **Merge and delete
+   source** to move every Home and Property item from a local Property into the
+   adopted Property; this destructive action deletes the source Property.
+   Moving a Home into or out of an adopted Property requires this reviewed
+   migration flow rather than the ordinary Home selector.
+6. On each authoritative Stuga, create separate Home grants and review the
+   audience, datasets, retention, edit policy, and optional designated recovery
+   successor.
+7. Edit the shared Property in the normal Property workspace. Offline changes
+   queue; same-field conflicts keep the Server value and are explained in the
+   UI.
+8. Before removing a participant, revoke or narrow every grant involving it,
    let the node synchronize, verify deletion receipts, and then suspend, mark
    left, or revoke the membership. The coordinator queues one final signed
    membership event; after pulling it, the departing node removes its remote
    Home, telemetry, shared-property, and replica-asset projections. A suspended
    node keeps a read-only event pull so it can receive a later reactivation and
-   fresh snapshots, but it cannot publish or edit shared property.
+   fresh snapshots, but it cannot publish or edit shared Property data.
+
+Use **Permanent disconnect** only for an intentional departure or Server
+decommission. It promotes the inherited Property to local, retains
+Client-owned Homes, and promotes only complete recovery Homes for which this
+Client is the designated successor. An internet outage never triggers this
+transition.
 
 Delete a closed Stugby from **Workspace > Stugbys > Advanced**. A participant
 must first be left or revoked; a coordinator must first mark every other member
@@ -265,12 +310,18 @@ closed instead of silently moving the federation.
 
 ## Failure behavior and operations
 
-Network failures leave local Homes fully operational. The sender retains events
-in its outbox with bounded exponential retry, and receivers keep their last
-durable cursor. Remote projections are marked stale after synchronization
-errors and return to current after a successful sync. The coordinator does not
-write remote data into local canonical Home, sensor, Property, integration, or
-account tables; remote telemetry has a separate table and query path.
+Network failures leave local Homes fully operational. Property and enabled Home
+edits remain in durable queues with bounded exponential retry, senders retain
+events in their outbox, and receivers keep their last durable cursor. Adopted
+Properties and shared Homes remain visible but are marked offline until a
+successful sync.
+
+Adoption materializes sanitized Property/Home projections in canonical tables
+so the normal UI and APIs can display them. Stugby metadata keeps inherited,
+Client-owned, authoritative, editable, offline, pending, conflict, recovery,
+and detached states explicit. Integration bindings and secrets are never
+materialized. Remote raw telemetry remains separately indexed until an
+explicit, eligible recovery promotion imports it as historical local data.
 
 Audit rows cover creation, invitations, membership, grants, shared-property
 changes, expiry, and deletion acknowledgements. Monitor repeated sync errors,

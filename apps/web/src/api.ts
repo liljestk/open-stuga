@@ -86,6 +86,7 @@ import type {
   StugbyMember,
   StugbyMemberState,
   StugbyNodeIdentity,
+  StugbyPropertyConflict,
   StugbyRemoteResource,
   StugbyRole,
   StugbyShareGrant,
@@ -363,12 +364,57 @@ export interface StugbyLocalPublicationCatalog {
   sensors: Array<{ localSensorId: string; sensorPublicationId: string; name: string; metricIds: string[] }>;
 }
 
+export interface StugbyPropertyAdoption {
+  stugbyId: string;
+  localPropertyId: string;
+  state: "adopted" | "detached";
+  adoptedAt: string;
+  detachedAt: string | null;
+  lastMaterializedRevision: number;
+}
+
+export interface StugbyHomeProjection {
+  stugbyId: string;
+  authorityNodeId: string;
+  publicationId: string;
+  localHouseId: string;
+  editPolicy: "read-only" | "editable";
+  recoveryMode: "none" | "full";
+  recoveryState: "not-enabled" | "syncing" | "ready" | "incomplete";
+  designatedSuccessorNodeId: string | null;
+  recoverySyncedThrough: string | null;
+  authorityEpoch: number;
+  detachedAt: string | null;
+  updatedAt: string;
+}
+
+export interface StugbyAuthorityTransfer {
+  id: string;
+  stugbyId: string;
+  scope: "property" | "home";
+  resourceId: string;
+  fromNodeId: string;
+  toNodeId: string;
+  fromEpoch: number;
+  toEpoch: number;
+  status: "prepared" | "completed" | "cancelled";
+  snapshotHash: string;
+  requestedAt: string;
+  completedAt: string | null;
+}
+
 export interface StugbyDetailResponse {
   stugby: StugbySummary;
   members: StugbyMember[];
   invitations: StugbyInvitation[];
   grants: StugbyShareGrant[];
   sharedProperty: StugbySharedProperty | null;
+  propertyAdoption: StugbyPropertyAdoption | null;
+  propertyConflicts: StugbyPropertyConflict[];
+  propertyCommandCounts: { pending: number; conflicts: number };
+  homeCommandCounts: { pending: number; conflicts: number };
+  homeProjections: StugbyHomeProjection[];
+  authorityTransfers: StugbyAuthorityTransfer[];
   remoteResources: StugbyRemoteResource[];
   deletionReceipts: StugbyDeletionReceipt[];
   audit: Array<{
@@ -781,15 +827,42 @@ export const api = {
     { method: "PATCH", body: JSON.stringify(input) },
   ),
   updateStugbyProperty: (id: string, baseRevision: number, property: Pick<StugbySharedProperty,
-    "name" | "description" | "location" | "areas" | "equipment" | "notes" | "maintenance"
+    "name" | "description" | "location" | "areas" | "equipment" | "notes" | "maintenance" | "editPolicy" | "designatedSuccessorNodeId"
   >) => request<StugbySharedProperty>(`/stugbys/${encodeURIComponent(id)}/property`, {
     method: "PUT",
     body: JSON.stringify({ baseRevision, property }),
   }),
+  adoptStugbyProperty: (id: string, localPropertyId?: string) => request<StugbyPropertyAdoption>(
+    `/stugbys/${encodeURIComponent(id)}/property/adopt`,
+    { method: "POST", body: JSON.stringify(localPropertyId ? { localPropertyId } : {}) },
+  ),
+  migratePropertyToStugby: (id: string, sourcePropertyId: string) => request<{
+    adoption: StugbyPropertyAdoption;
+    migrationSnapshotId: string;
+    moved: {
+      houses: string[];
+      areas: string[];
+      equipment: string[];
+      notes: string[];
+      maintenance: string[];
+    };
+  }>(`/stugbys/${encodeURIComponent(id)}/property/migrate`, {
+    method: "POST",
+    body: JSON.stringify({ sourcePropertyId, confirmation: "MIGRATE" }),
+  }),
+  disconnectStugbyProperty: (id: string) => request<StugbyPropertyAdoption>(
+    `/stugbys/${encodeURIComponent(id)}/property/disconnect`,
+    { method: "POST", body: JSON.stringify({ confirmation: "DISCONNECT" }) },
+  ),
+  resolveStugbyPropertyConflict: (id: string, commandId: string) => request<void>(
+    `/stugbys/${encodeURIComponent(id)}/property-conflicts/${encodeURIComponent(commandId)}/resolve`,
+    { method: "POST" },
+  ),
   createStugbyGrant: (id: string, input: {
     localHouseId: string;
     audience: StugbyGrantAudience;
     datasets: StugbyDatasetGrant[];
+    housePolicy: StugbyShareGrant["housePolicy"];
     expiresAt?: string | null;
   }) => request<StugbyShareGrant>(`/stugbys/${encodeURIComponent(id)}/grants`, {
     method: "POST",
@@ -802,6 +875,7 @@ export const api = {
     baseRevision: number;
     audience: StugbyGrantAudience;
     datasets: StugbyDatasetGrant[];
+    housePolicy: StugbyShareGrant["housePolicy"];
     expiresAt: string | null;
   }) => request<StugbyShareGrant>(`/stugbys/${encodeURIComponent(id)}/grants/${encodeURIComponent(grantId)}`, {
     method: "PUT",

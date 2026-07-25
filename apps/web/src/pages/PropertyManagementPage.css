@@ -191,7 +191,16 @@
 .property-index-card h2 { margin: 0 0 4px; }
 .property-index-card p { margin: 0 0 6px; }
 .property-index-card small { color: var(--muted); }
+.property-index-card > div > small { display: block; margin-top: 6px; }
 .property-index-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: var(--panel-soft); }
+.property-index-card.stugby-shared { border-color: color-mix(in srgb, var(--brand-red) 24%, var(--line)); }
+.property-index-card.stugby-shared .property-index-icon { width: 42px; background: transparent; }
+.property-stugby-label { width: fit-content; display: inline-flex !important; align-items: center; padding: 3px 7px; border-radius: 999px; color: var(--action) !important; background: var(--action-soft); font-size: 12px !important; font-weight: 750; line-height: 1.4; white-space: normal !important; }
+.property-heading .eyebrow .stugby-mark { width: 31px; height: 22px; filter: none; }
+.property-house-group li.stugby-shared { border: 1px solid color-mix(in srgb, var(--brand-red) 20%, var(--line)); }
+.property-house-group li > .stugby-mark { width: 27px; height: 20px; filter: none; }
+.property-placement-house-list .stugby-mark { width: 32px; height: 23px; filter: none; }
+.property-stugby-read-only { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
 .property-index-create { width: min(100%, 680px); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; margin-top: 16px; padding: 18px; }
 
 @media (max-width: 760px) {

@@ -165,6 +165,10 @@ export function AppShell({
   ] : [];
   const homeNavItems: NavigationItem[] = activeHome && homeAvailable ? [
     { id: "twin", label: t("nav.twin"), scope: "home" },
+    { id: "activity", label: t("nav.activity"), scope: "home" },
+    { id: "outdoor", label: t("nav.outdoor"), scope: "home" },
+    { id: "energy", label: t("nav.energyUse"), scope: "home" },
+    { id: "analytics", label: t("nav.analytics"), scope: "home" },
     { id: "sensors", label: t("nav.sensors"), scope: "home" },
     ...(!readOnly ? [
       { id: "integrations" as const, label: t("nav.integrations"), scope: "home" as const },

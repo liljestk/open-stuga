@@ -201,6 +201,22 @@ export function registerStugbyProtocolRoutes(app: Express, service: StugbyServic
     response.type(STUGBY_MEDIA_TYPE).send(JSON.stringify(property));
   }));
 
+  app.post(`${PROTOCOL_PREFIX}/stugbys/:stugbyId/property-commands`, jsonRaw, route((request, response) => {
+    const id = stugbyId(request);
+    const actor = service.authenticateMachineRequest(id, protocolProof(request));
+    const command = objectBody(rawJson(request));
+    if (command.stugbyId !== id) throw new StugbyError(400, "STUGBY_ID_MISMATCH", "Property command targets another Stugby");
+    response.type(STUGBY_MEDIA_TYPE).send(JSON.stringify(service.applyPropertyCommandAs(actor.nodeId, command)));
+  }));
+
+  app.post(`${PROTOCOL_PREFIX}/stugbys/:stugbyId/home-commands`, jsonRaw, route((request, response) => {
+    const id = stugbyId(request);
+    const actor = service.authenticateMachineRequest(id, protocolProof(request));
+    const command = objectBody(rawJson(request));
+    if (command.stugbyId !== id) throw new StugbyError(400, "STUGBY_ID_MISMATCH", "Home command targets another Stugby");
+    response.type(STUGBY_MEDIA_TYPE).send(JSON.stringify(service.applyHomeCommandAs(actor.nodeId, command)));
+  }));
+
   app.post(`${PROTOCOL_PREFIX}/stugbys/:stugbyId/deletion-receipts`, jsonRaw, route((request, response) => {
     const id = stugbyId(request);
     const actor = service.authenticateMachineRequest(id, protocolProof(request));
@@ -260,6 +276,12 @@ export function registerStugbyLocalRoutes(app: Express, service: StugbyService, 
       invitations: service.store.listInvitations(id),
       grants: service.store.listGrants(id),
       sharedProperty: service.store.getSharedProperty(id),
+      propertyAdoption: service.store.getPropertyAdoption(id),
+      propertyConflicts: service.store.listPropertyConflicts(id),
+      propertyCommandCounts: service.store.propertyCommandCounts(id),
+      homeCommandCounts: service.store.homeCommandCounts(id),
+      homeProjections: service.store.listHomeProjections(id),
+      authorityTransfers: service.store.listAuthorityTransfers(id),
       remoteResources: service.store.listRemoteResources(id),
       deletionReceipts: service.store.listDeletionReceipts(id),
       audit: service.store.listAudit(id),
@@ -302,12 +324,44 @@ export function registerStugbyLocalRoutes(app: Express, service: StugbyService, 
     response.json(await service.updateSharedProperty(stugbyId(request), integerValue(body.baseRevision, "baseRevision"), objectBody(body.property) as never));
   }));
 
+  app.post(`${LOCAL_PREFIX}/:stugbyId/property/adopt`, admin, route((request, response) => {
+    const body = objectBody(request.body);
+    response.status(201).json(service.adoptProperty(stugbyId(request),
+      typeof body.localPropertyId === "string" ? stringValue(body.localPropertyId, "Local Property id") : undefined));
+  }));
+
+  app.post(`${LOCAL_PREFIX}/:stugbyId/property/migrate`, admin, route((request, response) => {
+    const body = objectBody(request.body);
+    if (body.confirmation !== "MIGRATE") {
+      throw new StugbyError(400, "MIGRATION_CONFIRMATION_REQUIRED", "Confirm this destructive merge with MIGRATE");
+    }
+    response.json(service.migrateProperty(stugbyId(request), stringValue(body.sourcePropertyId, "Source Property id")));
+  }));
+
+  app.post(`${LOCAL_PREFIX}/:stugbyId/property/disconnect`, admin, route((request, response) => {
+    const body = objectBody(request.body);
+    if (body.confirmation !== "DISCONNECT") {
+      throw new StugbyError(400, "DISCONNECT_CONFIRMATION_REQUIRED", "Confirm permanent disconnection with DISCONNECT");
+    }
+    response.json(service.detachProperty(stugbyId(request)));
+  }));
+
+  app.post(`${LOCAL_PREFIX}/:stugbyId/property-conflicts/:commandId/resolve`, admin, route((request, response) => {
+    const resolved = service.store.resolvePropertyConflict(
+      stugbyId(request),
+      stringValue(request.params.commandId, "Command id"),
+    );
+    if (!resolved) throw new StugbyError(404, "PROPERTY_CONFLICT_NOT_FOUND", "Open Property conflict was not found");
+    response.status(204).end();
+  }));
+
   app.post(`${LOCAL_PREFIX}/:stugbyId/grants`, admin, route((request, response) => {
     const body = objectBody(request.body);
     response.status(201).json(service.createGrant(stugbyId(request), {
       localHouseId: stringValue(body.localHouseId, "House id"),
       audience: objectBody(body.audience) as never,
       datasets: Array.isArray(body.datasets) ? body.datasets as never : (() => { throw new StugbyError(400, "INVALID_FIELD", "datasets must be an array"); })(),
+      ...(body.housePolicy !== undefined ? { housePolicy: objectBody(body.housePolicy) as never } : {}),
       ...(typeof body.expiresAt === "string" || body.expiresAt === null ? { expiresAt: body.expiresAt } : {}),
     }));
   }));
@@ -324,6 +378,7 @@ export function registerStugbyLocalRoutes(app: Express, service: StugbyService, 
     response.json(service.updateGrant(grantId, integerValue(body.baseRevision, "baseRevision"), {
       audience: objectBody(body.audience) as never,
       datasets: Array.isArray(body.datasets) ? body.datasets as never : (() => { throw new StugbyError(400, "INVALID_FIELD", "datasets must be an array"); })(),
+      housePolicy: objectBody(body.housePolicy) as never,
       expiresAt: typeof body.expiresAt === "string" ? body.expiresAt : null,
     }));
   }));
