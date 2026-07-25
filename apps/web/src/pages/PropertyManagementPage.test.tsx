@@ -706,7 +706,7 @@ describe("PropertyManagementPage", () => {
     const propertyGrant = screen.getByRole("checkbox", { name: "Pine Estate" });
     const houseGrant = screen.getByRole("checkbox", { name: "Pine House" });
     const areaGrant = screen.getByRole("checkbox", { name: "North well" });
-    expect((propertyGrant as HTMLInputElement).checked).toBe(true);
+    await waitFor(() => expect((propertyGrant as HTMLInputElement).checked).toBe(true));
     expect((houseGrant as HTMLInputElement).checked).toBe(true);
     expect((areaGrant as HTMLInputElement).checked).toBe(true);
     expect((houseGrant as HTMLInputElement).disabled).toBe(true);
