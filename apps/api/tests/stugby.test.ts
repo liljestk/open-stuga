@@ -30,6 +30,7 @@ async function node(
   startBackground = false,
   stugbyFetcher?: typeof fetch,
   publicOrigin?: string,
+  cloudflarePublicOrigin?: string,
 ): Promise<RunningNode> {
   const directory = mkdtempSync(join(tmpdir(), "stugby-test-"));
   const config = loadConfig({
@@ -40,6 +41,7 @@ async function node(
     STUGBY_SYNC_INTERVAL_MS: "300000",
     SPATIAL_LAYERS_ENABLED: "false",
     ...(publicOrigin ? { STUGBY_PUBLIC_ORIGIN: publicOrigin } : {}),
+    ...(cloudflarePublicOrigin ? { CLOUDFLARE_ACCESS_PUBLIC_ORIGIN: cloudflarePublicOrigin } : {}),
   });
   const runtime = createApi({ config, startBackground, ...(stugbyFetcher ? { stugbyFetcher } : {}) });
   const server = createServer(runtime.app);
@@ -142,6 +144,99 @@ describe("Stugby federation", () => {
       .send("{}")
       .expect(503);
     expect(unavailableAdmission.body.error.code).toBe("STUGBY_PUBLIC_ORIGIN_REQUIRED");
+  });
+
+  it("persists an admin-confirmed coordinator origin when deployment configuration has none", async () => {
+    const originProbe = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
+      error: { code: "STUGBY_PUBLIC_ORIGIN_REQUIRED" },
+    }), {
+      status: 503,
+      headers: { "content-type": "application/json" },
+    }));
+    const coordinator = await node("UI-configured coordinator", false, originProbe);
+    nodes.push(coordinator);
+
+    const configured = await request(coordinator.runtime.app)
+      .put("/api/v1/stugbys/configuration")
+      .send({ publicOrigin: "https://stuga.example.test" })
+      .expect(200);
+    expect(configured.body.publicOrigin).toBe("https://stuga.example.test");
+    expect(coordinator.runtime.stugby.store.getNodePublicOrigin()).toBe("https://stuga.example.test");
+    expect(originProbe).toHaveBeenCalledWith(
+      "https://stuga.example.test/api/v1/stugby-protocol/join",
+      expect.objectContaining({ method: "POST", redirect: "manual" }),
+    );
+
+    const created = await request(coordinator.runtime.app)
+      .post("/api/v1/stugbys")
+      .set("host", "private-node.example.test")
+      .send({ name: "Configured in setup" })
+      .expect(201);
+    expect(created.body.coordinatorUrl).toBe("https://stuga.example.test");
+
+    const restarted = new StugbyService({
+      database: coordinator.runtime.database,
+      store: new StugbyStore(coordinator.runtime.database.db, coordinator.runtime.stugby.identity.nodeId),
+      keys: coordinator.runtime.stugby.keys,
+      bus: coordinator.runtime.bus,
+      assetDirectory: coordinator.directory,
+    });
+    expect(restarted.publicOrigin).toBe("https://stuga.example.test");
+  });
+
+  it("checks a UI-configured address before saving it", async () => {
+    const coordinator = await node(
+      "Unreachable coordinator",
+      false,
+      async () => new Response("Cloudflare login", { status: 403, headers: { "content-type": "text/html" } }),
+    );
+    nodes.push(coordinator);
+
+    const response = await request(coordinator.runtime.app)
+      .put("/api/v1/stugbys/configuration")
+      .send({ publicOrigin: "https://stuga.example.test" })
+      .expect(422);
+
+    expect(response.body.error.code).toBe("STUGBY_ADDRESS_UNREACHABLE");
+    expect(response.body.error.message).toMatch(/could not reach its secure address/u);
+    expect(coordinator.runtime.stugby.store.getNodePublicOrigin()).toBeNull();
+  });
+
+  it("does not let the UI replace a deployment-managed coordinator origin", async () => {
+    const coordinator = await node("Managed coordinator", false, undefined, "https://managed.example.test");
+    nodes.push(coordinator);
+
+    const response = await request(coordinator.runtime.app)
+      .put("/api/v1/stugbys/configuration")
+      .send({ publicOrigin: "https://replacement.example.test" })
+      .expect(409);
+    expect(response.body.error.code).toBe("STUGBY_PUBLIC_ORIGIN_MANAGED");
+  });
+
+  it("requires Cloudflare coordinator provisioning before accepting its suggested origin", async () => {
+    const uiOnly = await node(
+      "UI-only Cloudflare node",
+      false,
+      undefined,
+      undefined,
+      "https://stuga.example.test",
+    );
+    nodes.push(uiOnly);
+
+    const index = await request(uiOnly.runtime.app)
+      .get("/api/v1/stugbys")
+      .set("host", "stuga.example.test")
+      .expect(200);
+    expect(index.body).toMatchObject({
+      publicOrigin: null,
+      suggestedPublicOrigin: "https://stuga.example.test",
+      publicOriginConfigurable: false,
+    });
+    const response = await request(uiOnly.runtime.app)
+      .put("/api/v1/stugbys/configuration")
+      .send({ publicOrigin: "https://stuga.example.test" })
+      .expect(409);
+    expect(response.body.error.code).toBe("STUGBY_COORDINATOR_PROVISIONING_REQUIRED");
   });
 
   it("deletes a closed local-only Stugby and its federation records", async () => {

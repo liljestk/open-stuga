@@ -950,7 +950,8 @@ export type SecurityAuditEventType =
   | "integration.grant.issued"
   | "integration.grant.revoked"
   | "system.update.settings.changed"
-  | "system.update.requested";
+  | "system.update.requested"
+  | "cloudflare.setup.started";
 
 export type SecurityAuditSubjectType =
   | "account"
@@ -958,7 +959,8 @@ export type SecurityAuditSubjectType =
   | "integration"
   | "integration-grant"
   | "system-update-settings"
-  | "system-update";
+  | "system-update"
+  | "cloudflare-connection";
 export type SecurityAuditDetailValue = string | number | boolean | null;
 
 /** Append-only, secret-free evidence for authentication and privileged credential changes. */

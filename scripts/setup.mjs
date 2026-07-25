@@ -21,6 +21,13 @@ import {
   validateToken as validateCloudflareToken,
   verifyDeployment as verifyCloudflareDeployment,
 } from "./cloudflare-stuga.mjs";
+import {
+  authorizeCloudflareSetup,
+  cloudflareSetupOAuthScopes,
+  DEFAULT_CLOUDFLARE_OAUTH_REDIRECT_URI,
+  validateCloudflareOAuthClientId,
+  validateCloudflareOAuthRedirectUri,
+} from "./cloudflare-oauth.mjs";
 import { installUpdateAgentService } from "./stuga-update-agent-service.mjs";
 
 export const MINIMUM_NODE_VERSION = Object.freeze([22, 13, 0]);
@@ -36,9 +43,9 @@ const modeChoices = [
   { value: "rpi", label: "Raspberry Pi 4 appliance" },
 ];
 const remoteAccessChoices = [
-  { value: "none", label: "Keep Stuga local only (smallest trust boundary)" },
-  { value: "remote-ui", label: "Secure remote access with Cloudflare Tunnel + Access" },
-  { value: "stugby-coordinator", label: "Remote access plus a Stugby coordinator" },
+  { value: "none", label: "Use Stuga only while at home" },
+  { value: "remote-ui", label: "Open Stuga securely while away from home" },
+  { value: "stugby-coordinator", label: "Create a shared Stugby for several homes (includes remote access)" },
 ];
 
 export function parseVersion(version) {
@@ -91,6 +98,8 @@ export function parseSetupArgs(args) {
       accessTokenFile: null,
       accountId: null,
       hostname: null,
+      oauthClientId: null,
+      oauthRedirectUri: null,
       ownerEmail: null,
       provisionTokenFile: null,
       secretDirectory: null,
@@ -168,30 +177,42 @@ export function parseSetupArgs(args) {
       }
       options.piAction = value;
       if (inlineValue === null) index += 1;
-    } else if (option === "--cloudflare-hostname") {
+    } else if (option === "--cloudflare-hostname" || option === "--hostname") {
       options.cloudflare.hostname = requiredOptionValue(args, index, inlineValue, option);
       if (inlineValue === null) index += 1;
-    } else if (option === "--cloudflare-zone") {
+    } else if (option === "--cloudflare-zone" || option === "--zone") {
       options.cloudflare.zone = requiredOptionValue(args, index, inlineValue, option);
       if (inlineValue === null) index += 1;
-    } else if (option === "--cloudflare-owner-email") {
+    } else if (option === "--cloudflare-owner-email" || option === "--owner-email") {
       options.cloudflare.ownerEmail = requiredOptionValue(args, index, inlineValue, option);
       if (inlineValue === null) index += 1;
-    } else if (option === "--cloudflare-provision-token-file") {
+    } else if (option === "--cloudflare-oauth-client-id") {
+      options.cloudflare.oauthClientId = requiredOptionValue(args, index, inlineValue, option);
+      if (inlineValue === null) index += 1;
+    } else if (option === "--cloudflare-oauth-redirect-uri") {
+      options.cloudflare.oauthRedirectUri = requiredOptionValue(args, index, inlineValue, option);
+      if (inlineValue === null) index += 1;
+    } else if (option === "--cloudflare-provision-token-file" || option === "--provision-token-file") {
       options.cloudflare.provisionTokenFile = requiredOptionValue(args, index, inlineValue, option);
       if (inlineValue === null) index += 1;
-    } else if (option === "--cloudflare-access-token-file") {
+    } else if (option === "--cloudflare-access-token-file" || option === "--access-token-file") {
       options.cloudflare.accessTokenFile = requiredOptionValue(args, index, inlineValue, option);
       if (inlineValue === null) index += 1;
-    } else if (option === "--cloudflare-account-id") {
+    } else if (option === "--cloudflare-account-id" || option === "--account-id") {
       options.cloudflare.accountId = requiredOptionValue(args, index, inlineValue, option);
       if (inlineValue === null) index += 1;
-    } else if (option === "--cloudflare-zone-id") {
+    } else if (option === "--cloudflare-zone-id" || option === "--zone-id") {
       options.cloudflare.zoneId = requiredOptionValue(args, index, inlineValue, option);
       if (inlineValue === null) index += 1;
-    } else if (option === "--cloudflare-secret-dir") {
+    } else if (option === "--cloudflare-secret-dir" || option === "--secret-dir") {
       options.cloudflare.secretDirectory = requiredOptionValue(args, index, inlineValue, option);
       if (inlineValue === null) index += 1;
+    } else if (!argument.startsWith("-")
+      && options.remoteAccess !== null
+      && options.cloudflare.hostname === null) {
+      // npm consumes `--hostname` unless the caller adds `--`. Keep the
+      // coordinator shortcut forgiving by accepting the remaining hostname.
+      options.cloudflare.hostname = argument;
     } else {
       throw new Error(`Unknown option: ${argument}`);
     }
@@ -227,6 +248,52 @@ export function environmentValues(source) {
     if (match) values[match[1]] = match[2];
   }
   return values;
+}
+
+export function existingSetupDefaults(root) {
+  const environmentPath = resolve(root, ".env");
+  if (!existsSync(environmentPath)) {
+    return { data: null, mode: null, port: null, updateAgentConnected: false };
+  }
+  const environment = environmentValues(readFileSync(environmentPath, "utf8"));
+  const data = environment.MOCK_ENABLED === "true"
+    ? "demo"
+    : environment.MOCK_ENABLED === "false"
+      ? "real"
+      : null;
+  const parsedPort = Number(environment.APP_PORT);
+  const port = Number.isInteger(parsedPort) && parsedPort >= 1 && parsedPort <= 65_535
+    ? parsedPort
+    : null;
+  const cloudflareDirectory = resolve(
+    root,
+    configuredCloudflareSecretDirectory(root, null),
+  );
+  const mode = existsSync(resolve(cloudflareDirectory, "deployment.json"))
+    ? environment.COMPOSE_PROFILES === ""
+      ? "podman"
+      : "docker"
+    : null;
+  const operationsDirectory = resolve(
+    root,
+    environmentScalar(environment.SYSTEM_UPDATE_OPERATIONS_DIRECTORY)
+      ?? "./data/update-operations",
+  );
+  const heartbeatPath = resolve(operationsDirectory, "agent-status.json");
+  let updateAgentConnected = false;
+  if (existsSync(heartbeatPath) && statSync(heartbeatPath).size <= 256 * 1024) {
+    try {
+      const heartbeat = JSON.parse(readFileSync(heartbeatPath, "utf8"));
+      const updatedAt = Date.parse(heartbeat?.updatedAt);
+      updateAgentConnected = heartbeat?.schema === "stuga-update-agent/v1"
+        && heartbeat?.ready === true
+        && Number.isFinite(updatedAt)
+        && Math.abs(Date.now() - updatedAt) <= 2 * 60_000;
+    } catch {
+      updateAgentConnected = false;
+    }
+  }
+  return { data, mode, port, updateAgentConnected };
 }
 
 export function updateEnvironmentText(source, updates) {
@@ -285,8 +352,10 @@ export function basicEnvironmentUpdates(configuration) {
   };
   if (configuration.mode === "docker" || configuration.mode === "podman") {
     updates.APP_PORT = String(configuration.port);
-    if (configuration.cloudflare) {
+    if (configuration.cloudflare || configuration.cloudflareUiPending) {
       updates.BIND_ADDRESS = "127.0.0.1";
+    }
+    if (configuration.cloudflare) {
       updates.STUGA_CLOUDFLARE_SECRET_DIR = configuration.cloudflare.composeSecretDirectory;
       updates.STUGA_CLOUDFLARE_ENV_FILE = `${configuration.cloudflare.composeSecretDirectory}/config.env`;
     }
@@ -324,9 +393,12 @@ Options:
   --cloudflare-hostname <host>        Public hostname, such as stuga.example.com.
   --cloudflare-zone <zone>            Cloudflare DNS zone, such as example.com.
   --cloudflare-owner-email <email>    Permanent Access recovery operator.
+  --cloudflare-oauth-client-id <id>   Approve temporary setup in a browser.
+  --cloudflare-oauth-redirect-uri <url>
+                       Registered loopback callback for the OAuth client.
   --cloudflare-provision-token-file <path>
   --cloudflare-access-token-file <path>
-                       Read two different tokens from protected files.
+                       Read the required separate tokens from protected files.
   --cloudflare-account-id <id>        Optional unambiguous account selection.
   --cloudflare-zone-id <id>           Optional unambiguous zone selection.
   --cloudflare-secret-dir <path>      Generated runtime directory.
@@ -337,7 +409,10 @@ Options:
   --help              Show this help.
 
 New installs bind to loopback, including when Tunnel access is enabled.
-Interactive token entry is hidden and never stored in shell history or .env.
+Interactive Docker Stugby setup continues in the authenticated local UI;
+explicit --cloudflare flags keep the advanced CLI path.
+Browser approval is temporary; pasted token entry is hidden and never stored
+in shell history or .env.
 Configure Home/device credentials later in Stuga's guided web setup.`);
 }
 
@@ -400,6 +475,110 @@ function guessedZone(hostname) {
   return labels.length > 2 ? labels.slice(-2).join(".") : hostname;
 }
 
+function environmentScalar(value) {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  if (!normalized) return null;
+  if (normalized.startsWith("\"")) {
+    try {
+      const parsed = JSON.parse(normalized);
+      return typeof parsed === "string" && parsed.trim() ? parsed.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+  return normalized;
+}
+
+function configuredCloudflareSecretDirectory(root, requested) {
+  if (requested) return requested;
+  const environmentPath = resolve(root, ".env");
+  if (!existsSync(environmentPath)) return "./secrets/cloudflare";
+  const configured = environmentScalar(
+    environmentValues(readFileSync(environmentPath, "utf8")).STUGA_CLOUDFLARE_SECRET_DIR,
+  );
+  return configured ?? "./secrets/cloudflare";
+}
+
+function configuredCloudflareOAuth(root, options, environment = process.env) {
+  const environmentPath = resolve(root, ".env");
+  const localEnvironment = existsSync(environmentPath)
+    ? environmentValues(readFileSync(environmentPath, "utf8"))
+    : {};
+  const clientIdValue = options.oauthClientId
+    ?? environment.STUGA_CLOUDFLARE_OAUTH_CLIENT_ID
+    ?? environmentScalar(localEnvironment.STUGA_CLOUDFLARE_OAUTH_CLIENT_ID);
+  const redirectValue = options.oauthRedirectUri
+    ?? environment.STUGA_CLOUDFLARE_OAUTH_REDIRECT_URI
+    ?? environmentScalar(localEnvironment.STUGA_CLOUDFLARE_OAUTH_REDIRECT_URI);
+  const clientId = environmentScalar(clientIdValue);
+  if (!clientId) {
+    if (environmentScalar(redirectValue)) {
+      throw new Error("Cloudflare OAuth redirect URI requires a Cloudflare OAuth client ID");
+    }
+    return null;
+  }
+  return {
+    clientId: validateCloudflareOAuthClientId(clientId),
+    redirectUri: validateCloudflareOAuthRedirectUri(
+      environmentScalar(redirectValue) ?? DEFAULT_CLOUDFLARE_OAUTH_REDIRECT_URI,
+    ).href,
+  };
+}
+
+export function existingCloudflareConfiguration(root, requestedSecretDirectory = null) {
+  const composeDirectory = composeSecretDirectory(
+    configuredCloudflareSecretDirectory(root, requestedSecretDirectory),
+  );
+  const secretDirectory = resolve(root, composeDirectory);
+  const deploymentPath = resolve(secretDirectory, "deployment.json");
+  if (!existsSync(deploymentPath)) return null;
+
+  let deployment;
+  try {
+    deployment = JSON.parse(readFileSync(deploymentPath, "utf8"));
+  } catch {
+    throw new Error(`Existing Cloudflare setup is unreadable: ${deploymentPath}`);
+  }
+  const version = deployment?.version;
+  const mode = version === 1
+    ? "remote-ui"
+    : version === 2 && REMOTE_ACCESS_MODES.includes(deployment?.mode)
+      ? deployment.mode
+      : null;
+  const hostname = typeof deployment?.hostname === "string"
+    ? deployment.hostname.trim().toLowerCase()
+    : "";
+  if (!mode || mode === "none" || !hostname) {
+    throw new Error(`Existing Cloudflare setup is not supported: ${deploymentPath}`);
+  }
+
+  const runtimeEnvironmentPath = resolve(secretDirectory, "config.env");
+  const runtimeEnvironment = existsSync(runtimeEnvironmentPath)
+    ? environmentValues(readFileSync(runtimeEnvironmentPath, "utf8"))
+    : {};
+  const operatorEmails = environmentScalar(runtimeEnvironment.CLOUDFLARE_ACCESS_STATIC_EMAILS)
+    ?.split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean) ?? [];
+  const accessTokenFile = resolve(secretDirectory, "access-group-token");
+  const reusableAccessToken = existsSync(accessTokenFile) && statSync(accessTokenFile).size >= 32
+    ? accessTokenFile
+    : null;
+
+  return {
+    accessTokenFile: reusableAccessToken,
+    accountId: typeof deployment.accountId === "string" ? deployment.accountId : null,
+    composeSecretDirectory: composeDirectory,
+    hostname,
+    mode,
+    ownerEmail: operatorEmails[0] ?? null,
+    secretDirectory,
+    zone: guessedZone(hostname),
+    zoneId: typeof deployment.zoneId === "string" ? deployment.zoneId : null,
+  };
+}
+
 function hasCloudflareDetails(options) {
   return Object.values(options.cloudflare).some((value) => value !== null);
 }
@@ -412,7 +591,44 @@ function composeSecretDirectory(value) {
   return normalized;
 }
 
-function printCloudflarePrerequisites() {
+function printCloudflarePrerequisites(reusesRuntimeApproval = false, oauthAvailable = false) {
+  if (reusesRuntimeApproval) {
+    if (oauthAvailable) {
+      console.log(`
+Stuga already retained its limited day-to-day Cloudflare approval. It will open
+Cloudflare for one temporary setup approval, provision the selected account,
+verify the connection, and revoke the temporary access automatically.
+
+Cloudflare OAuth currently selects an account rather than one exact DNS zone.
+Choose manual token entry if this account contains other sensitive zones.`);
+      return;
+    }
+    console.log(`
+Stuga already knows its public address and retained its limited day-to-day
+Cloudflare approval. To add secure Stugby sharing, Cloudflare needs one
+temporary approval from the account owner.
+
+Create a custom API token at:
+https://dash.cloudflare.com/profile/api-tokens
+
+Give it Access Apps and Policies Write, Cloudflare Tunnel Write, and DNS Write
+for this Stuga's zone. Add Zone Read only if setup must discover the zone.
+Stuga uses the token once, checks the connection, and does not save it.`);
+    return;
+  }
+  if (oauthAvailable) {
+    console.log(`
+Cloudflare will keep the host port on loopback and publish only through Access.
+Stuga can request the temporary setup approval in Cloudflare's browser UI.
+
+Create one runtime API token at:
+https://dash.cloudflare.com/profile/api-tokens
+
+Give it only Access Organizations, Identity Providers, and Groups Write for
+the intended account. Stuga retains it to reconcile invited members. The
+broader browser approval is revoked automatically after verification.`);
+    return;
+  }
   console.log(`
 Cloudflare will keep the host port on loopback and publish only through Access.
 The DNS zone must already be active in that account. Open Zero Trust once and
@@ -428,18 +644,36 @@ https://dash.cloudflare.com/profile/api-tokens
 The temporary token is never saved. Revoke it after verification.`);
 }
 
-async function resolveCloudflareConfiguration(options, mode, readline, root) {
+async function resolveCloudflareConfiguration(options, mode, readline, root, environment) {
   const supported = mode === "docker" || mode === "podman";
+  const explicitCloudflareRequest = options.remoteAccess !== null || hasCloudflareDetails(options);
+  const existing = supported
+    ? existingCloudflareConfiguration(root, options.cloudflare.secretDirectory)
+    : null;
   let remoteAccess = options.remoteAccess;
   if (remoteAccess === null && readline && supported) {
-    remoteAccess = await askChoice(
-      readline,
-      "Do you need secure access from outside this network?",
-      remoteAccessChoices,
-      "none",
-    );
+    if (existing?.mode === "stugby-coordinator") {
+      console.log(`\nSecure Stugby sharing is already set up at https://${existing.hostname}.`);
+      remoteAccess = existing.mode;
+    } else if (existing?.mode === "remote-ui") {
+      console.log(`\nStuga is already available securely at https://${existing.hostname}.`);
+      remoteAccess = await askYesNo(
+        readline,
+        "Will this Stuga create a shared Stugby for other homes?",
+        false,
+      )
+        ? "stugby-coordinator"
+        : "remote-ui";
+    } else {
+      remoteAccess = await askChoice(
+        readline,
+        "How will people use this Stuga?",
+        remoteAccessChoices,
+        "none",
+      );
+    }
   }
-  remoteAccess ??= "none";
+  remoteAccess ??= existing?.mode ?? "none";
 
   if (remoteAccess === "none") {
     if (hasCloudflareDetails(options)) {
@@ -454,27 +688,88 @@ async function resolveCloudflareConfiguration(options, mode, readline, root) {
     throw new Error("Guided Cloudflare setup must start and verify the connector; remove --no-start");
   }
 
-  if (readline) printCloudflarePrerequisites();
-  const hostname = (options.cloudflare.hostname ?? (readline
+  if (mode === "docker"
+    && readline
+    && !explicitCloudflareRequest
+    && remoteAccess === "stugby-coordinator"
+    && existing?.mode !== "stugby-coordinator") {
+    console.log(`
+Stuga will start on this computer first. After the owner signs in, open
+Stugbys and choose "Set up secure sharing". Cloudflare approval, provisioning,
+verification, and recovery guidance then stay in Stuga's UI.`);
+    return {
+      deferredToUi: true,
+      hostname: existing?.hostname ?? null,
+      mode: remoteAccess,
+    };
+  }
+
+  const provisioningOverride = Object.entries(options.cloudflare).some(([key, value]) => (
+    !["oauthClientId", "oauthRedirectUri", "secretDirectory"].includes(key) && value !== null
+  ));
+  const provisionRequired = existing?.mode !== remoteAccess || provisioningOverride;
+  if (!provisionRequired && existing) {
+    return {
+      ...existing,
+      command: remoteAccess === "stugby-coordinator" ? "provision-coordinator" : "provision",
+      provisionRequired: false,
+      provisionTokenFile: null,
+      tokenInput: "none",
+    };
+  }
+
+  const oauth = configuredCloudflareOAuth(root, options.cloudflare, environment);
+  const reusesRuntimeApproval = Boolean(options.cloudflare.accessTokenFile ?? existing?.accessTokenFile);
+  if (readline) printCloudflarePrerequisites(reusesRuntimeApproval, Boolean(oauth));
+  const hostname = (options.cloudflare.hostname ?? existing?.hostname ?? (readline
     ? await askRequired(readline, "Public hostname (no https://)")
     : "")).trim().toLowerCase();
-  const zone = (options.cloudflare.zone ?? (readline
+  const zone = (options.cloudflare.zone ?? existing?.zone ?? (readline
     ? await askRequired(readline, "Cloudflare DNS zone", guessedZone(hostname))
     : "")).trim().toLowerCase();
-  const ownerEmail = (options.cloudflare.ownerEmail ?? (readline
-    ? await askRequired(readline, "Email allowed through Cloudflare Access")
+  const ownerEmail = (options.cloudflare.ownerEmail ?? existing?.ownerEmail ?? (readline
+    ? await askRequired(readline, "Email address used to sign in to Stuga")
     : "")).trim().toLowerCase();
   if (!hostname) throw new Error("--cloudflare-hostname is required");
   if (!zone) throw new Error("--cloudflare-zone is required");
   if (!ownerEmail) throw new Error("--cloudflare-owner-email is required");
 
   let provisionTokenFile = options.cloudflare.provisionTokenFile;
-  let accessTokenFile = options.cloudflare.accessTokenFile;
-  if (Boolean(provisionTokenFile) !== Boolean(accessTokenFile)) {
+  let accessTokenFile = options.cloudflare.accessTokenFile ?? existing?.accessTokenFile ?? null;
+  if (!accessTokenFile && Boolean(provisionTokenFile) !== Boolean(options.cloudflare.accessTokenFile)) {
     throw new Error("Both Cloudflare token-file options are required when either is used");
   }
-  let tokenInput = provisionTokenFile ? "files" : "prompt";
-  if (!provisionTokenFile && readline) {
+  let tokenInput = provisionTokenFile
+    ? "files"
+    : oauth
+      ? reusesRuntimeApproval ? "oauth" : "oauth-prompt"
+      : reusesRuntimeApproval ? "provision-prompt" : "prompt";
+  if (!provisionTokenFile && readline && oauth) {
+    tokenInput = await askChoice(
+      readline,
+      reusesRuntimeApproval
+        ? "How should the temporary Cloudflare approval be supplied?"
+        : "How should Cloudflare setup be approved?",
+      reusesRuntimeApproval
+        ? [
+            { value: "oauth", label: "Approve in Cloudflare's browser UI (recommended)" },
+            { value: "provision-prompt", label: "Paste an exact-zone token into a hidden prompt" },
+            { value: "files", label: "Read an exact-zone token from a protected file" },
+          ]
+        : [
+            { value: "oauth-prompt", label: "Approve setup in Cloudflare, then paste the limited runtime token (recommended)" },
+            { value: "prompt", label: "Paste both tokens into hidden prompts" },
+            { value: "files", label: "Read both tokens from protected files" },
+          ],
+      reusesRuntimeApproval ? "oauth" : "oauth-prompt",
+    );
+    if (tokenInput === "files") {
+      provisionTokenFile = await askRequired(readline, "Temporary setup token file");
+      if (!accessTokenFile) {
+        accessTokenFile = await askRequired(readline, "Runtime Access token file");
+      }
+    }
+  } else if (!provisionTokenFile && readline && !reusesRuntimeApproval) {
     tokenInput = await askChoice(readline, "How should the two API tokens be supplied?", [
       { value: "prompt", label: "Paste into hidden prompts (recommended)" },
       { value: "files", label: "Read existing protected token files" },
@@ -483,13 +778,27 @@ async function resolveCloudflareConfiguration(options, mode, readline, root) {
       provisionTokenFile = await askRequired(readline, "Temporary setup token file");
       accessTokenFile = await askRequired(readline, "Runtime Access token file");
     }
-  } else if (!provisionTokenFile && !options.dryRun) {
-    throw new Error(
-      "Non-interactive Cloudflare setup requires both --cloudflare-provision-token-file and --cloudflare-access-token-file",
-    );
+  } else if (!provisionTokenFile && !readline && !options.dryRun) {
+    if (oauth && reusesRuntimeApproval) {
+      tokenInput = "oauth";
+    } else if (reusesRuntimeApproval) {
+      throw new Error(
+        "Non-interactive coordinator upgrade requires --cloudflare-provision-token-file",
+      );
+    } else if (oauth) {
+      throw new Error(
+        "Non-interactive Cloudflare OAuth setup requires --cloudflare-access-token-file",
+      );
+    } else {
+      throw new Error(
+        "Non-interactive Cloudflare setup requires both --cloudflare-provision-token-file and --cloudflare-access-token-file",
+      );
+    }
   }
 
-  const secretDirectoryInput = options.cloudflare.secretDirectory ?? "./secrets/cloudflare";
+  const secretDirectoryInput = existing?.composeSecretDirectory
+    ?? options.cloudflare.secretDirectory
+    ?? "./secrets/cloudflare";
   const absoluteSecretDirectory = resolve(root, secretDirectoryInput);
   if (absoluteSecretDirectory === resolve(root)
     || absoluteSecretDirectory === parsePath(absoluteSecretDirectory).root) {
@@ -497,17 +806,22 @@ async function resolveCloudflareConfiguration(options, mode, readline, root) {
   }
   const cloudflare = {
     accessTokenFile: accessTokenFile ? resolve(root, accessTokenFile) : null,
-    accountId: options.cloudflare.accountId?.trim() ?? null,
+    accountId: options.cloudflare.accountId?.trim() ?? existing?.accountId ?? null,
     command: remoteAccess === "stugby-coordinator" ? "provision-coordinator" : "provision",
     composeSecretDirectory: composeSecretDirectory(secretDirectoryInput),
     hostname,
     mode: remoteAccess,
     ownerEmail,
+    provisionRequired: true,
     provisionTokenFile: provisionTokenFile ? resolve(root, provisionTokenFile) : null,
     secretDirectory: absoluteSecretDirectory,
     tokenInput,
     zone,
-    zoneId: options.cloudflare.zoneId?.trim() ?? null,
+    zoneId: options.cloudflare.zoneId?.trim() ?? existing?.zoneId ?? null,
+    ...(tokenInput.startsWith("oauth") ? {
+      oauthClientId: oauth.clientId,
+      oauthRedirectUri: oauth.redirectUri,
+    } : {}),
   };
   validateCloudflareOptions(cloudflare);
   if (cloudflare.provisionTokenFile === cloudflare.accessTokenFile
@@ -523,10 +837,15 @@ export async function resolveConfiguration(options, interaction = {}) {
   const readline = interactive
     ? interaction.readline ?? createInterface({ input: process.stdin, output: process.stdout })
     : null;
+  const root = interaction.root ?? projectRoot;
+  const existingDefaults = existingSetupDefaults(root);
   try {
-    const mode = options.mode ?? (readline
+    const mode = options.mode ?? existingDefaults.mode ?? (readline
       ? await askChoice(readline, "How do you want to install Stuga?", modeChoices, "docker")
       : "local");
+    if (!options.mode && existingDefaults.mode && readline) {
+      console.log(`\nKeeping the existing ${existingDefaults.mode === "docker" ? "Docker" : "Podman"} installation.`);
+    }
 
     if (options.skipInstall && mode !== "local") {
       throw new Error("--skip-install is only valid with --mode local");
@@ -561,20 +880,29 @@ export async function resolveConfiguration(options, interaction = {}) {
       return { cloudflare: null, mode, piAction };
     }
 
-    const data = options.data ?? (readline
+    const data = options.data ?? existingDefaults.data ?? (readline
       ? (await askYesNo(readline, "Start with disposable demo data?", false) ? "demo" : "real")
       : "real");
+    if (!options.data && existingDefaults.data && readline) {
+      console.log(`Keeping the existing ${existingDefaults.data === "demo" ? "demo" : "real-home"} data mode.`);
+    }
     const port = mode === "docker" || mode === "podman"
-      ? options.port ?? (readline ? await askPort(readline, 8080) : 8080)
+      ? options.port ?? existingDefaults.port ?? (readline ? await askPort(readline, 8080) : 8080)
       : null;
-    const cloudflare = await resolveCloudflareConfiguration(
+    if (options.port === null && existingDefaults.port !== null && readline) {
+      console.log(`Keeping the existing web port ${existingDefaults.port}.`);
+    }
+    const cloudflareResolution = await resolveCloudflareConfiguration(
       options,
       mode,
       readline,
-      interaction.root ?? projectRoot,
+      root,
+      interaction.environment ?? process.env,
     );
+    const cloudflareUiPending = cloudflareResolution?.deferredToUi === true;
+    const cloudflare = cloudflareUiPending ? null : cloudflareResolution;
     const start = mode === "docker" || mode === "podman"
-      ? cloudflare
+      ? cloudflare || cloudflareUiPending
         ? true
         : options.start ?? (readline ? await askYesNo(readline, "Start the containers now?", true) : options.yes)
       : false;
@@ -582,14 +910,21 @@ export async function resolveConfiguration(options, interaction = {}) {
     if (mode === "docker") {
       if (options.installUpdateAgent !== null) {
         installUpdateAgent = options.installUpdateAgent;
+      } else if (existingDefaults.updateAgentConnected) {
+        if (readline) console.log("Automatic updates are already connected.");
       } else if (readline) {
-        console.log(`
+        console.log(cloudflareUiPending ? `
+Secure sharing from Stuga's UI needs the trusted host update agent. It can
+administer Docker and replace this Stuga installation. Install it only under a
+Docker-authorized user account on this trusted host.` : `
 The update agent can administer Docker and replace this Stuga installation.
 Install it only on a trusted host under a Docker-authorized user account.`);
         installUpdateAgent = await askYesNo(
           readline,
-          "Install and start the automatic update agent as a per-user service?",
-          false,
+          cloudflareUiPending
+            ? "Install the host agent required for UI setup?"
+            : "Install and start the automatic update agent as a per-user service?",
+          cloudflareUiPending,
         );
       }
     }
@@ -606,6 +941,7 @@ Install it only on a trusted host under a Docker-authorized user account.`);
       : null;
     return {
       cloudflare,
+      cloudflareUiPending,
       data,
       installDependencies,
       installUpdateAgent,
@@ -695,68 +1031,129 @@ export async function activateCloudflare(configuration, dependencies = {}) {
   const logger = dependencies.logger ?? console;
   const composeCommand = `${configuration.mode} compose`;
   let tokens = {};
-
-  if (cloudflare.tokenInput === "prompt") {
-    const tokenReader = dependencies.tokenReader ?? readHiddenValue;
-    logger.log("[setup] Paste each token below. Input is hidden and is not written to .env or shell history.");
-    const provisionToken = validateCloudflareToken(
-      await tokenReader("Temporary setup token: "),
-      "Temporary setup token",
-    );
-    const accessToken = validateCloudflareToken(
-      await tokenReader("Runtime Access token: "),
-      "Runtime Access token",
-    );
-    if (provisionToken === accessToken) {
-      throw new Error("Temporary setup and runtime Access tokens must be different");
-    }
-    tokens = { accessToken, provisionToken };
-  }
-
-  await provisioner(cloudflare, {
-    ...tokens,
-    composeCommand,
-    logger,
-    printGuidance: false,
-  });
-
-  logger.log(`[setup] Recreating Stuga and starting the ${configuration.mode} Tunnel connector`);
-  const started = runner(configuration.mode, [
-    "compose",
-    "up",
-    "-d",
-    "--build",
-    "--force-recreate",
-    "api",
-    "web",
-    "cloudflared",
-  ]);
-  if (started.error || started.status !== 0) {
-    const stopped = stopCloudflare(configuration.mode, runner);
-    throw new Error(
-      `Containers could not start; ${stopped
-        ? "the public connector was stopped"
-        : `automatic rollback failed, so run '${composeCommand} stop cloudflared' now`}`,
-    );
-  }
+  let oauthGrant = null;
 
   try {
-    return await verifyCloudflareWithRetry(cloudflare, {
-      attempts: dependencies.verifyAttempts,
-      composeCommand,
-      delayMs: dependencies.verifyDelayMs,
-      logger,
-      verifier: dependencies.verifier,
-      waitForRetry: dependencies.waitForRetry,
-    });
-  } catch (error) {
-    const stopped = stopCloudflare(configuration.mode, runner);
-    const reason = error instanceof Error ? error.message : "unknown verification failure";
-    throw new Error(
-      `Cloudflare security verification failed: ${reason}. ${stopped
-        ? "The public connector was stopped; local Stuga is still available."
-        : `Automatic rollback failed; run '${composeCommand} stop cloudflared' immediately.`}`,
-    );
+    if (cloudflare.tokenInput === "oauth" || cloudflare.tokenInput === "oauth-prompt") {
+      const oauthAuthorizer = dependencies.oauthAuthorizer ?? authorizeCloudflareSetup;
+      logger.log("[setup] Opening Cloudflare for one-time setup approval.");
+      oauthGrant = await oauthAuthorizer({
+        clientId: cloudflare.oauthClientId,
+        redirectUri: cloudflare.oauthRedirectUri,
+        scopes: cloudflareSetupOAuthScopes(!cloudflare.zoneId),
+      }, {
+        ...(dependencies.oauthDependencies ?? {}),
+        logger,
+      });
+      if (!oauthGrant || typeof oauthGrant.revoke !== "function") {
+        throw new Error("Cloudflare OAuth access could not be revoked safely");
+      }
+      const provisionToken = validateCloudflareToken(
+        oauthGrant.accessToken,
+        "Temporary Cloudflare OAuth approval",
+      );
+      if (cloudflare.tokenInput === "oauth-prompt") {
+        const tokenReader = dependencies.tokenReader ?? readHiddenValue;
+        logger.log("[setup] Paste the limited runtime Access token below. Input is hidden and is not written to .env or shell history.");
+        const accessToken = validateCloudflareToken(
+          await tokenReader("Runtime Access token: "),
+          "Runtime Access token",
+        );
+        if (provisionToken === accessToken) {
+          throw new Error("Temporary setup and runtime Access tokens must be different");
+        }
+        tokens = { accessToken, provisionToken };
+      } else {
+        tokens = { provisionToken };
+      }
+    } else if (cloudflare.tokenInput === "prompt") {
+      const tokenReader = dependencies.tokenReader ?? readHiddenValue;
+      logger.log("[setup] Paste each approval below. Input is hidden and is not written to .env or shell history.");
+      const provisionToken = validateCloudflareToken(
+        await tokenReader("Temporary setup token: "),
+        "Temporary setup token",
+      );
+      const accessToken = validateCloudflareToken(
+        await tokenReader("Runtime Access token: "),
+        "Runtime Access token",
+      );
+      if (provisionToken === accessToken) {
+        throw new Error("Temporary setup and runtime Access tokens must be different");
+      }
+      tokens = { accessToken, provisionToken };
+    } else if (cloudflare.tokenInput === "provision-prompt") {
+      const tokenReader = dependencies.tokenReader ?? readHiddenValue;
+      logger.log("[setup] Paste the one-time Cloudflare approval below. Input is hidden and is never saved.");
+      tokens = {
+        provisionToken: validateCloudflareToken(
+          await tokenReader("Temporary setup token: "),
+          "Temporary setup token",
+        ),
+      };
+    }
+
+    if (cloudflare.provisionRequired !== false) {
+      await provisioner(cloudflare, {
+        ...tokens,
+        composeCommand,
+        logger,
+        printGuidance: false,
+      });
+      tokens = {};
+    } else {
+      logger.log(`[setup] Reusing the existing secure connection at https://${cloudflare.hostname}`);
+    }
+
+    logger.log(`[setup] Recreating Stuga and starting the ${configuration.mode} Tunnel connector`);
+    const started = runner(configuration.mode, [
+      "compose",
+      "up",
+      "-d",
+      "--build",
+      "--force-recreate",
+      "api",
+      "web",
+      "cloudflared",
+    ]);
+    if (started.error || started.status !== 0) {
+      const stopped = stopCloudflare(configuration.mode, runner);
+      throw new Error(
+        `Containers could not start; ${stopped
+          ? "the public connector was stopped"
+          : `automatic rollback failed, so run '${composeCommand} stop cloudflared' now`}`,
+      );
+    }
+
+    try {
+      return await verifyCloudflareWithRetry(cloudflare, {
+        attempts: dependencies.verifyAttempts,
+        composeCommand,
+        delayMs: dependencies.verifyDelayMs,
+        logger,
+        verifier: dependencies.verifier,
+        waitForRetry: dependencies.waitForRetry,
+      });
+    } catch (error) {
+      const stopped = stopCloudflare(configuration.mode, runner);
+      const reason = error instanceof Error ? error.message : "unknown verification failure";
+      throw new Error(
+        `Cloudflare security verification failed: ${reason}. ${stopped
+          ? "The public connector was stopped; local Stuga is still available."
+          : `Automatic rollback failed; run '${composeCommand} stop cloudflared' immediately.`}`,
+      );
+    }
+  } finally {
+    tokens = {};
+    if (oauthGrant && typeof oauthGrant.revoke === "function") {
+      try {
+        await oauthGrant.revoke();
+        logger.log("[setup] One-time Cloudflare OAuth access token revoked.");
+      } catch {
+        logger.log(
+          "[setup] Warning: Cloudflare did not confirm access-token revocation. Revoke Stuga Setup under https://dash.cloudflare.com/profile/oauth-authorizations",
+        );
+      }
+    }
   }
 }
 
@@ -820,12 +1217,29 @@ Open: http://localhost:5173`);
   }
 
   const runtime = configuration.mode;
+  if (configuration.cloudflareUiPending) {
+    console.log(`
+Stuga is ready for secure-sharing setup in its UI.
+Open locally: http://127.0.0.1:${configuration.port}
+Then: create or sign in as the owner → Stugbys → Set up secure sharing.
+
+${configuration.installUpdateAgent
+    ? "The required host agent was installed."
+    : "Before using UI setup, install the required host agent:\n  npm run update-agent:service:install"}
+Keep Stuga on loopback until Cloudflare setup reports a verified connection.`);
+    return;
+  }
+
   if (configuration.cloudflare) {
     if (!started) {
+      const approvalGuidance = configuration.cloudflare.tokenInput.startsWith("oauth")
+        ? "Rerun setup to approve the temporary Cloudflare access in your browser."
+        : configuration.cloudflare.tokenInput === "provision-prompt"
+          ? "Rerun interactively to paste the one temporary approval, or supply\n--cloudflare-provision-token-file for non-interactive setup."
+          : "Rerun interactively to paste hidden tokens, or supply both protected token-file\noptions for non-interactive setup.";
       console.log(`
 Cloudflare plan is ready for https://${configuration.cloudflare.hostname}.
-Rerun interactively to paste hidden tokens, or supply both protected token-file
-options for non-interactive setup. Local recovery remains on:
+${approvalGuidance} Local recovery remains on:
 http://localhost:${configuration.port}`);
       return;
     }
@@ -835,8 +1249,13 @@ Open:           https://${configuration.cloudflare.hostname}
 Local recovery: http://localhost:${configuration.port}
 Stop public:    ${runtime} compose stop cloudflared
 
-Revoke the temporary setup token now. Keep the generated Cloudflare secret
-directory protected and keep the runtime Access token active.`);
+${configuration.cloudflare.provisionRequired === false
+    ? "No new Cloudflare approval was retained."
+    : configuration.cloudflare.tokenInput.startsWith("oauth")
+      ? "The one-time Cloudflare OAuth access token was revoked automatically."
+      : "Revoke the temporary setup token now."}
+Keep the generated Cloudflare secret directory protected and keep the runtime
+Access token active.`);
     if (configuration.cloudflare.mode === "stugby-coordinator") {
       console.log("Create new Stugby invitations only from the verified HTTPS address.");
     }
@@ -855,12 +1274,24 @@ Stop:    ${runtime} compose down`);
 }
 
 function printCloudflareDryRun(configuration) {
+  if (configuration.cloudflareUiPending) {
+    console.log("[setup] Would start Stuga on loopback and defer secure-sharing setup to the authenticated local UI");
+    return;
+  }
   if (!configuration.cloudflare) return;
   const cloudflare = configuration.cloudflare;
-  console.log(`[setup] Would provision ${cloudflare.mode} at https://${cloudflare.hostname}`);
-  console.log(`[setup] Would ${cloudflare.tokenInput === "files"
-    ? "read two different protected token files"
-    : "require two different tokens through hidden prompts or protected files"}`);
+  console.log(`[setup] Would ${cloudflare.provisionRequired === false ? "reuse" : "provision"} ${cloudflare.mode} at https://${cloudflare.hostname}`);
+  if (cloudflare.provisionRequired !== false) {
+    console.log(`[setup] Would ${cloudflare.tokenInput === "files"
+      ? "read the required protected token file or files"
+      : cloudflare.tokenInput === "oauth"
+        ? "request and revoke one temporary approval in Cloudflare's browser UI"
+        : cloudflare.tokenInput === "oauth-prompt"
+          ? "request temporary browser approval and prompt for the limited runtime token"
+          : cloudflare.tokenInput === "provision-prompt"
+            ? "reuse the retained runtime approval and request one temporary approval"
+            : "request two different approvals through hidden prompts or protected files"}`);
+  }
   console.log(`[setup] Would recreate api, web, and cloudflared, verify every public/protected path, and stop the connector if verification failed`);
 }
 

@@ -20,6 +20,7 @@ import {
   type StugbyRemoteTelemetrySample,
 } from "../api";
 import { useI18n, type TranslationKey } from "../i18n";
+import { CloudflareSetupPanel } from "./CloudflareSetupPanel";
 import "./StugbyPage.css";
 
 interface StugbyPageProps {
@@ -92,6 +93,25 @@ function formattedTime(value: string | null, never: string, locale: string): str
   return Number.isFinite(date.getTime()) ? date.toLocaleString(locale) : value;
 }
 
+function suggestedCoordinatorOrigin(): string {
+  try {
+    const url = new URL(window.location.origin);
+    const loopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname);
+    return url.protocol === "https:" || (url.protocol === "http:" && loopback) ? url.origin : "";
+  } catch {
+    return "";
+  }
+}
+
+function loopbackOrigin(value: string | null | undefined): boolean {
+  if (!value) return false;
+  try {
+    return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(new URL(value).hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function localDateTimeInput(value: string | null): string {
   if (!value) return "";
   const date = new Date(value);
@@ -120,11 +140,13 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [telemetryError, setTelemetryError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [cloudflareSetupRequested, setCloudflareSetupRequested] = useState(false);
   const [createdInvitation, setCreatedInvitation] = useState<StugbyInvitationCreated | null>(null);
   const [telemetrySamples, setTelemetrySamples] = useState<StugbyRemoteTelemetrySample[]>([]);
 
   const [createName, setCreateName] = useState(() => t("stugby.defaultName"));
   const [createDescription, setCreateDescription] = useState("");
+  const [createCoordinatorUrl, setCreateCoordinatorUrl] = useState(suggestedCoordinatorOrigin);
   const [joinCoordinatorUrl, setJoinCoordinatorUrl] = useState(() => window.location.origin);
   const [joinUrl, setJoinUrl] = useState("");
   const [joinInvitationId, setJoinInvitationId] = useState("");
@@ -221,6 +243,9 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
     try {
       const loaded = await api.stugbys();
       setIndex(loaded);
+      if (!loaded.publicOrigin && loaded.suggestedPublicOrigin) {
+        setCreateCoordinatorUrl(loaded.suggestedPublicOrigin);
+      }
       const id = preferredId || selectedIdRef.current || loaded.stugbys[0]?.id || "";
       if (id !== selectedIdRef.current) beginSelection(id);
       if (id) await loadDetail(id);
@@ -306,6 +331,10 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
   const createStugby = (event: FormEvent) => {
     event.preventDefault();
     void withBusy("create", async () => {
+      if (!index?.publicOrigin) {
+        const configured = await api.configureStugbyCoordinator(createCoordinatorUrl);
+        setIndex((current) => current ? { ...current, publicOrigin: configured.publicOrigin } : current);
+      }
       const created = await api.createStugby({ name: createName, description: createDescription || null });
       setCreateName(t("stugby.defaultName"));
       setCreateDescription("");
@@ -487,20 +516,50 @@ export function StugbyPage({ houses }: Readonly<StugbyPageProps>) {
     ? publicationCatalog.data
     : null;
   const catalogMatches = matchingCatalog !== null;
-  const connectionSetup = <div className="stugby-onboarding-grid">
-    <form className="stugby-card stugby-setup-card" onSubmit={createStugby}>
-      <div className="stugby-card-title"><Network size={19} aria-hidden="true" /><div><h2>{t("stugby.createTitle")}</h2><p>{t("stugby.createBody")}</p></div></div>
+  const coordinatorSetupRequired = !index?.publicOrigin && index?.publicOriginConfigurable === false;
+  const localCoordinator = loopbackOrigin(index?.publicOrigin);
+  const showCloudflareSetup = coordinatorSetupRequired || (localCoordinator && cloudflareSetupRequested);
+  const setupAddress = index?.suggestedPublicOrigin || createCoordinatorUrl;
+  const createPanel = showCloudflareSetup
+    ? <section className="stugby-card stugby-setup-card" aria-labelledby="stugby-create-title">
+      <div className="stugby-card-title"><Network size={19} aria-hidden="true" /><div><h2 id="stugby-create-title">{t("stugby.createTitle")}</h2><p>{t("stugby.createBody")}</p></div></div>
+      <CloudflareSetupPanel
+        suggestedOrigin={setupAddress}
+        onComplete={async () => {
+          await load();
+          setNotice(t("cloudflareSetup.completeNotice"));
+          setCloudflareSetupRequested(false);
+        }}
+      />
+      {!coordinatorSetupRequired && <button type="button" className="secondary-button" onClick={() => setCloudflareSetupRequested(false)}>
+        {t("cloudflareSetup.useLocal")}
+      </button>}
+    </section>
+    : <form className="stugby-card stugby-setup-card" onSubmit={createStugby}>
+      <div className="stugby-card-title"><Network size={19} aria-hidden="true" /><div><h2 id="stugby-create-title">{t("stugby.createTitle")}</h2><p>{t("stugby.createBody")}</p></div></div>
+      {localCoordinator && <div className="stugby-setup-required" role="note">
+        <ShieldCheck size={20} aria-hidden="true" />
+        <div>
+          <strong>{t("cloudflareSetup.offerTitle")}</strong>
+          <p>{t("cloudflareSetup.offerBody")}</p>
+          <button type="button" className="secondary-button" onClick={() => setCloudflareSetupRequested(true)}>
+            {t("cloudflareSetup.choose")}
+          </button>
+        </div>
+      </div>}
       <label className="field"><span>{t("stugby.name")}</span><input required maxLength={200} value={createName} onChange={(event) => setCreateName(event.target.value)} /></label>
-      {!index?.publicOrigin && <p className="stugby-capability-note">{t("stugby.httpsHelp")}</p>}
+      {!index?.publicOrigin && <label className="field"><span>{t("stugby.coordinatorUrl")}</span><input required type="url" spellCheck={false} value={createCoordinatorUrl} placeholder={t("stugby.coordinatorPlaceholder")} onChange={(event) => setCreateCoordinatorUrl(event.target.value)} /><small>{createCoordinatorUrl.trim() ? t("stugby.addressReady", { origin: createCoordinatorUrl }) : t("stugby.httpsHelp")}</small></label>}
       <details className="stugby-subdetails">
         <summary>{t("nav.advanced")}</summary>
         <div className="stugby-subdetails-body">
           <label className="field"><span>{t("stugby.descriptionField")}</span><textarea value={createDescription} onChange={(event) => setCreateDescription(event.target.value)} /></label>
-          <label className="field"><span>{t("stugby.coordinatorUrl")}</span><input readOnly type="url" value={index?.publicOrigin ?? ""} placeholder={t("stugby.httpsHelp")} /></label>
+          {index?.publicOrigin && <label className="field"><span>{t("stugby.coordinatorUrl")}</span><input readOnly type="url" value={index.publicOrigin} /></label>}
         </div>
       </details>
-      <button className="primary-button" disabled={busy !== null || !index?.publicOrigin}>{busy === "create" ? <LoaderCircle className="spin" size={16} /> : <Network size={16} />}{t("stugby.create")}</button>
-    </form>
+      <button className="primary-button" disabled={busy !== null || !index || (!index.publicOrigin && !createCoordinatorUrl.trim())}>{busy === "create" ? <LoaderCircle className="spin" size={16} /> : <Network size={16} />}{t("stugby.create")}</button>
+    </form>;
+  const connectionSetup = <div className="stugby-onboarding-grid">
+    {createPanel}
 
     <form className="stugby-card stugby-setup-card" onSubmit={joinStugby}>
       <div className="stugby-card-title"><Link size={19} aria-hidden="true" /><div><h2>{t("stugby.joinTitle")}</h2><p>{t("stugby.joinBody")}</p></div></div>

@@ -11,9 +11,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  applyCloudflareSetupRequest,
   applyRequest,
   composeArguments,
   readAgentConfig,
+  validatedCloudflareSetupRequest,
   validatedRequest,
 } from "../stuga-update-agent.mjs";
 
@@ -33,6 +35,24 @@ function updateRequest() {
       tapo: "ghcr.io/liljestk/open-stuga-tapo-export-runner:v0.6.0",
       updateAgent: "ghcr.io/liljestk/open-stuga-update-agent:v0.6.0",
     },
+  };
+}
+
+function cloudflareSetupRequest() {
+  return {
+    schema: "stuga-cloudflare-setup-request/v1",
+    id: "91576b34-fda0-4b8e-b96f-4265d2ee7f78",
+    mode: "stugby-coordinator",
+    command: "provision-coordinator",
+    hostname: "stuga.example.com",
+    zone: "example.com",
+    ownerEmail: "owner@example.com",
+    accountId: "0123456789abcdef0123456789abcdef",
+    zoneId: "abcdef0123456789abcdef0123456789",
+    oauthClientId: "stuga-private-client",
+    oauthRedirectUri: "http://127.0.0.1:8080/api/v1/cloudflare/setup/oauth/callback",
+    claimSecret: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+    requestedAt: "2026-07-24T08:00:00.000Z",
   };
 }
 
@@ -92,6 +112,105 @@ test("agent accepts only API-issued image names for the exact release tag", () =
     }, config),
     /trusted image namespace/,
   );
+});
+
+test("agent validates the bounded Cloudflare setup handoff", () => {
+  const request = cloudflareSetupRequest();
+  assert.equal(validatedCloudflareSetupRequest(request).hostname, "stuga.example.com");
+  assert.throws(
+    () => validatedCloudflareSetupRequest({
+      ...request,
+      oauthRedirectUri: "http://127.0.0.1:80/api/v1/cloudflare/setup/oauth/callback",
+    }),
+    /explicit loopback/,
+  );
+  assert.throws(
+    () => validatedCloudflareSetupRequest({ ...request, hostname: "other.invalid.com" }),
+    /invalid configuration/,
+  );
+});
+
+test("agent provisions, restarts, verifies, and revokes a UI-approved Cloudflare connection", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "stuga-cloudflare-agent-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const operationsDirectory = join(directory, "operations");
+  mkdirSync(operationsDirectory);
+  const config = readAgentConfig({
+    STUGA_PROJECT_DIRECTORY: directory,
+    STUGA_CLOUDFLARE_SECRET_DIR: join(directory, "cloudflare"),
+    SYSTEM_UPDATE_OPERATIONS_DIRECTORY: operationsDirectory,
+  }, directory, []);
+  const requestPath = join(operationsDirectory, "cloudflare-request-test.json");
+  writeFileSync(requestPath, JSON.stringify(cloudflareSetupRequest()), "utf8");
+  const composeCalls = [];
+  const provisionCalls = [];
+  const revokeCalls = [];
+  let verified = 0;
+
+  await applyCloudflareSetupRequest(config, requestPath, {
+    claim: async () => ({
+      provisionToken: "temporary-oauth-provision-token-that-is-long-enough",
+      accessToken: "runtime-access-group-token-that-is-long-enough",
+      oauthClientId: "stuga-private-client",
+    }),
+    provisioner: async (...args) => { provisionCalls.push(args); },
+    compose: async (_config, args) => { composeCalls.push(args); return ""; },
+    verifyCoordinator: async () => { verified += 1; },
+    revoke: async (value) => { revokeCalls.push(value); },
+    waitForRetry: async () => undefined,
+  });
+
+  assert.equal(provisionCalls.length, 1);
+  assert.equal(provisionCalls[0][0].command, "provision-coordinator");
+  assert.equal(provisionCalls[0][1].provisionToken, "temporary-oauth-provision-token-that-is-long-enough");
+  assert.equal(verified, 1);
+  assert.deepEqual(revokeCalls, [{
+    accessToken: "temporary-oauth-provision-token-that-is-long-enough",
+    clientId: "stuga-private-client",
+  }]);
+  assert.equal(composeCalls.length, 1);
+  assert.deepEqual(composeCalls[0].slice(-3), ["api", "web", "cloudflared"]);
+  const statusText = readFileSync(join(operationsDirectory, "cloudflare-status.json"), "utf8");
+  const status = JSON.parse(statusText);
+  assert.equal(status.phase, "complete");
+  assert.equal(statusText.includes("temporary-oauth-provision-token"), false);
+  assert.equal(statusText.includes("runtime-access-group-token"), false);
+  assert.equal(existsSync(requestPath), false);
+});
+
+test("agent closes public ingress and still revokes approval after failed verification", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "stuga-cloudflare-agent-failure-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const operationsDirectory = join(directory, "operations");
+  mkdirSync(operationsDirectory);
+  const config = readAgentConfig({
+    STUGA_PROJECT_DIRECTORY: directory,
+    SYSTEM_UPDATE_OPERATIONS_DIRECTORY: operationsDirectory,
+  }, directory, []);
+  const requestPath = join(operationsDirectory, "cloudflare-request-test.json");
+  writeFileSync(requestPath, JSON.stringify(cloudflareSetupRequest()), "utf8");
+  const composeCalls = [];
+  let revoked = 0;
+
+  await applyCloudflareSetupRequest(config, requestPath, {
+    claim: async () => ({
+      provisionToken: "temporary-oauth-provision-token-that-is-long-enough",
+      accessToken: "runtime-access-group-token-that-is-long-enough",
+      oauthClientId: "stuga-private-client",
+    }),
+    provisioner: async () => undefined,
+    compose: async (_config, args) => { composeCalls.push(args); return ""; },
+    verifyCoordinator: async () => { throw new Error("protected route remained open"); },
+    revoke: async () => { revoked += 1; },
+    waitForRetry: async () => undefined,
+  });
+
+  const status = JSON.parse(readFileSync(join(operationsDirectory, "cloudflare-status.json"), "utf8"));
+  assert.equal(status.phase, "failed");
+  assert.match(status.detail, /protected route remained open/);
+  assert.equal(composeCalls.some((args) => args[0] === "stop" && args[1] === "cloudflared"), true);
+  assert.equal(revoked, 1);
+  assert.equal(existsSync(requestPath), false);
 });
 
 test("pre-update failures do not attempt rollback before any release state changes", async (t) => {

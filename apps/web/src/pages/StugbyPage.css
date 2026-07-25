@@ -368,6 +368,139 @@
   background: var(--panel-soft);
 }
 
+.stugby-setup-required {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+}
+
+.stugby-setup-required > svg {
+  color: var(--action);
+}
+
+.stugby-setup-required p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.stugby-setup-required .secondary-button {
+  margin-top: 10px;
+}
+
+.cloudflare-setup-form,
+.cloudflare-setup-loading {
+  display: grid;
+  gap: 14px;
+}
+
+.cloudflare-setup-loading {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  color: var(--muted);
+}
+
+.cloudflare-setup-loading .inline-error,
+.cloudflare-setup-loading .secondary-button {
+  grid-column: 1 / -1;
+}
+
+.cloudflare-setup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.cloudflare-setup-operation {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+}
+
+.cloudflare-setup-operation p,
+.cloudflare-setup-privacy,
+.cloudflare-setup-approval {
+  margin: 4px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.cloudflare-setup-operation .secondary-button {
+  margin-top: 10px;
+}
+
+.cloudflare-setup-operation.is-failed {
+  border-color: var(--red);
+}
+
+.cloudflare-setup-operation.is-complete {
+  border-color: var(--positive);
+}
+
+.cloudflare-setup-approval a,
+.stugby-setup-required a,
+.cloudflare-setup-form small a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.cloudflare-setup-privacy {
+  font-size: .8125rem;
+}
+
+.cloudflare-token-help-toggle {
+  min-height: 32px;
+  justify-self: start;
+  padding-inline: 6px;
+  color: var(--action);
+}
+
+.cloudflare-token-help {
+  padding: 10px 12px;
+  border-left: 3px solid var(--action);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--muted);
+  background: var(--panel-soft);
+  font-size: .8125rem;
+  line-height: 1.5;
+}
+
+.cloudflare-token-help[hidden] {
+  display: none;
+}
+
+.cloudflare-token-help ol {
+  margin: 0;
+  padding-inline-start: 20px;
+}
+
+.cloudflare-token-help li + li {
+  margin-top: 4px;
+}
+
+.cloudflare-token-help a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+@media (max-width: 620px) {
+  .cloudflare-setup-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .stugby-json-grid textarea {
   min-height: 192px;
   font: .8125rem / 1.5 SFMono-Regular, Consolas, "Liberation Mono", monospace;

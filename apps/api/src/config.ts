@@ -27,6 +27,10 @@ export interface AppConfig {
   stugbySyncIntervalMs?: number;
   /** Server-owned coordinator origin. Participants never need to configure one. */
   stugbyPublicOrigin?: string | null;
+  /** Safe setup suggestion inferred from browser/edge configuration; never authoritative by itself. */
+  stugbySuggestedPublicOrigin?: string | null;
+  /** Cloudflare must expose the signed machine path before the UI may persist its suggested origin. */
+  stugbyCoordinatorProvisioningRequired?: boolean;
   /** Shared, non-secret coordination directory used by the isolated backup worker. */
   backupOperationsDirectory?: string;
   /** Read-only manifest discovery path for local/non-Compose operation. */
@@ -132,6 +136,12 @@ export interface AppConfig {
   /** Write-only, least-privilege Access group credential. Never log AppConfig. */
   cloudflareAccessApiToken?: string | null;
   cloudflareAccessSyncIntervalMs?: number;
+  /** Read-only deployment metadata used by the local UI setup coordinator. */
+  cloudflareSetupDeploymentFile?: string | null;
+  /** Optional pre-registered public/private OAuth client ID. It is not a secret. */
+  cloudflareSetupOAuthClientId?: string | null;
+  /** Browser-facing loopback port used only for local setup guidance. */
+  cloudflareSetupLocalUiPort?: number;
   /** Explicit opt-in for a deliberately private-network custom electricity feed. */
   electricityAllowPrivateEndpoints?: boolean;
 }
@@ -323,6 +333,19 @@ function stugbyPublicOrigin(value: string | undefined): string | null {
   return url.origin;
 }
 
+function inferredStugbyPublicOrigin(...values: Array<string | undefined>): string | null {
+  for (const value of values) {
+    try {
+      const origin = stugbyPublicOrigin(value);
+      if (origin) return origin;
+    } catch {
+      // CORS and edge origins may support configurations that are not valid
+      // federation origins. Only explicit STUGBY_PUBLIC_ORIGIN errors are fatal.
+    }
+  }
+  return null;
+}
+
 function githubRepository(value: string | undefined): string {
   const normalized = optional(value) ?? "liljestk/open-stuga";
   if (!/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/u.test(normalized)) {
@@ -437,6 +460,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (cloudflareAccessGroupName && cloudflareAccessGroupName.length > 255) {
     throw new Error("CLOUDFLARE_ACCESS_GROUP_NAME must contain at most 255 characters");
   }
+  const cloudflareSetupOAuthClientId = optional(env.STUGA_CLOUDFLARE_OAUTH_CLIENT_ID);
+  if (cloudflareSetupOAuthClientId
+    && (cloudflareSetupOAuthClientId.length < 8
+      || cloudflareSetupOAuthClientId.length > 200
+      || !/^[A-Za-z0-9._~-]+$/u.test(cloudflareSetupOAuthClientId))) {
+    throw new Error("STUGA_CLOUDFLARE_OAUTH_CLIENT_ID is not a valid OAuth client ID");
+  }
   if (alertWebhookEnvironmentDestinationsJson && (
     alertWebhookEnvironmentUrl || alertWebhookEnvironmentBearerToken || alertWebhookEnvironmentSigningSecret
   )) {
@@ -543,6 +573,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       "TAPO_HISTORY_ENABLED=true requires either the complete app worker/email/Gmail tuple or the private endpoint/token pair",
     );
   }
+  const configuredStugbyPublicOrigin = stugbyPublicOrigin(env.STUGBY_PUBLIC_ORIGIN);
+  const suggestedStugbyPublicOrigin = configuredStugbyPublicOrigin
+    ?? inferredStugbyPublicOrigin(env.CORS_ORIGIN, env.CLOUDFLARE_ACCESS_PUBLIC_ORIGIN);
+  const stugbyCoordinatorProvisioningRequired = !configuredStugbyPublicOrigin
+    && inferredStugbyPublicOrigin(env.CLOUDFLARE_ACCESS_PUBLIC_ORIGIN) !== null;
 
   return {
     port: positiveInteger(env.PORT, 8787),
@@ -557,7 +592,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     stugbyIdentityFile,
     stugbyNodeName,
     stugbySyncIntervalMs: boundedInteger(env.STUGBY_SYNC_INTERVAL_MS, 15_000, 2_000, 300_000, "STUGBY_SYNC_INTERVAL_MS"),
-    stugbyPublicOrigin: stugbyPublicOrigin(env.STUGBY_PUBLIC_ORIGIN),
+    stugbyPublicOrigin: configuredStugbyPublicOrigin,
+    stugbySuggestedPublicOrigin: suggestedStugbyPublicOrigin,
+    stugbyCoordinatorProvisioningRequired,
     backupOperationsDirectory: resolve(env.BACKUP_OPERATIONS_DIRECTORY ?? "./data/backup-operations"),
     backupDirectory: resolve(env.BACKUP_DIRECTORY ?? "./backups"),
     systemUpdateOperationsDirectory: resolve(env.SYSTEM_UPDATE_OPERATIONS_DIRECTORY
@@ -660,6 +697,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       60_000,
       24 * 60 * 60_000,
       "CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS",
+    ),
+    cloudflareSetupDeploymentFile: resolve(
+      env.CLOUDFLARE_SETUP_DEPLOYMENT_FILE ?? "./secrets/cloudflare/deployment.json",
+    ),
+    cloudflareSetupOAuthClientId,
+    cloudflareSetupLocalUiPort: boundedInteger(
+      env.STUGA_LOCAL_UI_PORT,
+      8_080,
+      1_024,
+      65_535,
+      "STUGA_LOCAL_UI_PORT",
     ),
     electricityAllowPrivateEndpoints: booleanValue(env.ELECTRICITY_ALLOW_PRIVATE_ENDPOINTS, false),
   };

@@ -221,7 +221,16 @@ export function registerStugbyLocalRoutes(app: Express, service: StugbyService, 
     response.json({
       identity: service.identity,
       publicOrigin: service.publicOrigin ?? loopbackRequestOrigin(request),
+      suggestedPublicOrigin: service.suggestedPublicOrigin,
+      publicOriginConfigurable: service.publicOriginConfigurable,
       stugbys: service.listStugbys(),
+    });
+  }));
+
+  app.put(`${LOCAL_PREFIX}/configuration`, admin, route(async (request, response) => {
+    const body = objectBody(request.body);
+    response.json({
+      publicOrigin: await service.configurePublicOrigin(stringValue(body.publicOrigin, "Stuga address")),
     });
   }));
 
