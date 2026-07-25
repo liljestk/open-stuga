@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, join, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import { restoreDrill } from "./stuga-restore-drill.mjs";
 
 const operationsDirectory = resolve(process.env.BACKUP_OPERATIONS_DIRECTORY ?? "/app/runtime/backup-operations");
@@ -19,9 +20,6 @@ const intervalHours = Math.max(1, Number(process.env.BACKUP_INTERVAL_HOURS ?? 24
 const restoreDrillDays = Math.max(1, Number(process.env.RESTORE_DRILL_INTERVAL_DAYS ?? 30));
 const retentionCount = Math.max(2, Number(process.env.BACKUP_RETENTION_COUNT ?? 30));
 const pollMs = 15_000;
-
-mkdirSync(operationsDirectory, { recursive: true, mode: 0o700 });
-mkdirSync(backupRoot, { recursive: true, mode: 0o700 });
 
 function readJson(path) {
   try { return JSON.parse(readFileSync(path, "utf8")); } catch { return null; }
@@ -41,17 +39,24 @@ function status() {
   };
 }
 
-function runBackup(output) {
+export function backupArguments(output, secretsAvailable = existsSync("/app/data/integration-secrets.json")) {
   const args = [
     "/app/scripts/stuga-backup.mjs",
     "--database", "/app/data/climate-twin.sqlite",
     "--assets", "/app/data/assets",
     "--spatial-db", "/app/data/experimental-spatial-layers.sqlite",
     "--stugby-identity", "/app/data/stugby-identity.json",
-    "--include-timescale", "--include-secrets",
-    "--secrets-file", "/app/data/integration-secrets.json",
-    "--output", output,
+    "--include-timescale",
   ];
+  if (secretsAvailable) {
+    args.push("--include-secrets", "--secrets-file", "/app/data/integration-secrets.json");
+  }
+  args.push("--output", output);
+  return args;
+}
+
+function runBackup(output) {
+  const args = backupArguments(output);
   return new Promise((resolvePromise, reject) => {
     const child = spawn(process.execPath, args, { env: process.env, stdio: ["ignore", "pipe", "pipe"] });
     let stderr = "";
@@ -145,8 +150,16 @@ async function work() {
   }
 }
 
-await work();
-const timer = setInterval(() => void work(), pollMs);
-const stop = () => { clearInterval(timer); process.exit(0); };
-process.once("SIGTERM", stop);
-process.once("SIGINT", stop);
+export async function main() {
+  mkdirSync(operationsDirectory, { recursive: true, mode: 0o700 });
+  mkdirSync(backupRoot, { recursive: true, mode: 0o700 });
+  await work();
+  const timer = setInterval(() => void work(), pollMs);
+  const stop = () => { clearInterval(timer); process.exit(0); };
+  process.once("SIGTERM", stop);
+  process.once("SIGINT", stop);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  await main();
+}

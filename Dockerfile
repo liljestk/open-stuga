@@ -145,8 +145,9 @@ COPY --from=node-base /usr/local/bin/node /usr/local/bin/node
 COPY package.json ./package.json
 COPY scripts/sqlite-snapshot-utils.mjs scripts/stuga-backup.mjs scripts/stuga-backup-scheduler.mjs scripts/stuga-restore-drill.mjs \
   scripts/stuga-migration-common.mjs scripts/stuga-migration-bundle.mjs scripts/stuga-migration-target.mjs ./scripts/
+COPY --chmod=755 scripts/export-scheduled-backups.sh ./scripts/export-scheduled-backups.sh
 
-RUN mkdir -p /app/backups
+RUN install -d -o 1000 -g 1000 -m 0700 /app/backups
 
 USER 1000:1000
 
@@ -173,6 +174,6 @@ USER nginx
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD ["wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080/"]
+  CMD ["wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080/api/v1/health"]
 
 CMD ["/usr/local/bin/stuga-nginx-entrypoint"]

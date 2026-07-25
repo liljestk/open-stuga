@@ -166,7 +166,9 @@ long-lived deployment instead of running an arbitrary moving branch.
 
 Prerequisites: Podman plus a Compose provider. `podman compose` is a wrapper
 around an external provider, so verify that `podman compose config` succeeds
-on the target host.
+on the target host. On macOS and Windows, start `podman machine` first; the
+setup wizard detects its rootless runtime and uses engine-managed volumes for
+state that cannot safely rely on host UID/GID translation.
 
 ```sh
 npm run setup -- --mode podman
@@ -186,6 +188,11 @@ is disabled; update by fetching the desired release and rerunning
 `podman compose up --build -d`. Compose-provider behavior can vary, so this
 path should be validated on the exact host before relying on advanced profiles.
 See [Podman's Compose documentation](https://docs.podman.io/en/stable/markdown/podman-compose.1.html).
+
+`npm run setup -- --mode podman` also records whether the engine is rootless.
+Rootless installs keep update-operation exchange and scheduled backups in
+named volumes. Explicit backup exports and migration bundles run as the
+rootless container identity that maps back to the invoking host account.
 
 ## Local Node.js development
 
@@ -610,6 +617,17 @@ and outbound integrations disabled. A copied SQLite main file alone is not a
 backup while WAL writes may be active, and a SQLite-only copy omits the durable
 Timescale archive. See [Backend storage and operations](backend-storage.md) for
 the full restore sequence and ownership checks.
+
+The scheduled service writes to a private named volume for consistent
+permissions across Docker Engine, Docker Desktop, rootless Podman, and Podman
+machine. Export its verified sets without overwriting existing host exports:
+
+```powershell
+docker compose --profile maintenance run --rm stuga-backup-export
+```
+
+Replace `docker` with `podman` when using Podman. The export destination remains
+`./backups` or `STUGA_BACKUP_DIRECTORY`.
 
 ## Uninstall
 

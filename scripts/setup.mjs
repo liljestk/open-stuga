@@ -372,6 +372,18 @@ export function basicEnvironmentUpdates(configuration) {
   return updates;
 }
 
+export function containerRuntimeEnvironmentUpdates(mode, runtime = {}) {
+  if (mode !== "docker" && mode !== "podman") return {};
+  const rootless = runtime.rootless === true;
+  return {
+    STUGA_HOST_BIND_USER: rootless ? "0:0" : "1000:1000",
+    STUGA_UPDATE_OPERATIONS_DIRECTORY: rootless
+      ? "stuga-update-operations"
+      : "./data/update-operations",
+    STUGA_UPDATE_OPERATIONS_MOUNT_OPTIONS: rootless ? "rw" : "z",
+  };
+}
+
 function printHelp() {
   console.log(`Configure a minimal Stuga installation.
 
@@ -958,7 +970,8 @@ Install it only on a trusted host under a Docker-authorized user account.`);
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
     cwd: options.cwd ?? projectRoot,
-    stdio: options.quiet ? "ignore" : "inherit",
+    encoding: options.capture ? "utf8" : undefined,
+    stdio: options.capture ? ["ignore", "pipe", "pipe"] : options.quiet ? "ignore" : "inherit",
     windowsHide: true,
   });
 }
@@ -1177,6 +1190,18 @@ export function verifyContainerRuntime(mode, runner = run) {
       : "Install a Compose provider and, on Windows/macOS, start the Podman machine.";
     throw new Error(`${mode === "docker" ? "Docker" : "Podman"} Compose could not validate docker-compose.yml. ${recovery}`);
   }
+  const inspectionArguments = mode === "podman"
+    ? ["info", "--format", "{{.Host.Security.Rootless}}"]
+    : ["info", "--format", "{{json .SecurityOptions}}"];
+  const inspection = runner(command, inspectionArguments, { capture: true });
+  if (inspection.error || inspection.status !== 0) {
+    throw new Error(`${mode === "docker" ? "Docker" : "Podman"} runtime details could not be inspected`);
+  }
+  const details = String(inspection.stdout ?? "").trim();
+  const rootless = mode === "podman"
+    ? details.toLowerCase() === "true"
+    : /(?:name=)?rootless/iu.test(details);
+  return { rootless };
 }
 
 function printPiPlan(action) {
@@ -1390,11 +1415,31 @@ export async function runSetup(args = process.argv.slice(2)) {
     return 0;
   }
 
+  let runtime;
   try {
-    verifyContainerRuntime(configuration.mode);
+    runtime = verifyContainerRuntime(configuration.mode);
   } catch (error) {
     console.error(`[setup] ${error instanceof Error ? error.message : String(error)}`);
     console.error(`[setup] Configuration is saved; install the runtime, then rerun with --mode ${configuration.mode}.`);
+    return 1;
+  }
+
+  if (runtime.rootless && configuration.installUpdateAgent) {
+    console.error("[setup] The host update-agent service requires a shared host directory and is unavailable with rootless Docker.");
+    console.error("[setup] Rerun with --no-update-agent and update by fetching the release and rerunning Compose.");
+    return 1;
+  }
+
+  try {
+    const environment = configureEnvironment(
+      projectRoot,
+      containerRuntimeEnvironmentUpdates(configuration.mode, runtime),
+    );
+    if (environment.changed) {
+      console.log(`[setup] Configured ${runtime.rootless ? "rootless" : "rootful"} container mount ownership`);
+    }
+  } catch (error) {
+    console.error(`[setup] ${error instanceof Error ? error.message : String(error)}`);
     return 1;
   }
 
