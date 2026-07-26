@@ -519,6 +519,7 @@ private struct RoomCaptureContainer: UIViewRepresentable {
         }
     }
 
+    @objc(StugaRoomCaptureCoordinator)
     final class Coordinator: NSObject, RoomCaptureViewDelegate {
         var parent: RoomCaptureContainer
         var started = false
@@ -527,6 +528,12 @@ private struct RoomCaptureContainer: UIViewRepresentable {
         init(parent: RoomCaptureContainer) {
             self.parent = parent
         }
+
+        required init?(coder: NSCoder) {
+            return nil
+        }
+
+        func encode(with coder: NSCoder) {}
 
         func captureView(
             shouldPresent roomDataForProcessing: CapturedRoomData,
