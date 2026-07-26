@@ -12,6 +12,33 @@ property. Notes can target the property itself, a home, an area, or a piece of
 equipment. Maintenance work is likewise property-owned and can optionally
 target resources inside that property.
 
+## Property inventory
+
+**Property > Inventory** is the canonical catalogue for maintainable and
+trackable equipment. It provides a Property-wide summary, attention count,
+search, service-state and area filters, and one details-on-demand editor for
+the existing equipment record. Manufacturer, model, serial number, service
+state, notes, and assigned area are stored on that record.
+
+One record represents one physical item. Its `areaId` is the expected or
+assigned location, not a claim about its current position. If a BLE tag is
+assigned, tracking state joins through the same stable equipment identifier
+and is presented separately with freshness, confidence, and uncertainty.
+Maintenance and notes therefore keep working when tracking is disabled, a tag
+is replaced, or an item has not been observed recently.
+
+The iOS companion reads
+`GET /api/v1/properties/{propertyId}/inventory`, a consistent Property-scoped
+snapshot containing the visible areas and equipment plus an opaque
+`syncToken`. The response supports `ETag` revalidation. Normal Stuga mutation
+events cause the companion to refresh this snapshot; the optional tracking
+stream refreshes position state independently and joins it by equipment ID.
+Inventory remains available in iOS when BLE tracking or its live map is off.
+Members with write access can add and edit equipment natively through the
+existing `area-equipment` API; the companion limits area choices to the
+selected Property, while Guests retain the same read-only catalogue, QR
+lookup, and detail presentation.
+
 ## Durable storage
 
 Property management is server-owned and restart-safe. Properties, Homes,
@@ -185,6 +212,7 @@ The local API exposes property resources under `/api/v1`:
 - `properties`
 - `property-areas`
 - `area-equipment`
+- `properties/{propertyId}/inventory` (consistent companion snapshot)
 - `property-notes`
 
 List endpoints accept the relevant `propertyId` or `areaId` filter. In

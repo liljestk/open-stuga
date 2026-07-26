@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   Building2,
+  Boxes,
   Check,
   ChevronRight,
   Clipboard,
@@ -13,8 +14,10 @@ import {
   Move,
   NotebookPen,
   Plus,
+  Radio,
   Redo2,
   Save,
+  Search,
   ShieldCheck,
   Trash2,
   Undo2,
@@ -27,6 +30,7 @@ import type {
   AreaEquipment,
   AreaEquipmentInput,
   AreaEquipmentPatch,
+  AreaEquipmentStatus,
   GeoCoordinate,
   GuestAccessGrant,
   HouseCreateInput,
@@ -43,8 +47,9 @@ import type {
   PropertyNotePatch,
   PropertyPatch,
   TenantMemberSummary,
+  TrackedEquipmentState,
 } from "@climate-twin/contracts";
-import { api, type HouseGeoreferencePatch } from "../api";
+import { api, ApiRequestError, type HouseGeoreferencePatch } from "../api";
 import { StugbyMark } from "../components/StugbyMark";
 import type { ClimateState } from "../domain";
 import { useI18n, type TranslationKey } from "../i18n";
@@ -54,7 +59,7 @@ import "./PropertyManagementPage.css";
 
 const PropertyAreaMap = lazy(() => import("../components/PropertyAreaMap").then((module) => ({ default: module.PropertyAreaMap })));
 
-type WorkspaceTab = "overview" | "map" | "notes" | "access";
+type WorkspaceTab = "overview" | "map" | "inventory" | "notes" | "access";
 type Feedback = { kind: "success" | "error"; text: string } | null;
 export const MAX_GUEST_ACCESS_GRANTS = 100;
 
@@ -69,6 +74,7 @@ const areaKinds: PropertyAreaKind[] = [
 ];
 const fixedAssetKinds = new Set<PropertyAreaKind>(["well", "garage", "dock", "building"]);
 const NEW_FIXED_ASSET_ID = "__new-fixed-asset__";
+const TRACKED_ASSETS_REFRESH_MS = 30_000;
 
 interface PropertyManagementPageProps {
   state: ClimateState;
@@ -472,7 +478,16 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
   const [editingEquipmentId, setEditingEquipmentId] = useState<string | null>(null);
   const [equipmentName, setEquipmentName] = useState("");
   const [equipmentKind, setEquipmentKind] = useState("");
+  const [equipmentManufacturer, setEquipmentManufacturer] = useState("");
+  const [equipmentModel, setEquipmentModel] = useState("");
+  const [equipmentSerialNumber, setEquipmentSerialNumber] = useState("");
+  const [equipmentStatus, setEquipmentStatus] = useState<AreaEquipmentStatus>("active");
   const [equipmentNotes, setEquipmentNotes] = useState("");
+  const [inventoryQuery, setInventoryQuery] = useState("");
+  const [inventoryStatus, setInventoryStatus] = useState<"all" | AreaEquipmentStatus>("all");
+  const [inventoryAreaId, setInventoryAreaId] = useState("all");
+  const [inventoryFormOpen, setInventoryFormOpen] = useState(false);
+  const [trackedEquipment, setTrackedEquipment] = useState<TrackedEquipmentState[]>([]);
   const [noteText, setNoteText] = useState("");
   const [noteKind, setNoteKind] = useState<PropertyNote["kind"]>("note");
   const [noteTarget, setNoteTarget] = useState("property:");
@@ -491,6 +506,42 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
   const [assetDraftLocation, setAssetDraftLocation] = useState<GeoCoordinate | null>(null);
   const [assetLatitudeInput, setAssetLatitudeInput] = useState("");
   const [assetLongitudeInput, setAssetLongitudeInput] = useState("");
+
+  const trackingByEquipmentId = useMemo(
+    () => new Map(trackedEquipment.map((item) => [item.equipment.id, item])),
+    [trackedEquipment],
+  );
+  const inventoryEquipmentVersion = useMemo(
+    () => equipment.map((item) => `${item.id}:${item.updatedAt}`).sort().join("|"),
+    [equipment],
+  );
+  const visibleInventory = useMemo(() => {
+    const query = inventoryQuery.trim().toLocaleLowerCase();
+    return equipment.filter((item) => {
+      if (inventoryStatus !== "all" && item.status !== inventoryStatus) return false;
+      if (inventoryAreaId !== "all" && item.areaId !== inventoryAreaId) return false;
+      if (!query) return true;
+      const areaName = areas.find((area) => area.id === item.areaId)?.name ?? "";
+      return [
+        item.name,
+        item.kind,
+        item.manufacturer,
+        item.model,
+        item.serialNumber,
+        item.notes,
+        areaName,
+      ].some((value) => value?.toLocaleLowerCase().includes(query));
+    }).sort((left, right) => left.name.localeCompare(right.name));
+  }, [areas, equipment, inventoryAreaId, inventoryQuery, inventoryStatus]);
+  const inventoryAttentionCount = useMemo(() => equipment.filter((item) => {
+    if (item.status === "out-of-service") return true;
+    const tracked = trackingByEquipmentId.get(item.id);
+    return Boolean(
+      tracked
+      && ((tracked.tag?.batteryPercent ?? 101) <= 20
+        || ["stale", "unknown"].includes(tracked.position?.freshnessState ?? "unknown")),
+    );
+  }).length, [equipment, trackingByEquipmentId]);
 
   const placementAsset = areas.find((area) => area.id === placementAssetId);
   const editingFixedAsset = isNewFixedAsset || Boolean(selectedArea && selectedArea.polygon.length === 0);
@@ -561,8 +612,17 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
     setEditingEquipmentId(null);
     setEquipmentName("");
     setEquipmentKind("");
+    setEquipmentManufacturer("");
+    setEquipmentModel("");
+    setEquipmentSerialNumber("");
+    setEquipmentStatus("active");
     setEquipmentNotes("");
     setEquipmentDestinationAreaId("");
+    setInventoryQuery("");
+    setInventoryStatus("all");
+    setInventoryAreaId("all");
+    setInventoryFormOpen(false);
+    setTrackedEquipment([]);
     setEditingNoteId(null);
     setNoteText("");
     setNoteKind("note");
@@ -641,9 +701,45 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
     if (!canManageAccess && tab === "access") setTab("overview");
   }, [canManageAccess, tab]);
   useEffect(() => {
+    if (tab !== "inventory" || !property) return;
+    let current = true;
+    let pollingEnabled = true;
+    let requestInFlight = false;
+    const refresh = () => {
+      if (!pollingEnabled || requestInFlight) return;
+      requestInFlight = true;
+      void api.trackedAssets(property.id)
+        .then((assets) => {
+          if (current) setTrackedEquipment(assets);
+        })
+        .catch((error: unknown) => {
+          if (error instanceof ApiRequestError && (error.status === 403 || error.status === 404)) {
+            pollingEnabled = false;
+            if (current) setTrackedEquipment([]);
+            return;
+          }
+          // Keep the last confirmed snapshot during a transient refresh failure.
+        })
+        .finally(() => {
+          requestInFlight = false;
+        });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, TRACKED_ASSETS_REFRESH_MS);
+    return () => {
+      current = false;
+      pollingEnabled = false;
+      window.clearInterval(timer);
+    };
+  }, [inventoryEquipmentVersion, property?.id, tab]);
+  useEffect(() => {
     setEditingEquipmentId(null);
     setEquipmentName("");
     setEquipmentKind("");
+    setEquipmentManufacturer("");
+    setEquipmentModel("");
+    setEquipmentSerialNumber("");
+    setEquipmentStatus("active");
     setEquipmentNotes("");
     setEquipmentDestinationAreaId("");
     setMaintenanceTitle("");
@@ -669,6 +765,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
   const tabs: Array<{ id: WorkspaceTab; key: TranslationKey; icon: typeof MapIcon }> = [
     { id: "overview", key: "nav.overview", icon: Building2 },
     { id: "map", key: "properties.map", icon: MapIcon },
+    { id: "inventory", key: "properties.inventory", icon: Boxes },
     { id: "notes", key: "properties.notes", icon: NotebookPen },
     ...(canManageAccess ? [{ id: "access" as const, key: "properties.access" as TranslationKey, icon: Users }] : []),
   ];
@@ -889,23 +986,55 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
     finally { setPending(false); }
   };
 
+  const clearEquipmentDraft = (areaId = "") => {
+    setEditingEquipmentId(null);
+    setEquipmentName("");
+    setEquipmentKind("");
+    setEquipmentManufacturer("");
+    setEquipmentModel("");
+    setEquipmentSerialNumber("");
+    setEquipmentStatus("active");
+    setEquipmentNotes("");
+    setEquipmentDestinationAreaId(areaId);
+  };
+
+  const beginEquipmentEdit = (item: AreaEquipment) => {
+    setEditingEquipmentId(item.id);
+    setEquipmentName(item.name);
+    setEquipmentKind(item.kind);
+    setEquipmentManufacturer(item.manufacturer ?? "");
+    setEquipmentModel(item.model ?? "");
+    setEquipmentSerialNumber(item.serialNumber ?? "");
+    setEquipmentStatus(item.status);
+    setEquipmentNotes(item.notes ?? "");
+    setEquipmentDestinationAreaId(item.areaId);
+    setInventoryFormOpen(true);
+  };
+
   const saveEquipment = async (event: FormEvent) => {
     event.preventDefault();
-    if (!property || !selectedArea || readOnly || pending || !equipmentName.trim() || !equipmentKind.trim()) return;
-    if (editingEquipmentId && !equipment.some((item) => item.id === editingEquipmentId && item.areaId === selectedArea.id)) {
-      setEditingEquipmentId(null);
-      setEquipmentName("");
-      setEquipmentKind("");
-      setEquipmentNotes("");
+    const destinationAreaId = equipmentDestinationAreaId || selectedArea?.id || "";
+    if (!property || !destinationAreaId || readOnly || pending || !equipmentName.trim() || !equipmentKind.trim()) return;
+    if (editingEquipmentId && !equipment.some((item) => item.id === editingEquipmentId)) {
+      clearEquipmentDraft();
       setFeedback({ kind: "error", text: t("properties.equipmentSaveFailed") });
       return;
     }
     setPending(true);
+    setFeedback(null);
     try {
-      const destinationAreaId = editingEquipmentId ? equipmentDestinationAreaId || selectedArea.id : selectedArea.id;
       const destinationArea = state.propertyAreas.find((area) => area.id === destinationAreaId);
       if (!destinationArea) throw new Error("Destination area is unavailable");
-      const common = { areaId: destinationArea.id, name: equipmentName.trim(), kind: equipmentKind.trim(), notes: equipmentNotes.trim() || null };
+      const common = {
+        areaId: destinationArea.id,
+        name: equipmentName.trim(),
+        kind: equipmentKind.trim(),
+        manufacturer: equipmentManufacturer.trim() || null,
+        model: equipmentModel.trim() || null,
+        serialNumber: equipmentSerialNumber.trim() || null,
+        status: equipmentStatus,
+        notes: equipmentNotes.trim() || null,
+      };
       if (editingEquipmentId) {
         const currentEquipment = state.areaEquipment.find((item) => item.id === editingEquipmentId);
         if (currentEquipment && currentEquipment.areaId !== destinationArea.id
@@ -914,8 +1043,9 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
         setPropertyId(destinationArea.propertyId);
         setSelectedAreaId(destinationArea.id);
       }
-      else await props.onCreateEquipment({ propertyId: property.id, ...common });
-      setEquipmentName(""); setEquipmentKind(""); setEquipmentNotes(""); setEditingEquipmentId(null); setEquipmentDestinationAreaId("");
+      else await props.onCreateEquipment({ propertyId: destinationArea.propertyId, ...common });
+      clearEquipmentDraft(tab === "map" ? destinationArea.id : "");
+      if (tab === "inventory") setInventoryFormOpen(false);
       setFeedback({ kind: "success", text: t("properties.equipmentSaved") });
     } catch { setFeedback({ kind: "error", text: t("properties.equipmentSaveFailed") }); }
     finally { setPending(false); }
@@ -1235,6 +1365,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
           </section>
           <div className="property-overview-actions">
             <button type="button" className="panel" onClick={() => setTab("map")}><MapIcon size={22} aria-hidden="true" /><span><strong>{t("properties.map")}</strong><small>{propertySummary(houses.length, areas.length)}</small></span><ChevronRight size={18} aria-hidden="true" /></button>
+            <button type="button" className="panel" onClick={() => setTab("inventory")}><Boxes size={22} aria-hidden="true" /><span><strong>{t("properties.inventory")}</strong><small>{t("properties.inventoryCount", { count: equipment.length })}</small></span><ChevronRight size={18} aria-hidden="true" /></button>
             <button type="button" className="panel" onClick={() => setTab("notes")}><NotebookPen size={22} aria-hidden="true" /><span><strong>{t("properties.notes")}</strong><small>{notes.length}</small></span><ChevronRight size={18} aria-hidden="true" /></button>
             {props.onOpenMaintenance && <button type="button" className="panel" onClick={props.onOpenMaintenance}><Wrench size={22} aria-hidden="true" /><span><strong>{t("nav.maintenance")}</strong><small>{state.maintenanceTasks.filter((task) => task.propertyId === property.id && task.status !== "verified" && task.status !== "cancelled").length}</small></span><ChevronRight size={18} aria-hidden="true" /></button>}
           </div>
@@ -1332,13 +1463,86 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
           </section>}
         </section>}
 
+        {tab === "inventory" && <section id="property-panel-inventory" className="property-inventory-workspace" role="tabpanel" aria-labelledby="property-tab-inventory">
+          <section className="panel inventory-overview">
+            <div className="panel-header">
+              <div><span className="eyebrow">{property.name}</span><h2>{t("properties.inventory")}</h2><p>{t("properties.inventoryHelp")}</p></div>
+              {!readOnly && areas.length > 0 && <button type="button" className="primary-button" onClick={() => {
+                clearEquipmentDraft(areas[0]?.id ?? "");
+                setInventoryFormOpen(true);
+              }}><Plus size={15} aria-hidden="true" />{t("properties.addInventoryItem")}</button>}
+            </div>
+            <div className="inventory-summary" aria-label={t("properties.inventorySummary")}>
+              <article><Boxes size={18} aria-hidden="true" /><span><strong>{equipment.length}</strong><small>{t("properties.inventoryTotal")}</small></span></article>
+              <article data-attention={inventoryAttentionCount > 0}><Wrench size={18} aria-hidden="true" /><span><strong>{inventoryAttentionCount}</strong><small>{t("properties.inventoryAttention")}</small></span></article>
+              <article><MapPin size={18} aria-hidden="true" /><span><strong>{new Set(equipment.map((item) => item.areaId)).size}</strong><small>{t("properties.inventoryLocations")}</small></span></article>
+              <article><Radio size={18} aria-hidden="true" /><span><strong>{trackedEquipment.length}</strong><small>{t("properties.inventoryTracked")}</small></span></article>
+            </div>
+          </section>
+
+          <section className="panel inventory-catalog">
+            <div className="inventory-controls">
+              <label className="field inventory-search"><span>{t("properties.inventorySearch")}</span><div><Search size={15} aria-hidden="true" /><input type="search" value={inventoryQuery} onChange={(event) => setInventoryQuery(event.target.value)} placeholder={t("properties.inventorySearchHint")} /></div></label>
+              <label className="field"><span>{t("properties.inventoryStatusFilter")}</span><select value={inventoryStatus} onChange={(event) => setInventoryStatus(event.target.value as "all" | AreaEquipmentStatus)}><option value="all">{t("properties.inventoryAllStatuses")}</option><option value="active">{t("properties.equipmentStatus.active")}</option><option value="out-of-service">{t("properties.equipmentStatus.out-of-service")}</option><option value="retired">{t("properties.equipmentStatus.retired")}</option></select></label>
+              <label className="field"><span>{t("properties.inventoryAreaFilter")}</span><select value={inventoryAreaId} onChange={(event) => setInventoryAreaId(event.target.value)}><option value="all">{t("properties.inventoryAllAreas")}</option>{areas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label>
+            </div>
+            <p className="inventory-result-count" aria-live="polite">{t("properties.inventoryShowing", { count: visibleInventory.length })}</p>
+            {visibleInventory.length > 0 ? <div className="inventory-list">
+              {visibleInventory.map((item) => {
+                const area = areas.find((candidate) => candidate.id === item.areaId);
+                const tracked = trackingByEquipmentId.get(item.id);
+                const trackingState = tracked?.position?.freshnessState ?? (tracked ? "unknown" : null);
+                return <article key={item.id} data-status={item.status}>
+                  <div className="inventory-item-icon" aria-hidden="true"><Boxes size={18} /></div>
+                  <div className="inventory-item-copy">
+                    <div><span className="inventory-item-kind">{item.kind}</span><h3>{item.name}</h3></div>
+                    <p><MapPin size={13} aria-hidden="true" />{area?.name ?? item.areaId}</p>
+                    {(item.manufacturer || item.model || item.serialNumber) && <dl>
+                      {item.manufacturer && <><dt>{t("properties.equipmentManufacturer")}</dt><dd>{item.manufacturer}</dd></>}
+                      {item.model && <><dt>{t("properties.equipmentModel")}</dt><dd>{item.model}</dd></>}
+                      {item.serialNumber && <><dt>{t("properties.equipmentSerialNumber")}</dt><dd>{item.serialNumber}</dd></>}
+                    </dl>}
+                    {item.notes && <p className="inventory-item-notes">{item.notes}</p>}
+                  </div>
+                  <div className="inventory-item-state">
+                    <span className={`inventory-status status-${item.status}`}>{t(`properties.equipmentStatus.${item.status}` as TranslationKey)}</span>
+                    {trackingState && <span className={`inventory-tracking tracking-${trackingState}`}>{t(`properties.inventoryTracking.${trackingState}` as TranslationKey)}{tracked?.tag?.batteryPercent !== null && tracked?.tag?.batteryPercent !== undefined ? ` · ${tracked.tag.batteryPercent}%` : ""}</span>}
+                  </div>
+                  {!readOnly && <div className="inventory-item-actions">
+                    <button type="button" className="secondary-button" disabled={pending} aria-label={`${t("common.edit")}: ${item.name}`} onClick={() => beginEquipmentEdit(item)}><ClipboardList size={14} aria-hidden="true" />{t("common.edit")}</button>
+                    <button type="button" className="icon-button small danger-icon" disabled={pending} aria-label={`${t("common.delete")}: ${item.name}`} onClick={() => void removeEquipment(item.id)}><Trash2 size={14} /></button>
+                  </div>}
+                </article>;
+              })}
+            </div> : <div className="inventory-empty"><Boxes size={24} aria-hidden="true" /><h3>{equipment.length ? t("properties.inventoryNoMatches") : t("properties.inventoryEmpty")}</h3><p>{equipment.length ? t("properties.inventoryNoMatchesHelp") : t("properties.inventoryEmptyHelp")}</p></div>}
+          </section>
+
+          {!readOnly && (areas.length > 0 ? <details className="panel inventory-editor" open={inventoryFormOpen} onToggle={(event) => {
+            setInventoryFormOpen(event.currentTarget.open);
+            if (event.currentTarget.open && !equipmentDestinationAreaId) setEquipmentDestinationAreaId(areas[0]?.id ?? "");
+          }}>
+            <summary><Plus size={17} aria-hidden="true" /><span><strong>{editingEquipmentId ? t("properties.editInventoryItem") : t("properties.addInventoryItem")}</strong><small>{t("properties.inventoryFormHelp")}</small></span><ChevronRight size={17} aria-hidden="true" /></summary>
+            <form className="inventory-form" onSubmit={(event) => void saveEquipment(event)}>
+              <label className="field"><span>{t("properties.equipmentName")}</span><input required value={equipmentName} onChange={(event) => setEquipmentName(event.target.value)} /></label>
+              <label className="field"><span>{t("properties.equipmentKind")}</span><input required value={equipmentKind} onChange={(event) => setEquipmentKind(event.target.value)} /></label>
+              <label className="field"><span>{t("properties.moveEquipmentTo")}</span><select required value={equipmentDestinationAreaId} onChange={(event) => setEquipmentDestinationAreaId(event.target.value)}>{areas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select><small>{t("properties.inventoryAreaHelp")}</small></label>
+              <label className="field"><span>{t("properties.equipmentStatusLabel")}</span><select value={equipmentStatus} onChange={(event) => setEquipmentStatus(event.target.value as AreaEquipmentStatus)}><option value="active">{t("properties.equipmentStatus.active")}</option><option value="out-of-service">{t("properties.equipmentStatus.out-of-service")}</option><option value="retired">{t("properties.equipmentStatus.retired")}</option></select></label>
+              <label className="field"><span>{t("properties.equipmentManufacturer")}</span><input value={equipmentManufacturer} onChange={(event) => setEquipmentManufacturer(event.target.value)} /></label>
+              <label className="field"><span>{t("properties.equipmentModel")}</span><input value={equipmentModel} onChange={(event) => setEquipmentModel(event.target.value)} /></label>
+              <label className="field"><span>{t("properties.equipmentSerialNumber")}</span><input value={equipmentSerialNumber} onChange={(event) => setEquipmentSerialNumber(event.target.value)} /></label>
+              <label className="field inventory-form-notes"><span>{t("properties.equipmentNotes")}</span><textarea rows={3} value={equipmentNotes} onChange={(event) => setEquipmentNotes(event.target.value)} /></label>
+              <div className="inventory-form-actions"><button type="submit" className="primary-button" disabled={pending || !equipmentName.trim() || !equipmentKind.trim() || !equipmentDestinationAreaId}><Save size={14} aria-hidden="true" />{pending ? t("common.saving") : editingEquipmentId ? t("properties.saveEquipment") : t("properties.addEquipment")}</button>{editingEquipmentId && <button type="button" className="secondary-button" onClick={() => { clearEquipmentDraft(areas[0]?.id ?? ""); setInventoryFormOpen(false); }}>{t("common.cancel")}</button>}</div>
+            </form>
+          </details> : <section className="panel inventory-needs-area"><MapPin size={24} aria-hidden="true" /><div><h2>{t("properties.inventoryNeedsArea")}</h2><p>{t("properties.inventoryNeedsAreaHelp")}</p></div><button type="button" className="primary-button" onClick={() => { setTab("map"); startArea(); }}><Plus size={15} aria-hidden="true" />{t("properties.addArea")}</button></section>)}
+        </section>}
+
         {tab === "map" && selectedArea && <details className="panel property-secondary-tools">
           <summary><HardHat size={17} aria-hidden="true" /><span><strong>{t("properties.areaOperations")}</strong><small>{selectedArea.name}</small></span><ChevronRight size={17} aria-hidden="true" /></summary>
           <section className="property-assets-grid" aria-label={t("properties.assets")}>
           <section className="panel">
             <div className="panel-header"><div><span className="eyebrow">{selectedArea?.name ?? t("properties.selectArea")}</span><h2>{t("properties.equipment")}</h2></div><HardHat size={20} /></div>
             {!selectedArea ? <p className="property-empty-copy">{t("properties.selectAreaHelp")}</p> : <>
-              {equipment.filter((item) => item.areaId === selectedArea.id).length ? <div className="equipment-list">{equipment.filter((item) => item.areaId === selectedArea.id).map((item) => <article key={item.id}><div><strong>{item.name}</strong><small>{item.kind} · {t(`properties.equipmentStatus.${item.status}` as TranslationKey)}</small>{item.notes && <p>{item.notes}</p>}</div>{!readOnly && <div><button type="button" className="icon-button small" aria-label={`${t("common.edit")}: ${item.name}`} onClick={() => { setEditingEquipmentId(item.id); setEquipmentName(item.name); setEquipmentKind(item.kind); setEquipmentNotes(item.notes ?? ""); setEquipmentDestinationAreaId(item.areaId); }}><ClipboardList size={14} /></button><button type="button" className="icon-button small danger-icon" aria-label={`${t("common.delete")}: ${item.name}`} onClick={() => void removeEquipment(item.id)}><Trash2 size={14} /></button></div>}</article>)}</div> : <p className="property-empty-copy">{t("properties.noEquipment")}</p>}
+              {equipment.filter((item) => item.areaId === selectedArea.id).length ? <div className="equipment-list">{equipment.filter((item) => item.areaId === selectedArea.id).map((item) => <article key={item.id}><div><strong>{item.name}</strong><small>{item.kind} · {t(`properties.equipmentStatus.${item.status}` as TranslationKey)}</small>{item.notes && <p>{item.notes}</p>}</div>{!readOnly && <div><button type="button" className="icon-button small" aria-label={`${t("common.edit")}: ${item.name}`} onClick={() => beginEquipmentEdit(item)}><ClipboardList size={14} /></button><button type="button" className="icon-button small danger-icon" aria-label={`${t("common.delete")}: ${item.name}`} onClick={() => void removeEquipment(item.id)}><Trash2 size={14} /></button></div>}</article>)}</div> : <p className="property-empty-copy">{t("properties.noEquipment")}</p>}
               {!readOnly && <form className="equipment-form" onSubmit={(event) => void saveEquipment(event)}>
                 <label className="field"><span>{t("properties.equipmentName")}</span><input required value={equipmentName} onChange={(event) => setEquipmentName(event.target.value)} /></label>
                 <label className="field"><span>{t("properties.equipmentKind")}</span><input required value={equipmentKind} onChange={(event) => setEquipmentKind(event.target.value)} /></label>

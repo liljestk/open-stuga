@@ -19,6 +19,21 @@ export interface AppConfig {
   spatialLayersDatabasePath?: string;
   spatialLayersIntervalMs?: number;
   spatialLayersRetentionDays?: number;
+  /** Property-wide BLE equipment tracking remains an explicit deployment opt-in. */
+  trackingEnabled?: boolean;
+  trackingMobileObserverEnabled?: boolean;
+  trackingIosBackgroundEnabled?: boolean;
+  trackingAndroidBackgroundEnabled?: boolean;
+  trackingAndroidGatewayModeEnabled?: boolean;
+  trackingLiveMapEnabled?: boolean;
+  trackingMovementTrailsEnabled?: boolean;
+  trackingExitAlertsEnabled?: boolean;
+  trackingRotatingIdentifiersEnabled?: boolean;
+  trackingUserLocationSharingEnabled?: boolean;
+  trackingExperimentalCoordinateInferenceEnabled?: boolean;
+  trackingRawMobileCoordinateRetentionHours?: number;
+  /** Server-owned AES key used only to encrypt per-tag secrets at rest. */
+  trackingSecretKeyFile?: string | null;
   integrationSecretsFile: string;
   assetDirectory: string;
   /** Protected internal Ed25519 identity. Never exposed through configuration APIs. */
@@ -587,6 +602,33 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     spatialLayersDatabasePath,
     spatialLayersIntervalMs: positiveInteger(env.SPATIAL_LAYERS_INTERVAL_MS, 60_000),
     spatialLayersRetentionDays: positiveInteger(env.SPATIAL_LAYERS_RETENTION_DAYS, 30),
+    trackingEnabled: booleanValue(env.TRACKING_ENABLED, false),
+    trackingMobileObserverEnabled: booleanValue(env.TRACKING_MOBILE_OBSERVER_ENABLED, false),
+    trackingIosBackgroundEnabled: booleanValue(env.TRACKING_IOS_BACKGROUND_ENABLED, false),
+    trackingAndroidBackgroundEnabled: booleanValue(env.TRACKING_ANDROID_BACKGROUND_ENABLED, false),
+    trackingAndroidGatewayModeEnabled: booleanValue(env.TRACKING_ANDROID_GATEWAY_MODE_ENABLED, false),
+    trackingLiveMapEnabled: booleanValue(env.TRACKING_LIVE_MAP_ENABLED, false),
+    trackingMovementTrailsEnabled: booleanValue(env.TRACKING_MOVEMENT_TRAILS_ENABLED, false),
+    trackingExitAlertsEnabled: booleanValue(env.TRACKING_EXIT_ALERTS_ENABLED, false),
+    trackingRotatingIdentifiersEnabled: booleanValue(env.TRACKING_ROTATING_IDENTIFIERS_ENABLED, true),
+    trackingUserLocationSharingEnabled: booleanValue(
+      env.TRACKING_USER_LOCATION_SHARING_ENABLED,
+      false,
+    ),
+    trackingExperimentalCoordinateInferenceEnabled: booleanValue(
+      env.TRACKING_EXPERIMENTAL_COORDINATE_INFERENCE_ENABLED,
+      false,
+    ),
+    trackingRawMobileCoordinateRetentionHours: boundedInteger(
+      env.TRACKING_RAW_MOBILE_COORDINATE_RETENTION_HOURS,
+      24,
+      1,
+      24 * 30,
+      "TRACKING_RAW_MOBILE_COORDINATE_RETENTION_HOURS",
+    ),
+    trackingSecretKeyFile: databasePath === ":memory:"
+      ? null
+      : resolve(env.TRACKING_SECRET_KEY_FILE ?? join(dirname(databasePath), "tracking-secret.key")),
     integrationSecretsFile,
     assetDirectory: resolve(env.ASSET_DIRECTORY ?? "./data/assets"),
     stugbyIdentityFile,

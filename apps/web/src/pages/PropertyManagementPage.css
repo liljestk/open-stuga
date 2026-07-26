@@ -121,6 +121,60 @@
 .equipment-list p, .property-note-list p { margin: 2px 0 0; color: var(--muted); font-size: 10.5px; line-height: 1.45; white-space: pre-wrap; }
 .equipment-form { grid-template-columns: 1fr 1fr; margin-top: 13px; padding-top: 13px; border-top: 1px solid var(--line); }
 .equipment-target, .equipment-notes, .equipment-form > button { grid-column: 1 / -1; }
+.property-inventory-workspace { min-width: 0; display: grid; gap: 14px; }
+.inventory-overview, .inventory-catalog { min-width: 0; padding: 18px; }
+.inventory-overview .panel-header { align-items: flex-start; }
+.inventory-overview .panel-header p { max-width: 68ch; margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.inventory-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
+.inventory-summary article { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 9px; padding: 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-soft); }
+.inventory-summary article[data-attention="true"] { border-color: color-mix(in srgb, var(--red) 38%, var(--line)); box-shadow: inset 3px 0 0 var(--red); }
+.inventory-summary article > span { display: grid; gap: 1px; }
+.inventory-summary strong { font: 700 17px/1.2 "Manrope", sans-serif; }
+.inventory-summary small { color: var(--muted); font-size: 10px; line-height: 1.35; }
+.inventory-controls { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(140px, 1fr) minmax(140px, 1fr); gap: 10px; }
+.inventory-search > div { position: relative; }
+.inventory-search > div > svg { position: absolute; top: 50%; left: 11px; color: var(--muted); pointer-events: none; transform: translateY(-50%); }
+.inventory-search input { width: 100%; padding-left: 34px; }
+.inventory-result-count { margin: 10px 0 8px; color: var(--muted); font-size: 10.5px; }
+.inventory-list { display: grid; gap: 8px; }
+.inventory-list > article { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-soft); }
+.inventory-list > article[data-status="out-of-service"] { border-color: color-mix(in srgb, var(--red) 32%, var(--line)); box-shadow: inset 3px 0 0 var(--red); }
+.inventory-list > article[data-status="retired"] { border-style: dashed; }
+.inventory-item-icon { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid var(--line); border-radius: 9px; color: var(--action); background: var(--panel); }
+.inventory-item-copy { min-width: 0; display: grid; gap: 5px; }
+.inventory-item-copy h3 { margin: 0; font: 700 13px/1.25 "Manrope", sans-serif; overflow-wrap: anywhere; }
+.inventory-item-kind { display: block; margin-bottom: 2px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.inventory-item-copy > p { display: flex; align-items: center; gap: 5px; margin: 0; color: var(--muted); font-size: 10.5px; line-height: 1.4; }
+.inventory-item-copy dl { display: flex; flex-wrap: wrap; gap: 3px 10px; margin: 1px 0 0; font-size: 10px; }
+.inventory-item-copy dt { color: var(--muted); }
+.inventory-item-copy dd { margin: 0; }
+.inventory-item-copy .inventory-item-notes { display: block; max-width: 70ch; white-space: pre-wrap; }
+.inventory-item-state { display: grid; justify-items: end; gap: 5px; }
+.inventory-status, .inventory-tracking { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 8px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--ink); background: var(--panel); font-size: 10px; font-weight: 700; white-space: nowrap; }
+.inventory-status.status-out-of-service, .inventory-tracking.tracking-stale, .inventory-tracking.tracking-unknown { border-color: color-mix(in srgb, var(--red) 42%, var(--line)); color: var(--red); background: var(--red-soft); }
+.inventory-status.status-retired, .inventory-tracking.tracking-last-known { border-style: dashed; color: var(--muted); }
+.inventory-tracking.tracking-live, .inventory-tracking.tracking-recent { border-color: color-mix(in srgb, var(--action) 42%, var(--line)); color: var(--action); background: var(--action-soft); }
+.inventory-item-actions { display: flex; align-items: center; gap: 6px; }
+.inventory-empty { min-height: 180px; display: grid; place-content: center; justify-items: center; gap: 6px; padding: 24px; text-align: center; }
+.inventory-empty h3, .inventory-empty p { margin: 0; }
+.inventory-empty h3 { font: 700 14px/1.3 "Manrope", sans-serif; }
+.inventory-empty p { max-width: 54ch; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.inventory-editor { overflow: hidden; padding: 0; }
+.inventory-editor > summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 52px; padding: 12px 18px; cursor: pointer; list-style: none; }
+.inventory-editor > summary::-webkit-details-marker { display: none; }
+.inventory-editor > summary > span { display: grid; gap: 2px; }
+.inventory-editor > summary strong { font: 700 12px/1.3 "Manrope", sans-serif; }
+.inventory-editor > summary small { color: var(--muted); font-size: 10px; }
+.inventory-editor > summary > svg:last-child { color: var(--muted); transition: transform 140ms ease; }
+.inventory-editor[open] > summary { border-bottom: 1px solid var(--line); }
+.inventory-editor[open] > summary > svg:last-child { transform: rotate(90deg); }
+.inventory-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; padding: 18px; }
+.inventory-form-notes, .inventory-form-actions { grid-column: 1 / -1; }
+.inventory-form-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.inventory-needs-area { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 13px; padding: 18px; }
+.inventory-needs-area h2, .inventory-needs-area p { margin: 0; }
+.inventory-needs-area h2 { font-size: 14px; }
+.inventory-needs-area p { margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .area-maintenance-list { display: grid; gap: 7px; margin: 12px 0; }
 .area-maintenance-list article { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-soft); }
 .area-maintenance-list article > div { min-width: 0; display: grid; gap: 4px; }
@@ -161,6 +215,9 @@
 @media (max-width: 1080px) {
   .property-map-workspace { grid-template-columns: 1fr; }
   .property-map-shell, .property-area-map { min-height: 430px; height: 430px; }
+  .inventory-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inventory-list > article { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .inventory-item-actions { grid-column: 2 / -1; justify-content: flex-end; }
 }
 
 @media (max-width: 760px) {
@@ -174,6 +231,12 @@
   .property-placement-actions { grid-column: auto; }
   .area-form-grid, .equipment-form { grid-template-columns: 1fr; }
   .area-description, .equipment-notes, .equipment-form > button { grid-column: auto; }
+  .inventory-controls, .inventory-form { grid-template-columns: 1fr; }
+  .inventory-form-notes, .inventory-form-actions { grid-column: auto; }
+  .inventory-list > article { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+  .inventory-item-state, .inventory-item-actions { grid-column: 1 / -1; justify-items: start; justify-content: flex-start; padding-left: 50px; }
+  .inventory-needs-area { grid-template-columns: auto minmax(0, 1fr); }
+  .inventory-needs-area .primary-button { grid-column: 1 / -1; width: 100%; }
   .grant-tree fieldset > div { grid-template-columns: 1fr; }
   .guest-activation-copy { grid-template-columns: 1fr; }
   .guest-activation-copy .secondary-button { width: 100%; }

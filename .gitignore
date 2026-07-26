@@ -5,6 +5,10 @@ node_modules/
 
 # Build, test, and tool output
 dist/
+.build/
+.swiftpm/
+xcuserdata/
+*.xcuserstate
 coverage/
 coverage-python.xml
 .coverage*

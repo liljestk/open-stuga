@@ -163,6 +163,22 @@ describe("local property management", () => {
     expect(createdEquipment.body.equipment).toMatchObject({
       id: "equipment-pump", propertyId: "property-island", areaId: "area-well", status: "active",
     });
+    const inventoryBeforeMove = await request(runtime.app)
+      .get("/api/v1/properties/property-island/inventory").expect(200);
+    expect(inventoryBeforeMove.body.inventory).toMatchObject({
+      propertyId: "property-island",
+      syncToken: expect.stringMatching(/^[0-9a-f]{64}$/),
+      areas: [expect.objectContaining({ id: "area-well" })],
+      equipment: [expect.objectContaining({ id: "equipment-pump", areaId: "area-well" })],
+    });
+    await request(runtime.app)
+      .get("/api/v1/properties/property-island/inventory")
+      .set("If-None-Match", inventoryBeforeMove.headers.etag)
+      .expect(304);
+    await request(runtime.app)
+      .get("/api/v1/properties/property-island/inventory")
+      .set("If-None-Match", `W/${inventoryBeforeMove.headers.etag}`)
+      .expect(304);
 
     const createdNote = await request(runtime.app).post("/api/v1/property-notes").send({
       id: "note-pump",
@@ -203,6 +219,13 @@ describe("local property management", () => {
     expect(movedEquipment.body.equipment).toMatchObject({
       id: "equipment-pump", propertyId: "property-island", areaId: "area-garden",
     });
+    const inventoryAfterMove = await request(runtime.app)
+      .get("/api/v1/properties/property-island/inventory").expect(200);
+    expect(inventoryAfterMove.body.inventory.syncToken)
+      .not.toBe(inventoryBeforeMove.body.inventory.syncToken);
+    expect(inventoryAfterMove.body.inventory.equipment).toEqual([
+      expect.objectContaining({ id: "equipment-pump", areaId: "area-garden" }),
+    ]);
     expect(runtime.database.getMaintenanceTask("task-pump")).toMatchObject({
       propertyId: "property-island", areaId: "area-garden", equipmentId: "equipment-pump", revision: 2,
     });

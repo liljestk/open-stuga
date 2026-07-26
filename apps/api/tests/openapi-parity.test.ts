@@ -108,7 +108,9 @@ describe("local Express/OpenAPI parity", () => {
       }).router;
       const runtimeOperations = router.stack.flatMap((layer) => {
         if (!layer.route) return [];
-        const path = layer.route.path.replace(/:([A-Za-z0-9_]+)/g, "{$1}");
+        const path = layer.route.path
+          .replaceAll("\\:", ":")
+          .replace(/\/:([A-Za-z0-9_]+)/g, "/{$1}");
         return METHODS.flatMap((method) => layer.route?.methods[method] ? [`${method.toUpperCase()} ${path}`] : []);
       }).sort();
 
@@ -119,8 +121,8 @@ describe("local Express/OpenAPI parity", () => {
         ...documentOperations(v2, "v2"),
       ].sort();
 
-      expect(runtimeOperations).toHaveLength(237);
-      expect(documentOperations(v1, "v1")).toHaveLength(221);
+      expect(runtimeOperations).toHaveLength(266);
+      expect(documentOperations(v1, "v1")).toHaveLength(250);
       expect(documentOperations(v2, "v2")).toHaveLength(16);
       expect(documentedOperations).toEqual(runtimeOperations);
       auditDocument(v1);

@@ -677,6 +677,117 @@ const operationalOrchestrationPaths = {
   "/setup/bulk-sensor-mappings": { post: { tags: ["Integrations"], operationId: "bulkMapSensors", requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["houseId", "mappings"], properties: { houseId: { type: "string" }, mappings: { type: "array", minItems: 1, maxItems: 100, items: { type: "object" } } } } } } }, responses: { "200": { description: "Atomically validated and saved sensor mappings", content: { "application/json": { schema: { type: "object", required: ["sensors"], properties: { sensors: { type: "array", items: { $ref: "#/components/schemas/Sensor" } } } } } } } } } },
 } as const;
 
+const trackingPathParameter = (name: string) => ({
+  name,
+  in: "path",
+  required: true,
+  schema: { type: "string", minLength: 1, maxLength: 200 },
+});
+const trackingObject = { type: "object", additionalProperties: true } as const;
+const trackingObserverSecurity = [{ localSession: [] }, { trackingObserverBearer: [] }] as const;
+const trackingObserverBearerSecurity = [{ trackingObserverBearer: [] }] as const;
+const trackingPaths = {
+  "/tracking/capabilities": {
+    get: { tags: ["Equipment tracking"], operationId: "getTrackingCapabilities", responses: { "200": jsonResponse("Feature-gated BLE tracking capabilities and wire protocol.", { $ref: "#/components/schemas/TrackingCapabilities" }) } },
+  },
+  "/properties/{propertyId}/tracking-settings": {
+    parameters: [trackingPathParameter("propertyId")],
+    get: { tags: ["Equipment tracking"], operationId: "getTrackingSettings", responses: { "200": jsonResponse("Property tracking thresholds and boundary.", { type: "object", required: ["settings"], properties: { settings: { $ref: "#/components/schemas/TrackingPropertySettings" } } }) } },
+    patch: { tags: ["Equipment tracking"], operationId: "updateTrackingSettings", requestBody: jsonRequestBody(trackingObject), responses: { "200": jsonResponse("Updated property tracking settings.", { type: "object", required: ["settings"], properties: { settings: { $ref: "#/components/schemas/TrackingPropertySettings" } } }) } },
+  },
+  "/tracking/tags": {
+    get: { tags: ["Equipment tracking"], operationId: "listTrackingTags", parameters: [{ name: "propertyId", in: "query", required: true, schema: { type: "string" } }], responses: { "200": jsonResponse("Registered tags without secret material.", { type: "object", required: ["tags"], properties: { tags: { type: "array", items: { $ref: "#/components/schemas/TrackingTag" } } } }) } },
+    post: { tags: ["Equipment tracking"], operationId: "createTrackingTag", requestBody: jsonRequestBody(trackingObject), responses: { "201": jsonResponse("Provisioned tag; secret material is returned only in this response.", trackingObject) } },
+  },
+  "/tracking/tags/{tagId}/claim": {
+    parameters: [trackingPathParameter("tagId")],
+    post: { tags: ["Equipment tracking"], operationId: "claimTrackingTag", responses: { "200": jsonResponse("Claimed tag.", { type: "object", required: ["tag"], properties: { tag: { $ref: "#/components/schemas/TrackingTag" } } }) } },
+  },
+  "/tracking/tags/{tagId}/assign": {
+    parameters: [trackingPathParameter("tagId")],
+    post: { tags: ["Equipment tracking"], operationId: "assignTrackingTag", requestBody: jsonRequestBody({ type: "object", additionalProperties: false, required: ["equipmentId"], properties: { equipmentId: { type: "string", minLength: 1 } } }), responses: { "201": jsonResponse("Created an immutable-history asset/tag assignment.", trackingObject) } },
+  },
+  "/tracking/tags/{tagId}/assignment": {
+    parameters: [trackingPathParameter("tagId")],
+    delete: { tags: ["Equipment tracking"], operationId: "unassignTrackingTag", responses: { "200": jsonResponse("Closed the active asset/tag assignment.", trackingObject) } },
+  },
+  "/tracking/tags/{tagId}/rotate-secret": {
+    parameters: [trackingPathParameter("tagId")],
+    post: { tags: ["Equipment tracking"], operationId: "rotateTrackingTagSecret", responses: { "200": jsonResponse("Rotated tag secret; new material is returned only in this response.", trackingObject) } },
+  },
+  "/properties/{propertyId}/tracking-observers": {
+    parameters: [trackingPathParameter("propertyId")],
+    get: { tags: ["Equipment tracking"], operationId: "listTrackingObservers", responses: { "200": jsonResponse("Property gateways and authorized mobile observers.", { type: "object", required: ["observers"], properties: { observers: { type: "array", items: { $ref: "#/components/schemas/TrackingObserver" } } } }) } },
+  },
+  "/tracking/observers/register": {
+    post: { tags: ["Equipment tracking"], operationId: "registerTrackingObserver", requestBody: jsonRequestBody(trackingObject), responses: { "201": jsonResponse("Registered observer; the opaque credential is returned only once.", trackingObject) } },
+  },
+  "/tracking/observers/{observerId}": {
+    parameters: [trackingPathParameter("observerId")],
+    patch: { tags: ["Equipment tracking"], operationId: "updateTrackingObserver", requestBody: jsonRequestBody(trackingObject), responses: { "200": jsonResponse("Updated observer metadata or status.", { type: "object", required: ["observer"], properties: { observer: { $ref: "#/components/schemas/TrackingObserver" } } }) } },
+  },
+  "/tracking/observers/{observerId}/heartbeat": {
+    parameters: [trackingPathParameter("observerId")],
+    post: { security: trackingObserverBearerSecurity, tags: ["Equipment tracking"], operationId: "heartbeatTrackingObserver", requestBody: jsonRequestBody(trackingObject), responses: { "200": jsonResponse("Updated observer health.", { type: "object", required: ["observer"], properties: { observer: { $ref: "#/components/schemas/TrackingObserver" } } }) } },
+  },
+  "/tracking/observers/{observerId}/position": {
+    parameters: [trackingPathParameter("observerId")],
+    post: { tags: ["Equipment tracking"], operationId: "positionTrackingObserver", requestBody: jsonRequestBody(trackingObject), responses: { "200": jsonResponse("Updated fixed gateway position and zone.", { type: "object", required: ["observer"], properties: { observer: { $ref: "#/components/schemas/TrackingObserver" } } }) } },
+  },
+  "/tracking/observations:batch": {
+    post: { security: trackingObserverSecurity, tags: ["Equipment tracking"], operationId: "ingestTrackingObservations", requestBody: jsonRequestBody({ $ref: "#/components/schemas/TrackingObservationBatchInput" }), responses: { "200": jsonResponse("Idempotent observation admission results.", { $ref: "#/components/schemas/TrackingObservationBatchResult" }) } },
+  },
+  "/properties/{propertyId}/equipment-loans": {
+    parameters: [trackingPathParameter("propertyId")],
+    get: { tags: ["Equipment"], operationId: "listEquipmentLoans", parameters: [{ name: "equipmentId", in: "query", schema: { type: "string", minLength: 1, maxLength: 200 } }, { name: "active", in: "query", schema: { type: "boolean", default: false } }, { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 200 } }], responses: { "200": jsonResponse("Property equipment borrowing history.", { type: "object", additionalProperties: false, required: ["loans"], properties: { loans: { type: "array", items: { $ref: "#/components/schemas/EquipmentLoan" } } } }) } },
+  },
+  "/area-equipment/{equipmentId}/borrow": {
+    parameters: [trackingPathParameter("equipmentId")],
+    post: { tags: ["Equipment"], operationId: "borrowEquipment", requestBody: jsonRequestBody({ $ref: "#/components/schemas/EquipmentBorrowInput" }), responses: { "201": jsonResponse("Equipment checked out to the authenticated Property member.", { type: "object", additionalProperties: false, required: ["loan"], properties: { loan: { $ref: "#/components/schemas/EquipmentLoan" } } }), "409": { description: "Equipment is already borrowed" } } },
+  },
+  "/equipment-loans/{loanId}/return": {
+    parameters: [trackingPathParameter("loanId")],
+    post: { tags: ["Equipment"], operationId: "returnEquipment", requestBody: jsonRequestBody({ $ref: "#/components/schemas/EquipmentReturnInput" }), responses: { "200": jsonResponse("Equipment returned; repeated returns are idempotent.", { type: "object", additionalProperties: false, required: ["loan"], properties: { loan: { $ref: "#/components/schemas/EquipmentLoan" } } }) } },
+  },
+  "/properties/{propertyId}/member-locations": {
+    parameters: [trackingPathParameter("propertyId")],
+    get: { tags: ["Equipment tracking"], operationId: "listPropertyMemberLocations", description: "Current explicitly shared member positions only; expired entries and location trails are omitted.", responses: { "200": jsonResponse("Active Property member locations.", { type: "object", additionalProperties: false, required: ["locations"], properties: { locations: { type: "array", items: { $ref: "#/components/schemas/PropertyMemberLocation" } } } }) } },
+  },
+  "/properties/{propertyId}/member-location": {
+    parameters: [trackingPathParameter("propertyId")],
+    put: { tags: ["Equipment tracking"], operationId: "sharePropertyMemberLocation", description: "Explicitly starts or refreshes foreground, time-limited sharing for the authenticated member.", requestBody: jsonRequestBody({ $ref: "#/components/schemas/PropertyMemberLocationInput" }), responses: { "200": jsonResponse("Current shared position.", { type: "object", additionalProperties: false, required: ["location"], properties: { location: { $ref: "#/components/schemas/PropertyMemberLocation" } } }) } },
+    delete: { tags: ["Equipment tracking"], operationId: "stopPropertyMemberLocation", description: "Immediately removes the authenticated member's current shared position.", responses: { "204": { description: "Location sharing stopped and current position removed" } } },
+  },
+  "/properties/{propertyId}/tracked-assets": {
+    parameters: [trackingPathParameter("propertyId")],
+    get: { tags: ["Equipment tracking"], operationId: "listTrackedEquipment", responses: { "200": jsonResponse("Current state for assigned equipment.", trackingObject), "413": { description: "The Property inventory exceeds the supported tracking join size." } } },
+  },
+  "/assets/{equipmentId}/position": {
+    parameters: [trackingPathParameter("equipmentId")],
+    get: { tags: ["Equipment tracking"], operationId: "getTrackedEquipmentPosition", responses: { "200": jsonResponse("Current uncertainty-aware position estimate.", trackingObject) } },
+  },
+  "/assets/{equipmentId}/position-history": {
+    parameters: [trackingPathParameter("equipmentId")],
+    get: { tags: ["Equipment tracking"], operationId: "getTrackedEquipmentPositionHistory", parameters: [{ name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 100 } }], responses: { "200": jsonResponse("Versioned derived position history.", trackingObject) } },
+  },
+  "/assets/{equipmentId}/observations": {
+    parameters: [trackingPathParameter("equipmentId")],
+    get: { tags: ["Equipment tracking"], operationId: "getTrackedEquipmentEvidence", parameters: [{ name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 100 } }], responses: { "200": jsonResponse("Auditable raw evidence; mobile coordinates are role-redacted.", trackingObject) } },
+  },
+  "/assets/{equipmentId}/tracking-scan-token": {
+    parameters: [trackingPathParameter("equipmentId")],
+    get: { tags: ["Equipment tracking"], operationId: "createTrackingScanToken", responses: { "200": jsonResponse("Short-lived rotating identifiers for an authorized foreground Find session.", { $ref: "#/components/schemas/TrackingScanToken" }) } },
+  },
+  "/properties/{propertyId}/tracking-map-snapshot": {
+    parameters: [trackingPathParameter("propertyId")],
+    get: { tags: ["Equipment tracking"], operationId: "getTrackingMapSnapshot", responses: { "200": jsonResponse("Sequence-consistent tracking map snapshot.", { $ref: "#/components/schemas/TrackingMapSnapshot" }), "413": { description: "The Property inventory exceeds the supported tracking join size." } } },
+  },
+  "/properties/{propertyId}/tracking-stream": {
+    parameters: [trackingPathParameter("propertyId")],
+    get: { tags: ["Equipment tracking"], operationId: "streamTrackingUpdates", description: "Ordered SSE updates. Reconnect with Last-Event-ID and refresh the snapshot when the server emits snapshot-required.", parameters: [{ name: "sequence", in: "query", schema: { type: "integer", minimum: 0 } }], responses: { "200": { description: "Ordered equipment tracking event stream.", content: { "text/event-stream": { schema: { type: "string" } } } } } },
+  },
+} as const;
+
 const stugbyIdParameter = { name: "stugbyId", in: "path", required: true, schema: { type: "string", format: "uuid" } } as const;
 const stugbyNodeSecurity = [{ stugbyNodeSignature: [] }] as const;
 const stugbyObject = { type: "object", additionalProperties: true } as const;
@@ -725,12 +836,14 @@ const combinedOpenApiDocument = {
     { name: "Telemetry" }, { name: "Digital twin" }, { name: "Alerts" },
     { name: "Context" }, { name: "Security" }, { name: "Weather" }, { name: "Physics" }, { name: "Integrations" }, { name: "Testing" }, { name: "Measurements" }, { name: "Stugby", description: "Coordinator-led Property collaboration and explicit Home sharing. Homes are read-only by default. Credentials, integrations, account identities, and control commands are outside this protocol." },
     { name: "Spatial layers", description: "Optional local research engines that emit renderer-neutral, versioned 2D/3D semantic layers without mutating core climate state." },
+    { name: "Equipment tracking", description: "Feature-gated BLE observations, uncertainty-aware asset estimates, and ordered map state." },
   ],
   security: [{ localSession: [] }],
   paths: {
     ...localAuthPaths,
     ...spatialLayerPaths,
     ...operationalOrchestrationPaths,
+    ...trackingPaths,
     ...stugbyPaths,
     "/health": { get: { security: [], operationId: "health", responses: { "200": { description: "Service health", content: { "application/json": { schema: { type: "object", required: ["status", "systemVersion", "apiVersion", "database", "uptimeSeconds"], properties: { status: { const: "ok" }, systemVersion: { type: "string" }, apiVersion: { const: "v1" }, database: { const: "ready" }, uptimeSeconds: { type: "integer" } } } } } } } } },
     "/openapi.json": { get: { security: [], operationId: "openApiDocument", responses: { "200": { description: "OpenAPI 3.1 document", content: { "application/json": { schema: { type: "object" } } } } } } },
@@ -886,6 +999,27 @@ const combinedOpenApiDocument = {
       get: { tags: ["Digital twin"], operationId: "getProperty", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Property", content: { "application/json": { schema: { type: "object", required: ["property"], properties: { property: { $ref: "#/components/schemas/Property" } } } } } }, "404": { $ref: "#/components/responses/NotFound" } } },
       patch: { tags: ["Digital twin"], operationId: "updateProperty", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/PropertyPatch" } } } }, responses: { "200": { description: "Updated property", content: { "application/json": { schema: { type: "object", required: ["property"], properties: { property: { $ref: "#/components/schemas/Property" } } } } } }, "404": { $ref: "#/components/responses/NotFound" }, "422": { description: "Invalid property metadata" } } },
       delete: { tags: ["Digital twin"], operationId: "deleteProperty", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "204": { description: "Deleted" }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Property still contains resources" } } },
+    },
+    "/properties/{propertyId}/inventory": {
+      get: {
+        tags: ["Digital twin"],
+        operationId: "getPropertyInventory",
+        parameters: [trackingPathParameter("propertyId")],
+        responses: {
+          "200": {
+            description: "Consistent Property inventory snapshot. Equipment identifiers also join to optional tracking state.",
+            headers: { ETag: { description: "Opaque inventory sync token.", schema: { type: "string" } } },
+            content: { "application/json": { schema: {
+              type: "object",
+              required: ["inventory"],
+              properties: { inventory: { $ref: "#/components/schemas/PropertyInventorySnapshot" } },
+            } } },
+          },
+          "304": { description: "The visible inventory has not changed." },
+          "413": { description: "The Property inventory exceeds the supported snapshot size." },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
     },
     "/properties/{id}/electricity": {
       get: { tags: ["Energy"], operationId: "getPropertyElectricity", parameters: [{ $ref: "#/components/parameters/Id" }, { $ref: "#/components/parameters/FromQuery" }, { $ref: "#/components/parameters/ToQuery" }], responses: { "200": { description: "Property price-source configuration, current quote, and raw/effective interval prices. Guest responses omit endpoint query data and detailed upstream errors.", content: { "application/json": { schema: { type: "object", required: ["config", "current", "prices"], additionalProperties: true } } } }, "404": { $ref: "#/components/responses/NotFound" } } },
@@ -1455,6 +1589,7 @@ const combinedOpenApiDocument = {
       ingestKey: { type: "apiKey", in: "header", name: "X-API-Key", description: "Optional, configured by INGEST_API_KEY." },
       notesGrant: { type: "http", scheme: "bearer", bearerFormat: "opaque", description: "One-time, house-scoped Apple Notes Shortcut grant. The local server stores only its SHA-256 hash." },
       tapoWorkerBearer: { type: "http", scheme: "bearer", bearerFormat: "opaque", description: "Route-scoped token for the isolated Appium Tapo export worker." },
+      trackingObserverBearer: { type: "http", scheme: "bearer", bearerFormat: "opaque", description: "Installation-bound credential accepted only by tracking observation and heartbeat routes." },
       stugbyNodeSignature: { type: "apiKey", in: "header", name: "X-Stugby-Signature", description: "Ed25519 request signature. X-Stugby-Node-Id, X-Stugby-Timestamp, X-Stugby-Request-Id, and X-Stugby-Protocol are also mandatory and replay-checked." },
     },
     parameters: {
@@ -2024,6 +2159,187 @@ const combinedOpenApiDocument = {
       AreaEquipmentPatch: {
         type: "object", minProperties: 1, additionalProperties: false,
         properties: { areaId: { type: "string", minLength: 1, maxLength: 200 }, name: { type: "string", minLength: 1, maxLength: 200 }, kind: { type: "string", minLength: 1, maxLength: 200 }, manufacturer: { type: ["string", "null"], maxLength: 200 }, model: { type: ["string", "null"], maxLength: 200 }, serialNumber: { type: ["string", "null"], maxLength: 200 }, status: { enum: ["active", "out-of-service", "retired"] }, notes: { type: ["string", "null"], maxLength: 5_000 } },
+      },
+      PropertyInventorySnapshot: {
+        type: "object",
+        additionalProperties: false,
+        required: ["propertyId", "generatedAt", "syncToken", "areas", "equipment"],
+        properties: {
+          propertyId: { type: "string" },
+          generatedAt: { type: "string", format: "date-time" },
+          syncToken: { type: "string", description: "Opaque token over the visible inventory metadata." },
+          areas: { type: "array", items: { $ref: "#/components/schemas/PropertyArea" } },
+          equipment: { type: "array", items: { $ref: "#/components/schemas/AreaEquipment" } },
+        },
+      },
+      TrackingCapabilities: {
+        type: "object", additionalProperties: false,
+        required: ["flags", "bleServiceUuid", "protocolVersions", "maximumObservationBatchSize", "observerModes"],
+        properties: {
+          flags: { type: "object", additionalProperties: { type: "boolean" } },
+          bleServiceUuid: { type: "string", format: "uuid" },
+          protocolVersions: { type: "array", items: { type: "integer", minimum: 0, maximum: 3 } },
+          maximumObservationBatchSize: { type: "integer", minimum: 1, maximum: 100 },
+          observerModes: { type: "array", items: { enum: ["passive", "property", "active-property", "find-nearby", "gateway"] } },
+        },
+      },
+      TrackingPropertySettings: {
+        type: "object", additionalProperties: false,
+        required: ["propertyId", "enabled", "propertyBoundary", "liveNearbySeconds", "recentlySeenSeconds", "staleSeconds", "unknownSeconds", "movementThresholdMeters", "movementMaximumIntervalSeconds", "minimumMovementConfidence", "exitAlertDebounceSeconds", "updatedAt"],
+        properties: {
+          propertyId: { type: "string" }, enabled: { type: "boolean" },
+          propertyBoundary: { type: "array", maxItems: 500, items: { $ref: "#/components/schemas/GeoCoordinate" } },
+          liveNearbySeconds: { type: "integer", minimum: 1 }, recentlySeenSeconds: { type: "integer", minimum: 10 },
+          staleSeconds: { type: "integer", minimum: 60 }, unknownSeconds: { type: "integer", minimum: 300 },
+          movementThresholdMeters: { type: "number", minimum: 1 }, movementMaximumIntervalSeconds: { type: "integer", minimum: 5 },
+          minimumMovementConfidence: { type: "number", minimum: 0, maximum: 1 },
+          exitAlertDebounceSeconds: { type: "integer", minimum: 5 },
+          updatedAt: { type: "string", format: "date-time" },
+        },
+      },
+      TrackingTag: {
+        type: "object", additionalProperties: false,
+        required: ["id", "tenantId", "propertyId", "serialNumber", "hardwareModel", "firmwareVersion", "protocolVersion", "rotationWindowMinutes", "batteryType", "batteryPercent", "capabilities", "status", "pairedAt", "lastSeenAt", "createdAt", "updatedAt"],
+        properties: {
+          id: { type: "string" }, tenantId: { type: "string" }, propertyId: { type: "string" },
+          serialNumber: { type: "string" }, hardwareModel: { type: "string" }, firmwareVersion: { type: ["string", "null"] },
+          protocolVersion: { type: "integer", minimum: 0, maximum: 3 }, rotationWindowMinutes: { type: "integer", minimum: 5, maximum: 60 },
+          batteryType: { type: ["string", "null"] }, batteryPercent: { type: ["integer", "null"], minimum: 0, maximum: 100 },
+          capabilities: { type: "object", additionalProperties: false, required: ["motion", "battery", "buzzer", "button", "tamper", "connectable"], properties: { motion: { type: "boolean" }, battery: { type: "boolean" }, buzzer: { type: "boolean" }, button: { type: "boolean" }, tamper: { type: "boolean" }, connectable: { type: "boolean" } } },
+          status: { enum: ["provisioning", "active", "disabled", "retired"] },
+          pairedAt: { type: ["string", "null"], format: "date-time" }, lastSeenAt: { type: ["string", "null"], format: "date-time" },
+          createdAt: { type: "string", format: "date-time" }, updatedAt: { type: "string", format: "date-time" },
+        },
+      },
+      TrackingObserver: {
+        type: "object", additionalProperties: false,
+        required: ["id", "tenantId", "propertyId", "type", "name", "trustLevel", "fixedPosition", "fixedPositionAccuracyMeters", "zoneId", "appInstallationId", "hardwareMetadata", "lastHeartbeatAt", "status", "createdAt", "updatedAt"],
+        properties: {
+          id: { type: "string" }, tenantId: { type: "string" }, propertyId: { type: "string" },
+          type: { enum: ["esp32-gateway", "linux-gateway", "android-gateway", "android-phone", "ios-phone"] },
+          name: { type: "string" }, trustLevel: { type: "number", minimum: 0, maximum: 1 },
+          fixedPosition: { oneOf: [{ $ref: "#/components/schemas/GeoCoordinate" }, { type: "null" }] },
+          fixedPositionAccuracyMeters: { type: ["number", "null"], minimum: 0 },
+          zoneId: { type: ["string", "null"] }, appInstallationId: { type: ["string", "null"] },
+          hardwareMetadata: { type: "object", additionalProperties: true },
+          lastHeartbeatAt: { type: ["string", "null"], format: "date-time" },
+          status: { enum: ["online", "offline", "degraded", "disabled"] },
+          createdAt: { type: "string", format: "date-time" }, updatedAt: { type: "string", format: "date-time" },
+        },
+      },
+      TrackingObservationInput: {
+        type: "object", additionalProperties: false,
+        required: ["observationId", "propertyId", "observerId", "observedAt", "rotatingTagId", "authenticator", "protocolVersion", "epochCounter", "eventCounter", "rssi", "scanMode"],
+        properties: {
+          observationId: { type: "string", minLength: 1, maxLength: 100 }, propertyId: { type: "string" }, observerId: { type: "string" },
+          observedAt: { type: "string", format: "date-time" }, rotatingTagId: { type: "string", description: "Base64url-encoded 64-bit rotating identifier." },
+          authenticator: { type: "string", description: "Base64url-encoded truncated advertisement authenticator." },
+          protocolVersion: { type: "integer", minimum: 0, maximum: 3 }, advertisementFlags: { type: "integer", minimum: 0, maximum: 63 },
+          epochCounter: { type: "integer", minimum: 0, maximum: 65_535 }, eventCounter: { type: "integer", minimum: 0, maximum: 65_535 },
+          rssi: { type: "integer", minimum: -127, maximum: 20 }, txPower: { type: "integer", minimum: -127, maximum: 20 },
+          motion: { type: "boolean" }, batteryPercent: { type: "integer", minimum: 0, maximum: 100 },
+          observerPosition: { type: "object", additionalProperties: false, required: ["latitude", "longitude", "horizontalAccuracyMeters", "source"], properties: { latitude: { type: "number", minimum: -90, maximum: 90 }, longitude: { type: "number", minimum: -180, maximum: 180 }, horizontalAccuracyMeters: { type: "number", minimum: 0 }, source: { enum: ["gps", "fused", "network", "fixed", "manual"] }, capturedAt: { type: "string", format: "date-time" }, reducedAccuracy: { type: "boolean" } } },
+          fixedGatewayPositionId: { type: "string" }, scanMode: { enum: ["passive", "property", "active-property", "find-nearby", "gateway"] },
+          appState: { enum: ["foreground", "background", "suspended"] }, deviceTimeOffsetMs: { type: "integer" },
+          rawPayload: { type: "string" }, metadata: { type: "object", additionalProperties: true },
+        },
+      },
+      TrackingObservationBatchInput: {
+        type: "object", additionalProperties: false, required: ["observations"],
+        properties: { observations: { type: "array", minItems: 1, maxItems: 100, items: { $ref: "#/components/schemas/TrackingObservationInput" } } },
+      },
+      TrackingObservationBatchResult: {
+        type: "object", additionalProperties: false, required: ["accepted", "duplicates", "rejected", "serverTime", "errors"],
+        properties: {
+          accepted: { type: "integer", minimum: 0 }, duplicates: { type: "integer", minimum: 0 }, rejected: { type: "integer", minimum: 0 },
+          serverTime: { type: "string", format: "date-time" },
+          errors: { type: "array", items: { type: "object", additionalProperties: false, required: ["index", "code"], properties: { index: { type: "integer", minimum: 0 }, code: { type: "string" } } } },
+        },
+      },
+      AssetPositionEstimate: {
+        type: "object", additionalProperties: false,
+        required: ["id", "equipmentId", "propertyId", "calculatedAt", "effectiveAt", "positionType", "coordinate", "accuracyRadiusMeters", "zoneId", "confidence", "confidenceLevel", "movementState", "freshnessState", "lastObservedAt", "observerCount", "algorithmVersion", "evidenceObservationIds", "explanation", "version"],
+        properties: {
+          id: { type: "string" }, equipmentId: { type: "string" }, propertyId: { type: "string" },
+          calculatedAt: { type: "string", format: "date-time" }, effectiveAt: { type: "string", format: "date-time" },
+          positionType: { enum: ["confirmed-zone", "estimated-coordinate", "nearby-live", "last-known", "unknown"] },
+          coordinate: { oneOf: [{ $ref: "#/components/schemas/GeoCoordinate" }, { type: "null" }] },
+          accuracyRadiusMeters: { type: ["number", "null"], minimum: 0 }, zoneId: { type: ["string", "null"] },
+          confidence: { type: "number", minimum: 0, maximum: 1 }, confidenceLevel: { enum: ["high", "medium", "low"] },
+          movementState: { enum: ["moving", "stationary", "unknown"] }, freshnessState: { enum: ["live", "recent", "last-known", "stale", "unknown"] },
+          lastObservedAt: { type: ["string", "null"], format: "date-time" }, observerCount: { type: "integer", minimum: 0 },
+          algorithmVersion: { type: "string" }, evidenceObservationIds: { type: "array", items: { type: "string" } },
+          explanation: { type: "object", additionalProperties: true }, version: { type: "integer", minimum: 1 },
+        },
+      },
+      TrackingScanToken: {
+        type: "object", additionalProperties: false, required: ["equipmentId", "bleServiceUuid", "protocolVersion", "rotatingTagIds", "validUntil"],
+        properties: {
+          equipmentId: { type: "string" }, bleServiceUuid: { type: "string", format: "uuid" },
+          protocolVersion: { type: "integer", minimum: 0, maximum: 3 },
+          rotatingTagIds: { type: "array", minItems: 1, items: { type: "string" } },
+          validUntil: { type: "string", format: "date-time" },
+        },
+      },
+      TrackingMapSnapshot: {
+        type: "object", additionalProperties: false,
+        required: ["propertyId", "generatedAt", "sequence", "settings", "zones", "gateways", "assets", "members"],
+        properties: {
+          propertyId: { type: "string" }, generatedAt: { type: "string", format: "date-time" }, sequence: { type: "integer", minimum: 0 },
+          settings: { $ref: "#/components/schemas/TrackingPropertySettings" },
+          zones: { type: "array", items: { $ref: "#/components/schemas/PropertyArea" } },
+          gateways: { type: "array", items: { $ref: "#/components/schemas/TrackingObserver" } },
+          assets: { type: "array", items: { type: "object", additionalProperties: false, required: ["equipment", "tag", "assignment", "position"], properties: { equipment: { $ref: "#/components/schemas/AreaEquipment" }, tag: { oneOf: [{ $ref: "#/components/schemas/TrackingTag" }, { type: "null" }] }, assignment: { oneOf: [trackingObject, { type: "null" }] }, position: { oneOf: [{ $ref: "#/components/schemas/AssetPositionEstimate" }, { type: "null" }] } } } },
+          members: { type: "array", items: { $ref: "#/components/schemas/PropertyMemberLocation" } },
+        },
+      },
+      EquipmentLoan: {
+        type: "object", additionalProperties: false,
+        required: ["id", "propertyId", "equipmentId", "borrowerLabel", "borrowedAt", "expectedReturnAt", "note", "returnedAt", "returnedByLabel", "returnNote"],
+        properties: {
+          id: { type: "string" }, propertyId: { type: "string" }, equipmentId: { type: "string" },
+          borrowerLabel: { type: "string" }, borrowedAt: { type: "string", format: "date-time" },
+          expectedReturnAt: { type: ["string", "null"], format: "date-time" },
+          note: { type: ["string", "null"], maxLength: 1_000 },
+          returnedAt: { type: ["string", "null"], format: "date-time" },
+          returnedByLabel: { type: ["string", "null"] },
+          returnNote: { type: ["string", "null"], maxLength: 1_000 },
+        },
+      },
+      EquipmentBorrowInput: {
+        type: "object", additionalProperties: false,
+        properties: {
+          expectedReturnAt: { type: ["string", "null"], format: "date-time" },
+          note: { type: ["string", "null"], maxLength: 1_000 },
+        },
+      },
+      EquipmentReturnInput: {
+        type: "object", additionalProperties: false,
+        properties: { note: { type: ["string", "null"], maxLength: 1_000 } },
+      },
+      PropertyMemberLocation: {
+        type: "object", additionalProperties: false,
+        required: ["id", "propertyId", "memberLabel", "coordinate", "horizontalAccuracyMeters", "reducedAccuracy", "capturedAt", "updatedAt", "sharingUntil"],
+        properties: {
+          id: { type: "string" }, propertyId: { type: "string" }, memberLabel: { type: "string" },
+          coordinate: { $ref: "#/components/schemas/GeoCoordinate" },
+          horizontalAccuracyMeters: { type: "number", minimum: 0, maximum: 10_000 },
+          reducedAccuracy: { type: "boolean" },
+          capturedAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+          sharingUntil: { type: "string", format: "date-time" },
+        },
+      },
+      PropertyMemberLocationInput: {
+        type: "object", additionalProperties: false,
+        required: ["coordinate", "horizontalAccuracyMeters", "capturedAt", "sharingUntil"],
+        properties: {
+          coordinate: { $ref: "#/components/schemas/GeoCoordinate" },
+          horizontalAccuracyMeters: { type: "number", minimum: 0, maximum: 10_000 },
+          reducedAccuracy: { type: "boolean", default: false },
+          capturedAt: { type: "string", format: "date-time" },
+          sharingUntil: { type: "string", format: "date-time" },
+        },
       },
       PropertyNote: {
         type: "object", required: ["id", "propertyId", "houseId", "areaId", "equipmentId", "kind", "text", "createdAt", "updatedAt"], additionalProperties: false,

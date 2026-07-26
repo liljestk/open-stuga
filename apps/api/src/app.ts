@@ -38,6 +38,7 @@ import type {
   Property,
   PropertyArea,
   PropertyCreateInput,
+  PropertyInventorySnapshot,
   PropertyNoteInput,
   PropertyNotePatch,
   PropertyNote,
@@ -48,6 +49,7 @@ import type {
   StaticParameter,
   TelemetryEvent,
   TenantMemberRole,
+  TrackingFeatureFlags,
 } from "@climate-twin/contracts";
 import { configuredAlertWebhookDestinations, loadConfig, type AppConfig } from "./config.js";
 import {
@@ -167,6 +169,14 @@ import { loadOrCreateStugbyNodeKeys } from "./stugby/identity.js";
 import { registerStugbyLocalRoutes, registerStugbyProtocolRoutes } from "./stugby/routes.js";
 import { StugbyError, StugbyService } from "./stugby/service.js";
 import { StugbyStore } from "./stugby/store.js";
+import { TrackingSecretBox, loadOrCreateTrackingKey } from "./tracking/crypto.js";
+import { registerTrackingRoutes } from "./tracking/routes.js";
+import { TrackingService } from "./tracking/service.js";
+import {
+  TrackingError,
+  TrackingStore,
+  type AuthenticatedTrackingObserver,
+} from "./tracking/store.js";
 
 class HttpError extends Error {
   constructor(readonly status: number, readonly code: string, message: string, readonly details?: unknown) {
@@ -198,6 +208,15 @@ const MAX_SSE_QUEUE_MESSAGES = 128;
 const MAX_SSE_QUEUE_BYTES = 256 * 1024;
 const MAX_EVENT_STREAMS_GLOBAL = 64;
 const MAX_EVENT_STREAMS_PER_USER = 8;
+
+function isTrackingObserverHeartbeatPath(path: string, prefix: string): boolean {
+  const routePrefix = `${prefix}/tracking/observers/`;
+  if (!path.startsWith(routePrefix)) return false;
+  const segments = path.slice(routePrefix.length).split("/");
+  return Boolean(segments[0])
+    && segments[1] === "heartbeat"
+    && (segments.length === 2 || (segments.length === 3 && segments[2] === ""));
+}
 
 interface BoundedSseWriter {
   send: (payload: string) => boolean;
@@ -868,6 +887,31 @@ function visibleCollectionPage<T>(
   }
 }
 
+function completeVisibleCollection<T>(
+  load: (limit: number, offset: number) => T[],
+  visible: (item: T) => boolean,
+  maximum = 10_000,
+): T[] {
+  const result: T[] = [];
+  let rawOffset = 0;
+  for (;;) {
+    const batch = load(500, rawOffset);
+    for (const item of batch) {
+      if (!visible(item)) continue;
+      result.push(item);
+      if (result.length > maximum) {
+        throw new HttpError(
+          413,
+          "COLLECTION_TOO_LARGE",
+          `This collection contains more than ${maximum} visible records`,
+        );
+      }
+    }
+    if (batch.length < 500) return result;
+    rawOffset += batch.length;
+  }
+}
+
 function alertDurationSeconds(value: unknown): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0 || value > 31_536_000) {
     throw new HttpError(400, "INVALID_FIELD", "durationSeconds must be an integer from 1 to 31536000");
@@ -1198,7 +1242,7 @@ class AuthAbuseLimiter {
   readonly #buckets = new Map<string, AuthAttemptBucket>();
   #active = 0;
 
-  enter(limits: readonly AuthAttemptLimit[], response: Response): () => void {
+  enter(limits: readonly AuthAttemptLimit[], response: Response): (forgiveAttempt?: boolean) => void {
     const now = Date.now();
     this.prune(now);
     const uniqueLimits = [...new Map(limits.map((limit) => [limit.key, limit])).values()];
@@ -1226,10 +1270,13 @@ class AuthAbuseLimiter {
     }
     this.#active += 1;
     let released = false;
-    return () => {
+    return (forgiveAttempt = false) => {
       if (released) return;
       released = true;
-      for (const { bucket } of entries) bucket.active = Math.max(0, bucket.active - 1);
+      for (const { bucket } of entries) {
+        bucket.active = Math.max(0, bucket.active - 1);
+        if (forgiveAttempt) bucket.attempts = Math.max(0, bucket.attempts - 1);
+      }
       this.#active = Math.max(0, this.#active - 1);
     };
   }
@@ -1263,6 +1310,21 @@ function authAttemptKeys(request: Request, config: AppConfig, kind: string, subj
   return [
     { key: `auth:${address}:*`, maxAttempts: 60, maxActive: 4 },
     { key: `${kind}:subject:${digest}`, maxAttempts: 8, maxActive: 2 },
+  ];
+}
+
+function trackingObserverAttemptKeys(
+  request: Request,
+  config: AppConfig,
+  credential: string,
+): AuthAttemptLimit[] {
+  const address = trustedProxyClientAddress(request, config)
+    ?? request.socket.remoteAddress?.toLowerCase().replace(/^::ffff:/, "")
+    ?? "unknown";
+  const digest = createHash("sha256").update(credential).digest("hex").slice(0, 24);
+  return [
+    { key: `tracking-observer:${address}:*`, maxAttempts: 240, maxActive: 4 },
+    { key: `tracking-observer:credential:${digest}`, maxAttempts: 120, maxActive: 2 },
   ];
 }
 
@@ -1704,6 +1766,7 @@ export interface ApiRuntime {
   telemetryArchive: TelemetryArchiveWorker | null;
   telemetryReader: HybridTelemetryReader;
   stugby: StugbyService;
+  tracking: TrackingService;
   systemUpdates: SystemUpdateService;
   ready: () => Promise<void>;
   beginShutdown: () => Promise<void>;
@@ -1961,6 +2024,21 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   config.tapoHistoryGmailRefreshToken ??= null;
   config.tapoHistoryPrivateEndpoint ??= null;
   config.tapoHistoryPrivateToken ??= null;
+  config.trackingEnabled ??= false;
+  config.trackingMobileObserverEnabled ??= false;
+  config.trackingIosBackgroundEnabled ??= false;
+  config.trackingAndroidBackgroundEnabled ??= false;
+  config.trackingAndroidGatewayModeEnabled ??= false;
+  config.trackingLiveMapEnabled ??= false;
+  config.trackingMovementTrailsEnabled ??= false;
+  config.trackingExitAlertsEnabled ??= false;
+  config.trackingRotatingIdentifiersEnabled ??= true;
+  config.trackingUserLocationSharingEnabled ??= false;
+  config.trackingExperimentalCoordinateInferenceEnabled ??= false;
+  config.trackingRawMobileCoordinateRetentionHours ??= 24;
+  config.trackingSecretKeyFile ??= config.databasePath === ":memory:"
+    ? null
+    : join(dirname(config.databasePath), "tracking-secret.key");
   // Older in-memory test fixtures predate local authentication. Preserve their
   // trusted harness behavior without ever enabling the bypass outside tests.
   config.localAuthTestBypass ??= process.env.NODE_ENV === "test";
@@ -2008,6 +2086,40 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     throw new Error("timeseriesRequired=true requires timeseriesEnabled=true");
   }
   const database = options.database ?? new ClimateDatabase(config.databasePath);
+  const trackingFlags: TrackingFeatureFlags = {
+    "tracking.enabled": config.trackingEnabled,
+    "tracking.mobileObserver.enabled": config.trackingMobileObserverEnabled,
+    "tracking.mobileObserver.iosBackground.enabled": config.trackingIosBackgroundEnabled,
+    "tracking.mobileObserver.androidBackground.enabled": config.trackingAndroidBackgroundEnabled,
+    "tracking.androidGatewayMode.enabled": config.trackingAndroidGatewayModeEnabled,
+    "tracking.liveMap.enabled": config.trackingLiveMapEnabled,
+    "tracking.movementTrails.enabled": config.trackingMovementTrailsEnabled,
+    "tracking.exitAlerts.enabled": config.trackingExitAlertsEnabled,
+    "tracking.rotatingIdentifiers.enabled": config.trackingRotatingIdentifiersEnabled,
+    "tracking.userLocationSharing.enabled": config.trackingUserLocationSharingEnabled,
+    "tracking.experimentalCoordinateInference.enabled": config.trackingExperimentalCoordinateInferenceEnabled,
+  };
+  if (config.trackingEnabled && !config.trackingRotatingIdentifiersEnabled) {
+    throw new Error("TRACKING_ROTATING_IDENTIFIERS_REQUIRED");
+  }
+  if (config.trackingUserLocationSharingEnabled
+    && (!config.trackingEnabled || !config.trackingLiveMapEnabled)) {
+    throw new Error("TRACKING_USER_LOCATION_SHARING_REQUIRES_LIVE_MAP");
+  }
+  const trackingStore = new TrackingStore(
+    database,
+    new TrackingSecretBox(loadOrCreateTrackingKey(
+      config.trackingEnabled ? config.trackingSecretKeyFile : null,
+    )),
+  );
+  if (config.trackingEnabled) trackingStore.verifyStoredSecrets();
+  const tracking = new TrackingService(
+    trackingStore,
+    {
+      flags: trackingFlags,
+      rawMobileCoordinateRetentionHours: config.trackingRawMobileCoordinateRetentionHours,
+    },
+  );
   const systemUpdates = new SystemUpdateService({
     currentVersion: SYSTEM_VERSION,
     repository: config.systemUpdateRepository,
@@ -2064,6 +2176,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     })
     : null;
   const authAbuseLimiter = new AuthAbuseLimiter();
+  const trackingObserverAbuseLimiter = new AuthAbuseLimiter();
   const dataMode = new DataModeCoordinator(database);
   if ((config.homeAssistantConnections?.length ?? 0) > 0
     || (!config.homeAssistantLegacyDisabled && config.haUrl && config.haToken)
@@ -2697,6 +2810,39 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       return;
     }
 
+    const trackingObserverPath = request.method === "POST" && (
+      request.path === `${prefix}/tracking/observations:batch`
+      || isTrackingObserverHeartbeatPath(request.path, prefix)
+    );
+    const trackingAuthorization = request.header("authorization");
+    const trackingBearer = trackingAuthorization?.startsWith("Bearer ")
+      ? trackingAuthorization.slice(7)
+      : null;
+    if (trackingObserverPath && trackingBearer?.startsWith("stuga_observer_v1.")) {
+      if (!tracking.enabled) {
+        next(new TrackingError(404, "TRACKING_DISABLED", "Equipment tracking is not enabled"));
+        return;
+      }
+      const release = trackingObserverAbuseLimiter.enter(
+        trackingObserverAttemptKeys(request, config, trackingBearer),
+        response,
+      );
+      let authenticated = false;
+      try {
+        const observer = tracking.authenticateObserverCredential(trackingBearer);
+        if (!observer) {
+          next(new TrackingError(401, "UNAUTHORIZED", "A valid observer credential is required"));
+          return;
+        }
+        authenticated = true;
+        response.locals.trackingObserver = observer;
+        next();
+      } finally {
+        release(authenticated);
+      }
+      return;
+    }
+
     const preSetupPath = request.path === `${prefix}/health`
       || request.path === `${prefix}/openapi.json`
       || request.path === `${v2Prefix}/openapi.json`
@@ -2769,6 +2915,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
 
   const cloudflareSetupJsonParser = express.json({ limit: "16kb" });
   const memberJsonParser = express.json({ limit: "32kb" });
+  const trackingObserverJsonParser = express.json({ limit: "256kb" });
   const apiJsonParser = express.json({ limit: "15mb" });
   app.use((request, response, next) => {
     // Authentication endpoints were parsed above because their credentials are
@@ -2784,6 +2931,14 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       || request.path.startsWith(`${prefix}/internal/tapo-history/`)) {
       response.locals.accountBodyLimit = "32 KiB";
       memberJsonParser(request, response, next);
+      return;
+    }
+    if (request.method === "POST" && (
+      request.path === `${prefix}/tracking/observations:batch`
+      || isTrackingObserverHeartbeatPath(request.path, prefix)
+    )) {
+      response.locals.accountBodyLimit = "256 KiB";
+      trackingObserverJsonParser(request, response, next);
       return;
     }
     response.locals.accountBodyLimit = "15 MiB";
@@ -2803,6 +2958,8 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       || request.path === `${prefix}/readings`
       || request.path === `${v2Prefix}/measurements`
       || request.path === `${v2Prefix}/measurements/import`
+      || request.path === `${prefix}/tracking/observations:batch`
+      || isTrackingObserverHeartbeatPath(request.path, prefix)
       || request.path.startsWith(`${prefix}/mock/`)
       || request.path === `${prefix}/replay`;
     if (!unsafe || excluded) { next(); return; }
@@ -3750,6 +3907,44 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       true,
     ));
     response.status(204).end();
+  });
+
+  app.get(`${prefix}/properties/:propertyId/inventory`, (request, response) => {
+    const propertyId = request.params.propertyId as string;
+    const property = database.getProperty(propertyId);
+    const access = visibility(response);
+    if (!property || !access.property(property)) {
+      throw new HttpError(404, "NOT_FOUND", "Property not found");
+    }
+    const areas = completeVisibleCollection(
+      (limit, offset) => database.listPropertyAreas(propertyId, limit, offset),
+      (area) => access.area(area.id),
+    );
+    const equipment = completeVisibleCollection(
+      (limit, offset) => database.listAreaEquipment({ propertyId, limit, offset }),
+      (item) => access.equipment(item),
+    );
+    const syncToken = createHash("sha256")
+      .update(JSON.stringify({ propertyId, areas, equipment }))
+      .digest("hex");
+    const etag = `"${syncToken}"`;
+    response.setHeader("cache-control", "private, no-cache");
+    response.setHeader("etag", etag);
+    if (request.header("if-none-match")?.split(",").some((value) => {
+      const candidate = value.trim();
+      return candidate === "*" || candidate.replace(/^W\//u, "") === etag;
+    })) {
+      response.status(304).end();
+      return;
+    }
+    const inventory: PropertyInventorySnapshot = {
+      propertyId,
+      generatedAt: new Date().toISOString(),
+      syncToken,
+      areas,
+      equipment,
+    };
+    response.json({ inventory });
   });
 
   app.get(`${prefix}/area-equipment`, (request, response) => {
@@ -6031,6 +6226,42 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   });
   app.delete(`${prefix}/replay`, (_request, response) => response.json({ replay: replay.stop() }));
 
+  registerTrackingRoutes(app, {
+    service: tracking,
+    prefix,
+    principal: (response) => {
+      const principal = response.locals.localPrincipal as LocalRequestPrincipal | undefined;
+      return principal
+        ? {
+            userId: principal.userId,
+            label: principal.email || "Property member",
+            role: principal.role,
+          }
+        : null;
+    },
+    machineObserver: (response) => (
+      response.locals.trackingObserver as AuthenticatedTrackingObserver | undefined
+    ) ?? null,
+    authorizeProperty: (response, propertyId) => {
+      const principal = response.locals.localPrincipal as LocalRequestPrincipal | undefined;
+      return principal ? new LocalVisibility(database, principal).hasProperty(propertyId) : false;
+    },
+    authorizeEquipment: (response, equipmentId) => {
+      const principal = response.locals.localPrincipal as LocalRequestPrincipal | undefined;
+      const equipment = database.getAreaEquipment(equipmentId);
+      return Boolean(
+        principal
+        && equipment
+        && new LocalVisibility(database, principal).equipment(equipment),
+      );
+    },
+    assertPropertyWriteAllowed: (propertyId) => stugby.assertPropertyWriteAllowed(propertyId),
+    streamAuthorizationFingerprint,
+    validateStream: (_request, response) => !rejectEventStreamDuringShutdown(response),
+    acquireStream: (_request, response) => acquireEventStream(response),
+    registerStream: registerEventStream,
+  });
+
   registerSpatialLayerRoutes(app, {
     runtime: spatialLayers,
     prefix,
@@ -6058,6 +6289,10 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       return;
     }
     if (error instanceof LocalAuthError) {
+      response.status(error.status).json({ error: { code: error.code, message: error.message } });
+      return;
+    }
+    if (error instanceof TrackingError) {
       response.status(error.status).json({ error: { code: error.code, message: error.message } });
       return;
     }
@@ -6127,6 +6362,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   }
 
   if (options.startBackground) {
+    tracking.start();
     systemUpdates.start();
     stugby?.start();
     cloudflareAccess?.start();
@@ -6145,6 +6381,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   const beginShutdown = (): Promise<void> => {
     if (shutdownPromise) return shutdownPromise;
     shutdownStarted = true;
+    tracking.stop();
     alertEngine.stop();
     systemUpdates.stop();
     mock.stop();
@@ -6189,7 +6426,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
 
   return {
     app, database, integrationMetadata, bus, telemetry, measurements, mock, replay, status, homeAssistant, tpLink, tapoHistory, electricityPrices, telegram, weather, weatherMonitor, dailyAnalyticsFindings,
-    weatherRecovery, sensorGapRecovery, weatherEvents, dataMode, notificationOutbox, dataOperations, energyOptimizer, energyCost, setupDoctor, cloudflareAccess, cloudflareSetup, spatialLayers, timeseries, telemetryArchive, telemetryReader, stugby, systemUpdates,
+    weatherRecovery, sensorGapRecovery, weatherEvents, dataMode, notificationOutbox, dataOperations, energyOptimizer, energyCost, setupDoctor, cloudflareAccess, cloudflareSetup, spatialLayers, timeseries, telemetryArchive, telemetryReader, stugby, tracking, systemUpdates,
     ready: () => runtimeReady,
     beginShutdown,
     close,

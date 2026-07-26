@@ -611,6 +611,7 @@ test("backup creates and re-verifies snapshots, assets, manifest, and opt-in fak
   const directory = temporaryDirectory(t);
   const source = join(directory, "source.sqlite");
   const writer = createTelemetryFixture(source);
+  writer.exec("CREATE TABLE tracking_tags (id TEXT PRIMARY KEY); INSERT INTO tracking_tags VALUES ('tag-1')");
 
   const spatial = join(directory, "spatial.sqlite");
   const spatialWriter = new DatabaseSync(spatial);
@@ -624,6 +625,8 @@ test("backup creates and re-verifies snapshots, assets, manifest, and opt-in fak
   writeFileSync(secrets, '{"version":1,"fakeToken":"test-only"}\n');
   const stugbyIdentity = join(directory, "stugby-identity.json");
   writeFileSync(stugbyIdentity, '{"version":1,"nodeId":"test-node","displayName":"Test","publicKey":"fake","privateKey":"fake","createdAt":"2026-07-22T00:00:00.000Z"}\n');
+  const trackingSecretKey = join(directory, "tracking-secret.key");
+  writeFileSync(trackingSecretKey, `${Buffer.alloc(32, 7).toString("base64url")}\n`);
   const output = join(directory, "backup");
   try {
     const options = parseBackupArgs([
@@ -632,6 +635,7 @@ test("backup creates and re-verifies snapshots, assets, manifest, and opt-in fak
       "--assets", assets,
       "--spatial-db", spatial,
       "--stugby-identity", stugbyIdentity,
+      "--tracking-secret-key", trackingSecretKey,
       "--include-secrets",
       "--secrets-file", secrets,
     ], {});
@@ -644,7 +648,9 @@ test("backup creates and re-verifies snapshots, assets, manifest, and opt-in fak
     assert.ok(manifest.files.some(({ category }) => category === "asset"));
     assert.ok(manifest.files.some(({ category }) => category === "integration-secrets"));
     assert.ok(manifest.files.some(({ category }) => category === "stugby-identity"));
+    assert.ok(manifest.files.some(({ category }) => category === "tracking-secret-key"));
     assert.equal(manifest.sources.stugbyIdentity.status, "included");
+    assert.equal(manifest.sources.trackingSecretKey.encryptedTagRecords, 1);
     assert.equal(manifest.files.every(({ sensitive }) => sensitive === true), true);
     assert.equal(existsSync(join(output, "manifest.sha256")), true);
     assert.equal(existsSync(join(output, "INCOMPLETE.json")), false);
@@ -658,6 +664,29 @@ test("backup creates and re-verifies snapshots, assets, manifest, and opt-in fak
       }
       assert.equal(statSync(join(output, "manifest.json")).mode & 0o777, 0o600);
     }
+  } finally {
+    writer.close();
+  }
+});
+
+test("backup refuses encrypted tracking tags without their restore key", async (t) => {
+  const directory = temporaryDirectory(t);
+  const source = join(directory, "source.sqlite");
+  const writer = createTelemetryFixture(source);
+  try {
+    writer.exec("CREATE TABLE tracking_tags (id TEXT PRIMARY KEY); INSERT INTO tracking_tags VALUES ('tag-1')");
+    const options = parseBackupArgs([
+      "--database", source,
+      "--output", join(directory, "backup"),
+      "--assets", join(directory, "missing-assets"),
+      "--spatial-db", join(directory, "missing-spatial.sqlite"),
+      "--stugby-identity", join(directory, "missing-identity.json"),
+      "--tracking-secret-key", join(directory, "missing-tracking-secret.key"),
+    ], {});
+    await assert.rejects(
+      createBackup(options),
+      /encrypted tracking tags but TRACKING_SECRET_KEY_FILE is missing/u,
+    );
   } finally {
     writer.close();
   }

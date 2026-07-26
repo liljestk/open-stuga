@@ -69,6 +69,7 @@ import type {
   PropertyElectricityConfig,
   PropertyElectricityConfigInput,
   PropertyElectricityPricePoint,
+  PropertyInventorySnapshot,
   TenantMemberSummary,
   TenantInvitationCreated,
   TelemetryEvent,
@@ -76,6 +77,7 @@ import type {
   TelegramDiscoveryResult,
   ThermalIsolationResult,
   ThermalSimulationResult,
+  TrackedEquipmentState,
   TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
 import type {
@@ -940,6 +942,12 @@ export const api = {
     body: JSON.stringify(patch),
   }), "area"),
   deletePropertyArea: (id: string) => request<void>(`/property-areas/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  propertyInventory: async (propertyId: string) => entity<PropertyInventorySnapshot>(
+    await request<PropertyInventorySnapshot | { inventory: PropertyInventorySnapshot }>(
+      `/properties/${encodeURIComponent(propertyId)}/inventory`,
+    ),
+    "inventory",
+  ),
   areaEquipment: (propertyId?: string) => completeCollection<AreaEquipment>(propertyId
     ? `/area-equipment?propertyId=${encodeURIComponent(propertyId)}`
     : "/area-equipment", ["equipment", "areaEquipment", "data"]),
@@ -952,6 +960,10 @@ export const api = {
     body: JSON.stringify(patch),
   }), "equipment"),
   deleteAreaEquipment: (id: string) => request<void>(`/area-equipment/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  trackedAssets: async (propertyId: string) => list<TrackedEquipmentState>(
+    await request<unknown>(`/properties/${encodeURIComponent(propertyId)}/tracked-assets`),
+    ["assets", "data"],
+  ),
   propertyNotes: (propertyId?: string) => completeCollection<PropertyNote>(propertyId
     ? `/property-notes?propertyId=${encodeURIComponent(propertyId)}`
     : "/property-notes", ["notes", "propertyNotes", "data"]),

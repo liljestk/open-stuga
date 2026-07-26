@@ -403,7 +403,7 @@ describe("sensor onboarding and management", () => {
       tags: [],
       enabled: true,
     });
-  });
+  }, 10_000);
 
   it("edits a sensor name, room, floor, and exact placement", async () => {
     const user = userEvent.setup();

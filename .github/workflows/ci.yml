@@ -37,6 +37,27 @@ jobs:
       - name: Build native local mode
         run: npm run build
 
+  ios-companion:
+    name: Native iOS companion
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Test portable Swift core
+        run: swift test --package-path apps/ios
+
+      - name: Build iOS app
+        run: >-
+          xcodebuild
+          -project apps/ios/Stuga.xcodeproj
+          -scheme Stuga
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath "$RUNNER_TEMP/stuga-ios-derived-data"
+          CODE_SIGNING_ALLOWED=NO
+          build
+
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 25

@@ -1,0 +1,525 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A60000000000000000000001 /* StugaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000001 /* StugaApp.swift */; };
+		A60000000000000000000002 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000002 /* AppModel.swift */; };
+		A60000000000000000000003 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000003 /* RootView.swift */; };
+		A60000000000000000000004 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000004 /* MainTabView.swift */; };
+		A60000000000000000000005 /* StugaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000005 /* StugaTheme.swift */; };
+		A60000000000000000000006 /* StugaMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000006 /* StugaMark.swift */; };
+		A60000000000000000000007 /* ConditionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000007 /* ConditionViews.swift */; };
+		A60000000000000000000008 /* HomeDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000008 /* HomeDashboardView.swift */; };
+		A60000000000000000000009 /* SensorsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000009 /* SensorsView.swift */; };
+		A6000000000000000000000A /* SensorDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5000000000000000000000A /* SensorDetailView.swift */; };
+		A6000000000000000000000B /* AlertsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5000000000000000000000B /* AlertsView.swift */; };
+		A6000000000000000000000C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5000000000000000000000C /* SettingsView.swift */; };
+		A6000000000000000000000D /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5000000000000000000000D /* Models.swift */; };
+		A6000000000000000000000E /* ServerAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5000000000000000000000E /* ServerAddress.swift */; };
+		A6000000000000000000000F /* CompanionLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5000000000000000000000F /* CompanionLogic.swift */; };
+		A60000000000000000000010 /* SSEParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000010 /* SSEParser.swift */; };
+		A60000000000000000000011 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000011 /* APIClient.swift */; };
+		A60000000000000000000012 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000012 /* Assets.xcassets */; };
+		A60000000000000000000013 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000013 /* Localizable.xcstrings */; };
+		A60000000000000000000014 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000015 /* PrivacyInfo.xcprivacy */; };
+		B60000000000000000000001 /* TrackingModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000001 /* TrackingModels.swift */; };
+		B60000000000000000000002 /* TrackingProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000002 /* TrackingProtocol.swift */; };
+		B60000000000000000000003 /* TrackingSignal.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000003 /* TrackingSignal.swift */; };
+		B60000000000000000000004 /* TrackingObservationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000004 /* TrackingObservationQueue.swift */; };
+		B60000000000000000000005 /* TrackingCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000005 /* TrackingCredentialStore.swift */; };
+		B60000000000000000000006 /* MobileTrackingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000006 /* MobileTrackingController.swift */; };
+		B60000000000000000000007 /* EquipmentMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000007 /* EquipmentMapView.swift */; };
+		B60000000000000000000008 /* EquipmentDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000008 /* EquipmentDetailView.swift */; };
+		B60000000000000000000009 /* EquipmentModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B50000000000000000000009 /* EquipmentModels.swift */; };
+		B6000000000000000000000A /* MemberLocationSharingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5000000000000000000000A /* MemberLocationSharingController.swift */; };
+		B6000000000000000000000B /* EquipmentQRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5000000000000000000000B /* EquipmentQRScannerView.swift */; };
+		B6000000000000000000000C /* EquipmentOperationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5000000000000000000000C /* EquipmentOperationsView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A30000000000000000000001 /* Stuga.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Stuga.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A50000000000000000000001 /* StugaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StugaApp.swift; sourceTree = "<group>"; };
+		A50000000000000000000002 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		A50000000000000000000003 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		A50000000000000000000004 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
+		A50000000000000000000005 /* StugaTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StugaTheme.swift; sourceTree = "<group>"; };
+		A50000000000000000000006 /* StugaMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StugaMark.swift; sourceTree = "<group>"; };
+		A50000000000000000000007 /* ConditionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConditionViews.swift; sourceTree = "<group>"; };
+		A50000000000000000000008 /* HomeDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeDashboardView.swift; sourceTree = "<group>"; };
+		A50000000000000000000009 /* SensorsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorsView.swift; sourceTree = "<group>"; };
+		A5000000000000000000000A /* SensorDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SensorDetailView.swift; sourceTree = "<group>"; };
+		A5000000000000000000000B /* AlertsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertsView.swift; sourceTree = "<group>"; };
+		A5000000000000000000000C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A5000000000000000000000D /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		A5000000000000000000000E /* ServerAddress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerAddress.swift; sourceTree = "<group>"; };
+		A5000000000000000000000F /* CompanionLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanionLogic.swift; sourceTree = "<group>"; };
+		A50000000000000000000010 /* SSEParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSEParser.swift; sourceTree = "<group>"; };
+		A50000000000000000000011 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		A50000000000000000000012 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A50000000000000000000013 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		A50000000000000000000014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A50000000000000000000015 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		B50000000000000000000001 /* TrackingModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingModels.swift; sourceTree = "<group>"; };
+		B50000000000000000000002 /* TrackingProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingProtocol.swift; sourceTree = "<group>"; };
+		B50000000000000000000003 /* TrackingSignal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingSignal.swift; sourceTree = "<group>"; };
+		B50000000000000000000004 /* TrackingObservationQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingObservationQueue.swift; sourceTree = "<group>"; };
+		B50000000000000000000005 /* TrackingCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingCredentialStore.swift; sourceTree = "<group>"; };
+		B50000000000000000000006 /* MobileTrackingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTrackingController.swift; sourceTree = "<group>"; };
+		B50000000000000000000007 /* EquipmentMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentMapView.swift; sourceTree = "<group>"; };
+		B50000000000000000000008 /* EquipmentDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentDetailView.swift; sourceTree = "<group>"; };
+		B50000000000000000000009 /* EquipmentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentModels.swift; sourceTree = "<group>"; };
+		B5000000000000000000000A /* MemberLocationSharingController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemberLocationSharingController.swift; sourceTree = "<group>"; };
+		B5000000000000000000000B /* EquipmentQRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentQRScannerView.swift; sourceTree = "<group>"; };
+		B5000000000000000000000C /* EquipmentOperationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentOperationsView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A40000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A90000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				A90000000000000000000002 /* Stuga */,
+				A9000000000000000000000B /* StugaCore */,
+				A9000000000000000000000C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A90000000000000000000002 /* Stuga */ = {
+			isa = PBXGroup;
+			children = (
+				A90000000000000000000003 /* App */,
+				A90000000000000000000004 /* Design */,
+				A90000000000000000000005 /* Components */,
+				A90000000000000000000006 /* Home */,
+				A90000000000000000000007 /* Sensors */,
+				A90000000000000000000008 /* Alerts */,
+				A90000000000000000000009 /* Settings */,
+				B90000000000000000000001 /* Tracking */,
+				A9000000000000000000000A /* Resources */,
+				A50000000000000000000014 /* Info.plist */,
+			);
+			path = Stuga;
+			sourceTree = "<group>";
+		};
+		A90000000000000000000003 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A50000000000000000000001 /* StugaApp.swift */,
+				A50000000000000000000002 /* AppModel.swift */,
+				A50000000000000000000003 /* RootView.swift */,
+				A50000000000000000000004 /* MainTabView.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A90000000000000000000004 /* Design */ = {
+			isa = PBXGroup;
+			children = (
+				A50000000000000000000005 /* StugaTheme.swift */,
+			);
+			path = Design;
+			sourceTree = "<group>";
+		};
+		A90000000000000000000005 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				A50000000000000000000006 /* StugaMark.swift */,
+				A50000000000000000000007 /* ConditionViews.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		A90000000000000000000006 /* Home */ = {
+			isa = PBXGroup;
+			children = (
+				A50000000000000000000008 /* HomeDashboardView.swift */,
+			);
+			path = Home;
+			sourceTree = "<group>";
+		};
+		A90000000000000000000007 /* Sensors */ = {
+			isa = PBXGroup;
+			children = (
+				A50000000000000000000009 /* SensorsView.swift */,
+				A5000000000000000000000A /* SensorDetailView.swift */,
+			);
+			path = Sensors;
+			sourceTree = "<group>";
+		};
+		A90000000000000000000008 /* Alerts */ = {
+			isa = PBXGroup;
+			children = (
+				A5000000000000000000000B /* AlertsView.swift */,
+			);
+			path = Alerts;
+			sourceTree = "<group>";
+		};
+		A90000000000000000000009 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				A5000000000000000000000C /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		A9000000000000000000000A /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A50000000000000000000012 /* Assets.xcassets */,
+				A50000000000000000000013 /* Localizable.xcstrings */,
+				A50000000000000000000015 /* PrivacyInfo.xcprivacy */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		B90000000000000000000001 /* Tracking */ = {
+			isa = PBXGroup;
+			children = (
+				B50000000000000000000005 /* TrackingCredentialStore.swift */,
+				B50000000000000000000006 /* MobileTrackingController.swift */,
+				B50000000000000000000007 /* EquipmentMapView.swift */,
+				B50000000000000000000008 /* EquipmentDetailView.swift */,
+				B5000000000000000000000A /* MemberLocationSharingController.swift */,
+				B5000000000000000000000B /* EquipmentQRScannerView.swift */,
+				B5000000000000000000000C /* EquipmentOperationsView.swift */,
+			);
+			path = Tracking;
+			sourceTree = "<group>";
+		};
+		A9000000000000000000000B /* StugaCore */ = {
+			isa = PBXGroup;
+			children = (
+				A5000000000000000000000D /* Models.swift */,
+				A5000000000000000000000E /* ServerAddress.swift */,
+				A5000000000000000000000F /* CompanionLogic.swift */,
+				A50000000000000000000010 /* SSEParser.swift */,
+				A50000000000000000000011 /* APIClient.swift */,
+				B50000000000000000000001 /* TrackingModels.swift */,
+				B50000000000000000000002 /* TrackingProtocol.swift */,
+				B50000000000000000000003 /* TrackingSignal.swift */,
+				B50000000000000000000004 /* TrackingObservationQueue.swift */,
+				B50000000000000000000009 /* EquipmentModels.swift */,
+			);
+			path = Sources/StugaCore;
+			sourceTree = "<group>";
+		};
+		A9000000000000000000000C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A30000000000000000000001 /* Stuga.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A20000000000000000000001 /* Stuga */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A80000000000000000000002 /* Build configuration list for PBXNativeTarget "Stuga" */;
+			buildPhases = (
+				A40000000000000000000001 /* Sources */,
+				A40000000000000000000002 /* Frameworks */,
+				A40000000000000000000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Stuga;
+			productName = Stuga;
+			productReference = A30000000000000000000001 /* Stuga.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A10000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					A20000000000000000000001 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = A80000000000000000000001 /* Build configuration list for PBXProject "Stuga" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				fi,
+				sv,
+				Base,
+			);
+			mainGroup = A90000000000000000000001;
+			productRefGroup = A9000000000000000000000C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A20000000000000000000001 /* Stuga */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A40000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A60000000000000000000012 /* Assets.xcassets in Resources */,
+				A60000000000000000000013 /* Localizable.xcstrings in Resources */,
+				A60000000000000000000014 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A40000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A60000000000000000000001 /* StugaApp.swift in Sources */,
+				A60000000000000000000002 /* AppModel.swift in Sources */,
+				A60000000000000000000003 /* RootView.swift in Sources */,
+				A60000000000000000000004 /* MainTabView.swift in Sources */,
+				A60000000000000000000005 /* StugaTheme.swift in Sources */,
+				A60000000000000000000006 /* StugaMark.swift in Sources */,
+				A60000000000000000000007 /* ConditionViews.swift in Sources */,
+				A60000000000000000000008 /* HomeDashboardView.swift in Sources */,
+				A60000000000000000000009 /* SensorsView.swift in Sources */,
+				A6000000000000000000000A /* SensorDetailView.swift in Sources */,
+				A6000000000000000000000B /* AlertsView.swift in Sources */,
+				A6000000000000000000000C /* SettingsView.swift in Sources */,
+				A6000000000000000000000D /* Models.swift in Sources */,
+				A6000000000000000000000E /* ServerAddress.swift in Sources */,
+				A6000000000000000000000F /* CompanionLogic.swift in Sources */,
+				A60000000000000000000010 /* SSEParser.swift in Sources */,
+				A60000000000000000000011 /* APIClient.swift in Sources */,
+				B60000000000000000000001 /* TrackingModels.swift in Sources */,
+				B60000000000000000000002 /* TrackingProtocol.swift in Sources */,
+				B60000000000000000000003 /* TrackingSignal.swift in Sources */,
+				B60000000000000000000004 /* TrackingObservationQueue.swift in Sources */,
+				B60000000000000000000005 /* TrackingCredentialStore.swift in Sources */,
+				B60000000000000000000006 /* MobileTrackingController.swift in Sources */,
+				B60000000000000000000007 /* EquipmentMapView.swift in Sources */,
+				B60000000000000000000008 /* EquipmentDetailView.swift in Sources */,
+				B60000000000000000000009 /* EquipmentModels.swift in Sources */,
+				B6000000000000000000000A /* MemberLocationSharingController.swift in Sources */,
+				B6000000000000000000000B /* EquipmentQRScannerView.swift in Sources */,
+				B6000000000000000000000C /* EquipmentOperationsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A70000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A70000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		A70000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Stuga/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = net.nysta.stuga;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = targeted;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A70000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Stuga/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = net.nysta.stuga;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = targeted;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A80000000000000000000001 /* Build configuration list for PBXProject "Stuga" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A70000000000000000000001 /* Debug */,
+				A70000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A80000000000000000000002 /* Build configuration list for PBXNativeTarget "Stuga" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A70000000000000000000003 /* Debug */,
+				A70000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A10000000000000000000001 /* Project object */;
+}

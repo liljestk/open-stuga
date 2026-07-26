@@ -4,6 +4,25 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+## 0.12.0 - 2026-07-26
+
+- Added a Property-wide Inventory for maintainable equipment with stable QR
+  identity, notes and issues, borrowing and return history, assigned locations,
+  and an uncertainty-aware tracked state without creating a second asset model.
+- Added opt-in BLE equipment tracking with rotating authenticated identifiers,
+  scoped observer credentials, bounded evidence retention, confidence and
+  freshness estimates, movement and exit signals, a simulator, and an
+  explicitly estimated Property map. Tracking remains inert until its
+  deployment flags are enabled.
+- Added a native iOS companion for authenticated Home monitoring, alert
+  acknowledgement, inventory QR scanning, BLE observation, Find nearby, and
+  explicit foreground member-presence sharing that expires promptly and does
+  not retain a location trail.
+- Encrypted provisioned tracking secrets with a host-held key, required that
+  key in verified backups containing tags, limited observer request size and
+  credential abuse, stopped unavailable tracking polls, and accepted weak
+  inventory ETags.
+
 ## 0.11.1 - 2026-07-25
 
 - Clarified the Stugby Host and Client flow: Hosts connect their Property

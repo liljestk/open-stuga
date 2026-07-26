@@ -72,8 +72,10 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
   supports live server sync; operator device labels are informational, and the
   setup warns that iCloud may copy a Shortcut bearer to other devices
 - A native iOS companion for direct, authenticated Home monitoring, sensor
-  history, and alert acknowledgement without copying telemetry through an
-  intermediary app service
+  history, alert acknowledgement, Property inventory QR scanning, equipment
+  notes/issues/borrowing, opt-in BLE observation, uncertainty-aware Property
+  maps, optional foreground member presence, and Find nearby without copying
+  telemetry through an intermediary app service
 - Versioned REST API, OpenAPI description, and a local stdio MCP server
 - English, Finnish, and Swedish UI foundations, metric/imperial display,
   responsive layout, and accessible controls
@@ -146,7 +148,8 @@ docker compose --profile maintenance run --rm stuga-backup
 ```
 
 The output under `backups/` contains both SQLite databases, assets, the Stugby
-node identity, protected integration secrets, and a full
+node identity, the tracking-tag encryption key when present, protected
+integration secrets, and a full
 TimescaleDB dump. Treat it as sensitive and copy it to encrypted off-host
 storage.
 

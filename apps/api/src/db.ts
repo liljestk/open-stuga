@@ -4829,10 +4829,21 @@ export class ClimateDatabase {
       if (patch.location === null) delete next.location;
       else if (patch.location !== undefined) next.location = structuredClone(patch.location);
       this.validatePropertyArea(next);
-      this.db.prepare(`UPDATE property_areas
-        SET property_id = ?, name = ?, kind = ?, description = ?, location_json = ?, polygon_json = ?, updated_at = ? WHERE id = ?`)
-        .run(next.propertyId, next.name, next.kind, next.description,
-          next.location ? JSON.stringify(next.location) : null, JSON.stringify(next.polygon), next.updatedAt, id);
+      try {
+        this.db.prepare(`UPDATE property_areas
+          SET property_id = ?, name = ?, kind = ?, description = ?, location_json = ?, polygon_json = ?, updated_at = ? WHERE id = ?`)
+          .run(next.propertyId, next.name, next.kind, next.description,
+            next.location ? JSON.stringify(next.location) : null, JSON.stringify(next.polygon), next.updatedAt, id);
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("TRACKING_ASSIGNMENT_PROPERTY_MOVE")) {
+          throw new ClimateDataValidationError(
+            409,
+            "TRACKED_EQUIPMENT_PROPERTY_MOVE",
+            "Remove active tracking-tag assignments before moving this area to another Property",
+          );
+        }
+        throw error;
+      }
       this.recordScopeMoveMaintenanceRevisions(affectedTasks, actor);
       return next;
     });
@@ -4960,6 +4971,13 @@ export class ClimateDatabase {
             409,
             "EQUIPMENT_AREA_MOVE_ORPHANS_TASK",
             "Update or remove maintenance tasks bound to this equipment and its current area before moving it",
+          );
+        }
+        if (error instanceof Error && error.message.includes("TRACKING_ASSIGNMENT_PROPERTY_MOVE")) {
+          throw new ClimateDataValidationError(
+            409,
+            "TRACKED_EQUIPMENT_PROPERTY_MOVE",
+            "Remove the active tracking-tag assignment before moving this equipment to another Property",
           );
         }
         throw error;

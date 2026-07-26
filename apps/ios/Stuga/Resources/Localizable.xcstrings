@@ -1,0 +1,258 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Account" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Tili" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Konto" } }
+      }
+    },
+    "Active" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Aktiiviset" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Aktiva" } }
+      }
+    },
+    "Alerts" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Hälytykset" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Varningar" } }
+      }
+    },
+    "Check again" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Tarkista uudelleen" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Kontrollera igen" } }
+      }
+    },
+    "Choose Home" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Valitse koti" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Välj hem" } }
+      }
+    },
+    "Connect" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Yhdistä" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Anslut" } }
+      }
+    },
+    "Connect to Stuga" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Yhdistä Stugaan" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Anslut till Stuga" } }
+      }
+    },
+    "Connection" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Yhteys" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Anslutning" } }
+      }
+    },
+    "Current state" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Nykytila" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Aktuellt läge" } }
+      }
+    },
+    "Disconnect" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Katkaise yhteys" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Koppla från" } }
+      }
+    },
+    "Display" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Näyttö" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Visning" } }
+      }
+    },
+    "Email" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Sähköposti" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "E-post" } }
+      }
+    },
+    "Everything else" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Kaikki muu" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Allt annat" } }
+      }
+    },
+    "History" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Historia" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Historik" } }
+      }
+    },
+    "Home" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Koti" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Hem" } }
+      }
+    },
+    "Key status" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Keskeinen tila" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Viktig status" } }
+      }
+    },
+    "Last 24 hours" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Viimeiset 24 tuntia" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Senaste 24 timmarna" } }
+      }
+    },
+    "Live" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Reaaliaikainen" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Live" } }
+      }
+    },
+    "Mark as seen" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Merkitse nähdyksi" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Markera som sedd" } }
+      }
+    },
+    "Measurement" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Mittaus" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Mätning" } }
+      }
+    },
+    "Metric (°C)" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Metrinen (°C)" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Metriska (°C)" } }
+      }
+    },
+    "Imperial (°F)" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Brittiläinen (°F)" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Imperiska (°F)" } }
+      }
+    },
+    "Needs attention" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Vaatii huomiota" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Behöver uppmärksamhet" } }
+      }
+    },
+    "No current reading" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Ei nykyistä mittausta" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Ingen aktuell mätning" } }
+      }
+    },
+    "Nothing needs attention" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Mikään ei vaadi huomiota" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Inget behöver uppmärksamhet" } }
+      }
+    },
+    "Open Stuga" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Avaa Stuga" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Öppna Stuga" } }
+      }
+    },
+    "Password" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Salasana" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Lösenord" } }
+      }
+    },
+    "Privacy" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Tietosuoja" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Integritet" } }
+      }
+    },
+    "Reading details" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Mittauksen tiedot" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Mätdetaljer" } }
+      }
+    },
+    "Resolved" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Ratkaistu" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Löst" } }
+      }
+    },
+    "Sensors" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Anturit" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Sensorer" } }
+      }
+    },
+    "Server address" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Palvelimen osoite" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Serveradress" } }
+      }
+    },
+    "Settings" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Asetukset" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Inställningar" } }
+      }
+    },
+    "Sign in" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Kirjaudu sisään" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Logga in" } }
+      }
+    },
+    "Sign out" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Kirjaudu ulos" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Logga ut" } }
+      }
+    },
+    "Stale" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Vanhentunut" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Inaktuell" } }
+      }
+    },
+    "Trying to reconnect" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Yritetään yhdistää uudelleen" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Försöker ansluta igen" } }
+      }
+    },
+    "Temperature units" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Lämpötilayksiköt" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Temperaturenheter" } }
+      }
+    },
+    "Use another server" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Käytä toista palvelinta" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Använd en annan server" } }
+      }
+    },
+    "Welcome home" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Tervetuloa kotiin" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Välkommen hem" } }
+      }
+    },
+    "Why Stuga is showing this" : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Miksi Stuga näyttää tämän" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Varför Stuga visar detta" } }
+      }
+    },
+    "Your home, in balance." : {
+      "localizations" : {
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Kotisi tasapainossa." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Ditt hem, i balans." } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -73,7 +73,14 @@ Primary navigation is scoped and deliberately short:
   **Data & analytics**, **Sensors**, **Set up**.
 - Advanced: **API & MCP**.
 
-Map & assets, Notes, and Access are sections inside Property. Activity,
+Map & assets, Inventory, Notes, and Access are sections inside Property. Inventory
+is the Property-wide catalogue for maintainable equipment; an assigned area is
+the expected location, while optional tracking remains an explicitly labelled
+estimate. A scanned equipment QR tag resolves back to this Property-owned
+record before notes, issues, or borrowing actions are offered. Live member
+presence on the Property map is a separate, explicit foreground opt-in: show
+current accuracy, stop promptly, and do not present it as a location trail.
+Activity,
 Outdoor, Home electricity consumption, and Data & analytics appear only in the
 selected Home group. Property electricity covers the contract and price source;
 Home electricity covers meters and consumption.
@@ -133,6 +140,7 @@ Progressive disclosure applies throughout the product:
 
 - **Overview and Home:** exceptions first, glanceable current state second, specialist tools collapsed.
 - **Sensors:** health and setup gaps first; discovery, import, and editing open on request.
+- **Inventory:** attention and service state first; search and location filters stay visible, while creation and editing open on request.
 - **Alerts:** active actionable groups first; rule creation and acknowledged history are secondary disclosures.
 - **Outdoor:** current conditions and immediate implications first; forecast detail and model provenance follow.
 - **Set up:** show setup progress and the recommended next incomplete step; keep completed and advanced configuration compact.

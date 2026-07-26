@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AreaEquipment, MaintenanceTask, PropertyArea, PropertyNote, TenantMemberSummary } from "@climate-twin/contracts";
-import { api } from "../api";
+import { api, ApiRequestError } from "../api";
 import { createDemoState, DEMO_PROPERTY_ID } from "../domain";
 import { I18nProvider } from "../i18n";
 import { PeopleAccessPage } from "./PeopleAccessPage";
@@ -142,6 +142,76 @@ describe("PropertyManagementPage", () => {
     const secondaryTools = container.querySelector<HTMLDetailsElement>(".property-secondary-tools")!;
     expect(secondaryTools.open).toBe(false);
     expect(within(secondaryTools).getByText("Area equipment & maintenance")).not.toBeNull();
+  });
+
+  it("manages the Property inventory without creating a second asset identity", async () => {
+    const state = createDemoState();
+    state.propertyAreas = [area];
+    state.areaEquipment = [{
+      ...equipment,
+      manufacturer: "Pump Works",
+      model: "PW-20",
+      serialNumber: "PUMP-001",
+    }];
+    const handlers = callbacks();
+    handlers.onUpdateEquipment.mockResolvedValue({
+      ...state.areaEquipment[0]!,
+      manufacturer: "Nordic Pumps",
+      status: "out-of-service",
+    });
+    vi.spyOn(api, "trackedAssets").mockResolvedValue([]);
+
+    const { rerender } = render(<I18nProvider><PropertyManagementPage state={state} {...handlers} /></I18nProvider>);
+    fireEvent.click(screen.getByRole("tab", { name: "Inventory" }));
+
+    expect(screen.getByRole("heading", { name: "Well pump" })).not.toBeNull();
+    expect(screen.getByText("PUMP-001")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Edit layout: Well pump" })).not.toBeNull();
+    await waitFor(() => expect(api.trackedAssets).toHaveBeenCalledTimes(1));
+    rerender(<I18nProvider><PropertyManagementPage
+      state={{ ...state, areaEquipment: state.areaEquipment.map((item) => ({ ...item })) }}
+      {...handlers}
+    /></I18nProvider>);
+    expect(api.trackedAssets).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Edit layout: Well pump" }));
+    fireEvent.change(screen.getByLabelText("Manufacturer"), { target: { value: "Nordic Pumps" } });
+    fireEvent.change(screen.getAllByLabelText("Service state")[1]!, {
+      target: { value: "out-of-service" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save equipment" }));
+
+    await waitFor(() => expect(handlers.onUpdateEquipment).toHaveBeenCalledWith(equipment.id, {
+      areaId: area.id,
+      name: equipment.name,
+      kind: equipment.kind,
+      manufacturer: "Nordic Pumps",
+      model: "PW-20",
+      serialNumber: "PUMP-001",
+      status: "out-of-service",
+      notes: equipment.notes,
+    }));
+  });
+
+  it("stops tracked-equipment polling when tracking is unavailable", async () => {
+    vi.useFakeTimers();
+    try {
+      const state = createDemoState();
+      state.propertyAreas = [area];
+      state.areaEquipment = [equipment];
+      const trackedAssets = vi.spyOn(api, "trackedAssets").mockRejectedValue(
+        new ApiRequestError(404, "TRACKING_DISABLED", "Equipment tracking is not enabled"),
+      );
+      const { unmount } = render(
+        <I18nProvider><PropertyManagementPage state={state} {...callbacks()} /></I18nProvider>,
+      );
+      fireEvent.click(screen.getByRole("tab", { name: "Inventory" }));
+      await vi.waitFor(() => expect(trackedAssets).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(90_000);
+      expect(trackedAssets).toHaveBeenCalledTimes(1);
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("saves a home's map placement from the property map", async () => {
@@ -379,11 +449,15 @@ describe("PropertyManagementPage", () => {
     expect(onProperty).not.toHaveBeenCalled();
 
     const mapTab = screen.getByRole("tab", { name: "Map" });
+    const inventoryTab = screen.getByRole("tab", { name: "Inventory" });
     const notesTab = screen.getByRole("tab", { name: "Notes" });
     expect(mapTab.getAttribute("tabindex")).toBe("0");
     expect(notesTab.getAttribute("tabindex")).toBe("-1");
     mapTab.focus();
     fireEvent.keyDown(mapTab, { key: "ArrowRight" });
+    expect(inventoryTab.getAttribute("aria-selected")).toBe("true");
+    expect(inventoryTab).toBe(document.activeElement);
+    fireEvent.keyDown(inventoryTab, { key: "ArrowRight" });
     expect(notesTab.getAttribute("aria-selected")).toBe("true");
     expect(notesTab).toBe(document.activeElement);
     expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(notesTab.id);
@@ -574,8 +648,14 @@ describe("PropertyManagementPage", () => {
     expect(screen.queryByRole("button", { name: "Add area" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "Access" })).toBeNull();
 
-    selectArea(/North well/);
+    fireEvent.click(screen.getByRole("tab", { name: "Inventory" }));
+    expect(screen.getByRole("heading", { name: "Well pump" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Add inventory item" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit layout: Well pump" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete: Well pump" })).toBeNull();
+
     fireEvent.click(screen.getByRole("tab", { name: "Map" }));
+    selectArea(/North well/);
     fireEvent.click(screen.getByText("Area equipment & maintenance"));
     expect(screen.getByText("Well pump")).not.toBeNull();
     expect(screen.getByText("Service well pump")).not.toBeNull();

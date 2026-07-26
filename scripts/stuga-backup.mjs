@@ -47,6 +47,7 @@ Create options:
   --assets <directory>     External assets directory (default: ASSET_DIRECTORY or ./data/assets)
   --spatial-db <file>      Spatial SQLite DB (default: SPATIAL_LAYERS_DATABASE_PATH or next to core DB)
   --stugby-identity <file> Persistent Stugby node identity (default: STUGBY_IDENTITY_FILE or next to core DB)
+  --tracking-secret-key <file> Key required to restore encrypted tracking-tag secrets
   --include-secrets        Opt in to copying the integration secrets file
   --secrets-file <file>    Secrets path (default: INTEGRATION_SECRETS_FILE or next to core DB)
   --include-timescale      Opt in to a pg_dump custom-format telemetry backup
@@ -136,6 +137,9 @@ export function parseBackupArgs(argv, env = process.env, now = new Date()) {
     } else if (argument === "--stugby-identity") {
       parsed.stugbyIdentityFile = argumentValue(argv, index, argument);
       index += 1;
+    } else if (argument === "--tracking-secret-key") {
+      parsed.trackingSecretKeyFile = argumentValue(argv, index, argument);
+      index += 1;
     } else if (argument === "--secrets-file") {
       parsed.secretsFile = argumentValue(argv, index, argument);
       index += 1;
@@ -168,6 +172,7 @@ export function parseBackupArgs(argv, env = process.env, now = new Date()) {
     const incompatible = parsed.includeSecrets || parsed.includeTimescale
       || parsed.database !== undefined || parsed.output !== undefined || parsed.assets !== undefined
       || parsed.spatialDatabase !== undefined || parsed.stugbyIdentityFile !== undefined || parsed.secretsFile !== undefined
+      || parsed.trackingSecretKeyFile !== undefined
       || parsed.applicationRole !== undefined || parsed.adminRole !== undefined;
     if (incompatible) throw new Error("--verify cannot be combined with backup creation options");
     parsed.verify = resolve(parsed.verify);
@@ -188,6 +193,11 @@ export function parseBackupArgs(argv, env = process.env, now = new Date()) {
     parsed.stugbyIdentityFile
       ?? env.STUGBY_IDENTITY_FILE
       ?? join(dirname(parsed.database), "stugby-identity.json"),
+  );
+  parsed.trackingSecretKeyFile = resolve(
+    parsed.trackingSecretKeyFile
+      ?? env.TRACKING_SECRET_KEY_FILE
+      ?? join(dirname(parsed.database), "tracking-secret.key"),
   );
   parsed.secretsFile = resolve(
     parsed.secretsFile
@@ -295,6 +305,20 @@ function sqliteInventory(path, { checkIntegrity = true } = {}) {
       ...(integrity === undefined ? {} : { integrity }),
       tables: inventorySqliteTables(database),
     };
+  } finally {
+    database.close();
+  }
+}
+
+function sqliteTableRowCount(path, table) {
+  if (!/^[a-z_][a-z0-9_]*$/u.test(table)) throw new Error("Unsafe SQLite table name");
+  const database = openReadOnlySqlite(path);
+  try {
+    const exists = database.prepare(
+      "SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name=?",
+    ).get(table);
+    if (!exists) return 0;
+    return Number(database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count);
   } finally {
     database.close();
   }
@@ -745,6 +769,10 @@ export async function verifyBackup(path, pgRestore = "pg_restore", env = process
     }
   }
   if (!coreSnapshotPath) throw new Error("Backup manifest has no core SQLite snapshot");
+  if (sqliteTableRowCount(coreSnapshotPath, "tracking_tags") > 0
+    && !manifest.files.some((record) => record.category === "tracking-secret-key")) {
+    throw new Error("Backup is missing the tracking secret key required by its encrypted tag records");
+  }
   verifySnapshotStugbyAssetInventory(coreSnapshotPath, manifest.files);
   return {
     status: "passed",
@@ -844,6 +872,36 @@ export async function createBackup(options, { afterCoreSnapshot } = {}) {
     manifest.sources.stugbyIdentity = { status: "included", sensitive: true, originalPath: options.stugbyIdentityFile };
   } else {
     manifest.sources.stugbyIdentity = { status: "missing", originalPath: options.stugbyIdentityFile };
+  }
+
+  const trackingTagCount = sqliteTableRowCount(coreDestination, "tracking_tags");
+  if (existsSync(options.trackingSecretKeyFile)) {
+    if (!statSync(options.trackingSecretKeyFile).isFile()) {
+      throw new Error("The tracking secret key path is not a regular file");
+    }
+    const trackingKeyDestination = join(options.output, "secrets", "tracking-secret.key");
+    mkdirSync(dirname(trackingKeyDestination), { recursive: true, mode: 0o700 });
+    hardenPrivateDirectory(dirname(trackingKeyDestination));
+    copyFileSync(options.trackingSecretKeyFile, trackingKeyDestination);
+    hardenPrivateFile(trackingKeyDestination);
+    manifest.files.push(await fileRecord(options.output, trackingKeyDestination, "tracking-secret-key"));
+    manifest.sources.trackingSecretKey = {
+      status: "included",
+      sensitive: true,
+      originalPath: options.trackingSecretKeyFile,
+      encryptedTagRecords: trackingTagCount,
+    };
+  } else {
+    if (trackingTagCount > 0) {
+      throw new Error(
+        "The core snapshot contains encrypted tracking tags but TRACKING_SECRET_KEY_FILE is missing",
+      );
+    }
+    manifest.sources.trackingSecretKey = {
+      status: "missing",
+      originalPath: options.trackingSecretKeyFile,
+      encryptedTagRecords: 0,
+    };
   }
 
   if (options.includeSecrets) {
