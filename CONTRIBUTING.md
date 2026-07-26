@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve Stuga.
+Thanks for helping improve Stugu.
 
 ## Development
 

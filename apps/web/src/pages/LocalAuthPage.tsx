@@ -1,14 +1,14 @@
 import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Eye, EyeOff, KeyRound, LoaderCircle, LockKeyhole, LogIn, ShieldCheck } from "lucide-react";
 import { api, ApiRequestError } from "../api";
-import { StugaMark } from "../components/StugaMark";
+import { StuguMark } from "../components/StuguMark";
 import { useI18n, type TranslationKey } from "../i18n";
 
 export type LocalAuthMode = "setup" | "login" | "invitation";
 
 // randomBytes(32).toString("base64url") is exactly 43 URL-safe characters.
 const INVITATION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-const INVITATION_SESSION_KEY = "stuga-invitation-token";
+const INVITATION_SESSION_KEY = "stugu-invitation-token";
 
 /** Pure parsing keeps the token stable when React probes initializers in Strict Mode. */
 export function invitationTokenFromFragment(hash = window.location.hash): string | null {
@@ -120,7 +120,7 @@ export function LocalAuthPage({ mode, invitationToken = null, noticeKey = null, 
 
   return <main className="bootstrap-screen local-auth-screen">
     <section className="bootstrap-card local-auth-card" aria-labelledby="local-auth-title">
-      <StugaMark />
+      <StuguMark />
       <span className="bootstrap-icon" aria-hidden="true">{mode === "setup" ? <ShieldCheck size={22} /> : mode === "invitation" ? <KeyRound size={22} /> : <LockKeyhole size={22} />}</span>
       <div><span className="eyebrow">{t(mode === "setup" ? "auth.setupEyebrow" : mode === "invitation" ? "auth.invitationEyebrow" : "auth.loginEyebrow")}</span><h1 id="local-auth-title">{t(titleKey)}</h1><p>{t(descriptionKey)}</p></div>
       {noticeKey && <p className="local-auth-notice" role="alert">{t(noticeKey)}</p>}

@@ -6,7 +6,7 @@ import { qrCodeMatrix } from "../qrCode";
 
 export function equipmentQrPayload(propertyId: string, equipmentId: string): string {
   const query = new URLSearchParams({ property: propertyId, id: equipmentId, v: "1" });
-  return `stuga://equipment?${query.toString()}`;
+  return `stugu://equipment?${query.toString()}`;
 }
 
 export function EquipmentQrLabel({

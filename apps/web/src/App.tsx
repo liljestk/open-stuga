@@ -9,7 +9,7 @@ import { useI18n } from "./i18n";
 import { enabledDefinitions } from "./measurements";
 import { api, type CreateHouseInput } from "./api";
 import { locationForRoute, routeFromLocation } from "./routing";
-import { StugaMark } from "./components/StugaMark";
+import { StuguMark } from "./components/StuguMark";
 import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 import { readLocalStorage, writeLocalStorage } from "./browserStorage";
 import {
@@ -35,13 +35,13 @@ const ActivityPage = lazy(() => import("./pages/ActivityPage").then((module) => 
 const MaintenancePage = lazy(() => import("./pages/MaintenancePage").then((module) => ({ default: module.MaintenancePage })));
 const EnergyPage = lazy(() => import("./pages/EnergyPage").then((module) => ({ default: module.EnergyPage })));
 const PeopleAccessPage = lazy(() => import("./pages/PeopleAccessPage").then((module) => ({ default: module.PeopleAccessPage })));
-const StugbyPage = lazy(() => import("./pages/StugbyPage").then((module) => ({ default: module.StugbyPage })));
+const StugubyPage = lazy(() => import("./pages/StugubyPage").then((module) => ({ default: module.StugubyPage })));
 
 const pageTitleKeys = {
   overview: "nav.overview",
   properties: "nav.properties",
   people: "nav.people",
-  stugbys: "nav.stugbys",
+  stugubys: "nav.stugubys",
   twin: "nav.twin",
   activity: "nav.activity",
   maintenance: "nav.maintenance",
@@ -55,7 +55,7 @@ const pageTitleKeys = {
   updates: "nav.updates",
 } as const;
 
-const dismissedTpLinkDevicesKey = "stuga-dismissed-tp-link-device-notices";
+const dismissedTpLinkDevicesKey = "stugu-dismissed-tp-link-device-notices";
 const freshTpLinkDiscoveryWindowMs = 60_000;
 
 interface TpLinkDeviceReference {
@@ -175,10 +175,10 @@ export function App() {
 
   const property = state.properties.find((item) => item.id === propertyId);
   const propertyReadOnly = workspaceReadOnly || Boolean(
-    property?.stugby
-    && !property.stugby.isAuthority
-    && property.stugby.syncState !== "detached"
-    && property.stugby.editPolicy === "read-only",
+    property?.stuguby
+    && !property.stuguby.isAuthority
+    && property.stuguby.syncState !== "detached"
+    && property.stuguby.editPolicy === "read-only",
   );
   const propertyElectricityAvailable = property ? (
     !propertyReadOnly
@@ -191,11 +191,11 @@ export function App() {
   const selectedPropertyHouse = propertyHouses.find((item) => item.id === houseId);
   const house = selectedPropertyHouse;
   const activeSharedHouse = Boolean(
-    house?.stugby
-    && house.stugby.ownership === "shared"
-    && house.stugby.syncState !== "detached",
+    house?.stuguby
+    && house.stuguby.ownership === "shared"
+    && house.stuguby.syncState !== "detached",
   );
-  const houseReadOnly = workspaceReadOnly || Boolean(activeSharedHouse && house?.stugby?.editPolicy === "read-only");
+  const houseReadOnly = workspaceReadOnly || Boolean(activeSharedHouse && house?.stuguby?.editPolicy === "read-only");
   const houseLocalAuthority = !activeSharedHouse;
   const locationRoute = routeFromLocation(window.location);
   const readOnly = page === "properties" || page === "maintenance" || (page === "energy" && !locationRoute.houseId)
@@ -478,7 +478,7 @@ export function App() {
 
   const renderFirstHomeCard = () => (
     <section className="bootstrap-card" aria-labelledby="bootstrap-empty-title">
-      <StugaMark />
+      <StuguMark />
       <span className="bootstrap-icon" aria-hidden="true"><HousePlus size={22} /></span>
       <div>
         <span className="eyebrow">{t("bootstrap.welcomeEyebrow")}</span>
@@ -552,7 +552,7 @@ export function App() {
   }
 
   if (climate.bootstrapStatus === "unavailable") {
-    return <main className="bootstrap-screen"><section className="bootstrap-card" aria-labelledby="bootstrap-unavailable-title"><StugaMark /><span className="bootstrap-icon exception" aria-hidden="true"><AlertTriangle size={22} /></span><div><span className="eyebrow">{t("bootstrap.connectionEyebrow")}</span><h1 id="bootstrap-unavailable-title">{t("bootstrap.unavailableTitle")}</h1><p>{t("bootstrap.unavailableBody")}</p></div><button type="button" className="primary-button" onClick={climate.retryBootstrap}><RotateCcw size={16} aria-hidden="true" />{t("bootstrap.retry")}</button>{climate.bootstrapError && <details><summary>{t("bootstrap.technicalDetails")}</summary><code>{climate.bootstrapError}</code></details>}</section></main>;
+    return <main className="bootstrap-screen"><section className="bootstrap-card" aria-labelledby="bootstrap-unavailable-title"><StuguMark /><span className="bootstrap-icon exception" aria-hidden="true"><AlertTriangle size={22} /></span><div><span className="eyebrow">{t("bootstrap.connectionEyebrow")}</span><h1 id="bootstrap-unavailable-title">{t("bootstrap.unavailableTitle")}</h1><p>{t("bootstrap.unavailableBody")}</p></div><button type="button" className="primary-button" onClick={climate.retryBootstrap}><RotateCcw size={16} aria-hidden="true" />{t("bootstrap.retry")}</button>{climate.bootstrapError && <details><summary>{t("bootstrap.technicalDetails")}</summary><code>{climate.bootstrapError}</code></details>}</section></main>;
   }
 
   if (climate.bootstrapStatus === "empty") return <main className="bootstrap-screen">{renderFirstHomeCard()}</main>;
@@ -588,7 +588,7 @@ export function App() {
     </AppShell>;
   }
 
-  if (page === "overview" || page === "people" || page === "stugbys" || page === "alerts" || page === "developer" || page === "updates") {
+  if (page === "overview" || page === "people" || page === "stugubys" || page === "alerts" || page === "developer" || page === "updates") {
     return <AppShell
       page={page}
       onPage={(next, scope) => navigate(next, scope?.houseId, false, window.location.pathname, scope?.propertyId)}
@@ -670,9 +670,9 @@ export function App() {
           }}
         />}
         {page === "people" && <PeopleAccessPage state={state} />}
-        {page === "stugbys" && (canManagePeople
-          ? <StugbyPage houses={state.houses} properties={state.properties} onInventoryChange={climate.retryBootstrap} />
-          : <section className="route-recovery" aria-labelledby="stugby-access-title"><ShieldCheck size={24} aria-hidden="true" /><div><span className="eyebrow">{t("properties.guestReadOnly")}</span><h1 id="stugby-access-title">{t("properties.adminOnlyTitle")}</h1><p>{t("properties.adminOnlyBody")}</p></div><button type="button" className="primary-button" onClick={() => navigate("overview", null, true, window.location.pathname, null)}>{t("route.openOverview")}</button></section>)}
+        {page === "stugubys" && (canManagePeople
+          ? <StugubyPage houses={state.houses} properties={state.properties} onInventoryChange={climate.retryBootstrap} />
+          : <section className="route-recovery" aria-labelledby="stuguby-access-title"><ShieldCheck size={24} aria-hidden="true" /><div><span className="eyebrow">{t("properties.guestReadOnly")}</span><h1 id="stuguby-access-title">{t("properties.adminOnlyTitle")}</h1><p>{t("properties.adminOnlyBody")}</p></div><button type="button" className="primary-button" onClick={() => navigate("overview", null, true, window.location.pathname, null)}>{t("route.openOverview")}</button></section>)}
         {page === "developer" && <DeveloperPage />}
         {page === "updates" && (canManagePeople
           ? <SystemUpdatesPage />
@@ -852,7 +852,7 @@ export function App() {
   }
 
   if (!floor) {
-    return <main className="bootstrap-screen"><section className="bootstrap-card" aria-labelledby="bootstrap-floor-title"><StugaMark /><span className="bootstrap-icon exception" aria-hidden="true"><Wrench size={22} /></span><div><span className="eyebrow">{house.name}</span><h1 id="bootstrap-floor-title">{t("bootstrap.floorMissingTitle")}</h1><p>{t("bootstrap.floorMissingBody")}</p></div><button type="button" className="primary-button" disabled={bootstrapAction === "saving"} onClick={() => void repairHome()}>{bootstrapAction === "saving" ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Wrench size={16} aria-hidden="true" />}{t("bootstrap.addGroundFloor")}</button>{bootstrapAction === "error" && <p className="inline-error" role="alert">{t("bootstrap.repairFailed")}</p>}</section></main>;
+    return <main className="bootstrap-screen"><section className="bootstrap-card" aria-labelledby="bootstrap-floor-title"><StuguMark /><span className="bootstrap-icon exception" aria-hidden="true"><Wrench size={22} /></span><div><span className="eyebrow">{house.name}</span><h1 id="bootstrap-floor-title">{t("bootstrap.floorMissingTitle")}</h1><p>{t("bootstrap.floorMissingBody")}</p></div><button type="button" className="primary-button" disabled={bootstrapAction === "saving"} onClick={() => void repairHome()}>{bootstrapAction === "saving" ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Wrench size={16} aria-hidden="true" />}{t("bootstrap.addGroundFloor")}</button>{bootstrapAction === "error" && <p className="inline-error" role="alert">{t("bootstrap.repairFailed")}</p>}</section></main>;
   }
 
   const pageLastUpdated = page === "activity"
@@ -1035,7 +1035,7 @@ export function App() {
           onOpenLayout={() => navigate("twin", house.id)}
         />
       )}
-      {page === "integrations" && (readOnly || !houseLocalAuthority) && <section className="route-recovery"><ShieldCheck size={24} aria-hidden="true" /><div><span className="eyebrow">{t(readOnly && workspaceReadOnly ? "properties.guestReadOnly" : "stugby.eyebrow")}</span><h1>{t(readOnly && workspaceReadOnly ? "properties.adminOnlyTitle" : "stugby.boundaryTitle")}</h1><p>{t(readOnly && workspaceReadOnly ? "properties.adminOnlyBody" : "stugby.boundaryBody")}</p></div><button type="button" className="primary-button" onClick={() => navigate("properties", house.id, true)}>{t("nav.properties")}</button></section>}
+      {page === "integrations" && (readOnly || !houseLocalAuthority) && <section className="route-recovery"><ShieldCheck size={24} aria-hidden="true" /><div><span className="eyebrow">{t(readOnly && workspaceReadOnly ? "properties.guestReadOnly" : "stuguby.eyebrow")}</span><h1>{t(readOnly && workspaceReadOnly ? "properties.adminOnlyTitle" : "stuguby.boundaryTitle")}</h1><p>{t(readOnly && workspaceReadOnly ? "properties.adminOnlyBody" : "stuguby.boundaryBody")}</p></div><button type="button" className="primary-button" onClick={() => navigate("properties", house.id, true)}>{t("nav.properties")}</button></section>}
       </></Suspense></RouteErrorBoundary>}
     </AppShell>
   );

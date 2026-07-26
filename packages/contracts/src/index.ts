@@ -656,23 +656,23 @@ export interface HouseMapPlacement {
   footprintFloorId?: string;
 }
 
-export type StugbySyncState = "current" | "pending" | "offline" | "conflict" | "detached";
-export type StugbyPropertyEditPolicy = "collaborative" | "read-only";
-export type StugbyHouseEditPolicy = "read-only" | "editable";
-export type StugbyHouseOwnership = "local" | "shared";
-export type StugbyRecoveryState = "not-enabled" | "syncing" | "ready" | "incomplete";
+export type StugubySyncState = "current" | "pending" | "offline" | "conflict" | "detached";
+export type StugubyPropertyEditPolicy = "collaborative" | "read-only";
+export type StugubyHouseEditPolicy = "read-only" | "editable";
+export type StugubyHouseOwnership = "local" | "shared";
+export type StugubyRecoveryState = "not-enabled" | "syncing" | "ready" | "incomplete";
 
 /**
  * Local projection metadata for a coordinator-owned Property. A temporary
  * outage changes syncState only; ownership changes solely through an explicit
  * detach or authority-transfer operation.
  */
-export interface StugbyPropertyLink {
-  stugbyId: string;
+export interface StugubyPropertyLink {
+  stugubyId: string;
   authorityNodeId: string;
   isAuthority: boolean;
-  editPolicy: StugbyPropertyEditPolicy;
-  syncState: StugbySyncState;
+  editPolicy: StugubyPropertyEditPolicy;
+  syncState: StugubySyncState;
   authorityEpoch: number;
   lastSyncedRevision: number;
   pendingChangeCount: number;
@@ -681,17 +681,17 @@ export interface StugbyPropertyLink {
 }
 
 /** Sharing, editing, and recovery are intentionally independent dimensions. */
-export interface StugbyHouseLink {
-  stugbyId: string;
+export interface StugubyHouseLink {
+  stugubyId: string;
   authorityNodeId: string;
   publicationId: string;
-  ownership: StugbyHouseOwnership;
-  editPolicy: StugbyHouseEditPolicy;
-  syncState: StugbySyncState;
+  ownership: StugubyHouseOwnership;
+  editPolicy: StugubyHouseEditPolicy;
+  syncState: StugubySyncState;
   authorityEpoch: number;
   pendingChangeCount: number;
   conflictCount: number;
-  recoveryState: StugbyRecoveryState;
+  recoveryState: StugubyRecoveryState;
   designatedSuccessorNodeId?: string;
   recoverySyncedThrough?: string;
   detachedAt?: string;
@@ -704,8 +704,8 @@ export interface Property {
   description: string | null;
   /** Optional map centre used before any house or area geometry is available. */
   location: HouseLocation | null;
-  /** Present only when this row is the local projection of a Stugby Property. */
-  stugby?: StugbyPropertyLink;
+  /** Present only when this row is the local projection of a Stuguby Property. */
+  stuguby?: StugubyPropertyLink;
   createdAt: string;
   updatedAt: string;
 }
@@ -1505,8 +1505,8 @@ export interface House {
    */
   orientationDegrees?: number;
   floors: Floor[];
-  /** Present for a Home shared through Stugby or owned inside an adopted Property. */
-  stugby?: StugbyHouseLink;
+  /** Present for a Home shared through Stuguby or owned inside an adopted Property. */
+  stuguby?: StugubyHouseLink;
   createdAt: string;
   updatedAt: string;
 }
@@ -2399,7 +2399,7 @@ export interface AssetRecord {
 export type DataExportPrivacyLevel = "structure" | "operations" | "full";
 
 export interface DataExportPreview {
-  schemaVersion: "stuga.export/v1";
+  schemaVersion: "stugu.export/v1";
   generatedAt: string;
   privacyLevel: DataExportPrivacyLevel;
   includesTelemetry: boolean;
@@ -2504,7 +2504,7 @@ export interface IntegrationStatus {
       error: string | null;
     }>;
   };
-  /** Optional for wire compatibility with Stuga servers without native automation status. */
+  /** Optional for wire compatibility with Stugu servers without native automation status. */
   telegram?: {
     /** False when the running server does not provide local secret storage and alert evaluation. */
     available: boolean;
@@ -2516,7 +2516,7 @@ export interface IntegrationStatus {
     error: string | null;
   };
   /**
-   * Apple Notes is bridged by user-run iOS Shortcuts. Stuga never receives an
+   * Apple Notes is bridged by user-run iOS Shortcuts. Stugu never receives an
    * Apple Account credential and does not claim live document synchronization.
    */
   appleNotes?: {
@@ -2627,13 +2627,13 @@ export interface AppleNotesGrantSummary {
 }
 
 export interface AppleNotesGrantCreated extends AppleNotesGrantSummary {
-  /** Returned once. Stuga never returns this bearer token again. */
+  /** Returned once. Stugu never returns this bearer token again. */
   token: string;
   integration: IntegrationStatus;
 }
 
 export interface AppleNotesSnapshot {
-  schema: "stuga.apple-notes-snapshot/v1";
+  schema: "stugu.apple-notes-snapshot/v1";
   generatedAt: string;
   houseId: string;
   title: string;
@@ -2642,7 +2642,7 @@ export interface AppleNotesSnapshot {
 }
 
 export type AppleNotesMaintenanceCaptureInput = MaintenanceTaskInputCommon & {
-  schema: "stuga.apple-notes-command/v1";
+  schema: "stugu.apple-notes-command/v1";
   houseId: string;
   propertyId?: string;
   /** UUID generated once by the Shortcut and reused if its HTTP request is retried. */

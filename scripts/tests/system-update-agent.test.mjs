@@ -17,11 +17,11 @@ import {
   readAgentConfig,
   validatedCloudflareSetupRequest,
   validatedRequest,
-} from "../stuga-update-agent.mjs";
+} from "../stugu-update-agent.mjs";
 
 function updateRequest() {
   return {
-    schema: "stuga-system-update-request/v1",
+    schema: "stugu-system-update-request/v1",
     id: "27974c49-f62e-4365-9ee7-802c7488557e",
     version: "0.6.0",
     tagName: "v0.6.0",
@@ -40,16 +40,16 @@ function updateRequest() {
 
 function cloudflareSetupRequest() {
   return {
-    schema: "stuga-cloudflare-setup-request/v1",
+    schema: "stugu-cloudflare-setup-request/v1",
     id: "91576b34-fda0-4b8e-b96f-4265d2ee7f78",
-    mode: "stugby-coordinator",
+    mode: "stuguby-coordinator",
     command: "provision-coordinator",
-    hostname: "stuga.example.com",
+    hostname: "stugu.example.com",
     zone: "example.com",
     ownerEmail: "owner@example.com",
     accountId: "0123456789abcdef0123456789abcdef",
     zoneId: "abcdef0123456789abcdef0123456789",
-    oauthClientId: "stuga-private-client",
+    oauthClientId: "stugu-private-client",
     oauthRedirectUri: "http://127.0.0.1:8080/api/v1/cloudflare/setup/oauth/callback",
     claimSecret: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
     requestedAt: "2026-07-24T08:00:00.000Z",
@@ -57,7 +57,7 @@ function cloudflareSetupRequest() {
 }
 
 test("agent configuration is portable and pins one trusted release namespace", () => {
-  const directory = mkdtempSync(join(tmpdir(), "stuga-update-agent-"));
+  const directory = mkdtempSync(join(tmpdir(), "stugu-update-agent-"));
   try {
     const config = readAgentConfig({
       STUGA_PROJECT_DIRECTORY: directory,
@@ -66,7 +66,7 @@ test("agent configuration is portable and pins one trusted release namespace", (
     }, directory);
     assert.equal(config.projectDirectory, directory);
     assert.equal(config.operationsDirectory, join(directory, "data", "update-operations"));
-    assert.equal(config.releaseEnvFile, join(directory, ".stuga-release.env"));
+    assert.equal(config.releaseEnvFile, join(directory, ".stugu-release.env"));
     assert.equal(config.runtime, "docker");
     assert.equal(config.composeProjectName, null);
     assert.equal(composeArguments(config).includes("--project-name"), false);
@@ -82,7 +82,7 @@ test("agent configuration is portable and pins one trusted release namespace", (
 });
 
 test("agent resolves service arguments and relative paths from the project directory", () => {
-  const directory = mkdtempSync(join(tmpdir(), "stuga-update-agent-service-"));
+  const directory = mkdtempSync(join(tmpdir(), "stugu-update-agent-service-"));
   try {
     const config = readAgentConfig({
       STUGA_RELEASE_ENV_FILE: "./runtime/release.env",
@@ -116,7 +116,7 @@ test("agent accepts only API-issued image names for the exact release tag", () =
 
 test("agent validates the bounded Cloudflare setup handoff", () => {
   const request = cloudflareSetupRequest();
-  assert.equal(validatedCloudflareSetupRequest(request).hostname, "stuga.example.com");
+  assert.equal(validatedCloudflareSetupRequest(request).hostname, "stugu.example.com");
   assert.throws(
     () => validatedCloudflareSetupRequest({
       ...request,
@@ -131,7 +131,7 @@ test("agent validates the bounded Cloudflare setup handoff", () => {
 });
 
 test("agent provisions, restarts, verifies, and revokes a UI-approved Cloudflare connection", async (t) => {
-  const directory = mkdtempSync(join(tmpdir(), "stuga-cloudflare-agent-"));
+  const directory = mkdtempSync(join(tmpdir(), "stugu-cloudflare-agent-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const operationsDirectory = join(directory, "operations");
   mkdirSync(operationsDirectory);
@@ -151,7 +151,7 @@ test("agent provisions, restarts, verifies, and revokes a UI-approved Cloudflare
     claim: async () => ({
       provisionToken: "temporary-oauth-provision-token-that-is-long-enough",
       accessToken: "runtime-access-group-token-that-is-long-enough",
-      oauthClientId: "stuga-private-client",
+      oauthClientId: "stugu-private-client",
     }),
     provisioner: async (...args) => { provisionCalls.push(args); },
     compose: async (_config, args) => { composeCalls.push(args); return ""; },
@@ -166,7 +166,7 @@ test("agent provisions, restarts, verifies, and revokes a UI-approved Cloudflare
   assert.equal(verified, 1);
   assert.deepEqual(revokeCalls, [{
     accessToken: "temporary-oauth-provision-token-that-is-long-enough",
-    clientId: "stuga-private-client",
+    clientId: "stugu-private-client",
   }]);
   assert.equal(composeCalls.length, 1);
   assert.deepEqual(composeCalls[0].slice(-3), ["api", "web", "cloudflared"]);
@@ -179,7 +179,7 @@ test("agent provisions, restarts, verifies, and revokes a UI-approved Cloudflare
 });
 
 test("agent closes public ingress and still revokes approval after failed verification", async (t) => {
-  const directory = mkdtempSync(join(tmpdir(), "stuga-cloudflare-agent-failure-"));
+  const directory = mkdtempSync(join(tmpdir(), "stugu-cloudflare-agent-failure-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const operationsDirectory = join(directory, "operations");
   mkdirSync(operationsDirectory);
@@ -196,7 +196,7 @@ test("agent closes public ingress and still revokes approval after failed verifi
     claim: async () => ({
       provisionToken: "temporary-oauth-provision-token-that-is-long-enough",
       accessToken: "runtime-access-group-token-that-is-long-enough",
-      oauthClientId: "stuga-private-client",
+      oauthClientId: "stugu-private-client",
     }),
     provisioner: async () => undefined,
     compose: async (_config, args) => { composeCalls.push(args); return ""; },
@@ -214,7 +214,7 @@ test("agent closes public ingress and still revokes approval after failed verifi
 });
 
 test("pre-update failures do not attempt rollback before any release state changes", async (t) => {
-  const directory = mkdtempSync(join(tmpdir(), "stuga-update-agent-preflight-"));
+  const directory = mkdtempSync(join(tmpdir(), "stugu-update-agent-preflight-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const operationsDirectory = join(directory, "operations");
   mkdirSync(operationsDirectory);
@@ -231,9 +231,9 @@ test("pre-update failures do not attempt rollback before any release state chang
   await applyRequest(config, requestPath, {
     compose: async (_config, args) => {
       calls.push(args);
-      if (args[0] === "ps") return "api\nweb\nstuga-backup-scheduler";
+      if (args[0] === "ps") return "api\nweb\nstugu-backup-scheduler";
       if (args[0] === "exec") return "0.5.0";
-      if (args.includes("stuga-backup")) throw new Error("simulated backup failure");
+      if (args.includes("stugu-backup")) throw new Error("simulated backup failure");
       throw new Error(`Unexpected Compose call: ${args.join(" ")}`);
     },
   });
@@ -248,7 +248,7 @@ test("pre-update failures do not attempt rollback before any release state chang
 });
 
 test("agent publishes a durable step-by-step activity trail", async (t) => {
-  const directory = mkdtempSync(join(tmpdir(), "stuga-update-agent-progress-"));
+  const directory = mkdtempSync(join(tmpdir(), "stugu-update-agent-progress-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const operationsDirectory = join(directory, "operations");
   mkdirSync(operationsDirectory);
@@ -264,7 +264,7 @@ test("agent publishes a durable step-by-step activity trail", async (t) => {
 
   await applyRequest(config, requestPath, {
     compose: async (_config, args) => {
-      if (args[0] === "ps") return "api\nweb\nstuga-backup-scheduler";
+      if (args[0] === "ps") return "api\nweb\nstugu-backup-scheduler";
       if (args[0] === "exec") {
         versionChecks += 1;
         return versionChecks === 1 ? "0.5.0" : "0.6.0";

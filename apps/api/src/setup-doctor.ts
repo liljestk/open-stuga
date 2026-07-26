@@ -70,7 +70,7 @@ export class SetupDoctor {
       sensorName: sensor.name,
       houseName: house.name,
       roomName: sensor.room || null,
-      setupUri: `stuga://sensor/${encodeURIComponent(sensor.id)}?house=${encodeURIComponent(house.id)}`,
+      setupUri: `stugu://sensor/${encodeURIComponent(sensor.id)}?house=${encodeURIComponent(house.id)}`,
     };
   }
 }

@@ -1,22 +1,22 @@
 # Cloudflare Tunnel and Access
 
-Stuga can publish the Compose web service through a remotely managed
+Stugu can publish the Compose web service through a remotely managed
 Cloudflare Tunnel and protect it with Cloudflare Access one-time PIN login.
 This is optional. The default loopback-only install remains the smaller trust
 boundary when remote access is not required.
 
-Cloudflare Access is an outer gate, not a replacement for Stuga accounts. An
+Cloudflare Access is an outer gate, not a replacement for Stugu accounts. An
 edge identity first passes the managed Access policy, then signs in to a local
-Stuga owner, administrator, member, or Guest account. Local roles and resource
+Stugu owner, administrator, member, or Guest account. Local roles and resource
 grants remain authoritative for every API request.
 
-For a Stugby, only the coordinator needs an inbound hostname. Every participant
+For a Stuguby, only the coordinator needs an inbound hostname. Every participant
 opens outbound HTTPS/SSE connections to that coordinator, so participant-only
-Stuga systems need neither a Tunnel nor an inbound firewall rule.
+Stugu systems need neither a Tunnel nor an inbound firewall rule.
 
 ## What the provisioner owns
 
-`scripts/cloudflare-stuga.mjs` creates or reuses a narrowly named set of
+`scripts/cloudflare-stugu.mjs` creates or reuses a narrowly named set of
 resources for one hostname:
 
 - a one-time PIN identity provider;
@@ -30,7 +30,7 @@ resources for one hostname:
 `provision-coordinator` adds exactly one more Access application:
 `<hostname>/api/v1/stugby-protocol/*`. Its more-specific path policy bypasses
 the human identity prompt so independently administered nodes can reach
-Stuga's Ed25519 verifier without receiving Cloudflare credentials. The
+Stugu's Ed25519 verifier without receiving Cloudflare credentials. The
 owner/admin `/api/v1/stugbys*` API and all other paths remain covered by the
 root Access application. The generated runtime also pins
 `STUGBY_PUBLIC_ORIGIN`; the browser cannot override this deployment-managed
@@ -38,7 +38,7 @@ value. Without deployment configuration, the Owner/Admin UI can persist a
 coordinator origin, but it cannot create or widen Cloudflare policies.
 
 Cloudflare does not authenticate or create Access logs for a Bypass policy.
-This narrow exception is intentional: the Stugby protocol itself authenticates
+This narrow exception is intentional: the Stuguby protocol itself authenticates
 the exact method, path, body digest, node, timestamp, and replay ID, and checks
 active membership and grants. The bundled proxy rate-limits join and signed
 protocol requests before request-body parsing. Do not widen the exception or
@@ -52,10 +52,10 @@ The generated runtime keeps two identity sources deliberately separate:
 
 - `CLOUDFLARE_ACCESS_STATIC_EMAILS` contains the Cloudflare operator/recovery
   identities that must always retain the outer Access gate; and
-- Stuga adds all active non-owner accounts and unexpired invitations from its
+- Stugu adds all active non-owner accounts and unexpired invitations from its
   local directory.
 
-The local Stuga owner's login may be a private name such as `owner@stuga` and
+The local Stugu owner's login may be a private name such as `owner@stugu` and
 does not have to match the email that receives Cloudflare PINs. This separation
 prevents first-owner setup from replacing the only working edge identity.
 
@@ -64,10 +64,10 @@ prevents first-owner setup from replacing the only working edge identity.
 Cloudflare Access answers an unauthenticated API request with a redirect to its
 hosted login page. A browser completes that flow; the iOS and Mac Catalyst app
 cannot, so every call — including `GET /api/v1/health` — receives Cloudflare's
-HTML login document instead of Stuga JSON. The app detects this and asks for a
-service token rather than reporting malformed Stuga data.
+HTML login document instead of Stugu JSON. The app detects this and asks for a
+service token rather than reporting malformed Stugu data.
 
-A service token is the supported non-interactive identity. Unlike the Stugby
+A service token is the supported non-interactive identity. Unlike the Stuguby
 protocol Bypass, Cloudflare still authenticates it and records it in Access
 logs, so the outer gate keeps an audit trail for the app.
 
@@ -77,14 +77,14 @@ logs, so the outer gate keeps an audit trail for the app.
    action **Service Auth** and the **Service Token** selector set to that token.
    A separate policy is required; an Allow policy for human identities never
    matches a token.
-3. In the app's **Connect to Stuga** screen, expand **Cloudflare Access token**
+3. In the app's **Connect to Stugu** screen, expand **Cloudflare Access token**
    and enter the client ID and secret.
 
 The app stores the pair in the device Keychain, keyed by server origin, and
 sends `CF-Access-Client-Id`/`CF-Access-Client-Secret` only to that origin and
 only over HTTPS. A cleartext LAN address never receives the token.
 
-Passing Access is not signing in. The app still authenticates to a local Stuga
+Passing Access is not signing in. The app still authenticates to a local Stugu
 account, and local roles and resource grants remain authoritative for every API
 request. Rotate the token in Zero Trust and re-enter it in the app; deleting the
 token in Cloudflare stops the app at the edge on its next request.
@@ -97,7 +97,7 @@ initial organization setup once. Keep the host port on its default loopback
 binding; `cloudflared` reaches the web container over the private Compose
 network.
 
-Stuga always retains one runtime API token scoped to the intended account with
+Stugu always retains one runtime API token scoped to the intended account with
 only **Access: Organizations, Identity Providers, and Groups Write**. It uses
 this token only to read and replace the exact-email rules in its managed group.
 
@@ -125,30 +125,30 @@ retained in shell history and process inspection.
 
 ## UI-managed setup
 
-The normal Stugby path no longer requires an operator to create a private OAuth
+The normal Stuguby path no longer requires an operator to create a private OAuth
 client manually:
 
-1. Open Stuga from the coordinator computer at
+1. Open Stugu from the coordinator computer at
    `http://127.0.0.1:<port>/stugbys`. The public Cloudflare URL is deliberately
    read-only for this security-boundary change.
 2. On a new local installation, choose **Set up secure sharing**. On an
    existing remote-UI installation, the Cloudflare panel opens automatically.
 3. Create one Cloudflare API token with **OAuth Client Write** for the intended
-   account and paste it into Stuga. This is the unavoidable bootstrap
+   account and paste it into Stugu. This is the unavoidable bootstrap
    credential: an application cannot register its first OAuth client through
    that not-yet-existing client.
-4. Stuga uses the token once to call Cloudflare's OAuth-client API, registers a
+4. Stugu uses the token once to call Cloudflare's OAuth-client API, registers a
    private Authorization Code + PKCE client with the exact local callback, and
    never saves the token. Revoke the bootstrap API token in Cloudflare after
    setup.
 5. Approve the temporary Access, Tunnel, DNS, and optional Zone Read scopes in
-   Cloudflare's consent window. Stuga applies and verifies the connection, then
+   Cloudflare's consent window. Stugu applies and verifies the connection, then
    revokes this OAuth grant.
 
 Existing online installations reuse the narrow Access-group runtime token
 already stored under `secrets/cloudflare/`. New installations enter that
 separate **Access: Organizations, Identity Providers, and Groups Write** token
-once in the Stuga UI; the host agent stores it in the protected secret
+once in the Stugu UI; the host agent stores it in the protected secret
 directory because invitation membership must continue to synchronize after
 setup.
 
@@ -187,7 +187,7 @@ Cloudflare OAuth client under **Manage Account > OAuth clients** with:
 - **Zone Read** (`zone.read`) in the client's allowed scopes when setup may
   need zone discovery.
 
-Stuga is a public/native client and uses S256 PKCE; do not create or configure
+Stugu is a public/native client and uses S256 PKCE; do not create or configure
 a client secret. A private client is sufficient for one Cloudflare account.
 Making the client available to other accounts requires Cloudflare public-client
 visibility and publisher-domain verification. See Cloudflare's current
@@ -223,7 +223,7 @@ For a new Docker installation, start locally with the trusted host agent:
 npm run setup -- --mode docker --real --start --install-update-agent --no-cloudflare --yes
 ```
 
-Open `http://127.0.0.1:8080`, create the first Owner, then use **Stugbys → Set
+Open `http://127.0.0.1:8080`, create the first Owner, then use **Stugubys → Set
 up secure sharing**. Enter the hostname, DNS zone, recovery email, one-time
 OAuth Client Write bootstrap token, and the separate narrow runtime token.
 Account and zone IDs are advanced fields used only when discovery is ambiguous.
@@ -231,9 +231,9 @@ Account and zone IDs are advanced fields used only when discovery is ambiguous.
 ## Existing installation path
 
 After installing the release and refreshing a pre-feature host agent once,
-open the local Stugby page. Stuga detects the current hostname, account, zone,
+open the local Stuguby page. Stugu detects the current hostname, account, zone,
 and retained runtime token. Paste only the one-time OAuth Client Write token,
-approve Cloudflare consent, and leave the page open while Stuga applies and
+approve Cloudflare consent, and leave the page open while Stugu applies and
 verifies the coordinator. No terminal Cloudflare provisioning or manually
 created OAuth client is required.
 
@@ -257,7 +257,7 @@ state:
 ```powershell
 npm run setup -- --mode docker --real `
   --cloudflare remote-ui `
-  --cloudflare-hostname stuga.example.com `
+  --cloudflare-hostname stugu.example.com `
   --cloudflare-zone example.com `
   --cloudflare-owner-email edge-owner@example.com `
   --dry-run --yes
@@ -267,26 +267,26 @@ For unattended automation, remove `--dry-run` and add both
 `--cloudflare-provision-token-file` and
 `--cloudflare-access-token-file`. Token values themselves are never CLI
 options. OAuth always requires an account owner to approve the browser consent
-screen. Use `--cloudflare stugby-coordinator` only on the node that will create
-the Stugby.
+screen. Use `--cloudflare stuguby-coordinator` only on the node that will create
+the Stuguby.
 
 ## Manual provision
 
 From the repository root, run the idempotent provisioner. In PowerShell:
 
 ```powershell
-node scripts/cloudflare-stuga.mjs provision `
-  --hostname stuga.example.com `
+node scripts/cloudflare-stugu.mjs provision `
+  --hostname stugu.example.com `
   --zone example.com `
   --owner-email edge-owner@example.com `
   --account-id 0123456789abcdef0123456789abcdef `
   --zone-id fedcba9876543210fedcba9876543210 `
-  --provision-token-file C:\protected\stuga-provision-token `
-  --access-token-file C:\protected\stuga-access-group-token
+  --provision-token-file C:\protected\stugu-provision-token `
+  --access-token-file C:\protected\stugu-access-group-token
 ```
 
 `--owner-email` is the Cloudflare PIN recipient and permanent edge operator,
-not necessarily the first local Stuga account. The script validates all input
+not necessarily the first local Stugu account. The script validates all input
 before changing provider state.
 
 Successful provisioning writes the following ignored, host-sensitive files
@@ -300,7 +300,7 @@ under `secrets/cloudflare/`:
 
 The temporary provisioning token is never copied. Revoke it after validating
 the deployment. Protect and back up the generated directory separately in
-encrypted off-host storage; the normal Stuga data backup is not a substitute
+encrypted off-host storage; the normal Stugu data backup is not a substitute
 for these deployment credentials.
 
 Recreate the services that consume the generated runtime:
@@ -311,9 +311,9 @@ docker compose ps
 npm run cloudflare:verify
 ```
 
-### Provision a Stugby coordinator
+### Provision a Stuguby coordinator
 
-When this Stuga will create and coordinate a Stugby, use the guided command:
+When this Stugu will create and coordinate a Stuguby, use the guided command:
 
 ```powershell
 npm run cloudflare:provision-coordinator
@@ -328,13 +328,13 @@ available explicitly:
 
 ```powershell
 npm run cloudflare:provision-coordinator:advanced -- `
-  --hostname stugby.example.com `
+  --hostname stuguby.example.com `
   --zone example.com `
   --owner-email edge-owner@example.com `
   --account-id 0123456789abcdef0123456789abcdef `
   --zone-id fedcba9876543210fedcba9876543210 `
-  --provision-token-file C:\protected\stuga-provision-token `
-  --access-token-file C:\protected\stuga-access-group-token
+  --provision-token-file C:\protected\stugu-provision-token `
+  --access-token-file C:\protected\stugu-access-group-token
 
 docker compose up -d --build --force-recreate api web cloudflared
 npm run cloudflare:verify-coordinator
@@ -348,7 +348,7 @@ boundary conditions hold:
 3. `/invite-bootstrap` is publicly reachable;
 4. `/invite-bootstrap.js` is publicly reachable; and
 5. the machine-protocol path stays behind Access in remote-UI mode, or an
-   intentionally invalid join reaches and is rejected by Stuga's application
+   intentionally invalid join reaches and is rejected by Stugu's application
    verifier in coordinator mode.
 
 Run the matching verifier after every Access, Tunnel, hostname, or reverse-proxy
@@ -356,26 +356,26 @@ change. It sends no credential, invitation, Home data, or valid protocol
 request.
 
 Visit the HTTPS hostname, authenticate with the edge operator email, and create
-or sign in to the local Stuga owner. Verify all of these before considering the
+or sign in to the local Stugu owner. Verify all of these before considering the
 rollout complete:
 
-1. the configured operator receives a PIN and reaches Stuga;
+1. the configured operator receives a PIN and reaches Stugu;
 2. an unrelated email does not pass Access;
 3. first-owner setup does not change the Access group operator;
-4. a newly invited email can pass Access and redeem its shown-once Stuga
+4. a newly invited email can pass Access and redeem its shown-once Stugu
    invitation; and
 5. removing that account immediately removes local authorization and the next
    group reconciliation removes its edge allowlist entry.
 
 Cloudflare identity selectors are evaluated at authentication time. An existing
 Cloudflare session may remain at the outer gate until its Access session ends,
-but deleting a Stuga member invalidates the local membership boundary on the
+but deleting a Stugu member invalidates the local membership boundary on the
 next API request.
 
 ## Existing-install migration
 
 Generated Cloudflare configs from before the static-operator field must be
-updated **before restarting the API**. Stuga intentionally refuses a partial
+updated **before restarting the API**. Stugu intentionally refuses a partial
 configuration instead of guessing and risking an edge lockout.
 
 Inspect the managed Access group in Cloudflare, identify the email that must
@@ -386,20 +386,20 @@ CLOUDFLARE_ACCESS_STATIC_EMAILS="edge-owner@example.com"
 ```
 
 Comma-separate multiple recovery operators inside the quotes. Use real
-Cloudflare login identities, not a private local Stuga name unless that address
+Cloudflare login identities, not a private local Stugu name unless that address
 can actually receive one-time PINs. Rerunning the provisioner with the original
 hostname and the desired `--owner-email` also writes the field safely.
 
-For an existing remote-UI deployment, open the local **Stugbys** page. It
+For an existing remote-UI deployment, open the local **Stugubys** page. It
 detects the current address and retained, narrowly scoped runtime token,
 creates or reuses the private OAuth client, requests one temporary Cloudflare
 approval, adds only the exact machine-path application and policy, recreates
 the affected services, verifies the result, and revokes the OAuth access
 token. `npm run setup` remains a recovery fallback. Neither path deletes or
 replaces unrelated resources. When a
-Stugby was created on loopback and no remote node has joined, startup safely
+Stuguby was created on loopback and no remote node has joined, startup safely
 pins it to the configured origin and revokes its old origin-bound invitations;
-create fresh invitations after verification. An established Stugby is not
+create fresh invitations after verification. An established Stuguby is not
 silently moved to another origin.
 
 ## Rotation, recovery, and rollback

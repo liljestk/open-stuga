@@ -50,7 +50,7 @@ const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000;
 const DEFAULT_BATCH_SIZE = 1_000;
 const MAX_HISTORY_LIMIT = 100_000;
 const MAX_MEASUREMENT_WINDOW_LIMIT = 250_000;
-const QUERY_TAG_PREFIX = "stuga-telemetry-query:";
+const QUERY_TAG_PREFIX = "stugu-telemetry-query:";
 
 type SqlValue = string | number | boolean | null | readonly string[] | Readonly<Record<string, unknown>>;
 
@@ -333,7 +333,7 @@ export class TimeseriesStore {
       connectionTimeoutMillis,
       idleTimeoutMillis,
       statement_timeout: statementTimeout,
-      application_name: options.applicationName ?? "stuga-telemetry",
+      application_name: options.applicationName ?? "stugu-telemetry",
       allowExitOnIdle: options.poolConfig?.allowExitOnIdle ?? true,
       keepAlive: options.poolConfig?.keepAlive ?? true,
     });

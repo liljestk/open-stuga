@@ -3,8 +3,8 @@ import { qrCodeMatrix } from "./qrCode";
 
 describe("local sensor-label QR encoder", () => {
   it("creates a deterministic Version 6 symbol with standard finder patterns", () => {
-    const first = qrCodeMatrix("stuga://sensor/sensor-01?house=house-main");
-    const second = qrCodeMatrix("stuga://sensor/sensor-01?house=house-main");
+    const first = qrCodeMatrix("stugu://sensor/sensor-01?house=house-main");
+    const second = qrCodeMatrix("stugu://sensor/sensor-01?house=house-main");
     expect(first).toEqual(second);
     expect(first).toHaveLength(41);
     expect(first.every((row) => row.length === 41)).toBe(true);
@@ -16,7 +16,7 @@ describe("local sensor-label QR encoder", () => {
   });
 
   it("encodes different setup URIs differently and enforces the offline profile capacity", () => {
-    expect(qrCodeMatrix("stuga://sensor/a?house=one")).not.toEqual(qrCodeMatrix("stuga://sensor/b?house=one"));
+    expect(qrCodeMatrix("stugu://sensor/a?house=one")).not.toEqual(qrCodeMatrix("stugu://sensor/b?house=one"));
     expect(() => qrCodeMatrix("x".repeat(135))).toThrow(/too long/i);
   });
 });

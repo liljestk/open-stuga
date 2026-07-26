@@ -1,6 +1,6 @@
-# Stuga architecture
+# Stugu architecture
 
-Stuga is a local-first digital twin for observing environmental
+Stugu is a local-first digital twin for observing environmental
 measurements across one or more homes. Temperature and relative humidity are the
 initial use case, not the storage model: a registry describes CO2 and other
 finite numeric scalar measurements. TP-Link/Tapo equipment and Home Assistant
@@ -29,7 +29,7 @@ flowchart LR
         H -->|local LAN polling| HA[Home Assistant\nTP-Link Smart Home integration]
     end
 
-    subgraph Twin[Stuga]
+    subgraph Twin[Stugu]
         HAB[Home Assistant adapter] --> N[Normalizer and validation]
         TPL[Direct TP-Link adapter\npython-kasa helper] --> N
         M[Mock / replay adapter] --> N
@@ -96,11 +96,11 @@ coordinates then flow through the API. See
 The native iPhone, iPad, and Mac Catalyst companion uses the same
 server-managed session, permission checks, measurement snapshots/history,
 alerts, and authenticated event stream as the browser. It connects directly
-to the selected Stuga origin and does not introduce an intermediary telemetry
+to the selected Stugu origin and does not introduce an intermediary telemetry
 service.
 Telegram is an explicit, per-rule server-side outbound flow. Apple Notes is not
 a server integration: a user-run Shortcut calls a Home-scoped bridge and then
-creates or reads a note on the device. Stuga never receives an Apple Account
+creates or reads a note on the device. Stugu never receives an Apple Account
 credential and remains the canonical maintenance record.
 In the default Docker deployment an Nginx web service serves the static app and
 reverse-proxies `/api/*` to the API, including the server-sent event stream.
@@ -166,9 +166,9 @@ Workspace rather than any Property or Home.
 sequenceDiagram
     participant T as T310/T315
     participant H as H200
-    participant D as Stuga direct adapter
+    participant D as Stugu direct adapter
     participant HA as Home Assistant
-    participant B as Stuga HA adapter
+    participant B as Stugu HA adapter
     participant DB as SQLite
     participant SSE as /api/v2/measurements/events
     participant UI as Web app
@@ -197,10 +197,10 @@ sequenceDiagram
 ```
 
 "Near real-time" is deliberately not called "instantaneous." Both TP-Link
-paths poll locally: Stuga's direct interval defaults to two seconds and
+paths poll locally: Stugu's direct interval defaults to two seconds and
 Home Assistant's official integration currently polls every five seconds.
 End-to-end freshness is the device sampling delay plus the chosen polling path,
-network/processing time, and browser delivery. Stuga cannot make the
+network/processing time, and browser delivery. Stugu cannot make the
 upstream sensor update more frequently. The UI must display timestamps and
 stale state rather than implying otherwise.
 

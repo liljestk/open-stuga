@@ -652,8 +652,8 @@ function mergeLegacySeries(loaded: Reading[], live: Iterable<Reading>, limit: nu
 const unauthenticatedSession: AppSession = {
   authenticated: false,
   principal: { type: "unauthenticated", email: null },
-  tenant: { id: "local", name: "Local Stuga", role: "guest" },
-  availableTenants: [{ id: "local", name: "Local Stuga", role: "guest" }],
+  tenant: { id: "local", name: "Local Stugu", role: "guest" },
+  availableTenants: [{ id: "local", name: "Local Stugu", role: "guest" }],
   readOnly: true,
   grants: [],
 };
@@ -1394,7 +1394,7 @@ export function useClimateData() {
             setBootstrapStatus("login-required");
             return;
           }
-          setBootstrapError(error instanceof Error && error.message.trim() ? error.message : "The Stuga service could not be reached.");
+          setBootstrapError(error instanceof Error && error.message.trim() ? error.message : "The Stugu service could not be reached.");
           if (hadInventory) {
             // Keep the last confirmed real snapshot visible and mark transport
             // failure separately; a retry must not turn a transient outage into
@@ -1648,7 +1648,7 @@ export function useClimateData() {
     samples: MeasurementSample[],
     onProgress?: (completed: number, total: number) => void,
   ) => {
-    if (!apiAvailable.current) throw new Error("Historical import requires a connection to the Stuga server.");
+    if (!apiAvailable.current) throw new Error("Historical import requires a connection to the Stugu server.");
     const result = await api.importHistoricalMeasurements(samples, onProgress);
     await loadHouseData(houseId);
     return result;

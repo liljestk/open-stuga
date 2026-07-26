@@ -3,7 +3,7 @@ import type { AppPage } from "./domain";
 import { locationForRoute, routeFromLocation, type RouteScope } from "./routing";
 
 function routeFromUrl(url: string) {
-  const location = new URL(url, "https://stuga.test");
+  const location = new URL(url, "https://stugu.test");
   return routeFromLocation(location);
 }
 
@@ -87,7 +87,7 @@ describe("application routes", () => {
   it("builds bookmarkable canonical URLs for each ownership level", () => {
     expect(locationForRoute("overview", scope)).toBe("/overview");
     expect(locationForRoute("properties", scope)).toBe("/properties/property-main");
-    expect(locationForRoute("stugbys", scope)).toBe("/stugbys");
+    expect(locationForRoute("stugubys", scope)).toBe("/stugbys");
     expect(locationForRoute("updates", scope)).toBe("/system/updates");
     expect(locationForRoute("twin", scope)).toBe("/properties/property-main/homes/home-1");
     expect(locationForRoute("outdoor", scope)).toBe("/properties/property-main/homes/home-1/outdoor");
@@ -137,7 +137,7 @@ describe("application routes", () => {
     ["integrations", "/properties/property%20%2F%20one/homes/home%20%2F%20one/setup", "property / one", "home / one"],
     ["developer", "/developer", null, null],
     ["people", "/people", null, null],
-    ["stugbys", "/stugbys", null, null],
+    ["stugubys", "/stugbys", null, null],
     ["updates", "/system/updates", null, null],
   ] satisfies Array<[AppPage, string, string | null, string | null]>) (
     "round-trips the %s route without losing its ownership scope",
@@ -154,7 +154,7 @@ describe("application routes", () => {
     expect(routeFromUrl("/alerts")).toEqual({ page: "alerts", propertyId: null, houseId: null });
     expect(routeFromUrl("/properties")).toEqual({ page: "properties", propertyId: null, houseId: null });
     expect(routeFromUrl("/people")).toEqual({ page: "people", propertyId: null, houseId: null });
-    expect(routeFromUrl("/stugbys")).toEqual({ page: "stugbys", propertyId: null, houseId: null });
+    expect(routeFromUrl("/stugbys")).toEqual({ page: "stugubys", propertyId: null, houseId: null });
     expect(routeFromUrl("/system/updates")).toEqual({ page: "updates", propertyId: null, houseId: null });
   });
 });

@@ -4,7 +4,7 @@ import { I18nProvider } from "../i18n";
 import type { UseSpatialLayersResult } from "../useSpatialLayers";
 import { SpatialLayerPanel } from "./SpatialLayerPanel";
 
-const preferenceKey = "stuga-spatial-layer-panel";
+const preferenceKey = "stugu-spatial-layer-panel";
 
 function layerState(overrides: Partial<UseSpatialLayersResult> = {}): UseSpatialLayersResult {
   return {

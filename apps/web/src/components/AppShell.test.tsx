@@ -27,11 +27,11 @@ describe("AppShell local account controls", () => {
     expect(properties.getAttribute("href")).toBe("/properties");
   });
 
-  it("does not imply Property scope on the workspace-wide Stugbys page", () => {
+  it("does not imply Property scope on the workspace-wide Stugubys page", () => {
     render(
       <I18nProvider>
         <AppShell
-          page="stugbys"
+          page="stugubys"
           canManagePeople
           onPage={vi.fn()}
           connection="live"
@@ -45,12 +45,12 @@ describe("AppShell local account controls", () => {
           houses={[{ id: "home-main", propertyId: "property-main", name: "Main home", timezone: "Europe/Helsinki" }]}
           houseId="home-main"
         >
-          <div>Stugby content</div>
+          <div>Stuguby content</div>
         </AppShell>
       </I18nProvider>,
     );
 
-    expect(screen.getByRole("link", { name: "Stugbys" }).getAttribute("href")).toBe("/stugbys");
+    expect(screen.getByRole("link", { name: "Stugubys" }).getAttribute("href")).toBe("/stugbys");
     expect(screen.queryByLabelText("Active property")).toBeNull();
   });
 
@@ -116,8 +116,8 @@ describe("AppShell local account controls", () => {
             propertyId: "property-main",
             name: "Client Home",
             timezone: "Europe/Helsinki",
-            stugby: {
-              stugbyId: "stugby-1",
+            stuguby: {
+              stugubyId: "stuguby-1",
               authorityNodeId: "node-client",
               publicationId: "publication-client-home",
               ownership: "shared",
@@ -140,10 +140,10 @@ describe("AppShell local account controls", () => {
     const homePicker = screen.getByLabelText("Home shown on this page") as HTMLSelectElement;
     expect(Array.from(homePicker.options, (option) => option.textContent)).toEqual(["Client Home"]);
     expect(screen.getByLabelText("Home · Client Home · Remote").textContent).toContain("Remote");
-    expect(container.querySelector(".page-home-switcher-group .stugby-mark")).toBeTruthy();
+    expect(container.querySelector(".page-home-switcher-group .stuguby-mark")).toBeTruthy();
   });
 
-  it("does not mark an owned Stugby Home as remote", () => {
+  it("does not mark an owned Stuguby Home as remote", () => {
     const { container } = render(
       <I18nProvider>
         <AppShell
@@ -162,8 +162,8 @@ describe("AppShell local account controls", () => {
             propertyId: "property-main",
             name: "My Home",
             timezone: "Europe/Helsinki",
-            stugby: {
-              stugbyId: "stugby-1",
+            stuguby: {
+              stugubyId: "stuguby-1",
               authorityNodeId: "node-local",
               publicationId: "publication-local-home",
               ownership: "local",
@@ -184,8 +184,8 @@ describe("AppShell local account controls", () => {
     );
 
     expect(screen.getByLabelText("Home · My Home · Own").textContent).toContain("Own");
-    expect(container.querySelector(".page-home-switcher-group .stugby-mark")).toBeNull();
-    expect(container.querySelector(".sidebar-nav-group .stugby-mark")).toBeNull();
+    expect(container.querySelector(".page-home-switcher-group .stuguby-mark")).toBeNull();
+    expect(container.querySelector(".sidebar-nav-group .stuguby-mark")).toBeNull();
   });
 
   it("lets a read-only Guest sign out without exposing a workspace switcher", async () => {

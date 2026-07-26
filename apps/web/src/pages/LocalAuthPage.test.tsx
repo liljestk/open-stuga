@@ -24,8 +24,8 @@ function renderPage(props: React.ComponentProps<typeof LocalAuthPage>) {
 const session = {
   authenticated: true,
   principal: { type: "local", email: "owner@example.test" },
-  tenant: { id: "local", name: "Local Stuga", role: "owner" as const },
-  availableTenants: [{ id: "local", name: "Local Stuga", role: "owner" as const }],
+  tenant: { id: "local", name: "Local Stugu", role: "owner" as const },
+  availableTenants: [{ id: "local", name: "Local Stugu", role: "owner" as const }],
   readOnly: false,
   grants: [],
   csrfToken: "csrf",
@@ -49,12 +49,12 @@ describe("LocalAuthPage", () => {
   });
 
   it("reads and then explicitly clears a Cloudflare bootstrap token from tab-scoped storage", () => {
-    window.sessionStorage.setItem("stuga-invitation-token", "abcdefghijklmnopqrstuvwxyz_1234567890ABCDEF");
+    window.sessionStorage.setItem("stugu-invitation-token", "abcdefghijklmnopqrstuvwxyz_1234567890ABCDEF");
 
     expect(invitationTokenFromBootstrapStorage()).toBe("abcdefghijklmnopqrstuvwxyz_1234567890ABCDEF");
     expect(invitationTokenFromBootstrapStorage()).toBe("abcdefghijklmnopqrstuvwxyz_1234567890ABCDEF");
     clearInvitationBootstrapStorage();
-    expect(window.sessionStorage.getItem("stuga-invitation-token")).toBeNull();
+    expect(window.sessionStorage.getItem("stugu-invitation-token")).toBeNull();
     expect(invitationTokenFromBootstrapStorage()).toBeNull();
   });
 
@@ -126,12 +126,12 @@ describe("LocalAuthPage", () => {
     const login = vi.spyOn(api, "login").mockResolvedValue(session);
     renderPage({ mode: "login", onAuthenticated: vi.fn() });
 
-    await user.type(screen.getByLabelText("Email"), "owner@stuga");
+    await user.type(screen.getByLabelText("Email"), "owner@stugu");
     await user.type(screen.getByLabelText(/^Password/), "correct horse battery staple");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     await waitFor(() => expect(login).toHaveBeenCalledWith({
-      email: "owner@stuga",
+      email: "owner@stugu",
       password: "correct horse battery staple",
     }));
   });

@@ -4,34 +4,34 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { STUGBY_PROTOCOL_VERSION } from "@climate-twin/stugby-protocol";
+import { STUGBY_PROTOCOL_VERSION } from "@climate-twin/stuguby-protocol";
 import { SYSTEM_VERSION } from "@climate-twin/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 import { ClimateDatabase } from "../src/db.js";
-import { StugbyStore } from "../src/stugby/store.js";
+import { StugubyStore } from "../src/stuguby/store.js";
 
 const temporaryDirectories: string[] = [];
 
-function preparedDatabase(): { directory: string; path: string; stugbyId: string } {
-  const directory = mkdtempSync(join(tmpdir(), "stuga-mcp-read-only-"));
+function preparedDatabase(): { directory: string; path: string; stugubyId: string } {
+  const directory = mkdtempSync(join(tmpdir(), "stugu-mcp-read-only-"));
   temporaryDirectories.push(directory);
   const path = join(directory, "climate.db");
   const database = new ClimateDatabase(path, true);
   const nodeId = randomUUID();
-  const store = new StugbyStore(database.db, nodeId);
-  const stugby = store.createCoordinatedStugby({
+  const store = new StugubyStore(database.db, nodeId);
+  const stuguby = store.createCoordinatedStuguby({
     name: "Shared cottages",
     coordinatorUrl: "http://127.0.0.1:3000",
   }, {
     nodeId,
-    displayName: "Host Stuga",
+    displayName: "Host Stugu",
     publicKey: "test-public-key",
     keyFingerprint: "0".repeat(64),
     protocolVersion: STUGBY_PROTOCOL_VERSION,
   });
-  store.adoptProperty(stugby.id, "property-main", 1);
-  database.setPropertyStugbyLink("property-main", {
-    stugbyId: stugby.id,
+  store.adoptProperty(stuguby.id, "property-main", 1);
+  database.setPropertyStugubyLink("property-main", {
+    stugubyId: stuguby.id,
     authorityNodeId: nodeId,
     isAuthority: true,
     editPolicy: "collaborative",
@@ -41,8 +41,8 @@ function preparedDatabase(): { directory: string; path: string; stugbyId: string
     pendingChangeCount: 0,
     conflictCount: 0,
   });
-  database.setHouseStugbyLink("house-main", {
-    stugbyId: stugby.id,
+  database.setHouseStugubyLink("house-main", {
+    stugubyId: stuguby.id,
     authorityNodeId: nodeId,
     publicationId: randomUUID(),
     ownership: "local",
@@ -54,7 +54,7 @@ function preparedDatabase(): { directory: string; path: string; stugbyId: string
     recoveryState: "not-enabled",
   });
   database.close();
-  return { directory, path, stugbyId: stugby.id };
+  return { directory, path, stugubyId: stuguby.id };
 }
 
 function fileHash(path: string): string {
@@ -89,10 +89,10 @@ describe("read-only MCP server", () => {
       },
       stderr: "pipe",
     });
-    const client = new Client({ name: "stuga-read-only-test", version: "1.0.0" });
+    const client = new Client({ name: "stugu-read-only-test", version: "1.0.0" });
     await client.connect(transport);
     try {
-      expect(client.getServerVersion()).toEqual({ name: "stuga-local", version: SYSTEM_VERSION });
+      expect(client.getServerVersion()).toEqual({ name: "stugu-local", version: SYSTEM_VERSION });
       expect(client.getInstructions()).toContain("read-only inspection surface");
 
       const listed = await client.listTools();
@@ -102,8 +102,8 @@ describe("read-only MCP server", () => {
       expect(names).toEqual(expect.arrayContaining([
         "list_properties",
         "list_houses",
-        "list_stugbys",
-        "get_stugby",
+        "list_stugubys",
+        "get_stuguby",
         "get_daily_analytics_findings",
         "get_property_energy_optimization",
         "list_property_notes",
@@ -145,34 +145,34 @@ describe("read-only MCP server", () => {
         const response = await client.callTool({ name, arguments: arguments_ });
         return (response.structuredContent as { result: unknown }).result;
       };
-      const properties = await call("list_properties") as Array<{ stugby?: { isAuthority: boolean } }>;
-      expect(properties[0]?.stugby).toMatchObject({ isAuthority: true });
+      const properties = await call("list_properties") as Array<{ stuguby?: { isAuthority: boolean } }>;
+      expect(properties[0]?.stuguby).toMatchObject({ isAuthority: true });
       const houses = await call("list_houses") as Array<{
         id: string;
-        stugby?: { ownership: string; editPolicy: string };
+        stuguby?: { ownership: string; editPolicy: string };
       }>;
       expect(houses).toContainEqual(expect.objectContaining({
         id: "house-main",
-        stugby: expect.objectContaining({ ownership: "local", editPolicy: "editable" }),
+        stuguby: expect.objectContaining({ ownership: "local", editPolicy: "editable" }),
       }));
-      const stugbys = await call("list_stugbys") as Array<{
+      const stugubys = await call("list_stugubys") as Array<{
         id: string;
         side: string;
         ownedHomeCount: number;
       }>;
-      expect(stugbys).toContainEqual(expect.objectContaining({
-        id: fixture.stugbyId,
+      expect(stugubys).toContainEqual(expect.objectContaining({
+        id: fixture.stugubyId,
         side: "host",
         ownedHomeCount: 1,
       }));
-      const detail = await call("get_stugby", { stugbyId: fixture.stugbyId }) as {
-        stugby: { side: string };
+      const detail = await call("get_stuguby", { stugubyId: fixture.stugubyId }) as {
+        stuguby: { side: string };
         members: Array<{ side: string; isHost: boolean }>;
-        homes: Array<{ stugby?: { ownership: string; editPolicy: string } }>;
+        homes: Array<{ stuguby?: { ownership: string; editPolicy: string } }>;
       };
-      expect(detail.stugby.side).toBe("host");
+      expect(detail.stuguby.side).toBe("host");
       expect(detail.members).toContainEqual(expect.objectContaining({ side: "host", isHost: true }));
-      expect(detail.homes[0]?.stugby).toMatchObject({ ownership: "local", editPolicy: "editable" });
+      expect(detail.homes[0]?.stuguby).toMatchObject({ ownership: "local", editPolicy: "editable" });
 
       await call("get_property", { propertyId: "property-main" });
       await call("get_daily_analytics_findings", { houseId: "house-main" });

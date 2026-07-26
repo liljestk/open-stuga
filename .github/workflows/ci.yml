@@ -51,20 +51,20 @@ jobs:
       - name: Build iOS app
         run: >-
           xcodebuild
-          -project apps/ios/Stuga.xcodeproj
-          -scheme Stuga
+          -project apps/ios/Stugu.xcodeproj
+          -scheme Stugu
           -destination 'generic/platform=iOS Simulator'
-          -derivedDataPath "$RUNNER_TEMP/stuga-ios-derived-data"
+          -derivedDataPath "$RUNNER_TEMP/stugu-ios-derived-data"
           CODE_SIGNING_ALLOWED=NO
           build
 
       - name: Build Mac Catalyst app
         run: >-
           xcodebuild
-          -project apps/ios/Stuga.xcodeproj
-          -scheme Stuga
+          -project apps/ios/Stugu.xcodeproj
+          -scheme Stugu
           -destination 'platform=macOS,variant=Mac Catalyst'
-          -derivedDataPath "$RUNNER_TEMP/stuga-catalyst-derived-data"
+          -derivedDataPath "$RUNNER_TEMP/stugu-catalyst-derived-data"
           CODE_SIGNING_ALLOWED=NO
           build
 
@@ -131,9 +131,9 @@ jobs:
 
       - name: Build production containers
         run: |
-          docker build --target api --tag stuga-api-ci:${{ github.sha }} .
-          docker build --target backup --tag stuga-backup-ci:${{ github.sha }} .
-          docker build --target web --tag stuga-web-ci:${{ github.sha }} .
+          docker build --target api --tag stugu-api-ci:${{ github.sha }} .
+          docker build --target backup --tag stugu-backup-ci:${{ github.sha }} .
+          docker build --target web --tag stugu-web-ci:${{ github.sha }} .
 
       - name: Smoke-test built API on minimum Node.js
         run: npm run smoke:built-api

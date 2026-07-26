@@ -249,15 +249,15 @@ describe("PropertyManagementPage", () => {
     expect(within(panel).queryByText("Fixed asset 000")).toBeNull();
   });
 
-  it("shows the Stugby mark only on foreign shared Homes", () => {
+  it("shows the Stuguby mark only on foreign shared Homes", () => {
     const state = createDemoState();
     const home = state.houses[0]!;
     state.houses = [
       {
         ...home,
         name: "My Home",
-        stugby: {
-          stugbyId: "stugby-1",
+        stuguby: {
+          stugubyId: "stuguby-1",
           authorityNodeId: "node-local",
           publicationId: "publication-local-home",
           ownership: "local",
@@ -273,8 +273,8 @@ describe("PropertyManagementPage", () => {
         ...home,
         id: "home-shared",
         name: "Foreign Home",
-        stugby: {
-          stugbyId: "stugby-1",
+        stuguby: {
+          stugubyId: "stuguby-1",
           authorityNodeId: "node-foreign",
           publicationId: "publication-foreign-home",
           ownership: "shared",
@@ -294,14 +294,14 @@ describe("PropertyManagementPage", () => {
     const sidebarHomes = container.querySelector<HTMLElement>(".property-house-group")!;
     const ownHome = within(sidebarHomes).getByText("My Home").closest("li")!;
     const foreignHome = within(sidebarHomes).getByText("Foreign Home").closest("li")!;
-    expect(ownHome.querySelector(".stugby-mark")).toBeNull();
-    expect(ownHome.classList.contains("stugby-shared")).toBe(false);
-    expect(foreignHome.querySelector(".stugby-mark")).not.toBeNull();
-    expect(foreignHome.classList.contains("stugby-shared")).toBe(true);
+    expect(ownHome.querySelector(".stuguby-mark")).toBeNull();
+    expect(ownHome.classList.contains("stuguby-shared")).toBe(false);
+    expect(foreignHome.querySelector(".stuguby-mark")).not.toBeNull();
+    expect(foreignHome.classList.contains("stuguby-shared")).toBe(true);
 
     const placementHomes = container.querySelector<HTMLElement>(".property-placement-house-list")!;
-    expect(within(placementHomes).getByText("My Home").closest("button")?.querySelector(".stugby-mark")).toBeNull();
-    expect(within(placementHomes).getByText("Foreign Home").closest("button")?.querySelector(".stugby-mark")).not.toBeNull();
+    expect(within(placementHomes).getByText("My Home").closest("button")?.querySelector(".stuguby-mark")).toBeNull();
+    expect(within(placementHomes).getByText("Foreign Home").closest("button")?.querySelector(".stuguby-mark")).not.toBeNull();
   });
 
   it("manages the Property inventory without creating a second asset identity", async () => {
@@ -969,8 +969,8 @@ describe("PropertyManagementPage", () => {
     state.session = {
       authenticated: true,
       principal: { type: "local", email: "guest@example.test" },
-      tenant: { id: "local", name: "Local Stuga", role: "guest" },
-      availableTenants: [{ id: "local", name: "Local Stuga", role: "guest" }],
+      tenant: { id: "local", name: "Local Stugu", role: "guest" },
+      availableTenants: [{ id: "local", name: "Local Stugu", role: "guest" }],
       readOnly: true,
       grants: [{ scopeType: "property", scopeId: DEMO_PROPERTY_ID }],
     };
@@ -1056,8 +1056,8 @@ describe("PropertyManagementPage", () => {
     state.session = {
       authenticated: true,
       principal: { type: "local", email: "owner@example.test" },
-      tenant: { id: "local", name: "Local Stuga", role: "owner" },
-      availableTenants: [{ id: "local", name: "Local Stuga", role: "owner" }],
+      tenant: { id: "local", name: "Local Stugu", role: "owner" },
+      availableTenants: [{ id: "local", name: "Local Stugu", role: "owner" }],
       readOnly: false,
       grants: [],
     };
@@ -1100,8 +1100,8 @@ describe("PropertyManagementPage", () => {
     state.session = {
       authenticated: true,
       principal: { type: "local", email: "admin@example.test" },
-      tenant: { id: "local", name: "Local Stuga", role: "admin" },
-      availableTenants: [{ id: "local", name: "Local Stuga", role: "admin" }],
+      tenant: { id: "local", name: "Local Stugu", role: "admin" },
+      availableTenants: [{ id: "local", name: "Local Stugu", role: "admin" }],
       readOnly: false,
       grants: [],
     };
@@ -1162,8 +1162,8 @@ describe("PropertyManagementPage", () => {
     state.session = {
       authenticated: true,
       principal: { type: "local", email: "owner@example.test" },
-      tenant: { id: "local", name: "Local Stuga", role: "owner" },
-      availableTenants: [{ id: "local", name: "Local Stuga", role: "owner" }],
+      tenant: { id: "local", name: "Local Stugu", role: "owner" },
+      availableTenants: [{ id: "local", name: "Local Stugu", role: "owner" }],
       readOnly: false,
       grants: [],
     };
@@ -1202,8 +1202,8 @@ describe("PropertyManagementPage", () => {
     state.session = {
       ...state.session,
       principal: { type: "local", email: null },
-      tenant: { id: "local", name: "Local Stuga", role: "admin" },
-      availableTenants: [{ id: "local", name: "Local Stuga", role: "admin" }],
+      tenant: { id: "local", name: "Local Stugu", role: "admin" },
+      availableTenants: [{ id: "local", name: "Local Stugu", role: "admin" }],
     };
     render(<I18nProvider><PropertyManagementPage state={state} {...callbacks()} /></I18nProvider>);
     expect(screen.getByRole("tab", { name: "Access" })).toBeTruthy();

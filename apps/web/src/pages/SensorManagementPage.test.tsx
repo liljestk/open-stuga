@@ -199,7 +199,7 @@ describe("sensor onboarding and management", () => {
     await user.click(screen.getByRole("button", { name: "Add sensor" }));
     await user.click(screen.getByRole("button", { name: /Office window.*tapo-child-office.*online/i }));
     expect(screen.getByText("Already connected through Home Assistant?")).not.toBeNull();
-    await user.selectOptions(screen.getByRole("combobox", { name: "Existing Stuga sensor" }), "sensor-office");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Existing Stugu sensor" }), "sensor-office");
     await user.click(screen.getByRole("button", { name: "Attach to existing sensor" }));
 
     expect(screen.getByRole("heading", { name: "Edit Office" })).not.toBeNull();
@@ -311,7 +311,7 @@ describe("sensor onboarding and management", () => {
 
     const status = screen.getByRole("region", { name: "Automatic sensor discovery status" });
     expect(within(status).getByText("Reconnecting to the TP-Link hub")).not.toBeNull();
-    expect(within(status).getByText("Stuga keeps retrying automatically. Sensor checks resume as soon as the connection is restored.")).not.toBeNull();
+    expect(within(status).getByText("Stugu keeps retrying automatically. Sensor checks resume as soon as the connection is restored.")).not.toBeNull();
     expect(status.querySelector(".sensor-discovery-watch-icon .spin")).not.toBeNull();
   });
 

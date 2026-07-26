@@ -37,8 +37,8 @@ export interface APNSNotificationPayload {
     sound?: "default";
     "thread-id": string;
   };
-  stugaAlertId: string;
-  stugaDeepLink: string;
+  stuguAlertId: string;
+  stuguDeepLink: string;
 }
 
 /** Immutable, credential-free snapshot for maintenance and action-run notices. */
@@ -131,7 +131,7 @@ export function apnsNotificationSnapshot(
   stage: NotificationDeliveryStage = "initial",
 ): NotificationSnapshot {
   const prefix = stage === "escalation" ? "Escalation: " : stage === "reminder" ? "Reminder: " : "";
-  const privateTitle = event.severity === "critical" ? "Stuga needs urgent attention" : "Stuga needs attention";
+  const privateTitle = event.severity === "critical" ? "Stugu needs urgent attention" : "Stugu needs attention";
   const detailedTitle = boundedPushText(bindings.houseLabel
     ? `${prefix}${rule.name} · ${bindings.houseLabel}`
     : `${prefix}${rule.name}`, 180);
@@ -144,14 +144,14 @@ export function apnsNotificationSnapshot(
         title: destination.includeDetails ? detailedTitle : privateTitle,
         body: destination.includeDetails
           ? detailedBody
-          : "Open Stuga to review the current alert.",
+          : "Open Stugu to review the current alert.",
       },
       category: destination.canAcknowledge ? "STUGA_ALERT" : "STUGA_ALERT_READ_ONLY",
       ...((silentOverride ?? rule.severity === "info") ? {} : { sound: "default" as const }),
-      "thread-id": "stuga-alerts",
+      "thread-id": "stugu-alerts",
     },
-    stugaAlertId: event.id,
-    stugaDeepLink: `stuga://alerts?id=${encodeURIComponent(event.id)}`,
+    stuguAlertId: event.id,
+    stuguDeepLink: `stugu://alerts?id=${encodeURIComponent(event.id)}`,
   };
   return {
     destinationRef: apnsNotificationDestinationRef(providerRef, destination),

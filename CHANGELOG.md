@@ -1,12 +1,12 @@
 # Changelog
 
-All notable Stuga releases are recorded here.
+All notable Stugu releases are recorded here.
 
 ## Unreleased
 
 ## 0.13.0 - 2026-07-26
 
-- Added actionable native iOS notifications sent directly from each Stuga
+- Added actionable native iOS notifications sent directly from each Stugu
   server through APNs, with per-device Home/severity filters, generic previews
   by default, and invalid-token cleanup.
 - Added protected offline Home snapshots and chart history, bounded idempotent
@@ -16,7 +16,7 @@ All notable Stuga releases are recorded here.
   quick capture, and evidence-based read-only Today guidance.
 - Added reviewed, geometry-only RoomPlan imports for supported LiDAR devices
   and a dependent Apple Watch companion for status and alert acknowledgement;
-  neither path copies Stuga credentials or raw room imagery to the Watch/server.
+  neither path copies Stugu credentials or raw room imagery to the Watch/server.
 - Existing databases migrate automatically. Push remains inert unless the
   complete optional APNs credential tuple is configured.
 
@@ -41,15 +41,15 @@ All notable Stuga releases are recorded here.
 
 ## 0.11.1 - 2026-07-25
 
-- Clarified the Stugby Host and Client flow: Hosts connect their Property
+- Clarified the Stuguby Host and Client flow: Hosts connect their Property
   without migration, moved Client Homes retain their authority and full edit
   access, and other participants receive a read-only overview marked with the
-  three-cottage Stugby symbol unless broader access is explicitly shared.
+  three-cottage Stuguby symbol unless broader access is explicitly shared.
 - Expanded the local MCP server to a strictly read-only 54-tool inspection
-  surface covering current Stugby, analytics, energy, actions, maintenance,
+  surface covering current Stuguby, analytics, energy, actions, maintenance,
   integrations, backup, and readiness data, with SQLite read-only and
   query-only enforcement.
-- Added a guarded maintenance script for removing an orphaned legacy Stugby
+- Added a guarded maintenance script for removing an orphaned legacy Stuguby
   when malformed pre-0.11 grant data prevents the normal UI lifecycle. It
   requires exact identity confirmation, creates and verifies a complete backup,
   refuses adopted Properties, preserves Home and Property rows, restores
@@ -57,23 +57,23 @@ All notable Stuga releases are recorded here.
 
 ## 0.11.0 - 2026-07-25
 
-- Added Stugby Property adoption with clear separation from local Properties,
+- Added Stuguby Property adoption with clear separation from local Properties,
   reviewed merge-and-delete migration, durable offline edits, coordinator-wins
   conflict handling, and explicit permanent disconnect.
 - Shared Homes are read-only by default and can opt into synchronized manual
   inventory edits. One designated successor can retain a complete sanitized
   recovery copy and promote it during Server decommissioning; integrations,
   endpoints, credentials, controls, and accounts remain local.
-- Added subtle Stugby ownership, edit, pending, conflict, recovery, and offline
+- Added subtle Stuguby ownership, edit, pending, conflict, recovery, and offline
   states throughout the existing Property and Home interface, plus the
-  three-cottage Stugby mark.
-- Enforced the same Stugby ownership rules across REST and MCP, including
+  three-cottage Stuguby mark.
+- Enforced the same Stuguby ownership rules across REST and MCP, including
   owner-only integrations and binary floor-plan authoring.
 - A sensor can now keep direct TP-Link and Home Assistant bindings together:
   the healthy direct path is preferred for live data, Home Assistant provides
   failover and recovery, and equivalent handover samples are not duplicated.
-- Stugby coordinators can now be connected to Cloudflare from the authenticated
-  local Stuga UI. Stuga registers a private OAuth client from a one-time OAuth
+- Stuguby coordinators can now be connected to Cloudflare from the authenticated
+  local Stugu UI. Stugu registers a private OAuth client from a one-time OAuth
   Client Write bootstrap token, completes PKCE consent, hands the in-memory
   grant once to the trusted host agent, provisions and verifies the boundary,
   and revokes temporary access. Existing installations reuse their runtime
@@ -81,7 +81,7 @@ All notable Stuga releases are recorded here.
   token is stored in browser storage or the host-agent queue. Interactive
   Docker installs and remote-UI upgrades now continue in this UI automatically;
   explicit Cloudflare CLI flags remain available for automation and recovery.
-- Stugby setup now asks how people will use Stuga, suggests and verifies the
+- Stuguby setup now asks how people will use Stugu, suggests and verifies the
   existing secure address, and gives plain recovery guidance instead of a
   disabled technical form. Existing Cloudflare remote access upgrades reuse
   the retained runtime approval, request one temporary owner approval, then
@@ -92,7 +92,7 @@ All notable Stuga releases are recorded here.
   never retains the OAuth token, revokes the access token after success or
   failure, and keeps the exact-zone API-token path available for multi-zone
   accounts.
-- Added a guarded **Delete Stugby** action under Advanced. It removes local
+- Added a guarded **Delete Stuguby** action under Advanced. It removes local
   federation records and cached assets without touching Home data, and refuses
   deletion while memberships, Home grants, or replica deletion receipts remain
   active.
@@ -123,7 +123,7 @@ All notable Stuga releases are recorded here.
   files, enforces separate setup/runtime credentials, provisions least-scope
   path policies, starts the connector, verifies the complete edge boundary,
   and stops public ingress automatically if verification fails.
-- Fixed Stugby coordinator upgrades to repin unjoined loopback federations,
+- Fixed Stuguby coordinator upgrades to repin unjoined loopback federations,
   revoke stale origin-bound invitations, block unusable admissions, recreate
   origin-consuming services, and verify the complete public invitation handoff.
 
@@ -161,12 +161,12 @@ All notable Stuga releases are recorded here.
 
 ## 0.5.0 - 2026-07-23
 
-- Added resumable live Stuga-to-Stuga migration over authenticated SSH with
+- Added resumable live Stugu-to-Stugu migration over authenticated SSH with
   online seed snapshots, content-addressed chunks, portable settings and secret
   transfer, final writer quiescence, isolated TimescaleDB candidate restore,
   full backup verification, health-gated commit, automatic target rollback,
   durable receipts, and fail-closed split-brain protection.
-- Added inert-until-granted Stugby federation for independently administered Stuga nodes,
+- Added inert-until-granted Stuguby federation for independently administered Stugu nodes,
   including shared common-property management, per-Home/per-dataset consent,
   privacy-preserving publication IDs, signed and replay-protected HTTPS events,
   durable SSE cursor notifications, bounded raw telemetry sharing, replica
@@ -208,7 +208,7 @@ All notable Stuga releases are recorded here.
   conditions now have explicit integration coverage proving they open without
   a second sensor sample and without inventing telemetry.
 - Hardened the optional Cloudflare Tunnel/Access deployment with a durable
-  static edge-operator allowlist, separation from the local Stuga owner login,
+  static edge-operator allowlist, separation from the local Stugu owner login,
   fail-closed upgrade validation, generated-config regression coverage, and a
   provisioning, rotation, recovery, and rollback runbook.
 - Added independently toggleable experimental Air movement and Sensor support
@@ -321,4 +321,4 @@ All notable Stuga releases are recorded here.
 
 ## 0.1.0
 
-- Initial local-first Stuga digital-twin vertical slice.
+- Initial local-first Stugu digital-twin vertical slice.

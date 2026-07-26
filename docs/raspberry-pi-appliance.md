@@ -1,9 +1,9 @@
 # Raspberry Pi 4 appliance
 
-This installation turns a Raspberry Pi 4 and USB SSD/HDD into a Stuga
+This installation turns a Raspberry Pi 4 and USB SSD/HDD into a Stugu
 appliance. You write the disk once. Later releases are installed into the
 inactive operating-system slot and Raspberry Pi Connect switches slots on
-reboot. Stuga's databases, generated secrets, Docker state, configuration, and
+reboot. Stugu's databases, generated secrets, Docker state, configuration, and
 backups remain on the shared persistent partition.
 
 The release is immutable: do not use `apt upgrade` on the appliance. Package,
@@ -80,7 +80,7 @@ sudo apt update
 sudo apt install --yes git zstd
 ```
 
-Clone Stuga and check out the exact release you want to install:
+Clone Stugu and check out the exact release you want to install:
 
 ```sh
 git clone https://github.com/liljestk/open-stuga.git
@@ -102,8 +102,8 @@ In Raspberry Pi Connect, create a short-lived, single-use device auth key and
 save only that key to a protected file:
 
 ```sh
-install -m 0600 /dev/null /tmp/stuga-connect.authkey
-nano /tmp/stuga-connect.authkey
+install -m 0600 /dev/null /tmp/stugu-connect.authkey
+nano /tmp/stugu-connect.authkey
 ```
 
 This is a per-device auth key, not the organisation management API token. The
@@ -128,7 +128,7 @@ The first command can install `rpi-image-gen` dependencies and will ask for
 ```sh
 RPI_IMAGE_GEN_INSTALL_DEPS=1 \
 RPI_SSH_PUBLIC_KEY_FILE="$HOME/.ssh/stuga_appliance.pub" \
-RPI_CONNECT_AUTH_KEY_FILE=/tmp/stuga-connect.authkey \
+RPI_CONNECT_AUTH_KEY_FILE=/tmp/stugu-connect.authkey \
 bash scripts/build-rpi-image.sh
 ```
 
@@ -138,7 +138,7 @@ For Wi-Fi, add both variables:
 RPI_WIFI_PROFILE=/secure/path/MyNetwork.psk \
 RPI_WIFI_COUNTRY=FI \
 RPI_SSH_PUBLIC_KEY_FILE="$HOME/.ssh/stuga_appliance.pub" \
-RPI_CONNECT_AUTH_KEY_FILE=/tmp/stuga-connect.authkey \
+RPI_CONNECT_AUTH_KEY_FILE=/tmp/stugu-connect.authkey \
 bash scripts/build-rpi-image.sh
 ```
 
@@ -146,9 +146,9 @@ Substitute your ISO 3166-1 two-letter country code for `FI`.
 
 The outputs are written to `dist/rpi/`:
 
-- `stuga-rpi4-<version>.img.zst` — factory disk image.
-- `stuga-rpi4-<version>-ota.tar.zst` — remote A/B update.
-- `stuga-rpi4-<version>.sha256` — checksums for both.
+- `stugu-rpi4-<version>.img.zst` — factory disk image.
+- `stugu-rpi4-<version>-ota.tar.zst` — remote A/B update.
+- `stugu-rpi4-<version>.sha256` — checksums for both.
 
 If supplied, the factory image contains the single-use Connect key, so it is
 mode `0600`. Do not upload such an image to a public release. Delete it after
@@ -184,8 +184,8 @@ Make the packages public so the appliance can pull anonymously. If they must
 remain private, sign in once on the appliance with a read-only package token:
 
 ```sh
-DOCKER_CONFIG=/persistent/stuga/docker-config docker login ghcr.io
-stugactl restart
+DOCKER_CONFIG=/persistent/stugu/docker-config docker login ghcr.io
+stuguctl restart
 ```
 
 The workflow's GitHub Release URL must be anonymously downloadable by the Pi.
@@ -199,16 +199,16 @@ Verify the image before writing it:
 ```sh
 cd dist/rpi
 VERSION=0.4.0  # the release tag without its leading v
-sha256sum --check "stuga-rpi4-${VERSION}-factory.sha256"
+sha256sum --check "stugu-rpi4-${VERSION}-factory.sha256"
 ```
 
 For a manual local build, use its combined
-`stuga-rpi4-${VERSION}.sha256` file instead.
+`stugu-rpi4-${VERSION}.sha256` file instead.
 
 Open a current Raspberry Pi Imager:
 
 1. Select Raspberry Pi 4.
-2. Choose **Use Custom** and select `stuga-rpi4-<version>.img.zst`.
+2. Choose **Use Custom** and select `stugu-rpi4-<version>.img.zst`.
 3. Select the external SSD/HDD. Double-check the device: writing destroys its
    existing partition table and data.
 4. Write and verify the image.
@@ -217,30 +217,30 @@ Open a current Raspberry Pi Imager:
 
 On first boot the appliance expands the persistent partition, signs in to
 Connect, pulls the pinned containers, creates runtime secrets, and starts
-Stuga. Large images and a slow HDD can make this take several minutes.
+Stugu. Large images and a slow HDD can make this take several minutes.
 
-## 6. Verify and open Stuga
+## 6. Verify and open Stugu
 
 Connect through SSH using the key from step 2:
 
 ```sh
-ssh stuga@stuga.local
-stugactl status
+ssh stugu@stugu.local
+stuguctl status
 ```
 
 The web service initially binds only to loopback. Create a secure tunnel:
 
 ```sh
-ssh -L 8080:127.0.0.1:8080 stuga@stuga.local
+ssh -L 8080:127.0.0.1:8080 stugu@stugu.local
 ```
 
 Keep that terminal open and browse to <http://127.0.0.1:8080>. Complete the
 owner setup there.
 
-To expose Stuga deliberately on a trusted LAN, edit the persistent settings:
+To expose Stugu deliberately on a trusted LAN, edit the persistent settings:
 
 ```sh
-stugactl config
+stuguctl config
 ```
 
 Set the Pi's reserved LAN address and exact browser origin, then restart:
@@ -251,7 +251,7 @@ CORS_ORIGIN=http://192.168.1.50:8080
 ```
 
 ```sh
-stugactl restart
+stuguctl restart
 ```
 
 Prefer a specific reserved address over `0.0.0.0`, restrict the host/network
@@ -298,21 +298,21 @@ Connect dashboard.
 ## Routine commands
 
 ```sh
-stugactl status       # OS version, last release result, and container health
-stugactl logs         # live application logs
-stugactl system-log   # image/container startup and fallback log
-stugactl config       # persistent appliance settings
-stugactl restart      # pull/reconcile the images pinned by this OS release
-stugactl backup       # complete application backup
-stugactl migration    # authenticated live-migration receiver and rollback tools
-stugactl images       # exact immutable image references
+stuguctl status       # OS version, last release result, and container health
+stuguctl logs         # live application logs
+stuguctl system-log   # image/container startup and fallback log
+stuguctl config       # persistent appliance settings
+stuguctl restart      # pull/reconcile the images pinned by this OS release
+stuguctl backup       # complete application backup
+stuguctl migration    # authenticated live-migration receiver and rollback tools
+stuguctl images       # exact immutable image references
 ```
 
-Backups under `/persistent/stuga/backups` survive A/B updates, but they are on
+Backups under `/persistent/stugu/backups` survive A/B updates, but they are on
 the same physical disk. Copy verified backups to another machine or encrypted
 off-site storage.
 
-The appliance is also a guarded target for Stuga's resumable system-to-system
+The appliance is also a guarded target for Stugu's resumable system-to-system
 migration. Seed chunks while the source remains online, then perform a final
 health-gated cutover with `npm run migrate` from the source project. See the
 [live migration runbook](live-migration.md); do not manually restart the old
@@ -320,17 +320,17 @@ source after an ambiguous network failure until the target receipt is known.
 
 ## Recovery notes
 
-- If a new container set is unhealthy, `stuga.service` attempts the previous
+- If a new container set is unhealthy, `stugu.service` attempts the previous
   known-good image set and records the outcome in
-  `/persistent/stuga/release-status`.
+  `/persistent/stugu/release-status`.
 - If the new OS cannot boot, Raspberry Pi's try-boot A/B mechanism returns to
   the previous slot.
 - Do not run `docker compose down -v`; it deletes the named data and credential
   volumes.
 - Do not run `apt upgrade`; the root filesystem is intentionally read-only.
 - View Raspberry Pi update diagnostics with `journalctl -t rpi-ota-connector`
-  and Stuga startup diagnostics with `stugactl system-log`.
-- Keep the recovery SSH private key and a recent off-device Stuga backup.
+  and Stugu startup diagnostics with `stuguctl system-log`.
+- Keep the recovery SSH private key and a recent off-device Stugu backup.
 
 Upstream references:
 

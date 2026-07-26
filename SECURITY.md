@@ -2,14 +2,14 @@
 
 ## Deployment assumptions
 
-Stuga is local-first and has one local workspace with built-in accounts. Browser
+Stugu is local-first and has one local workspace with built-in accounts. Browser
 sign-in establishes a server-managed HttpOnly session, and the API enforces
 account roles and resource grants on every request. Guests are always read-only
 and can see only the properties, houses, and areas granted by an owner or
 administrator.
 
 Authentication does not encrypt traffic. Keep the default loopback binding, or
-put Stuga behind TLS and a trusted VPN or reverse proxy before allowing remote
+put Stugu behind TLS and a trusted VPN or reverse proxy before allowing remote
 access. Do not expose the API directly to the public internet.
 
 ## Secrets
@@ -34,9 +34,9 @@ plans can reveal occupancy patterns and building details. Back up and share the
 to match the actual purpose, and remove uploaded plans before sharing demo
 databases.
 
-## Stugby federation
+## Stuguby federation
 
-Stugby is available but shares nothing until an owner creates an explicit
+Stuguby is available but shares nothing until an owner creates an explicit
 per-Home grant. Only the coordinator needs inbound HTTPS; participant nodes
 connect outbound and should not expose an inbound protocol endpoint merely to
 join. A participant remains responsible for the data it explicitly grants:
@@ -52,19 +52,19 @@ not make an external copy.
 
 Federation events are signed in transit but are not end-to-end encrypted. The
 coordinator can inspect plaintext data it relays to another participant, so the
-coordinator must be operated by a trusted Stugby participant.
+coordinator must be operated by a trusted Stuguby participant.
 
 Protect and back up `STUGBY_IDENTITY_FILE`; it contains the node's private
 Ed25519 key. It is never a federation dataset and must never be sent to another
 participant. Transfer one-time invitation links through a trusted channel.
-Stugby schemas use exact field allowlists and reject integration configuration, endpoints, credentials,
+Stuguby schemas use exact field allowlists and reject integration configuration, endpoints, credentials,
 account identities, sessions, remote-control commands, automations, scripts,
 callbacks, and webhooks.
 
 The automated Cloudflare coordinator deployment leaves human and owner/admin
 routes behind Access and creates a more-specific Bypass only for
 `/api/v1/stugby-protocol/*`. Bypass provides no Cloudflare authentication or
-Access logging; Stuga's signed-request verifier, active membership, replay
+Access logging; Stugu's signed-request verifier, active membership, replay
 window, body bounds, and origin rate limits are the security boundary there.
 Run `npm run cloudflare:verify-coordinator` after every edge-policy change.
 

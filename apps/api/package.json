@@ -19,7 +19,7 @@
   "dependencies": {
     "@climate-twin/contracts": "*",
     "@climate-twin/spatial-layers": "*",
-    "@climate-twin/stugby-protocol": "*",
+    "@climate-twin/stuguby-protocol": "*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "bonjour-service": "^1.4.3",
     "express": "^5.1.0",

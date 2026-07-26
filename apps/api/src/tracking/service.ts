@@ -55,7 +55,7 @@ export const DEFAULT_TRACKING_FEATURE_FLAGS: TrackingFeatureFlags = {
   "tracking.experimentalCoordinateInference.enabled": false,
 };
 
-/** Private 128-bit GATT service carrying the Stuga v1 advertisement as service data. */
+/** Private 128-bit GATT service carrying the Stugu v1 advertisement as service data. */
 export const STUGA_TRACKING_BLE_SERVICE_UUID = "F8A57A01-9D58-4C66-8D2D-2026A11E0001";
 
 const MAXIMUM_BATCH_SIZE = 100;

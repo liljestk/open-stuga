@@ -151,7 +151,7 @@ describe("automated Tapo history worker protocol", () => {
     expect(claimedJob).toMatchObject({
       status: "claimed", sensorId: sensor.id, deviceId: "t315-cellar", metric: "temperature",
       timeZone: "Europe/Helsinki",
-      expectedRecipient: expect.stringMatching(/^owner\+stuga-[a-f0-9]{32}@gmail\.com$/),
+      expectedRecipient: expect.stringMatching(/^owner\+stugu-[a-f0-9]{32}@gmail\.com$/),
     });
     expect(claimedJob).not.toHaveProperty("dedupeKey");
     expect(claimedJob.expectedRecipient).not.toBe(tapoExportRecipient("owner@gmail.com", claimedJob.id));
@@ -245,7 +245,7 @@ describe("automated Tapo history worker protocol", () => {
         id: "mail-1",
         internalDate: String(Date.now()),
         payload: {
-          headers: [{ name: "To", value: `Stuga export <${recipient}>` }],
+          headers: [{ name: "To", value: `Stugu export <${recipient}>` }],
           parts: [{ filename: "Tapo_sensor_data.csv", body: { data: Buffer.from(csv).toString("base64url"), size: csv.length } }],
         },
       });

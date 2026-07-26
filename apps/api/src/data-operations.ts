@@ -82,7 +82,7 @@ export class DataOperationsService {
     if (privacyLevel !== "structure") sensitiveCategories.push("maintenance, observations, and alert history");
     if (includesTelemetry) sensitiveCategories.push("timestamped environmental and energy telemetry");
     return {
-      schemaVersion: "stuga.export/v1",
+      schemaVersion: "stugu.export/v1",
       generatedAt: new Date().toISOString(),
       privacyLevel,
       includesTelemetry,

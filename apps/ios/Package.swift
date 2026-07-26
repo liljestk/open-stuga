@@ -3,16 +3,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "StugaCore",
+    name: "StuguCore",
     platforms: [
         .iOS(.v17),
         .macOS(.v14),
     ],
     products: [
-        .library(name: "StugaCore", targets: ["StugaCore"]),
+        .library(name: "StuguCore", targets: ["StuguCore"]),
     ],
     targets: [
-        .target(name: "StugaCore"),
-        .testTarget(name: "StugaCoreTests", dependencies: ["StugaCore"]),
+        .target(name: "StuguCore"),
+        .testTarget(name: "StuguCoreTests", dependencies: ["StuguCore"]),
     ]
 )

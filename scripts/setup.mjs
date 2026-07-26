@@ -20,7 +20,7 @@ import {
   validateOptions as validateCloudflareOptions,
   validateToken as validateCloudflareToken,
   verifyDeployment as verifyCloudflareDeployment,
-} from "./cloudflare-stuga.mjs";
+} from "./cloudflare-stugu.mjs";
 import {
   authorizeCloudflareSetup,
   cloudflareSetupOAuthScopes,
@@ -28,11 +28,11 @@ import {
   validateCloudflareOAuthClientId,
   validateCloudflareOAuthRedirectUri,
 } from "./cloudflare-oauth.mjs";
-import { installUpdateAgentService } from "./stuga-update-agent-service.mjs";
+import { installUpdateAgentService } from "./stugu-update-agent-service.mjs";
 
 export const MINIMUM_NODE_VERSION = Object.freeze([22, 13, 0]);
 export const INSTALL_MODES = Object.freeze(["local", "docker", "podman", "rpi"]);
-export const REMOTE_ACCESS_MODES = Object.freeze(["none", "remote-ui", "stugby-coordinator"]);
+export const REMOTE_ACCESS_MODES = Object.freeze(["none", "remote-ui", "stuguby-coordinator"]);
 
 const scriptPath = fileURLToPath(import.meta.url);
 const projectRoot = resolve(dirname(scriptPath), "..");
@@ -43,9 +43,9 @@ const modeChoices = [
   { value: "rpi", label: "Raspberry Pi 4 appliance" },
 ];
 const remoteAccessChoices = [
-  { value: "none", label: "Use Stuga only while at home" },
-  { value: "remote-ui", label: "Open Stuga securely while away from home" },
-  { value: "stugby-coordinator", label: "Create a shared Stugby for several homes (includes remote access)" },
+  { value: "none", label: "Use Stugu only while at home" },
+  { value: "remote-ui", label: "Open Stugu securely while away from home" },
+  { value: "stuguby-coordinator", label: "Create a shared Stuguby for several homes (includes remote access)" },
 ];
 
 export function parseVersion(version) {
@@ -75,7 +75,7 @@ function normalizedMode(value) {
 
 function normalizedRemoteAccessMode(value) {
   const aliases = {
-    coordinator: "stugby-coordinator",
+    coordinator: "stuguby-coordinator",
     off: "none",
     ui: "remote-ui",
   };
@@ -285,7 +285,7 @@ export function existingSetupDefaults(root) {
     try {
       const heartbeat = JSON.parse(readFileSync(heartbeatPath, "utf8"));
       const updatedAt = Date.parse(heartbeat?.updatedAt);
-      updateAgentConnected = heartbeat?.schema === "stuga-update-agent/v1"
+      updateAgentConnected = heartbeat?.schema === "stugu-update-agent/v1"
         && heartbeat?.ready === true
         && Number.isFinite(updatedAt)
         && Math.abs(Date.now() - updatedAt) <= 2 * 60_000;
@@ -385,7 +385,7 @@ export function containerRuntimeEnvironmentUpdates(mode, runtime = {}) {
 }
 
 function printHelp() {
-  console.log(`Configure a minimal Stuga installation.
+  console.log(`Configure a minimal Stugu installation.
 
 Usage:
   npm run setup
@@ -400,9 +400,9 @@ Options:
   --install-update-agent
                       Install and start the per-user Docker update service.
   --no-update-agent   Do not install the update service (the secure default).
-  --cloudflare <mode> Provision and verify remote-ui or stugby-coordinator.
+  --cloudflare <mode> Provision and verify remote-ui or stuguby-coordinator.
   --no-cloudflare     Keep the installation local only.
-  --cloudflare-hostname <host>        Public hostname, such as stuga.example.com.
+  --cloudflare-hostname <host>        Public hostname, such as stugu.example.com.
   --cloudflare-zone <zone>            Cloudflare DNS zone, such as example.com.
   --cloudflare-owner-email <email>    Permanent Access recovery operator.
   --cloudflare-oauth-client-id <id>   Approve temporary setup in a browser.
@@ -421,11 +421,11 @@ Options:
   --help              Show this help.
 
 New installs bind to loopback, including when Tunnel access is enabled.
-Interactive Docker Stugby setup continues in the authenticated local UI;
+Interactive Docker Stuguby setup continues in the authenticated local UI;
 explicit --cloudflare flags keep the advanced CLI path.
 Browser approval is temporary; pasted token entry is hidden and never stored
 in shell history or .env.
-Configure Home/device credentials later in Stuga's guided web setup.`);
+Configure Home/device credentials later in Stugu's guided web setup.`);
 }
 
 function npmInvocation() {
@@ -607,7 +607,7 @@ function printCloudflarePrerequisites(reusesRuntimeApproval = false, oauthAvaila
   if (reusesRuntimeApproval) {
     if (oauthAvailable) {
       console.log(`
-Stuga already retained its limited day-to-day Cloudflare approval. It will open
+Stugu already retained its limited day-to-day Cloudflare approval. It will open
 Cloudflare for one temporary setup approval, provision the selected account,
 verify the connection, and revoke the temporary access automatically.
 
@@ -616,28 +616,28 @@ Choose manual token entry if this account contains other sensitive zones.`);
       return;
     }
     console.log(`
-Stuga already knows its public address and retained its limited day-to-day
-Cloudflare approval. To add secure Stugby sharing, Cloudflare needs one
+Stugu already knows its public address and retained its limited day-to-day
+Cloudflare approval. To add secure Stuguby sharing, Cloudflare needs one
 temporary approval from the account owner.
 
 Create a custom API token at:
 https://dash.cloudflare.com/profile/api-tokens
 
 Give it Access Apps and Policies Write, Cloudflare Tunnel Write, and DNS Write
-for this Stuga's zone. Add Zone Read only if setup must discover the zone.
-Stuga uses the token once, checks the connection, and does not save it.`);
+for this Stugu's zone. Add Zone Read only if setup must discover the zone.
+Stugu uses the token once, checks the connection, and does not save it.`);
     return;
   }
   if (oauthAvailable) {
     console.log(`
 Cloudflare will keep the host port on loopback and publish only through Access.
-Stuga can request the temporary setup approval in Cloudflare's browser UI.
+Stugu can request the temporary setup approval in Cloudflare's browser UI.
 
 Create one runtime API token at:
 https://dash.cloudflare.com/profile/api-tokens
 
 Give it only Access Organizations, Identity Providers, and Groups Write for
-the intended account. Stuga retains it to reconcile invited members. The
+the intended account. Stugu retains it to reconcile invited members. The
 broader browser approval is revoked automatically after verification.`);
     return;
   }
@@ -651,7 +651,7 @@ https://dash.cloudflare.com/profile/api-tokens
      Write, and DNS Write for the exact zone. Add Zone Read when letting this
      wizard discover the zone.
   2. Runtime token: Access Organizations, Identity Providers, and Groups Write
-     only. Stuga retains this token to reconcile invited members.
+     only. Stugu retains this token to reconcile invited members.
 
 The temporary token is never saved. Revoke it after verification.`);
 }
@@ -664,22 +664,22 @@ async function resolveCloudflareConfiguration(options, mode, readline, root, env
     : null;
   let remoteAccess = options.remoteAccess;
   if (remoteAccess === null && readline && supported) {
-    if (existing?.mode === "stugby-coordinator") {
-      console.log(`\nSecure Stugby sharing is already set up at https://${existing.hostname}.`);
+    if (existing?.mode === "stuguby-coordinator") {
+      console.log(`\nSecure Stuguby sharing is already set up at https://${existing.hostname}.`);
       remoteAccess = existing.mode;
     } else if (existing?.mode === "remote-ui") {
-      console.log(`\nStuga is already available securely at https://${existing.hostname}.`);
+      console.log(`\nStugu is already available securely at https://${existing.hostname}.`);
       remoteAccess = await askYesNo(
         readline,
-        "Will this Stuga create a shared Stugby for other homes?",
+        "Will this Stugu create a shared Stuguby for other homes?",
         false,
       )
-        ? "stugby-coordinator"
+        ? "stuguby-coordinator"
         : "remote-ui";
     } else {
       remoteAccess = await askChoice(
         readline,
-        "How will people use this Stuga?",
+        "How will people use this Stugu?",
         remoteAccessChoices,
         "none",
       );
@@ -689,7 +689,7 @@ async function resolveCloudflareConfiguration(options, mode, readline, root, env
 
   if (remoteAccess === "none") {
     if (hasCloudflareDetails(options)) {
-      throw new Error("Cloudflare details require --cloudflare remote-ui or --cloudflare stugby-coordinator");
+      throw new Error("Cloudflare details require --cloudflare remote-ui or --cloudflare stuguby-coordinator");
     }
     return null;
   }
@@ -703,12 +703,12 @@ async function resolveCloudflareConfiguration(options, mode, readline, root, env
   if (mode === "docker"
     && readline
     && !explicitCloudflareRequest
-    && remoteAccess === "stugby-coordinator"
-    && existing?.mode !== "stugby-coordinator") {
+    && remoteAccess === "stuguby-coordinator"
+    && existing?.mode !== "stuguby-coordinator") {
     console.log(`
-Stuga will start on this computer first. After the owner signs in, open
-Stugbys and choose "Set up secure sharing". Cloudflare approval, provisioning,
-verification, and recovery guidance then stay in Stuga's UI.`);
+Stugu will start on this computer first. After the owner signs in, open
+Stugubys and choose "Set up secure sharing". Cloudflare approval, provisioning,
+verification, and recovery guidance then stay in Stugu's UI.`);
     return {
       deferredToUi: true,
       hostname: existing?.hostname ?? null,
@@ -723,7 +723,7 @@ verification, and recovery guidance then stay in Stuga's UI.`);
   if (!provisionRequired && existing) {
     return {
       ...existing,
-      command: remoteAccess === "stugby-coordinator" ? "provision-coordinator" : "provision",
+      command: remoteAccess === "stuguby-coordinator" ? "provision-coordinator" : "provision",
       provisionRequired: false,
       provisionTokenFile: null,
       tokenInput: "none",
@@ -740,7 +740,7 @@ verification, and recovery guidance then stay in Stuga's UI.`);
     ? await askRequired(readline, "Cloudflare DNS zone", guessedZone(hostname))
     : "")).trim().toLowerCase();
   const ownerEmail = (options.cloudflare.ownerEmail ?? existing?.ownerEmail ?? (readline
-    ? await askRequired(readline, "Email address used to sign in to Stuga")
+    ? await askRequired(readline, "Email address used to sign in to Stugu")
     : "")).trim().toLowerCase();
   if (!hostname) throw new Error("--cloudflare-hostname is required");
   if (!zone) throw new Error("--cloudflare-zone is required");
@@ -819,7 +819,7 @@ verification, and recovery guidance then stay in Stuga's UI.`);
   const cloudflare = {
     accessTokenFile: accessTokenFile ? resolve(root, accessTokenFile) : null,
     accountId: options.cloudflare.accountId?.trim() ?? existing?.accountId ?? null,
-    command: remoteAccess === "stugby-coordinator" ? "provision-coordinator" : "provision",
+    command: remoteAccess === "stuguby-coordinator" ? "provision-coordinator" : "provision",
     composeSecretDirectory: composeSecretDirectory(secretDirectoryInput),
     hostname,
     mode: remoteAccess,
@@ -853,7 +853,7 @@ export async function resolveConfiguration(options, interaction = {}) {
   const existingDefaults = existingSetupDefaults(root);
   try {
     const mode = options.mode ?? existingDefaults.mode ?? (readline
-      ? await askChoice(readline, "How do you want to install Stuga?", modeChoices, "docker")
+      ? await askChoice(readline, "How do you want to install Stugu?", modeChoices, "docker")
       : "local");
     if (!options.mode && existingDefaults.mode && readline) {
       console.log(`\nKeeping the existing ${existingDefaults.mode === "docker" ? "Docker" : "Podman"} installation.`);
@@ -926,10 +926,10 @@ export async function resolveConfiguration(options, interaction = {}) {
         if (readline) console.log("Automatic updates are already connected.");
       } else if (readline) {
         console.log(cloudflareUiPending ? `
-Secure sharing from Stuga's UI needs the trusted host update agent. It can
-administer Docker and replace this Stuga installation. Install it only under a
+Secure sharing from Stugu's UI needs the trusted host update agent. It can
+administer Docker and replace this Stugu installation. Install it only under a
 Docker-authorized user account on this trusted host.` : `
-The update agent can administer Docker and replace this Stuga installation.
+The update agent can administer Docker and replace this Stugu installation.
 Install it only on a trusted host under a Docker-authorized user account.`);
         installUpdateAgent = await askYesNo(
           readline,
@@ -1117,7 +1117,7 @@ export async function activateCloudflare(configuration, dependencies = {}) {
       logger.log(`[setup] Reusing the existing secure connection at https://${cloudflare.hostname}`);
     }
 
-    logger.log(`[setup] Recreating Stuga and starting the ${configuration.mode} Tunnel connector`);
+    logger.log(`[setup] Recreating Stugu and starting the ${configuration.mode} Tunnel connector`);
     const started = runner(configuration.mode, [
       "compose",
       "up",
@@ -1151,7 +1151,7 @@ export async function activateCloudflare(configuration, dependencies = {}) {
       const reason = error instanceof Error ? error.message : "unknown verification failure";
       throw new Error(
         `Cloudflare security verification failed: ${reason}. ${stopped
-          ? "The public connector was stopped; local Stuga is still available."
+          ? "The public connector was stopped; local Stugu is still available."
           : `Automatic rollback failed; run '${composeCommand} stop cloudflared' immediately.`}`,
       );
     }
@@ -1163,7 +1163,7 @@ export async function activateCloudflare(configuration, dependencies = {}) {
         logger.log("[setup] One-time Cloudflare OAuth access token revoked.");
       } catch {
         logger.log(
-          "[setup] Warning: Cloudflare did not confirm access-token revocation. Revoke Stuga Setup under https://dash.cloudflare.com/profile/oauth-authorizations",
+          "[setup] Warning: Cloudflare did not confirm access-token revocation. Revoke Stugu Setup under https://dash.cloudflare.com/profile/oauth-authorizations",
         );
       }
     }
@@ -1217,7 +1217,7 @@ Build on 64-bit Raspberry Pi OS Trixie, Debian Trixie, or Debian Bookworm:
   RPI_SSH_PUBLIC_KEY_FILE="$HOME/.ssh/stuga_appliance.pub" \\
   bash scripts/build-rpi-image.sh
 
-Then flash dist/rpi/stuga-rpi4-<version>.img.zst with Raspberry Pi Imager.`);
+Then flash dist/rpi/stugu-rpi4-<version>.img.zst with Raspberry Pi Imager.`);
   } else {
     console.log(`
 1. Verify the factory image checksum.
@@ -1225,7 +1225,7 @@ Then flash dist/rpi/stuga-rpi4-<version>.img.zst with Raspberry Pi Imager.`);
 3. Boot the Pi with Ethernet attached.
 4. Connect securely:
 
-   ssh -L 8080:127.0.0.1:8080 stuga@stuga.local
+   ssh -L 8080:127.0.0.1:8080 stugu@stugu.local
 
 5. Open http://127.0.0.1:8080 and create the first owner.`);
   }
@@ -1235,7 +1235,7 @@ Then flash dist/rpi/stuga-rpi4-<version>.img.zst with Raspberry Pi Imager.`);
 function printNextSteps(configuration, started) {
   if (configuration.mode === "local") {
     console.log(`
-Stuga is configured for ${configuration.data === "demo" ? "disposable demo data" : "a real home"}.
+Stugu is configured for ${configuration.data === "demo" ? "disposable demo data" : "a real home"}.
 Run:  npm run dev
 Open: http://localhost:5173`);
     return;
@@ -1244,14 +1244,14 @@ Open: http://localhost:5173`);
   const runtime = configuration.mode;
   if (configuration.cloudflareUiPending) {
     console.log(`
-Stuga is ready for secure-sharing setup in its UI.
+Stugu is ready for secure-sharing setup in its UI.
 Open locally: http://127.0.0.1:${configuration.port}
-Then: create or sign in as the owner → Stugbys → Set up secure sharing.
+Then: create or sign in as the owner → Stugubys → Set up secure sharing.
 
 ${configuration.installUpdateAgent
     ? "The required host agent was installed."
     : "Before using UI setup, install the required host agent:\n  npm run update-agent:service:install"}
-Keep Stuga on loopback until Cloudflare setup reports a verified connection.`);
+Keep Stugu on loopback until Cloudflare setup reports a verified connection.`);
     return;
   }
 
@@ -1269,7 +1269,7 @@ http://localhost:${configuration.port}`);
       return;
     }
     console.log(`
-Stuga is online and the Cloudflare security boundary was verified.
+Stugu is online and the Cloudflare security boundary was verified.
 Open:           https://${configuration.cloudflare.hostname}
 Local recovery: http://localhost:${configuration.port}
 Stop public:    ${runtime} compose stop cloudflared
@@ -1281,14 +1281,14 @@ ${configuration.cloudflare.provisionRequired === false
       : "Revoke the temporary setup token now."}
 Keep the generated Cloudflare secret directory protected and keep the runtime
 Access token active.`);
-    if (configuration.cloudflare.mode === "stugby-coordinator") {
-      console.log("Create new Stugby invitations only from the verified HTTPS address.");
+    if (configuration.cloudflare.mode === "stuguby-coordinator") {
+      console.log("Create new Stuguby invitations only from the verified HTTPS address.");
     }
     return;
   }
 
   console.log(`
-Stuga is configured for ${configuration.data === "demo" ? "disposable demo data" : "a real home"}.
+Stugu is configured for ${configuration.data === "demo" ? "disposable demo data" : "a real home"}.
 ${started ? "Started" : "Start"}: ${runtime} compose up --build -d
 Open:    http://localhost:${configuration.port}
 Stop:    ${runtime} compose down`);
@@ -1300,7 +1300,7 @@ Stop:    ${runtime} compose down`);
 
 function printCloudflareDryRun(configuration) {
   if (configuration.cloudflareUiPending) {
-    console.log("[setup] Would start Stuga on loopback and defer secure-sharing setup to the authenticated local UI");
+    console.log("[setup] Would start Stugu on loopback and defer secure-sharing setup to the authenticated local UI");
     return;
   }
   if (!configuration.cloudflare) return;
@@ -1456,7 +1456,7 @@ export async function runSetup(args = process.argv.slice(2)) {
     console.log(`[setup] Starting with ${configuration.mode} compose`);
     const result = run(configuration.mode, ["compose", "up", "--build", "-d"]);
     if (result.error || result.status !== 0) {
-      console.error(`[setup] ${configuration.mode} compose could not start Stuga`);
+      console.error(`[setup] ${configuration.mode} compose could not start Stugu`);
       return result.status ?? 1;
     }
     started = true;
@@ -1468,7 +1468,7 @@ export async function runSetup(args = process.argv.slice(2)) {
       console.log(`[setup] Installed and started ${service.kind}: ${service.name}`);
     } catch (error) {
       console.error(`[setup] Could not install the update-agent service: ${error instanceof Error ? error.message : String(error)}`);
-      console.error("[setup] Stuga remains configured; rerun setup or start the agent manually with npm run update-agent.");
+      console.error("[setup] Stugu remains configured; rerun setup or start the agent manually with npm run update-agent.");
       return 1;
     }
   }

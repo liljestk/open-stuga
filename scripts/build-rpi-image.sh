@@ -17,7 +17,7 @@ Optional environment variables:
   STUGA_IMAGE_REGISTRY_PREFIX    Image prefix (default: ghcr.io/liljestk/open-stuga)
   STUGA_{API,WEB,BACKUP,TAPO_RUNNER,UPDATE_AGENT}_IMAGE
                                  Exact image refs (CI supplies tag + digest)
-  RPI_HOSTNAME                   Device hostname (default: stuga)
+  RPI_HOSTNAME                   Device hostname (default: stugu)
   RPI_WIFI_PROFILE               iwd .psk profile to embed
   RPI_WIFI_COUNTRY               Two-letter country code; required with Wi-Fi
   RPI_IMAGE_GEN_INSTALL_DEPS=1   Run rpi-image-gen's dependency installer
@@ -63,7 +63,7 @@ readonly web_image="${STUGA_WEB_IMAGE:-${image_prefix}-web:${image_tag}}"
 readonly backup_image="${STUGA_BACKUP_IMAGE:-${image_prefix}-backup:${image_tag}}"
 readonly tapo_image="${STUGA_TAPO_RUNNER_IMAGE:-${image_prefix}-tapo-export-runner:${image_tag}}"
 readonly update_agent_image="${STUGA_UPDATE_AGENT_IMAGE:-${image_prefix}-update-agent:${image_tag}}"
-readonly hostname="${RPI_HOSTNAME:-stuga}"
+readonly hostname="${RPI_HOSTNAME:-stugu}"
 readonly rpi_image_gen_ref="${RPI_IMAGE_GEN_REF:-17e53bca56c8d6bed273a6faa7412b296e4c0937}"
 readonly rpi_image_gen_dir="${RPI_IMAGE_GEN_DIR:-$repo_root/.rpi-image-gen}"
 readonly build_root="${RPI_BUILD_ROOT:-$repo_root/.rpi-build/$version}"
@@ -117,7 +117,7 @@ if [[ "${RPI_IMAGE_GEN_INSTALL_DEPS:-0}" == "1" ]]; then
   fi
 fi
 
-stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/stuga-rpi.XXXXXX")"
+stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/stugu-rpi.XXXXXX")"
 cleanup() {
   rm -rf -- "$stage_dir"
 }
@@ -158,15 +158,15 @@ mkdir -p "$build_root" "$dist_dir"
 
 (
   cd "$rpi_image_gen_dir"
-  ./rpi-image-gen metadata --lint "$stage_dir/layer/stuga.yaml"
-  ./rpi-image-gen build -S "$stage_dir" -c stuga.yaml -- "${build_options[@]}"
+  ./rpi-image-gen metadata --lint "$stage_dir/layer/stugu.yaml"
+  ./rpi-image-gen build -S "$stage_dir" -c stugu.yaml -- "${build_options[@]}"
 )
 
-readonly output_dir="$build_root/image-stuga"
-readonly raw_image="$output_dir/stuga.img"
+readonly output_dir="$build_root/image-stugu"
+readonly raw_image="$output_dir/stugu.img"
 readonly ota_source="$output_dir/update.tar.zst"
-readonly ota_name="stuga-rpi4-$version-ota.tar.zst"
-readonly factory_name="stuga-rpi4-$version.img.zst"
+readonly ota_name="stugu-rpi4-$version-ota.tar.zst"
+readonly factory_name="stugu-rpi4-$version.img.zst"
 
 if [[ ! -s "$ota_source" ]]; then
   echo "rpi-image-gen did not produce $ota_source" >&2
@@ -187,14 +187,14 @@ fi
 
 (
   cd "$dist_dir"
-  sha256sum "${checksum_files[@]}" > "stuga-rpi4-$version.sha256"
+  sha256sum "${checksum_files[@]}" > "stugu-rpi4-$version.sha256"
 )
 
 cat <<EOF
 Build complete.
 
 OTA artifact:     $dist_dir/$ota_name
-Checksums:        $dist_dir/stuga-rpi4-$version.sha256
+Checksums:        $dist_dir/stugu-rpi4-$version.sha256
 Factory image:    $([[ "$export_factory_image" == "1" ]] && printf '%s' "$dist_dir/$factory_name" || printf '%s' 'not exported')
 rpi-image-gen:    $rpi_image_gen_ref
 EOF

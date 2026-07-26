@@ -134,8 +134,8 @@ export async function openExternalUrl(url, dependencies = {}) {
 function callbackHtml(approved) {
   const title = approved ? "Cloudflare approved" : "Cloudflare approval stopped";
   const message = approved
-    ? "Cloudflare approved Stuga setup. Return to the terminal."
-    : "Cloudflare did not approve Stuga setup. Return to the terminal.";
+    ? "Cloudflare approved Stugu setup. Return to the terminal."
+    : "Cloudflare did not approve Stugu setup. Return to the terminal.";
   return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${title}</title><body><main><h1>${title}</h1><p>${message}</p></main></body></html>`;
 }
 

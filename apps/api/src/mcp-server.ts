@@ -2,7 +2,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, resolvePlanElementOpeningState } from "@climate-twin/contracts";
-import type { StugbyRole, StugbySummary } from "@climate-twin/stugby-protocol";
+import type { StugubyRole, StugubySummary } from "@climate-twin/stuguby-protocol";
 import type {
   AreaEquipment,
   AreaEquipmentInput,
@@ -90,17 +90,17 @@ import { runThermalSimulation } from "./thermal-simulation.js";
 import { TpLinkBridge } from "./tp-link.js";
 import { SYSTEM_VERSION } from "./version.js";
 import { FmiWeatherProvider, WeatherRequestSupersededError, WeatherService } from "./weather.js";
-import type { StugbyService } from "./stugby/service.js";
-import { StugbyStore } from "./stugby/store.js";
+import type { StugubyService } from "./stuguby/service.js";
+import { StugubyStore } from "./stuguby/store.js";
 
 const config = loadConfig();
 const database = new ClimateDatabase(config.databasePath, false, { readOnly: true });
 const locationDiscovery = new LocationDiscoveryService();
 const bus = new TelemetryBus();
-const stugbyStore = new StugbyStore(database.db, "mcp-read-only", { readOnly: true });
-const stugby = new Proxy({} as StugbyService, {
+const stugubyStore = new StugubyStore(database.db, "mcp-read-only", { readOnly: true });
+const stuguby = new Proxy({} as StugubyService, {
   get: () => () => {
-    throw new Error("The Stuga MCP server is read-only");
+    throw new Error("The Stugu MCP server is read-only");
   },
 });
 const dataMode = new DataModeCoordinator(database);
@@ -226,9 +226,9 @@ function createPropertyArea(args: Record<string, unknown>): PropertyArea {
       : { location: requiredObject(args, "location") as unknown as GeoCoordinate }),
     polygon: requiredArray(args, "polygon", 500, 0) as GeoCoordinate[],
   };
-  stugby.assertPropertyWriteAllowed(input.propertyId);
+  stuguby.assertPropertyWriteAllowed(input.propertyId);
   const area = database.createPropertyArea(input);
-  stugby.captureCurrentPropertyEntity(area.propertyId, "area", area.id, "upsert");
+  stuguby.captureCurrentPropertyEntity(area.propertyId, "area", area.id, "upsert");
   return area;
 }
 
@@ -236,7 +236,7 @@ function updatePropertyArea(args: Record<string, unknown>): PropertyArea {
   const areaId = requiredString(args, "areaId");
   const previous = database.getPropertyArea(areaId);
   if (!previous) throw new Error(`Unknown property area: ${areaId}`);
-  stugby.assertPropertyWriteAllowed(previous.propertyId);
+  stuguby.assertPropertyWriteAllowed(previous.propertyId);
   const values = requiredObject(args, "patch");
   const patch: PropertyAreaPatch = {};
   if (values.propertyId !== undefined) patch.propertyId = requiredString(values, "propertyId");
@@ -248,14 +248,14 @@ function updatePropertyArea(args: Record<string, unknown>): PropertyArea {
     : requiredObject(values, "location") as unknown as GeoCoordinate;
   if (values.polygon !== undefined) patch.polygon = requiredArray(values, "polygon", 500, 0) as GeoCoordinate[];
   if (Object.keys(patch).length === 0) throw new Error("patch must contain at least one mutable field");
-  if (patch.propertyId && patch.propertyId !== previous.propertyId) stugby.assertPropertyWriteAllowed(patch.propertyId);
+  if (patch.propertyId && patch.propertyId !== previous.propertyId) stuguby.assertPropertyWriteAllowed(patch.propertyId);
   const area = database.updatePropertyArea(areaId, patch, "local-mcp");
   if (!area) throw new Error(`Unknown property area: ${areaId}`);
   if (area.propertyId !== previous.propertyId) {
-    stugby.captureCurrentPropertyEntity(previous.propertyId, "area", area.id, "delete");
-    stugby.captureCurrentPropertyEntity(area.propertyId, "area", area.id, "upsert");
+    stuguby.captureCurrentPropertyEntity(previous.propertyId, "area", area.id, "delete");
+    stuguby.captureCurrentPropertyEntity(area.propertyId, "area", area.id, "upsert");
   } else {
-    stugby.captureCurrentPropertyEntity(area.propertyId, "area", area.id, "upsert",
+    stuguby.captureCurrentPropertyEntity(area.propertyId, "area", area.id, "upsert",
       Object.keys(patch).filter((field) => field !== "propertyId"));
   }
   return area;
@@ -276,9 +276,9 @@ function createAreaEquipment(args: Record<string, unknown>): AreaEquipment {
   };
   const area = database.getPropertyArea(areaId);
   if (!area) throw new Error(`Unknown property area: ${areaId}`);
-  stugby.assertPropertyWriteAllowed(area.propertyId);
+  stuguby.assertPropertyWriteAllowed(area.propertyId);
   const equipment = database.createAreaEquipment(input);
-  stugby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert");
+  stuguby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert");
   return equipment;
 }
 
@@ -286,7 +286,7 @@ function updateAreaEquipment(args: Record<string, unknown>): AreaEquipment {
   const equipmentId = requiredString(args, "equipmentId");
   const previous = database.getAreaEquipment(equipmentId);
   if (!previous) throw new Error(`Unknown area equipment: ${equipmentId}`);
-  stugby.assertPropertyWriteAllowed(previous.propertyId);
+  stuguby.assertPropertyWriteAllowed(previous.propertyId);
   const values = requiredObject(args, "patch");
   const patch: AreaEquipmentPatch = {};
   if (values.areaId !== undefined) patch.areaId = requiredString(values, "areaId");
@@ -301,15 +301,15 @@ function updateAreaEquipment(args: Record<string, unknown>): AreaEquipment {
   if (patch.areaId) {
     const targetArea = database.getPropertyArea(patch.areaId);
     if (!targetArea) throw new Error(`Unknown property area: ${patch.areaId}`);
-    if (targetArea.propertyId !== previous.propertyId) stugby.assertPropertyWriteAllowed(targetArea.propertyId);
+    if (targetArea.propertyId !== previous.propertyId) stuguby.assertPropertyWriteAllowed(targetArea.propertyId);
   }
   const equipment = database.updateAreaEquipment(equipmentId, patch, "local-mcp");
   if (!equipment) throw new Error(`Unknown area equipment: ${equipmentId}`);
   if (equipment.propertyId !== previous.propertyId) {
-    stugby.captureCurrentPropertyEntity(previous.propertyId, "equipment", equipment.id, "delete");
-    stugby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert");
+    stuguby.captureCurrentPropertyEntity(previous.propertyId, "equipment", equipment.id, "delete");
+    stuguby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert");
   } else {
-    stugby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert", Object.keys(patch));
+    stuguby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert", Object.keys(patch));
   }
   return equipment;
 }
@@ -372,7 +372,7 @@ function thermalSimulation(args: Record<string, unknown>): unknown {
 
 function createHouse(args: Record<string, unknown>): unknown {
   const propertyId = args.propertyId === undefined ? "property-main" : requiredString(args, "propertyId");
-  stugby.assertPropertyWriteAllowed(propertyId);
+  stuguby.assertPropertyWriteAllowed(propertyId);
   let house = database.createHouse({
     ...(args.id === undefined ? {} : { id: requiredString(args, "id") }),
     propertyId,
@@ -383,7 +383,7 @@ function createHouse(args: Record<string, unknown>): unknown {
     ...(args.orientationDegrees === undefined ? {} : { orientationDegrees: requiredNumber(args, "orientationDegrees") }),
     floors: requiredArray(args, "floors", 100, 0) as Floor[],
   });
-  house = stugby.markLocalHouseInAdoptedProperty(house.id);
+  house = stuguby.markLocalHouseInAdoptedProperty(house.id);
   status.refreshWeatherConfiguration();
   return house;
 }
@@ -391,7 +391,7 @@ function createHouse(args: Record<string, unknown>): unknown {
 function updateHouse(args: Record<string, unknown>): unknown {
   const houseId = requiredString(args, "houseId");
   const previous = requireMcpHouse(database, houseId);
-  stugby.assertHouseWriteAllowed(houseId);
+  stuguby.assertHouseWriteAllowed(houseId);
   const patch: {
     name?: string;
     timezone?: string;
@@ -415,32 +415,32 @@ function updateHouse(args: Record<string, unknown>): unknown {
     : requiredNumber(args, "orientationDegrees");
   if (args.floors !== undefined) patch.floors = requiredArray(args, "floors", 100, 0) as Floor[];
   if (patch.propertyId && patch.propertyId !== previous.propertyId) {
-    stugby.assertPropertyWriteAllowed(patch.propertyId);
-    const sourceLink = database.getProperty(previous.propertyId)?.stugby;
-    const targetLink = database.getProperty(patch.propertyId)?.stugby;
-    if ((previous.stugby && previous.stugby.syncState !== "detached")
+    stuguby.assertPropertyWriteAllowed(patch.propertyId);
+    const sourceLink = database.getProperty(previous.propertyId)?.stuguby;
+    const targetLink = database.getProperty(patch.propertyId)?.stuguby;
+    if ((previous.stuguby && previous.stuguby.syncState !== "detached")
       || (sourceLink && sourceLink.syncState !== "detached")
       || (targetLink && targetLink.syncState !== "detached")) {
-      throw new Error("Use the reviewed Stugby Property migration to move a Home into or out of an adopted Property");
+      throw new Error("Use the reviewed Stuguby Property migration to move a Home into or out of an adopted Property");
     }
   }
-  if (patch.floors) stugby.assertSharedHouseFloorPlanAssetsUnchanged(houseId, patch.floors);
+  if (patch.floors) stuguby.assertSharedHouseFloorPlanAssetsUnchanged(houseId, patch.floors);
   const house = database.updateHouse(houseId, patch, "local-mcp");
   if (!house) throw new Error(`Unknown house: ${houseId}`);
   weather.invalidate(houseId);
   status.refreshWeatherConfiguration();
-  stugby.captureHomeMutation(house.id);
+  stuguby.captureHomeMutation(house.id);
   return house;
 }
 
 function replaceHouseLayout(args: Record<string, unknown>): unknown {
   const houseId = requiredString(args, "houseId");
-  stugby.assertHouseWriteAllowed(houseId);
+  stuguby.assertHouseWriteAllowed(houseId);
   const floors = requiredArray(args, "floors", 100, 0) as Floor[];
-  stugby.assertSharedHouseFloorPlanAssetsUnchanged(houseId, floors);
+  stuguby.assertSharedHouseFloorPlanAssetsUnchanged(houseId, floors);
   const house = database.updateHouse(houseId, { floors }, "local-mcp");
   if (!house) throw new Error(`Unknown house: ${houseId}`);
-  stugby.captureHomeMutation(house.id);
+  stuguby.captureHomeMutation(house.id);
   return house;
 }
 
@@ -448,24 +448,24 @@ function replaceHouseFloor(args: Record<string, unknown>): Floor {
   const houseId = requiredString(args, "houseId");
   const floorId = requiredString(args, "floorId");
   const house = requireMcpHouse(database, houseId);
-  stugby.assertHouseWriteAllowed(houseId);
+  stuguby.assertHouseWriteAllowed(houseId);
   const floor = requiredObject(args, "floor") as unknown as Floor;
   if (floor.id !== floorId) throw new Error("floor.id must match floorId");
   const index = house.floors.findIndex((candidate) => candidate.id === floorId);
   if (index < 0) throw new Error(`Unknown floor ${floorId} in house ${houseId}`);
   const floors = house.floors.slice();
   floors[index] = floor;
-  stugby.assertSharedHouseFloorPlanAssetsUnchanged(houseId, floors);
+  stuguby.assertSharedHouseFloorPlanAssetsUnchanged(houseId, floors);
   database.updateHouse(houseId, { floors }, "local-mcp");
-  stugby.captureHomeMutation(houseId);
+  stuguby.captureHomeMutation(houseId);
   return floor;
 }
 
 function deleteHouse(args: Record<string, unknown>): { deleted: true; houseId: string } {
   requireMcpConfirmation(args.confirm);
   const houseId = requiredString(args, "houseId");
-  stugby.assertHouseWriteAllowed(houseId);
-  stugby.assertHouseLocalAuthority(houseId);
+  stuguby.assertHouseWriteAllowed(houseId);
+  stuguby.assertHouseLocalAuthority(houseId);
   if (!database.deleteHouse(houseId)) throw new Error(`Unknown house: ${houseId}`);
   weather.invalidate(houseId);
   status.refreshWeatherConfiguration();
@@ -475,10 +475,10 @@ function deleteHouse(args: Record<string, unknown>): { deleted: true; houseId: s
 function createSensor(args: Record<string, unknown>): Sensor {
   const tags = optionalStringArray(args, "tags", []);
   const houseId = requiredString(args, "houseId");
-  stugby.assertHouseWriteAllowed(houseId);
+  stuguby.assertHouseWriteAllowed(houseId);
   if (["temperatureEntityId", "humidityEntityId", "batteryEntityId", "tpLinkDeviceId", "measurementEntityIds"]
     .some((field) => args[field] !== undefined && args[field] !== null)) {
-    stugby.assertHouseLocalAuthority(houseId);
+    stuguby.assertHouseLocalAuthority(houseId);
   }
   const sensor = database.createSensor({
     ...(args.id === undefined ? {} : { id: requiredString(args, "id") }),
@@ -499,7 +499,7 @@ function createSensor(args: Record<string, unknown>): Sensor {
       ? {}
       : { measurementEntityIds: stringRecord(requiredObject(args, "measurementEntityIds"), "measurementEntityIds") }),
   });
-  stugby.captureHomeMutation(sensor.houseId);
+  stuguby.captureHomeMutation(sensor.houseId);
   return sensor;
 }
 
@@ -514,12 +514,12 @@ function updateSensor(args: Record<string, unknown>): Sensor {
   const sensorId = requiredString(args, "sensorId");
   const current = database.getSensor(sensorId);
   if (!current) throw new Error(`Unknown sensor: ${sensorId}`);
-  stugby.assertHouseWriteAllowed(current.houseId);
+  stuguby.assertHouseWriteAllowed(current.houseId);
   const patch = parseSensorPatch(requiredObject(args, "patch"));
   if (patch.houseId && patch.houseId !== current.houseId) {
-    stugby.assertHouseWriteAllowed(patch.houseId);
-    const source = database.getHouse(current.houseId)?.stugby;
-    const target = database.getHouse(patch.houseId)?.stugby;
+    stuguby.assertHouseWriteAllowed(patch.houseId);
+    const source = database.getHouse(current.houseId)?.stuguby;
+    const target = database.getHouse(patch.houseId)?.stuguby;
     if ((source?.ownership === "shared" && source.syncState !== "detached")
       || (target?.ownership === "shared" && target.syncState !== "detached")) {
       throw new Error("A sensor in a shared Home remains with that Home until permanent disconnect");
@@ -527,12 +527,12 @@ function updateSensor(args: Record<string, unknown>): Sensor {
   }
   if (["temperatureEntityId", "humidityEntityId", "batteryEntityId", "tpLinkDeviceId", "tpLinkConnectionId", "measurementEntityIds"]
     .some((field) => Object.hasOwn(patch, field))) {
-    stugby.assertHouseLocalAuthority(current.houseId);
+    stuguby.assertHouseLocalAuthority(current.houseId);
   }
   const sensor = database.updateSensor(sensorId, patch);
   if (!sensor) throw new Error(`Unknown sensor: ${sensorId}`);
-  if (sensor.houseId !== current.houseId) stugby.captureHomeMutation(current.houseId);
-  stugby.captureHomeMutation(sensor.houseId);
+  if (sensor.houseId !== current.houseId) stuguby.captureHomeMutation(current.houseId);
+  stuguby.captureHomeMutation(sensor.houseId);
   return sensor;
 }
 
@@ -541,9 +541,9 @@ function deleteSensor(args: Record<string, unknown>): { deleted: true; sensorId:
   const sensorId = requiredString(args, "sensorId");
   const current = database.getSensor(sensorId);
   if (!current) throw new Error(`Unknown sensor: ${sensorId}`);
-  stugby.assertHouseWriteAllowed(current.houseId);
+  stuguby.assertHouseWriteAllowed(current.houseId);
   if (!database.deleteSensor(sensorId)) throw new Error(`Unknown sensor: ${sensorId}`);
-  stugby.captureHomeMutation(current.houseId);
+  stuguby.captureHomeMutation(current.houseId);
   return { deleted: true, sensorId };
 }
 
@@ -578,7 +578,7 @@ function ingestMeasurements(args: Record<string, unknown>): { accepted: number; 
   const submitted = parseMeasurementSamples(args, 1_000);
   for (const sample of submitted) {
     const sensor = database.getSensor(sample.sensorId);
-    if (sensor) stugby.assertHouseLocalAuthority(sensor.houseId);
+    if (sensor) stuguby.assertHouseLocalAuthority(sensor.houseId);
   }
   const samples = measurements.ingestBatch(submitted);
   return { accepted: samples.length, samples };
@@ -588,7 +588,7 @@ function importMeasurements(args: Record<string, unknown>): { accepted: number; 
   const submitted = parseMeasurementSamples(args, 10_000).map((sample) => ({ ...sample, source: "import" as const }));
   for (const sample of submitted) {
     const sensor = database.getSensor(sample.sensorId);
-    if (sensor) stugby.assertHouseLocalAuthority(sensor.houseId);
+    if (sensor) stuguby.assertHouseLocalAuthority(sensor.houseId);
   }
   const samples = measurements.ingestBatch(submitted, {
     allowDisabledSensors: true,
@@ -603,7 +603,7 @@ function ingestReadings(args: Record<string, unknown>): { readings: Reading[]; i
   const submitted = requiredArray(args, "readings", 1_000).map(parseReading);
   for (const reading of submitted) {
     const sensor = database.getSensor(reading.sensorId);
-    if (sensor) stugby.assertHouseLocalAuthority(sensor.houseId);
+    if (sensor) stuguby.assertHouseLocalAuthority(sensor.houseId);
   }
   const readings = telemetry.ingestBatch(submitted);
   return { readings, ignoredDuplicates: submitted.length - readings.length };
@@ -645,7 +645,7 @@ function assertMcpLocalHistoryComplete(from: string): void {
 function createAlertRule(args: Record<string, unknown>): AlertRule {
   const input = parseAlertRule(requiredObject(args, "rule"), database);
   const sensor = input.sensorId ? database.getSensor(input.sensorId) : null;
-  if (sensor) stugby.assertHouseLocalAuthority(sensor.houseId);
+  if (sensor) stuguby.assertHouseLocalAuthority(sensor.houseId);
   return database.saveAlertRule(input);
 }
 
@@ -654,10 +654,10 @@ function updateAlertRule(args: Record<string, unknown>): AlertRule {
   const current = database.getAlertRule(ruleId);
   if (!current) throw new Error(`Unknown alert rule: ${ruleId}`);
   const currentSensor = current.sensorId ? database.getSensor(current.sensorId) : null;
-  if (currentSensor) stugby.assertHouseLocalAuthority(currentSensor.houseId);
+  if (currentSensor) stuguby.assertHouseLocalAuthority(currentSensor.houseId);
   const parsed = parseAlertRule({ ...current, ...requiredObject(args, "patch"), id: ruleId }, database);
   const nextSensor = parsed.sensorId ? database.getSensor(parsed.sensorId) : null;
-  if (nextSensor) stugby.assertHouseLocalAuthority(nextSensor.houseId);
+  if (nextSensor) stuguby.assertHouseLocalAuthority(nextSensor.houseId);
   const { id: _id, ...patch } = parsed;
   const rule = database.updateAlertRule(ruleId, patch);
   if (!rule) throw new Error(`Unknown alert rule: ${ruleId}`);
@@ -669,7 +669,7 @@ function deleteAlertRule(args: Record<string, unknown>): { deleted: true; ruleId
   const ruleId = requiredString(args, "ruleId");
   const current = database.getAlertRule(ruleId);
   const sensor = current?.sensorId ? database.getSensor(current.sensorId) : null;
-  if (sensor) stugby.assertHouseLocalAuthority(sensor.houseId);
+  if (sensor) stuguby.assertHouseLocalAuthority(sensor.houseId);
   if (!database.deleteAlertRule(ruleId)) throw new Error(`Unknown alert rule: ${ruleId}`);
   return { deleted: true, ruleId };
 }
@@ -684,9 +684,9 @@ function acknowledgeAlert(args: Record<string, unknown>): unknown {
 
 function createObservation(args: Record<string, unknown>): ManualObservation {
   const input = parseObservationInput(args);
-  stugby.assertHouseWriteAllowed(input.houseId);
+  stuguby.assertHouseWriteAllowed(input.houseId);
   const observation = database.createObservation(input, "local-mcp");
-  stugby.captureHomeMutation(observation.houseId);
+  stuguby.captureHomeMutation(observation.houseId);
   return observation;
 }
 
@@ -694,14 +694,14 @@ function updateObservation(args: Record<string, unknown>): ManualObservation {
   const observationId = requiredString(args, "observationId");
   const current = database.getObservation(observationId);
   if (!current) throw new Error(`Unknown observation: ${observationId}`);
-  stugby.assertHouseWriteAllowed(current.houseId);
+  stuguby.assertHouseWriteAllowed(current.houseId);
   const observation = database.updateObservation(
     observationId,
     parseObservationPatch({ ...requiredObject(args, "patch"), baseRevision: args.baseRevision }),
     "local-mcp",
   );
   if (!observation) throw new Error(`Unknown observation: ${observationId}`);
-  stugby.captureHomeMutation(observation.houseId);
+  stuguby.captureHomeMutation(observation.houseId);
   return observation;
 }
 
@@ -715,18 +715,18 @@ function deleteObservation(args: Record<string, unknown>): { deleted: true; obse
   requireMcpConfirmation(args.confirm);
   const observationId = requiredString(args, "observationId");
   const current = database.getObservation(observationId);
-  if (current) stugby.assertHouseWriteAllowed(current.houseId);
+  if (current) stuguby.assertHouseWriteAllowed(current.houseId);
   if (!database.deleteObservation(observationId)) throw new Error(`Unknown observation: ${observationId}`);
-  if (current) stugby.captureHomeMutation(current.houseId);
+  if (current) stuguby.captureHomeMutation(current.houseId);
   return { deleted: true, observationId };
 }
 
 function createMaintenanceTask(args: Record<string, unknown>): MaintenanceTask {
   const input = parseMaintenanceTaskInput(args);
   const propertyId = input.propertyId ?? (input.houseId ? database.getHouse(input.houseId)?.propertyId : undefined);
-  if (propertyId) stugby.assertPropertyWriteAllowed(propertyId);
+  if (propertyId) stuguby.assertPropertyWriteAllowed(propertyId);
   const task = database.createMaintenanceTask(input, "local-mcp");
-  stugby.captureCurrentPropertyEntity(task.propertyId, "maintenance", task.id, "upsert");
+  stuguby.captureCurrentPropertyEntity(task.propertyId, "maintenance", task.id, "upsert");
   return task;
 }
 
@@ -747,14 +747,14 @@ function updateMaintenanceTask(args: Record<string, unknown>): MaintenanceTask {
   const maintenanceTaskId = requiredString(args, "maintenanceTaskId");
   const previous = database.getMaintenanceTask(maintenanceTaskId);
   if (!previous) throw new Error(`Unknown maintenance task: ${maintenanceTaskId}`);
-  stugby.assertPropertyWriteAllowed(previous.propertyId);
+  stuguby.assertPropertyWriteAllowed(previous.propertyId);
   const task = database.updateMaintenanceTask(
     maintenanceTaskId,
     parseMaintenanceTaskPatch({ ...requiredObject(args, "patch"), baseRevision: args.baseRevision }),
     "local-mcp",
   );
   if (!task) throw new Error(`Unknown maintenance task: ${maintenanceTaskId}`);
-  stugby.captureCurrentPropertyEntity(task.propertyId, "maintenance", task.id, "upsert");
+  stuguby.captureCurrentPropertyEntity(task.propertyId, "maintenance", task.id, "upsert");
   return task;
 }
 
@@ -770,11 +770,11 @@ function deleteMaintenanceTask(args: Record<string, unknown>): { deleted: true; 
   requireMcpConfirmation(args.confirm);
   const maintenanceTaskId = requiredString(args, "maintenanceTaskId");
   const previous = database.getMaintenanceTask(maintenanceTaskId);
-  if (previous) stugby.assertPropertyWriteAllowed(previous.propertyId);
+  if (previous) stuguby.assertPropertyWriteAllowed(previous.propertyId);
   if (!database.deleteMaintenanceTask(maintenanceTaskId)) {
     throw new Error(`Unknown maintenance task: ${maintenanceTaskId}`);
   }
-  if (previous) stugby.captureCurrentPropertyEntity(previous.propertyId, "maintenance", maintenanceTaskId, "delete");
+  if (previous) stuguby.captureCurrentPropertyEntity(previous.propertyId, "maintenance", maintenanceTaskId, "delete");
   return { deleted: true, maintenanceTaskId };
 }
 
@@ -784,7 +784,7 @@ function upsertStaticParameter(args: Record<string, unknown>): StaticParameter {
     throw new Error("value must be a string, number, or boolean");
   }
   const houseId = requiredString(args, "houseId");
-  stugby.assertHouseLocalAuthority(houseId);
+  stuguby.assertHouseLocalAuthority(houseId);
   return database.saveParameter({
     ...(args.id === undefined ? {} : { id: requiredString(args, "id") }),
     houseId,
@@ -801,7 +801,7 @@ function deleteStaticParameter(args: Record<string, unknown>): { deleted: true; 
   requireMcpConfirmation(args.confirm);
   const parameterId = requiredString(args, "parameterId");
   const current = database.listParameters().find((parameter) => parameter.id === parameterId);
-  if (current) stugby.assertHouseLocalAuthority(current.houseId);
+  if (current) stuguby.assertHouseLocalAuthority(current.houseId);
   if (!database.deleteParameter(parameterId)) throw new Error(`Unknown static parameter: ${parameterId}`);
   return { deleted: true, parameterId };
 }
@@ -822,7 +822,7 @@ function assetMetadata(asset: { id: string; houseId: string; name: string; mimeT
 
 function uploadAsset(args: Record<string, unknown>): object {
   const houseId = requiredString(args, "houseId");
-  stugby.assertHouseLocalAuthority(houseId);
+  stuguby.assertHouseLocalAuthority(houseId);
   const mimeType = requiredString(args, "mimeType").toLowerCase();
   if (!safeAssetMimeTypes.has(mimeType)) throw new Error("mimeType must be PNG, JPEG, WebP, glTF, or GLB");
   const encoded = requiredString(args, "data").replace(/^data:[^;]+;base64,/, "");
@@ -845,7 +845,7 @@ function deleteAsset(args: Record<string, unknown>): { deleted: true; assetId: s
   requireMcpConfirmation(args.confirm);
   const assetId = requiredString(args, "assetId");
   const current = database.getAsset(assetId);
-  if (current) stugby.assertHouseLocalAuthority(current.houseId);
+  if (current) stuguby.assertHouseLocalAuthority(current.houseId);
   if (!database.deleteAsset(assetId)) throw new Error(`Unknown asset: ${assetId}`);
   return { deleted: true, assetId };
 }
@@ -870,8 +870,8 @@ function homeAssistantSetup(): object {
     configured: status.value.homeAssistant.configured,
     steps: [
       "Create a Home Assistant long-lived access token for a dedicated local user.",
-      "Configure its local URL and token in the Stuga web integration screen or the API process's protected environment/secrets file.",
-      "Map each Stuga sensor to legacy climate keys and/or a measurements object keyed by registry id.",
+      "Configure its local URL and token in the Stugu web integration screen or the API process's protected environment/secrets file.",
+      "Map each Stugu sensor to legacy climate keys and/or a measurements object keyed by registry id.",
       "Verify integration status reports connected=true in the long-running API process.",
     ],
     entityMapSchema: {
@@ -900,7 +900,7 @@ function tpLinkSetup(): object {
     supportedEnergyDevices: "Configured TP-Link/Kasa hosts that python-kasa exposes through Module.Energy",
     steps: [
       "Install python-kasa from apps/api/python/requirements.txt.",
-      "Configure a hub or direct energy device's reserved LAN address and TP-Link credentials in the Stuga web integration screen or the API process's protected environment/secrets file.",
+      "Configure a hub or direct energy device's reserved LAN address and TP-Link credentials in the Stugu web integration screen or the API process's protected environment/secrets file.",
       "Inspect discovered devices in the long-running API process.",
       "Assign a stable child device id to a sensor's tpLinkDeviceId field.",
     ],
@@ -1197,15 +1197,15 @@ const maintenanceTaskPatchProperties = {
 
 const confirmationProperty = { confirm: { const: true, description: "Must be true to authorize this destructive operation." } } as const;
 
-function stugbySide(role: StugbyRole): "host" | "client" {
+function stugubySide(role: StugubyRole): "host" | "client" {
   return role === "steward" ? "host" : "client";
 }
 
-function activeStugbyGrant(grant: ReturnType<StugbyStore["listGrants"]>[number]): boolean {
+function activeStugubyGrant(grant: ReturnType<StugubyStore["listGrants"]>[number]): boolean {
   return !grant.revokedAt && (!grant.expiresAt || Date.parse(grant.expiresAt) > Date.now());
 }
 
-function recommendedOverviewGrant(grant: ReturnType<StugbyStore["listGrants"]>[number]): boolean {
+function recommendedOverviewGrant(grant: ReturnType<StugubyStore["listGrants"]>[number]): boolean {
   const enabled = grant.datasets.filter((dataset) => dataset.enabled);
   return grant.housePolicy.editPolicy === "read-only"
     && grant.housePolicy.recoveryMode === "none"
@@ -1217,43 +1217,43 @@ function recommendedOverviewGrant(grant: ReturnType<StugbyStore["listGrants"]>[n
         && candidate.retentionDays === 30));
 }
 
-function summarizeMcpStugby(summary: StugbySummary): object {
-  const adoption = stugbyStore.getPropertyAdoption(summary.id);
-  const houses = database.listHouses().filter((house) => house.stugby?.stugbyId === summary.id);
-  const grants = stugbyStore.listGrants(summary.id);
+function summarizeMcpStuguby(summary: StugubySummary): object {
+  const adoption = stugubyStore.getPropertyAdoption(summary.id);
+  const houses = database.listHouses().filter((house) => house.stuguby?.stugubyId === summary.id);
+  const grants = stugubyStore.listGrants(summary.id);
   return {
     id: summary.id,
     name: summary.name,
     descriptionConfigured: summary.description !== null,
     coordinatorUrl: summary.coordinatorUrl,
-    side: stugbySide(summary.localRole),
+    side: stugubySide(summary.localRole),
     accessRole: summary.localRole,
     memberState: summary.localMemberState,
     memberCount: summary.memberCount,
     adoptedPropertyId: adoption?.state === "adopted" ? adoption.localPropertyId : null,
-    ownedHomeCount: houses.filter((house) => house.stugby?.ownership === "local").length,
-    sharedHomeCount: houses.filter((house) => house.stugby?.ownership === "shared").length,
-    activeGrantCount: grants.filter(activeStugbyGrant).length,
+    ownedHomeCount: houses.filter((house) => house.stuguby?.ownership === "local").length,
+    sharedHomeCount: houses.filter((house) => house.stuguby?.ownership === "shared").length,
+    activeGrantCount: grants.filter(activeStugubyGrant).length,
     lastSyncAt: summary.lastSyncAt,
     lastSyncError: summary.lastSyncError,
     updatedAt: summary.updatedAt,
   };
 }
 
-function getMcpStugby(args: Record<string, unknown>): object {
-  const stugbyId = requiredString(args, "stugbyId");
-  const summary = stugbyStore.getStugby(stugbyId);
-  if (!summary) throw new Error(`Unknown Stugby: ${stugbyId}`);
-  const adoption = stugbyStore.getPropertyAdoption(stugbyId);
+function getMcpStuguby(args: Record<string, unknown>): object {
+  const stugubyId = requiredString(args, "stugubyId");
+  const summary = stugubyStore.getStuguby(stugubyId);
+  if (!summary) throw new Error(`Unknown Stuguby: ${stugubyId}`);
+  const adoption = stugubyStore.getPropertyAdoption(stugubyId);
   const adoptedProperty = adoption ? database.getProperty(adoption.localPropertyId) : null;
-  const members = stugbyStore.listMembers(stugbyId);
-  const sharedProperty = stugbyStore.getSharedProperty(stugbyId);
+  const members = stugubyStore.listMembers(stugubyId);
+  const sharedProperty = stugubyStore.getSharedProperty(stugubyId);
   return {
-    stugby: summarizeMcpStugby(summary),
+    stuguby: summarizeMcpStuguby(summary),
     members: members.map((member) => ({
       nodeId: member.nodeId,
       displayName: member.displayName,
-      side: stugbySide(member.role),
+      side: stugubySide(member.role),
       accessRole: member.role,
       state: member.state,
       isHost: member.nodeId === summary.coordinatorNodeId,
@@ -1273,13 +1273,13 @@ function getMcpStugby(args: Record<string, unknown>): object {
         maintenanceTaskCount: sharedProperty.maintenance.length,
         updatedAt: sharedProperty.updatedAt,
       } : null,
-      conflicts: stugbyStore.listPropertyConflicts(stugbyId).length,
-      commands: stugbyStore.propertyCommandCounts(stugbyId),
+      conflicts: stugubyStore.listPropertyConflicts(stugubyId).length,
+      commands: stugubyStore.propertyCommandCounts(stugubyId),
     },
     homes: database.listHouses()
-      .filter((house) => house.stugby?.stugbyId === stugbyId)
+      .filter((house) => house.stuguby?.stugubyId === stugubyId)
       .map(summarizeMcpHouse),
-    grants: stugbyStore.listGrants(stugbyId).map((grant) => ({
+    grants: stugubyStore.listGrants(stugubyId).map((grant) => ({
       id: grant.id,
       authorityNodeId: grant.authorityNodeId,
       publicationId: grant.publicationId,
@@ -1300,12 +1300,12 @@ function getMcpStugby(args: Record<string, unknown>): object {
       editPolicy: grant.housePolicy.editPolicy,
       recoveryMode: grant.housePolicy.recoveryMode,
       recommendedReadOnlyOverview: recommendedOverviewGrant(grant),
-      active: activeStugbyGrant(grant),
+      active: activeStugubyGrant(grant),
       expiresAt: grant.expiresAt,
       revokedAt: grant.revokedAt,
       updatedAt: grant.updatedAt,
     })),
-    homeCommands: stugbyStore.homeCommandCounts(stugbyId),
+    homeCommands: stugubyStore.homeCommandCounts(stugubyId),
   };
 }
 
@@ -1492,11 +1492,11 @@ function sensorDataGaps(args: Record<string, unknown>): unknown {
 }
 
 const server = new Server(
-  { name: "stuga-local", version: SYSTEM_VERSION },
+  { name: "stugu-local", version: SYSTEM_VERSION },
   {
     capabilities: { tools: {} },
     instructions: [
-      "This Stuga stdio MCP is a read-only inspection surface over its configured local SQLite workspace.",
+      "This Stugu stdio MCP is a read-only inspection surface over its configured local SQLite workspace.",
       "It cannot inspect a separately running API process's in-memory connections or event bus.",
       "Create, update, delete, import, migration, sharing, synchronization, control, raw credentials, SSE streams, and binary asset downloads are intentionally excluded.",
     ].join(" "),
@@ -1522,8 +1522,8 @@ const READ_ONLY_MCP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "list_houses",
   "get_house",
   "get_daily_analytics_findings",
-  "list_stugbys",
-  "get_stugby",
+  "list_stugubys",
+  "get_stuguby",
   "search_locations",
   "resolve_coordinate_defaults",
   "get_house_weather",
@@ -1576,7 +1576,7 @@ const mcpTools = [
     },
     {
       name: "get_property",
-      description: "Get one explicitly selected Property with its description, location, and Stugby authority/edit/sync metadata.",
+      description: "Get one explicitly selected Property with its description, location, and Stuguby authority/edit/sync metadata.",
       inputSchema: {
         type: "object",
         properties: { propertyId: { type: "string", minLength: 1, maxLength: 200 } },
@@ -1729,17 +1729,17 @@ const mcpTools = [
       },
     },
     {
-      name: "list_stugbys",
+      name: "list_stugubys",
       description: "List compact Host/Client federation, adopted-Property, Home ownership, sharing, and sync summaries.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
     },
     {
-      name: "get_stugby",
-      description: "Inspect one Stugby, including sanitized Host/Client membership, adopted Property state, local and shared Homes, read-only overview grants, and pending command counts. Secrets, invitation material, event payloads, and audit records are omitted.",
+      name: "get_stuguby",
+      description: "Inspect one Stuguby, including sanitized Host/Client membership, adopted Property state, local and shared Homes, read-only overview grants, and pending command counts. Secrets, invitation material, event payloads, and audit records are omitted.",
       inputSchema: {
         type: "object",
-        properties: { stugbyId: { type: "string", minLength: 1, maxLength: 200 } },
-        required: ["stugbyId"],
+        properties: { stugubyId: { type: "string", minLength: 1, maxLength: 200 } },
+        required: ["stugubyId"],
         additionalProperties: false,
       },
     },
@@ -2443,8 +2443,8 @@ const allToolHandlers: Record<string, ToolHandler> = {
   list_houses: (args) => database.listHouses(args.propertyId === undefined ? undefined : requiredString(args, "propertyId")).map(summarizeMcpHouse),
   get_house: (args) => requireMcpHouse(database, requiredString(args, "houseId")),
   get_daily_analytics_findings: dailyAnalyticsFindings,
-  list_stugbys: () => stugbyStore.listStugbys().map(summarizeMcpStugby),
-  get_stugby: getMcpStugby,
+  list_stugubys: () => stugubyStore.listStugubys().map(summarizeMcpStuguby),
+  get_stuguby: getMcpStuguby,
   create_house: createHouse,
   update_house: updateHouse,
   replace_house_layout: replaceHouseLayout,
@@ -2641,7 +2641,7 @@ function close(): Promise<void> {
 function requestShutdown(): void {
   void close().catch(() => {
     // Keep credentials and request contents out of the stdio protocol logs.
-    console.error("Stuga MCP shutdown failed");
+    console.error("Stugu MCP shutdown failed");
     process.exitCode = 1;
   });
 }

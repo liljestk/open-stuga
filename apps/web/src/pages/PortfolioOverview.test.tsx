@@ -46,8 +46,8 @@ const remoteHouse: House = {
   ...setupHouse,
   id: "house-remote",
   name: "Remote home",
-  stugby: {
-    stugbyId: "stugby-1",
+  stuguby: {
+    stugubyId: "stuguby-1",
     authorityNodeId: "node-remote",
     publicationId: "publication-remote-home",
     ownership: "shared",
@@ -127,7 +127,7 @@ describe("PortfolioOverview", () => {
     const remoteCard = screen.getByRole("heading", { name: remoteHouse.name }).closest("article")!;
     expect(within(localCard).queryByText("Remote")).toBeNull();
     expect(within(remoteCard).getByText("Remote")).toBeTruthy();
-    expect(remoteCard.querySelector(".home-origin-indicator.remote .stugby-mark")).toBeTruthy();
+    expect(remoteCard.querySelector(".home-origin-indicator.remote .stuguby-mark")).toBeTruthy();
   });
 
   it("keeps attention homes stable, discloses confirmed homes, and routes the primary blocker action", async () => {

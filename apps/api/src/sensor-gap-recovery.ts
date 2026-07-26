@@ -278,7 +278,7 @@ export class SensorGapRecoveryCoordinator {
       const sensor = this.database.getSensor(gap.sensorId);
       const acceptedSources = new Set<SensorDataGapSource>([gap.source]);
       // A TP-Link recovery adapter may use HA recorder history only when both
-      // bindings belong to the same canonical Stuga sensor/metric.
+      // bindings belong to the same canonical Stugu sensor/metric.
       if (gap.source === "tp-link" && hasHomeAssistantMetricBinding(sensor, gap.metric)) {
         acceptedSources.add("home-assistant");
       }

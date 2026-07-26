@@ -245,7 +245,7 @@ function validateTpLinkDeviceMappings(value: unknown): TpLinkDeviceMapping[] {
     const sensorId = nonEmptyString(entry.sensorId);
     if (!deviceId || !sensorId) throw new Error(`TP-Link device mapping at index ${index} requires deviceId and sensorId`);
     if (deviceIds.has(deviceId)) throw new Error(`TP-Link child device ${deviceId} is mapped more than once`);
-    if (sensorIds.has(sensorId)) throw new Error(`Stuga sensor ${sensorId} is mapped to more than one TP-Link child device`);
+    if (sensorIds.has(sensorId)) throw new Error(`Stugu sensor ${sensorId} is mapped to more than one TP-Link child device`);
     deviceIds.add(deviceId);
     sensorIds.add(sensorId);
     return { deviceId, sensorId };
@@ -1369,7 +1369,7 @@ export class TpLinkBridge implements SensorGapRecoveryAdapter {
 
   /**
    * Resolve the exact alias the mobile app displays without falling back to a
-   * Stuga sensor label. Ambiguous aliases are unsafe because app CSV exports
+   * Stugu sensor label. Ambiguous aliases are unsafe because app CSV exports
    * carry no immutable device id of their own.
    */
   tapoAppDeviceName(sensorId: string, deviceId: string): string | null {

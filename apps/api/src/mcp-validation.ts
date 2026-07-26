@@ -75,7 +75,7 @@ export interface McpHouseSummary {
     planElementCount: number;
     visualReferenceConfigured: boolean;
   }>;
-  stugby?: NonNullable<House["stugby"]>;
+  stuguby?: NonNullable<House["stuguby"]>;
   updatedAt: string;
 }
 
@@ -84,7 +84,7 @@ export interface McpPropertySummary {
   name: string;
   descriptionConfigured: boolean;
   locationConfigured: boolean;
-  stugby?: NonNullable<Property["stugby"]>;
+  stuguby?: NonNullable<Property["stuguby"]>;
   createdAt: string;
   updatedAt: string;
 }
@@ -96,7 +96,7 @@ export function summarizeMcpProperty(property: Property): McpPropertySummary {
     name: property.name,
     descriptionConfigured: property.description !== null,
     locationConfigured: property.location !== null,
-    ...(property.stugby ? { stugby: property.stugby } : {}),
+    ...(property.stuguby ? { stuguby: property.stuguby } : {}),
     createdAt: property.createdAt,
     updatedAt: property.updatedAt,
   };
@@ -187,7 +187,7 @@ export function summarizeMcpHouse(house: House): McpHouseSummary {
       planElementCount: floor.planElements?.length ?? 0,
       visualReferenceConfigured: floor.backgroundImage !== undefined,
     })),
-    ...(house.stugby ? { stugby: house.stugby } : {}),
+    ...(house.stuguby ? { stuguby: house.stuguby } : {}),
     updatedAt: house.updatedAt,
   };
 }

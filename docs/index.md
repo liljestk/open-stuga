@@ -1,4 +1,4 @@
-# Stuga documentation
+# Stugu documentation
 
 Start here:
 
@@ -67,7 +67,7 @@ Reference configuration:
   provide the isolated Docker/Podman web, API, Timescale, and maintenance
   images.
 
-Stuga is local-first and has one local workspace with built-in accounts.
+Stugu is local-first and has one local workspace with built-in accounts.
 Browser sign-in uses a server-managed HttpOnly session, while Guest read-only
 access and property/house/area grants are enforced by the API. Read the
 security guide before binding the Compose web port beyond loopback; account

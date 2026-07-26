@@ -1,6 +1,6 @@
 # Automated Tapo history recovery
 
-Stuga can repair a missing TP-Link measurement interval without pretending that
+Stugu can repair a missing TP-Link measurement interval without pretending that
 one source can provide every kind of history. It keeps a durable gap ledger,
 tries the closest authoritative source first, and only then creates an
 asynchronous Tapo app export job. Every sample released to the gap coordinator
@@ -37,7 +37,7 @@ instead of claiming that an undocumented cloud endpoint is stable.
 
 ### Gap detection and ingestion
 
-Stuga checks adapter availability on transitions and every 30 seconds. Every 15
+Stugu checks adapter availability on transitions and every 30 seconds. Every 15
 minutes it also scans the preceding 30 days of **trusted-good direct TP-Link**
 samples for previously unnoticed timestamp holes. Estimated retained, private,
 and app-export samples do not create false proof of exact sampling. Home
@@ -55,11 +55,11 @@ fallback:
   `get_temp_humidity_records` response. It represents approximately the latest
   day as 15-minute buckets, not the original two-second sensor stream, and is
   stored as `estimated` rather than exact/good data.
-- Retained power uses the device's private `get_power_data` command. Stuga asks
+- Retained power uses the device's private `get_power_data` command. Stugu asks
   for 5-minute points for ranges up to 12 hours and 60-minute points for longer
   ranges. These retained points are also `estimated`; actual retention and
   support remain device/firmware-dependent.
-- Tapo interval-energy records are not substituted for Stuga's cumulative
+- Tapo interval-energy records are not substituted for Stugu's cumulative
   `energy` metric. A resettable daily or monthly quantity is a different
   physical meaning.
 - A missing protocol capability returns `not-supported`; incomplete retention
@@ -70,10 +70,10 @@ an H100 result does not establish that the H200 child-command wrapper behaves
 identically, and protocol-fixture tests do not replace a read-only live-history
 check before a production firmware rollout.
 
-For a dual-bound sensor, Stuga asks Home Assistant recorder for the missing
+For a dual-bound sensor, Stugu asks Home Assistant recorder for the missing
 entity history in bounded 24-hour chunks after local retained history and
 before mobile export. Cross-source rows are accepted only for the same canonical
-Stuga sensor and metric; Stuga never infers identity from names or aliases.
+Stugu sensor and metric; Stugu never infers identity from names or aliases.
 
 Recovered rows pass the normal sensor, metric, canonical-unit, valid-range,
 source, and timestamp checks. The coordinator inserts batches without live
@@ -121,11 +121,11 @@ claim or process an Appium job:
 
 The mailbox and Appium target should be dedicated to this automation. Tapo
 account credentials, Gmail refresh tokens, screenshots, and emailed household
-history all need the same protection as the primary Stuga database.
+history all need the same protection as the primary Stugu database.
 
 ## Configure Gmail OAuth
 
-Stuga uses Gmail's REST API, not an account password or IMAP. Create an OAuth
+Stugu uses Gmail's REST API, not an account password or IMAP. Create an OAuth
 client for the mailbox owner, enable the Gmail API, request only
 `gmail.readonly`, and perform a one-time consent flow with offline access to
 obtain a refresh token. Google's [server-side OAuth guide](https://developers.google.com/identity/protocols/oauth2/web-server)
@@ -165,7 +165,7 @@ The mailbox reader:
 - validates and stages the CSV before changing the job to `completed`.
 
 Test plus delivery before involving Appium. Send a message to an address such as
-`history+stuga-canary@example.com`, then confirm that Gmail exposes the tagged
+`history+stugu-canary@example.com`, then confirm that Gmail exposes the tagged
 recipient in one of the headers above. Forwarders and aliases sometimes discard
 that identity even when delivery succeeds.
 
@@ -260,7 +260,7 @@ A minimal Compose deployment resembles:
 ```dotenv
 TAPO_HISTORY_ENABLED=true
 TAPO_HISTORY_EXPORT_EMAIL=history@example.com
-TAPO_HISTORY_EMAIL_TAG_PREFIX=stuga
+TAPO_HISTORY_EMAIL_TAG_PREFIX=stugu
 TAPO_HISTORY_EXPORT_INTERVAL_MINUTES=15
 TAPO_HISTORY_MAX_EXPORT_DAYS=30
 TAPO_HISTORY_MAX_PENDING_EMAILS=1
@@ -276,7 +276,7 @@ TAPO_HISTORY_RUNNER_SECRET_DIR=./secrets/tapo-history-runner
 
 TAPO_RUNNER_ENABLED=true
 TAPO_RUNNER_WORKER_ID=tapo-android-01
-TAPO_TARGET_LOCK_ID=stuga-tapo-phone-01
+TAPO_TARGET_LOCK_ID=stugu-tapo-phone-01
 TAPO_APPIUM_URL=http://host.docker.internal:4723
 TAPO_APPIUM_CAPABILITIES_JSON={"platformName":"Android","appium:automationName":"UiAutomator2","appium:udid":"emulator-5554","appium:platformVersion":"15","appium:language":"en","appium:locale":"GB","appium:noReset":true,"appium:newCommandTimeout":86400}
 TAPO_APPIUM_LOGS_HARDENED=true
@@ -397,7 +397,7 @@ backend network. Do not expose those routes or Appium publicly.
 ## CSV identity and correctness boundary
 
 The Tapo CSV filename and content do not reliably contain the stable device ID.
-Stuga therefore generates an independent API-only random nonce for every new
+Stugu therefore generates an independent API-only random nonce for every new
 job and exposes only its 128-bit plus-address capability to Tapo. The public job
 ID cannot derive that address. A retry retains the durable job but every newly
 leased attempt rotates to a new address and clears the prior submission/message
@@ -409,7 +409,7 @@ fresh mail delivered to the exact current capability address, then binds parsed
 rows to the job's already stored sensor ID.
 
 Completed jobs retain the attachment SHA-256, byte length, parser version, and
-schema signature, while Gmail retains the source message and attachment. Stuga
+schema signature, while Gmail retains the source message and attachment. Stugu
 does not store a second raw CSV/RFC-message copy; configure Gmail retention to
 cover the period in which byte-for-byte replay or forensic reprocessing may be
 required.
@@ -474,7 +474,7 @@ Those token lines are for non-Compose operation. With Compose, put only the
 token value in API secret file `private-endpoint-token`.
 
 The endpoint must use HTTPS, contain no URL credentials, and cannot use a literal
-IP, `localhost`, or a `.local` hostname. Stuga sends:
+IP, `localhost`, or a `.local` hostname. Stugu sends:
 
 ```json
 {
@@ -489,7 +489,7 @@ public address is pinned through TLS while the configured hostname is verified.
 The response must be bounded JSON, echo the exact `deviceId`, set
 `state: "complete"`, provide covering ISO `rangeStart` and `rangeEnd`, and
 provide a `samples` array whose rows have an ISO `timestamp` and finite
-`temperature`, `humidity`, or `power` values in Stuga canonical units.
+`temperature`, `humidity`, or `power` values in Stugu canonical units.
 Redirects are rejected. The endpoint owner must fail the request when it cannot
 authoritatively cover the requested metric/range; a syntactically successful
 empty response is not evidence that a gap contains no readings.
@@ -514,7 +514,7 @@ For production:
 - alert on repeated OAuth refresh, mailbox, Appium, or lease failures;
 - keep the Android target powered, time-synchronized, private, and dedicated;
 - expire protected runner screenshots and mailbox CSVs according to policy;
-- include the Stuga SQLite database in verified backups because it contains the
+- include the Stugu SQLite database in verified backups because it contains the
   job ledger and staged rows;
 - watch the authenticated mailbox health fields and artifact/parser/schema audit
   metadata as well as job status; and

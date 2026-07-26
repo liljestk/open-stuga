@@ -21,7 +21,7 @@ const ACTIVE_PHASES = new Set(["awaiting-approval", "queued", "provisioning", "a
 const BASE_SCOPES = ["access.write", "argotunnel.write", "dns.write"] as const;
 const ALLOWED_CLIENT_SCOPES = [...BASE_SCOPES, "zone.read"] as const;
 
-export type CloudflareSetupMode = "remote-ui" | "stugby-coordinator";
+export type CloudflareSetupMode = "remote-ui" | "stuguby-coordinator";
 export type CloudflareSetupPhase =
   | "awaiting-approval"
   | "queued"
@@ -78,7 +78,7 @@ export interface CloudflareSetupStartResult {
 }
 
 export interface CloudflareSetupClaim {
-  schema: "stuga-cloudflare-setup-claim/v1";
+  schema: "stugu-cloudflare-setup-claim/v1";
   provisionToken: string;
   accessToken: string;
   oauthClientId: string;
@@ -252,7 +252,7 @@ export function validateCloudflareUiRedirectUri(value: string): string {
     throw new CloudflareSetupError(
       400,
       "INVALID_REDIRECT_URI",
-      "Cloudflare approval must return to Stuga on an explicit local loopback port",
+      "Cloudflare approval must return to Stugu on an explicit local loopback port",
     );
   }
   return url.href;
@@ -286,7 +286,7 @@ function deploymentFromJson(value: unknown): CloudflareDeployment | null {
   const version = deployment.version;
   const mode = version === 1
     ? "remote-ui"
-    : version === 2 && (deployment.mode === "remote-ui" || deployment.mode === "stugby-coordinator")
+    : version === 2 && (deployment.mode === "remote-ui" || deployment.mode === "stuguby-coordinator")
       ? deployment.mode
       : null;
   const hostname = typeof deployment.hostname === "string" ? deployment.hostname.trim().toLowerCase() : "";
@@ -300,7 +300,7 @@ function operationFromJson(value: unknown): CloudflareSetupOperation | null {
   if (
     typeof input.id !== "string"
     || !/^[0-9a-f-]{36}$/iu.test(input.id)
-    || (input.mode !== "remote-ui" && input.mode !== "stugby-coordinator")
+    || (input.mode !== "remote-ui" && input.mode !== "stuguby-coordinator")
     || typeof input.hostname !== "string"
     || !validHostname(input.hostname)
     || typeof input.phase !== "string"
@@ -373,7 +373,7 @@ export class CloudflareSetupService {
       try {
         this.#fail(
           interruptedOperation,
-          "Cloudflare approval was interrupted by a Stuga restart. Start again from Stuga.",
+          "Cloudflare approval was interrupted by a Stugu restart. Start again from Stugu.",
         );
       } catch {
         // A later start still replaces an interrupted approval if shared status storage is unavailable.
@@ -430,7 +430,7 @@ export class CloudflareSetupService {
         "CLOUDFLARE_SETUP_AGENT_UNAVAILABLE",
         status.capability.reason === "agent-upgrade-required"
           ? "The connected host agent must be updated before it can apply Cloudflare setup"
-          : "The trusted Stuga host agent is not connected",
+          : "The trusted Stugu host agent is not connected",
       );
     }
     if (status.operation && ACTIVE_PHASES.has(status.operation.phase)) {
@@ -441,7 +441,7 @@ export class CloudflareSetupService {
       const interruptedApproval = status.operation.phase === "awaiting-approval"
         && !transaction;
       if (staleApproval || interruptedApproval) {
-        this.#fail(status.operation, "Cloudflare approval expired. Start again from Stuga.");
+        this.#fail(status.operation, "Cloudflare approval expired. Start again from Stugu.");
       } else if (status.operation.phase === "awaiting-approval" && transaction) {
         return {
           operation: transaction.operation,
@@ -454,13 +454,13 @@ export class CloudflareSetupService {
 
     const redirectUri = validateCloudflareUiRedirectUri(redirectUriValue);
     const mode = input.mode;
-    if (mode !== "remote-ui" && mode !== "stugby-coordinator") {
-      throw new CloudflareSetupError(400, "INVALID_CLOUDFLARE_MODE", "Choose remote access or shared Stugby hosting");
+    if (mode !== "remote-ui" && mode !== "stuguby-coordinator") {
+      throw new CloudflareSetupError(400, "INVALID_CLOUDFLARE_MODE", "Choose remote access or shared Stuguby hosting");
     }
-    const hostname = normalizedHostname(input.hostname, "Stuga address");
+    const hostname = normalizedHostname(input.hostname, "Stugu address");
     const zone = normalizedHostname(input.zone, "DNS zone");
     if (hostname !== zone && !hostname.endsWith(`.${zone}`)) {
-      throw new CloudflareSetupError(400, "HOSTNAME_OUTSIDE_ZONE", "The Stuga address must belong to the selected DNS zone");
+      throw new CloudflareSetupError(400, "HOSTNAME_OUTSIDE_ZONE", "The Stugu address must belong to the selected DNS zone");
     }
     const ownerEmail = normalizedEmail(input.ownerEmail);
     const deployment = this.#deployment();
@@ -468,11 +468,11 @@ export class CloudflareSetupService {
       throw new CloudflareSetupError(
         409,
         "CLOUDFLARE_DEPLOYMENT_MISMATCH",
-        `This Stuga is already connected at ${String(deployment.hostname)}`,
+        `This Stugu is already connected at ${String(deployment.hostname)}`,
       );
     }
-    if (deployment?.mode === "stugby-coordinator" && mode === "remote-ui") {
-      throw new CloudflareSetupError(409, "CLOUDFLARE_DOWNGRADE_REFUSED", "A Stugby coordinator cannot be downgraded from the UI");
+    if (deployment?.mode === "stuguby-coordinator" && mode === "remote-ui") {
+      throw new CloudflareSetupError(409, "CLOUDFLARE_DOWNGRADE_REFUSED", "A Stuguby coordinator cannot be downgraded from the UI");
     }
 
     let accountId = normalizedId(deployment?.accountId, "Account ID") ?? normalizedId(input.accountId, "Account ID");
@@ -525,7 +525,7 @@ export class CloudflareSetupService {
       clientId,
       runtimeToken,
       options: {
-        command: mode === "stugby-coordinator" ? "provision-coordinator" : "provision",
+        command: mode === "stuguby-coordinator" ? "provision-coordinator" : "provision",
         hostname,
         zone,
         ownerEmail,
@@ -540,7 +540,7 @@ export class CloudflareSetupService {
       this.#transactions.delete(state);
       this.#transactionTimers.delete(state);
       try {
-        this.#fail(operation, "Cloudflare approval expired. Start again from Stuga.");
+        this.#fail(operation, "Cloudflare approval expired. Start again from Stugu.");
       } catch {
         // A later request still rejects the expired state even if status storage disappeared.
       }
@@ -556,14 +556,14 @@ export class CloudflareSetupService {
     const state = query.get("state") ?? "";
     const transaction = this.#transactions.get(state);
     if (!transaction || !equalSecret(transaction.state, state)) {
-      throw new CloudflareSetupError(400, "OAUTH_STATE_INVALID", "This Cloudflare approval is not linked to an active Stuga setup");
+      throw new CloudflareSetupError(400, "OAUTH_STATE_INVALID", "This Cloudflare approval is not linked to an active Stugu setup");
     }
     this.#transactions.delete(state);
     const transactionTimer = this.#transactionTimers.get(state);
     if (transactionTimer) clearTimeout(transactionTimer);
     this.#transactionTimers.delete(state);
     if (transaction.expiresAt < this.#now().getTime()) {
-      return this.#fail(transaction.operation, "Cloudflare approval expired. Start again from Stuga.");
+      return this.#fail(transaction.operation, "Cloudflare approval expired. Start again from Stugu.");
     }
     if (query.get("error")) {
       return this.#fail(transaction.operation, "Cloudflare approval was not granted.");
@@ -585,7 +585,7 @@ export class CloudflareSetupService {
 
     const claimSecret = base64Url(this.#randomBytes(32));
     const claim: CloudflareSetupClaim = {
-      schema: "stuga-cloudflare-setup-claim/v1",
+      schema: "stugu-cloudflare-setup-claim/v1",
       provisionToken,
       accessToken: transaction.runtimeToken,
       oauthClientId: transaction.clientId,
@@ -625,7 +625,7 @@ export class CloudflareSetupService {
       this.#operationsDirectory,
       `cloudflare-request-${transaction.operation.id}.json`,
     ), {
-      schema: "stuga-cloudflare-setup-request/v1",
+      schema: "stugu-cloudflare-setup-request/v1",
       ...queued,
       ...transaction.options,
       oauthClientId: transaction.clientId,
@@ -691,7 +691,7 @@ export class CloudflareSetupService {
     const value = boundedJson(join(this.#operationsDirectory, "agent-status.json")) as AgentHeartbeat | null;
     if (
       !value
-      || value.schema !== "stuga-update-agent/v1"
+      || value.schema !== "stugu-update-agent/v1"
       || value.ready !== true
       || typeof value.updatedAt !== "string"
     ) return { available: false, updatedAt: null, reason: "agent-not-connected" };
@@ -763,7 +763,7 @@ export class CloudflareSetupService {
       {
         method: "POST",
         body: JSON.stringify({
-          client_name: `Stuga setup (${hostname})`,
+          client_name: `Stugu setup (${hostname})`,
           grant_types: ["authorization_code"],
           redirect_uris: [redirectUri],
           response_types: ["code"],

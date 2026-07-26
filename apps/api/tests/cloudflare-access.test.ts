@@ -8,7 +8,7 @@ import {
 const config: CloudflareAccessGroupConfig = {
   accountId: "0123456789abcdef0123456789abcdef",
   groupId: "123e4567-e89b-42d3-a456-426614174000",
-  groupName: "Stuga (stuga.example.test) members",
+  groupName: "Stugu (stugu.example.test) members",
   apiToken: "runtime-token-that-is-long-enough-for-tests",
   syncIntervalMs: 60_000,
 };

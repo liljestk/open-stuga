@@ -135,7 +135,7 @@ export class LocationDiscoveryService {
       format: "json",
     });
     const response = await this.#fetch(`${GEOCODING_URL}?${parameters}`, {
-      headers: { Accept: "application/json", "User-Agent": `Stuga/${SYSTEM_VERSION} location discovery` },
+      headers: { Accept: "application/json", "User-Agent": `Stugu/${SYSTEM_VERSION} location discovery` },
       signal: AbortSignal.timeout(this.#timeoutMs),
     });
     const payload = await limitedJson(response) as { results?: unknown } | null;
@@ -157,7 +157,7 @@ export class LocationDiscoveryService {
       forecast_hours: "1",
     });
     const response = await this.#fetch(`${FORECAST_URL}?${parameters}`, {
-      headers: { Accept: "application/json", "User-Agent": `Stuga/${SYSTEM_VERSION} timezone discovery` },
+      headers: { Accept: "application/json", "User-Agent": `Stugu/${SYSTEM_VERSION} timezone discovery` },
       signal: AbortSignal.timeout(this.#timeoutMs),
     });
     const payload = await limitedJson(response) as { timezone?: unknown } | null;

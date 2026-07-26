@@ -1,16 +1,16 @@
-# Stuga brand and interface system
+# Stugu brand and interface system
 
 Version 1.2 · 17 July 2026
 
 ## 1. Brand idea
 
-**Stuga** is Swedish for cottage. The name makes a technical home-climate system feel domestic, calm, and understandable.
+**Stugu** is Swedish for cottage. The name makes a technical home-climate system feel domestic, calm, and understandable.
 
-**Positioning:** Stuga turns signals from the home into a clear picture of how the home feels.
+**Positioning:** Stugu turns signals from the home into a clear picture of how the home feels.
 
 **Tagline:** Your home, in balance.
 
-**Product promise:** Open Stuga and understand the state of the home in a few seconds. Details are available, but they never obstruct the answer.
+**Product promise:** Open Stugu and understand the state of the home in a few seconds. Details are available, but they never obstruct the answer.
 
 ### Creative direction
 
@@ -33,7 +33,7 @@ The result should feel architectural rather than decorative, warm rather than ru
 
 ### Scope and information architecture
 
-Stuga has one durable hierarchy. Every screen, route, API operation, status,
+Stugu has one durable hierarchy. Every screen, route, API operation, status,
 and permission must identify which level owns the information:
 
 ```text
@@ -88,7 +88,7 @@ Home electricity covers meters and consumption.
 
 ### Attention management and progressive disclosure
 
-Every Stuga overview should manage attention rather than display everything the system knows. Lead with what matters now, summarize routine information, and reveal evidence, history, configuration, and secondary actions only when the user asks for them.
+Every Stugu overview should manage attention rather than display everything the system knows. Lead with what matters now, summarize routine information, and reveal evidence, history, configuration, and secondary actions only when the user asks for them.
 
 The Home page is a calm, adaptive command centre. In a few seconds it should answer:
 
@@ -129,7 +129,7 @@ Rank alert groups by severity, then recency and relevance. Deduplicate repeated 
 - the key status or value;
 - why it may matter;
 - what the person can do next; and
-- why Stuga is showing it, when that is not self-evident.
+- why Stugu is showing it, when that is not self-evident.
 
 Use one clear primary action such as “View recommendation” or “Fix connection.” Secondary lifecycle actions may include “Mark as handled,” “Remind me later,” “Mute this alert type,” “Why am I seeing this?”, and “Open details.” Do not manufacture an action when monitoring is the honest recommendation.
 
@@ -167,24 +167,24 @@ It remains recognisable in monochrome because the silhouette and openings do the
 **Preferred size:** 40 px in the desktop product shell and 28 px on mobile.  
 **Do not:** rotate, outline, add gradients, round it into an app-circle, recolour individual forms, or place it over a busy image.
 
-The source mark is implemented in [`StugaMark.tsx`](apps/web/src/components/StugaMark.tsx) and [`stuga-mark.svg`](apps/web/public/stuga-mark.svg).
+The source mark is implemented in [`StuguMark.tsx`](apps/web/src/components/StuguMark.tsx) and [`stugu-mark.svg`](apps/web/public/stugu-mark.svg).
 
-### Stugby mark and ownership markers
+### Stuguby mark and ownership markers
 
-Stugby uses three close cottages built from the same forms and colours as the
-Stuga mark. Use the full mark only for Stugby identity and onboarding. In normal
+Stuguby uses three close cottages built from the same forms and colours as the
+Stugu mark. Use the full mark only for Stuguby identity and onboarding. In normal
 Property and Home views, preserve the established layout and add a small mark
 with a plain-language state such as **Shared**, **Read-only**, **Pending**, or
 **Offline**. The mark is not a replacement for the written state, and shared
 content must not become a separate visual theme.
 
 The source mark is implemented in
-[`StugbyMark.tsx`](apps/web/src/components/StugbyMark.tsx) and
-[`stugby-mark.svg`](apps/web/public/stugby-mark.svg).
+[`StugubyMark.tsx`](apps/web/src/components/StugubyMark.tsx) and
+[`stuguby-mark.svg`](apps/web/public/stuguby-mark.svg).
 
 ### Wordmark
 
-Set **Stuga** in Manrope Bold with tight optical tracking (`-0.045em`). The product lockup uses sentence case, never all caps. The tagline may use small uppercase lettering because it is secondary and short.
+Set **Stugu** in Manrope Bold with tight optical tracking (`-0.045em`). The product lockup uses sentence case, never all caps. The tagline may use small uppercase lettering because it is secondary and short.
 
 Use the written name whenever space permits. The symbol alone is appropriate for the favicon and very small app surfaces.
 
@@ -205,7 +205,7 @@ Warm neutrals do most of the work. Cobalt is the interaction colour. Vermilion b
 | Strong line | `#919088` | Essential control boundaries | 3.10:1 on Surface |
 | Action cobalt | `#0755C9` | Links, focus, primary actions | 6.66:1 with white |
 | Action hover | `#003F9E` | Hover/pressed action | 9.52:1 with white |
-| Stuga red | `#B54122` | Brand mark and rare emphasis | 5.42:1 on Surface |
+| Stugu red | `#B54122` | Brand mark and rare emphasis | 5.42:1 on Surface |
 | Success | `#007A5C` | Positive state | 5.15:1 on Surface |
 | Warning | `#795000` | Caution text | 6.30:1 on `#FFF1C7` |
 | Critical | `#B42318` | Destructive/error text | 5.75:1 on `#FDECEA` |
@@ -340,7 +340,7 @@ Do not animate critical alerts indefinitely. Acknowledge state changes in a poli
 
 ## 8. Content and voice
 
-Stuga speaks like a calm, observant host.
+Stugu speaks like a calm, observant host.
 
 - Lead with what happened: “The bathroom is getting more humid.”
 - Follow with evidence: “68% for 14 minutes.”
@@ -361,7 +361,7 @@ Default interaction transitions are 120–180 ms with a standard ease-out curve.
 
 ## 10. Accessibility release gate
 
-Stuga targets **WCAG 2.2 AA**. A feature is not done until all applicable checks pass.
+Stugu targets **WCAG 2.2 AA**. A feature is not done until all applicable checks pass.
 
 ### Required checks
 

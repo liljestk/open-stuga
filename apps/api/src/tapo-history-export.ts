@@ -570,12 +570,12 @@ function normalizeEmail(value: string): string | null {
 }
 
 /** Generates a hidden capability address from an API-only random correlation nonce. */
-export function tapoExportRecipient(baseEmail: string, correlationNonce: string, prefix = "stuga"): string {
+export function tapoExportRecipient(baseEmail: string, correlationNonce: string, prefix = "stugu"): string {
   const email = normalizeEmail(baseEmail);
   if (!email) throw new Error("TAPO_HISTORY_EXPORT_EMAIL must be a valid email address");
   const [local, domain] = email.split("@");
   const untagged = local!.split("+")[0]!;
-  const safePrefix = prefix.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 20) || "stuga";
+  const safePrefix = prefix.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 20) || "stugu";
   if (!correlationNonce) throw new Error("Tapo export correlation nonce is required");
   const digest = createHash("sha256").update(correlationNonce).digest("hex").slice(0, 32);
   const taggedLocal = `${untagged}+${safePrefix}-${digest}`;

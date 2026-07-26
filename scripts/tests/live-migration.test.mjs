@@ -19,12 +19,12 @@ import {
   missingMigrationChunks,
   validateMigrationPlan,
   verifyAssembledMigrationBundle,
-} from "../stuga-migration-bundle.mjs";
+} from "../stugu-migration-bundle.mjs";
 import {
   compareReleaseVersions,
   mergePortableEnvironment,
   portableEnvironment,
-} from "../stuga-migration-common.mjs";
+} from "../stugu-migration-common.mjs";
 import {
   assertRunningSourceVersion,
   assertTargetCapacity,
@@ -33,7 +33,7 @@ import {
   safeSshTarget,
   stopSourceWriters,
   uploadMissingChunks,
-} from "../stuga-live-migrate.mjs";
+} from "../stugu-live-migrate.mjs";
 import {
   applyDeploymentSettings,
   commitMigration,
@@ -42,10 +42,10 @@ import {
   rollbackMigration,
   swapData,
   targetForDeploymentPath,
-} from "../stuga-migration-target.mjs";
+} from "../stugu-migration-target.mjs";
 
 function temporaryDirectory(t) {
-  const directory = mkdtempSync(join(tmpdir(), "stuga-live-migration-"));
+  const directory = mkdtempSync(join(tmpdir(), "stugu-live-migration-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   return directory;
 }
@@ -60,7 +60,7 @@ function backupFixture(root) {
   const payload = Buffer.alloc(150_000, 0x61);
   writeFileSync(join(directory, "databases", "climate-twin.sqlite"), payload);
   const manifest = {
-    format: "stuga-backup",
+    format: "stugu-backup",
     version: 2,
     verification: { status: "passed" },
     files: [{
@@ -148,20 +148,20 @@ test("source CLI validates SSH identity, target syntax, and cutover freshness", 
   writeFileSync(identity, "test-only-private-key\n");
   writeFileSync(join(root, "package.json"), '{"version":"0.5.0"}\n');
   writeFileSync(join(root, "docker-compose.yml"), "services: {}\n");
-  assert.equal(safeSshTarget("stuga@stuga.local"), "stuga@stuga.local");
+  assert.equal(safeSshTarget("stugu@stugu.local"), "stugu@stugu.local");
   assert.throws(() => safeSshTarget("-oProxyCommand=bad"), /safe SSH/u);
   const seed = parseLiveMigrationArgs([
-    "seed", "--target", "stuga@stuga.local", "--identity-file", identity,
+    "seed", "--target", "stugu@stugu.local", "--identity-file", identity,
     "--accept-new-host-key", "--project-directory", root,
   ], {}, root);
   assert.equal(seed.sourceVersion, "0.5.0");
   assert.equal(seed.acceptNewHostKey, true);
   assert.throws(() => parseLiveMigrationArgs([
-    "cutover", "--target", "stuga@stuga.local", "--identity-file", identity,
+    "cutover", "--target", "stugu@stugu.local", "--identity-file", identity,
     "--project-directory", root, "--backup", "old-backup",
   ], {}, root), /fresh snapshot/u);
   assert.throws(() => parseLiveMigrationArgs([
-    "status", "--target", "stuga@stuga.local", "--identity-file", identity,
+    "status", "--target", "stugu@stugu.local", "--identity-file", identity,
     "--project-directory", root, "--migration-id", "bad;touch-pwned",
   ], {}, root), /UUID/u);
 });
@@ -187,7 +187,7 @@ test("source runtime profiles migrate even when they were enabled outside .env",
 test("partial source quiescence failure restarts every service that was stopped", async () => {
   const options = { projectDirectory: "C:\\test-project", composeFile: "docker-compose.yml" };
   const snapshots = [
-    ["cloudflared", "web", "api", "stuga-backup-scheduler"],
+    ["cloudflared", "web", "api", "stugu-backup-scheduler"],
     ["api"],
   ];
   const stopCalls = [];
@@ -207,7 +207,7 @@ test("partial source quiescence failure restarts every service that was stopped"
     /simulated partial stop/u,
   );
   assert.equal(stopCalls.length, 2);
-  assert.deepEqual(restarted, ["cloudflared", "web", "stuga-backup-scheduler"]);
+  assert.deepEqual(restarted, ["cloudflared", "web", "stugu-backup-scheduler"]);
 });
 
 test("target deployment overlay preserves target networking and limits secret roots", (t) => {
@@ -219,7 +219,7 @@ test("target deployment overlay preserves target networking and limits secret ro
   mkdirSync(join(staged, "deployment", "secrets", "cloudflare"), { recursive: true });
   mkdirSync(join(target, "config"), { recursive: true });
   mkdirSync(join(target, "secrets", "cloudflare"), { recursive: true });
-  const envPath = join(target, "stuga.env");
+  const envPath = join(target, "stugu.env");
   writeFileSync(envPath, "BIND_ADDRESS=127.0.0.1\nMOCK_ENABLED=true\nTELEGRAM_BOT_TOKEN=stale\n");
   writeFileSync(join(target, "config", "stale.json"), "{\"stale\":true}\n");
   writeFileSync(join(target, "secrets", "cloudflare", "stale-token"), "stale\n");
@@ -263,7 +263,7 @@ test("target deployment overlay preserves target networking and limits secret ro
   assert.throws(() => targetForDeploymentPath("deployment/secrets/cloudflare-bootstrap/token"), /Unsupported/u);
 });
 
-test("backup validation requires a declared Stugby identity artifact", (t) => {
+test("backup validation requires a declared Stuguby identity artifact", (t) => {
   const root = temporaryDirectory(t);
   const manifest = {
     files: [
@@ -272,22 +272,22 @@ test("backup validation requires a declared Stugby identity artifact", (t) => {
       { category: "timescale-pgdump" },
     ],
     sources: {
-      stugbyIdentity: { status: "missing" },
+      stugubyIdentity: { status: "missing" },
       timescale: { scope: "full-database" },
     },
   };
   writeFileSync(join(root, "manifest.json"), JSON.stringify(manifest));
-  assert.throws(() => completeBackupManifest(root), /Stugby node identity/u);
+  assert.throws(() => completeBackupManifest(root), /Stuguby node identity/u);
 
   mkdirSync(join(root, "secrets"));
-  manifest.sources.stugbyIdentity.status = "included";
-  manifest.files.push({ category: "stugby-identity", path: "secrets/stugby-identity.json" });
-  writeFileSync(join(root, "secrets", "stugby-identity.json"), "{invalid", { mode: 0o600 });
+  manifest.sources.stugubyIdentity.status = "included";
+  manifest.files.push({ category: "stuguby-identity", path: "secrets/stuguby-identity.json" });
+  writeFileSync(join(root, "secrets", "stuguby-identity.json"), "{invalid", { mode: 0o600 });
   writeFileSync(join(root, "manifest.json"), JSON.stringify(manifest));
   assert.throws(() => completeBackupManifest(root), /not valid JSON/u);
 
   const keys = generateKeyPairSync("ed25519");
-  writeFileSync(join(root, "secrets", "stugby-identity.json"), JSON.stringify({
+  writeFileSync(join(root, "secrets", "stuguby-identity.json"), JSON.stringify({
     version: 1,
     nodeId: "619f8ada-fdc9-78e0-93e8-b63126fb1257",
     displayName: "Home",
@@ -295,7 +295,7 @@ test("backup validation requires a declared Stugby identity artifact", (t) => {
     privateKey: keys.privateKey.export({ format: "der", type: "pkcs8" }).toString("base64"),
     createdAt: "2026-07-23T00:00:00.000Z",
   }), { mode: 0o600 });
-  assert.equal(completeBackupManifest(root).sources.stugbyIdentity.status, "included");
+  assert.equal(completeBackupManifest(root).sources.stugubyIdentity.status, "included");
 });
 
 test("data swap rollback is crash-safe and idempotent at each rename boundary", async (t) => {
@@ -322,9 +322,9 @@ test("data swap rollback is crash-safe and idempotent at each rename boundary", 
     mkdirSync(join(root, "receipts"), { recursive: true });
     writeFileSync(join(data, "climate-twin.sqlite"), "old-core");
     writeFileSync(join(data, "climate-twin.sqlite-wal"), "old-wal");
-    writeFileSync(join(data, "stugby-identity.json"), "old-identity");
+    writeFileSync(join(data, "stuguby-identity.json"), "old-identity");
     writeFileSync(join(stage, "climate-twin.sqlite"), "new-core");
-    writeFileSync(join(stage, "stugby-identity.json"), "new-identity");
+    writeFileSync(join(stage, "stuguby-identity.json"), "new-identity");
     const receipt = {
       status: "applying",
       settings: [],
@@ -332,7 +332,7 @@ test("data swap rollback is crash-safe and idempotent at each rename boundary", 
         data,
         stage,
         rollback,
-        targets: ["climate-twin.sqlite", "climate-twin.sqlite-wal", "stugby-identity.json"],
+        targets: ["climate-twin.sqlite", "climate-twin.sqlite-wal", "stuguby-identity.json"],
         items: {},
       },
     };
@@ -340,7 +340,7 @@ test("data swap rollback is crash-safe and idempotent at each rename boundary", 
     assert.throws(
       () => swapData({ receipt: receiptPath }, receipt, {
         afterMutation(point, name) {
-          if (point === scenario.point && name === "stugby-identity.json") {
+          if (point === scenario.point && name === "stuguby-identity.json") {
             throw new Error(`simulated crash after ${point}`);
           }
         },
@@ -351,9 +351,9 @@ test("data swap rollback is crash-safe and idempotent at each rename boundary", 
     await rollbackMigration(scenario.id);
     assert.equal(readFileSync(join(data, "climate-twin.sqlite"), "utf8"), "old-core");
     assert.equal(readFileSync(join(data, "climate-twin.sqlite-wal"), "utf8"), "old-wal");
-    assert.equal(readFileSync(join(data, "stugby-identity.json"), "utf8"), "old-identity");
+    assert.equal(readFileSync(join(data, "stuguby-identity.json"), "utf8"), "old-identity");
     await rollbackMigration(scenario.id);
-    assert.equal(readFileSync(join(data, "stugby-identity.json"), "utf8"), "old-identity");
+    assert.equal(readFileSync(join(data, "stuguby-identity.json"), "utf8"), "old-identity");
   }
 });
 
@@ -501,7 +501,7 @@ test("corrupt target chunks are replaced atomically after local verification", a
   let commands;
   await uploadMissingChunks(
     { workspace: join(root, "transfer") },
-    { chunkDirectory: "/persistent/stuga/migrations/chunks" },
+    { chunkDirectory: "/persistent/stugu/migrations/chunks" },
     bundle,
     [digest],
     { transfer: async (_options, batch) => { commands = batch; } },
@@ -513,7 +513,7 @@ test("corrupt target chunks are replaced atomically after local verification", a
   await assert.rejects(
     uploadMissingChunks(
       { workspace: join(root, "transfer") },
-      { chunkDirectory: "/persistent/stuga/migrations/chunks" },
+      { chunkDirectory: "/persistent/stugu/migrations/chunks" },
       bundle,
       [digest],
       { transfer: async () => {} },
@@ -589,7 +589,7 @@ test("apply intent is durable, idempotent, and bound to a fully verified cutover
     chunkDirectory: bundle.chunkDirectory,
     outputDirectory: staged,
   });
-  writeFileSync(join(staged, ".stuga-assembled.json"), `${JSON.stringify({
+  writeFileSync(join(staged, ".stugu-assembled.json"), `${JSON.stringify({
     version: 1,
     planSha256: bundle.planSha256,
     backupVerified: true,

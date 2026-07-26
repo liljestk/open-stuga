@@ -30,7 +30,7 @@ afterEach(() => {
 describe("equipment QR label", () => {
   it("uses the stable native-compatible equipment URI", () => {
     expect(equipmentQrPayload(equipment.propertyId, equipment.id)).toBe(
-      "stuga://equipment?property=property%2Fpine&id=tractor+old&v=1",
+      "stugu://equipment?property=property%2Fpine&id=tractor+old&v=1",
     );
   });
 
@@ -49,10 +49,10 @@ describe("equipment QR label", () => {
     /></I18nProvider>);
 
     expect(screen.getByRole("img", { name: "QR code for Tractor" })).not.toBeNull();
-    expect(screen.getByText("stuga://equipment?property=property%2Fpine&id=tractor+old&v=1")).not.toBeNull();
+    expect(screen.getByText("stugu://equipment?property=property%2Fpine&id=tractor+old&v=1")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Copy QR value" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(
-      "stuga://equipment?property=property%2Fpine&id=tractor+old&v=1",
+      "stugu://equipment?property=property%2Fpine&id=tractor+old&v=1",
     ));
     fireEvent.click(screen.getByRole("button", { name: "Print label" }));
     expect(print).toHaveBeenCalledOnce();

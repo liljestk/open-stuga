@@ -51,7 +51,7 @@ describe("Telegram and Apple Notes local automations", () => {
     secretsPath: string;
     databasePath: string;
   } {
-    directory = mkdtempSync(join(tmpdir(), "stuga-automations-"));
+    directory = mkdtempSync(join(tmpdir(), "stugu-automations-"));
     const secretsPath = join(directory, "private", "integrations.json");
     const databasePath = join(directory, "climate.sqlite");
     const config = loadConfig({
@@ -76,7 +76,7 @@ describe("Telegram and Apple Notes local automations", () => {
         { id: CHAT_ID, label: "Alice", username: "alice", type: "private" },
         { id: "42", label: "Bob", username: null, type: "private" },
       ],
-      message: "Select the private chat that should receive Stuga alerts.",
+      message: "Select the private chat that should receive Stugu alerts.",
     });
 
     const configured = await request(runtime!.app).put("/api/v1/integrations/telegram/config")
@@ -331,7 +331,7 @@ describe("Telegram and Apple Notes local automations", () => {
 
     const operationId = "11111111-1111-4111-8111-111111111111";
     const command = {
-      schema: "stuga.apple-notes-command/v1",
+      schema: "stugu.apple-notes-command/v1",
       operationId,
       houseId: "house-main",
       title: "Inspect roof flashing",
@@ -371,11 +371,11 @@ describe("Telegram and Apple Notes local automations", () => {
       .set("Authorization", `Bearer ${token}`).query({ houseId: "house-main" }).expect(200);
     expect(snapshot.headers["cache-control"]).toBe("no-store");
     expect(snapshot.body).toMatchObject({
-      schema: "stuga.apple-notes-snapshot/v1",
+      schema: "stugu.apple-notes-snapshot/v1",
       houseId: "house-main",
       maintenanceTasks: [expect.objectContaining({ id: first.body.task.id })],
     });
-    expect(snapshot.body.title).toMatch(/^My home maintenance — \d{4}-\d{2}-\d{2} — Stuga$/);
+    expect(snapshot.body.title).toMatch(/^My home maintenance — \d{4}-\d{2}-\d{2} — Stugu$/);
     expect(snapshot.body.text).toContain(snapshot.body.generatedAt);
     expect(snapshot.body.text).toContain("new dated generated note");
     expect(runtime!.status.value.appleNotes!.lastSyncAt).toBe(snapshot.body.generatedAt);
@@ -387,7 +387,7 @@ describe("Telegram and Apple Notes local automations", () => {
   });
 
   it("migrates legacy alert rules and defaults Telegram delivery to disabled", async () => {
-    directory = mkdtempSync(join(tmpdir(), "stuga-alert-migration-"));
+    directory = mkdtempSync(join(tmpdir(), "stugu-alert-migration-"));
     const databasePath = join(directory, "legacy.sqlite");
     const legacy = new DatabaseSync(databasePath);
     legacy.exec(`CREATE TABLE alert_rules (

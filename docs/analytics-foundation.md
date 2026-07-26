@@ -263,7 +263,7 @@ cadence so a lone old value cannot silently fill a long gap.
    use a focused renderer below it and reuse the same sensor selection. A
    general chart-spec adapter and ECharts evaluation belong in a later Explorer
    slice with saved views, brushing, overlays, and linked panels.
-4. **Use the current database-wide data partition.** Stuga already permanently
+4. **Use the current database-wide data partition.** Stugu already permanently
    purges demo telemetry when real mode is activated and filters synthetic
    archive rows in real mode. The analytics API adds mandatory mode guards but
    does not pretend that current telemetry rows have the per-row `dataMode`

@@ -1,0 +1,17 @@
+[Unit]
+Description=Stugu appliance
+Wants=network-online.target
+Requires=docker.service stugu-data-grow.service
+After=network-online.target docker.service stugu-data-grow.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/stugu-compose-start
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=60s
+TimeoutStartSec=30min
+
+[Install]
+WantedBy=multi-user.target

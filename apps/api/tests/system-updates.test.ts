@@ -59,7 +59,7 @@ describe("system update service", () => {
   });
 
   function directory(): string {
-    const value = mkdtempSync(join(tmpdir(), "stuga-system-updates-"));
+    const value = mkdtempSync(join(tmpdir(), "stugu-system-updates-"));
     directories.push(value);
     return value;
   }
@@ -124,7 +124,7 @@ describe("system update service", () => {
     });
 
     writeFileSync(join(operationsDirectory, "agent-status.json"), JSON.stringify({
-      schema: "stuga-update-agent/v1",
+      schema: "stugu-update-agent/v1",
       runtime: "docker",
       agentVersion: "0.1.0",
       ready: true,
@@ -156,7 +156,7 @@ describe("system update service", () => {
       requestedAt: "2026-07-23T20:01:00.000Z",
       startedAt: "2026-07-23T20:01:02.000Z",
       completedAt: null,
-      detail: "Pulling Stuga 0.6.0 images",
+      detail: "Pulling Stugu 0.6.0 images",
       previousVersion: "0.5.0",
     }));
     const service = new SystemUpdateService({
@@ -173,7 +173,7 @@ describe("system update service", () => {
       activity: [{
         phase: "pulling",
         at: "2026-07-23T20:01:02.000Z",
-        detail: "Pulling Stuga 0.6.0 images",
+        detail: "Pulling Stugu 0.6.0 images",
       }],
     });
   });

@@ -469,12 +469,12 @@ export function PropertyAreaMap({
     });
     const container = containerRef.current;
     const dragOver = (event: globalThis.DragEvent) => {
-      if (event.dataTransfer?.types.includes("application/x-stuga-house-id")
-        || event.dataTransfer?.types.includes("application/x-stuga-property-asset-id")) event.preventDefault();
+      if (event.dataTransfer?.types.includes("application/x-stugu-house-id")
+        || event.dataTransfer?.types.includes("application/x-stugu-property-asset-id")) event.preventDefault();
     };
     const drop = (event: globalThis.DragEvent) => {
-      const houseId = event.dataTransfer?.getData("application/x-stuga-house-id") ?? "";
-      const assetId = event.dataTransfer?.getData("application/x-stuga-property-asset-id") ?? "";
+      const houseId = event.dataTransfer?.getData("application/x-stugu-house-id") ?? "";
+      const assetId = event.dataTransfer?.getData("application/x-stugu-property-asset-id") ?? "";
       if ((!houseId || !houseIdsRef.current.has(houseId)) && (!assetId || !assetIdsRef.current.has(assetId))) return;
       event.preventDefault();
       const latLng = map.mouseEventToLatLng(event);

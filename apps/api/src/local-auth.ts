@@ -89,8 +89,8 @@ export function normalizedAccountEmail(value: unknown): string {
     throw new LocalAuthError(400, "INVALID_EMAIL", "email must be a valid email address");
   }
   const email = value.trim().toLowerCase();
-  // Local Stuga installations may deliberately use a private DNS name (for
-  // example, owner@stuga) rather than a public, dotted email domain.
+  // Local Stugu installations may deliberately use a private DNS name (for
+  // example, owner@stugu) rather than a public, dotted email domain.
   if (email.length < 3 || email.length > 320 || !/^[^@\s]+@[^@\s]+$/.test(email)) {
     throw new LocalAuthError(400, "INVALID_EMAIL", "email must be a valid email address");
   }

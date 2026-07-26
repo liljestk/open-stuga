@@ -129,7 +129,7 @@ describe("stable sensor room relationships", () => {
   });
 
   it("backfills only one exact legacy match and never recreates an explicitly cleared link", () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-sensor-room-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-sensor-room-"));
     temporaryDirectories.push(directory);
     const path = join(directory, "legacy.sqlite");
     const legacy = new DatabaseSync(path);

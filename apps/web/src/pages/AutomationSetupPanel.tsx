@@ -180,7 +180,7 @@ export function AutomationSetupPanel({ integration, house, houses, onHouse, onIn
     [house.id, notesGrants],
   );
   const captureExample = JSON.stringify({
-    schema: "stuga.apple-notes-command/v1",
+    schema: "stugu.apple-notes-command/v1",
     operationId: t("automations.notes.recipe.operationIdValue"),
     houseId: configuredHouseId,
     title: t("automations.notes.recipe.titleValue"),

@@ -1,6 +1,6 @@
-# Install and run Stuga
+# Install and run Stugu
 
-Stuga's normal first run guides you through creating a property and its first
+Stugu's normal first run guides you through creating a property and its first
 home. An optional mock mode can instead seed a sample home and sensors so the
 visualisation, history, alerts, and replay workflow can be evaluated before the
 physical sensors arrive. Temperature, relative humidity, and CO2 are built in;
@@ -28,20 +28,20 @@ npm run setup
 ```
 
 The wizard asks for the runtime, real or disposable demo data, the container
-port when applicable, and how people will use Stuga: only at home, securely
-away from home, or as the creator of a shared Stugby. Docker users may
+port when applicable, and how people will use Stugu: only at home, securely
+away from home, or as the creator of a shared Stuguby. Docker users may
 also install the host update agent as a per-user startup service after
 acknowledging its Docker-administrator authority. It defaults to off for
 ordinary installs and is recommended when secure sharing is selected because
 the UI needs it to apply host networking changes.
-Docker and Podman can provision either a protected remote UI or a Stugby
+Docker and Podman can provision either a protected remote UI or a Stuguby
 coordinator through Cloudflare Tunnel + Access. Local-only remains the default.
 
-The normal Stugby Cloudflare flow is in the authenticated local Stuga UI. One
-token with **OAuth Client Write** lets Stuga register its private OAuth client;
+The normal Stuguby Cloudflare flow is in the authenticated local Stugu UI. One
+token with **OAuth Client Write** lets Stugu register its private OAuth client;
 the browser then shows Cloudflare consent for temporary provisioning. Existing
 remote installations reuse their retained narrow Access-group token. New
-installations enter that separate runtime token once in the UI. Stuga keeps
+installations enter that separate runtime token once in the UI. Stugu keeps
 provider grants in memory, sends no provider token through the host-agent
 queue, configures Access before DNS/Tunnel ingress, recreates the affected
 services, verifies the edge, and revokes the OAuth grant. If verification
@@ -53,7 +53,7 @@ The wizard creates `.env` only when missing and ordinarily changes only
 host update service also aligns `STUGA_UPDATE_OPERATIONS_GID` with the current
 account. Choosing Cloudflare pins `BIND_ADDRESS=127.0.0.1`; existing
 credentials and all other advanced settings are preserved. Other integration
-credentials are deliberately entered later through Stuga's guided web setup.
+credentials are deliberately entered later through Stugu's guided web setup.
 
 Automation can select the same paths explicitly:
 
@@ -65,8 +65,8 @@ npm run setup -- --mode rpi --pi-action flash
 ```
 
 Add `--dry-run` to inspect a plan without changing files, packages, containers,
-or Cloudflare. For a UI-managed Stugby connection, use Docker with the host
-agent, start on loopback, create the first Owner, and continue in **Stugbys →
+or Cloudflare. For a UI-managed Stuguby connection, use Docker with the host
+agent, start on loopback, create the first Owner, and continue in **Stugubys →
 Set up secure sharing**. See
 [Cloudflare Tunnel and Access](cloudflare-access.md) for the one-time
 bootstrap scope, new/existing installation paths, CLI fallback, rotation, and
@@ -115,8 +115,8 @@ Prerequisites: a current Docker Engine with Compose v2.
 
 5. Open <http://localhost:8080>, create the first Owner, and check API health at
    <http://localhost:8080/api/v1/health>.
-6. To create a Stugby for other homes, open **Stugbys**, choose **Set up secure
-   sharing**, and complete Cloudflare approval there. Stuga creates the private
+6. To create a Stuguby for other homes, open **Stugubys**, choose **Set up secure
+   sharing**, and complete Cloudflare approval there. Stugu creates the private
    OAuth client, applies the connection through the host agent, and verifies it
    before enabling invitations. Provider tokens are never written to browser
    storage or the host-agent queue.
@@ -268,7 +268,7 @@ intervals.
    a marker/history series. If spatial/forecast capability flags are false, the
    correct result is no interpolated surface and no forecast.
 
-Mock data is synthetic. Stuga prevents it from crossing into a real
+Mock data is synthetic. Stugu prevents it from crossing into a real
 installation: saving Home Assistant or TP-Link credentials, or accepting the
 first non-demo API/import sample or fresh provider outdoor value, permanently latches
 the current database into real-data mode. The transition removes persisted mock/replay telemetry,
@@ -343,12 +343,12 @@ Home Assistant is not required for this path.
 
 Direct T310/T315 gaps first use the H100/H200's retained 15-minute buckets, and
 supported direct energy devices first use their retained power history. If that
-is incomplete for a sensor that also has Home Assistant entity bindings, Stuga
+is incomplete for a sensor that also has Home Assistant entity bindings, Stugu
 tries Home Assistant recorder history next. Only then does it try an explicitly
 configured experimental private adapter or queue a durable Tapo Android export. The final path
 correlates an emailed CSV through Gmail OAuth, validates/stages the rows, and
 retries the original gap ingestion. Every fallback must resolve to the same
-Stuga sensor and metric; names and aliases are never used as identity.
+Stugu sensor and metric; names and aliases are never used as identity.
 
 This service is intentionally opt-in because it drives a third-party mobile UI:
 
@@ -509,7 +509,7 @@ take precedence after restart.
 | `TAPO_HISTORY_WORKER_TOKEN` | empty | non-Compose bearer secret shared only by the API and runner; Compose generates it in a dedicated volume |
 | `TAPO_HISTORY_WORKER_TOKEN_FILE` | empty | non-Compose alternative file containing the worker token |
 | `TAPO_HISTORY_EXPORT_EMAIL` | empty | dedicated base mailbox; it must accept plus addresses and preserve the tagged recipient header |
-| `TAPO_HISTORY_EMAIL_TAG_PREFIX` | `stuga` | sanitized prefix for random per-job correlation plus tags |
+| `TAPO_HISTORY_EMAIL_TAG_PREFIX` | `stugu` | sanitized prefix for random per-job correlation plus tags |
 | `TAPO_HISTORY_EXPORT_INTERVAL_MINUTES` | `15` | Tapo app CSV interval; allowed values are 1, 15, 30, 60, 360, 720, or 1440 |
 | `TAPO_HISTORY_MAX_EXPORT_DAYS` | `30` | maximum calendar span per sequential export segment, from 1 through 730 days; row and two-year limits still apply |
 | `TAPO_HISTORY_MAX_PENDING_EMAILS` | `1` | atomic cap, from 1 through 10, on live claimed/running plus waiting-email Appium generations |
@@ -576,11 +576,11 @@ take precedence after restart.
 For native push, create one APNs signing key in Apple Developer, place the
 downloaded `.p8` file in `STUGA_APNS_SECRET_DIR`, and set the four `APNS_*`
 values. For example, a Compose installation can set
-`APNS_PRIVATE_KEY_FILE=/run/secrets/apns/AuthKey.p8`. Stuga connects directly
-to Apple; no Stuga-operated relay is involved.
+`APNS_PRIVATE_KEY_FILE=/run/secrets/apns/AuthKey.p8`. Stugu connects directly
+to Apple; no Stugu-operated relay is involved.
 
 Native build instructions are in `apps/ios/README.md`. The dependent Watch app
-uses the paired iPhone and receives no Stuga credentials. On a supported LiDAR
+uses the paired iPhone and receives no Stugu credentials. On a supported LiDAR
 iPhone or iPad, RoomPlan can replace an empty or single-room floor after an
 explicit review; only derived geometry is uploaded, while detailed editing
 remains in the web app.
@@ -616,7 +616,7 @@ Do not duplicate a sensor to change display units.
 Create a complete, online Compose backup without publishing PostgreSQL:
 
 ```powershell
-docker compose --profile maintenance run --rm stuga-backup
+docker compose --profile maintenance run --rm stugu-backup
 ```
 
 The maintenance image snapshots the core and spatial SQLite databases safely
@@ -626,7 +626,7 @@ writes under `./backups`; set `STUGA_BACKUP_DIRECTORY` to use another protected
 host directory. Verify an existing set with:
 
 ```powershell
-docker compose --profile maintenance run --rm --no-deps stuga-backup `
+docker compose --profile maintenance run --rm --no-deps stugu-backup `
   --verify /app/backups/<backup-directory>
 ```
 
@@ -642,7 +642,7 @@ permissions across Docker Engine, Docker Desktop, rootless Podman, and Podman
 machine. Export its verified sets without overwriting existing host exports:
 
 ```powershell
-docker compose --profile maintenance run --rm stuga-backup-export
+docker compose --profile maintenance run --rm stugu-backup-export
 ```
 
 Replace `docker` with `podman` when using Podman. The export destination remains

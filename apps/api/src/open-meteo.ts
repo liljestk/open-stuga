@@ -167,7 +167,7 @@ export class OpenMeteoWeatherProvider implements WeatherProvider {
     let response: Response;
     try {
       response = await this.#fetch(`${API_URL}?${parameters}`, {
-        headers: { Accept: "application/json", "User-Agent": `Stuga/${SYSTEM_VERSION} Open-Meteo weather adapter` },
+        headers: { Accept: "application/json", "User-Agent": `Stugu/${SYSTEM_VERSION} Open-Meteo weather adapter` },
         signal: AbortSignal.timeout(this.#timeoutMs),
       });
     } catch {
@@ -238,7 +238,7 @@ export class OpenMeteoWeatherProvider implements WeatherProvider {
     let response: Response;
     try {
       response = await this.#fetch(`${HISTORICAL_FORECAST_API_URL}?${parameters}`, {
-        headers: { Accept: "application/json", "User-Agent": `Stuga/${SYSTEM_VERSION} Open-Meteo weather recovery adapter` },
+        headers: { Accept: "application/json", "User-Agent": `Stugu/${SYSTEM_VERSION} Open-Meteo weather recovery adapter` },
         signal: AbortSignal.timeout(this.#timeoutMs),
       });
     } catch {

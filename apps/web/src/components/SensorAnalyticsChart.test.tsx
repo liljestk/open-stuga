@@ -80,7 +80,7 @@ describe("SensorAnalyticsChart", () => {
 
     await user.click(screen.getByText(/Show accessible data table/));
     expect(screen.getByRole("region", { name: "Analytics source data" })).not.toBeNull();
-    expect(screen.getByRole("link", { name: "Download exact data as CSV" }).getAttribute("download")).toBe("stuga-temperature-24h.csv");
+    expect(screen.getByRole("link", { name: "Download exact data as CSV" }).getAttribute("download")).toBe("stugu-temperature-24h.csv");
     expect(screen.getByRole("columnheader", { name: "Coverage" })).not.toBeNull();
     expect(screen.getByRole("columnheader", { name: "Gap before reading" })).not.toBeNull();
 

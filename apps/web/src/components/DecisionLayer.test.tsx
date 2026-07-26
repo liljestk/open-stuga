@@ -503,7 +503,7 @@ describe("decision layer", () => {
     const hiddenSummary = view.container.querySelector<HTMLElement>(".pulse-hidden-disclosure > summary")!;
     expect(hiddenSummary.textContent).toContain("1 hidden Home Pulse item");
     await waitFor(() => expect(document.activeElement).toBe(hiddenSummary));
-    await waitFor(() => expect(localStorage.getItem(`stuga-home-pulse-hidden:v1:${house.id}`)).not.toBeNull());
+    await waitFor(() => expect(localStorage.getItem(`stugu-home-pulse-hidden:v1:${house.id}`)).not.toBeNull());
 
     view.unmount();
     const remounted = render(panel);
@@ -517,7 +517,7 @@ describe("decision layer", () => {
     await waitFor(() => expect(remounted.container.querySelector(".pulse-insight > summary")).not.toBeNull());
     const restoredSummary = remounted.container.querySelector<HTMLElement>(".pulse-insight > summary")!;
     await waitFor(() => expect(document.activeElement).toBe(restoredSummary));
-    await waitFor(() => expect(localStorage.getItem(`stuga-home-pulse-hidden:v1:${house.id}`)).toBeNull());
+    await waitFor(() => expect(localStorage.getItem(`stugu-home-pulse-hidden:v1:${house.id}`)).toBeNull());
   });
 
   it("promotes the next ranked insight after one is hidden", () => {

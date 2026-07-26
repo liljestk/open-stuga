@@ -1,6 +1,6 @@
 # Live system-to-system migration
 
-Stuga can move a running Compose installation to a Stuga appliance over
+Stugu can move a running Compose installation to a Stugu appliance over
 authenticated SSH. The source remains available during the optional seed
 phase. The final phase deliberately stops source writers, creates a fresh
 verified snapshot, transfers only chunks the target does not already have,
@@ -15,20 +15,20 @@ outbound actions.
 
 ## What moves
 
-Every cutover requires the complete verified Stuga backup set:
+Every cutover requires the complete verified Stugu backup set:
 
 - the online-consistent core and spatial SQLite snapshots;
 - the full TimescaleDB custom-format dump and ownership contract;
 - assets and the protected integration-secrets file;
-- the persistent Stugby node identity and private signing key;
+- the persistent Stuguby node identity and private signing key;
 - portable application settings from the source environment file;
-- files under the configured Stuga config directory; and
+- files under the configured Stugu config directory; and
 - the known runtime secret directories for Cloudflare and Tapo history.
 
 Target-specific bind addresses, browser ports, filesystem paths, and internal
 TimescaleDB credentials are not copied. The target keeps those values from its
 own appliance configuration. The migration environment allowlist is defined in
-`scripts/stuga-migration-common.mjs`; unknown settings fail closed instead of
+`scripts/stugu-migration-common.mjs`; unknown settings fail closed instead of
 being injected into the target.
 
 The transfer plan, chunks, staged backup, settings, and rollback state are all
@@ -41,12 +41,12 @@ period.
 ## Preconditions
 
 1. Run the controller from the same or a newer checkout than the live source,
-   and run the same or a newer Stuga release on the target. The 0.5 controller
+   and run the same or a newer Stugu release on the target. The 0.5 controller
    can migrate the live 0.4.1 source without upgrading it first. A source newer
    than the controller, or a target older than the running source, is rejected
    before transfer; target compatibility is checked again before apply.
 2. Boot the target appliance, connect it to the network, and confirm
-   `stugactl status` is healthy.
+   `stuguctl status` is healthy.
 3. Confirm the target SSH host-key fingerprint through a trusted channel. The
    controller uses strict host-key checking by default. For a brand-new device,
    `--accept-new-host-key` is an explicit trust-on-first-use choice; inspect the
@@ -67,7 +67,7 @@ modify target application data.
 
 ```powershell
 npm run migrate -- seed `
-  --target stuga@stuga.local `
+  --target stugu@stugu.local `
   --identity-file "$HOME/.ssh/stuga_appliance" `
   --accept-new-host-key
 ```
@@ -82,7 +82,7 @@ stop.
 
 ```powershell
 npm run migrate -- cutover `
-  --target stuga@stuga.local `
+  --target stugu@stugu.local `
   --identity-file "$HOME/.ssh/stuga_appliance"
 ```
 
@@ -113,7 +113,7 @@ Query the durable target receipt before deciding what to run:
 
 ```powershell
 npm run migrate -- status `
-  --target stuga@stuga.local `
+  --target stugu@stugu.local `
   --identity-file "$HOME/.ssh/stuga_appliance" `
   --migration-id <uuid-printed-by-the-controller>
 ```
@@ -128,9 +128,9 @@ The controller normally invokes these receiver operations through SSH. An
 operator on the appliance can inspect or roll back a known migration:
 
 ```sh
-stugactl migration status <migration-id>
-stugactl migration resume <migration-id>
-stugactl migration rollback <migration-id>
+stuguctl migration status <migration-id>
+stuguctl migration resume <migration-id>
+stuguctl migration rollback <migration-id>
 ```
 
 The appliance refuses ordinary startup while a receipt is
@@ -145,18 +145,18 @@ overwritten settings, and restarts the previous target. Rollback is refused
 after commit so newer target writes cannot be discarded. A committed migration
 is retained deliberately; take and export a new verified backup before removing
 its rollback state. Never use `docker compose down -v` as cleanup because it
-deletes Stuga's named data and credential volumes.
+deletes Stugu's named data and credential volumes.
 
 ## Operational validation
 
 After cutover, confirm:
 
-- `stugactl status` reports healthy containers and the expected release;
+- `stuguctl status` reports healthy containers and the expected release;
 - recent and historical sensor queries cover representative dates;
 - Properties, Homes, floor plans, users, and local permissions are present;
 - Home Assistant/TP-Link, Cloudflare, alerts, and notification destinations
   have the intended connection state; and
-- a fresh `stugactl backup` completes and is copied off the appliance.
+- a fresh `stuguctl backup` completes and is copied off the appliance.
 
 Only then retire the old system or its credentials. Keep it powered off until
 the rollback window has passed.

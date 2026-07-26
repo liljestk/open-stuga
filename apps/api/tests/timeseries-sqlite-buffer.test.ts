@@ -68,7 +68,7 @@ describe("SQLite telemetry archive buffer", () => {
   });
 
   it("rewinds legacy implicit-rowid cursors exactly once during the explicit-ID upgrade", () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-archive-cursor-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-archive-cursor-"));
     const path = join(directory, "upgrade.sqlite");
     let upgraded: ClimateDatabase | null = null;
     try {

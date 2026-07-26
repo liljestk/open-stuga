@@ -167,7 +167,7 @@ export function calculateDeploymentFingerprint(input: DeploymentFingerprintInput
     .update(normalizedAccountIdentity, "utf8")
     .digest("hex");
   const attestation = {
-    schema: "stuga-tapo-deployment-v4",
+    schema: "stugu-tapo-deployment-v4",
     runnerImplementationSha256: implementationSha256,
     nodeVersion: process.versions.node,
     flowSha256,

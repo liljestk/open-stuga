@@ -27,7 +27,7 @@ export interface SpatialLayerPanelProps {
   };
 }
 
-const spatialLayerPanelPreferenceKey = "stuga-spatial-layer-panel";
+const spatialLayerPanelPreferenceKey = "stugu-spatial-layer-panel";
 
 const knownReasons: Record<string, TranslationKey> = {
   "insufficient-data": "spatial.reason.insufficientData",

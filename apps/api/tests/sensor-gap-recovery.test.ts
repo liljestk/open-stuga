@@ -276,7 +276,7 @@ describe("sensor data-gap recovery", () => {
   });
 
   it("retrieves and normalizes the missing interval from Home Assistant recorder history", async () => {
-    temporaryDirectory = mkdtempSync(join(tmpdir(), "stuga-sensor-gap-ha-"));
+    temporaryDirectory = mkdtempSync(join(tmpdir(), "stugu-sensor-gap-ha-"));
     const mappingPath = join(temporaryDirectory, "entities.json");
     writeFileSync(mappingPath, JSON.stringify({ entities: [{
       sensorId: "sensor-01",
@@ -445,7 +445,7 @@ describe("sensor data-gap recovery", () => {
   });
 
   it("rearms a persisted not-supported TP-Link gap when the fallback is enabled", async () => {
-    temporaryDirectory = mkdtempSync(join(tmpdir(), "stuga-tapo-gap-rearm-"));
+    temporaryDirectory = mkdtempSync(join(tmpdir(), "stugu-tapo-gap-rearm-"));
     const databasePath = join(temporaryDirectory, "climate.sqlite");
     runtime = createApi({ config: config({ databasePath }), startBackground: false });
     runtime.database.updateSensor("sensor-01", {
@@ -486,7 +486,7 @@ describe("sensor data-gap recovery", () => {
   });
 
   it("rearms only still-retained obsolete local T310/T315 climate gaps", async () => {
-    temporaryDirectory = mkdtempSync(join(tmpdir(), "stuga-tapo-local-gap-rearm-"));
+    temporaryDirectory = mkdtempSync(join(tmpdir(), "stugu-tapo-local-gap-rearm-"));
     const databasePath = join(temporaryDirectory, "climate.sqlite");
     runtime = createApi({ config: config({ databasePath }), startBackground: false });
     const houseId = runtime.database.getSensor("sensor-01")!.houseId;

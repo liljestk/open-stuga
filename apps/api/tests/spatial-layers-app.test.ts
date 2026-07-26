@@ -67,7 +67,7 @@ describe("spatial layer application lifecycle", () => {
   });
 
   it("keeps a corrupt optional state database from blocking the core API", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-invalid-spatial-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-invalid-spatial-"));
     temporaryDirectories.push(directory);
     const invalidState = join(directory, "invalid.sqlite");
     writeFileSync(invalidState, "this is not a sqlite database", "utf8");

@@ -1,6 +1,6 @@
 # System updates
 
-Stuga discovers versions and change notes from the public
+Stugu discovers versions and change notes from the public
 [`liljestk/open-stuga` GitHub Releases](https://github.com/liljestk/open-stuga/releases)
 feed. Owners and administrators manage updates at **Advanced → System
 updates**.
@@ -8,7 +8,7 @@ updates**.
 The web/API process never replaces itself. It writes a bounded update request
 to a shared operations directory. A separate update agent, with access to the
 Docker CLI, creates a verified backup, pulls the release-tagged images from the
-configured trusted GHCR namespace, recreates only the running Stuga
+configured trusted GHCR namespace, recreates only the running Stugu
 application services, and waits for their health checks. If the new API does
 not report the requested product version, the agent restores the previous
 release environment and starts the prior images again.
@@ -80,10 +80,10 @@ Useful overrides:
 ```dotenv
 SYSTEM_UPDATE_REPOSITORY=liljestk/open-stuga
 SYSTEM_UPDATE_IMAGE_PREFIX=ghcr.io/liljestk/open-stuga
-STUGA_UPDATE_OPERATIONS_DIRECTORY=/srv/stuga/update-operations
+STUGA_UPDATE_OPERATIONS_DIRECTORY=/srv/stugu/update-operations
 STUGA_UPDATE_OPERATIONS_GID=1001
-STUGA_PROJECT_DIRECTORY=/srv/stuga
-STUGA_RELEASE_ENV_FILE=/srv/stuga/.stuga-release.env
+STUGA_PROJECT_DIRECTORY=/srv/stugu
+STUGA_RELEASE_ENV_FILE=/srv/stugu/.stugu-release.env
 # Only if the stack was started with `docker compose --project-name stuga`:
 STUGA_COMPOSE_PROJECT_NAME=stuga
 ```
@@ -102,7 +102,7 @@ with the API. The selected application release is stored on the persistent
 partition, survives A/B slot changes, and is health-checked with the same
 last-known-good container fallback used at boot.
 
-The UI-managed path updates Stuga's release containers. Full operating-system,
+The UI-managed path updates Stugu's release containers. Full operating-system,
 kernel, and firmware updates remain signed A/B artifacts delivered through
 Raspberry Pi Connect as described in
 [Raspberry Pi 4 appliance](raspberry-pi-appliance.md). This separation lets the
@@ -114,11 +114,11 @@ Docker access.
 
 The latest state is visible in the UI and in
 `data/update-operations/status.json`. Before changing images, the agent runs
-the normal verified Stuga backup. If both the new release and automatic
-rollback fail, restore the last `.stuga-release.env` values and run:
+the normal verified Stugu backup. If both the new release and automatic
+rollback fail, restore the last `.stugu-release.env` values and run:
 
 ```sh
-docker compose up --detach --wait api web stuga-backup-scheduler
+docker compose up --detach --wait api web stugu-backup-scheduler
 ```
 
 Never edit a queued request to point at another registry. The agent rejects

@@ -26,8 +26,8 @@ describe("local session API client", () => {
       json: async () => ({
         authenticated: true,
         principal: { type: "local", email: "owner@example.test" },
-        tenant: { id: "local", name: "Local Stuga", role: "owner" },
-        availableTenants: [{ id: "local", name: "Local Stuga", role: "owner" }],
+        tenant: { id: "local", name: "Local Stugu", role: "owner" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "owner" }],
         readOnly: false,
         grants: [],
       }),
@@ -46,8 +46,8 @@ describe("local session API client", () => {
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({
         authenticated: true,
         principal: { type: "local", email: "owner@example.test" },
-        tenant: { id: "local", name: "Local Stuga", role: "owner" },
-        availableTenants: [{ id: "local", name: "Local Stuga", role: "owner" }],
+        tenant: { id: "local", name: "Local Stugu", role: "owner" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "owner" }],
         readOnly: false,
         grants: [],
         csrfToken: "csrf-memory-only",
@@ -70,8 +70,8 @@ describe("local session API client", () => {
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({
         authenticated: true,
         principal: { type: "local", email: "owner@example.test" },
-        tenant: { id: "local", name: "Local Stuga", role: "owner" },
-        availableTenants: [{ id: "local", name: "Local Stuga", role: "owner" }],
+        tenant: { id: "local", name: "Local Stugu", role: "owner" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "owner" }],
         readOnly: false,
         grants: [],
         csrfToken: "stale-csrf",
@@ -80,8 +80,8 @@ describe("local session API client", () => {
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({
         authenticated: true,
         principal: { type: "local", email: "owner@example.test" },
-        tenant: { id: "local", name: "Local Stuga", role: "owner" },
-        availableTenants: [{ id: "local", name: "Local Stuga", role: "owner" }],
+        tenant: { id: "local", name: "Local Stugu", role: "owner" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "owner" }],
         readOnly: false,
         grants: [],
         csrfToken: "fresh-csrf",
@@ -100,8 +100,8 @@ describe("local session API client", () => {
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({
         authenticated: true,
         principal: { type: "local", email: "guest@example.test" },
-        tenant: { id: "local", name: "Local Stuga", role: "guest" },
-        availableTenants: [{ id: "local", name: "Local Stuga", role: "guest" }],
+        tenant: { id: "local", name: "Local Stugu", role: "guest" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "guest" }],
         readOnly: true,
         grants: [],
         csrfToken: "expired-session-csrf",
@@ -110,8 +110,8 @@ describe("local session API client", () => {
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({
         authenticated: true,
         principal: { type: "local", email: "guest@example.test" },
-        tenant: { id: "local", name: "Local Stuga", role: "guest" },
-        availableTenants: [{ id: "local", name: "Local Stuga", role: "guest" }],
+        tenant: { id: "local", name: "Local Stugu", role: "guest" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "guest" }],
         readOnly: true,
         grants: [],
         csrfToken: "new-session-csrf",
@@ -133,8 +133,8 @@ describe("local session API client", () => {
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({
         authenticated: true,
         principal: { type: "local", email: "owner@example.test" },
-        tenant: { id: "local", name: "Local Stuga", role: "owner" },
-        availableTenants: [{ id: "local", name: "Local Stuga", role: "owner" }],
+        tenant: { id: "local", name: "Local Stugu", role: "owner" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "owner" }],
         readOnly: false,
         grants: [],
         csrfToken: "rejected-csrf",
@@ -193,7 +193,7 @@ describe("equipment tracking API client", () => {
       id: "tag/main",
       propertyId: "property/main",
       serialNumber: "TAG-001",
-      hardwareModel: "Stuga Tag",
+      hardwareModel: "Stugu Tag",
       status: "active",
     };
     const assignment = {
@@ -228,7 +228,7 @@ describe("equipment tracking API client", () => {
     await expect(api.createTrackingTag({
       propertyId: "property/main",
       serialNumber: "TAG-001",
-      hardwareModel: "Stuga Tag",
+      hardwareModel: "Stugu Tag",
     })).resolves.toEqual({ tag, provisioningSecret: "one-time" });
     await expect(api.claimTrackingTag(tag.id)).resolves.toEqual(tag);
     await expect(api.assignTrackingTag(tag.id, "equipment/main")).resolves.toEqual(assignment);

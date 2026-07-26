@@ -8,10 +8,10 @@ import {
   installUpdateAgentService,
   uninstallUpdateAgentService,
   updateAgentServiceDefinition,
-} from "../stuga-update-agent-service.mjs";
+} from "../stugu-update-agent-service.mjs";
 
 test("Windows installs a limited per-user task and starts it immediately", () => {
-  const root = join(tmpdir(), "Stuga service test");
+  const root = join(tmpdir(), "Stugu service test");
   const calls = [];
   const definition = installUpdateAgentService(root, {
     nodeExecutable: process.execPath,
@@ -35,8 +35,8 @@ test("Windows installs a limited per-user task and starts it immediately", () =>
 });
 
 test("Linux installs, enables, and can remove a systemd user service", (t) => {
-  const root = mkdtempSync(join(tmpdir(), "stuga-update-project-"));
-  const homeDirectory = mkdtempSync(join(tmpdir(), "stuga-update-home-"));
+  const root = mkdtempSync(join(tmpdir(), "stugu-update-project-"));
+  const homeDirectory = mkdtempSync(join(tmpdir(), "stugu-update-home-"));
   t.after(() => {
     rmSync(root, { recursive: true, force: true });
     rmSync(homeDirectory, { recursive: true, force: true });
@@ -76,7 +76,7 @@ test("Linux installs, enables, and can remove a systemd user service", (t) => {
 });
 
 test("macOS definition is a per-user LaunchAgent with explicit program arguments", () => {
-  const root = join(tmpdir(), "Stuga & home");
+  const root = join(tmpdir(), "Stugu & home");
   const definition = updateAgentServiceDefinition(root, {
     homeDirectory: tmpdir(),
     nodeExecutable: process.execPath,

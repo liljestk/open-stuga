@@ -35,7 +35,7 @@ system described in the roadmap.
 - Electricity findings currently cover registered sensor measurements whose
   semantics are power or energy. Property spot-price history and bill/tariff
   decomposition are not yet part of this daily detector.
-- Stuga currently uses a database-wide, one-way demo-to-real transition rather
+- Stugu currently uses a database-wide, one-way demo-to-real transition rather
   than `dataMode` columns and composite constraints on every telemetry row. The
   analytics request, response, and export require an explicit mode and reject a
   mismatch, but a future coordinated storage migration is still needed to meet
@@ -109,7 +109,7 @@ system described in the roadmap.
   safety still depends on a globally unique live alias and the exact immutable
   `deviceProofs[deviceId]` value on the device page. Checked-in `CHANGE_ME`
   selectors and unit tests cannot replace a live canary against the exact APK.
-- Tapo CSV files do not reliably include a stable device ID. Stuga correlates a
+- Tapo CSV files do not reliably include a stable device ID. Stugu correlates a
   job through a random capability plus-address and stored sensor/device binding.
   It requires a unique alias discovered for the immutable device ID, then makes
   the flow tap and re-verify that alias. Every leased attempt rotates the hidden
@@ -134,7 +134,7 @@ system described in the roadmap.
   excessive malformed rows, duplicate conflicts, or canary-schema drift.
   Completed jobs retain the exact attachment SHA-256/byte length, parser version,
   and schema signature for audit; they do not expose the recipient capability or
-  Gmail message ID. Stuga does not retain a second raw CSV or RFC-message copy,
+  Gmail message ID. Stugu does not retain a second raw CSV or RFC-message copy,
   so later byte-for-byte replay depends on the operator's Gmail retention policy.
 - Gmail ingestion requires offline OAuth with the restricted `gmail.readonly`
   scope and accepts only mail to the hidden job alias with a Gmail timestamp no
@@ -231,7 +231,7 @@ system described in the roadmap.
   as those inputs and the floor-plan geometry.
 - A Property map combines that Property's precisely placed homes and legacy
   weather-located homes, with pins for homes that lack calibrated map
-  placement. Stuga models Property membership but does not import authoritative
+  placement. Stugu models Property membership but does not import authoritative
   surveyed parcel boundaries; user-drawn areas remain contextual geometry.
 - The visualisation can identify a windward rectangular **plan edge**, not a
   verified exterior wall segment. Walls do not yet carry envelope/interior
@@ -286,19 +286,19 @@ system described in the roadmap.
   one installation can run independent connections for several Homes. This is monitoring
   coverage, not full arrival/departure readiness: operating modes, water/window
   state, asset checks, and inspection checklists are not yet modelled.
-- Stuga is not a certified safety/alarm system.
+- Stugu is not a certified safety/alarm system.
 
 ## Apple Notes bridge
 
 - Apple does not publish a server API for the Apple Notes database. The bridge
-  runs only when the user invokes or schedules an iOS Shortcut; Stuga cannot
+  runs only when the user invokes or schedules an iOS Shortcut; Stugu cannot
   react invisibly to an arbitrary note edit.
 - Current documented Notes actions do not provide conflict-aware arbitrary
-  body replacement. Stuga creates dated generated snapshots and accepts
+  body replacement. Stugu creates dated generated snapshots and accepts
   explicit note-to-task capture instead of overwriting a personal note.
 - A Notes checkbox is not treated as maintenance completion or verification.
   Those lifecycle steps retain their required notes, server timestamps, and
-  optimistic revision checks in Stuga.
+  optimistic revision checks in Stugu.
 - Personal automations are configured per Apple device. The Shortcut can sync
   through iCloud, but its personal automation does not.
 
@@ -412,7 +412,7 @@ system described in the roadmap.
   and bridge-grant lifecycles. It is not yet a comprehensive audit of every
   Property, layout, observation, maintenance, export, or data-lifecycle mutation.
 - Home Assistant and direct TP-Link configuration are Home-scoped. Several
-  Homes may use independent credentials and local endpoints in one Stuga
+  Homes may use independent credentials and local endpoints in one Stugu
   installation. A Home Assistant connection remains one URL/token per Home;
   direct TP-Link supports multiple named connections and mapped devices.
 

@@ -72,7 +72,7 @@ function queueFanoutAlert(database: ClimateDatabase, config: AppConfig): string 
 
 describe("durable webhook fan-out", () => {
   it("signs and delivers each destination independently, then retries a dead letter", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-webhook-fanout-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-webhook-fanout-"));
     const config = fanoutConfig(directory);
     const database = new ClimateDatabase(":memory:", true);
     let worker: NotificationOutboxWorker | null = null;
@@ -129,12 +129,12 @@ describe("durable webhook fan-out", () => {
         expect(call).toBeDefined();
         const headers = new Headers(call![1]?.headers);
         const body = String(call![1]?.body);
-        const timestamp = headers.get("x-stuga-timestamp");
+        const timestamp = headers.get("x-stugu-timestamp");
         expect(headers.get("authorization")).toBe(`Bearer ${expected.bearer}`);
         expect(headers.get("idempotency-key"))
-          .toBe(`stuga-alert-${eventId}-initial-0-${expected.id}`);
+          .toBe(`stugu-alert-${eventId}-initial-0-${expected.id}`);
         expect(timestamp).toMatch(/^\d+$/);
-        expect(headers.get("x-stuga-signature")).toBe(`sha256=${createHmac("sha256", expected.signingSecret)
+        expect(headers.get("x-stugu-signature")).toBe(`sha256=${createHmac("sha256", expected.signingSecret)
           .update(`${timestamp}.${body}`, "utf8").digest("hex")}`);
       }
 

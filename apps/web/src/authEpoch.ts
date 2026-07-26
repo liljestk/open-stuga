@@ -1,4 +1,4 @@
-const AUTH_CHANNEL_NAME = "stuga-local-auth-epoch";
+const AUTH_CHANNEL_NAME = "stugu-local-auth-epoch";
 const AUTH_EPOCH_TYPE = "auth-epoch";
 
 type AuthEpochMessage = { type: typeof AUTH_EPOCH_TYPE; epoch: string };

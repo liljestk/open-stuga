@@ -122,7 +122,7 @@ export class JobApiClient {
       headers: {
         authorization: `Bearer ${this.options.token}`,
         "content-type": "application/json",
-        "x-stuga-worker-id": this.options.workerId,
+        "x-stugu-worker-id": this.options.workerId,
         "x-tapo-deployment-fingerprint": this.options.deploymentFingerprint,
         ...init.headers,
       },

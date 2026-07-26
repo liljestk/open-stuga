@@ -1,6 +1,6 @@
 # Security, privacy, and retention
 
-Stuga is local-first, not automatically trusted-by-LAN. Environmental
+Stugu is local-first, not automatically trusted-by-LAN. Environmental
 traces such as temperature, humidity, and CO2 can reveal occupancy,
 shower/sleep patterns, ventilation habits, room use, incidents, and building
 weaknesses. Floor plans and manually recorded leaks add more sensitive household
@@ -59,7 +59,7 @@ does not create a browser session or grant interactive account access.
   session state alongside household data.
 - A revocable, Home-scoped Apple Notes Shortcut bearer is returned exactly
   once at grant creation. Only its SHA-256 hash is retained in the integration
-  secrets file, so Stuga cannot reveal the original token later. Its operator
+  secrets file, so Stugu cannot reveal the original token later. Its operator
   device label is informational and does not bind or authenticate a device.
 - Home Assistant and direct TP-Link credentials and connections belong to one
   Home. The **Set up** Home selector controls that persisted ownership; API
@@ -105,7 +105,7 @@ does not create a browser session or grant interactive account access.
   note. iCloud Shortcuts sync may copy that Shortcut and bearer to other
   devices, although Personal Automations remain device-specific. Treat every
   receiving device as authorized, or disable Shortcuts sync/use a non-synced
-  Shortcut. Revoke the grant if any recipient device is untrusted. Stuga does
+  Shortcut. Revoke the grant if any recipient device is untrusted. Stugu does
   not request an Apple Account or iCloud credential.
 - Prevent secrets from being emitted in normal or debug logs; redact headers and
   WebSocket authentication messages.
@@ -155,17 +155,17 @@ Recommended flows are narrowly scoped:
 
 | Source | Destination | Purpose |
 | --- | --- | --- |
-| Stuga API | Home Assistant `8123/tcp` | authenticated WebSocket state events |
-| Stuga API | H100/H200 local address | authenticated direct local polling |
-| User browser | Stuga web/API port | authenticated UI, `/api/v1`, and `/api/v2` |
+| Stugu API | Home Assistant `8123/tcp` | authenticated WebSocket state events |
+| Stugu API | H100/H200 local address | authenticated direct local polling |
+| User browser | Stugu web/API port | authenticated UI, `/api/v1`, and `/api/v2` |
 | User browser | `tile.openstreetmap.org:443` | attributed location-picker tiles only |
-| Stuga API | `opendata.fmi.fi:443` | WFS observation and point-forecast requests |
-| Stuga API | `alerts.fmi.fi:443` | official CAP warning feed |
-| Stuga API | `api.open-meteo.com:443` | worldwide weather and coordinate-to-timezone defaults |
-| Stuga API | `geocoding-api.open-meteo.com:443` | user-initiated place search |
-| Stuga API | configured webhook hosts | alert delivery only |
-| Stuga API | `api.telegram.org:443` | bot validation, private-chat discovery, test, and opted-in alert delivery |
-| User iPhone/iPad | authenticated Stuga bridge URL | user-run maintenance capture and generated Notes snapshots |
+| Stugu API | `opendata.fmi.fi:443` | WFS observation and point-forecast requests |
+| Stugu API | `alerts.fmi.fi:443` | official CAP warning feed |
+| Stugu API | `api.open-meteo.com:443` | worldwide weather and coordinate-to-timezone defaults |
+| Stugu API | `geocoding-api.open-meteo.com:443` | user-initiated place search |
+| Stugu API | configured webhook hosts | alert delivery only |
+| Stugu API | `api.telegram.org:443` | bot validation, private-chat discovery, test, and opted-in alert delivery |
+| User iPhone/iPad | authenticated Stugu bridge URL | user-run maintenance capture and generated Notes snapshots |
 | Home Assistant | H200 local address | official TP-Link local polling |
 
 Block unsolicited inbound traffic to the API from guest/IoT networks. Do not
@@ -195,7 +195,7 @@ its tile usage and privacy policies.
 **Use this device's location** is also explicit. Only that click invokes the
 browser geolocation permission prompt; approval sends the selected coordinates
 to the local API for persistence and server-side timezone/weather lookup.
-Stuga does not retain device movement history. A place search sends its
+Stugu does not retain device movement history. A place search sends its
 text and UI language to the local API and Open-Meteo geocoding, but saves no
 result until the user reviews and applies one. Manual fields remain available
 under **Advanced** when neither disclosure is acceptable.
@@ -223,8 +223,8 @@ production rollout.
   administrator configuration.
 - Webhooks include a stable destination-scoped idempotency key. Configure a
   unique signing secret per receiver when body integrity/authenticity is needed;
-  verify `X-Stuga-Signature` against the raw body in constant time and enforce
-  an `X-Stuga-Timestamp` replay window. HMAC alone does not prevent replay, and
+  verify `X-Stugu-Signature` against the raw body in constant time and enforce
+  an `X-Stugu-Timestamp` replay window. HMAC alone does not prevent replay, and
   bearer tokens alone do not provide body-level integrity.
 - MCP is a local read-only inspection interface. Run the stdio process only for
   a trusted MCP host: it bypasses browser sessions and Guest grants even though
@@ -255,7 +255,7 @@ Collect the least data needed for the stated use case:
   imagery and raw scans are rejected. Sharing raw USDZ/JSON is a separate local
   export action.
 - The dependent Watch companion receives only a bounded Home/alert summary and
-  opaque alert identifiers. Stuga session cookies, passwords, and server
+  opaque alert identifiers. Stugu session cookies, passwords, and server
   addresses stay on the paired iPhone.
 - Make exports explicit and show their time range, included Homes, and whether
   floor plans/manual observations are present.

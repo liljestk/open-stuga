@@ -101,8 +101,8 @@ const observationKinds: ManualObservation["kind"][] = ["leak", "condensation", "
 const observationTimePrecisions: ObservationTimePrecision[] = ["exact", "approximate", "date-only", "date-range", "unknown"];
 const observationSources: ObservationSource[] = ["owner", "caretaker", "contractor", "sensor", "imported-document", "automated-analysis", "unknown"];
 const observationConfidences: ObservationConfidence[] = ["confirmed", "probable", "uncertain", "awaiting-inspection"];
-const experimentalVisualizationPreferenceKey = "stuga-experimental-home-visualizations";
-const energyDeviceLayerPreferenceKey = "stuga-home-map-energy-devices-visible";
+const experimentalVisualizationPreferenceKey = "stugu-experimental-home-visualizations";
+const energyDeviceLayerPreferenceKey = "stugu-home-map-energy-devices-visible";
 
 function initialExperimentalVisualizations(): ExperimentalVisualizationId[] {
   const stored = readLocalStorage(experimentalVisualizationPreferenceKey);

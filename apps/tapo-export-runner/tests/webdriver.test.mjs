@@ -11,7 +11,7 @@ import {
 } from "../dist/webdriver.js";
 
 async function fixture(handler, { defaultSessions = true } = {}) {
-  const directory = await mkdtemp(join(tmpdir(), "stuga-appium-test-"));
+  const directory = await mkdtemp(join(tmpdir(), "stugu-appium-test-"));
   const server = createServer((request, response) => {
     if (defaultSessions && request.method === "GET" && request.url === "/sessions") {
       response.setHeader("content-type", "application/json");
@@ -213,7 +213,7 @@ test("requires one exact account device and verifies the exact Android IANA time
 });
 
 test("prunes only expired runner screenshot artifacts", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "stuga-artifact-test-"));
+  const directory = await mkdtemp(join(tmpdir(), "stugu-artifact-test-"));
   try {
     const artifacts = join(directory, "artifacts");
     await mkdir(artifacts, { recursive: true });

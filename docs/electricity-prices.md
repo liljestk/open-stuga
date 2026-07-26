@@ -1,7 +1,7 @@
 # Electricity prices and contracts
 
 Electricity prices belong to a Property, while consumption meters belong to a
-Home. This lets one Stuga installation model Properties with different
+Home. This lets one Stugu installation model Properties with different
 retailers, margins, or price feeds and Homes with one or several Tapo meter
 devices.
 
@@ -19,7 +19,7 @@ available from **Property → Electricity** at
 192 quarter-hour intervals. Its `price` value is cents/kWh including the VAT that
 applied on that date; `startDate` and `endDate` are UTC timestamps.
 
-Stuga stores the returned value unchanged as `rawPriceCentsPerKwh`. The effective
+Stugu stores the returned value unchanged as `rawPriceCentsPerKwh`. The effective
 price is derived when reading it:
 
 ```text
@@ -61,7 +61,7 @@ Direct TP-Link connections are Home-scoped. Saving a connection requires the
 owning `houseId`; the server can run several local helpers at once and one helper
 may expose several energy endpoints. Discovered devices include `houseId` and
 `connectionId`. Persist both `tpLinkDeviceId` and `tpLinkConnectionId` on the
-Stuga sensor so identical device IDs on different local hosts remain distinct.
+Stugu sensor so identical device IDs on different local hosts remain distinct.
 
 ```text
 GET /api/v1/integrations/tp-link/devices?houseId={houseId}

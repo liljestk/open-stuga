@@ -444,7 +444,7 @@ describe("manual observation time and revision model", () => {
 
 describe("legacy observation migration", () => {
   it("rechecks the completion marker after acquiring the migration lock", () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-observation-migration-lock-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-observation-migration-lock-"));
     const path = join(directory, "empty.sqlite");
     type TransactionPrototype = {
       immediateTransaction: (this: ClimateDatabase, operation: () => unknown) => unknown;
@@ -482,7 +482,7 @@ describe("legacy observation migration", () => {
   });
 
   it("backfills conservative metadata without inventing a REST or MCP actor", () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-observation-migration-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-observation-migration-"));
     const path = join(directory, "legacy.sqlite");
     try {
       const legacy = new DatabaseSync(path);

@@ -177,7 +177,7 @@ jobs:
             exit 1
           fi
 
-          ssh_key_path="$RUNNER_TEMP/stuga-appliance.pub"
+          ssh_key_path="$RUNNER_TEMP/stugu-appliance.pub"
           install -m 0600 /dev/null "$ssh_key_path"
           printf '%s\n' "$RPI_FACTORY_SSH_PUBLIC_KEY" > "$ssh_key_path"
           export HOST_UID="$(id -u)"
@@ -185,7 +185,7 @@ jobs:
 
           docker run --rm --privileged --platform linux/arm64 \
             --volume "$GITHUB_WORKSPACE:/workspace" \
-            --volume "$ssh_key_path:/run/secrets/stuga-appliance.pub:ro" \
+            --volume "$ssh_key_path:/run/secrets/stugu-appliance.pub:ro" \
             --workdir /workspace \
             --env HOST_UID \
             --env HOST_GID \
@@ -200,7 +200,7 @@ jobs:
             --env RPI_FACTORY_BUILD \
             --env RPI_EXPORT_FACTORY_IMAGE \
             --env RPI_IMAGE_GEN_INSTALL_DEPS \
-            --env RPI_SSH_PUBLIC_KEY_FILE=/run/secrets/stuga-appliance.pub \
+            --env RPI_SSH_PUBLIC_KEY_FILE=/run/secrets/stugu-appliance.pub \
             debian:trixie-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd \
             bash -c '
               set -Eeuo pipefail
@@ -216,12 +216,12 @@ jobs:
         run: |
           set -euo pipefail
           version="${RELEASE_TAG#v}"
-          name="stuga-rpi4-${version}-ota.tar.zst"
+          name="stugu-rpi4-${version}-ota.tar.zst"
           path="$GITHUB_WORKSPACE/dist/rpi/$name"
-          checksum_path="$GITHUB_WORKSPACE/dist/rpi/stuga-rpi4-${version}.sha256"
-          factory_name="stuga-rpi4-${version}.img.zst"
+          checksum_path="$GITHUB_WORKSPACE/dist/rpi/stugu-rpi4-${version}.sha256"
+          factory_name="stugu-rpi4-${version}.img.zst"
           factory_path="$GITHUB_WORKSPACE/dist/rpi/$factory_name"
-          factory_checksum_path="$GITHUB_WORKSPACE/dist/rpi/stuga-rpi4-${version}-factory.sha256"
+          factory_checksum_path="$GITHUB_WORKSPACE/dist/rpi/stugu-rpi4-${version}-factory.sha256"
           test -s "$path"
           test -s "$factory_path"
           (
@@ -245,7 +245,7 @@ jobs:
       - name: Upload short-lived factory image
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: stuga-rpi4-${{ steps.ota.outputs.version }}-factory
+          name: stugu-rpi4-${{ steps.ota.outputs.version }}-factory
           path: |
             ${{ steps.ota.outputs.factory_path }}
             ${{ steps.ota.outputs.factory_checksum_path }}

@@ -23,7 +23,7 @@ function request(overrides: Partial<TapoHistoryExportJobInput> = {}): TapoHistor
     expectedDeviceId: "tapo-device-01",
     deviceName: "Living room sensor",
     metric: "temperature",
-    expectedRecipient: "stuga+job@example.com",
+    expectedRecipient: "stugu+job@example.com",
     rangeStart: "2026-07-01T00:00:00Z",
     rangeEnd: "2026-07-02T00:00:00Z",
     intervalMinutes: 15,
@@ -47,7 +47,7 @@ describe("durable Tapo history export jobs", () => {
   }
 
   it("deduplicates immutable requests and survives a database reopen", () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-tapo-export-store-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-tapo-export-store-"));
     directories.push(directory);
     const path = join(directory, "climate.db");
     const first = new ClimateDatabase(path, true);
@@ -63,7 +63,7 @@ describe("durable Tapo history export jobs", () => {
         deviceName: "Living room sensor",
         timeZone: "Europe/Helsinki",
         metric: "temperature",
-        expectedRecipient: "stuga+job@example.com",
+        expectedRecipient: "stugu+job@example.com",
         rangeStart: "2026-07-01T00:00:00.000Z",
         from: "2026-07-01T00:00:00.000Z",
         rangeEnd: "2026-07-02T00:00:00.000Z",

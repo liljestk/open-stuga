@@ -5,7 +5,7 @@ readonly source_directory=/app/scheduled-backups
 readonly destination_directory=/app/backups
 
 exported=0
-for manifest in "$source_directory"/stuga-backup-*/manifest.json; do
+for manifest in "$source_directory"/stugu-backup-*/manifest.json; do
   [ -f "$manifest" ] || continue
   backup_directory=${manifest%/manifest.json}
   backup_name=${backup_directory##*/}

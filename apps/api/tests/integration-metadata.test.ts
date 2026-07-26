@@ -51,7 +51,7 @@ describe("durable non-secret integration metadata", () => {
   }
 
   it("migrates existing protected metadata, sanitizes endpoints, and retains retirement history", async () => {
-    const { databasePath, secretsPath } = paths("stuga-integration-metadata-");
+    const { databasePath, secretsPath } = paths("stugu-integration-metadata-");
     const notesHash = `sha256:${createHash("sha256").update("notes-secret").digest("hex")}`;
     writeIntegrationSecrets(secretsPath, {
       version: 1,
@@ -104,7 +104,7 @@ describe("durable non-secret integration metadata", () => {
   });
 
   it("does not prune after a missing protected file but retires stale metadata after a validated empty snapshot", async () => {
-    const { databasePath, secretsPath } = paths("stuga-integration-metadata-missing-");
+    const { databasePath, secretsPath } = paths("stugu-integration-metadata-missing-");
     writeIntegrationSecrets(secretsPath, {
       version: 1,
       homeAssistantConnections: [{ houseId: "house-main", url: "http://ha.local:8123", token: "ha-secret" }],
@@ -126,7 +126,7 @@ describe("durable non-secret integration metadata", () => {
   });
 
   it("repairs secret-first configure and disconnect faults during restart reconciliation", async () => {
-    const { databasePath, secretsPath } = paths("stuga-integration-metadata-fault-");
+    const { databasePath, secretsPath } = paths("stugu-integration-metadata-fault-");
     const first = boot(databasePath, secretsPath);
     first.database.db.exec(`CREATE TRIGGER reject_integration_metadata_insert
       BEFORE INSERT ON integration_metadata WHEN NEW.kind = 'home-assistant'
@@ -156,7 +156,7 @@ describe("durable non-secret integration metadata", () => {
   });
 
   it("mirrors environment webhook credentials for protected backup and restores them with no SQLite secret copy", async () => {
-    const { databasePath, secretsPath } = paths("stuga-webhook-backup-");
+    const { databasePath, secretsPath } = paths("stugu-webhook-backup-");
     const webhookUrl = "https://hooks.example.test/notify?capability=restore-secret";
     const webhookBearer = "webhook-bearer-secret";
     const fromEnvironment = boot(databasePath, secretsPath, {
@@ -187,7 +187,7 @@ describe("durable non-secret integration metadata", () => {
   });
 
   it("reconciles every environment webhook destination without persisting secret material in SQLite", async () => {
-    const { databasePath, secretsPath } = paths("stuga-webhook-destinations-");
+    const { databasePath, secretsPath } = paths("stugu-webhook-destinations-");
     const destinations = [
       {
         id: "operations",

@@ -18,7 +18,7 @@ describe("direct TP-Link retained history IPC", () => {
   });
 
   function setupHelper(overrides = "", historyFailure?: string): { sensorId: string; pollMarker: string } {
-    directory = mkdtempSync(join(tmpdir(), "stuga-tapo-history-ipc-"));
+    directory = mkdtempSync(join(tmpdir(), "stugu-tapo-history-ipc-"));
     const helper = join(directory, "helper.mjs");
     const mapping = join(directory, "mapping.json");
     const pollMarker = join(directory, "polling-active");

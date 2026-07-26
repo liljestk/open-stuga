@@ -1,10 +1,10 @@
 # Property-wide equipment tracking
 
-Stuga’s first tracking slice keeps raw BLE observations separate from derived
+Stugu’s first tracking slice keeps raw BLE observations separate from derived
 asset positions. It is feature-gated and off by default.
 
 Tracked assets are canonical Property inventory equipment records. The
-equipment ID is stable across web inventory management, maintenance, Stugby
+equipment ID is stable across web inventory management, maintenance, Stuguby
 sharing, iOS inventory sync, tag replacement, and position history. The
 saved Home, area, or map pin remains the expected location; a derived tracking
 position never silently overwrites it.
@@ -66,7 +66,7 @@ TRACKING_USER_LOCATION_SHARING_ENABLED=true
 ```
 
 This flag requires tracking and the live map. Sharing starts only after a
-member taps **Share**, requests iOS When In Use permission, stops when Stuga
+member taps **Share**, requests iOS When In Use permission, stops when Stugu
 leaves the foreground or after at most four hours, and is removed immediately
 when stopped. The default iOS session is one hour; a 90-second server fail-safe
 removes clients that stop updating.
@@ -80,7 +80,7 @@ provisioned tags fails closed if this key is unavailable.
 
 ## BLE payload
 
-Stuga v1 uses 18 bytes of service data:
+Stugu v1 uses 18 bytes of service data:
 
 ```text
 header(1) | rotating id(8) | epoch(2) | event(2) | battery(1) | auth(4)

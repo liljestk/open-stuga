@@ -79,7 +79,7 @@ export interface SystemUpdateActivity {
 }
 
 interface UpdateAgentHeartbeat {
-  schema: "stuga-update-agent/v1";
+  schema: "stugu-update-agent/v1";
   runtime: "docker" | "raspberry-pi";
   updatedAt: string;
   agentVersion: string;
@@ -461,7 +461,7 @@ export class SystemUpdateService {
     };
     writeJson(join(this.#directory, "status.json"), operation);
     writeJson(join(this.#directory, `request-${requestedAt.replaceAll(":", "-")}-${id}.json`), {
-      schema: "stuga-system-update-request/v1",
+      schema: "stugu-system-update-request/v1",
       ...operation,
       repository: this.#repository,
       images: {
@@ -481,7 +481,7 @@ export class SystemUpdateService {
       const response = await this.#fetch(`https://api.github.com/repos/${this.#repository}/releases?per_page=20`, {
         headers: {
           Accept: "application/vnd.github+json",
-          "User-Agent": `Stuga/${this.#currentVersion}`,
+          "User-Agent": `Stugu/${this.#currentVersion}`,
           "X-GitHub-Api-Version": "2022-11-28",
         },
         signal: AbortSignal.timeout(15_000),
@@ -514,7 +514,7 @@ export class SystemUpdateService {
     if (!value || typeof value !== "object") return null;
     const heartbeat = value as Partial<UpdateAgentHeartbeat>;
     if (
-      heartbeat.schema !== "stuga-update-agent/v1"
+      heartbeat.schema !== "stugu-update-agent/v1"
       || (heartbeat.runtime !== "docker" && heartbeat.runtime !== "raspberry-pi")
       || typeof heartbeat.updatedAt !== "string"
       || typeof heartbeat.agentVersion !== "string"

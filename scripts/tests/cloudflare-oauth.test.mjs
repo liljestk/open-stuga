@@ -39,9 +39,9 @@ test("Cloudflare OAuth settings require PKCE and an explicit loopback callback",
     "dns.write",
     "zone.read",
   ]);
-  assert.equal(validateCloudflareOAuthClientId("stuga-oauth-client"), "stuga-oauth-client");
+  assert.equal(validateCloudflareOAuthClientId("stugu-oauth-client"), "stugu-oauth-client");
   assert.throws(
-    () => validateCloudflareOAuthRedirectUri("https://stuga.example.test/oauth/callback"),
+    () => validateCloudflareOAuthRedirectUri("https://stugu.example.test/oauth/callback"),
     /loopback/u,
   );
   assert.throws(
@@ -50,7 +50,7 @@ test("Cloudflare OAuth settings require PKCE and an explicit loopback callback",
   );
 
   const authorization = new URL(createCloudflareAuthorizationUrl({
-    clientId: "stuga-oauth-client",
+    clientId: "stugu-oauth-client",
     codeChallenge: "challenge",
     redirectUri: "http://127.0.0.1:8976/cloudflare/oauth/callback",
     scopes: cloudflareSetupOAuthScopes(false),
@@ -76,7 +76,7 @@ test("Cloudflare OAuth browser flow validates state, exchanges PKCE, and revokes
   let randomCall = 0;
 
   const grant = await authorizeCloudflareSetup({
-    clientId: "stuga-oauth-client",
+    clientId: "stugu-oauth-client",
     redirectUri,
     scopes: requestedScopes,
   }, {
@@ -85,7 +85,7 @@ test("Cloudflare OAuth browser flow validates state, exchanges PKCE, and revokes
       if (url === "https://dash.cloudflare.com/oauth2/token") {
         const body = new URLSearchParams(init.body);
         assert.equal(body.get("grant_type"), "authorization_code");
-        assert.equal(body.get("client_id"), "stuga-oauth-client");
+        assert.equal(body.get("client_id"), "stugu-oauth-client");
         assert.equal(body.get("redirect_uri"), redirectUri);
         assert.equal(body.get("code"), "approved-code");
         assert.equal(
@@ -101,7 +101,7 @@ test("Cloudflare OAuth browser flow validates state, exchanges PKCE, and revokes
       }
       if (url === "https://dash.cloudflare.com/oauth2/revoke") {
         const body = new URLSearchParams(init.body);
-        assert.equal(body.get("client_id"), "stuga-oauth-client");
+        assert.equal(body.get("client_id"), "stugu-oauth-client");
         assert.equal(body.get("token"), accessToken);
         assert.equal(body.get("token_type_hint"), "access_token");
         return new Response(null, { status: 200 });
@@ -141,7 +141,7 @@ test("Cloudflare OAuth refusal never reaches the token endpoint", async () => {
 
   await assert.rejects(
     authorizeCloudflareSetup({
-      clientId: "stuga-oauth-client",
+      clientId: "stugu-oauth-client",
       redirectUri,
       scopes: cloudflareSetupOAuthScopes(false),
     }, {
@@ -172,7 +172,7 @@ test("Cloudflare OAuth revokes a token that omits a required scope", async () =>
 
   await assert.rejects(
     authorizeCloudflareSetup({
-      clientId: "stuga-oauth-client",
+      clientId: "stugu-oauth-client",
       redirectUri,
       scopes: cloudflareSetupOAuthScopes(false),
     }, {

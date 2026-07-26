@@ -4,7 +4,7 @@ Describe the user-visible outcome and any migration impact.
 
 ## Release
 
-- [ ] I bumped the Stuga SemVer in the root/workspace manifests, lockfile, contract version, and runtime/OpenAPI versions.
+- [ ] I bumped the Stugu SemVer in the root/workspace manifests, lockfile, contract version, and runtime/OpenAPI versions.
 - [ ] I added the release entry to `CHANGELOG.md`.
 - [ ] I ran `npm run version:check`.
 

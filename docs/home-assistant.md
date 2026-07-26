@@ -1,24 +1,24 @@
 # TP-Link H100/H200 and Home Assistant setup
 
-Stuga's recommended physical-data path is:
+Stugu's recommended physical-data path is:
 
 ```text
 Tapo T310/T315 sensors -> Tapo H100/H200 -> official Home Assistant
-TP-Link Smart Home integration -> Stuga
+TP-Link Smart Home integration -> Stugu
 ```
 
-The T310/T315 path supplies temperature and humidity. Stuga can map CO2
+The T310/T315 path supplies temperature and humidity. Stugu can map CO2
 and other numeric entities from additional Home Assistant devices to the same
 placed sensor or to their own sensor locations. Each mapped measurement is
 stored independently; it does not need to arrive at the same time as the Tapo
 entities.
 
 A direct TP-Link connection may be kept alongside Home Assistant for the same
-physical child. Use one Stuga sensor row with both bindings: in **Sensors**,
+physical child. Use one Stugu sensor row with both bindings: in **Sensors**,
 select the discovered direct device and choose **Attach to existing sensor**.
 The healthy two-second direct path is the live primary; Home Assistant takes
 over when that exact direct metric is unavailable and its recorder is the next
-history-recovery source after local retained history. Stuga never matches a
+history-recovery source after local retained history. Stugu never matches a
 friendly name or alias automatically.
 
 This is the current official Home Assistant path. Do not install a custom Tapo
@@ -41,7 +41,7 @@ upgrading either one.
 3. Pair each T310/T315 to the H100/H200 in the Tapo app. TP-Link's current
    [hub pairing guide](https://www.tp-link.com/us/support/faq/3118/) covers these
    models. Give each child device a unique physical name.
-4. Place a temporary label on each sensor with its intended Stuga ID,
+4. Place a temporary label on each sensor with its intended Stugu ID,
    `sensor-01` through `sensor-10`. This prevents entity-to-room swaps during
    installation.
 5. Wait for all three readings (temperature, humidity, and battery, if exposed)
@@ -70,7 +70,7 @@ The official integration notes two relevant network behaviours:
   enable this if the option exists and authentication fails; follow the exact
   troubleshooting steps on the official integration page.
 
-Do not expose the H100/H200, Home Assistant, or Stuga API directly to the
+Do not expose the H100/H200, Home Assistant, or Stugu API directly to the
 internet. Permit only the necessary local connections through VLAN/firewall
 rules.
 
@@ -92,7 +92,7 @@ binary_sensor.living_room_window
 Confirm the entity's unit and device class. Every measurement must have a finite
 numeric state. Temperature should use a temperature device class, humidity a
 relative-humidity device class, CO2 a carbon-dioxide concentration entity, and
-battery a percentage entity. Stuga maps by entity ID; it does not guess
+battery a percentage entity. Stugu maps by entity ID; it does not guess
 by friendly name.
 
 The bridge reads Home Assistant's `unit_of_measurement` attribute. Temperature
@@ -124,7 +124,7 @@ Home Assistant connection. When specified, the Home Assistant connection id is
 the Home id; observations retain it so readings cannot survive a later binding
 move to a different connection.
 
-## 4. Create the Stuga entity map
+## 4. Create the Stugu entity map
 
 Copy the example and replace every placeholder with the IDs from your instance:
 
@@ -163,7 +163,7 @@ The map supports legacy climate keys and a generic `measurements` object:
 `sensorId` is required; all entity bindings are optional, but a row must contain
 at least one. The legacy `temperature`, `humidity`, and `battery` keys keep
 existing setups working. Keys in `measurements` are stable measurement IDs from
-`GET /api/v2/measurement-definitions`. Sensor bindings saved through Stuga are
+`GET /api/v2/measurement-definitions`. Sensor bindings saved through Stugu are
 loaded from the database as well; this file overrides a persisted binding for
 the same sensor and metric while persisted bindings for its other metrics remain
 active. After validation, this legacy file map is also stored as a canonical,
@@ -222,13 +222,13 @@ jq empty config/home-assistant.entities.json
 
 ## 5. Create a Home Assistant token
 
-Stuga uses Home Assistant's authenticated WebSocket API and subscribes to
+Stugu uses Home Assistant's authenticated WebSocket API and subscribes to
 `state_changed` events for mapped entities.
 
 1. Create a dedicated, non-administrator Home Assistant user for the bridge when
    your access policy permits it.
 2. Sign in as that user, open its profile, and create a **Long-Lived Access
-   Token** named `Stuga`.
+   Token** named `Stugu`.
 3. Copy it immediately. Select the Home that owns this Home Assistant instance
    and open its **Set up > Connections** page at
    `/properties/{propertyId}/homes/{homeId}/setup/connections`. Then select
@@ -273,13 +273,13 @@ the protocol and token lifecycle.
 
 ## 6. Verify ingestion
 
-Start Stuga, then:
+Start Stugu, then:
 
 1. Open `GET /api/v1/integrations/status?houseId=house-main` or the integration status in the web
    app and confirm Home Assistant is configured and connected.
 2. Warm one sensor briefly without covering its ventilation openings.
 3. Within the upstream sampling/polling delay, confirm its Home Assistant state
-   changes and the matching Stuga tile updates.
+   changes and the matching Stugu tile updates.
 4. Query v2 history for each mapped metric and confirm a `home-assistant` sample
    was persisted with the entity's `last_updated` timestamp and expected unit.
 5. Confirm `integrations/status` reports `mock.mode=real` and `mock.enabled=false`.
@@ -287,7 +287,7 @@ Start Stuga, then:
    for this database, even if the credentials are later removed.
 
 Home Assistant updates the TP-Link integration on a five-second polling cycle,
-so a state change is not expected to appear instantly. Stuga streams the
+so a state change is not expected to appear instantly. Stugu streams the
 event after Home Assistant publishes it.
 
 For every mapped sensor, the bridge requests Home Assistant's current states at
@@ -313,7 +313,7 @@ create duplicate climate readings.
 - Follow the official page's debug-logging procedure, then disable debug logging
   afterward because it is verbose and may contain sensitive context.
 
-**Home Assistant values update but Stuga does not**
+**Home Assistant values update but Stugu does not**
 
 - Verify `HA_URL` is reachable from the API container, not just from the host.
 - Verify the token belongs to an active user and has not been deleted.
@@ -323,7 +323,7 @@ create duplicate climate readings.
 
 **Only one of temperature/humidity changes**
 
-Stuga retains the latest complementary value until its entity next
+Stugu retains the latest complementary value until its entity next
 changes. At startup/reconnect it first refreshes all mapped current states, then
 subscribes to live state events. Because the entities are independently updated,
 the paired record is not guaranteed to be an atomic sample.
@@ -347,7 +347,7 @@ record exists only for v1 compatibility.
 
 For legacy climate readings, confirm both mapped temperature and humidity
 entities currently have numeric states. For a generic metric, only that mapped
-entity needs a valid numeric state. In both cases confirm the Stuga
+entity needs a valid numeric state. In both cases confirm the Stugu
 sensor ID exists/enabled and the entity map is mounted at the configured path.
 Persisted sensor binding edits refresh the running bridge automatically. Restart
 the bridge after changing the file map so its initial-state request includes the
@@ -355,5 +355,5 @@ new mapping.
 
 **Entity IDs changed after renaming in Home Assistant**
 
-Update the map explicitly and restart Stuga. Preserve the Stuga
+Update the map explicitly and restart Stugu. Preserve the Stugu
 `sensorId`; changing that ID creates a different history identity.

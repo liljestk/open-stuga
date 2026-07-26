@@ -1,0 +1,2291 @@
+import Combine
+import Foundation
+import UIKit
+import UserNotifications
+
+@MainActor
+final class AppModel: ObservableObject {
+    enum Phase: Equatable {
+        case starting
+        case serverSetup
+        case signIn
+        case ownerSetupRequired
+        case ready
+    }
+
+    private enum DefaultsKey {
+        static let server = "stugu.server"
+        static let selectedHome = "stugu.selectedHome"
+        static let selectedProperty = "stugu.selectedProperty"
+        static let units = "stugu.units"
+        static let equipmentObservation = "stugu.tracking.mobileObserver.enabled"
+        static let notificationsEnabled = "stugu.notifications.enabled"
+        static let notificationRegistration = "stugu.notifications.registration"
+        static let notificationAccountIdentity = "stugu.notifications.accountIdentity"
+        static let notificationDeviceToken = "stugu.notifications.deviceToken"
+        static let notificationMinimumSeverity = "stugu.notifications.minimumSeverity"
+        static let notificationIncludeDetails = "stugu.notifications.includeDetails"
+    }
+
+    enum QuickCaptureSaveState: Equatable {
+        case saved
+        case queued
+    }
+
+    @Published private(set) var phase: Phase = .starting
+    @Published private(set) var serverAddress: ServerAddress?
+    @Published private(set) var serverVersion: String?
+    @Published private(set) var edgeAccessRequired = false
+    @Published private(set) var session: AppSession?
+    @Published private(set) var properties: [StuguProperty] = []
+    @Published private(set) var houses: [House] = []
+    @Published private(set) var sensors: [Sensor] = []
+    @Published private(set) var definitions: [MeasurementDefinition] = []
+    @Published private(set) var snapshot: [MeasurementSnapshotEntry] = []
+    @Published private(set) var alerts: [AlertEvent] = []
+    @Published private(set) var rules: [AlertRule] = []
+    @Published private(set) var propertyInventory: PropertyInventorySnapshot?
+    @Published private(set) var todayContext: TodayContext?
+    @Published private(set) var systemUpdateStatus: SystemUpdateStatus?
+    @Published private(set) var systemUpdateError: String?
+    @Published private(set) var pendingActions: [PendingCompanionAction] = []
+    @Published private(set) var selectedHomeID: String?
+    @Published private(set) var selectedPropertyID: String?
+    @Published private(set) var trackingCapabilities: TrackingCapabilities?
+    @Published private(set) var trackingSettings: TrackingPropertySettings?
+    @Published private(set) var trackingSnapshot: TrackingMapSnapshot?
+    @Published private(set) var trackingLiveConnected = false
+    @Published private(set) var equipmentObservationEnabled = UserDefaults.standard.bool(
+        forKey: DefaultsKey.equipmentObservation
+    )
+    @Published private(set) var lastUpdated: Date?
+    @Published private(set) var liveConnected = false
+    @Published private(set) var usingCachedData = false
+    @Published private(set) var isRefreshing = false
+    @Published private(set) var notificationAuthorization: UNAuthorizationStatus = .notDetermined
+    @Published private(set) var notificationProviderConfigured = false
+    @Published private(set) var notificationRegistration: IOSNotificationRegistration?
+    @Published private(set) var notificationsEnabled = UserDefaults.standard.bool(
+        forKey: DefaultsKey.notificationsEnabled
+    )
+    @Published var notificationMinimumSeverity = IOSPushMinimumSeverity(
+        rawValue: UserDefaults.standard.string(
+            forKey: DefaultsKey.notificationMinimumSeverity
+        ) ?? ""
+    ) ?? .warning {
+        didSet {
+            UserDefaults.standard.set(
+                notificationMinimumSeverity.rawValue,
+                forKey: DefaultsKey.notificationMinimumSeverity
+            )
+            Task { await syncNotificationRegistration() }
+        }
+    }
+    @Published var notificationIncludeDetails = UserDefaults.standard.bool(
+        forKey: DefaultsKey.notificationIncludeDetails
+    ) {
+        didSet {
+            UserDefaults.standard.set(
+                notificationIncludeDetails,
+                forKey: DefaultsKey.notificationIncludeDetails
+            )
+            Task { await syncNotificationRegistration() }
+        }
+    }
+    @Published var pendingDeepLink: CompanionDeepLink?
+    @Published var requestedEquipmentID: String?
+    @Published var errorMessage: String?
+    @Published var unitSystem = DisplayUnitSystem(
+        rawValue: UserDefaults.standard.string(forKey: DefaultsKey.units) ?? ""
+    ) ?? .metric {
+        didSet {
+            UserDefaults.standard.set(unitSystem.rawValue, forKey: DefaultsKey.units)
+        }
+    }
+
+    private var client: StuguAPIClient?
+    private var eventTask: Task<Void, Never>?
+    private var eventRefreshTask: Task<Void, Never>?
+    private var trackingEventTask: Task<Void, Never>?
+    private var trackingEventRefreshTask: Task<Void, Never>?
+    private var requestGeneration = 0
+    private let cacheStore = CompanionCacheStore(
+        fileURL: CompanionCacheStore.defaultFileURL()
+    )
+    private let widgetStore = CompanionWidgetSnapshotStore()
+    private let edgeCredentialStore = EdgeCredentialStore()
+    private var historyCache: [String: CompanionHistorySeries] = [:]
+    private var cachedAccountIdentity: String?
+    let mobileTracking = MobileTrackingController()
+    let memberLocationSharing = MemberLocationSharingController()
+
+    var selectedHome: House? {
+        houses.first { $0.id == selectedHomeID }
+    }
+
+    var selectedProperty: StuguProperty? {
+        if let selectedPropertyID,
+           let property = properties.first(where: { $0.id == selectedPropertyID }) {
+            return property
+        }
+        guard let propertyID = selectedHome?.propertyId else { return nil }
+        return properties.first { $0.id == propertyID }
+    }
+
+    var trackingAvailable: Bool {
+        trackingCapabilities?.featureEnabled("tracking.enabled") == true
+    }
+
+    var selectedPropertyAreas: [PropertyArea] {
+        guard propertyInventory?.propertyId == selectedPropertyID else { return [] }
+        return propertyInventory?.areas ?? []
+    }
+
+    var selectedPropertyEquipment: [AreaEquipment] {
+        guard propertyInventory?.propertyId == selectedPropertyID else { return [] }
+        return (propertyInventory?.equipment ?? []).sorted {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+    }
+
+    var selectedPropertyHouses: [House] {
+        guard let propertyID = selectedProperty?.id else { return [] }
+        return houses
+            .filter { $0.propertyId == propertyID }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    func trackedState(for equipmentID: String) -> TrackedEquipmentState? {
+        guard let tracked = trackingSnapshot?.assets.first(where: {
+            $0.equipment.id == equipmentID
+        }) else {
+            return nil
+        }
+        let equipment = selectedPropertyEquipment.first { $0.id == equipmentID }
+            ?? tracked.equipment
+        return TrackedEquipmentState(
+            equipment: equipment,
+            tag: tracked.tag,
+            assignment: tracked.assignment,
+            position: tracked.position
+        )
+    }
+
+    func areaName(for areaID: String?) -> String? {
+        guard let areaID else { return nil }
+        return selectedPropertyAreas.first { $0.id == areaID }?.name
+    }
+
+    func houseName(for houseID: String?) -> String? {
+        guard let houseID else { return nil }
+        return selectedPropertyHouses.first { $0.id == houseID }?.name
+    }
+
+    func equipmentPlacementName(_ equipment: AreaEquipment) -> String {
+        if let name = areaName(for: equipment.areaId) {
+            return name
+        }
+        if let name = houseName(for: equipment.houseId) {
+            return name
+        }
+        if equipment.areaId != nil { return "Assigned area" }
+        if equipment.houseId != nil { return "Assigned Home" }
+        return equipment.location == nil ? "Unassigned" : "Pinned on Property map"
+    }
+
+    func equipmentAttachments(for equipmentID: String) -> [EquipmentAttachment] {
+        guard propertyInventory?.propertyId == selectedPropertyID else { return [] }
+        return (propertyInventory?.attachments ?? [])
+            .filter { $0.equipmentId == equipmentID }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    func equipmentLinks(for equipmentID: String) -> [EquipmentLink] {
+        guard propertyInventory?.propertyId == selectedPropertyID else { return [] }
+        return (propertyInventory?.links ?? [])
+            .filter { $0.equipmentId == equipmentID }
+            .sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
+    }
+
+    var mobileTrackingAvailable: Bool {
+        trackingCapabilities?.featureEnabled("tracking.mobileObserver.enabled") == true
+            && !selectedPropertyReadOnly
+    }
+
+    var memberLocationSharingAvailable: Bool {
+        trackingCapabilities?.featureEnabled("tracking.userLocationSharing.enabled") == true
+            && trackingCapabilities?.featureEnabled("tracking.liveMap.enabled") == true
+            && !selectedPropertyReadOnly
+    }
+
+    var equipmentStates: [TrackedEquipmentState] {
+        return selectedPropertyEquipment.map { equipment in
+            trackedState(for: equipment.id) ?? TrackedEquipmentState(equipment: equipment)
+        }.sorted {
+            $0.equipment.name.localizedStandardCompare($1.equipment.name) == .orderedAscending
+        }
+    }
+
+    var selectedSensors: [Sensor] {
+        guard let selectedHomeID else { return [] }
+        return sensors
+            .filter { $0.houseId == selectedHomeID && $0.enabled }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    var selectedHomeFloors: [StuguFloor] {
+        selectedHome?.floors.sorted {
+            if $0.elevation != $1.elevation { return $0.elevation < $1.elevation }
+            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        } ?? []
+    }
+
+    var selectedConditions: [SensorCondition] {
+        let measurementsBySensor = Dictionary(uniqueKeysWithValues: snapshot.map {
+            ($0.sensorId, $0.measurements)
+        })
+        return selectedSensors.map {
+            SensorCondition(sensor: $0, measurements: measurementsBySensor[$0.id] ?? [:])
+        }
+    }
+
+    var selectedHomeAlerts: [AlertEvent] {
+        let sensorIDs = Set(sensors.filter { $0.houseId == selectedHomeID }.map(\.id))
+        return sortedAlerts(alerts.filter { sensorIDs.contains($0.sensorId) })
+    }
+
+    var activeAlerts: [AlertEvent] {
+        sortedAlerts(alerts.filter(\.isActive))
+    }
+
+    var monitorSummary: HomeMonitorSummary {
+        HomeMonitorSummary.evaluate(conditions: selectedConditions, alerts: selectedHomeAlerts)
+    }
+
+    var todayRecommendation: TodayRecommendation? {
+        guard !usingCachedData else { return nil }
+        return TodayRecommendation.evaluate(
+            conditions: selectedConditions,
+            context: todayContext
+        )
+    }
+
+    var pendingActionCount: Int { pendingActions.count }
+
+    var isReadOnly: Bool {
+        session?.readOnly ?? true
+    }
+
+    var selectedPropertyReadOnly: Bool {
+        isReadOnly || selectedProperty?.stuguby?.isReadOnly == true
+    }
+
+    var selectedHomeReadOnly: Bool {
+        isReadOnly || selectedHome?.stuguby?.isReadOnly == true
+    }
+
+    var selectedHomeIsForeignShared: Bool {
+        selectedHome?.stuguby?.isForeignSharedHome == true
+    }
+
+    var canManageSystemUpdates: Bool {
+        guard !usingCachedData, let role = session?.tenant.role else { return false }
+        return role == "owner" || role == "admin"
+    }
+
+    var serverDisplayName: String {
+        serverAddress?.displayName ?? "Stugu"
+    }
+
+    var isEncryptedConnection: Bool {
+        serverAddress?.origin.scheme?.lowercased() == "https"
+    }
+
+    var suggestedServerAddress: String {
+        serverAddress?.origin.absoluteString
+            ?? UserDefaults.standard.string(forKey: DefaultsKey.server)
+            ?? ""
+    }
+
+    var suggestedEdgeCredential: EdgeCredential? {
+        guard let address = try? ServerAddress(suggestedServerAddress) else { return nil }
+        return edgeCredentialStore.credential(serverOrigin: address.origin.absoluteString)
+    }
+
+    func start() async {
+        guard let saved = UserDefaults.standard.string(forKey: DefaultsKey.server) else {
+            phase = .serverSetup
+            return
+        }
+        do {
+            let address = try ServerAddress(saved)
+            do {
+                try await configure(address: address, persist: false)
+            } catch {
+                if await restoreCachedWorkspace(address: address) {
+                    errorMessage = "Stugu could not be reached. Showing protected information saved on this iPhone."
+                    startEventLoop()
+                } else {
+                    throw error
+                }
+            }
+        } catch {
+            errorMessage = friendlyMessage(for: error)
+            edgeAccessRequired = isEdgeAccessFailure(error)
+            phase = .serverSetup
+        }
+    }
+
+    func connect(to input: String, edgeClientID: String, edgeClientSecret: String) async {
+        errorMessage = nil
+        edgeAccessRequired = false
+        do {
+            let address = try ServerAddress(input)
+            let origin = address.origin.absoluteString
+            if let credential = try EdgeCredential.optional(
+                clientID: edgeClientID,
+                clientSecret: edgeClientSecret
+            ) {
+                try edgeCredentialStore.save(credential, serverOrigin: origin)
+            } else {
+                edgeCredentialStore.remove(serverOrigin: origin)
+            }
+            let previousValue = UserDefaults.standard.string(forKey: DefaultsKey.server)
+            serverAddress = address
+            UserDefaults.standard.set(address.origin.absoluteString, forKey: DefaultsKey.server)
+            if let previousValue,
+               let previousAddress = try? ServerAddress(previousValue),
+               previousAddress != address {
+                equipmentObservationEnabled = false
+                UserDefaults.standard.set(false, forKey: DefaultsKey.equipmentObservation)
+                let previousOrigin = previousAddress.origin.absoluteString
+                let previousClient = StuguAPIClient(
+                    address: previousAddress,
+                    edgeCredential: edgeCredentialStore.credential(serverOrigin: previousOrigin)
+                )
+                if let registrationID = UserDefaults.standard.string(
+                    forKey: DefaultsKey.notificationRegistration
+                ) {
+                    try? await previousClient.deleteIOSNotificationRegistration(
+                        id: registrationID
+                    )
+                }
+                UIApplication.shared.unregisterForRemoteNotifications()
+                notificationsEnabled = false
+                UserDefaults.standard.set(
+                    false,
+                    forKey: DefaultsKey.notificationsEnabled
+                )
+                UserDefaults.standard.removeObject(
+                    forKey: DefaultsKey.notificationRegistration
+                )
+                UserDefaults.standard.removeObject(
+                    forKey: DefaultsKey.notificationAccountIdentity
+                )
+                await previousClient.clearCookies()
+                try? await cacheStore.remove()
+                clearGlanceableState()
+            }
+            do {
+                try await configure(address: address, persist: true)
+            } catch {
+                if await restoreCachedWorkspace(address: address) {
+                    errorMessage = "Stugu could not be reached. Showing protected information saved on this iPhone."
+                    startEventLoop()
+                } else {
+                    throw error
+                }
+            }
+        } catch {
+            errorMessage = friendlyMessage(for: error)
+            edgeAccessRequired = isEdgeAccessFailure(error)
+            phase = .serverSetup
+        }
+    }
+
+    func signIn(email: String, password: String) async {
+        guard let client else { return }
+        let generation = requestGeneration
+        errorMessage = nil
+        do {
+            let session = try await client.login(
+                email: email.trimmingCharacters(in: .whitespacesAndNewlines),
+                password: password
+            )
+            guard generation == requestGeneration else { return }
+            await adoptCachedState(for: session)
+            self.session = session
+            try await loadWorkspace()
+            guard generation == requestGeneration else { return }
+            phase = .ready
+            await finishOnlineRefresh()
+            startEventLoop()
+        } catch {
+            errorMessage = friendlyMessage(for: error)
+        }
+    }
+
+    func refresh() async {
+        guard phase == .ready, !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        do {
+            if usingCachedData, let client {
+                let refreshedSession = try await client.currentSession()
+                guard refreshedSession.authenticated else {
+                    throw StuguAPIError(
+                        status: 401,
+                        code: "UNAUTHORIZED",
+                        message: "Sign in to continue."
+                    )
+                }
+                await adoptCachedState(for: refreshedSession)
+                session = refreshedSession
+            }
+            try await loadWorkspace()
+            await finishOnlineRefresh()
+            errorMessage = nil
+        } catch {
+            if isTransient(error), !properties.isEmpty {
+                usingCachedData = true
+                liveConnected = false
+                errorMessage = friendlyMessage(for: error)
+            } else {
+                handleAuthenticatedError(error)
+            }
+        }
+    }
+
+    func refreshSystemUpdateStatus() async {
+        guard canManageSystemUpdates, let client else {
+            systemUpdateStatus = nil
+            systemUpdateError = nil
+            return
+        }
+        do {
+            systemUpdateStatus = try await client.systemUpdateStatus()
+            systemUpdateError = nil
+        } catch let error as StuguAPIError where error.status == 401 {
+            handleAuthenticatedError(error)
+        } catch let error as StuguAPIError where error.status == 403 {
+            systemUpdateStatus = nil
+            systemUpdateError = nil
+        } catch {
+            systemUpdateError = friendlyMessage(for: error)
+        }
+    }
+
+    func monitorSystemUpdates() async {
+        await refreshSystemUpdateStatus()
+        var streamAvailable = true
+        while !Task.isCancelled, canManageSystemUpdates {
+            guard let client else { return }
+            if streamAvailable {
+                do {
+                    let updates = await client.systemUpdateEventStream()
+                    for try await update in updates {
+                        guard !Task.isCancelled, canManageSystemUpdates else { return }
+                        await applySystemUpdateEvent(update)
+                    }
+                } catch let error as StuguAPIError where error.status == 404 {
+                    streamAvailable = false
+                } catch let error as StuguAPIError where error.status == 401 {
+                    handleAuthenticatedError(error)
+                    return
+                } catch let error as StuguAPIError where error.status == 403 {
+                    systemUpdateStatus = nil
+                    systemUpdateError = nil
+                    return
+                } catch {
+                    if Task.isCancelled { return }
+                }
+            }
+
+            await refreshSystemUpdateStatus()
+            let delay = systemUpdateStatus?.operation?.isActive == true ? 2.0 : 15.0
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func applySystemUpdateEvent(_ event: SystemUpdateEvent) async {
+        if systemUpdateStatus == nil {
+            await refreshSystemUpdateStatus()
+        }
+        guard let status = systemUpdateStatus else { return }
+        systemUpdateStatus = SystemUpdateStatus(
+            currentVersion: event.currentVersion,
+            latestVersion: event.latestVersion,
+            updateAvailable: event.updateAvailable,
+            latestRelease: status.latestRelease,
+            releases: status.releases,
+            lastCheckedAt: status.lastCheckedAt,
+            checkError: status.checkError,
+            settings: status.settings,
+            nextUpdateWindowAt: status.nextUpdateWindowAt,
+            capability: event.capability,
+            operation: event.operation
+        )
+        serverVersion = event.currentVersion
+        systemUpdateError = nil
+    }
+
+    func selectHome(_ id: String) async {
+        guard let home = houses.first(where: { $0.id == id }), let client else { return }
+        let generation = requestGeneration
+        if selectedPropertyID != home.propertyId {
+            await memberLocationSharing.stopSharing()
+        }
+        selectedHomeID = id
+        selectedPropertyID = home.propertyId
+        UserDefaults.standard.set(id, forKey: DefaultsKey.selectedHome)
+        UserDefaults.standard.set(home.propertyId, forKey: DefaultsKey.selectedProperty)
+        snapshot = []
+        do {
+            let next = try await client.measurementSnapshot(houseID: id)
+            guard generation == requestGeneration, selectedHomeID == id else { return }
+            snapshot = next
+            try await loadInventoryWorkspace()
+            guard generation == requestGeneration, selectedHomeID == id else { return }
+            await loadTodayContext()
+            guard generation == requestGeneration, selectedHomeID == id else { return }
+            try await loadTrackingWorkspace()
+            guard generation == requestGeneration, selectedHomeID == id else { return }
+            startTrackingEventLoop()
+            lastUpdated = Date()
+            usingCachedData = false
+            await persistCompanionState()
+            errorMessage = nil
+        } catch {
+            handleAuthenticatedError(error)
+        }
+    }
+
+    func selectProperty(_ id: String) async {
+        guard properties.contains(where: { $0.id == id }), let client else { return }
+        let generation = requestGeneration
+        if selectedPropertyID != id {
+            await memberLocationSharing.stopSharing()
+        }
+        selectedPropertyID = id
+        UserDefaults.standard.set(id, forKey: DefaultsKey.selectedProperty)
+
+        if selectedHome?.propertyId != id {
+            selectedHomeID = houses.first(where: { $0.propertyId == id })?.id
+            if let selectedHomeID {
+                UserDefaults.standard.set(selectedHomeID, forKey: DefaultsKey.selectedHome)
+                snapshot = (try? await client.measurementSnapshot(houseID: selectedHomeID)) ?? []
+            } else {
+                UserDefaults.standard.removeObject(forKey: DefaultsKey.selectedHome)
+                snapshot = []
+            }
+        }
+
+        guard generation == requestGeneration, selectedPropertyID == id else { return }
+        do {
+            try await loadInventoryWorkspace()
+            guard generation == requestGeneration, selectedPropertyID == id else { return }
+            await loadTodayContext()
+            guard generation == requestGeneration, selectedPropertyID == id else { return }
+            try await loadTrackingWorkspace()
+            guard generation == requestGeneration, selectedPropertyID == id else { return }
+            startTrackingEventLoop()
+            lastUpdated = Date()
+            usingCachedData = false
+            await persistCompanionState()
+            errorMessage = nil
+        } catch {
+            handleAuthenticatedError(error)
+        }
+    }
+
+    func acknowledge(_ alert: AlertEvent) async {
+        guard !isReadOnly else { return }
+        let generation = requestGeneration
+        if usingCachedData || client == nil {
+            await queueAlertAcknowledgement(alert)
+            return
+        }
+        do {
+            let updated = try await client!.acknowledgeAlert(id: alert.id)
+            guard generation == requestGeneration else { return }
+            if let index = alerts.firstIndex(where: { $0.id == updated.id }) {
+                alerts[index] = updated
+            }
+            cancelLocalAlertReminder(alertID: updated.id)
+            await persistCompanionState()
+            errorMessage = nil
+        } catch {
+            if isTransient(error) {
+                await queueAlertAcknowledgement(alert)
+            } else {
+                handleAuthenticatedError(error)
+            }
+        }
+    }
+
+    func acknowledgeAlert(id: String) async {
+        if let alert = alerts.first(where: { $0.id == id }) {
+            await acknowledge(alert)
+            return
+        }
+        guard !isReadOnly else {
+            errorMessage = "This account cannot acknowledge alerts."
+            return
+        }
+        guard let client, !usingCachedData else {
+            if await enqueue(PendingCompanionAction(
+                kind: .acknowledgeAlert,
+                createdAt: iso8601(Date()),
+                alertId: id
+            )) {
+                cancelLocalAlertReminder(alertID: id)
+            }
+            return
+        }
+        do {
+            _ = try await client.acknowledgeAlert(id: id)
+            cancelLocalAlertReminder(alertID: id)
+            await refresh()
+        } catch {
+            if isTransient(error) {
+                if await enqueue(PendingCompanionAction(
+                    kind: .acknowledgeAlert,
+                    createdAt: iso8601(Date()),
+                    alertId: id
+                )) {
+                    cancelLocalAlertReminder(alertID: id)
+                }
+            } else {
+                handleAuthenticatedError(error)
+            }
+        }
+    }
+
+    func importRoomPlanFloor(
+        _ floor: StuguFloor,
+        capturedAt: String,
+        expectedHouseUpdatedAt: String
+    ) async throws {
+        guard !selectedHomeReadOnly else {
+            throw StuguAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This Home's floor plan is read-only."
+            )
+        }
+        guard !usingCachedData, let client, let home = selectedHome else {
+            throw StuguAPIError(
+                status: 503,
+                code: "ONLINE_REQUIRED",
+                message: "Reconnect to Stugu before importing a room scan."
+            )
+        }
+        guard home.updatedAt == expectedHouseUpdatedAt,
+              home.floors.contains(where: { $0.id == floor.id }) else {
+            throw StuguAPIError(
+                status: 409,
+                code: "ROOMPLAN_STALE_HOME",
+                message: "The Home changed after scanning. Refresh and review the floor again."
+            )
+        }
+        let generation = requestGeneration
+        let updated = try await client.importRoomPlanFloor(
+            houseID: home.id,
+            floor: floor,
+            capturedAt: capturedAt,
+            expectedHouseUpdatedAt: expectedHouseUpdatedAt
+        )
+        guard generation == requestGeneration, selectedHomeID == updated.id else { return }
+        if let index = houses.firstIndex(where: { $0.id == updated.id }) {
+            houses[index] = updated
+        }
+        lastUpdated = Date()
+        await persistCompanionState()
+    }
+
+    func setEquipmentObservationEnabled(_ enabled: Bool) async {
+        if !enabled {
+            equipmentObservationEnabled = false
+            UserDefaults.standard.set(false, forKey: DefaultsKey.equipmentObservation)
+            mobileTracking.disable()
+            return
+        }
+        guard mobileTrackingAvailable,
+              let client,
+              let serverAddress,
+              let property = selectedProperty,
+              let capabilities = trackingCapabilities else {
+            errorMessage = "Equipment observation is not available for this Property."
+            return
+        }
+        do {
+            let settings: TrackingPropertySettings
+            if let trackingSettings {
+                settings = trackingSettings
+            } else {
+                settings = try await client.trackingPropertySettings(propertyID: property.id)
+            }
+            self.trackingSettings = settings
+            try await mobileTracking.enable(
+                client: client,
+                serverOrigin: serverAddress.origin.absoluteString,
+                propertyID: property.id,
+                capabilities: capabilities,
+                settings: settings
+            )
+            equipmentObservationEnabled = true
+            UserDefaults.standard.set(true, forKey: DefaultsKey.equipmentObservation)
+            errorMessage = nil
+        } catch {
+            equipmentObservationEnabled = false
+            UserDefaults.standard.set(false, forKey: DefaultsKey.equipmentObservation)
+            errorMessage = friendlyMessage(for: error)
+        }
+    }
+
+    func removeMobileTrackingObserver() async {
+        do {
+            try await mobileTracking.removeObserverRegistration()
+            equipmentObservationEnabled = false
+            UserDefaults.standard.set(false, forKey: DefaultsKey.equipmentObservation)
+            errorMessage = nil
+        } catch {
+            errorMessage = friendlyMessage(for: error)
+        }
+    }
+
+    func findNearby(_ equipment: TrackedEquipmentState) async {
+        guard equipmentObservationEnabled,
+              let client else {
+            errorMessage = "Turn on equipment observation before starting Find nearby."
+            return
+        }
+        do {
+            let token = try await client.trackingScanToken(equipmentID: equipment.id)
+            mobileTracking.beginFind(token)
+            errorMessage = nil
+        } catch {
+            errorMessage = friendlyMessage(for: error)
+        }
+    }
+
+    func stopFindingNearby() {
+        mobileTracking.endFind()
+    }
+
+    @discardableResult
+    func createEquipment(_ input: AreaEquipmentCreateInput) async throws -> AreaEquipment {
+        guard !selectedPropertyReadOnly, let client else {
+            throw StuguAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This account cannot change Property inventory."
+            )
+        }
+        guard input.propertyId == selectedProperty?.id,
+              equipmentPlacementIsValid(areaID: input.areaId, houseID: input.houseId) else {
+            throw StuguAPIError(
+                status: 422,
+                code: "PLACEMENT_SCOPE_MISMATCH",
+                message: "Choose a location in the selected Property."
+            )
+        }
+        let equipment = try await client.createAreaEquipment(input)
+        try await loadInventoryWorkspace()
+        errorMessage = nil
+        return equipment
+    }
+
+    @discardableResult
+    func updateEquipment(
+        id: String,
+        input: AreaEquipmentUpdateInput
+    ) async throws -> AreaEquipment {
+        guard !selectedPropertyReadOnly, let client else {
+            throw StuguAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This account cannot change Property inventory."
+            )
+        }
+        guard selectedPropertyEquipment.contains(where: { $0.id == id }),
+              !input.updatesPlacement
+                || equipmentPlacementIsValid(areaID: input.areaId, houseID: input.houseId) else {
+            throw StuguAPIError(
+                status: 422,
+                code: "PROPERTY_SCOPE_MISMATCH",
+                message: "This equipment and location must belong to the selected Property."
+            )
+        }
+        let equipment = try await client.updateAreaEquipment(id: id, input: input)
+        try await loadInventoryWorkspace()
+        errorMessage = nil
+        return equipment
+    }
+
+    @discardableResult
+    func uploadEquipmentAttachment(
+        equipmentID: String,
+        kind: EquipmentAttachmentKind,
+        name: String,
+        mimeType: String,
+        data: Data
+    ) async throws -> EquipmentAttachment {
+        guard !selectedPropertyReadOnly, let client,
+              selectedPropertyEquipment.contains(where: { $0.id == equipmentID }) else {
+            throw StuguAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This account cannot change Property inventory."
+            )
+        }
+        let attachment = try await client.uploadEquipmentAttachment(
+            equipmentID: equipmentID,
+            kind: kind,
+            name: name,
+            mimeType: mimeType,
+            data: data
+        )
+        try await loadInventoryWorkspace()
+        return attachment
+    }
+
+    func equipmentAttachmentData(
+        equipmentID: String,
+        attachmentID: String
+    ) async throws -> Data {
+        guard let client,
+              selectedPropertyEquipment.contains(where: { $0.id == equipmentID }) else {
+            throw StuguAPIError(
+                status: 404,
+                code: "NOT_FOUND",
+                message: "This inventory item is not available."
+            )
+        }
+        return try await client.equipmentAttachmentData(
+            equipmentID: equipmentID,
+            attachmentID: attachmentID
+        )
+    }
+
+    func deleteEquipmentAttachment(
+        equipmentID: String,
+        attachmentID: String
+    ) async throws {
+        guard !selectedPropertyReadOnly, let client else {
+            throw StuguAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This account cannot change Property inventory."
+            )
+        }
+        try await client.deleteEquipmentAttachment(
+            equipmentID: equipmentID,
+            attachmentID: attachmentID
+        )
+        try await loadInventoryWorkspace()
+    }
+
+    @discardableResult
+    func addEquipmentLink(
+        equipmentID: String,
+        label: String,
+        url: String
+    ) async throws -> EquipmentLink {
+        guard !selectedPropertyReadOnly, let client,
+              selectedPropertyEquipment.contains(where: { $0.id == equipmentID }) else {
+            throw StuguAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This account cannot change Property inventory."
+            )
+        }
+        let link = try await client.createEquipmentLink(
+            equipmentID: equipmentID,
+            label: label,
+            url: url
+        )
+        try await loadInventoryWorkspace()
+        return link
+    }
+
+    func deleteEquipmentLink(equipmentID: String, linkID: String) async throws {
+        guard !selectedPropertyReadOnly, let client else {
+            throw StuguAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This account cannot change Property inventory."
+            )
+        }
+        try await client.deleteEquipmentLink(equipmentID: equipmentID, linkID: linkID)
+        try await loadInventoryWorkspace()
+    }
+
+    func equipmentActivity(
+        equipmentID: String,
+        propertyID: String
+    ) async throws -> (
+        notes: [PropertyNote],
+        issues: [MaintenanceTask],
+        loans: [EquipmentLoan]
+    ) {
+        guard let client else { return ([], [], []) }
+        async let notes = client.propertyNotes(equipmentID: equipmentID)
+        async let issues = client.maintenanceTasks(equipmentID: equipmentID)
+        async let loans = client.equipmentLoans(
+            propertyID: propertyID,
+            equipmentID: equipmentID
+        )
+        return try await (notes, issues, loans)
+    }
+
+    @discardableResult
+    func addEquipmentNote(equipment: AreaEquipment, text: String) async throws -> PropertyNote {
+        guard !selectedPropertyReadOnly, let client else {
+            throw StuguAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This Property is read-only."
+            )
+        }
+        return try await client.addEquipmentNote(
+            propertyID: equipment.propertyId,
+            equipmentID: equipment.id,
+            text: text
+        )
+    }
+
+    @discardableResult
+    func reportEquipmentIssue(
+        equipment: AreaEquipment,
+        title: String,
+        description: String?,
+        priority: String
+    ) async throws -> MaintenanceTask {
+        guard !selectedPropertyReadOnly, let client else {
+            throw StuguAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This Property is read-only."
+            )
+        }
+        return try await client.reportEquipmentIssue(
+            equipment: equipment,
+            title: title,
+            description: description,
+            priority: priority
+        )
+    }
+
+    @discardableResult
+    func borrowEquipment(
+        equipment: AreaEquipment,
+        expectedReturnAt: String?,
+        note: String?
+    ) async throws -> EquipmentLoan {
+        guard !selectedPropertyReadOnly, let client else {
+            throw StuguAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This Property is read-only."
+            )
+        }
+        return try await client.borrowEquipment(
+            equipmentID: equipment.id,
+            expectedReturnAt: expectedReturnAt,
+            note: note
+        )
+    }
+
+    @discardableResult
+    func returnEquipment(loan: EquipmentLoan, note: String?) async throws -> EquipmentLoan {
+        guard !selectedPropertyReadOnly, let client else {
+            throw StuguAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This Property is read-only."
+            )
+        }
+        return try await client.returnEquipment(loanID: loan.id, note: note)
+    }
+
+    func resolveEquipmentCode(_ code: EquipmentQRCode) async -> TrackedEquipmentState? {
+        guard properties.contains(where: { $0.id == code.propertyId }) else {
+            errorMessage = "This equipment belongs to a Property you cannot access."
+            return nil
+        }
+        if selectedPropertyID != code.propertyId {
+            await selectProperty(code.propertyId)
+        }
+        guard let equipment = selectedPropertyEquipment.first(where: {
+            $0.id == code.equipmentId
+        }) else {
+            errorMessage = "This equipment tag is not registered in the selected Property."
+            return nil
+        }
+        errorMessage = nil
+        return trackedState(for: equipment.id) ?? TrackedEquipmentState(equipment: equipment)
+    }
+
+    func startMemberLocationSharing() async {
+        guard memberLocationSharingAvailable,
+              let client,
+              let propertyID = selectedPropertyID else {
+            errorMessage = "Live member location sharing is not available for this Property."
+            return
+        }
+        do {
+            try await memberLocationSharing.startSharing(
+                client: client,
+                propertyID: propertyID,
+                duration: 60 * 60
+            )
+            errorMessage = nil
+        } catch {
+            errorMessage = friendlyMessage(for: error)
+        }
+    }
+
+    func stopMemberLocationSharing() async {
+        await memberLocationSharing.stopSharing()
+        await refreshTracking()
+    }
+
+    func refreshTracking() async {
+        guard phase == .ready || phase == .starting else { return }
+        do {
+            try await loadTrackingWorkspace()
+        } catch {
+            handleAuthenticatedError(error)
+        }
+    }
+
+    func history(sensorID: String, metric: String, hours: Int = 24) async throws -> [MeasurementSample] {
+        let key = historyKey(sensorID: sensorID, metric: metric, hours: hours)
+        guard let client, !usingCachedData else {
+            return historyCache[key]?.samples ?? []
+        }
+        do {
+            let samples = try await client.measurementHistory(
+                sensorID: sensorID,
+                metric: metric,
+                from: Date().addingTimeInterval(-Double(hours) * 3_600)
+            )
+            let houseID = sensor(for: sensorID)?.houseId ?? selectedHomeID ?? ""
+            historyCache[key] = CompanionHistorySeries(
+                houseId: houseID,
+                sensorId: sensorID,
+                metric: metric,
+                hours: hours,
+                samples: samples
+            )
+            await persistCompanionState()
+            return samples
+        } catch {
+            if isTransient(error), let cached = historyCache[key] {
+                usingCachedData = true
+                return cached.samples
+            }
+            throw error
+        }
+    }
+
+    func submitObservation(
+        kind: String,
+        severity: String,
+        note: String,
+        sensorID: String?
+    ) async throws -> QuickCaptureSaveState {
+        guard !selectedHomeReadOnly else {
+            throw StuguAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This Home is read-only and cannot accept observations."
+            )
+        }
+        guard let home = selectedHome,
+              let floorID = sensorID.flatMap({ sensor(for: $0)?.floorId })
+                ?? selectedSensors.first?.floorId else {
+            throw StuguAPIError(
+                status: 422,
+                code: "FLOOR_REQUIRED",
+                message: "Add a floor and sensor in the web app before recording a Home observation."
+            )
+        }
+        let input = QuickObservationInput(
+            houseId: home.id,
+            floorId: floorID,
+            sensorId: sensorID,
+            kind: kind,
+            severity: severity,
+            note: note.trimmingCharacters(in: .whitespacesAndNewlines),
+            occurredAt: iso8601(Date()),
+            source: "owner",
+            confidence: "confirmed"
+        )
+        guard let client, !usingCachedData else {
+            guard await enqueue(PendingCompanionAction(
+                kind: .createObservation,
+                createdAt: iso8601(Date()),
+                observation: input
+            )) else {
+                throw StuguAPIError(
+                    status: 507,
+                    code: "OFFLINE_QUEUE_FULL",
+                    message: "Reconnect before adding more offline work."
+                )
+            }
+            return .queued
+        }
+        do {
+            _ = try await client.createObservation(input)
+            return .saved
+        } catch {
+            guard isTransient(error) else { throw error }
+            guard await enqueue(PendingCompanionAction(
+                kind: .createObservation,
+                createdAt: iso8601(Date()),
+                observation: input
+            )) else {
+                throw StuguAPIError(
+                    status: 507,
+                    code: "OFFLINE_QUEUE_FULL",
+                    message: "Reconnect before adding more offline work."
+                )
+            }
+            return .queued
+        }
+    }
+
+    func submitMaintenance(
+        title: String,
+        description: String?,
+        priority: String,
+        equipment: AreaEquipment? = nil
+    ) async throws -> QuickCaptureSaveState {
+        let targetHouseID = equipment == nil ? selectedHome?.id : equipment?.houseId
+        guard !selectedPropertyReadOnly else {
+            throw StuguAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This Property is read-only and cannot accept maintenance work."
+            )
+        }
+        guard let property = selectedProperty else {
+            throw StuguAPIError(
+                status: 422,
+                code: "PROPERTY_REQUIRED",
+                message: "Choose a Property before adding maintenance work."
+            )
+        }
+        let input = QuickMaintenanceInput(
+            propertyId: property.id,
+            houseId: targetHouseID,
+            floorId: nil,
+            areaId: equipment?.areaId,
+            equipmentId: equipment?.id,
+            title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+            description: description?.trimmingCharacters(in: .whitespacesAndNewlines),
+            priority: priority
+        )
+        guard let client, !usingCachedData else {
+            guard await enqueue(PendingCompanionAction(
+                kind: .createMaintenance,
+                createdAt: iso8601(Date()),
+                maintenance: input
+            )) else {
+                throw StuguAPIError(
+                    status: 507,
+                    code: "OFFLINE_QUEUE_FULL",
+                    message: "Reconnect before adding more offline work."
+                )
+            }
+            return .queued
+        }
+        do {
+            _ = try await client.createMaintenance(input)
+            return .saved
+        } catch {
+            guard isTransient(error) else { throw error }
+            guard await enqueue(PendingCompanionAction(
+                kind: .createMaintenance,
+                createdAt: iso8601(Date()),
+                maintenance: input
+            )) else {
+                throw StuguAPIError(
+                    status: 507,
+                    code: "OFFLINE_QUEUE_FULL",
+                    message: "Reconnect before adding more offline work."
+                )
+            }
+            return .queued
+        }
+    }
+
+    private func equipmentPlacementIsValid(
+        areaID: String?,
+        houseID: String?
+    ) -> Bool {
+        guard areaID == nil || houseID == nil else { return false }
+        if let areaID {
+            return selectedPropertyAreas.contains { $0.id == areaID }
+        }
+        if let houseID {
+            return selectedPropertyHouses.contains {
+                $0.id == houseID && $0.stuguby?.isReadOnly != true
+            }
+        }
+        return selectedProperty != nil
+    }
+
+    func requestNotificationPermission() async {
+        do {
+            let granted = try await UNUserNotificationCenter.current().requestAuthorization(
+                options: [.alert, .badge, .sound]
+            )
+            await refreshNotificationAuthorization()
+            guard granted else { return }
+            notificationsEnabled = true
+            UserDefaults.standard.set(true, forKey: DefaultsKey.notificationsEnabled)
+            UIApplication.shared.registerForRemoteNotifications()
+            await syncNotificationRegistration()
+        } catch {
+            errorMessage = "Notification permission could not be requested."
+        }
+    }
+
+    func setNotificationsEnabled(_ enabled: Bool) async {
+        notificationsEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: DefaultsKey.notificationsEnabled)
+        if enabled {
+            await requestNotificationPermission()
+        } else {
+            UIApplication.shared.unregisterForRemoteNotifications()
+            await removeNotificationRegistration()
+        }
+    }
+
+    func receiveNotificationDeviceToken(_ token: String) async {
+        UserDefaults.standard.set(token, forKey: DefaultsKey.notificationDeviceToken)
+        await syncNotificationRegistration()
+    }
+
+    func refreshNotificationAuthorization() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        notificationAuthorization = settings.authorizationStatus
+    }
+
+    func handleDeepLink(_ url: URL) {
+        guard let link = CompanionDeepLink.parse(url) else { return }
+        pendingDeepLink = link
+    }
+
+    func consumeDeepLink() {
+        pendingDeepLink = nil
+    }
+
+    func definition(for metric: String) -> MeasurementDefinition? {
+        definitions.first { $0.id == metric }
+    }
+
+    func sensor(for id: String) -> Sensor? {
+        sensors.first { $0.id == id }
+    }
+
+    func rule(for id: String) -> AlertRule? {
+        rules.first { $0.id == id }
+    }
+
+    func property(for house: House) -> StuguProperty? {
+        properties.first { $0.id == house.propertyId }
+    }
+
+    func house(for sensorID: String) -> House? {
+        guard let houseID = sensors.first(where: { $0.id == sensorID })?.houseId else { return nil }
+        return houses.first { $0.id == houseID }
+    }
+
+    func signOut() async {
+        requestGeneration += 1
+        let generation = requestGeneration
+        if let client,
+           let registrationID = UserDefaults.standard.string(
+            forKey: DefaultsKey.notificationRegistration
+           ) {
+            try? await client.deleteIOSNotificationRegistration(id: registrationID)
+        }
+        UIApplication.shared.unregisterForRemoteNotifications()
+        notificationsEnabled = false
+        UserDefaults.standard.set(false, forKey: DefaultsKey.notificationsEnabled)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.notificationRegistration)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.notificationAccountIdentity)
+        await memberLocationSharing.stopSharing()
+        stopEventLoop()
+        clearWorkspace()
+        equipmentObservationEnabled = false
+        UserDefaults.standard.set(false, forKey: DefaultsKey.equipmentObservation)
+        errorMessage = nil
+        phase = .starting
+        if let client {
+            try? await client.logout()
+            await client.clearCookies()
+        }
+        try? await cacheStore.remove()
+        clearGlanceableState()
+        guard generation == requestGeneration else { return }
+        phase = .signIn
+    }
+
+    func disconnect() async {
+        requestGeneration += 1
+        let generation = requestGeneration
+        await memberLocationSharing.stopSharing()
+        stopEventLoop()
+        let retiringClient = client
+        self.client = nil
+        serverAddress = nil
+        serverVersion = nil
+        session = nil
+        clearWorkspace()
+        errorMessage = nil
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.server)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.selectedHome)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.selectedProperty)
+        equipmentObservationEnabled = false
+        UserDefaults.standard.set(false, forKey: DefaultsKey.equipmentObservation)
+        phase = .starting
+        if let retiringClient {
+            if let registrationID = UserDefaults.standard.string(
+                forKey: DefaultsKey.notificationRegistration
+            ) {
+                try? await retiringClient.deleteIOSNotificationRegistration(id: registrationID)
+            }
+            await retiringClient.clearCookies()
+        }
+        UIApplication.shared.unregisterForRemoteNotifications()
+        notificationsEnabled = false
+        UserDefaults.standard.set(false, forKey: DefaultsKey.notificationsEnabled)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.notificationRegistration)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.notificationAccountIdentity)
+        try? await cacheStore.remove()
+        clearGlanceableState()
+        guard generation == requestGeneration else { return }
+        phase = .serverSetup
+    }
+
+    func retryConnection() async {
+        guard let serverAddress else {
+            phase = .serverSetup
+            return
+        }
+        do {
+            try await configure(address: serverAddress, persist: false)
+        } catch {
+            if await restoreCachedWorkspace(address: serverAddress) {
+                errorMessage = "Stugu could not be reached. Showing protected information saved on this iPhone."
+                phase = .ready
+            } else {
+                errorMessage = friendlyMessage(for: error)
+                phase = .ownerSetupRequired
+            }
+        }
+    }
+
+    func sceneBecameActive() async {
+        guard phase == .ready else { return }
+        mobileTracking.applicationBecameActive()
+        memberLocationSharing.applicationBecameActive()
+        await refreshNotificationAuthorization()
+        await refresh()
+        startEventLoop()
+    }
+
+    func sceneBecameInactive() {
+        guard phase == .ready else { return }
+        mobileTracking.applicationBecameInactive()
+        memberLocationSharing.applicationBecameInactive()
+        stopEventLoop()
+    }
+
+    private func configure(address: ServerAddress, persist: Bool) async throws {
+        requestGeneration += 1
+        let generation = requestGeneration
+        phase = .starting
+        errorMessage = nil
+        stopEventLoop()
+        clearWorkspace()
+        if let cached = try? await cacheStore.load(
+            serverOrigin: address.origin.absoluteString
+        ) {
+            cachedAccountIdentity = accountIdentity(for: cached.session)
+            pendingActions = cached.pendingActions
+            historyCache = Dictionary(
+                uniqueKeysWithValues: cached.history.map { ($0.id, $0) }
+            )
+            todayContext = cached.todayContext
+        }
+        let client = StuguAPIClient(
+            address: address,
+            edgeCredential: edgeCredentialStore.credential(
+                serverOrigin: address.origin.absoluteString
+            )
+        )
+        let health = try await client.health()
+        guard generation == requestGeneration else { return }
+        self.client = client
+        serverAddress = address
+        serverVersion = health.systemVersion
+        if persist {
+            UserDefaults.standard.set(address.origin.absoluteString, forKey: DefaultsKey.server)
+        }
+
+        do {
+            let session = try await client.currentSession()
+            guard generation == requestGeneration else { return }
+            self.session = session
+            if session.setupRequired == true {
+                phase = .ownerSetupRequired
+                return
+            }
+            guard session.authenticated else {
+                phase = .signIn
+                return
+            }
+            await adoptCachedState(for: session)
+            try await loadWorkspace()
+            guard generation == requestGeneration else { return }
+            phase = .ready
+            await finishOnlineRefresh()
+            startEventLoop()
+        } catch let error as StuguAPIError where error.status == 401 {
+            guard generation == requestGeneration else { return }
+            session = nil
+            clearGlanceableState()
+            phase = .signIn
+        }
+    }
+
+    private func loadWorkspace() async throws {
+        guard let client else { return }
+        let generation = requestGeneration
+        async let propertiesRequest = client.properties()
+        async let housesRequest = client.houses()
+        async let sensorsRequest = client.sensors()
+        async let definitionsRequest = client.measurementDefinitions()
+        async let alertsRequest = client.alerts()
+        async let rulesRequest = client.alertRules()
+
+        let (properties, houses, sensors, definitions, alerts, rules) = try await (
+            propertiesRequest,
+            housesRequest,
+            sensorsRequest,
+            definitionsRequest,
+            alertsRequest,
+            rulesRequest
+        )
+        guard generation == requestGeneration else { return }
+        self.properties = properties.sorted {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+        self.houses = houses.sorted {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+        self.sensors = sensors
+        self.definitions = definitions.filter(\.enabled)
+        self.alerts = sortedAlerts(alerts)
+        self.rules = rules
+
+        let savedHome = UserDefaults.standard.string(forKey: DefaultsKey.selectedHome)
+        if let selectedHomeID, houses.contains(where: { $0.id == selectedHomeID }) {
+            // Keep the current selection.
+        } else if let savedHome, houses.contains(where: { $0.id == savedHome }) {
+            selectedHomeID = savedHome
+        } else {
+            selectedHomeID = houses.first?.id
+        }
+
+        let savedProperty = UserDefaults.standard.string(forKey: DefaultsKey.selectedProperty)
+        if let selectedPropertyID,
+           properties.contains(where: { $0.id == selectedPropertyID }) {
+            // Keep the current Property selection.
+        } else if let savedProperty,
+                  properties.contains(where: { $0.id == savedProperty }) {
+            selectedPropertyID = savedProperty
+        } else if let home = selectedHome {
+            selectedPropertyID = home.propertyId
+        } else {
+            selectedPropertyID = properties.first?.id
+        }
+
+        if let selectedPropertyID, selectedHome?.propertyId != selectedPropertyID {
+            selectedHomeID = houses.first(where: { $0.propertyId == selectedPropertyID })?.id
+        }
+
+        if let selectedHomeID {
+            let nextSnapshot = try await client.measurementSnapshot(houseID: selectedHomeID)
+            guard generation == requestGeneration else { return }
+            snapshot = nextSnapshot
+            UserDefaults.standard.set(selectedHomeID, forKey: DefaultsKey.selectedHome)
+        } else {
+            snapshot = []
+            UserDefaults.standard.removeObject(forKey: DefaultsKey.selectedHome)
+        }
+        if let selectedPropertyID {
+            UserDefaults.standard.set(selectedPropertyID, forKey: DefaultsKey.selectedProperty)
+        }
+        try await loadInventoryWorkspace()
+        guard generation == requestGeneration else { return }
+        await loadTodayContext()
+        guard generation == requestGeneration else { return }
+        do {
+            try await loadTrackingWorkspace()
+        } catch let error as StuguAPIError where error.status == 401 {
+            throw error
+        } catch {
+            trackingCapabilities = nil
+            trackingSettings = nil
+            trackingSnapshot = nil
+            trackingLiveConnected = false
+        }
+        lastUpdated = Date()
+        usingCachedData = false
+    }
+
+    private func loadInventoryWorkspace() async throws {
+        guard let client, let propertyID = selectedProperty?.id else {
+            propertyInventory = nil
+            return
+        }
+        let inventory = try await client.propertyInventory(propertyID: propertyID)
+        guard selectedProperty?.id == propertyID else { return }
+        propertyInventory = inventory
+    }
+
+    private func loadTrackingWorkspace() async throws {
+        guard let client else { return }
+        let capabilities = try await client.trackingCapabilities()
+        trackingCapabilities = capabilities
+        if !memberLocationSharingAvailable {
+            await memberLocationSharing.stopSharing()
+        }
+        guard capabilities.featureEnabled("tracking.enabled"),
+              let property = selectedProperty else {
+            trackingSettings = nil
+            trackingSnapshot = nil
+            mobileTracking.disable()
+            return
+        }
+        do {
+            trackingSettings = try await client.trackingPropertySettings(propertyID: property.id)
+        } catch let error as StuguAPIError where error.status == 404 {
+            trackingSettings = nil
+            trackingSnapshot = nil
+            mobileTracking.disable()
+            return
+        }
+        if capabilities.featureEnabled("tracking.liveMap.enabled") {
+            trackingSnapshot = try await client.trackingMapSnapshot(propertyID: property.id)
+        } else {
+            trackingSnapshot = nil
+        }
+        if equipmentObservationEnabled,
+           mobileTrackingAvailable,
+           let serverAddress,
+           let trackingSettings {
+            do {
+                try await mobileTracking.enable(
+                    client: client,
+                    serverOrigin: serverAddress.origin.absoluteString,
+                    propertyID: property.id,
+                    capabilities: capabilities,
+                    settings: trackingSettings
+                )
+            } catch let error as StuguAPIError where error.status == 401 {
+                throw error
+            } catch {
+                mobileTracking.disable()
+                errorMessage = friendlyMessage(for: error)
+            }
+        } else {
+            mobileTracking.disable()
+        }
+    }
+
+    private func loadTodayContext() async {
+        guard let client else { return }
+        let weather: HouseWeatherSummary?
+        if let homeID = selectedHomeID {
+            weather = try? await client.houseWeather(houseID: homeID)
+        } else {
+            weather = nil
+        }
+        let energy: EnergyOptimizationSummary?
+        if let propertyID = selectedPropertyID {
+            energy = try? await client.energyOptimization(propertyID: propertyID)
+        } else {
+            energy = nil
+        }
+        let next = TodayContext(weather: weather, energy: energy)
+        todayContext = next.weather != nil || next.energy != nil ? next : nil
+    }
+
+    private func finishOnlineRefresh() async {
+        usingCachedData = false
+        await flushPendingActions()
+        await refreshNotificationAuthorization()
+        if notificationsEnabled, notificationAllowed {
+            UIApplication.shared.registerForRemoteNotifications()
+            await syncNotificationRegistration()
+        } else if !notificationsEnabled {
+            await removeNotificationRegistration()
+        }
+        await reconcileLocalAlertReminders()
+        await persistCompanionState()
+    }
+
+    private func restoreCachedWorkspace(address: ServerAddress) async -> Bool {
+        guard let cache = try? await cacheStore.load(
+            serverOrigin: address.origin.absoluteString
+        ), cache.session.authenticated else {
+            return false
+        }
+        stopEventLoop()
+        clearWorkspace()
+        client = StuguAPIClient(
+            address: address,
+            edgeCredential: edgeCredentialStore.credential(
+                serverOrigin: address.origin.absoluteString
+            )
+        )
+        serverAddress = address
+        session = cache.session
+        properties = cache.properties
+        houses = cache.houses
+        sensors = cache.sensors
+        definitions = cache.definitions
+        snapshot = cache.measurementSnapshot
+        alerts = sortedAlerts(cache.alerts)
+        rules = cache.rules
+        propertyInventory = cache.propertyInventory
+        selectedHomeID = cache.selectedHomeId
+        selectedPropertyID = cache.selectedPropertyId
+        historyCache = Dictionary(
+            uniqueKeysWithValues: cache.history.map { ($0.id, $0) }
+        )
+        cachedAccountIdentity = accountIdentity(for: cache.session)
+        todayContext = cache.todayContext
+        pendingActions = cache.pendingActions
+        lastUpdated = StuguDateParser.date(from: cache.savedAt)
+        usingCachedData = true
+        liveConnected = false
+        phase = .ready
+        mobileTracking.suspend()
+        memberLocationSharing.suspend()
+        persistWidgetSnapshot()
+        return true
+    }
+
+    @discardableResult
+    private func persistCompanionState() async -> Bool {
+        guard let serverAddress,
+              let session,
+              session.authenticated else {
+            return false
+        }
+        let cachedSession = AppSession(
+            authenticated: session.authenticated,
+            principal: session.principal,
+            tenant: session.tenant,
+            readOnly: session.readOnly,
+            csrfToken: nil,
+            setupRequired: session.setupRequired
+        )
+        let savedAt = iso8601(lastUpdated ?? Date())
+        let cache = CompanionCache(
+            serverOrigin: serverAddress.origin.absoluteString,
+            savedAt: savedAt,
+            session: cachedSession,
+            properties: properties,
+            houses: houses,
+            sensors: sensors,
+            definitions: definitions,
+            measurementSnapshot: snapshot,
+            alerts: alerts,
+            rules: rules,
+            propertyInventory: propertyInventory,
+            selectedHomeId: selectedHomeID,
+            selectedPropertyId: selectedPropertyID,
+            history: Array(historyCache.values),
+            todayContext: todayContext,
+            pendingActions: pendingActions
+        )
+        do {
+            try await cacheStore.save(cache)
+        } catch {
+            errorMessage = "Stugu could not protect its offline information on this iPhone."
+            return false
+        }
+        cachedAccountIdentity = accountIdentity(for: session)
+        persistWidgetSnapshot()
+        return true
+    }
+
+    private func adoptCachedState(for session: AppSession) async {
+        let identity = accountIdentity(for: session)
+        if let notificationIdentity = UserDefaults.standard.string(
+            forKey: DefaultsKey.notificationAccountIdentity
+        ), notificationIdentity != identity {
+            UIApplication.shared.unregisterForRemoteNotifications()
+            notificationsEnabled = false
+            UserDefaults.standard.set(
+                false,
+                forKey: DefaultsKey.notificationsEnabled
+            )
+            notificationRegistration = nil
+            notificationProviderConfigured = false
+            UserDefaults.standard.removeObject(
+                forKey: DefaultsKey.notificationRegistration
+            )
+            UserDefaults.standard.removeObject(
+                forKey: DefaultsKey.notificationAccountIdentity
+            )
+        }
+        guard let cachedAccountIdentity else {
+            self.cachedAccountIdentity = identity
+            return
+        }
+        guard cachedAccountIdentity != identity else { return }
+        pendingActions = []
+        historyCache = [:]
+        todayContext = nil
+        UIApplication.shared.unregisterForRemoteNotifications()
+        notificationsEnabled = false
+        UserDefaults.standard.set(false, forKey: DefaultsKey.notificationsEnabled)
+        notificationRegistration = nil
+        notificationProviderConfigured = false
+        UserDefaults.standard.removeObject(
+            forKey: DefaultsKey.notificationRegistration
+        )
+        try? await cacheStore.remove()
+        clearGlanceableState()
+        self.cachedAccountIdentity = identity
+    }
+
+    private func accountIdentity(for session: AppSession) -> String {
+        [
+            session.principal.type,
+            session.principal.email?.lowercased() ?? "",
+            session.tenant.id,
+        ].joined(separator: "\u{1f}")
+    }
+
+    private func persistWidgetSnapshot() {
+        guard let home = selectedHome else {
+            clearGlanceableState()
+            return
+        }
+        let summary = monitorSummary
+        let state: String
+        switch summary.state {
+        case .balanced: state = "balanced"
+        case .limited: state = "limited"
+        case .attention: state = "attention"
+        case .critical: state = "critical"
+        }
+        let updatedAt = iso8601(lastUpdated ?? Date())
+        widgetStore.save(CompanionWidgetSnapshot(
+            homeId: home.id,
+            homeName: home.name,
+            homeOrigin: home.stuguby?.isForeignSharedHome == true ? "remote" : "own",
+            state: state,
+            title: summary.title,
+            detail: usingCachedData ? "Saved status · \(summary.detail)" : summary.detail,
+            activeAlertCount: selectedHomeAlerts.filter(\.isActive).count,
+            updatedAt: updatedAt
+        ))
+        let watchAlerts = selectedHomeAlerts
+            .filter { $0.isActive && $0.acknowledgedAt == nil }
+            .prefix(8)
+            .map { alert in
+                let sensor = sensors.first { $0.id == alert.sensorId }
+                let location: String
+                if let room = sensor?.room, !room.isEmpty {
+                    location = room
+                } else {
+                    location = sensor?.name ?? "Home"
+                }
+                let metric = definitions.first { $0.id == alert.metric }?
+                    .label() ?? alert.metric.replacingOccurrences(of: "-", with: " ")
+                return WatchAlertSummary(
+                    id: alert.id,
+                    severity: alert.severity,
+                    title: "\(location): \(metric)",
+                    startedAt: alert.startedAt
+                )
+            }
+        PhoneWatchConnectivityBridge.shared.publish(WatchHomeSnapshot(
+            homeId: home.id,
+            homeName: home.name,
+            homeOrigin: home.stuguby?.isForeignSharedHome == true ? "remote" : "own",
+            state: state,
+            title: summary.title,
+            detail: usingCachedData ? "Saved status. \(summary.detail)" : summary.detail,
+            updatedAt: updatedAt,
+            cached: usingCachedData,
+            readOnly: isReadOnly,
+            alerts: Array(watchAlerts)
+        ))
+    }
+
+    private func clearGlanceableState() {
+        widgetStore.remove()
+        PhoneWatchConnectivityBridge.shared.publish(
+            .unavailable(at: iso8601(Date()))
+        )
+    }
+
+    private func queueAlertAcknowledgement(_ alert: AlertEvent) async {
+        guard await enqueue(PendingCompanionAction(
+            kind: .acknowledgeAlert,
+            createdAt: iso8601(Date()),
+            alertId: alert.id
+        )) else { return }
+        if let index = alerts.firstIndex(where: { $0.id == alert.id }) {
+            alerts[index] = AlertEvent(
+                id: alert.id,
+                ruleId: alert.ruleId,
+                sensorId: alert.sensorId,
+                metric: alert.metric,
+                value: alert.value,
+                threshold: alert.threshold,
+                severity: alert.severity,
+                startedAt: alert.startedAt,
+                acknowledgedAt: iso8601(Date()),
+                resolvedAt: alert.resolvedAt
+            )
+        }
+        errorMessage = "Marked as seen on this iPhone. Stugu will receive it after reconnection."
+        cancelLocalAlertReminder(alertID: alert.id)
+        await persistCompanionState()
+    }
+
+    @discardableResult
+    private func enqueue(_ action: PendingCompanionAction) async -> Bool {
+        if action.kind == .acknowledgeAlert,
+           pendingActions.contains(where: {
+               $0.kind == .acknowledgeAlert && $0.alertId == action.alertId
+           }) {
+            return true
+        }
+        guard pendingActions.count < 100 else {
+            errorMessage = "The protected offline queue is full. Reconnect before adding more work."
+            return false
+        }
+        pendingActions.append(action)
+        guard await persistCompanionState() else {
+            pendingActions.removeAll { $0.id == action.id }
+            return false
+        }
+        return true
+    }
+
+    private func flushPendingActions() async {
+        guard let client, !usingCachedData, !isReadOnly, !pendingActions.isEmpty else {
+            return
+        }
+        for action in pendingActions {
+            do {
+                switch action.kind {
+                case .acknowledgeAlert:
+                    guard let alertID = action.alertId else { continue }
+                    let updated = try await client.acknowledgeAlert(id: alertID)
+                    if let index = alerts.firstIndex(where: { $0.id == updated.id }) {
+                        alerts[index] = updated
+                    }
+                case .createObservation:
+                    guard let observation = action.observation else { continue }
+                    _ = try await client.createObservation(observation)
+                case .createMaintenance:
+                    guard let maintenance = action.maintenance else { continue }
+                    _ = try await client.createMaintenance(maintenance)
+                }
+                pendingActions.removeAll { $0.id == action.id }
+            } catch let error as StuguAPIError where error.status == 401 {
+                handleAuthenticatedError(error)
+                return
+            } catch {
+                guard let index = pendingActions.firstIndex(where: { $0.id == action.id }) else {
+                    continue
+                }
+                pendingActions[index] = action.recordingFailure(friendlyMessage(for: error))
+                if isTransient(error) { break }
+            }
+        }
+    }
+
+    private func syncNotificationRegistration() async {
+        guard notificationsEnabled,
+              notificationAllowed,
+              phase == .ready,
+              session?.authenticated == true,
+              let client,
+              !usingCachedData,
+              let deviceToken = UserDefaults.standard.string(
+                  forKey: DefaultsKey.notificationDeviceToken
+              ), !deviceToken.isEmpty else {
+            return
+        }
+        let registrationID: String
+        if let saved = UserDefaults.standard.string(
+            forKey: DefaultsKey.notificationRegistration
+        ) {
+            registrationID = saved
+        } else {
+            registrationID = UUID().uuidString.lowercased()
+            UserDefaults.standard.set(
+                registrationID,
+                forKey: DefaultsKey.notificationRegistration
+            )
+        }
+        #if DEBUG
+        let environment = IOSPushEnvironment.sandbox
+        #else
+        let environment = IOSPushEnvironment.production
+        #endif
+        do {
+            let result = try await client.saveIOSNotificationRegistration(
+                id: registrationID,
+                input: IOSNotificationRegistrationInput(
+                    deviceToken: deviceToken,
+                    environment: environment,
+                    homeIds: houses.map(\.id),
+                    minimumSeverity: notificationMinimumSeverity,
+                    includeDetails: notificationIncludeDetails
+                )
+            )
+            notificationProviderConfigured = result.configured
+            notificationRegistration = result.registration
+            if let session {
+                UserDefaults.standard.set(
+                    accountIdentity(for: session),
+                    forKey: DefaultsKey.notificationAccountIdentity
+                )
+            }
+        } catch let error as StuguAPIError where error.status == 404 {
+            notificationProviderConfigured = false
+            notificationRegistration = nil
+        } catch {
+            if !isTransient(error) {
+                errorMessage = friendlyMessage(for: error)
+            }
+        }
+    }
+
+    private func removeNotificationRegistration() async {
+        guard let client,
+              !usingCachedData,
+              let id = UserDefaults.standard.string(
+                  forKey: DefaultsKey.notificationRegistration
+              ) else {
+            return
+        }
+        do {
+            try await client.deleteIOSNotificationRegistration(id: id)
+            notificationRegistration = nil
+            notificationProviderConfigured = false
+        } catch {
+            if !isTransient(error) {
+                errorMessage = friendlyMessage(for: error)
+            }
+        }
+    }
+
+    private var notificationAllowed: Bool {
+        switch notificationAuthorization {
+        case .authorized, .provisional, .ephemeral:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func historyKey(sensorID: String, metric: String, hours: Int) -> String {
+        [selectedHomeID ?? "", sensorID, metric, String(hours)].joined(separator: "\u{1f}")
+    }
+
+    private func cancelLocalAlertReminder(alertID: String) {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(
+            withIdentifiers: [
+                NotificationAppDelegate.reminderIdentifier(for: alertID),
+            ]
+        )
+    }
+
+    private func reconcileLocalAlertReminders() async {
+        let alertsByID = Dictionary(
+            uniqueKeysWithValues: alerts.map { ($0.id, $0) }
+        )
+        let pendingRequests = await UNUserNotificationCenter.current()
+            .pendingNotificationRequests()
+        let obsolete = pendingRequests.compactMap { request -> String? in
+                guard request.identifier.hasPrefix("stugu-reminder-"),
+                      let alertID = request.content.userInfo[
+                        NotificationAppDelegate.alertIDKey
+                      ] as? String,
+                      let alert = alertsByID[alertID],
+                      !alert.isActive || alert.acknowledgedAt != nil else {
+                    return nil
+                }
+                return request.identifier
+            }
+        UNUserNotificationCenter.current().removePendingNotificationRequests(
+            withIdentifiers: obsolete
+        )
+    }
+
+    private func iso8601(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    private func isTransient(_ error: Error) -> Bool {
+        if error is URLError { return true }
+        guard let apiError = error as? StuguAPIError else { return false }
+        return apiError.status == 0
+            || apiError.status == 408
+            || apiError.status == 425
+            || apiError.status == 429
+            || apiError.status >= 500
+    }
+
+    private func startEventLoop() {
+        stopEventLoop()
+        guard client != nil else { return }
+        eventTask = Task { [weak self] in
+            guard let self else { return }
+            var retrySeconds: UInt64 = 1
+            while !Task.isCancelled, self.phase == .ready {
+                guard let client = self.client else { return }
+                do {
+                    let events = await client.eventStream()
+                    self.liveConnected = true
+                    retrySeconds = 1
+                    for try await event in events {
+                        if Task.isCancelled { return }
+                        if event.type == "authorization", event.data.contains("expired") {
+                            self.stopEventLoop()
+                            self.requestGeneration += 1
+                            self.clearWorkspace()
+                            self.phase = .signIn
+                            return
+                        }
+                        if ["reading", "measurement", "alert", "mutation", "weather"].contains(event.type) {
+                            self.scheduleEventRefresh()
+                        }
+                    }
+                } catch let error as StuguAPIError where error.status == 401 {
+                    self.stopEventLoop()
+                    self.requestGeneration += 1
+                    self.clearWorkspace()
+                    self.phase = .signIn
+                    self.errorMessage = "Your session expired. Sign in again."
+                    return
+                } catch {
+                    if Task.isCancelled { return }
+                }
+                self.liveConnected = false
+                try? await Task.sleep(for: .seconds(retrySeconds))
+                retrySeconds = min(retrySeconds * 2, 30)
+            }
+        }
+        startTrackingEventLoop()
+    }
+
+    private func startTrackingEventLoop() {
+        trackingEventTask?.cancel()
+        guard trackingCapabilities?.featureEnabled("tracking.liveMap.enabled") == true,
+              let propertyID = selectedProperty?.id,
+              let client else {
+            trackingLiveConnected = false
+            return
+        }
+        trackingEventTask = Task { [weak self] in
+            guard let self else { return }
+            var retrySeconds: UInt64 = 1
+            while !Task.isCancelled, self.phase == .ready {
+                do {
+                    let events = await client.trackingEventStream(
+                        propertyID: propertyID,
+                        lastEventID: self.trackingSnapshot?.sequence
+                    )
+                    self.trackingLiveConnected = true
+                    retrySeconds = 1
+                    for try await event in events {
+                        if Task.isCancelled { return }
+                        if event.type == "authorization" {
+                            self.trackingLiveConnected = false
+                            return
+                        }
+                        if event.type == "snapshot-required"
+                            || event.type.hasPrefix("asset.")
+                            || event.type.hasPrefix("tag.")
+                            || event.type.hasPrefix("gateway.")
+                            || event.type.hasPrefix("member.") {
+                            self.scheduleTrackingRefresh()
+                        }
+                    }
+                } catch let error as StuguAPIError where error.status == 401 {
+                    self.handleAuthenticatedError(error)
+                    return
+                } catch {
+                    if Task.isCancelled { return }
+                }
+                self.trackingLiveConnected = false
+                try? await Task.sleep(for: .seconds(retrySeconds))
+                retrySeconds = min(retrySeconds * 2, 30)
+            }
+        }
+    }
+
+    private func scheduleEventRefresh() {
+        eventRefreshTask?.cancel()
+        eventRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            await self?.refresh()
+        }
+    }
+
+    private func scheduleTrackingRefresh() {
+        trackingEventRefreshTask?.cancel()
+        trackingEventRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled,
+                  let self,
+                  let client = self.client,
+                  let propertyID = self.selectedProperty?.id else { return }
+            do {
+                self.trackingSnapshot = try await client.trackingMapSnapshot(
+                    propertyID: propertyID
+                )
+            } catch {
+                self.handleAuthenticatedError(error)
+            }
+        }
+    }
+
+    private func stopEventLoop() {
+        eventTask?.cancel()
+        eventTask = nil
+        eventRefreshTask?.cancel()
+        eventRefreshTask = nil
+        trackingEventTask?.cancel()
+        trackingEventTask = nil
+        trackingEventRefreshTask?.cancel()
+        trackingEventRefreshTask = nil
+        liveConnected = false
+        trackingLiveConnected = false
+    }
+
+    private func clearWorkspace() {
+        session = nil
+        properties = []
+        houses = []
+        sensors = []
+        definitions = []
+        snapshot = []
+        alerts = []
+        rules = []
+        propertyInventory = nil
+        todayContext = nil
+        systemUpdateStatus = nil
+        systemUpdateError = nil
+        pendingActions = []
+        historyCache = [:]
+        cachedAccountIdentity = nil
+        trackingCapabilities = nil
+        trackingSettings = nil
+        trackingSnapshot = nil
+        trackingLiveConnected = false
+        mobileTracking.suspend()
+        memberLocationSharing.suspend()
+        selectedHomeID = nil
+        selectedPropertyID = nil
+        lastUpdated = nil
+        usingCachedData = false
+        notificationRegistration = nil
+        notificationProviderConfigured = false
+    }
+
+    private func sortedAlerts(_ values: [AlertEvent]) -> [AlertEvent] {
+        let rank = ["critical": 0, "warning": 1, "info": 2]
+        return values.sorted {
+            let left = rank[$0.severity] ?? 3
+            let right = rank[$1.severity] ?? 3
+            if left != right { return left < right }
+            return ($0.startedDate ?? .distantPast) > ($1.startedDate ?? .distantPast)
+        }
+    }
+
+    private func handleAuthenticatedError(_ error: Error) {
+        if let apiError = error as? StuguAPIError, apiError.status == 401 {
+            stopEventLoop()
+            requestGeneration += 1
+            let retainedPendingActions = pendingActions
+            let retainedHistory = historyCache
+            let retainedTodayContext = todayContext
+            let retainedAccountIdentity = cachedAccountIdentity
+            clearWorkspace()
+            pendingActions = retainedPendingActions
+            historyCache = retainedHistory
+            todayContext = retainedTodayContext
+            cachedAccountIdentity = retainedAccountIdentity
+            phase = .signIn
+            clearGlanceableState()
+        }
+        errorMessage = friendlyMessage(for: error)
+    }
+
+    private func isEdgeAccessFailure(_ error: Error) -> Bool {
+        if error is EdgeCredential.ValidationError { return true }
+        guard let error = error as? StuguAPIError, let code = error.code else { return false }
+        return code == "EDGE_ACCESS_REQUIRED" || code == "EDGE_ACCESS_REJECTED"
+    }
+
+    private func friendlyMessage(for error: Error) -> String {
+        if let error = error as? ServerAddress.ValidationError {
+            return error.localizedDescription
+        }
+        if let error = error as? EdgeCredential.ValidationError {
+            return error.localizedDescription
+        }
+        if let error = error as? StuguAPIError {
+            switch error.code {
+            case "INVALID_CREDENTIALS":
+                return "Email or password is incorrect."
+            case "CSRF_TOKEN_INVALID":
+                return "Your session changed. Sign in again."
+            default:
+                return error.message
+            }
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet:
+                return "This iPhone is not connected to the network."
+            case .cannotFindHost, .cannotConnectToHost, .timedOut:
+                return "Stugu could not be reached. Check the address and network."
+            case .serverCertificateUntrusted, .secureConnectionFailed:
+                return "The server’s secure connection could not be verified."
+            default:
+                return urlError.localizedDescription
+            }
+        }
+        return error.localizedDescription
+    }
+}

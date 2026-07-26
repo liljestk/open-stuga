@@ -8,7 +8,7 @@ import {
   verifyTrackingAdvertisement,
 } from "../src/tracking/protocol.js";
 
-describe("Stuga BLE tracking protocol", () => {
+describe("Stugu BLE tracking protocol", () => {
   it("round-trips and authenticates the compact advertisement", () => {
     const secret = Buffer.alloc(32, 0x42);
     const advertisement = encodeTrackingAdvertisement(secret, {

@@ -29,12 +29,12 @@ import {
   timescalePreRestoreSql,
   timescaleRestorePlan,
   verifyBackup,
-} from "../stuga-backup.mjs";
-import { backupArguments } from "../stuga-backup-scheduler.mjs";
+} from "../stugu-backup.mjs";
+import { backupArguments } from "../stugu-backup-scheduler.mjs";
 import { openReadOnlySqlite, sha256File } from "../sqlite-snapshot-utils.mjs";
 
 function temporaryDirectory(t) {
-  const directory = mkdtempSync(join(tmpdir(), "stuga-data-safety-"));
+  const directory = mkdtempSync(join(tmpdir(), "stugu-data-safety-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   return directory;
 }
@@ -319,7 +319,7 @@ test("migration destination identity survives transport changes but distinguishe
     async query(text) {
       sql.push(String(text));
       return {
-        rows: [{ database: "stuga", username: "stuga_app", database_oid: databaseOid }],
+        rows: [{ database: "stugu", username: "stuga_app", database_oid: databaseOid }],
         rowCount: 1,
       };
     },
@@ -623,8 +623,8 @@ test("backup creates and re-verifies snapshots, assets, manifest, and opt-in fak
   writeFileSync(join(assets, "floorplans", "ground.txt"), "fixture floor plan\n");
   const secrets = join(directory, "integration-secrets.json");
   writeFileSync(secrets, '{"version":1,"fakeToken":"test-only"}\n');
-  const stugbyIdentity = join(directory, "stugby-identity.json");
-  writeFileSync(stugbyIdentity, '{"version":1,"nodeId":"test-node","displayName":"Test","publicKey":"fake","privateKey":"fake","createdAt":"2026-07-22T00:00:00.000Z"}\n');
+  const stugubyIdentity = join(directory, "stuguby-identity.json");
+  writeFileSync(stugubyIdentity, '{"version":1,"nodeId":"test-node","displayName":"Test","publicKey":"fake","privateKey":"fake","createdAt":"2026-07-22T00:00:00.000Z"}\n');
   const trackingSecretKey = join(directory, "tracking-secret.key");
   writeFileSync(trackingSecretKey, `${Buffer.alloc(32, 7).toString("base64url")}\n`);
   const output = join(directory, "backup");
@@ -634,7 +634,7 @@ test("backup creates and re-verifies snapshots, assets, manifest, and opt-in fak
       "--output", output,
       "--assets", assets,
       "--spatial-db", spatial,
-      "--stugby-identity", stugbyIdentity,
+      "--stuguby-identity", stugubyIdentity,
       "--tracking-secret-key", trackingSecretKey,
       "--include-secrets",
       "--secrets-file", secrets,
@@ -647,9 +647,9 @@ test("backup creates and re-verifies snapshots, assets, manifest, and opt-in fak
     assert.ok(manifest.files.some(({ category }) => category === "spatial-sqlite"));
     assert.ok(manifest.files.some(({ category }) => category === "asset"));
     assert.ok(manifest.files.some(({ category }) => category === "integration-secrets"));
-    assert.ok(manifest.files.some(({ category }) => category === "stugby-identity"));
+    assert.ok(manifest.files.some(({ category }) => category === "stuguby-identity"));
     assert.ok(manifest.files.some(({ category }) => category === "tracking-secret-key"));
-    assert.equal(manifest.sources.stugbyIdentity.status, "included");
+    assert.equal(manifest.sources.stugubyIdentity.status, "included");
     assert.equal(manifest.sources.trackingSecretKey.encryptedTagRecords, 1);
     assert.equal(manifest.files.every(({ sensitive }) => sensitive === true), true);
     assert.equal(existsSync(join(output, "manifest.sha256")), true);
@@ -680,7 +680,7 @@ test("backup refuses encrypted tracking tags without their restore key", async (
       "--output", join(directory, "backup"),
       "--assets", join(directory, "missing-assets"),
       "--spatial-db", join(directory, "missing-spatial.sqlite"),
-      "--stugby-identity", join(directory, "missing-identity.json"),
+      "--stuguby-identity", join(directory, "missing-identity.json"),
       "--tracking-secret-key", join(directory, "missing-tracking-secret.key"),
     ], {});
     await assert.rejects(
@@ -692,19 +692,19 @@ test("backup refuses encrypted tracking tags without their restore key", async (
   }
 });
 
-test("backup preserves every snapshotted Stugby blob across a concurrent live deletion and verifies the cross-reference", async (t) => {
+test("backup preserves every snapshotted Stuguby blob across a concurrent live deletion and verifies the cross-reference", async (t) => {
   const directory = temporaryDirectory(t);
   const source = join(directory, "source.sqlite");
   const writer = createTelemetryFixture(source);
   try {
   const assets = join(directory, "assets");
-  const stugbyAssets = join(assets, "stugby");
-  mkdirSync(stugbyAssets, { recursive: true });
-  const content = Buffer.from("snapshotted Stugby floor plan");
-  const temporaryAsset = join(stugbyAssets, "blob");
+  const stugubyAssets = join(assets, "stuguby");
+  mkdirSync(stugubyAssets, { recursive: true });
+  const content = Buffer.from("snapshotted Stuguby floor plan");
+  const temporaryAsset = join(stugubyAssets, "blob");
   writeFileSync(temporaryAsset, content);
   const digest = await sha256File(temporaryAsset);
-  const asset = join(stugbyAssets, digest);
+  const asset = join(stugubyAssets, digest);
   writeFileSync(asset, content);
   unlinkSync(temporaryAsset);
   writer.exec(`
@@ -729,7 +729,7 @@ test("backup preserves every snapshotted Stugby blob across a concurrent live de
     .run(digest, content.byteLength, "image/png", digest, "2026-07-23T00:00:00.000Z");
   writer.prepare(`INSERT INTO stugby_blob_references
     (stugby_id,digest,grant_id,grant_epoch,kind,created_at) VALUES (?,?,?,?,?,?)`)
-    .run("stugby-1", digest, "grant-1", 1, "local", "2026-07-23T00:00:00.000Z");
+    .run("stuguby-1", digest, "grant-1", 1, "local", "2026-07-23T00:00:00.000Z");
 
   const output = join(directory, "backup");
   const options = parseBackupArgs([
@@ -737,7 +737,7 @@ test("backup preserves every snapshotted Stugby blob across a concurrent live de
     "--output", output,
     "--assets", assets,
     "--spatial-db", join(directory, "missing-spatial.sqlite"),
-    "--stugby-identity", join(directory, "missing-identity.json"),
+    "--stuguby-identity", join(directory, "missing-identity.json"),
   ], {});
   const manifest = await createBackup(options, {
     afterCoreSnapshot() {
@@ -746,19 +746,19 @@ test("backup preserves every snapshotted Stugby blob across a concurrent live de
       unlinkSync(asset);
     },
   });
-  assert.equal(manifest.sources.assets.requiredStugbyBlobs, 1);
-  assert.equal(existsSync(join(output, "assets", "stugby", digest)), true);
-  assert.equal(await sha256File(join(output, "assets", "stugby", digest)), digest);
+  assert.equal(manifest.sources.assets.requiredStugubyBlobs, 1);
+  assert.equal(existsSync(join(output, "assets", "stuguby", digest)), true);
+  assert.equal(await sha256File(join(output, "assets", "stuguby", digest)), digest);
   assert.equal((await verifyBackup(output)).status, "passed");
 
   const manifestPath = join(output, "manifest.json");
   const withoutBlobRecord = JSON.parse(readFileSync(manifestPath, "utf8"));
-  withoutBlobRecord.files = withoutBlobRecord.files.filter((record) => record.path !== `assets/stugby/${digest}`);
+  withoutBlobRecord.files = withoutBlobRecord.files.filter((record) => record.path !== `assets/stuguby/${digest}`);
   writeFileSync(manifestPath, `${JSON.stringify(withoutBlobRecord, null, 2)}\n`);
   writeFileSync(join(output, "manifest.sha256"), `${await sha256File(manifestPath)}  manifest.json\n`);
   await assert.rejects(
     verifyBackup(output),
-    /missing the checksummed Stugby asset required by its core snapshot/u,
+    /missing the checksummed Stuguby asset required by its core snapshot/u,
   );
   } finally {
     writer.close();

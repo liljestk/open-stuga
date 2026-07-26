@@ -1,6 +1,6 @@
 # API, weather, MCP, Home Assistant alerts, DayOps, and OpenWearable
 
-Stuga exposes one local workspace through three transports:
+Stugu exposes one local workspace through three transports:
 
 - REST under `/api/v1` for the original temperature/humidity compatibility
   contract and `/api/v2` for registered sparse measurements;
@@ -43,7 +43,7 @@ Home Assistant recorder history is fetched in 24-hour chunks and inserted
 idempotently without replaying historical alerts. Failed and partial attempts
 retry with bounded exponential backoff.
 
-For direct TP-Link mappings, Stuga first requests retained LAN history: up to 96
+For direct TP-Link mappings, Stugu first requests retained LAN history: up to 96
 15-minute T310/T315 climate buckets from an H100/H200 child, or supported
 instantaneous-power history from a compatible energy device. Firmware or range
 limitations return `partial` or `not-supported`, never a fabricated complete
@@ -562,7 +562,7 @@ node apps/api/dist/mcp-server.js
 ```
 
 Set its working directory to the repository and provide `DATABASE_PATH` pointing
-to the same Stuga database.
+to the same Stugu database.
 
 Generic client configuration (replace the absolute paths):
 
@@ -599,22 +599,22 @@ database schema is current. Raw credentials, binary asset downloads, SSE
 streams, invitation secrets, federation event payloads, and browser
 account/session administration are also excluded.
 
-### Properties, Homes, and Stugby
+### Properties, Homes, and Stuguby
 
 | Tool | Behaviour |
 | --- | --- |
-| <code>list_properties</code> | Privacy-safe Property summaries, including Stugby authority/edit/sync metadata |
-| <code>get_property</code> | One selected Property with description, location, and Stugby metadata |
+| <code>list_properties</code> | Privacy-safe Property summaries, including Stuguby authority/edit/sync metadata |
+| <code>get_property</code> | One selected Property with description, location, and Stuguby metadata |
 | <code>get_property_electricity</code> | Redacted electricity configuration, current price, and bounded price history |
 | <code>get_property_energy_optimization</code> | Advisory price/load optimization report; never controls equipment |
 | <code>list_property_areas</code> | Privacy-safe mapped-area summaries without coordinates or free-form descriptions |
 | <code>list_area_equipment</code> | Equipment summaries without serial numbers or free-form notes |
 | <code>list_property_notes</code> | Property, Home, area, and equipment notes with optional resource filters |
 | <code>list_houses</code> | Privacy-safe Home/floor summaries, including local/shared ownership and edit policy |
-| <code>get_house</code> | One selected Home with location, placement, orientation, floor layout, and Stugby metadata |
+| <code>get_house</code> | One selected Home with location, placement, orientation, floor layout, and Stuguby metadata |
 | <code>get_daily_analytics_findings</code> | Latest stored daily Home findings and worker status without triggering analysis |
-| <code>list_stugbys</code> | Compact Host/Client, adopted-Property, Home ownership, grant, and sync summaries |
-| <code>get_stugby</code> | Sanitized Host/Client membership, Property state, local/shared Homes, overview grants, and command counts |
+| <code>list_stugubys</code> | Compact Host/Client, adopted-Property, Home ownership, grant, and sync summaries |
+| <code>get_stuguby</code> | Sanitized Host/Client membership, Property state, local/shared Homes, overview grants, and command counts |
 
 ### Location, weather, and modelling
 
@@ -714,7 +714,7 @@ recommends keeping it local-only and treating the ID like a password. One YAML
 shape is:
 
 ```yaml
-alias: Stuga alert notification
+alias: Stugu alert notification
 triggers:
   - trigger: webhook
     webhook_id: !secret climate_twin_webhook_id
@@ -727,7 +727,7 @@ conditions:
 actions:
   - action: persistent_notification.create
     data:
-      title: "Stuga: {{ trigger.json.event.severity }}"
+      title: "Stugu: {{ trigger.json.event.severity }}"
       message: >-
         {{ trigger.json.rule.name }} at {{ trigger.json.event.sensorId }}:
         {{ trigger.json.event.value }} (threshold
@@ -736,7 +736,7 @@ mode: queued
 max: 10
 ```
 
-Set the Stuga environment to the corresponding local URL:
+Set the Stugu environment to the corresponding local URL:
 
 ```dotenv
 ALERT_WEBHOOK_URL=http://homeassistant.local:8123/api/webhook/replace-with-secret-id
@@ -746,12 +746,12 @@ ALERT_WEBHOOK_ALLOWED_HOSTS=homeassistant.local
 
 Home Assistant webhook triggers authenticate by possession of the unguessable
 ID, so leave the bearer token empty for this route. Enable `webhookEnabled` on
-the desired Stuga alert rules. The legacy tuple above remains supported. To
+the desired Stugu alert rules. The legacy tuple above remains supported. To
 deliver the same alert to several independent systems, use the mutually
 exclusive multi-destination form on one line in the private environment file:
 
 ```dotenv
-ALERT_WEBHOOK_DESTINATIONS_JSON=[{"id":"home-assistant","url":"http://homeassistant.local:8123/api/webhook/replace-with-secret-id"},{"id":"dayops","url":"https://dayops.example.test/stuga","bearerToken":"replace-me","signingSecret":"replace-with-a-unique-secret-of-at-least-32-bytes"}]
+ALERT_WEBHOOK_DESTINATIONS_JSON=[{"id":"home-assistant","url":"http://homeassistant.local:8123/api/webhook/replace-with-secret-id"},{"id":"dayops","url":"https://dayops.example.test/stugu","bearerToken":"replace-me","signingSecret":"replace-with-a-unique-secret-of-at-least-32-bytes"}]
 ALERT_WEBHOOK_ALLOWED_HOSTS=homeassistant.local,dayops.example.test
 ```
 
@@ -759,7 +759,7 @@ Destination IDs use lowercase letters, digits, dots, underscores, or hyphens,
 are unique, and remain stable because they are part of delivery status and the
 idempotency key. `ALERT_WEBHOOK_DESTINATIONS_JSON` cannot be combined with
 `ALERT_WEBHOOK_URL`, `ALERT_WEBHOOK_BEARER_TOKEN`, or
-`ALERT_WEBHOOK_SIGNING_SECRET`. If the explicit allowlist is omitted, Stuga
+`ALERT_WEBHOOK_SIGNING_SECRET`. If the explicit allowlist is omitted, Stugu
 derives it from the configured destination hosts; if supplied, it must contain
 every destination host.
 
@@ -807,8 +807,8 @@ Credentials and complete URLs remain outside SQLite.
 Each request has a 10-second timeout, refuses redirects, checks the exact host
 allowlist, and carries a stable `Idempotency-Key` that includes its destination
 ID. Receivers should persist and deduplicate that key because delivery is
-at-least-once. When a destination has `signingSecret`, Stuga also sends an epoch
-`X-Stuga-Timestamp` and `X-Stuga-Signature: sha256=<hex>`, calculated as
+at-least-once. When a destination has `signingSecret`, Stugu also sends an epoch
+`X-Stugu-Timestamp` and `X-Stugu-Signature: sha256=<hex>`, calculated as
 HMAC-SHA256 over `<timestamp>.<raw JSON body>`. A receiver should compare the
 signature in constant time, reject timestamps outside its replay window, and
 still deduplicate the idempotency key.
@@ -859,7 +859,7 @@ Recommended patterns:
 1. **Read-only consumer:** query v2 measurement snapshot/history/forecast plus
    v1 alert events and observations; subscribe to the v2 measurement stream
    while online. Keep v1 reading routes only for existing clients.
-2. **Alert delivery:** configure one Stuga webhook destination per downstream,
+2. **Alert delivery:** configure one Stugu webhook destination per downstream,
    or use a local relay when custom transformation or orchestration is needed.
    Validate bearer/HMAC credentials and persist/deduplicate the complete
    `Idempotency-Key` before forwarding to Home Assistant, DayOps, or OpenWearable.

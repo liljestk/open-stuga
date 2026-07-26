@@ -87,7 +87,7 @@ describe("TwinDashboard full-page home view", () => {
 
 describe("TwinDashboard plug map layer", () => {
   it("shows compact plug stats on the 2D map and can hide the layer", async () => {
-    localStorage.removeItem("stuga-home-map-energy-devices-visible");
+    localStorage.removeItem("stugu-home-map-energy-devices-visible");
     const base = createDemoState();
     const floor = base.houses[0]!.floors[0]!;
     const plug: Sensor = {
@@ -117,7 +117,7 @@ describe("TwinDashboard plug map layer", () => {
     expect(layerButton.getAttribute("aria-pressed")).toBe("false");
     expect(view.container.querySelector(".sensor-marker.energy-device")).toBeNull();
     view.unmount();
-    localStorage.removeItem("stuga-home-map-energy-devices-visible");
+    localStorage.removeItem("stugu-home-map-energy-devices-visible");
   });
 });
 

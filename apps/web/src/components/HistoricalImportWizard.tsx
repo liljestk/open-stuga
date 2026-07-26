@@ -308,7 +308,7 @@ export function HistoricalImportWizard({
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "stuga-history-import-template.csv";
+    anchor.download = "stugu-history-import-template.csv";
     anchor.click();
     URL.revokeObjectURL(url);
   };

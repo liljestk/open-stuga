@@ -69,8 +69,8 @@ import type {
   SecurityAuditOutcome,
   SecurityAuditSubjectType,
   StaticParameter,
-  StugbyHouseLink,
-  StugbyPropertyLink,
+  StugubyHouseLink,
+  StugubyPropertyLink,
   TenantMemberRole,
   Wall,
   WeatherBackfillState,
@@ -1110,7 +1110,7 @@ function houseFromRow(row: HouseRow): House {
     ...(row.map_placement_json ? { mapPlacement: parseJson<HouseMapPlacement>(row.map_placement_json) } : {}),
     ...(row.orientation_degrees !== null ? { orientationDegrees: row.orientation_degrees } : {}),
     floors: parseJson<Floor[]>(row.floors_json),
-    ...(row.stugby_json ? { stugby: parseJson<StugbyHouseLink>(row.stugby_json) } : {}),
+    ...(row.stugby_json ? { stuguby: parseJson<StugubyHouseLink>(row.stugby_json) } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -1138,7 +1138,7 @@ function propertyFromRow(row: PropertyRow): Property {
     name: row.name,
     description: row.description,
     location: row.location_json ? parseJson<HouseLocation>(row.location_json) : null,
-    ...(row.stugby_json ? { stugby: parseJson<StugbyPropertyLink>(row.stugby_json) } : {}),
+    ...(row.stugby_json ? { stuguby: parseJson<StugubyPropertyLink>(row.stugby_json) } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -4750,7 +4750,7 @@ export class ClimateDatabase {
     return row ? propertyFromRow(row) : null;
   }
 
-  setPropertyStugbyLink(id: string, link: StugbyPropertyLink | null): Property | null {
+  setPropertyStugubyLink(id: string, link: StugubyPropertyLink | null): Property | null {
     const result = this.db.prepare("UPDATE properties SET stugby_json = ? WHERE id = ?")
       .run(link ? JSON.stringify(link) : null, id);
     return Number(result.changes) === 1 ? this.getProperty(id) : null;
@@ -5840,30 +5840,30 @@ export class ClimateDatabase {
     return row ? houseFromRow(row) : null;
   }
 
-  setHouseStugbyLink(id: string, link: StugbyHouseLink | null): House | null {
+  setHouseStugubyLink(id: string, link: StugubyHouseLink | null): House | null {
     const result = this.db.prepare("UPDATE houses SET stugby_json = ? WHERE id = ?")
       .run(link ? JSON.stringify(link) : null, id);
     return Number(result.changes) === 1 ? this.getHouse(id) : null;
   }
 
-  clearStugbyLinks(stugbyId: string): { properties: number; houses: number } {
+  clearStugubyLinks(stugubyId: string): { properties: number; houses: number } {
     return this.immediateTransaction(() => ({
       properties: Number(this.db.prepare(`UPDATE properties SET stugby_json=NULL
-        WHERE stugby_json IS NOT NULL AND json_extract(stugby_json,'$.stugbyId')=?`).run(stugbyId).changes),
+        WHERE stugby_json IS NOT NULL AND json_extract(stugby_json,'$.stugubyId')=?`).run(stugubyId).changes),
       houses: Number(this.db.prepare(`UPDATE houses SET stugby_json=NULL
-        WHERE stugby_json IS NOT NULL AND json_extract(stugby_json,'$.stugbyId')=?`).run(stugbyId).changes),
+        WHERE stugby_json IS NOT NULL AND json_extract(stugby_json,'$.stugubyId')=?`).run(stugubyId).changes),
     }));
   }
 
   /**
-   * Destructively merges one local Property into an adopted Stugby Property.
+   * Destructively merges one local Property into an adopted Stuguby Property.
    * Home and telemetry identities are retained; only their Property parent and
-   * explicit Stugby provenance change.
+   * explicit Stuguby provenance change.
    */
   migratePropertyInto(
     sourcePropertyId: string,
     targetPropertyId: string,
-    houseLinks: Readonly<Record<string, StugbyHouseLink>>,
+    houseLinks: Readonly<Record<string, StugubyHouseLink>>,
   ): PropertyMigrationResult {
     return this.immediateTransaction(() => {
       if (sourcePropertyId === targetPropertyId) {
@@ -5882,7 +5882,7 @@ export class ClimateDatabase {
       const maintenanceTaskIds = this.listMaintenanceTasks({ propertyId: sourcePropertyId, limit: MAX_COLLECTION_LIMIT }).map((item) => item.id);
       for (const houseId of houseIds) {
         const link = houseLinks[houseId];
-        if (!link) throw new ClimateDataValidationError(400, "HOUSE_STUGBY_LINK_REQUIRED", `Home ${houseId} is missing Stugby ownership metadata`);
+        if (!link) throw new ClimateDataValidationError(400, "HOUSE_STUGBY_LINK_REQUIRED", `Home ${houseId} is missing Stuguby ownership metadata`);
         this.db.prepare("UPDATE houses SET property_id = ?, stugby_json = ?, updated_at = ? WHERE id = ?")
           .run(targetPropertyId, JSON.stringify(link), new Date().toISOString(), houseId);
       }

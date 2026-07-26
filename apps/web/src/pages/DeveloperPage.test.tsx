@@ -19,7 +19,7 @@ describe("DeveloperPage", () => {
   it("advertises the API listener rather than the Vite development proxy", () => {
     expect(browserFacingApiBase("/api/v1", "http://localhost:5173")).toBe("http://localhost:8787/api/v1");
     expect(browserFacingApiBase("/api/v2", "http://192.0.2.10:5173")).toBe("http://192.0.2.10:8787/api/v2");
-    expect(browserFacingApiBase("/api/v1", "https://stuga.example.test")).toBe("https://stuga.example.test/api/v1");
+    expect(browserFacingApiBase("/api/v1", "https://stugu.example.test")).toBe("https://stugu.example.test/api/v1");
   });
 
   it("routes actionable doctor findings to their remediation workspace", () => {
@@ -40,7 +40,7 @@ describe("DeveloperPage", () => {
     expect(screen.getByRole("heading", { name: "Local v1 + v2 HTTP API" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Local MCP server" })).toBeTruthy();
     expect(screen.getByText("Local integration contracts")).toBeTruthy();
-    expect(screen.getByText("Use Stuga locally through the versioned HTTP API and trusted stdio MCP server.")).toBeTruthy();
+    expect(screen.getByText("Use Stugu locally through the versioned HTTP API and trusted stdio MCP server.")).toBeTruthy();
     expect(screen.getByText(/trusted, read-only stdio/i)).toBeTruthy();
 
     const baseUrl = screen.getByRole("textbox", { name: "Local v1 base URL" }) as HTMLInputElement;
@@ -89,6 +89,6 @@ describe("DeveloperPage", () => {
     expect(screen.getByRole("heading", { name: "Paikallinen v1 + v2 HTTP-rajapinta" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Paikallinen MCP-palvelin" })).toBeTruthy();
     expect(screen.getByText("Paikalliset integraatiorajapinnat")).toBeTruthy();
-    expect(screen.getByText("Käytä Stugaa paikallisesti versioidun HTTP-rajapinnan ja luotetun stdio-MCP-palvelimen kautta.")).toBeTruthy();
+    expect(screen.getByText("Käytä Stugua paikallisesti versioidun HTTP-rajapinnan ja luotetun stdio-MCP-palvelimen kautta.")).toBeTruthy();
   });
 });

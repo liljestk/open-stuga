@@ -127,7 +127,7 @@ export class NotificationOutboxWorker extends DurableWorker {
         }
         const headers: Record<string, string> = {
           "content-type": "application/json",
-          "idempotency-key": `stuga-${item.subjectKind}-${item.subjectId}-${item.stage}-${item.sequence}-${item.destinationId}`,
+          "idempotency-key": `stugu-${item.subjectKind}-${item.subjectId}-${item.stage}-${item.sequence}-${item.destinationId}`,
         };
         if (webhookDestination.bearerToken) headers.authorization = `Bearer ${webhookDestination.bearerToken}`;
         if (webhookDestination.signingSecret) {
@@ -135,8 +135,8 @@ export class NotificationOutboxWorker extends DurableWorker {
           const signature = createHmac("sha256", webhookDestination.signingSecret)
             .update(`${timestamp}.${item.payloadJson}`, "utf8")
             .digest("hex");
-          headers["x-stuga-timestamp"] = timestamp;
-          headers["x-stuga-signature"] = `sha256=${signature}`;
+          headers["x-stugu-timestamp"] = timestamp;
+          headers["x-stugu-signature"] = `sha256=${signature}`;
         }
         const response = await this.fetchImpl(webhookDestination.url, {
           method: "POST",

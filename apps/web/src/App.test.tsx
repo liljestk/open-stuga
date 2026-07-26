@@ -68,11 +68,11 @@ function findPageHeading(name: string) {
 
 beforeEach(() => {
   window.history.replaceState(null, "", "/");
-  localStorage.removeItem("stuga-dismissed-tp-link-device-notices");
+  localStorage.removeItem("stugu-dismissed-tp-link-device-notices");
   mockClimateData();
 });
 
-describe("Stuga app", () => {
+describe("Stugu app", () => {
   it("opens Home from Properties", async () => {
     const user = userEvent.setup();
     window.history.replaceState(null, "", "/properties");
@@ -184,8 +184,8 @@ describe("Stuga app", () => {
       ...climate.state,
       houses: climate.state.houses.map((candidate) => candidate.id === home.id ? {
         ...candidate,
-        stugby: {
-          stugbyId: "stugby-remote",
+        stuguby: {
+          stugubyId: "stuguby-remote",
           authorityNodeId: "node-remote",
           publicationId: "publication-remote-home",
           ownership: "shared" as const,
@@ -308,8 +308,8 @@ describe("Stuga app", () => {
       session: {
         ...climate.state.session,
         principal: { type: "local", email: "guest@example.test" },
-        tenant: { id: "local", name: "Local Stuga", role: "guest" },
-        availableTenants: [{ id: "local", name: "Local Stuga", role: "guest" }],
+        tenant: { id: "local", name: "Local Stugu", role: "guest" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "guest" }],
         readOnly: true,
       },
     };
@@ -338,8 +338,8 @@ describe("Stuga app", () => {
       session: {
         ...climate.state.session,
         principal: { type: "local", email: "guest@example.test" },
-        tenant: { id: "local", name: "Local Stuga", role: "guest" },
-        availableTenants: [{ id: "local", name: "Local Stuga", role: "guest" }],
+        tenant: { id: "local", name: "Local Stugu", role: "guest" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "guest" }],
         readOnly: true,
         grants: [],
       },
@@ -363,8 +363,8 @@ describe("Stuga app", () => {
       session: {
         ...climate.state.session,
         principal: { type: "local", email: "guest@example.test" },
-        tenant: { id: "local", name: "Local Stuga", role: "guest" },
-        availableTenants: [{ id: "local", name: "Local Stuga", role: "guest" }],
+        tenant: { id: "local", name: "Local Stugu", role: "guest" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "guest" }],
         readOnly: true,
         grants: [{ scopeType: "property", scopeId: property.id }],
       },
@@ -377,27 +377,27 @@ describe("Stuga app", () => {
     expect(screen.queryByRole("button", { name: "Create Home" })).toBeNull();
   });
 
-  it("does not call the Stugby administration API for a direct guest route", async () => {
+  it("does not call the Stuguby administration API for a direct guest route", async () => {
     const climate = mockClimateData();
     climate.state = {
       ...climate.state,
       session: {
         ...climate.state.session,
         principal: { type: "local", email: "guest@example.test" },
-        tenant: { id: "local", name: "Local Stuga", role: "guest" },
-        availableTenants: [{ id: "local", name: "Local Stuga", role: "guest" }],
+        tenant: { id: "local", name: "Local Stugu", role: "guest" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "guest" }],
         readOnly: true,
         grants: [{ scopeType: "house", scopeId: climate.state.houses[0]!.id }],
       },
     };
     vi.mocked(useClimateData).mockReturnValue(climate);
-    const stugbys = vi.spyOn(api, "stugbys");
+    const stugubys = vi.spyOn(api, "stugubys");
     window.history.replaceState(null, "", "/stugbys");
 
     renderApp();
 
     expect(await findPageHeading("Administrator access required")).toBeTruthy();
-    expect(stugbys).not.toHaveBeenCalled();
+    expect(stugubys).not.toHaveBeenCalled();
   });
 
   it("gives a Home-scoped guest read-only access to that Home's sensor inventory", async () => {
@@ -409,8 +409,8 @@ describe("Stuga app", () => {
       session: {
         ...climate.state.session,
         principal: { type: "local", email: "guest@example.test" },
-        tenant: { id: "local", name: "Local Stuga", role: "guest" },
-        availableTenants: [{ id: "local", name: "Local Stuga", role: "guest" }],
+        tenant: { id: "local", name: "Local Stugu", role: "guest" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "guest" }],
         readOnly: true,
         grants: [{ scopeType: "house", scopeId: home.id }],
       },
@@ -438,8 +438,8 @@ describe("Stuga app", () => {
       session: {
         ...climate.state.session,
         principal: { type: "local", email: "guest@example.test" },
-        tenant: { id: "local", name: "Local Stuga", role: "guest" },
-        availableTenants: [{ id: "local", name: "Local Stuga", role: "guest" }],
+        tenant: { id: "local", name: "Local Stugu", role: "guest" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "guest" }],
         readOnly: true,
         grants: [{ scopeType: "house", scopeId: home.id }],
       },
@@ -464,8 +464,8 @@ describe("Stuga app", () => {
       session: {
         ...climate.state.session,
         principal: { type: "local", email: "guest@example.test" },
-        tenant: { id: "local", name: "Local Stuga", role: "guest" },
-        availableTenants: [{ id: "local", name: "Local Stuga", role: "guest" }],
+        tenant: { id: "local", name: "Local Stugu", role: "guest" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "guest" }],
         readOnly: true,
         grants: [{ scopeType: "property", scopeId: property.id }],
       },
@@ -491,8 +491,8 @@ describe("Stuga app", () => {
       session: {
         ...climate.state.session,
         principal: { type: "local", email: "owner@example.test" },
-        tenant: { id: "local", name: "Local Stuga", role: "owner" },
-        availableTenants: [{ id: "local", name: "Local Stuga", role: "owner" }],
+        tenant: { id: "local", name: "Local Stugu", role: "owner" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "owner" }],
         readOnly: false,
       },
     };
@@ -512,13 +512,13 @@ describe("Stuga app", () => {
     await findPageHeading("Your home, at a glance");
     const main = view.container.querySelector("#main-content")!;
 
-    expect(document.title).toBe("Home — Stuga");
+    expect(document.title).toBe("Home — Stugu");
     expect(document.activeElement).not.toBe(main);
 
     await user.click(screen.getByRole("link", { name: "Sensors" }));
     await findPageHeading("Sensors");
     await waitFor(() => expect(document.activeElement).toBe(main));
-    expect(document.title).toBe("Sensors — Stuga");
+    expect(document.title).toBe("Sensors — Stugu");
 
     const activeHome = screen.getByRole("combobox", { name: "Home shown on this page" });
     expect(activeHome.closest("main")).toBe(main);
@@ -526,7 +526,7 @@ describe("Stuga app", () => {
     activeHome.focus();
     fireEvent.change(activeHome, { target: { value: (activeHome as HTMLSelectElement).value } });
     await waitFor(() => expect(document.activeElement).toBe(activeHome));
-    expect(document.title).toBe("Sensors — Stuga");
+    expect(document.title).toBe("Sensors — Stugu");
   });
 
   it("renders an accessible mock-backed twin and switches metrics", async () => {

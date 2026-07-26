@@ -189,7 +189,7 @@ test("deployment fingerprint is canonical and changes with every production pin"
 });
 
 test("caches the exact fingerprinted flow source so a later file mutation cannot change execution", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "stuga-tapo-flow-pin-"));
+  const directory = await mkdtemp(join(tmpdir(), "stugu-tapo-flow-pin-"));
   const path = join(directory, "flow.json");
   const original = '{"version":1,"name":"first"}\n';
   try {

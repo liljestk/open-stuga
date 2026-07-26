@@ -3,7 +3,7 @@ import { Activity, Bell, Bolt, Braces, ChartLine, ChevronDown, ChevronLeft, Clou
 import type { AppPage } from "../domain";
 import { useI18n, type Locale } from "../i18n";
 import type { ConnectionState, House as Home, Property, UnitSystem } from "@climate-twin/contracts";
-import { StugaMark } from "./StugaMark";
+import { StuguMark } from "./StuguMark";
 import { HomeOriginIndicator, isRemoteHome, type HomeOriginScope } from "./HomeOriginIndicator";
 import { formatInTimeZone } from "../dateTime";
 import type { DataMode } from "../useClimateData";
@@ -29,7 +29,7 @@ interface AppShellProps {
   properties?: Array<Pick<Property, "id" | "name">>;
   propertyId?: string;
   onProperty?: (propertyId: string) => void;
-  houses?: Array<Pick<Home, "id" | "propertyId" | "name" | "timezone" | "stugby">>;
+  houses?: Array<Pick<Home, "id" | "propertyId" | "name" | "timezone" | "stuguby">>;
   houseId?: string;
   onHouse?: (houseId: string) => void;
   homeAvailable?: boolean;
@@ -52,7 +52,7 @@ const pageIcons = {
   overview: LayoutDashboard,
   properties: MapPinned,
   people: Users,
-  stugbys: Network,
+  stugubys: Network,
   twin: House,
   activity: ListChecks,
   maintenance: Wrench,
@@ -163,7 +163,7 @@ export function AppShell({
     { id: "overview", label: t("nav.overview"), scope: "workspace" },
     { id: "properties", label: t("nav.properties"), scope: "workspace" },
     ...(canManagePeople ? [{ id: "people" as const, label: t("nav.people"), scope: "workspace" as const }] : []),
-    ...(canManagePeople ? [{ id: "stugbys" as const, label: t("nav.stugbys"), scope: "workspace" as const }] : []),
+    ...(canManagePeople ? [{ id: "stugubys" as const, label: t("nav.stugubys"), scope: "workspace" as const }] : []),
     { id: "alerts", label: t("nav.alerts"), scope: "workspace" },
   ];
   const propertyNavItems: NavigationItem[] = activeProperty ? [
@@ -348,7 +348,7 @@ export function AppShell({
         }}
       >
         <div className="brand">
-          <StugaMark />
+          <StuguMark />
           <span className="brand-lockup">
             <strong>{t("app.name")}</strong>
             <small>{t("app.tagline")}</small>
@@ -475,13 +475,13 @@ export function AppShell({
             aria-expanded={menuOpen}
             aria-controls="primary-sidebar"
           ><Menu size={20} /></button>
-          <span className="mobile-brand"><StugaMark className="small" />{t("app.name")}</span>
+          <span className="mobile-brand"><StuguMark className="small" />{t("app.name")}</span>
           {page === "overview" || page === "properties" || (page === "twin" && houses.length <= 1)
             ? <span className="mobile-header-spacer" aria-hidden="true" />
             : <button className="icon-button" type="button" onClick={() => onBack ? onBack() : choosePage({ id: "overview", label: t("nav.overview"), scope: "workspace" })} aria-label={onBackLabel ?? t("header.overview")}><ChevronLeft size={20} /></button>}
         </header>
         <main id="main-content" className={`main-content page-${page}`} tabIndex={-1}>
-          {properties.length > 0 && onProperty && !["overview", "people", "stugbys", "alerts", "developer", "updates"].includes(page)
+          {properties.length > 0 && onProperty && !["overview", "people", "stugubys", "alerts", "developer", "updates"].includes(page)
             && !(page === "properties" && /^\/properties\/?$/.test(window.location.pathname)) && (
             <div className="page-home-switcher">
               <div className="page-home-switcher-group">

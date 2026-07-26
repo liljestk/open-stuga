@@ -69,7 +69,7 @@ function telegramSuccessFetch() {
 
 describe("durable alert history and notification snapshots", () => {
   it("restores a pending sustained condition and opens it from wall-clock time after restart", () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-alert-deadline-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-alert-deadline-"));
     const databasePath = join(directory, "climate.sqlite");
     let database: ClimateDatabase | null = new ClimateDatabase(databasePath, true);
     try {
@@ -116,7 +116,7 @@ describe("durable alert history and notification snapshots", () => {
   });
 
   it("delivers the original immutable payload after rule edits, retirement, and restart", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-alert-history-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-alert-history-"));
     const databasePath = join(directory, "climate.sqlite");
     const config = alertConfig(directory, databasePath);
     let database: ClimateDatabase | null = new ClimateDatabase(databasePath, true);
@@ -204,7 +204,7 @@ describe("durable alert history and notification snapshots", () => {
   });
 
   it("abandons queued work instead of rerouting it after destination rotation", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-alert-rotation-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-alert-rotation-"));
     const databasePath = join(directory, "climate.sqlite");
     const oldConfig = alertConfig(directory, databasePath);
     let database: ClimateDatabase | null = new ClimateDatabase(databasePath, true);
@@ -248,7 +248,7 @@ describe("durable alert history and notification snapshots", () => {
   });
 
   it("migrates legacy queued rows to a safe snapshot without binding them to current credentials", () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-alert-migration-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-alert-migration-"));
     const databasePath = join(directory, "climate.sqlite");
     const config = alertConfig(directory, databasePath);
     let database: ClimateDatabase | null = new ClimateDatabase(databasePath, true);

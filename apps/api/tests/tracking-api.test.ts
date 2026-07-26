@@ -64,7 +64,7 @@ describe("property equipment tracking API", () => {
       .send({
         propertyId: "property-main",
         serialNumber: "TAG-0001",
-        hardwareModel: "stuga-motion-v1",
+        hardwareModel: "stugu-motion-v1",
         capabilities: { motion: true, battery: true },
       })
       .expect(201);
@@ -603,7 +603,7 @@ describe("property equipment tracking API", () => {
       .send({
         propertyId: "property-main",
         serialNumber: "TAG-GUEST-TOKEN",
-        hardwareModel: "stuga-motion-v1",
+        hardwareModel: "stugu-motion-v1",
         capabilities: { motion: true, battery: true },
       })
       .expect(201);
@@ -672,7 +672,7 @@ describe("property equipment tracking API", () => {
       .send({
         propertyId: "property-main",
         serialNumber: "TAG-PAGED",
-        hardwareModel: "stuga-basic-v1",
+        hardwareModel: "stugu-basic-v1",
       })
       .expect(201);
     const tagId = provisioned.body.tag.id as string;

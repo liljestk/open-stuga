@@ -1,12 +1,12 @@
 # Backend storage and operations
 
-Stuga uses a hybrid local-first backend. Core SQLite keeps the transactional control plane and a hot local telemetry buffer; PostgreSQL with TimescaleDB keeps the durable, query-optimized telemetry archive. Together those two stores are one logical telemetry source. A separate SQLite database contains optional experimental spatial state, and a bounded process-local cache accelerates repeatable reads. Neither is a source of core facts.
+Stugu uses a hybrid local-first backend. Core SQLite keeps the transactional control plane and a hot local telemetry buffer; PostgreSQL with TimescaleDB keeps the durable, query-optimized telemetry archive. Together those two stores are one logical telemetry source. A separate SQLite database contains optional experimental spatial state, and a bounded process-local cache accelerates repeatable reads. Neither is a source of core facts.
 
 ## Responsibilities
 
 | Layer | Owns | Does not own |
 | --- | --- | --- |
-| Core SQLite (`DATABASE_PATH`) | Authentication and access state, canonical properties/houses/areas/floor plans and sensors, alerts and automation state, local ingestion, the hot safety copy, and opt-in Stugby federation state/replicas | Long-term analytical scaling, experimental model state, Stugby private keys, or integration secrets |
+| Core SQLite (`DATABASE_PATH`) | Authentication and access state, canonical properties/houses/areas/floor plans and sensors, alerts and automation state, local ingestion, the hot safety copy, and opt-in Stuguby federation state/replicas | Long-term analytical scaling, experimental model state, Stuguby private keys, or integration secrets |
 | TimescaleDB (`telemetry` schema) | Raw measurement, legacy reading, outdoor-temperature, and electricity-price history; time bucketing; cold-chunk optimization | Identity, authorization, configuration, or secrets |
 | Spatial SQLite (`SPATIAL_LAYERS_DATABASE_PATH`) | Experimental overlays/configuration, bindings, calibrations, context, jobs/checkpoints, model runs, ground truth, and derived snapshot revisions | Property/sensor masters or raw telemetry samples |
 | In-process cache | Small, bounded, reconstructible response DTOs and snapshots | Writes, sessions, credentials, queues, or durable state |
@@ -22,7 +22,7 @@ All authoritative non-time-series application state is durable in SQLite. The co
 - sensors, measurement definitions, Home Assistant entity bindings, TP-Link device bindings, alert rules, alert history, alert evaluation state, and the notification outbox;
 - observations and revision history, maintenance tasks and revision/evidence links, static parameters, weather-outage recovery state, operational latches, and selected demo state;
 - non-secret integration identity, ownership, endpoint metadata, lifecycle state, and revision history.
-- Stugby rosters, invitation hashes, Home publication/grant metadata, Property
+- Stuguby rosters, invitation hashes, Home publication/grant metadata, Property
   adoptions, Home projections, authority epochs/transfers, durable Property and
   Home command queues/conflicts, outbox/inbox/cursors, per-recipient event logs,
   replay IDs, shared-Property aggregates, separately indexed remote raw
@@ -47,16 +47,16 @@ Regular raw-history APIs and experimental spatial inference share `HybridTelemet
 
 The time-series schema uses seven-day chunks for indoor measurements/readings, 30-day chunks for outdoor temperature, and 90-day chunks for electricity prices. Where supported, TimescaleDB configures columnstore or compression after 30, 90, and 180 days respectively. Measurement rollups are available at 5-minute, 1-hour, and 1-day resolutions. These policies change representation, not retention: they do not delete raw rows.
 
-The base tables and query API also work on ordinary PostgreSQL. When the TimescaleDB extension is unavailable, Stuga uses ordinary aggregate views and forgoes hypertables, continuous refresh, and cold-chunk optimization; initialization reports those capabilities instead of silently claiming them.
+The base tables and query API also work on ordinary PostgreSQL. When the TimescaleDB extension is unavailable, Stugu uses ordinary aggregate views and forgoes hypertables, continuous refresh, and cold-chunk optimization; initialization reports those capabilities instead of silently claiming them.
 
-## Stugby storage boundary
+## Stuguby storage boundary
 
 Before adoption, structured replicas live in `stugby_remote_resources` and raw
 samples in `stugby_remote_telemetry`; raw chunks are not duplicated in the
 generic JSON resource table. Adoption materializes a sanitized projection in
 the canonical Property/Home tables so existing UI and APIs can display it.
 Ownership, authority epoch, edit policy, recovery state, pending/conflict
-counts, and detached state remain explicit Stugby metadata. Unrelated local
+counts, and detached state remain explicit Stuguby metadata. Unrelated local
 Properties remain separate.
 
 Integration bindings, accounts, secrets, and automation/control capabilities
@@ -76,7 +76,7 @@ authorization. Supported blobs are PNG, JPEG, WebP, glTF, and GLB. Revocation
 and retention remove unreferenced replica files; pre-event uploads have a
 bounded temporary staging allowance. Back up the identity, database, and assets as
 one recovery unit. For the complete protocol and lifecycle, see
-[Stugby federation](stugby.md).
+[Stuguby federation](stuguby.md).
 
 ## Retention and idempotency
 
@@ -111,7 +111,7 @@ Changing a source identifier changes the identity of a sample. Do not rewrite so
 
 ## Historical ownership lineage
 
-The current raw indoor schema identifies a series by sensor ID, while access control resolves that sensor through its current Home and Property. Until immutable historical ownership context is stored, Stuga therefore fails closed when a Home with real telemetry is moved to another Property, when a sensor with real telemetry is moved to another Home, or when a telemetry-owning sensor, Home, or Property is hard-deleted. Archiving the samples first does not make those mutations safe: it would retain values while losing or changing the names, placement, ownership, and authorization context needed to interpret them. Sensors can be disabled instead. Resources containing only `mock` or `replay` telemetry may still be removed.
+The current raw indoor schema identifies a series by sensor ID, while access control resolves that sensor through its current Home and Property. Until immutable historical ownership context is stored, Stugu therefore fails closed when a Home with real telemetry is moved to another Property, when a sensor with real telemetry is moved to another Home, or when a telemetry-owning sensor, Home, or Property is hard-deleted. Archiving the samples first does not make those mutations safe: it would retain values while losing or changing the names, placement, ownership, and authorization context needed to interpret them. Sensors can be disabled instead. Resources containing only `mock` or `replay` telemetry may still be removed.
 
 The planned lineage migration will capture immutable `property_id` and `house_id` context on indoor samples (and `property_id` on outdoor samples) at ingestion time, without changing those fields during an idempotent replay. A small tombstone catalog will preserve retired resource names, parent IDs, placement metadata, and retirement time. Historical queries will authorize against captured context rather than only the current sensor row. Existing rows can be backfilled once from their current ownership before reparenting is enabled; move/delete and Guest-scope regression tests are required before lifting the fail-closed guards.
 
@@ -192,13 +192,13 @@ Treat one target schema as one logical deployment. Import multiple historical SQ
 
 Back up both authoritative stores. A PostgreSQL dump alone omits control-plane data and integration configuration; a SQLite snapshot alone omits the durable archive. Every backup is sensitive: core SQLite contains authentication/session hashes and household state, assets may reveal the home, and Timescale contains occupancy-adjacent telemetry. Keep sets outside Docker volumes on a protected, encrypted destination and encrypt every off-host copy, whether or not integration secrets are included.
 
-The repository backup CLI produces a transparent directory with consistent SQLite snapshots, copied assets, the Stugby node identity when present, an optional full-database custom-format PostgreSQL dump, and a checksummed manifest. It creates the root as `0700` and files as `0600` where POSIX permissions apply; on Windows it removes inherited access and grants the current account a private ACL, failing closed if that cannot be done. These controls do not replace disk encryption. The full database is required to preserve TimescaleDB hypertable chunks and catalog relationships; a schema-filtered dump is not a safe substitute. By default the CLI backs up the core database, the spatial database when present, the Stugby identity, and the assets directory. Integration secrets and TimescaleDB are explicit opt-ins. It never overwrites an existing output directory; an interrupted or failed run remains marked `INCOMPLETE`.
+The repository backup CLI produces a transparent directory with consistent SQLite snapshots, copied assets, the Stuguby node identity when present, an optional full-database custom-format PostgreSQL dump, and a checksummed manifest. It creates the root as `0700` and files as `0600` where POSIX permissions apply; on Windows it removes inherited access and grants the current account a private ACL, failing closed if that cannot be done. These controls do not replace disk encryption. The full database is required to preserve TimescaleDB hypertable chunks and catalog relationships; a schema-filtered dump is not a safe substitute. By default the CLI backs up the core database, the spatial database when present, the Stuguby identity, and the assets directory. Integration secrets and TimescaleDB are explicit opt-ins. It never overwrites an existing output directory; an interrupted or failed run remains marked `INCOMPLETE`.
 
 For Compose, the preferred complete backup path is the maintenance-only image. It contains matching PostgreSQL 17 client tools without adding them to the production API image, reads the databases through private volumes/networking, and writes to `./backups` (or `STUGA_BACKUP_DIRECTORY`):
 
 ```powershell
-docker compose --profile maintenance run --rm stuga-backup
-docker compose --profile maintenance run --rm --no-deps stuga-backup `
+docker compose --profile maintenance run --rm stugu-backup
+docker compose --profile maintenance run --rm --no-deps stugu-backup `
   --verify /app/backups/<backup-directory>
 ```
 
@@ -211,33 +211,33 @@ rootless Docker/Podman, Docker Desktop, and Podman machine. Export scheduled
 sets to the protected host backup directory with:
 
 ```powershell
-docker compose --profile maintenance run --rm stuga-backup-export
+docker compose --profile maintenance run --rm stugu-backup-export
 ```
 
 The exporter copies only completed sets with a manifest and preserves any
 same-named host export. Use `podman compose` for Podman. A fresh installation
 with no integration-secrets file can still produce a scheduled recovery set;
 the manifest records the protected source as excluded until credentials exist.
-The explicit `stuga-backup` command continues to require the secrets file
+The explicit `stugu-backup` command continues to require the secrets file
 because it promises a complete operator-requested recovery set.
 
 Create and verify a complete recovery set before a risky migration or upgrade:
 
 ```powershell
-$env:TIMESCALE_DATABASE_URL = "postgresql://<database-user>:<password>@127.0.0.1:5432/stuga"
-node scripts/stuga-backup.mjs --database ./data/climate-twin.sqlite `
+$env:TIMESCALE_DATABASE_URL = "postgresql://<database-user>:<password>@127.0.0.1:5432/stugu"
+node scripts/stugu-backup.mjs --database ./data/climate-twin.sqlite `
   --output ./backups/pre-upgrade `
   --include-timescale `
   --include-secrets --secrets-file ./data/integration-secrets.json
 Remove-Item Env:TIMESCALE_DATABASE_URL
-node scripts/stuga-backup.mjs --verify ./backups/pre-upgrade
+node scripts/stugu-backup.mjs --verify ./backups/pre-upgrade
 ```
 
-This example again assumes a loopback-reachable database. `--include-timescale` accepts connection details through `TIMESCALE_DATABASE_URL`, `DATABASE_URL`, standard libpq `PG*` variables, or the corresponding Stuga `TIMESERIES_*` variables. It requires `pg_dump` plus `pg_restore` on `PATH` unless their paths are supplied explicitly. The verify command checks every manifest size and SHA-256, runs SQLite integrity checks, and inspects the PostgreSQL dump catalog. It does not perform a restore.
+This example again assumes a loopback-reachable database. `--include-timescale` accepts connection details through `TIMESCALE_DATABASE_URL`, `DATABASE_URL`, standard libpq `PG*` variables, or the corresponding Stugu `TIMESERIES_*` variables. It requires `pg_dump` plus `pg_restore` on `PATH` unless their paths are supplied explicitly. The verify command checks every manifest size and SHA-256, runs SQLite integrity checks, and inspects the PostgreSQL dump catalog. It does not perform a restore.
 
 Before treating the set as recoverable:
 
-1. Confirm `node scripts/stuga-backup.mjs --verify <backup-directory>` passes.
+1. Confirm `node scripts/stugu-backup.mjs --verify <backup-directory>` passes.
 2. Encrypt the complete set and copy it to a protected off-host location.
 3. Restore the SQLite snapshots as new files and the custom-format dump into a fresh PostgreSQL/TimescaleDB database.
 4. Start an isolated API against the restored stores and check representative recent and historical queries.
@@ -262,8 +262,8 @@ Useful checks include:
 ```powershell
 docker compose ps
 docker compose logs --tail 100 timescaledb api
-docker compose exec timescaledb pg_isready -U stuga_admin -d stuga
-docker compose exec timescaledb psql -U stuga_admin -d stuga -c "SELECT pg_size_pretty(pg_database_size(current_database()));"
+docker compose exec timescaledb pg_isready -U stuga_admin -d stugu
+docker compose exec timescaledb psql -U stuga_admin -d stugu -c "SELECT pg_size_pretty(pg_database_size(current_database()));"
 ```
 
 Track database and per-table size, ingest lag, oldest/newest timestamp per series, failed archive batches, pool saturation, backup age, and restore-test age. Alert on disk growth rate rather than only a fixed free-space threshold. Run `ANALYZE` normally through PostgreSQL autovacuum, refresh historical rollups after large imports, and investigate query plans before adding indexes; every extra index increases ingest cost.

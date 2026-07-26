@@ -125,7 +125,7 @@ export class CloudflareAccessGroupSynchronizer {
       if (group.id !== this.config.groupId || group.name !== this.config.groupName) {
         throw new CloudflareAccessSyncError(
           "GROUP_IDENTITY_MISMATCH",
-          "The configured Cloudflare Access group does not match Stuga's managed group",
+          "The configured Cloudflare Access group does not match Stugu's managed group",
         );
       }
       if ((group.exclude?.length ?? 0) > 0 || (group.require?.length ?? 0) > 0) {
@@ -138,7 +138,7 @@ export class CloudflareAccessGroupSynchronizer {
       if (currentEmails.some((email) => email === null)) {
         throw new CloudflareAccessSyncError(
           "UNMANAGED_GROUP_RULES",
-          "The managed Cloudflare Access group contains a rule Stuga does not own",
+          "The managed Cloudflare Access group contains a rule Stugu does not own",
         );
       }
       const normalizedCurrent = [...new Set(currentEmails as string[])].sort();

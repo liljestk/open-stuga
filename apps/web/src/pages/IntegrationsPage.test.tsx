@@ -959,7 +959,7 @@ describe("Setup workspace", () => {
 
     const liveStatus = screen.getByRole("region", { name: "Live TP-Link status" });
     expect(refreshTpLinkDevices).toHaveBeenCalledTimes(7);
-    expect(within(liveStatus).getByText("Stuga could not check the hub's paired sensors.")).not.toBeNull();
+    expect(within(liveStatus).getByText("Stugu could not check the hub's paired sensors.")).not.toBeNull();
   });
 
   it("stops child-inventory polling after leaving Connections", async () => {

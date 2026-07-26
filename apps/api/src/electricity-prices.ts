@@ -209,7 +209,7 @@ export class ElectricityPriceService {
       }
       await resolveEndpoint(endpoint, this.endpointPolicy.resolver ?? defaultResolver, allowPrivateNetwork);
       const response = await this.fetcher(endpoint.toString(), {
-        headers: { accept: "application/json", "user-agent": "Stuga electricity-price integration" },
+        headers: { accept: "application/json", "user-agent": "Stugu electricity-price integration" },
         redirect: "error",
         signal: controller.signal,
       });

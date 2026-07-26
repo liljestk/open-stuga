@@ -1,6 +1,6 @@
 # Properties, mapped areas, and Guest access
 
-Stuga groups homes and outdoor assets under a **property**. A property can
+Stugu groups homes and outdoor assets under a **property**. A property can
 contain any number of homes plus user-drawn areas such as wells, beaches,
 garages, plantations, gardens, fields, forests, shorelines, docks, roads, and
 yards. Every home belongs to exactly one existing property and therefore
@@ -54,7 +54,7 @@ The iOS companion reads
 `GET /api/v1/properties/{propertyId}/inventory`, a consistent Property-scoped
 snapshot containing the visible areas, equipment, attachment metadata, and
 links plus an opaque `syncToken`. Attachment bytes use their equipment-scoped
-download endpoint. The response supports `ETag` revalidation. Normal Stuga
+download endpoint. The response supports `ETag` revalidation. Normal Stugu
 mutation events cause the companion to refresh this snapshot; the optional
 tracking stream refreshes position state independently and joins it by
 equipment ID.
@@ -228,7 +228,7 @@ cannot read that session credential, and the API resolves the account role and
 grants for every request. All accounts share the same local workspace; there is
 no alternate workspace selector.
 
-Account authentication does not encrypt traffic. Keep Stuga on loopback or a
+Account authentication does not encrypt traffic. Keep Stugu on loopback or a
 trusted private network, and use TLS with a VPN or reverse proxy before sharing
 it across another network.
 

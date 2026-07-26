@@ -12,7 +12,7 @@ const zoneId = "abcdef0123456789abcdef0123456789";
 const runtimeToken = "runtime-access-group-token-that-is-long-enough";
 const registrationToken = "oauth-client-write-token-that-is-long-enough";
 const provisionToken = "temporary-oauth-provision-token-that-is-long-enough";
-const clientId = "stuga-private-oauth-client";
+const clientId = "stugu-private-oauth-client";
 
 function response(result: unknown, status = 200): Response {
   return new Response(JSON.stringify({ success: status >= 200 && status < 300, result }), {
@@ -30,7 +30,7 @@ describe("UI-managed Cloudflare setup", () => {
   });
 
   function fixture(): { operations: string; deployment: string } {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-cloudflare-setup-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-cloudflare-setup-"));
     directories.push(directory);
     const operations = join(directory, "operations");
     const deployment = join(directory, "deployment.json");
@@ -40,7 +40,7 @@ describe("UI-managed Cloudflare setup", () => {
 
   function heartbeat(operations: string): void {
     writeFileSync(join(operations, "agent-status.json"), JSON.stringify({
-      schema: "stuga-update-agent/v1",
+      schema: "stugu-update-agent/v1",
       runtime: "docker",
       agentVersion: "1.1.0",
       capabilities: ["system-update", "cloudflare-setup"],
@@ -53,8 +53,8 @@ describe("UI-managed Cloudflare setup", () => {
     const { operations, deployment } = fixture();
     writeFileSync(join(operations, "cloudflare-status.json"), JSON.stringify({
       id: "2fc58aab-24fb-4aa3-894a-2a0811497d76",
-      mode: "stugby-coordinator",
-      hostname: "stuga.example.com",
+      mode: "stuguby-coordinator",
+      hostname: "stugu.example.com",
       phase: "awaiting-approval",
       requestedAt: "2026-07-24T08:00:00.000Z",
       completedAt: null,
@@ -69,7 +69,7 @@ describe("UI-managed Cloudflare setup", () => {
     expect(service.status().operation).toMatchObject({
       phase: "failed",
       completedAt: "2026-07-24T08:01:00.000Z",
-      detail: "Cloudflare approval was interrupted by a Stuga restart. Start again from Stuga.",
+      detail: "Cloudflare approval was interrupted by a Stugu restart. Start again from Stugu.",
     });
   });
 
@@ -78,7 +78,7 @@ describe("UI-managed Cloudflare setup", () => {
     writeFileSync(deployment, JSON.stringify({
       version: 2,
       mode: "remote-ui",
-      hostname: "stuga.example.com",
+      hostname: "stugu.example.com",
       accountId,
       zoneId,
     }));
@@ -117,8 +117,8 @@ describe("UI-managed Cloudflare setup", () => {
     heartbeat(operations);
 
     const started = await service.start({
-      mode: "stugby-coordinator",
-      hostname: "stuga.example.com",
+      mode: "stuguby-coordinator",
+      hostname: "stugu.example.com",
       zone: "example.com",
       ownerEmail: "owner@example.com",
       oauthClientToken: registrationToken,
@@ -143,7 +143,7 @@ describe("UI-managed Cloudflare setup", () => {
     const request = JSON.parse(requestText) as { claimSecret: string };
 
     expect(service.claim(started.operation.id, request.claimSecret)).toEqual({
-      schema: "stuga-cloudflare-setup-claim/v1",
+      schema: "stugu-cloudflare-setup-claim/v1",
       provisionToken,
       accessToken: runtimeToken,
       oauthClientId: clientId,
@@ -162,8 +162,8 @@ describe("UI-managed Cloudflare setup", () => {
     });
 
     await expect(service.start({
-      mode: "stugby-coordinator",
-      hostname: "stuga.example.com",
+      mode: "stuguby-coordinator",
+      hostname: "stugu.example.com",
       zone: "example.com",
       ownerEmail: "owner@example.com",
       accountId,
@@ -192,8 +192,8 @@ describe("UI-managed Cloudflare setup", () => {
     });
     heartbeat(operations);
     const input = {
-      mode: "stugby-coordinator" as const,
-      hostname: "stuga.example.com",
+      mode: "stuguby-coordinator" as const,
+      hostname: "stugu.example.com",
       zone: "example.com",
       ownerEmail: "owner@example.com",
       accountId,
@@ -231,8 +231,8 @@ describe("UI-managed Cloudflare setup", () => {
     });
     heartbeat(operations);
     const input = {
-      mode: "stugby-coordinator" as const,
-      hostname: "stuga.example.com",
+      mode: "stuguby-coordinator" as const,
+      hostname: "stugu.example.com",
       zone: "example.com",
       ownerEmail: "owner@example.com",
       accountId,
@@ -266,8 +266,8 @@ describe("UI-managed Cloudflare setup", () => {
     heartbeat(operations);
 
     const started = await service.start({
-      mode: "stugby-coordinator",
-      hostname: "stuga.example.com",
+      mode: "stuguby-coordinator",
+      hostname: "stugu.example.com",
       zone: "example.com",
       ownerEmail: "owner@example.com",
       accountId,
@@ -285,7 +285,7 @@ describe("UI-managed Cloudflare setup", () => {
     writeFileSync(deployment, JSON.stringify({
       version: 2,
       mode: "remote-ui",
-      hostname: "stuga.example.com",
+      hostname: "stugu.example.com",
       accountId,
       zoneId,
       oauthClientId: clientId,
@@ -316,8 +316,8 @@ describe("UI-managed Cloudflare setup", () => {
     heartbeat(operations);
 
     const started = await service.start({
-      mode: "stugby-coordinator",
-      hostname: "stuga.example.com",
+      mode: "stuguby-coordinator",
+      hostname: "stugu.example.com",
       zone: "example.com",
       ownerEmail: "owner@example.com",
     }, "http://127.0.0.1:8080/api/v1/cloudflare/setup/oauth/callback");

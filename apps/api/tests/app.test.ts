@@ -54,48 +54,48 @@ describe("Climate Twin API v1", () => {
     expect(loadConfig({ NODE_ENV: "production", DATABASE_PATH: ":memory:", MOCK_ENABLED: "false" }).mockEnabled).toBe(false);
   });
 
-  it("keeps Stugby inert but available and validates its node configuration", async () => {
+  it("keeps Stuguby inert but available and validates its node configuration", async () => {
     const defaults = loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" });
     expect(defaults).toMatchObject({
-      stugbyIdentityFile: null,
-      stugbyNodeName: "Stuga",
-      stugbySyncIntervalMs: 15_000,
-      stugbyPublicOrigin: null,
+      stugubyIdentityFile: null,
+      stugubyNodeName: "Stugu",
+      stugubySyncIntervalMs: 15_000,
+      stugubyPublicOrigin: null,
     });
     expect(loadConfig({
       NODE_ENV: "test", DATABASE_PATH: "./data/test.sqlite",
-      STUGBY_IDENTITY_FILE: "./data/test-stugby.json", STUGBY_NODE_NAME: "Shore household",
-      STUGBY_SYNC_INTERVAL_MS: "2000", STUGBY_PUBLIC_ORIGIN: "https://stugby.example.test",
+      STUGBY_IDENTITY_FILE: "./data/test-stuguby.json", STUGBY_NODE_NAME: "Shore household",
+      STUGBY_SYNC_INTERVAL_MS: "2000", STUGBY_PUBLIC_ORIGIN: "https://stuguby.example.test",
     })).toMatchObject({
-      stugbyNodeName: "Shore household",
-      stugbySyncIntervalMs: 2_000,
-      stugbyPublicOrigin: "https://stugby.example.test",
+      stugubyNodeName: "Shore household",
+      stugubySyncIntervalMs: 2_000,
+      stugubyPublicOrigin: "https://stuguby.example.test",
     });
     expect(loadConfig({
-      NODE_ENV: "test", DATABASE_PATH: ":memory:", CORS_ORIGIN: "https://stuga.example.test",
+      NODE_ENV: "test", DATABASE_PATH: ":memory:", CORS_ORIGIN: "https://stugu.example.test",
     })).toMatchObject({
-      stugbyPublicOrigin: null,
-      stugbySuggestedPublicOrigin: "https://stuga.example.test",
-      stugbyCoordinatorProvisioningRequired: false,
+      stugubyPublicOrigin: null,
+      stugubySuggestedPublicOrigin: "https://stugu.example.test",
+      stugubyCoordinatorProvisioningRequired: false,
     });
     expect(loadConfig({
       NODE_ENV: "test", DATABASE_PATH: ":memory:",
       CORS_ORIGIN: "https://browser.example.test",
       STUGBY_PUBLIC_ORIGIN: "https://coordinator.example.test",
-    }).stugbyPublicOrigin).toBe("https://coordinator.example.test");
+    }).stugubyPublicOrigin).toBe("https://coordinator.example.test");
     expect(loadConfig({
       NODE_ENV: "test", DATABASE_PATH: ":memory:", CORS_ORIGIN: "http://lan.example.test",
-    }).stugbySuggestedPublicOrigin).toBeNull();
+    }).stugubySuggestedPublicOrigin).toBeNull();
     expect(() => loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", STUGBY_SYNC_INTERVAL_MS: "1999" })).toThrow(/STUGBY_SYNC_INTERVAL_MS/);
     expect(() => loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", STUGBY_NODE_NAME: "x".repeat(201) })).toThrow(/STUGBY_NODE_NAME/);
     expect(() => loadConfig({
-      NODE_ENV: "test", DATABASE_PATH: ":memory:", STUGBY_PUBLIC_ORIGIN: "http://stugby.example.test",
+      NODE_ENV: "test", DATABASE_PATH: ":memory:", STUGBY_PUBLIC_ORIGIN: "http://stuguby.example.test",
     })).toThrow(/must use HTTPS/);
     expect(() => loadConfig({
-      NODE_ENV: "test", DATABASE_PATH: ":memory:", STUGBY_PUBLIC_ORIGIN: "https://stugby.example.test/path",
+      NODE_ENV: "test", DATABASE_PATH: ":memory:", STUGBY_PUBLIC_ORIGIN: "https://stuguby.example.test/path",
     })).toThrow(/must be an origin/);
     const available = await request(runtime.app).get("/api/v1/stugbys").expect(200);
-    expect(available.body.stugbys).toEqual([]);
+    expect(available.body.stugubys).toEqual([]);
     expect(available.body.identity.nodeId).toBeTruthy();
   });
 
@@ -127,7 +127,7 @@ describe("Climate Twin API v1", () => {
   });
 
   it("loads database credentials from a file and validates TLS modes", () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-timeseries-config-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-timeseries-config-"));
     const passwordPath = join(directory, "password");
     const caPath = join(directory, "ca.pem");
     try {
@@ -156,7 +156,7 @@ describe("Climate Twin API v1", () => {
   });
 
   it("loads only a complete, valid APNs provider credential tuple", () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-apns-config-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-apns-config-"));
     const keyPath = join(directory, "AuthKey_TEST.p8");
     try {
       const { privateKey } = generateKeyPairSync("ec", {
@@ -246,26 +246,26 @@ describe("Climate Twin API v1", () => {
       NODE_ENV: "test",
       DATABASE_PATH: ":memory:",
       ...identity,
-      CLOUDFLARE_ACCESS_GROUP_NAME: "Stuga test members",
+      CLOUDFLARE_ACCESS_GROUP_NAME: "Stugu test members",
       CLOUDFLARE_ACCESS_STATIC_EMAILS: " Owner@Example.test,owner@example.test ",
       CLOUDFLARE_ACCESS_API_TOKEN: "runtime-token-that-is-long-enough-for-tests",
       CLOUDFLARE_ACCESS_SYNC_INTERVAL_MS: "60000",
-      CLOUDFLARE_ACCESS_PUBLIC_ORIGIN: "https://stuga.example.test",
+      CLOUDFLARE_ACCESS_PUBLIC_ORIGIN: "https://stugu.example.test",
     })).toMatchObject({
       cloudflareAccessAccountId: identity.CLOUDFLARE_ACCESS_ACCOUNT_ID,
       cloudflareAccessGroupId: identity.CLOUDFLARE_ACCESS_GROUP_ID,
-      cloudflareAccessGroupName: "Stuga test members",
+      cloudflareAccessGroupName: "Stugu test members",
       cloudflareAccessStaticEmails: ["owner@example.test"],
       cloudflareAccessSyncIntervalMs: 60_000,
-      corsOrigin: "https://stuga.example.test",
+      corsOrigin: "https://stugu.example.test",
     });
     expect(loadConfig({
       NODE_ENV: "test",
       DATABASE_PATH: ":memory:",
-      STUGA_CLOUDFLARE_OAUTH_CLIENT_ID: "stuga-private-client",
+      STUGA_CLOUDFLARE_OAUTH_CLIENT_ID: "stugu-private-client",
       STUGA_LOCAL_UI_PORT: "9090",
     })).toMatchObject({
-      cloudflareSetupOAuthClientId: "stuga-private-client",
+      cloudflareSetupOAuthClientId: "stugu-private-client",
       cloudflareSetupLocalUiPort: 9_090,
     });
     expect(() => loadConfig({
@@ -299,8 +299,8 @@ describe("Climate Twin API v1", () => {
       .post("/api/v1/cloudflare/setup/start")
       .set("Host", "127.0.0.1:8080")
       .send({
-        mode: "stugby-coordinator",
-        hostname: "stuga.example.test",
+        mode: "stuguby-coordinator",
+        hostname: "stugu.example.test",
         zone: "example.test",
         ownerEmail: "owner@example.test",
         accountId: "0123456789abcdef0123456789abcdef",
@@ -317,8 +317,8 @@ describe("Climate Twin API v1", () => {
   it("returns an accepted Cloudflare approval after the external operation starts even if local auditing fails", async () => {
     const operation = {
       id: "2fc58aab-24fb-4aa3-894a-2a0811497d76",
-      mode: "stugby-coordinator" as const,
-      hostname: "stuga.example.test",
+      mode: "stuguby-coordinator" as const,
+      hostname: "stugu.example.test",
       phase: "awaiting-approval" as const,
       requestedAt: "2026-07-24T08:00:00.000Z",
       completedAt: null,
@@ -326,7 +326,7 @@ describe("Climate Twin API v1", () => {
     };
     vi.spyOn(runtime.cloudflareSetup, "start").mockResolvedValue({
       operation,
-      authorizationUrl: "https://dash.cloudflare.com/oauth2/auth?client_id=stuga-client",
+      authorizationUrl: "https://dash.cloudflare.com/oauth2/auth?client_id=stugu-client",
     });
     vi.spyOn(runtime.database, "recordSecurityAuditEvent").mockImplementation(() => {
       throw new Error("audit unavailable");
@@ -337,8 +337,8 @@ describe("Climate Twin API v1", () => {
       .post("/api/v1/cloudflare/setup/start")
       .set("Host", "127.0.0.1:8080")
       .send({
-        mode: "stugby-coordinator",
-        hostname: "stuga.example.test",
+        mode: "stuguby-coordinator",
+        hostname: "stugu.example.test",
         zone: "example.test",
         ownerEmail: "owner@example.test",
       })
@@ -346,7 +346,7 @@ describe("Climate Twin API v1", () => {
 
     expect(start.body).toEqual({
       operation,
-      authorizationUrl: "https://dash.cloudflare.com/oauth2/auth?client_id=stuga-client",
+      authorizationUrl: "https://dash.cloudflare.com/oauth2/auth?client_id=stugu-client",
     });
   });
 
@@ -1436,10 +1436,10 @@ describe("Climate Twin API v1", () => {
     expect(openapi.body.paths["/snapshot"]).toBeDefined();
     expect(openapi.body.paths["/readings"].get).toBeDefined();
     expect(openapi.body.paths["/integrations/tp-link/devices"].get.operationId).toBe("listTpLinkDevices");
-    expect(openapi.body.paths["/stugbys"].post.operationId).toBe("createStugby");
-    expect(openapi.body.paths["/stugbys/{stugbyId}"].delete.operationId).toBe("deleteStugby");
-    expect(openapi.body.paths["/stugby-protocol/stugbys/{stugbyId}/events/stream"].get.description).toContain("SSE");
-    expect(openapi.body.components.securitySchemes.stugbyNodeSignature.type).toBe("apiKey");
+    expect(openapi.body.paths["/stugbys"].post.operationId).toBe("createStuguby");
+    expect(openapi.body.paths["/stugbys/{stugubyId}"].delete.operationId).toBe("deleteStuguby");
+    expect(openapi.body.paths["/stugby-protocol/stugbys/{stugubyId}/events/stream"].get.description).toContain("SSE");
+    expect(openapi.body.components.securitySchemes.stugubyNodeSignature.type).toBe("apiKey");
     expect(openapi.body.paths["/sensors/{id}"].patch.requestBody.content["application/json"].schema.$ref).toContain("SensorPatch");
     const sensorCoordinates = openapi.body.components.schemas.SensorInput.properties;
     expect(sensorCoordinates.x.minimum).toBe(0);

@@ -1,6 +1,6 @@
 # Outdoor weather and home location
 
-Stuga can attach outdoor context to every home by storing a WGS84
+Stugu can attach outdoor context to every home by storing a WGS84
 latitude/longitude and IANA timezone. The API selects the weather provider from
 that location: Finnish locations use Finnish Meteorological Institute (FMI)
 open data, including official warnings, while other locations use Open-Meteo's
@@ -16,7 +16,7 @@ warning text whenever the data is displayed or exported.
 Select the Property and Home, then open **Set up > Weather**. Its canonical URL
 is `/properties/{propertyId}/homes/{homeId}/setup/weather`. Search by place name
 and review the suggested location and timezone, or explicitly choose **Use this
-device's location** and approve the browser permission prompt. Stuga does
+device's location** and approve the browser permission prompt. Stugu does
 not request the device position until that action. Place search and coordinate
 timezone lookup are performed server-side through Open-Meteo. They are suggested
 defaults: the user decides whether to apply a search result, and the manual
@@ -36,7 +36,7 @@ multiple named direct TP-Link connections.
 
 `House.location` is the weather lookup reference. Its latitude and longitude
 can be entered directly. An optional label such as `Espoo` is for display only;
-Stuga does not need or derive a street address. Save this location before
+Stugu does not need or derive a street address. Save this location before
 loading weather.
 
 The public `House.location` shape can include discovery provenance:
@@ -74,7 +74,7 @@ map instead of at a fixed screen size.
 `House.orientationDegrees` remains independent and optional. It is the
 true-north bearing, measured clockwise, of the **top edge of the floor plan**:
 `0` means the plan top faces north, `90` east, `180` south, and `270` west.
-Leave it unknown until it has been measured; Stuga does not silently
+Leave it unknown until it has been measured; Stugu does not silently
 assume north. It rotates the calibrated map footprint and provides the same
 plan-top reference for directional weather.
 
@@ -87,7 +87,7 @@ map to that Property's homes; surveyed parcel boundaries remain optional
 user-drawn context rather than authoritative cadastral geometry.
 
 Browser geolocation and the map are separate explicit actions. Approving device
-location supplies coordinates to the Stuga API and to the server-side
+location supplies coordinates to the Stugu API and to the server-side
 timezone/weather lookup; it does not open the map. Opening the map sends tile
 requests but does not grant browser-geolocation access. A place search sends the
 entered search text to the API and then Open-Meteo's geocoding service.
@@ -144,7 +144,7 @@ conditions are modelled and are labelled as such. Missing values remain visibly
 unavailable rather than being replaced with zero.
 
 Wind direction is the direction the wind comes **from**. With a known house
-orientation, Stuga converts it into plan coordinates as
+orientation, Stugu converts it into plan coordinates as
 `windFrom - orientationDegrees` (normalized to 0–359 degrees). The resulting
 arrow starts at the windward plan edge and points inward in the 2D and 3D
 views. If orientation or wind direction is unknown, the numeric outside values
@@ -203,7 +203,7 @@ Other locations use Open-Meteo. The chosen provider is recorded in every
 response and can vary between homes in the same installation.
 
 Open-Meteo requests its `best_match` modelled current conditions and hourly
-forecast in GMT, then Stuga displays those UTC timestamps in the home's
+forecast in GMT, then Stugu displays those UTC timestamps in the home's
 IANA timezone. The adapter maps temperature, relative humidity, dew point,
 pressure, wind, precipitation, precipitation probability, cloud layers,
 visibility, WMO weather code, snow depth, and shortwave radiation when provided.
@@ -239,7 +239,7 @@ and test stored queries when upgrading.
 
 ### Observation-station caveat
 
-An observation is not measured at the house. Stuga searches for recent
+An observation is not measured at the house. Stugu searches for recent
 stations within roughly 40 km and expands to 120 km if necessary, then selects
 the nearest station with a temperature observation no more than 90 minutes
 old. Other fields are taken only within 30 minutes of that temperature, and
@@ -287,7 +287,7 @@ late response for a moved home cannot be stored under its new location.
 
 ### Outage recovery and historical observations
 
-When an outage closes and observed conditions are available again, Stuga queues
+When an outage closes and observed conditions are available again, Stugu queues
 the affected observation interval for backfill. Recovery requests are split
 into bounded 24-hour chunks. Finnish Homes retrieve station observations from
 FMI WFS; worldwide Homes retrieve the same modelled hourly fields from
@@ -302,7 +302,7 @@ indexed temperature boundary; the optional Timescale archive carries the same
 observation in row metadata.
 
 Forecast and warning outages are recorded but are marked non-reconstructible.
-Stuga does not substitute a newer forecast or warning feed for what was actually
+Stugu does not substitute a newer forecast or warning feed for what was actually
 available during the outage. This preserves the difference between replaying
 observed conditions and claiming to reproduce information that was issued in
 the past.
@@ -330,7 +330,7 @@ fallbacks are rejected by the monitor, while an explicitly requested stale
 snapshot can be emitted with `weather.stale: true` so clients retain its actual
 quality state.
 
-Weather context is not inserted into indoor sensor measurement history. Stuga
+Weather context is not inserted into indoor sensor measurement history. Stugu
 persists fresh current observations and recovered historical observations in a
 separate outdoor-boundary table. Temperature remains indexed for the existing
 thermal and spatial consumers, while the full canonical observation is retained
@@ -352,7 +352,7 @@ used sets, for example:
 
 FMI's published user-specific limits are currently 20,000 requests per day for
 the WFS download service and 10,000 per day for the WMS view service, with WFS
-and WMS together limited to 600 requests per five minutes. Stuga does
+and WMS together limited to 600 requests per five minutes. Stugu does
 not use WMS for this feature. The 10-minute application cache reduces calls,
 but operators still need to account for the number of houses, horizon changes,
 restarts, replicas, and other software sharing the same allowance. The license
@@ -382,7 +382,7 @@ Authoritative references checked on 2026-07-14:
 
 ## Location-discovery privacy
 
-Stuga does not silently infer or persist a home location. A place search
+Stugu does not silently infer or persist a home location. A place search
 sends the entered text and UI language from the browser to the local API, which
 forwards them to Open-Meteo's geocoding service; only a result the user selects
 and applies is saved. **Use this device's location** invokes the browser
@@ -393,15 +393,15 @@ reversible fallback. Manual coordinates remain available under **Advanced**.
 
 The saved coordinate, timezone, discovery source, confidence, and discovery
 time are household metadata. Browser permission is not ongoing background
-tracking: Stuga stores the selected home point, not a device movement
+tracking: Stugu stores the selected home point, not a device movement
 history. Revoke the browser permission separately if it is no longer wanted.
 
 ## Map privacy and attribution
 
 The selected Property's Home map and location editor render standard tiles directly in the
 user's browser from `https://tile.openstreetmap.org` only after the user chooses
-to load the map; Stuga does not proxy or store the tiles. Those
-requests disclose the browser's IP address, the Stuga web origin in the
+to load the map; Stugu does not proxy or store the tiles. Those
+requests disclose the browser's IP address, the Stugu web origin in the
 required HTTP `Referer`, and the requested tile coordinates (which imply the
 viewed map area and zoom) to OpenStreetMap infrastructure. Users who must not
 make that external request should not load the map in **Set up > Homes**;
@@ -416,7 +416,7 @@ copyright/licence page. Do not remove that attribution. Follow the current
 Do not prefetch or bulk-download standard tiles; production/high-volume use
 needs a suitable tile provider or self-hosted service. The production
 `strict-origin-when-cross-origin` referrer policy sends only the web origin to
-OSM, not a Stuga route, query string, or saved coordinates.
+OSM, not a Stugu route, query string, or saved coordinates.
 
 Only the exact HTTPS tile origin is permitted by the production content
 security policy. FMI, Open-Meteo weather, Open-Meteo geocoding, and coordinate

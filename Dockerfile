@@ -12,7 +12,7 @@ COPY apps/web/package*.json ./apps/web/
 COPY apps/tapo-export-runner/package*.json ./apps/tapo-export-runner/
 COPY packages/contracts/package*.json ./packages/contracts/
 COPY packages/spatial-layers/package*.json ./packages/spatial-layers/
-COPY packages/stugby-protocol/package*.json ./packages/stugby-protocol/
+COPY packages/stuguby-protocol/package*.json ./packages/stuguby-protocol/
 
 RUN --mount=type=cache,target=/root/.npm \
   if [ -f package-lock.json ]; then \
@@ -26,9 +26,9 @@ FROM dependencies AS api-build
 COPY apps/api ./apps/api
 COPY packages/contracts ./packages/contracts
 COPY packages/spatial-layers ./packages/spatial-layers
-COPY packages/stugby-protocol ./packages/stugby-protocol
+COPY packages/stuguby-protocol ./packages/stuguby-protocol
 COPY scripts/init-runtime-secrets.mjs scripts/migrate-telemetry-to-timescale.mjs \
-  scripts/sqlite-snapshot-utils.mjs scripts/stuga-backup.mjs ./scripts/
+  scripts/sqlite-snapshot-utils.mjs scripts/stugu-backup.mjs ./scripts/
 
 RUN npm run build:packages && npm run build --workspace @climate-twin/api
 
@@ -40,7 +40,7 @@ FROM dependencies AS web-build
 COPY apps/web ./apps/web
 COPY packages/contracts ./packages/contracts
 COPY packages/spatial-layers ./packages/spatial-layers
-COPY packages/stugby-protocol ./packages/stugby-protocol
+COPY packages/stuguby-protocol ./packages/stuguby-protocol
 
 # An empty value makes the browser use the same-origin /api/v1 default.
 ARG VITE_API_BASE_URL=
@@ -64,7 +64,7 @@ ENV NODE_ENV=production \
     PORT=8787 \
     API_HOST=0.0.0.0 \
     DATABASE_PATH=/app/data/climate-twin.sqlite \
-    STUGBY_IDENTITY_FILE=/app/data/stugby-identity.json \
+    STUGBY_IDENTITY_FILE=/app/data/stuguby-identity.json \
     SPATIAL_LAYERS_ENABLED=true \
     SPATIAL_LAYERS_DATABASE_PATH=/app/data/experimental-spatial-layers.sqlite \
     INTEGRATION_SECRETS_FILE=/app/data/integration-secrets.json \
@@ -103,12 +103,12 @@ COPY --from=api-build --chown=node:node /app/packages/contracts/package.json ./p
 COPY --from=api-build --chown=node:node /app/packages/contracts/dist ./packages/contracts/dist
 COPY --from=api-build --chown=node:node /app/packages/spatial-layers/package.json ./packages/spatial-layers/package.json
 COPY --from=api-build --chown=node:node /app/packages/spatial-layers/dist ./packages/spatial-layers/dist
-COPY --from=api-build --chown=node:node /app/packages/stugby-protocol/package.json ./packages/stugby-protocol/package.json
-COPY --from=api-build --chown=node:node /app/packages/stugby-protocol/dist ./packages/stugby-protocol/dist
+COPY --from=api-build --chown=node:node /app/packages/stuguby-protocol/package.json ./packages/stuguby-protocol/package.json
+COPY --from=api-build --chown=node:node /app/packages/stuguby-protocol/dist ./packages/stuguby-protocol/dist
 COPY --from=api-build --chown=node:node /app/scripts/init-runtime-secrets.mjs ./scripts/init-runtime-secrets.mjs
 COPY --from=api-build --chown=node:node /app/scripts/migrate-telemetry-to-timescale.mjs ./scripts/migrate-telemetry-to-timescale.mjs
 COPY --from=api-build --chown=node:node /app/scripts/sqlite-snapshot-utils.mjs ./scripts/sqlite-snapshot-utils.mjs
-COPY --from=api-build --chown=node:node /app/scripts/stuga-backup.mjs ./scripts/stuga-backup.mjs
+COPY --from=api-build --chown=node:node /app/scripts/stugu-backup.mjs ./scripts/stugu-backup.mjs
 
 USER node
 
@@ -143,31 +143,31 @@ WORKDIR /app
 
 COPY --from=node-base /usr/local/bin/node /usr/local/bin/node
 COPY package.json ./package.json
-COPY scripts/sqlite-snapshot-utils.mjs scripts/stuga-backup.mjs scripts/stuga-backup-scheduler.mjs scripts/stuga-restore-drill.mjs \
-  scripts/stuga-migration-common.mjs scripts/stuga-migration-bundle.mjs scripts/stuga-migration-target.mjs ./scripts/
+COPY scripts/sqlite-snapshot-utils.mjs scripts/stugu-backup.mjs scripts/stugu-backup-scheduler.mjs scripts/stugu-restore-drill.mjs \
+  scripts/stugu-migration-common.mjs scripts/stugu-migration-bundle.mjs scripts/stugu-migration-target.mjs ./scripts/
 COPY --chmod=755 scripts/export-scheduled-backups.sh ./scripts/export-scheduled-backups.sh
 
 RUN install -d -o 1000 -g 1000 -m 0700 /app/backups
 
 USER 1000:1000
 
-ENTRYPOINT ["node", "/app/scripts/stuga-backup.mjs"]
+ENTRYPOINT ["node", "/app/scripts/stugu-backup.mjs"]
 
 FROM docker:28-cli AS update-agent
 
 RUN apk add --no-cache nodejs
-WORKDIR /opt/stuga-agent
-COPY scripts/stuga-update-agent.mjs scripts/cloudflare-stuga.mjs scripts/cloudflare-oauth.mjs ./
-ENTRYPOINT ["node", "/opt/stuga-agent/stuga-update-agent.mjs"]
+WORKDIR /opt/stugu-agent
+COPY scripts/stugu-update-agent.mjs scripts/cloudflare-stugu.mjs scripts/cloudflare-oauth.mjs ./
+ENTRYPOINT ["node", "/opt/stugu-agent/stugu-update-agent.mjs"]
 
 FROM nginx:alpine AS web
 
 RUN rm -f /etc/nginx/conf.d/default.conf
 COPY config/nginx.conf /etc/nginx/templates/nginx.conf.template
-COPY config/nginx-entrypoint.sh /usr/local/bin/stuga-nginx-entrypoint
+COPY config/nginx-entrypoint.sh /usr/local/bin/stugu-nginx-entrypoint
 COPY --from=web-build /app/apps/web/dist /usr/share/nginx/html
 
-RUN chmod 755 /usr/local/bin/stuga-nginx-entrypoint
+RUN chmod 755 /usr/local/bin/stugu-nginx-entrypoint
 
 USER nginx
 
@@ -176,4 +176,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD ["wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080/api/v1/health"]
 
-CMD ["/usr/local/bin/stuga-nginx-entrypoint"]
+CMD ["/usr/local/bin/stugu-nginx-entrypoint"]

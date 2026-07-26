@@ -270,7 +270,7 @@ describe("isolated spatial layer state", () => {
   });
 
   it("uses a physically separate SQLite database and leaves core tables untouched", () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-spatial-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-spatial-"));
     temporaryDirectories.push(directory);
     const corePath = join(directory, "core.sqlite");
     const statePath = deriveSpatialStatePath(corePath);
@@ -1018,7 +1018,7 @@ describe("local spatial layer API", () => {
   });
 
   it("uses the persisted core UUID across restart and a core database path move", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-spatial-source-id-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-spatial-source-id-"));
     temporaryDirectories.push(directory);
     const originalCorePath = join(directory, "core.sqlite");
     const movedCorePath = join(directory, "moved-core.sqlite");

@@ -104,7 +104,7 @@ export const MIGRATION_AGGREGATES = Object.freeze([
 ]);
 
 function help() {
-  return `Stuga SQLite to PostgreSQL/Timescale telemetry migration
+  return `Stugu SQLite to PostgreSQL/Timescale telemetry migration
 
 Usage:
   node scripts/migrate-telemetry-to-timescale.mjs [options]
@@ -148,7 +148,7 @@ Safety and recovery:
 
 Examples:
   node scripts/migrate-telemetry-to-timescale.mjs --source ./data/climate-twin.sqlite --dry-run
-  $env:TIMESCALE_DATABASE_URL='postgresql://user:password@localhost:5432/stuga'
+  $env:TIMESCALE_DATABASE_URL='postgresql://user:password@localhost:5432/stugu'
   node scripts/migrate-telemetry-to-timescale.mjs --source ./data/climate-twin.sqlite
   node scripts/migrate-telemetry-to-timescale.mjs --source ./data/climate-twin.sqlite --verify-only
 `;
@@ -533,7 +533,7 @@ function readManifest(path) {
   } catch (error) {
     throw new Error(`Cannot read migration checkpoint ${path}: ${error.message}`);
   }
-  if (parsed?.format !== "stuga-telemetry-migration" || ![1, MANIFEST_VERSION].includes(parsed?.version)) {
+  if (parsed?.format !== "stugu-telemetry-migration" || ![1, MANIFEST_VERSION].includes(parsed?.version)) {
     throw new Error(`Unsupported migration checkpoint format: ${path}`);
   }
   if (parsed.version === 1) {
@@ -669,7 +669,7 @@ async function loadPgClient(clientConfig) {
   }
   const Client = module.Client ?? module.default?.Client;
   if (!Client) throw new Error("The installed pg package does not export Client");
-  const client = new Client({ ...clientConfig, application_name: "stuga-telemetry-migration" });
+  const client = new Client({ ...clientConfig, application_name: "stugu-telemetry-migration" });
   await client.connect();
   return client;
 }
@@ -1477,7 +1477,7 @@ async function buildOrLoadManifest(options) {
   }
   const blockers = sourceBlockers(inventory);
   const manifest = {
-    format: "stuga-telemetry-migration",
+    format: "stugu-telemetry-migration",
     version: MANIFEST_VERSION,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -1529,7 +1529,7 @@ export async function runMigration(options) {
     client = await loadPgClient(options.pgClientConfig);
     const fingerprint = await destinationFingerprint(client, options.schema);
     const advisory = await client.query(
-      "SELECT pg_try_advisory_lock(hashtext('stuga-telemetry-migration'), hashtext($1)) AS acquired",
+      "SELECT pg_try_advisory_lock(hashtext('stugu-telemetry-migration'), hashtext($1)) AS acquired",
       [options.schema],
     );
     if (!advisory.rows[0]?.acquired) {
@@ -1650,7 +1650,7 @@ export async function runMigration(options) {
     releaseLock();
     try {
       if (advisoryLockHeld) {
-        await client?.query("SELECT pg_advisory_unlock(hashtext('stuga-telemetry-migration'), hashtext($1))", [options.schema]);
+        await client?.query("SELECT pg_advisory_unlock(hashtext('stugu-telemetry-migration'), hashtext($1))", [options.schema]);
       }
     } catch {
       // The server releases session advisory locks on disconnect.

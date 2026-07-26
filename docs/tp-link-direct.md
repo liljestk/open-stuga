@@ -1,6 +1,6 @@
 # Direct TP-Link hubs and energy devices
 
-Stuga can poll three local TP-Link source shapes without Home Assistant:
+Stugu can poll three local TP-Link source shapes without Home Assistant:
 
 - Tapo T310 and T315 climate children paired to an H100 or H200 hub;
 - paired hub children that expose a boolean python-kasa contact-state capability; and
@@ -8,16 +8,16 @@ Stuga can poll three local TP-Link source shapes without Home Assistant:
   that the pinned python-kasa library exposes through `Module.Energy`.
 
 The energy-device boundary is capability-based rather than a model allowlist.
-Stuga reads `current_consumption` as instantaneous `power` in W. It reads
+Stugu reads `current_consumption` as instantaneous `power` in W. It reads
 `consumption_total` as cumulative `energy` in kWh only when python-kasa actually
 provides that property. It does not relabel daily or monthly reset counters as
 cumulative energy. The pinned python-kasa 0.10.2 SMART/Tapo implementation does
 not provide `consumption_total`, so a typical direct Tapo smart energy device
-provides power but not Stuga's cumulative-energy metric. Some legacy Kasa
+provides power but not Stugu's cumulative-energy metric. Some legacy Kasa
 emeter devices provide a total-since-reboot counter; that counter can decrease
 after a device reboot and is not a certified billing total.
 
-`electricity_price` never comes from a TP-Link device. By default Stuga fetches
+`electricity_price` never comes from a TP-Link device. By default Stugu fetches
 it per property from Pörssisähkö; see [electricity prices and contracts](electricity-prices.md). It may also be supplied through a Home
 Assistant mapping or the v2 measurement API. Threshold alerts work for any
 accepted direct `power` or `energy` sample through the normal metric alert
@@ -25,7 +25,7 @@ engine.
 
 The Tapo/Kasa app is still used to commission devices, pair hub children,
 update firmware, and give devices useful names. Reserve a stable LAN address
-for the configured hub or direct energy device before configuring Stuga. For
+for the configured hub or direct energy device before configuring Stugu. For
 T310/T315, TP-Link also documents app-based CSV export and up to two calendar
 years of cloud retention in its [history-export FAQ](https://www.tp-link.com/us/support/faq/4048/).
 
@@ -64,7 +64,7 @@ modules are available. The credentials are also required for the direct local
 connection. Only after that connection starts can the H100/H200 report its
 paired child sensors or a direct endpoint report live Energy data.
 
-Connections saved in Stuga are owned by the selected Home. One Home can have
+Connections saved in Stugu are owned by the selected Home. One Home can have
 an H100/H200 plus one or more directly polled energy sockets, and each connection
 runs independently with its own LAN host and status. `TP_LINK_HOST` remains a
 single advanced environment override for legacy deployments.
@@ -73,7 +73,7 @@ To add several P110-style energy monitors to one Home, keep that Home selected
 and repeat **Find devices**, choose the next socket, then **Save and connect** for
 each device. Saving a newly identified socket appends a connection; it does not
 replace the connections that are already polling. Add each discovered energy
-endpoint as its own sensor afterward so Stuga stores both its connection ID and
+endpoint as its own sensor afterward so Stugu stores both its connection ID and
 device ID and keeps readings from the sockets independent.
 
 An H200 may initially connect without returning its child list. After saving,
@@ -100,7 +100,7 @@ TP_LINK_POLL_INTERVAL_MS=2000
 
 ## 3. Discover and add sensors
 
-After the bridge connects, open Stuga and
+After the bridge connects, open Stugu and
 select **Sensors** in the sidebar. The page shows sanitized climate-child or
 direct-energy-device details from the latest poll; credentials never reach the
 browser.
@@ -112,7 +112,7 @@ Choose **Add sensor**, select an unmapped climate child or energy endpoint, then
 3. set mounting height and place it on the floor plan; and
 4. review and save.
 
-The Home (`houseId` in the compatibility API), connection ID, and stable TP-Link device ID are stored on the Stuga
+The Home (`houseId` in the compatibility API), connection ID, and stable TP-Link device ID are stored on the Stugu
 sensor in SQLite, so identical device identifiers on different home networks do
 not collide.
 The running bridge refreshes database mappings on each snapshot, so ingestion
@@ -146,7 +146,7 @@ scans the prior 30 days of stored samples every 15 minutes. When a direct
 TP-Link gap closes, the owning connection first asks the same LAN device for
 retained history:
 
-- Stuga attempts to read up to 96 15-minute temperature or humidity buckets
+- Stugu attempts to read up to 96 15-minute temperature or humidity buckets
   from an H100/H200 T310 or T315 child, representing approximately the latest
   day;
 - a compatible energy device can return retained instantaneous `power` at a
@@ -172,7 +172,7 @@ automated history stack can fall through to the Tapo app export/mailbox queue. S
 [Automated Tapo history recovery](tapo-history-automation.md) for Appium flow
 capture, Gmail OAuth, worker leases, operator controls, and the experimental
 endpoint boundary. Cross-source recovery is accepted only when both bindings
-belong to the same Stuga sensor and metric.
+belong to the same Stugu sensor and metric.
 
 Operators can inspect the persistent gap ledger and export-job ledger with:
 
@@ -191,20 +191,20 @@ fallback; offline, missing, unknown, or stale state falls back safely. Contact
 bindings are architectural opening bindings and do not require creating a
 climate sensor record.
 
-The same devices can be used through Home Assistant at the same time, and Stuga
-can run both adapters. Represent one physical device with one Stuga sensor:
+The same devices can be used through Home Assistant at the same time, and Stugu
+can run both adapters. Represent one physical device with one Stugu sensor:
 open **Sensors**, select the discovered direct device, and choose **Attach to
 existing sensor** when Home Assistant already created its logical sensor. While
 the exact direct metric is healthy, its two-second local poll is the live
 primary and duplicate Home Assistant live samples are suppressed. Home
 Assistant takes over on the next valid update if direct availability is lost.
-Stuga never guesses this relationship from a friendly name or alias.
+Stugu never guesses this relationship from a friendly name or alias.
 
 ## Optional legacy mapping file
 
 Existing installations may continue to set `TP_LINK_DEVICE_MAP_FILE`. Copy
 `config/tp-link.devices.example.json` to the untracked
-`config/tp-link.devices.json` and map each stable child ID to a Stuga
+`config/tp-link.devices.json` and map each stable child ID to a Stugu
 sensor ID. The file is used as a bootstrap source alongside database bindings;
 after validation, its canonical non-secret mapping set is stored with a verified
 hash and revision in core SQLite. Manager startup performs this import even when
@@ -215,7 +215,7 @@ SQLite copy, so the file is no longer a recovery dependency. Source paths,
 credentials, and unknown fields are not copied. Unknown sensor references remain
 in the stored aggregate for recovery but are skipped with a status diagnostic,
 without blocking valid legacy or database-bound devices. A device binding saved
-on a Stuga sensor still takes precedence over this compatibility map. Set
+on a Stugu sensor still takes precedence over this compatibility map. Set
 `"devices": []` to explicitly clear the compatibility set. Direct energy
 devices use the same stable-device-ID mapping shape.
 
@@ -233,7 +233,7 @@ credentials are removed. Use a separate database for demonstrations.
 - Discovery broadcasts and mDNS often do not cross guest Wi-Fi, VLAN, or Docker
   bridge boundaries. Use the manual address field; this does not prevent normal
   polling when the hub is routable.
-- On a multi-interface host, Stuga scans each active IPv4 subnet using its
+- On a multi-interface host, Stugu scans each active IPv4 subnet using its
   directed broadcast address. To restrict a local development scan, set a
   comma-separated override such as
   `TP_LINK_DISCOVERY_TARGETS=192.168.71.255` before starting the API.
@@ -249,7 +249,7 @@ credentials are removed. Use a separate database for demonstrations.
   history before upload and that a hub restart can delete unuploaded history;
   see its [missing-history FAQ](https://www.tp-link.com/us/support/faq/3450/).
 - If a direct Tapo device reports power but no energy, inspect python-kasa's
-  `Module.Energy.consumption_total`. Stuga deliberately does not substitute
+  `Module.Energy.consumption_total`. Stugu deliberately does not substitute
   `consumption_today` or `consumption_this_month` because those counters reset.
 - Some firmware changes can alter the local protocol. Check the current
   python-kasa supported-device fixtures before upgrading a production hub.

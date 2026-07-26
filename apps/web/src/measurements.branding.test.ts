@@ -15,7 +15,7 @@ function definition(colorScale: MeasurementColorScale): MeasurementDefinition {
   };
 }
 
-describe("Stuga measurement ramps", () => {
+describe("Stugu measurement ramps", () => {
   it.each([
     ["thermal", "rgb(33 102 172)", "rgb(242 235 221)", "rgb(181 65 34)"],
     ["humidity", "rgb(216 240 246)", "rgb(42 132 184)", "rgb(18 61 117)"],

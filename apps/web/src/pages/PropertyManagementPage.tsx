@@ -67,7 +67,7 @@ import type {
 } from "@climate-twin/contracts";
 import { api, ApiRequestError, subscribeToTrackingEvents, type HouseGeoreferencePatch } from "../api";
 import { EquipmentQrLabel } from "../components/EquipmentQrLabel";
-import { StugbyMark } from "../components/StugbyMark";
+import { StugubyMark } from "../components/StugubyMark";
 import type { ClimateState } from "../domain";
 import { useI18n, type TranslationKey } from "../i18n";
 import { derivePropertyTrafficLights, type PropertyTrafficLight } from "../propertyStatus";
@@ -179,11 +179,11 @@ function placementInput(value: EquipmentPlacement): Pick<AreaEquipmentPatch, "ar
   return { areaId: null, houseId: null };
 }
 
-function isForeignSharedHouse(house: Pick<ClimateState["houses"][number], "stugby">): boolean {
+function isForeignSharedHouse(house: Pick<ClimateState["houses"][number], "stuguby">): boolean {
   return Boolean(
-    house.stugby
-    && house.stugby.ownership === "shared"
-    && house.stugby.syncState !== "detached",
+    house.stuguby
+    && house.stuguby.ownership === "shared"
+    && house.stuguby.syncState !== "detached",
   );
 }
 
@@ -543,18 +543,18 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
   }, [props.onProperty]);
   const property = useMemo(() => properties.find((item) => item.id === propertyId) ?? properties[0], [properties, propertyId]);
   const readOnly = workspaceReadOnly || Boolean(
-    property?.stugby
-    && !property.stugby.isAuthority
-    && property.stugby.syncState !== "detached"
-    && property.stugby.editPolicy === "read-only",
+    property?.stuguby
+    && !property.stuguby.isAuthority
+    && property.stuguby.syncState !== "detached"
+    && property.stuguby.editPolicy === "read-only",
   );
   const houses = useMemo(() => state.houses.filter((house) => house.propertyId === property?.id), [property?.id, state.houses]);
   const houseReadOnly = useCallback((house: ClimateState["houses"][number]) => (
     readOnly
-    || Boolean(house.stugby
-      && house.stugby.ownership === "shared"
-      && house.stugby.syncState !== "detached"
-      && house.stugby.editPolicy === "read-only")
+    || Boolean(house.stuguby
+      && house.stuguby.ownership === "shared"
+      && house.stuguby.syncState !== "detached"
+      && house.stuguby.editPolicy === "read-only")
   ), [readOnly]);
   const [mapLoaded, setMapLoaded] = useState(false);
   const areas = useMemo(() => state.propertyAreas.filter((area) => area.propertyId === property?.id), [property?.id, state.propertyAreas]);
@@ -1444,7 +1444,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
   };
 
   const removeProperty = async () => {
-    if (!property || (property.stugby && property.stugby.syncState !== "detached")
+    if (!property || (property.stuguby && property.stuguby.syncState !== "detached")
       || readOnly || pending || !window.confirm(t("properties.deletePropertyConfirm", { name: property.name }))) return;
     setPending(true);
     setFeedback(null);
@@ -1998,26 +1998,26 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
   };
 
   const propertyShareLabel = (item: Property) => {
-    if (!item.stugby) return null;
-    if (item.stugby.syncState === "detached") return t("properties.stugby.detached");
-    if (item.stugby.syncState === "conflict") return t("properties.stugby.conflict");
-    if (item.stugby.syncState === "offline") return t("properties.stugby.offline");
-    if (item.stugby.pendingChangeCount > 0) return t("properties.stugby.pending", { count: item.stugby.pendingChangeCount });
-    if (item.stugby.isAuthority) return t("properties.stugby.authority");
-    return item.stugby.editPolicy === "read-only"
-      ? t("properties.stugby.inheritedReadOnly")
-      : t("properties.stugby.inheritedEditable");
+    if (!item.stuguby) return null;
+    if (item.stuguby.syncState === "detached") return t("properties.stuguby.detached");
+    if (item.stuguby.syncState === "conflict") return t("properties.stuguby.conflict");
+    if (item.stuguby.syncState === "offline") return t("properties.stuguby.offline");
+    if (item.stuguby.pendingChangeCount > 0) return t("properties.stuguby.pending", { count: item.stuguby.pendingChangeCount });
+    if (item.stuguby.isAuthority) return t("properties.stuguby.authority");
+    return item.stuguby.editPolicy === "read-only"
+      ? t("properties.stuguby.inheritedReadOnly")
+      : t("properties.stuguby.inheritedEditable");
   };
   const houseShareLabel = (house: ClimateState["houses"][number]) => {
-    if (!house.stugby) return null;
-    if (house.stugby.syncState === "detached") return t("properties.stugby.localAfterDisconnect");
-    if (house.stugby.syncState === "conflict") return t("properties.stugby.conflict");
-    if (house.stugby.syncState === "offline") return t("properties.stugby.offline");
-    if (house.stugby.pendingChangeCount > 0) return t("properties.stugby.pending", { count: house.stugby.pendingChangeCount });
-    if (house.stugby.ownership === "local") return t("properties.stugby.ownedHouse");
-    return house.stugby.editPolicy === "read-only"
-      ? t("properties.stugby.sharedHouseReadOnly")
-      : t("properties.stugby.sharedHouseEditable");
+    if (!house.stuguby) return null;
+    if (house.stuguby.syncState === "detached") return t("properties.stuguby.localAfterDisconnect");
+    if (house.stuguby.syncState === "conflict") return t("properties.stuguby.conflict");
+    if (house.stuguby.syncState === "offline") return t("properties.stuguby.offline");
+    if (house.stuguby.pendingChangeCount > 0) return t("properties.stuguby.pending", { count: house.stuguby.pendingChangeCount });
+    if (house.stuguby.ownership === "local") return t("properties.stuguby.ownedHouse");
+    return house.stuguby.editPolicy === "read-only"
+      ? t("properties.stuguby.sharedHouseReadOnly")
+      : t("properties.stuguby.sharedHouseEditable");
   };
 
   if (properties.length === 0) return <section className="property-empty-page"><MapPin size={28} /><h1>{workspaceReadOnly ? t("properties.noAccessTitle") : t("properties.emptyTitle")}</h1><p>{workspaceReadOnly ? t("properties.noAccessBody") : t("properties.emptyBody")}</p>{!workspaceReadOnly && <form onSubmit={(event) => void createProperty(event)}><label className="field"><span>{t("properties.propertyName")}</span><input autoFocus required value={newPropertyName} onChange={(event) => setNewPropertyName(event.target.value)} /></label><button type="submit" className="primary-button"><Plus size={15} />{t("properties.addProperty")}</button></form>}</section>;
@@ -2028,7 +2028,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
         const homeCount = state.houses.filter((home) => home.propertyId === item.id).length;
         const areaCount = state.propertyAreas.filter((area) => area.propertyId === item.id).length;
         const shareLabel = propertyShareLabel(item);
-        return <article className={`panel property-index-card${item.stugby ? " stugby-shared" : ""}`} key={item.id}><span className="property-index-icon" aria-hidden="true">{item.stugby ? <StugbyMark className="small" /> : <MapPin size={19} />}</span><div><h2>{item.name}</h2>{shareLabel && <span className="property-stugby-label">{shareLabel}</span>}{item.description && <p>{item.description}</p>}<small>{propertySummary(homeCount, areaCount)}</small></div><button type="button" className="secondary-button" onClick={() => setPropertyId(item.id)}>{t("properties.openProperty", { property: item.name })}</button></article>;
+        return <article className={`panel property-index-card${item.stuguby ? " stuguby-shared" : ""}`} key={item.id}><span className="property-index-icon" aria-hidden="true">{item.stuguby ? <StugubyMark className="small" /> : <MapPin size={19} />}</span><div><h2>{item.name}</h2>{shareLabel && <span className="property-stuguby-label">{shareLabel}</span>}{item.description && <p>{item.description}</p>}<small>{propertySummary(homeCount, areaCount)}</small></div><button type="button" className="secondary-button" onClick={() => setPropertyId(item.id)}>{t("properties.openProperty", { property: item.name })}</button></article>;
       })}
     </section>
     {!workspaceReadOnly && <form className="panel property-index-create" onSubmit={(event) => void createProperty(event)}><label className="field"><span>{t("properties.addAnotherProperty")}</span><input value={newPropertyName} onChange={(event) => setNewPropertyName(event.target.value)} /></label><button type="submit" className="primary-button" disabled={pending || !newPropertyName.trim()}><Plus size={14} />{t("properties.addProperty")}</button></form>}
@@ -2037,12 +2037,12 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
   if (!property) return null;
 
   return <div className="page-stack property-management-page">
-    <header className="page-heading property-heading"><div><span className="eyebrow">{property.stugby ? <StugbyMark className="small" /> : <MapPin size={14} />}{property.stugby ? propertyShareLabel(property) : t("bootstrap.propertyForHome")}</span><h1>{property.name}</h1><p>{property.description || t("properties.description")}</p></div>{readOnly && <span className="read-only-badge"><ShieldCheck size={15} />{workspaceReadOnly ? t("properties.guestReadOnly") : t("properties.stugby.readOnly")}</span>}</header>
+    <header className="page-heading property-heading"><div><span className="eyebrow">{property.stuguby ? <StugubyMark className="small" /> : <MapPin size={14} />}{property.stuguby ? propertyShareLabel(property) : t("bootstrap.propertyForHome")}</span><h1>{property.name}</h1><p>{property.description || t("properties.description")}</p></div>{readOnly && <span className="read-only-badge"><ShieldCheck size={15} />{workspaceReadOnly ? t("properties.guestReadOnly") : t("properties.stuguby.readOnly")}</span>}</header>
     <div className="property-layout">
       <aside className="panel property-sidebar">
         {!props.onProperty && <label className="field"><span>{t("properties.activeProperty")}</span><select value={property.id} onChange={(event) => setPropertyId(event.target.value)}>{properties.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
         {editingProperty && !readOnly ? <form className="property-edit-form" onSubmit={(event) => void saveProperty(event)}><label className="field"><span>{t("properties.propertyName")}</span><input ref={propertyNameInputRef} autoFocus required value={propertyName} onChange={(event) => setPropertyName(event.target.value)} /></label><label className="field"><span>{t("properties.propertyDescription")}</span><textarea rows={3} value={propertyDescription} onChange={(event) => setPropertyDescription(event.target.value)} /></label><div><button type="button" className="secondary-button" onClick={() => { setEditingProperty(false); window.requestAnimationFrame(() => propertyEditButtonRef.current?.focus()); }}>{t("common.cancel")}</button><button type="submit" className="primary-button"><Save size={14} />{t("properties.saveProperty")}</button></div></form> : <div className="property-summary"><strong>{property.name}</strong>{property.description && <p>{property.description}</p>}<small>{propertySummary(houses.length, areas.length)}</small>{!readOnly && <button ref={propertyEditButtonRef} type="button" className="text-button" onClick={() => { setEditingProperty(true); window.requestAnimationFrame(() => propertyNameInputRef.current?.focus()); }}>{t("properties.editProperty")}</button>}</div>}
-        {!readOnly && (!property.stugby || property.stugby.syncState === "detached") && property.id !== "property-main" && properties.length > 1 && houses.length === 0 && areas.length === 0 && equipment.length === 0 && notes.length === 0 && !state.maintenanceTasks.some((task) => task.propertyId === property.id) && <button type="button" className="text-button danger-text" disabled={pending} onClick={() => void removeProperty()}><Trash2 size={14} />{t("properties.deleteEmptyProperty")}</button>}
+        {!readOnly && (!property.stuguby || property.stuguby.syncState === "detached") && property.id !== "property-main" && properties.length > 1 && houses.length === 0 && areas.length === 0 && equipment.length === 0 && notes.length === 0 && !state.maintenanceTasks.some((task) => task.propertyId === property.id) && <button type="button" className="text-button danger-text" disabled={pending} onClick={() => void removeProperty()}><Trash2 size={14} />{t("properties.deleteEmptyProperty")}</button>}
         {houses.length + areas.length > 8 && <label className="field property-sidebar-search"><span>{t("properties.mapItemSearch")}</span><div><Search size={14} aria-hidden="true" /><input type="search" value={structureQuery} placeholder={t("properties.mapItemSearchHint")} onChange={(event) => setStructureQuery(event.target.value)} /></div></label>}
         <section className="property-house-group">
           <h2><Building2 size={15} />{t("properties.houses")}</h2>
@@ -2050,10 +2050,10 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
             const shareLabel = houseShareLabel(house);
             const foreignShared = isForeignSharedHouse(house);
             const locked = houseReadOnly(house);
-            const activeStugbyAssociation = Boolean(house.stugby && house.stugby.syncState !== "detached");
+            const activeStugubyAssociation = Boolean(house.stuguby && house.stuguby.syncState !== "detached");
             const moveTargets = properties.filter((candidate) => candidate.id === property.id
-              || !candidate.stugby || candidate.stugby.syncState === "detached");
-            return <li key={house.id} className={foreignShared ? "stugby-shared" : ""}>{foreignShared ? <StugbyMark className="small" /> : <Building2 size={13} />}<span><strong>{house.name}</strong>{shareLabel && <small className="property-stugby-label">{shareLabel}</small>}<small>{house.location?.label ?? house.timezone}</small>{!locked && !activeStugbyAssociation && moveTargets.length > 1 && <label><span>{t("properties.moveHouse")}</span><select value={property.id} disabled={pending} onChange={(event) => void moveHouse(house.id, event.target.value)}>{moveTargets.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>}</span></li>;
+              || !candidate.stuguby || candidate.stuguby.syncState === "detached");
+            return <li key={house.id} className={foreignShared ? "stuguby-shared" : ""}>{foreignShared ? <StugubyMark className="small" /> : <Building2 size={13} />}<span><strong>{house.name}</strong>{shareLabel && <small className="property-stuguby-label">{shareLabel}</small>}<small>{house.location?.label ?? house.timezone}</small>{!locked && !activeStugubyAssociation && moveTargets.length > 1 && <label><span>{t("properties.moveHouse")}</span><select value={property.id} disabled={pending} onChange={(event) => void moveHouse(house.id, event.target.value)}>{moveTargets.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>}</span></li>;
           })}</ul> : <p>{t(houses.length ? "properties.mapItemsNoMatches" : "properties.noHouses")}</p>}
           {!readOnly && <form className="property-create-form compact" onSubmit={(event) => void createHouse(event)}><label className="field"><span>{t("properties.addHomeToProperty")}</span><input value={newHouseName} onChange={(event) => setNewHouseName(event.target.value)} placeholder={t("bootstrap.defaultHomeName")} /></label><button type="submit" className="secondary-button" disabled={pending || !newHouseName.trim()}><Plus size={14} />{t("properties.addHome")}</button></form>}
         </section>
@@ -2148,13 +2148,13 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
                     if (!candidate || houseReadOnly(candidate)) { event.preventDefault(); return; }
                     selectPlacementHouse(entry.id);
                     event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData("application/x-stuga-house-id", entry.id);
+                    event.dataTransfer.setData("application/x-stugu-house-id", entry.id);
                   } else if (entry.kind === "asset" && asset && !readOnly) {
                     selectPlacementAsset(entry.id);
                     event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData("application/x-stuga-property-asset-id", entry.id);
+                    event.dataTransfer.setData("application/x-stugu-property-asset-id", entry.id);
                   } else event.preventDefault();
-                }}>{entry.kind === "home" && candidate && isForeignSharedHouse(candidate) ? <StugbyMark className="small" /> : entry.kind === "home" ? <Building2 size={15} aria-hidden="true" /> : entry.kind === "asset" ? <MapPin size={15} aria-hidden="true" /> : <Boxes size={15} aria-hidden="true" />}<span><strong>{entry.label}</strong><small>{kindLabel} · {entry.detail}</small></span></button></li>;
+                }}>{entry.kind === "home" && candidate && isForeignSharedHouse(candidate) ? <StugubyMark className="small" /> : entry.kind === "home" ? <Building2 size={15} aria-hidden="true" /> : entry.kind === "asset" ? <MapPin size={15} aria-hidden="true" /> : <Boxes size={15} aria-hidden="true" />}<span><strong>{entry.label}</strong><small>{kindLabel} · {entry.detail}</small></span></button></li>;
               })}
             </ul> : <p className="property-map-empty">{t("properties.mapItemsNoMatches")}</p>}
             {remainingMapCatalogItems > 0 && <button type="button" className="secondary-button property-map-show-more" onClick={() => setMapItemLimit((current) => current + MAP_ITEM_BATCH_SIZE)}>{t("properties.mapItemsShowMore", { count: Math.min(MAP_ITEM_BATCH_SIZE, remainingMapCatalogItems) })}</button>}
@@ -2174,7 +2174,7 @@ export function PropertyManagementPage(props: Readonly<PropertyManagementPagePro
                 </div>
               </details>
               <div className="property-placement-actions">
-                {houseReadOnly(placementHouse) ? <span className="property-stugby-read-only"><ShieldCheck size={14} />{t("properties.stugby.houseReadOnlyHelp")}</span> : <>
+                {houseReadOnly(placementHouse) ? <span className="property-stuguby-read-only"><ShieldCheck size={14} />{t("properties.stuguby.houseReadOnlyHelp")}</span> : <>
                   {!placementEditing && <button type="button" className="primary-button" onClick={() => { setMapLoaded(true); setDrawing(false); setPlacementEditing(true); setFeedback(null); }}><Move size={15} aria-hidden="true" />{placementHouse.mapPlacement ? t("placement.move") : t("placement.place")}</button>}
                   {placementEditing && <><button type="submit" className="primary-button" disabled={pending || !placementDraftIsValid}>{pending ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Save size={15} aria-hidden="true" />}{pending ? t("common.saving") : t("placement.save")}</button><button type="button" className="secondary-button" disabled={pending} onClick={() => setPlacementEditing(false)}>{t("common.cancel")}</button></>}
                   {placementHouse.mapPlacement && <button type="button" className="secondary-button danger-text" disabled={pending} onClick={() => void removeHousePlacement()}><Trash2 size={15} aria-hidden="true" />{t("placement.remove")}</button>}

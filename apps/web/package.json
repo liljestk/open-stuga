@@ -15,7 +15,7 @@
   "dependencies": {
     "@climate-twin/contracts": "0.13.0",
     "@climate-twin/spatial-layers": "0.13.0",
-    "@climate-twin/stugby-protocol": "0.13.0",
+    "@climate-twin/stuguby-protocol": "0.13.0",
     "@fontsource/dm-sans": "^5.2.8",
     "@fontsource/manrope": "^5.2.8",
     "@vitejs/plugin-react": "^6.0.4",

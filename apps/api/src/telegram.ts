@@ -101,7 +101,7 @@ function plainLine(value: string, maximumLength: number): string {
 
 export function renderTelegramAlertText(event: AlertEvent, rule: AlertRule, context?: TelegramAlertContext): string {
   const lines = [
-    `Stuga ${rule.severity.toUpperCase()} alert`,
+    `Stugu ${rule.severity.toUpperCase()} alert`,
     plainLine(rule.name, 200),
     ...(context?.houseLabel ? [`House: ${plainLine(context.houseLabel, 200)}`] : []),
     `${plainLine(event.metric, 64)}: ${event.value} (threshold ${event.threshold})`,
@@ -136,7 +136,7 @@ export class TelegramService {
       botUsername: identity.botUsername,
       chats: values,
       message: values.length
-        ? "Select the private chat that should receive Stuga alerts."
+        ? "Select the private chat that should receive Stugu alerts."
         : "No private chats were found. Open the bot in Telegram, send /start, then try again.",
     };
   }
@@ -156,7 +156,7 @@ export class TelegramService {
   }
 
   async sendTest(token: string, chatId: string): Promise<void> {
-    await this.sendMessage(token, chatId, "Stuga Telegram alerts are connected.", false);
+    await this.sendMessage(token, chatId, "Stugu Telegram alerts are connected.", false);
   }
 
   async sendAlert(

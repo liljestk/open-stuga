@@ -89,7 +89,7 @@ describe("security audit trail and credential lifecycle drills", () => {
   });
 
   it("rotates and revokes saved credentials, then preserves only secret-free audit evidence across restart", async () => {
-    directory = mkdtempSync(join(tmpdir(), "stuga-security-drill-"));
+    directory = mkdtempSync(join(tmpdir(), "stugu-security-drill-"));
     const databasePath = join(directory, "climate.sqlite");
     const secretsPath = join(directory, "private", "integrations.json");
     const configEnvironment = {

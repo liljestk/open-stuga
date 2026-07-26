@@ -145,10 +145,10 @@ describe("Tapo history export adapters", () => {
   });
 
   it("creates stable plus-address identities from an opaque correlation nonce", () => {
-    const address = tapoExportRecipient("Owner+old@gmail.com", "opaque-random-correlation-nonce", "Stuga Export");
-    expect(address).toMatch(/^owner\+stugaexport-[a-f0-9]{32}@gmail\.com$/);
+    const address = tapoExportRecipient("Owner+old@gmail.com", "opaque-random-correlation-nonce", "Stugu Export");
+    expect(address).toMatch(/^owner\+stuguexport-[a-f0-9]{32}@gmail\.com$/);
     expect(address).not.toContain("sensitive");
-    expect(tapoExportRecipient("owner@gmail.com", "opaque-random-correlation-nonce", "Stuga Export")).toBe(address);
+    expect(tapoExportRecipient("owner@gmail.com", "opaque-random-correlation-nonce", "Stugu Export")).toBe(address);
   });
 
   it("refreshes OAuth and accepts only a CSV addressed to the job alias", async () => {
@@ -163,7 +163,7 @@ describe("Tapo history export adapters", () => {
         id: "message-1",
         internalDate: String(Date.now()),
         payload: {
-          headers: [{ name: "To", value: "Stuga <owner+stuga-a@gmail.com>" }],
+          headers: [{ name: "To", value: "Stugu <owner+stugu-a@gmail.com>" }],
           parts: [{ filename: "Tapo_sensor_data.csv", body: { data: encoded, size: csv.length } }],
         },
       });
@@ -174,7 +174,7 @@ describe("Tapo history export adapters", () => {
       expectedEmail: "owner@gmail.com",
       tokenEndpoint: "https://oauth.test/token", apiBaseUrl: "https://gmail.test/gmail/v1",
     });
-    await expect(mailbox.findCsv("owner+stuga-a@gmail.com", new Set())).resolves.toMatchObject({
+    await expect(mailbox.findCsv("owner+stugu-a@gmail.com", new Set())).resolves.toMatchObject({
       attachments: [{ messageId: "message-1", filename: "Tapo_sensor_data.csv" }],
       rejectedCandidates: 0,
       transientFailures: 0,
@@ -195,7 +195,7 @@ describe("Tapo history export adapters", () => {
       tokenEndpoint: "https://oauth.test/token", apiBaseUrl: "https://gmail.test/gmail/v1",
     });
 
-    await expect(mailbox.findCsv("owner+stuga-a@gmail.com", new Set()))
+    await expect(mailbox.findCsv("owner+stugu-a@gmail.com", new Set()))
       .rejects.toThrow(/different mailbox/u);
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
@@ -212,7 +212,7 @@ describe("Tapo history export adapters", () => {
         id,
         internalDate: String(Date.now()),
         payload: {
-          headers: [{ name: "Delivered-To", value: "owner+stuga-a@gmail.com" }],
+          headers: [{ name: "Delivered-To", value: "owner+stugu-a@gmail.com" }],
           parts: id === "poison"
             ? [{ filename: "oversized.csv", body: { data: "", size: 25 * 1024 * 1024 } }]
             : [{ filename: "valid.csv", body: { data: Buffer.from(csv).toString("base64url"), size: csv.length } }],
@@ -224,7 +224,7 @@ describe("Tapo history export adapters", () => {
       expectedEmail: "owner@gmail.com",
       tokenEndpoint: "https://oauth.test/token", apiBaseUrl: "https://gmail.test/gmail/v1",
     });
-    await expect(mailbox.findCsv("owner+stuga-a@gmail.com", new Set())).resolves.toMatchObject({
+    await expect(mailbox.findCsv("owner+stugu-a@gmail.com", new Set())).resolves.toMatchObject({
       attachments: [{ messageId: "valid", filename: "valid.csv" }],
       rejectedCandidates: 1,
       transientFailures: 0,
@@ -244,7 +244,7 @@ describe("Tapo history export adapters", () => {
         id,
         internalDate: String(Date.now()),
         payload: {
-          headers: [{ name: "To", value: "owner+stuga-a@gmail.com" }],
+          headers: [{ name: "To", value: "owner+stugu-a@gmail.com" }],
           parts: [{ filename: `${id}.csv`, body: { data: Buffer.from(csv).toString("base64url"), size: csv.length } }],
         },
       });
@@ -255,7 +255,7 @@ describe("Tapo history export adapters", () => {
       tokenEndpoint: "https://oauth.test/token", apiBaseUrl: "https://gmail.test/gmail/v1",
     });
 
-    const result = await mailbox.findCsv("owner+stuga-a@gmail.com", new Set());
+    const result = await mailbox.findCsv("owner+stugu-a@gmail.com", new Set());
     expect(result.attachments).toHaveLength(4);
     expect(fetcher).toHaveBeenCalledTimes(7); // OAuth + profile + one list + four message bodies.
   });
@@ -274,9 +274,9 @@ describe("Tapo history export adapters", () => {
         id,
         internalDate: String(Date.now()),
         payload: id === "nested"
-          ? { headers: [{ name: "To", value: "owner+stuga-a@gmail.com" }], parts: [nested] }
+          ? { headers: [{ name: "To", value: "owner+stugu-a@gmail.com" }], parts: [nested] }
           : {
-              headers: [{ name: "To", value: "owner+stuga-a@gmail.com" }],
+              headers: [{ name: "To", value: "owner+stugu-a@gmail.com" }],
               parts: [{ filename: "valid.csv", body: { data: Buffer.from(csv).toString("base64url"), size: csv.length } }],
             },
       });
@@ -287,7 +287,7 @@ describe("Tapo history export adapters", () => {
       tokenEndpoint: "https://oauth.test/token", apiBaseUrl: "https://gmail.test/gmail/v1",
     });
 
-    await expect(mailbox.findCsv("owner+stuga-a@gmail.com", new Set())).resolves.toMatchObject({
+    await expect(mailbox.findCsv("owner+stugu-a@gmail.com", new Set())).resolves.toMatchObject({
       attachments: [{ messageId: "valid" }],
       rejectedCandidates: 1,
     });

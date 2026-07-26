@@ -25,7 +25,7 @@ describe("SQLite control-plane durability", () => {
   });
 
   it("round-trips the complete property graph and durable operational state across restart", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-control-plane-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-control-plane-"));
     const path = join(directory, "control-plane.sqlite");
     let database: ClimateDatabase | null = new ClimateDatabase(path, false);
     let sessionToken = "";
@@ -34,7 +34,7 @@ describe("SQLite control-plane durability", () => {
 
     try {
       const auth = new LocalAuthStore(database);
-      const owner = await auth.createFirstOwner("owner@stuga", "durable-control-plane-password");
+      const owner = await auth.createFirstOwner("owner@stugu", "durable-control-plane-password");
       sessionToken = auth.issueSession(owner).token;
       const mock = new MockEngine(database, null as never, null as never, { prepareSources: () => undefined } as never);
       mock.setScenario("shower");
@@ -52,7 +52,7 @@ describe("SQLite control-plane durability", () => {
         description: "Control-plane restart fixture",
         location,
       });
-      auth.inviteMember(owner, "guest@stuga", "guest", [
+      auth.inviteMember(owner, "guest@stugu", "guest", [
         { scopeType: "property", scopeId: "property-persisted" },
       ]);
       database.createHouse({
@@ -206,10 +206,10 @@ describe("SQLite control-plane durability", () => {
       const reopenedAuth = new LocalAuthStore(database);
       const reopenedMock = new MockEngine(database, null as never, null as never, null as never);
 
-      expect(reopenedAuth.sessionForToken(sessionToken)).toMatchObject({ email: "owner@stuga", role: "owner" });
+      expect(reopenedAuth.sessionForToken(sessionToken)).toMatchObject({ email: "owner@stugu", role: "owner" });
       expect(reopenedAuth.listWorkspaceMembers().invitations).toEqual([
         expect.objectContaining({
-          email: "guest@stuga",
+          email: "guest@stugu",
           role: "guest",
           grants: [{ scopeType: "property", scopeId: "property-persisted" }],
         }),

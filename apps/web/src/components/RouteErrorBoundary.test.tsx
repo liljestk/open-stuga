@@ -15,7 +15,7 @@ describe("RouteErrorBoundary", () => {
       <RouteErrorBoundary
         resetKey="alerts:house-one"
         onReload={reload}
-        renderFallback={(retry) => <button onClick={retry}>Reload Stuga</button>}
+        renderFallback={(retry) => <button onClick={retry}>Reload Stugu</button>}
       >
         <BrokenRoute />
       </RouteErrorBoundary>,
@@ -26,7 +26,7 @@ describe("RouteErrorBoundary", () => {
     expect(announcement.getAttribute("tabindex")).toBe("-1");
     expect(document.activeElement).toBe(announcement);
 
-    fireEvent.click(screen.getByRole("button", { name: "Reload Stuga" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reload Stugu" }));
     expect(reload).toHaveBeenCalledOnce();
   });
 

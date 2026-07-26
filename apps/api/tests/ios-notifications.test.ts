@@ -102,7 +102,7 @@ describe("native iOS notifications", () => {
     expect(queued.payload_json).not.toContain(DEVICE_TOKEN);
     expect(JSON.parse(queued.payload_json)).toMatchObject({
       aps: { category: "STUGA_ALERT" },
-      stugaAlertId: expect.any(String),
+      stuguAlertId: expect.any(String),
     });
 
     const apns = { send: vi.fn(async () => undefined) };

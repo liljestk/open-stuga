@@ -1,6 +1,6 @@
 # Effective room thermal simulation and isolation comparison
 
-Stuga 0.2.0 adds an experimental, sensor-scoped first-order thermal
+Stugu 0.2.0 adds an experimental, sensor-scoped first-order thermal
 model. Its purpose is to compare measured indoor temperature with a transparent
 weather-response baseline and make the unexplained residual visible. It is not
 CFD, an EnergyPlus replacement, or a method for deriving physical wall values.

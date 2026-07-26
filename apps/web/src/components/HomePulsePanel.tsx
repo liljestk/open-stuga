@@ -22,7 +22,7 @@ interface HomePulsePanelProps {
   setupDestination?: "connections" | "sensors";
 }
 
-const hiddenPulseStoragePrefix = "stuga-home-pulse-hidden:v1";
+const hiddenPulseStoragePrefix = "stugu-home-pulse-hidden:v1";
 
 function hiddenPulseStorageKey(houseId: string): string {
   return `${hiddenPulseStoragePrefix}:${houseId}`;

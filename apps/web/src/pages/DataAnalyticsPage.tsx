@@ -390,10 +390,10 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
           <section className="analytics-evidence-panel analytics-tool-content" aria-labelledby="analytics-evidence-title">
           {analytics && <div className="analytics-export-actions">
             <button type="button" className="secondary-button" onClick={() => downloadText(
-              `stuga-${metric}-${range}.csv`, analyticsCsv(analytics), "text/csv;charset=utf-8",
+              `stugu-${metric}-${range}.csv`, analyticsCsv(analytics), "text/csv;charset=utf-8",
             )}><Download size={14} aria-hidden="true" />{t("analytics.exportCsv")}</button>
             <button type="button" className="secondary-button" onClick={() => downloadText(
-              `stuga-${metric}-${range}.json`, JSON.stringify(analytics, null, 2), "application/json;charset=utf-8",
+              `stugu-${metric}-${range}.json`, JSON.stringify(analytics, null, 2), "application/json;charset=utf-8",
             )}><FileJson size={14} aria-hidden="true" />{t("analytics.exportJson")}</button>
           </div>}
         <div className="analytics-query-controls" role="group" aria-label={t("analytics.queryControls")}>

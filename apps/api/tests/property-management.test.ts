@@ -49,8 +49,8 @@ describe("local property management", () => {
     expect(session.body).toEqual({
       authenticated: false,
       principal: { type: "setup-required", email: null },
-      tenant: { id: "local", name: "Local Stuga", role: "owner" },
-      availableTenants: [{ id: "local", name: "Local Stuga", role: "owner" }],
+      tenant: { id: "local", name: "Local Stugu", role: "owner" },
+      availableTenants: [{ id: "local", name: "Local Stugu", role: "owner" }],
       readOnly: true,
       grants: [],
       setupRequired: true,
@@ -904,7 +904,7 @@ describe("legacy property migration", () => {
   });
 
   it("creates and idempotently backfills the default property for pre-property databases", () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-property-migration-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-property-migration-"));
     const path = join(directory, "legacy.sqlite");
     try {
       const legacy = new DatabaseSync(path);

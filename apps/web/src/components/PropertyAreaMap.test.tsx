@@ -135,8 +135,8 @@ describe("property area map accessibility", () => {
     expect(onMoveHouse).toHaveBeenLastCalledWith("house-main", { latitude: 60.75, longitude: 24.75 });
 
     const dataTransfer = {
-      types: ["application/x-stuga-house-id"],
-      getData: (type: string) => type === "application/x-stuga-house-id" ? "house-main" : "",
+      types: ["application/x-stugu-house-id"],
+      getData: (type: string) => type === "application/x-stugu-house-id" ? "house-main" : "",
     };
     fireEvent.dragOver(screen.getByRole("region", { name: "Property map" }), { dataTransfer });
     fireEvent.drop(screen.getByRole("region", { name: "Property map" }), { dataTransfer });
@@ -178,8 +178,8 @@ describe("property area map accessibility", () => {
     expect(onMoveAsset).toHaveBeenLastCalledWith("asset-well", { latitude: 60.8, longitude: 24.8 });
 
     const dataTransfer = {
-      types: ["application/x-stuga-property-asset-id"],
-      getData: (type: string) => type === "application/x-stuga-property-asset-id" ? "asset-well" : "",
+      types: ["application/x-stugu-property-asset-id"],
+      getData: (type: string) => type === "application/x-stugu-property-asset-id" ? "asset-well" : "",
     };
     fireEvent.drop(screen.getByRole("region", { name: "Fixed asset map" }), { dataTransfer });
     expect(onMoveAsset).toHaveBeenLastCalledWith("asset-well", { latitude: 61.25, longitude: 25.75 });

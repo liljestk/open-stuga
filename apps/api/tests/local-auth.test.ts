@@ -79,7 +79,7 @@ describe("local account authentication and authorization", () => {
   it("accepts accounts on a private local domain", async () => {
     const runtime = authRuntime();
     runtimes.push(runtime);
-    const localOwner = { email: "owner@stuga", password: OWNER.password };
+    const localOwner = { email: "owner@stugu", password: OWNER.password };
     const agent = request.agent(runtime.app);
 
     const setup = await agent.post("/api/v1/auth/setup").send(localOwner).expect(201);
@@ -157,7 +157,7 @@ describe("local account authentication and authorization", () => {
         LOCAL_AUTH_TEST_BYPASS: "false",
         CLOUDFLARE_ACCESS_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
         CLOUDFLARE_ACCESS_GROUP_ID: "123e4567-e89b-42d3-a456-426614174000",
-        CLOUDFLARE_ACCESS_GROUP_NAME: "Stuga test members",
+        CLOUDFLARE_ACCESS_GROUP_NAME: "Stugu test members",
         CLOUDFLARE_ACCESS_STATIC_EMAILS: "cloudflare-owner@example.test",
         CLOUDFLARE_ACCESS_API_TOKEN: "runtime-token-that-is-long-enough-for-tests",
       }),
@@ -185,7 +185,7 @@ describe("local account authentication and authorization", () => {
   it("keeps the Cloudflare operator identity while syncing invited accounts, not the local owner login", async () => {
     const group = {
       id: "123e4567-e89b-42d3-a456-426614174000",
-      name: "Stuga test members",
+      name: "Stugu test members",
       include: [{ email: { email: "cloudflare-owner@example.test" } }],
       exclude: [],
       require: [],
@@ -254,7 +254,7 @@ describe("local account authentication and authorization", () => {
       const setupUrl = `http://${address}:${port}/api/v1/auth/setup`;
       const rejected = await fetch(setupUrl, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-stuga-local-proxy": "compose-v1" },
+        headers: { "content-type": "application/json", "x-stugu-local-proxy": "compose-v1" },
         body: JSON.stringify(OWNER),
       });
       expect(rejected.status).toBe(403);
@@ -265,7 +265,7 @@ describe("local account authentication and authorization", () => {
           "content-type": "application/json",
           "x-forwarded-proto": "https",
           "x-real-ip": "192.0.2.1",
-          "x-stuga-local-proxy": proxySecret,
+          "x-stugu-local-proxy": proxySecret,
         },
         body: JSON.stringify(OWNER),
       });
@@ -279,7 +279,7 @@ describe("local account authentication and authorization", () => {
           headers: {
             "content-type": "application/json",
             "x-real-ip": `192.0.2.${index + 10}`,
-            "x-stuga-local-proxy": proxySecret,
+            "x-stugu-local-proxy": proxySecret,
           },
           body: JSON.stringify({ email: OWNER.email, password: "incorrect password" }),
         });
@@ -290,7 +290,7 @@ describe("local account authentication and authorization", () => {
         headers: {
           "content-type": "application/json",
           "x-real-ip": "192.0.2.99",
-          "x-stuga-local-proxy": proxySecret,
+          "x-stugu-local-proxy": proxySecret,
         },
         body: JSON.stringify({ email: OWNER.email, password: "incorrect password" }),
       });

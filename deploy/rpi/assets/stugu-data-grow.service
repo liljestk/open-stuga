@@ -1,0 +1,14 @@
+[Unit]
+Description=Expand the Stugu persistent partition
+Requires=persistent.mount
+After=persistent.mount
+Before=persistent-shared-init.service containerd.service docker.service stugu.service
+ConditionPathExists=!/persistent/.stugu-expanded
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/stugu-grow-persistent
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

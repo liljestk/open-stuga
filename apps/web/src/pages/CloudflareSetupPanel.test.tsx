@@ -20,7 +20,7 @@ function setupStatus(overrides: Partial<CloudflareSetupStatus["configuration"]> 
     configuration: {
       configured: true,
       mode: "remote-ui",
-      hostname: "stuga.example.com",
+      hostname: "stugu.example.com",
       suggestedZone: "example.com",
       accountIdKnown: true,
       zoneIdKnown: true,
@@ -40,8 +40,8 @@ describe("CloudflareSetupPanel", () => {
     const start = vi.spyOn(api, "startCloudflareSetup").mockResolvedValue({
       operation: {
         id: "2fc58aab-24fb-4aa3-894a-2a0811497d76",
-        mode: "stugby-coordinator",
-        hostname: "stuga.example.com",
+        mode: "stuguby-coordinator",
+        hostname: "stugu.example.com",
         phase: "awaiting-approval",
         requestedAt: "2026-07-24T08:00:00.000Z",
         completedAt: null,
@@ -56,7 +56,7 @@ describe("CloudflareSetupPanel", () => {
       close: vi.fn(),
     } as unknown as Window);
 
-    render(<I18nProvider><CloudflareSetupPanel suggestedOrigin="https://stuga.example.com" onComplete={vi.fn()} /></I18nProvider>);
+    render(<I18nProvider><CloudflareSetupPanel suggestedOrigin="https://stugu.example.com" onComplete={vi.fn()} /></I18nProvider>);
 
     const token = await screen.findByLabelText(/^One-time OAuth client token/);
     expect(screen.queryByLabelText(/^Runtime Access group token/)).toBeNull();
@@ -64,8 +64,8 @@ describe("CloudflareSetupPanel", () => {
     await user.click(screen.getByRole("button", { name: "Continue with Cloudflare" }));
 
     await waitFor(() => expect(start).toHaveBeenCalledWith({
-      mode: "stugby-coordinator",
-      hostname: "stuga.example.com",
+      mode: "stuguby-coordinator",
+      hostname: "stugu.example.com",
       zone: "example.com",
       ownerEmail: "owner@example.com",
       accountId: null,
@@ -86,7 +86,7 @@ describe("CloudflareSetupPanel", () => {
       runtimeTokenAvailable: false,
     }));
 
-    render(<I18nProvider><CloudflareSetupPanel suggestedOrigin="https://stuga.example.com" onComplete={vi.fn()} /></I18nProvider>);
+    render(<I18nProvider><CloudflareSetupPanel suggestedOrigin="https://stugu.example.com" onComplete={vi.fn()} /></I18nProvider>);
 
     expect(await screen.findByLabelText(/^One-time OAuth client token/)).toBeTruthy();
     expect(screen.getByLabelText(/^Runtime Access group token/)).toBeTruthy();
@@ -97,7 +97,7 @@ describe("CloudflareSetupPanel", () => {
     const user = userEvent.setup();
     vi.spyOn(api, "cloudflareSetupStatus").mockResolvedValue(setupStatus());
 
-    render(<I18nProvider><CloudflareSetupPanel suggestedOrigin="https://stuga.example.com" onComplete={vi.fn()} /></I18nProvider>);
+    render(<I18nProvider><CloudflareSetupPanel suggestedOrigin="https://stugu.example.com" onComplete={vi.fn()} /></I18nProvider>);
 
     const showHelp = await screen.findByRole("button", { name: "Show token instructions" });
     const helpId = showHelp.getAttribute("aria-controls");
@@ -129,8 +129,8 @@ describe("CloudflareSetupPanel", () => {
     vi.spyOn(api, "startCloudflareSetup").mockResolvedValue({
       operation: {
         id: "2fc58aab-24fb-4aa3-894a-2a0811497d76",
-        mode: "stugby-coordinator",
-        hostname: "stuga.example.com",
+        mode: "stuguby-coordinator",
+        hostname: "stugu.example.com",
         phase: "awaiting-approval",
         requestedAt: "2026-07-24T08:00:00.000Z",
         completedAt: null,
@@ -145,7 +145,7 @@ describe("CloudflareSetupPanel", () => {
       close,
     } as unknown as Window);
 
-    render(<I18nProvider><CloudflareSetupPanel suggestedOrigin="https://stuga.example.com" onComplete={vi.fn()} /></I18nProvider>);
+    render(<I18nProvider><CloudflareSetupPanel suggestedOrigin="https://stugu.example.com" onComplete={vi.fn()} /></I18nProvider>);
     await user.type(
       await screen.findByLabelText(/^One-time OAuth client token/),
       "oauth-client-write-token-that-is-long-enough",
@@ -162,8 +162,8 @@ describe("CloudflareSetupPanel", () => {
     const active = setupStatus();
     active.operation = {
       id: "2fc58aab-24fb-4aa3-894a-2a0811497d76",
-      mode: "stugby-coordinator",
-      hostname: "stuga.example.com",
+      mode: "stuguby-coordinator",
+      hostname: "stugu.example.com",
       phase: "awaiting-approval",
       requestedAt: "2026-07-24T08:00:00.000Z",
       completedAt: null,
@@ -175,7 +175,7 @@ describe("CloudflareSetupPanel", () => {
     vi.spyOn(api, "startCloudflareSetup").mockRejectedValue(new Error("Cloudflare setup is already in progress"));
     vi.spyOn(window, "open").mockReturnValue(null);
 
-    render(<I18nProvider><CloudflareSetupPanel suggestedOrigin="https://stuga.example.com" onComplete={vi.fn()} /></I18nProvider>);
+    render(<I18nProvider><CloudflareSetupPanel suggestedOrigin="https://stugu.example.com" onComplete={vi.fn()} /></I18nProvider>);
     await user.type(
       await screen.findByLabelText(/^One-time OAuth client token/),
       "oauth-client-write-token-that-is-long-enough",
@@ -193,7 +193,7 @@ describe("CloudflareSetupPanel", () => {
       runtimeTokenAvailable: false,
     }));
     const { container } = render(
-      <I18nProvider><CloudflareSetupPanel suggestedOrigin="https://stuga.example.com" onComplete={vi.fn()} /></I18nProvider>,
+      <I18nProvider><CloudflareSetupPanel suggestedOrigin="https://stugu.example.com" onComplete={vi.fn()} /></I18nProvider>,
     );
     await screen.findByRole("button", { name: "Continue with Cloudflare" });
 

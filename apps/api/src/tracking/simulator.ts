@@ -25,7 +25,7 @@ export interface TrackingSimulationOptions {
 }
 
 export interface TrackingSimulation {
-  schemaVersion: "stuga.tracking-simulation/v1";
+  schemaVersion: "stugu.tracking-simulation/v1";
   seed: number;
   generatedAt: string;
   settings: TrackingPropertySettings;
@@ -249,7 +249,7 @@ export function generateTrackingSimulation(
     frames.push({ at: iso(frameAt), trueAssetPosition, observations });
   }
   return {
-    schemaVersion: "stuga.tracking-simulation/v1",
+    schemaVersion: "stugu.tracking-simulation/v1",
     seed,
     generatedAt: new Date(start.getTime() + durationSeconds * 1_000).toISOString(),
     settings,

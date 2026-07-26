@@ -11,10 +11,10 @@ try {
   await runtime.ready();
   server.listen(config.port, config.apiHost, () => {
     // Do not log configuration: it may contain integration credentials.
-    console.log(`Stuga API listening on http://${config.apiHost}:${config.port}/api/v1`);
+    console.log(`Stugu API listening on http://${config.apiHost}:${config.port}/api/v1`);
   });
 } catch {
-  console.error("Stuga API could not initialize its required telemetry archive");
+  console.error("Stugu API could not initialize its required telemetry archive");
   await runtime.close();
   process.exit(1);
 }
@@ -28,7 +28,7 @@ function shutdown(): void {
     .catch(() => {
       // Avoid logging configuration or exception details that might include
       // integration context during an emergency shutdown.
-      console.error("Stuga API shutdown failed");
+      console.error("Stugu API shutdown failed");
       process.exit(1);
     });
 }

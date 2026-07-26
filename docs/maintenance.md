@@ -1,6 +1,6 @@
 # Activity and maintenance work
 
-Stuga keeps evidence and planned work separate:
+Stugu keeps evidence and planned work separate:
 
 - an **observation** records what someone noticed and when;
 - a **maintenance task** records what should be done, when it is planned or

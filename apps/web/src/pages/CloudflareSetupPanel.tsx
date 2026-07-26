@@ -52,7 +52,7 @@ function errorMessage(error: unknown, fallback: string): string {
 function trustedAuthorizationUrl(value: string): string {
   const url = new URL(value);
   if (url.protocol !== "https:" || url.hostname !== "dash.cloudflare.com") {
-    throw new Error("Stuga received an unexpected Cloudflare approval address.");
+    throw new Error("Stugu received an unexpected Cloudflare approval address.");
   }
   return url.href;
 }
@@ -129,12 +129,12 @@ export function CloudflareSetupPanel({
     setFallbackApprovalUrl(null);
     const popup = window.open(
       "about:blank",
-      "stuga-cloudflare-approval",
+      "stugu-cloudflare-approval",
       "popup,width=720,height=780",
     );
     try {
       const result = await api.startCloudflareSetup({
-        mode: "stugby-coordinator",
+        mode: "stuguby-coordinator",
         hostname: hostname.trim(),
         zone: zone.trim(),
         ownerEmail: ownerEmail.trim(),
@@ -179,12 +179,12 @@ export function CloudflareSetupPanel({
       {loadError
         ? <p className="inline-error" role="alert">{loadError}</p>
         : <><LoaderCircle className="spin" size={18} aria-hidden="true" /><span>{t("cloudflareSetup.loading")}</span></>}
-      {loadError && <button type="button" className="secondary-button" onClick={() => void refresh()}>{t("stugby.retry")}</button>}
+      {loadError && <button type="button" className="secondary-button" onClick={() => void refresh()}>{t("stuguby.retry")}</button>}
     </div>;
   }
 
   if (!status.canConfigure) {
-    return <div className="stugby-setup-required" role="note">
+    return <div className="stuguby-setup-required" role="note">
       <ShieldCheck size={20} aria-hidden="true" />
       <div>
         <strong>{t("cloudflareSetup.localOnlyTitle")}</strong>
@@ -196,7 +196,7 @@ export function CloudflareSetupPanel({
 
   if (!status.capability.available) {
     const upgradeRequired = status.capability.reason === "agent-upgrade-required";
-    return <div className="stugby-setup-required" role="note">
+    return <div className="stuguby-setup-required" role="note">
       <ShieldCheck size={20} aria-hidden="true" />
       <div>
         <strong>{t(upgradeRequired ? "cloudflareSetup.agentUpgradeTitle" : "cloudflareSetup.agentOfflineTitle")}</strong>
@@ -206,9 +206,9 @@ export function CloudflareSetupPanel({
   }
 
   return <form className="cloudflare-setup-form" onSubmit={(event) => void startSetup(event)}>
-    <div className="stugby-setup-required" role="note">
+    <div className="stuguby-setup-required" role="note">
       <ShieldCheck size={20} aria-hidden="true" />
-      <div><strong>{t("stugby.secureSharingTitle")}</strong><p>{t("cloudflareSetup.intro")}</p></div>
+      <div><strong>{t("stuguby.secureSharingTitle")}</strong><p>{t("cloudflareSetup.intro")}</p></div>
     </div>
 
     {operation && <div
@@ -301,9 +301,9 @@ export function CloudflareSetupPanel({
         <small>{t("cloudflareSetup.runtimeTokenHelp")}</small>
       </label>}
 
-      <details className="stugby-subdetails">
+      <details className="stuguby-subdetails">
         <summary>{t("nav.advanced")}</summary>
-        <div className="stugby-subdetails-body cloudflare-setup-grid">
+        <div className="stuguby-subdetails-body cloudflare-setup-grid">
           {!status.configuration.accountIdKnown && <label className="field">
             <span>{t("cloudflareSetup.accountId")}</span>
             <input maxLength={32} spellCheck={false} value={accountId} onChange={(event) => setAccountId(event.target.value)} />

@@ -30,7 +30,7 @@ describe("cross-tab auth epoch", () => {
     publishAuthEpoch();
 
     const channel = FakeBroadcastChannel.latest!;
-    expect(channel.name).toBe("stuga-local-auth-epoch");
+    expect(channel.name).toBe("stugu-local-auth-epoch");
     expect(channel.posted).toHaveLength(1);
     expect(Object.keys(channel.posted[0] as object).sort()).toEqual(["epoch", "type"]);
     expect(channel.posted[0]).toMatchObject({ type: "auth-epoch", epoch: expect.any(String) });

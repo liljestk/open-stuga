@@ -8,7 +8,7 @@ const BASE_ENV = { NODE_ENV: "test", DATABASE_PATH: ":memory:" } as const;
 
 describe("Tapo history automation configuration", () => {
   it("loads worker and OAuth credentials from files without requiring inline secrets", () => {
-    const directory = mkdtempSync(join(tmpdir(), "stuga-tapo-history-config-"));
+    const directory = mkdtempSync(join(tmpdir(), "stugu-tapo-history-config-"));
     const workerToken = join(directory, "worker-token");
     const clientSecret = join(directory, "client-secret");
     const refreshToken = join(directory, "refresh-token");
@@ -92,7 +92,7 @@ describe("Tapo history automation configuration", () => {
   });
 
   it("treats absent optional Compose secret files as disabled but fails paired configuration", () => {
-    const missing = join(tmpdir(), `stuga-missing-tapo-${process.pid}-${Date.now()}`);
+    const missing = join(tmpdir(), `stugu-missing-tapo-${process.pid}-${Date.now()}`);
     expect(loadConfig({
       ...BASE_ENV,
       TAPO_HISTORY_WORKER_TOKEN_FILE: join(missing, "worker-token"),

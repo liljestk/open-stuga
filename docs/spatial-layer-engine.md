@@ -1,6 +1,6 @@
 # Experimental spatial-layer engine
 
-Stuga's spatial-layer engine is an optional, local-only research runtime. It
+Stugu's spatial-layer engine is an optional, local-only research runtime. It
 turns persisted environmental measurements into versioned semantic layers for
 the house and property overviews. The same snapshot is rendered in the 2D plan,
 the stacked 3D building view, and property-level views.

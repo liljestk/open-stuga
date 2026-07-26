@@ -43,7 +43,7 @@ export function readConfig(env = process.env) {
     checksum,
     deploy,
     waitMinutes,
-    artefactName: `stuga-rpi4-${version}`,
+    artefactName: `stugu-rpi4-${version}`,
   };
 }
 

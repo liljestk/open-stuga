@@ -1,6 +1,6 @@
 # Sensor-constrained indoor flow visualization
 
-Stuga can place the live or replayed scalar field for the selected
+Stugu can place the live or replayed scalar field for the selected
 measurement over a shared indoor-motion estimate in both the floor plan and the
 orbitable 3D building view. This layer is designed to be physically motivated,
 stable, and honest about sparse home-sensor data. It is not a measured velocity

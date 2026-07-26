@@ -1,6 +1,6 @@
 # Tapo Android export runner
 
-This worker drives the Tapo Android app through Appium when local device history cannot cover a requested gap. It claims durable jobs from the Stuga API, submits one export at a time, and reports a terminal state back to the API. The emailed CSV is ingested by a separate mailbox component; this worker does not mark data as imported merely because the app accepted an export request.
+This worker drives the Tapo Android app through Appium when local device history cannot cover a requested gap. It claims durable jobs from the Stugu API, submits one export at a time, and reports a terminal state back to the API. The emailed CSV is ingested by a separate mailbox component; this worker does not mark data as imported merely because the app accepted an export request.
 
 The runner is intentionally disabled by default. After loading the configuration
 needed to select disabled mode, it logs and exits without reading/executing the
@@ -50,7 +50,7 @@ selectors. A tested flow captured from the exact deployed APK is required before
 
 The normal deployment has four independently restartable pieces:
 
-1. Stuga API and its durable export-job store.
+1. Stugu API and its durable export-job store.
 2. This Node worker.
 3. Appium 2.18.0 or newer with UiAutomator2 3.1.0 or newer.
 4. A dedicated Android emulator or device with the Tapo app installed.
@@ -63,7 +63,7 @@ The default prefix is `/api/v1/internal/tapo-history`. All requests include:
 
 ```http
 Authorization: Bearer <TAPO_HISTORY_WORKER_TOKEN>
-X-Stuga-Worker-Id: tapo-target-<derived-target-hash>
+X-Stugu-Worker-Id: tapo-target-<derived-target-hash>
 X-Tapo-Deployment-Fingerprint: <64-lowercase-hex-fingerprint>
 Content-Type: application/json
 ```
@@ -80,7 +80,7 @@ No work is HTTP `204`. A claim keeps the lease capability outside the job:
 {
   "job": {
     "id": "job-id",
-    "sensorId": "stuga-sensor-id",
+    "sensorId": "stugu-sensor-id",
     "deviceId": "stable-tapo-device-id",
     "deviceName": "Living room",
     "metric": "temperature",
@@ -88,7 +88,7 @@ No work is HTTP `204`. A claim keeps the lease capability outside the job:
     "to": "2026-06-08T00:00:00.000Z",
     "timeZone": "Europe/Helsinki",
     "intervalMinutes": 15,
-    "expectedRecipient": "history+stuga-opaque-capability@example.com",
+    "expectedRecipient": "history+stugu-opaque-capability@example.com",
     "status": "claimed",
     "attemptCount": 1,
     "leaseExpiresAt": "2026-07-19T20:10:00.000Z"

@@ -296,8 +296,8 @@ describe("useClimateData", () => {
     mocks.session.mockResolvedValue({
       authenticated: false,
       principal: { type: "setup-required", email: null },
-      tenant: { id: "local", name: "Local Stuga", role: "owner" },
-      availableTenants: [{ id: "local", name: "Local Stuga", role: "owner" }],
+      tenant: { id: "local", name: "Local Stugu", role: "owner" },
+      availableTenants: [{ id: "local", name: "Local Stugu", role: "owner" }],
       readOnly: true,
       grants: [],
       setupRequired: true,

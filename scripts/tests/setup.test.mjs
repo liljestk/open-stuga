@@ -29,7 +29,7 @@ test("accepts the supported Node.js range", () => {
 });
 
 test("creates .env once and preserves local settings", (t) => {
-  const root = mkdtempSync(join(tmpdir(), "stuga-setup-"));
+  const root = mkdtempSync(join(tmpdir(), "stugu-setup-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
 
   writeFileSync(join(root, ".env.example"), "MOCK_ENABLED=false\n", "utf8");
@@ -74,21 +74,21 @@ test("parses explicit install modes and non-interactive choices", () => {
   assert.equal(parseSetupArgs(["--install-update-agent"]).installUpdateAgent, true);
   assert.equal(parseSetupArgs(["--no-update-agent"]).installUpdateAgent, false);
   assert.equal(
-    parseSetupArgs(["--cloudflare-oauth-client-id", "stuga-oauth-client"])
+    parseSetupArgs(["--cloudflare-oauth-client-id", "stugu-oauth-client"])
       .cloudflare.oauthClientId,
-    "stuga-oauth-client",
+    "stugu-oauth-client",
   );
   const coordinatorShortcut = parseSetupArgs([
     "--cloudflare",
     "coordinator",
-    "stuga.example.test",
+    "stugu.example.test",
   ]);
-  assert.equal(coordinatorShortcut.remoteAccess, "stugby-coordinator");
-  assert.equal(coordinatorShortcut.cloudflare.hostname, "stuga.example.test");
+  assert.equal(coordinatorShortcut.remoteAccess, "stuguby-coordinator");
+  assert.equal(coordinatorShortcut.cloudflare.hostname, "stugu.example.test");
   assert.equal(
-    parseSetupArgs(["--cloudflare", "coordinator", "--hostname", "stuga.example.test"])
+    parseSetupArgs(["--cloudflare", "coordinator", "--hostname", "stugu.example.test"])
       .cloudflare.hostname,
-    "stuga.example.test",
+    "stugu.example.test",
   );
   assert.throws(() => parseSetupArgs(["--demo", "--real"]), /cannot be combined/u);
   assert.throws(
@@ -99,7 +99,7 @@ test("parses explicit install modes and non-interactive choices", () => {
 });
 
 test("interactive setup asks for runtime and only basic choices", async (t) => {
-  const root = mkdtempSync(join(tmpdir(), "stuga-basic-setup-"));
+  const root = mkdtempSync(join(tmpdir(), "stugu-basic-setup-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const answers = ["3", "yes", "9090", "1", "no"];
   let closed = false;
@@ -128,13 +128,13 @@ test("interactive setup asks for runtime and only basic choices", async (t) => {
 });
 
 test("interactive setup guides a Cloudflare deployment without asking for IDs", async () => {
-  const root = mkdtempSync(join(tmpdir(), "stuga-cloudflare-setup-"));
+  const root = mkdtempSync(join(tmpdir(), "stugu-cloudflare-setup-"));
   const answers = [
     "2",
     "no",
     "",
     "2",
-    "stuga.example.test",
+    "stugu.example.test",
     "",
     "owner@example.test",
     "",
@@ -159,7 +159,7 @@ test("interactive setup guides a Cloudflare deployment without asking for IDs", 
       accountId: null,
       command: "provision",
       composeSecretDirectory: "./secrets/cloudflare",
-      hostname: "stuga.example.test",
+      hostname: "stugu.example.test",
       mode: "remote-ui",
       ownerEmail: "owner@example.test",
       provisionRequired: true,
@@ -176,8 +176,8 @@ test("interactive setup guides a Cloudflare deployment without asking for IDs", 
   }
 });
 
-test("new Docker Stugby setup continues in the authenticated local UI", async (t) => {
-  const root = mkdtempSync(join(tmpdir(), "stuga-ui-cloudflare-setup-"));
+test("new Docker Stuguby setup continues in the authenticated local UI", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "stugu-ui-cloudflare-setup-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const answers = ["2", "no", "", "3", ""];
   const questions = [];
@@ -203,14 +203,14 @@ test("new Docker Stugby setup continues in the authenticated local UI", async (t
   assert.deepEqual(answers, []);
 });
 
-test("existing remote access defers a Stugby upgrade to the local UI", async (t) => {
-  const root = mkdtempSync(join(tmpdir(), "stuga-cloudflare-upgrade-"));
+test("existing remote access defers a Stuguby upgrade to the local UI", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "stugu-cloudflare-upgrade-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const secretDirectory = join(root, "secrets", "cloudflare");
   mkdirSync(secretDirectory, { recursive: true });
   writeFileSync(join(secretDirectory, "deployment.json"), JSON.stringify({
     version: 1,
-    hostname: "stuga.example.test",
+    hostname: "stugu.example.test",
     accountId: "a".repeat(32),
     zoneId: "b".repeat(32),
   }));
@@ -238,7 +238,7 @@ test("existing remote access defers a Stugby upgrade to the local UI", async (t)
   assert.equal(configuration.cloudflareUiPending, true);
   assert.equal(configuration.start, true);
   assert.equal(configuration.installUpdateAgent, false);
-  assert.ok(questions.some((question) => question.includes("Will this Stuga create a shared Stugby")));
+  assert.ok(questions.some((question) => question.includes("Will this Stugu create a shared Stuguby")));
   assert.ok(questions.some((question) => question.includes("host agent required for UI setup")));
   assert.ok(questions.every((question) => !question.includes("Public hostname")));
   assert.ok(questions.every((question) => !question.includes("two API tokens")));
@@ -246,14 +246,14 @@ test("existing remote access defers a Stugby upgrade to the local UI", async (t)
 });
 
 test("explicit CLI upgrade can still use configured Cloudflare browser approval", async (t) => {
-  const root = mkdtempSync(join(tmpdir(), "stuga-cloudflare-oauth-upgrade-"));
+  const root = mkdtempSync(join(tmpdir(), "stugu-cloudflare-oauth-upgrade-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const secretDirectory = join(root, "secrets", "cloudflare");
   mkdirSync(secretDirectory, { recursive: true });
   writeFileSync(join(secretDirectory, "deployment.json"), JSON.stringify({
     version: 2,
     mode: "remote-ui",
-    hostname: "stuga.example.test",
+    hostname: "stugu.example.test",
     accountId: "a".repeat(32),
     zoneId: "b".repeat(32),
   }));
@@ -268,7 +268,7 @@ test("explicit CLI upgrade can still use configured Cloudflare browser approval"
     "--cloudflare", "coordinator",
   ]), {
     environment: {
-      STUGA_CLOUDFLARE_OAUTH_CLIENT_ID: "stuga-oauth-client",
+      STUGA_CLOUDFLARE_OAUTH_CLIENT_ID: "stugu-oauth-client",
     },
     interactive: true,
     root,
@@ -278,10 +278,10 @@ test("explicit CLI upgrade can still use configured Cloudflare browser approval"
     },
   });
 
-  assert.equal(configuration.cloudflare.mode, "stugby-coordinator");
+  assert.equal(configuration.cloudflare.mode, "stuguby-coordinator");
   assert.equal(configuration.cloudflareUiPending, false);
   assert.equal(configuration.cloudflare.tokenInput, "oauth");
-  assert.equal(configuration.cloudflare.oauthClientId, "stuga-oauth-client");
+  assert.equal(configuration.cloudflare.oauthClientId, "stugu-oauth-client");
   assert.equal(
     configuration.cloudflare.oauthRedirectUri,
     "http://127.0.0.1:8976/cloudflare/oauth/callback",
@@ -290,14 +290,14 @@ test("explicit CLI upgrade can still use configured Cloudflare browser approval"
 });
 
 test("rerunning setup reuses and verifies an existing Cloudflare connection", async (t) => {
-  const root = mkdtempSync(join(tmpdir(), "stuga-cloudflare-reuse-"));
+  const root = mkdtempSync(join(tmpdir(), "stugu-cloudflare-reuse-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const secretDirectory = join(root, "secrets", "cloudflare");
   mkdirSync(secretDirectory, { recursive: true });
   writeFileSync(join(secretDirectory, "deployment.json"), JSON.stringify({
     version: 2,
     mode: "remote-ui",
-    hostname: "stuga.example.test",
+    hostname: "stugu.example.test",
     accountId: "a".repeat(32),
     zoneId: "b".repeat(32),
   }));
@@ -323,8 +323,8 @@ test("rerunning setup reuses and verifies an existing Cloudflare connection", as
   assert.deepEqual(answers, []);
 });
 
-test("rerunning an installed Stuga preserves existing choices and asks only what changed", async (t) => {
-  const root = mkdtempSync(join(tmpdir(), "stuga-existing-setup-"));
+test("rerunning an installed Stugu preserves existing choices and asks only what changed", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "stugu-existing-setup-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   writeFileSync(join(root, ".env"), "APP_PORT=9090\nMOCK_ENABLED=true\n");
   const secretDirectory = join(root, "secrets", "cloudflare");
@@ -332,7 +332,7 @@ test("rerunning an installed Stuga preserves existing choices and asks only what
   writeFileSync(join(secretDirectory, "deployment.json"), JSON.stringify({
     version: 2,
     mode: "remote-ui",
-    hostname: "stuga.example.test",
+    hostname: "stugu.example.test",
     accountId: "a".repeat(32),
     zoneId: "b".repeat(32),
   }));
@@ -344,7 +344,7 @@ test("rerunning an installed Stuga preserves existing choices and asks only what
   const operationsDirectory = join(root, "data", "update-operations");
   mkdirSync(operationsDirectory, { recursive: true });
   writeFileSync(join(operationsDirectory, "agent-status.json"), JSON.stringify({
-    schema: "stuga-update-agent/v1",
+    schema: "stugu-update-agent/v1",
     ready: true,
     updatedAt: new Date().toISOString(),
   }));
@@ -368,12 +368,12 @@ test("rerunning an installed Stuga preserves existing choices and asks only what
   assert.equal(configuration.port, 9090);
   assert.equal(configuration.cloudflare, null);
   assert.equal(configuration.cloudflareUiPending, true);
-  assert.deepEqual(questions, ["Will this Stuga create a shared Stugby for other homes? [y/N]: "]);
+  assert.deepEqual(questions, ["Will this Stugu create a shared Stuguby for other homes? [y/N]: "]);
   assert.deepEqual(answers, []);
 });
 
 test("Docker setup requires explicit consent before installing the update service", async (t) => {
-  const root = mkdtempSync(join(tmpdir(), "stuga-docker-setup-"));
+  const root = mkdtempSync(join(tmpdir(), "stugu-docker-setup-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const answers = ["2", "no", "", "1", "no", "yes"];
   const configuration = await resolveConfiguration(parseSetupArgs([]), {
@@ -401,13 +401,13 @@ test("Docker setup requires explicit consent before installing the update servic
 });
 
 test("non-interactive Cloudflare setup requires explicit protected token files", async () => {
-  const root = mkdtempSync(join(tmpdir(), "stuga-cloudflare-options-"));
+  const root = mkdtempSync(join(tmpdir(), "stugu-cloudflare-options-"));
   try {
     const base = [
       "--mode", "docker",
       "--real",
       "--cloudflare", "coordinator",
-      "--cloudflare-hostname", "stuga.example.test",
+      "--cloudflare-hostname", "stugu.example.test",
       "--cloudflare-zone", "example.test",
       "--cloudflare-owner-email", "owner@example.test",
       "--yes",
@@ -426,7 +426,7 @@ test("non-interactive Cloudflare setup requires explicit protected token files",
 
     const oauthConfiguration = await resolveConfiguration(parseSetupArgs([
       ...base,
-      "--cloudflare-oauth-client-id", "stuga-oauth-client",
+      "--cloudflare-oauth-client-id", "stugu-oauth-client",
       "--cloudflare-access-token-file", "access-token",
     ]), { environment: {}, interactive: false, root });
     assert.equal(oauthConfiguration.cloudflare.tokenInput, "oauth");
@@ -439,7 +439,7 @@ test("non-interactive Cloudflare setup requires explicit protected token files",
       "--cloudflare-access-token-file", "access-token",
     ]), { interactive: false, root });
     assert.equal(configuration.start, true);
-    assert.equal(configuration.cloudflare.mode, "stugby-coordinator");
+    assert.equal(configuration.cloudflare.mode, "stuguby-coordinator");
     assert.equal(configuration.cloudflare.command, "provision-coordinator");
     assert.equal(configuration.cloudflare.provisionTokenFile, join(root, "setup-token"));
     assert.equal(configuration.cloudflare.accessTokenFile, join(root, "access-token"));
@@ -471,7 +471,7 @@ test("updates only selected environment values", () => {
 });
 
 test("dry-run and real configuration preserve advanced settings", (t) => {
-  const root = mkdtempSync(join(tmpdir(), "stuga-configure-"));
+  const root = mkdtempSync(join(tmpdir(), "stugu-configure-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   writeFileSync(
     join(root, ".env.example"),
@@ -614,7 +614,7 @@ test("Cloudflare activation keeps pasted tokens out of commands and logs", async
   const configuration = {
     cloudflare: {
       command: "provision",
-      hostname: "stuga.example.test",
+      hostname: "stugu.example.test",
       mode: "remote-ui",
       secretDirectory: "C:\\protected\\cloudflare",
       tokenInput: "prompt",
@@ -633,11 +633,11 @@ test("Cloudflare activation keeps pasted tokens out of commands and logs", async
       return { status: 0 };
     },
     tokenReader: async () => tokenAnswers.shift(),
-    verifier: async () => ({ origin: "https://stuga.example.test" }),
+    verifier: async () => ({ origin: "https://stugu.example.test" }),
     verifyAttempts: 1,
   });
 
-  assert.deepEqual(result, { origin: "https://stuga.example.test" });
+  assert.deepEqual(result, { origin: "https://stugu.example.test" });
   assert.deepEqual(calls, [
     ["provision", provisionToken, accessToken],
     [
@@ -662,8 +662,8 @@ test("Cloudflare coordinator upgrade reuses the retained runtime approval", asyn
     cloudflare: {
       accessTokenFile: "C:\\protected\\cloudflare\\access-group-token",
       command: "provision-coordinator",
-      hostname: "stuga.example.test",
-      mode: "stugby-coordinator",
+      hostname: "stugu.example.test",
+      mode: "stuguby-coordinator",
       provisionRequired: true,
       secretDirectory: "C:\\protected\\cloudflare",
       tokenInput: "provision-prompt",
@@ -682,7 +682,7 @@ test("Cloudflare coordinator upgrade reuses the retained runtime approval", asyn
     },
     runner: () => ({ status: 0 }),
     tokenReader: async () => provisionToken,
-    verifier: async () => ({ origin: "https://stuga.example.test" }),
+    verifier: async () => ({ origin: "https://stugu.example.test" }),
     verifyAttempts: 1,
   });
 
@@ -697,9 +697,9 @@ test("Cloudflare OAuth approval is scoped, never logged, and revoked after verif
     cloudflare: {
       accessTokenFile: "C:\\protected\\cloudflare\\access-group-token",
       command: "provision-coordinator",
-      hostname: "stuga.example.test",
-      mode: "stugby-coordinator",
-      oauthClientId: "stuga-oauth-client",
+      hostname: "stugu.example.test",
+      mode: "stuguby-coordinator",
+      oauthClientId: "stugu-oauth-client",
       oauthRedirectUri: "http://127.0.0.1:8976/cloudflare/oauth/callback",
       provisionRequired: true,
       secretDirectory: "C:\\protected\\cloudflare",
@@ -730,7 +730,7 @@ test("Cloudflare OAuth approval is scoped, never logged, and revoked after verif
     },
     verifier: async () => {
       events.push(["verify"]);
-      return { origin: "https://stuga.example.test" };
+      return { origin: "https://stugu.example.test" };
     },
     verifyAttempts: 1,
   });
@@ -758,9 +758,9 @@ test("Cloudflare OAuth approval is revoked when provisioning fails", async () =>
       {
         cloudflare: {
           command: "provision",
-          hostname: "stuga.example.test",
+          hostname: "stugu.example.test",
           mode: "remote-ui",
-          oauthClientId: "stuga-oauth-client",
+          oauthClientId: "stugu-oauth-client",
           oauthRedirectUri: "http://127.0.0.1:8976/cloudflare/oauth/callback",
           provisionRequired: true,
           tokenInput: "oauth",
@@ -800,9 +800,9 @@ test("new Cloudflare OAuth setup retains only the separately supplied runtime to
     {
       cloudflare: {
         command: "provision",
-        hostname: "stuga.example.test",
+        hostname: "stugu.example.test",
         mode: "remote-ui",
-        oauthClientId: "stuga-oauth-client",
+        oauthClientId: "stugu-oauth-client",
         oauthRedirectUri: "http://127.0.0.1:8976/cloudflare/oauth/callback",
         provisionRequired: true,
         tokenInput: "oauth-prompt",
@@ -827,7 +827,7 @@ test("new Cloudflare OAuth setup retains only the separately supplied runtime to
       },
       runner: () => ({ status: 0 }),
       tokenReader: async () => runtimeToken,
-      verifier: async () => ({ origin: "https://stuga.example.test" }),
+      verifier: async () => ({ origin: "https://stugu.example.test" }),
       verifyAttempts: 1,
     },
   );
@@ -843,7 +843,7 @@ test("Cloudflare activation stops the connector when boundary verification fails
       {
         cloudflare: {
           command: "provision",
-          hostname: "stuga.example.test",
+          hostname: "stugu.example.test",
           mode: "remote-ui",
           secretDirectory: "C:\\protected\\cloudflare",
           tokenInput: "files",

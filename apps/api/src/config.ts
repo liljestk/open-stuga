@@ -37,15 +37,15 @@ export interface AppConfig {
   integrationSecretsFile: string;
   assetDirectory: string;
   /** Protected internal Ed25519 identity. Never exposed through configuration APIs. */
-  stugbyIdentityFile?: string | null;
-  stugbyNodeName?: string;
-  stugbySyncIntervalMs?: number;
+  stugubyIdentityFile?: string | null;
+  stugubyNodeName?: string;
+  stugubySyncIntervalMs?: number;
   /** Server-owned coordinator origin. Participants never need to configure one. */
-  stugbyPublicOrigin?: string | null;
+  stugubyPublicOrigin?: string | null;
   /** Safe setup suggestion inferred from browser/edge configuration; never authoritative by itself. */
-  stugbySuggestedPublicOrigin?: string | null;
+  stugubySuggestedPublicOrigin?: string | null;
   /** Cloudflare must expose the signed machine path before the UI may persist its suggested origin. */
-  stugbyCoordinatorProvisioningRequired?: boolean;
+  stugubyCoordinatorProvisioningRequired?: boolean;
   /** Shared, non-secret coordination directory used by the isolated backup worker. */
   backupOperationsDirectory?: string;
   /** Read-only manifest discovery path for local/non-Compose operation. */
@@ -124,7 +124,7 @@ export interface AppConfig {
   alertWebhookBearerToken: string | null;
   /** All effective webhook destinations. Legacy singleton fields above project the primary/first entry. */
   alertWebhookDestinations?: WebhookDestinationSecret[];
-  /** Optional HMAC-SHA256 signing key. Receivers verify X-Stuga-Timestamp and X-Stuga-Signature. */
+  /** Optional HMAC-SHA256 signing key. Receivers verify X-Stugu-Timestamp and X-Stugu-Signature. */
   alertWebhookSigningSecret?: string | null;
   /** Exact host allowlist; redirects are never followed. */
   alertWebhookAllowedHosts?: string[];
@@ -151,7 +151,7 @@ export interface AppConfig {
   cloudflareAccessAccountId?: string | null;
   cloudflareAccessGroupId?: string | null;
   cloudflareAccessGroupName?: string | null;
-  /** Cloudflare identities that permanently retain access, independent of local Stuga account email. */
+  /** Cloudflare identities that permanently retain access, independent of local Stugu account email. */
   cloudflareAccessStaticEmails?: string[];
   /** Write-only, least-privilege Access group credential. Never log AppConfig. */
   cloudflareAccessApiToken?: string | null;
@@ -335,7 +335,7 @@ function httpEndpoint(value: string, label: string): string {
   return url.toString().replace(/\/$/, "");
 }
 
-function stugbyPublicOrigin(value: string | undefined): string | null {
+function stugubyPublicOrigin(value: string | undefined): string | null {
   const configured = optional(value);
   if (!configured) return null;
   let url: URL;
@@ -353,10 +353,10 @@ function stugbyPublicOrigin(value: string | undefined): string | null {
   return url.origin;
 }
 
-function inferredStugbyPublicOrigin(...values: Array<string | undefined>): string | null {
+function inferredStugubyPublicOrigin(...values: Array<string | undefined>): string | null {
   for (const value of values) {
     try {
-      const origin = stugbyPublicOrigin(value);
+      const origin = stugubyPublicOrigin(value);
       if (origin) return origin;
     } catch {
       // CORS and edge origins may support configurations that are not valid
@@ -388,11 +388,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     : resolve(env.DATABASE_PATH ?? "./data/climate-twin.sqlite");
   const integrationSecretsFile = resolve(env.INTEGRATION_SECRETS_FILE
     ?? (databasePath === ":memory:" ? "./data/integration-secrets.json" : join(dirname(databasePath), "integration-secrets.json")));
-  const stugbyIdentityFile = databasePath === ":memory:"
+  const stugubyIdentityFile = databasePath === ":memory:"
     ? null
-    : resolve(env.STUGBY_IDENTITY_FILE ?? join(dirname(databasePath), "stugby-identity.json"));
-  const stugbyNodeName = optional(env.STUGBY_NODE_NAME) ?? "Stuga";
-  if (stugbyNodeName.length > 200) throw new Error("STUGBY_NODE_NAME must contain at most 200 characters");
+    : resolve(env.STUGBY_IDENTITY_FILE ?? join(dirname(databasePath), "stuguby-identity.json"));
+  const stugubyNodeName = optional(env.STUGBY_NODE_NAME) ?? "Stugu";
+  if (stugubyNodeName.length > 200) throw new Error("STUGBY_NODE_NAME must contain at most 200 characters");
   const configuredSpatialLayersPath = optional(env.SPATIAL_LAYERS_DATABASE_PATH);
   const spatialLayersDatabasePath = configuredSpatialLayersPath === ":memory:"
     || (configuredSpatialLayersPath === null && databasePath === ":memory:")
@@ -509,7 +509,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error("CLOUDFLARE_ACCESS_GROUP_ID must be a UUID");
   }
   const cloudflareAccessGroupName = cloudflareAccessValues.every(Boolean)
-    ? optional(env.CLOUDFLARE_ACCESS_GROUP_NAME) ?? "Stuga managed members"
+    ? optional(env.CLOUDFLARE_ACCESS_GROUP_NAME) ?? "Stugu managed members"
     : null;
   if (cloudflareAccessGroupName && cloudflareAccessGroupName.length > 255) {
     throw new Error("CLOUDFLARE_ACCESS_GROUP_NAME must contain at most 255 characters");
@@ -613,10 +613,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error("TAPO_HISTORY_PRIVATE_ENDPOINT must use HTTPS");
   }
   const tapoHistoryEnabled = booleanValue(env.TAPO_HISTORY_ENABLED, false);
-  const tapoHistoryEmailTagPrefix = optional(env.TAPO_HISTORY_EMAIL_TAG_PREFIX) ?? "stuga";
+  const tapoHistoryEmailTagPrefix = optional(env.TAPO_HISTORY_EMAIL_TAG_PREFIX) ?? "stugu";
   if (tapoHistoryExportEmail) {
     const local = tapoHistoryExportEmail.slice(0, tapoHistoryExportEmail.lastIndexOf("@")).split("+")[0]!;
-    const safePrefix = tapoHistoryEmailTagPrefix.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 20) || "stuga";
+    const safePrefix = tapoHistoryEmailTagPrefix.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 20) || "stugu";
     if (Buffer.byteLength(`${local}+${safePrefix}-${"0".repeat(32)}`, "utf8") > 64) {
       throw new Error("TAPO_HISTORY_EXPORT_EMAIL local part is too long for the per-attempt correlation tag");
     }
@@ -627,11 +627,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       "TAPO_HISTORY_ENABLED=true requires either the complete app worker/email/Gmail tuple or the private endpoint/token pair",
     );
   }
-  const configuredStugbyPublicOrigin = stugbyPublicOrigin(env.STUGBY_PUBLIC_ORIGIN);
-  const suggestedStugbyPublicOrigin = configuredStugbyPublicOrigin
-    ?? inferredStugbyPublicOrigin(env.CORS_ORIGIN, env.CLOUDFLARE_ACCESS_PUBLIC_ORIGIN);
-  const stugbyCoordinatorProvisioningRequired = !configuredStugbyPublicOrigin
-    && inferredStugbyPublicOrigin(env.CLOUDFLARE_ACCESS_PUBLIC_ORIGIN) !== null;
+  const configuredStugubyPublicOrigin = stugubyPublicOrigin(env.STUGBY_PUBLIC_ORIGIN);
+  const suggestedStugubyPublicOrigin = configuredStugubyPublicOrigin
+    ?? inferredStugubyPublicOrigin(env.CORS_ORIGIN, env.CLOUDFLARE_ACCESS_PUBLIC_ORIGIN);
+  const stugubyCoordinatorProvisioningRequired = !configuredStugubyPublicOrigin
+    && inferredStugubyPublicOrigin(env.CLOUDFLARE_ACCESS_PUBLIC_ORIGIN) !== null;
 
   return {
     port: positiveInteger(env.PORT, 8787),
@@ -670,12 +670,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       : resolve(env.TRACKING_SECRET_KEY_FILE ?? join(dirname(databasePath), "tracking-secret.key")),
     integrationSecretsFile,
     assetDirectory: resolve(env.ASSET_DIRECTORY ?? "./data/assets"),
-    stugbyIdentityFile,
-    stugbyNodeName,
-    stugbySyncIntervalMs: boundedInteger(env.STUGBY_SYNC_INTERVAL_MS, 15_000, 2_000, 300_000, "STUGBY_SYNC_INTERVAL_MS"),
-    stugbyPublicOrigin: configuredStugbyPublicOrigin,
-    stugbySuggestedPublicOrigin: suggestedStugbyPublicOrigin,
-    stugbyCoordinatorProvisioningRequired,
+    stugubyIdentityFile,
+    stugubyNodeName,
+    stugubySyncIntervalMs: boundedInteger(env.STUGBY_SYNC_INTERVAL_MS, 15_000, 2_000, 300_000, "STUGBY_SYNC_INTERVAL_MS"),
+    stugubyPublicOrigin: configuredStugubyPublicOrigin,
+    stugubySuggestedPublicOrigin: suggestedStugubyPublicOrigin,
+    stugubyCoordinatorProvisioningRequired,
     backupOperationsDirectory: resolve(env.BACKUP_OPERATIONS_DIRECTORY ?? "./data/backup-operations"),
     backupDirectory: resolve(env.BACKUP_DIRECTORY ?? "./backups"),
     systemUpdateOperationsDirectory: resolve(env.SYSTEM_UPDATE_OPERATIONS_DIRECTORY

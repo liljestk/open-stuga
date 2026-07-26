@@ -1,7 +1,7 @@
 /**
  * Small dependency-free QR encoder for local sensor labels. It intentionally
  * uses one conservative profile (Version 6, byte mode, ECC-L, mask 0), enough
- * for Stuga setup URIs while keeping onboarding offline and private.
+ * for Stugu setup URIs while keeping onboarding offline and private.
  */
 const VERSION = 6;
 const SIZE = VERSION * 4 + 17;

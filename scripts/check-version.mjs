@@ -50,7 +50,7 @@ const lockedWebContractsVersion = lock.packages?.["apps/web"]?.dependencies?.["@
 if (lockedWebContractsVersion !== expected) {
   mismatches.push(`package-lock.json apps/web @climate-twin/contracts: ${lockedWebContractsVersion ?? "missing"}`);
 }
-for (const dependency of ["@climate-twin/spatial-layers", "@climate-twin/stugby-protocol"]) {
+for (const dependency of ["@climate-twin/spatial-layers", "@climate-twin/stuguby-protocol"]) {
   const version = lock.packages?.["apps/web"]?.dependencies?.[dependency];
   if (version !== expected) mismatches.push(`package-lock.json apps/web ${dependency}: ${version ?? "missing"}`);
 }
@@ -83,9 +83,9 @@ if (process.argv.includes("--require-base-bump")) {
   }
 }
 if (mismatches.length) {
-  console.error(`Stuga version ${expected} is inconsistent:\n${mismatches.map((item) => `- ${item}`).join("\n")}`);
+  console.error(`Stugu version ${expected} is inconsistent:\n${mismatches.map((item) => `- ${item}`).join("\n")}`);
   process.exitCode = 1;
 } else {
   const bump = baseVersion ? ` and is newer than PR base ${baseVersion}` : "";
-  console.log(`Stuga version ${expected} is consistent across the local runtime, package metadata, and changelog${bump}.`);
+  console.log(`Stugu version ${expected} is consistent across the local runtime, package metadata, and changelog${bump}.`);
 }
