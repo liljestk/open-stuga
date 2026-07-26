@@ -219,7 +219,9 @@ private final class EquipmentQRScannerController:
         }
         completed = true
         stopSession()
+        #if !targetEnvironment(macCatalyst)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        #endif
         onCode(code)
     }
 }

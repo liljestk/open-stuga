@@ -11,6 +11,7 @@ struct StugaApp: App {
             RootView()
                 .environmentObject(model)
                 .tint(StugaTheme.action)
+                .stugaWindowSizing()
                 .task {
                     appDelegate.configure(model: model)
                     await model.start()
@@ -42,5 +43,16 @@ struct StugaApp: App {
     private func consumeAppIntentRoute() {
         guard let url = StugaAppIntentRouteStore.consume() else { return }
         model.handleDeepLink(url)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func stugaWindowSizing() -> some View {
+        #if targetEnvironment(macCatalyst)
+        self.frame(minWidth: 820, minHeight: 620)
+        #else
+        self
+        #endif
     }
 }

@@ -80,7 +80,7 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
-        model?.errorMessage = "This iPhone could not register for remote notifications."
+        model?.errorMessage = "This device could not register for remote notifications."
     }
 
     func userNotificationCenter(

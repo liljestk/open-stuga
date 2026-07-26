@@ -71,11 +71,12 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
   snapshots without sharing an Apple Account credential or pretending Notes
   supports live server sync; operator device labels are informational, and the
   setup warns that iCloud may copy a Shortcut bearer to other devices
-- A native iOS companion for direct, authenticated Home monitoring, sensor
-  history, alert acknowledgement, Property inventory QR scanning, equipment
-  notes/issues/borrowing, opt-in BLE observation, uncertainty-aware Property
-  maps, optional foreground member presence, and Find nearby without copying
-  telemetry through an intermediary app service
+- A shared native iPhone, iPad, and Mac Catalyst companion for direct,
+  authenticated Home monitoring, sensor history, alert acknowledgement,
+  Property inventory QR scanning, equipment notes/issues/borrowing, opt-in BLE
+  observation, uncertainty-aware Property maps, optional foreground member
+  presence, and Find nearby without copying telemetry through an intermediary
+  app service
 - Versioned REST API, OpenAPI description, and a local stdio MCP server
 - English, Finnish, and Swedish UI foundations, metric/imperial display,
   responsive layout, and accessible controls

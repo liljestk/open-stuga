@@ -33,7 +33,7 @@ struct CheckStugaIntent: AppIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let snapshot = CompanionWidgetSnapshotStore().load() else {
             return .result(
-                dialog: "Open Stuga once to save a Home summary on this iPhone."
+                dialog: "Open Stuga once to save a Home summary on this device."
             )
         }
         let alerts = snapshot.activeAlertCount == 0

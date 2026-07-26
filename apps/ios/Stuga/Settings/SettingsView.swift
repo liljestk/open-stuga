@@ -1,6 +1,22 @@
 import SwiftUI
 import UIKit
 
+private var companionDeviceName: String {
+    #if targetEnvironment(macCatalyst)
+    "Mac"
+    #else
+    "iPhone"
+    #endif
+}
+
+private var companionPlatformName: String {
+    #if targetEnvironment(macCatalyst)
+    "macOS"
+    #else
+    "iOS"
+    #endif
+}
+
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var confirmDisconnect = false
@@ -281,7 +297,7 @@ struct SettingsView: View {
         section(title: "Notifications") {
             VStack(alignment: .leading, spacing: 12) {
                 Toggle(
-                    "Notify this iPhone",
+                    "Notify this \(companionDeviceName)",
                     isOn: Binding(
                         get: { model.notificationsEnabled },
                         set: { enabled in
@@ -312,7 +328,7 @@ struct SettingsView: View {
                     )
 
                     if model.notificationAuthorization == .denied {
-                        Button("Open iOS notification settings") {
+                        Button("Open \(companionPlatformName) notification settings") {
                             guard let url = URL(
                                 string: UIApplication.openNotificationSettingsURLString
                             ) else { return }
@@ -333,7 +349,7 @@ struct SettingsView: View {
                 }
 
                 Text(
-                    "This iPhone receives alerts for every Home currently visible to this account. Notifications are sent directly by your Stuga server. Delivery can be delayed or suppressed by iOS; do not rely on Stuga for life-safety monitoring."
+                    "This \(companionDeviceName) receives alerts for every Home currently visible to this account. Notifications are sent directly by your Stuga server. Delivery can be delayed or suppressed by \(companionPlatformName); do not rely on Stuga for life-safety monitoring."
                 )
                 .font(.caption)
                 .foregroundStyle(StugaTheme.muted)
@@ -358,7 +374,7 @@ struct SettingsView: View {
                 Text("The app talks directly to your selected Stuga server. It does not copy telemetry to an intermediary service.")
                     .font(.subheadline)
                     .foregroundStyle(StugaTheme.muted)
-                Text("Your password is not stored. The server session is kept in the iOS cookie store until you sign out, disconnect, or the session expires.")
+                Text("Your password is not stored. The server session is kept in the system cookie store until you sign out, disconnect, or the session expires.")
                     .font(.subheadline)
                     .foregroundStyle(StugaTheme.muted)
                 Text("A bounded, encrypted-on-device snapshot and pending field changes remain available offline. They are excluded from device backups and removed when you sign out or disconnect.")
@@ -441,7 +457,7 @@ private struct EquipmentObservationSettings: View {
             StugaCard {
                 VStack(alignment: .leading, spacing: 12) {
                     Toggle(
-                        "Let this iPhone observe Stuga tags",
+                        "Let this \(companionDeviceName) observe Stuga tags",
                         isOn: Binding(
                             get: { model.equipmentObservationEnabled },
                             set: { enabled in
@@ -451,7 +467,7 @@ private struct EquipmentObservationSettings: View {
                     )
                     .disabled(!model.mobileTrackingAvailable)
 
-                    Text("Participation is optional. iOS background scanning is opportunistic and does not guarantee immediate or continuous detection.")
+                    Text("Participation is optional. Background Bluetooth scanning is opportunistic and does not guarantee immediate or continuous detection.")
                         .font(.caption)
                         .foregroundStyle(StugaTheme.muted)
 
@@ -493,14 +509,14 @@ private struct EquipmentObservationSettings: View {
 
                     if tracker.hasObserverRegistration {
                         Divider().overlay(StugaTheme.line)
-                        Button("Remove this iPhone observer", role: .destructive) {
+                        Button("Remove this \(companionDeviceName) observer", role: .destructive) {
                             confirmObserverRemoval = true
                         }
                     }
                 }
             }
             .confirmationDialog(
-                "Remove this iPhone observer?",
+                "Remove this \(companionDeviceName) observer?",
                 isPresented: $confirmObserverRemoval,
                 titleVisibility: .visible
             ) {
@@ -508,7 +524,7 @@ private struct EquipmentObservationSettings: View {
                     Task { await model.removeMobileTrackingObserver() }
                 }
             } message: {
-                Text("Stuga will revoke its upload credential and remove it from this iPhone.")
+                Text("Stuga will revoke its upload credential and remove it from this \(companionDeviceName).")
             }
         }
     }

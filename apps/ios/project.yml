@@ -38,7 +38,8 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         TARGETED_DEVICE_FAMILY: "1,2"
-        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MACCATALYST: YES
+        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
       configs:
         Debug:
           APNS_ENVIRONMENT: development
@@ -47,8 +48,10 @@ targets:
     dependencies:
       - target: StugaWidget
         embed: true
+        platformFilter: iOS
       - target: StugaWatch
         embed: true
+        platformFilter: iOS
         copy:
           destination: plugins
 

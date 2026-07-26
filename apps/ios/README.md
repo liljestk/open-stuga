@@ -1,8 +1,9 @@
-# Stuga companion for iOS
+# Stuga companion for iOS, iPadOS, and macOS
 
 Native SwiftUI companion for monitoring a Stuga installation from iPhone or
-iPad. It connects directly to the user-selected Stuga server; there is no
-intermediary app service.
+iPad, with a Mac Catalyst build for Intel and Apple silicon Macs. It connects
+directly to the user-selected Stuga server; there is no intermediary app
+service.
 
 ## Included
 
@@ -45,11 +46,12 @@ but sends update scheduling and installation changes to the web app.
 
 ## Open and run
 
-Requirements: Xcode 16 or newer, iOS 17 or newer, and watchOS 10 or newer for
-the Watch companion.
+Requirements: Xcode 16 or newer, iOS 17 or newer, macOS 14 or newer for the
+Mac Catalyst app, and watchOS 10 or newer for the Watch companion.
 
 1. Open `Stuga.xcodeproj`.
-2. Choose the `Stuga` scheme and an iPhone or iPad simulator.
+2. Choose the `Stuga` scheme and an iPhone/iPad simulator or **My Mac
+   (Mac Catalyst)**.
 3. Build and run.
 4. Enter the root address of a reachable Stuga installation.
 
@@ -77,6 +79,33 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO \
   build
 ```
+
+Build the Mac app without signing:
+
+```sh
+xcodebuild \
+  -project apps/ios/Stuga.xcodeproj \
+  -scheme Stuga \
+  -destination 'platform=macOS,variant=Mac Catalyst' \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+```
+
+## macOS scope
+
+The Mac build is the native companion: monitoring, alerts, inventory, maps,
+capture, system-update visibility, native notifications, shortcuts, and
+offline state share the same Swift implementation as iPhone and iPad. The
+Watch app remains paired with the iPhone, and RoomPlan capture remains an
+iPhone/iPad task; Apple makes captured RoomPlan data processable on Mac but
+does not run room-capture sessions there.
+
+The Mac app does not embed a second Stuga server. The Node/SQLite control
+plane, Python TP-Link bridge, optional databases, backup/update agent, and
+integration credentials remain one separately managed installation. Bundling
+those components into the GUI would create a second deployment and update
+boundary rather than make the platform native. Full setup, administration,
+and research views therefore continue to open on that installation's web app.
 
 ## Connection and security
 

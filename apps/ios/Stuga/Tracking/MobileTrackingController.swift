@@ -124,11 +124,11 @@ final class MobileTrackingController: NSObject, ObservableObject {
             let registration = try await client.registerTrackingObserver(
                 TrackingObserverRegistrationInput(
                     propertyId: propertyID,
-                    name: "iPhone observer",
+                    name: Self.observerName,
                     appInstallationId: installationID,
                     hardwareMetadata: [
-                        "platform": .string("IOS"),
-                        "osVersion": .string(UIDevice.current.systemVersion),
+                        "platform": .string(Self.observerPlatform),
+                        "osVersion": .string(Self.systemVersion),
                         "appVersion": .string(version),
                     ]
                 )
@@ -510,6 +510,9 @@ final class MobileTrackingController: NSObject, ObservableObject {
     }
 
     private func provideFindHaptic(for band: TrackingProximityBand) {
+        #if targetEnvironment(macCatalyst)
+        return
+        #else
         let minimumInterval: TimeInterval
         let style: UIImpactFeedbackGenerator.FeedbackStyle
         switch band {
@@ -521,6 +524,31 @@ final class MobileTrackingController: NSObject, ObservableObject {
         guard Date().timeIntervalSince(lastHapticAt) >= minimumInterval else { return }
         lastHapticAt = Date()
         UIImpactFeedbackGenerator(style: style).impactOccurred()
+        #endif
+    }
+
+    private static var observerName: String {
+        #if targetEnvironment(macCatalyst)
+        "Mac observer"
+        #else
+        "iPhone observer"
+        #endif
+    }
+
+    private static var observerPlatform: String {
+        #if targetEnvironment(macCatalyst)
+        "MACOS"
+        #else
+        "IOS"
+        #endif
+    }
+
+    private static var systemVersion: String {
+        #if targetEnvironment(macCatalyst)
+        ProcessInfo.processInfo.operatingSystemVersionString
+        #else
+        UIDevice.current.systemVersion
+        #endif
     }
 
     private func trackingApplicationSupportDirectory() throws -> URL {

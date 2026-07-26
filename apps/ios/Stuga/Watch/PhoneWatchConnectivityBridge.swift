@@ -1,4 +1,21 @@
 import Foundation
+
+#if targetEnvironment(macCatalyst)
+@MainActor
+final class PhoneWatchConnectivityBridge {
+    static let shared = PhoneWatchConnectivityBridge()
+
+    private init() {}
+
+    func activate() {}
+
+    func configure(model: AppModel) {}
+
+    func modelDidStart() async {}
+
+    func publish(_ snapshot: WatchHomeSnapshot) {}
+}
+#else
 @preconcurrency import WatchConnectivity
 
 final class PhoneWatchConnectivityBridge: NSObject, WCSessionDelegate {
@@ -208,3 +225,4 @@ private actor PhoneWatchActionInbox {
         try? protectedURL.setResourceValues(values)
     }
 }
+#endif
