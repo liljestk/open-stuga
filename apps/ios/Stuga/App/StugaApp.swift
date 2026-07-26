@@ -15,11 +15,20 @@ struct StugaApp: App {
                     appDelegate.configure(model: model)
                     await model.start()
                     await appDelegate.modelDidStart()
+                    consumeAppIntentRoute()
                 }
                 .onOpenURL { model.handleDeepLink($0) }
+                .onReceive(
+                    NotificationCenter.default.publisher(
+                        for: StugaAppIntentRouteStore.didRequestRoute
+                    )
+                ) { _ in
+                    consumeAppIntentRoute()
+                }
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {
                     case .active:
+                        consumeAppIntentRoute()
                         Task { await model.sceneBecameActive() }
                     case .inactive, .background:
                         model.sceneBecameInactive()
@@ -27,6 +36,12 @@ struct StugaApp: App {
                         break
                     }
                 }
+            }
         }
+    }
+
+    private func consumeAppIntentRoute() {
+        guard let url = StugaAppIntentRouteStore.consume() else { return }
+        model.handleDeepLink(url)
     }
 }

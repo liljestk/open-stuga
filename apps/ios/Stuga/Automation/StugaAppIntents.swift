@@ -1,6 +1,27 @@
 import AppIntents
 import Foundation
 
+enum StugaAppIntentRouteStore {
+    static let didRequestRoute = Notification.Name(
+        "net.stuga.app-intent-route-requested"
+    )
+
+    private static let pendingRouteKey = "app-intent.pending-route"
+
+    static func request(_ route: String) {
+        UserDefaults.standard.set(route, forKey: pendingRouteKey)
+        NotificationCenter.default.post(name: didRequestRoute, object: nil)
+    }
+
+    static func consume() -> URL? {
+        guard let route = UserDefaults.standard.string(forKey: pendingRouteKey) else {
+            return nil
+        }
+        UserDefaults.standard.removeObject(forKey: pendingRouteKey)
+        return URL(string: route)
+    }
+}
+
 struct CheckStugaIntent: AppIntent {
     static let title: LocalizedStringResource = "Check Stuga"
     static let description = IntentDescription(
@@ -29,21 +50,21 @@ struct CaptureStugaObservationIntent: AppIntent {
     static let description = IntentDescription(
         "Opens Stuga's quick field-capture form."
     )
+    static let openAppWhenRun = true
 
-    func perform() async throws -> some IntentResult & OpensIntent {
-        .result(
-            opensIntent: OpenURLIntent(URL(string: "stuga://capture")!)
-        )
+    func perform() async throws -> some IntentResult {
+        StugaAppIntentRouteStore.request("stuga://capture")
+        return .result()
     }
 }
 
 struct OpenStugaAlertsIntent: AppIntent {
     static let title: LocalizedStringResource = "Open Stuga Alerts"
+    static let openAppWhenRun = true
 
-    func perform() async throws -> some IntentResult & OpensIntent {
-        .result(
-            opensIntent: OpenURLIntent(URL(string: "stuga://alerts")!)
-        )
+    func perform() async throws -> some IntentResult {
+        StugaAppIntentRouteStore.request("stuga://alerts")
+        return .result()
     }
 }
 
@@ -52,11 +73,11 @@ struct ScanStugaRoomIntent: AppIntent {
     static let description = IntentDescription(
         "Opens Stuga's reviewable RoomPlan capture."
     )
+    static let openAppWhenRun = true
 
-    func perform() async throws -> some IntentResult & OpensIntent {
-        .result(
-            opensIntent: OpenURLIntent(URL(string: "stuga://room-scan")!)
-        )
+    func perform() async throws -> some IntentResult {
+        StugaAppIntentRouteStore.request("stuga://room-scan")
+        return .result()
     }
 }
 

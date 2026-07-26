@@ -589,20 +589,21 @@ private enum CapturedRoomAdapter {
             )
         }
 
-        let floorPolygon = room.floors
-            .max(by: { polygonArea($0) < polygonArea($1) })
-            .map { surface in
-                surface.polygonCorners.map { corner in
-                    let world = simd_mul(
-                        surface.transform,
-                        SIMD4<Float>(corner.x, corner.y, corner.z, 1)
-                    )
-                    return StugaPlanPoint(
-                        x: Double(world.x),
-                        y: Double(world.z)
-                    )
-                }
-            } ?? []
+        var floorPolygon: [StugaPlanPoint] = []
+        if let surface = room.floors.max(
+            by: { polygonArea($0) < polygonArea($1) }
+        ) {
+            floorPolygon = surface.polygonCorners.map { corner in
+                let world = simd_mul(
+                    surface.transform,
+                    SIMD4<Float>(corner.x, corner.y, corner.z, 1)
+                )
+                return StugaPlanPoint(
+                    x: Double(world.x),
+                    y: Double(world.z)
+                )
+            }
+        }
 
         var openings = room.windows.map {
             opening($0, kind: .window, isOpen: nil)
