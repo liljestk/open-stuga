@@ -36,7 +36,6 @@ struct StugaApp: App {
                         break
                     }
                 }
-            }
         }
     }
 
