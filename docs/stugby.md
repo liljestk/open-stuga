@@ -68,7 +68,10 @@ The protocol can share only these versioned datasets:
 The shared-property aggregate can contain common areas, equipment, notes,
 maintenance items, and an optional common location. An adopted copy is
 materialized in the normal Property workspace with Stugby ownership metadata;
-unrelated local Properties stay separate.
+unrelated local Properties stay separate. Equipment carries its nullable area,
+optional map pin, and an opaque Home publication reference. A Home assignment
+is restored only when that Home is also available to the recipient; otherwise
+the equipment stays safely unassigned until the Home projection arrives.
 
 The following are outside the protocol and cannot be enabled by a grant:
 
@@ -130,7 +133,7 @@ create or manage local Stuga accounts.
 ## Consent and grants
 
 Joining never publishes the joining Client's Home data. The authoritative Stuga
-normally creates a grant for one local Home and chooses:
+creates at most one active grant for each local Home in a Stugby and chooses:
 
 1. all active members or an explicit node list;
 2. each enabled dataset;
@@ -176,6 +179,8 @@ telemetry, then return a deletion receipt. A coordinator will not deactivate a
 member while an active grant involves it or a required deletion receipt is
 outstanding. Revocation is a best-effort distributed deletion mechanism, not a
 claim that a malicious recipient cannot have copied previously received data.
+To change audience or dataset scope, update the existing grant; revoke or let it
+expire before creating a replacement for the same Home.
 
 An expired grant no longer authorizes new events. While the authority is
 running, expiration automatically advances the grant epoch and sends the same

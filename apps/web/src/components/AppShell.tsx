@@ -4,7 +4,7 @@ import type { AppPage } from "../domain";
 import { useI18n, type Locale } from "../i18n";
 import type { ConnectionState, House as Home, Property, UnitSystem } from "@climate-twin/contracts";
 import { StugaMark } from "./StugaMark";
-import { StugbyMark } from "./StugbyMark";
+import { HomeOriginIndicator, isRemoteHome, type HomeOriginScope } from "./HomeOriginIndicator";
 import { formatInTimeZone } from "../dateTime";
 import type { DataMode } from "../useClimateData";
 import { locationForRoute } from "../routing";
@@ -70,10 +70,14 @@ const navigationPreferenceKey = "climate-twin-navigation";
 
 function NavigationGroup({
   label,
+  accessibleLabel,
+  context,
   active,
   children,
 }: {
   label: string;
+  accessibleLabel?: string;
+  context?: ReactNode;
   active: boolean;
   children: ReactNode;
 }) {
@@ -86,11 +90,15 @@ function NavigationGroup({
   return (
     <details
       className="sidebar-nav-group"
-      aria-label={label}
+      aria-label={accessibleLabel ?? label}
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary><span>{label}</span><ChevronDown size={15} aria-hidden="true" /></summary>
+      <summary>
+        <span className="sidebar-nav-group-label">{label}</span>
+        {context}
+        <ChevronDown className="sidebar-nav-group-chevron" size={15} aria-hidden="true" />
+      </summary>
       <div>{children}</div>
     </details>
   );
@@ -132,6 +140,7 @@ export function AppShell({
   const activeProperty = properties.find((property) => property.id === propertyId);
   const propertyHouses = houses.filter((house) => house.propertyId === propertyId);
   const activeHome = propertyHouses.find((house) => house.id === houseId);
+  const homeOriginLabel = (home: HomeOriginScope) => t(isRemoteHome(home) ? "home.origin.remote" : "home.origin.own");
   const activeTimeZone = activeHome?.timezone;
   const [menuOpen, setMenuOpen] = useState(false);
   const [showConnectionException, setShowConnectionException] = useState(false);
@@ -372,8 +381,16 @@ export function AppShell({
               {propertyNavItems.map(navigationItem)}
             </NavigationGroup>
           )}
-          {homeNavItems.length > 0 && (
-            <NavigationGroup label={t("nav.homeGroup", { name: activeHome?.name ?? t("nav.twin") })} active={homeGroupActive}>
+          {homeNavItems.length > 0 && activeHome && (
+            <NavigationGroup
+              label={t("nav.homeGroup", { name: activeHome.name })}
+              accessibleLabel={t("home.origin.option", {
+                name: t("nav.homeGroup", { name: activeHome.name }),
+                origin: homeOriginLabel(activeHome),
+              })}
+              context={<HomeOriginIndicator home={activeHome} label={homeOriginLabel(activeHome)} />}
+              active={homeGroupActive}
+            >
               {homeNavItems.map(navigationItem)}
             </NavigationGroup>
           )}
@@ -479,11 +496,15 @@ export function AppShell({
               {onHouse && propertyHouses.length > 0 && (["twin", "activity", "outdoor", "sensors", "analytics", "integrations"].includes(page)
                 || (page === "energy" && /\/homes\/[^/]+\/electricity\/?$/.test(window.location.pathname))) && (
                 <div className="page-home-switcher-group">
-                  {activeHome?.stugby ? <StugbyMark className="small" /> : <House size={16} aria-hidden="true" />}
+                  {activeHome && <HomeOriginIndicator home={activeHome} label={homeOriginLabel(activeHome)} />}
                   <label>
                     <span>{t("header.activeHome")}</span>
                     <select value={houseId} onChange={(event) => onHouse(event.target.value)}>
-                      {propertyHouses.map((house) => <option key={house.id} value={house.id}>{house.name}</option>)}
+                      {propertyHouses.map((house) => (
+                        <option key={house.id} value={house.id}>
+                          {house.name}
+                        </option>
+                      ))}
                     </select>
                   </label>
                 </div>

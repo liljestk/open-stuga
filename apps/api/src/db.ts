@@ -7,6 +7,10 @@ import type {
   AreaEquipment,
   AreaEquipmentInput,
   AreaEquipmentPatch,
+  EquipmentAttachment,
+  EquipmentLink,
+  EquipmentLinkInput,
+  EquipmentLinkPatch,
   ActionPlaybook,
   ActionPlaybookInput,
   ActionRun,
@@ -367,7 +371,9 @@ interface PropertyAreaRow {
 interface AreaEquipmentRow {
   id: string;
   property_id: string;
-  area_id: string;
+  area_id: string | null;
+  house_id: string | null;
+  location_json: string | null;
   name: string;
   kind: string;
   manufacturer: string | null;
@@ -375,6 +381,29 @@ interface AreaEquipmentRow {
   serial_number: string | null;
   status: AreaEquipment["status"];
   notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface EquipmentAttachmentRow {
+  id: string;
+  equipment_id: string;
+  kind: EquipmentAttachment["kind"];
+  name: string;
+  mime_type: string;
+  size: number;
+  created_at: string;
+}
+
+interface EquipmentAttachmentDataRow extends EquipmentAttachmentRow {
+  data: Uint8Array;
+}
+
+interface EquipmentLinkRow {
+  id: string;
+  equipment_id: string;
+  label: string;
+  url: string;
   created_at: string;
   updated_at: string;
 }
@@ -1151,6 +1180,8 @@ function areaEquipmentFromRow(row: AreaEquipmentRow): AreaEquipment {
     id: row.id,
     propertyId: row.property_id,
     areaId: row.area_id,
+    houseId: row.house_id,
+    ...(row.location_json ? { location: parseJson<GeoCoordinate>(row.location_json) } : {}),
     name: row.name,
     kind: row.kind,
     manufacturer: row.manufacturer,
@@ -1158,6 +1189,29 @@ function areaEquipmentFromRow(row: AreaEquipmentRow): AreaEquipment {
     serialNumber: row.serial_number,
     status: row.status,
     notes: row.notes,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function equipmentAttachmentFromRow(row: EquipmentAttachmentRow): EquipmentAttachment {
+  return {
+    id: row.id,
+    equipmentId: row.equipment_id,
+    kind: row.kind,
+    name: row.name,
+    mimeType: row.mime_type,
+    size: row.size,
+    createdAt: row.created_at,
+  };
+}
+
+function equipmentLinkFromRow(row: EquipmentLinkRow): EquipmentLink {
+  return {
+    id: row.id,
+    equipmentId: row.equipment_id,
+    label: row.label,
+    url: row.url,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -1877,6 +1931,7 @@ export class ClimateDatabase {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+    this.migrateEquipmentPlacementTable();
     this.migrate();
     const realDataMode = this.isRealDataMode();
     // Never seed a database that has crossed the one-way boundary, including
@@ -1888,6 +1943,91 @@ export class ClimateDatabase {
     // A persisted real-data latch is authoritative even if a database was
     // modified outside the application while it was stopped.
     if (this.isRealDataMode()) this.purgeSourceLabelledDemoTelemetry();
+  }
+
+  /**
+   * SQLite cannot remove the legacy NOT NULL constraint from `area_id` with
+   * ALTER TABLE. Rebuild only this table before the normal transactional
+   * migration so existing equipment can later target a Home or stay
+   * unassigned without manufacturing a fake Property area.
+   */
+  private migrateEquipmentPlacementTable(): void {
+    const columns = this.db.prepare("PRAGMA table_info(area_equipment)").all() as unknown as Array<{
+      name: string;
+      notnull: number;
+    }>;
+    if (columns.length === 0) return;
+    const area = columns.find((column) => column.name === "area_id");
+    const hasHouse = columns.some((column) => column.name === "house_id");
+    const hasLocation = columns.some((column) => column.name === "location_json");
+    if (area?.notnull === 0 && hasHouse && hasLocation) return;
+
+    this.db.exec("PRAGMA foreign_keys = OFF");
+    try {
+      this.db.exec("BEGIN IMMEDIATE");
+      this.db.exec(`
+        DROP TABLE IF EXISTS area_equipment_location_next;
+        CREATE TABLE area_equipment_location_next (
+          id TEXT PRIMARY KEY,
+          property_id TEXT NOT NULL REFERENCES properties(id) ON DELETE RESTRICT,
+          area_id TEXT REFERENCES property_areas(id) ON DELETE RESTRICT,
+          house_id TEXT REFERENCES houses(id) ON DELETE RESTRICT,
+          location_json TEXT CHECK (location_json IS NULL OR json_valid(location_json)),
+          name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+          kind TEXT NOT NULL CHECK (length(trim(kind)) > 0),
+          manufacturer TEXT,
+          model TEXT,
+          serial_number TEXT,
+          status TEXT NOT NULL CHECK (status IN ('active', 'out-of-service', 'retired')),
+          notes TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          CHECK ((area_id IS NOT NULL) + (house_id IS NOT NULL) <= 1)
+        );
+        INSERT INTO area_equipment_location_next (
+          id, property_id, area_id, house_id, location_json, name, kind,
+          manufacturer, model, serial_number, status, notes, created_at, updated_at
+        )
+        SELECT id, property_id,
+          ${hasHouse ? "CASE WHEN house_id IS NULL THEN area_id ELSE NULL END" : "area_id"},
+          ${hasHouse ? "house_id" : "NULL"},
+          ${hasLocation ? "location_json" : "NULL"},
+          name, kind, manufacturer, model, serial_number, status, notes, created_at, updated_at
+        FROM area_equipment;
+        DROP TABLE area_equipment;
+        CREATE TABLE area_equipment (
+          id TEXT PRIMARY KEY,
+          property_id TEXT NOT NULL REFERENCES properties(id) ON DELETE RESTRICT,
+          area_id TEXT REFERENCES property_areas(id) ON DELETE RESTRICT,
+          house_id TEXT REFERENCES houses(id) ON DELETE RESTRICT,
+          location_json TEXT CHECK (location_json IS NULL OR json_valid(location_json)),
+          name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+          kind TEXT NOT NULL CHECK (length(trim(kind)) > 0),
+          manufacturer TEXT,
+          model TEXT,
+          serial_number TEXT,
+          status TEXT NOT NULL CHECK (status IN ('active', 'out-of-service', 'retired')),
+          notes TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          CHECK ((area_id IS NOT NULL) + (house_id IS NOT NULL) <= 1)
+        );
+        INSERT INTO area_equipment (
+          id, property_id, area_id, house_id, location_json, name, kind,
+          manufacturer, model, serial_number, status, notes, created_at, updated_at
+        )
+        SELECT id, property_id, area_id, house_id, location_json, name, kind,
+          manufacturer, model, serial_number, status, notes, created_at, updated_at
+        FROM area_equipment_location_next;
+        DROP TABLE area_equipment_location_next;
+        COMMIT;
+      `);
+    } catch (error) {
+      try { this.db.exec("ROLLBACK"); } catch { /* The failed statement may already have rolled back. */ }
+      throw error;
+    } finally {
+      this.db.exec("PRAGMA foreign_keys = ON");
+    }
   }
 
   isRealDataMode(): boolean {
@@ -2325,7 +2465,9 @@ export class ClimateDatabase {
       CREATE TABLE IF NOT EXISTS area_equipment (
         id TEXT PRIMARY KEY,
         property_id TEXT NOT NULL REFERENCES properties(id) ON DELETE RESTRICT,
-        area_id TEXT NOT NULL REFERENCES property_areas(id) ON DELETE RESTRICT,
+        area_id TEXT REFERENCES property_areas(id) ON DELETE RESTRICT,
+        house_id TEXT REFERENCES houses(id) ON DELETE RESTRICT,
+        location_json TEXT CHECK (location_json IS NULL OR json_valid(location_json)),
         name TEXT NOT NULL CHECK (length(trim(name)) > 0),
         kind TEXT NOT NULL CHECK (length(trim(kind)) > 0),
         manufacturer TEXT,
@@ -2334,12 +2476,37 @@ export class ClimateDatabase {
         status TEXT NOT NULL CHECK (status IN ('active', 'out-of-service', 'retired')),
         notes TEXT,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        CHECK ((area_id IS NOT NULL) + (house_id IS NOT NULL) <= 1)
       );
       CREATE INDEX IF NOT EXISTS idx_area_equipment_property_area_name
         ON area_equipment(property_id, area_id, name, id);
       CREATE INDEX IF NOT EXISTS idx_area_equipment_area_name
         ON area_equipment(area_id, name, id);
+      CREATE INDEX IF NOT EXISTS idx_area_equipment_house_name
+        ON area_equipment(house_id, name, id) WHERE house_id IS NOT NULL;
+      CREATE TABLE IF NOT EXISTS equipment_attachments (
+        id TEXT PRIMARY KEY,
+        equipment_id TEXT NOT NULL REFERENCES area_equipment(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('photo', 'document')),
+        name TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 255),
+        mime_type TEXT NOT NULL CHECK (length(trim(mime_type)) BETWEEN 1 AND 200),
+        data BLOB NOT NULL,
+        size INTEGER NOT NULL CHECK (size > 0 AND size <= 10485760),
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_equipment_attachments_equipment_created
+        ON equipment_attachments(equipment_id, created_at DESC, id);
+      CREATE TABLE IF NOT EXISTS equipment_links (
+        id TEXT PRIMARY KEY,
+        equipment_id TEXT NOT NULL REFERENCES area_equipment(id) ON DELETE CASCADE,
+        label TEXT NOT NULL CHECK (length(trim(label)) BETWEEN 1 AND 200),
+        url TEXT NOT NULL CHECK (length(trim(url)) BETWEEN 1 AND 2048),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_equipment_links_equipment_label
+        ON equipment_links(equipment_id, label, id);
       CREATE TABLE IF NOT EXISTS property_notes (
         id TEXT PRIMARY KEY,
         property_id TEXT NOT NULL REFERENCES properties(id) ON DELETE RESTRICT,
@@ -3601,10 +3768,8 @@ export class ClimateDatabase {
       ))
       OR (equipment_id IS NOT NULL AND NOT EXISTS (
         SELECT 1 FROM area_equipment equipment
-        JOIN property_areas area ON area.id = equipment.area_id
         WHERE equipment.id = maintenance_tasks.equipment_id
           AND equipment.property_id = maintenance_tasks.property_id
-          AND area.property_id = equipment.property_id
           AND (maintenance_tasks.area_id IS NULL OR equipment.area_id = maintenance_tasks.area_id)
       ))
     `, []);
@@ -3630,10 +3795,21 @@ export class ClimateDatabase {
       WHERE property_id IS NULL OR trim(property_id) = ''
         OR NOT EXISTS (SELECT 1 FROM properties property WHERE property.id = property_areas.property_id);
 
+      UPDATE area_equipment SET
+        area_id = CASE WHEN area_id IS NULL OR EXISTS (
+          SELECT 1 FROM property_areas area WHERE area.id = area_equipment.area_id
+        ) THEN area_id ELSE NULL END,
+        house_id = CASE WHEN house_id IS NULL OR EXISTS (
+          SELECT 1 FROM houses house WHERE house.id = area_equipment.house_id
+        ) THEN house_id ELSE NULL END;
+
       UPDATE area_equipment
-      SET property_id = (SELECT area.property_id FROM property_areas area WHERE area.id = area_equipment.area_id)
-      WHERE EXISTS (SELECT 1 FROM property_areas area WHERE area.id = area_equipment.area_id)
-        AND property_id <> (SELECT area.property_id FROM property_areas area WHERE area.id = area_equipment.area_id);
+      SET property_id = COALESCE(
+        (SELECT area.property_id FROM property_areas area WHERE area.id = area_equipment.area_id),
+        (SELECT house.property_id FROM houses house WHERE house.id = area_equipment.house_id),
+        CASE WHEN EXISTS (SELECT 1 FROM properties property WHERE property.id = area_equipment.property_id)
+          THEN property_id ELSE '${DEFAULT_PROPERTY_ID}' END
+      );
 
       UPDATE property_notes
       SET property_id = COALESCE(
@@ -3767,39 +3943,54 @@ export class ClimateDatabase {
         BEGIN SELECT RAISE(ABORT, 'MAINTENANCE_TASK_REVISIONS_ARE_APPEND_ONLY'); END;
       CREATE TRIGGER IF NOT EXISTS validate_area_equipment_scope_insert
         BEFORE INSERT ON area_equipment
-        WHEN NOT EXISTS (
+        WHEN (NEW.area_id IS NOT NULL AND NEW.house_id IS NOT NULL)
+          OR (NEW.area_id IS NOT NULL AND NOT EXISTS (
           SELECT 1 FROM property_areas area
           WHERE area.id = NEW.area_id AND area.property_id = NEW.property_id
-        )
-        BEGIN SELECT RAISE(ABORT, 'EQUIPMENT_AREA_SCOPE_MISMATCH'); END;
+        )) OR (NEW.house_id IS NOT NULL AND NOT EXISTS (
+          SELECT 1 FROM houses house
+          WHERE house.id = NEW.house_id AND house.property_id = NEW.property_id
+        ))
+        BEGIN SELECT RAISE(ABORT, 'EQUIPMENT_LOCATION_SCOPE_MISMATCH'); END;
       CREATE TRIGGER IF NOT EXISTS validate_area_equipment_scope_update
-        BEFORE UPDATE OF property_id, area_id ON area_equipment
-        WHEN NOT EXISTS (
+        BEFORE UPDATE OF property_id, area_id, house_id ON area_equipment
+        WHEN (NEW.area_id IS NOT NULL AND NEW.house_id IS NOT NULL)
+          OR (NEW.area_id IS NOT NULL AND NOT EXISTS (
           SELECT 1 FROM property_areas area
           WHERE area.id = NEW.area_id AND area.property_id = NEW.property_id
-        )
-        BEGIN SELECT RAISE(ABORT, 'EQUIPMENT_AREA_SCOPE_MISMATCH'); END;
+        )) OR (NEW.house_id IS NOT NULL AND NOT EXISTS (
+          SELECT 1 FROM houses house
+          WHERE house.id = NEW.house_id AND house.property_id = NEW.property_id
+        ))
+        BEGIN SELECT RAISE(ABORT, 'EQUIPMENT_LOCATION_SCOPE_MISMATCH'); END;
       DROP TRIGGER IF EXISTS prevent_property_area_property_scope_orphans;
       DROP TRIGGER IF EXISTS prevent_equipment_property_scope_orphans;
       DROP TRIGGER IF EXISTS prevent_equipment_area_scope_orphans;
       DROP TRIGGER IF EXISTS cascade_equipment_scope_move;
       CREATE TRIGGER cascade_equipment_scope_move
-        AFTER UPDATE OF property_id, area_id ON area_equipment
-        WHEN OLD.property_id <> NEW.property_id OR OLD.area_id <> NEW.area_id
+        AFTER UPDATE OF property_id, area_id, house_id ON area_equipment
+        WHEN OLD.property_id <> NEW.property_id
+          OR OLD.area_id IS NOT NEW.area_id
+          OR OLD.house_id IS NOT NEW.house_id
         BEGIN
           UPDATE property_notes SET property_id = NEW.property_id, updated_at = NEW.updated_at
             WHERE equipment_id = NEW.id;
           UPDATE maintenance_tasks SET
             property_id = NEW.property_id,
             area_id = NEW.area_id,
-            floor_id = CASE WHEN house_id IS NULL OR EXISTS (
+            floor_id = CASE
+              WHEN NEW.house_id IS NOT NULL AND house_id IS NEW.house_id THEN floor_id
+              WHEN NEW.house_id IS NOT NULL THEN NULL
+              WHEN house_id IS NULL OR EXISTS (
               SELECT 1 FROM houses house WHERE house.id = maintenance_tasks.house_id
                 AND house.property_id = NEW.property_id
-            ) THEN floor_id ELSE NULL END,
-            house_id = CASE WHEN house_id IS NULL OR EXISTS (
+              ) THEN floor_id ELSE NULL END,
+            house_id = CASE
+              WHEN NEW.house_id IS NOT NULL THEN NEW.house_id
+              WHEN house_id IS NULL OR EXISTS (
               SELECT 1 FROM houses house WHERE house.id = maintenance_tasks.house_id
                 AND house.property_id = NEW.property_id
-            ) THEN house_id ELSE NULL END
+              ) THEN house_id ELSE NULL END
           WHERE equipment_id = NEW.id;
         END;
       DROP TRIGGER IF EXISTS cascade_property_area_scope_move;
@@ -3883,6 +4074,8 @@ export class ClimateDatabase {
         AFTER UPDATE OF property_id ON houses
         WHEN OLD.property_id <> NEW.property_id
         BEGIN
+          UPDATE area_equipment SET property_id = NEW.property_id, updated_at = NEW.updated_at
+            WHERE house_id = NEW.id;
           UPDATE property_notes SET property_id = NEW.property_id, updated_at = NEW.updated_at WHERE house_id = NEW.id;
           UPDATE maintenance_tasks SET
             property_id = NEW.property_id,
@@ -3906,10 +4099,16 @@ export class ClimateDatabase {
         UNION ALL
         SELECT 'area-equipment', equipment.id
         FROM area_equipment equipment
-        WHERE NOT EXISTS (
+        WHERE NOT EXISTS (SELECT 1 FROM properties property WHERE property.id = equipment.property_id)
+          OR (equipment.area_id IS NOT NULL AND equipment.house_id IS NOT NULL)
+          OR (equipment.area_id IS NOT NULL AND NOT EXISTS (
           SELECT 1 FROM property_areas area
           WHERE area.id = equipment.area_id AND area.property_id = equipment.property_id
-        )
+          ))
+          OR (equipment.house_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM houses house
+            WHERE house.id = equipment.house_id AND house.property_id = equipment.property_id
+          ))
         UNION ALL
         SELECT 'property-note', note.id
         FROM property_notes note
@@ -4957,6 +5156,7 @@ export class ClimateDatabase {
   listAreaEquipment(filters: {
     propertyId?: string;
     areaId?: string;
+    houseId?: string;
     limit?: number;
     offset?: number;
   } = {}): AreaEquipment[] {
@@ -4964,6 +5164,7 @@ export class ClimateDatabase {
     const values: string[] = [];
     if (filters.propertyId) { clauses.push("property_id = ?"); values.push(filters.propertyId); }
     if (filters.areaId) { clauses.push("area_id = ?"); values.push(filters.areaId); }
+    if (filters.houseId) { clauses.push("house_id = ?"); values.push(filters.houseId); }
     const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
     const rows = this.db.prepare(`SELECT * FROM area_equipment${where} ORDER BY name, id LIMIT ? OFFSET ?`)
       .all(...values, boundedCollectionLimit(filters.limit), boundedCollectionOffset(filters.offset)) as unknown as AreaEquipmentRow[];
@@ -4977,15 +5178,38 @@ export class ClimateDatabase {
 
   createAreaEquipment(input: AreaEquipmentInput): AreaEquipment {
     return this.immediateTransaction(() => {
-      const area = this.getPropertyArea(input.areaId);
-      if (!area) {
-        throw new ClimateDataValidationError(404, "EQUIPMENT_AREA_NOT_FOUND", `Area ${input.areaId} does not exist`);
+      const areaId = input.areaId ?? null;
+      const houseId = input.houseId ?? null;
+      if (areaId && houseId) {
+        throw new ClimateDataValidationError(
+          422,
+          "INVALID_EQUIPMENT_LOCATION",
+          "Equipment may have one expected Area or Home, not both",
+        );
+      }
+      const area = areaId ? this.getPropertyArea(areaId) : null;
+      if (areaId && !area) {
+        throw new ClimateDataValidationError(404, "EQUIPMENT_AREA_NOT_FOUND", `Area ${areaId} does not exist`);
+      }
+      const house = houseId ? this.getHouse(houseId) : null;
+      if (houseId && !house) {
+        throw new ClimateDataValidationError(404, "EQUIPMENT_HOUSE_NOT_FOUND", `House ${houseId} does not exist`);
+      }
+      const propertyId = input.propertyId?.trim() || area?.propertyId || house?.propertyId;
+      if (!propertyId) {
+        throw new ClimateDataValidationError(
+          422,
+          "EQUIPMENT_PROPERTY_REQUIRED",
+          "Unassigned equipment requires a Property",
+        );
       }
       const timestamp = new Date().toISOString();
       const equipment: AreaEquipment = {
         id: input.id ?? randomUUID(),
-        propertyId: input.propertyId ?? area.propertyId,
-        areaId: input.areaId,
+        propertyId,
+        areaId,
+        houseId,
+        ...(input.location ? { location: structuredClone(input.location) } : {}),
         name: this.propertyRequiredText(input.name, "Equipment name", 200),
         kind: this.propertyRequiredText(input.kind, "Equipment kind", 200),
         manufacturer: this.propertyOptionalText(input.manufacturer ?? null, "Equipment manufacturer", 200),
@@ -4999,9 +5223,11 @@ export class ClimateDatabase {
       this.validateAreaEquipment(equipment);
       try {
         this.db.prepare(`INSERT INTO area_equipment
-          (id, property_id, area_id, name, kind, manufacturer, model, serial_number, status, notes, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-          .run(equipment.id, equipment.propertyId, equipment.areaId, equipment.name, equipment.kind,
+          (id, property_id, area_id, house_id, location_json, name, kind, manufacturer, model, serial_number,
+           status, notes, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(equipment.id, equipment.propertyId, equipment.areaId, equipment.houseId ?? null,
+            equipment.location ? JSON.stringify(equipment.location) : null, equipment.name, equipment.kind,
             equipment.manufacturer, equipment.model, equipment.serialNumber, equipment.status, equipment.notes,
             equipment.createdAt, equipment.updatedAt);
       } catch (error) {
@@ -5022,20 +5248,38 @@ export class ClimateDatabase {
     return this.immediateTransaction(() => {
       const current = this.getAreaEquipment(id);
       if (!current) return null;
-      const targetArea = patch.areaId === undefined ? null : this.getPropertyArea(patch.areaId);
-      if (patch.areaId !== undefined && !targetArea) {
-        throw new ClimateDataValidationError(404, "EQUIPMENT_AREA_NOT_FOUND", `Area ${patch.areaId} does not exist`);
+      let areaId = patch.areaId === undefined ? current.areaId : patch.areaId;
+      let houseId = patch.houseId === undefined ? current.houseId ?? null : patch.houseId;
+      if (patch.areaId && patch.houseId === undefined) houseId = null;
+      if (patch.houseId && patch.areaId === undefined) areaId = null;
+      if (areaId && houseId) {
+        throw new ClimateDataValidationError(
+          422,
+          "INVALID_EQUIPMENT_LOCATION",
+          "Equipment may have one expected Area or Home, not both",
+        );
       }
-      if (targetArea && targetArea.propertyId !== current.propertyId) {
-        this.ensureScopeMoveCanDetachHouses("task.equipment_id = ?", [id], targetArea.propertyId);
+      const targetArea = areaId ? this.getPropertyArea(areaId) : null;
+      if (areaId && !targetArea) {
+        throw new ClimateDataValidationError(404, "EQUIPMENT_AREA_NOT_FOUND", `Area ${areaId} does not exist`);
       }
-      const affectedTasks = patch.areaId !== undefined && patch.areaId !== current.areaId
+      const targetHouse = houseId ? this.getHouse(houseId) : null;
+      if (houseId && !targetHouse) {
+        throw new ClimateDataValidationError(404, "EQUIPMENT_HOUSE_NOT_FOUND", `House ${houseId} does not exist`);
+      }
+      const targetPropertyId = targetArea?.propertyId ?? targetHouse?.propertyId ?? current.propertyId;
+      if (targetPropertyId !== current.propertyId) {
+        this.ensureScopeMoveCanDetachHouses("task.equipment_id = ?", [id], targetPropertyId);
+      }
+      const locationChanged = areaId !== current.areaId || houseId !== (current.houseId ?? null);
+      const affectedTasks = locationChanged
         ? this.maintenanceTasksBeforeScopeMove("equipment_id = ?", [id])
         : [];
       const next: AreaEquipment = {
         ...current,
-        ...(targetArea ? { propertyId: targetArea.propertyId } : {}),
-        ...(patch.areaId !== undefined ? { areaId: patch.areaId } : {}),
+        propertyId: targetPropertyId,
+        areaId,
+        houseId,
         ...(patch.name !== undefined ? { name: this.propertyRequiredText(patch.name, "Equipment name", 200) } : {}),
         ...(patch.kind !== undefined ? { kind: this.propertyRequiredText(patch.kind, "Equipment kind", 200) } : {}),
         ...(patch.manufacturer !== undefined
@@ -5049,18 +5293,29 @@ export class ClimateDatabase {
         ...(patch.notes !== undefined ? { notes: this.propertyOptionalText(patch.notes, "Equipment notes", 5_000) } : {}),
         updatedAt: this.nextUpdatedAt(current.updatedAt),
       };
+      if (patch.location === null) delete next.location;
+      else if (patch.location !== undefined) next.location = structuredClone(patch.location);
       this.validateAreaEquipment(next);
       try {
-        this.db.prepare(`UPDATE area_equipment SET property_id = ?, area_id = ?, name = ?, kind = ?, manufacturer = ?, model = ?,
-          serial_number = ?, status = ?, notes = ?, updated_at = ? WHERE id = ?`)
-          .run(next.propertyId, next.areaId, next.name, next.kind, next.manufacturer, next.model, next.serialNumber, next.status,
-            next.notes, next.updatedAt, id);
+        this.db.prepare(`UPDATE area_equipment SET property_id = ?, area_id = ?, house_id = ?, location_json = ?,
+          name = ?, kind = ?, manufacturer = ?, model = ?, serial_number = ?, status = ?, notes = ?, updated_at = ?
+          WHERE id = ?`)
+          .run(next.propertyId, next.areaId, next.houseId ?? null,
+            next.location ? JSON.stringify(next.location) : null, next.name, next.kind, next.manufacturer, next.model,
+            next.serialNumber, next.status, next.notes, next.updatedAt, id);
       } catch (error) {
         if (error instanceof Error && error.message.includes("EQUIPMENT_AREA_MOVE_ORPHANS_TASK")) {
           throw new ClimateDataValidationError(
             409,
             "EQUIPMENT_AREA_MOVE_ORPHANS_TASK",
             "Update or remove maintenance tasks bound to this equipment and its current area before moving it",
+          );
+        }
+        if (error instanceof Error && error.message.includes("MAINTENANCE_OBSERVATION_SCOPE_MISMATCH")) {
+          throw new ClimateDataValidationError(
+            409,
+            "MAINTENANCE_OBSERVATION_SCOPE_MISMATCH",
+            "Move or unlink maintenance observation evidence before assigning this equipment to another Home",
           );
         }
         if (error instanceof Error && error.message.includes("TRACKING_ASSIGNMENT_PROPERTY_MOVE")) {
@@ -5090,6 +5345,160 @@ export class ClimateDatabase {
       }
       throw error;
     }
+  }
+
+  listEquipmentAttachments(filters: {
+    equipmentId?: string;
+    propertyId?: string;
+  } = {}): EquipmentAttachment[] {
+    const clauses: string[] = [];
+    const values: string[] = [];
+    if (filters.equipmentId) {
+      clauses.push("attachment.equipment_id = ?");
+      values.push(filters.equipmentId);
+    }
+    if (filters.propertyId) {
+      clauses.push("equipment.property_id = ?");
+      values.push(filters.propertyId);
+    }
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db.prepare(`SELECT attachment.id, attachment.equipment_id, attachment.kind,
+        attachment.name, attachment.mime_type, attachment.size, attachment.created_at
+      FROM equipment_attachments attachment
+      JOIN area_equipment equipment ON equipment.id = attachment.equipment_id
+      ${where}
+      ORDER BY attachment.created_at DESC, attachment.id`)
+      .all(...values) as unknown as EquipmentAttachmentRow[];
+    return rows.map(equipmentAttachmentFromRow);
+  }
+
+  getEquipmentAttachment(id: string): (EquipmentAttachment & { data: Uint8Array }) | null {
+    const row = this.db.prepare("SELECT * FROM equipment_attachments WHERE id = ?")
+      .get(id) as unknown as EquipmentAttachmentDataRow | undefined;
+    return row ? { ...equipmentAttachmentFromRow(row), data: row.data } : null;
+  }
+
+  createEquipmentAttachment(input: {
+    equipmentId: string;
+    kind: EquipmentAttachment["kind"];
+    name: string;
+    mimeType: string;
+    data: Uint8Array;
+  }): EquipmentAttachment {
+    if (!this.getAreaEquipment(input.equipmentId)) {
+      throw new ClimateDataValidationError(
+        404,
+        "EQUIPMENT_NOT_FOUND",
+        `Equipment ${input.equipmentId} does not exist`,
+      );
+    }
+    if (!["photo", "document"].includes(input.kind)) {
+      throw new ClimateDataValidationError(422, "INVALID_ATTACHMENT_KIND", "Attachment kind must be photo or document");
+    }
+    if (input.data.byteLength < 1 || input.data.byteLength > 10 * 1024 * 1024) {
+      throw new ClimateDataValidationError(422, "INVALID_ATTACHMENT_SIZE", "Attachment size must be from 1 byte to 10 MiB");
+    }
+    const attachment: EquipmentAttachment = {
+      id: randomUUID(),
+      equipmentId: input.equipmentId,
+      kind: input.kind,
+      name: this.propertyRequiredText(input.name, "Attachment name", 255),
+      mimeType: this.propertyRequiredText(input.mimeType, "Attachment media type", 200).toLowerCase(),
+      size: input.data.byteLength,
+      createdAt: new Date().toISOString(),
+    };
+    this.db.prepare(`INSERT INTO equipment_attachments
+      (id, equipment_id, kind, name, mime_type, data, size, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(
+        attachment.id,
+        attachment.equipmentId,
+        attachment.kind,
+        attachment.name,
+        attachment.mimeType,
+        input.data,
+        attachment.size,
+        attachment.createdAt,
+      );
+    return attachment;
+  }
+
+  deleteEquipmentAttachment(id: string): boolean {
+    return Number(this.db.prepare("DELETE FROM equipment_attachments WHERE id = ?").run(id).changes) > 0;
+  }
+
+  listEquipmentLinks(filters: {
+    equipmentId?: string;
+    propertyId?: string;
+  } = {}): EquipmentLink[] {
+    const clauses: string[] = [];
+    const values: string[] = [];
+    if (filters.equipmentId) {
+      clauses.push("link.equipment_id = ?");
+      values.push(filters.equipmentId);
+    }
+    if (filters.propertyId) {
+      clauses.push("equipment.property_id = ?");
+      values.push(filters.propertyId);
+    }
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db.prepare(`SELECT link.*
+      FROM equipment_links link
+      JOIN area_equipment equipment ON equipment.id = link.equipment_id
+      ${where}
+      ORDER BY link.label COLLATE NOCASE, link.id`)
+      .all(...values) as unknown as EquipmentLinkRow[];
+    return rows.map(equipmentLinkFromRow);
+  }
+
+  getEquipmentLink(id: string): EquipmentLink | null {
+    const row = this.db.prepare("SELECT * FROM equipment_links WHERE id = ?")
+      .get(id) as unknown as EquipmentLinkRow | undefined;
+    return row ? equipmentLinkFromRow(row) : null;
+  }
+
+  createEquipmentLink(input: EquipmentLinkInput & { equipmentId: string }): EquipmentLink {
+    if (!this.getAreaEquipment(input.equipmentId)) {
+      throw new ClimateDataValidationError(
+        404,
+        "EQUIPMENT_NOT_FOUND",
+        `Equipment ${input.equipmentId} does not exist`,
+      );
+    }
+    const timestamp = new Date().toISOString();
+    const link: EquipmentLink = {
+      id: randomUUID(),
+      equipmentId: input.equipmentId,
+      label: this.propertyRequiredText(input.label, "Equipment link label", 200),
+      url: this.equipmentLinkUrl(input.url),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.db.prepare(`INSERT INTO equipment_links
+      (id, equipment_id, label, url, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(link.id, link.equipmentId, link.label, link.url, link.createdAt, link.updatedAt);
+    return link;
+  }
+
+  updateEquipmentLink(id: string, patch: EquipmentLinkPatch): EquipmentLink | null {
+    const current = this.getEquipmentLink(id);
+    if (!current) return null;
+    const link: EquipmentLink = {
+      ...current,
+      ...(patch.label !== undefined
+        ? { label: this.propertyRequiredText(patch.label, "Equipment link label", 200) }
+        : {}),
+      ...(patch.url !== undefined ? { url: this.equipmentLinkUrl(patch.url) } : {}),
+      updatedAt: this.nextUpdatedAt(current.updatedAt),
+    };
+    this.db.prepare("UPDATE equipment_links SET label = ?, url = ?, updated_at = ? WHERE id = ?")
+      .run(link.label, link.url, link.updatedAt, link.id);
+    return link;
+  }
+
+  deleteEquipmentLink(id: string): boolean {
+    return Number(this.db.prepare("DELETE FROM equipment_links WHERE id = ?").run(id).changes) > 0;
   }
 
   listPropertyNotes(filters: {
@@ -5198,6 +5607,21 @@ export class ClimateDatabase {
     return value.trim() || null;
   }
 
+  private equipmentLinkUrl(value: string): string {
+    const normalized = this.propertyRequiredText(value, "Equipment link URL", 2_048);
+    try {
+      const parsed = new URL(normalized);
+      if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error();
+      return parsed.href;
+    } catch {
+      throw new ClimateDataValidationError(
+        422,
+        "INVALID_EQUIPMENT_LINK",
+        "Equipment link URL must be an HTTP or HTTPS address without embedded credentials",
+      );
+    }
+  }
+
   private nextUpdatedAt(previous: string): string {
     const previousMs = Date.parse(previous);
     const timestamp = Number.isFinite(previousMs) ? Math.max(Date.now(), previousMs + 1) : Date.now();
@@ -5295,15 +5719,60 @@ export class ClimateDatabase {
         `Property ${equipment.propertyId} does not exist`,
       );
     }
-    const area = this.getPropertyArea(equipment.areaId);
-    if (!area) {
-      throw new ClimateDataValidationError(404, "EQUIPMENT_AREA_NOT_FOUND", `Area ${equipment.areaId} does not exist`);
-    }
-    if (area.propertyId !== equipment.propertyId) {
+    const houseId = equipment.houseId ?? null;
+    if (equipment.areaId !== null && houseId !== null) {
       throw new ClimateDataValidationError(
-        409,
-        "EQUIPMENT_AREA_SCOPE_MISMATCH",
-        `Area ${area.id} does not belong to property ${equipment.propertyId}`,
+        422,
+        "INVALID_EQUIPMENT_LOCATION",
+        "Equipment may have one expected Area or Home, not both",
+      );
+    }
+    if (equipment.areaId !== null) {
+      const area = this.getPropertyArea(equipment.areaId);
+      if (!area) {
+        throw new ClimateDataValidationError(
+          404,
+          "EQUIPMENT_AREA_NOT_FOUND",
+          `Area ${equipment.areaId} does not exist`,
+        );
+      }
+      if (area.propertyId !== equipment.propertyId) {
+        throw new ClimateDataValidationError(
+          409,
+          "EQUIPMENT_AREA_SCOPE_MISMATCH",
+          `Area ${area.id} does not belong to property ${equipment.propertyId}`,
+        );
+      }
+    }
+    if (houseId !== null) {
+      const house = this.getHouse(houseId);
+      if (!house) {
+        throw new ClimateDataValidationError(
+          404,
+          "EQUIPMENT_HOUSE_NOT_FOUND",
+          `House ${houseId} does not exist`,
+        );
+      }
+      if (house.propertyId !== equipment.propertyId) {
+        throw new ClimateDataValidationError(
+          409,
+          "EQUIPMENT_HOUSE_SCOPE_MISMATCH",
+          `House ${house.id} does not belong to property ${equipment.propertyId}`,
+        );
+      }
+    }
+    if (equipment.location && (
+      !Number.isFinite(equipment.location.latitude)
+      || equipment.location.latitude < -90
+      || equipment.location.latitude > 90
+      || !Number.isFinite(equipment.location.longitude)
+      || equipment.location.longitude < -180
+      || equipment.location.longitude > 180
+    )) {
+      throw new ClimateDataValidationError(
+        422,
+        "INVALID_EQUIPMENT_LOCATION",
+        "Equipment location must be a finite WGS84 latitude/longitude coordinate",
       );
     }
     if (!EQUIPMENT_STATUSES.has(equipment.status)) {
@@ -5850,7 +6319,7 @@ export class ClimateDatabase {
         throw new ClimateDataValidationError(
           409,
           "HOUSE_IN_USE",
-          `House ${id} is referenced by notes or maintenance tasks`,
+          `House ${id} is referenced by equipment, notes, or maintenance tasks`,
         );
       }
       throw error;

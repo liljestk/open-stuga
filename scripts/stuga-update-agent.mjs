@@ -24,7 +24,7 @@ import {
 } from "./cloudflare-stuga.mjs";
 import { revokeAccessToken } from "./cloudflare-oauth.mjs";
 
-const AGENT_VERSION = "1.1.0";
+const AGENT_VERSION = "1.2.0";
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_COMMAND_OUTPUT = 16 * 1024;
 const POLL_MS = 5_000;
@@ -292,7 +292,7 @@ async function compose(config, args, timeoutMs = UPDATE_TIMEOUT_MS) {
   });
 }
 
-function operation(request, phase, detail, startedAt, completedAt = null) {
+function operation(request, phase, detail, startedAt, phaseStartedAt, activity, completedAt = null) {
   return {
     id: request.id,
     version: request.version,
@@ -301,8 +301,11 @@ function operation(request, phase, detail, startedAt, completedAt = null) {
     requestedAt: request.requestedAt,
     startedAt,
     completedAt,
+    updatedAt: phaseStartedAt,
+    phaseStartedAt,
     detail,
     previousVersion: request.previousVersion,
+    activity: activity.slice(-50),
   };
 }
 
@@ -512,6 +515,7 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
     request = validatedRequest(raw, config);
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Invalid update request";
+    const completedAt = new Date().toISOString();
     writeJson(statusPath, {
       id: typeof raw?.id === "string" ? raw.id : randomUUID(),
       version: typeof raw?.version === "string" ? raw.version : "unknown",
@@ -519,9 +523,12 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
       phase: "failed",
       requestedAt: typeof raw?.requestedAt === "string" ? raw.requestedAt : startedAt,
       startedAt,
-      completedAt: startedAt,
+      completedAt,
+      updatedAt: completedAt,
+      phaseStartedAt: completedAt,
       detail,
       previousVersion: typeof raw?.previousVersion === "string" ? raw.previousVersion : "unknown",
+      activity: [{ phase: "failed", at: completedAt, detail }],
     });
     rmSync(requestPath, { force: true });
     return;
@@ -530,12 +537,22 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
   const previousRelease = existsSync(config.releaseEnvFile) ? readFileSync(config.releaseEnvFile, "utf8") : null;
   let services = [];
   let releaseChanged = false;
-  const setStatus = (phase, detail, completedAt = null) => writeJson(
-    statusPath,
-    operation(request, phase, detail, startedAt, completedAt),
-  );
+  const activity = [{
+    phase: "queued",
+    at: request.requestedAt,
+    detail: "Update requested; waiting for the external update agent",
+  }];
+  const setStatus = (phase, detail, completedAt = null) => {
+    const phaseStartedAt = new Date().toISOString();
+    activity.push({ phase, at: phaseStartedAt, detail });
+    writeJson(
+      statusPath,
+      operation(request, phase, detail, startedAt, phaseStartedAt, activity, completedAt),
+    );
+  };
 
   try {
+    setStatus("preparing", "Checking the running Stuga services and installed version");
     services = await activeServices(config, composeCommand);
     const previousVersion = (await exactApiVersion(config, composeCommand)).trim();
     if (previousVersion !== request.previousVersion) {

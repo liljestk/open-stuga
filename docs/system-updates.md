@@ -13,6 +13,13 @@ application services, and waits for their health checks. If the new API does
 not report the requested product version, the agent restores the previous
 release environment and starts the prior images again.
 
+While an update runs, the page shows the current step, elapsed time, and a
+timestamped activity trail for preparation, backup, image download, service
+replacement, and health verification. Status changes arrive over a live event
+stream. If the API container is briefly unavailable while it is replaced, the
+page keeps the last known step visible, says that it is reconnecting, and
+continues automatically when the new container is healthy.
+
 ## Update choices
 
 - **Manual** checks GitHub on the configured interval but installs only after

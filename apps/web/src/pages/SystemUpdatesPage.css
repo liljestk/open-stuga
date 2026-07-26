@@ -8,14 +8,49 @@
 .updates-layout { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(340px, .92fr); gap: 16px; align-items: start; }
 .updates-release, .updates-settings { padding: 19px; }
 .updates-release .panel-header p { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
-.release-notes { max-height: 360px; min-height: 160px; margin: 18px 0; padding: 15px; overflow: auto; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--text); font-size: 12px; line-height: 1.65; white-space: pre-wrap; }
+.release-notes { max-height: 360px; min-height: 160px; margin: 18px 0; padding: 15px; overflow: auto; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-soft); color: var(--ink); font-size: 12px; line-height: 1.65; white-space: pre-wrap; }
 .updates-release-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
 .updates-release-actions small { color: var(--muted); line-height: 1.4; }
-.updates-operation { display: flex; align-items: center; gap: 13px; margin-bottom: 16px; padding: 14px 16px; border-left: 4px solid var(--orange); }
+.updates-operation { display: block; margin-bottom: 16px; padding: 17px 18px; overflow: hidden; border-left: 4px solid var(--orange); }
 .updates-operation.ready { border-left-color: var(--positive); }
 .updates-operation.error { border-left-color: var(--red); }
-.updates-operation > div { display: grid; gap: 3px; }
-.updates-operation small { color: var(--muted); }
+.updates-operation-summary { display: flex; align-items: flex-start; gap: 12px; }
+.updates-operation-summary > svg { flex: 0 0 auto; margin-top: 2px; }
+.updates-operation-summary > div { display: grid; flex: 1; gap: 4px; min-width: 0; }
+.updates-operation-summary h2 { margin: 0; font-family: "Manrope", sans-serif; font-size: 17px; line-height: 1.25; }
+.updates-operation small { color: var(--muted); line-height: 1.4; }
+.updates-operation-kicker { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 7px 14px; }
+.updates-stream-state { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .04em; }
+.updates-stream-state > span { width: 8px; height: 8px; border: 1px solid currentColor; border-radius: 50%; background: currentColor; }
+.updates-stream-state.live { color: var(--positive); }
+.updates-stream-state.reconnecting { color: var(--orange); }
+.updates-stream-state.connecting, .updates-stream-state.polling { color: var(--action); }
+.updates-progress-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 16px; margin-top: 16px; font-size: 11px; }
+.updates-progress-meta > span { color: var(--muted); }
+.updates-progress-bar { display: block; width: 100%; height: 8px; margin: 8px 0 15px; overflow: hidden; appearance: none; border: 0; border-radius: 99px; background: var(--line); }
+.updates-progress-bar::-webkit-progress-bar { border-radius: 99px; background: var(--line); }
+.updates-progress-bar::-webkit-progress-value { border-radius: 99px; background: var(--action); transition: width 180ms ease-out; }
+.updates-progress-bar::-moz-progress-bar { border-radius: 99px; background: var(--action); transition: width 180ms ease-out; }
+.updates-operation.ready .updates-progress-bar::-webkit-progress-value { background: var(--positive); }
+.updates-operation.ready .updates-progress-bar::-moz-progress-bar { background: var(--positive); }
+.updates-progress-steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.updates-progress-steps > li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 7px; min-width: 0; padding: 9px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-soft); }
+.updates-progress-steps > li.current { border-color: color-mix(in srgb, var(--action) 52%, var(--line)); background: color-mix(in srgb, var(--action) 6%, var(--panel)); }
+.updates-progress-steps > li.complete { border-color: color-mix(in srgb, var(--positive) 38%, var(--line)); }
+.updates-progress-steps > li.error { border-color: color-mix(in srgb, var(--red) 52%, var(--line)); }
+.updates-step-marker { display: grid; width: 18px; height: 18px; place-items: center; color: var(--muted); }
+.updates-step-marker > span { width: 10px; height: 10px; border: 2px solid var(--line-strong); border-radius: 50%; }
+.updates-progress-steps > li.current .updates-step-marker { color: var(--action); }
+.updates-progress-steps > li.complete .updates-step-marker { color: var(--positive); }
+.updates-progress-steps > li.error .updates-step-marker { color: var(--red); }
+.updates-progress-steps > li > div { display: grid; gap: 3px; min-width: 0; }
+.updates-progress-steps strong { font-size: 11px; line-height: 1.25; }
+.updates-progress-steps small { font-size: 9px; }
+.updates-activity { margin-top: 15px; padding-top: 13px; border-top: 1px solid var(--line); }
+.updates-activity h3 { margin: 0 0 8px; font-family: "DM Sans", sans-serif; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.updates-activity ol { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.updates-activity li { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+.updates-activity time { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 700; }
 .updates-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 17px 0; }
 .updates-mode > label { display: flex; gap: 9px; padding: 11px; border: 1px solid var(--line); border-radius: 9px; cursor: pointer; }
 .updates-mode > label:has(input:checked) { border-color: color-mix(in srgb, var(--action) 46%, var(--line)); background: color-mix(in srgb, var(--action) 6%, var(--panel)); }
@@ -38,4 +73,10 @@
   .updates-version-grid, .updates-mode, .updates-form-grid { grid-template-columns: 1fr; }
   .updates-form-grid .field:last-child { grid-column: auto; }
   .updates-days > div { grid-template-columns: repeat(4, 1fr); }
+  .updates-progress-steps { grid-template-columns: 1fr; }
+  .updates-progress-steps > li { padding: 8px 9px; }
+  .updates-progress-steps small { font-size: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .updates-progress-bar::-webkit-progress-value, .updates-progress-bar::-moz-progress-bar { transition: none; }
 }

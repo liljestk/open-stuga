@@ -122,6 +122,256 @@ describe("local property management", () => {
     }).expect(400);
   });
 
+  it("keeps an inventory item's saved Home, Area, pin, and live tracking identity separate", async () => {
+    await createMainHouse(runtime);
+    await request(runtime.app).post("/api/v1/property-areas").send({
+      id: "area-yard",
+      propertyId: "property-main",
+      name: "Yard",
+      kind: "yard",
+      polygon,
+    }).expect(201);
+
+    const unassigned = await request(runtime.app).post("/api/v1/area-equipment").send({
+      id: "equipment-unassigned",
+      propertyId: "property-main",
+      name: "Portable generator",
+      kind: "generator",
+      location: { latitude: 60.171, longitude: 24.931 },
+    }).expect(201);
+    expect(unassigned.body.equipment).toMatchObject({
+      propertyId: "property-main",
+      areaId: null,
+      houseId: null,
+      location: { latitude: 60.171, longitude: 24.931 },
+    });
+
+    const atHome = await request(runtime.app).post("/api/v1/area-equipment").send({
+      id: "equipment-home",
+      houseId: "house-main",
+      name: "Boiler",
+      kind: "heating",
+    }).expect(201);
+    expect(atHome.body.equipment).toMatchObject({
+      propertyId: "property-main",
+      areaId: null,
+      houseId: "house-main",
+    });
+    await request(runtime.app).post("/api/v1/area-equipment").send({
+      areaId: "area-yard",
+      houseId: "house-main",
+      name: "Ambiguous",
+      kind: "tool",
+    }).expect(422).expect(({ body }) => expect(body.error.code).toBe("INVALID_EQUIPMENT_LOCATION"));
+
+    const homeFilter = await request(runtime.app)
+      .get("/api/v1/area-equipment?houseId=house-main").expect(200);
+    expect(homeFilter.body.equipment.map((item: { id: string }) => item.id)).toEqual(["equipment-home"]);
+    await request(runtime.app).delete("/api/v1/houses/house-main").expect(409)
+      .expect(({ body }) => expect(body.error.code).toBe("HOUSE_IN_USE"));
+
+    const atArea = await request(runtime.app).patch("/api/v1/area-equipment/equipment-home").send({
+      areaId: "area-yard",
+    }).expect(200);
+    expect(atArea.body.equipment).toMatchObject({ areaId: "area-yard", houseId: null });
+
+    const backHome = await request(runtime.app).patch("/api/v1/area-equipment/equipment-home").send({
+      houseId: "house-main",
+    }).expect(200);
+    expect(backHome.body.equipment).toMatchObject({ areaId: null, houseId: "house-main" });
+
+    const manuallyPlaced = await request(runtime.app).patch("/api/v1/area-equipment/equipment-home").send({
+      areaId: null,
+      houseId: null,
+      location: { latitude: 60.172, longitude: 24.932 },
+    }).expect(200);
+    expect(manuallyPlaced.body.equipment).toMatchObject({
+      areaId: null,
+      houseId: null,
+      location: { latitude: 60.172, longitude: 24.932 },
+    });
+    await request(runtime.app).patch("/api/v1/area-equipment/equipment-home").send({
+      location: { latitude: 95, longitude: 24 },
+    }).expect(422).expect(({ body }) => expect(body.error.code).toBe("INVALID_EQUIPMENT_LOCATION"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-secondary",
+      propertyId: "property-main",
+      name: "Secondary Home",
+      timezone: "Europe/Helsinki",
+      floors: [{ id: "floor-secondary", name: "Ground", type: "ground", width: 10, height: 8, elevation: 0, walls: [], rooms: [] }],
+    }).expect(201);
+    await request(runtime.app).post("/api/v1/observations").send({
+      id: "observation-equipment-home",
+      houseId: "house-main",
+      floorId: "floor-ground",
+      kind: "maintenance",
+      severity: "info",
+      note: "Boiler observed in the main Home",
+    }).expect(201);
+    await request(runtime.app).post("/api/v1/maintenance-tasks").send({
+      id: "task-equipment-home",
+      propertyId: "property-main",
+      houseId: "house-main",
+      equipmentId: "equipment-home",
+      observationIds: ["observation-equipment-home"],
+      title: "Inspect boiler",
+      basis: "condition-based",
+    }).expect(201);
+    await request(runtime.app).patch("/api/v1/area-equipment/equipment-home").send({
+      houseId: "house-secondary",
+    }).expect(409).expect(({ body }) => {
+      expect(body.error.code).toBe("MAINTENANCE_OBSERVATION_SCOPE_MISMATCH");
+    });
+    expect(runtime.database.getAreaEquipment("equipment-home")).toMatchObject({
+      areaId: null,
+      houseId: null,
+      location: { latitude: 60.172, longitude: 24.932 },
+    });
+  });
+
+  it("stores optional equipment photos, documents, and relevant links", async () => {
+    await request(runtime.app).post("/api/v1/area-equipment").send({
+      id: "equipment-boiler",
+      propertyId: "property-main",
+      name: "Boiler",
+      kind: "heating",
+    }).expect(201);
+
+    const before = await request(runtime.app)
+      .get("/api/v1/properties/property-main/inventory")
+      .expect(200);
+    expect(before.body.inventory).toMatchObject({ attachments: [], links: [] });
+
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    const photo = await request(runtime.app)
+      .post("/api/v1/area-equipment/equipment-boiler/attachments")
+      .send({
+        kind: "photo",
+        name: "Boiler front.png",
+        mimeType: "image/png",
+        data: `data:image/png;base64,${png}`,
+      })
+      .expect(201);
+    expect(photo.body).toMatchObject({
+      attachment: {
+        equipmentId: "equipment-boiler",
+        kind: "photo",
+        name: "Boiler front.png",
+        mimeType: "image/png",
+        size: expect.any(Number),
+      },
+      url: expect.stringContaining(`/equipment-boiler/attachments/${photo.body.attachment.id}`),
+    });
+    await request(runtime.app)
+      .post("/api/v1/area-equipment/equipment-boiler/attachments")
+      .send({
+        kind: "photo",
+        name: "Unsafe.svg",
+        mimeType: "image/svg+xml",
+        data: Buffer.from("<svg/>").toString("base64"),
+      })
+      .expect(415)
+      .expect(({ body }) => expect(body.error.code).toBe("UNSUPPORTED_ATTACHMENT_TYPE"));
+    await request(runtime.app)
+      .post("/api/v1/area-equipment/equipment-boiler/attachments")
+      .send({
+        kind: "document",
+        name: "Broken.pdf",
+        mimeType: "application/pdf",
+        data: "not base64",
+      })
+      .expect(400)
+      .expect(({ body }) => expect(body.error.code).toBe("INVALID_ATTACHMENT"));
+
+    const manualBytes = Buffer.from("%PDF-1.4\nTest manual\n", "utf8");
+    const manual = await request(runtime.app)
+      .post("/api/v1/area-equipment/equipment-boiler/attachments")
+      .send({
+        kind: "document",
+        name: "Installation manual.pdf",
+        mimeType: "application/pdf",
+        data: manualBytes.toString("base64"),
+      })
+      .expect(201);
+    expect(manual.body.attachment).toMatchObject({
+      equipmentId: "equipment-boiler",
+      kind: "document",
+      size: manualBytes.length,
+    });
+
+    const createdLink = await request(runtime.app)
+      .post("/api/v1/area-equipment/equipment-boiler/links")
+      .send({ label: "Manufacturer support", url: "https://example.test/boiler" })
+      .expect(201);
+    expect(createdLink.body.link).toMatchObject({
+      equipmentId: "equipment-boiler",
+      label: "Manufacturer support",
+      url: "https://example.test/boiler",
+    });
+    await request(runtime.app)
+      .post("/api/v1/area-equipment/equipment-boiler/links")
+      .send({ label: "Unsafe", url: "javascript:alert(1)" })
+      .expect(422)
+      .expect(({ body }) => expect(body.error.code).toBe("INVALID_EQUIPMENT_LINK"));
+
+    await request(runtime.app)
+      .get("/api/v1/area-equipment/equipment-boiler/attachments")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.attachments).toHaveLength(2);
+        expect(body.attachments).toEqual(expect.arrayContaining([
+          expect.objectContaining({ id: photo.body.attachment.id, kind: "photo" }),
+          expect.objectContaining({ id: manual.body.attachment.id, kind: "document" }),
+        ]));
+      });
+    await request(runtime.app)
+      .get("/api/v1/area-equipment/equipment-boiler/links")
+      .expect(200)
+      .expect(({ body }) => expect(body.links).toEqual([
+        expect.objectContaining({ id: createdLink.body.link.id }),
+      ]));
+
+    const downloaded = await request(runtime.app)
+      .get(`/api/v1/area-equipment/equipment-boiler/attachments/${manual.body.attachment.id}`)
+      .expect(200);
+    expect(downloaded.headers["content-type"]).toMatch(/^application\/pdf/);
+    expect(downloaded.headers["content-disposition"]).toContain("attachment;");
+    expect(downloaded.headers["content-disposition"]).toContain("filename*=UTF-8''");
+    expect(Buffer.from(downloaded.body)).toEqual(manualBytes);
+    await request(runtime.app)
+      .get(`/api/v1/area-equipment/another-item/attachments/${manual.body.attachment.id}`)
+      .expect(404);
+
+    const updatedLink = await request(runtime.app)
+      .patch(`/api/v1/area-equipment/equipment-boiler/links/${createdLink.body.link.id}`)
+      .send({ label: "Service and support" })
+      .expect(200);
+    expect(updatedLink.body.link).toMatchObject({
+      label: "Service and support",
+      url: "https://example.test/boiler",
+    });
+
+    const after = await request(runtime.app)
+      .get("/api/v1/properties/property-main/inventory")
+      .expect(200);
+    expect(after.body.inventory.attachments).toHaveLength(2);
+    expect(after.body.inventory.links).toEqual([
+      expect.objectContaining({ label: "Service and support" }),
+    ]);
+    expect(after.body.inventory.syncToken).not.toBe(before.body.inventory.syncToken);
+
+    await request(runtime.app)
+      .delete(`/api/v1/area-equipment/equipment-boiler/attachments/${photo.body.attachment.id}`)
+      .expect(204);
+    await request(runtime.app)
+      .delete(`/api/v1/area-equipment/equipment-boiler/links/${createdLink.body.link.id}`)
+      .expect(204);
+    await request(runtime.app).delete("/api/v1/area-equipment/equipment-boiler").expect(204);
+    expect(runtime.database.listEquipmentAttachments({ equipmentId: "equipment-boiler" })).toEqual([]);
+    expect(runtime.database.listEquipmentLinks({ equipmentId: "equipment-boiler" })).toEqual([]);
+  });
+
   it("manages mapped areas, equipment, notes, and area-scoped maintenance end to end", async () => {
     const createdProperty = await request(runtime.app).post("/api/v1/properties").send({
       id: "property-island",
@@ -534,6 +784,63 @@ describe("local property management", () => {
 });
 
 describe("legacy property migration", () => {
+  it("upgrades the legacy Area-only equipment table without losing records", () => {
+    const migrated = new ClimateDatabase(":memory:", false);
+    try {
+      migrated.createPropertyArea({
+        id: "legacy-area",
+        propertyId: "property-main",
+        name: "Legacy yard",
+        kind: "yard",
+        polygon,
+      });
+      migrated.createAreaEquipment({
+        id: "legacy-equipment",
+        areaId: "legacy-area",
+        name: "Legacy tractor",
+        kind: "vehicle",
+      });
+      migrated.db.exec(`PRAGMA foreign_keys = OFF;
+        DROP TABLE area_equipment;
+        CREATE TABLE area_equipment (
+          id TEXT PRIMARY KEY,
+          property_id TEXT NOT NULL REFERENCES properties(id) ON DELETE RESTRICT,
+          area_id TEXT NOT NULL REFERENCES property_areas(id) ON DELETE RESTRICT,
+          name TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          manufacturer TEXT,
+          model TEXT,
+          serial_number TEXT,
+          status TEXT NOT NULL,
+          notes TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );`);
+      const timestamp = new Date().toISOString();
+      migrated.db.prepare(`INSERT INTO area_equipment
+        (id, property_id, area_id, name, kind, manufacturer, model, serial_number, status, notes, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, 'active', NULL, ?, ?)`)
+        .run("legacy-equipment", "property-main", "legacy-area", "Legacy tractor", "vehicle", timestamp, timestamp);
+      (migrated as unknown as { migrateEquipmentPlacementTable(): void }).migrateEquipmentPlacementTable();
+      migrated.migrate();
+      expect(migrated.getAreaEquipment("legacy-equipment")).toMatchObject({
+        propertyId: "property-main",
+        areaId: "legacy-area",
+        houseId: null,
+        name: "Legacy tractor",
+      });
+      const columns = migrated.db.prepare("PRAGMA table_info(area_equipment)").all() as Array<{
+        name: string;
+        notnull: number;
+      }>;
+      expect(columns.find((column) => column.name === "area_id")?.notnull).toBe(0);
+      expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining(["house_id", "location_json"]));
+      expect(migrated.db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    } finally {
+      migrated.close();
+    }
+  });
+
   it("repairs non-empty orphan ownership IDs throughout an area aggregate", () => {
     const database = new ClimateDatabase(":memory:", false);
     try {

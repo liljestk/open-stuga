@@ -121,8 +121,8 @@ describe("local Express/OpenAPI parity", () => {
         ...documentOperations(v2, "v2"),
       ].sort();
 
-      expect(runtimeOperations).toHaveLength(270);
-      expect(documentOperations(v1, "v1")).toHaveLength(254);
+      expect(runtimeOperations).toHaveLength(280);
+      expect(documentOperations(v1, "v1")).toHaveLength(264);
       expect(documentOperations(v2, "v2")).toHaveLength(16);
       expect(documentedOperations).toEqual(runtimeOperations);
       auditDocument(v1);
@@ -192,10 +192,12 @@ describe("local Express/OpenAPI parity", () => {
     });
     expect(schemas.AreaEquipmentInput?.properties).toMatchObject({
       propertyId: { type: "string", minLength: 1, maxLength: 200 },
-      areaId: { type: "string", minLength: 1, maxLength: 200 },
+      areaId: { type: ["string", "null"], minLength: 1, maxLength: 200 },
+      houseId: { type: ["string", "null"], minLength: 1, maxLength: 200 },
     });
     expect(schemas.AreaEquipmentPatch?.properties).toMatchObject({
-      areaId: { type: "string", minLength: 1, maxLength: 200 },
+      areaId: { type: ["string", "null"], minLength: 1, maxLength: 200 },
+      houseId: { type: ["string", "null"], minLength: 1, maxLength: 200 },
     });
     expect(schemas.PropertyNoteInput?.properties).toMatchObject({
       propertyId: { type: "string", minLength: 1, maxLength: 200 },

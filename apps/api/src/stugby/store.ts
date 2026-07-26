@@ -45,6 +45,7 @@ interface MemberRow {
   stugby_id: string;
   node_id: string;
   display_name: string;
+  local_label: string | null;
   role: StugbyRole;
   state: StugbyMemberState;
   public_key: string;
@@ -56,6 +57,7 @@ interface MemberRow {
 interface InvitationRow {
   id: string;
   stugby_id: string;
+  local_label: string | null;
   role: Exclude<StugbyRole, "steward">;
   secret_hash: string;
   expires_at: string;
@@ -90,6 +92,16 @@ export interface StugbyOutboxItem {
   destinationNodeId: string;
   event: StugbySignedEvent;
   attempts: number;
+}
+
+export interface StugbyLocalMember extends StugbyMember {
+  /** Private to this Stuga installation and never included in federation events. */
+  localLabel: string | null;
+}
+
+export interface StugbyLocalInvitation extends StugbyInvitation {
+  /** Private to the coordinator and copied to its local member roster on admission. */
+  localLabel: string | null;
 }
 
 export interface StugbyEventLogPage {
@@ -206,6 +218,10 @@ function memberFromRow(row: MemberRow): StugbyMember {
   };
 }
 
+function localMemberFromRow(row: MemberRow): StugbyLocalMember {
+  return { ...memberFromRow(row), localLabel: row.local_label };
+}
+
 function invitationFromRow(row: InvitationRow): StugbyInvitation {
   return {
     id: row.id,
@@ -217,6 +233,10 @@ function invitationFromRow(row: InvitationRow): StugbyInvitation {
     revokedAt: row.revoked_at,
     coordinatorUrl: row.coordinator_url,
   };
+}
+
+function localInvitationFromRow(row: InvitationRow): StugbyLocalInvitation {
+  return { ...invitationFromRow(row), localLabel: row.local_label };
 }
 
 function boundedLimit(value: number | undefined, fallback: number, maximum: number): number {
@@ -286,6 +306,7 @@ export class StugbyStore {
         stugby_id TEXT NOT NULL,
         node_id TEXT NOT NULL,
         display_name TEXT NOT NULL,
+        local_label TEXT,
         role TEXT NOT NULL CHECK (role IN ('steward','property-manager','participant','viewer')),
         state TEXT NOT NULL CHECK (state IN ('invited','active','suspended','left','revoked')),
         public_key TEXT NOT NULL,
@@ -299,6 +320,7 @@ export class StugbyStore {
       CREATE TABLE IF NOT EXISTS stugby_invitations (
         id TEXT PRIMARY KEY,
         stugby_id TEXT NOT NULL,
+        local_label TEXT,
         role TEXT NOT NULL CHECK (role IN ('property-manager','participant','viewer')),
         secret_hash TEXT NOT NULL CHECK (length(secret_hash) = 64),
         expires_at TEXT NOT NULL,
@@ -626,6 +648,16 @@ export class StugbyStore {
       );
       CREATE INDEX IF NOT EXISTS idx_stugby_audit_recent ON stugby_audit_events(stugby_id, id DESC);
     `);
+    const memberColumns = new Set((this.db.prepare("PRAGMA table_info(stugby_members)")
+      .all() as unknown as Array<{ name: string }>).map((column) => column.name));
+    if (!memberColumns.has("local_label")) {
+      this.db.exec("ALTER TABLE stugby_members ADD COLUMN local_label TEXT");
+    }
+    const invitationColumns = new Set((this.db.prepare("PRAGMA table_info(stugby_invitations)")
+      .all() as unknown as Array<{ name: string }>).map((column) => column.name));
+    if (!invitationColumns.has("local_label")) {
+      this.db.exec("ALTER TABLE stugby_invitations ADD COLUMN local_label TEXT");
+    }
     // Raw telemetry has its own indexed projection. Keeping every chunk a
     // second time as a generic JSON resource makes the owner detail endpoint
     // grow without bound and doubles sensitive storage.
@@ -837,6 +869,11 @@ export class StugbyStore {
       .all(stugbyId) as unknown as MemberRow[]).map(memberFromRow);
   }
 
+  listLocalMembers(stugbyId: string): StugbyLocalMember[] {
+    return (this.db.prepare("SELECT * FROM stugby_members WHERE stugby_id=? ORDER BY display_name,node_id")
+      .all(stugbyId) as unknown as MemberRow[]).map(localMemberFromRow);
+  }
+
   getMember(stugbyId: string, nodeId: string): StugbyMember | null {
     const row = this.db.prepare("SELECT * FROM stugby_members WHERE stugby_id=? AND node_id=?")
       .get(stugbyId, nodeId) as unknown as MemberRow | undefined;
@@ -868,25 +905,40 @@ export class StugbyStore {
     return updated;
   }
 
+  updateMemberLocalLabel(stugbyId: string, nodeId: string, localLabel: string | null): StugbyLocalMember {
+    const changed = this.db.prepare("UPDATE stugby_members SET local_label=? WHERE stugby_id=? AND node_id=?")
+      .run(localLabel, stugbyId, nodeId);
+    if (Number(changed.changes) !== 1) throw new Error("Stugby member not found");
+    const row = this.db.prepare("SELECT * FROM stugby_members WHERE stugby_id=? AND node_id=?")
+      .get(stugbyId, nodeId) as unknown as MemberRow;
+    return localMemberFromRow(row);
+  }
+
   createInvitation(input: {
     stugbyId: string;
+    localLabel?: string | null;
     role: Exclude<StugbyRole, "steward">;
     secretHash: string;
     expiresAt: string;
     coordinatorUrl: string;
-  }): StugbyInvitation {
+  }): StugbyLocalInvitation {
     const now = new Date().toISOString();
     const id = randomUUID();
     this.db.prepare(`INSERT INTO stugby_invitations
-      (id,stugby_id,role,secret_hash,expires_at,created_at,coordinator_url) VALUES (?,?,?,?,?,?,?)`)
-      .run(id, input.stugbyId, input.role, input.secretHash, input.expiresAt, now, input.coordinatorUrl);
+      (id,stugby_id,local_label,role,secret_hash,expires_at,created_at,coordinator_url) VALUES (?,?,?,?,?,?,?,?)`)
+      .run(id, input.stugbyId, input.localLabel ?? null, input.role, input.secretHash, input.expiresAt, now, input.coordinatorUrl);
     this.audit(input.stugbyId, "invitation.created", this.localNodeId, id, { role: input.role, expiresAt: input.expiresAt }, now);
-    return invitationFromRow(this.db.prepare("SELECT * FROM stugby_invitations WHERE id=?").get(id) as unknown as InvitationRow);
+    return localInvitationFromRow(this.db.prepare("SELECT * FROM stugby_invitations WHERE id=?").get(id) as unknown as InvitationRow);
   }
 
   listInvitations(stugbyId: string): StugbyInvitation[] {
     return (this.db.prepare("SELECT * FROM stugby_invitations WHERE stugby_id=? ORDER BY created_at DESC")
       .all(stugbyId) as unknown as InvitationRow[]).map(invitationFromRow);
+  }
+
+  listLocalInvitations(stugbyId: string): StugbyLocalInvitation[] {
+    return (this.db.prepare("SELECT * FROM stugby_invitations WHERE stugby_id=? ORDER BY created_at DESC")
+      .all(stugbyId) as unknown as InvitationRow[]).map(localInvitationFromRow);
   }
 
   getInvitation(id: string): StugbyInvitation | null {
@@ -951,9 +1003,9 @@ export class StugbyStore {
         updatedAt: now,
       };
       this.db.prepare(`INSERT INTO stugby_members
-        (stugby_id,node_id,display_name,role,state,public_key,key_fingerprint,joined_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?)`)
-        .run(member.stugbyId, member.nodeId, member.displayName, member.role, member.state,
+        (stugby_id,node_id,display_name,local_label,role,state,public_key,key_fingerprint,joined_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?)`)
+        .run(member.stugbyId, member.nodeId, member.displayName, row.local_label, member.role, member.state,
           member.publicKey, member.keyFingerprint, member.joinedAt, member.updatedAt);
       this.db.prepare(`INSERT INTO stugby_join_admissions
         (invitation_id,stugby_id,node_id,public_key,admitted_at) VALUES (?,?,?,?,?)`)

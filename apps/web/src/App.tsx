@@ -197,12 +197,12 @@ export function App() {
   );
   const houseReadOnly = workspaceReadOnly || Boolean(activeSharedHouse && house?.stugby?.editPolicy === "read-only");
   const houseLocalAuthority = !activeSharedHouse;
-  const readOnly = page === "properties" || page === "maintenance" || page === "energy"
+  const locationRoute = routeFromLocation(window.location);
+  const readOnly = page === "properties" || page === "maintenance" || (page === "energy" && !locationRoute.houseId)
     ? propertyReadOnly
-    : ["twin", "activity", "outdoor", "sensors", "integrations", "analytics"].includes(page)
+    : ["twin", "activity", "outdoor", "energy", "sensors", "integrations", "analytics"].includes(page)
       ? houseReadOnly
       : workspaceReadOnly;
-  const locationRoute = routeFromLocation(window.location);
   const routeHouse = locationRoute.houseId
     ? state.houses.find((candidate) => candidate.id === locationRoute.houseId)
     : undefined;
@@ -765,9 +765,10 @@ export function App() {
       units={units}
       onLoadSeries={loadSeriesInBackground}
       seriesStates={climate.seriesStates ?? {}}
-      {...(contextualHouse && !readOnly ? { onOpenSensors: () => navigate("sensors", contextualHouse.id) } : {})}
+      {...(contextualHouse && !readOnly && houseLocalAuthority ? { onOpenSensors: () => navigate("sensors", contextualHouse.id) } : {})}
       onOpenAlerts={() => navigate("alerts", null, false, window.location.pathname, null)}
       readOnly={readOnly}
+      localAuthority={houseLocalAuthority}
     /></Suspense>}</AppShell>;
   }
 

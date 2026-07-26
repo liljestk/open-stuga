@@ -299,13 +299,56 @@
 .stugby-member,
 .stugby-existing-grants article {
   min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   gap: 12px;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
+}
+
+.stugby-member {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stugby-existing-grants article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.stugby-existing-grants article.has-duplicate {
+  border-color: color-mix(in srgb, var(--yellow) 48%, var(--line));
+  box-shadow: inset 4px 0 0 var(--yellow);
+}
+
+.stugby-member-identity {
+  min-width: 220px;
+  flex: 1 1 320px;
+  display: grid;
+  gap: 4px;
+}
+
+.stugby-member-local-label {
+  max-width: 360px;
+  display: grid;
+  gap: 5px;
+}
+
+.stugby-member-local-label span {
+  color: var(--muted);
+  font-size: .6875rem;
+  font-weight: 600;
+}
+
+.stugby-member-local-label input {
+  width: 100%;
+}
+
+.stugby-member-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .stugby-member select {
@@ -620,8 +663,33 @@
   gap: 8px;
 }
 
+.stugby-record-actions {
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .stugby-record-copy {
   min-width: 0;
+  display: grid;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+
+.stugby-duplicate-warning {
+  margin: 0;
+  padding: 12px 14px;
+  border-left: 4px solid var(--yellow);
+  border-radius: var(--radius);
+  color: var(--yellow);
+  background: var(--yellow-soft);
+  line-height: 1.5;
+}
+
+.stugby-existing-grants .stugby-duplicate-label {
+  width: fit-content;
+  margin: 2px 0;
+  color: var(--yellow);
+  font-weight: 750;
 }
 
 .stugby-catalog-error {
@@ -941,6 +1009,12 @@
   color: var(--muted);
 }
 
+.stugby-invite-local-label {
+  min-width: min(320px, 100%);
+  max-width: 440px;
+  flex: 1 1 360px;
+}
+
 .stugby-recommended-profile {
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr);
@@ -1086,7 +1160,7 @@
 .stugby-policy-panel {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(180px, .8fr));
-  align-items: end;
+  align-items: start;
   gap: 14px;
   padding: 14px;
   border: 1px solid var(--line);
@@ -1095,7 +1169,7 @@
 }
 
 .stugby-policy-panel > div {
-  align-self: center;
+  align-self: start;
 }
 
 .stugby-policy-panel p {
@@ -1120,10 +1194,13 @@
     justify-self: start;
   }
 
-  .stugby-member,
-  .stugby-existing-grants article {
+  .stugby-member {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .stugby-existing-grants article {
+    grid-template-columns: 1fr;
   }
 
   .stugby-member select {
@@ -1131,8 +1208,24 @@
     max-width: none;
   }
 
+  .stugby-member-identity,
+  .stugby-member-local-label {
+    width: 100%;
+    max-width: none;
+  }
+
+  .stugby-member-controls {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
   .stugby-record-actions > button {
     flex: 1 1 144px;
+  }
+
+  .stugby-record-actions {
+    justify-content: stretch;
   }
 
   .stugby-catalog-error {

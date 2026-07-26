@@ -1,4 +1,7 @@
+import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
+import UIKit
 
 enum TrackingPresentation {
     static func locationText(
@@ -59,6 +62,7 @@ struct EquipmentDetailView: View {
                     if let tag = currentAsset.tag { tagStatus(tag) }
                     evidence
                     findAction
+                    EquipmentResourcesView(equipment: equipment)
                     EquipmentOperationsView(equipment: equipment)
                 }
                 .padding(16)
@@ -346,6 +350,558 @@ struct EquipmentDetailView: View {
         .font(.subheadline)
         .accessibilityElement(children: .combine)
     }
+}
+
+private struct EquipmentResourcesView: View {
+    @EnvironmentObject private var model: AppModel
+    let equipment: AreaEquipment
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var showingDocumentPicker = false
+    @State private var showingLinkForm = false
+    @State private var sharingURL: URL?
+    @State private var attachmentToDelete: EquipmentAttachment?
+    @State private var linkToDelete: EquipmentLink?
+    @State private var busy = false
+    @State private var errorMessage: String?
+
+    private var attachments: [EquipmentAttachment] {
+        model.equipmentAttachments(for: equipment.id)
+    }
+
+    private var photos: [EquipmentAttachment] {
+        attachments.filter { $0.kind == .photo }
+    }
+
+    private var documents: [EquipmentAttachment] {
+        attachments.filter { $0.kind == .document }
+    }
+
+    private var links: [EquipmentLink] {
+        model.equipmentLinks(for: equipment.id)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Photos, manuals & links")
+                .font(.headline)
+            StugaCard {
+                VStack(alignment: .leading, spacing: 14) {
+                    photosSection
+                    Divider().overlay(StugaTheme.line)
+                    documentsSection
+                    Divider().overlay(StugaTheme.line)
+                    linksSection
+                    if !model.selectedPropertyReadOnly {
+                        Divider().overlay(StugaTheme.line)
+                        addActions
+                    }
+                    if busy {
+                        ProgressView("Saving item resource")
+                            .font(.caption)
+                    }
+                }
+            }
+        }
+        .fileImporter(
+            isPresented: $showingDocumentPicker,
+            allowedContentTypes: [.pdf, .plainText, .rtf, .data],
+            allowsMultipleSelection: true
+        ) { result in
+            Task { await importDocuments(result) }
+        }
+        .onChange(of: selectedPhotos) { _, items in
+            guard !items.isEmpty else { return }
+            selectedPhotos = []
+            Task { await importPhotos(items) }
+        }
+        .sheet(isPresented: $showingLinkForm) {
+            EquipmentLinkForm(equipment: equipment)
+                .environmentObject(model)
+        }
+        .sheet(isPresented: Binding(
+            get: { sharingURL != nil },
+            set: { if !$0 { sharingURL = nil } }
+        )) {
+            if let sharingURL {
+                EquipmentResourceShareSheet(items: [sharingURL])
+            }
+        }
+        .confirmationDialog(
+            "Remove this file?",
+            isPresented: Binding(
+                get: { attachmentToDelete != nil },
+                set: { if !$0 { attachmentToDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Remove file", role: .destructive) {
+                guard let attachment = attachmentToDelete else { return }
+                attachmentToDelete = nil
+                Task { await deleteAttachment(attachment) }
+            }
+            Button("Cancel", role: .cancel) { attachmentToDelete = nil }
+        } message: {
+            Text(attachmentToDelete?.name ?? "")
+        }
+        .confirmationDialog(
+            "Remove this link?",
+            isPresented: Binding(
+                get: { linkToDelete != nil },
+                set: { if !$0 { linkToDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Remove link", role: .destructive) {
+                guard let link = linkToDelete else { return }
+                linkToDelete = nil
+                Task { await deleteLink(link) }
+            }
+            Button("Cancel", role: .cancel) { linkToDelete = nil }
+        } message: {
+            Text(linkToDelete?.label ?? "")
+        }
+        .alert("Item resource action failed", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private var photosSection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Label("Item photos", systemImage: "photo.on.rectangle.angled")
+                .font(.subheadline.weight(.semibold))
+            if photos.isEmpty {
+                Text("No item photos have been added.")
+                    .font(.subheadline)
+                    .foregroundStyle(StugaTheme.muted)
+            } else {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 116), spacing: 8)],
+                    spacing: 8
+                ) {
+                    ForEach(photos) { attachment in
+                        EquipmentPhotoTile(
+                            equipmentID: equipment.id,
+                            attachment: attachment,
+                            canDelete: !model.selectedPropertyReadOnly && !busy,
+                            onDelete: { attachmentToDelete = attachment }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private var documentsSection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Label("Manuals & documents", systemImage: "doc.text")
+                .font(.subheadline.weight(.semibold))
+            if documents.isEmpty {
+                Text("No manuals or related documents have been added.")
+                    .font(.subheadline)
+                    .foregroundStyle(StugaTheme.muted)
+            } else {
+                ForEach(documents) { attachment in
+                    HStack(spacing: 10) {
+                        Button {
+                            Task { await share(attachment) }
+                        } label: {
+                            HStack(spacing: 9) {
+                                Image(systemName: "doc.text")
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(attachment.name)
+                                        .lineLimit(2)
+                                    Text(resourceSize(attachment.size))
+                                        .font(.caption)
+                                        .foregroundStyle(StugaTheme.muted)
+                                }
+                                Spacer()
+                                Image(systemName: "square.and.arrow.up")
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(StugaTheme.action)
+                        if !model.selectedPropertyReadOnly {
+                            Button(role: .destructive) {
+                                attachmentToDelete = attachment
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .disabled(busy)
+                            .accessibilityLabel("Remove \(attachment.name)")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var linksSection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Label("Relevant links", systemImage: "link")
+                .font(.subheadline.weight(.semibold))
+            if links.isEmpty {
+                Text("No relevant links have been added.")
+                    .font(.subheadline)
+                    .foregroundStyle(StugaTheme.muted)
+            } else {
+                ForEach(links) { link in
+                    HStack(spacing: 10) {
+                        if let destination = URL(string: link.url) {
+                            Link(destination: destination) {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(link.label)
+                                            .lineLimit(2)
+                                        Text(link.url)
+                                            .font(.caption)
+                                            .foregroundStyle(StugaTheme.muted)
+                                            .lineLimit(1)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "arrow.up.right.square")
+                                }
+                            }
+                        }
+                        if !model.selectedPropertyReadOnly {
+                            Button(role: .destructive) {
+                                linkToDelete = link
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .disabled(busy)
+                            .accessibilityLabel("Remove link \(link.label)")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var addActions: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { addActionButtons }
+            VStack(alignment: .leading, spacing: 8) { addActionButtons }
+        }
+    }
+
+    @ViewBuilder private var addActionButtons: some View {
+        PhotosPicker(
+            selection: $selectedPhotos,
+            maxSelectionCount: 10,
+            matching: .images
+        ) {
+            Label("Add photos", systemImage: "photo.badge.plus")
+        }
+        .buttonStyle(SecondaryButtonStyle())
+        .disabled(busy)
+
+        Button {
+            showingDocumentPicker = true
+        } label: {
+            Label("Add documents", systemImage: "doc.badge.plus")
+        }
+        .buttonStyle(SecondaryButtonStyle())
+        .disabled(busy)
+
+        Button {
+            showingLinkForm = true
+        } label: {
+            Label("Add link", systemImage: "link.badge.plus")
+        }
+        .buttonStyle(SecondaryButtonStyle())
+        .disabled(busy)
+    }
+
+    @MainActor
+    private func importPhotos(_ items: [PhotosPickerItem]) async {
+        busy = true
+        defer { busy = false }
+        do {
+            for item in items {
+                guard let source = try await item.loadTransferable(type: Data.self),
+                      let image = UIImage(data: source),
+                      let data = image.jpegData(compressionQuality: 0.9) else {
+                    throw StugaAPIError(
+                        status: 0,
+                        code: "INVALID_PHOTO",
+                        message: "One selected photo could not be read."
+                    )
+                }
+                guard data.count <= 10 * 1_024 * 1_024 else {
+                    throw StugaAPIError(
+                        status: 413,
+                        code: "ATTACHMENT_TOO_LARGE",
+                        message: "Each photo must be 10 MiB or smaller."
+                    )
+                }
+                _ = try await model.uploadEquipmentAttachment(
+                    equipmentID: equipment.id,
+                    kind: .photo,
+                    name: "Item photo \(UUID().uuidString.prefix(8)).jpg",
+                    mimeType: "image/jpeg",
+                    data: data
+                )
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func importDocuments(_ result: Result<[URL], Error>) async {
+        busy = true
+        defer { busy = false }
+        do {
+            for url in try result.get() {
+                guard let mimeType = documentMimeType(for: url) else {
+                    throw StugaAPIError(
+                        status: 415,
+                        code: "UNSUPPORTED_ATTACHMENT_TYPE",
+                        message: "\(url.lastPathComponent) is not a supported document."
+                    )
+                }
+                let accessing = url.startAccessingSecurityScopedResource()
+                defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+                let data = try Data(contentsOf: url, options: .mappedIfSafe)
+                guard !data.isEmpty, data.count <= 10 * 1_024 * 1_024 else {
+                    throw StugaAPIError(
+                        status: 413,
+                        code: "ATTACHMENT_TOO_LARGE",
+                        message: "Each document must be 10 MiB or smaller."
+                    )
+                }
+                _ = try await model.uploadEquipmentAttachment(
+                    equipmentID: equipment.id,
+                    kind: .document,
+                    name: url.lastPathComponent,
+                    mimeType: mimeType,
+                    data: data
+                )
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func share(_ attachment: EquipmentAttachment) async {
+        busy = true
+        defer { busy = false }
+        do {
+            let data = try await model.equipmentAttachmentData(
+                equipmentID: equipment.id,
+                attachmentID: attachment.id
+            )
+            let safeName = attachment.name.replacingOccurrences(
+                of: #"[/\\:]"#,
+                with: "_",
+                options: .regularExpression
+            )
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("\(attachment.id)-\(safeName)")
+            try data.write(to: url, options: .atomic)
+            sharingURL = url
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func deleteAttachment(_ attachment: EquipmentAttachment) async {
+        busy = true
+        defer { busy = false }
+        do {
+            try await model.deleteEquipmentAttachment(
+                equipmentID: equipment.id,
+                attachmentID: attachment.id
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func deleteLink(_ link: EquipmentLink) async {
+        busy = true
+        defer { busy = false }
+        do {
+            try await model.deleteEquipmentLink(equipmentID: equipment.id, linkID: link.id)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func documentMimeType(for url: URL) -> String? {
+        switch url.pathExtension.lowercased() {
+        case "pdf": "application/pdf"
+        case "txt": "text/plain"
+        case "md", "markdown": "text/markdown"
+        case "rtf": "application/rtf"
+        case "doc": "application/msword"
+        case "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        case "odt": "application/vnd.oasis.opendocument.text"
+        default: nil
+        }
+    }
+
+    private func resourceSize(_ size: Int) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB]
+        formatter.countStyle = .binary
+        return formatter.string(fromByteCount: Int64(size))
+    }
+}
+
+private struct EquipmentPhotoTile: View {
+    @EnvironmentObject private var model: AppModel
+    let equipmentID: String
+    let attachment: EquipmentAttachment
+    let canDelete: Bool
+    let onDelete: () -> Void
+    @State private var image: UIImage?
+    @State private var failed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(StugaTheme.action.opacity(0.08))
+                    .aspectRatio(4 / 3, contentMode: .fit)
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .aspectRatio(4 / 3, contentMode: .fill)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else if failed {
+                    Image(systemName: "photo.badge.exclamationmark")
+                        .foregroundStyle(StugaTheme.muted)
+                } else {
+                    ProgressView()
+                        .accessibilityLabel("Loading \(attachment.name)")
+                }
+            }
+            .clipped()
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(attachment.name)
+                    .font(.caption)
+                    .lineLimit(2)
+                Spacer(minLength: 0)
+                if canDelete {
+                    Button(role: .destructive, action: onDelete) {
+                        Image(systemName: "trash")
+                    }
+                    .accessibilityLabel("Remove \(attachment.name)")
+                }
+            }
+        }
+        .task(id: attachment.id) {
+            do {
+                let data = try await model.equipmentAttachmentData(
+                    equipmentID: equipmentID,
+                    attachmentID: attachment.id
+                )
+                image = UIImage(data: data)
+                failed = image == nil
+            } catch {
+                failed = true
+            }
+        }
+    }
+}
+
+private struct EquipmentLinkForm: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    let equipment: AreaEquipment
+    @State private var label = ""
+    @State private var url = "https://"
+    @State private var saving = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Relevant information") {
+                    TextField("Link name", text: $label)
+                    TextField("Web address", text: $url)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+            }
+            .navigationTitle("Add link")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(saving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        Task { await save() }
+                    }
+                    .disabled(!canSave || saving)
+                }
+            }
+            .interactiveDismissDisabled(saving)
+            .alert("Link could not be added", isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(errorMessage ?? "")
+            }
+        }
+    }
+
+    private var canSave: Bool {
+        let name = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let address = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.count <= 200, address.count <= 2_048,
+              let parsed = URL(string: address) else {
+            return false
+        }
+        return ["http", "https"].contains(parsed.scheme?.lowercased() ?? "")
+            && parsed.host != nil
+            && parsed.user == nil
+            && parsed.password == nil
+    }
+
+    @MainActor
+    private func save() async {
+        saving = true
+        defer { saving = false }
+        do {
+            _ = try await model.addEquipmentLink(
+                equipmentID: equipment.id,
+                label: label.trimmingCharacters(in: .whitespacesAndNewlines),
+                url: url.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct EquipmentResourceShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(
+        _ uiViewController: UIActivityViewController,
+        context: Context
+    ) {}
 }
 
 struct EquipmentEditorView: View {

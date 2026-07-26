@@ -8,6 +8,9 @@ import type {
   AreaEquipmentInput,
   AreaEquipmentPatch,
   AreaEquipment,
+  EquipmentAttachmentUploadInput,
+  EquipmentLinkInput,
+  EquipmentLinkPatch,
   ActionPlaybookInput,
   ActionRunStartInput,
   DataExportPrivacyLevel,
@@ -510,12 +513,15 @@ function parsePropertyAreaPatch(value: unknown): PropertyAreaPatch {
 function parseAreaEquipmentInput(value: unknown): AreaEquipmentInput {
   const body = bodyObject(value);
   rejectUnknownFields(body, new Set([
-    "id", "propertyId", "areaId", "name", "kind", "manufacturer", "model", "serialNumber", "status", "notes",
+    "id", "propertyId", "areaId", "houseId", "location", "name", "kind",
+    "manufacturer", "model", "serialNumber", "status", "notes",
   ]), "Area equipment input");
   return {
     ...(body.id !== undefined ? { id: propertyText(body, "id", 200) as string } : {}),
     ...(body.propertyId !== undefined ? { propertyId: propertyText(body, "propertyId", 200) as string } : {}),
-    areaId: propertyText(body, "areaId", 200) as string,
+    ...(body.areaId !== undefined ? { areaId: propertyText(body, "areaId", 200, true) } : {}),
+    ...(body.houseId !== undefined ? { houseId: propertyText(body, "houseId", 200, true) } : {}),
+    ...(body.location !== undefined ? { location: propertyCoordinate(body.location) as GeoCoordinate } : {}),
     name: propertyText(body, "name", 200) as string,
     kind: propertyText(body, "kind", 200) as string,
     ...(body.manufacturer !== undefined ? { manufacturer: propertyText(body, "manufacturer", 200, true) } : {}),
@@ -529,14 +535,16 @@ function parseAreaEquipmentInput(value: unknown): AreaEquipmentInput {
 function parseAreaEquipmentPatch(value: unknown): AreaEquipmentPatch {
   const body = bodyObject(value);
   const fields = new Set([
-    "areaId", "name", "kind", "manufacturer", "model", "serialNumber", "status", "notes",
+    "areaId", "houseId", "location", "name", "kind", "manufacturer", "model", "serialNumber", "status", "notes",
   ]);
   rejectUnknownFields(body, fields, "Area equipment patch");
   if (![...fields].some((field) => body[field] !== undefined)) {
     throw new HttpError(400, "INVALID_FIELD", "Area equipment patch must contain at least one mutable field");
   }
   return {
-    ...(body.areaId !== undefined ? { areaId: propertyText(body, "areaId", 200) as string } : {}),
+    ...(body.areaId !== undefined ? { areaId: propertyText(body, "areaId", 200, true) } : {}),
+    ...(body.houseId !== undefined ? { houseId: propertyText(body, "houseId", 200, true) } : {}),
+    ...(body.location !== undefined ? { location: propertyCoordinate(body.location, true) } : {}),
     ...(body.name !== undefined ? { name: propertyText(body, "name", 200) as string } : {}),
     ...(body.kind !== undefined ? { kind: propertyText(body, "kind", 200) as string } : {}),
     ...(body.manufacturer !== undefined ? { manufacturer: propertyText(body, "manufacturer", 200, true) } : {}),
@@ -544,6 +552,39 @@ function parseAreaEquipmentPatch(value: unknown): AreaEquipmentPatch {
     ...(body.serialNumber !== undefined ? { serialNumber: propertyText(body, "serialNumber", 200, true) } : {}),
     ...(body.status !== undefined ? { status: enumValue(body.status, AREA_EQUIPMENT_STATUSES, "status") } : {}),
     ...(body.notes !== undefined ? { notes: propertyText(body, "notes", 5_000, true) } : {}),
+  };
+}
+
+function parseEquipmentAttachmentUpload(value: unknown): EquipmentAttachmentUploadInput {
+  const body = bodyObject(value);
+  rejectUnknownFields(body, new Set(["kind", "name", "mimeType", "data"]), "Equipment attachment upload");
+  return {
+    kind: enumValue(body.kind, ["photo", "document"] as const, "kind"),
+    name: propertyText(body, "name", 255) as string,
+    mimeType: propertyText(body, "mimeType", 200)!.toLowerCase(),
+    data: requiredString(body, "data"),
+  };
+}
+
+function parseEquipmentLinkInput(value: unknown): EquipmentLinkInput {
+  const body = bodyObject(value);
+  rejectUnknownFields(body, new Set(["label", "url"]), "Equipment link input");
+  return {
+    label: propertyText(body, "label", 200) as string,
+    url: propertyText(body, "url", 2_048) as string,
+  };
+}
+
+function parseEquipmentLinkPatch(value: unknown): EquipmentLinkPatch {
+  const body = bodyObject(value);
+  const fields = new Set(["label", "url"]);
+  rejectUnknownFields(body, fields, "Equipment link patch");
+  if (![...fields].some((field) => body[field] !== undefined)) {
+    throw new HttpError(400, "INVALID_FIELD", "Equipment link patch must contain label or url");
+  }
+  return {
+    ...(body.label !== undefined ? { label: propertyText(body, "label", 200) as string } : {}),
+    ...(body.url !== undefined ? { url: propertyText(body, "url", 2_048) as string } : {}),
   };
 }
 
@@ -1192,7 +1233,9 @@ class LocalVisibility {
     if (!this.restricted) return true;
     const cached = this.#equipmentAccess.get(equipment.id);
     if (cached !== undefined) return cached;
-    const allowed = this.#propertyIds.has(equipment.propertyId) || this.area(equipment.areaId);
+    const allowed = this.#propertyIds.has(equipment.propertyId)
+      || Boolean(equipment.areaId && this.area(equipment.areaId))
+      || Boolean(equipment.houseId && this.house(equipment.houseId));
     this.#equipmentAccess.set(equipment.id, allowed);
     return allowed;
   }
@@ -1456,6 +1499,70 @@ const SAFE_ASSET_MIME_TYPES = new Set([
   "model/gltf+json",
   "model/gltf-binary",
 ]);
+
+const SAFE_EQUIPMENT_PHOTO_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+]);
+const SAFE_EQUIPMENT_DOCUMENT_MIME_TYPES = new Set([
+  "application/pdf",
+  "text/plain",
+  "text/markdown",
+  "application/rtf",
+  "text/rtf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.oasis.opendocument.text",
+]);
+const MAX_EQUIPMENT_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+function equipmentAttachmentData(input: EquipmentAttachmentUploadInput): Buffer {
+  const dataUrl = input.data.match(/^data:([^;,]+);base64,(.*)$/su);
+  if (dataUrl && dataUrl[1]?.toLowerCase() !== input.mimeType) {
+    throw new HttpError(400, "ATTACHMENT_MEDIA_TYPE_MISMATCH", "The data URL media type must match mimeType");
+  }
+  const encoded = dataUrl?.[2] ?? input.data;
+  if (encoded.length > Math.ceil(MAX_EQUIPMENT_ATTACHMENT_BYTES / 3) * 4 + 4) {
+    throw new HttpError(413, "ATTACHMENT_TOO_LARGE", "Equipment attachments are limited to 10 MiB");
+  }
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(encoded)) {
+    throw new HttpError(400, "INVALID_ATTACHMENT", "data must contain valid base64 bytes");
+  }
+  const data = Buffer.from(encoded, "base64");
+  if (data.length === 0) throw new HttpError(400, "INVALID_ATTACHMENT", "data must contain valid base64 bytes");
+  if (data.length > MAX_EQUIPMENT_ATTACHMENT_BYTES) {
+    throw new HttpError(413, "ATTACHMENT_TOO_LARGE", "Equipment attachments are limited to 10 MiB");
+  }
+  return data;
+}
+
+function assertEquipmentAttachmentMediaType(input: EquipmentAttachmentUploadInput): void {
+  const allowed = input.kind === "photo"
+    ? SAFE_EQUIPMENT_PHOTO_MIME_TYPES
+    : SAFE_EQUIPMENT_DOCUMENT_MIME_TYPES;
+  if (!allowed.has(input.mimeType)) {
+    throw new HttpError(
+      415,
+      "UNSUPPORTED_ATTACHMENT_TYPE",
+      input.kind === "photo"
+        ? "Photos must be PNG, JPEG, or WebP"
+        : "Documents must be PDF, text, Markdown, RTF, Word, DOCX, or OpenDocument text",
+    );
+  }
+}
+
+function equipmentAttachmentDisposition(kind: "photo" | "document", name: string): string {
+  const fallback = name
+    .replace(/[^\x20-\x7E]/gu, "_")
+    .replace(/["\\]/gu, "_")
+    .slice(0, 180)
+    .trim() || "attachment";
+  const encoded = [...Buffer.from(name, "utf8")]
+    .map((byte) => `%${byte.toString(16).padStart(2, "0").toUpperCase()}`)
+    .join("");
+  return `${kind === "photo" ? "inline" : "attachment"}; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
 
 const RESERVED_MEASUREMENT_IDS = new Set(["__proto__", "constructor", "prototype"]);
 const MEASUREMENT_ID_PATTERN = /^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/;
@@ -3280,6 +3387,56 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     response.json(systemUpdates.status());
   });
 
+  app.get(`${prefix}/system/updates/events`, requireWorkspaceAdmin, (request, response) => {
+    if (rejectEventStreamDuringShutdown(response)) return;
+    const releaseStream = acquireEventStream(response);
+    if (!releaseStream) {
+      response.setHeader("retry-after", "5");
+      throw new HttpError(429, "EVENT_STREAM_LIMIT", "Too many active event streams for this account");
+    }
+    const acceptedAuthorization = localAuthorizationFingerprint(requestPrincipal(response));
+    response.status(200);
+    response.setHeader("content-type", "text/event-stream; charset=utf-8");
+    response.setHeader("cache-control", "no-cache, no-transform");
+    response.setHeader("connection", "keep-alive");
+    response.setHeader("x-accel-buffering", "no");
+    response.flushHeaders();
+    const writer = boundedSseWriter(response);
+    let previousStatus = "";
+    const publishStatus = (): void => {
+      if (response.destroyed || response.writableEnded) return;
+      if (!authorizedStreamVisibility(request, response, acceptedAuthorization)) return;
+      const status = systemUpdates.status();
+      const serialized = JSON.stringify({
+        currentVersion: status.currentVersion,
+        latestVersion: status.latestVersion,
+        updateAvailable: status.updateAvailable,
+        capability: status.capability,
+        operation: status.operation,
+      });
+      if (serialized === previousStatus) return;
+      previousStatus = serialized;
+      writer.send(`event: system-update\ndata: ${serialized}\n\n`);
+    };
+    writer.send("retry: 1000\n\n");
+    publishStatus();
+    const poll = setInterval(publishStatus, 1_000);
+    poll.unref();
+    const heartbeat = setInterval(() => {
+      if (!response.destroyed && !response.writableEnded) {
+        if (!authorizedStreamVisibility(request, response, acceptedAuthorization)) return;
+        writer.send(`event: heartbeat\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`);
+      }
+    }, 10_000);
+    heartbeat.unref();
+    registerEventStream(
+      request,
+      response,
+      () => { clearInterval(poll); clearInterval(heartbeat); writer.dispose(); },
+      releaseStream,
+    );
+  });
+
   app.post(`${prefix}/system/updates/check`, requireWorkspaceAdmin, async (_request, response, next) => {
     try {
       response.setHeader("cache-control", "no-store");
@@ -3845,7 +4002,9 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   });
   app.get(`${prefix}/properties/:id/energy-optimization`, (request, response) => {
     const propertyId = request.params.id as string;
-    if (!database.getProperty(propertyId)) throw new HttpError(404, "NOT_FOUND", "Property not found");
+    if (!database.getProperty(propertyId) || !visibility(response).hasProperty(propertyId)) {
+      throw new HttpError(404, "NOT_FOUND", "Property not found");
+    }
     const hours = safeInteger(request.query.windowHours, 2, 1, 12);
     response.json({ report: energyOptimizer.report(propertyId, hours) });
   });
@@ -3939,8 +4098,13 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       (limit, offset) => database.listAreaEquipment({ propertyId, limit, offset }),
       (item) => access.equipment(item),
     );
+    const visibleEquipmentIds = new Set(equipment.map((item) => item.id));
+    const attachments = database.listEquipmentAttachments({ propertyId })
+      .filter((attachment) => visibleEquipmentIds.has(attachment.equipmentId));
+    const links = database.listEquipmentLinks({ propertyId })
+      .filter((link) => visibleEquipmentIds.has(link.equipmentId));
     const syncToken = createHash("sha256")
-      .update(JSON.stringify({ propertyId, areas, equipment }))
+      .update(JSON.stringify({ propertyId, areas, equipment, attachments, links }))
       .digest("hex");
     const etag = `"${syncToken}"`;
     response.setHeader("cache-control", "private, no-cache");
@@ -3958,6 +4122,8 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       syncToken,
       areas,
       equipment,
+      attachments,
+      links,
     };
     response.json({ inventory });
   });
@@ -3965,6 +4131,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   app.get(`${prefix}/area-equipment`, (request, response) => {
     const propertyId = optionalResourceQuery(request.query.propertyId, "propertyId");
     const areaId = optionalResourceQuery(request.query.areaId, "areaId");
+    const houseId = optionalResourceQuery(request.query.houseId, "houseId");
     const page = collectionPage(request.query);
     const access = visibility(response);
     response.json({
@@ -3972,6 +4139,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
         (limit, offset) => database.listAreaEquipment({
           ...(propertyId ? { propertyId } : {}),
           ...(areaId ? { areaId } : {}),
+          ...(houseId ? { houseId } : {}),
           limit,
           offset,
         }),
@@ -3982,8 +4150,10 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   });
   app.post(`${prefix}/area-equipment`, (request, response) => {
     const input = parseAreaEquipmentInput(request.body);
-    const area = database.getPropertyArea(input.areaId);
-    if (area) stugby.assertPropertyWriteAllowed(input.propertyId ?? area.propertyId);
+    const area = input.areaId ? database.getPropertyArea(input.areaId) : null;
+    const house = input.houseId ? database.getHouse(input.houseId) : null;
+    const propertyId = area?.propertyId ?? house?.propertyId ?? input.propertyId;
+    if (propertyId) stugby.assertPropertyWriteAllowed(propertyId);
     const equipment = database.createAreaEquipment(input);
     stugby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert");
     notifySpatial((runtime) => runtime.scheduler.enqueueScope(
@@ -4009,6 +4179,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       const targetArea = database.getPropertyArea(patch.areaId);
       if (targetArea && targetArea.propertyId !== previous.propertyId) stugby.assertPropertyWriteAllowed(targetArea.propertyId);
     }
+    if (patch.houseId) {
+      const targetHouse = database.getHouse(patch.houseId);
+      if (targetHouse && targetHouse.propertyId !== previous.propertyId) {
+        stugby.assertPropertyWriteAllowed(targetHouse.propertyId);
+      }
+    }
     const equipment = database.updateAreaEquipment(equipmentId, patch);
     if (!equipment) throw new HttpError(404, "NOT_FOUND", "Area equipment not found");
     if (previous.propertyId !== equipment.propertyId) {
@@ -4017,7 +4193,12 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     } else {
       stugby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert", Object.keys(patch));
     }
-    if (previous && (previous.propertyId !== equipment.propertyId || previous.areaId !== equipment.areaId)) {
+    if (previous && (
+      previous.propertyId !== equipment.propertyId
+      || previous.areaId !== equipment.areaId
+      || (previous.houseId ?? null) !== (equipment.houseId ?? null)
+      || JSON.stringify(previous.location ?? null) !== JSON.stringify(equipment.location ?? null)
+    )) {
       const observedAt = new Date().toISOString();
       notifySpatial((runtime) => {
         runtime.scheduler.enqueueScope({ kind: "property", id: previous.propertyId }, observedAt, "ownership-changed", true);
@@ -4042,6 +4223,108 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       "property-context-changed",
       true,
     ));
+    response.status(204).end();
+  });
+
+  app.get(`${prefix}/area-equipment/:equipmentId/attachments`, (request, response) => {
+    const equipmentId = request.params.equipmentId as string;
+    const equipment = database.getAreaEquipment(equipmentId);
+    if (!equipment || !visibility(response).equipment(equipment)) {
+      throw new HttpError(404, "NOT_FOUND", "Area equipment not found");
+    }
+    response.json({ attachments: database.listEquipmentAttachments({ equipmentId }) });
+  });
+  app.post(`${prefix}/area-equipment/:equipmentId/attachments`, (request, response) => {
+    const equipmentId = request.params.equipmentId as string;
+    const equipment = database.getAreaEquipment(equipmentId);
+    if (!equipment) throw new HttpError(404, "NOT_FOUND", "Area equipment not found");
+    stugby.assertPropertyWriteAllowed(equipment.propertyId);
+    const input = parseEquipmentAttachmentUpload(request.body);
+    assertEquipmentAttachmentMediaType(input);
+    const attachment = database.createEquipmentAttachment({
+      equipmentId,
+      kind: input.kind,
+      name: input.name,
+      mimeType: input.mimeType,
+      data: equipmentAttachmentData(input),
+    });
+    response.status(201).json({
+      attachment,
+      url: `${prefix}/area-equipment/${encodeURIComponent(equipmentId)}/attachments/${attachment.id}`,
+    });
+  });
+  app.get(`${prefix}/area-equipment/:equipmentId/attachments/:attachmentId`, (request, response) => {
+    const equipmentId = request.params.equipmentId as string;
+    const attachment = database.getEquipmentAttachment(request.params.attachmentId as string);
+    const equipment = database.getAreaEquipment(equipmentId);
+    if (!attachment || attachment.equipmentId !== equipmentId
+      || !equipment || !visibility(response).equipment(equipment)) {
+      throw new HttpError(404, "NOT_FOUND", "Equipment attachment not found");
+    }
+    response.setHeader("content-type", attachment.mimeType);
+    response.setHeader("content-length", String(attachment.size));
+    response.setHeader("cache-control", "private, no-cache");
+    response.setHeader("content-security-policy", "sandbox; default-src 'none'");
+    response.setHeader("x-content-type-options", "nosniff");
+    response.setHeader("content-disposition", equipmentAttachmentDisposition(attachment.kind, attachment.name));
+    response.send(Buffer.from(attachment.data));
+  });
+  app.delete(`${prefix}/area-equipment/:equipmentId/attachments/:attachmentId`, (request, response) => {
+    const equipmentId = request.params.equipmentId as string;
+    const attachment = database.getEquipmentAttachment(request.params.attachmentId as string);
+    const equipment = database.getAreaEquipment(equipmentId);
+    if (!attachment || attachment.equipmentId !== equipmentId || !equipment) {
+      throw new HttpError(404, "NOT_FOUND", "Equipment attachment not found");
+    }
+    stugby.assertPropertyWriteAllowed(equipment.propertyId);
+    if (!database.deleteEquipmentAttachment(attachment.id)) {
+      throw new HttpError(404, "NOT_FOUND", "Equipment attachment not found");
+    }
+    response.status(204).end();
+  });
+
+  app.get(`${prefix}/area-equipment/:equipmentId/links`, (request, response) => {
+    const equipmentId = request.params.equipmentId as string;
+    const equipment = database.getAreaEquipment(equipmentId);
+    if (!equipment || !visibility(response).equipment(equipment)) {
+      throw new HttpError(404, "NOT_FOUND", "Area equipment not found");
+    }
+    response.json({ links: database.listEquipmentLinks({ equipmentId }) });
+  });
+  app.post(`${prefix}/area-equipment/:equipmentId/links`, (request, response) => {
+    const equipmentId = request.params.equipmentId as string;
+    const equipment = database.getAreaEquipment(equipmentId);
+    if (!equipment) throw new HttpError(404, "NOT_FOUND", "Area equipment not found");
+    stugby.assertPropertyWriteAllowed(equipment.propertyId);
+    const link = database.createEquipmentLink({
+      equipmentId,
+      ...parseEquipmentLinkInput(request.body),
+    });
+    response.status(201).json({ link });
+  });
+  app.patch(`${prefix}/area-equipment/:equipmentId/links/:linkId`, (request, response) => {
+    const equipmentId = request.params.equipmentId as string;
+    const previous = database.getEquipmentLink(request.params.linkId as string);
+    const equipment = database.getAreaEquipment(equipmentId);
+    if (!previous || previous.equipmentId !== equipmentId || !equipment) {
+      throw new HttpError(404, "NOT_FOUND", "Equipment link not found");
+    }
+    stugby.assertPropertyWriteAllowed(equipment.propertyId);
+    const link = database.updateEquipmentLink(previous.id, parseEquipmentLinkPatch(request.body));
+    if (!link) throw new HttpError(404, "NOT_FOUND", "Equipment link not found");
+    response.json({ link });
+  });
+  app.delete(`${prefix}/area-equipment/:equipmentId/links/:linkId`, (request, response) => {
+    const equipmentId = request.params.equipmentId as string;
+    const link = database.getEquipmentLink(request.params.linkId as string);
+    const equipment = database.getAreaEquipment(equipmentId);
+    if (!link || link.equipmentId !== equipmentId || !equipment) {
+      throw new HttpError(404, "NOT_FOUND", "Equipment link not found");
+    }
+    stugby.assertPropertyWriteAllowed(equipment.propertyId);
+    if (!database.deleteEquipmentLink(link.id)) {
+      throw new HttpError(404, "NOT_FOUND", "Equipment link not found");
+    }
     response.status(204).end();
   });
 

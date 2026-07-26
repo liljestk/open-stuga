@@ -463,6 +463,25 @@ const localAuthPaths = {
       },
     },
   },
+  "/system/updates/events": {
+    get: {
+      tags: ["Context"], operationId: "streamSystemUpdateStatus",
+      description: "Owner/Admin-only live system-update operation status. The browser reconnects while application containers restart.",
+      security: [{ localSession: [] }],
+      responses: {
+        "200": {
+          description: "Server-sent system-update status changes and keep-alive heartbeats.",
+          content: { "text/event-stream": { schema: { type: "string" } } },
+          "x-sse-event-schemas": {
+            "system-update": { type: "object", additionalProperties: true },
+            authorization: { $ref: "#/components/schemas/StreamAuthorizationEvent" },
+          },
+        },
+        "403": { description: "Owner or Admin role required" },
+        "429": { description: "Per-account or global event-stream limit reached" },
+      },
+    },
+  },
   "/system/updates/check": {
     post: {
       tags: ["Context"], operationId: "checkSystemUpdates",
@@ -799,15 +818,16 @@ const stugbyPaths = {
   "/stugbys/configuration": { put: { tags: ["Stugby"], operationId: "configureStugbyCoordinator", description: "Verifies and saves the server-owned public HTTPS coordinator origin when deployment configuration did not provide one.", requestBody: jsonRequestBody({ type: "object", additionalProperties: false, required: ["publicOrigin"], properties: { publicOrigin: { type: "string", format: "uri" } } }), responses: { "200": jsonResponse("Verified and saved coordinator configuration.", { type: "object", required: ["publicOrigin"], properties: { publicOrigin: { type: "string", format: "uri" } } }), "409": { description: "The origin is deployment-managed or already pinned by an established Stugby" }, "422": { description: "The secure Stuga address could not be reached and verified" } } } },
   "/stugbys/join": { post: { tags: ["Stugby"], operationId: "joinStugby", description: "Consumes a one-time node invitation. No dataset is shared by joining.", requestBody: jsonRequestBody({ type: "object", additionalProperties: false, required: ["coordinatorUrl", "invitationId", "joinSecret"], properties: { coordinatorUrl: { type: "string", format: "uri" }, invitationId: { type: "string" }, joinSecret: { type: "string", writeOnly: true } } }), responses: { "201": jsonResponse("Joined Stugby.", stugbyObject) } } },
   "/stugbys/{stugbyId}": { parameters: [stugbyIdParameter], get: { tags: ["Stugby"], operationId: "getStugby", responses: { "200": jsonResponse("Roster, grants, Property adoption, queues, conflicts, recovery state, and remote projections.", stugbyObject) } }, delete: { tags: ["Stugby"], operationId: "deleteStugby", description: "Permanently removes local federation state after memberships, grants, and replica-deletion acknowledgements are closed. Local Home data is unchanged.", responses: { "204": { description: "Stugby deleted from this Stuga" }, "409": { description: "Membership, sharing, or deletion obligations remain active" } } } },
-  "/stugbys/{stugbyId}/invitations": { parameters: [stugbyIdParameter], post: { tags: ["Stugby"], operationId: "createStugbyInvitation", requestBody: jsonRequestBody({ type: "object", required: ["role"], properties: { role: { enum: ["property-manager", "participant", "viewer"] }, expiresAt: { type: "string", format: "date-time" } } }), responses: { "201": jsonResponse("One-time invitation; its join secret is returned only once.", stugbyObject), "503": { description: "The configured coordinator origin is unavailable or does not match this Stugby" } } } },
+  "/stugbys/{stugbyId}/invitations": { parameters: [stugbyIdParameter], post: { tags: ["Stugby"], operationId: "createStugbyInvitation", requestBody: jsonRequestBody({ type: "object", required: ["role"], properties: { role: { enum: ["property-manager", "participant", "viewer"] }, localLabel: { type: "string", maxLength: 200, description: "Private name or email retained only by this Stuga installation." }, expiresAt: { type: "string", format: "date-time" } } }), responses: { "201": jsonResponse("One-time invitation; its join secret is returned only once.", stugbyObject), "503": { description: "The configured coordinator origin is unavailable or does not match this Stugby" } } } },
   "/stugbys/{stugbyId}/invitations/{invitationId}": { parameters: [stugbyIdParameter, { name: "invitationId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], delete: { tags: ["Stugby"], operationId: "revokeStugbyInvitation", responses: { "204": { description: "Invitation revoked" } } } },
   "/stugbys/{stugbyId}/members/{nodeId}": { parameters: [stugbyIdParameter, { name: "nodeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], patch: { tags: ["Stugby"], operationId: "updateStugbyMember", description: "Deactivation fails while grants or replica-deletion acknowledgements remain outstanding.", requestBody: jsonRequestBody({ type: "object", required: ["role", "state"], properties: { role: { enum: ["steward", "property-manager", "participant", "viewer"] }, state: { enum: ["active", "suspended", "left", "revoked"] } } }), responses: { "200": jsonResponse("Updated node membership.", stugbyObject), "409": { description: "Shared data or deletion acknowledgement is still outstanding" } } } },
+  "/stugbys/{stugbyId}/members/{nodeId}/label": { parameters: [stugbyIdParameter, { name: "nodeId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], patch: { tags: ["Stugby"], operationId: "updateStugbyMemberLabel", description: "Updates a private local label. The value is never sent through the Stugby protocol.", requestBody: jsonRequestBody({ type: "object", additionalProperties: false, required: ["localLabel"], properties: { localLabel: { type: ["string", "null"], maxLength: 200 } } }), responses: { "200": jsonResponse("Updated private member label.", stugbyObject) } } },
   "/stugbys/{stugbyId}/property": { parameters: [stugbyIdParameter], get: { tags: ["Stugby"], operationId: "getStugbySharedProperty", responses: { "200": jsonResponse("Coordinator-owned shared Property aggregate.", stugbyObject) } }, put: { tags: ["Stugby"], operationId: "updateStugbySharedProperty", description: "Queues or applies a collaborative shared Property update. The coordinator is authoritative for same-field conflicts. Integration and control fields are rejected.", requestBody: jsonRequestBody({ type: "object", required: ["baseRevision", "property"], properties: { baseRevision: { type: "integer", minimum: 1 }, property: stugbyObject } }), responses: { "200": jsonResponse("Updated or queued shared Property.", stugbyObject), "409": { description: "Policy, role, or revision conflict" } } } },
   "/stugbys/{stugbyId}/property/adopt": { parameters: [stugbyIdParameter], post: { tags: ["Stugby"], operationId: "adoptStugbyProperty", description: "Connects the Host's selected local Property or materializes the Host Property on a Client. Connecting a Host Property publishes a recommended read-only overview of its Homes.", requestBody: jsonRequestBody({ type: "object", additionalProperties: false, properties: { localPropertyId: { type: "string" } } }), responses: { "201": jsonResponse("Connected shared Property.", stugbyObject) } } },
   "/stugbys/{stugbyId}/property/migrate": { parameters: [stugbyIdParameter], post: { tags: ["Stugby"], operationId: "migrateLocalPropertyIntoStugby", description: "Client-only operation that moves every Home and Property item into the adopted Host Property, deletes the empty source Property, preserves local Home authority and history, and creates recommended read-only Home overview grants.", requestBody: jsonRequestBody({ type: "object", additionalProperties: false, required: ["sourcePropertyId", "confirmation"], properties: { sourcePropertyId: { type: "string" }, confirmation: { const: "MIGRATE" } } }), responses: { "200": jsonResponse("Moved Property content while retaining local Home identities, history, and authority.", stugbyObject), "409": { description: "Property cannot be migrated" } } } },
   "/stugbys/{stugbyId}/property/disconnect": { parameters: [stugbyIdParameter], post: { tags: ["Stugby"], operationId: "disconnectStugbyProperty", description: "Explicit permanent disconnect. Promotes the inherited Property and only complete, designated recovery Homes; temporary outages never trigger this.", requestBody: jsonRequestBody({ type: "object", additionalProperties: false, required: ["confirmation"], properties: { confirmation: { const: "DISCONNECT" } } }), responses: { "200": jsonResponse("Disconnected Property and eligible recovery Homes.", stugbyObject), "409": { description: "A designated recovery copy is incomplete" } } } },
   "/stugbys/{stugbyId}/property-conflicts/{commandId}/resolve": { parameters: [stugbyIdParameter, { name: "commandId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], post: { tags: ["Stugby"], operationId: "resolveStugbyPropertyConflict", description: "Marks a Server-wins Property conflict as reviewed.", responses: { "204": { description: "Conflict marked reviewed" }, "404": { description: "Open conflict not found" } } } },
-  "/stugbys/{stugbyId}/grants": { parameters: [stugbyIdParameter], post: { tags: ["Stugby"], operationId: "createStugbyShareGrant", description: "Creates an explicit per-Home grant. Homes are read-only by default; the owner may enable synchronized edits or designate one full-recovery successor.", requestBody: jsonRequestBody(stugbyObject), responses: { "201": jsonResponse("Created share grant.", stugbyObject) } } },
+  "/stugbys/{stugbyId}/grants": { parameters: [stugbyIdParameter], post: { tags: ["Stugby"], operationId: "createStugbyShareGrant", description: "Creates an explicit per-Home grant. A Home may have only one active grant in a Stugby. Homes are read-only by default; the owner may enable synchronized edits or designate one full-recovery successor.", requestBody: jsonRequestBody(stugbyObject), responses: { "201": jsonResponse("Created share grant.", stugbyObject), "409": { description: "The Home already has an active share grant." } } } },
   "/stugbys/{stugbyId}/publications/{houseId}": { parameters: [stugbyIdParameter, { name: "houseId", in: "path", required: true, schema: { type: "string" } }], get: { tags: ["Stugby"], operationId: "getLocalStugbyPublicationCatalog", description: "Local-admin-only mapping used to select a Home's sensors by federation publication ID. It is never sent as a federation dataset.", responses: { "200": jsonResponse("Local publication catalog.", stugbyObject) } } },
   "/stugbys/{stugbyId}/grants/{grantId}": { parameters: [stugbyIdParameter, { name: "grantId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], put: { tags: ["Stugby"], operationId: "updateStugbyShareGrant", description: "Tombstones the previous epoch before publishing the replacement.", requestBody: jsonRequestBody(stugbyObject), responses: { "200": jsonResponse("Updated share grant.", stugbyObject) } }, delete: { tags: ["Stugby"], operationId: "revokeStugbyShareGrant", responses: { "200": jsonResponse("Revoked grant and queued replica purge.", stugbyObject) } } },
   "/stugbys/{stugbyId}/grants/{grantId}/republish": { parameters: [stugbyIdParameter, { name: "grantId", in: "path", required: true, schema: { type: "string", format: "uuid" } }], post: { tags: ["Stugby"], operationId: "republishStugbyGrant", responses: { "202": jsonResponse("Fresh snapshots queued.", { type: "object", required: ["queued"], properties: { queued: { const: true } } }) } } },
@@ -1040,13 +1060,69 @@ const combinedOpenApiDocument = {
       delete: { tags: ["Digital twin"], operationId: "deletePropertyArea", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "204": { description: "Deleted" }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Area is still referenced" } } },
     },
     "/area-equipment": {
-      get: { tags: ["Digital twin"], operationId: "listAreaEquipment", parameters: [{ $ref: "#/components/parameters/PropertyIdQuery" }, { $ref: "#/components/parameters/AreaIdQuery" }, { $ref: "#/components/parameters/CollectionLimitQuery" }, { $ref: "#/components/parameters/CollectionOffsetQuery" }], responses: { "200": { description: "Equipment installed in mapped areas", content: { "application/json": { schema: { type: "object", required: ["equipment"], properties: { equipment: { type: "array", items: { $ref: "#/components/schemas/AreaEquipment" } } } } } } } } },
-      post: { tags: ["Digital twin"], operationId: "createAreaEquipment", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/AreaEquipmentInput" } } } }, responses: { "201": { description: "Created equipment", content: { "application/json": { schema: { type: "object", required: ["equipment"], properties: { equipment: { $ref: "#/components/schemas/AreaEquipment" } } } } } }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Identifier or area scope conflict" }, "422": { description: "Invalid equipment" } } },
+      get: { tags: ["Digital twin"], operationId: "listAreaEquipment", parameters: [{ $ref: "#/components/parameters/PropertyIdQuery" }, { $ref: "#/components/parameters/HouseIdQuery" }, { $ref: "#/components/parameters/AreaIdQuery" }, { $ref: "#/components/parameters/CollectionLimitQuery" }, { $ref: "#/components/parameters/CollectionOffsetQuery" }], responses: { "200": { description: "Property inventory equipment", content: { "application/json": { schema: { type: "object", required: ["equipment"], properties: { equipment: { type: "array", items: { $ref: "#/components/schemas/AreaEquipment" } } } } } } } } },
+      post: { tags: ["Digital twin"], operationId: "createAreaEquipment", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/AreaEquipmentInput" } } } }, responses: { "201": { description: "Created equipment", content: { "application/json": { schema: { type: "object", required: ["equipment"], properties: { equipment: { $ref: "#/components/schemas/AreaEquipment" } } } } } }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Identifier or expected-location scope conflict" }, "422": { description: "Invalid equipment" } } },
     },
     "/area-equipment/{id}": {
       get: { tags: ["Digital twin"], operationId: "getAreaEquipment", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Area equipment", content: { "application/json": { schema: { type: "object", required: ["equipment"], properties: { equipment: { $ref: "#/components/schemas/AreaEquipment" } } } } } }, "404": { $ref: "#/components/responses/NotFound" } } },
-      patch: { tags: ["Digital twin"], operationId: "updateAreaEquipment", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/AreaEquipmentPatch" } } } }, responses: { "200": { description: "Updated equipment", content: { "application/json": { schema: { type: "object", required: ["equipment"], properties: { equipment: { $ref: "#/components/schemas/AreaEquipment" } } } } } }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Area scope conflict" }, "422": { description: "Invalid equipment" } } },
+      patch: { tags: ["Digital twin"], operationId: "updateAreaEquipment", parameters: [{ $ref: "#/components/parameters/Id" }], requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/AreaEquipmentPatch" } } } }, responses: { "200": { description: "Updated equipment", content: { "application/json": { schema: { type: "object", required: ["equipment"], properties: { equipment: { $ref: "#/components/schemas/AreaEquipment" } } } } } }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Expected-location or linked-evidence scope conflict" }, "422": { description: "Invalid equipment" } } },
       delete: { tags: ["Digital twin"], operationId: "deleteAreaEquipment", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "204": { description: "Deleted" }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Equipment is still referenced" } } },
+    },
+    "/area-equipment/{equipmentId}/attachments": {
+      parameters: [{ name: "equipmentId", in: "path", required: true, schema: { type: "string" } }],
+      get: {
+        tags: ["Digital twin"], operationId: "listEquipmentAttachments",
+        responses: { "200": jsonResponse("Photos, manuals, and similar documents attached to this equipment.", { type: "object", required: ["attachments"], properties: { attachments: { type: "array", items: { $ref: "#/components/schemas/EquipmentAttachment" } } } }), "404": { $ref: "#/components/responses/NotFound" } },
+      },
+      post: {
+        tags: ["Digital twin"], operationId: "uploadEquipmentAttachment",
+        requestBody: jsonRequestBody({ $ref: "#/components/schemas/EquipmentAttachmentUploadInput" }),
+        responses: {
+          "201": jsonResponse("Stored equipment attachment.", { type: "object", required: ["attachment", "url"], properties: { attachment: { $ref: "#/components/schemas/EquipmentAttachment" }, url: { type: "string" } } }),
+          "404": { $ref: "#/components/responses/NotFound" }, "413": { description: "Decoded file exceeds 10 MiB" }, "415": { description: "Unsupported photo or document media type" },
+        },
+      },
+    },
+    "/area-equipment/{equipmentId}/attachments/{attachmentId}": {
+      parameters: [
+        { name: "equipmentId", in: "path", required: true, schema: { type: "string" } },
+        { name: "attachmentId", in: "path", required: true, schema: { type: "string" } },
+      ],
+      get: {
+        tags: ["Digital twin"], operationId: "downloadEquipmentAttachment",
+        responses: { "200": { description: "Authorized attachment bytes. Photos are inline; documents download as attachments.", content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } } }, "404": { $ref: "#/components/responses/NotFound" } },
+      },
+      delete: {
+        tags: ["Digital twin"], operationId: "deleteEquipmentAttachment",
+        responses: { "204": { description: "Deleted" }, "404": { $ref: "#/components/responses/NotFound" } },
+      },
+    },
+    "/area-equipment/{equipmentId}/links": {
+      parameters: [{ name: "equipmentId", in: "path", required: true, schema: { type: "string" } }],
+      get: {
+        tags: ["Digital twin"], operationId: "listEquipmentLinks",
+        responses: { "200": jsonResponse("Relevant external information links for this equipment.", { type: "object", required: ["links"], properties: { links: { type: "array", items: { $ref: "#/components/schemas/EquipmentLink" } } } }), "404": { $ref: "#/components/responses/NotFound" } },
+      },
+      post: {
+        tags: ["Digital twin"], operationId: "createEquipmentLink",
+        requestBody: jsonRequestBody({ $ref: "#/components/schemas/EquipmentLinkInput" }),
+        responses: { "201": jsonResponse("Stored equipment link.", { type: "object", required: ["link"], properties: { link: { $ref: "#/components/schemas/EquipmentLink" } } }), "404": { $ref: "#/components/responses/NotFound" }, "422": { description: "Invalid or unsafe URL" } },
+      },
+    },
+    "/area-equipment/{equipmentId}/links/{linkId}": {
+      parameters: [
+        { name: "equipmentId", in: "path", required: true, schema: { type: "string" } },
+        { name: "linkId", in: "path", required: true, schema: { type: "string" } },
+      ],
+      patch: {
+        tags: ["Digital twin"], operationId: "updateEquipmentLink",
+        requestBody: jsonRequestBody({ $ref: "#/components/schemas/EquipmentLinkPatch" }),
+        responses: { "200": jsonResponse("Updated equipment link.", { type: "object", required: ["link"], properties: { link: { $ref: "#/components/schemas/EquipmentLink" } } }), "404": { $ref: "#/components/responses/NotFound" }, "422": { description: "Invalid or unsafe URL" } },
+      },
+      delete: {
+        tags: ["Digital twin"], operationId: "deleteEquipmentLink",
+        responses: { "204": { description: "Deleted" }, "404": { $ref: "#/components/responses/NotFound" } },
+      },
     },
     "/property-notes": {
       get: { tags: ["Context"], operationId: "listPropertyNotes", parameters: [{ $ref: "#/components/parameters/PropertyIdQuery" }, { $ref: "#/components/parameters/HouseIdQuery" }, { $ref: "#/components/parameters/AreaIdQuery" }, { $ref: "#/components/parameters/EquipmentIdQuery" }, { $ref: "#/components/parameters/CollectionLimitQuery" }, { $ref: "#/components/parameters/CollectionOffsetQuery" }], responses: { "200": { description: "Property and resource notes", content: { "application/json": { schema: { type: "object", required: ["notes"], properties: { notes: { type: "array", items: { $ref: "#/components/schemas/PropertyNote" } } } } } } } } },
@@ -2212,32 +2288,84 @@ const combinedOpenApiDocument = {
         properties: { propertyId: { type: "string", minLength: 1, maxLength: 200, description: "Moves the area aggregate, including equipment and scoped context, to this property." }, name: { type: "string", minLength: 1, maxLength: 200 }, kind: { $ref: "#/components/schemas/PropertyAreaKind" }, description: { type: ["string", "null"], maxLength: 5_000 }, location: { oneOf: [{ $ref: "#/components/schemas/GeoCoordinate" }, { type: "null" }] }, polygon: { type: "array", oneOf: [{ maxItems: 0 }, { minItems: 3, maxItems: 500 }], items: { $ref: "#/components/schemas/GeoCoordinate" } } },
       },
       AreaEquipment: {
-        type: "object", required: ["id", "propertyId", "areaId", "name", "kind", "manufacturer", "model", "serialNumber", "status", "notes", "createdAt", "updatedAt"], additionalProperties: false,
+        type: "object", required: ["id", "propertyId", "areaId", "houseId", "name", "kind", "manufacturer", "model", "serialNumber", "status", "notes", "createdAt", "updatedAt"], additionalProperties: false,
         properties: {
-          id: { type: "string" }, propertyId: { type: "string" }, areaId: { type: "string" }, name: { type: "string", minLength: 1, maxLength: 200 }, kind: { type: "string", minLength: 1, maxLength: 200 },
+          id: { type: "string" }, propertyId: { type: "string" }, areaId: { type: ["string", "null"] }, houseId: { type: ["string", "null"] }, location: { $ref: "#/components/schemas/GeoCoordinate" }, name: { type: "string", minLength: 1, maxLength: 200 }, kind: { type: "string", minLength: 1, maxLength: 200 },
           manufacturer: { type: ["string", "null"], maxLength: 200 }, model: { type: ["string", "null"], maxLength: 200 }, serialNumber: { type: ["string", "null"], maxLength: 200 },
           status: { enum: ["active", "out-of-service", "retired"] }, notes: { type: ["string", "null"], maxLength: 5_000 },
           createdAt: { type: "string", format: "date-time", readOnly: true }, updatedAt: { type: "string", format: "date-time", readOnly: true },
         },
       },
       AreaEquipmentInput: {
-        type: "object", required: ["areaId", "name", "kind"], additionalProperties: false,
-        properties: { id: { type: "string", minLength: 1, maxLength: 200 }, propertyId: { type: "string", minLength: 1, maxLength: 200 }, areaId: { type: "string", minLength: 1, maxLength: 200 }, name: { type: "string", minLength: 1, maxLength: 200 }, kind: { type: "string", minLength: 1, maxLength: 200 }, manufacturer: { type: ["string", "null"], maxLength: 200 }, model: { type: ["string", "null"], maxLength: 200 }, serialNumber: { type: ["string", "null"], maxLength: 200 }, status: { enum: ["active", "out-of-service", "retired"] }, notes: { type: ["string", "null"], maxLength: 5_000 } },
+        type: "object", required: ["name", "kind"], additionalProperties: false,
+        properties: { id: { type: "string", minLength: 1, maxLength: 200 }, propertyId: { type: "string", minLength: 1, maxLength: 200 }, areaId: { type: ["string", "null"], minLength: 1, maxLength: 200 }, houseId: { type: ["string", "null"], minLength: 1, maxLength: 200 }, location: { $ref: "#/components/schemas/GeoCoordinate" }, name: { type: "string", minLength: 1, maxLength: 200 }, kind: { type: "string", minLength: 1, maxLength: 200 }, manufacturer: { type: ["string", "null"], maxLength: 200 }, model: { type: ["string", "null"], maxLength: 200 }, serialNumber: { type: ["string", "null"], maxLength: 200 }, status: { enum: ["active", "out-of-service", "retired"] }, notes: { type: ["string", "null"], maxLength: 5_000 } },
       },
       AreaEquipmentPatch: {
         type: "object", minProperties: 1, additionalProperties: false,
-        properties: { areaId: { type: "string", minLength: 1, maxLength: 200 }, name: { type: "string", minLength: 1, maxLength: 200 }, kind: { type: "string", minLength: 1, maxLength: 200 }, manufacturer: { type: ["string", "null"], maxLength: 200 }, model: { type: ["string", "null"], maxLength: 200 }, serialNumber: { type: ["string", "null"], maxLength: 200 }, status: { enum: ["active", "out-of-service", "retired"] }, notes: { type: ["string", "null"], maxLength: 5_000 } },
+        properties: { areaId: { type: ["string", "null"], minLength: 1, maxLength: 200 }, houseId: { type: ["string", "null"], minLength: 1, maxLength: 200 }, location: { oneOf: [{ $ref: "#/components/schemas/GeoCoordinate" }, { type: "null" }] }, name: { type: "string", minLength: 1, maxLength: 200 }, kind: { type: "string", minLength: 1, maxLength: 200 }, manufacturer: { type: ["string", "null"], maxLength: 200 }, model: { type: ["string", "null"], maxLength: 200 }, serialNumber: { type: ["string", "null"], maxLength: 200 }, status: { enum: ["active", "out-of-service", "retired"] }, notes: { type: ["string", "null"], maxLength: 5_000 } },
+      },
+      EquipmentAttachment: {
+        type: "object", additionalProperties: false,
+        required: ["id", "equipmentId", "kind", "name", "mimeType", "size", "createdAt"],
+        properties: {
+          id: { type: "string" }, equipmentId: { type: "string" }, kind: { enum: ["photo", "document"] },
+          name: { type: "string", minLength: 1, maxLength: 255 }, mimeType: { type: "string", minLength: 1, maxLength: 200 },
+          size: { type: "integer", minimum: 1, maximum: 10_485_760 },
+          createdAt: { type: "string", format: "date-time", readOnly: true },
+        },
+      },
+      EquipmentAttachmentUploadInput: {
+        type: "object", additionalProperties: false, required: ["kind", "name", "mimeType", "data"],
+        properties: {
+          kind: { enum: ["photo", "document"] }, name: { type: "string", minLength: 1, maxLength: 255 },
+          mimeType: {
+            enum: [
+              "image/png", "image/jpeg", "image/webp", "application/pdf", "text/plain", "text/markdown",
+              "application/rtf", "text/rtf", "application/msword",
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "application/vnd.oasis.opendocument.text",
+            ],
+          },
+          data: { type: "string", description: "Base64 bytes, optionally prefixed by a matching data URL; decoded content is limited to 10 MiB." },
+        },
+      },
+      EquipmentLink: {
+        type: "object", additionalProperties: false,
+        required: ["id", "equipmentId", "label", "url", "createdAt", "updatedAt"],
+        properties: {
+          id: { type: "string" }, equipmentId: { type: "string" },
+          label: { type: "string", minLength: 1, maxLength: 200 },
+          url: { type: "string", format: "uri", minLength: 1, maxLength: 2_048, pattern: "^https?://" },
+          createdAt: { type: "string", format: "date-time", readOnly: true },
+          updatedAt: { type: "string", format: "date-time", readOnly: true },
+        },
+      },
+      EquipmentLinkInput: {
+        type: "object", additionalProperties: false, required: ["label", "url"],
+        properties: {
+          label: { type: "string", minLength: 1, maxLength: 200 },
+          url: { type: "string", format: "uri", minLength: 1, maxLength: 2_048, pattern: "^https?://" },
+        },
+      },
+      EquipmentLinkPatch: {
+        type: "object", additionalProperties: false, minProperties: 1,
+        properties: {
+          label: { type: "string", minLength: 1, maxLength: 200 },
+          url: { type: "string", format: "uri", minLength: 1, maxLength: 2_048, pattern: "^https?://" },
+        },
       },
       PropertyInventorySnapshot: {
         type: "object",
         additionalProperties: false,
-        required: ["propertyId", "generatedAt", "syncToken", "areas", "equipment"],
+        required: ["propertyId", "generatedAt", "syncToken", "areas", "equipment", "attachments", "links"],
         properties: {
           propertyId: { type: "string" },
           generatedAt: { type: "string", format: "date-time" },
           syncToken: { type: "string", description: "Opaque token over the visible inventory metadata." },
           areas: { type: "array", items: { $ref: "#/components/schemas/PropertyArea" } },
           equipment: { type: "array", items: { $ref: "#/components/schemas/AreaEquipment" } },
+          attachments: { type: "array", items: { $ref: "#/components/schemas/EquipmentAttachment" } },
+          links: { type: "array", items: { $ref: "#/components/schemas/EquipmentLink" } },
         },
       },
       TrackingCapabilities: {

@@ -272,8 +272,8 @@ export function registerStugbyLocalRoutes(app: Express, service: StugbyService, 
     const id = stugbyId(request);
     response.json({
       stugby: service.getStugby(id),
-      members: service.store.listMembers(id),
-      invitations: service.store.listInvitations(id),
+      members: service.store.listLocalMembers(id),
+      invitations: service.store.listLocalInvitations(id),
       grants: service.store.listGrants(id),
       sharedProperty: service.store.getSharedProperty(id),
       propertyAdoption: service.store.getPropertyAdoption(id),
@@ -298,6 +298,7 @@ export function registerStugbyLocalRoutes(app: Express, service: StugbyService, 
     const body = objectBody(request.body);
     response.status(201).json(service.createInvitation(stugbyId(request), {
       role: stringValue(body.role, "Role") as "property-manager" | "participant" | "viewer",
+      localLabel: body.localLabel,
       ...(typeof body.expiresAt === "string" ? { expiresAt: body.expiresAt } : {}),
     }));
   }));
@@ -311,6 +312,15 @@ export function registerStugbyLocalRoutes(app: Express, service: StugbyService, 
     const body = objectBody(request.body);
     response.json(service.updateMember(stugbyId(request), stringValue(request.params.nodeId, "Node id"),
       stringValue(body.role, "Role") as never, stringValue(body.state, "State") as never));
+  }));
+
+  app.patch(`${LOCAL_PREFIX}/:stugbyId/members/:nodeId/label`, admin, route((request, response) => {
+    const body = objectBody(request.body);
+    response.json(service.updateMemberLocalLabel(
+      stugbyId(request),
+      stringValue(request.params.nodeId, "Node id"),
+      body.localLabel,
+    ));
   }));
 
   app.get(`${LOCAL_PREFIX}/:stugbyId/property`, admin, route((request, response) => {

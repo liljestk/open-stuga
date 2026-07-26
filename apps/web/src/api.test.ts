@@ -8,6 +8,8 @@ import {
   subscribeToEvents,
   subscribeToMeasurementEvents,
   subscribeToSpatialLayerEvents,
+  subscribeToSystemUpdateEvents,
+  subscribeToTrackingEvents,
 } from "./api";
 import { createDemoState } from "./domain";
 
@@ -182,6 +184,70 @@ describe("measurement API client", () => {
     const [url] = fetchMock.mock.calls[0]!;
     expect(url).toBe("/api/v2/measurements/forecast?sensorId=sensor%2Foffice&metric=co2&hours=6");
     expect(String(url)).not.toContain("horizonMinutes");
+  });
+});
+
+describe("equipment tracking API client", () => {
+  it("uses the Property-scoped tag, assignment, and live-map endpoints", async () => {
+    const tag = {
+      id: "tag/main",
+      propertyId: "property/main",
+      serialNumber: "TAG-001",
+      hardwareModel: "Stuga Tag",
+      status: "active",
+    };
+    const assignment = {
+      id: "assignment/main",
+      equipmentId: "equipment/main",
+      tagId: tag.id,
+      validFrom: "2026-07-26T08:00:00.000Z",
+      validTo: null,
+      assignedBy: "owner",
+    };
+    const capabilities = { flags: { "tracking.enabled": true } };
+    const snapshot = {
+      propertyId: "property/main",
+      generatedAt: "2026-07-26T08:01:00.000Z",
+      sequence: 1,
+      assets: [],
+      members: [],
+    };
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockReset();
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => capabilities } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ tags: [tag] }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ tag, provisioningSecret: "one-time" }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ tag }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ assignment }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ assignment }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => snapshot } as Response);
+
+    await expect(api.trackingCapabilities()).resolves.toEqual(capabilities);
+    await expect(api.trackingTags("property/main")).resolves.toEqual([tag]);
+    await expect(api.createTrackingTag({
+      propertyId: "property/main",
+      serialNumber: "TAG-001",
+      hardwareModel: "Stuga Tag",
+    })).resolves.toEqual({ tag, provisioningSecret: "one-time" });
+    await expect(api.claimTrackingTag(tag.id)).resolves.toEqual(tag);
+    await expect(api.assignTrackingTag(tag.id, "equipment/main")).resolves.toEqual(assignment);
+    await expect(api.unassignTrackingTag(tag.id)).resolves.toEqual(assignment);
+    await expect(api.trackingMapSnapshot("property/main")).resolves.toEqual(snapshot);
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/v1/tracking/capabilities",
+      "/api/v1/tracking/tags?propertyId=property%2Fmain",
+      "/api/v1/tracking/tags",
+      "/api/v1/tracking/tags/tag%2Fmain/claim",
+      "/api/v1/tracking/tags/tag%2Fmain/assign",
+      "/api/v1/tracking/tags/tag%2Fmain/assignment",
+      "/api/v1/properties/property%2Fmain/tracking-map-snapshot",
+    ]);
+    expect(fetchMock.mock.calls[4]?.[1]).toEqual(expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ equipmentId: "equipment/main" }),
+    }));
   });
 });
 
@@ -403,6 +469,54 @@ describe("live event client", () => {
     expect(spatialState).toHaveBeenCalledWith("reconnecting");
     expect(onAuthorization).toHaveBeenLastCalledWith("expired");
     disposeSpatial();
+
+    const trackingRefresh = vi.fn();
+    const trackingState = vi.fn();
+    const disposeTracking = subscribeToTrackingEvents("property/main", trackingRefresh, trackingState);
+    const trackingSource = FakeEventSource.latest;
+    expect(trackingSource?.url).toBe("/api/v1/properties/property%2Fmain/tracking-stream");
+    expect(trackingSource?.listeners.has("asset.position.updated")).toBe(true);
+    expect(trackingSource?.listeners.has("member.location.updated")).toBe(true);
+    trackingSource?.onopen?.(new Event("open"));
+    expect(trackingState).toHaveBeenLastCalledWith("live");
+    trackingSource?.emit("member.location.updated", {
+      id: "event-1",
+      sequence: 2,
+      propertyId: "property/main",
+      type: "member.location.updated",
+      occurredAt: "2026-07-26T08:00:00.000Z",
+      subjectId: "member-1",
+      payload: { active: true },
+    });
+    expect(trackingRefresh).toHaveBeenCalledWith(expect.objectContaining({
+      type: "member.location.updated",
+      sequence: 2,
+    }));
+    trackingSource?.emit("snapshot-required", {});
+    expect(trackingRefresh).toHaveBeenLastCalledWith(null);
+    disposeTracking();
+    expect(trackingSource?.closed).toBe(true);
+
+    const updateStatus = vi.fn();
+    const updateState = vi.fn();
+    const disposeUpdates = subscribeToSystemUpdateEvents(updateStatus, updateState);
+    const updateSource = FakeEventSource.latest;
+    expect(updateSource?.url).toBe("/api/v1/system/updates/events");
+    expect(updateSource?.options).toEqual({ withCredentials: true });
+    updateSource?.onopen?.(new Event("open"));
+    updateSource?.emit("system-update", {
+      currentVersion: "0.5.0",
+      latestVersion: "0.6.0",
+      updateAvailable: true,
+      capability: { available: true },
+      operation: null,
+    });
+    expect(updateState).toHaveBeenCalledWith("live");
+    expect(updateStatus).toHaveBeenCalledWith(expect.objectContaining({ currentVersion: "0.5.0" }));
+    updateSource?.onerror?.(new Event("error"));
+    expect(updateState).toHaveBeenLastCalledWith("reconnecting");
+    disposeUpdates();
+    expect(updateSource?.closed).toBe(true);
     disposeAuthorization();
   });
 });

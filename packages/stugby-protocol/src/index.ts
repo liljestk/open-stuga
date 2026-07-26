@@ -418,7 +418,12 @@ export interface StugbyPropertyArea extends JsonObject {
 
 export interface StugbyPropertyEquipment extends JsonObject {
   id: string;
-  areaId: string;
+  areaId: string | null;
+  home?: {
+    authorityNodeId: string;
+    publicationId: string;
+  } | null;
+  location?: { latitude: number; longitude: number };
   name: string;
   kind: string;
   manufacturer: string | null;
@@ -905,11 +910,20 @@ export function validateSharedProperty(value: unknown): StugbySharedProperty {
   const equipmentIds = new Set<string>();
   for (const equipment of value.equipment as unknown[]) {
     if (!isObject(equipment)) fail("each equipment item must be an object");
-    onlyKeys(equipment, ["id", "areaId", "name", "kind", "manufacturer", "model", "serialNumber", "status", "notes"], "equipment");
+    onlyKeys(equipment, ["id", "areaId", "home", "location", "name", "kind", "manufacturer", "model", "serialNumber", "status", "notes"], "equipment");
     const equipmentId = requireString(equipment, "id");
-    const areaId = requireString(equipment, "areaId"); requireString(equipment, "name"); requireString(equipment, "kind");
+    const areaId = requireNullableString(equipment.areaId, "equipment.areaId");
+    requireString(equipment, "name"); requireString(equipment, "kind");
     if (equipmentIds.has(equipmentId)) fail(`duplicate equipment id ${equipmentId}`);
-    if (!areaIds.has(areaId)) fail(`equipment ${equipmentId} references an unknown area`);
+    if (areaId && !areaIds.has(areaId)) fail(`equipment ${equipmentId} references an unknown area`);
+    if (equipment.home !== undefined && equipment.home !== null) {
+      if (!isObject(equipment.home)) fail(`equipment ${equipmentId} home must be an object or null`);
+      onlyKeys(equipment.home, ["authorityNodeId", "publicationId"], "equipment home reference");
+      requireString(equipment.home, "authorityNodeId");
+      requireString(equipment.home, "publicationId");
+      if (areaId) fail(`equipment ${equipmentId} cannot reference both an area and a Home`);
+    }
+    if (equipment.location !== undefined) coordinate(equipment.location, "equipment.location");
     equipmentIds.add(equipmentId);
     requireNullableString(equipment.manufacturer, "equipment.manufacturer");
     requireNullableString(equipment.model, "equipment.model");

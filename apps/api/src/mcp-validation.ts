@@ -132,7 +132,9 @@ export function summarizeMcpPropertyArea(area: PropertyArea): McpPropertyAreaSum
 export interface McpAreaEquipmentSummary {
   id: string;
   propertyId: string;
-  areaId: string;
+  areaId: string | null;
+  houseId: string | null;
+  locationConfigured: boolean;
   name: string;
   kind: string;
   status: AreaEquipment["status"];
@@ -150,6 +152,8 @@ export function summarizeMcpAreaEquipment(equipment: AreaEquipment): McpAreaEqui
     id: equipment.id,
     propertyId: equipment.propertyId,
     areaId: equipment.areaId,
+    houseId: equipment.houseId ?? null,
+    locationConfigured: Boolean(equipment.location),
     name: equipment.name,
     kind: equipment.kind,
     status: equipment.status,

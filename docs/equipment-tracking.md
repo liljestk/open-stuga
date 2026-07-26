@@ -6,8 +6,8 @@ asset positions. It is feature-gated and off by default.
 Tracked assets are canonical Property inventory equipment records. The
 equipment ID is stable across web inventory management, maintenance, Stugby
 sharing, iOS inventory sync, tag replacement, and position history. The
-assigned area remains the expected location; a derived tracking position never
-silently overwrites it.
+saved Home, area, or map pin remains the expected location; a derived tracking
+position never silently overwrites it.
 
 ## Included
 
@@ -21,7 +21,15 @@ silently overwrites it.
 - MapKit Property map, uncertainty circles/zones, unknown tray, filters, and
   warmer/colder Find nearby guidance.
 - Property-wide inventory on iOS, with an in-app QR scanner and printable QR
-  labels for every equipment record.
+  labels for every equipment record, plus optional item photos, manuals,
+  documents, and relevant links.
+- Property-wide browser inventory with Home/area/unassigned placement, optional
+  map pins, printable QR labels, optional item resources,
+  tag registration/activation/assignment, and a saved-versus-live location
+  comparison.
+- Browser Property map markers for tracked and untracked equipment, including
+  freshness styling and uncertainty circles. Live snapshots are requested only
+  after the map is explicitly loaded.
 - Equipment notes, issue reporting through Property maintenance, and
   conflict-safe borrowing/return history.
 - Optional foreground-only member location sharing with an accuracy circle,
@@ -63,6 +71,10 @@ leaves the foreground or after at most four hours, and is removed immediately
 when stopped. The default iOS session is one hour; a 90-second server fail-safe
 removes clients that stop updating.
 
+The browser shows a member only while `sharingUntil` is still in the future,
+keeps the accuracy radius and expiry visible, and does not load member
+coordinates until the Property map is opened.
+
 `TRACKING_SECRET_KEY_FILE` encrypts per-tag secrets. A backup containing
 provisioned tags fails closed if this key is unavailable.
 
@@ -89,8 +101,22 @@ The OpenAPI document covers provisioning, observer management, batch ingestion,
 evidence, current/history state, short-lived Find tokens, map snapshots, and
 ordered SSE updates under `/api/v1`.
 
+Browser inventory uses:
+
+- `GET /tracking/capabilities`
+- `GET|POST /tracking/tags`
+- `POST /tracking/tags/{tagId}/claim`
+- `POST /tracking/tags/{tagId}/assign`
+- `DELETE /tracking/tags/{tagId}/assignment`
+- `GET /properties/{propertyId}/tracking-map-snapshot`
+- `GET /properties/{propertyId}/tracking-stream`
+
 Equipment operations use:
 
+- `GET|POST /area-equipment/{equipmentId}/attachments`
+- `GET|DELETE /area-equipment/{equipmentId}/attachments/{attachmentId}`
+- `GET|POST /area-equipment/{equipmentId}/links`
+- `PATCH|DELETE /area-equipment/{equipmentId}/links/{linkId}`
 - `GET /properties/{propertyId}/equipment-loans`
 - `POST /area-equipment/{equipmentId}/borrow`
 - `POST /equipment-loans/{loanId}/return`

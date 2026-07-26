@@ -74,9 +74,10 @@ Primary navigation is scoped and deliberately short:
 - Advanced: **API & MCP**.
 
 Map & assets, Inventory, Notes, and Access are sections inside Property. Inventory
-is the Property-wide catalogue for maintainable equipment; an assigned area is
-the expected location, while optional tracking remains an explicitly labelled
-estimate. A scanned equipment QR tag resolves back to this Property-owned
+is the Property-wide catalogue for maintainable equipment; a saved Home, area,
+or map pin is the expected location, while optional tracking remains a separate,
+explicitly labelled estimate with freshness and uncertainty. A scanned
+equipment QR tag resolves back to this Property-owned
 record before notes, issues, or borrowing actions are offered. Live member
 presence on the Property map is a separate, explicit foreground opt-in: show
 current accuracy, stop promptly, and do not present it as a location trail.

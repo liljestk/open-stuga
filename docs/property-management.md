@@ -7,32 +7,57 @@ yards. Every home belongs to exactly one existing property and therefore
 appears under only that property. Database constraints enforce this invariant;
 a blank or unknown `propertyId` is never stored on a home.
 
-Equipment belongs to one area, and its property is derived from that area's
-property. Notes can target the property itself, a home, an area, or a piece of
-equipment. Maintenance work is likewise property-owned and can optionally
-target resources inside that property.
+Equipment belongs to the Property. Its expected location can be a Home, an
+area, an optional fixed WGS84 pin, or unassigned; a Home and area cannot both
+be selected. The equipment's Property is derived from a selected Home or area
+and remains explicit for unassigned or pin-only items. Notes can target the
+property itself, a home, an area, or a piece of equipment. Maintenance work is
+likewise property-owned and can optionally target resources inside that
+property.
 
 ## Property inventory
 
 **Property > Inventory** is the canonical catalogue for maintainable and
 trackable equipment. It provides a Property-wide summary, attention count,
-search, service-state and area filters, and one details-on-demand editor for
-the existing equipment record. Manufacturer, model, serial number, service
-state, notes, and assigned area are stored on that record.
+search, service-state and expected-location filters, and one details-on-demand
+editor for the existing equipment record. Manufacturer, model, serial number,
+service state, notes, expected Home/area, and optional map pin are stored on
+that record. Each item also has a stable QR label that can be copied or printed
+from the browser. The pin picker reuses the Property map, so the Property
+coordinate, mapped Homes, Area boundaries, and fixed assets remain visible
+while positioning equipment.
 
-One record represents one physical item. Its `areaId` is the expected or
-assigned location, not a claim about its current position. If a BLE tag is
-assigned, tracking state joins through the same stable equipment identifier
-and is presented separately with freshness, confidence, and uncertainty.
-Maintenance and notes therefore keep working when tracking is disabled, a tag
-is replaced, or an item has not been observed recently.
+One record represents one physical item. Its nullable `areaId`, nullable
+`houseId`, and optional `location` describe the saved expected location, not a
+claim about its current position. If a BLE tag is assigned, tracking state
+joins through the same stable equipment identifier and is presented separately
+with freshness, confidence, observation time, and uncertainty. Maintenance and
+notes therefore keep working when tracking is disabled, a tag is replaced, or
+an item has not been observed recently.
+
+Each equipment record can optionally keep multiple item photos, manuals or
+similar documents, and labelled HTTP(S) links to relevant information. Photos
+and documents are stored against the stable equipment ID, accept only the
+document and image types listed by the UI, and are limited to 10 MiB each.
+Removing equipment removes its attachments and links.
+
+The Property map includes inventory markers. A fresh tag estimate takes
+display priority, followed by a tag-confirmed area, saved pin, Home position,
+or area centre. Marker styling distinguishes observed estimates from saved
+fallbacks, and accuracy circles remain visible. The map loads only on request;
+only then does the browser request the live snapshot. Consented companion-app
+member positions are short-lived, display their accuracy and sharing expiry,
+and disappear when expired. They are never presented as a trail or as
+continuous/exact tracking.
 
 The iOS companion reads
 `GET /api/v1/properties/{propertyId}/inventory`, a consistent Property-scoped
-snapshot containing the visible areas and equipment plus an opaque
-`syncToken`. The response supports `ETag` revalidation. Normal Stuga mutation
-events cause the companion to refresh this snapshot; the optional tracking
-stream refreshes position state independently and joins it by equipment ID.
+snapshot containing the visible areas, equipment, attachment metadata, and
+links plus an opaque `syncToken`. Attachment bytes use their equipment-scoped
+download endpoint. The response supports `ETag` revalidation. Normal Stuga
+mutation events cause the companion to refresh this snapshot; the optional
+tracking stream refreshes position state independently and joins it by
+equipment ID.
 Inventory remains available in iOS when BLE tracking or its live map is off.
 Members with write access can add and edit equipment natively through the
 existing `area-equipment` API; the companion limits area choices to the
@@ -43,10 +68,11 @@ lookup, and detail presentation.
 
 Property management is server-owned and restart-safe. Properties, Homes,
 complete floors/rooms/walls, map placement, areas and point assets, equipment,
-notes, electricity contracts, observations, maintenance work and revisions,
-sensors, parameters, access grants, and uploaded floor-plan assets are stored
-in the core SQLite database. The browser holds only unsaved form drafts and
-display preferences; a refresh reconstructs the Property from the API.
+equipment attachments and links, notes, electricity contracts, observations,
+maintenance work and revisions, sensors, parameters, access grants, and
+uploaded floor-plan assets are stored in the core SQLite database. The browser
+holds only unsaved form drafts and display preferences; a refresh reconstructs
+the Property from the API.
 
 Creating a Property and its required default electricity configuration is one
 transaction. Moves and other aggregate operations likewise commit completely
@@ -90,9 +116,10 @@ it does.
 - Moving an area carries the area's equipment plus its area/equipment-targeted
   notes and maintenance work. A home/floor scheduling link is cleared when the
   linked home does not belong to the destination property.
-- Moving equipment means selecting its destination area. Its property is
-  recalculated from that area, and its targeted notes and maintenance work move
-  with it. An incompatible home/floor scheduling link is cleared.
+- Moving equipment means selecting its destination Home or area (or leaving it
+  unassigned). Its property is recalculated from a selected destination, and
+  its targeted notes and maintenance work move with it. An incompatible
+  home/floor scheduling link is cleared.
 
 When an area- or equipment-linked maintenance task also has observation
 evidence from a home that would have to be detached, the API rejects the move
@@ -212,15 +239,18 @@ The local API exposes property resources under `/api/v1`:
 - `properties`
 - `property-areas`
 - `area-equipment`
+- `area-equipment/{equipmentId}/attachments`
+- `area-equipment/{equipmentId}/links`
 - `properties/{propertyId}/inventory` (consistent companion snapshot)
 - `property-notes`
 
-List endpoints accept the relevant `propertyId` or `areaId` filter. In
+List endpoints accept the relevant `propertyId`, `areaId`, or `houseId` filter. In
 particular, `GET /api/v1/houses?propertyId=...` returns only homes in the chosen
 property. Houses carry their parent `propertyId`; maintenance tasks may carry
 `areaId` and `equipmentId`. A house is moved with `PATCH /api/v1/houses/{id}`,
 an area with `PATCH /api/v1/property-areas/{id}`, and equipment with
-`PATCH /api/v1/area-equipment/{id}` (selecting its destination `areaId`).
+`PATCH /api/v1/area-equipment/{id}` (selecting a nullable destination `areaId`
+or `houseId` and optional `location`).
 Property-management and maintenance collections use bounded `limit`/`offset`
 pagination. Account administration lets an owner or administrator manage
 Guests and replace a Guest's grant set atomically within the local workspace.

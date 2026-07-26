@@ -854,11 +854,20 @@ export type PropertyAreaPatch = Partial<Pick<PropertyArea, "propertyId" | "name"
 
 export type AreaEquipmentStatus = "active" | "out-of-service" | "retired";
 
-/** Maintainable equipment installed in one mapped property area. */
+/**
+ * One Property-owned maintainable or trackable item.
+ *
+ * `areaId` and `houseId` describe the expected location and are mutually
+ * exclusive. Both may be null for an unassigned item. `location` is an
+ * optional manually pinned expected point; a derived tracking position never
+ * overwrites any of these fields.
+ */
 export interface AreaEquipment {
   id: string;
   propertyId: string;
-  areaId: string;
+  areaId: string | null;
+  houseId?: string | null;
+  location?: GeoCoordinate;
   name: string;
   kind: string;
   manufacturer: string | null;
@@ -870,16 +879,56 @@ export interface AreaEquipment {
   updatedAt: string;
 }
 
-export type AreaEquipmentInput = Pick<AreaEquipment, "areaId" | "name" | "kind">
-  & Partial<Pick<AreaEquipment, "id" | "propertyId" | "manufacturer" | "model" | "serialNumber" | "status" | "notes">>;
+export type AreaEquipmentInput = Pick<AreaEquipment, "name" | "kind">
+  & Partial<Pick<AreaEquipment,
+    "id" | "propertyId" | "areaId" | "houseId" | "location"
+    | "manufacturer" | "model" | "serialNumber" | "status" | "notes"
+  >>;
 export type AreaEquipmentPatch = Partial<Pick<AreaEquipment,
-  "areaId" | "name" | "kind" | "manufacturer" | "model" | "serialNumber" | "status" | "notes"
->>;
+  "areaId" | "houseId" | "name" | "kind" | "manufacturer" | "model" | "serialNumber" | "status" | "notes"
+>> & {
+  location?: GeoCoordinate | null;
+};
+
+export type EquipmentAttachmentKind = "photo" | "document";
+
+/** Metadata for one locally stored photo, manual, or related document. */
+export interface EquipmentAttachment {
+  id: string;
+  equipmentId: string;
+  kind: EquipmentAttachmentKind;
+  name: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+}
+
+export interface EquipmentAttachmentUploadInput {
+  kind: EquipmentAttachmentKind;
+  name: string;
+  mimeType: string;
+  /** Base64 bytes, optionally prefixed by a data URL. */
+  data: string;
+}
+
+/** A labelled HTTP(S) reference to manufacturer or other relevant information. */
+export interface EquipmentLink {
+  id: string;
+  equipmentId: string;
+  label: string;
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type EquipmentLinkInput = Pick<EquipmentLink, "label" | "url">;
+export type EquipmentLinkPatch = Partial<EquipmentLinkInput>;
 
 /**
  * One consistent, Property-scoped inventory read for companion clients.
  * `syncToken` is opaque and changes whenever a visible area or equipment
- * record changes; tracking state continues to join by `AreaEquipment.id`.
+ * record, attachment, or link changes; tracking state continues to join by
+ * `AreaEquipment.id`.
  */
 export interface PropertyInventorySnapshot {
   propertyId: string;
@@ -887,6 +936,8 @@ export interface PropertyInventorySnapshot {
   syncToken: string;
   areas: PropertyArea[];
   equipment: AreaEquipment[];
+  attachments: EquipmentAttachment[];
+  links: EquipmentLink[];
 }
 
 export type TrackingFeatureFlag =

@@ -16,6 +16,7 @@ import {
   type StugbyDetailResponse,
   type StugbyInvitationCreated,
   type StugbyListResponse,
+  type StugbyLocalMember,
   type StugbyLocalPublicationCatalog,
   type StugbyRemoteTelemetrySample,
 } from "../api";
@@ -139,6 +140,90 @@ function parseArray(value: string, label: string, invalidJson: string, notArray:
   return parsed;
 }
 
+function grantHomeName(
+  grant: StugbyShareGrant,
+  houses: StugbyPageProps["houses"],
+  remoteResources: StugbyDetailResponse["remoteResources"],
+): string | null {
+  const localHouse = grant.localHouseId ? houses.find((house) => house.id === grant.localHouseId) : null;
+  if (localHouse?.name.trim()) return localHouse.name;
+
+  const projectedHouse = houses.find((house) => (
+    house.stugby?.stugbyId === grant.stugbyId
+    && house.stugby.authorityNodeId === grant.authorityNodeId
+    && house.stugby.publicationId === grant.publicationId
+  ));
+  if (projectedHouse?.name.trim()) return projectedHouse.name;
+
+  const directory = remoteResources.find((resource) => (
+    resource.authorityNodeId === grant.authorityNodeId
+    && resource.publicationId === grant.publicationId
+    && resource.schema === "home.directory.v1"
+  ));
+  const name = directory?.payload && !Array.isArray(directory.payload) && typeof directory.payload === "object"
+    ? directory.payload.name
+    : null;
+  return typeof name === "string" && name.trim() ? name : null;
+}
+
+function MemberIdentity({
+  member,
+  isLocal,
+  disabled,
+  youLabel,
+  privateLabel,
+  privateLabelPlaceholder,
+  metadata,
+  onSave,
+}: Readonly<{
+  member: StugbyLocalMember;
+  isLocal: boolean;
+  disabled: boolean;
+  youLabel: string;
+  privateLabel: string;
+  privateLabelPlaceholder: string;
+  metadata: string;
+  onSave: (value: string | null) => void;
+}>) {
+  const storedLabel = member.localLabel ?? "";
+  const [draft, setDraft] = useState(storedLabel);
+  useEffect(() => setDraft(storedLabel), [storedLabel]);
+  const save = () => {
+    const normalized = draft.trim();
+    if (normalized !== storedLabel) onSave(normalized || null);
+  };
+  return <div className="stugby-member-identity">
+    {isLocal ? <strong>{youLabel}</strong> : <label className="stugby-member-local-label">
+      <span>{privateLabel}</span>
+      <input
+        value={draft}
+        maxLength={200}
+        placeholder={privateLabelPlaceholder}
+        disabled={disabled}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={save}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            event.currentTarget.blur();
+          } else if (event.key === "Escape") {
+            setDraft(storedLabel);
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </label>}
+    <small>{metadata}</small>
+  </div>;
+}
+
+function activeGrant(grant: StugbyShareGrant, now = Date.now()): boolean {
+  if (grant.revokedAt) return false;
+  if (!grant.expiresAt) return true;
+  const expiresAt = Date.parse(grant.expiresAt);
+  return !Number.isFinite(expiresAt) || expiresAt > now;
+}
+
 export function StugbyPage({ houses, properties = [], onInventoryChange }: Readonly<StugbyPageProps>) {
   const { locale, t } = useI18n();
   const roleLabel = (role: StugbyRole) => t(roleLabelKeys[role]);
@@ -165,6 +250,7 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
   const [joinInvitationId, setJoinInvitationId] = useState("");
   const [joinSecret, setJoinSecret] = useState("");
   const [inviteRole, setInviteRole] = useState<Exclude<StugbyRole, "steward">>("participant");
+  const [inviteLocalLabel, setInviteLocalLabel] = useState("");
   const [inviteExpiresAt, setInviteExpiresAt] = useState("");
 
   const publishableHouses = useMemo(() => houses.filter((house) => !house.stugby || house.stugby.ownership === "local"), [houses]);
@@ -184,6 +270,21 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
   const [editingGrantId, setEditingGrantId] = useState<string | null>(null);
   const [publicationCatalog, setPublicationCatalog] = useState<PublicationCatalogState>(idlePublicationCatalog);
   const [catalogRevision, setCatalogRevision] = useState(0);
+  const activeLocalGrantHouseIds = useMemo(() => new Set(
+    detail?.grants
+      .filter((grant) => grant.authorityNodeId === index?.identity.nodeId && grant.localHouseId && activeGrant(grant))
+      .map((grant) => grant.localHouseId!)
+      ?? [],
+  ), [detail?.grants, index?.identity.nodeId]);
+  const unsharedHouses = useMemo(
+    () => publishableHouses.filter((house) => !activeLocalGrantHouseIds.has(house.id)),
+    [activeLocalGrantHouseIds, publishableHouses],
+  );
+  const grantHouseOptions = useMemo(() => {
+    if (!editingGrantId) return unsharedHouses;
+    const editedHouseId = detail?.grants.find((grant) => grant.id === editingGrantId)?.localHouseId;
+    return publishableHouses.filter((house) => house.id === editedHouseId);
+  }, [detail?.grants, editingGrantId, publishableHouses, unsharedHouses]);
 
   const [propertyName, setPropertyName] = useState("");
   const [propertyDescription, setPropertyDescription] = useState("");
@@ -203,7 +304,7 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
   const selectedIdRef = useRef("");
 
   const resetGrantDraft = useCallback(() => {
-    setGrantHouseId(publishableHouses[0]?.id ?? "");
+    setGrantHouseId(unsharedHouses[0]?.id ?? "");
     setAudienceKind("all-members");
     setAudienceNodes([]);
     setDatasetDraft(initialDatasetDraft());
@@ -219,13 +320,14 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
     setEditingGrantId(null);
     setPublicationCatalog(idlePublicationCatalog());
     setCatalogRevision((current) => current + 1);
-  }, [publishableHouses]);
+  }, [unsharedHouses]);
 
   const resetStugbyScopedUi = useCallback(() => {
     resetGrantDraft();
     setCreatedInvitation(null);
     setCopied(false);
     setInviteRole("participant");
+    setInviteLocalLabel("");
     setInviteExpiresAt("");
     setTelemetrySamples([]);
     setTelemetryError(null);
@@ -320,6 +422,12 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
   }, [detail?.propertyAdoption?.localPropertyId, properties]);
 
   useEffect(() => {
+    if (editingGrantId || unsharedHouses.some((house) => house.id === grantHouseId)) return;
+    setGrantHouseId(unsharedHouses[0]?.id ?? "");
+    setTelemetrySensors("");
+  }, [editingGrantId, grantHouseId, unsharedHouses]);
+
+  useEffect(() => {
     if (!joinUrl.trim()) return;
     try {
       const parsed = new URL(joinUrl);
@@ -334,7 +442,8 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
 
   useEffect(() => {
     let active = true;
-    if (!detail || !grantHouseId || detail.stugby.localMemberState !== "active" || detail.stugby.localRole === "viewer") {
+    if (!detail || !grantHouseId || !grantHouseOptions.some((house) => house.id === grantHouseId)
+      || detail.stugby.localMemberState !== "active" || detail.stugby.localRole === "viewer") {
       setPublicationCatalog(idlePublicationCatalog());
       return () => { active = false; };
     }
@@ -355,7 +464,7 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
         });
       });
     return () => { active = false; };
-  }, [catalogRevision, detail?.stugby.id, detail?.stugby.localMemberState, detail?.stugby.localRole, grantHouseId, t]);
+  }, [catalogRevision, detail?.stugby.id, detail?.stugby.localMemberState, detail?.stugby.localRole, grantHouseId, grantHouseOptions, t]);
 
   const withBusy = async (key: string, operation: () => Promise<void>): Promise<void> => {
     setBusy(key);
@@ -428,6 +537,14 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
   const saveGrant = (event: FormEvent) => {
     event.preventDefault();
     if (!detail || detail.stugby.id !== selectedIdRef.current) return;
+    if (!editingGrantId && detail.grants.some((grant) => (
+      grant.authorityNodeId === index?.identity.nodeId
+      && grant.localHouseId === grantHouseId
+      && activeGrant(grant)
+    ))) {
+      setError(t("stugby.homeAlreadyShared"));
+      return;
+    }
     if (recoveryMode === "full" && !houseSuccessorNodeId) {
       setError(t("stugby.recoverySuccessorRequired"));
       return;
@@ -553,14 +670,27 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
     });
   };
 
-  const updateMember = (member: StugbyMember, input: { role?: StugbyRole; state?: StugbyMember["state"] }) => {
+  const memberName = (member: StugbyLocalMember) => member.nodeId === index?.identity.nodeId
+    ? t("stugby.you")
+    : member.localLabel?.trim() || member.displayName;
+
+  const updateMember = (member: StugbyLocalMember, input: { role?: StugbyRole; state?: StugbyMember["state"] }) => {
     if (!detail || detail.stugby.id !== selectedIdRef.current) return;
     const nextState = input.state ?? member.state;
     if (input.state && nextState !== member.state
-      && !window.confirm(t("stugby.confirmMemberState", { name: member.displayName, state: stateLabel(nextState) }))) return;
+      && !window.confirm(t("stugby.confirmMemberState", { name: memberName(member), state: stateLabel(nextState) }))) return;
     void withBusy(`member:${member.nodeId}`, async () => {
       await api.updateStugbyMember(detail.stugby.id, member.nodeId, { role: input.role ?? member.role, state: nextState });
       setNotice(t("stugby.changesSaved"));
+      await loadDetail(detail.stugby.id);
+    });
+  };
+
+  const updateMemberLocalLabel = (member: StugbyLocalMember, localLabel: string | null) => {
+    if (!detail || detail.stugby.id !== selectedIdRef.current) return;
+    void withBusy(`member-label:${member.nodeId}`, async () => {
+      await api.updateStugbyMemberLabel(detail.stugby.id, member.nodeId, localLabel);
+      setNotice(t("stugby.memberLabelSaved"));
       await loadDetail(detail.stugby.id);
     });
   };
@@ -653,6 +783,17 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
     ? publicationCatalog.data
     : null;
   const catalogMatches = matchingCatalog !== null;
+  const activeGrantCounts = new Map<string, number>();
+  for (const grant of currentDetail?.grants ?? []) {
+    if (grant.authorityNodeId !== index?.identity.nodeId || !grant.localHouseId || !activeGrant(grant)) continue;
+    activeGrantCounts.set(grant.localHouseId, (activeGrantCounts.get(grant.localHouseId) ?? 0) + 1);
+  }
+  const duplicatedLocalHouseIds = new Set(
+    [...activeGrantCounts].filter(([, count]) => count > 1).map(([houseId]) => houseId),
+  );
+  const duplicatedHomeNames = publishableHouses
+    .filter((house) => duplicatedLocalHouseIds.has(house.id))
+    .map((house) => house.name);
   const coordinatorSetupRequired = !index?.publicOrigin && index?.publicOriginConfigurable === false;
   const localCoordinator = loopbackOrigin(index?.publicOrigin);
   const showCloudflareSetup = coordinatorSetupRequired || (localCoordinator && cloudflareSetupRequested);
@@ -778,10 +919,25 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
 
         <section className="stugby-card">
           <div className="stugby-card-title"><Users size={19} aria-hidden="true" /><div><h2>{t("stugby.participants")}</h2><p>{t("stugby.nodeRolesBody")}</p></div></div>
-          <div className="stugby-member-list">{detail.members.map((member) => <div className="stugby-member" key={member.nodeId}>
-            <div><strong>{member.displayName}</strong><small>{member.keyFingerprint.slice(0, 12)}… · {stateLabel(member.state)}</small></div>
-            {coordinator && member.role !== "steward" ? <><select aria-label={`${t("stugby.localRole")}: ${member.displayName}`} value={member.role} disabled={busy !== null} onChange={(event) => updateMember(member, { role: event.target.value as StugbyRole })}><option value="property-manager">{t("stugby.role.propertyManager")}</option><option value="participant">{t("stugby.role.participant")}</option><option value="viewer">{t("stugby.role.viewer")}</option></select><select aria-label={`${t("stugby.memberState")}: ${member.displayName}`} value={member.state} disabled={busy !== null} onChange={(event) => updateMember(member, { state: event.target.value as StugbyMember["state"] })}><option value="active">{t("stugby.state.active")}</option><option value="suspended">{t("stugby.state.suspended")}</option><option value="left">{t("stugby.state.left")}</option><option value="revoked">{t("stugby.state.revoked")}</option></select></> : <span className="role-pill">{roleLabel(member.role)}</span>}
-          </div>)}</div>
+          <div className="stugby-member-list">{detail.members.map((member) => {
+            const isLocal = member.nodeId === index.identity.nodeId;
+            const name = memberName(member);
+            return <div className="stugby-member" key={member.nodeId}>
+              <MemberIdentity
+                member={member}
+                isLocal={isLocal}
+                disabled={busy !== null}
+                youLabel={t("stugby.you")}
+                privateLabel={t("stugby.privateMemberLabel")}
+                privateLabelPlaceholder={t("stugby.privateMemberLabelPlaceholder")}
+                metadata={`${member.displayName} · ${member.keyFingerprint.slice(0, 12)}… · ${stateLabel(member.state)}`}
+                onSave={(value) => updateMemberLocalLabel(member, value)}
+              />
+              <div className="stugby-member-controls">
+                {coordinator && member.role !== "steward" ? <><select aria-label={`${t("stugby.localRole")}: ${name}`} value={member.role} disabled={busy !== null} onChange={(event) => updateMember(member, { role: event.target.value as StugbyRole })}><option value="property-manager">{t("stugby.role.propertyManager")}</option><option value="participant">{t("stugby.role.participant")}</option><option value="viewer">{t("stugby.role.viewer")}</option></select><select aria-label={`${t("stugby.memberState")}: ${name}`} value={member.state} disabled={busy !== null} onChange={(event) => updateMember(member, { state: event.target.value as StugbyMember["state"] })}><option value="active">{t("stugby.state.active")}</option><option value="suspended">{t("stugby.state.suspended")}</option><option value="left">{t("stugby.state.left")}</option><option value="revoked">{t("stugby.state.revoked")}</option></select></> : <span className="role-pill">{roleLabel(member.role)}</span>}
+              </div>
+            </div>;
+          })}</div>
           {coordinator && !coordinatorInvitationReady && <p className="stugby-capability-note" role="note">{t("stugby.invitationUnavailable")}</p>}
           {coordinator && <form className="stugby-invite-form" onSubmit={(event) => {
             event.preventDefault();
@@ -789,15 +945,18 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
             void withBusy("invite", async () => {
               setCreatedInvitation(await api.createStugbyInvitation(detail.stugby.id, {
                 role: inviteRole,
+                localLabel: inviteLocalLabel.trim(),
                 ...(inviteExpiresAt ? { expiresAt: new Date(inviteExpiresAt).toISOString() } : {}),
               }));
+              setInviteLocalLabel("");
               setInviteExpiresAt("");
               await loadDetail(detail.stugby.id);
             });
           }}>
             <div className="stugby-quick-action">
               <div><strong>{t("stugby.createInvitation")}</strong><small>{inviteRole === "participant" && !inviteExpiresAt ? t("stugby.invitationDefaults") : `${roleLabel(inviteRole)} · ${inviteExpiresAt || t("stugby.never")}`}</small></div>
-              <button className="primary-button" disabled={busy !== null || !coordinatorInvitationReady}>{busy === "invite" ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}{t("stugby.createInvitation")}</button>
+              <div className="field stugby-invite-local-label"><label htmlFor="stugby-invite-local-label">{t("stugby.inviteeLabel")}</label><input id="stugby-invite-local-label" required maxLength={200} aria-describedby="stugby-invite-local-label-help" value={inviteLocalLabel} placeholder={t("stugby.inviteeLabelPlaceholder")} onChange={(event) => setInviteLocalLabel(event.target.value)} /><small id="stugby-invite-local-label-help">{t("stugby.inviteeLabelHelp")}</small></div>
+              <button className="primary-button" disabled={busy !== null || !coordinatorInvitationReady || !inviteLocalLabel.trim()}>{busy === "invite" ? <LoaderCircle className="spin" size={16} /> : <KeyRound size={16} />}{t("stugby.createInvitation")}</button>
             </div>
             <details className="stugby-subdetails">
               <summary>{t("stugby.invitationOptions")}</summary>
@@ -817,7 +976,7 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
           {coordinator && <details className="stugby-subdetails"><summary>{t("stugby.invitations")} ({detail.invitations.length})</summary><div className="stugby-existing-grants stugby-subdetails-body">{detail.invitations.length === 0 ? <p>{t("stugby.noInvitations")}</p> : detail.invitations.map((invitation) => {
             const active = !invitation.usedAt && !invitation.revokedAt && Date.parse(invitation.expiresAt) > Date.now();
             const status = invitation.usedAt ? t("stugby.invitationUsed") : invitation.revokedAt ? t("stugby.invitationRevoked") : active ? t("stugby.invitationActive") : t("stugby.invitationExpired");
-            return <article key={invitation.id}><div className="stugby-record-copy"><strong>{roleLabel(invitation.role)}</strong><span>{status} · {formattedTime(invitation.expiresAt, t("stugby.never"), locale)}</span><small>{invitation.id}</small></div>{active && <div className="stugby-record-actions"><button type="button" className="danger-button" disabled={busy !== null} onClick={() => {
+            return <article key={invitation.id}><div className="stugby-record-copy"><strong>{invitation.localLabel || roleLabel(invitation.role)}</strong><span>{roleLabel(invitation.role)} · {status} · {formattedTime(invitation.expiresAt, t("stugby.never"), locale)}</span><small>{invitation.id}</small></div>{active && <div className="stugby-record-actions"><button type="button" className="danger-button" disabled={busy !== null} onClick={() => {
               if (!window.confirm(t("stugby.confirmRevokeInvitation", { id: invitation.id.slice(0, 12) }))) return;
               void withBusy(`invitation:${invitation.id}`, async () => { await api.revokeStugbyInvitation(detail.stugby.id, invitation.id); setNotice(t("stugby.changesSaved")); await loadDetail(detail.stugby.id); });
             }}><Trash2 size={15} aria-hidden="true" />{t("stugby.revokeInvitation")}</button></div>}</article>;
@@ -879,8 +1038,8 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
 
         <section className="stugby-card stugby-grants">
           <div className="stugby-card-title"><ShieldCheck size={19} aria-hidden="true" /><div><h2>{t("stugby.grantsTitle")}</h2><p>{t("stugby.grantsBody")}</p></div></div>
-          {canPublish ? <form onSubmit={saveGrant}>
-            <div className="stugby-form-grid"><label className="field"><span>{t("stugby.localHome")}</span><select required disabled={editingGrantId !== null} value={grantHouseId} onChange={(event) => { setGrantHouseId(event.target.value); setTelemetrySensors(""); }}><option value="" disabled>{t("stugby.chooseHome")}</option>{publishableHouses.map((house) => <option key={house.id} value={house.id}>{house.name}</option>)}</select></label><label className="field"><span>{t("stugby.audience")}</span><select value={audienceKind} disabled={recoveryMode === "full"} onChange={(event) => { setAudienceKind(event.target.value as typeof audienceKind); setAudienceNodes([]); }}><option value="all-members">{t("stugby.audienceAll")}</option><option value="members">{t("stugby.audienceSelected")}</option></select></label></div>
+          {canPublish ? grantHouseOptions.length > 0 ? <form onSubmit={saveGrant}>
+            <div className="stugby-form-grid"><label className="field"><span>{t("stugby.localHome")}</span><select required disabled={editingGrantId !== null} value={grantHouseId} onChange={(event) => { setGrantHouseId(event.target.value); setTelemetrySensors(""); }}><option value="" disabled>{t("stugby.chooseHome")}</option>{grantHouseOptions.map((house) => <option key={house.id} value={house.id}>{house.name}</option>)}</select></label><label className="field"><span>{t("stugby.audience")}</span><select value={audienceKind} disabled={recoveryMode === "full"} onChange={(event) => { setAudienceKind(event.target.value as typeof audienceKind); setAudienceNodes([]); }}><option value="all-members">{t("stugby.audienceAll")}</option><option value="members">{t("stugby.audienceSelected")}</option></select></label></div>
             {audienceKind === "members" && <fieldset className="stugby-audience"><legend>{t("stugby.recipients")}</legend>{activeRemoteMembers.length === 0 ? <p>{t("stugby.noEligibleRecipients")}</p> : activeRemoteMembers.map((member) => <label key={member.nodeId}><input type="checkbox" disabled={recoveryMode === "full"} checked={audienceNodes.includes(member.nodeId)} onChange={(event) => setAudienceNodes((current) => event.target.checked ? [...current, member.nodeId] : current.filter((id) => id !== member.nodeId))} />{member.displayName} ({roleLabel(member.role)})</label>)}{activeRemoteMembers.length > 0 && audienceNodes.length === 0 && <p className="stugby-capability-note">{t("stugby.audienceRequired")}</p>}</fieldset>}
             <section className="stugby-policy-panel stugby-home-policy">
               <div><strong>{t("stugby.homePermission")}</strong><p>{t("stugby.homePermissionBody")}</p></div>
@@ -911,8 +1070,32 @@ export function StugbyPage({ houses, properties = [], onInventoryChange }: Reado
               </div>
             </details>
             <div className="stugby-grant-submit"><button className="primary-button" disabled={busy !== null || !grantHouseId || (recoveryMode === "full" ? !houseSuccessorNodeId : audienceKind === "members" && audienceNodes.length === 0) || (datasetDraft["home.telemetry.v1"].enabled && !catalogMatches)}>{busy === "grant" ? <LoaderCircle aria-hidden="true" className="spin" size={16} /> : <ShieldCheck aria-hidden="true" size={16} />}{t(editingGrantId ? "stugby.updateGrant" : "stugby.startSharing")}</button>{editingGrantId && <button type="button" className="secondary-button" onClick={resetGrantDraft}>{t("stugby.cancelEdit")}</button>}</div>
-          </form> : <p>{cannotPublishMessage}</p>}
-          <div className="stugby-existing-grants">{detail.grants.length === 0 ? <p>{t("stugby.noGrants")}</p> : detail.grants.map((grant) => <article key={grant.id}><div className="stugby-record-copy"><strong>{grant.publicationId.slice(0, 12)}…</strong><span>{t("stugby.grantSummary", { authority: t(grant.authorityNodeId === index.identity.nodeId ? "stugby.localAuthority" : "stugby.remoteAuthority"), epoch: grant.epoch, state: t(grant.revokedAt ? "stugby.state.revoked" : "stugby.state.active") })}</span><small>{t(grant.housePolicy.editPolicy === "read-only" ? "stugby.sharedHomeReadOnly" : "stugby.sharedHomeEditable")}{grant.housePolicy.recoveryMode === "full" ? ` · ${t("stugby.fullRecoveryEnabled")}` : ""}</small><small>{grant.datasets.filter((dataset) => dataset.enabled).map((dataset) => t(datasetLabelKeys[dataset.dataset])).join(" · ")}</small></div>{grant.authorityNodeId === index.identity.nodeId && !grant.revokedAt && <div className="stugby-record-actions"><button type="button" className="secondary-button" disabled={busy !== null} onClick={() => editGrant(grant)}><Pencil size={15} aria-hidden="true" />{t("stugby.editGrant")}</button><button type="button" className="secondary-button" disabled={busy !== null} onClick={() => void withBusy(`republish:${grant.id}`, async () => { await api.republishStugbyGrant(detail.stugby.id, grant.id); setNotice(t("stugby.republishQueued")); })}><RefreshCw size={15} aria-hidden="true" />{t("stugby.republish")}</button><button type="button" className="danger-button" disabled={busy !== null} onClick={() => { if (window.confirm(t("stugby.confirmRevoke"))) void withBusy(`revoke:${grant.id}`, async () => { await api.revokeStugbyGrant(detail.stugby.id, grant.id); setNotice(t("stugby.changesSaved")); await loadDetail(detail.stugby.id); }); }}><Trash2 size={15} aria-hidden="true" />{t("stugby.revoke")}</button></div>}</article>)}</div>
+          </form> : <p className="stugby-capability-note">{t(publishableHouses.length === 0 ? "stugby.noLocalHomesToShare" : "stugby.allHomesAlreadyShared")}</p> : <p>{cannotPublishMessage}</p>}
+          {duplicatedHomeNames.length > 0 && <p className="stugby-duplicate-warning" role="note">{t("stugby.duplicateHomeShares", { homes: duplicatedHomeNames.join(", ") })}</p>}
+          <div className="stugby-existing-grants">{detail.grants.length === 0 ? <p>{t("stugby.noGrants")}</p> : detail.grants.map((grant) => {
+            const homeName = grantHomeName(grant, houses, detail.remoteResources);
+            const isActive = activeGrant(grant);
+            const duplicate = Boolean(grant.localHouseId && duplicatedLocalHouseIds.has(grant.localHouseId) && isActive);
+            const stateKey = grant.revokedAt ? "stugby.state.revoked" : isActive ? "stugby.state.active" : "stugby.state.expired";
+            const audienceKey = grant.audience.kind === "all-members"
+              ? "stugby.grantAudienceAll"
+              : grant.audience.nodeIds.length === 1 ? "stugby.grantAudienceSelectedOne" : "stugby.grantAudienceSelectedMany";
+            return <article className={duplicate ? "has-duplicate" : undefined} key={grant.id}>
+              <div className="stugby-record-copy">
+                <strong>{homeName ?? `${grant.publicationId.slice(0, 12)}…`}</strong>
+                {duplicate && <small className="stugby-duplicate-label">{t("stugby.duplicateActiveShare")}</small>}
+                <span>{t("stugby.grantSummary", { authority: t(grant.authorityNodeId === index.identity.nodeId ? "stugby.localAuthority" : "stugby.remoteAuthority"), epoch: grant.epoch, state: t(stateKey) })}</span>
+                <small>{t(audienceKey, { count: grant.audience.nodeIds.length })}</small>
+                <small>{t(grant.housePolicy.editPolicy === "read-only" ? "stugby.sharedHomeReadOnly" : "stugby.sharedHomeEditable")}{grant.housePolicy.recoveryMode === "full" ? ` · ${t("stugby.fullRecoveryEnabled")}` : ""}</small>
+                <small>{grant.datasets.filter((dataset) => dataset.enabled).map((dataset) => t(datasetLabelKeys[dataset.dataset])).join(" · ")}</small>
+              </div>
+              {grant.authorityNodeId === index.identity.nodeId && isActive && <div className="stugby-record-actions">
+                <button type="button" className="secondary-button" disabled={busy !== null} onClick={() => editGrant(grant)}><Pencil size={15} aria-hidden="true" />{t("stugby.editGrant")}</button>
+                <button type="button" className="secondary-button" disabled={busy !== null} onClick={() => void withBusy(`republish:${grant.id}`, async () => { await api.republishStugbyGrant(detail.stugby.id, grant.id); setNotice(t("stugby.republishQueued")); })}><RefreshCw size={15} aria-hidden="true" />{t("stugby.republish")}</button>
+                <button type="button" className="danger-button" disabled={busy !== null} onClick={() => { if (window.confirm(t("stugby.confirmRevoke"))) void withBusy(`revoke:${grant.id}`, async () => { await api.revokeStugbyGrant(detail.stugby.id, grant.id); setNotice(t("stugby.changesSaved")); await loadDetail(detail.stugby.id); }); }}><Trash2 size={15} aria-hidden="true" />{t("stugby.revoke")}</button>
+              </div>}
+            </article>;
+          })}</div>
         </section>
 
         <details className="stugby-card stugby-collapsible">

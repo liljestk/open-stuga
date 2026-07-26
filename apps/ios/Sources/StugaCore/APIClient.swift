@@ -30,6 +30,10 @@ public actor StugaAPIClient {
     private struct HistoryEnvelope: Decodable { let samples: [MeasurementSample] }
     private struct InventoryEnvelope: Decodable { let inventory: PropertyInventorySnapshot }
     private struct EquipmentEnvelope: Decodable { let equipment: AreaEquipment }
+    private struct AttachmentsEnvelope: Decodable { let attachments: [EquipmentAttachment] }
+    private struct AttachmentEnvelope: Decodable { let attachment: EquipmentAttachment }
+    private struct LinksEnvelope: Decodable { let links: [EquipmentLink] }
+    private struct LinkEnvelope: Decodable { let link: EquipmentLink }
     private struct TrackingSettingsEnvelope: Decodable { let settings: TrackingPropertySettings }
     private struct TrackingObserverEnvelope: Decodable { let observer: TrackingObserver }
     private struct NotesEnvelope: Decodable { let notes: [PropertyNote] }
@@ -74,6 +78,16 @@ public actor StugaAPIClient {
         let note: String?
     }
     private struct EquipmentReturnBody: Encodable { let note: String? }
+    private struct EquipmentAttachmentUploadBody: Encodable {
+        let kind: EquipmentAttachmentKind
+        let name: String
+        let mimeType: String
+        let data: String
+    }
+    private struct EquipmentLinkBody: Encodable {
+        let label: String
+        let url: String
+    }
     private struct RoomPlanImportBody: Encodable {
         let source = "apple-roomplan"
         let capturedAt: String
@@ -201,6 +215,86 @@ public actor StugaAPIClient {
             body: input
         )
         return value.equipment
+    }
+
+    public func equipmentAttachments(equipmentID: String) async throws -> [EquipmentAttachment] {
+        let value: AttachmentsEnvelope = try await request(
+            version: 1,
+            path: "/area-equipment/\(escaped(equipmentID))/attachments"
+        )
+        return value.attachments
+    }
+
+    public func uploadEquipmentAttachment(
+        equipmentID: String,
+        kind: EquipmentAttachmentKind,
+        name: String,
+        mimeType: String,
+        data: Data
+    ) async throws -> EquipmentAttachment {
+        let value: AttachmentEnvelope = try await request(
+            version: 1,
+            path: "/area-equipment/\(escaped(equipmentID))/attachments",
+            method: "POST",
+            body: EquipmentAttachmentUploadBody(
+                kind: kind,
+                name: name,
+                mimeType: mimeType,
+                data: data.base64EncodedString()
+            )
+        )
+        return value.attachment
+    }
+
+    public func equipmentAttachmentData(
+        equipmentID: String,
+        attachmentID: String
+    ) async throws -> Data {
+        try await requestData(
+            version: 1,
+            path: "/area-equipment/\(escaped(equipmentID))/attachments/\(escaped(attachmentID))"
+        )
+    }
+
+    public func deleteEquipmentAttachment(
+        equipmentID: String,
+        attachmentID: String
+    ) async throws {
+        let _: EmptyResponse = try await request(
+            version: 1,
+            path: "/area-equipment/\(escaped(equipmentID))/attachments/\(escaped(attachmentID))",
+            method: "DELETE"
+        )
+    }
+
+    public func equipmentLinks(equipmentID: String) async throws -> [EquipmentLink] {
+        let value: LinksEnvelope = try await request(
+            version: 1,
+            path: "/area-equipment/\(escaped(equipmentID))/links"
+        )
+        return value.links
+    }
+
+    public func createEquipmentLink(
+        equipmentID: String,
+        label: String,
+        url: String
+    ) async throws -> EquipmentLink {
+        let value: LinkEnvelope = try await request(
+            version: 1,
+            path: "/area-equipment/\(escaped(equipmentID))/links",
+            method: "POST",
+            body: EquipmentLinkBody(label: label, url: url)
+        )
+        return value.link
+    }
+
+    public func deleteEquipmentLink(equipmentID: String, linkID: String) async throws {
+        let _: EmptyResponse = try await request(
+            version: 1,
+            path: "/area-equipment/\(escaped(equipmentID))/links/\(escaped(linkID))",
+            method: "DELETE"
+        )
     }
 
     public func sensors(houseID: String? = nil) async throws -> [Sensor] {
@@ -782,6 +876,26 @@ public actor StugaAPIClient {
                 message: "Stuga returned data this app could not understand."
             )
         }
+    }
+
+    private func requestData(version: Int, path: String) async throws -> Data {
+        var request = URLRequest(url: address.apiURL(version: version, path: path))
+        request.httpMethod = "GET"
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw StugaAPIError(status: 0, code: nil, message: "Stuga returned an invalid response.")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 401 { csrfToken = nil }
+            let envelope = try? decoder.decode(ErrorEnvelope.self, from: data)
+            throw StugaAPIError(
+                status: http.statusCode,
+                code: envelope?.error?.code,
+                message: envelope?.error?.message ?? "Request failed with HTTP \(http.statusCode)."
+            )
+        }
+        return data
     }
 
     private func queryString(_ items: [URLQueryItem]) -> String {

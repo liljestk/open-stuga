@@ -1432,6 +1432,7 @@ describe("Climate Twin API v1", () => {
     expect(openapi.body.openapi).toBe("3.1.0");
     expect(openapi.body.paths["/stream"]).toBeDefined();
     expect(openapi.body.paths["/events"]).toBeDefined();
+    expect(openapi.body.paths["/system/updates/events"].get.operationId).toBe("streamSystemUpdateStatus");
     expect(openapi.body.paths["/snapshot"]).toBeDefined();
     expect(openapi.body.paths["/readings"].get).toBeDefined();
     expect(openapi.body.paths["/integrations/tp-link/devices"].get.operationId).toBe("listTpLinkDevices");
@@ -1489,6 +1490,29 @@ describe("Climate Twin API v1", () => {
     expect(response.headers.get("content-type")).toContain("text/event-stream");
     const chunk = await response.body?.getReader().read();
     expect(new TextDecoder().decode(chunk?.value)).toContain("event: integration");
+    controller.abort();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it("opens a live system-update stream with the current status", async () => {
+    const server: Server = createServer(runtime.app);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Test server did not bind to a TCP port");
+    const controller = new AbortController();
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/v1/system/updates/events`, {
+      signal: controller.signal,
+    });
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const reader = response.body!.getReader();
+    let text = "";
+    for (let index = 0; index < 3 && !text.includes("event: system-update"); index += 1) {
+      const chunk = await reader.read();
+      text += new TextDecoder().decode(chunk.value);
+    }
+    expect(text).toContain("event: system-update");
+    expect(text).toContain('"currentVersion"');
+    expect(text).not.toContain('"releases"');
     controller.abort();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });

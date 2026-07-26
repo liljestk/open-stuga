@@ -10,6 +10,11 @@ import type {
   AreaEquipment,
   AreaEquipmentInput,
   AreaEquipmentPatch,
+  EquipmentAttachment,
+  EquipmentAttachmentUploadInput,
+  EquipmentLink,
+  EquipmentLinkInput,
+  EquipmentLinkPatch,
   BackupOperationStatus,
   DataExportPreview,
   DataExportPrivacyLevel,
@@ -77,6 +82,13 @@ import type {
   TelegramDiscoveryResult,
   ThermalIsolationResult,
   ThermalSimulationResult,
+  TrackingAssetTagAssignment,
+  TrackingCapabilities,
+  TrackingEvent,
+  TrackingMapSnapshot,
+  TrackingTag,
+  TrackingTagCreateInput,
+  TrackingTagProvisioningResult,
   TrackedEquipmentState,
   TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
@@ -299,6 +311,14 @@ export interface StugbyListResponse {
   stugbys: StugbySummary[];
 }
 
+export interface StugbyLocalMember extends StugbyMember {
+  localLabel: string | null;
+}
+
+export interface StugbyLocalInvitation extends StugbyInvitation {
+  localLabel: string | null;
+}
+
 export type CloudflareSetupPhase =
   | "awaiting-approval"
   | "queued"
@@ -356,7 +376,7 @@ export interface CloudflareSetupStartResult {
   authorizationUrl: string;
 }
 
-export interface StugbyInvitationCreated extends StugbyInvitation {
+export interface StugbyInvitationCreated extends StugbyLocalInvitation {
   joinSecret: string;
   joinUrl: string;
 }
@@ -407,8 +427,8 @@ export interface StugbyAuthorityTransfer {
 
 export interface StugbyDetailResponse {
   stugby: StugbySummary;
-  members: StugbyMember[];
-  invitations: StugbyInvitation[];
+  members: StugbyLocalMember[];
+  invitations: StugbyLocalInvitation[];
   grants: StugbyShareGrant[];
   sharedProperty: StugbySharedProperty | null;
   propertyAdoption: StugbyPropertyAdoption | null;
@@ -477,12 +497,19 @@ export interface SystemUpdateOperation {
   id: string;
   version: string;
   tagName: string;
-  phase: "queued" | "backup" | "pulling" | "applying" | "verifying" | "complete" | "failed" | "rolling-back";
+  phase: "queued" | "preparing" | "backup" | "pulling" | "applying" | "verifying" | "complete" | "failed" | "rolling-back";
   requestedAt: string;
   startedAt: string | null;
   completedAt: string | null;
+  updatedAt: string;
+  phaseStartedAt: string;
   detail: string | null;
   previousVersion: string;
+  activity: Array<{
+    phase: SystemUpdateOperation["phase"];
+    at: string;
+    detail: string;
+  }>;
 }
 
 export interface SystemUpdateStatus {
@@ -503,6 +530,11 @@ export interface SystemUpdateStatus {
   };
   operation: SystemUpdateOperation | null;
 }
+
+export type SystemUpdateLiveStatus = Pick<
+  SystemUpdateStatus,
+  "currentVersion" | "latestVersion" | "updateAvailable" | "capability" | "operation"
+>;
 
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") || "/api/v1";
 export const API_V2_BASE = API_BASE.replace(/\/v1$/, "/v2");
@@ -816,7 +848,7 @@ export const api = {
     method: "POST",
     body: JSON.stringify(input),
   }),
-  createStugbyInvitation: (id: string, input: { role: Exclude<StugbyRole, "steward">; expiresAt?: string }) => request<StugbyInvitationCreated>(
+  createStugbyInvitation: (id: string, input: { role: Exclude<StugbyRole, "steward">; localLabel: string; expiresAt?: string }) => request<StugbyInvitationCreated>(
     `/stugbys/${encodeURIComponent(id)}/invitations`,
     { method: "POST", body: JSON.stringify(input) },
   ),
@@ -827,6 +859,10 @@ export const api = {
   updateStugbyMember: (id: string, nodeId: string, input: { role: StugbyRole; state: StugbyMemberState }) => request<StugbyMember>(
     `/stugbys/${encodeURIComponent(id)}/members/${encodeURIComponent(nodeId)}`,
     { method: "PATCH", body: JSON.stringify(input) },
+  ),
+  updateStugbyMemberLabel: (id: string, nodeId: string, localLabel: string | null) => request<StugbyLocalMember>(
+    `/stugbys/${encodeURIComponent(id)}/members/${encodeURIComponent(nodeId)}/label`,
+    { method: "PATCH", body: JSON.stringify({ localLabel }) },
   ),
   updateStugbyProperty: (id: string, baseRevision: number, property: Pick<StugbySharedProperty,
     "name" | "description" | "location" | "areas" | "equipment" | "notes" | "maintenance" | "editPolicy" | "designatedSuccessorNodeId"
@@ -960,9 +996,82 @@ export const api = {
     body: JSON.stringify(patch),
   }), "equipment"),
   deleteAreaEquipment: (id: string) => request<void>(`/area-equipment/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  equipmentAttachments: async (equipmentId: string) => list<EquipmentAttachment>(
+    await request<unknown>(`/area-equipment/${encodeURIComponent(equipmentId)}/attachments`),
+    ["attachments", "data"],
+  ),
+  uploadEquipmentAttachment: async (equipmentId: string, input: EquipmentAttachmentUploadInput) => entity<EquipmentAttachment>(
+    await request<EquipmentAttachment | { attachment: EquipmentAttachment }>(
+      `/area-equipment/${encodeURIComponent(equipmentId)}/attachments`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+    "attachment",
+  ),
+  equipmentAttachmentUrl: (equipmentId: string, attachmentId: string) => (
+    `${API_BASE}/area-equipment/${encodeURIComponent(equipmentId)}/attachments/${encodeURIComponent(attachmentId)}`
+  ),
+  deleteEquipmentAttachment: (equipmentId: string, attachmentId: string) => request<void>(
+    `/area-equipment/${encodeURIComponent(equipmentId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    { method: "DELETE" },
+  ),
+  equipmentLinks: async (equipmentId: string) => list<EquipmentLink>(
+    await request<unknown>(`/area-equipment/${encodeURIComponent(equipmentId)}/links`),
+    ["links", "data"],
+  ),
+  createEquipmentLink: async (equipmentId: string, input: EquipmentLinkInput) => entity<EquipmentLink>(
+    await request<EquipmentLink | { link: EquipmentLink }>(
+      `/area-equipment/${encodeURIComponent(equipmentId)}/links`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+    "link",
+  ),
+  updateEquipmentLink: async (equipmentId: string, linkId: string, patch: EquipmentLinkPatch) => entity<EquipmentLink>(
+    await request<EquipmentLink | { link: EquipmentLink }>(
+      `/area-equipment/${encodeURIComponent(equipmentId)}/links/${encodeURIComponent(linkId)}`,
+      { method: "PATCH", body: JSON.stringify(patch) },
+    ),
+    "link",
+  ),
+  deleteEquipmentLink: (equipmentId: string, linkId: string) => request<void>(
+    `/area-equipment/${encodeURIComponent(equipmentId)}/links/${encodeURIComponent(linkId)}`,
+    { method: "DELETE" },
+  ),
   trackedAssets: async (propertyId: string) => list<TrackedEquipmentState>(
     await request<unknown>(`/properties/${encodeURIComponent(propertyId)}/tracked-assets`),
     ["assets", "data"],
+  ),
+  trackingCapabilities: () => request<TrackingCapabilities>("/tracking/capabilities"),
+  trackingTags: async (propertyId: string) => list<TrackingTag>(
+    await request<unknown>(`/tracking/tags?propertyId=${encodeURIComponent(propertyId)}`),
+    ["tags", "data"],
+  ),
+  createTrackingTag: (input: TrackingTagCreateInput) => request<TrackingTagProvisioningResult>(
+    "/tracking/tags",
+    { method: "POST", body: JSON.stringify(input) },
+  ),
+  claimTrackingTag: async (tagId: string) => entity<TrackingTag>(
+    await request<TrackingTag | { tag: TrackingTag }>(
+      `/tracking/tags/${encodeURIComponent(tagId)}/claim`,
+      { method: "POST" },
+    ),
+    "tag",
+  ),
+  assignTrackingTag: async (tagId: string, equipmentId: string) => entity<TrackingAssetTagAssignment>(
+    await request<TrackingAssetTagAssignment | { assignment: TrackingAssetTagAssignment }>(
+      `/tracking/tags/${encodeURIComponent(tagId)}/assign`,
+      { method: "POST", body: JSON.stringify({ equipmentId }) },
+    ),
+    "assignment",
+  ),
+  unassignTrackingTag: async (tagId: string) => entity<TrackingAssetTagAssignment>(
+    await request<TrackingAssetTagAssignment | { assignment: TrackingAssetTagAssignment }>(
+      `/tracking/tags/${encodeURIComponent(tagId)}/assignment`,
+      { method: "DELETE" },
+    ),
+    "assignment",
+  ),
+  trackingMapSnapshot: (propertyId: string) => request<TrackingMapSnapshot>(
+    `/properties/${encodeURIComponent(propertyId)}/tracking-map-snapshot`,
   ),
   propertyNotes: (propertyId?: string) => completeCollection<PropertyNote>(propertyId
     ? `/property-notes?propertyId=${encodeURIComponent(propertyId)}`
@@ -1457,6 +1566,93 @@ export const api = {
     ));
   },
 };
+
+export function subscribeToSystemUpdateEvents(
+  onStatus: (status: SystemUpdateLiveStatus) => void,
+  onState: (state: "live" | "reconnecting") => void,
+): () => void {
+  const source = new EventSource(`${API_BASE}/system/updates/events`, { withCredentials: true });
+  const consume = (message: MessageEvent<string>) => {
+    try {
+      const status = JSON.parse(message.data) as SystemUpdateLiveStatus;
+      if (
+        !status
+        || typeof status !== "object"
+        || typeof status.currentVersion !== "string"
+        || (status.latestVersion !== null && typeof status.latestVersion !== "string")
+        || typeof status.updateAvailable !== "boolean"
+        || !status.capability
+        || (status.operation !== null && typeof status.operation !== "object")
+      ) return;
+      onStatus(status);
+    } catch {
+      // Keep the last validated update state while the server reconnects.
+    }
+  };
+  source.onopen = () => onState("live");
+  source.onerror = () => onState("reconnecting");
+  source.onmessage = consume;
+  source.addEventListener("system-update", (message) => consume(message as MessageEvent<string>));
+  source.addEventListener("authorization", (message) => {
+    source.close();
+    onState("reconnecting");
+    notifyAuthorizationChange(authorizationChange(message as MessageEvent<string>));
+  });
+  return () => source.close();
+}
+
+const TRACKING_EVENT_TYPES: readonly TrackingEvent["type"][] = [
+  "asset.position.updated",
+  "asset.zone.changed",
+  "asset.movement.started",
+  "asset.movement.stopped",
+  "asset.property.exited",
+  "asset.property.entered",
+  "tag.battery.low",
+  "tag.not_seen",
+  "gateway.online",
+  "gateway.offline",
+  "member.location.updated",
+  "member.location.stopped",
+];
+
+export function subscribeToTrackingEvents(
+  propertyId: string,
+  onRefresh: (event: TrackingEvent | null) => void,
+  onState: (state: "live" | "reconnecting") => void,
+): () => void {
+  const source = new EventSource(
+    `${API_BASE}/properties/${encodeURIComponent(propertyId)}/tracking-stream`,
+    { withCredentials: true },
+  );
+  const consume = (message: MessageEvent<string>) => {
+    try {
+      const event = JSON.parse(message.data) as TrackingEvent;
+      if (
+        !event
+        || event.propertyId !== propertyId
+        || !TRACKING_EVENT_TYPES.includes(event.type)
+        || !Number.isSafeInteger(event.sequence)
+      ) return;
+      onRefresh(event);
+    } catch {
+      // Preserve the last complete map snapshot when an event is malformed.
+    }
+  };
+  source.onopen = () => onState("live");
+  source.onerror = () => onState("reconnecting");
+  TRACKING_EVENT_TYPES.forEach((type) => {
+    source.addEventListener(type, (message) => consume(message as MessageEvent<string>));
+  });
+  source.addEventListener("ready", () => onState("live"));
+  source.addEventListener("snapshot-required", () => onRefresh(null));
+  source.addEventListener("authorization", (message) => {
+    source.close();
+    onState("reconnecting");
+    notifyAuthorizationChange(authorizationChange(message as MessageEvent<string>));
+  });
+  return () => source.close();
+}
 
 export function subscribeToSpatialLayerEvents(
   requestedScope: string | { kind: "house" | "property"; id: string },

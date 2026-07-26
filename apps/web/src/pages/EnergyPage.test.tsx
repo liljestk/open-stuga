@@ -72,6 +72,18 @@ describe("EnergyPage", () => {
     expect(screen.queryByText("Waiting for a source")).toBeNull();
   });
 
+  it("keeps electricity source setup with the owner of a shared Home", () => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+
+    render(<I18nProvider><EnergyPage state={state} house={house} units="metric" localAuthority={false} onOpenSensors={vi.fn()} onOpenAlerts={vi.fn()} /></I18nProvider>);
+
+    expect(screen.getByRole("heading", { name: "No electricity data available" })).not.toBeNull();
+    expect(screen.getByText(/Only this Home's owner can configure its electricity sources/i)).not.toBeNull();
+    expect(screen.queryByRole("heading", { name: "Connect electricity data" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Configure a source" })).toBeNull();
+  });
+
   it("preserves a disabled fixed contract when editing its descriptive fields", async () => {
     const user = userEvent.setup();
     const state = createDemoState();

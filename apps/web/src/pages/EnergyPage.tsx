@@ -48,6 +48,8 @@ interface EnergyPageProps {
   onOpenAlerts: () => void;
   seriesStates?: Record<string, SeriesLoadState>;
   readOnly?: boolean;
+  /** Integration bindings remain with the authoritative Home, even when shared edits are enabled. */
+  localAuthority?: boolean;
 }
 
 interface ElectricityPriceDraft {
@@ -156,10 +158,11 @@ function formatCost(value: number): string {
   return `${value.toFixed(decimals)} €`;
 }
 
-export function EnergyPage({ state, house = null, propertyId: requestedPropertyId, units, onLoadSeries, onOpenSensors, onOpenAlerts, seriesStates, readOnly = false }: EnergyPageProps) {
+export function EnergyPage({ state, house = null, propertyId: requestedPropertyId, units, onLoadSeries, onOpenSensors, onOpenAlerts, seriesStates, readOnly = false, localAuthority = true }: EnergyPageProps) {
   const { locale, t } = useI18n();
   const propertyId = requestedPropertyId ?? house?.propertyId ?? state.properties[0]?.id ?? "";
   const property = state.properties.find((candidate) => candidate.id === propertyId);
+  const canConfigureSources = !readOnly && localAuthority;
   const [metric, setMetric] = useState<ElectricityMetric>("power");
   const [range, setRange] = useState<TimeRange>("24h");
   const [costInterval, setCostInterval] = useState<CostInterval>("month");
@@ -413,8 +416,8 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
 
       {house && !electricitySensors.length && <section className="panel energy-onboarding" aria-labelledby="energy-onboarding-heading">
         <span className="energy-onboarding-icon" aria-hidden="true"><RadioTower size={26} /></span>
-        <div><span className="eyebrow">{t("energy.sourceOptions")}</span><h2 id="energy-onboarding-heading">{t("energy.connectTitle")}</h2><p>{t("energy.connectBody")}</p></div>
-        {onOpenSensors && <button type="button" className="primary-button" onClick={onOpenSensors}>{t("energy.openSensors")}</button>}
+        <div><span className="eyebrow">{t(canConfigureSources ? "energy.sourceOptions" : "energy.ownerManagedSource")}</span><h2 id="energy-onboarding-heading">{t(canConfigureSources ? "energy.connectTitle" : "energy.noSharedDataTitle")}</h2><p>{t(canConfigureSources ? "energy.connectBody" : "energy.noSharedDataBody")}</p></div>
+        {canConfigureSources && onOpenSensors && <button type="button" className="primary-button" onClick={onOpenSensors}>{t("energy.openSensors")}</button>}
       </section>}
 
       <section className="panel energy-optimizer" aria-labelledby="energy-optimizer-heading">
@@ -465,7 +468,7 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
       <TrendChart sensor={selectedSensor} history={history} forecast={forecast} definition={definition} units={units} range={range} onRange={setRange} timeZone={house.timezone} {...(seriesState ? { loadState: seriesState } : {})} />
 
       <section className="panel energy-source-list" aria-labelledby="energy-sources-heading">
-        <div className="panel-header"><div><span className="eyebrow">{electricitySensors.length}</span><h2 id="energy-sources-heading">{t("energy.sourcesTitle")}</h2></div>{onOpenSensors && <button type="button" className="secondary-button" onClick={onOpenSensors}>{t("energy.editSources")}</button>}</div>
+        <div className="panel-header"><div><span className="eyebrow">{electricitySensors.length}</span><h2 id="energy-sources-heading">{t("energy.sourcesTitle")}</h2></div>{canConfigureSources && onOpenSensors && <button type="button" className="secondary-button" onClick={onOpenSensors}>{t("energy.editSources")}</button>}</div>
         <div className="energy-table-scroll" role="region" aria-labelledby="energy-sources-heading" tabIndex={0}><table><thead><tr><th scope="col">{t("sensors.name")}</th><th scope="col">{measurementLabel(definitionFor(state.measurementDefinitions, "power"), locale)}</th><th scope="col">{measurementLabel(definitionFor(state.measurementDefinitions, "energy"), locale)}</th><th scope="col">{measurementLabel(definitionFor(state.measurementDefinitions, "electricity_price"), locale)}</th><th scope="col">{t("energy.updated")}</th></tr></thead><tbody>{electricitySensors.map((sensor) => {
           const latest = state.latestMeasurements[sensor.id] ?? {};
           const newest = ELECTRICITY_METRICS.flatMap((candidate) => latest[candidate] ? [latest[candidate]!] : []).sort((left, right) => right.timestamp.localeCompare(left.timestamp))[0];

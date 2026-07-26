@@ -221,12 +221,62 @@ public struct AreaEquipmentUpdateInput: Encodable, Equatable, Sendable {
     }
 }
 
+public enum EquipmentAttachmentKind: String, Codable, Sendable {
+    case photo
+    case document
+}
+
+public struct EquipmentAttachment: Codable, Identifiable, Equatable, Sendable {
+    public let id: String
+    public let equipmentId: String
+    public let kind: EquipmentAttachmentKind
+    public let name: String
+    public let mimeType: String
+    public let size: Int
+    public let createdAt: String
+}
+
+public struct EquipmentLink: Codable, Identifiable, Equatable, Sendable {
+    public let id: String
+    public let equipmentId: String
+    public let label: String
+    public let url: String
+    public let createdAt: String
+    public let updatedAt: String
+}
+
 public struct PropertyInventorySnapshot: Codable, Equatable, Sendable {
     public let propertyId: String
     public let generatedAt: String
     public let syncToken: String
     public let areas: [PropertyArea]
     public let equipment: [AreaEquipment]
+    public let attachments: [EquipmentAttachment]
+    public let links: [EquipmentLink]
+
+    enum CodingKeys: String, CodingKey {
+        case propertyId
+        case generatedAt
+        case syncToken
+        case areas
+        case equipment
+        case attachments
+        case links
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        propertyId = try container.decode(String.self, forKey: .propertyId)
+        generatedAt = try container.decode(String.self, forKey: .generatedAt)
+        syncToken = try container.decode(String.self, forKey: .syncToken)
+        areas = try container.decode([PropertyArea].self, forKey: .areas)
+        equipment = try container.decode([AreaEquipment].self, forKey: .equipment)
+        attachments = try container.decodeIfPresent(
+            [EquipmentAttachment].self,
+            forKey: .attachments
+        ) ?? []
+        links = try container.decodeIfPresent([EquipmentLink].self, forKey: .links) ?? []
+    }
 }
 
 public struct TrackingCapabilities: Codable, Equatable, Sendable {

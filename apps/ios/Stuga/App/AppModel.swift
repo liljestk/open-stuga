@@ -191,6 +191,20 @@ final class AppModel: ObservableObject {
         return equipment.location == nil ? "Unassigned" : "Pinned on Property map"
     }
 
+    func equipmentAttachments(for equipmentID: String) -> [EquipmentAttachment] {
+        guard propertyInventory?.propertyId == selectedPropertyID else { return [] }
+        return (propertyInventory?.attachments ?? [])
+            .filter { $0.equipmentId == equipmentID }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    func equipmentLinks(for equipmentID: String) -> [EquipmentLink] {
+        guard propertyInventory?.propertyId == selectedPropertyID else { return [] }
+        return (propertyInventory?.links ?? [])
+            .filter { $0.equipmentId == equipmentID }
+            .sorted { $0.label.localizedStandardCompare($1.label) == .orderedAscending }
+    }
+
     var mobileTrackingAvailable: Bool {
         trackingCapabilities?.featureEnabled("tracking.mobileObserver.enabled") == true
             && !selectedPropertyReadOnly
@@ -788,6 +802,104 @@ final class AppModel: ObservableObject {
         try await loadInventoryWorkspace()
         errorMessage = nil
         return equipment
+    }
+
+    @discardableResult
+    func uploadEquipmentAttachment(
+        equipmentID: String,
+        kind: EquipmentAttachmentKind,
+        name: String,
+        mimeType: String,
+        data: Data
+    ) async throws -> EquipmentAttachment {
+        guard !selectedPropertyReadOnly, let client,
+              selectedPropertyEquipment.contains(where: { $0.id == equipmentID }) else {
+            throw StugaAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This account cannot change Property inventory."
+            )
+        }
+        let attachment = try await client.uploadEquipmentAttachment(
+            equipmentID: equipmentID,
+            kind: kind,
+            name: name,
+            mimeType: mimeType,
+            data: data
+        )
+        try await loadInventoryWorkspace()
+        return attachment
+    }
+
+    func equipmentAttachmentData(
+        equipmentID: String,
+        attachmentID: String
+    ) async throws -> Data {
+        guard let client,
+              selectedPropertyEquipment.contains(where: { $0.id == equipmentID }) else {
+            throw StugaAPIError(
+                status: 404,
+                code: "NOT_FOUND",
+                message: "This inventory item is not available."
+            )
+        }
+        return try await client.equipmentAttachmentData(
+            equipmentID: equipmentID,
+            attachmentID: attachmentID
+        )
+    }
+
+    func deleteEquipmentAttachment(
+        equipmentID: String,
+        attachmentID: String
+    ) async throws {
+        guard !selectedPropertyReadOnly, let client else {
+            throw StugaAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This account cannot change Property inventory."
+            )
+        }
+        try await client.deleteEquipmentAttachment(
+            equipmentID: equipmentID,
+            attachmentID: attachmentID
+        )
+        try await loadInventoryWorkspace()
+    }
+
+    @discardableResult
+    func addEquipmentLink(
+        equipmentID: String,
+        label: String,
+        url: String
+    ) async throws -> EquipmentLink {
+        guard !selectedPropertyReadOnly, let client,
+              selectedPropertyEquipment.contains(where: { $0.id == equipmentID }) else {
+            throw StugaAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This account cannot change Property inventory."
+            )
+        }
+        let link = try await client.createEquipmentLink(
+            equipmentID: equipmentID,
+            label: label,
+            url: url
+        )
+        try await loadInventoryWorkspace()
+        return link
+    }
+
+    func deleteEquipmentLink(equipmentID: String, linkID: String) async throws {
+        guard !selectedPropertyReadOnly, let client else {
+            throw StugaAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This account cannot change Property inventory."
+            )
+        }
+        try await client.deleteEquipmentLink(equipmentID: equipmentID, linkID: linkID)
+        try await loadInventoryWorkspace()
     }
 
     func equipmentActivity(

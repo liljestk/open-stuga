@@ -241,8 +241,45 @@ test("pre-update failures do not attempt rollback before any release state chang
   const status = JSON.parse(readFileSync(join(operationsDirectory, "status.json"), "utf8"));
   assert.equal(status.phase, "failed");
   assert.equal(status.detail, "simulated backup failure");
+  assert.deepEqual(status.activity.map((entry) => entry.phase), ["queued", "preparing", "backup", "failed"]);
   assert.equal(calls.some((args) => args[0] === "up"), false);
   assert.equal(existsSync(config.releaseEnvFile), false);
+  assert.equal(existsSync(requestPath), false);
+});
+
+test("agent publishes a durable step-by-step activity trail", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "stuga-update-agent-progress-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const operationsDirectory = join(directory, "operations");
+  mkdirSync(operationsDirectory);
+  const config = readAgentConfig({
+    STUGA_PROJECT_DIRECTORY: directory,
+    SYSTEM_UPDATE_IMAGE_PREFIX: "ghcr.io/liljestk/open-stuga",
+    SYSTEM_UPDATE_OPERATIONS_DIRECTORY: operationsDirectory,
+    SYSTEM_UPDATE_REPOSITORY: "liljestk/open-stuga",
+  }, directory, []);
+  const requestPath = join(operationsDirectory, "request-test.json");
+  writeFileSync(requestPath, JSON.stringify(updateRequest()), "utf8");
+  let versionChecks = 0;
+
+  await applyRequest(config, requestPath, {
+    compose: async (_config, args) => {
+      if (args[0] === "ps") return "api\nweb\nstuga-backup-scheduler";
+      if (args[0] === "exec") {
+        versionChecks += 1;
+        return versionChecks === 1 ? "0.5.0" : "0.6.0";
+      }
+      return "";
+    },
+  });
+
+  const status = JSON.parse(readFileSync(join(operationsDirectory, "status.json"), "utf8"));
+  assert.equal(status.phase, "complete");
+  assert.equal(status.updatedAt, status.phaseStartedAt);
+  assert.deepEqual(
+    status.activity.map((entry) => entry.phase),
+    ["queued", "preparing", "backup", "pulling", "applying", "verifying", "complete"],
+  );
   assert.equal(existsSync(requestPath), false);
 });
 

@@ -262,9 +262,10 @@ function updatePropertyArea(args: Record<string, unknown>): PropertyArea {
 }
 
 function createAreaEquipment(args: Record<string, unknown>): AreaEquipment {
+  const areaId = requiredString(args, "areaId");
   const input: AreaEquipmentInput = {
     ...(args.id === undefined ? {} : { id: requiredString(args, "id") }),
-    areaId: requiredString(args, "areaId"),
+    areaId,
     name: requiredString(args, "name"),
     kind: requiredString(args, "kind"),
     ...(args.manufacturer === undefined ? {} : { manufacturer: nullableString(args, "manufacturer") }),
@@ -273,8 +274,8 @@ function createAreaEquipment(args: Record<string, unknown>): AreaEquipment {
     ...(args.status === undefined ? {} : { status: enumString(args, "status", areaEquipmentStatuses) }),
     ...(args.notes === undefined ? {} : { notes: nullableString(args, "notes") }),
   };
-  const area = database.getPropertyArea(input.areaId);
-  if (!area) throw new Error(`Unknown property area: ${input.areaId}`);
+  const area = database.getPropertyArea(areaId);
+  if (!area) throw new Error(`Unknown property area: ${areaId}`);
   stugby.assertPropertyWriteAllowed(area.propertyId);
   const equipment = database.createAreaEquipment(input);
   stugby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert");

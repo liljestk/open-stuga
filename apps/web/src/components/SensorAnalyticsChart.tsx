@@ -224,6 +224,7 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
   const { locale, t } = useI18n();
   const now = useNow();
   const summaryId = useId();
+  const rangeLabelId = `${summaryId}-range`;
   const [exactDataOpen, setExactDataOpen] = useState(false);
   const clipId = `${useId().replace(/:/g, "")}-sensor-analytics-clip`;
   const definition = props.definitions.find((candidate) => candidate.id === props.metric) ?? props.definitions[0];
@@ -498,8 +499,11 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
               {optionGroup(t("sensors.analyticsOtherGroup"), otherDefinitions)}
             </select>
           </label>
-          <div className="segmented compact" role="group" aria-label={t("chart.history")}>
-            {ANALYTICS_TIME_RANGES.map((range) => <button key={range} type="button" aria-pressed={props.range === range} onClick={() => props.onRange(range)}>{t(`chart.range${range}`)}</button>)}
+          <div className="field sensor-analytics-range-field">
+            <span id={rangeLabelId}>{t("chart.history")}</span>
+            <div className="segmented compact" role="group" aria-labelledby={rangeLabelId}>
+              {ANALYTICS_TIME_RANGES.map((range) => <button key={range} type="button" aria-pressed={props.range === range} onClick={() => props.onRange(range)}>{t(`chart.range${range}`)}</button>)}
+            </div>
           </div>
         </div>
       </header>

@@ -146,6 +146,38 @@ describe("system update service", () => {
     }));
   });
 
+  it("normalizes legacy agent status for the live progress UI", () => {
+    const operationsDirectory = directory();
+    writeFileSync(join(operationsDirectory, "status.json"), JSON.stringify({
+      id: "27974c49-f62e-4365-9ee7-802c7488557e",
+      version: "0.6.0",
+      tagName: "v0.6.0",
+      phase: "pulling",
+      requestedAt: "2026-07-23T20:01:00.000Z",
+      startedAt: "2026-07-23T20:01:02.000Z",
+      completedAt: null,
+      detail: "Pulling Stuga 0.6.0 images",
+      previousVersion: "0.5.0",
+    }));
+    const service = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      operationsDirectory,
+    });
+
+    expect(service.status().operation).toMatchObject({
+      phase: "pulling",
+      updatedAt: "2026-07-23T20:01:02.000Z",
+      phaseStartedAt: "2026-07-23T20:01:02.000Z",
+      activity: [{
+        phase: "pulling",
+        at: "2026-07-23T20:01:02.000Z",
+        detail: "Pulling Stuga 0.6.0 images",
+      }],
+    });
+  });
+
   it("validates schedule settings and calculates the next local maintenance window", () => {
     const service = new SystemUpdateService({
       currentVersion: "0.5.0",

@@ -73,14 +73,14 @@ export function derivePropertyTrafficLights(
 
   const wells = areas.filter((area) => area.kind === "well");
   const wellIds = new Set(wells.map((area) => area.id));
-  const wellEquipment = equipment.filter((item) => wellIds.has(item.areaId));
+  const wellEquipment = equipment.filter((item) => Boolean(item.areaId && wellIds.has(item.areaId)));
   const well: PropertyTrafficLight = equipmentFailure(wellEquipment)
       ? { id: "well", level: "critical", reason: "asset-failure" }
       : { id: "well", level: "caution", reason: "not-monitored" };
 
   const infrastructureAreas = areas.filter((area) => INFRASTRUCTURE_AREA_KINDS.has(area.kind));
   const infrastructureAreaIds = new Set(infrastructureAreas.map((area) => area.id));
-  const infrastructureEquipment = equipment.filter((item) => infrastructureAreaIds.has(item.areaId));
+  const infrastructureEquipment = equipment.filter((item) => Boolean(item.areaId && infrastructureAreaIds.has(item.areaId)));
   const infrastructure: PropertyTrafficLight = equipmentFailure(infrastructureEquipment)
       ? { id: "infrastructure", level: "critical", reason: "asset-failure" }
       : { id: "infrastructure", level: "caution", reason: "not-monitored" };

@@ -41,6 +41,7 @@ function detail(stugby: StugbySummary, grants: StugbyShareGrant[] = []): StugbyD
       stugbyId: stugby.id,
       nodeId: "node-local",
       displayName: "Local Stuga",
+      localLabel: null,
       role: "steward",
       state: "active",
       publicKey: "public",
@@ -74,6 +75,35 @@ function detail(stugby: StugbySummary, grants: StugbyShareGrant[] = []): StugbyD
     remoteResources: [],
     deletionReceipts: [],
     audit: [],
+  };
+}
+
+function localGrant(stugbyId: string, id: string, localHouseId: string): StugbyShareGrant {
+  return {
+    id,
+    stugbyId,
+    authorityNodeId: identity.nodeId,
+    publicationId: `publication-${id}`,
+    localHouseId,
+    audience: { kind: "all-members", nodeIds: [] },
+    housePolicy: {
+      editPolicy: "read-only",
+      recoveryMode: "none",
+      designatedSuccessorNodeId: null,
+    },
+    datasets: [{
+      dataset: "home.directory.v1",
+      enabled: true,
+      includeLocalIds: false,
+      allowReplicaCache: true,
+      retentionDays: 30,
+    }],
+    epoch: 1,
+    revision: 1,
+    expiresAt: null,
+    revokedAt: null,
+    createdAt: "2026-07-23T06:00:00.000Z",
+    updatedAt: "2026-07-23T06:00:00.000Z",
   };
 }
 
@@ -237,6 +267,69 @@ describe("StugbyPage", () => {
     expect(createInvitation).not.toHaveBeenCalled();
   });
 
+  it("shows You locally and uses a private label for otherwise identical Stuga names", async () => {
+    const user = userEvent.setup();
+    const stugby = summary("stugby-a", "North grounds");
+    const loaded = detail(stugby);
+    const remote = {
+      ...loaded.members[0]!,
+      nodeId: "node-remote",
+      displayName: "Local Stuga",
+      localLabel: "anna@example.test",
+      role: "participant" as const,
+      keyFingerprint: "remote-fingerprint",
+    };
+    loaded.members.push(remote);
+    mockLoadedStugbys([stugby], { [stugby.id]: loaded });
+    const updateLabel = vi.spyOn(api, "updateStugbyMemberLabel").mockResolvedValue({
+      ...remote,
+      localLabel: "Anna's cottage",
+    });
+
+    render(<I18nProvider><StugbyPage houses={[]} /></I18nProvider>);
+
+    expect(await screen.findByText("You")).toBeTruthy();
+    const label = screen.getByLabelText("Private name or email");
+    expect((label as HTMLInputElement).value).toBe("anna@example.test");
+    await user.clear(label);
+    await user.type(label, "Anna's cottage");
+    await user.tab();
+
+    await waitFor(() => expect(updateLabel).toHaveBeenCalledWith(stugby.id, "node-remote", "Anna's cottage"));
+  });
+
+  it("requires a private invitation label and sends it only as local metadata", async () => {
+    const user = userEvent.setup();
+    const stugby = summary("stugby-a", "North grounds");
+    mockLoadedStugbys([stugby], { [stugby.id]: detail(stugby) });
+    const createInvitation = vi.spyOn(api, "createStugbyInvitation").mockResolvedValue({
+      id: "invitation-1",
+      stugbyId: stugby.id,
+      localLabel: "anna@example.test",
+      role: "participant",
+      expiresAt: "2026-07-30T06:00:00.000Z",
+      createdAt: "2026-07-23T06:00:00.000Z",
+      usedAt: null,
+      revokedAt: null,
+      coordinatorUrl: stugby.coordinatorUrl,
+      joinSecret: "secret",
+      joinUrl: `${stugby.coordinatorUrl}/invite-bootstrap#invitation-1.secret`,
+    });
+
+    render(<I18nProvider><StugbyPage houses={[]} /></I18nProvider>);
+
+    const createButton = await screen.findByRole<HTMLButtonElement>("button", { name: "Create one-time invitation" });
+    expect(createButton.disabled).toBe(true);
+    await user.type(screen.getByLabelText("Who is this invitation for?"), "anna@example.test");
+    expect(createButton.disabled).toBe(false);
+    await user.click(createButton);
+
+    await waitFor(() => expect(createInvitation).toHaveBeenCalledWith(stugby.id, {
+      role: "participant",
+      localLabel: "anna@example.test",
+    }));
+  });
+
   it("deletes a closed Stugby from Advanced after explicit confirmation", async () => {
     const user = userEvent.setup();
     const stugby = summary("stugby-a", "Faulty Stugby");
@@ -338,6 +431,38 @@ describe("StugbyPage", () => {
       "home.sensor-catalog.v1",
     ]);
     expect(api.syncStugby).toHaveBeenCalledWith(stugby.id);
+  });
+
+  it("offers only Homes without an active share", async () => {
+    const stugby = summary("stugby-a", "North grounds");
+    mockLoadedStugbys([stugby], { [stugby.id]: detail(stugby, [localGrant(stugby.id, "grant-main", "home-1")]) });
+
+    render(<I18nProvider><StugbyPage houses={[
+      { id: "home-1", propertyId: "property-1", name: "Main Home" },
+      { id: "home-2", propertyId: "property-1", name: "Annex" },
+    ]} /></I18nProvider>);
+
+    const home = await screen.findByLabelText<HTMLSelectElement>("Local Home");
+    expect([...home.options].map((option) => option.text)).toEqual(["Choose a Home", "Annex"]);
+    expect(home.value).toBe("home-2");
+  });
+
+  it("flags existing duplicate shares without silently removing either grant", async () => {
+    const stugby = summary("stugby-a", "North grounds");
+    const grants = [
+      localGrant(stugby.id, "grant-main-a", "home-1"),
+      localGrant(stugby.id, "grant-main-b", "home-1"),
+    ];
+    mockLoadedStugbys([stugby], { [stugby.id]: detail(stugby, grants) });
+
+    render(<I18nProvider><StugbyPage houses={[
+      { id: "home-1", propertyId: "property-1", name: "Main Home" },
+    ]} /></I18nProvider>);
+
+    expect(await screen.findByText(/Active sharing is duplicated for: Main Home/)).toBeTruthy();
+    expect(screen.getAllByText("Duplicate active share")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Start sharing" })).toBeNull();
+    expect(screen.getByText(/Every locally owned Home already has an active share/)).toBeTruthy();
   });
 
   it("keeps Client migration out of the Host UI", async () => {
@@ -452,13 +577,67 @@ describe("StugbyPage", () => {
     mockLoadedStugbys([first, second], { [first.id]: detail(first, [grant]), [second.id]: detail(second) });
 
     render(<I18nProvider><StugbyPage houses={[{ id: "home-1", propertyId: "property-1", name: "Main Home" }]} /></I18nProvider>);
-    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    const edit = await screen.findByRole("button", { name: "Edit" });
+    expect(within(edit.closest("article")!).getByText("Main Home")).toBeTruthy();
+    await user.click(edit);
     expect(screen.getByRole("button", { name: "Update grant" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: /South grounds/ }));
     expect(await screen.findByRole("button", { name: "Start sharing" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Update grant" })).toBeNull();
     expect(screen.getByRole<HTMLInputElement>("checkbox", { name: /^Precise location home\.location/ }).checked).toBe(false);
+  });
+
+  it("shows the shared Home name received from a remote grant", async () => {
+    const stugby = summary("stugby-a", "North grounds");
+    const grant: StugbyShareGrant = {
+      id: "grant-remote",
+      stugbyId: stugby.id,
+      authorityNodeId: "node-remote",
+      publicationId: "publication-remote",
+      audience: { kind: "all-members", nodeIds: [] },
+      housePolicy: {
+        editPolicy: "read-only",
+        recoveryMode: "none",
+        designatedSuccessorNodeId: null,
+      },
+      datasets: [{
+        dataset: "home.directory.v1",
+        enabled: true,
+        includeLocalIds: false,
+        allowReplicaCache: true,
+        retentionDays: 30,
+      }],
+      epoch: 1,
+      revision: 1,
+      expiresAt: null,
+      revokedAt: null,
+      createdAt: "2026-07-23T06:00:00.000Z",
+      updatedAt: "2026-07-23T06:00:00.000Z",
+    };
+    const remoteDetail = detail(stugby, [grant]);
+    remoteDetail.remoteResources = [{
+      stugbyId: stugby.id,
+      authorityNodeId: grant.authorityNodeId,
+      schema: "home.directory.v1",
+      resourceId: grant.publicationId,
+      publicationId: grant.publicationId,
+      revision: 1,
+      payload: {
+        publicationId: grant.publicationId,
+        name: "Lake Home",
+        timezone: "Europe/Helsinki",
+      },
+      receivedAt: "2026-07-23T06:00:00.000Z",
+      sourceOccurredAt: "2026-07-23T06:00:00.000Z",
+      stale: false,
+    }];
+    mockLoadedStugbys([stugby], { [stugby.id]: remoteDetail });
+
+    render(<I18nProvider><StugbyPage houses={[]} /></I18nProvider>);
+
+    const authority = await screen.findByText(/Remote authority/);
+    expect(within(authority.closest("article")!).getByText("Lake Home")).toBeTruthy();
   });
 
   it("fails closed when the telemetry sensor catalog cannot be loaded", async () => {

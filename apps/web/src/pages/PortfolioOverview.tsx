@@ -6,6 +6,7 @@ import { useNow } from "../useNow";
 import { deriveHouseMonitoring, monitoringPrimaryBlocker, type HouseMonitoringBlocker, type HouseMonitoringResult } from "../houseMonitoring";
 import type { LatestMeasurements, MeasurementHistory } from "../measurements";
 import { integrationForHouse } from "../integrationScope";
+import { HomeOriginIndicator, isRemoteHome } from "../components/HomeOriginIndicator";
 
 interface PortfolioOverviewProps {
   properties: Property[];
@@ -104,6 +105,7 @@ export function PortfolioOverview({
     const reportingCount = result.coverage.freshSensors;
     const alertCount = result.activeAlertCount;
     const locationReady = Boolean(house.location);
+    const remoteHome = isRemoteHome(house);
     const primaryRoutesToSetup = !readOnly && Boolean(primaryBlocker && !primaryBlocker.kind.endsWith("alert"));
 
     return (
@@ -111,7 +113,10 @@ export function PortfolioOverview({
         <div className="portfolio-card-title">
           <span className="portfolio-home-icon" aria-hidden="true"><Building2 size={19} /></span>
           <div>
-            <Heading>{house.name}</Heading>
+            <div className="portfolio-home-name">
+              <Heading>{house.name}</Heading>
+              {remoteHome && <HomeOriginIndicator home={house} label={t("home.origin.remote")} />}
+            </div>
             <p><Clock3 size={14} aria-hidden="true" />{localTime(house.timezone, locale, now)}</p>
           </div>
           {alertCount > 0 && <span className="portfolio-alert"><AlertTriangle size={14} aria-hidden="true" />{t("overview.alertCount", { count: alertCount })}</span>}

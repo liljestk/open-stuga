@@ -18,7 +18,7 @@ This split keeps local writes and the control API simple while allowing years of
 All authoritative non-time-series application state is durable in SQLite. The core database contains:
 
 - local accounts, password and session hashes, workspace membership, invitations, and scoped Guest grants;
-- Properties, Homes, complete floor-plan aggregates, map placement and orientation, areas, fixed assets, equipment, notes, electricity contracts, and binary floor-plan assets;
+- Properties, Homes, complete floor-plan aggregates, map placement and orientation, areas, fixed assets, equipment, equipment attachments and links, notes, electricity contracts, and binary floor-plan assets;
 - sensors, measurement definitions, Home Assistant entity bindings, TP-Link device bindings, alert rules, alert history, alert evaluation state, and the notification outbox;
 - observations and revision history, maintenance tasks and revision/evidence links, static parameters, weather-outage recovery state, operational latches, and selected demo state;
 - non-secret integration identity, ownership, endpoint metadata, lifecycle state, and revision history.

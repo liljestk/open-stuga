@@ -501,6 +501,49 @@ describe("Stugby federation", () => {
     expect(wrongIdentity.body.error.code).toBe("INVALID_INVITATION");
   });
 
+  it("keeps invitation names or emails private to the Stuga that assigned them", async () => {
+    const coordinator = await node("Private-label coordinator");
+    const participant = await node("Stuga");
+    nodes.push(coordinator, participant);
+    const created = await request(coordinator.url).post("/api/v1/stugbys")
+      .send({ name: "Labelled Stugby" }).expect(201);
+    const invitation = await request(coordinator.runtime.app)
+      .post(`/api/v1/stugbys/${created.body.id}/invitations`)
+      .send({ role: "participant", localLabel: "anna@example.test" }).expect(201);
+    expect(invitation.body.localLabel).toBe("anna@example.test");
+
+    await request(participant.runtime.app).post("/api/v1/stugbys/join").send({
+      coordinatorUrl: coordinator.url,
+      invitationId: invitation.body.id,
+      joinSecret: invitation.body.joinSecret,
+    }).expect(201);
+
+    const coordinatorDetail = await request(coordinator.runtime.app)
+      .get(`/api/v1/stugbys/${created.body.id}`).expect(200);
+    expect(coordinatorDetail.body.members).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        nodeId: participant.runtime.stugby.identity.nodeId,
+        displayName: "Stuga",
+        localLabel: "anna@example.test",
+      }),
+    ]));
+    expect(coordinator.runtime.stugby.store.listMembers(created.body.id)
+      .find((member) => member.nodeId === participant.runtime.stugby.identity.nodeId))
+      .not.toHaveProperty("localLabel");
+
+    const participantDetail = await request(participant.runtime.app)
+      .get(`/api/v1/stugbys/${created.body.id}`).expect(200);
+    expect(participantDetail.body.members.every((member: { localLabel: string | null }) => member.localLabel === null)).toBe(true);
+
+    await request(coordinator.runtime.app)
+      .patch(`/api/v1/stugbys/${created.body.id}/members/${participant.runtime.stugby.identity.nodeId}/label`)
+      .send({ localLabel: "Anna's cottage" }).expect(200);
+    await request(participant.runtime.app).post(`/api/v1/stugbys/${created.body.id}/sync`).expect(200);
+    const participantAfterSync = await request(participant.runtime.app)
+      .get(`/api/v1/stugbys/${created.body.id}`).expect(200);
+    expect(participantAfterSync.body.members.every((member: { localLabel: string | null }) => member.localLabel === null)).toBe(true);
+  });
+
   it("rejects non-UUID replay identifiers before persistence", async () => {
     const coordinator = await node("Replay coordinator");
     nodes.push(coordinator);
@@ -514,6 +557,38 @@ describe("Stugby federation", () => {
       requestId: "x".repeat(8_000),
       signature: "not-used-for-an-invalid-id",
     })).toThrow(/request id must be a UUID/i);
+  });
+
+  it("allows only one active share grant per Home in a Stugby", async () => {
+    const coordinator = await node("Unique Home grant coordinator");
+    nodes.push(coordinator);
+    const created = await request(coordinator.url).post("/api/v1/stugbys")
+      .send({ name: "Unique Home grants" }).expect(201);
+    const stugbyId = created.body.id as string;
+    const input = {
+      localHouseId: "house-main",
+      audience: { kind: "all-members", nodeIds: [] },
+      datasets: [{
+        dataset: "home.directory.v1",
+        enabled: true,
+        includeLocalIds: false,
+        allowReplicaCache: true,
+        retentionDays: 30,
+      }],
+    };
+
+    const first = await request(coordinator.runtime.app)
+      .post(`/api/v1/stugbys/${stugbyId}/grants`).send(input).expect(201);
+    const duplicate = await request(coordinator.runtime.app)
+      .post(`/api/v1/stugbys/${stugbyId}/grants`).send(input).expect(409);
+    expect(duplicate.body.error.code).toBe("HOME_ALREADY_SHARED");
+    expect(coordinator.runtime.stugby.store.listGrants(stugbyId)
+      .filter((grant) => !grant.revokedAt)).toHaveLength(1);
+
+    await request(coordinator.runtime.app)
+      .delete(`/api/v1/stugbys/${stugbyId}/grants/${first.body.id}`).expect(200);
+    await request(coordinator.runtime.app)
+      .post(`/api/v1/stugbys/${stugbyId}/grants`).send(input).expect(201);
   });
 
   it("rolls back grant state, epochs, events, deletion expectations, and audit when publication fails", async () => {
@@ -602,9 +677,25 @@ describe("Stugby federation", () => {
     expect(store.dueOutbox(250)).toEqual([]);
     expect(store.listAudit(stugbyId).some((event) => event.eventType === "grant.revoked")).toBe(false);
 
+    const mainHouse = participant.runtime.database.getHouse("house-main")!;
+    participant.runtime.database.createHouse({
+      id: "house-expiring-grant",
+      propertyId: mainHouse.propertyId,
+      name: "Expiring grant Home",
+      timezone: mainHouse.timezone,
+      floors: [{
+        id: "floor-expiring-grant",
+        name: "Ground",
+        width: 8,
+        height: 6,
+        elevation: 0,
+        walls: [],
+        rooms: [],
+      }],
+    });
     const expiresAt = new Date(Date.now() + 250).toISOString();
     const expiring = await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/grants`).send({
-      localHouseId: "house-main",
+      localHouseId: "house-expiring-grant",
       audience: { kind: "all-members", nodeIds: [] },
       datasets,
       expiresAt,
@@ -1155,8 +1246,7 @@ describe("Stugby federation", () => {
       joinSecret: observerInvitation.body.joinSecret,
     }).expect(201);
 
-    const propertySync = await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/sync`);
-    expect(propertySync.status, JSON.stringify(propertySync.body)).toBe(200);
+    await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/sync`).expect(200);
     await request(observer.runtime.app).post(`/api/v1/stugbys/${stugbyId}/sync`).expect(200);
     const adoptedResponse = await request(participant.runtime.app)
       .post(`/api/v1/stugbys/${stugbyId}/property/adopt`).send({}).expect(201);
@@ -1247,7 +1337,8 @@ describe("Stugby federation", () => {
       stugby: { ownership: "local", editPolicy: "editable" },
     });
 
-    await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/sync`).expect(200);
+    const propertySync = await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/sync`);
+    expect(propertySync.status, JSON.stringify(propertySync.body)).toBe(200);
     const hostAfterClientShare = await request(coordinator.runtime.app)
       .get(`/api/v1/stugbys/${stugbyId}`).expect(200);
     const clientHomesOnHost = hostAfterClientShare.body.homeProjections
@@ -1310,6 +1401,177 @@ describe("Stugby federation", () => {
       stugbyId,
       participant.runtime.stugby!.identity.nodeId,
     ).every((candidate) => candidate.revokedAt !== null)).toBe(true);
+  }, 30_000);
+
+  it("keeps shared Property entities on one local record across create, edit, and delete", async () => {
+    const coordinator = await node("Equipment coordinator");
+    const participant = await node("Equipment participant");
+    nodes.push(coordinator, participant);
+    const hostPropertyId = coordinator.runtime.database.getHouse("house-main")!.propertyId;
+    const created = await request(coordinator.url).post("/api/v1/stugbys")
+      .send({ name: "Equipment Stugby" }).expect(201);
+    const stugbyId = created.body.id as string;
+    await request(coordinator.runtime.app)
+      .post(`/api/v1/stugbys/${stugbyId}/property/adopt`)
+      .send({ localPropertyId: hostPropertyId }).expect(201);
+
+    const createdArea = await request(coordinator.runtime.app).post("/api/v1/property-areas").send({
+      propertyId: hostPropertyId,
+      name: "Machine yard",
+      kind: "yard",
+      polygon: [
+        { latitude: 60, longitude: 24 },
+        { latitude: 60.001, longitude: 24 },
+        { latitude: 60, longitude: 24.001 },
+      ],
+    }).expect(201);
+    const hostArea = createdArea.body.area;
+    expect(coordinator.runtime.database.listPropertyAreas(hostPropertyId)
+      .filter((item) => item.name === "Machine yard")).toEqual([
+      expect.objectContaining({ id: hostArea.id }),
+    ]);
+    const createdEquipment = await request(coordinator.runtime.app).post("/api/v1/area-equipment").send({
+      propertyId: hostPropertyId,
+      areaId: hostArea.id,
+      name: "Host tractor",
+      kind: "vehicle",
+    }).expect(201);
+    const createdHomeEquipment = await request(coordinator.runtime.app).post("/api/v1/area-equipment").send({
+      propertyId: hostPropertyId,
+      houseId: "house-main",
+      location: { latitude: 60.171, longitude: 24.931 },
+      name: "Home generator",
+      kind: "generator",
+    }).expect(201);
+    const createdPortableEquipment = await request(coordinator.runtime.app).post("/api/v1/area-equipment").send({
+      propertyId: hostPropertyId,
+      name: "Portable saw",
+      kind: "tool",
+    }).expect(201);
+    expect(coordinator.runtime.database.listAreaEquipment({ propertyId: hostPropertyId })
+      .filter((item) => item.name === "Host tractor")).toEqual([
+      expect.objectContaining({ id: createdEquipment.body.equipment.id, areaId: hostArea.id }),
+    ]);
+    const createdNote = await request(coordinator.runtime.app).post("/api/v1/property-notes").send({
+      propertyId: hostPropertyId,
+      equipmentId: createdEquipment.body.equipment.id,
+      kind: "inspection",
+      text: "Check the hydraulic lines.",
+    }).expect(201);
+    expect(coordinator.runtime.database.listPropertyNotes({ propertyId: hostPropertyId })
+      .filter((item) => item.text === "Check the hydraulic lines.")).toEqual([
+      expect.objectContaining({
+        id: createdNote.body.note.id,
+        equipmentId: createdEquipment.body.equipment.id,
+      }),
+    ]);
+    const createdTask = await request(coordinator.runtime.app).post("/api/v1/maintenance-tasks").send({
+      propertyId: hostPropertyId,
+      areaId: hostArea.id,
+      equipmentId: createdEquipment.body.equipment.id,
+      title: "Service the tractor",
+      basis: "scheduled",
+    }).expect(201);
+    expect(coordinator.runtime.database.listMaintenanceTasks({ propertyId: hostPropertyId })
+      .filter((item) => item.title === "Service the tractor")).toEqual([
+      expect.objectContaining({
+        id: createdTask.body.id,
+        areaId: hostArea.id,
+        equipmentId: createdEquipment.body.equipment.id,
+      }),
+    ]);
+
+    const invitation = await request(coordinator.runtime.app)
+      .post(`/api/v1/stugbys/${stugbyId}/invitations`)
+      .send({ role: "property-manager" }).expect(201);
+    await request(participant.runtime.app).post("/api/v1/stugbys/join").send({
+      coordinatorUrl: coordinator.url,
+      invitationId: invitation.body.id,
+      joinSecret: invitation.body.joinSecret,
+    }).expect(201);
+    await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/sync`).expect(200);
+    const adoption = await request(participant.runtime.app)
+      .post(`/api/v1/stugbys/${stugbyId}/property/adopt`).send({}).expect(201);
+    const participantPropertyId = adoption.body.localPropertyId as string;
+    const projectedEquipment = participant.runtime.database.listAreaEquipment({
+      propertyId: participantPropertyId,
+    }).find((item) => item.name === "Host tractor")!;
+    const projectedHomeEquipment = participant.runtime.database.listAreaEquipment({
+      propertyId: participantPropertyId,
+    }).find((item) => item.name === "Home generator")!;
+    const projectedPortableEquipment = participant.runtime.database.listAreaEquipment({
+      propertyId: participantPropertyId,
+    }).find((item) => item.name === "Portable saw")!;
+    const projectedHome = participant.runtime.database.listHouses(participantPropertyId)
+      .find((house) => house.stugby?.publicationId);
+    expect(projectedHome).toBeDefined();
+    expect(projectedHomeEquipment).toMatchObject({
+      id: projectedHomeEquipment.id,
+      houseId: projectedHome!.id,
+      location: { latitude: 60.171, longitude: 24.931 },
+    });
+    expect(participant.runtime.database.listAreaEquipment({ propertyId: participantPropertyId })
+      .filter((item) => item.name === "Home generator")).toHaveLength(1);
+
+    await request(participant.runtime.app)
+      .patch(`/api/v1/area-equipment/${projectedEquipment.id}`)
+      .send({ name: "Member-updated tractor" }).expect(200);
+    await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/sync`).expect(200);
+    await request(participant.runtime.app)
+      .patch(`/api/v1/area-equipment/${projectedPortableEquipment.id}`)
+      .send({ houseId: projectedHome!.id }).expect(200);
+    await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/sync`).expect(200);
+
+    expect(coordinator.runtime.database.listAreaEquipment({ propertyId: hostPropertyId })
+      .filter((item) => item.name.includes("tractor"))).toEqual([
+      expect.objectContaining({ name: "Member-updated tractor", areaId: hostArea.id }),
+    ]);
+    expect(participant.runtime.database.listAreaEquipment({ propertyId: participantPropertyId })
+      .filter((item) => item.name.includes("tractor"))).toEqual([
+      expect.objectContaining({
+        id: projectedEquipment.id,
+        name: "Member-updated tractor",
+        areaId: projectedEquipment.areaId,
+      }),
+    ]);
+    expect(coordinator.runtime.database.listAreaEquipment({ propertyId: hostPropertyId })
+      .filter((item) => item.name === "Portable saw")).toEqual([
+      expect.objectContaining({ id: createdPortableEquipment.body.equipment.id, areaId: null, houseId: "house-main" }),
+    ]);
+    expect(participant.runtime.database.listAreaEquipment({ propertyId: participantPropertyId })
+      .filter((item) => item.name === "Portable saw")).toEqual([
+      expect.objectContaining({
+        id: projectedPortableEquipment.id,
+        areaId: null,
+        houseId: projectedHome!.id,
+      }),
+    ]);
+
+    await request(coordinator.runtime.app)
+      .delete(`/api/v1/property-notes/${createdNote.body.note.id}`).expect(204);
+    await request(coordinator.runtime.app)
+      .delete(`/api/v1/maintenance-tasks/${createdTask.body.id}`).expect(204);
+    await request(coordinator.runtime.app)
+      .delete(`/api/v1/area-equipment/${createdHomeEquipment.body.equipment.id}`).expect(204);
+    await request(coordinator.runtime.app)
+      .delete(`/api/v1/area-equipment/${createdPortableEquipment.body.equipment.id}`).expect(204);
+    await request(coordinator.runtime.app)
+      .delete(`/api/v1/area-equipment/${createdEquipment.body.equipment.id}`).expect(204);
+    await request(coordinator.runtime.app)
+      .delete(`/api/v1/property-areas/${hostArea.id}`).expect(204);
+    await request(participant.runtime.app).post(`/api/v1/stugbys/${stugbyId}/sync`).expect(200);
+    expect(coordinator.runtime.database.listPropertyAreas(hostPropertyId)
+      .filter((item) => item.name === "Machine yard")).toEqual([]);
+    expect(coordinator.runtime.database.listAreaEquipment({ propertyId: hostPropertyId })
+      .filter((item) => item.name.includes("tractor"))).toEqual([]);
+    expect(participant.runtime.database.listPropertyAreas(participantPropertyId)
+      .filter((item) => item.name === "Machine yard")).toEqual([]);
+    expect(participant.runtime.database.listAreaEquipment({ propertyId: participantPropertyId })
+      .filter((item) => item.name.includes("tractor"))).toEqual([]);
+    expect(participant.runtime.database.listAreaEquipment({ propertyId: participantPropertyId })
+      .filter((item) => item.name === "Home generator")).toEqual([]);
+    expect(participant.runtime.database.listAreaEquipment({ propertyId: participantPropertyId })
+      .filter((item) => item.name === "Portable saw")).toEqual([]);
   }, 30_000);
 
   it("queues editable Home changes offline and reports a Server-wins conflict without detaching", async () => {

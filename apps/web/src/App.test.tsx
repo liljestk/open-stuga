@@ -177,6 +177,40 @@ describe("Stuga app", () => {
     propertyElectricity.mockRestore();
   });
 
+  it("does not offer electricity source setup for a foreign shared Home", async () => {
+    const climate = mockClimateData();
+    const home = climate.state.houses[0]!;
+    climate.state = {
+      ...climate.state,
+      houses: climate.state.houses.map((candidate) => candidate.id === home.id ? {
+        ...candidate,
+        stugby: {
+          stugbyId: "stugby-remote",
+          authorityNodeId: "node-remote",
+          publicationId: "publication-remote-home",
+          ownership: "shared" as const,
+          editPolicy: "read-only" as const,
+          syncState: "current" as const,
+          authorityEpoch: 1,
+          pendingChangeCount: 0,
+          conflictCount: 0,
+          recoveryState: "not-enabled" as const,
+        },
+      } : candidate),
+      sensors: climate.state.sensors.filter((sensor) => sensor.houseId !== home.id),
+    };
+    vi.mocked(useClimateData).mockReturnValue(climate);
+    window.history.replaceState(null, "", `/properties/${home.propertyId}/homes/${home.id}/electricity`);
+
+    renderApp();
+
+    expect(await findPageHeading("Electricity")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "No electricity data available" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Connect electricity data" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Configure a source" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Set up" })).toBeNull();
+  });
+
   it("keeps the Property workspace available while creating its first Home", async () => {
     const climate = mockClimateData();
     climate.state = {

@@ -86,6 +86,8 @@ import {
   StugbyStore,
   type StugbyAuthorityTransfer,
   type StugbyHomeProjection,
+  type StugbyLocalInvitation,
+  type StugbyLocalMember,
   type StugbyOutboxItem,
   type StugbyPropertyAdoption,
 } from "./store.js";
@@ -213,6 +215,11 @@ function requiredText(value: unknown, label: string, maximum = 200): string {
     throw new StugbyError(400, "INVALID_INPUT", `${label} must contain 1 to ${maximum} characters`);
   }
   return value.trim();
+}
+
+function localLabel(value: unknown): string | null {
+  if (value === undefined || value === null || (typeof value === "string" && !value.trim())) return null;
+  return requiredText(value, "Private member label");
 }
 
 function recordValue(value: unknown, label: string): Record<string, unknown> {
@@ -549,7 +556,11 @@ export class StugbyService {
     return summary;
   }
 
-  createInvitation(stugbyId: string, input: { role: Exclude<StugbyRole, "steward">; expiresAt?: string }): StugbyInvitation & { joinSecret: string; joinUrl: string } {
+  createInvitation(stugbyId: string, input: {
+    role: Exclude<StugbyRole, "steward">;
+    expiresAt?: string;
+    localLabel?: unknown;
+  }): StugbyLocalInvitation & { joinSecret: string; joinUrl: string } {
     const stugby = this.requireReadyCoordinator(stugbyId);
     if (!["property-manager", "participant", "viewer"].includes(input.role)) {
       throw new StugbyError(400, "INVALID_ROLE", "Invitation role must be property-manager, participant, or viewer");
@@ -561,6 +572,7 @@ export class StugbyService {
     const joinSecret = randomBytes(32).toString("base64url");
     const invitation = this.store.createInvitation({
       stugbyId,
+      localLabel: localLabel(input.localLabel),
       role: input.role,
       secretHash: sha256(joinSecret),
       expiresAt,
@@ -753,6 +765,14 @@ export class StugbyService {
       }
       return updated;
     });
+  }
+
+  updateMemberLocalLabel(stugbyId: string, nodeId: string, value: unknown): StugbyLocalMember {
+    this.requireStugby(stugbyId);
+    if (!this.store.getMember(stugbyId, nodeId)) {
+      throw new StugbyError(404, "MEMBER_NOT_FOUND", "Stugby member was not found");
+    }
+    return this.store.updateMemberLocalLabel(stugbyId, nodeId, localLabel(value));
   }
 
   async updateSharedProperty(stugbyId: string, baseRevision: number, input: SharedPropertyInput): Promise<StugbySharedProperty> {
@@ -955,7 +975,13 @@ export class StugbyService {
       });
 
       for (const area of areas) this.enqueueCorePropertyMutation(stugbyId, "area", area.id, "upsert", this.sharedArea(area));
-      for (const item of equipment) this.enqueueCorePropertyMutation(stugbyId, "equipment", item.id, "upsert", this.sharedEquipment(item));
+      for (const item of equipment) this.enqueueCorePropertyMutation(
+        stugbyId,
+        "equipment",
+        item.id,
+        "upsert",
+        this.sharedEquipment(stugbyId, item),
+      );
       for (const note of notes) this.enqueueCorePropertyMutation(stugbyId, "note", note.id, "upsert", this.sharedNote(note));
       for (const task of maintenance) this.enqueueCorePropertyMutation(stugbyId, "maintenance", task.id, "upsert", this.sharedMaintenance(task));
       this.refreshPropertyLink(stugbyId);
@@ -1807,14 +1833,53 @@ export class StugbyService {
   ): StugbyPropertyCommand | null {
     const property = this.database.getProperty(propertyId);
     if (!property?.stugby || property.stugby.syncState === "detached") return null;
+    const link = property.stugby;
     this.assertPropertyWriteAllowed(propertyId);
+    const remoteId = (
+      resourceType: Exclude<StugbyPropertyEntityKind, "property">,
+      localId: string,
+    ): string => this.store.projectionRemoteId(
+      link.stugbyId,
+      link.authorityNodeId,
+      resourceType,
+      localId,
+    );
+    const sharedEntityId = entityKind === "property"
+      ? link.stugbyId
+      : remoteId(entityKind, entityId);
+    const sharedValue = value ? { ...value } : null;
+    const projectReference = (
+      resourceType: "area" | "equipment",
+      field: "areaId" | "equipmentId",
+    ): void => {
+      const localId = sharedValue?.[field];
+      if (typeof localId === "string") sharedValue![field] = remoteId(resourceType, localId);
+    };
+    if (sharedValue && entityKind !== "property") {
+      sharedValue.id = sharedEntityId;
+      if (entityKind === "equipment") {
+        projectReference("area", "areaId");
+      } else if (entityKind === "note" || entityKind === "maintenance") {
+        projectReference("area", "areaId");
+        projectReference("equipment", "equipmentId");
+      }
+    }
+    const projectedChangedFields = entityKind === "equipment" && changedFields
+      ? [...new Set(changedFields.flatMap((field) => (
+        field === "houseId"
+          ? ["areaId", "home"]
+          : field === "areaId"
+            ? ["areaId", "home"]
+            : [field]
+      )))]
+      : changedFields;
     return this.enqueueCorePropertyMutation(
-      property.stugby.stugbyId,
+      link.stugbyId,
       entityKind,
-      entityKind === "property" ? property.stugby.stugbyId : entityId,
+      sharedEntityId,
       operation,
-      value,
-      changedFields,
+      sharedValue,
+      projectedChangedFields,
     );
   }
 
@@ -1825,6 +1890,8 @@ export class StugbyService {
     operation: "upsert" | "delete",
     changedFields?: string[],
   ): StugbyPropertyCommand | null {
+    const propertyLink = this.database.getProperty(propertyId)?.stugby;
+    if (!propertyLink || propertyLink.syncState === "detached") return null;
     if (operation === "delete") {
       return this.capturePropertyMutation(propertyId, entityKind, entityId, "delete", null);
     }
@@ -1845,7 +1912,7 @@ export class StugbyService {
       if (area) value = this.sharedArea(area);
     } else if (entityKind === "equipment") {
       const equipment = this.database.getAreaEquipment(entityId);
-      if (equipment) value = this.sharedEquipment(equipment);
+      if (equipment) value = this.sharedEquipment(propertyLink.stugbyId, equipment);
     } else if (entityKind === "note") {
       const note = this.database.getPropertyNote(entityId);
       if (note) value = this.sharedNote(note);
@@ -1925,7 +1992,7 @@ export class StugbyService {
     const allowedFields: Record<StugbyPropertyEntityKind, readonly string[]> = {
       property: ["name", "description", "location"],
       area: ["name", "kind", "description", "location", "polygon"],
-      equipment: ["areaId", "name", "kind", "manufacturer", "model", "serialNumber", "status", "notes"],
+      equipment: ["areaId", "home", "location", "name", "kind", "manufacturer", "model", "serialNumber", "status", "notes"],
       note: ["areaId", "equipmentId", "kind", "text", "createdAt", "updatedAt"],
       maintenance: ["title", "description", "areaId", "equipmentId", "state", "dueAt", "completedAt", "createdAt", "updatedAt"],
     };
@@ -2087,7 +2154,7 @@ export class StugbyService {
         ...(property.location.label ? { label: property.location.label } : {}),
       } : null,
       areas: this.database.listPropertyAreas(propertyId).map((area) => this.sharedArea(area)),
-      equipment: this.database.listAreaEquipment({ propertyId }).map((item) => this.sharedEquipment(item)),
+      equipment: this.database.listAreaEquipment({ propertyId }).map((item) => this.sharedEquipment(stugbyId, item)),
       notes: this.database.listPropertyNotes({ propertyId }).map((note) => this.sharedNote(note)),
       maintenance: this.database.listMaintenanceTasks({ propertyId }).map((task) => this.sharedMaintenance(task)),
       editPolicy: previous.editPolicy,
@@ -2106,10 +2173,29 @@ export class StugbyService {
     } as unknown as StugbySharedProperty["areas"][number];
   }
 
-  private sharedEquipment(item: AreaEquipment): StugbySharedProperty["equipment"][number] {
+  private sharedEquipment(stugbyId: string, item: AreaEquipment): StugbySharedProperty["equipment"][number] {
+    const house = item.houseId ? this.database.getHouse(item.houseId) : null;
+    let home: StugbySharedProperty["equipment"][number]["home"] = null;
+    if (house) {
+      const authorityNodeId = house.stugby?.stugbyId === stugbyId
+        ? house.stugby.authorityNodeId
+        : this.identity.nodeId;
+      const publicationId = house.stugby?.stugbyId === stugbyId
+        ? house.stugby.publicationId
+        : this.store.publicationId(stugbyId, "home", house.id);
+      this.store.projectionId(stugbyId, authorityNodeId, "home", publicationId, house.id);
+      home = { authorityNodeId, publicationId };
+    }
     return {
       id: item.id,
       areaId: item.areaId,
+      home,
+      ...(item.location ? {
+        location: {
+          latitude: item.location.latitude,
+          longitude: item.location.longitude,
+        },
+      } : {}),
       name: item.name,
       kind: item.kind,
       manufacturer: item.manufacturer,
@@ -2205,12 +2291,27 @@ export class StugbyService {
     }
     for (const item of shared.equipment) {
       const id = equipmentIds.get(item.id)!;
-      const areaId = areaIds.get(item.areaId);
-      if (!areaId) throw new StugbyError(502, "INVALID_SHARED_PROPERTY", `Equipment ${item.id} references an unknown area`);
+      const areaId = item.areaId ? areaIds.get(item.areaId) ?? null : null;
+      if (item.areaId && !areaId) {
+        throw new StugbyError(502, "INVALID_SHARED_PROPERTY", `Equipment ${item.id} references an unknown area`);
+      }
+      const projectedHouseId = item.home
+        ? this.store.projectionId(
+          shared.stugbyId,
+          item.home.authorityNodeId,
+          "home",
+          item.home.publicationId,
+        )
+        : null;
+      const houseId = projectedHouseId && this.database.getHouse(projectedHouseId)
+        ? projectedHouseId
+        : null;
       const existing = this.database.getAreaEquipment(id);
       if (existing) {
         this.database.updateAreaEquipment(id, {
           areaId,
+          houseId,
+          location: item.location ?? null,
           name: item.name,
           kind: item.kind,
           manufacturer: item.manufacturer,
@@ -2224,6 +2325,8 @@ export class StugbyService {
           id,
           propertyId,
           areaId,
+          houseId,
+          ...(item.location ? { location: item.location } : {}),
           name: item.name,
           kind: item.kind,
           manufacturer: item.manufacturer,
@@ -2646,6 +2749,13 @@ export class StugbyService {
       ...(projection.designatedSuccessorNodeId ? { designatedSuccessorNodeId: projection.designatedSuccessorNodeId } : {}),
       ...(projection.recoverySyncedThrough ? { recoverySyncedThrough: projection.recoverySyncedThrough } : {}),
     });
+    const sharedProperty = this.store.getSharedProperty(stugbyId);
+    if (sharedProperty?.equipment.some((item) => (
+      item.home?.authorityNodeId === authorityNodeId
+      && item.home.publicationId === publicationId
+    ))) {
+      this.materializeSharedProperty(sharedProperty);
+    }
   }
 
   private ensureRecommendedHomeOverviewGrant(stugbyId: string, localHouseId: string): StugbyShareGrant | null {
@@ -2723,6 +2833,7 @@ export class StugbyService {
     validateShareGrant(grant);
     this.atomicPublication(() => {
       this.validateUniqueRecoverySuccessor(grant);
+      this.validateUniqueActiveHomeGrant(grant);
       this.store.upsertGrant(grant);
       this.store.audit(stugbyId, "grant.created", this.identity.nodeId, grant.id, {
         revision: grant.revision, epoch: grant.epoch, audience: grant.audience.kind,
@@ -2891,6 +3002,21 @@ export class StugbyService {
         409,
         "HOME_SUCCESSOR_ALREADY_DESIGNATED",
         "This Home already has a different designated recovery successor",
+      );
+    }
+  }
+
+  private validateUniqueActiveHomeGrant(grant: StugbyShareGrant): void {
+    const existing = this.store.listGrants(grant.stugbyId, grant.authorityNodeId)
+      .find((candidate) => candidate.id !== grant.id
+        && candidate.localHouseId === grant.localHouseId
+        && !candidate.revokedAt
+        && !grantExpired(candidate));
+    if (existing) {
+      throw new StugbyError(
+        409,
+        "HOME_ALREADY_SHARED",
+        "This Home already has an active share grant. Update or revoke it before creating another",
       );
     }
   }

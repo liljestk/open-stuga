@@ -335,6 +335,42 @@ describe("HouseLocationMap", () => {
     }
   });
 
+  it("centers an empty pin picker on its fallback and renders the chosen point as a draggable pin", async () => {
+    const onChange = vi.fn();
+    const item: HouseLocationMapItem = {
+      id: "equipment-pin",
+      label: "Tractor map pin",
+      location: null,
+      markerKind: "pin",
+    };
+    const props = {
+      selectedHouseId: item.id,
+      editable: true,
+      onSelect: vi.fn(),
+      onChange,
+      ariaLabel: "Map for placing Tractor",
+      fallbackLocation: { latitude: 60.17, longitude: 24.94 },
+      viewport: "selected" as const,
+    };
+    const { rerender } = render(<HouseLocationMap items={[item]} {...props} />);
+
+    await waitFor(() => expect(leaflet.map.setView).toHaveBeenCalledWith(
+      [60.17, 24.94],
+      17,
+      { animate: false },
+    ));
+    act(() => leaflet.state.mapHandlers.get("click")?.({ latlng: { lat: 60.171, lng: 24.941 } }));
+    expect(onChange).toHaveBeenCalledWith(item.id, { latitude: 60.171, longitude: 24.941 });
+
+    rerender(<HouseLocationMap
+      items={[{ ...item, location: { latitude: 60.171, longitude: 24.941 } }]}
+      {...props}
+    />);
+    await waitFor(() => expect(leaflet.state.markers).toHaveLength(1));
+    expect(leaflet.state.markers[0]!.options.icon?.html).toContain("map-location-pin");
+    expect(leaflet.state.markers[0]!.options.draggable).toBe(true);
+  });
+
   it("fits all houses initially and only moves again for an intentional viewport request", async () => {
     const firstItems: HouseLocationMapItem[] = [
       { id: "coast", label: "Coast house", location: { latitude: 60.17, longitude: 24.94 } },

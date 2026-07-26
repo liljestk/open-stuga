@@ -73,6 +73,7 @@ describe("SensorAnalyticsChart", () => {
     expect(container.querySelector(".sensor-prediction-line")).not.toBeNull();
     expect(onLoadSeries).toHaveBeenCalledTimes(sensors.length);
     expect(screen.getByRole("option", { name: "Power" })).not.toBeNull();
+    expect(screen.getByRole("group", { name: "History" })).not.toBeNull();
     expect(screen.getByRole("button", { name: "1 year" })).not.toBeNull();
     const observedLines = Array.from(container.querySelectorAll<SVGPathElement>(".sensor-series-line"));
     expect(observedLines.some((line) => Boolean(line.getAttribute("stroke-dasharray")))).toBe(true);

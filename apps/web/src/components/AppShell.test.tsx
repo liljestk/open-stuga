@@ -94,9 +94,10 @@ describe("AppShell local account controls", () => {
     const homePicker = screen.getByLabelText("Home shown on this page") as HTMLSelectElement;
     expect(Array.from(homePicker.options, (option) => option.textContent)).toEqual(["Main home", "Guest home"]);
     expect(screen.queryByRole("option", { name: "Lake home" })).toBeNull();
+    expect(screen.getByLabelText("Home · Main home · Own").textContent).toContain("Own");
   });
 
-  it("marks a shared Home with the Stugby three-cottage logo in normal Home pages", () => {
+  it("labels a shared Home as remote outside the picker", () => {
     const { container } = render(
       <I18nProvider>
         <AppShell
@@ -136,8 +137,55 @@ describe("AppShell local account controls", () => {
       </I18nProvider>,
     );
 
-    expect(screen.getByLabelText("Home shown on this page")).toBeTruthy();
+    const homePicker = screen.getByLabelText("Home shown on this page") as HTMLSelectElement;
+    expect(Array.from(homePicker.options, (option) => option.textContent)).toEqual(["Client Home"]);
+    expect(screen.getByLabelText("Home · Client Home · Remote").textContent).toContain("Remote");
     expect(container.querySelector(".page-home-switcher-group .stugby-mark")).toBeTruthy();
+  });
+
+  it("does not mark an owned Stugby Home as remote", () => {
+    const { container } = render(
+      <I18nProvider>
+        <AppShell
+          page="twin"
+          onPage={vi.fn()}
+          connection="live"
+          units="metric"
+          onUnits={vi.fn()}
+          lastUpdated={null}
+          dataMode="real"
+          properties={[{ id: "property-main", name: "Host Property" }]}
+          propertyId="property-main"
+          onProperty={vi.fn()}
+          houses={[{
+            id: "home-owned",
+            propertyId: "property-main",
+            name: "My Home",
+            timezone: "Europe/Helsinki",
+            stugby: {
+              stugbyId: "stugby-1",
+              authorityNodeId: "node-local",
+              publicationId: "publication-local-home",
+              ownership: "local",
+              editPolicy: "editable",
+              syncState: "current",
+              authorityEpoch: 1,
+              pendingChangeCount: 0,
+              conflictCount: 0,
+              recoveryState: "not-enabled",
+            },
+          }]}
+          houseId="home-owned"
+          onHouse={vi.fn()}
+        >
+          <div>Owned Home content</div>
+        </AppShell>
+      </I18nProvider>,
+    );
+
+    expect(screen.getByLabelText("Home · My Home · Own").textContent).toContain("Own");
+    expect(container.querySelector(".page-home-switcher-group .stugby-mark")).toBeNull();
+    expect(container.querySelector(".sidebar-nav-group .stugby-mark")).toBeNull();
   });
 
   it("lets a read-only Guest sign out without exposing a workspace switcher", async () => {

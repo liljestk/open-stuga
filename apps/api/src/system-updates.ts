@@ -12,11 +12,31 @@ import { join } from "node:path";
 
 const MAX_JSON_BYTES = 256 * 1024;
 const AGENT_MAX_AGE_MS = 2 * 60_000;
-const ACTIVE_PHASES = new Set(["queued", "backup", "pulling", "applying", "verifying", "rolling-back"]);
+const SYSTEM_UPDATE_PHASES = [
+  "queued",
+  "preparing",
+  "backup",
+  "pulling",
+  "applying",
+  "verifying",
+  "complete",
+  "failed",
+  "rolling-back",
+] as const;
+const ACTIVE_PHASES = new Set<SystemUpdatePhase>([
+  "queued",
+  "preparing",
+  "backup",
+  "pulling",
+  "applying",
+  "verifying",
+  "rolling-back",
+]);
 const DAY_NAMES = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
 
 export type SystemUpdateDay = typeof DAY_NAMES[number];
 export type SystemUpdateMode = "manual" | "automatic";
+export type SystemUpdatePhase = typeof SYSTEM_UPDATE_PHASES[number];
 
 export interface SystemUpdateSettings {
   mode: SystemUpdateMode;
@@ -41,12 +61,21 @@ export interface SystemUpdateOperation {
   id: string;
   version: string;
   tagName: string;
-  phase: "queued" | "backup" | "pulling" | "applying" | "verifying" | "complete" | "failed" | "rolling-back";
+  phase: SystemUpdatePhase;
   requestedAt: string;
   startedAt: string | null;
   completedAt: string | null;
+  updatedAt: string;
+  phaseStartedAt: string;
   detail: string | null;
   previousVersion: string;
+  activity: SystemUpdateActivity[];
+}
+
+export interface SystemUpdateActivity {
+  phase: SystemUpdatePhase;
+  at: string;
+  detail: string;
 }
 
 interface UpdateAgentHeartbeat {
@@ -244,18 +273,50 @@ function operationFromJson(value: unknown): SystemUpdateOperation | null {
     || typeof input.requestedAt !== "string"
     || typeof input.previousVersion !== "string"
     || typeof input.phase !== "string"
-    || !["queued", "backup", "pulling", "applying", "verifying", "complete", "failed", "rolling-back"].includes(input.phase)
+    || !SYSTEM_UPDATE_PHASES.includes(input.phase as SystemUpdatePhase)
   ) return null;
+  const phase = input.phase as SystemUpdatePhase;
+  const detail = typeof input.detail === "string" ? input.detail.slice(0, 2_000) : null;
+  const updatedAt = typeof input.updatedAt === "string"
+    ? input.updatedAt
+    : typeof input.completedAt === "string"
+      ? input.completedAt
+      : typeof input.startedAt === "string"
+        ? input.startedAt
+        : input.requestedAt;
+  const phaseStartedAt = typeof input.phaseStartedAt === "string" ? input.phaseStartedAt : updatedAt;
+  const activity = Array.isArray(input.activity)
+    ? input.activity.slice(-50).flatMap((entry): SystemUpdateActivity[] => {
+      if (
+        !entry
+        || typeof entry !== "object"
+        || typeof entry.phase !== "string"
+        || !SYSTEM_UPDATE_PHASES.includes(entry.phase as SystemUpdatePhase)
+        || typeof entry.at !== "string"
+        || typeof entry.detail !== "string"
+      ) return [];
+      return [{
+        phase: entry.phase as SystemUpdatePhase,
+        at: entry.at,
+        detail: entry.detail.slice(0, 2_000),
+      }];
+    })
+    : [];
   return {
     id: input.id,
     version: input.version,
     tagName: input.tagName,
-    phase: input.phase as SystemUpdateOperation["phase"],
+    phase,
     requestedAt: input.requestedAt,
     startedAt: typeof input.startedAt === "string" ? input.startedAt : null,
     completedAt: typeof input.completedAt === "string" ? input.completedAt : null,
-    detail: typeof input.detail === "string" ? input.detail.slice(0, 2_000) : null,
+    updatedAt,
+    phaseStartedAt,
+    detail,
     previousVersion: input.previousVersion,
+    activity: activity.length > 0
+      ? activity
+      : [{ phase, at: phaseStartedAt, detail: detail ?? phase }],
   };
 }
 
@@ -388,8 +449,15 @@ export class SystemUpdateService {
       requestedAt,
       startedAt: null,
       completedAt: null,
+      updatedAt: requestedAt,
+      phaseStartedAt: requestedAt,
       detail: "Waiting for the external update agent",
       previousVersion: this.#currentVersion,
+      activity: [{
+        phase: "queued",
+        at: requestedAt,
+        detail: "Update requested; waiting for the external update agent",
+      }],
     };
     writeJson(join(this.#directory, "status.json"), operation);
     writeJson(join(this.#directory, `request-${requestedAt.replaceAll(":", "-")}-${id}.json`), {

@@ -19,6 +19,7 @@ export interface HouseLocationMapItem {
   id: string;
   label: string;
   location: MapLocation | null;
+  markerKind?: "house" | "pin";
   orientationDegrees?: number;
   metersPerPlanUnit?: number;
   floor?: HouseLocationMapFloor;
@@ -31,6 +32,8 @@ export interface HouseLocationMapProps {
   onSelect: (id: string) => void;
   onChange: (id: string, location: MapLocation) => void;
   ariaLabel: string;
+  /** Used when no mapped item can provide an initial viewport. */
+  fallbackLocation?: MapLocation | null;
   /** Controls intentional viewport moves. Draft coordinate changes do not retrigger one. */
   viewport?: "all" | "selected";
 }
@@ -155,21 +158,29 @@ function geographicFootprint(item: HouseLocationMapItem): GeographicFootprint | 
   };
 }
 
-function handleIcon(selected: boolean): L.DivIcon {
+function handleIcon(selected: boolean, markerKind: HouseLocationMapItem["markerKind"] = "house"): L.DivIcon {
+  const pin = markerKind === "pin";
   return L.divIcon({
-    className: `house-location-marker-wrap${selected ? " is-selected" : ""}`,
+    className: `${pin ? "map-location-pin-wrap" : "house-location-marker-wrap"}${selected ? " is-selected" : ""}`,
     // Labels never enter this HTML; they are assigned to DOM attributes below.
-    html: '<span class="house-location-marker" aria-hidden="true"></span>',
+    html: `<span class="${pin ? "map-location-pin" : "house-location-marker"}" aria-hidden="true"></span>`,
     iconSize: [30, 38],
     iconAnchor: [15, 38],
   });
 }
 
-function updateHandle(marker: Marker, label: string, selected: boolean, draggable: boolean, activate: () => void) {
+function updateHandle(
+  marker: Marker,
+  label: string,
+  selected: boolean,
+  draggable: boolean,
+  markerKind: HouseLocationMapItem["markerKind"],
+  activate: () => void,
+) {
   marker.options.title = label;
   marker.options.alt = label;
   marker.options.draggable = draggable;
-  marker.setIcon(handleIcon(selected));
+  marker.setIcon(handleIcon(selected, markerKind));
   marker.setZIndexOffset(selected ? 1000 : 0);
   if (draggable) marker.dragging?.enable();
   else marker.dragging?.disable();
@@ -207,6 +218,7 @@ export function HouseLocationMap({
   onSelect,
   onChange,
   ariaLabel,
+  fallbackLocation = null,
   viewport = "all",
 }: HouseLocationMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -280,7 +292,7 @@ export function HouseLocationMap({
           keyboard: true,
           title: item.label,
           alt: item.label,
-          icon: handleIcon(selected),
+          icon: handleIcon(selected, item.markerKind),
           autoPan: true,
         }).addTo(map);
         marker.on("click", () => onSelectRef.current(item.id));
@@ -293,7 +305,7 @@ export function HouseLocationMap({
       } else {
         layers.marker.setLatLng(latLng);
       }
-      updateHandle(layers.marker, item.label, selected, draggable, () => onSelectRef.current(item.id));
+      updateHandle(layers.marker, item.label, selected, draggable, item.markerKind, () => onSelectRef.current(item.id));
 
       const footprint = geographicFootprint(item);
       if (!footprint) {
@@ -342,7 +354,14 @@ export function HouseLocationMap({
       ? items.filter((item) => item.id === selectedHouseId && isLocation(item.location))
       : items.filter((item) => isLocation(item.location));
     const points = requestedItems.flatMap(locationPoints);
-    if (points.length === 0) return;
+    if (points.length === 0) {
+      if (!isLocation(fallbackLocation)) return;
+      const fallbackKey = `fallback:${fallbackLocation.latitude}:${fallbackLocation.longitude}`;
+      if (appliedViewportRef.current === fallbackKey) return;
+      map.setView([fallbackLocation.latitude, fallbackLocation.longitude], HOUSE_LOCATION_ZOOM, { animate: false });
+      appliedViewportRef.current = fallbackKey;
+      return;
+    }
 
     if (requestedItems.length === 1) {
       const location = requestedItems[0]!.location!;
@@ -351,7 +370,7 @@ export function HouseLocationMap({
       map.fitBounds(points, { animate: false, maxZoom: HOUSE_LOCATION_ZOOM, padding: VIEWPORT_PADDING });
     }
     appliedViewportRef.current = viewportKey;
-  }, [items, selectedHouseId, viewport]);
+  }, [fallbackLocation, items, selectedHouseId, viewport]);
 
   return <div ref={containerRef} className="house-location-map" role="region" aria-label={ariaLabel} />;
 }

@@ -87,6 +87,37 @@ describe("system updates page", () => {
     expect(screen.getByText(/update-agent:service:install/)).toBeTruthy();
   });
 
+  it("shows the current step, completed steps, elapsed progress, and activity", async () => {
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue({
+      ...status,
+      operation: {
+        id: "27974c49-f62e-4365-9ee7-802c7488557e",
+        version: "0.6.0",
+        tagName: "v0.6.0",
+        phase: "backup",
+        requestedAt: "2026-07-23T20:01:00.000Z",
+        startedAt: "2026-07-23T20:01:02.000Z",
+        completedAt: null,
+        updatedAt: "2026-07-23T20:01:05.000Z",
+        phaseStartedAt: "2026-07-23T20:01:05.000Z",
+        detail: "Creating a verified pre-update backup",
+        previousVersion: "0.5.0",
+        activity: [
+          { phase: "queued", at: "2026-07-23T20:01:00.000Z", detail: "Update requested" },
+          { phase: "preparing", at: "2026-07-23T20:01:02.000Z", detail: "Checking running services" },
+          { phase: "backup", at: "2026-07-23T20:01:05.000Z", detail: "Creating a verified pre-update backup" },
+        ],
+      },
+    });
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    expect(await screen.findByText("Step 2 of 5")).toBeTruthy();
+    expect(screen.getByRole("progressbar", { name: "Step 2 of 5" }).getAttribute("value")).toBe("1");
+    expect(screen.getByText("Back up").closest("li")?.getAttribute("aria-current")).toBe("step");
+    expect(screen.getByText("Prepare").closest("li")?.classList.contains("complete")).toBe(true);
+    expect(screen.getAllByText("Creating a verified pre-update backup")).toHaveLength(2);
+  });
+
   it("queues an ad-hoc update after explicit confirmation", async () => {
     vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(status);
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -100,8 +131,15 @@ describe("system updates page", () => {
         requestedAt: "2026-07-23T20:01:00.000Z",
         startedAt: null,
         completedAt: null,
+        updatedAt: "2026-07-23T20:01:00.000Z",
+        phaseStartedAt: "2026-07-23T20:01:00.000Z",
         detail: "Waiting for the external update agent",
         previousVersion: "0.5.0",
+        activity: [{
+          phase: "queued",
+          at: "2026-07-23T20:01:00.000Z",
+          detail: "Update requested; waiting for the external update agent",
+        }],
       },
     });
     render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
@@ -109,5 +147,8 @@ describe("system updates page", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Update now" }));
     await waitFor(() => expect(install).toHaveBeenCalledOnce());
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("0.6.0"));
+    expect(await screen.findByText("Waiting for the update agent")).toBeTruthy();
+    expect(screen.getByText("Prepare")).toBeTruthy();
+    expect(screen.getByText("Live activity")).toBeTruthy();
   });
 });

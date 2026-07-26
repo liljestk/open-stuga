@@ -327,6 +327,36 @@ describe("local account authentication and authorization", () => {
     await owner.agent.post("/api/v1/area-equipment").set("x-csrf-token", owner.csrf).send({
       id: "equipment-owner-only", areaId: "area-owner-only", name: "Private tool", kind: "tool",
     }).expect(201);
+    const visibleAttachment = await owner.agent
+      .post("/api/v1/area-equipment/equipment-visible/attachments")
+      .set("x-csrf-token", owner.csrf)
+      .send({
+        kind: "photo",
+        name: "Well pump.png",
+        mimeType: "image/png",
+        data: Buffer.from("visible-photo").toString("base64"),
+      })
+      .expect(201);
+    const privateAttachment = await owner.agent
+      .post("/api/v1/area-equipment/equipment-owner-only/attachments")
+      .set("x-csrf-token", owner.csrf)
+      .send({
+        kind: "document",
+        name: "Private manual.pdf",
+        mimeType: "application/pdf",
+        data: Buffer.from("%PDF-private").toString("base64"),
+      })
+      .expect(201);
+    const visibleLink = await owner.agent
+      .post("/api/v1/area-equipment/equipment-visible/links")
+      .set("x-csrf-token", owner.csrf)
+      .send({ label: "Pump support", url: "https://example.test/pump" })
+      .expect(201);
+    await owner.agent
+      .post("/api/v1/area-equipment/equipment-owner-only/links")
+      .set("x-csrf-token", owner.csrf)
+      .send({ label: "Private support", url: "https://example.test/private" })
+      .expect(201);
     await owner.agent.post("/api/v1/maintenance-tasks").set("x-csrf-token", owner.csrf).send({
       id: "task-compound", propertyId: "property-hidden", houseId: "house-hidden", areaId: "area-hidden",
       title: "Compound task", basis: "required",
@@ -406,8 +436,11 @@ describe("local account authentication and authorization", () => {
       .expect(({ body }) => {
         expect(body.inventory.areas).toEqual([]);
         expect(body.inventory.equipment).toEqual([]);
+        expect(body.inventory.attachments).toEqual([]);
+        expect(body.inventory.links).toEqual([]);
       });
     await guestAgent.get("/api/v1/properties/property-hidden/electricity").expect(404);
+    await guestAgent.get("/api/v1/properties/property-hidden/energy-optimization").expect(404);
     await guestAgent.get("/api/v1/maintenance-tasks/task-compound").expect(404);
     await guestAgent.post("/api/v1/properties").set("x-csrf-token", registration.body.csrfToken).send({ name: "Denied" }).expect(403);
     await guestAgent.get("/api/v1/tenant/members").expect(403);
@@ -419,9 +452,25 @@ describe("local account authentication and authorization", () => {
       .expect(({ body }) => {
         expect(body.inventory.areas.map((area: { id: string }) => area.id)).toEqual(["area-hidden"]);
         expect(body.inventory.equipment.map((item: { id: string }) => item.id)).toEqual(["equipment-visible"]);
+        expect(body.inventory.attachments.map((item: { id: string }) => item.id))
+          .toEqual([visibleAttachment.body.attachment.id]);
+        expect(body.inventory.links.map((item: { id: string }) => item.id))
+          .toEqual([visibleLink.body.link.id]);
       });
+    await guestAgent
+      .get(`/api/v1/area-equipment/equipment-visible/attachments/${visibleAttachment.body.attachment.id}`)
+      .expect(200);
+    await guestAgent
+      .get(`/api/v1/area-equipment/equipment-owner-only/attachments/${privateAttachment.body.attachment.id}`)
+      .expect(404);
+    await guestAgent
+      .post("/api/v1/area-equipment/equipment-visible/links")
+      .set("x-csrf-token", registration.body.csrfToken)
+      .send({ label: "Denied", url: "https://example.test/denied" })
+      .expect(403);
     await guestAgent.get("/api/v1/houses/house-hidden/electricity-price").expect(404);
     await guestAgent.get("/api/v1/properties/property-hidden/electricity").expect(404);
+    await guestAgent.get("/api/v1/properties/property-hidden/energy-optimization").expect(404);
     await owner.agent.put("/api/v1/tenant/members/guest%40example.test/access").set("x-csrf-token", owner.csrf).send({
       grants: [
         { scopeType: "house", scopeId: "house-hidden" },
@@ -431,6 +480,7 @@ describe("local account authentication and authorization", () => {
     await guestAgent.get("/api/v1/maintenance-tasks/task-compound").expect(200);
     await guestAgent.get("/api/v1/houses/house-hidden/electricity-price").expect(200, { current: expectedHomePrice });
     await guestAgent.get("/api/v1/properties/property-hidden/electricity").expect(404);
+    await guestAgent.get("/api/v1/properties/property-hidden/energy-optimization").expect(404);
     await guestAgent.get("/api/v1/maintenance-tasks/task-compound/revisions").expect(403);
 
     await owner.agent.put("/api/v1/tenant/members/guest%40example.test/access").set("x-csrf-token", owner.csrf).send({
@@ -440,12 +490,15 @@ describe("local account authentication and authorization", () => {
       .expect(({ body }) => {
         expect(body.inventory.areas).toHaveLength(2);
         expect(body.inventory.equipment).toHaveLength(2);
+        expect(body.inventory.attachments).toHaveLength(2);
+        expect(body.inventory.links).toHaveLength(2);
       });
     await guestAgent.get("/api/v1/properties/property-hidden/electricity").expect(200)
       .expect(({ body }) => {
         expect(body.config.endpointUrl).toBe("https://prices.example.test/feed.json");
         expect(JSON.stringify(body)).not.toContain("owner-only-secret");
       });
+    await guestAgent.get("/api/v1/properties/property-hidden/energy-optimization").expect(200);
     await owner.agent.get("/api/v1/properties/property-hidden/electricity").expect(200)
       .expect(({ body }) => expect(body.config.endpointUrl).toContain("owner-only-secret"));
     await guestAgent.get("/api/v1/maintenance-tasks/task-compound").expect(200);

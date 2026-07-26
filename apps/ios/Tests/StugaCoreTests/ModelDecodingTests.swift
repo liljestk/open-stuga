@@ -105,6 +105,23 @@ final class ModelDecodingTests: XCTestCase {
             "notes": null,
             "createdAt": "2026-07-20T10:00:00.000Z",
             "updatedAt": "2026-07-20T10:00:00.000Z"
+          }],
+          "attachments": [{
+            "id": "attachment-photo",
+            "equipmentId": "equipment-mower",
+            "kind": "photo",
+            "name": "Mower deck.jpg",
+            "mimeType": "image/jpeg",
+            "size": 2048,
+            "createdAt": "2026-07-26T10:00:00.000Z"
+          }],
+          "links": [{
+            "id": "link-manufacturer",
+            "equipmentId": "equipment-mower",
+            "label": "Manufacturer support",
+            "url": "https://example.test/mower",
+            "createdAt": "2026-07-26T10:00:00.000Z",
+            "updatedAt": "2026-07-26T10:00:00.000Z"
           }]
         }
         """#.utf8)
@@ -113,6 +130,10 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(inventory.propertyId, "property-main")
         XCTAssertEqual(inventory.areas.first?.id, inventory.equipment.first?.areaId)
         XCTAssertEqual(inventory.equipment.first?.id, "equipment-mower")
+        XCTAssertEqual(inventory.attachments.first?.kind, .photo)
+        XCTAssertEqual(inventory.attachments.first?.equipmentId, "equipment-mower")
+        XCTAssertEqual(inventory.links.first?.label, "Manufacturer support")
+        XCTAssertNoThrow(try JSONEncoder().encode(inventory))
     }
 
     func testInventoryUpdateEncodesNullsWhenOptionalFieldsAreCleared() throws {
@@ -226,6 +247,8 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertNil(inventory.equipment[1].areaId)
         XCTAssertNil(inventory.equipment[1].houseId)
         XCTAssertNil(inventory.equipment[1].location)
+        XCTAssertTrue(inventory.attachments.isEmpty)
+        XCTAssertTrue(inventory.links.isEmpty)
     }
 
     func testDecodesStugbyHomeAndPropertyOwnership() throws {

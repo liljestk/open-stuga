@@ -42,6 +42,24 @@ const healthyHouse: House = {
   location: { latitude: 60.45, longitude: 22.27, label: "Turku" },
 };
 
+const remoteHouse: House = {
+  ...setupHouse,
+  id: "house-remote",
+  name: "Remote home",
+  stugby: {
+    stugbyId: "stugby-1",
+    authorityNodeId: "node-remote",
+    publicationId: "publication-remote-home",
+    ownership: "shared",
+    editPolicy: "read-only",
+    syncState: "current",
+    authorityEpoch: 1,
+    pendingChangeCount: 0,
+    conflictCount: 0,
+    recoveryState: "not-enabled",
+  },
+};
+
 const sensor: Sensor = {
   id: "sensor-living-room",
   houseId: readyHouse.id,
@@ -84,6 +102,34 @@ const openAlert: AlertEvent = {
 };
 
 describe("PortfolioOverview", () => {
+  it("visibly identifies remote Homes without labelling locally owned Homes", () => {
+    render(
+      <I18nProvider>
+        <PortfolioOverview
+          properties={[property]}
+          propertyAreas={[]}
+          houses={[setupHouse, remoteHouse]}
+          sensors={[]}
+          latestMeasurements={{}}
+          measurementHistory={{}}
+          alerts={[]}
+          alertRules={[]}
+          integration={integration}
+          onOpenProperty={vi.fn()}
+          onOpenTwin={vi.fn()}
+          onOpenOutdoor={vi.fn()}
+          onOpenSetup={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    const localCard = screen.getByRole("heading", { name: setupHouse.name }).closest("article")!;
+    const remoteCard = screen.getByRole("heading", { name: remoteHouse.name }).closest("article")!;
+    expect(within(localCard).queryByText("Remote")).toBeNull();
+    expect(within(remoteCard).getByText("Remote")).toBeTruthy();
+    expect(remoteCard.querySelector(".home-origin-indicator.remote .stugby-mark")).toBeTruthy();
+  });
+
   it("keeps attention homes stable, discloses confirmed homes, and routes the primary blocker action", async () => {
     const user = userEvent.setup();
     const sample: MeasurementSample = {
