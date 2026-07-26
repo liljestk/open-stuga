@@ -192,11 +192,11 @@ private struct AlertCard: View {
             units: model.unitSystem
         )
         switch rule?.operator {
-        case "gt": "Above the configured threshold of \(threshold)."
-        case "gte": "At or above the configured threshold of \(threshold)."
-        case "lt": "Below the configured threshold of \(threshold)."
-        case "lte": "At or below the configured threshold of \(threshold)."
-        default: "Crossed the configured threshold of \(threshold)."
+        case "gt": return "Above the configured threshold of \(threshold)."
+        case "gte": return "At or above the configured threshold of \(threshold)."
+        case "lt": return "Below the configured threshold of \(threshold)."
+        case "lte": return "At or below the configured threshold of \(threshold)."
+        default: return "Crossed the configured threshold of \(threshold)."
         }
     }
 
