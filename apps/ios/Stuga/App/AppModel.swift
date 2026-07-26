@@ -171,7 +171,7 @@ final class AppModel: ObservableObject {
 
     func areaName(for areaID: String?) -> String? {
         guard let areaID else { return nil }
-        selectedPropertyAreas.first { $0.id == areaID }?.name
+        return selectedPropertyAreas.first { $0.id == areaID }?.name
     }
 
     func houseName(for houseID: String?) -> String? {

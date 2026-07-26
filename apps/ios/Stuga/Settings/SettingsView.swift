@@ -179,7 +179,15 @@ struct SettingsView: View {
                                 }
                             }
                         }
-                        .accessibilityLiveRegion(.polite)
+                        .accessibilityLabel("System update progress")
+                        .accessibilityValue(updateProgressLabel(operation))
+                        .onChange(of: operation.phase) { _, _ in
+                            guard UIAccessibility.isVoiceOverRunning else { return }
+                            UIAccessibility.post(
+                                notification: .announcement,
+                                argument: updateProgressLabel(operation)
+                            )
+                        }
                     } else if status.updateAvailable {
                         Label(
                             "A newer Stuga release is ready to review.",
