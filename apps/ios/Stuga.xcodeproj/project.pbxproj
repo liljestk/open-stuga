@@ -39,6 +39,8 @@
 		B6000000000000000000000A /* MemberLocationSharingController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5000000000000000000000A /* MemberLocationSharingController.swift */; };
 		B6000000000000000000000B /* EquipmentQRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5000000000000000000000B /* EquipmentQRScannerView.swift */; };
 		B6000000000000000000000C /* EquipmentOperationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5000000000000000000000C /* EquipmentOperationsView.swift */; };
+		E60000000000000000000001 /* EdgeCredential.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50000000000000000000001 /* EdgeCredential.swift */; };
+		E60000000000000000000002 /* EdgeCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50000000000000000000002 /* EdgeCredentialStore.swift */; };
 		C60000000000000000000001 /* CompanionPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = C50000000000000000000001 /* CompanionPersistence.swift */; };
 		C60000000000000000000002 /* TodayModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C50000000000000000000002 /* TodayModels.swift */; };
 		C60000000000000000000003 /* PushModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C50000000000000000000003 /* PushModels.swift */; };
@@ -137,6 +139,8 @@
 		B5000000000000000000000B /* EquipmentQRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentQRScannerView.swift; sourceTree = "<group>"; };
 		B5000000000000000000000C /* EquipmentOperationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentOperationsView.swift; sourceTree = "<group>"; };
 		C30000000000000000000001 /* StugaWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = StugaWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		E50000000000000000000001 /* EdgeCredential.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeCredential.swift; sourceTree = "<group>"; };
+		E50000000000000000000002 /* EdgeCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EdgeCredentialStore.swift; sourceTree = "<group>"; };
 		C50000000000000000000001 /* CompanionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanionPersistence.swift; sourceTree = "<group>"; };
 		C50000000000000000000002 /* TodayModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayModels.swift; sourceTree = "<group>"; };
 		C50000000000000000000003 /* PushModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushModels.swift; sourceTree = "<group>"; };
@@ -188,7 +192,7 @@
 			isa = PBXGroup;
 			children = (
 				A90000000000000000000002 /* Stuga */,
-				A9000000000000000000000B /* StugaCore */,
+				A9000000000000000000000B /* Sources/StugaCore */,
 				C90000000000000000000004 /* StugaWidget */,
 				D90000000000000000000001 /* StugaWatch */,
 				A9000000000000000000000C /* Products */,
@@ -224,6 +228,7 @@
 				A50000000000000000000002 /* AppModel.swift */,
 				A50000000000000000000003 /* RootView.swift */,
 				A50000000000000000000004 /* MainTabView.swift */,
+				E50000000000000000000002 /* EdgeCredentialStore.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -278,6 +283,63 @@
 			path = Settings;
 			sourceTree = "<group>";
 		};
+		A9000000000000000000000A /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A50000000000000000000012 /* Assets.xcassets */,
+				A50000000000000000000013 /* Localizable.xcstrings */,
+				A50000000000000000000015 /* PrivacyInfo.xcprivacy */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		A9000000000000000000000B /* Sources/StugaCore */ = {
+			isa = PBXGroup;
+			children = (
+				A5000000000000000000000D /* Models.swift */,
+				A5000000000000000000000E /* ServerAddress.swift */,
+				A5000000000000000000000F /* CompanionLogic.swift */,
+				A50000000000000000000010 /* SSEParser.swift */,
+				A50000000000000000000011 /* APIClient.swift */,
+				B50000000000000000000001 /* TrackingModels.swift */,
+				B50000000000000000000002 /* TrackingProtocol.swift */,
+				B50000000000000000000003 /* TrackingSignal.swift */,
+				B50000000000000000000004 /* TrackingObservationQueue.swift */,
+				B50000000000000000000009 /* EquipmentModels.swift */,
+				C50000000000000000000001 /* CompanionPersistence.swift */,
+				C50000000000000000000002 /* TodayModels.swift */,
+				C50000000000000000000003 /* PushModels.swift */,
+				D50000000000000000000001 /* FloorPlanModels.swift */,
+				D50000000000000000000002 /* WatchModels.swift */,
+				E50000000000000000000001 /* EdgeCredential.swift */,
+			);
+			path = Sources/StugaCore;
+			sourceTree = "<group>";
+		};
+		A9000000000000000000000C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A30000000000000000000001 /* Stuga.app */,
+				C30000000000000000000001 /* StugaWidget.appex */,
+				D30000000000000000000001 /* StugaWatch.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		B90000000000000000000001 /* Tracking */ = {
+			isa = PBXGroup;
+			children = (
+				B50000000000000000000005 /* TrackingCredentialStore.swift */,
+				B50000000000000000000006 /* MobileTrackingController.swift */,
+				B50000000000000000000007 /* EquipmentMapView.swift */,
+				B50000000000000000000008 /* EquipmentDetailView.swift */,
+				B5000000000000000000000A /* MemberLocationSharingController.swift */,
+				B5000000000000000000000B /* EquipmentQRScannerView.swift */,
+				B5000000000000000000000C /* EquipmentOperationsView.swift */,
+			);
+			path = Tracking;
+			sourceTree = "<group>";
+		};
 		C90000000000000000000001 /* Capture */ = {
 			isa = PBXGroup;
 			children = (
@@ -303,70 +365,6 @@
 			path = Automation;
 			sourceTree = "<group>";
 		};
-		D90000000000000000000002 /* Watch */ = {
-			isa = PBXGroup;
-			children = (
-				D50000000000000000000004 /* PhoneWatchConnectivityBridge.swift */,
-			);
-			path = Watch;
-			sourceTree = "<group>";
-		};
-		A9000000000000000000000A /* Resources */ = {
-			isa = PBXGroup;
-			children = (
-				A50000000000000000000012 /* Assets.xcassets */,
-				A50000000000000000000013 /* Localizable.xcstrings */,
-				A50000000000000000000015 /* PrivacyInfo.xcprivacy */,
-			);
-			path = Resources;
-			sourceTree = "<group>";
-		};
-		B90000000000000000000001 /* Tracking */ = {
-			isa = PBXGroup;
-			children = (
-				B50000000000000000000005 /* TrackingCredentialStore.swift */,
-				B50000000000000000000006 /* MobileTrackingController.swift */,
-				B50000000000000000000007 /* EquipmentMapView.swift */,
-				B50000000000000000000008 /* EquipmentDetailView.swift */,
-				B5000000000000000000000A /* MemberLocationSharingController.swift */,
-				B5000000000000000000000B /* EquipmentQRScannerView.swift */,
-				B5000000000000000000000C /* EquipmentOperationsView.swift */,
-			);
-			path = Tracking;
-			sourceTree = "<group>";
-		};
-		A9000000000000000000000B /* StugaCore */ = {
-			isa = PBXGroup;
-			children = (
-				A5000000000000000000000D /* Models.swift */,
-				A5000000000000000000000E /* ServerAddress.swift */,
-				A5000000000000000000000F /* CompanionLogic.swift */,
-				A50000000000000000000010 /* SSEParser.swift */,
-				A50000000000000000000011 /* APIClient.swift */,
-				B50000000000000000000001 /* TrackingModels.swift */,
-				B50000000000000000000002 /* TrackingProtocol.swift */,
-				B50000000000000000000003 /* TrackingSignal.swift */,
-				B50000000000000000000004 /* TrackingObservationQueue.swift */,
-				B50000000000000000000009 /* EquipmentModels.swift */,
-				C50000000000000000000001 /* CompanionPersistence.swift */,
-				C50000000000000000000002 /* TodayModels.swift */,
-				C50000000000000000000003 /* PushModels.swift */,
-				D50000000000000000000001 /* FloorPlanModels.swift */,
-				D50000000000000000000002 /* WatchModels.swift */,
-			);
-			path = Sources/StugaCore;
-			sourceTree = "<group>";
-		};
-		A9000000000000000000000C /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				A30000000000000000000001 /* Stuga.app */,
-				C30000000000000000000001 /* StugaWidget.appex */,
-				D30000000000000000000001 /* StugaWatch.app */,
-			);
-			name = Products;
-			sourceTree = "<group>";
-		};
 		C90000000000000000000004 /* StugaWidget */ = {
 			isa = PBXGroup;
 			children = (
@@ -387,6 +385,14 @@
 				D50000000000000000000007 /* PrivacyInfo.xcprivacy */,
 			);
 			path = StugaWatch;
+			sourceTree = "<group>";
+		};
+		D90000000000000000000002 /* Watch */ = {
+			isa = PBXGroup;
+			children = (
+				D50000000000000000000004 /* PhoneWatchConnectivityBridge.swift */,
+			);
+			path = Watch;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -542,6 +548,8 @@
 				A6000000000000000000000F /* CompanionLogic.swift in Sources */,
 				A60000000000000000000010 /* SSEParser.swift in Sources */,
 				A60000000000000000000011 /* APIClient.swift in Sources */,
+				E60000000000000000000001 /* EdgeCredential.swift in Sources */,
+				E60000000000000000000002 /* EdgeCredentialStore.swift in Sources */,
 				B60000000000000000000001 /* TrackingModels.swift in Sources */,
 				B60000000000000000000002 /* TrackingProtocol.swift in Sources */,
 				B60000000000000000000003 /* TrackingSignal.swift in Sources */,
@@ -714,16 +722,16 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
 				CODE_SIGN_ENTITLEMENTS = Stuga/Stuga.entitlements;
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = L8DR3K594B;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Stuga/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -747,16 +755,16 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_STYLE = Automatic;
 				CODE_SIGN_ENTITLEMENTS = Stuga/Stuga.entitlements;
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = L8DR3K594B;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Stuga/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -780,10 +788,10 @@
 				CODE_SIGN_ENTITLEMENTS = StugaWidget/StugaWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = L8DR3K594B;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = StugaWidget/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../../Frameworks",
@@ -805,10 +813,10 @@
 				CODE_SIGN_ENTITLEMENTS = StugaWidget/StugaWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = L8DR3K594B;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = StugaWidget/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../../Frameworks",
@@ -831,7 +839,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = L8DR3K594B;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = StugaWatch/Info.plist;
@@ -860,7 +868,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = L8DR3K594B;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = StugaWatch/Info.plist;

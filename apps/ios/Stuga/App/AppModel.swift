@@ -35,6 +35,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var phase: Phase = .starting
     @Published private(set) var serverAddress: ServerAddress?
     @Published private(set) var serverVersion: String?
+    @Published private(set) var edgeAccessRequired = false
     @Published private(set) var session: AppSession?
     @Published private(set) var properties: [StugaProperty] = []
     @Published private(set) var houses: [House] = []
@@ -112,6 +113,7 @@ final class AppModel: ObservableObject {
         fileURL: CompanionCacheStore.defaultFileURL()
     )
     private let widgetStore = CompanionWidgetSnapshotStore()
+    private let edgeCredentialStore = EdgeCredentialStore()
     private var historyCache: [String: CompanionHistorySeries] = [:]
     private var cachedAccountIdentity: String?
     let mobileTracking = MobileTrackingController()
@@ -305,6 +307,11 @@ final class AppModel: ObservableObject {
             ?? ""
     }
 
+    var suggestedEdgeCredential: EdgeCredential? {
+        guard let address = try? ServerAddress(suggestedServerAddress) else { return nil }
+        return edgeCredentialStore.credential(serverOrigin: address.origin.absoluteString)
+    }
+
     func start() async {
         guard let saved = UserDefaults.standard.string(forKey: DefaultsKey.server) else {
             phase = .serverSetup
@@ -324,14 +331,25 @@ final class AppModel: ObservableObject {
             }
         } catch {
             errorMessage = friendlyMessage(for: error)
+            edgeAccessRequired = isEdgeAccessFailure(error)
             phase = .serverSetup
         }
     }
 
-    func connect(to input: String) async {
+    func connect(to input: String, edgeClientID: String, edgeClientSecret: String) async {
         errorMessage = nil
+        edgeAccessRequired = false
         do {
             let address = try ServerAddress(input)
+            let origin = address.origin.absoluteString
+            if let credential = try EdgeCredential.optional(
+                clientID: edgeClientID,
+                clientSecret: edgeClientSecret
+            ) {
+                try edgeCredentialStore.save(credential, serverOrigin: origin)
+            } else {
+                edgeCredentialStore.remove(serverOrigin: origin)
+            }
             let previousValue = UserDefaults.standard.string(forKey: DefaultsKey.server)
             serverAddress = address
             UserDefaults.standard.set(address.origin.absoluteString, forKey: DefaultsKey.server)
@@ -340,7 +358,11 @@ final class AppModel: ObservableObject {
                previousAddress != address {
                 equipmentObservationEnabled = false
                 UserDefaults.standard.set(false, forKey: DefaultsKey.equipmentObservation)
-                let previousClient = StugaAPIClient(address: previousAddress)
+                let previousOrigin = previousAddress.origin.absoluteString
+                let previousClient = StugaAPIClient(
+                    address: previousAddress,
+                    edgeCredential: edgeCredentialStore.credential(serverOrigin: previousOrigin)
+                )
                 if let registrationID = UserDefaults.standard.string(
                     forKey: DefaultsKey.notificationRegistration
                 ) {
@@ -376,6 +398,7 @@ final class AppModel: ObservableObject {
             }
         } catch {
             errorMessage = friendlyMessage(for: error)
+            edgeAccessRequired = isEdgeAccessFailure(error)
             phase = .serverSetup
         }
     }
@@ -1405,7 +1428,12 @@ final class AppModel: ObservableObject {
             )
             todayContext = cached.todayContext
         }
-        let client = StugaAPIClient(address: address)
+        let client = StugaAPIClient(
+            address: address,
+            edgeCredential: edgeCredentialStore.credential(
+                serverOrigin: address.origin.absoluteString
+            )
+        )
         let health = try await client.health()
         guard generation == requestGeneration else { return }
         self.client = client
@@ -1627,7 +1655,12 @@ final class AppModel: ObservableObject {
         }
         stopEventLoop()
         clearWorkspace()
-        client = StugaAPIClient(address: address)
+        client = StugaAPIClient(
+            address: address,
+            edgeCredential: edgeCredentialStore.credential(
+                serverOrigin: address.origin.absoluteString
+            )
+        )
         serverAddress = address
         session = cache.session
         properties = cache.properties
@@ -2218,8 +2251,17 @@ final class AppModel: ObservableObject {
         errorMessage = friendlyMessage(for: error)
     }
 
+    private func isEdgeAccessFailure(_ error: Error) -> Bool {
+        if error is EdgeCredential.ValidationError { return true }
+        guard let error = error as? StugaAPIError, let code = error.code else { return false }
+        return code == "EDGE_ACCESS_REQUIRED" || code == "EDGE_ACCESS_REJECTED"
+    }
+
     private func friendlyMessage(for error: Error) -> String {
         if let error = error as? ServerAddress.ValidationError {
+            return error.localizedDescription
+        }
+        if let error = error as? EdgeCredential.ValidationError {
             return error.localizedDescription
         }
         if let error = error as? StugaAPIError {

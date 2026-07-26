@@ -98,6 +98,9 @@ final class CompanionLogicTests: XCTestCase {
     }
 
     func testImperialDisplayConvertsOnlyTemperature() {
+        // The formatter is deliberately locale-aware, so the expected decimal
+        // separator has to come from the running locale rather than a literal.
+        let expectedFahrenheit = 68.0.formatted(.number.precision(.fractionLength(1)))
         XCTAssertEqual(
             MetricValueFormatter.text(
                 value: 20,
@@ -106,7 +109,7 @@ final class CompanionLogicTests: XCTestCase {
                 metric: "temperature",
                 units: .imperial
             ),
-            "68.0 °F"
+            "\(expectedFahrenheit) °F"
         )
         XCTAssertEqual(
             MetricValueFormatter.text(

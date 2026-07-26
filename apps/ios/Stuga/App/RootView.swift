@@ -10,7 +10,10 @@ struct RootView: View {
             case .starting:
                 launchView
             case .serverSetup:
-                ServerSetupView(initialAddress: model.suggestedServerAddress)
+                ServerSetupView(
+                    initialAddress: model.suggestedServerAddress,
+                    initialEdgeCredential: model.suggestedEdgeCredential
+                )
             case .signIn:
                 SignInView()
             case .ownerSetupRequired:
@@ -37,11 +40,17 @@ struct RootView: View {
 private struct ServerSetupView: View {
     @EnvironmentObject private var model: AppModel
     @State private var address: String
+    @State private var edgeClientID: String
+    @State private var edgeClientSecret: String
+    @State private var showsEdgeAccess: Bool
     @State private var isConnecting = false
     @FocusState private var addressFocused: Bool
 
-    init(initialAddress: String) {
+    init(initialAddress: String, initialEdgeCredential: EdgeCredential?) {
         _address = State(initialValue: initialAddress)
+        _edgeClientID = State(initialValue: initialEdgeCredential?.clientID ?? "")
+        _edgeClientSecret = State(initialValue: initialEdgeCredential?.clientSecret ?? "")
+        _showsEdgeAccess = State(initialValue: initialEdgeCredential != nil)
     }
 
     var body: some View {
@@ -81,6 +90,40 @@ private struct ServerSetupView: View {
                     }
                 }
 
+                StugaCard {
+                    DisclosureGroup(isExpanded: $showsEdgeAccess) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("Only needed when your address sits behind Cloudflare Access. Create a service token in Zero Trust and allow it on the Access policy for this hostname.")
+                                .font(.caption)
+                                .foregroundStyle(StugaTheme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text("Client ID")
+                                .font(.subheadline.weight(.semibold))
+                            TextField("0123abc.access", text: $edgeClientID)
+                                .textContentType(.username)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .stugaTextField()
+                            Text("Client secret")
+                                .font(.subheadline.weight(.semibold))
+                            SecureField("Client secret", text: $edgeClientSecret)
+                                .textContentType(.password)
+                                .submitLabel(.go)
+                                .onSubmit { connect() }
+                                .stugaTextField()
+                            Text("The token is stored in this iPhone’s Keychain and sent only to this HTTPS address.")
+                                .font(.caption)
+                                .foregroundStyle(StugaTheme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.top, 12)
+                    } label: {
+                        Text("Cloudflare Access token")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .tint(StugaTheme.action)
+                }
+
                 if let error = model.errorMessage {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
                         .font(.subheadline)
@@ -105,14 +148,24 @@ private struct ServerSetupView: View {
             .padding(24)
         }
         .scrollDismissesKeyboard(.interactively)
-        .onAppear { addressFocused = address.isEmpty }
+        .onAppear {
+            addressFocused = address.isEmpty
+            if model.edgeAccessRequired { showsEdgeAccess = true }
+        }
+        .onChange(of: model.edgeAccessRequired) { _, required in
+            if required { showsEdgeAccess = true }
+        }
     }
 
     private func connect() {
         guard !isConnecting else { return }
         isConnecting = true
         Task {
-            await model.connect(to: address)
+            await model.connect(
+                to: address,
+                edgeClientID: edgeClientID,
+                edgeClientSecret: edgeClientSecret
+            )
             isConnecting = false
         }
     }

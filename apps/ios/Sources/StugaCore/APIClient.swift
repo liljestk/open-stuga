@@ -11,6 +11,24 @@ public struct StugaAPIError: LocalizedError, Equatable, Sendable {
     public var errorDescription: String? { message }
 }
 
+/// Stops a redirect from carrying the Access service token to another host.
+/// Cloudflare answers an unauthenticated request with a redirect to its own
+/// login domain, and following it would both hand over the secret and hide the
+/// challenge behind an HTML page the caller cannot read.
+final class SameHostRedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        let origin = task.originalRequest?.url?.host?.lowercased()
+        let destination = request.url?.host?.lowercased()
+        completionHandler(origin == destination ? request : nil)
+    }
+}
+
 public actor StugaAPIClient {
     private struct ErrorEnvelope: Decodable {
         struct Payload: Decodable {
@@ -97,12 +115,19 @@ public actor StugaAPIClient {
 
     public let address: ServerAddress
     private let session: URLSession
+    private let edgeCredential: EdgeCredential?
+    private let redirectGuard = SameHostRedirectGuard()
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
     private var csrfToken: String?
 
-    public init(address: ServerAddress, session: URLSession? = nil) {
+    public init(
+        address: ServerAddress,
+        edgeCredential: EdgeCredential? = nil,
+        session: URLSession? = nil
+    ) {
         self.address = address
+        self.edgeCredential = edgeCredential
         if let session {
             self.session = session
         } else {
@@ -639,15 +664,29 @@ public actor StugaAPIClient {
         #else
         let url = address.apiURL(version: 1, path: "/events")
         let session = session
+        let edgeCredential = edgeCredential
+        let redirectGuard = redirectGuard
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     var request = URLRequest(url: url)
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-                    let (bytes, response) = try await session.bytes(for: request)
-                    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                    Self.apply(edgeCredential, to: &request)
+                    let (bytes, response) = try await session.bytes(
+                        for: request,
+                        delegate: redirectGuard
+                    )
+                    let http = response as? HTTPURLResponse
+                    if let http,
+                       let challenge = Self.edgeChallenge(
+                           http,
+                           hasCredential: edgeCredential != nil
+                       ) {
+                        throw challenge
+                    }
+                    guard http?.statusCode == 200 else {
                         throw StugaAPIError(
-                            status: (response as? HTTPURLResponse)?.statusCode ?? 0,
+                            status: http?.statusCode ?? 0,
                             code: nil,
                             message: "The live connection could not be established."
                         )
@@ -683,15 +722,29 @@ public actor StugaAPIClient {
         #else
         let url = address.apiURL(version: 1, path: "/system/updates/events")
         let session = session
+        let edgeCredential = edgeCredential
+        let redirectGuard = redirectGuard
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     var request = URLRequest(url: url)
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-                    let (bytes, response) = try await session.bytes(for: request)
-                    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                    Self.apply(edgeCredential, to: &request)
+                    let (bytes, response) = try await session.bytes(
+                        for: request,
+                        delegate: redirectGuard
+                    )
+                    let http = response as? HTTPURLResponse
+                    if let http,
+                       let challenge = Self.edgeChallenge(
+                           http,
+                           hasCredential: edgeCredential != nil
+                       ) {
+                        throw challenge
+                    }
+                    guard http?.statusCode == 200 else {
                         throw StugaAPIError(
-                            status: (response as? HTTPURLResponse)?.statusCode ?? 0,
+                            status: http?.statusCode ?? 0,
                             code: nil,
                             message: "Live system update status is unavailable."
                         )
@@ -740,6 +793,8 @@ public actor StugaAPIClient {
             path: "/properties/\(escaped(propertyID))/tracking-stream"
         )
         let session = session
+        let edgeCredential = edgeCredential
+        let redirectGuard = redirectGuard
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -748,10 +803,22 @@ public actor StugaAPIClient {
                     if let lastEventID {
                         request.setValue(String(lastEventID), forHTTPHeaderField: "Last-Event-ID")
                     }
-                    let (bytes, response) = try await session.bytes(for: request)
-                    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                    Self.apply(edgeCredential, to: &request)
+                    let (bytes, response) = try await session.bytes(
+                        for: request,
+                        delegate: redirectGuard
+                    )
+                    let http = response as? HTTPURLResponse
+                    if let http,
+                       let challenge = Self.edgeChallenge(
+                           http,
+                           hasCredential: edgeCredential != nil
+                       ) {
+                        throw challenge
+                    }
+                    guard http?.statusCode == 200 else {
                         throw StugaAPIError(
-                            status: (response as? HTTPURLResponse)?.statusCode ?? 0,
+                            status: http?.statusCode ?? 0,
                             code: nil,
                             message: "The live equipment connection could not be established."
                         )
@@ -786,6 +853,39 @@ public actor StugaAPIClient {
     }
 
     private struct EmptyResponse: Decodable {}
+
+    /// Cleartext local origins never carry the token; a service token is a
+    /// secret and Access only ever fronts the HTTPS hostname.
+    static func apply(_ credential: EdgeCredential?, to request: inout URLRequest) {
+        guard let credential, request.url?.scheme?.lowercased() == "https" else { return }
+        request.setValue(credential.clientID, forHTTPHeaderField: EdgeCredential.clientIDHeader)
+        request.setValue(
+            credential.clientSecret,
+            forHTTPHeaderField: EdgeCredential.clientSecretHeader
+        )
+    }
+
+    /// Recognises Cloudflare Access answering in Stuga's place. Without this the
+    /// caller decodes Cloudflare's HTML login page and reports it as malformed
+    /// Stuga data, which tells the person nothing about what to fix.
+    static func edgeChallenge(
+        _ response: HTTPURLResponse,
+        hasCredential: Bool
+    ) -> StugaAPIError? {
+        let authenticate = response.value(forHTTPHeaderField: "WWW-Authenticate") ?? ""
+        let host = response.url?.host?.lowercased() ?? ""
+        let challenged = authenticate.lowercased().hasPrefix("cloudflare-access")
+            || host == "cloudflareaccess.com"
+            || host.hasSuffix(".cloudflareaccess.com")
+        guard challenged else { return nil }
+        return StugaAPIError(
+            status: response.statusCode,
+            code: hasCredential ? "EDGE_ACCESS_REJECTED" : "EDGE_ACCESS_REQUIRED",
+            message: hasCredential
+                ? "Cloudflare Access rejected this app’s service token. Check the token and the Access policy that should allow it."
+                : "This address is protected by Cloudflare Access. Add an Access service token so this app can connect."
+        )
+    }
 
     private func request<Response: Decodable>(
         version: Int,
@@ -843,13 +943,17 @@ public actor StugaAPIClient {
         if method != "GET", method != "HEAD", method != "OPTIONS", let csrfToken {
             request.setValue(csrfToken, forHTTPHeaderField: "X-CSRF-Token")
         }
+        Self.apply(edgeCredential, to: &request)
         for (name, value) in headers {
             request.setValue(value, forHTTPHeaderField: name)
         }
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: redirectGuard)
         guard let http = response as? HTTPURLResponse else {
             throw StugaAPIError(status: 0, code: nil, message: "Stuga returned an invalid response.")
+        }
+        if let challenge = Self.edgeChallenge(http, hasCredential: edgeCredential != nil) {
+            throw challenge
         }
         if http.statusCode == 204 {
             do {
@@ -882,9 +986,13 @@ public actor StugaAPIClient {
         var request = URLRequest(url: address.apiURL(version: version, path: path))
         request.httpMethod = "GET"
         request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: request)
+        Self.apply(edgeCredential, to: &request)
+        let (data, response) = try await session.data(for: request, delegate: redirectGuard)
         guard let http = response as? HTTPURLResponse else {
             throw StugaAPIError(status: 0, code: nil, message: "Stuga returned an invalid response.")
+        }
+        if let challenge = Self.edgeChallenge(http, hasCredential: edgeCredential != nil) {
+            throw challenge
         }
         guard (200..<300).contains(http.statusCode) else {
             if http.statusCode == 401 { csrfToken = nil }

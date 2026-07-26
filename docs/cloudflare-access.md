@@ -59,6 +59,36 @@ The local Stuga owner's login may be a private name such as `owner@stuga` and
 does not have to match the email that receives Cloudflare PINs. This separation
 prevents first-owner setup from replacing the only working edge identity.
 
+## Native apps behind Access
+
+Cloudflare Access answers an unauthenticated API request with a redirect to its
+hosted login page. A browser completes that flow; the iOS and Mac Catalyst app
+cannot, so every call — including `GET /api/v1/health` — receives Cloudflare's
+HTML login document instead of Stuga JSON. The app detects this and asks for a
+service token rather than reporting malformed Stuga data.
+
+A service token is the supported non-interactive identity. Unlike the Stugby
+protocol Bypass, Cloudflare still authenticates it and records it in Access
+logs, so the outer gate keeps an audit trail for the app.
+
+1. In Zero Trust, open **Access > Service Auth** and create a service token for
+   this hostname. Cloudflare shows the client secret once.
+2. Open the Access application covering the hostname and add a policy with
+   action **Service Auth** and the **Service Token** selector set to that token.
+   A separate policy is required; an Allow policy for human identities never
+   matches a token.
+3. In the app's **Connect to Stuga** screen, expand **Cloudflare Access token**
+   and enter the client ID and secret.
+
+The app stores the pair in the device Keychain, keyed by server origin, and
+sends `CF-Access-Client-Id`/`CF-Access-Client-Secret` only to that origin and
+only over HTTPS. A cleartext LAN address never receives the token.
+
+Passing Access is not signing in. The app still authenticates to a local Stuga
+account, and local roles and resource grants remain authoritative for every API
+request. Rotate the token in Zero Trust and re-enter it in the app; deleting the
+token in Cloudflare stops the app at the edge on its next request.
+
 ## Prerequisites and token scope
 
 Use a hostname in an active DNS zone already managed by the intended Cloudflare
