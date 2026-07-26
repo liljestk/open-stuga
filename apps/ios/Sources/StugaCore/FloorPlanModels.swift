@@ -410,12 +410,14 @@ public enum RoomPlanDraftBuilder {
     }
 
     private static func convexHull(_ values: [StugaPlanPoint]) -> [StugaPlanPoint] {
-        let points = Dictionary(
-            grouping: values,
-            by: { "\(Int(($0.x * 10_000).rounded())):\(Int(($0.y * 10_000).rounded()))" }
-        )
-        .compactMap { $0.value.first }
-        .sorted { $0.x == $1.x ? $0.y < $1.y : $0.x < $1.x }
+        let grouped: [String: [StugaPlanPoint]] = Dictionary(grouping: values) { point in
+            let x = Int((point.x * 10_000).rounded())
+            let y = Int((point.y * 10_000).rounded())
+            return "\(x):\(y)"
+        }
+        let points = grouped.values
+            .compactMap { $0.first }
+            .sorted { $0.x == $1.x ? $0.y < $1.y : $0.x < $1.x }
         guard points.count > 2 else { return points }
 
         var lower: [StugaPlanPoint] = []
