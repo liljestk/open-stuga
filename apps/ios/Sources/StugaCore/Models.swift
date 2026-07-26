@@ -26,12 +26,76 @@ public struct HealthResponse: Codable, Equatable, Sendable {
     public let apiVersion: String
 }
 
+public struct StugbyPropertyLink: Codable, Equatable, Sendable {
+    public let stugbyId: String
+    public let authorityNodeId: String
+    public let isAuthority: Bool
+    public let editPolicy: String
+    public let syncState: String
+    public let authorityEpoch: Int
+    public let lastSyncedRevision: Int
+    public let pendingChangeCount: Int
+    public let conflictCount: Int
+    public let detachedAt: String?
+
+    public var isForeignSharedProperty: Bool {
+        !isAuthority && syncState != "detached"
+    }
+
+    public var isReadOnly: Bool {
+        isForeignSharedProperty && editPolicy == "read-only"
+    }
+}
+
+public struct StugbyHouseLink: Codable, Equatable, Sendable {
+    public let stugbyId: String
+    public let authorityNodeId: String
+    public let publicationId: String
+    public let ownership: String
+    public let editPolicy: String
+    public let syncState: String
+    public let authorityEpoch: Int
+    public let pendingChangeCount: Int
+    public let conflictCount: Int
+    public let recoveryState: String
+    public let designatedSuccessorNodeId: String?
+    public let recoverySyncedThrough: String?
+    public let detachedAt: String?
+
+    public var isForeignSharedHome: Bool {
+        ownership == "shared" && syncState != "detached"
+    }
+
+    public var isReadOnly: Bool {
+        isForeignSharedHome && editPolicy == "read-only"
+    }
+}
+
 public struct StugaProperty: Codable, Identifiable, Equatable, Sendable {
     public let id: String
     public let name: String
     public let description: String?
+    public let stugby: StugbyPropertyLink?
     public let createdAt: String
     public let updatedAt: String
+}
+
+public struct HouseLocation: Codable, Equatable, Sendable {
+    public let latitude: Double
+    public let longitude: Double
+    public let label: String?
+    public let countryCode: String?
+    public let source: String?
+    public let confidence: String?
+    public let discoveredAt: String?
+    public let userOverridden: Bool?
+}
+
+public struct HouseMapPlacement: Codable, Equatable, Sendable {
+    public let latitude: Double
+    public let longitude: Double
+    public let metersPerPlanUnit: Double
+    public let footprintFloorId: String?
 }
 
 public struct House: Codable, Identifiable, Equatable, Sendable {
@@ -39,7 +103,10 @@ public struct House: Codable, Identifiable, Equatable, Sendable {
     public let propertyId: String
     public let name: String
     public let timezone: String
+    public let location: HouseLocation?
+    public let mapPlacement: HouseMapPlacement?
     public let floors: [StugaFloor]
+    public let stugby: StugbyHouseLink?
     public let createdAt: String
     public let updatedAt: String
 
@@ -48,7 +115,10 @@ public struct House: Codable, Identifiable, Equatable, Sendable {
         propertyId: String,
         name: String,
         timezone: String,
+        location: HouseLocation? = nil,
+        mapPlacement: HouseMapPlacement? = nil,
         floors: [StugaFloor] = [],
+        stugby: StugbyHouseLink? = nil,
         createdAt: String,
         updatedAt: String
     ) {
@@ -56,7 +126,10 @@ public struct House: Codable, Identifiable, Equatable, Sendable {
         self.propertyId = propertyId
         self.name = name
         self.timezone = timezone
+        self.location = location
+        self.mapPlacement = mapPlacement
         self.floors = floors
+        self.stugby = stugby
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -66,7 +139,10 @@ public struct House: Codable, Identifiable, Equatable, Sendable {
         case propertyId
         case name
         case timezone
+        case location
+        case mapPlacement
         case floors
+        case stugby
         case createdAt
         case updatedAt
     }
@@ -77,10 +153,168 @@ public struct House: Codable, Identifiable, Equatable, Sendable {
         propertyId = try values.decode(String.self, forKey: .propertyId)
         name = try values.decode(String.self, forKey: .name)
         timezone = try values.decode(String.self, forKey: .timezone)
+        location = try values.decodeIfPresent(HouseLocation.self, forKey: .location)
+        mapPlacement = try values.decodeIfPresent(HouseMapPlacement.self, forKey: .mapPlacement)
         floors = try values.decodeIfPresent([StugaFloor].self, forKey: .floors) ?? []
+        stugby = try values.decodeIfPresent(StugbyHouseLink.self, forKey: .stugby)
         createdAt = try values.decode(String.self, forKey: .createdAt)
         updatedAt = try values.decode(String.self, forKey: .updatedAt)
     }
+}
+
+public struct SystemUpdateSettings: Codable, Equatable, Sendable {
+    public let mode: String
+    public let includePrereleases: Bool
+    public let checkIntervalHours: Int
+    public let updateTime: String
+    public let updateDays: [String]
+    public let timezone: String
+}
+
+public struct SystemRelease: Codable, Equatable, Sendable {
+    public let version: String
+    public let tagName: String
+    public let name: String
+    public let notes: String
+    public let publishedAt: String
+    public let url: String
+    public let prerelease: Bool
+}
+
+public struct SystemUpdateActivity: Codable, Equatable, Sendable {
+    public let phase: String
+    public let at: String
+    public let detail: String
+}
+
+public struct SystemUpdateOperation: Codable, Equatable, Sendable {
+    public let id: String
+    public let version: String
+    public let tagName: String
+    public let phase: String
+    public let requestedAt: String
+    public let startedAt: String?
+    public let completedAt: String?
+    public let updatedAt: String
+    public let phaseStartedAt: String
+    public let detail: String?
+    public let previousVersion: String
+    public let activity: [SystemUpdateActivity]
+
+    public var isActive: Bool {
+        [
+            "queued",
+            "preparing",
+            "backup",
+            "pulling",
+            "applying",
+            "verifying",
+            "rolling-back",
+        ].contains(phase)
+    }
+
+    public var completedProgressSteps: Int {
+        let phases = ["preparing", "backup", "pulling", "applying", "verifying"]
+        if phase == "complete" { return phases.count }
+        if let index = phases.firstIndex(of: phase) { return index }
+        for entry in activity.reversed() {
+            if let index = phases.firstIndex(of: entry.phase) {
+                return phase == "failed" || phase == "rolling-back"
+                    ? index
+                    : min(index + 1, phases.count)
+            }
+        }
+        return 0
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case version
+        case tagName
+        case phase
+        case requestedAt
+        case startedAt
+        case completedAt
+        case updatedAt
+        case phaseStartedAt
+        case detail
+        case previousVersion
+        case activity
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        version = try values.decode(String.self, forKey: .version)
+        tagName = try values.decode(String.self, forKey: .tagName)
+        phase = try values.decode(String.self, forKey: .phase)
+        requestedAt = try values.decode(String.self, forKey: .requestedAt)
+        startedAt = try values.decodeIfPresent(String.self, forKey: .startedAt)
+        completedAt = try values.decodeIfPresent(String.self, forKey: .completedAt)
+        detail = try values.decodeIfPresent(String.self, forKey: .detail)
+        previousVersion = try values.decode(String.self, forKey: .previousVersion)
+        updatedAt = try values.decodeIfPresent(String.self, forKey: .updatedAt)
+            ?? completedAt
+            ?? startedAt
+            ?? requestedAt
+        phaseStartedAt = try values.decodeIfPresent(String.self, forKey: .phaseStartedAt)
+            ?? updatedAt
+        activity = try values.decodeIfPresent(
+            [SystemUpdateActivity].self,
+            forKey: .activity
+        ) ?? [
+            SystemUpdateActivity(
+                phase: phase,
+                at: phaseStartedAt,
+                detail: detail ?? phase
+            ),
+        ]
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(version, forKey: .version)
+        try values.encode(tagName, forKey: .tagName)
+        try values.encode(phase, forKey: .phase)
+        try values.encode(requestedAt, forKey: .requestedAt)
+        try values.encodeIfPresent(startedAt, forKey: .startedAt)
+        try values.encodeIfPresent(completedAt, forKey: .completedAt)
+        try values.encode(updatedAt, forKey: .updatedAt)
+        try values.encode(phaseStartedAt, forKey: .phaseStartedAt)
+        try values.encodeIfPresent(detail, forKey: .detail)
+        try values.encode(previousVersion, forKey: .previousVersion)
+        try values.encode(activity, forKey: .activity)
+    }
+}
+
+public struct SystemUpdateCapability: Codable, Equatable, Sendable {
+    public let available: Bool
+    public let runtime: String?
+    public let agentLastSeenAt: String?
+    public let reason: String
+}
+
+public struct SystemUpdateStatus: Codable, Equatable, Sendable {
+    public let currentVersion: String
+    public let latestVersion: String?
+    public let updateAvailable: Bool
+    public let latestRelease: SystemRelease?
+    public let releases: [SystemRelease]
+    public let lastCheckedAt: String?
+    public let checkError: String?
+    public let settings: SystemUpdateSettings
+    public let nextUpdateWindowAt: String?
+    public let capability: SystemUpdateCapability
+    public let operation: SystemUpdateOperation?
+}
+
+public struct SystemUpdateEvent: Codable, Equatable, Sendable {
+    public let currentVersion: String
+    public let latestVersion: String?
+    public let updateAvailable: Bool
+    public let capability: SystemUpdateCapability
+    public let operation: SystemUpdateOperation?
 }
 
 public struct Sensor: Codable, Identifiable, Equatable, Sendable {

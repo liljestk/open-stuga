@@ -23,11 +23,11 @@ struct HomeDashboardView: View {
                         Button(action: openCapture) {
                             Label("Quick capture", systemImage: "square.and.pencil")
                         }
-                        .disabled(model.isReadOnly)
+                        .disabled(model.selectedHomeReadOnly)
                         Button(action: openRoomScan) {
                             Label("Scan a room", systemImage: "viewfinder")
                         }
-                        .disabled(model.isReadOnly || model.usingCachedData)
+                        .disabled(model.selectedHomeReadOnly || model.usingCachedData)
                     } label: {
                         Label("Add", systemImage: "plus")
                     }
@@ -41,11 +41,15 @@ struct HomeDashboardView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 4) {
-                    if let property = model.selectedProperty {
-                        Text(property.name.uppercased())
-                            .font(.caption2.weight(.bold))
-                            .tracking(1.2)
-                            .foregroundStyle(StugaTheme.muted)
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        if let property = model.selectedProperty {
+                            Text(property.name.uppercased())
+                                .font(.caption2.weight(.bold))
+                                .tracking(1.2)
+                                .foregroundStyle(StugaTheme.muted)
+                        }
+                        Spacer(minLength: 8)
+                        HomeOriginPill(home: home)
                     }
                     Text("Here’s what matters now.")
                         .font(.title2.weight(.bold))
@@ -54,6 +58,7 @@ struct HomeDashboardView: View {
                 }
 
                 savedStateNotice
+                stugbyStateNotice(home)
                 attentionSection
                 currentStateSection
                 todaySection
@@ -65,6 +70,71 @@ struct HomeDashboardView: View {
             .frame(maxWidth: .infinity)
         }
         .refreshable { await model.refresh() }
+    }
+
+    @ViewBuilder
+    private func stugbyStateNotice(_ home: House) -> some View {
+        if let link = home.stugby {
+            let remote = link.isForeignSharedHome
+            let readOnly = link.isReadOnly
+            StugaCard {
+                VStack(alignment: .leading, spacing: 9) {
+                    HStack(alignment: .center, spacing: 10) {
+                        Image(systemName: remote ? "person.2.fill" : "house.fill")
+                            .foregroundStyle(remote ? StugaTheme.action : StugaTheme.ink)
+                        Text(remote ? "Remote Stugby Home" : "Your Stugby Home")
+                            .font(.headline)
+                        Spacer()
+                        StatusPill(
+                            label: stugbySyncLabel(link.syncState),
+                            systemImage: stugbySyncSymbol(link.syncState),
+                            color: stugbySyncColor(link.syncState)
+                        )
+                    }
+                    Text(
+                        remote
+                            ? readOnly
+                                ? "Another Stuga owns this Home. You can monitor it here, but shared edits are read-only."
+                                : "Another Stuga owns this Home and allows shared edits. Sensor and energy-source bindings remain with its owner."
+                            : "This Stuga remains the owner. Sharing does not move integration credentials or authority elsewhere."
+                    )
+                    .font(.subheadline)
+                    .foregroundStyle(StugaTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func stugbySyncLabel(_ state: String) -> String {
+        switch state {
+        case "current": "Current"
+        case "pending": "Syncing"
+        case "offline": "Offline"
+        case "conflict": "Conflict"
+        case "detached": "Detached"
+        default: state.capitalized
+        }
+    }
+
+    private func stugbySyncSymbol(_ state: String) -> String {
+        switch state {
+        case "current": "checkmark.circle.fill"
+        case "pending": "arrow.triangle.2.circlepath"
+        case "offline": "wifi.slash"
+        case "conflict": "exclamationmark.triangle.fill"
+        case "detached": "link.badge.plus"
+        default: "info.circle"
+        }
+    }
+
+    private func stugbySyncColor(_ state: String) -> Color {
+        switch state {
+        case "current", "detached": StugaTheme.success
+        case "pending", "offline": StugaTheme.warning
+        case "conflict": StugaTheme.critical
+        default: StugaTheme.muted
+        }
     }
 
     @ViewBuilder

@@ -46,7 +46,7 @@ struct EquipmentMapView: View {
     @State private var displayMode: DisplayMode = .list
     @State private var query = ""
     @State private var serviceFilter: ServiceFilter = .all
-    @State private var areaFilterID = ""
+    @State private var placementFilterID = ""
     @State private var conditionFilter: ConditionFilter = .all
     @State private var showingScanner = false
     @State private var showingEquipmentEditor = false
@@ -57,8 +57,8 @@ struct EquipmentMapView: View {
                 StugaScreenBackground()
                 if model.propertyInventory == nil {
                     unavailable
-                } else if displayMode == .map, let snapshot = model.trackingSnapshot {
-                    content(snapshot)
+                } else if displayMode == .map {
+                    mapContent(snapshot: model.trackingSnapshot)
                 } else {
                     inventoryList
                 }
@@ -67,13 +67,12 @@ struct EquipmentMapView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        if !model.isReadOnly {
+                        if !model.selectedPropertyReadOnly {
                             Button {
                                 showingEquipmentEditor = true
                             } label: {
                                 Label("Add equipment", systemImage: "plus")
                             }
-                            .disabled(model.selectedPropertyAreas.isEmpty)
                             Divider()
                         }
                         Button {
@@ -145,9 +144,9 @@ struct EquipmentMapView: View {
             resetFilters()
         }
         .onChange(of: model.propertyInventory?.syncToken) {
-            if !areaFilterID.isEmpty,
-               !model.selectedPropertyAreas.contains(where: { $0.id == areaFilterID }) {
-                areaFilterID = ""
+            if !placementFilterID.isEmpty,
+               !validPlacementFilterIDs.contains(placementFilterID) {
+                placementFilterID = ""
             }
         }
         .onChange(of: model.requestedEquipmentID) { _, equipmentID in
@@ -160,8 +159,9 @@ struct EquipmentMapView: View {
         }
     }
 
-    private func content(_ snapshot: TrackingMapSnapshot) -> some View {
-        let assets = filteredAssets(snapshot.assets)
+    private func mapContent(snapshot: TrackingMapSnapshot?) -> some View {
+        let zones = snapshot?.zones ?? model.selectedPropertyAreas
+        let assets = filteredAssets(snapshot?.assets ?? [])
         let selected = assets.first { $0.id == selectedEquipmentID }
         return VStack(spacing: 0) {
             VStack(spacing: 10) {
@@ -180,8 +180,9 @@ struct EquipmentMapView: View {
             .padding(.vertical, 8)
 
             Map(position: $cameraPosition) {
-                if snapshot.settings.propertyBoundary.count >= 3 {
-                    MapPolygon(coordinates: snapshot.settings.propertyBoundary.map(\.clCoordinate))
+                if let boundary = snapshot?.settings.propertyBoundary,
+                   boundary.count >= 3 {
+                    MapPolygon(coordinates: boundary.map(\.clCoordinate))
                         .foregroundStyle(StugaTheme.action.opacity(0.05))
                         .stroke(StugaTheme.action.opacity(0.55), lineWidth: 1.5)
                 }
@@ -195,13 +196,13 @@ struct EquipmentMapView: View {
                 }
                 if let selected,
                    let zoneID = selected.position?.zoneId,
-                   let zone = snapshot.zones.first(where: { $0.id == zoneID }),
+                   let zone = zones.first(where: { $0.id == zoneID }),
                    zone.polygon.count >= 3 {
                     MapPolygon(coordinates: zone.polygon.map(\.clCoordinate))
                         .foregroundStyle(StugaTheme.warning.opacity(0.14))
                         .stroke(StugaTheme.warning, lineWidth: 2)
                 }
-                ForEach(snapshot.members) { member in
+                ForEach(snapshot?.members ?? []) { member in
                     MapCircle(
                         center: member.coordinate.clCoordinate,
                         radius: member.horizontalAccuracyMeters
@@ -213,7 +214,7 @@ struct EquipmentMapView: View {
                     }
                 }
                 ForEach(assets) { asset in
-                    if let coordinate = displayCoordinate(for: asset, in: snapshot) {
+                    if let coordinate = displayCoordinate(for: asset, zones: zones) {
                         Annotation(asset.equipment.name, coordinate: coordinate) {
                             Button {
                                 selectedEquipmentID = asset.id
@@ -224,7 +225,7 @@ struct EquipmentMapView: View {
                                 )
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel(markerAccessibility(asset, snapshot: snapshot))
+                            .accessibilityLabel(markerAccessibility(asset, zones: zones))
                         }
                     }
                 }
@@ -242,10 +243,16 @@ struct EquipmentMapView: View {
             }
             .frame(minHeight: 280)
 
-            assetTray(assets, snapshot: snapshot)
+            assetTray(assets, zones: zones)
                 .frame(maxHeight: 260)
         }
-        .refreshable { await model.refreshTracking() }
+        .refreshable {
+            if snapshot == nil {
+                await model.refresh()
+            } else {
+                await model.refreshTracking()
+            }
+        }
     }
 
     private var inventoryList: some View {
@@ -254,7 +261,7 @@ struct EquipmentMapView: View {
             LazyVStack(alignment: .leading, spacing: 12) {
                 inventoryOverview
 
-                if model.trackingSnapshot != nil {
+                if mapAvailable {
                     displayModePicker
                 }
 
@@ -292,8 +299,7 @@ struct EquipmentMapView: View {
                             Text(emptyInventoryMessage)
                         }
                         if model.selectedPropertyEquipment.isEmpty,
-                           !model.isReadOnly,
-                           !model.selectedPropertyAreas.isEmpty {
+                           !model.selectedPropertyReadOnly {
                             Button {
                                 showingEquipmentEditor = true
                             } label: {
@@ -326,7 +332,9 @@ struct EquipmentMapView: View {
             model.trackedState(for: $0.id) != nil
         }.count
         let attentionCount = equipment.filter(needsAttention).count
-        let locationCount = Set(equipment.map(\.areaId)).count
+        let placedCount = equipment.filter {
+            $0.areaId != nil || $0.houseId != nil || $0.location != nil
+        }.count
 
         return StugaCard {
             VStack(alignment: .leading, spacing: 14) {
@@ -361,8 +369,8 @@ struct EquipmentMapView: View {
                                 : StugaTheme.success
                     )
                     InventorySummaryMetric(
-                        value: "\(locationCount)",
-                        label: "Assigned areas",
+                        value: "\(placedCount)",
+                        label: "Placed",
                         systemImage: "mappin.and.ellipse",
                         color: StugaTheme.muted
                     )
@@ -446,40 +454,60 @@ struct EquipmentMapView: View {
 
                 Menu {
                     Button {
-                        areaFilterID = ""
+                        placementFilterID = ""
                     } label: {
-                        if areaFilterID.isEmpty {
-                            Label("All areas", systemImage: "checkmark")
+                        if placementFilterID.isEmpty {
+                            Label("All locations", systemImage: "checkmark")
                         } else {
-                            Text("All areas")
+                            Text("All locations")
                         }
                     }
                     ForEach(model.selectedPropertyAreas.sorted {
                         $0.name.localizedStandardCompare($1.name) == .orderedAscending
                     }) { area in
                         Button {
-                            areaFilterID = area.id
+                            placementFilterID = "area:\(area.id)"
                         } label: {
-                            if areaFilterID == area.id {
-                                Label(area.name, systemImage: "checkmark")
+                            if placementFilterID == "area:\(area.id)" {
+                                Label("Area · \(area.name)", systemImage: "checkmark")
                             } else {
-                                Text(area.name)
+                                Text("Area · \(area.name)")
                             }
+                        }
+                    }
+                    ForEach(model.selectedPropertyHouses) { home in
+                        Button {
+                            placementFilterID = "home:\(home.id)"
+                        } label: {
+                            if placementFilterID == "home:\(home.id)" {
+                                Label("Home · \(home.name)", systemImage: "checkmark")
+                            } else {
+                                Text("Home · \(home.name)")
+                            }
+                        }
+                    }
+                    Button {
+                        placementFilterID = "unassigned"
+                    } label: {
+                        if placementFilterID == "unassigned" {
+                            Label("Unassigned", systemImage: "checkmark")
+                        } else {
+                            Text("Unassigned")
                         }
                     }
                 } label: {
                     filterChip(
-                        areaFilterID.isEmpty
-                            ? "Area: All"
-                            : model.areaName(for: areaFilterID) ?? "Area",
+                        placementFilterID.isEmpty
+                            ? "Location: All"
+                            : placementFilterName,
                         systemImage: "mappin.and.ellipse"
                     )
                 }
                 .accessibilityLabel(
-                    "Assigned area filter, "
-                        + (areaFilterID.isEmpty
+                    "Expected location filter, "
+                        + (placementFilterID.isEmpty
                             ? "all"
-                            : model.areaName(for: areaFilterID) ?? "selected area")
+                            : placementFilterName)
                 )
 
                 Menu {
@@ -551,7 +579,7 @@ struct EquipmentMapView: View {
         } label: {
             InventoryEquipmentRow(
                 equipment: item,
-                areaName: model.areaName(for: item.areaId),
+                placementName: model.equipmentPlacementName(item),
                 tracked: tracked,
                 trackingAreaName: tracked?.position?.zoneId
                     .flatMap { model.areaName(for: $0) }
@@ -564,10 +592,7 @@ struct EquipmentMapView: View {
         if !model.selectedPropertyEquipment.isEmpty {
             return "Change or clear the search and filters."
         }
-        if model.selectedPropertyAreas.isEmpty {
-            return "Add a Property area in Stuga before assigning equipment."
-        }
-        if model.isReadOnly {
+        if model.selectedPropertyReadOnly {
             return "No equipment is available to this account in the selected Property."
         }
         return "Add the first item, then print or scan its Stuga QR tag."
@@ -617,13 +642,13 @@ struct EquipmentMapView: View {
 
     private func assetTray(
         _ assets: [TrackedEquipmentState],
-        snapshot: TrackingMapSnapshot
+        zones: [PropertyArea]
     ) -> some View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 if assets.isEmpty {
                     VStack(spacing: 6) {
-                        Label("No tracked items match", systemImage: "map")
+                        Label("No mapped items match", systemImage: "map")
                             .font(.subheadline.weight(.semibold))
                         Text("Change the inventory filters or return to List.")
                             .font(.caption)
@@ -633,7 +658,7 @@ struct EquipmentMapView: View {
                     .padding(20)
                 }
                 let unknown = assets.filter {
-                    displayCoordinate(for: $0, in: snapshot) == nil
+                    displayCoordinate(for: $0, zones: zones) == nil
                 }
                 if !unknown.isEmpty {
                     HStack {
@@ -653,7 +678,7 @@ struct EquipmentMapView: View {
                     } label: {
                         EquipmentRow(
                             asset: asset,
-                            zoneName: zoneName(for: asset, snapshot: snapshot)
+                            zoneName: zoneName(for: asset, zones: zones)
                         )
                     }
                     .buttonStyle(.plain)
@@ -674,9 +699,10 @@ struct EquipmentMapView: View {
 
     private func filteredAssets(_ assets: [TrackedEquipmentState]) -> [TrackedEquipmentState] {
         let available = Dictionary(uniqueKeysWithValues: assets.map { ($0.id, $0) })
-        return filteredInventory(model.selectedPropertyEquipment).compactMap { item in
-            guard let asset = available[item.id] else { return nil }
-            return model.trackedState(for: item.id) ?? asset
+        return filteredInventory(model.selectedPropertyEquipment).map { item in
+            model.trackedState(for: item.id)
+                ?? available[item.id]
+                ?? TrackedEquipmentState(equipment: item)
         }
     }
 
@@ -686,7 +712,8 @@ struct EquipmentMapView: View {
             if let status = serviceFilter.status, item.status != status {
                 return false
             }
-            if !areaFilterID.isEmpty, item.areaId != areaFilterID {
+            if !placementFilterID.isEmpty,
+               placementFilterKey(for: item) != placementFilterID {
                 return false
             }
             if !trimmedQuery.isEmpty {
@@ -697,7 +724,7 @@ struct EquipmentMapView: View {
                     item.model,
                     item.serialNumber,
                     item.notes,
-                    model.areaName(for: item.areaId),
+                    model.equipmentPlacementName(item),
                 ].compactMap { $0 }
                 guard values.contains(where: {
                     $0.localizedCaseInsensitiveContains(trimmedQuery)
@@ -741,56 +768,148 @@ struct EquipmentMapView: View {
         )
     }
 
+    private var mapAvailable: Bool {
+        if model.trackingSnapshot != nil { return true }
+        return model.selectedPropertyEquipment.contains { item in
+            if item.location != nil { return true }
+            if let houseID = item.houseId,
+               let home = model.selectedPropertyHouses.first(where: { $0.id == houseID }) {
+                return home.mapPlacement != nil || home.location != nil
+            }
+            if let areaID = item.areaId,
+               let area = model.selectedPropertyAreas.first(where: { $0.id == areaID }) {
+                return area.location != nil || !area.polygon.isEmpty
+            }
+            return false
+        }
+    }
+
     private var filtersAreActive: Bool {
         !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || serviceFilter != .all
-            || !areaFilterID.isEmpty
+            || !placementFilterID.isEmpty
             || conditionFilter != .all
     }
 
     private func resetFilters() {
         query = ""
         serviceFilter = .all
-        areaFilterID = ""
+        placementFilterID = ""
         conditionFilter = .all
     }
 
     private func displayCoordinate(
         for asset: TrackedEquipmentState,
-        in snapshot: TrackingMapSnapshot
+        zones: [PropertyArea]
     ) -> CLLocationCoordinate2D? {
-        if let coordinate = asset.position?.coordinate {
+        if let position = asset.position,
+           position.freshnessState != "unknown",
+           let coordinate = position.coordinate {
             return coordinate.clCoordinate
         }
-        guard let zoneID = asset.position?.zoneId,
-              let zone = snapshot.zones.first(where: { $0.id == zoneID }) else {
+        if let zoneID = asset.position?.zoneId,
+           let zone = zones.first(where: { $0.id == zoneID }) {
+            if let location = zone.location { return location.clCoordinate }
+            if !zone.polygon.isEmpty {
+                return CLLocationCoordinate2D(
+                    latitude: zone.polygon.map(\.latitude).reduce(0, +)
+                        / Double(zone.polygon.count),
+                    longitude: zone.polygon.map(\.longitude).reduce(0, +)
+                        / Double(zone.polygon.count)
+                )
+            }
+        }
+        if let location = asset.equipment.location {
+            return location.clCoordinate
+        }
+        if let houseID = asset.equipment.houseId,
+           let home = model.selectedPropertyHouses.first(where: { $0.id == houseID }) {
+            if let placement = home.mapPlacement {
+                return CLLocationCoordinate2D(
+                    latitude: placement.latitude,
+                    longitude: placement.longitude
+                )
+            }
+            if let location = home.location {
+                return CLLocationCoordinate2D(
+                    latitude: location.latitude,
+                    longitude: location.longitude
+                )
+            }
+        }
+        guard let areaID = asset.equipment.areaId,
+              let area = model.selectedPropertyAreas.first(where: { $0.id == areaID }) else {
             return nil
         }
-        if let location = zone.location { return location.clCoordinate }
-        guard !zone.polygon.isEmpty else { return nil }
+        if let location = area.location {
+            return location.clCoordinate
+        }
+        guard !area.polygon.isEmpty else { return nil }
         return CLLocationCoordinate2D(
-            latitude: zone.polygon.map(\.latitude).reduce(0, +) / Double(zone.polygon.count),
-            longitude: zone.polygon.map(\.longitude).reduce(0, +) / Double(zone.polygon.count)
+            latitude: area.polygon.map(\.latitude).reduce(0, +)
+                / Double(area.polygon.count),
+            longitude: area.polygon.map(\.longitude).reduce(0, +)
+                / Double(area.polygon.count)
         )
     }
 
     private func zoneName(
         for asset: TrackedEquipmentState,
-        snapshot: TrackingMapSnapshot
+        zones: [PropertyArea]
     ) -> String? {
         guard let zoneID = asset.position?.zoneId else { return nil }
-        return snapshot.zones.first { $0.id == zoneID }?.name
+        return zones.first { $0.id == zoneID }?.name
     }
 
     private func markerAccessibility(
         _ asset: TrackedEquipmentState,
-        snapshot: TrackingMapSnapshot
+        zones: [PropertyArea]
     ) -> String {
-        let location = TrackingPresentation.locationText(
-            asset,
-            zoneName: zoneName(for: asset, snapshot: snapshot)
-        )
+        let location: String
+        if asset.position == nil {
+            if asset.equipment.location != nil {
+                location = "Pinned expected location"
+            } else if asset.equipment.houseId != nil {
+                location = "Expected at assigned Home"
+            } else if asset.equipment.areaId != nil {
+                location = "Expected in assigned area"
+            } else {
+                location = "Unknown location"
+            }
+        } else {
+            location = TrackingPresentation.locationText(
+                asset,
+                zoneName: zoneName(for: asset, zones: zones)
+            )
+        }
         return "\(asset.equipment.name), \(location)"
+    }
+
+    private var validPlacementFilterIDs: Set<String> {
+        Set(
+            ["", "unassigned"]
+                + model.selectedPropertyAreas.map { "area:\($0.id)" }
+                + model.selectedPropertyHouses.map { "home:\($0.id)" }
+        )
+    }
+
+    private var placementFilterName: String {
+        if placementFilterID == "unassigned" { return "Unassigned" }
+        if placementFilterID.hasPrefix("area:") {
+            let id = String(placementFilterID.dropFirst("area:".count))
+            return model.areaName(for: id).map { "Area · \($0)" } ?? "Area"
+        }
+        if placementFilterID.hasPrefix("home:") {
+            let id = String(placementFilterID.dropFirst("home:".count))
+            return model.houseName(for: id).map { "Home · \($0)" } ?? "Home"
+        }
+        return "Location"
+    }
+
+    private func placementFilterKey(for equipment: AreaEquipment) -> String {
+        if let areaID = equipment.areaId { return "area:\(areaID)" }
+        if let houseID = equipment.houseId { return "home:\(houseID)" }
+        return "unassigned"
     }
 }
 
@@ -954,7 +1073,7 @@ private struct EquipmentRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(asset.equipment.name)
                     .font(.subheadline.weight(.semibold))
-                Text(TrackingPresentation.locationText(asset, zoneName: zoneName))
+                Text(locationText)
                     .font(.caption)
                     .foregroundStyle(StugaTheme.muted)
                     .lineLimit(1)
@@ -975,11 +1094,21 @@ private struct EquipmentRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
+
+    private var locationText: String {
+        guard asset.position == nil else {
+            return TrackingPresentation.locationText(asset, zoneName: zoneName)
+        }
+        if asset.equipment.location != nil { return "Pinned expected location" }
+        if asset.equipment.houseId != nil { return "Expected at assigned Home" }
+        if asset.equipment.areaId != nil { return "Expected in assigned area" }
+        return "Unknown location"
+    }
 }
 
 private struct InventoryEquipmentRow: View {
     let equipment: AreaEquipment
-    let areaName: String?
+    let placementName: String
     let tracked: TrackedEquipmentState?
     let trackingAreaName: String?
 
@@ -994,7 +1123,7 @@ private struct InventoryEquipmentRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(equipment.name)
                         .font(.subheadline.weight(.semibold))
-                    Text("\(equipment.kind.capitalized) · \(areaName ?? "Unknown area")")
+                    Text("\(equipment.kind.capitalized) · \(placementName)")
                         .font(.caption)
                         .foregroundStyle(StugaTheme.muted)
                         .lineLimit(1)

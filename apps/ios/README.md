@@ -7,7 +7,8 @@ intermediary app service.
 ## Included
 
 - Existing Stuga cookie authentication and CSRF protection
-- Property-aware Home selection
+- Property-aware Home selection with clear owned/remote Stugby origin, sync,
+  and edit-policy cues across the app, widgets, and Watch
 - Exception-first Home summary with live measurement freshness
 - Sensor list and native Swift Charts history
 - Workspace alert list and explicit alert acknowledgement
@@ -30,13 +31,17 @@ intermediary app service.
 - Opt-in, filtered Core Bluetooth equipment observation with a protected,
   bounded seven-day offline queue
 - Uncertainty-aware MapKit equipment map and foreground Find nearby guidance
-- Property-wide inventory with attention summary, search, service/area
-  filters, native add/edit, QR scanning, and printable labels
+- Property-wide inventory with attention summary, search, service/location
+  filters, native add/edit, QR scanning, printable labels, Home/area/unassigned
+  placement, and manual map pins
 - Equipment notes, issue reporting, borrowing, and returns
 - Explicit foreground-only member location sharing on the Property map
+- Owner/Admin visibility into installed and available versions, durable system
+  update progress, live reconnecting status, and recent update-agent activity
 
 Full setup, detailed floor-plan editing, analytics, maintenance planning, and
-administration remain in the web app.
+administration remain in the web app. The companion shows system-update status
+but sends update scheduling and installation changes to the web app.
 
 ## Open and run
 

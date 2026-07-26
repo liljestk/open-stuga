@@ -90,6 +90,37 @@ struct ConnectionStatusLine: View {
     }
 }
 
+struct HomeOriginPill: View {
+    let home: House
+
+    var body: some View {
+        let remote = home.stugby?.isForeignSharedHome == true
+        Label(
+            remote ? "Remote" : "Own",
+            systemImage: remote ? "person.2.fill" : "house.fill"
+        )
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(remote ? StugaTheme.action : StugaTheme.ink)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            (remote ? StugaTheme.action : StugaTheme.surfaceRaised).opacity(0.12)
+        )
+        .clipShape(Capsule())
+        .overlay {
+            Capsule().stroke(
+                remote ? StugaTheme.action.opacity(0.5) : StugaTheme.line,
+                lineWidth: 1
+            )
+        }
+        .accessibilityLabel(
+            remote
+                ? "Remote Home shared from another Stuga"
+                : "Home owned by this Stuga"
+        )
+    }
+}
+
 struct SensorConditionCard: View {
     @EnvironmentObject private var model: AppModel
     let condition: SensorCondition
@@ -168,11 +199,14 @@ struct HomePickerToolbar: ToolbarContent {
                                 Button {
                                     Task { await model.selectHome(home.id) }
                                 } label: {
-                                    if home.id == model.selectedHomeID {
-                                        Label(home.name, systemImage: "checkmark")
-                                    } else {
-                                        Text(home.name)
-                                    }
+                                    Label(
+                                        "\(home.name) · \(home.stugby?.isForeignSharedHome == true ? "Remote" : "Own")",
+                                        systemImage: home.id == model.selectedHomeID
+                                            ? "checkmark.circle.fill"
+                                            : home.stugby?.isForeignSharedHome == true
+                                                ? "person.2.fill"
+                                                : "house"
+                                    )
                                 }
                             }
                         }

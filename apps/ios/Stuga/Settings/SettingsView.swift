@@ -13,6 +13,9 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 20) {
                         connectionSection
                         accountSection
+                        if model.canManageSystemUpdates {
+                            systemUpdatesSection
+                        }
                         notificationsSection
                         if model.trackingAvailable {
                             EquipmentObservationSettings(tracker: model.mobileTracking)
@@ -41,6 +44,10 @@ struct SettingsView: View {
                 }
             } message: {
                 Text("The saved server address and its session cookies will be removed from this device.")
+            }
+            .task(id: model.canManageSystemUpdates) {
+                guard model.canManageSystemUpdates else { return }
+                await model.monitorSystemUpdates()
             }
         }
     }
@@ -98,6 +105,12 @@ struct SettingsView: View {
                 settingsRow("Email", model.session?.principal.email ?? "—")
                 settingsRow("Role", model.session?.tenant.role.capitalized ?? "—")
                 settingsRow("Access", model.isReadOnly ? "Read-only" : "Can acknowledge alerts")
+                if let home = model.selectedHome {
+                    settingsRow(
+                        "Selected Home",
+                        "\(home.stugby?.isForeignSharedHome == true ? "Remote" : "Own") · \(model.selectedHomeReadOnly ? "Read-only" : "Editable")"
+                    )
+                }
                 if model.isReadOnly {
                     Label("Guest accounts remain read-only in the companion app.", systemImage: "eye")
                         .font(.caption)
@@ -105,6 +118,155 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    private var systemUpdatesSection: some View {
+        section(title: "System updates") {
+            VStack(alignment: .leading, spacing: 12) {
+                if let status = model.systemUpdateStatus {
+                    settingsRow("Installed", "Stuga \(status.currentVersion)")
+                    settingsRow(
+                        "Latest",
+                        status.latestVersion.map { "Stuga \($0)" } ?? "Not checked"
+                    )
+
+                    if let operation = status.operation {
+                        Divider().overlay(StugaTheme.line)
+                        VStack(alignment: .leading, spacing: 9) {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(systemUpdatePhaseTitle(operation))
+                                    .font(.headline)
+                                Spacer()
+                                StatusPill(
+                                    label: operation.isActive ? "In progress" : phaseLabel(operation.phase),
+                                    systemImage: phaseSymbol(operation.phase),
+                                    color: phaseColor(operation.phase)
+                                )
+                            }
+                            if let detail = operation.detail {
+                                Text(detail)
+                                    .font(.subheadline)
+                                    .foregroundStyle(StugaTheme.muted)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            ProgressView(
+                                value: Double(operation.completedProgressSteps),
+                                total: 5
+                            )
+                            .tint(phaseColor(operation.phase))
+                            Text(updateProgressLabel(operation))
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(StugaTheme.muted)
+
+                            if !operation.activity.isEmpty {
+                                VStack(alignment: .leading, spacing: 7) {
+                                    Text("Recent activity")
+                                        .font(.subheadline.weight(.semibold))
+                                    ForEach(
+                                        Array(operation.activity.suffix(5).enumerated()),
+                                        id: \.offset
+                                    ) { _, activity in
+                                        HStack(alignment: .top, spacing: 10) {
+                                            Text(activityDate(activity.at))
+                                                .font(.caption.monospacedDigit())
+                                                .foregroundStyle(StugaTheme.muted)
+                                                .frame(width: 68, alignment: .leading)
+                                            Text(activity.detail)
+                                                .font(.caption)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .accessibilityLiveRegion(.polite)
+                    } else if status.updateAvailable {
+                        Label(
+                            "A newer Stuga release is ready to review.",
+                            systemImage: "arrow.down.circle.fill"
+                        )
+                        .foregroundStyle(StugaTheme.action)
+                    } else {
+                        Label("Stuga is up to date.", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(StugaTheme.success)
+                    }
+                } else if model.systemUpdateError == nil {
+                    ProgressView("Checking update status…")
+                }
+
+                if let error = model.systemUpdateError {
+                    Label(error, systemImage: "arrow.triangle.2.circlepath")
+                        .font(.caption)
+                        .foregroundStyle(StugaTheme.warning)
+                }
+
+                if let url = model.serverAddress?.origin.appending(path: "system/updates") {
+                    Link(destination: url) {
+                        Label("Review and manage updates", systemImage: "safari")
+                    }
+                    .font(.subheadline.weight(.semibold))
+                }
+            }
+        }
+    }
+
+    private func systemUpdatePhaseTitle(_ operation: SystemUpdateOperation) -> String {
+        switch operation.phase {
+        case "queued": "Stuga \(operation.version) is queued"
+        case "preparing": "Preparing Stuga \(operation.version)"
+        case "backup": "Backing up before \(operation.version)"
+        case "pulling": "Downloading Stuga \(operation.version)"
+        case "applying": "Starting Stuga \(operation.version)"
+        case "verifying": "Checking Stuga \(operation.version)"
+        case "complete": "Stuga \(operation.version) is installed"
+        case "failed": "Update to \(operation.version) failed"
+        case "rolling-back": "Restoring \(operation.previousVersion)"
+        default: "System update"
+        }
+    }
+
+    private func phaseLabel(_ phase: String) -> String {
+        switch phase {
+        case "complete": "Complete"
+        case "failed": "Failed"
+        case "rolling-back": "Rolling back"
+        default: phase.capitalized
+        }
+    }
+
+    private func phaseSymbol(_ phase: String) -> String {
+        switch phase {
+        case "complete": "checkmark.circle.fill"
+        case "failed": "exclamationmark.octagon.fill"
+        case "rolling-back": "arrow.uturn.backward.circle.fill"
+        default: "arrow.triangle.2.circlepath"
+        }
+    }
+
+    private func phaseColor(_ phase: String) -> Color {
+        switch phase {
+        case "complete": StugaTheme.success
+        case "failed": StugaTheme.critical
+        case "rolling-back": StugaTheme.warning
+        default: StugaTheme.action
+        }
+    }
+
+    private func updateProgressLabel(_ operation: SystemUpdateOperation) -> String {
+        switch operation.phase {
+        case "queued": "Waiting for the update agent"
+        case "complete": "All 5 steps complete"
+        case "failed": "Stopped during the update"
+        case "rolling-back": "Safety rollback in progress"
+        default: "Step \(min(operation.completedProgressSteps + 1, 5)) of 5"
+        }
+    }
+
+    private func activityDate(_ value: String) -> String {
+        StugaDateParser.date(from: value)?.formatted(
+            date: .omitted,
+            time: .standard
+        ) ?? "—"
     }
 
     private var notificationsSection: some View {

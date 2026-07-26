@@ -87,9 +87,29 @@ struct EquipmentDetailView: View {
     private var equipmentDetails: some View {
         section("Inventory details") {
             valueRow("Service state", serviceState)
-            if let areaName = model.areaName(for: equipment.areaId)
-                ?? snapshot?.zones.first(where: { $0.id == equipment.areaId })?.name {
+            if let areaID = equipment.areaId,
+               let areaName = model.areaName(for: areaID)
+                ?? snapshot?.zones.first(where: { $0.id == areaID })?.name {
                 valueRow("Assigned area", areaName)
+            } else if let homeName = model.houseName(for: equipment.houseId) {
+                valueRow("Assigned Home", homeName)
+            } else if equipment.areaId != nil {
+                valueRow("Assigned area", "Unavailable")
+            } else if equipment.houseId != nil {
+                valueRow("Assigned Home", "Unavailable")
+            } else {
+                valueRow(
+                    "Expected location",
+                    equipment.location == nil ? "Unassigned" : "Property map pin"
+                )
+            }
+            if let coordinate = equipment.location {
+                valueRow(
+                    "Pinned coordinate",
+                    coordinate.latitude.formatted(.number.precision(.fractionLength(5)))
+                        + ", "
+                        + coordinate.longitude.formatted(.number.precision(.fractionLength(5)))
+                )
             }
             if let manufacturer = equipment.manufacturer {
                 valueRow("Manufacturer", manufacturer)
@@ -105,7 +125,7 @@ struct EquipmentDetailView: View {
                 Text(notes)
                     .font(.subheadline)
             }
-            if !model.isReadOnly {
+            if !model.selectedPropertyReadOnly {
                 Divider().overlay(StugaTheme.line)
                 Button {
                     showingEditor = true
@@ -130,7 +150,7 @@ struct EquipmentDetailView: View {
                     Text(equipment.kind.capitalized)
                         .font(.caption.weight(.bold))
                         .foregroundStyle(StugaTheme.muted)
-                    Text(TrackingPresentation.locationText(currentAsset, zoneName: zoneName))
+                    Text(primaryLocationText)
                         .font(.title3.weight(.semibold))
                     if currentAsset.position?.positionType != "last-known",
                        let seen = currentAsset.position.flatMap(TrackingPresentation.relativeLastSeen) {
@@ -168,6 +188,11 @@ struct EquipmentDetailView: View {
             } else {
                 Label("No reliable location estimate is available.", systemImage: "questionmark.circle")
                     .foregroundStyle(StugaTheme.muted)
+                if equipment.location != nil {
+                    Text("The manually pinned expected location remains visible on the map.")
+                        .font(.caption)
+                        .foregroundStyle(StugaTheme.muted)
+                }
             }
         }
     }
@@ -267,6 +292,16 @@ struct EquipmentDetailView: View {
             ?? TrackedEquipmentState(equipment: equipment)
     }
 
+    private var primaryLocationText: String {
+        if currentAsset.position == nil {
+            if equipment.location != nil { return "Pinned expected location" }
+            if equipment.areaId != nil || equipment.houseId != nil {
+                return "Expected at \(model.equipmentPlacementName(equipment))"
+            }
+        }
+        return TrackingPresentation.locationText(currentAsset, zoneName: zoneName)
+    }
+
     private func explanation(_ position: AssetPositionEstimate) -> String {
         switch position.explanation.method {
         case "FIND_NEARBY":
@@ -314,6 +349,22 @@ struct EquipmentDetailView: View {
 }
 
 struct EquipmentEditorView: View {
+    private enum Placement: Hashable {
+        case unassigned
+        case area(String)
+        case home(String)
+
+        var areaID: String? {
+            guard case let .area(id) = self else { return nil }
+            return id
+        }
+
+        var houseID: String? {
+            guard case let .home(id) = self else { return nil }
+            return id
+        }
+    }
+
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     let equipment: AreaEquipment?
@@ -321,12 +372,14 @@ struct EquipmentEditorView: View {
 
     @State private var name: String
     @State private var kind: String
-    @State private var areaID: String
+    @State private var placement: Placement
     @State private var status: AreaEquipmentServiceStatus
     @State private var manufacturer: String
     @State private var equipmentModel: String
     @State private var serialNumber: String
     @State private var notes: String
+    @State private var latitude: String
+    @State private var longitude: String
     @State private var saving = false
     @State private var errorMessage: String?
 
@@ -338,7 +391,13 @@ struct EquipmentEditorView: View {
         self.onSaved = onSaved
         _name = State(initialValue: equipment?.name ?? "")
         _kind = State(initialValue: equipment?.kind ?? "")
-        _areaID = State(initialValue: equipment?.areaId ?? "")
+        if let areaID = equipment?.areaId {
+            _placement = State(initialValue: .area(areaID))
+        } else if let houseID = equipment?.houseId {
+            _placement = State(initialValue: .home(houseID))
+        } else {
+            _placement = State(initialValue: .unassigned)
+        }
         _status = State(
             initialValue: AreaEquipmentServiceStatus(
                 rawValue: equipment?.status ?? ""
@@ -348,6 +407,12 @@ struct EquipmentEditorView: View {
         _equipmentModel = State(initialValue: equipment?.model ?? "")
         _serialNumber = State(initialValue: equipment?.serialNumber ?? "")
         _notes = State(initialValue: equipment?.notes ?? "")
+        _latitude = State(
+            initialValue: equipment?.location.map { String($0.latitude) } ?? ""
+        )
+        _longitude = State(
+            initialValue: equipment?.location.map { String($0.longitude) } ?? ""
+        )
     }
 
     var body: some View {
@@ -356,21 +421,58 @@ struct EquipmentEditorView: View {
                 Section {
                     TextField("Name", text: $name)
                     TextField("Equipment type", text: $kind)
-                    Picker("Assigned area", selection: $areaID) {
-                        if areaID.isEmpty {
-                            Text("Choose an area").tag("")
-                        }
+                    Picker("Expected location", selection: $placement) {
+                        Text("Unassigned").tag(Placement.unassigned)
                         ForEach(sortedAreas) { area in
-                            Text(area.name).tag(area.id)
+                            Text("Area · \(area.name)").tag(Placement.area(area.id))
+                        }
+                        ForEach(selectableHouses) { home in
+                            Text(
+                                "Home · \(home.name)"
+                                    + (home.stugby?.isForeignSharedHome == true ? " · Remote" : "")
+                                    + (home.stugby?.isReadOnly == true ? " · Read-only" : "")
+                            )
+                            .tag(Placement.home(home.id))
                         }
                     }
                 } header: {
                     Text("Inventory record")
                 } footer: {
                     Text(
-                        "The assigned area is the expected storage location. "
-                            + "BLE tracking remains a separate estimate."
+                        "Choose a Property area, a Home, or leave this item unassigned. "
+                            + "A manual map pin and BLE tracking remain separate."
                     )
+                }
+
+                Section {
+                    LabeledContent("Latitude") {
+                        TextField("Optional", text: $latitude)
+                            .keyboardType(.numbersAndPunctuation)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    LabeledContent("Longitude") {
+                        TextField("Optional", text: $longitude)
+                            .keyboardType(.numbersAndPunctuation)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    if !coordinateInputIsEmpty {
+                        Button("Clear map pin", role: .destructive) {
+                            latitude = ""
+                            longitude = ""
+                        }
+                    }
+                    if !coordinateIsValid {
+                        Label(
+                            "Enter both coordinates: latitude −90…90 and longitude −180…180.",
+                            systemImage: "exclamationmark.triangle.fill"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(StugaTheme.critical)
+                    }
+                } header: {
+                    Text("Property map pin")
+                } footer: {
+                    Text("Optional expected point. It never replaces a BLE location estimate.")
                 }
 
                 Section("Service state") {
@@ -426,12 +528,17 @@ struct EquipmentEditorView: View {
                             Text("Save")
                         }
                     }
-                    .disabled(!canSave || saving || model.isReadOnly)
+                    .disabled(!canSave || saving || model.selectedPropertyReadOnly)
                 }
             }
             .task {
-                if areaID.isEmpty {
-                    areaID = sortedAreas.first?.id ?? ""
+                guard equipment == nil, placement == .unassigned else { return }
+                if let area = sortedAreas.first {
+                    placement = .area(area.id)
+                } else if let home = model.selectedHome,
+                   home.propertyId == model.selectedProperty?.id,
+                   home.stugby?.isReadOnly != true {
+                    placement = .home(home.id)
                 }
             }
             .interactiveDismissDisabled(saving)
@@ -452,17 +559,65 @@ struct EquipmentEditorView: View {
         }
     }
 
+    private var sortedHouses: [House] {
+        model.selectedPropertyHouses
+    }
+
+    private var selectableHouses: [House] {
+        sortedHouses.filter {
+            $0.stugby?.isReadOnly != true || $0.id == equipment?.houseId
+        }
+    }
+
     private var canSave: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !kind.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && sortedAreas.contains(where: { $0.id == areaID })
+            && model.selectedProperty != nil
+            && placementIsValid
+            && coordinateIsValid
             && fieldsWithinLimits
+    }
+
+    private var placementIsValid: Bool {
+        switch placement {
+        case .unassigned:
+            return true
+        case let .area(id):
+            return sortedAreas.contains { $0.id == id }
+        case let .home(id):
+            return sortedHouses.contains {
+                $0.id == id
+                    && ($0.stugby?.isReadOnly != true || id == equipment?.houseId)
+            }
+        }
     }
 
     private var fieldsWithinLimits: Bool {
         [name, kind, manufacturer, equipmentModel, serialNumber]
             .allSatisfy { $0.count <= 200 }
             && notes.count <= 5_000
+    }
+
+    private var coordinateInputIsEmpty: Bool {
+        latitude.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && longitude.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var coordinateIsValid: Bool {
+        coordinateInputIsEmpty || parsedCoordinate != nil
+    }
+
+    private var parsedCoordinate: GeoCoordinate? {
+        guard !coordinateInputIsEmpty,
+              let latitude = coordinateNumber(latitude),
+              let longitude = coordinateNumber(longitude),
+              latitude.isFinite,
+              longitude.isFinite,
+              (-90...90).contains(latitude),
+              (-180...180).contains(longitude) else {
+            return nil
+        }
+        return GeoCoordinate(latitude: latitude, longitude: longitude)
     }
 
     private func statusLabel(_ value: AreaEquipmentServiceStatus) -> String {
@@ -474,17 +629,23 @@ struct EquipmentEditorView: View {
     }
 
     private func save() {
-        guard canSave, !saving else { return }
+        guard canSave, !saving, let propertyID = model.selectedProperty?.id else { return }
         saving = true
         errorMessage = nil
         Task {
             do {
                 let saved: AreaEquipment
+                let location = parsedCoordinate
                 if let equipment {
                     saved = try await model.updateEquipment(
                         id: equipment.id,
                         input: AreaEquipmentUpdateInput(
-                            areaId: areaID,
+                            areaId: placement.areaID,
+                            houseId: placement.houseID,
+                            location: location,
+                            updatesPlacement: placement.areaID != equipment.areaId
+                                || placement.houseID != equipment.houseId,
+                            updatesLocation: location != equipment.location,
                             name: cleaned(name) ?? "",
                             kind: cleaned(kind) ?? "",
                             manufacturer: cleaned(manufacturer),
@@ -497,7 +658,10 @@ struct EquipmentEditorView: View {
                 } else {
                     saved = try await model.createEquipment(
                         AreaEquipmentCreateInput(
-                            areaId: areaID,
+                            propertyId: propertyID,
+                            areaId: placement.areaID,
+                            houseId: placement.houseID,
+                            location: location,
                             name: cleaned(name) ?? "",
                             kind: cleaned(kind) ?? "",
                             manufacturer: cleaned(manufacturer),
@@ -520,6 +684,13 @@ struct EquipmentEditorView: View {
     private func cleaned(_ value: String) -> String? {
         let result = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return result.isEmpty ? nil : result
+    }
+
+    private func coordinateNumber(_ value: String) -> Double? {
+        Double(
+            value.trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: ",", with: ".")
+        )
     }
 }
 

@@ -21,6 +21,7 @@ public struct WatchHomeSnapshot: Codable, Equatable, Sendable {
     public let available: Bool
     public let homeId: String?
     public let homeName: String
+    public let homeOrigin: String?
     public let state: String
     public let title: String
     public let detail: String
@@ -33,6 +34,7 @@ public struct WatchHomeSnapshot: Codable, Equatable, Sendable {
         available: Bool = true,
         homeId: String?,
         homeName: String,
+        homeOrigin: String? = nil,
         state: String,
         title: String,
         detail: String,
@@ -45,6 +47,7 @@ public struct WatchHomeSnapshot: Codable, Equatable, Sendable {
         self.available = available
         self.homeId = homeId
         self.homeName = String(homeName.prefix(120))
+        self.homeOrigin = homeOrigin
         self.state = state
         self.title = String(title.prefix(160))
         self.detail = String(detail.prefix(240))

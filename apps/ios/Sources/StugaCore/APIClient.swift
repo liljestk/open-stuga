@@ -60,7 +60,8 @@ public actor StugaAPIClient {
     }
     private struct MaintenanceIssueBody: Encodable {
         let propertyId: String
-        let areaId: String
+        let houseId: String?
+        let areaId: String?
         let equipmentId: String
         let title: String
         let description: String?
@@ -282,6 +283,10 @@ public actor StugaAPIClient {
         return value.report
     }
 
+    public func systemUpdateStatus() async throws -> SystemUpdateStatus {
+        try await request(version: 1, path: "/system/updates")
+    }
+
     public func iosNotificationStatus(registrationID: String) async throws -> IOSNotificationStatus {
         try await request(
             version: 1,
@@ -376,6 +381,7 @@ public actor StugaAPIClient {
             method: "POST",
             body: MaintenanceIssueBody(
                 propertyId: equipment.propertyId,
+                houseId: equipment.houseId,
                 areaId: equipment.areaId,
                 equipmentId: equipment.id,
                 title: title,
@@ -558,6 +564,57 @@ public actor StugaAPIClient {
                         if let event = parser.consume(line: line) {
                             continuation.yield(event)
                         }
+                    }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+        #endif
+    }
+
+    public func systemUpdateEventStream() -> AsyncThrowingStream<SystemUpdateEvent, Error> {
+        #if canImport(FoundationNetworking)
+        return AsyncThrowingStream { continuation in
+            continuation.finish(throwing: StugaAPIError(
+                status: 0,
+                code: "EVENT_STREAM_UNAVAILABLE",
+                message: "Live system updates require an Apple platform."
+            ))
+        }
+        #else
+        let url = address.apiURL(version: 1, path: "/system/updates/events")
+        let session = session
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var request = URLRequest(url: url)
+                    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    let (bytes, response) = try await session.bytes(for: request)
+                    guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                        throw StugaAPIError(
+                            status: (response as? HTTPURLResponse)?.statusCode ?? 0,
+                            code: nil,
+                            message: "Live system update status is unavailable."
+                        )
+                    }
+                    let decoder = JSONDecoder()
+                    var parser = SSEParser()
+                    for try await line in bytes.lines {
+                        if Task.isCancelled { break }
+                        guard let event = parser.consume(line: line),
+                              event.type == "system-update" else {
+                            continue
+                        }
+                        let update = try decoder.decode(
+                            SystemUpdateEvent.self,
+                            from: Data(event.data.utf8)
+                        )
+                        continuation.yield(update)
                     }
                     continuation.finish()
                 } catch is CancellationError {

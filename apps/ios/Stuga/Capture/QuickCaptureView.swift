@@ -61,6 +61,19 @@ struct QuickCaptureView: View {
                     .pickerStyle(.segmented)
                 }
 
+                if captureReadOnly {
+                    Section {
+                        Label(
+                            captureKind == .observation
+                                ? "This Home is read-only. Its owner controls shared edits."
+                                : "This Property is read-only. Maintenance changes stay with its owner.",
+                            systemImage: "eye"
+                        )
+                        .font(.subheadline)
+                        .foregroundStyle(StugaTheme.muted)
+                    }
+                }
+
                 if captureKind == .observation {
                     observationForm
                 } else {
@@ -204,12 +217,21 @@ struct QuickCaptureView: View {
     }
 
     private var canSave: Bool {
-        guard !model.isReadOnly else { return false }
+        guard !captureReadOnly else { return false }
         switch captureKind {
         case .observation:
             return !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .maintenance:
             return !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private var captureReadOnly: Bool {
+        switch captureKind {
+        case .observation:
+            model.selectedHomeReadOnly
+        case .maintenance:
+            model.selectedPropertyReadOnly
         }
     }
 

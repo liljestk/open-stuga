@@ -45,6 +45,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var rules: [AlertRule] = []
     @Published private(set) var propertyInventory: PropertyInventorySnapshot?
     @Published private(set) var todayContext: TodayContext?
+    @Published private(set) var systemUpdateStatus: SystemUpdateStatus?
+    @Published private(set) var systemUpdateError: String?
     @Published private(set) var pendingActions: [PendingCompanionAction] = []
     @Published private(set) var selectedHomeID: String?
     @Published private(set) var selectedPropertyID: String?
@@ -144,6 +146,13 @@ final class AppModel: ObservableObject {
         }
     }
 
+    var selectedPropertyHouses: [House] {
+        guard let propertyID = selectedProperty?.id else { return [] }
+        return houses
+            .filter { $0.propertyId == propertyID }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
     func trackedState(for equipmentID: String) -> TrackedEquipmentState? {
         guard let tracked = trackingSnapshot?.assets.first(where: {
             $0.equipment.id == equipmentID
@@ -160,19 +169,37 @@ final class AppModel: ObservableObject {
         )
     }
 
-    func areaName(for areaID: String) -> String? {
+    func areaName(for areaID: String?) -> String? {
+        guard let areaID else { return nil }
         selectedPropertyAreas.first { $0.id == areaID }?.name
+    }
+
+    func houseName(for houseID: String?) -> String? {
+        guard let houseID else { return nil }
+        return selectedPropertyHouses.first { $0.id == houseID }?.name
+    }
+
+    func equipmentPlacementName(_ equipment: AreaEquipment) -> String {
+        if let name = areaName(for: equipment.areaId) {
+            return name
+        }
+        if let name = houseName(for: equipment.houseId) {
+            return name
+        }
+        if equipment.areaId != nil { return "Assigned area" }
+        if equipment.houseId != nil { return "Assigned Home" }
+        return equipment.location == nil ? "Unassigned" : "Pinned on Property map"
     }
 
     var mobileTrackingAvailable: Bool {
         trackingCapabilities?.featureEnabled("tracking.mobileObserver.enabled") == true
-            && !isReadOnly
+            && !selectedPropertyReadOnly
     }
 
     var memberLocationSharingAvailable: Bool {
         trackingCapabilities?.featureEnabled("tracking.userLocationSharing.enabled") == true
             && trackingCapabilities?.featureEnabled("tracking.liveMap.enabled") == true
-            && !isReadOnly
+            && !selectedPropertyReadOnly
     }
 
     var equipmentStates: [TrackedEquipmentState] {
@@ -231,6 +258,23 @@ final class AppModel: ObservableObject {
 
     var isReadOnly: Bool {
         session?.readOnly ?? true
+    }
+
+    var selectedPropertyReadOnly: Bool {
+        isReadOnly || selectedProperty?.stugby?.isReadOnly == true
+    }
+
+    var selectedHomeReadOnly: Bool {
+        isReadOnly || selectedHome?.stugby?.isReadOnly == true
+    }
+
+    var selectedHomeIsForeignShared: Bool {
+        selectedHome?.stugby?.isForeignSharedHome == true
+    }
+
+    var canManageSystemUpdates: Bool {
+        guard !usingCachedData, let role = session?.tenant.role else { return false }
+        return role == "owner" || role == "admin"
     }
 
     var serverDisplayName: String {
@@ -375,6 +419,83 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func refreshSystemUpdateStatus() async {
+        guard canManageSystemUpdates, let client else {
+            systemUpdateStatus = nil
+            systemUpdateError = nil
+            return
+        }
+        do {
+            systemUpdateStatus = try await client.systemUpdateStatus()
+            systemUpdateError = nil
+        } catch let error as StugaAPIError where error.status == 401 {
+            handleAuthenticatedError(error)
+        } catch let error as StugaAPIError where error.status == 403 {
+            systemUpdateStatus = nil
+            systemUpdateError = nil
+        } catch {
+            systemUpdateError = friendlyMessage(for: error)
+        }
+    }
+
+    func monitorSystemUpdates() async {
+        await refreshSystemUpdateStatus()
+        var streamAvailable = true
+        while !Task.isCancelled, canManageSystemUpdates {
+            guard let client else { return }
+            if streamAvailable {
+                do {
+                    let updates = await client.systemUpdateEventStream()
+                    for try await update in updates {
+                        guard !Task.isCancelled, canManageSystemUpdates else { return }
+                        await applySystemUpdateEvent(update)
+                    }
+                } catch let error as StugaAPIError where error.status == 404 {
+                    streamAvailable = false
+                } catch let error as StugaAPIError where error.status == 401 {
+                    handleAuthenticatedError(error)
+                    return
+                } catch let error as StugaAPIError where error.status == 403 {
+                    systemUpdateStatus = nil
+                    systemUpdateError = nil
+                    return
+                } catch {
+                    if Task.isCancelled { return }
+                }
+            }
+
+            await refreshSystemUpdateStatus()
+            let delay = systemUpdateStatus?.operation?.isActive == true ? 2.0 : 15.0
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func applySystemUpdateEvent(_ event: SystemUpdateEvent) async {
+        if systemUpdateStatus == nil {
+            await refreshSystemUpdateStatus()
+        }
+        guard let status = systemUpdateStatus else { return }
+        systemUpdateStatus = SystemUpdateStatus(
+            currentVersion: event.currentVersion,
+            latestVersion: event.latestVersion,
+            updateAvailable: event.updateAvailable,
+            latestRelease: status.latestRelease,
+            releases: status.releases,
+            lastCheckedAt: status.lastCheckedAt,
+            checkError: status.checkError,
+            settings: status.settings,
+            nextUpdateWindowAt: status.nextUpdateWindowAt,
+            capability: event.capability,
+            operation: event.operation
+        )
+        serverVersion = event.currentVersion
+        systemUpdateError = nil
+    }
+
     func selectHome(_ id: String) async {
         guard let home = houses.first(where: { $0.id == id }), let client else { return }
         let generation = requestGeneration
@@ -512,11 +633,11 @@ final class AppModel: ObservableObject {
         capturedAt: String,
         expectedHouseUpdatedAt: String
     ) async throws {
-        guard !isReadOnly else {
+        guard !selectedHomeReadOnly else {
             throw StugaAPIError(
                 status: 403,
                 code: "READ_ONLY",
-                message: "This account cannot change floor plans."
+                message: "This Home's floor plan is read-only."
             )
         }
         guard !usingCachedData, let client, let home = selectedHome else {
@@ -621,18 +742,19 @@ final class AppModel: ObservableObject {
 
     @discardableResult
     func createEquipment(_ input: AreaEquipmentCreateInput) async throws -> AreaEquipment {
-        guard !isReadOnly, let client else {
+        guard !selectedPropertyReadOnly, let client else {
             throw StugaAPIError(
                 status: 403,
                 code: "READ_ONLY",
                 message: "This account cannot change Property inventory."
             )
         }
-        guard selectedPropertyAreas.contains(where: { $0.id == input.areaId }) else {
+        guard input.propertyId == selectedProperty?.id,
+              equipmentPlacementIsValid(areaID: input.areaId, houseID: input.houseId) else {
             throw StugaAPIError(
                 status: 422,
-                code: "AREA_SCOPE_MISMATCH",
-                message: "Choose an area in the selected Property."
+                code: "PLACEMENT_SCOPE_MISMATCH",
+                message: "Choose a location in the selected Property."
             )
         }
         let equipment = try await client.createAreaEquipment(input)
@@ -646,7 +768,7 @@ final class AppModel: ObservableObject {
         id: String,
         input: AreaEquipmentUpdateInput
     ) async throws -> AreaEquipment {
-        guard !isReadOnly, let client else {
+        guard !selectedPropertyReadOnly, let client else {
             throw StugaAPIError(
                 status: 403,
                 code: "READ_ONLY",
@@ -654,11 +776,12 @@ final class AppModel: ObservableObject {
             )
         }
         guard selectedPropertyEquipment.contains(where: { $0.id == id }),
-              selectedPropertyAreas.contains(where: { $0.id == input.areaId }) else {
+              !input.updatesPlacement
+                || equipmentPlacementIsValid(areaID: input.areaId, houseID: input.houseId) else {
             throw StugaAPIError(
                 status: 422,
                 code: "PROPERTY_SCOPE_MISMATCH",
-                message: "This equipment and area must belong to the selected Property."
+                message: "This equipment and location must belong to the selected Property."
             )
         }
         let equipment = try await client.updateAreaEquipment(id: id, input: input)
@@ -687,8 +810,12 @@ final class AppModel: ObservableObject {
 
     @discardableResult
     func addEquipmentNote(equipment: AreaEquipment, text: String) async throws -> PropertyNote {
-        guard let client else {
-            throw StugaAPIError(status: 0, code: nil, message: "Stuga is not connected.")
+        guard !selectedPropertyReadOnly, let client else {
+            throw StugaAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This Property is read-only."
+            )
         }
         return try await client.addEquipmentNote(
             propertyID: equipment.propertyId,
@@ -704,8 +831,12 @@ final class AppModel: ObservableObject {
         description: String?,
         priority: String
     ) async throws -> MaintenanceTask {
-        guard let client else {
-            throw StugaAPIError(status: 0, code: nil, message: "Stuga is not connected.")
+        guard !selectedPropertyReadOnly, let client else {
+            throw StugaAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This Property is read-only."
+            )
         }
         return try await client.reportEquipmentIssue(
             equipment: equipment,
@@ -721,8 +852,12 @@ final class AppModel: ObservableObject {
         expectedReturnAt: String?,
         note: String?
     ) async throws -> EquipmentLoan {
-        guard let client else {
-            throw StugaAPIError(status: 0, code: nil, message: "Stuga is not connected.")
+        guard !selectedPropertyReadOnly, let client else {
+            throw StugaAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This Property is read-only."
+            )
         }
         return try await client.borrowEquipment(
             equipmentID: equipment.id,
@@ -733,8 +868,12 @@ final class AppModel: ObservableObject {
 
     @discardableResult
     func returnEquipment(loan: EquipmentLoan, note: String?) async throws -> EquipmentLoan {
-        guard let client else {
-            throw StugaAPIError(status: 0, code: nil, message: "Stuga is not connected.")
+        guard !selectedPropertyReadOnly, let client else {
+            throw StugaAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This Property is read-only."
+            )
         }
         return try await client.returnEquipment(loanID: loan.id, note: note)
     }
@@ -826,11 +965,11 @@ final class AppModel: ObservableObject {
         note: String,
         sensorID: String?
     ) async throws -> QuickCaptureSaveState {
-        guard !isReadOnly else {
+        guard !selectedHomeReadOnly else {
             throw StugaAPIError(
                 status: 403,
                 code: "READ_ONLY",
-                message: "This account cannot add observations."
+                message: "This Home is read-only and cannot accept observations."
             )
         }
         guard let home = selectedHome,
@@ -893,11 +1032,12 @@ final class AppModel: ObservableObject {
         priority: String,
         equipment: AreaEquipment? = nil
     ) async throws -> QuickCaptureSaveState {
-        guard !isReadOnly else {
+        let targetHouseID = equipment == nil ? selectedHome?.id : equipment?.houseId
+        guard !selectedPropertyReadOnly else {
             throw StugaAPIError(
                 status: 403,
                 code: "READ_ONLY",
-                message: "This account cannot add maintenance work."
+                message: "This Property is read-only and cannot accept maintenance work."
             )
         }
         guard let property = selectedProperty else {
@@ -909,7 +1049,7 @@ final class AppModel: ObservableObject {
         }
         let input = QuickMaintenanceInput(
             propertyId: property.id,
-            houseId: selectedHome?.id,
+            houseId: targetHouseID,
             floorId: nil,
             areaId: equipment?.areaId,
             equipmentId: equipment?.id,
@@ -949,6 +1089,22 @@ final class AppModel: ObservableObject {
             }
             return .queued
         }
+    }
+
+    private func equipmentPlacementIsValid(
+        areaID: String?,
+        houseID: String?
+    ) -> Bool {
+        guard areaID == nil || houseID == nil else { return false }
+        if let areaID {
+            return selectedPropertyAreas.contains { $0.id == areaID }
+        }
+        if let houseID {
+            return selectedPropertyHouses.contains {
+                $0.id == houseID && $0.stugby?.isReadOnly != true
+            }
+        }
+        return selectedProperty != nil
     }
 
     func requestNotificationPermission() async {
@@ -1499,6 +1655,7 @@ final class AppModel: ObservableObject {
         widgetStore.save(CompanionWidgetSnapshot(
             homeId: home.id,
             homeName: home.name,
+            homeOrigin: home.stugby?.isForeignSharedHome == true ? "remote" : "own",
             state: state,
             title: summary.title,
             detail: usingCachedData ? "Saved status · \(summary.detail)" : summary.detail,
@@ -1528,6 +1685,7 @@ final class AppModel: ObservableObject {
         PhoneWatchConnectivityBridge.shared.publish(WatchHomeSnapshot(
             homeId: home.id,
             homeName: home.name,
+            homeOrigin: home.stugby?.isForeignSharedHome == true ? "remote" : "own",
             state: state,
             title: summary.title,
             detail: usingCachedData ? "Saved status. \(summary.detail)" : summary.detail,
@@ -1900,6 +2058,8 @@ final class AppModel: ObservableObject {
         rules = []
         propertyInventory = nil
         todayContext = nil
+        systemUpdateStatus = nil
+        systemUpdateError = nil
         pendingActions = []
         historyCache = [:]
         cachedAccountIdentity = nil

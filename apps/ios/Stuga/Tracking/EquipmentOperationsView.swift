@@ -89,7 +89,7 @@ struct EquipmentOperationsView: View {
                     Label("Mark as returned", systemImage: "arrow.uturn.backward.circle")
                 }
                 .buttonStyle(SecondaryButtonStyle())
-                .disabled(model.isReadOnly)
+                .disabled(model.selectedPropertyReadOnly)
             } else {
                 Text("Available to borrow")
                     .font(.subheadline.weight(.semibold))
@@ -102,7 +102,7 @@ struct EquipmentOperationsView: View {
                     Label("Borrow equipment", systemImage: "person.badge.plus")
                 }
                 .buttonStyle(SecondaryButtonStyle())
-                .disabled(model.isReadOnly)
+                .disabled(model.selectedPropertyReadOnly)
             }
         }
     }
@@ -138,7 +138,7 @@ struct EquipmentOperationsView: View {
                 Label("Add note", systemImage: "square.and.pencil")
             }
             .buttonStyle(SecondaryButtonStyle())
-            .disabled(model.isReadOnly)
+            .disabled(model.selectedPropertyReadOnly)
         }
     }
 
@@ -175,7 +175,7 @@ struct EquipmentOperationsView: View {
                 Label("Report an issue", systemImage: "exclamationmark.bubble")
             }
             .buttonStyle(SecondaryButtonStyle())
-            .disabled(model.isReadOnly)
+            .disabled(model.selectedPropertyReadOnly)
         }
     }
 

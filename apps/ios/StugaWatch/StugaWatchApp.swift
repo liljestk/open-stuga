@@ -44,6 +44,11 @@ private struct StugaWatchHomeView: View {
                 Label(snapshot.homeName, systemImage: stateSymbol(snapshot.state))
                     .font(.headline)
                     .foregroundStyle(stateColor(snapshot.state))
+                if snapshot.homeOrigin == "remote" {
+                    Label("Remote Stugby Home", systemImage: "person.2.fill")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.blue)
+                }
                 Text(snapshot.title)
                     .font(.body.weight(.semibold))
                 Text(snapshot.detail)

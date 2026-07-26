@@ -55,7 +55,9 @@ public struct PropertyArea: Codable, Identifiable, Equatable, Sendable {
 public struct AreaEquipment: Codable, Identifiable, Equatable, Sendable {
     public let id: String
     public let propertyId: String
-    public let areaId: String
+    public let areaId: String?
+    public let houseId: String?
+    public let location: GeoCoordinate?
     public let name: String
     public let kind: String
     public let manufacturer: String?
@@ -76,7 +78,10 @@ public enum AreaEquipmentServiceStatus: String, Codable, CaseIterable, Identifia
 }
 
 public struct AreaEquipmentCreateInput: Encodable, Equatable, Sendable {
-    public let areaId: String
+    public let propertyId: String
+    public let areaId: String?
+    public let houseId: String?
+    public let location: GeoCoordinate?
     public let name: String
     public let kind: String
     public let manufacturer: String?
@@ -86,7 +91,10 @@ public struct AreaEquipmentCreateInput: Encodable, Equatable, Sendable {
     public let notes: String?
 
     public init(
-        areaId: String,
+        propertyId: String,
+        areaId: String? = nil,
+        houseId: String? = nil,
+        location: GeoCoordinate? = nil,
         name: String,
         kind: String,
         manufacturer: String? = nil,
@@ -95,7 +103,10 @@ public struct AreaEquipmentCreateInput: Encodable, Equatable, Sendable {
         status: AreaEquipmentServiceStatus = .active,
         notes: String? = nil
     ) {
+        self.propertyId = propertyId
         self.areaId = areaId
+        self.houseId = houseId
+        self.location = location
         self.name = name
         self.kind = kind
         self.manufacturer = manufacturer
@@ -106,10 +117,14 @@ public struct AreaEquipmentCreateInput: Encodable, Equatable, Sendable {
     }
 }
 
-/// A complete update of the mutable inventory fields. Optional values encode
-/// as explicit `null` so clearing a previously stored value reaches the API.
+/// A complete metadata update. Placement and map-pin changes are independently
+/// optional so an unchanged remote Home need not be re-authorized.
 public struct AreaEquipmentUpdateInput: Encodable, Equatable, Sendable {
-    public let areaId: String
+    public let areaId: String?
+    public let houseId: String?
+    public let location: GeoCoordinate?
+    public let updatesPlacement: Bool
+    public let updatesLocation: Bool
     public let name: String
     public let kind: String
     public let manufacturer: String?
@@ -119,7 +134,11 @@ public struct AreaEquipmentUpdateInput: Encodable, Equatable, Sendable {
     public let notes: String?
 
     public init(
-        areaId: String,
+        areaId: String?,
+        houseId: String?,
+        location: GeoCoordinate?,
+        updatesPlacement: Bool = true,
+        updatesLocation: Bool = true,
         name: String,
         kind: String,
         manufacturer: String? = nil,
@@ -129,6 +148,10 @@ public struct AreaEquipmentUpdateInput: Encodable, Equatable, Sendable {
         notes: String? = nil
     ) {
         self.areaId = areaId
+        self.houseId = houseId
+        self.location = location
+        self.updatesPlacement = updatesPlacement
+        self.updatesLocation = updatesLocation
         self.name = name
         self.kind = kind
         self.manufacturer = manufacturer
@@ -140,6 +163,8 @@ public struct AreaEquipmentUpdateInput: Encodable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case areaId
+        case houseId
+        case location
         case name
         case kind
         case manufacturer
@@ -151,7 +176,25 @@ public struct AreaEquipmentUpdateInput: Encodable, Equatable, Sendable {
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(areaId, forKey: .areaId)
+        if updatesPlacement {
+            if let areaId {
+                try container.encode(areaId, forKey: .areaId)
+            } else {
+                try container.encodeNil(forKey: .areaId)
+            }
+            if let houseId {
+                try container.encode(houseId, forKey: .houseId)
+            } else {
+                try container.encodeNil(forKey: .houseId)
+            }
+        }
+        if updatesLocation {
+            if let location {
+                try container.encode(location, forKey: .location)
+            } else {
+                try container.encodeNil(forKey: .location)
+            }
+        }
         try container.encode(name, forKey: .name)
         try container.encode(kind, forKey: .kind)
         try container.encode(status, forKey: .status)

@@ -142,12 +142,12 @@ struct RoomPlanImportView: View {
                         Label("Start room scan", systemImage: "viewfinder")
                     }
                     .buttonStyle(PrimaryButtonStyle())
-                    .disabled(model.isReadOnly || model.usingCachedData)
+                    .disabled(model.selectedHomeReadOnly || model.usingCachedData)
                 }
 
-                if model.isReadOnly {
+                if model.selectedHomeReadOnly {
                     Label(
-                        "This account has read-only access.",
+                        "This Home's floor plan is read-only.",
                         systemImage: "lock"
                     )
                     .font(.footnote)

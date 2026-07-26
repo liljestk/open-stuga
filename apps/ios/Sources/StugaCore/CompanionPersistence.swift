@@ -344,6 +344,7 @@ public struct CompanionWidgetSnapshot: Codable, Equatable, Sendable {
 
     public let homeId: String
     public let homeName: String
+    public let homeOrigin: String?
     public let state: String
     public let title: String
     public let detail: String
@@ -353,6 +354,7 @@ public struct CompanionWidgetSnapshot: Codable, Equatable, Sendable {
     public init(
         homeId: String,
         homeName: String,
+        homeOrigin: String? = nil,
         state: String,
         title: String,
         detail: String,
@@ -361,6 +363,7 @@ public struct CompanionWidgetSnapshot: Codable, Equatable, Sendable {
     ) {
         self.homeId = homeId
         self.homeName = homeName
+        self.homeOrigin = homeOrigin
         self.state = state
         self.title = title
         self.detail = detail

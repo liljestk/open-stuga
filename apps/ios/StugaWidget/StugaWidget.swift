@@ -6,6 +6,7 @@ import WidgetKit
 private struct WidgetSnapshot: Codable, Equatable {
     let homeId: String
     let homeName: String
+    let homeOrigin: String?
     let state: String
     let title: String
     let detail: String
@@ -28,6 +29,7 @@ private struct StugaWidgetProvider: TimelineProvider {
             snapshot: WidgetSnapshot(
                 homeId: "home",
                 homeName: "Stuga",
+                homeOrigin: "own",
                 state: "balanced",
                 title: "Home looks balanced",
                 detail: "No current exception needs attention.",
@@ -98,6 +100,11 @@ private struct StugaWidgetView: View {
                     .font(.caption)
                     .lineLimit(2)
                     .privacySensitive()
+                if snapshot.homeOrigin == "remote" {
+                    Text("Remote Home")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         } else {
             VStack(alignment: .leading, spacing: 7) {
@@ -106,6 +113,12 @@ private struct StugaWidgetView: View {
                         .font(.headline)
                         .foregroundStyle(color(snapshot.state))
                     Spacer()
+                    if snapshot.homeOrigin == "remote" {
+                        Image(systemName: "person.2.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("Remote Home")
+                    }
                     if snapshot.activeAlertCount > 0 {
                         Text("\(snapshot.activeAlertCount)")
                             .font(.caption.bold())
