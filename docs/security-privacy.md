@@ -48,6 +48,11 @@ does not create a browser session or grant interactive account access.
   passwords, Telegram bot tokens or numeric chat IDs, Apple Notes token hashes,
   webhook bearers, or complete webhook URLs. Home Assistant endpoint query
   strings and fragments are stripped from its SQLite metadata copy.
+- Opted-in APNs device tokens, notification preferences, and authorized Home
+  subscriptions are stored in SQLite. A device token is a pseudonymous delivery
+  address, not an Apple account identifier, but the database and its backups
+  must still be protected. Invalid tokens are disabled; disconnecting the app
+  deletes its registration.
 - Use strong, unique owner and administrator passwords. Sign out or revoke
   sessions after a device or account is lost. Protect the SQLite database and
   backups because they contain account records, grants, password verifiers, and
@@ -71,6 +76,12 @@ does not create a browser session or grant interactive account access.
   Environment webhook values take precedence and are mirrored into the
   protected secrets file for complete-backup recovery when that file is
   writable; include the deployment secret separately if mirroring is blocked.
+- Keep the APNs `.p8` key in a protected file outside source control and pass
+  only its path through `APNS_PRIVATE_KEY_FILE`. The API signs short-lived
+  provider tokens and sends notifications directly to Apple's production or
+  sandbox service over TLS. Notification text is generic by default; showing
+  alert details on the lock screen is a per-device opt-in. Native notifications
+  are operational aids, not life-safety alarms.
 - Compose authenticates the immediate Nginx proxy with a random credential in
   the dedicated `climate-twin-runtime` volume. The proxy mounts that volume
   read-only, overwrites client-supplied forwarding headers, and never sends the
@@ -239,6 +250,13 @@ Collect the least data needed for the stated use case:
   aggregates longer if that meets the analytical purpose.
 - Exclude token values, Home Assistant event context, IP addresses, and device
   account identifiers from telemetry unless specifically needed.
+- RoomPlan capture is processed on-device. Only explicitly reviewed,
+  metre-based wall, room, and opening geometry is accepted by the import API;
+  imagery and raw scans are rejected. Sharing raw USDZ/JSON is a separate local
+  export action.
+- The dependent Watch companion receives only a bounded Home/alert summary and
+  opaque alert identifiers. Stuga session cookies, passwords, and server
+  addresses stay on the paired iPhone.
 - Make exports explicit and show their time range, included Homes, and whether
   floor plans/manual observations are present.
 

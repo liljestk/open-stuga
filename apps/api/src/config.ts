@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createPrivateKey, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -132,6 +132,11 @@ export interface AppConfig {
   alertWebhookSource?: "environment" | "protected-file" | null;
   telegramBotToken: string | null;
   telegramChatId: string | null;
+  /** Apple provider credentials are deployment secrets and are never returned by the API. */
+  apnsTeamId?: string | null;
+  apnsKeyId?: string | null;
+  apnsBundleId?: string | null;
+  apnsPrivateKey?: string | null;
   appleNotesGrants: AppleNotesGrantSecret[];
   corsOrigin: string | null;
   /** Optional high-entropy secret that explicitly permits first-owner setup off loopback. */
@@ -423,6 +428,40 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     env, "TAPO_HISTORY_WORKER_TOKEN", "TAPO_HISTORY_WORKER_TOKEN_FILE", "TAPO_HISTORY_WORKER_TOKEN", 32, true,
   );
   const telegramEnvironment = environmentTuple(env, "Telegram", ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"]);
+  const apnsTeamId = optional(env.APNS_TEAM_ID);
+  const apnsKeyId = optional(env.APNS_KEY_ID);
+  const apnsBundleId = optional(env.APNS_BUNDLE_ID);
+  const apnsPrivateKeyFile = optional(env.APNS_PRIVATE_KEY_FILE);
+  const apnsValues = [apnsTeamId, apnsKeyId, apnsBundleId, apnsPrivateKeyFile];
+  if (apnsValues.some(Boolean) && !apnsValues.every(Boolean)) {
+    throw new Error("APNs configuration requires APNS_TEAM_ID, APNS_KEY_ID, APNS_BUNDLE_ID, and APNS_PRIVATE_KEY_FILE");
+  }
+  if (apnsTeamId && !/^[A-Z0-9]{10}$/u.test(apnsTeamId)) {
+    throw new Error("APNS_TEAM_ID must be a 10-character Apple Team ID");
+  }
+  if (apnsKeyId && !/^[A-Z0-9]{10}$/u.test(apnsKeyId)) {
+    throw new Error("APNS_KEY_ID must be a 10-character Apple key ID");
+  }
+  if (apnsBundleId && !/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/u.test(apnsBundleId)) {
+    throw new Error("APNS_BUNDLE_ID must be a valid bundle identifier");
+  }
+  const apnsPrivateKey = apnsPrivateKeyFile
+    ? readFileSync(resolve(apnsPrivateKeyFile), "utf8")
+    : null;
+  if (apnsPrivateKey && !apnsPrivateKey.includes("BEGIN PRIVATE KEY")) {
+    throw new Error("APNS_PRIVATE_KEY_FILE must contain an Apple .p8 private key");
+  }
+  if (apnsPrivateKey) {
+    try {
+      const key = createPrivateKey(apnsPrivateKey);
+      if (key.asymmetricKeyType !== "ec"
+        || key.asymmetricKeyDetails?.namedCurve !== "prime256v1") {
+        throw new Error("wrong key type");
+      }
+    } catch {
+      throw new Error("APNS_PRIVATE_KEY_FILE must contain a valid P-256 Apple .p8 private key");
+    }
+  }
   const alertWebhookEnvironmentDestinationsJson = optional(env.ALERT_WEBHOOK_DESTINATIONS_JSON);
   const alertWebhookEnvironmentUrl = optional(env.ALERT_WEBHOOK_URL);
   const alertWebhookEnvironmentBearerToken = optional(env.ALERT_WEBHOOK_BEARER_TOKEN);
@@ -722,6 +761,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     alertWebhookSource: webhookSource,
     telegramBotToken: telegram?.botToken ?? null,
     telegramChatId: telegram?.chatId ?? null,
+    apnsTeamId,
+    apnsKeyId,
+    apnsBundleId,
+    apnsPrivateKey,
     appleNotesGrants: (stored.appleNotesGrants ?? []).map((grant) => ({ ...grant })),
     corsOrigin: optional(env.CORS_ORIGIN) ?? optional(env.CLOUDFLARE_ACCESS_PUBLIC_ORIGIN),
     localAuthBootstrapSecret,

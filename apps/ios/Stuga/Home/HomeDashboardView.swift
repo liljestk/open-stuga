@@ -3,6 +3,8 @@ import SwiftUI
 struct HomeDashboardView: View {
     @EnvironmentObject private var model: AppModel
     let openAlerts: () -> Void
+    let openCapture: () -> Void
+    let openRoomScan: () -> Void
 
     var body: some View {
         NavigationStack {
@@ -15,7 +17,23 @@ struct HomeDashboardView: View {
                 }
             }
             .navigationTitle(model.selectedHome?.name ?? "Home")
-            .toolbar { HomePickerToolbar() }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button(action: openCapture) {
+                            Label("Quick capture", systemImage: "square.and.pencil")
+                        }
+                        .disabled(model.isReadOnly)
+                        Button(action: openRoomScan) {
+                            Label("Scan a room", systemImage: "viewfinder")
+                        }
+                        .disabled(model.isReadOnly || model.usingCachedData)
+                    } label: {
+                        Label("Add", systemImage: "plus")
+                    }
+                }
+                HomePickerToolbar()
+            }
         }
     }
 
@@ -35,8 +53,10 @@ struct HomeDashboardView: View {
                         .padding(.top, 5)
                 }
 
+                savedStateNotice
                 attentionSection
                 currentStateSection
+                todaySection
                 keyStatusSection
                 everythingElseSection
             }
@@ -45,6 +65,36 @@ struct HomeDashboardView: View {
             .frame(maxWidth: .infinity)
         }
         .refreshable { await model.refresh() }
+    }
+
+    @ViewBuilder
+    private var savedStateNotice: some View {
+        if model.usingCachedData || model.pendingActionCount > 0 {
+            StugaCard {
+                VStack(alignment: .leading, spacing: 8) {
+                    if model.usingCachedData {
+                        Label(
+                            "Showing the protected snapshot saved on this iPhone.",
+                            systemImage: "iphone.and.arrow.forward"
+                        )
+                        .font(.subheadline.weight(.semibold))
+                        if let updated = model.lastUpdated {
+                            Text("Saved \(updated.formatted(.relative(presentation: .named))).")
+                                .font(.caption)
+                                .foregroundStyle(StugaTheme.muted)
+                        }
+                    }
+                    if model.pendingActionCount > 0 {
+                        Label(
+                            "\(model.pendingActionCount) change\(model.pendingActionCount == 1 ? "" : "s") waiting to sync.",
+                            systemImage: "arrow.triangle.2.circlepath"
+                        )
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(StugaTheme.warning)
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -143,6 +193,50 @@ struct HomeDashboardView: View {
                 }
                 .accessibilityElement(children: .combine)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var todaySection: some View {
+        if let recommendation = model.todayRecommendation {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Today")
+                    .font(.headline)
+                StugaCard {
+                    HStack(alignment: .top, spacing: 14) {
+                        Image(systemName: recommendationSymbol(recommendation.kind))
+                            .font(.title2)
+                            .foregroundStyle(StugaTheme.action)
+                            .frame(width: 30)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(recommendation.title)
+                                .font(.title3.weight(.semibold))
+                            Text(recommendation.detail)
+                                .font(.subheadline)
+                            if let startsAt = recommendation.startsAt,
+                               let endsAt = recommendation.endsAt {
+                                Text(
+                                    "\(startsAt.formatted(date: .omitted, time: .shortened))–\(endsAt.formatted(date: .omitted, time: .shortened))"
+                                )
+                                .font(.subheadline.weight(.semibold))
+                            }
+                            Text(recommendation.evidence)
+                                .font(.caption)
+                                .foregroundStyle(StugaTheme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        }
+    }
+
+    private func recommendationSymbol(_ kind: TodayRecommendation.Kind) -> String {
+        switch kind {
+        case .weatherWarning: "exclamationmark.triangle.fill"
+        case .ventilation: "wind"
+        case .electricity: "bolt.fill"
         }
     }
 

@@ -127,6 +127,11 @@ struct SensorDetailView: View {
                     )
                         .font(.caption)
                         .foregroundStyle(StugaTheme.muted)
+                    if model.usingCachedData {
+                        Label("Protected snapshot", systemImage: "iphone")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(StugaTheme.warning)
+                    }
                 }
                 Spacer()
                 if isLoading { ProgressView() }

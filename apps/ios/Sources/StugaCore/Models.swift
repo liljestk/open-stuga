@@ -39,8 +39,48 @@ public struct House: Codable, Identifiable, Equatable, Sendable {
     public let propertyId: String
     public let name: String
     public let timezone: String
+    public let floors: [StugaFloor]
     public let createdAt: String
     public let updatedAt: String
+
+    public init(
+        id: String,
+        propertyId: String,
+        name: String,
+        timezone: String,
+        floors: [StugaFloor] = [],
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.propertyId = propertyId
+        self.name = name
+        self.timezone = timezone
+        self.floors = floors
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case propertyId
+        case name
+        case timezone
+        case floors
+        case createdAt
+        case updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        propertyId = try values.decode(String.self, forKey: .propertyId)
+        name = try values.decode(String.self, forKey: .name)
+        timezone = try values.decode(String.self, forKey: .timezone)
+        floors = try values.decodeIfPresent([StugaFloor].self, forKey: .floors) ?? []
+        createdAt = try values.decode(String.self, forKey: .createdAt)
+        updatedAt = try values.decode(String.self, forKey: .updatedAt)
+    }
 }
 
 public struct Sensor: Codable, Identifiable, Equatable, Sendable {

@@ -150,6 +150,14 @@ struct EquipmentMapView: View {
                 areaFilterID = ""
             }
         }
+        .onChange(of: model.requestedEquipmentID) { _, equipmentID in
+            guard let equipmentID,
+                  model.selectedPropertyEquipment.contains(where: { $0.id == equipmentID }) else {
+                return
+            }
+            selectedEquipmentID = equipmentID
+            model.requestedEquipmentID = nil
+        }
     }
 
     private func content(_ snapshot: TrackingMapSnapshot) -> some View {

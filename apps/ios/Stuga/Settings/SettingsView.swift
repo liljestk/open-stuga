@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
@@ -12,6 +13,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 20) {
                         connectionSection
                         accountSection
+                        notificationsSection
                         if model.trackingAvailable {
                             EquipmentObservationSettings(tracker: model.mobileTracking)
                         }
@@ -105,6 +107,79 @@ struct SettingsView: View {
         }
     }
 
+    private var notificationsSection: some View {
+        section(title: "Notifications") {
+            VStack(alignment: .leading, spacing: 12) {
+                Toggle(
+                    "Notify this iPhone",
+                    isOn: Binding(
+                        get: { model.notificationsEnabled },
+                        set: { enabled in
+                            Task { await model.setNotificationsEnabled(enabled) }
+                        }
+                    )
+                )
+
+                if model.notificationsEnabled {
+                    Picker(
+                        "Minimum importance",
+                        selection: Binding(
+                            get: { model.notificationMinimumSeverity },
+                            set: { model.notificationMinimumSeverity = $0 }
+                        )
+                    ) {
+                        Text("Information").tag(IOSPushMinimumSeverity.info)
+                        Text("Warning").tag(IOSPushMinimumSeverity.warning)
+                        Text("Critical").tag(IOSPushMinimumSeverity.critical)
+                    }
+
+                    Toggle(
+                        "Show Home and sensor names",
+                        isOn: Binding(
+                            get: { model.notificationIncludeDetails },
+                            set: { model.notificationIncludeDetails = $0 }
+                        )
+                    )
+
+                    if model.notificationAuthorization == .denied {
+                        Button("Open iOS notification settings") {
+                            guard let url = URL(
+                                string: UIApplication.openNotificationSettingsURLString
+                            ) else { return }
+                            UIApplication.shared.open(url)
+                        }
+                    } else if model.notificationAuthorization == .notDetermined {
+                        Button("Allow notifications") {
+                            Task { await model.requestNotificationPermission() }
+                        }
+                    } else if !model.notificationProviderConfigured {
+                        Label(
+                            "Your Stuga server has not configured Apple Push Notification service yet.",
+                            systemImage: "server.rack"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(StugaTheme.warning)
+                    }
+                }
+
+                Text(
+                    "This iPhone receives alerts for every Home currently visible to this account. Notifications are sent directly by your Stuga server. Delivery can be delayed or suppressed by iOS; do not rely on Stuga for life-safety monitoring."
+                )
+                .font(.caption)
+                .foregroundStyle(StugaTheme.muted)
+
+                if model.pendingActionCount > 0 {
+                    Label(
+                        "\(model.pendingActionCount) protected offline change\(model.pendingActionCount == 1 ? "" : "s") waiting to sync",
+                        systemImage: "arrow.triangle.2.circlepath"
+                    )
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(StugaTheme.warning)
+                }
+            }
+        }
+    }
+
     private var privacySection: some View {
         section(title: "Privacy") {
             VStack(alignment: .leading, spacing: 10) {
@@ -114,6 +189,9 @@ struct SettingsView: View {
                     .font(.subheadline)
                     .foregroundStyle(StugaTheme.muted)
                 Text("Your password is not stored. The server session is kept in the iOS cookie store until you sign out, disconnect, or the session expires.")
+                    .font(.subheadline)
+                    .foregroundStyle(StugaTheme.muted)
+                Text("A bounded, encrypted-on-device snapshot and pending field changes remain available offline. They are excluded from device backups and removed when you sign out or disconnect.")
                     .font(.subheadline)
                     .foregroundStyle(StugaTheme.muted)
                 if model.equipmentObservationEnabled {

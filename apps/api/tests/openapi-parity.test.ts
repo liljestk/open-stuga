@@ -121,8 +121,8 @@ describe("local Express/OpenAPI parity", () => {
         ...documentOperations(v2, "v2"),
       ].sort();
 
-      expect(runtimeOperations).toHaveLength(266);
-      expect(documentOperations(v1, "v1")).toHaveLength(250);
+      expect(runtimeOperations).toHaveLength(270);
+      expect(documentOperations(v1, "v1")).toHaveLength(254);
       expect(documentOperations(v2, "v2")).toHaveLength(16);
       expect(documentedOperations).toEqual(runtimeOperations);
       auditDocument(v1);

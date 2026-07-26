@@ -3,8 +3,9 @@ import type { AlertEvent, AlertRule } from "@climate-twin/contracts";
 import type { NotificationDeliveryStage } from "@climate-twin/contracts";
 import { configuredAlertWebhookDestinations, type AppConfig } from "./config.js";
 import { renderTelegramAlertText, type TelegramAlertContext } from "./telegram.js";
+import type { APNSDestination } from "./apns.js";
 
-export type NotificationSnapshotChannel = "webhook" | "telegram";
+export type NotificationSnapshotChannel = "webhook" | "telegram" | "apns";
 
 export interface WebhookNotificationBinding {
   destinationId: string;
@@ -14,6 +15,8 @@ export interface WebhookNotificationBinding {
 export interface AlertNotificationBindings extends TelegramAlertContext {
   webhookDestinations: WebhookNotificationBinding[];
   telegramDestinationRef: string;
+  apnsProviderRef: string;
+  apnsEnabled: boolean;
 }
 
 export interface NotificationSnapshot {
@@ -27,9 +30,20 @@ export interface TelegramNotificationPayload {
   silent: boolean;
 }
 
+export interface APNSNotificationPayload {
+  aps: {
+    alert: { title: string; body: string };
+    category: "STUGA_ALERT" | "STUGA_ALERT_READ_ONLY";
+    sound?: "default";
+    "thread-id": string;
+  };
+  stugaAlertId: string;
+  stugaDeepLink: string;
+}
+
 /** Immutable, credential-free snapshot for maintenance and action-run notices. */
 export function operationalNotificationSnapshot(
-  channel: NotificationSnapshotChannel,
+  channel: Exclude<NotificationSnapshotChannel, "apns">,
   config: AppConfig | undefined,
   input: { type: "maintenance.due" | "action.verification"; subjectId: string; text: string; data: unknown; silent: boolean },
   destinationId = "primary",
@@ -71,7 +85,78 @@ export function notificationDestinationRef(
       destination?.signingSecret ?? null,
     ])}`;
   }
+  if (channel === "apns") {
+    return `apns:${destinationId}:unbound`;
+  }
   return `telegram:sha256:${digest([config?.telegramBotToken ?? null, config?.telegramChatId ?? null])}`;
+}
+
+export function apnsProviderRef(config: AppConfig | undefined): string {
+  return `apns-provider:sha256:${digest([
+    config?.apnsTeamId ?? null,
+    config?.apnsKeyId ?? null,
+    config?.apnsBundleId ?? null,
+    config?.apnsPrivateKey ?? null,
+  ])}`;
+}
+
+export function apnsNotificationDestinationRef(
+  providerRef: string,
+  destination: APNSDestination | null,
+): string {
+  return `apns:sha256:${digest([
+    providerRef,
+    destination?.registrationId ?? null,
+    destination?.deviceToken ?? null,
+    destination?.environment ?? null,
+    destination?.includeDetails ? "details" : "private",
+    destination?.canAcknowledge ? "writable" : "read-only",
+  ])}`;
+}
+
+function boundedPushText(value: string, maximumCharacters: number): string {
+  const characters = Array.from(value);
+  return characters.length <= maximumCharacters
+    ? value
+    : `${characters.slice(0, maximumCharacters - 1).join("")}…`;
+}
+
+export function apnsNotificationSnapshot(
+  event: AlertEvent,
+  rule: AlertRule,
+  bindings: Pick<AlertNotificationBindings, "houseLabel" | "sensorLabel">,
+  destination: APNSDestination,
+  providerRef: string,
+  silentOverride?: boolean,
+  stage: NotificationDeliveryStage = "initial",
+): NotificationSnapshot {
+  const prefix = stage === "escalation" ? "Escalation: " : stage === "reminder" ? "Reminder: " : "";
+  const privateTitle = event.severity === "critical" ? "Stuga needs urgent attention" : "Stuga needs attention";
+  const detailedTitle = boundedPushText(bindings.houseLabel
+    ? `${prefix}${rule.name} · ${bindings.houseLabel}`
+    : `${prefix}${rule.name}`, 180);
+  const detailedBody = boundedPushText(bindings.sensorLabel
+    ? `${bindings.sensorLabel} has an active ${event.severity} alert.`
+    : `An active ${event.severity} alert needs review.`, 400);
+  const payload: APNSNotificationPayload = {
+    aps: {
+      alert: {
+        title: destination.includeDetails ? detailedTitle : privateTitle,
+        body: destination.includeDetails
+          ? detailedBody
+          : "Open Stuga to review the current alert.",
+      },
+      category: destination.canAcknowledge ? "STUGA_ALERT" : "STUGA_ALERT_READ_ONLY",
+      ...((silentOverride ?? rule.severity === "info") ? {} : { sound: "default" as const }),
+      "thread-id": "stuga-alerts",
+    },
+    stugaAlertId: event.id,
+    stugaDeepLink: `stuga://alerts?id=${encodeURIComponent(event.id)}`,
+  };
+  return {
+    destinationRef: apnsNotificationDestinationRef(providerRef, destination),
+    payloadJson: JSON.stringify(payload),
+  };
 }
 
 export function alertNotificationBindings(
@@ -90,11 +175,18 @@ export function alertNotificationBindings(
     ...context,
     webhookDestinations,
     telegramDestinationRef: notificationDestinationRef("telegram", config),
+    apnsProviderRef: apnsProviderRef(config),
+    apnsEnabled: Boolean(
+      config?.apnsTeamId
+        && config.apnsKeyId
+        && config.apnsBundleId
+        && config.apnsPrivateKey,
+    ),
   };
 }
 
 export function notificationSnapshot(
-  channel: NotificationSnapshotChannel,
+  channel: Exclude<NotificationSnapshotChannel, "apns">,
   event: AlertEvent,
   rule: AlertRule,
   bindings: AlertNotificationBindings,

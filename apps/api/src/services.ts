@@ -246,7 +246,7 @@ export class AlertEngine {
     for (const event of this.database.listAlertEvents(1_000, true)) {
       if (event.acknowledgedAt || event.resolvedAt) continue;
       const rule = this.database.getAlertRule(event.ruleId);
-      if (!rule || !rule.enabled || (!rule.webhookEnabled && !rule.telegramEnabled)) continue;
+      if (!rule || !rule.enabled) continue;
       const policy = rule.deliveryPolicy;
       if (!policy) continue;
       const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - Date.parse(event.startedAt)) / 1_000));
@@ -352,9 +352,17 @@ export class AlertEngine {
 
   private evaluateRule(rule: AlertRule, sample: MeasurementSample, nowMs: number): AlertEvent | null {
     if (!ruleApplies(rule, sample)) return null;
-    const sensor = rule.webhookEnabled || rule.telegramEnabled ? this.database.getSensor(sample.sensorId) : null;
+    const nativePushEnabled = Boolean(
+      this.config?.apnsTeamId
+        && this.config.apnsKeyId
+        && this.config.apnsBundleId
+        && this.config.apnsPrivateKey,
+    );
+    const sensor = rule.webhookEnabled || rule.telegramEnabled || nativePushEnabled
+      ? this.database.getSensor(sample.sensorId)
+      : null;
     const house = sensor ? this.database.getHouse(sensor.houseId) : null;
-    const bindings = rule.webhookEnabled || rule.telegramEnabled
+    const bindings = rule.webhookEnabled || rule.telegramEnabled || nativePushEnabled
       ? alertNotificationBindings(this.config, {
           houseLabel: house?.name ?? null,
           sensorLabel: sensor?.name ?? null,

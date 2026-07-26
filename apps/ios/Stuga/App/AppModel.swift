@@ -1,5 +1,7 @@
 import Combine
 import Foundation
+import UIKit
+import UserNotifications
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -17,6 +19,17 @@ final class AppModel: ObservableObject {
         static let selectedProperty = "stuga.selectedProperty"
         static let units = "stuga.units"
         static let equipmentObservation = "stuga.tracking.mobileObserver.enabled"
+        static let notificationsEnabled = "stuga.notifications.enabled"
+        static let notificationRegistration = "stuga.notifications.registration"
+        static let notificationAccountIdentity = "stuga.notifications.accountIdentity"
+        static let notificationDeviceToken = "stuga.notifications.deviceToken"
+        static let notificationMinimumSeverity = "stuga.notifications.minimumSeverity"
+        static let notificationIncludeDetails = "stuga.notifications.includeDetails"
+    }
+
+    enum QuickCaptureSaveState: Equatable {
+        case saved
+        case queued
     }
 
     @Published private(set) var phase: Phase = .starting
@@ -31,6 +44,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var alerts: [AlertEvent] = []
     @Published private(set) var rules: [AlertRule] = []
     @Published private(set) var propertyInventory: PropertyInventorySnapshot?
+    @Published private(set) var todayContext: TodayContext?
+    @Published private(set) var pendingActions: [PendingCompanionAction] = []
     @Published private(set) var selectedHomeID: String?
     @Published private(set) var selectedPropertyID: String?
     @Published private(set) var trackingCapabilities: TrackingCapabilities?
@@ -42,7 +57,40 @@ final class AppModel: ObservableObject {
     )
     @Published private(set) var lastUpdated: Date?
     @Published private(set) var liveConnected = false
+    @Published private(set) var usingCachedData = false
     @Published private(set) var isRefreshing = false
+    @Published private(set) var notificationAuthorization: UNAuthorizationStatus = .notDetermined
+    @Published private(set) var notificationProviderConfigured = false
+    @Published private(set) var notificationRegistration: IOSNotificationRegistration?
+    @Published private(set) var notificationsEnabled = UserDefaults.standard.bool(
+        forKey: DefaultsKey.notificationsEnabled
+    )
+    @Published var notificationMinimumSeverity = IOSPushMinimumSeverity(
+        rawValue: UserDefaults.standard.string(
+            forKey: DefaultsKey.notificationMinimumSeverity
+        ) ?? ""
+    ) ?? .warning {
+        didSet {
+            UserDefaults.standard.set(
+                notificationMinimumSeverity.rawValue,
+                forKey: DefaultsKey.notificationMinimumSeverity
+            )
+            Task { await syncNotificationRegistration() }
+        }
+    }
+    @Published var notificationIncludeDetails = UserDefaults.standard.bool(
+        forKey: DefaultsKey.notificationIncludeDetails
+    ) {
+        didSet {
+            UserDefaults.standard.set(
+                notificationIncludeDetails,
+                forKey: DefaultsKey.notificationIncludeDetails
+            )
+            Task { await syncNotificationRegistration() }
+        }
+    }
+    @Published var pendingDeepLink: CompanionDeepLink?
+    @Published var requestedEquipmentID: String?
     @Published var errorMessage: String?
     @Published var unitSystem = DisplayUnitSystem(
         rawValue: UserDefaults.standard.string(forKey: DefaultsKey.units) ?? ""
@@ -58,6 +106,12 @@ final class AppModel: ObservableObject {
     private var trackingEventTask: Task<Void, Never>?
     private var trackingEventRefreshTask: Task<Void, Never>?
     private var requestGeneration = 0
+    private let cacheStore = CompanionCacheStore(
+        fileURL: CompanionCacheStore.defaultFileURL()
+    )
+    private let widgetStore = CompanionWidgetSnapshotStore()
+    private var historyCache: [String: CompanionHistorySeries] = [:]
+    private var cachedAccountIdentity: String?
     let mobileTracking = MobileTrackingController()
     let memberLocationSharing = MemberLocationSharingController()
 
@@ -136,6 +190,13 @@ final class AppModel: ObservableObject {
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
+    var selectedHomeFloors: [StugaFloor] {
+        selectedHome?.floors.sorted {
+            if $0.elevation != $1.elevation { return $0.elevation < $1.elevation }
+            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        } ?? []
+    }
+
     var selectedConditions: [SensorCondition] {
         let measurementsBySensor = Dictionary(uniqueKeysWithValues: snapshot.map {
             ($0.sensorId, $0.measurements)
@@ -157,6 +218,16 @@ final class AppModel: ObservableObject {
     var monitorSummary: HomeMonitorSummary {
         HomeMonitorSummary.evaluate(conditions: selectedConditions, alerts: selectedHomeAlerts)
     }
+
+    var todayRecommendation: TodayRecommendation? {
+        guard !usingCachedData else { return nil }
+        return TodayRecommendation.evaluate(
+            conditions: selectedConditions,
+            context: todayContext
+        )
+    }
+
+    var pendingActionCount: Int { pendingActions.count }
 
     var isReadOnly: Bool {
         session?.readOnly ?? true
@@ -183,7 +254,16 @@ final class AppModel: ObservableObject {
         }
         do {
             let address = try ServerAddress(saved)
-            try await configure(address: address, persist: false)
+            do {
+                try await configure(address: address, persist: false)
+            } catch {
+                if await restoreCachedWorkspace(address: address) {
+                    errorMessage = "Stuga could not be reached. Showing protected information saved on this iPhone."
+                    startEventLoop()
+                } else {
+                    throw error
+                }
+            }
         } catch {
             errorMessage = friendlyMessage(for: error)
             phase = .serverSetup
@@ -203,9 +283,39 @@ final class AppModel: ObservableObject {
                 equipmentObservationEnabled = false
                 UserDefaults.standard.set(false, forKey: DefaultsKey.equipmentObservation)
                 let previousClient = StugaAPIClient(address: previousAddress)
+                if let registrationID = UserDefaults.standard.string(
+                    forKey: DefaultsKey.notificationRegistration
+                ) {
+                    try? await previousClient.deleteIOSNotificationRegistration(
+                        id: registrationID
+                    )
+                }
+                UIApplication.shared.unregisterForRemoteNotifications()
+                notificationsEnabled = false
+                UserDefaults.standard.set(
+                    false,
+                    forKey: DefaultsKey.notificationsEnabled
+                )
+                UserDefaults.standard.removeObject(
+                    forKey: DefaultsKey.notificationRegistration
+                )
+                UserDefaults.standard.removeObject(
+                    forKey: DefaultsKey.notificationAccountIdentity
+                )
                 await previousClient.clearCookies()
+                try? await cacheStore.remove()
+                clearGlanceableState()
             }
-            try await configure(address: address, persist: true)
+            do {
+                try await configure(address: address, persist: true)
+            } catch {
+                if await restoreCachedWorkspace(address: address) {
+                    errorMessage = "Stuga could not be reached. Showing protected information saved on this iPhone."
+                    startEventLoop()
+                } else {
+                    throw error
+                }
+            }
         } catch {
             errorMessage = friendlyMessage(for: error)
             phase = .serverSetup
@@ -222,10 +332,12 @@ final class AppModel: ObservableObject {
                 password: password
             )
             guard generation == requestGeneration else { return }
+            await adoptCachedState(for: session)
             self.session = session
             try await loadWorkspace()
             guard generation == requestGeneration else { return }
             phase = .ready
+            await finishOnlineRefresh()
             startEventLoop()
         } catch {
             errorMessage = friendlyMessage(for: error)
@@ -237,10 +349,29 @@ final class AppModel: ObservableObject {
         isRefreshing = true
         defer { isRefreshing = false }
         do {
+            if usingCachedData, let client {
+                let refreshedSession = try await client.currentSession()
+                guard refreshedSession.authenticated else {
+                    throw StugaAPIError(
+                        status: 401,
+                        code: "UNAUTHORIZED",
+                        message: "Sign in to continue."
+                    )
+                }
+                await adoptCachedState(for: refreshedSession)
+                session = refreshedSession
+            }
             try await loadWorkspace()
+            await finishOnlineRefresh()
             errorMessage = nil
         } catch {
-            handleAuthenticatedError(error)
+            if isTransient(error), !properties.isEmpty {
+                usingCachedData = true
+                liveConnected = false
+                errorMessage = friendlyMessage(for: error)
+            } else {
+                handleAuthenticatedError(error)
+            }
         }
     }
 
@@ -261,10 +392,14 @@ final class AppModel: ObservableObject {
             snapshot = next
             try await loadInventoryWorkspace()
             guard generation == requestGeneration, selectedHomeID == id else { return }
+            await loadTodayContext()
+            guard generation == requestGeneration, selectedHomeID == id else { return }
             try await loadTrackingWorkspace()
             guard generation == requestGeneration, selectedHomeID == id else { return }
             startTrackingEventLoop()
             lastUpdated = Date()
+            usingCachedData = false
+            await persistCompanionState()
             errorMessage = nil
         } catch {
             handleAuthenticatedError(error)
@@ -295,10 +430,14 @@ final class AppModel: ObservableObject {
         do {
             try await loadInventoryWorkspace()
             guard generation == requestGeneration, selectedPropertyID == id else { return }
+            await loadTodayContext()
+            guard generation == requestGeneration, selectedPropertyID == id else { return }
             try await loadTrackingWorkspace()
             guard generation == requestGeneration, selectedPropertyID == id else { return }
             startTrackingEventLoop()
             lastUpdated = Date()
+            usingCachedData = false
+            await persistCompanionState()
             errorMessage = nil
         } catch {
             handleAuthenticatedError(error)
@@ -306,18 +445,108 @@ final class AppModel: ObservableObject {
     }
 
     func acknowledge(_ alert: AlertEvent) async {
-        guard !isReadOnly, let client else { return }
+        guard !isReadOnly else { return }
         let generation = requestGeneration
+        if usingCachedData || client == nil {
+            await queueAlertAcknowledgement(alert)
+            return
+        }
         do {
-            let updated = try await client.acknowledgeAlert(id: alert.id)
+            let updated = try await client!.acknowledgeAlert(id: alert.id)
             guard generation == requestGeneration else { return }
             if let index = alerts.firstIndex(where: { $0.id == updated.id }) {
                 alerts[index] = updated
             }
+            cancelLocalAlertReminder(alertID: updated.id)
+            await persistCompanionState()
             errorMessage = nil
         } catch {
-            handleAuthenticatedError(error)
+            if isTransient(error) {
+                await queueAlertAcknowledgement(alert)
+            } else {
+                handleAuthenticatedError(error)
+            }
         }
+    }
+
+    func acknowledgeAlert(id: String) async {
+        if let alert = alerts.first(where: { $0.id == id }) {
+            await acknowledge(alert)
+            return
+        }
+        guard !isReadOnly else {
+            errorMessage = "This account cannot acknowledge alerts."
+            return
+        }
+        guard let client, !usingCachedData else {
+            if await enqueue(PendingCompanionAction(
+                kind: .acknowledgeAlert,
+                createdAt: iso8601(Date()),
+                alertId: id
+            )) {
+                cancelLocalAlertReminder(alertID: id)
+            }
+            return
+        }
+        do {
+            _ = try await client.acknowledgeAlert(id: id)
+            cancelLocalAlertReminder(alertID: id)
+            await refresh()
+        } catch {
+            if isTransient(error) {
+                if await enqueue(PendingCompanionAction(
+                    kind: .acknowledgeAlert,
+                    createdAt: iso8601(Date()),
+                    alertId: id
+                )) {
+                    cancelLocalAlertReminder(alertID: id)
+                }
+            } else {
+                handleAuthenticatedError(error)
+            }
+        }
+    }
+
+    func importRoomPlanFloor(
+        _ floor: StugaFloor,
+        capturedAt: String,
+        expectedHouseUpdatedAt: String
+    ) async throws {
+        guard !isReadOnly else {
+            throw StugaAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This account cannot change floor plans."
+            )
+        }
+        guard !usingCachedData, let client, let home = selectedHome else {
+            throw StugaAPIError(
+                status: 503,
+                code: "ONLINE_REQUIRED",
+                message: "Reconnect to Stuga before importing a room scan."
+            )
+        }
+        guard home.updatedAt == expectedHouseUpdatedAt,
+              home.floors.contains(where: { $0.id == floor.id }) else {
+            throw StugaAPIError(
+                status: 409,
+                code: "ROOMPLAN_STALE_HOME",
+                message: "The Home changed after scanning. Refresh and review the floor again."
+            )
+        }
+        let generation = requestGeneration
+        let updated = try await client.importRoomPlanFloor(
+            houseID: home.id,
+            floor: floor,
+            capturedAt: capturedAt,
+            expectedHouseUpdatedAt: expectedHouseUpdatedAt
+        )
+        guard generation == requestGeneration, selectedHomeID == updated.id else { return }
+        if let index = houses.firstIndex(where: { $0.id == updated.id }) {
+            houses[index] = updated
+        }
+        lastUpdated = Date()
+        await persistCompanionState()
     }
 
     func setEquipmentObservationEnabled(_ enabled: Bool) async {
@@ -562,12 +791,210 @@ final class AppModel: ObservableObject {
     }
 
     func history(sensorID: String, metric: String, hours: Int = 24) async throws -> [MeasurementSample] {
-        guard let client else { return [] }
-        return try await client.measurementHistory(
-            sensorID: sensorID,
-            metric: metric,
-            from: Date().addingTimeInterval(-Double(hours) * 3_600)
+        let key = historyKey(sensorID: sensorID, metric: metric, hours: hours)
+        guard let client, !usingCachedData else {
+            return historyCache[key]?.samples ?? []
+        }
+        do {
+            let samples = try await client.measurementHistory(
+                sensorID: sensorID,
+                metric: metric,
+                from: Date().addingTimeInterval(-Double(hours) * 3_600)
+            )
+            let houseID = sensor(for: sensorID)?.houseId ?? selectedHomeID ?? ""
+            historyCache[key] = CompanionHistorySeries(
+                houseId: houseID,
+                sensorId: sensorID,
+                metric: metric,
+                hours: hours,
+                samples: samples
+            )
+            await persistCompanionState()
+            return samples
+        } catch {
+            if isTransient(error), let cached = historyCache[key] {
+                usingCachedData = true
+                return cached.samples
+            }
+            throw error
+        }
+    }
+
+    func submitObservation(
+        kind: String,
+        severity: String,
+        note: String,
+        sensorID: String?
+    ) async throws -> QuickCaptureSaveState {
+        guard !isReadOnly else {
+            throw StugaAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This account cannot add observations."
+            )
+        }
+        guard let home = selectedHome,
+              let floorID = sensorID.flatMap({ sensor(for: $0)?.floorId })
+                ?? selectedSensors.first?.floorId else {
+            throw StugaAPIError(
+                status: 422,
+                code: "FLOOR_REQUIRED",
+                message: "Add a floor and sensor in the web app before recording a Home observation."
+            )
+        }
+        let input = QuickObservationInput(
+            houseId: home.id,
+            floorId: floorID,
+            sensorId: sensorID,
+            kind: kind,
+            severity: severity,
+            note: note.trimmingCharacters(in: .whitespacesAndNewlines),
+            occurredAt: iso8601(Date()),
+            source: "owner",
+            confidence: "confirmed"
         )
+        guard let client, !usingCachedData else {
+            guard await enqueue(PendingCompanionAction(
+                kind: .createObservation,
+                createdAt: iso8601(Date()),
+                observation: input
+            )) else {
+                throw StugaAPIError(
+                    status: 507,
+                    code: "OFFLINE_QUEUE_FULL",
+                    message: "Reconnect before adding more offline work."
+                )
+            }
+            return .queued
+        }
+        do {
+            _ = try await client.createObservation(input)
+            return .saved
+        } catch {
+            guard isTransient(error) else { throw error }
+            guard await enqueue(PendingCompanionAction(
+                kind: .createObservation,
+                createdAt: iso8601(Date()),
+                observation: input
+            )) else {
+                throw StugaAPIError(
+                    status: 507,
+                    code: "OFFLINE_QUEUE_FULL",
+                    message: "Reconnect before adding more offline work."
+                )
+            }
+            return .queued
+        }
+    }
+
+    func submitMaintenance(
+        title: String,
+        description: String?,
+        priority: String,
+        equipment: AreaEquipment? = nil
+    ) async throws -> QuickCaptureSaveState {
+        guard !isReadOnly else {
+            throw StugaAPIError(
+                status: 403,
+                code: "READ_ONLY",
+                message: "This account cannot add maintenance work."
+            )
+        }
+        guard let property = selectedProperty else {
+            throw StugaAPIError(
+                status: 422,
+                code: "PROPERTY_REQUIRED",
+                message: "Choose a Property before adding maintenance work."
+            )
+        }
+        let input = QuickMaintenanceInput(
+            propertyId: property.id,
+            houseId: selectedHome?.id,
+            floorId: nil,
+            areaId: equipment?.areaId,
+            equipmentId: equipment?.id,
+            title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+            description: description?.trimmingCharacters(in: .whitespacesAndNewlines),
+            priority: priority
+        )
+        guard let client, !usingCachedData else {
+            guard await enqueue(PendingCompanionAction(
+                kind: .createMaintenance,
+                createdAt: iso8601(Date()),
+                maintenance: input
+            )) else {
+                throw StugaAPIError(
+                    status: 507,
+                    code: "OFFLINE_QUEUE_FULL",
+                    message: "Reconnect before adding more offline work."
+                )
+            }
+            return .queued
+        }
+        do {
+            _ = try await client.createMaintenance(input)
+            return .saved
+        } catch {
+            guard isTransient(error) else { throw error }
+            guard await enqueue(PendingCompanionAction(
+                kind: .createMaintenance,
+                createdAt: iso8601(Date()),
+                maintenance: input
+            )) else {
+                throw StugaAPIError(
+                    status: 507,
+                    code: "OFFLINE_QUEUE_FULL",
+                    message: "Reconnect before adding more offline work."
+                )
+            }
+            return .queued
+        }
+    }
+
+    func requestNotificationPermission() async {
+        do {
+            let granted = try await UNUserNotificationCenter.current().requestAuthorization(
+                options: [.alert, .badge, .sound]
+            )
+            await refreshNotificationAuthorization()
+            guard granted else { return }
+            notificationsEnabled = true
+            UserDefaults.standard.set(true, forKey: DefaultsKey.notificationsEnabled)
+            UIApplication.shared.registerForRemoteNotifications()
+            await syncNotificationRegistration()
+        } catch {
+            errorMessage = "Notification permission could not be requested."
+        }
+    }
+
+    func setNotificationsEnabled(_ enabled: Bool) async {
+        notificationsEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: DefaultsKey.notificationsEnabled)
+        if enabled {
+            await requestNotificationPermission()
+        } else {
+            UIApplication.shared.unregisterForRemoteNotifications()
+            await removeNotificationRegistration()
+        }
+    }
+
+    func receiveNotificationDeviceToken(_ token: String) async {
+        UserDefaults.standard.set(token, forKey: DefaultsKey.notificationDeviceToken)
+        await syncNotificationRegistration()
+    }
+
+    func refreshNotificationAuthorization() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        notificationAuthorization = settings.authorizationStatus
+    }
+
+    func handleDeepLink(_ url: URL) {
+        guard let link = CompanionDeepLink.parse(url) else { return }
+        pendingDeepLink = link
+    }
+
+    func consumeDeepLink() {
+        pendingDeepLink = nil
     }
 
     func definition(for metric: String) -> MeasurementDefinition? {
@@ -594,6 +1021,17 @@ final class AppModel: ObservableObject {
     func signOut() async {
         requestGeneration += 1
         let generation = requestGeneration
+        if let client,
+           let registrationID = UserDefaults.standard.string(
+            forKey: DefaultsKey.notificationRegistration
+           ) {
+            try? await client.deleteIOSNotificationRegistration(id: registrationID)
+        }
+        UIApplication.shared.unregisterForRemoteNotifications()
+        notificationsEnabled = false
+        UserDefaults.standard.set(false, forKey: DefaultsKey.notificationsEnabled)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.notificationRegistration)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.notificationAccountIdentity)
         await memberLocationSharing.stopSharing()
         stopEventLoop()
         clearWorkspace()
@@ -605,6 +1043,8 @@ final class AppModel: ObservableObject {
             try? await client.logout()
             await client.clearCookies()
         }
+        try? await cacheStore.remove()
+        clearGlanceableState()
         guard generation == requestGeneration else { return }
         phase = .signIn
     }
@@ -628,8 +1068,20 @@ final class AppModel: ObservableObject {
         UserDefaults.standard.set(false, forKey: DefaultsKey.equipmentObservation)
         phase = .starting
         if let retiringClient {
+            if let registrationID = UserDefaults.standard.string(
+                forKey: DefaultsKey.notificationRegistration
+            ) {
+                try? await retiringClient.deleteIOSNotificationRegistration(id: registrationID)
+            }
             await retiringClient.clearCookies()
         }
+        UIApplication.shared.unregisterForRemoteNotifications()
+        notificationsEnabled = false
+        UserDefaults.standard.set(false, forKey: DefaultsKey.notificationsEnabled)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.notificationRegistration)
+        UserDefaults.standard.removeObject(forKey: DefaultsKey.notificationAccountIdentity)
+        try? await cacheStore.remove()
+        clearGlanceableState()
         guard generation == requestGeneration else { return }
         phase = .serverSetup
     }
@@ -642,8 +1094,13 @@ final class AppModel: ObservableObject {
         do {
             try await configure(address: serverAddress, persist: false)
         } catch {
-            errorMessage = friendlyMessage(for: error)
-            phase = .ownerSetupRequired
+            if await restoreCachedWorkspace(address: serverAddress) {
+                errorMessage = "Stuga could not be reached. Showing protected information saved on this iPhone."
+                phase = .ready
+            } else {
+                errorMessage = friendlyMessage(for: error)
+                phase = .ownerSetupRequired
+            }
         }
     }
 
@@ -651,6 +1108,7 @@ final class AppModel: ObservableObject {
         guard phase == .ready else { return }
         mobileTracking.applicationBecameActive()
         memberLocationSharing.applicationBecameActive()
+        await refreshNotificationAuthorization()
         await refresh()
         startEventLoop()
     }
@@ -669,6 +1127,16 @@ final class AppModel: ObservableObject {
         errorMessage = nil
         stopEventLoop()
         clearWorkspace()
+        if let cached = try? await cacheStore.load(
+            serverOrigin: address.origin.absoluteString
+        ) {
+            cachedAccountIdentity = accountIdentity(for: cached.session)
+            pendingActions = cached.pendingActions
+            historyCache = Dictionary(
+                uniqueKeysWithValues: cached.history.map { ($0.id, $0) }
+            )
+            todayContext = cached.todayContext
+        }
         let client = StugaAPIClient(address: address)
         let health = try await client.health()
         guard generation == requestGeneration else { return }
@@ -691,13 +1159,16 @@ final class AppModel: ObservableObject {
                 phase = .signIn
                 return
             }
+            await adoptCachedState(for: session)
             try await loadWorkspace()
             guard generation == requestGeneration else { return }
             phase = .ready
+            await finishOnlineRefresh()
             startEventLoop()
         } catch let error as StugaAPIError where error.status == 401 {
             guard generation == requestGeneration else { return }
             session = nil
+            clearGlanceableState()
             phase = .signIn
         }
     }
@@ -772,6 +1243,8 @@ final class AppModel: ObservableObject {
         }
         try await loadInventoryWorkspace()
         guard generation == requestGeneration else { return }
+        await loadTodayContext()
+        guard generation == requestGeneration else { return }
         do {
             try await loadTrackingWorkspace()
         } catch let error as StugaAPIError where error.status == 401 {
@@ -783,6 +1256,7 @@ final class AppModel: ObservableObject {
             trackingLiveConnected = false
         }
         lastUpdated = Date()
+        usingCachedData = false
     }
 
     private func loadInventoryWorkspace() async throws {
@@ -843,6 +1317,447 @@ final class AppModel: ObservableObject {
         } else {
             mobileTracking.disable()
         }
+    }
+
+    private func loadTodayContext() async {
+        guard let client else { return }
+        let weather: HouseWeatherSummary?
+        if let homeID = selectedHomeID {
+            weather = try? await client.houseWeather(houseID: homeID)
+        } else {
+            weather = nil
+        }
+        let energy: EnergyOptimizationSummary?
+        if let propertyID = selectedPropertyID {
+            energy = try? await client.energyOptimization(propertyID: propertyID)
+        } else {
+            energy = nil
+        }
+        let next = TodayContext(weather: weather, energy: energy)
+        todayContext = next.weather != nil || next.energy != nil ? next : nil
+    }
+
+    private func finishOnlineRefresh() async {
+        usingCachedData = false
+        await flushPendingActions()
+        await refreshNotificationAuthorization()
+        if notificationsEnabled, notificationAllowed {
+            UIApplication.shared.registerForRemoteNotifications()
+            await syncNotificationRegistration()
+        } else if !notificationsEnabled {
+            await removeNotificationRegistration()
+        }
+        await reconcileLocalAlertReminders()
+        await persistCompanionState()
+    }
+
+    private func restoreCachedWorkspace(address: ServerAddress) async -> Bool {
+        guard let cache = try? await cacheStore.load(
+            serverOrigin: address.origin.absoluteString
+        ), cache.session.authenticated else {
+            return false
+        }
+        stopEventLoop()
+        clearWorkspace()
+        client = StugaAPIClient(address: address)
+        serverAddress = address
+        session = cache.session
+        properties = cache.properties
+        houses = cache.houses
+        sensors = cache.sensors
+        definitions = cache.definitions
+        snapshot = cache.measurementSnapshot
+        alerts = sortedAlerts(cache.alerts)
+        rules = cache.rules
+        propertyInventory = cache.propertyInventory
+        selectedHomeID = cache.selectedHomeId
+        selectedPropertyID = cache.selectedPropertyId
+        historyCache = Dictionary(
+            uniqueKeysWithValues: cache.history.map { ($0.id, $0) }
+        )
+        cachedAccountIdentity = accountIdentity(for: cache.session)
+        todayContext = cache.todayContext
+        pendingActions = cache.pendingActions
+        lastUpdated = StugaDateParser.date(from: cache.savedAt)
+        usingCachedData = true
+        liveConnected = false
+        phase = .ready
+        mobileTracking.suspend()
+        memberLocationSharing.suspend()
+        persistWidgetSnapshot()
+        return true
+    }
+
+    @discardableResult
+    private func persistCompanionState() async -> Bool {
+        guard let serverAddress,
+              let session,
+              session.authenticated else {
+            return false
+        }
+        let cachedSession = AppSession(
+            authenticated: session.authenticated,
+            principal: session.principal,
+            tenant: session.tenant,
+            readOnly: session.readOnly,
+            csrfToken: nil,
+            setupRequired: session.setupRequired
+        )
+        let savedAt = iso8601(lastUpdated ?? Date())
+        let cache = CompanionCache(
+            serverOrigin: serverAddress.origin.absoluteString,
+            savedAt: savedAt,
+            session: cachedSession,
+            properties: properties,
+            houses: houses,
+            sensors: sensors,
+            definitions: definitions,
+            measurementSnapshot: snapshot,
+            alerts: alerts,
+            rules: rules,
+            propertyInventory: propertyInventory,
+            selectedHomeId: selectedHomeID,
+            selectedPropertyId: selectedPropertyID,
+            history: Array(historyCache.values),
+            todayContext: todayContext,
+            pendingActions: pendingActions
+        )
+        do {
+            try await cacheStore.save(cache)
+        } catch {
+            errorMessage = "Stuga could not protect its offline information on this iPhone."
+            return false
+        }
+        cachedAccountIdentity = accountIdentity(for: session)
+        persistWidgetSnapshot()
+        return true
+    }
+
+    private func adoptCachedState(for session: AppSession) async {
+        let identity = accountIdentity(for: session)
+        if let notificationIdentity = UserDefaults.standard.string(
+            forKey: DefaultsKey.notificationAccountIdentity
+        ), notificationIdentity != identity {
+            UIApplication.shared.unregisterForRemoteNotifications()
+            notificationsEnabled = false
+            UserDefaults.standard.set(
+                false,
+                forKey: DefaultsKey.notificationsEnabled
+            )
+            notificationRegistration = nil
+            notificationProviderConfigured = false
+            UserDefaults.standard.removeObject(
+                forKey: DefaultsKey.notificationRegistration
+            )
+            UserDefaults.standard.removeObject(
+                forKey: DefaultsKey.notificationAccountIdentity
+            )
+        }
+        guard let cachedAccountIdentity else {
+            self.cachedAccountIdentity = identity
+            return
+        }
+        guard cachedAccountIdentity != identity else { return }
+        pendingActions = []
+        historyCache = [:]
+        todayContext = nil
+        UIApplication.shared.unregisterForRemoteNotifications()
+        notificationsEnabled = false
+        UserDefaults.standard.set(false, forKey: DefaultsKey.notificationsEnabled)
+        notificationRegistration = nil
+        notificationProviderConfigured = false
+        UserDefaults.standard.removeObject(
+            forKey: DefaultsKey.notificationRegistration
+        )
+        try? await cacheStore.remove()
+        clearGlanceableState()
+        self.cachedAccountIdentity = identity
+    }
+
+    private func accountIdentity(for session: AppSession) -> String {
+        [
+            session.principal.type,
+            session.principal.email?.lowercased() ?? "",
+            session.tenant.id,
+        ].joined(separator: "\u{1f}")
+    }
+
+    private func persistWidgetSnapshot() {
+        guard let home = selectedHome else {
+            clearGlanceableState()
+            return
+        }
+        let summary = monitorSummary
+        let state: String
+        switch summary.state {
+        case .balanced: state = "balanced"
+        case .limited: state = "limited"
+        case .attention: state = "attention"
+        case .critical: state = "critical"
+        }
+        let updatedAt = iso8601(lastUpdated ?? Date())
+        widgetStore.save(CompanionWidgetSnapshot(
+            homeId: home.id,
+            homeName: home.name,
+            state: state,
+            title: summary.title,
+            detail: usingCachedData ? "Saved status · \(summary.detail)" : summary.detail,
+            activeAlertCount: selectedHomeAlerts.filter(\.isActive).count,
+            updatedAt: updatedAt
+        ))
+        let watchAlerts = selectedHomeAlerts
+            .filter { $0.isActive && $0.acknowledgedAt == nil }
+            .prefix(8)
+            .map { alert in
+                let sensor = sensors.first { $0.id == alert.sensorId }
+                let location: String
+                if let room = sensor?.room, !room.isEmpty {
+                    location = room
+                } else {
+                    location = sensor?.name ?? "Home"
+                }
+                let metric = definitions.first { $0.id == alert.metric }?
+                    .label() ?? alert.metric.replacingOccurrences(of: "-", with: " ")
+                return WatchAlertSummary(
+                    id: alert.id,
+                    severity: alert.severity,
+                    title: "\(location): \(metric)",
+                    startedAt: alert.startedAt
+                )
+            }
+        PhoneWatchConnectivityBridge.shared.publish(WatchHomeSnapshot(
+            homeId: home.id,
+            homeName: home.name,
+            state: state,
+            title: summary.title,
+            detail: usingCachedData ? "Saved status. \(summary.detail)" : summary.detail,
+            updatedAt: updatedAt,
+            cached: usingCachedData,
+            readOnly: isReadOnly,
+            alerts: Array(watchAlerts)
+        ))
+    }
+
+    private func clearGlanceableState() {
+        widgetStore.remove()
+        PhoneWatchConnectivityBridge.shared.publish(
+            .unavailable(at: iso8601(Date()))
+        )
+    }
+
+    private func queueAlertAcknowledgement(_ alert: AlertEvent) async {
+        guard await enqueue(PendingCompanionAction(
+            kind: .acknowledgeAlert,
+            createdAt: iso8601(Date()),
+            alertId: alert.id
+        )) else { return }
+        if let index = alerts.firstIndex(where: { $0.id == alert.id }) {
+            alerts[index] = AlertEvent(
+                id: alert.id,
+                ruleId: alert.ruleId,
+                sensorId: alert.sensorId,
+                metric: alert.metric,
+                value: alert.value,
+                threshold: alert.threshold,
+                severity: alert.severity,
+                startedAt: alert.startedAt,
+                acknowledgedAt: iso8601(Date()),
+                resolvedAt: alert.resolvedAt
+            )
+        }
+        errorMessage = "Marked as seen on this iPhone. Stuga will receive it after reconnection."
+        cancelLocalAlertReminder(alertID: alert.id)
+        await persistCompanionState()
+    }
+
+    @discardableResult
+    private func enqueue(_ action: PendingCompanionAction) async -> Bool {
+        if action.kind == .acknowledgeAlert,
+           pendingActions.contains(where: {
+               $0.kind == .acknowledgeAlert && $0.alertId == action.alertId
+           }) {
+            return true
+        }
+        guard pendingActions.count < 100 else {
+            errorMessage = "The protected offline queue is full. Reconnect before adding more work."
+            return false
+        }
+        pendingActions.append(action)
+        guard await persistCompanionState() else {
+            pendingActions.removeAll { $0.id == action.id }
+            return false
+        }
+        return true
+    }
+
+    private func flushPendingActions() async {
+        guard let client, !usingCachedData, !isReadOnly, !pendingActions.isEmpty else {
+            return
+        }
+        for action in pendingActions {
+            do {
+                switch action.kind {
+                case .acknowledgeAlert:
+                    guard let alertID = action.alertId else { continue }
+                    let updated = try await client.acknowledgeAlert(id: alertID)
+                    if let index = alerts.firstIndex(where: { $0.id == updated.id }) {
+                        alerts[index] = updated
+                    }
+                case .createObservation:
+                    guard let observation = action.observation else { continue }
+                    _ = try await client.createObservation(observation)
+                case .createMaintenance:
+                    guard let maintenance = action.maintenance else { continue }
+                    _ = try await client.createMaintenance(maintenance)
+                }
+                pendingActions.removeAll { $0.id == action.id }
+            } catch let error as StugaAPIError where error.status == 401 {
+                handleAuthenticatedError(error)
+                return
+            } catch {
+                guard let index = pendingActions.firstIndex(where: { $0.id == action.id }) else {
+                    continue
+                }
+                pendingActions[index] = action.recordingFailure(friendlyMessage(for: error))
+                if isTransient(error) { break }
+            }
+        }
+    }
+
+    private func syncNotificationRegistration() async {
+        guard notificationsEnabled,
+              notificationAllowed,
+              phase == .ready,
+              session?.authenticated == true,
+              let client,
+              !usingCachedData,
+              let deviceToken = UserDefaults.standard.string(
+                  forKey: DefaultsKey.notificationDeviceToken
+              ), !deviceToken.isEmpty else {
+            return
+        }
+        let registrationID: String
+        if let saved = UserDefaults.standard.string(
+            forKey: DefaultsKey.notificationRegistration
+        ) {
+            registrationID = saved
+        } else {
+            registrationID = UUID().uuidString.lowercased()
+            UserDefaults.standard.set(
+                registrationID,
+                forKey: DefaultsKey.notificationRegistration
+            )
+        }
+        #if DEBUG
+        let environment = IOSPushEnvironment.sandbox
+        #else
+        let environment = IOSPushEnvironment.production
+        #endif
+        do {
+            let result = try await client.saveIOSNotificationRegistration(
+                id: registrationID,
+                input: IOSNotificationRegistrationInput(
+                    deviceToken: deviceToken,
+                    environment: environment,
+                    homeIds: houses.map(\.id),
+                    minimumSeverity: notificationMinimumSeverity,
+                    includeDetails: notificationIncludeDetails
+                )
+            )
+            notificationProviderConfigured = result.configured
+            notificationRegistration = result.registration
+            if let session {
+                UserDefaults.standard.set(
+                    accountIdentity(for: session),
+                    forKey: DefaultsKey.notificationAccountIdentity
+                )
+            }
+        } catch let error as StugaAPIError where error.status == 404 {
+            notificationProviderConfigured = false
+            notificationRegistration = nil
+        } catch {
+            if !isTransient(error) {
+                errorMessage = friendlyMessage(for: error)
+            }
+        }
+    }
+
+    private func removeNotificationRegistration() async {
+        guard let client,
+              !usingCachedData,
+              let id = UserDefaults.standard.string(
+                  forKey: DefaultsKey.notificationRegistration
+              ) else {
+            return
+        }
+        do {
+            try await client.deleteIOSNotificationRegistration(id: id)
+            notificationRegistration = nil
+            notificationProviderConfigured = false
+        } catch {
+            if !isTransient(error) {
+                errorMessage = friendlyMessage(for: error)
+            }
+        }
+    }
+
+    private var notificationAllowed: Bool {
+        switch notificationAuthorization {
+        case .authorized, .provisional, .ephemeral:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func historyKey(sensorID: String, metric: String, hours: Int) -> String {
+        [selectedHomeID ?? "", sensorID, metric, String(hours)].joined(separator: "\u{1f}")
+    }
+
+    private func cancelLocalAlertReminder(alertID: String) {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(
+            withIdentifiers: [
+                NotificationAppDelegate.reminderIdentifier(for: alertID),
+            ]
+        )
+    }
+
+    private func reconcileLocalAlertReminders() async {
+        let alertsByID = Dictionary(
+            uniqueKeysWithValues: alerts.map { ($0.id, $0) }
+        )
+        let pendingRequests = await UNUserNotificationCenter.current()
+            .pendingNotificationRequests()
+        let obsolete = pendingRequests.compactMap { request -> String? in
+                guard request.identifier.hasPrefix("stuga-reminder-"),
+                      let alertID = request.content.userInfo[
+                        NotificationAppDelegate.alertIDKey
+                      ] as? String,
+                      let alert = alertsByID[alertID],
+                      !alert.isActive || alert.acknowledgedAt != nil else {
+                    return nil
+                }
+                return request.identifier
+            }
+        UNUserNotificationCenter.current().removePendingNotificationRequests(
+            withIdentifiers: obsolete
+        )
+    }
+
+    private func iso8601(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    private func isTransient(_ error: Error) -> Bool {
+        if error is URLError { return true }
+        guard let apiError = error as? StugaAPIError else { return false }
+        return apiError.status == 0
+            || apiError.status == 408
+            || apiError.status == 425
+            || apiError.status == 429
+            || apiError.status >= 500
     }
 
     private func startEventLoop() {
@@ -984,6 +1899,10 @@ final class AppModel: ObservableObject {
         alerts = []
         rules = []
         propertyInventory = nil
+        todayContext = nil
+        pendingActions = []
+        historyCache = [:]
+        cachedAccountIdentity = nil
         trackingCapabilities = nil
         trackingSettings = nil
         trackingSnapshot = nil
@@ -993,6 +1912,9 @@ final class AppModel: ObservableObject {
         selectedHomeID = nil
         selectedPropertyID = nil
         lastUpdated = nil
+        usingCachedData = false
+        notificationRegistration = nil
+        notificationProviderConfigured = false
     }
 
     private func sortedAlerts(_ values: [AlertEvent]) -> [AlertEvent] {
@@ -1009,8 +1931,17 @@ final class AppModel: ObservableObject {
         if let apiError = error as? StugaAPIError, apiError.status == 401 {
             stopEventLoop()
             requestGeneration += 1
+            let retainedPendingActions = pendingActions
+            let retainedHistory = historyCache
+            let retainedTodayContext = todayContext
+            let retainedAccountIdentity = cachedAccountIdentity
             clearWorkspace()
+            pendingActions = retainedPendingActions
+            historyCache = retainedHistory
+            todayContext = retainedTodayContext
+            cachedAccountIdentity = retainedAccountIdentity
             phase = .signIn
+            clearGlanceableState()
         }
         errorMessage = friendlyMessage(for: error)
     }

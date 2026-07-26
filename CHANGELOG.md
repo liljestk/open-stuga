@@ -4,6 +4,22 @@ All notable Stuga releases are recorded here.
 
 ## Unreleased
 
+## 0.13.0 - 2026-07-26
+
+- Added actionable native iOS notifications sent directly from each Stuga
+  server through APNs, with per-device Home/severity filters, generic previews
+  by default, and invalid-token cleanup.
+- Added protected offline Home snapshots and chart history, bounded idempotent
+  queues for field capture and alert acknowledgement, and explicit cached-data
+  freshness.
+- Added iOS Home and Lock Screen widgets, App Shortcuts, deep links, QR-assisted
+  quick capture, and evidence-based read-only Today guidance.
+- Added reviewed, geometry-only RoomPlan imports for supported LiDAR devices
+  and a dependent Apple Watch companion for status and alert acknowledgement;
+  neither path copies Stuga credentials or raw room imagery to the Watch/server.
+- Existing databases migrate automatically. Push remains inert unless the
+  complete optional APNs credential tuple is configured.
+
 ## 0.12.0 - 2026-07-26
 
 - Added a Property-wide Inventory for maintainable equipment with stable QR

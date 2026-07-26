@@ -117,6 +117,7 @@ import {
 } from "./weather-events.js";
 import { TelegramService, TelegramServiceError } from "./telegram.js";
 import { NotificationOutboxWorker } from "./outbox.js";
+import { apnsConfigured } from "./apns.js";
 import { normalizeAlertDeliveryPolicy } from "./notification-policy.js";
 import {
   ElectricityEndpointPolicyError,
@@ -216,6 +217,12 @@ function isTrackingObserverHeartbeatPath(path: string, prefix: string): boolean 
   return Boolean(segments[0])
     && segments[1] === "heartbeat"
     && (segments.length === 2 || (segments.length === 3 && segments[2] === ""));
+}
+
+function isIOSNotificationRegistrationPath(path: string, prefix: string): boolean {
+  const routePrefix = `${prefix}/ios-notification-registrations/`;
+  const id = path.startsWith(routePrefix) ? path.slice(routePrefix.length) : "";
+  return Boolean(id) && !id.includes("/");
 }
 
 interface BoundedSseWriter {
@@ -2001,6 +2008,10 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   // Keep programmatic callers built against older AppConfig shapes compatible.
   config.telegramBotToken ??= null;
   config.telegramChatId ??= null;
+  config.apnsTeamId ??= null;
+  config.apnsKeyId ??= null;
+  config.apnsBundleId ??= null;
+  config.apnsPrivateKey ??= null;
   config.alertWebhookSource ??= config.alertWebhookUrl ? "environment" : null;
   config.alertWebhookSigningSecret ??= null;
   config.alertWebhookDestinations ??= configuredAlertWebhookDestinations(config);
@@ -2891,7 +2902,11 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       `${v2Prefix}/analytics/query`, `${v2Prefix}/analytics/coverage`,
     ].includes(request.path);
     const unsafe = !SAFE_HTTP_METHODS.has(request.method) && !sideEffectFreePost;
-    if (unsafe && principal.role === "guest" && request.path !== `${prefix}/auth/logout`) {
+    const iosNotificationSelfService = ["PUT", "DELETE"].includes(request.method)
+      && isIOSNotificationRegistrationPath(request.path, prefix);
+    if (unsafe && principal.role === "guest"
+      && request.path !== `${prefix}/auth/logout`
+      && !iosNotificationSelfService) {
       next(new HttpError(403, "GUEST_READ_ONLY", "Guest accounts are read-only"));
       return;
     }
@@ -4502,6 +4517,146 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     stugby.captureHomeMutation(updated.id);
     response.json(floor);
   });
+  app.post(`${prefix}/houses/:id/floors/:floorId/roomplan-import`, (request, response) => {
+    const houseId = request.params.id as string;
+    const floorId = request.params.floorId as string;
+    const house = database.getHouse(houseId);
+    if (!house) throw new HttpError(404, "NOT_FOUND", "House not found");
+    stugby.assertHouseWriteAllowed(house.id);
+    const body = bodyObject(request.body);
+    const assertOnlyFields = (
+      value: Record<string, unknown>,
+      allowed: readonly string[],
+      context: string,
+    ): void => {
+      const unexpected = Object.keys(value).find((key) => !allowed.includes(key));
+      if (unexpected) {
+        throw new HttpError(
+          400,
+          "ROOMPLAN_PAYLOAD_NOT_ACCEPTED",
+          `${context} contains unsupported field ${unexpected}`,
+        );
+      }
+    };
+    assertOnlyFields(
+      body,
+      ["source", "capturedAt", "expectedHouseUpdatedAt", "floor"],
+      "RoomPlan import",
+    );
+    const expectedHouseUpdatedAt = requiredString(body, "expectedHouseUpdatedAt");
+    if (house.updatedAt !== expectedHouseUpdatedAt) {
+      throw new HttpError(
+        409,
+        "ROOMPLAN_STALE_HOME",
+        "The Home changed after this scan started. Refresh and review the floor again",
+      );
+    }
+    if (body.source !== "apple-roomplan") {
+      throw new HttpError(400, "INVALID_FIELD", "source must be apple-roomplan");
+    }
+    const capturedAt = requiredString(body, "capturedAt");
+    if (!Number.isFinite(Date.parse(capturedAt))) {
+      throw new HttpError(400, "INVALID_FIELD", "capturedAt must be an ISO timestamp");
+    }
+    const floorObject = bodyObject(body.floor);
+    const floor = floorObject as unknown as Floor;
+    if (typeof floor.id !== "string" || floor.id !== floorId) {
+      throw new HttpError(400, "INVALID_FIELD", "Floor id must match the route");
+    }
+    if (floor.backgroundImage !== undefined) {
+      throw new HttpError(
+        400,
+        "ROOMPLAN_IMAGE_NOT_ACCEPTED",
+        "RoomPlan imports accept derived geometry only, not images",
+      );
+    }
+    assertOnlyFields(
+      floorObject,
+      [
+        "id", "name", "type", "width", "height", "metersPerPlanUnit",
+        "elevation", "ceilingHeight", "wallHeight", "roof", "walls",
+        "rooms", "planElements",
+      ],
+      "RoomPlan floor",
+    );
+    if (floor.metersPerPlanUnit !== 1) {
+      throw new HttpError(
+        400,
+        "ROOMPLAN_SCALE_INVALID",
+        "RoomPlan geometry must use metres as floor-plan units",
+      );
+    }
+    if (!Array.isArray(floor.rooms) || floor.rooms.length !== 1
+      || !Array.isArray(floor.walls) || floor.walls.length < 2 || floor.walls.length > 1_000
+      || (floor.planElements?.length ?? 0) > 1_000) {
+      throw new HttpError(
+        400,
+        "ROOMPLAN_GEOMETRY_INVALID",
+        "RoomPlan imports require one room, 2-1000 walls, and at most 1000 openings",
+      );
+    }
+    for (const [wallIndex, wallValue] of floor.walls.entries()) {
+      const wall = bodyObject(wallValue);
+      assertOnlyFields(wall, ["id", "from", "to"], `RoomPlan wall ${wallIndex}`);
+      assertOnlyFields(bodyObject(wall.from), ["x", "y"], `RoomPlan wall ${wallIndex} start`);
+      assertOnlyFields(bodyObject(wall.to), ["x", "y"], `RoomPlan wall ${wallIndex} end`);
+    }
+    for (const [roomIndex, roomValue] of floor.rooms.entries()) {
+      const room = bodyObject(roomValue);
+      assertOnlyFields(room, ["id", "name", "kind", "points"], `RoomPlan room ${roomIndex}`);
+      if (Array.isArray(room.points)) {
+        for (const [pointIndex, pointValue] of room.points.entries()) {
+          assertOnlyFields(
+            bodyObject(pointValue),
+            ["x", "y"],
+            `RoomPlan room ${roomIndex} point ${pointIndex}`,
+          );
+        }
+      }
+    }
+    if (Array.isArray(floor.planElements)) {
+      for (const [elementIndex, elementValue] of floor.planElements.entries()) {
+        const element = bodyObject(elementValue);
+        assertOnlyFields(
+          element,
+          [
+            "id", "kind", "position", "rotationDegrees", "width", "height",
+            "label", "wallId", "variant", "state", "openFraction",
+            "bottomOffsetM",
+          ],
+          `RoomPlan opening ${elementIndex}`,
+        );
+        assertOnlyFields(
+          bodyObject(element.position),
+          ["x", "y"],
+          `RoomPlan opening ${elementIndex} position`,
+        );
+      }
+    }
+    if (floor.roof !== undefined) {
+      assertOnlyFields(
+        bodyObject(floor.roof),
+        ["style", "pitchDegrees", "ridgeAxis", "overhang", "eavesHeight"],
+        "RoomPlan floor roof",
+      );
+    }
+    const index = house.floors.findIndex((candidate) => candidate.id === floor.id);
+    if (index < 0) throw new HttpError(404, "NOT_FOUND", "Floor not found");
+    const floors = house.floors.slice();
+    floors[index] = floor;
+    stugby.assertSharedHouseFloorPlanAssetsUnchanged(house.id, floors);
+    const updated = database.updateHouse(house.id, { floors });
+    if (!updated) throw new HttpError(404, "NOT_FOUND", "House not found");
+    homeAssistant.refreshMappings();
+    notifySpatial((runtime) => runtime.scheduler.wakeHouse(
+      updated.id,
+      updated.propertyId,
+      new Date().toISOString(),
+      "property-context-changed",
+    ));
+    stugby.captureHomeMutation(updated.id);
+    response.json({ house: updated, floor: updated.floors[index] });
+  });
   app.delete(`${prefix}/houses/:id`, async (request, response) => {
     const houseId = request.params.id as string;
     const previous = database.getHouse(houseId);
@@ -4859,25 +5014,105 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     ) });
   });
   app.post(`${prefix}/alert-events/:id/acknowledge`, (request, response) => {
-    const event = database.acknowledgeAlert(request.params.id as string, new Date().toISOString());
+    const id = request.params.id as string;
+    const current = database.getAlertEvent(id);
+    if (!current || !visibility(response).sensor(current.sensorId)) {
+      throw new HttpError(404, "NOT_FOUND", "Alert event not found");
+    }
+    const event = database.acknowledgeAlert(id, new Date().toISOString());
     if (!event) throw new HttpError(404, "NOT_FOUND", "Alert event not found");
     bus.publish({ type: "alert", data: event });
     response.json({ event });
   });
   app.post(`${prefix}/alerts/:id/acknowledge`, (request, response) => {
-    const event = database.acknowledgeAlert(request.params.id as string, new Date().toISOString());
+    const id = request.params.id as string;
+    const current = database.getAlertEvent(id);
+    if (!current || !visibility(response).sensor(current.sensorId)) {
+      throw new HttpError(404, "NOT_FOUND", "Alert event not found");
+    }
+    const event = database.acknowledgeAlert(id, new Date().toISOString());
     if (!event) throw new HttpError(404, "NOT_FOUND", "Alert event not found");
     bus.publish({ type: "alert", data: event });
     response.json(event);
   });
+  app.get(`${prefix}/ios-notification-registrations/:id`, (request, response) => {
+    const id = request.params.id as string;
+    if (!UUID_PATTERN.test(id)) {
+      throw new HttpError(400, "INVALID_IOS_REGISTRATION_ID", "Notification registration id must be a UUID");
+    }
+    const principal = requestPrincipal(response);
+    response.setHeader("cache-control", "no-store");
+    response.json({
+      configured: apnsConfigured(config),
+      registration: database.getIOSNotificationRegistration(principal.userId, id),
+    });
+  });
+  app.put(`${prefix}/ios-notification-registrations/:id`, (request, response) => {
+    const id = request.params.id as string;
+    if (!UUID_PATTERN.test(id)) {
+      throw new HttpError(400, "INVALID_IOS_REGISTRATION_ID", "Notification registration id must be a UUID");
+    }
+    const body = bodyObject(request.body);
+    const deviceToken = requiredString(body, "deviceToken").toLowerCase();
+    if (!/^[a-f0-9]{64,200}$/u.test(deviceToken) || deviceToken.length % 2 !== 0) {
+      throw new HttpError(400, "INVALID_IOS_DEVICE_TOKEN", "deviceToken must be an APNs hexadecimal device token");
+    }
+    if (!Array.isArray(body.homeIds) || body.homeIds.length > 100) {
+      throw new HttpError(400, "INVALID_FIELD", "homeIds must be an array of at most 100 Home ids");
+    }
+    const homeIds = [...new Set(body.homeIds.map((value) => {
+      if (typeof value !== "string" || !value.trim() || value.length > 200) {
+        throw new HttpError(400, "INVALID_FIELD", "Every homeIds value must be a non-empty string of at most 200 characters");
+      }
+      return value.trim();
+    }))];
+    const access = visibility(response);
+    for (const homeId of homeIds) {
+      if (!database.getHouse(homeId) || !access.house(homeId)) {
+        throw new HttpError(404, "NOT_FOUND", "Home not found");
+      }
+    }
+    const principal = requestPrincipal(response);
+    if (principal.bootstrap) {
+      throw new HttpError(409, "ACCOUNT_REQUIRED", "Create and sign in to a local account before enabling notifications");
+    }
+    const registration = database.saveIOSNotificationRegistration(principal.userId, id, {
+      deviceToken,
+      environment: enumValue(body.environment, ["sandbox", "production"] as const, "environment"),
+      homeIds,
+      minimumSeverity: enumValue(
+        body.minimumSeverity ?? "warning",
+        ["info", "warning", "critical"] as const,
+        "minimumSeverity",
+      ),
+      includeDetails: optionalBoolean(body, "includeDetails") ?? false,
+    });
+    response.setHeader("cache-control", "no-store");
+    response.json({ configured: apnsConfigured(config), registration });
+  });
+  app.delete(`${prefix}/ios-notification-registrations/:id`, (request, response) => {
+    const id = request.params.id as string;
+    if (!UUID_PATTERN.test(id)) {
+      throw new HttpError(400, "INVALID_IOS_REGISTRATION_ID", "Notification registration id must be a UUID");
+    }
+    database.deleteIOSNotificationRegistration(requestPrincipal(response).userId, id);
+    response.setHeader("cache-control", "no-store");
+    response.status(204).end();
+  });
   app.get(`${prefix}/notification-deliveries`, (request, response) => {
     const access = visibility(response);
+    const principal = requestPrincipal(response);
     const limit = safeInteger(request.query.limit, 200, 1, 500);
     const deliveries = database.listNotificationDeliveries(limit * 2).filter((delivery) => {
       if (!access.restricted) return true;
       if (delivery.subjectKind !== "alert") return false;
       const event = database.getAlertEvent(delivery.subjectId);
-      return Boolean(event && access.sensor(event.sensorId));
+      if (!event || !access.sensor(event.sensorId)) return false;
+      return delivery.channel !== "apns"
+        || database.getIOSNotificationRegistration(
+          principal.userId,
+          delivery.destinationId,
+        ) !== null;
     }).slice(0, limit);
     response.json({ deliveries });
   });
@@ -5042,9 +5277,9 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   app.post(`${prefix}/observations`, (request, response) => {
     const input = parseObservationInput(request.body);
     stugby.assertHouseWriteAllowed(input.houseId);
-    const observation = database.createObservation(input, "local-rest");
-    stugby.captureHomeMutation(observation.houseId);
-    response.status(201).json(observation);
+    const { observation, created } = database.getOrCreateObservation(input, "local-rest");
+    if (created) stugby.captureHomeMutation(observation.houseId);
+    response.status(created ? 201 : 200).json(observation);
   });
   app.patch(`${prefix}/observations/:id`, (request, response) => {
     const current = database.getObservation(request.params.id as string);
@@ -5101,9 +5336,9 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
     const input = parseMaintenanceTaskInput(request.body);
     const propertyId = input.propertyId ?? (input.houseId ? database.getHouse(input.houseId)?.propertyId : undefined);
     if (propertyId) stugby.assertPropertyWriteAllowed(propertyId);
-    const task = database.createMaintenanceTask(input, "local-rest");
-    stugby.captureCurrentPropertyEntity(task.propertyId, "maintenance", task.id, "upsert");
-    response.status(201).json(task);
+    const { task, created } = database.getOrCreateMaintenanceTask(input, "local-rest");
+    if (created) stugby.captureCurrentPropertyEntity(task.propertyId, "maintenance", task.id, "upsert");
+    response.status(created ? 201 : 200).json(task);
   });
   app.get(`${prefix}/maintenance-tasks/:id`, (request, response) => {
     const task = database.getMaintenanceTask(request.params.id as string);
@@ -5480,7 +5715,16 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
       throw new HttpError(403, "APPLE_NOTES_HOUSE_SCOPE", "This Shortcut grant cannot create tasks for the requested house");
     }
     const id = capture.input.id!;
-    const { task, created } = database.getOrCreateMaintenanceTask(capture.input, "local-rest");
+    let captureResult: ReturnType<ClimateDatabase["getOrCreateMaintenanceTask"]>;
+    try {
+      captureResult = database.getOrCreateMaintenanceTask(capture.input, "local-rest");
+    } catch (error) {
+      if (error instanceof ClimateDataValidationError && error.code === "MAINTENANCE_ID_CONFLICT") {
+        throw new HttpError(409, "APPLE_NOTES_OPERATION_CONFLICT", "operationId was already used with different maintenance content");
+      }
+      throw error;
+    }
+    const { task, created } = captureResult;
     const deduplicated = !created;
     if (deduplicated) {
       const original = database.listMaintenanceTaskRevisions(id)[0]?.snapshot;

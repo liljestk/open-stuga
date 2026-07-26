@@ -23,6 +23,8 @@ import type {
   House,
   HouseLocation,
   HouseMapPlacement,
+  IOSNotificationRegistration,
+  IOSNotificationRegistrationInput,
   MaintenanceTask,
   MaintenanceTaskChangedField,
   MaintenanceTaskInput,
@@ -65,18 +67,21 @@ import type {
   StaticParameter,
   StugbyHouseLink,
   StugbyPropertyLink,
+  TenantMemberRole,
   Wall,
   WeatherBackfillState,
   WeatherOutageComponent,
   WeatherProviderName,
 } from "@climate-twin/contracts";
 import {
+  apnsNotificationSnapshot,
   alertNotificationBindings,
   legacyNotificationDestinationRef,
   notificationSnapshot,
   operationalNotificationSnapshot,
   type AlertNotificationBindings,
 } from "./notification-snapshot.js";
+import type { APNSDestination } from "./apns.js";
 import {
   DEFAULT_ALERT_DELIVERY_POLICY,
   normalizeAlertDeliveryPolicy,
@@ -88,6 +93,7 @@ import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCo
 
 type JsonValue = string | number | boolean;
 const MIN_SEED_OUTDOOR_READINGS = 48;
+const MAX_ACTIVE_IOS_REGISTRATIONS_PER_USER = 20;
 const DEMO_TELEMETRY_SOURCES = new Set<MeasurementSample["source"]>(["mock", "replay"]);
 const TP_LINK_LOCAL_CLIMATE_HISTORY_REARM_KEY = "sensor-gap-rearm:tp-link-local-climate";
 const TP_LINK_LEGACY_CLIMATE_HISTORY_ERROR = "The direct H100/H200 local API does not expose retained T310/T315 measurement history";
@@ -170,7 +176,7 @@ export interface SecurityAuditEventInput {
   createdAt?: string;
 }
 
-export type NotificationChannel = "webhook" | "telegram";
+export type NotificationChannel = "webhook" | "telegram" | "apns";
 
 export interface NotificationOutboxItem {
   id: string;
@@ -475,6 +481,18 @@ interface AlertEventRow {
   started_at: string;
   acknowledged_at: string | null;
   resolved_at: string | null;
+}
+
+interface IOSNotificationRegistrationRow {
+  id: string;
+  user_id: string;
+  device_token: string;
+  environment: IOSNotificationRegistration["environment"];
+  minimum_severity: IOSNotificationRegistration["minimumSeverity"];
+  include_details: number;
+  enabled: number;
+  created_at: string;
+  updated_at: string;
 }
 
 interface ActionPlaybookRow {
@@ -1259,6 +1277,21 @@ function eventFromRow(row: AlertEventRow): AlertEvent {
     startedAt: row.started_at,
     acknowledgedAt: row.acknowledged_at,
     resolvedAt: row.resolved_at,
+  };
+}
+
+function iosNotificationRegistrationFromRow(
+  row: IOSNotificationRegistrationRow,
+  homeIds: string[],
+): IOSNotificationRegistration {
+  return {
+    id: row.id,
+    environment: row.environment,
+    homeIds,
+    minimumSeverity: row.minimum_severity,
+    includeDetails: row.include_details === 1,
+    enabled: row.enabled === 1,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -2213,6 +2246,25 @@ export class ClimateDatabase {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS ios_notification_registrations (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES local_auth_users(id) ON DELETE CASCADE,
+        device_token TEXT NOT NULL CHECK(length(device_token) BETWEEN 64 AND 200),
+        environment TEXT NOT NULL CHECK(environment IN ('sandbox', 'production')),
+        minimum_severity TEXT NOT NULL CHECK(minimum_severity IN ('info', 'warning', 'critical')),
+        include_details INTEGER NOT NULL CHECK(include_details IN (0, 1)),
+        enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(environment, device_token)
+      );
+      CREATE TABLE IF NOT EXISTS ios_notification_subscriptions (
+        registration_id TEXT NOT NULL REFERENCES ios_notification_registrations(id) ON DELETE CASCADE,
+        house_id TEXT NOT NULL REFERENCES houses(id) ON DELETE CASCADE,
+        PRIMARY KEY(registration_id, house_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_ios_notification_subscriptions_house
+        ON ios_notification_subscriptions(house_id, registration_id);
       CREATE TABLE IF NOT EXISTS opening_state_observations (
         id TEXT PRIMARY KEY,
         house_id TEXT NOT NULL REFERENCES houses(id) ON DELETE CASCADE,
@@ -2429,7 +2481,7 @@ export class ClimateDatabase {
         event_id TEXT REFERENCES alert_events(id) ON DELETE RESTRICT,
         stage TEXT NOT NULL DEFAULT 'initial' CHECK(stage IN ('initial', 'escalation', 'reminder', 'due', 'verification')),
         sequence INTEGER NOT NULL DEFAULT 0 CHECK(sequence >= 0),
-        channel TEXT NOT NULL CHECK(channel IN ('webhook', 'telegram')),
+        channel TEXT NOT NULL CHECK(channel IN ('webhook', 'telegram', 'apns')),
         destination_id TEXT NOT NULL DEFAULT 'primary',
         attempts INTEGER NOT NULL DEFAULT 0,
         max_attempts INTEGER NOT NULL DEFAULT 8 CHECK(max_attempts BETWEEN 1 AND 100),
@@ -3262,7 +3314,7 @@ export class ClimateDatabase {
       WHERE payload_json IS NULL OR destination_ref IS NULL`).all() as Array<{
         id: string;
         event_id: string;
-        channel: NotificationChannel;
+        channel: "webhook" | "telegram";
       }>;
     for (const queued of legacyNotifications) {
       const event = this.getAlertEvent(queued.event_id);
@@ -3280,6 +3332,8 @@ export class ClimateDatabase {
           destinationRef: legacyNotificationDestinationRef("webhook"),
         }],
         telegramDestinationRef: legacyNotificationDestinationRef("telegram"),
+        apnsProviderRef: legacyNotificationDestinationRef("apns"),
+        apnsEnabled: false,
       };
       const payloadJson = event && rule
         ? notificationSnapshot(queued.channel, event, rule, bindings).payloadJson
@@ -3298,7 +3352,7 @@ export class ClimateDatabase {
           event_id TEXT REFERENCES alert_events(id) ON DELETE RESTRICT,
           stage TEXT NOT NULL CHECK(stage IN ('initial', 'escalation', 'reminder', 'due', 'verification')),
           sequence INTEGER NOT NULL DEFAULT 0 CHECK(sequence >= 0),
-          channel TEXT NOT NULL CHECK(channel IN ('webhook', 'telegram')),
+          channel TEXT NOT NULL CHECK(channel IN ('webhook', 'telegram', 'apns')),
           destination_id TEXT NOT NULL,
           attempts INTEGER NOT NULL DEFAULT 0,
           max_attempts INTEGER NOT NULL DEFAULT 8 CHECK(max_attempts BETWEEN 1 AND 100),
@@ -3335,6 +3389,42 @@ export class ClimateDatabase {
       `);
       notificationOutboxColumns = this.db.prepare("PRAGMA table_info(notification_outbox)")
         .all() as unknown as Array<{ name: string }>;
+    }
+    const notificationOutboxSql = (this.db.prepare(
+      "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'notification_outbox'",
+    ).get() as { sql: string } | undefined)?.sql ?? "";
+    if (!notificationOutboxSql.includes("'apns'")) {
+      this.db.exec(`
+        DROP TRIGGER IF EXISTS require_notification_outbox_snapshot_insert;
+        DROP TRIGGER IF EXISTS preserve_notification_outbox_snapshot_update;
+        CREATE TABLE notification_outbox_apns (
+          id TEXT PRIMARY KEY,
+          subject_kind TEXT NOT NULL CHECK(subject_kind IN ('alert', 'maintenance', 'action-run')),
+          subject_id TEXT NOT NULL,
+          event_id TEXT REFERENCES alert_events(id) ON DELETE RESTRICT,
+          stage TEXT NOT NULL CHECK(stage IN ('initial', 'escalation', 'reminder', 'due', 'verification')),
+          sequence INTEGER NOT NULL DEFAULT 0 CHECK(sequence >= 0),
+          channel TEXT NOT NULL CHECK(channel IN ('webhook', 'telegram', 'apns')),
+          destination_id TEXT NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          max_attempts INTEGER NOT NULL DEFAULT 8 CHECK(max_attempts BETWEEN 1 AND 100),
+          available_at TEXT NOT NULL,
+          locked_at TEXT,
+          lock_token TEXT,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          delivered_at TEXT,
+          payload_json TEXT NOT NULL,
+          destination_ref TEXT NOT NULL,
+          policy_json TEXT NOT NULL,
+          dead_lettered_at TEXT,
+          abandoned_at TEXT,
+          UNIQUE(subject_kind, subject_id, stage, sequence, channel, destination_id)
+        );
+        INSERT INTO notification_outbox_apns SELECT * FROM notification_outbox;
+        DROP TABLE notification_outbox;
+        ALTER TABLE notification_outbox_apns RENAME TO notification_outbox;
+      `);
     }
     this.db.exec(`CREATE INDEX IF NOT EXISTS idx_notification_outbox_due
       ON notification_outbox(delivered_at, dead_lettered_at, available_at, locked_at)`);
@@ -8839,6 +8929,212 @@ export class ClimateDatabase {
     return deleteBatches("measurement_samples") + deleteBatches("readings") + outdoorDeleted;
   }
 
+  saveIOSNotificationRegistration(
+    userId: string,
+    id: string,
+    input: IOSNotificationRegistrationInput,
+    now = new Date(),
+  ): IOSNotificationRegistration {
+    return this.immediateTransaction(() => {
+      const existing = this.db.prepare(
+        "SELECT user_id, enabled FROM ios_notification_registrations WHERE id = ?",
+      ).get(id) as { user_id: string; enabled: number } | undefined;
+      if (existing && existing.user_id !== userId) {
+        throw new ClimateDataValidationError(409, "IOS_REGISTRATION_CONFLICT", "Notification registration is already owned by another account");
+      }
+      const normalizedToken = input.deviceToken.trim().toLowerCase();
+      const tokenOwner = this.db.prepare(`SELECT id, user_id FROM ios_notification_registrations
+        WHERE environment = ? AND device_token = ?`).get(input.environment, normalizedToken) as {
+          id: string;
+          user_id: string;
+        } | undefined;
+      if (tokenOwner && tokenOwner.id !== id) {
+        // Possession of the current opaque APNs token lets the signed-in
+        // installation retire a stale registration left by an expired session
+        // or an account switch on the same device.
+        this.db.prepare("DELETE FROM ios_notification_registrations WHERE id = ?").run(tokenOwner.id);
+      }
+      if ((!existing || existing.enabled !== 1)
+        && Number((this.db.prepare(`SELECT COUNT(*) AS count
+          FROM ios_notification_registrations WHERE user_id = ? AND enabled = 1`)
+          .get(userId) as { count: number }).count) >= MAX_ACTIVE_IOS_REGISTRATIONS_PER_USER) {
+        throw new ClimateDataValidationError(
+          409,
+          "IOS_REGISTRATION_LIMIT",
+          `An account can enable at most ${MAX_ACTIVE_IOS_REGISTRATIONS_PER_USER} iOS notification registrations`,
+        );
+      }
+      const timestamp = now.toISOString();
+      this.db.prepare(`INSERT INTO ios_notification_registrations(
+          id, user_id, device_token, environment, minimum_severity, include_details,
+          enabled, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          device_token = excluded.device_token,
+          environment = excluded.environment,
+          minimum_severity = excluded.minimum_severity,
+          include_details = excluded.include_details,
+          enabled = 1,
+          updated_at = excluded.updated_at`)
+        .run(
+          id,
+          userId,
+          normalizedToken,
+          input.environment,
+          input.minimumSeverity,
+          input.includeDetails ? 1 : 0,
+          timestamp,
+          timestamp,
+        );
+      this.db.prepare(
+        "DELETE FROM ios_notification_subscriptions WHERE registration_id = ?",
+      ).run(id);
+      const subscribe = this.db.prepare(`INSERT INTO ios_notification_subscriptions(
+        registration_id, house_id
+      ) VALUES (?, ?)`);
+      for (const houseId of [...new Set(input.homeIds)].sort()) {
+        subscribe.run(id, houseId);
+      }
+      return this.getIOSNotificationRegistration(userId, id)!;
+    });
+  }
+
+  getIOSNotificationRegistration(
+    userId: string,
+    id: string,
+  ): IOSNotificationRegistration | null {
+    const row = this.db.prepare(`SELECT * FROM ios_notification_registrations
+      WHERE id = ? AND user_id = ?`).get(id, userId) as unknown as IOSNotificationRegistrationRow | undefined;
+    if (!row) return null;
+    const homeIds = (this.db.prepare(`SELECT house_id FROM ios_notification_subscriptions
+      WHERE registration_id = ? ORDER BY house_id`).all(id) as Array<{ house_id: string }>)
+      .map((item) => item.house_id);
+    return iosNotificationRegistrationFromRow(row, homeIds);
+  }
+
+  deleteIOSNotificationRegistration(userId: string, id: string): boolean {
+    return Number(this.db.prepare(`DELETE FROM ios_notification_registrations
+      WHERE id = ? AND user_id = ?`).run(id, userId).changes) === 1;
+  }
+
+  disableIOSNotificationRegistration(id: string): boolean {
+    return Number(this.db.prepare(`UPDATE ios_notification_registrations
+      SET enabled = 0, updated_at = ? WHERE id = ? AND enabled = 1`)
+      .run(new Date().toISOString(), id).changes) === 1;
+  }
+
+  getIOSPushDestination(id: string): APNSDestination | null {
+    const row = this.db.prepare(`SELECT registration.id, registration.device_token,
+        registration.environment, registration.include_details, member.role
+      FROM ios_notification_registrations registration
+      JOIN local_workspace_members member ON member.user_id = registration.user_id
+      WHERE registration.id = ? AND registration.enabled = 1`).get(id) as {
+        id: string;
+        device_token: string;
+        environment: APNSDestination["environment"];
+        include_details: number;
+        role: TenantMemberRole;
+      } | undefined;
+    return row ? {
+      registrationId: row.id,
+      deviceToken: row.device_token,
+      environment: row.environment,
+      includeDetails: row.include_details === 1,
+      canAcknowledge: row.role !== "guest",
+    } : null;
+  }
+
+  getIOSPushDestinationForAlert(
+    id: string,
+    eventId: string,
+  ): APNSDestination | null {
+    const row = this.db.prepare(`SELECT registration.id, registration.device_token,
+        registration.environment, registration.include_details, member.role
+      FROM ios_notification_registrations registration
+      JOIN local_workspace_members member ON member.user_id = registration.user_id
+      JOIN alert_events event ON event.id = ?
+      JOIN sensors sensor ON sensor.id = event.sensor_id
+      JOIN houses house ON house.id = sensor.house_id
+      JOIN ios_notification_subscriptions subscription
+        ON subscription.registration_id = registration.id
+        AND subscription.house_id = house.id
+      WHERE registration.id = ? AND registration.enabled = 1
+        AND event.acknowledged_at IS NULL AND event.resolved_at IS NULL
+        AND CASE registration.minimum_severity
+          WHEN 'info' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END
+          <= CASE event.severity
+            WHEN 'info' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END
+        AND (
+          member.role != 'guest'
+          OR EXISTS (
+            SELECT 1 FROM local_guest_access_grants grant_row
+            WHERE grant_row.subject_type = 'member'
+              AND grant_row.subject_key = registration.user_id
+              AND (
+                (grant_row.scope_type = 'property' AND grant_row.scope_id = house.property_id)
+                OR (grant_row.scope_type = 'house' AND grant_row.scope_id = house.id)
+              )
+          )
+        )
+      LIMIT 1`).get(eventId, id) as {
+        id: string;
+        device_token: string;
+        environment: APNSDestination["environment"];
+        include_details: number;
+        role: TenantMemberRole;
+      } | undefined;
+    return row ? {
+      registrationId: row.id,
+      deviceToken: row.device_token,
+      environment: row.environment,
+      includeDetails: row.include_details === 1,
+      canAcknowledge: row.role !== "guest",
+    } : null;
+  }
+
+  listIOSPushDestinations(
+    houseId: string,
+    severity: AlertEvent["severity"],
+  ): APNSDestination[] {
+    const rows = this.db.prepare(`SELECT registration.id, registration.device_token,
+        registration.environment, registration.include_details, member.role
+      FROM ios_notification_registrations registration
+      JOIN ios_notification_subscriptions subscription
+        ON subscription.registration_id = registration.id
+      JOIN houses house ON house.id = subscription.house_id
+      JOIN local_workspace_members member ON member.user_id = registration.user_id
+      WHERE subscription.house_id = ? AND registration.enabled = 1
+        AND CASE registration.minimum_severity
+          WHEN 'info' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END
+          <= CASE ? WHEN 'info' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END
+        AND (
+          member.role != 'guest'
+          OR EXISTS (
+            SELECT 1 FROM local_guest_access_grants grant_row
+            WHERE grant_row.subject_type = 'member'
+              AND grant_row.subject_key = registration.user_id
+              AND (
+                (grant_row.scope_type = 'property' AND grant_row.scope_id = house.property_id)
+                OR (grant_row.scope_type = 'house' AND grant_row.scope_id = house.id)
+              )
+          )
+        )
+      ORDER BY registration.id`).all(houseId, severity) as Array<{
+        id: string;
+        device_token: string;
+        environment: APNSDestination["environment"];
+        include_details: number;
+        role: TenantMemberRole;
+      }>;
+    return rows.map((row) => ({
+      registrationId: row.id,
+      deviceToken: row.device_token,
+      environment: row.environment,
+      includeDetails: row.include_details === 1,
+      canAcknowledge: row.role !== "guest",
+    }));
+  }
+
   listAlertRules(): AlertRule[] {
     return (this.db.prepare("SELECT * FROM alert_rules WHERE retired_at IS NULL ORDER BY name")
       .all() as unknown as AlertRuleRow[]).map(ruleFromRow);
@@ -8963,7 +9259,7 @@ export class ClimateDatabase {
         const now = new Date();
         const policy = normalizeAlertDeliveryPolicy(rule.deliveryPolicy);
         const schedule = notificationScheduleDecision(policy, created.severity, now);
-        const sensor = notificationBindings ? null : this.getSensor(created.sensorId);
+        const sensor = this.getSensor(created.sensorId);
         const house = sensor ? this.getHouse(sensor.houseId) : null;
         const bindings = notificationBindings ?? alertNotificationBindings(undefined, {
           houseLabel: house?.name ?? null,
@@ -8987,6 +9283,31 @@ export class ClimateDatabase {
           const snapshot = notificationSnapshot("telegram", created, rule, bindings, schedule.silent);
           enqueue.run(randomUUID(), created.id, created.id, "telegram", "primary", policy.maxAttempts,
             schedule.deliverAt.toISOString(), now.toISOString(), snapshot.payloadJson, snapshot.destinationRef, policyJson(policy));
+        }
+        for (const destination of bindings.apnsEnabled && house
+          ? this.listIOSPushDestinations(house.id, created.severity)
+          : []) {
+          const notification = apnsNotificationSnapshot(
+            created,
+            rule,
+            bindings,
+            destination,
+            bindings.apnsProviderRef,
+            schedule.silent,
+          );
+          enqueue.run(
+            randomUUID(),
+            created.id,
+            created.id,
+            "apns",
+            destination.registrationId,
+            policy.maxAttempts,
+            schedule.deliverAt.toISOString(),
+            now.toISOString(),
+            notification.payloadJson,
+            notification.destinationRef,
+            policyJson(policy),
+          );
         }
       }
       return { ignoredAsStale: false, created, resolved: null };
@@ -9048,6 +9369,35 @@ export class ClimateDatabase {
       const snapshot = notificationSnapshot("telegram", event, rule, bindings, schedule.silent, stage);
       inserted += Number(enqueue.run(randomUUID(), event.id, event.id, stage, sequence, "telegram", "primary", policy.maxAttempts,
         schedule.deliverAt.toISOString(), now.toISOString(), snapshot.payloadJson, snapshot.destinationRef, policyJson(policy)).changes);
+    }
+    const sensor = this.getSensor(event.sensorId);
+    for (const destination of bindings.apnsEnabled && sensor
+      ? this.listIOSPushDestinations(sensor.houseId, event.severity)
+      : []) {
+      const notification = apnsNotificationSnapshot(
+        event,
+        rule,
+        bindings,
+        destination,
+        bindings.apnsProviderRef,
+        schedule.silent,
+        stage,
+      );
+      inserted += Number(enqueue.run(
+        randomUUID(),
+        event.id,
+        event.id,
+        stage,
+        sequence,
+        "apns",
+        destination.registrationId,
+        policy.maxAttempts,
+        schedule.deliverAt.toISOString(),
+        now.toISOString(),
+        notification.payloadJson,
+        notification.destinationRef,
+        policyJson(policy),
+      ).changes);
     }
     return inserted;
   }
@@ -9476,6 +9826,44 @@ export class ClimateDatabase {
     return row ? observationFromRow(row) : null;
   }
 
+  getOrCreateObservation(
+    input: ManualObservationInput,
+    actor: LocalObservationRevisionActor = "local-rest",
+  ): { observation: ManualObservation; created: boolean } {
+    return this.immediateTransaction(() => {
+      if (input.id) {
+        const existing = this.getObservation(input.id);
+        if (existing) {
+          const temporal = canonicalObservationCreateTime(input, existing.createdAt);
+          const matches = existing.houseId === input.houseId
+            && existing.floorId === input.floorId
+            && existing.sensorId === (input.sensorId ?? null)
+            && existing.kind === input.kind
+            && existing.severity === input.severity
+            && existing.note === input.note
+            && existing.x === (input.x ?? null)
+            && existing.y === (input.y ?? null)
+            && existing.occurredAt === temporal.occurredAt
+            && existing.timePrecision === temporal.timePrecision
+            && existing.validFrom === temporal.validFrom
+            && existing.validTo === temporal.validTo
+            && existing.source === (input.source ?? "unknown")
+            && existing.sourceDetail === (input.sourceDetail ?? null)
+            && existing.confidence === (input.confidence ?? "uncertain");
+          if (!matches) {
+            throw new ClimateDataValidationError(
+              409,
+              "OBSERVATION_ID_CONFLICT",
+              `Observation ${input.id} already exists with different content`,
+            );
+          }
+          return { observation: existing, created: false };
+        }
+      }
+      return { observation: this.createObservation(input, actor), created: true };
+    });
+  }
+
   listObservationRevisions(observationId: string): ObservationRevision[] {
     const rows = this.db.prepare(`SELECT * FROM observation_revisions
       WHERE observation_id = ? ORDER BY revision`).all(observationId) as unknown as ObservationRevisionRow[];
@@ -9727,7 +10115,32 @@ export class ClimateDatabase {
       const id = input.id;
       if (id) {
         const existing = this.getMaintenanceTask(id);
-        if (existing) return { task: existing, created: false };
+        if (existing) {
+          const house = input.houseId ? this.getHouse(input.houseId) : null;
+          const expectedPropertyId = input.propertyId?.trim() || house?.propertyId;
+          const matches = existing.propertyId === expectedPropertyId
+            && existing.houseId === (input.houseId ?? null)
+            && existing.floorId === (input.floorId ?? null)
+            && existing.areaId === (input.areaId ?? null)
+            && existing.equipmentId === (input.equipmentId ?? null)
+            && existing.title === input.title.trim()
+            && existing.description === (input.description?.trim() || null)
+            && existing.basis === input.basis
+            && existing.basisDetail === (input.basisDetail?.trim() || null)
+            && existing.priority === (input.priority ?? "normal")
+            && existing.plannedFor === maintenanceDate(input.plannedFor ?? null, "plannedFor")
+            && existing.dueBy === maintenanceDate(input.dueBy ?? null, "dueBy")
+            && JSON.stringify(existing.observationIds)
+              === JSON.stringify(canonicalMaintenanceObservationIds(input.observationIds ?? []));
+          if (!matches) {
+            throw new ClimateDataValidationError(
+              409,
+              "MAINTENANCE_ID_CONFLICT",
+              `Maintenance task ${id} already exists with different content`,
+            );
+          }
+          return { task: existing, created: false };
+        }
       }
       return { task: this.createMaintenanceTask(input, actor), created: true };
     });

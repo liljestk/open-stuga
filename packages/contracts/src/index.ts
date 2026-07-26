@@ -54,7 +54,7 @@ export type AggregationSemantic =
   | "custom";
 
 /** Product release version. Pre-1.0 minor releases may contain breaking changes. */
-export const SYSTEM_VERSION = "0.12.0" as const;
+export const SYSTEM_VERSION = "0.13.0" as const;
 
 export interface MeasurementDefinition {
   id: Metric;
@@ -1979,7 +1979,33 @@ export interface AlertEvent {
 
 export type NotificationSubjectKind = "alert" | "maintenance" | "action-run";
 export type NotificationDeliveryStage = "initial" | "escalation" | "reminder" | "due" | "verification";
-export type NotificationChannel = "webhook" | "telegram";
+export type NotificationChannel = "webhook" | "telegram" | "apns";
+
+export type IOSPushEnvironment = "sandbox" | "production";
+export type IOSPushMinimumSeverity = AlertSeverity;
+
+export interface IOSNotificationRegistrationInput {
+  deviceToken: string;
+  environment: IOSPushEnvironment;
+  homeIds: string[];
+  minimumSeverity: IOSPushMinimumSeverity;
+  includeDetails: boolean;
+}
+
+export interface IOSNotificationRegistration {
+  id: string;
+  environment: IOSPushEnvironment;
+  homeIds: string[];
+  minimumSeverity: IOSPushMinimumSeverity;
+  includeDetails: boolean;
+  enabled: boolean;
+  updatedAt: string;
+}
+
+export interface IOSNotificationStatus {
+  configured: boolean;
+  registration: IOSNotificationRegistration | null;
+}
 
 /** Redacted operational view of the immutable notification delivery ledger. */
 export interface NotificationDeliveryStatus {

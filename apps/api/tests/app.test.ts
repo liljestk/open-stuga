@@ -1,4 +1,5 @@
 import { createServer, type Server } from "node:http";
+import { generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -149,6 +150,49 @@ describe("Climate Twin API v1", () => {
       expect(() => loadConfig({
         NODE_ENV: "test", DATABASE_PATH: ":memory:", TIMESERIES_SSL_MODE: "insecure",
       })).toThrow("TIMESERIES_SSL_MODE");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("loads only a complete, valid APNs provider credential tuple", () => {
+    const directory = mkdtempSync(join(tmpdir(), "stuga-apns-config-"));
+    const keyPath = join(directory, "AuthKey_TEST.p8");
+    try {
+      const { privateKey } = generateKeyPairSync("ec", {
+        namedCurve: "P-256",
+      });
+      writeFileSync(
+        keyPath,
+        privateKey.export({ type: "pkcs8", format: "pem" }),
+      );
+      expect(loadConfig({
+        NODE_ENV: "test",
+        DATABASE_PATH: ":memory:",
+        APNS_TEAM_ID: "ABCDEFGHIJ",
+        APNS_KEY_ID: "K123456789",
+        APNS_BUNDLE_ID: "net.nysta.stuga",
+        APNS_PRIVATE_KEY_FILE: keyPath,
+      })).toMatchObject({
+        apnsTeamId: "ABCDEFGHIJ",
+        apnsKeyId: "K123456789",
+        apnsBundleId: "net.nysta.stuga",
+        apnsPrivateKey: expect.stringContaining("BEGIN PRIVATE KEY"),
+      });
+      expect(() => loadConfig({
+        NODE_ENV: "test",
+        DATABASE_PATH: ":memory:",
+        APNS_TEAM_ID: "ABCDEFGHIJ",
+      })).toThrow(/requires APNS_TEAM_ID/u);
+      writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\ninvalid\n-----END PRIVATE KEY-----\n");
+      expect(() => loadConfig({
+        NODE_ENV: "test",
+        DATABASE_PATH: ":memory:",
+        APNS_TEAM_ID: "ABCDEFGHIJ",
+        APNS_KEY_ID: "K123456789",
+        APNS_BUNDLE_ID: "net.nysta.stuga",
+        APNS_PRIVATE_KEY_FILE: keyPath,
+      })).toThrow(/valid P-256 Apple \.p8/u);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -693,6 +737,97 @@ describe("Climate Twin API v1", () => {
     await request(runtime.app).put("/api/v1/houses/house-main/floors/floor-upper").send({ ...upper, width: 5, walls: [], rooms: [] })
       .expect(409).expect(({ body }) => expect(body.error.code).toBe("LAYOUT_EXCLUDES_SENSOR"));
     expect(runtime.database.getHouse("house-main")?.floors.find((floor) => floor.id === "floor-upper")?.width).toBe(14);
+  });
+
+  it("imports reviewed RoomPlan geometry with stale-write and raw-image safeguards", async () => {
+    const created = await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-roomplan",
+      name: "Scanned cottage",
+      timezone: "Europe/Helsinki",
+      floors: [{
+        id: "ground",
+        name: "Ground floor",
+        width: 5,
+        height: 4,
+        elevation: 0,
+        walls: [],
+        rooms: [],
+      }],
+    }).expect(201);
+
+    const floor = {
+      id: "ground",
+      name: "Ground floor",
+      type: "ground",
+      width: 5,
+      height: 4,
+      metersPerPlanUnit: 1,
+      elevation: 0,
+      ceilingHeight: 2.5,
+      wallHeight: 2.5,
+      walls: [
+        { id: "wall-north", from: { x: 0, y: 0 }, to: { x: 5, y: 0 } },
+        { id: "wall-east", from: { x: 5, y: 0 }, to: { x: 5, y: 4 } },
+        { id: "wall-south", from: { x: 5, y: 4 }, to: { x: 0, y: 4 } },
+        { id: "wall-west", from: { x: 0, y: 4 }, to: { x: 0, y: 0 } },
+      ],
+      rooms: [{
+        id: "room-ground",
+        name: "Living room",
+        kind: "living",
+        points: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 4 }, { x: 0, y: 4 }],
+      }],
+      planElements: [{
+        id: "door-entry",
+        kind: "door",
+        label: "Door",
+        position: { x: 2.5, y: 0 },
+        rotationDegrees: 0,
+        width: .9,
+        height: 2.1,
+        wallId: "wall-north",
+      }],
+    };
+    const payload = {
+      source: "apple-roomplan",
+      capturedAt: "2026-07-26T10:30:00.000Z",
+      expectedHouseUpdatedAt: created.body.house.updatedAt,
+      floor,
+    };
+
+    const imported = await request(runtime.app)
+      .post("/api/v1/houses/house-roomplan/floors/ground/roomplan-import")
+      .send(payload)
+      .expect(200);
+    expect(imported.body.floor).toEqual(floor);
+    expect(imported.body.house.floors[0]).toEqual(floor);
+    expect(runtime.database.getHouse("house-roomplan")?.floors[0]).toEqual(floor);
+
+    await request(runtime.app)
+      .post("/api/v1/houses/house-roomplan/floors/ground/roomplan-import")
+      .send({ ...payload, expectedHouseUpdatedAt: "2000-01-01T00:00:00.000Z" })
+      .expect(409)
+      .expect(({ body }) => expect(body.error.code).toBe("ROOMPLAN_STALE_HOME"));
+
+    await request(runtime.app)
+      .post("/api/v1/houses/house-roomplan/floors/ground/roomplan-import")
+      .send({
+        ...payload,
+        expectedHouseUpdatedAt: imported.body.house.updatedAt,
+        floor: { ...floor, backgroundImage: "data:image/jpeg;base64,not-sent" },
+      })
+      .expect(400)
+      .expect(({ body }) => expect(body.error.code).toBe("ROOMPLAN_IMAGE_NOT_ACCEPTED"));
+
+    await request(runtime.app)
+      .post("/api/v1/houses/house-roomplan/floors/ground/roomplan-import")
+      .send({
+        ...payload,
+        expectedHouseUpdatedAt: imported.body.house.updatedAt,
+        rawScan: { camera: "not accepted" },
+      })
+      .expect(400)
+      .expect(({ body }) => expect(body.error.code).toBe("ROOMPLAN_PAYLOAD_NOT_ACCEPTED"));
   });
 
   it("round-trips architectural plan elements and rejects invalid dimensions or wall attachments", async () => {

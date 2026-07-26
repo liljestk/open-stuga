@@ -129,9 +129,13 @@ describe("local maintenance tasks", () => {
       .toThrow(/MAINTENANCE_OBSERVATION_SCOPE_MISMATCH/);
   });
 
-  it("returns a conflict for duplicate task identifiers", async () => {
+  it("deduplicates exact retries and rejects changed content for the same task identifier", async () => {
     await request(runtime.app).post("/api/v1/maintenance-tasks").send(taskInput).expect(201);
-    await request(runtime.app).post("/api/v1/maintenance-tasks").send(taskInput).expect(409)
+    await request(runtime.app).post("/api/v1/maintenance-tasks").send(taskInput).expect(200);
+    await request(runtime.app).post("/api/v1/maintenance-tasks").send({
+      ...taskInput,
+      title: "Different work",
+    }).expect(409)
       .expect(({ body }) => expect(body.error.code).toBe("MAINTENANCE_ID_CONFLICT"));
   });
 

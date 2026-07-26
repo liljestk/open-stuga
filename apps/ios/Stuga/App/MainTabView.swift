@@ -11,10 +11,16 @@ struct MainTabView: View {
 
     @EnvironmentObject private var model: AppModel
     @State private var selection: Tab = .home
+    @State private var showingCapture = false
+    @State private var showingRoomScan = false
 
     var body: some View {
         TabView(selection: $selection) {
-            HomeDashboardView { selection = .alerts }
+            HomeDashboardView(
+                openAlerts: { selection = .alerts },
+                openCapture: { showingCapture = true },
+                openRoomScan: { showingRoomScan = true }
+            )
                 .tabItem { Label("Home", systemImage: "house") }
                 .tag(Tab.home)
 
@@ -36,5 +42,36 @@ struct MainTabView: View {
                 .tag(Tab.settings)
         }
         .background(StugaTheme.canvas)
+        .sheet(isPresented: $showingCapture) {
+            QuickCaptureView()
+                .environmentObject(model)
+        }
+        .fullScreenCover(isPresented: $showingRoomScan) {
+            RoomPlanImportView()
+                .environmentObject(model)
+        }
+        .onChange(of: model.pendingDeepLink, initial: true) { _, link in
+            guard let link else { return }
+            switch link {
+            case .home:
+                selection = .home
+            case .alerts:
+                selection = .alerts
+            case .inventory:
+                selection = .equipment
+            case .capture:
+                showingCapture = true
+            case .roomScan:
+                showingRoomScan = true
+            case let .equipment(code):
+                selection = .equipment
+                Task {
+                    if let equipment = await model.resolveEquipmentCode(code) {
+                        model.requestedEquipmentID = equipment.id
+                    }
+                }
+            }
+            model.pendingDeepLink = nil
+        }
     }
 }

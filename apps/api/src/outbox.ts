@@ -3,7 +3,13 @@ import { configuredAlertWebhookDestinations, type AppConfig } from "./config.js"
 import type { ClimateDatabase, NotificationOutboxItem } from "./db.js";
 import type { RuntimeStatus } from "./services.js";
 import { TelegramService } from "./telegram.js";
-import { notificationDestinationRef, parseTelegramNotificationPayload } from "./notification-snapshot.js";
+import { APNSDeliveryError, APNSService } from "./apns.js";
+import {
+  apnsNotificationDestinationRef,
+  apnsProviderRef,
+  notificationDestinationRef,
+  parseTelegramNotificationPayload,
+} from "./notification-snapshot.js";
 
 const DELIVERY_POLL_MS = 250;
 const MAX_RETRY_MS = 15 * 60_000;
@@ -66,6 +72,7 @@ export class NotificationOutboxWorker extends DurableWorker {
     private readonly telegram = new TelegramService(),
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly telegramConfigurationGeneration: () => number = () => 0,
+    private readonly apns: Pick<APNSService, "send"> = new APNSService(),
   ) { super(); }
 
   fenceTelegramConfigurationChange(): void {
@@ -96,8 +103,13 @@ export class NotificationOutboxWorker extends DurableWorker {
     const webhookDestination = item.channel === "webhook"
       ? configuredAlertWebhookDestinations(this.config).find((destination) => destination.id === item.destinationId)
       : undefined;
+    const apnsDestination = item.channel === "apns" && item.eventId
+      ? this.database.getIOSPushDestinationForAlert(item.destinationId, item.eventId)
+      : null;
     try {
-      const currentDestinationRef = notificationDestinationRef(item.channel, this.config, item.destinationId);
+      const currentDestinationRef = item.channel === "apns"
+        ? apnsNotificationDestinationRef(apnsProviderRef(this.config), apnsDestination)
+        : notificationDestinationRef(item.channel, this.config, item.destinationId);
       if (item.destinationRef !== currentDestinationRef) {
         this.database.abandonNotificationOutbox(
           item.id,
@@ -140,7 +152,7 @@ export class NotificationOutboxWorker extends DurableWorker {
         }
         if (!response.ok) throw new Error(`Webhook returned HTTP ${response.status}`);
         this.updateWebhookStatus(item.destinationId, new Date().toISOString(), null);
-      } else {
+      } else if (item.channel === "telegram") {
         if (!telegramToken || !telegramChatId) throw new Error("Telegram is not configured");
         const payload = parseTelegramNotificationPayload(item.payloadJson);
         await this.telegram.sendRenderedAlert(telegramToken, telegramChatId, payload.text, payload.silent, signal);
@@ -157,6 +169,21 @@ export class NotificationOutboxWorker extends DurableWorker {
         telegramStatus.connected = true;
         telegramStatus.lastDeliveryAt = new Date().toISOString();
         telegramStatus.error = null;
+      } else {
+        if (!apnsDestination) {
+          throw new APNSDeliveryError("iOS notification registration is no longer active", true);
+        }
+        await this.apns.send(
+          this.config,
+          apnsDestination,
+          item.payloadJson,
+          AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+          item.id,
+        );
+        if (signal.aborted) {
+          this.database.releaseNotificationOutbox(item.id, item.lockToken);
+          return;
+        }
       }
       this.database.completeNotificationOutbox(item.id, item.lockToken);
     } catch (error) {
@@ -170,6 +197,14 @@ export class NotificationOutboxWorker extends DurableWorker {
         return;
       }
       const message = error instanceof Error ? error.message : "Notification delivery failed";
+      if (item.channel === "apns" && error instanceof APNSDeliveryError && error.terminal) {
+        if (["BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered"].includes(error.reason ?? "")) {
+          this.database.disableIOSNotificationRegistration(item.destinationId);
+        }
+        this.database.deadLetterNotificationOutbox(item.id, item.lockToken, message);
+        this.status.changed();
+        return;
+      }
       if (item.attempts + 1 >= item.maxAttempts) {
         this.database.deadLetterNotificationOutbox(item.id, item.lockToken, message);
       } else {
@@ -181,7 +216,7 @@ export class NotificationOutboxWorker extends DurableWorker {
         );
       }
       if (item.channel === "webhook") this.updateWebhookStatus(item.destinationId, null, message);
-      else {
+      else if (item.channel === "telegram") {
         this.status.value.telegram!.connected = false;
         this.status.value.telegram!.error = "Telegram alert delivery failed";
       }

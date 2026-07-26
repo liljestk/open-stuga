@@ -61,6 +61,27 @@ describe("manual observation time and revision model", () => {
     }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_FIELD"));
   });
 
+  it("deduplicates exact field-capture retries and rejects a changed replay", async () => {
+    const input = {
+      ...baseObservation,
+      id: "11111111-1111-4111-8111-111111111111",
+      occurredAt: "2026-07-26T09:00:00.000Z",
+      source: "owner",
+      confidence: "confirmed",
+    };
+    const created = await request(runtime.app).post("/api/v1/observations")
+      .send(input)
+      .expect(201);
+    const retried = await request(runtime.app).post("/api/v1/observations")
+      .send(input)
+      .expect(200);
+    expect(retried.body.id).toBe(created.body.id);
+    await request(runtime.app).post("/api/v1/observations")
+      .send({ ...input, note: "Changed after an ambiguous retry" })
+      .expect(409)
+      .expect(({ body }) => expect(body.error.code).toBe("OBSERVATION_ID_CONFLICT"));
+  });
+
   it("canonicalizes instants and preserves date-only and date-range values", async () => {
     const exact = await request(runtime.app).post("/api/v1/observations").send({
       ...baseObservation,

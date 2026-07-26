@@ -1185,6 +1185,55 @@ const combinedOpenApiDocument = {
         responses: { "200": { description: "Updated floor", content: { "application/json": { schema: { $ref: "#/components/schemas/Floor" } } } }, "404": { $ref: "#/components/responses/NotFound" }, "409": { description: "Floor change would orphan or exclude an existing sensor, observation, or maintenance task" } },
       },
     },
+    "/houses/{id}/floors/{floorId}/roomplan-import": {
+      post: {
+        tags: ["Digital twin"],
+        operationId: "importAppleRoomPlanFloor",
+        description: "Conflict-safe native iOS RoomPlan import. Only reviewed parametric geometry is accepted; camera imagery and raw RoomPlan data are rejected.",
+        parameters: [
+          { $ref: "#/components/parameters/Id" },
+          { name: "floorId", in: "path", required: true, schema: { type: "string" } },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                required: ["source", "capturedAt", "expectedHouseUpdatedAt", "floor"],
+                properties: {
+                  source: { const: "apple-roomplan" },
+                  capturedAt: { type: "string", format: "date-time" },
+                  expectedHouseUpdatedAt: { type: "string", format: "date-time" },
+                  floor: { $ref: "#/components/schemas/Floor" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Imported reviewed floor geometry and updated Home",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["house", "floor"],
+                  properties: {
+                    house: { $ref: "#/components/schemas/House" },
+                    floor: { $ref: "#/components/schemas/Floor" },
+                  },
+                },
+              },
+            },
+          },
+          "400": { description: "Malformed, image-bearing, unscaled, or unbounded RoomPlan geometry" },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "409": { description: "The Home changed after scanning, the floor would orphan linked records, or shared-Home policy prevents replacement" },
+        },
+      },
+    },
     "/sensors": {
       get: { tags: ["Digital twin"], operationId: "listSensors", parameters: [{ $ref: "#/components/parameters/HouseIdQuery" }], responses: { "200": { description: "Sensors", content: { "application/json": { schema: { type: "object", required: ["sensors"], properties: { sensors: { type: "array", items: { $ref: "#/components/schemas/Sensor" } } } } } } } } },
       post: { tags: ["Digital twin"], operationId: "createSensor", requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/SensorInput" } } } }, responses: { "201": { description: "Created sensor", content: { "application/json": { schema: { type: "object", required: ["sensor"], properties: { sensor: { $ref: "#/components/schemas/Sensor" } } } } } }, "404": { description: "House not found" }, "409": { description: "TP-Link child device is already assigned" }, "422": { description: "Floor membership or x/y bounds are invalid" } } },
@@ -1222,6 +1271,25 @@ const combinedOpenApiDocument = {
     "/alert-events/{id}/acknowledge": { post: { tags: ["Alerts"], operationId: "acknowledgeAlert", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Acknowledged alert", content: { "application/json": { schema: { type: "object", required: ["event"], properties: { event: { $ref: "#/components/schemas/AlertEvent" } } } } } } } } },
     "/alerts": { get: { tags: ["Alerts"], operationId: "listAlertsCompatibility", parameters: [{ name: "active", in: "query", schema: { type: "boolean", default: false } }, { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 1000, default: 200 } }], responses: { "200": { description: "Web-compatible alert events", content: { "application/json": { schema: { type: "object", required: ["alerts"], properties: { alerts: { type: "array", items: { $ref: "#/components/schemas/AlertEvent" } } } } } } } } } },
     "/alerts/{id}/acknowledge": { post: { tags: ["Alerts"], operationId: "acknowledgeAlertCompatibility", parameters: [{ $ref: "#/components/parameters/Id" }], responses: { "200": { description: "Acknowledged alert", content: { "application/json": { schema: { $ref: "#/components/schemas/AlertEvent" } } } } } } },
+    "/ios-notification-registrations/{id}": {
+      get: {
+        tags: ["Alerts"], operationId: "getIOSNotificationRegistration", parameters: [{ $ref: "#/components/parameters/Id" }],
+        responses: { "200": jsonResponse("Private status for the current account and installation.", { $ref: "#/components/schemas/IOSNotificationStatus" }) },
+      },
+      put: {
+        tags: ["Alerts"], operationId: "saveIOSNotificationRegistration", parameters: [{ $ref: "#/components/parameters/Id" }],
+        requestBody: jsonRequestBody({ $ref: "#/components/schemas/IOSNotificationRegistrationInput" }),
+        responses: {
+          "200": jsonResponse("Saved registration. Provider credentials are never exposed.", { $ref: "#/components/schemas/IOSNotificationStatus" }),
+          "404": { $ref: "#/components/responses/NotFound" },
+          "409": { description: "Registration conflict or per-account installation limit reached" },
+        },
+      },
+      delete: {
+        tags: ["Alerts"], operationId: "deleteIOSNotificationRegistration", parameters: [{ $ref: "#/components/parameters/Id" }],
+        responses: { "204": { description: "Registration removed" } },
+      },
+    },
     "/properties/{id}/energy-optimization": {
       get: {
         tags: ["Energy"], operationId: "getPropertyEnergyOptimization",
@@ -2754,6 +2822,37 @@ const combinedOpenApiDocument = {
           resolvedAt: { type: ["string", "null"], format: "date-time" },
         },
       },
+      IOSNotificationRegistrationInput: {
+        type: "object", additionalProperties: false,
+        required: ["deviceToken", "environment", "homeIds", "minimumSeverity", "includeDetails"],
+        properties: {
+          deviceToken: { type: "string", pattern: "^(?:[a-fA-F0-9]{2}){32,100}$", writeOnly: true },
+          environment: { enum: ["sandbox", "production"] },
+          homeIds: { type: "array", maxItems: 100, uniqueItems: true, items: { type: "string", minLength: 1, maxLength: 200 } },
+          minimumSeverity: { enum: ["info", "warning", "critical"], default: "warning" },
+          includeDetails: { type: "boolean", default: false },
+        },
+      },
+      IOSNotificationRegistration: {
+        type: "object", additionalProperties: false,
+        required: ["id", "environment", "homeIds", "minimumSeverity", "includeDetails", "enabled", "updatedAt"],
+        properties: {
+          id: { type: "string", format: "uuid" },
+          environment: { enum: ["sandbox", "production"] },
+          homeIds: { type: "array", maxItems: 100, uniqueItems: true, items: { type: "string" } },
+          minimumSeverity: { enum: ["info", "warning", "critical"] },
+          includeDetails: { type: "boolean" },
+          enabled: { type: "boolean" },
+          updatedAt: { type: "string", format: "date-time" },
+        },
+      },
+      IOSNotificationStatus: {
+        type: "object", additionalProperties: false, required: ["configured", "registration"],
+        properties: {
+          configured: { type: "boolean", description: "True when this Stuga server has a complete APNs provider credential tuple." },
+          registration: { oneOf: [{ $ref: "#/components/schemas/IOSNotificationRegistration" }, { type: "null" }] },
+        },
+      },
       ObservationInput: {
         type: "object",
         required: ["houseId", "floorId", "kind", "severity", "note"],
@@ -3222,7 +3321,7 @@ const combinedOpenApiDocument = {
         required: ["id", "subjectKind", "subjectId", "stage", "sequence", "channel", "destinationId", "attempts", "maxAttempts", "availableAt", "createdAt", "deliveredAt", "deadLetteredAt", "abandonedAt", "lastError"],
         properties: {
           id: { type: "string" }, subjectKind: { enum: ["alert", "maintenance", "action-run"] }, subjectId: { type: "string" },
-          stage: { enum: ["initial", "escalation", "reminder", "due", "verification"] }, sequence: { type: "integer", minimum: 0 }, channel: { enum: ["webhook", "telegram"] }, destinationId: { type: "string" }, attempts: { type: "integer", minimum: 0 }, maxAttempts: { type: "integer", minimum: 1, maximum: 100 },
+          stage: { enum: ["initial", "escalation", "reminder", "due", "verification"] }, sequence: { type: "integer", minimum: 0 }, channel: { enum: ["webhook", "telegram", "apns"] }, destinationId: { type: "string" }, attempts: { type: "integer", minimum: 0 }, maxAttempts: { type: "integer", minimum: 1, maximum: 100 },
           availableAt: { type: "string", format: "date-time" }, createdAt: { type: "string", format: "date-time" }, deliveredAt: { type: ["string", "null"], format: "date-time" }, deadLetteredAt: { type: ["string", "null"], format: "date-time" }, abandonedAt: { type: ["string", "null"], format: "date-time" }, lastError: { type: ["string", "null"] },
         },
       },

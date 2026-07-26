@@ -218,6 +218,10 @@ services:
       ALERT_WEBHOOK_ALLOWED_HOSTS: ${ALERT_WEBHOOK_ALLOWED_HOSTS:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      APNS_TEAM_ID: ${APNS_TEAM_ID:-}
+      APNS_KEY_ID: ${APNS_KEY_ID:-}
+      APNS_BUNDLE_ID: ${APNS_BUNDLE_ID:-}
+      APNS_PRIVATE_KEY_FILE: ${APNS_PRIVATE_KEY_FILE:-}
       CORS_ORIGIN: ${CORS_ORIGIN:-}
     expose:
       - "8787"
@@ -232,6 +236,7 @@ services:
       - ${STUGA_CONFIG_DIRECTORY:-./config}:/app/config:ro,z
       - ${TAPO_HISTORY_API_SECRET_DIR:-./secrets/tapo-history-api}:/run/secrets/tapo-history:ro,z
       - ${STUGA_CLOUDFLARE_SECRET_DIR:-./secrets/cloudflare}:/run/secrets/cloudflare:ro,z
+      - ${STUGA_APNS_SECRET_DIR:-./secrets/apns}:/run/secrets/apns:ro,z
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777

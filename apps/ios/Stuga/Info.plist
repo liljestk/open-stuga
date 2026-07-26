@@ -6,6 +6,19 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>Stuga</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>net.nysta.stuga</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>stuga</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -34,7 +47,7 @@
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>With your permission, Stuga listens for nearby equipment tags and sends detections to your own Stuga server.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Stuga uses the camera only when you choose to scan a QR tag attached to Property equipment.</string>
+	<string>Stuga uses the camera only when you choose to scan an equipment QR tag or create a reviewed RoomPlan floor plan.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>While Stuga is open, you can locate equipment detections or explicitly share your current, accuracy-qualified position on your Property map.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

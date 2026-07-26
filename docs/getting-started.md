@@ -558,6 +558,11 @@ take precedence after restart.
 | `ALERT_WEBHOOK_BEARER_TOKEN` | empty | optional legacy singleton bearer token; requires `ALERT_WEBHOOK_URL` |
 | `ALERT_WEBHOOK_SIGNING_SECRET` | empty | optional legacy singleton HMAC key of at least 32 UTF-8 bytes; requires `ALERT_WEBHOOK_URL` |
 | `ALERT_WEBHOOK_ALLOWED_HOSTS` | configured destination hosts | exact comma-separated outbound host allowlist; every configured destination must be present |
+| `APNS_TEAM_ID` | empty | Apple Developer Team ID for direct native iOS notification delivery; configure the complete APNs tuple or none of it |
+| `APNS_KEY_ID` | empty | ID of the Apple APNs signing key |
+| `APNS_BUNDLE_ID` | empty | iOS app bundle identifier, normally `net.nysta.stuga` |
+| `APNS_PRIVATE_KEY_FILE` | empty | protected path to the Apple `.p8` signing key; with Compose use a path below `/run/secrets/apns` |
+| `STUGA_APNS_SECRET_DIR` | `./secrets/apns` | Compose-only host directory mounted read-only at `/run/secrets/apns` |
 | `CORS_ORIGIN` | empty | exact trusted browser origin for a split-origin or non-loopback deployment |
 | `LOCAL_AUTH_BOOTSTRAP_SECRET` | empty | optional high-entropy secret for an explicitly authorized first-owner setup outside loopback |
 | `LOCAL_AUTH_PROXY_SECRET` | empty | advanced non-Compose shared secret authenticating one immediate reverse proxy; minimum 32 bytes |
@@ -567,6 +572,18 @@ take precedence after restart.
 | `VITE_SPATIAL_REPLAY_MAX_SAMPLE_AGE_MS` | `5400000` | wider replay age limit for downsampled stored history |
 | `APP_PORT` | `8080` | host port for the Compose web service |
 | `BIND_ADDRESS` | `127.0.0.1` | host address for Compose; use a deliberate LAN address only after access controls are reviewed |
+
+For native push, create one APNs signing key in Apple Developer, place the
+downloaded `.p8` file in `STUGA_APNS_SECRET_DIR`, and set the four `APNS_*`
+values. For example, a Compose installation can set
+`APNS_PRIVATE_KEY_FILE=/run/secrets/apns/AuthKey.p8`. Stuga connects directly
+to Apple; no Stuga-operated relay is involved.
+
+Native build instructions are in `apps/ios/README.md`. The dependent Watch app
+uses the paired iPhone and receives no Stuga credentials. On a supported LiDAR
+iPhone or iPad, RoomPlan can replace an empty or single-room floor after an
+explicit review; only derived geometry is uploaded, while detailed editing
+remains in the web app.
 
 Empty optional integration values disable that integration. Use the documented
 boolean/numeric forms and confirm the effective integration status after every

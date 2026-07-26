@@ -39,6 +39,17 @@ public actor StugaAPIClient {
     private struct LoanEnvelope: Decodable { let loan: EquipmentLoan }
     private struct MemberLocationsEnvelope: Decodable { let locations: [PropertyMemberLocation] }
     private struct MemberLocationEnvelope: Decodable { let location: PropertyMemberLocation }
+    private struct WeatherEnvelope: Decodable { let weather: HouseWeatherSummary }
+    private struct EnergyOptimizationEnvelope: Decodable { let report: EnergyOptimizationSummary }
+    private struct RoomPlanImportEnvelope: Decodable {
+        let house: House
+        let floor: StugaFloor
+    }
+    private struct IOSNotificationRegistrationEnvelope: Decodable {
+        let configured: Bool
+        let registration: IOSNotificationRegistration
+    }
+    private struct IdentifierResponse: Decodable { let id: String }
     private struct TrackingObserverStatusBody: Encodable { let status: String }
     private struct LoginBody: Encodable { let email: String; let password: String }
     private struct PropertyNoteBody: Encodable {
@@ -62,6 +73,12 @@ public actor StugaAPIClient {
         let note: String?
     }
     private struct EquipmentReturnBody: Encodable { let note: String? }
+    private struct RoomPlanImportBody: Encodable {
+        let source = "apple-roomplan"
+        let capturedAt: String
+        let expectedHouseUpdatedAt: String
+        let floor: StugaFloor
+    }
 
     public let address: ServerAddress
     private let session: URLSession
@@ -131,6 +148,25 @@ public actor StugaAPIClient {
     public func houses() async throws -> [House] {
         let value: HousesEnvelope = try await request(version: 1, path: "/houses")
         return value.houses
+    }
+
+    public func importRoomPlanFloor(
+        houseID: String,
+        floor: StugaFloor,
+        capturedAt: String,
+        expectedHouseUpdatedAt: String
+    ) async throws -> House {
+        let value: RoomPlanImportEnvelope = try await request(
+            version: 1,
+            path: "/houses/\(escaped(houseID))/floors/\(escaped(floor.id))/roomplan-import",
+            method: "POST",
+            body: RoomPlanImportBody(
+                capturedAt: capturedAt,
+                expectedHouseUpdatedAt: expectedHouseUpdatedAt,
+                floor: floor
+            )
+        )
+        return value.house
     }
 
     public func propertyInventory(propertyID: String) async throws -> PropertyInventorySnapshot {
@@ -205,6 +241,73 @@ public actor StugaAPIClient {
 
     public func acknowledgeAlert(id: String) async throws -> AlertEvent {
         try await request(version: 1, path: "/alerts/\(escaped(id))/acknowledge", method: "POST")
+    }
+
+    public func createObservation(_ input: QuickObservationInput) async throws -> String {
+        let value: IdentifierResponse = try await request(
+            version: 1,
+            path: "/observations",
+            method: "POST",
+            body: input
+        )
+        return value.id
+    }
+
+    public func createMaintenance(_ input: QuickMaintenanceInput) async throws -> MaintenanceTask {
+        try await request(
+            version: 1,
+            path: "/maintenance-tasks",
+            method: "POST",
+            body: input
+        )
+    }
+
+    public func houseWeather(houseID: String) async throws -> HouseWeatherSummary {
+        let value: WeatherEnvelope = try await request(
+            version: 1,
+            path: "/houses/\(escaped(houseID))/weather?hours=24"
+        )
+        return value.weather
+    }
+
+    public func energyOptimization(
+        propertyID: String,
+        windowHours: Int = 2
+    ) async throws -> EnergyOptimizationSummary {
+        let hours = max(1, min(windowHours, 12))
+        let value: EnergyOptimizationEnvelope = try await request(
+            version: 1,
+            path: "/properties/\(escaped(propertyID))/energy-optimization?windowHours=\(hours)"
+        )
+        return value.report
+    }
+
+    public func iosNotificationStatus(registrationID: String) async throws -> IOSNotificationStatus {
+        try await request(
+            version: 1,
+            path: "/ios-notification-registrations/\(escaped(registrationID))"
+        )
+    }
+
+    public func saveIOSNotificationRegistration(
+        id: String,
+        input: IOSNotificationRegistrationInput
+    ) async throws -> (configured: Bool, registration: IOSNotificationRegistration) {
+        let value: IOSNotificationRegistrationEnvelope = try await request(
+            version: 1,
+            path: "/ios-notification-registrations/\(escaped(id))",
+            method: "PUT",
+            body: input
+        )
+        return (value.configured, value.registration)
+    }
+
+    public func deleteIOSNotificationRegistration(id: String) async throws {
+        let _: EmptyResponse = try await request(
+            version: 1,
+            path: "/ios-notification-registrations/\(escaped(id))",
+            method: "DELETE"
+        )
     }
 
     public func trackingCapabilities() async throws -> TrackingCapabilities {
