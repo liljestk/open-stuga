@@ -12,6 +12,7 @@ import {
   artifactDefinitions,
   imageDefinitions,
   parseArguments,
+  platformInvocation,
   repositoryFromRemote,
 } from "../publish-local-release.mjs";
 
@@ -129,6 +130,28 @@ test("local release options and output names are deterministic", () => {
   assert.match(artifacts.ota, /stugu-rpi4-1\.2\.3-ota\.tar\.zst$/);
   assert.match(artifacts.factory, /stugu-rpi4-1\.2\.3\.img\.zst$/);
   assert.notEqual(artifacts.combinedChecksum, artifacts.releaseChecksum);
+});
+
+test("the local publisher invokes npm through Node on Windows", () => {
+  assert.deepEqual(
+    platformInvocation("npm", ["test"], {
+      platform: "win32",
+      env: { npm_execpath: "C:\\node\\npm-cli.js" },
+      execPath: "C:\\node\\node.exe",
+    }),
+    {
+      command: "C:\\node\\node.exe",
+      args: ["C:\\node\\npm-cli.js", "test"],
+    },
+  );
+  assert.throws(
+    () => platformInvocation("npm", ["test"], { platform: "win32", env: {} }),
+    /npm_execpath is required on Windows/,
+  );
+  assert.deepEqual(
+    platformInvocation("npm", ["test"], { platform: "linux" }),
+    { command: "npm", args: ["test"] },
+  );
 });
 
 test("the factory image export uses the portable zstd output option", async () => {

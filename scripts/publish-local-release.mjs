@@ -159,16 +159,33 @@ function printable(command, args) {
   return [command, ...args].map(quote).join(" ");
 }
 
-function platformCommand(command) {
-  if (process.platform === "win32" && ["npm", "npx"].includes(command)) {
-    return `${command}.cmd`;
+export function platformInvocation(
+  command,
+  args,
+  {
+    platform = process.platform,
+    env = process.env,
+    execPath = process.execPath,
+  } = {},
+) {
+  if (platform === "win32" && command === "npm") {
+    if (!env.npm_execpath) {
+      throw new Error(
+        "npm_execpath is required on Windows; run the publisher through npm run release:local",
+      );
+    }
+    return {
+      command: execPath,
+      args: [env.npm_execpath, ...args],
+    };
   }
-  return command;
+  return { command, args };
 }
 
 function invoke(command, args, options = {}) {
   if (!options.quiet) console.log(`\n> ${printable(command, args)}`);
-  const result = spawnSync(platformCommand(command), args, {
+  const invocation = platformInvocation(command, args);
+  const result = spawnSync(invocation.command, invocation.args, {
     cwd: options.cwd ?? root,
     encoding: "utf8",
     env: options.env ?? process.env,
