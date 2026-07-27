@@ -1,0 +1,117 @@
+#!/bin/sh
+# Create A/B aliases for the firmware-selected USB disk while initramfs waits
+# for /dev/disk/by-slot/active/system. The upstream slot mapper deliberately
+# supports only MMC and NVMe because a plain /dev/sda assumption is unsafe.
+
+set -u
+
+[ -e /run/stugu-usb-ab-ready ] && exit 0
+
+proc_root="${STUGU_PROC_ROOT:-/proc}"
+sys_root="${STUGU_SYS_ROOT:-/sys}"
+dev_root="${STUGU_DEV_ROOT:-/dev}"
+slot_root="${STUGU_SLOT_ROOT:-${dev_root}/disk/by-slot}"
+
+read_dt_u32() {
+  # shellcheck disable=SC2046,SC2312
+  set -- $(od -An -tu1 -N4 "$1" 2>/dev/null)
+  [ "$#" -eq 4 ] || return 1
+  echo $(( $1 * 16777216 + $2 * 65536 + $3 * 256 + $4 ))
+}
+
+bootloader_dt="${proc_root}/device-tree/chosen/bootloader"
+boot_mode="$(read_dt_u32 "${bootloader_dt}/boot-mode")" || exit 0
+case "$boot_mode" in
+  4|5) ;;
+  *) exit 0 ;;
+esac
+
+boot_partition="$(read_dt_u32 "${bootloader_dt}/partition")" || exit 0
+[ "$boot_partition" -gt 0 ] || exit 0
+
+# The resolver is quiet while USB discovery is still in progress. initramfs
+# calls local-block scripts again until the root device becomes available.
+boot_disk="$(STUGU_PROC_ROOT="$proc_root" STUGU_SYS_ROOT="$sys_root" \
+  /usr/bin/stugu-usb-bootdev 2>/dev/null)" || exit 0
+
+boot_device="${dev_root}/${boot_disk}${boot_partition}"
+[ -b "$boot_device" ] || exit 0
+boot_label="$(blkid -s PARTLABEL -o value "$boot_device" 2>/dev/null)" || exit 0
+
+case "$boot_label" in
+  boot_a)
+    active_suffix="a"
+    ;;
+  boot_b)
+    active_suffix="b"
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+
+bootconfig_device=""
+boot_a_device=""
+boot_b_device=""
+system_a_device=""
+system_b_device=""
+persistent_device=""
+
+for partition_path in \
+  "${sys_root}/class/block/${boot_disk}/${boot_disk}"[0-9]*; do
+  [ -r "${partition_path}/uevent" ] || continue
+  partition_name="$(
+    sed -n 's/^PARTNAME=//p' "${partition_path}/uevent" 2>/dev/null
+  )"
+  partition_device="${dev_root}/${partition_path##*/}"
+  [ -b "$partition_device" ] || continue
+
+  case "$partition_name" in
+    bootconfig) bootconfig_device="$partition_device" ;;
+    boot_a) boot_a_device="$partition_device" ;;
+    boot_b) boot_b_device="$partition_device" ;;
+    system_a) system_a_device="$partition_device" ;;
+    system_b) system_b_device="$partition_device" ;;
+    persistent) persistent_device="$partition_device" ;;
+  esac
+done
+
+case "$active_suffix" in
+  a)
+    active_boot_device="$boot_a_device"
+    active_system_device="$system_a_device"
+    other_boot_device="$boot_b_device"
+    other_system_device="$system_b_device"
+    ;;
+  b)
+    active_boot_device="$boot_b_device"
+    active_system_device="$system_b_device"
+    other_boot_device="$boot_a_device"
+    other_system_device="$system_a_device"
+    ;;
+esac
+
+for required_device in \
+  "$bootconfig_device" \
+  "$active_boot_device" \
+  "$other_boot_device" \
+  "$active_system_device" \
+  "$other_system_device" \
+  "$persistent_device"; do
+  [ -b "$required_device" ] || exit 0
+done
+
+mkdir -p "${slot_root}/active" "${slot_root}/other"
+ln -snf "$bootconfig_device" "${slot_root}/bootconfig"
+ln -snf "$active_boot_device" "${slot_root}/active/boot"
+ln -snf "$active_system_device" "${slot_root}/active/system"
+ln -snf "$other_boot_device" "${slot_root}/other/boot"
+ln -snf "$other_system_device" "${slot_root}/other/system"
+ln -snf "$persistent_device" "${slot_root}/persistent"
+
+: > /run/stugu-usb-ab-ready
+message="Stugu: bound USB boot disk ${boot_disk}, active slot ${active_suffix}"
+echo "$message" >&2
+if [ -w /dev/kmsg ]; then
+  echo "$message" > /dev/kmsg 2>/dev/null || :
+fi

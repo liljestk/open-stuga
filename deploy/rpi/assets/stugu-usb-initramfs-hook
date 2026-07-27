@@ -1,0 +1,13 @@
+#!/bin/sh
+
+case "${1:-}" in
+  prereqs)
+    echo ""
+    exit 0
+    ;;
+esac
+
+# shellcheck source=/dev/null
+. /usr/share/initramfs-tools/hook-functions
+
+copy_exec /usr/bin/stugu-usb-bootdev

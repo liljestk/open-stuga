@@ -4,6 +4,11 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.16.1 - 2026-07-27
+
+- Fixed Raspberry Pi 4 factory images installed on USB storage so initramfs
+  securely resolves the firmware-selected disk and binds its A/B system slots.
+
 ## 0.16.0 - 2026-07-27
 
 - Redesigned opt-in equipment tracking around explicit profiles, bounded

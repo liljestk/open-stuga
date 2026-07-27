@@ -79,6 +79,49 @@ test("the appliance layer and build overrides use the declared Stugu variable pr
   assert.doesNotMatch(`${layer}\n${buildScript}`, /IGconf_stuga_/);
 });
 
+test("the USB appliance binds A/B slots to the firmware-selected boot disk", async () => {
+  const [config, layer, resolver, rootBinder, initramfsHook, buildScript] = await Promise.all([
+    readFile(new URL("../../deploy/rpi/config/stugu.yaml", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu-usb-bootdev", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu-usb-ab-root", import.meta.url), "utf8"),
+    readFile(
+      new URL("../../deploy/rpi/assets/stugu-usb-initramfs-hook", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../build-rpi-image.sh", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(config, /device:[\s\S]*storage_type: usb/);
+  assert.match(resolver, /root-hub-port-number/);
+  assert.match(resolver, /route-string/);
+  assert.match(resolver, /usb-version/);
+  assert.match(resolver, /\/lun/);
+  assert.match(resolver, /bus\/usb\/devices/);
+  assert.doesNotMatch(resolver, /match="sda"/);
+
+  assert.match(rootBinder, /boot_mode[\s\S]*4\|5/);
+  assert.match(rootBinder, /stugu-usb-bootdev/);
+  for (const label of [
+    "bootconfig",
+    "boot_a",
+    "boot_b",
+    "system_a",
+    "system_b",
+    "persistent",
+  ]) {
+    assert.match(rootBinder, new RegExp(label));
+  }
+  assert.match(rootBinder, /active\/system/);
+  assert.match(rootBinder, /other\/system/);
+
+  assert.match(initramfsHook, /copy_exec \/usr\/bin\/stugu-usb-bootdev/);
+  assert.match(layer, /stugu-usb-bootdev/);
+  assert.match(layer, /scripts\/local-block\/20-stugu-usb-ab-root/);
+  assert.match(buildScript, /IGconf_image_idp_schema=\$usb_idp_schema/);
+  assert.match(buildScript, /"nvme", "usb"/);
+});
+
 test("local publishing owns expensive builds and hosted release work is an explicit fallback", async () => {
   const [workflow, publisher] = await Promise.all([
     readFile(new URL("../../.github/workflows/rpi-release.yml", import.meta.url), "utf8"),

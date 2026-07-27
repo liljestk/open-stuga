@@ -1,0 +1,91 @@
+#!/bin/sh
+# Resolve the exact USB mass-storage disk selected by Raspberry Pi firmware.
+# The firmware-provided topology prevents another USB disk from impersonating
+# the boot disk with cloned filesystem labels or partition UUIDs.
+
+set -u
+
+proc_root="${STUGU_PROC_ROOT:-/proc}"
+sys_root="${STUGU_SYS_ROOT:-/sys}"
+usb_dt="${proc_root}/device-tree/chosen/bootloader/usb"
+
+die() {
+  echo "stugu-usb-bootdev: $*" >&2
+  exit 1
+}
+
+read_dt_u32() {
+  # Device-tree integers are unsigned, big-endian 32-bit values.
+  # shellcheck disable=SC2046,SC2312
+  set -- $(od -An -tu1 -N4 "$1" 2>/dev/null)
+  [ "$#" -eq 4 ] || return 1
+  echo $(( $1 * 16777216 + $2 * 65536 + $3 * 256 + $4 ))
+}
+
+usb_version="$(read_dt_u32 "${usb_dt}/usb-version")" ||
+  die "missing USB protocol version"
+root_port="$(read_dt_u32 "${usb_dt}/root-hub-port-number")" ||
+  die "missing USB root port"
+route="$(read_dt_u32 "${usb_dt}/route-string")" ||
+  die "missing USB route string"
+lun="$(read_dt_u32 "${usb_dt}/lun")" ||
+  die "missing USB LUN"
+
+case "$usb_version" in
+  2|3) ;;
+  *) die "unsupported USB protocol version ${usb_version}" ;;
+esac
+[ "$root_port" -gt 0 ] || die "invalid USB root port ${root_port}"
+
+# xHCI stores downstream hub ports as least-significant-first nibbles.
+# Linux exposes the same topology as a devpath such as 1.4.2.
+devpath="$root_port"
+depth=0
+while [ "$route" -ne 0 ]; do
+  port=$((route & 15))
+  [ "$port" -ne 0 ] || die "invalid zero port in USB route string"
+  devpath="${devpath}.${port}"
+  route=$((route >> 4))
+  depth=$((depth + 1))
+  [ "$depth" -le 5 ] || die "USB route exceeds five hub tiers"
+done
+
+match=""
+match_count=0
+for usb_device in "${sys_root}"/bus/usb/devices/*; do
+  [ -r "${usb_device}/devpath" ] || continue
+  [ -r "${usb_device}/version" ] || continue
+
+  IFS= read -r candidate_path < "${usb_device}/devpath" || continue
+  # Sysfs attributes can be padded; intentional splitting trims whitespace.
+  # shellcheck disable=SC2086
+  set -- $candidate_path
+  [ "$#" -ge 1 ] || continue
+  candidate_path="$1"
+  [ "$candidate_path" = "$devpath" ] || continue
+
+  IFS= read -r candidate_version < "${usb_device}/version" || continue
+  # shellcheck disable=SC2086
+  set -- $candidate_version
+  [ "$#" -ge 1 ] || continue
+  candidate_major="${1%%.*}"
+  [ "$candidate_major" = "$usb_version" ] || continue
+
+  # USB storage and UAS both expose a SCSI LUN below the USB interface.
+  for block_path in \
+    "${usb_device}"/*/host*/target*/*:*:*:"${lun}"/block/*; do
+    [ -e "$block_path" ] || continue
+    candidate="${block_path##*/}"
+    case "$candidate" in
+      sd[a-z]*) ;;
+      *) continue ;;
+    esac
+    [ "$candidate" = "$match" ] && continue
+    match="$candidate"
+    match_count=$((match_count + 1))
+  done
+done
+
+[ "$match_count" -eq 1 ] ||
+  die "expected one USB boot disk at ${usb_version}:${devpath} LUN ${lun}, found ${match_count}"
+printf '%s\n' "$match"

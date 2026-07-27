@@ -63,6 +63,8 @@ mmdebstrap:
       install -d -m 0755 "$1/etc/systemd/system"
       install -d -m 0755 "$1/etc/systemd/system/containerd.service.d"
       install -d -m 0755 "$1/etc/systemd/system/docker.service.d"
+      install -d -m 0755 "$1/etc/initramfs-tools/hooks"
+      install -d -m 0755 "$1/etc/initramfs-tools/scripts/local-block"
       install -d -m 0755 "$1/etc/rpi-image-gen/slot-shared.d"
       install -d -m 0755 "$1/etc/sudoers.d"
 
@@ -84,6 +86,12 @@ mmdebstrap:
         "$1/usr/local/sbin/stugu-compose-start"
       install -m 0755 "${IGconf_stugu_assetdir}/stugu-grow-persistent" \
         "$1/usr/local/sbin/stugu-grow-persistent"
+      install -m 0755 "${IGconf_stugu_assetdir}/stugu-usb-bootdev" \
+        "$1/usr/bin/stugu-usb-bootdev"
+      install -m 0755 "${IGconf_stugu_assetdir}/stugu-usb-initramfs-hook" \
+        "$1/etc/initramfs-tools/hooks/stugu-usb-bootdev"
+      install -m 0755 "${IGconf_stugu_assetdir}/stugu-usb-ab-root" \
+        "$1/etc/initramfs-tools/scripts/local-block/20-stugu-usb-ab-root"
       install -m 0755 "${IGconf_stugu_assetdir}/stuguctl" \
         "$1/usr/local/bin/stuguctl"
       install -m 0644 "${IGconf_stugu_assetdir}/stugu.service" \

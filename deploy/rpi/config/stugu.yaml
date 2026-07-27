@@ -5,6 +5,9 @@ include:
 
 device:
   layer: rpi4
+  # The appliance factory image is installed to its external USB disk.
+  # This also ensures initramfs includes the USB mass-storage boot path.
+  storage_type: usb
   hostname: stugu
   user1: stugu
   # Keep sudo installed, but the account remains password-locked. The Stugu

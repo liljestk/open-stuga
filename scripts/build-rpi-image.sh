@@ -137,6 +137,23 @@ install -m 0755 "$repo_root/scripts/bootstrap-timescale.sh" \
 install -m 0755 "$repo_root/scripts/reconcile-timescale-credentials.sh" \
   "$stage_dir/assets/reconcile-timescale-credentials.sh"
 
+# The pinned generator declares USB as a valid storage type in device-base,
+# but its IDP v2 schema still omits it. Keep the generated metadata truthful
+# and fail closed if the pinned upstream schema no longer has that exact gap.
+upstream_idp_schema="$rpi_image_gen_dir/layer/rpi/schemas/idp/v2/schema.json"
+usb_idp_schema="$stage_dir/idp-v2-usb.schema.json"
+python3 - "$upstream_idp_schema" "$usb_idp_schema" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+needle = '"enum": ["sd", "emmc", "nvme"]'
+replacement = '"enum": ["sd", "emmc", "nvme", "usb"]'
+if source.count(needle) != 1:
+    raise SystemExit("unexpected rpi-image-gen IDP storage-type schema")
+Path(sys.argv[2]).write_text(source.replace(needle, replacement), encoding="utf-8")
+PY
+
 build_options=(
   "IGconf_artefact_version=$version"
   "IGconf_device_hostname=$hostname"
@@ -145,6 +162,7 @@ build_options=(
   "IGconf_stugu_backup_image=$backup_image"
   "IGconf_stugu_tapo_image=$tapo_image"
   "IGconf_stugu_update_agent_image=$update_agent_image"
+  "IGconf_image_idp_schema=$usb_idp_schema"
   "IGconf_sys_workroot=$build_root"
 )
 [[ -n "$ssh_key_file" ]] && build_options+=("IGconf_ssh_pubkey_user1=$(realpath "$ssh_key_file")")
