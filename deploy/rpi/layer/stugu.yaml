@@ -66,38 +66,38 @@ mmdebstrap:
       install -d -m 0755 "$1/etc/rpi-image-gen/slot-shared.d"
       install -d -m 0755 "$1/etc/sudoers.d"
 
-      install -m 0644 "${IGconf_stuga_assetdir}/docker-compose.yml" \
+      install -m 0644 "${IGconf_stugu_assetdir}/docker-compose.yml" \
         "$1/opt/stugu/docker-compose.yml"
-      install -m 0644 "${IGconf_stuga_assetdir}/stugu.env.example" \
+      install -m 0644 "${IGconf_stugu_assetdir}/stugu.env.example" \
         "$1/opt/stugu/stugu.env.example"
-      install -m 0644 "${IGconf_stuga_assetdir}/full.env.example" \
+      install -m 0644 "${IGconf_stugu_assetdir}/full.env.example" \
         "$1/opt/stugu/full.env.example"
-      install -m 0644 "${IGconf_stuga_assetdir}/tapo-flow.example.json" \
+      install -m 0644 "${IGconf_stugu_assetdir}/tapo-flow.example.json" \
         "$1/opt/stugu/apps/tapo-export-runner/flow.example.json"
-      cp -a "${IGconf_stuga_assetdir}/config/." "$1/opt/stugu/config/"
-      install -m 0755 "${IGconf_stuga_assetdir}/bootstrap-timescale.sh" \
+      cp -a "${IGconf_stugu_assetdir}/config/." "$1/opt/stugu/config/"
+      install -m 0755 "${IGconf_stugu_assetdir}/bootstrap-timescale.sh" \
         "$1/opt/stugu/scripts/bootstrap-timescale.sh"
-      install -m 0755 "${IGconf_stuga_assetdir}/reconcile-timescale-credentials.sh" \
+      install -m 0755 "${IGconf_stugu_assetdir}/reconcile-timescale-credentials.sh" \
         "$1/opt/stugu/scripts/reconcile-timescale-credentials.sh"
 
-      install -m 0755 "${IGconf_stuga_assetdir}/stugu-compose-start" \
+      install -m 0755 "${IGconf_stugu_assetdir}/stugu-compose-start" \
         "$1/usr/local/sbin/stugu-compose-start"
-      install -m 0755 "${IGconf_stuga_assetdir}/stugu-grow-persistent" \
+      install -m 0755 "${IGconf_stugu_assetdir}/stugu-grow-persistent" \
         "$1/usr/local/sbin/stugu-grow-persistent"
-      install -m 0755 "${IGconf_stuga_assetdir}/stuguctl" \
+      install -m 0755 "${IGconf_stugu_assetdir}/stuguctl" \
         "$1/usr/local/bin/stuguctl"
-      install -m 0644 "${IGconf_stuga_assetdir}/stugu.service" \
+      install -m 0644 "${IGconf_stugu_assetdir}/stugu.service" \
         "$1/etc/systemd/system/stugu.service"
-      install -m 0644 "${IGconf_stuga_assetdir}/stugu-data-grow.service" \
+      install -m 0644 "${IGconf_stugu_assetdir}/stugu-data-grow.service" \
         "$1/etc/systemd/system/stugu-data-grow.service"
 
       cat > "$1/opt/stugu/release.env" <<-EOF
       STUGA_VERSION=${IGconf_artefact_version}
-      STUGA_API_IMAGE=${IGconf_stuga_api_image}
-      STUGA_WEB_IMAGE=${IGconf_stuga_web_image}
-      STUGA_BACKUP_IMAGE=${IGconf_stuga_backup_image}
-      STUGA_TAPO_RUNNER_IMAGE=${IGconf_stuga_tapo_image}
-      STUGA_UPDATE_AGENT_IMAGE=${IGconf_stuga_update_agent_image}
+      STUGA_API_IMAGE=${IGconf_stugu_api_image}
+      STUGA_WEB_IMAGE=${IGconf_stugu_web_image}
+      STUGA_BACKUP_IMAGE=${IGconf_stugu_backup_image}
+      STUGA_TAPO_RUNNER_IMAGE=${IGconf_stugu_tapo_image}
+      STUGA_UPDATE_AGENT_IMAGE=${IGconf_stugu_update_agent_image}
       EOF
       chmod 0444 "$1/opt/stugu/release.env"
 

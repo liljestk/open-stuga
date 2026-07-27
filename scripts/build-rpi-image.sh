@@ -140,11 +140,11 @@ install -m 0755 "$repo_root/scripts/reconcile-timescale-credentials.sh" \
 build_options=(
   "IGconf_artefact_version=$version"
   "IGconf_device_hostname=$hostname"
-  "IGconf_stuga_api_image=$api_image"
-  "IGconf_stuga_web_image=$web_image"
-  "IGconf_stuga_backup_image=$backup_image"
-  "IGconf_stuga_tapo_image=$tapo_image"
-  "IGconf_stuga_update_agent_image=$update_agent_image"
+  "IGconf_stugu_api_image=$api_image"
+  "IGconf_stugu_web_image=$web_image"
+  "IGconf_stugu_backup_image=$backup_image"
+  "IGconf_stugu_tapo_image=$tapo_image"
+  "IGconf_stugu_update_agent_image=$update_agent_image"
   "IGconf_sys_workroot=$build_root"
 )
 [[ -n "$ssh_key_file" ]] && build_options+=("IGconf_ssh_pubkey_user1=$(realpath "$ssh_key_file")")

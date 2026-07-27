@@ -60,6 +60,18 @@ test("the appliance orders both shared container stores before container startup
   assert.match(growService, /Before=persistent-shared-init\.service containerd\.service docker\.service stugu\.service/);
 });
 
+test("the appliance layer and build overrides use the declared Stugu variable prefix", async () => {
+  const [layer, buildScript] = await Promise.all([
+    readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
+    readFile(new URL("../build-rpi-image.sh", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(layer, /# X-Env-VarPrefix: stugu/);
+  assert.match(layer, /\$\{IGconf_stugu_assetdir\}/);
+  assert.match(buildScript, /"IGconf_stugu_api_image=\$api_image"/);
+  assert.doesNotMatch(`${layer}\n${buildScript}`, /IGconf_stuga_/);
+});
+
 test("the release workflow builds recoverable images on a hosted native ARM64 runner", async () => {
   const workflow = await readFile(
     new URL("../../.github/workflows/rpi-release.yml", import.meta.url),

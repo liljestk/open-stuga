@@ -4,6 +4,12 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.14.2 - 2026-07-27
+
+- Align the Raspberry Pi image-generator layer and build overrides on the
+  declared `stugu` variable prefix so appliance assets and immutable image
+  references reach the custom image hook.
+
 ## 0.14.1 - 2026-07-27
 
 - Build architecture-neutral web assets on the native Docker builder before
