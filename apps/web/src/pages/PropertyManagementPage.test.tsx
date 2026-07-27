@@ -457,7 +457,7 @@ describe("PropertyManagementPage", () => {
       },
       orientationDegrees: 90,
     }));
-    expect(screen.getByText("Home placement and scale saved.")).not.toBeNull();
+    expect(await screen.findByText("Home placement and scale saved.")).not.toBeNull();
   });
 
   it("lets keyboard users place a fixed asset with exact coordinates", async () => {
