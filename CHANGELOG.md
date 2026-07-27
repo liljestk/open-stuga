@@ -4,6 +4,12 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.14.1 - 2026-07-27
+
+- Build architecture-neutral web assets on the native Docker builder before
+  packaging AMD64 and ARM64 images, preventing Raspberry Pi release builds from
+  timing out under ARM emulation.
+
 ## 0.14.0 - 2026-07-27
 
 - Split oversized application, API, persistence, protocol, localization,

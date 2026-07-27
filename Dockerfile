@@ -35,7 +35,29 @@ RUN npm run build:packages && npm run build --workspace @climate-twin/api
 FROM api-build AS production-dependencies
 RUN npm prune --omit=dev
 
-FROM dependencies AS web-build
+# Browser assets are architecture-neutral. Build them once on the native
+# builder instead of repeating Vite under ARM64 emulation.
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS web-dependencies
+
+WORKDIR /app
+
+COPY package*.json ./
+COPY tsconfig.base.json ./
+COPY apps/api/package*.json ./apps/api/
+COPY apps/web/package*.json ./apps/web/
+COPY apps/tapo-export-runner/package*.json ./apps/tapo-export-runner/
+COPY packages/contracts/package*.json ./packages/contracts/
+COPY packages/spatial-layers/package*.json ./packages/spatial-layers/
+COPY packages/stuguby-protocol/package*.json ./packages/stuguby-protocol/
+
+RUN --mount=type=cache,target=/root/.npm \
+  if [ -f package-lock.json ]; then \
+    npm ci --no-audit --fetch-retries=10 --fetch-retry-mintimeout=2000 --fetch-retry-maxtimeout=30000; \
+  else \
+    npm install --no-audit --fetch-retries=10 --fetch-retry-mintimeout=2000 --fetch-retry-maxtimeout=30000; \
+  fi
+
+FROM web-dependencies AS web-build
 
 COPY apps/web ./apps/web
 COPY packages/contracts ./packages/contracts
