@@ -97,6 +97,8 @@ test("local publishing owns expensive builds and hosted release work is an expli
   assert.match(publisher, /"linux\/amd64"[\s\S]*ARCH: "arm64"/);
   assert.match(publisher, /qemu-user-static/);
   assert.match(publisher, /binfmt_misc\/(?:qemu-)?aarch64/);
+  assert.match(publisher, /"--volume",\s*\n\s*"\/rpi-build"/);
+  assert.match(publisher, /RPI_BUILD_ROOT: "\/rpi-build"/);
   assert.match(publisher, /scripts\/build-rpi-image\.sh/);
   assert.match(publisher, /"release",\s*\n\s*"upload"/);
   assert.match(publisher, /--publish/);

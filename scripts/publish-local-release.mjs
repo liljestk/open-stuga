@@ -366,6 +366,9 @@ function buildRaspberryPi({
     "linux/amd64",
     "--volume",
     `${root}:/workspace`,
+    // Debian packages contain case-distinct paths that Windows bind mounts collapse.
+    "--volume",
+    "/rpi-build",
     "--volume",
     `${sshPublicKey}:/run/secrets/stugu-appliance.pub:ro`,
     "--workdir",
@@ -381,6 +384,7 @@ function buildRaspberryPi({
     STUGA_TAPO_RUNNER_IMAGE: imageRefs["tapo-export-runner"],
     STUGA_UPDATE_AGENT_IMAGE: imageRefs["update-agent"],
     RPI_FACTORY_BUILD: "1",
+    RPI_BUILD_ROOT: "/rpi-build",
     RPI_EXPORT_FACTORY_IMAGE: "1",
     RPI_IMAGE_GEN_INSTALL_DEPS: "1",
     RPI_SSH_PUBLIC_KEY_FILE: "/run/secrets/stugu-appliance.pub",
