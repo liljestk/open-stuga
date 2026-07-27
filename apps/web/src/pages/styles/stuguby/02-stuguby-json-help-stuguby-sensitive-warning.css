@@ -1,0 +1,457 @@
+
+.stuguby-json-help,
+.stuguby-sensitive-warning {
+  margin: 0;
+  color: var(--muted);
+}
+
+
+.stuguby-capability-note {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: var(--panel-soft);
+}
+
+
+.stuguby-setup-required {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+}
+
+
+.stuguby-setup-required > svg {
+  color: var(--action);
+}
+
+
+.stuguby-setup-required p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+
+.stuguby-setup-required .secondary-button {
+  margin-top: 10px;
+}
+
+
+.cloudflare-setup-form,
+.cloudflare-setup-loading {
+  display: grid;
+  gap: 14px;
+}
+
+
+.cloudflare-setup-loading {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  color: var(--muted);
+}
+
+
+.cloudflare-setup-loading .inline-error,
+.cloudflare-setup-loading .secondary-button {
+  grid-column: 1 / -1;
+}
+
+
+.cloudflare-setup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+
+.cloudflare-setup-operation {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+}
+
+
+.cloudflare-setup-operation p,
+.cloudflare-setup-privacy,
+.cloudflare-setup-approval {
+  margin: 4px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+
+.cloudflare-setup-operation .secondary-button {
+  margin-top: 10px;
+}
+
+
+.cloudflare-setup-operation.is-failed {
+  border-color: var(--red);
+}
+
+
+.cloudflare-setup-operation.is-complete {
+  border-color: var(--positive);
+}
+
+
+.cloudflare-setup-approval a,
+.stuguby-setup-required a,
+.cloudflare-setup-form small a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+
+.cloudflare-setup-privacy {
+  font-size: .8125rem;
+}
+
+
+.cloudflare-token-help-toggle {
+  min-height: 32px;
+  justify-self: start;
+  padding-inline: 6px;
+  color: var(--action);
+}
+
+
+.cloudflare-token-help {
+  padding: 10px 12px;
+  border-left: 3px solid var(--action);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--muted);
+  background: var(--panel-soft);
+  font-size: .8125rem;
+  line-height: 1.5;
+}
+
+
+.cloudflare-token-help[hidden] {
+  display: none;
+}
+
+
+.cloudflare-token-help ol {
+  margin: 0;
+  padding-inline-start: 20px;
+}
+
+
+.cloudflare-token-help li + li {
+  margin-top: 4px;
+}
+
+
+.cloudflare-token-help a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+
+@media (max-width: 620px) {
+  .cloudflare-setup-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+.stuguby-json-grid textarea {
+  min-height: 192px;
+  font: .8125rem / 1.5 SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+
+
+.stuguby-audience {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+
+.stuguby-audience legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+
+.stuguby-audience label,
+.stuguby-telemetry-options > label:first-child {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+
+.stuguby-audience label small {
+  color: var(--muted);
+}
+
+
+.stuguby-dataset-table {
+  min-width: 0;
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+
+.stuguby-dataset-heading,
+.stuguby-dataset-row {
+  display: grid;
+  grid-template-columns: minmax(192px, 1fr) 80px 64px 80px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+
+.stuguby-dataset-heading {
+  color: var(--muted);
+  background: var(--panel-soft);
+  font-size: .8125rem;
+  font-weight: 700;
+}
+
+
+.stuguby-dataset-row + .stuguby-dataset-row {
+  border-top: 1px solid var(--line);
+}
+
+
+.stuguby-dataset-row > label:first-child {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+
+.stuguby-dataset-row small {
+  display: block;
+  color: var(--muted);
+}
+
+
+.stuguby-dataset-option {
+  min-width: 0;
+  display: grid;
+  place-items: center;
+}
+
+
+.stuguby-dataset-option > span {
+  display: none;
+}
+
+
+.stuguby-dataset-option > input[type="number"] {
+  min-width: 0;
+}
+
+
+.stuguby-dataset-row.sensitive {
+  box-shadow: inset 4px 0 0 var(--yellow);
+}
+
+
+.stuguby-sensitive-warning {
+  padding: 12px;
+  border-left: 4px solid var(--yellow);
+  border-radius: var(--radius);
+  color: var(--yellow);
+  background: var(--yellow-soft);
+}
+
+
+.stuguby-telemetry-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+}
+
+
+.stuguby-grant-submit,
+.stuguby-record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+
+.stuguby-record-actions {
+  align-items: center;
+  justify-content: flex-end;
+}
+
+
+.stuguby-record-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+
+
+.stuguby-duplicate-warning {
+  margin: 0;
+  padding: 12px 14px;
+  border-left: 4px solid var(--yellow);
+  border-radius: var(--radius);
+  color: var(--yellow);
+  background: var(--yellow-soft);
+  line-height: 1.5;
+}
+
+
+.stuguby-existing-grants .stuguby-duplicate-label {
+  width: fit-content;
+  margin: 2px 0;
+  color: var(--yellow);
+  font-weight: 750;
+}
+
+
+.stuguby-catalog-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--red) 45%, var(--line));
+  border-radius: var(--radius);
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+
+.stuguby-catalog-error p {
+  margin: 0;
+}
+
+
+.stuguby-resource-list details,
+.stuguby-telemetry-preview details {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+
+.stuguby-resource-list summary {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  cursor: pointer;
+}
+
+
+.stuguby-resource-list summary:hover,
+.stuguby-telemetry-preview summary:hover {
+  background: var(--panel-soft);
+}
+
+
+.stuguby-resource-list pre,
+.stuguby-telemetry-preview pre {
+  max-height: 352px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+  color: var(--ink);
+  background: var(--panel-soft);
+  font: .8125rem / 1.5 SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+
+
+.stuguby-resource-list pre:focus-visible,
+.stuguby-telemetry-preview pre:focus-visible {
+  outline: 3px solid var(--action);
+  outline-offset: -3px;
+}
+
+
+.stuguby-resource-list .fresh {
+  color: var(--positive);
+}
+
+
+.stuguby-resource-list .stale {
+  color: var(--yellow);
+}
+
+
+.stuguby-telemetry-preview {
+  display: grid;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+
+.stuguby-telemetry-preview h3,
+.stuguby-telemetry-preview p,
+.stuguby-card > h3 {
+  margin: 0;
+}
+
+
+.stuguby-telemetry-preview summary {
+  min-height: 48px;
+  padding: 12px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+
+.stuguby-operation {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+
+.stuguby-error,
+.stuguby-notice {
+  margin: 0;
+}
+
+
+.stuguby-notice {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--positive) 42%, var(--line));
+  border-radius: var(--radius);
+  color: var(--positive);
+  background: var(--positive-soft);
+}

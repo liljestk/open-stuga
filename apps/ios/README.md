@@ -1,13 +1,18 @@
-# Stugu companion for iOS, iPadOS, and macOS
+# Stugu for iOS, iPadOS, and macOS
 
-Native SwiftUI companion for monitoring a Stugu installation from iPhone or
-iPad, with a Mac Catalyst build for Intel and Apple silicon Macs. It connects
-directly to the user-selected Stugu server; there is no intermediary app
-service.
+The iPhone app is a lightweight native SwiftUI companion for quick monitoring
+and field work. iPad and Mac Catalyst present the complete server-hosted Stugu
+interface in a native shell, so their features and information architecture stay
+in step with the web product. Every platform connects directly to the
+user-selected Stugu server; there is no intermediary app service.
 
 ## Included
 
 - Existing Stugu cookie authentication and CSRF protection
+- Full web-product parity on iPad and Mac, including setup, analytics,
+  maintenance planning, administration, and developer tools
+- A deliberately lighter tab-based iPhone interface for glanceable status,
+  alerts, sensors, inventory, and capture
 - Property-aware Home selection with clear owned/remote Stuguby origin, sync,
   and edit-policy cues across the app, widgets, and Watch
 - Exception-first Home summary with live measurement freshness
@@ -34,19 +39,19 @@ service.
 - Uncertainty-aware MapKit equipment map and foreground Find nearby guidance
 - Property-wide inventory with attention summary, search, service/location
   filters, native add/edit, QR scanning, printable labels, Home/area/unassigned
-  placement, and manual map pins
+  placement, one-shot current-location pins, and a Property-aware map picker
 - Equipment notes, issue reporting, borrowing, and returns
 - Explicit foreground-only member location sharing on the Property map
 - Owner/Admin visibility into installed and available versions, durable system
   update progress, live reconnecting status, and recent update-agent activity
 
-Full setup, detailed floor-plan editing, analytics, maintenance planning, and
-administration remain in the web app. The companion shows system-update status
-but sends update scheduling and installation changes to the web app.
+The iPad and Mac app use the same server-hosted interface as a browser instead
+of maintaining a second implementation of every desktop feature. The iPhone
+companion opens that full interface when a desktop-oriented workflow is needed.
 
 ## Open and run
 
-Requirements: Xcode 16 or newer, iOS 17 or newer, macOS 14 or newer for the
+Requirements: Xcode 26 or newer, iOS 26 or newer, macOS 26 or newer for the
 Mac Catalyst app, and watchOS 10 or newer for the Watch companion.
 
 1. Open `Stugu.xcodeproj`.
@@ -91,34 +96,40 @@ xcodebuild \
   build
 ```
 
-## macOS scope
+## iPad and macOS scope
 
-The Mac build is the native companion: monitoring, alerts, inventory, maps,
-capture, system-update visibility, native notifications, shortcuts, and
-offline state share the same Swift implementation as iPhone and iPad. The
-Watch app remains paired with the iPhone, and RoomPlan capture remains an
-iPhone/iPad task; Apple makes captured RoomPlan data processable on Mac but
-does not run room-capture sessions there.
+After native connection and sign-in, iPad and Mac load the selected
+installation's complete Stugu interface with shared session cookies. Browser
+history, downloads, file import, confirmation dialogs, links, and responsive
+layout remain available. A small native app bar adds quick capture, device
+settings, reload, and browser handoff without replacing the web navigation.
+If the server is unavailable, protected cached data remains accessible through
+an explicitly labelled offline companion view.
+The Watch app remains paired with the iPhone, and RoomPlan capture remains an
+iPhone/iPad task.
 
 The Mac app does not embed a second Stugu server. The Node/SQLite control
 plane, Python TP-Link bridge, optional databases, backup/update agent, and
 integration credentials remain one separately managed installation. Bundling
 those components into the GUI would create a second deployment and update
 boundary rather than make the platform native. Full setup, administration,
-and research views therefore continue to open on that installation's web app.
+and research views therefore continue to run on that installation and are
+presented by the large-screen app rather than duplicated in Swift.
 
 ## Connection and security
 
 - Public addresses must use HTTPS.
 - Plain HTTP is accepted only for loopback, `.local`/Home ARPA names, and
   private or link-local IP addresses.
-- The first release expects a directly reachable Stugu origin, typically over
-  the trusted LAN or a private VPN. It does not yet bridge an interactive
-  Cloudflare Access browser sign-in into the native URL session.
+- Native API requests support a Cloudflare Access service token. The token
+  secret stays in Keychain and is never injected into web content; the
+  large-screen interface uses the resulting Access cookie. Access applications
+  must retain an Allow policy as well as the token's Service Auth policy.
 - `NSAllowsLocalNetworking` is enabled for trusted-LAN installations; arbitrary
   transport-security exceptions are not.
-- Passwords are never persisted. The server-managed session cookie is stored by
-  iOS and removed when the user disconnects.
+- Passwords are never persisted. Server-managed session cookies are synchronized
+  between native networking and the large-screen WebKit view, and removed when
+  the user disconnects.
 - Live environmental telemetry is held in memory. Opt-in BLE observations are
   persisted before upload, expire after seven days, and use iOS file protection.
 - The latest Home snapshot, bounded chart history, and pending field actions
@@ -136,6 +147,8 @@ and research views therefore continue to open on that installation's web app.
 - The dependent Watch app receives a minimal Home/alert snapshot and opaque
   alert identifiers. It receives no cookie, password, or server URL and needs
   the paired iPhone to communicate with Stugu.
+- Choosing the current location for an equipment pin makes one foreground
+  location request. The point is stored only if the inventory record is saved.
 - Member location sharing is optional, uses When In Use location only, stores
   current presence rather than a trail, and stops when the app leaves the
   foreground or its timer expires.

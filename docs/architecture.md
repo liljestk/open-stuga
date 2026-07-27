@@ -65,7 +65,9 @@ flowchart LR
         WX --> API
         API --> LD[Location discovery]
         API --> UI[2D digital-twin web app]
-        API --> IOSAPP[Native Apple companion\niPhone, iPad, Mac]
+        API --> IOSAPP[Native iPhone companion]
+        UI --> APPLE[Full iPad and Mac client\nWebKit native shell]
+        API --> APPLE
         E --> UI
         E --> IOSAPP
         MCP[MCP stdio server] --> Q
@@ -93,11 +95,13 @@ third-party browser flow and are loaded only after an explicit action. Browser
 geolocation is requested only after **Use this device's location**; the selected
 coordinates then flow through the API. See
 [Outdoor weather and home location](weather.md) for those privacy boundaries.
-The native iPhone, iPad, and Mac Catalyst companion uses the same
-server-managed session, permission checks, measurement snapshots/history,
-alerts, and authenticated event stream as the browser. It connects directly
-to the selected Stugu origin and does not introduce an intermediary telemetry
-service.
+The native iPhone companion uses the same server-managed session, permission
+checks, measurement snapshots/history, alerts, and authenticated event stream
+as the browser. iPad and Mac Catalyst synchronize that session into a native
+WebKit shell and present the same server-hosted interface as the browser, so
+desktop workflows do not acquire a second Swift implementation. Every Apple
+surface connects directly to the selected Stugu origin and introduces no
+intermediary telemetry service.
 Telegram is an explicit, per-rule server-side outbound flow. Apple Notes is not
 a server integration: a user-run Shortcut calls a Home-scoped bridge and then
 creates or reads a note on the device. Stugu never receives an Apple Account

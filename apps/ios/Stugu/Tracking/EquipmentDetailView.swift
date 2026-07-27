@@ -1,3 +1,6 @@
+import Combine
+import CoreLocation
+import MapKit
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
@@ -938,13 +941,17 @@ struct EquipmentEditorView: View {
     @State private var longitude: String
     @State private var saving = false
     @State private var errorMessage: String?
+    @State private var showingMapPicker = false
+    @StateObject private var currentLocation = EquipmentCurrentLocationProvider()
 
     init(
         equipment: AreaEquipment?,
+        initialCoordinate: GeoCoordinate? = nil,
         onSaved: @escaping (AreaEquipment) -> Void = { _ in }
     ) {
         self.equipment = equipment
         self.onSaved = onSaved
+        let startingCoordinate = equipment?.location ?? initialCoordinate
         _name = State(initialValue: equipment?.name ?? "")
         _kind = State(initialValue: equipment?.kind ?? "")
         if let areaID = equipment?.areaId {
@@ -964,10 +971,10 @@ struct EquipmentEditorView: View {
         _serialNumber = State(initialValue: equipment?.serialNumber ?? "")
         _notes = State(initialValue: equipment?.notes ?? "")
         _latitude = State(
-            initialValue: equipment?.location.map { String($0.latitude) } ?? ""
+            initialValue: startingCoordinate.map { String($0.latitude) } ?? ""
         )
         _longitude = State(
-            initialValue: equipment?.location.map { String($0.longitude) } ?? ""
+            initialValue: startingCoordinate.map { String($0.longitude) } ?? ""
         )
     }
 
@@ -1001,6 +1008,26 @@ struct EquipmentEditorView: View {
                 }
 
                 Section {
+                    Button {
+                        currentLocation.request()
+                    } label: {
+                        if currentLocation.isRequesting {
+                            HStack {
+                                ProgressView()
+                                Text("Getting current location...")
+                            }
+                        } else {
+                            Label("Use current location", systemImage: "location.fill")
+                        }
+                    }
+                    .disabled(currentLocation.isRequesting)
+
+                    Button {
+                        showingMapPicker = true
+                    } label: {
+                        Label("Choose on Property map", systemImage: "map")
+                    }
+
                     LabeledContent("Latitude") {
                         TextField("Optional", text: $latitude)
                             .keyboardType(.numbersAndPunctuation)
@@ -1015,7 +1042,13 @@ struct EquipmentEditorView: View {
                         Button("Clear map pin", role: .destructive) {
                             latitude = ""
                             longitude = ""
+                            currentLocation.clearError()
                         }
+                    }
+                    if let locationError = currentLocation.errorMessage {
+                        Label(locationError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(StuguTheme.critical)
                     }
                     if !coordinateIsValid {
                         Label(
@@ -1092,8 +1125,8 @@ struct EquipmentEditorView: View {
                 if let area = sortedAreas.first {
                     placement = .area(area.id)
                 } else if let home = model.selectedHome,
-                   home.propertyId == model.selectedProperty?.id,
-                   home.stuguby?.isReadOnly != true {
+                          home.propertyId == model.selectedProperty?.id,
+                          home.stuguby?.isReadOnly != true {
                     placement = .home(home.id)
                 }
             }
@@ -1105,6 +1138,24 @@ struct EquipmentEditorView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(errorMessage ?? "")
+            }
+            .sheet(isPresented: $showingMapPicker) {
+                EquipmentLocationMapPicker(
+                    propertyName: model.selectedProperty?.name ?? "Property",
+                    areas: sortedAreas,
+                    homes: sortedHouses,
+                    boundary: propertyBoundary,
+                    equipment: model.selectedPropertyEquipment.filter {
+                        $0.id != equipment?.id
+                    },
+                    initialCoordinate: parsedCoordinate
+                ) { coordinate in
+                    setMapPin(coordinate)
+                }
+            }
+            .onChange(of: currentLocation.coordinate) { _, coordinate in
+                guard let coordinate else { return }
+                setMapPin(coordinate)
             }
         }
     }
@@ -1123,6 +1174,14 @@ struct EquipmentEditorView: View {
         sortedHouses.filter {
             $0.stuguby?.isReadOnly != true || $0.id == equipment?.houseId
         }
+    }
+
+    private var propertyBoundary: [GeoCoordinate] {
+        if let boundary = model.trackingSnapshot?.settings.propertyBoundary,
+           !boundary.isEmpty {
+            return boundary
+        }
+        return model.trackingSettings?.propertyBoundary ?? []
     }
 
     private var canSave: Bool {
@@ -1182,6 +1241,12 @@ struct EquipmentEditorView: View {
         case .outOfService: "Out of service"
         case .retired: "Retired"
         }
+    }
+
+    private func setMapPin(_ coordinate: GeoCoordinate) {
+        latitude = String(coordinate.latitude)
+        longitude = String(coordinate.longitude)
+        currentLocation.clearError()
     }
 
     private func save() {
@@ -1247,6 +1312,296 @@ struct EquipmentEditorView: View {
             value.trimmingCharacters(in: .whitespacesAndNewlines)
                 .replacingOccurrences(of: ",", with: ".")
         )
+    }
+}
+
+struct EquipmentLocationMapPicker: View {
+    @Environment(\.dismiss) private var dismiss
+    let propertyName: String
+    let areas: [PropertyArea]
+    let homes: [House]
+    let boundary: [GeoCoordinate]
+    let equipment: [AreaEquipment]
+    let onSelect: (GeoCoordinate) -> Void
+
+    @State private var selectedCoordinate: GeoCoordinate?
+    @State private var cameraPosition: MapCameraPosition = .automatic
+
+    init(
+        propertyName: String,
+        areas: [PropertyArea],
+        homes: [House],
+        boundary: [GeoCoordinate],
+        equipment: [AreaEquipment],
+        initialCoordinate: GeoCoordinate?,
+        onSelect: @escaping (GeoCoordinate) -> Void
+    ) {
+        self.propertyName = propertyName
+        self.areas = areas
+        self.homes = homes
+        self.boundary = boundary
+        self.equipment = equipment
+        self.onSelect = onSelect
+        _selectedCoordinate = State(initialValue: initialCoordinate)
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(propertyName)
+                        .font(.subheadline.weight(.semibold))
+                    Text(
+                        "Tap the map to place the expected location. "
+                            + "Property areas, Homes, and existing pins stay visible."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(StuguTheme.muted)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(StuguTheme.surface)
+
+                MapReader { proxy in
+                    Map(position: $cameraPosition) {
+                        if boundary.count >= 3 {
+                            MapPolygon(coordinates: boundary.map { clCoordinate($0) })
+                                .foregroundStyle(StuguTheme.action.opacity(0.05))
+                                .stroke(StuguTheme.action.opacity(0.65), lineWidth: 1.5)
+                        }
+                        ForEach(areas) { area in
+                            if area.polygon.count >= 3 {
+                                MapPolygon(
+                                    coordinates: area.polygon.map { clCoordinate($0) }
+                                )
+                                    .foregroundStyle(StuguTheme.action.opacity(0.1))
+                                    .stroke(StuguTheme.action.opacity(0.7), lineWidth: 1.25)
+                            }
+                            if let coordinate = mapCoordinate(for: area) {
+                                Annotation(area.name, coordinate: coordinate) {
+                                    InventoryLocationContextLabel(
+                                        name: area.name,
+                                        systemImage: "square.dashed"
+                                    )
+                                    .accessibilityLabel("Property area, \(area.name)")
+                                }
+                            }
+                        }
+                        ForEach(homes) { home in
+                            if let coordinate = mapCoordinate(for: home) {
+                                Annotation(home.name, coordinate: coordinate) {
+                                    InventoryLocationContextLabel(
+                                        name: home.name,
+                                        systemImage: "house.fill"
+                                    )
+                                    .accessibilityLabel("Home, \(home.name)")
+                                }
+                            }
+                        }
+                        ForEach(equipment) { item in
+                            if let location = item.location {
+                                Marker(
+                                    item.name,
+                                    systemImage: "wrench.and.screwdriver.fill",
+                                    coordinate: clCoordinate(location)
+                                )
+                                .tint(StuguTheme.muted)
+                            }
+                        }
+                        if let selectedCoordinate {
+                            Annotation(
+                                "Selected equipment location",
+                                coordinate: clCoordinate(selectedCoordinate)
+                            ) {
+                                Image(systemName: "mappin.circle.fill")
+                                    .font(.system(size: 34, weight: .semibold))
+                                    .foregroundStyle(StuguTheme.brand)
+                                    .background(Circle().fill(.white))
+                                    .accessibilityLabel("Selected equipment location")
+                            }
+                        }
+                    }
+                    .mapStyle(.standard(elevation: .realistic))
+                    .mapControls {
+                        MapCompass()
+                        MapScaleView()
+                    }
+                    .onTapGesture { point in
+                        guard let coordinate = proxy.convert(point, from: .local) else {
+                            return
+                        }
+                        selectedCoordinate = GeoCoordinate(
+                            latitude: coordinate.latitude,
+                            longitude: coordinate.longitude
+                        )
+                    }
+                }
+            }
+            .background(StuguScreenBackground())
+            .navigationTitle("Choose location")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Use location") {
+                        guard let selectedCoordinate else { return }
+                        onSelect(selectedCoordinate)
+                        dismiss()
+                    }
+                    .disabled(selectedCoordinate == nil)
+                }
+            }
+        }
+    }
+
+    private func mapCoordinate(for area: PropertyArea) -> CLLocationCoordinate2D? {
+        if let location = area.location {
+            return clCoordinate(location)
+        }
+        guard !area.polygon.isEmpty else { return nil }
+        return CLLocationCoordinate2D(
+            latitude: area.polygon.map(\.latitude).reduce(0, +)
+                / Double(area.polygon.count),
+            longitude: area.polygon.map(\.longitude).reduce(0, +)
+                / Double(area.polygon.count)
+        )
+    }
+
+    private func mapCoordinate(for home: House) -> CLLocationCoordinate2D? {
+        if let placement = home.mapPlacement {
+            return CLLocationCoordinate2D(
+                latitude: placement.latitude,
+                longitude: placement.longitude
+            )
+        }
+        guard let location = home.location else { return nil }
+        return CLLocationCoordinate2D(
+            latitude: location.latitude,
+            longitude: location.longitude
+        )
+    }
+
+    private func clCoordinate(_ coordinate: GeoCoordinate) -> CLLocationCoordinate2D {
+        CLLocationCoordinate2D(
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude
+        )
+    }
+}
+
+private struct InventoryLocationContextLabel: View {
+    let name: String
+    let systemImage: String
+
+    var body: some View {
+        Label(name, systemImage: systemImage)
+            .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 5)
+            .foregroundStyle(StuguTheme.ink)
+            .background(.regularMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(StuguTheme.strongLine, lineWidth: 1)
+            }
+    }
+}
+
+@MainActor
+final class EquipmentCurrentLocationProvider: NSObject, ObservableObject {
+    @Published private(set) var coordinate: GeoCoordinate?
+    @Published private(set) var isRequesting = false
+    @Published private(set) var errorMessage: String?
+
+    private let manager = CLLocationManager()
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.distanceFilter = kCLDistanceFilterNone
+        manager.activityType = .other
+    }
+
+    func request() {
+        coordinate = nil
+        errorMessage = nil
+        guard CLLocationManager.locationServicesEnabled() else {
+            fail(
+                "Location Services are off. Choose a point on the map or enable "
+                    + "Location Services in Settings."
+            )
+            return
+        }
+
+        isRequesting = true
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            manager.requestLocation()
+        case .notDetermined:
+            manager.requestWhenInUseAuthorization()
+        case .denied, .restricted:
+            fail(
+                "Location access is off for Stugu. Choose a point on the map or "
+                    + "allow location access in Settings."
+            )
+        @unknown default:
+            fail("Current location is unavailable. Choose a point on the map instead.")
+        }
+    }
+
+    func clearError() {
+        errorMessage = nil
+    }
+
+    private func fail(_ message: String) {
+        isRequesting = false
+        errorMessage = message
+    }
+}
+
+extension EquipmentCurrentLocationProvider: CLLocationManagerDelegate {
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        guard isRequesting else { return }
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            manager.requestLocation()
+        case .denied, .restricted:
+            fail(
+                "Location permission was not granted. Choose a point on the map "
+                    + "or allow location access in Settings."
+            )
+        case .notDetermined:
+            break
+        @unknown default:
+            fail("Current location is unavailable. Choose a point on the map instead.")
+        }
+    }
+
+    func locationManager(
+        _ manager: CLLocationManager,
+        didUpdateLocations locations: [CLLocation]
+    ) {
+        guard let location = locations
+            .filter({ $0.horizontalAccuracy >= 0 })
+            .max(by: { $0.timestamp < $1.timestamp }) else {
+            fail("Current location is unavailable. Choose a point on the map instead.")
+            return
+        }
+        coordinate = GeoCoordinate(
+            latitude: location.coordinate.latitude,
+            longitude: location.coordinate.longitude
+        )
+        isRequesting = false
+        errorMessage = nil
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        fail("Current location is temporarily unavailable. Choose it on the map instead.")
     }
 }
 

@@ -1,11 +1,19 @@
 import assert from "node:assert/strict";
+
 import { execFileSync } from "node:child_process";
+
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+
 import { tmpdir } from "node:os";
+
 import { join } from "node:path";
+
 import { fileURLToPath } from "node:url";
+
 import { DatabaseSync } from "node:sqlite";
+
 import test from "node:test";
+
 import {
   MIGRATION_AGGREGATES,
   MIGRATION_HYPERTABLES,
@@ -21,6 +29,7 @@ import {
   validateExpectedHypertables,
   verifyBatch,
 } from "../migrate-telemetry-to-timescale.mjs";
+
 import {
   createBackup,
   parseBackupArgs,
@@ -30,107 +39,12 @@ import {
   timescaleRestorePlan,
   verifyBackup,
 } from "../stugu-backup.mjs";
+
 import { backupArguments } from "../stugu-backup-scheduler.mjs";
+
 import { openReadOnlySqlite, sha256File } from "../sqlite-snapshot-utils.mjs";
 
-function temporaryDirectory(t) {
-  const directory = mkdtempSync(join(tmpdir(), "stugu-data-safety-"));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
-  return directory;
-}
-
-function createTelemetryFixture(path, {
-  duplicateReading = false,
-  equivalentInstantKeys = false,
-  outdoorConditionsJson = undefined,
-} = {}) {
-  const database = new DatabaseSync(path);
-  database.exec(`
-    PRAGMA journal_mode = WAL;
-    CREATE TABLE measurement_samples (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sensor_id TEXT NOT NULL,
-      metric TEXT NOT NULL,
-      value REAL NOT NULL,
-      canonical_unit TEXT NOT NULL,
-      timestamp TEXT NOT NULL,
-      source TEXT NOT NULL,
-      quality TEXT NOT NULL,
-      UNIQUE(sensor_id, metric, timestamp, source)
-    );
-    CREATE TABLE readings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sensor_id TEXT NOT NULL,
-      timestamp TEXT NOT NULL,
-      temperature REAL NOT NULL,
-      humidity REAL NOT NULL,
-      battery REAL,
-      source TEXT NOT NULL,
-      quality TEXT NOT NULL
-    );
-    CREATE TABLE outdoor_temperature_samples (
-      house_id TEXT NOT NULL,
-      location_key TEXT NOT NULL,
-      timestamp TEXT NOT NULL,
-      temperature_c REAL NOT NULL,
-      source TEXT NOT NULL,
-      fetched_at TEXT NOT NULL,
-      station_id TEXT,
-      station_name TEXT,
-      PRIMARY KEY(house_id, location_key, timestamp, source)
-    );
-    CREATE TABLE electricity_price_points (
-      property_id TEXT NOT NULL,
-      start_at TEXT NOT NULL,
-      end_at TEXT NOT NULL,
-      raw_price_cents_per_kwh REAL NOT NULL,
-      fetched_at TEXT NOT NULL,
-      PRIMARY KEY(property_id, start_at)
-    );
-    INSERT INTO measurement_samples
-      (sensor_id, metric, value, canonical_unit, timestamp, source, quality)
-      VALUES ('sensor-1', 'temperature', 19.5, 'degC', '2026-07-18T10:00:00.000Z', 'api', 'good');
-    INSERT INTO readings
-      (sensor_id, timestamp, temperature, humidity, battery, source, quality)
-      VALUES ('sensor-1', '2026-07-18T10:00:00.000Z', 19.5, 52, 88, 'api', 'good');
-    INSERT INTO outdoor_temperature_samples
-      (house_id, location_key, timestamp, temperature_c, source, fetched_at, station_id, station_name)
-      VALUES ('house-1', 'yard', '2026-07-18T10:00:00.000Z', 17.2, 'fmi-observation',
-        '2026-07-18T10:01:00.000Z', 'station-1', 'Test station');
-    INSERT INTO electricity_price_points
-      (property_id, start_at, end_at, raw_price_cents_per_kwh, fetched_at)
-      VALUES ('property-1', '2026-07-18T10:00:00.000Z', '2026-07-18T11:00:00.000Z', 6.4,
-        '2026-07-18T09:00:00.000Z');
-  `);
-  if (duplicateReading) {
-    database.exec(`INSERT INTO readings
-      (sensor_id, timestamp, temperature, humidity, battery, source, quality)
-      VALUES ('sensor-1', '2026-07-18T10:00:00.000Z', 20, 53, 87, 'api', 'estimated')`);
-  }
-  if (equivalentInstantKeys) {
-    database.exec(`
-      INSERT INTO measurement_samples
-        (sensor_id, metric, value, canonical_unit, timestamp, source, quality)
-        VALUES ('sensor-1', 'temperature', 20, 'degC', '2026-07-18T12:00:00.000+02:00', 'api', 'good');
-      INSERT INTO readings
-        (sensor_id, timestamp, temperature, humidity, battery, source, quality)
-        VALUES ('sensor-1', '2026-07-18T12:00:00.000+02:00', 20, 53, 87, 'api', 'estimated');
-      INSERT INTO outdoor_temperature_samples
-        (house_id, location_key, timestamp, temperature_c, source, fetched_at, station_id, station_name)
-        VALUES ('house-1', 'yard', '2026-07-18T12:00:00.000+02:00', 17.3, 'fmi-observation',
-          '2026-07-18T12:01:00.000+02:00', 'station-1', 'Test station');
-      INSERT INTO electricity_price_points
-        (property_id, start_at, end_at, raw_price_cents_per_kwh, fetched_at)
-        VALUES ('property-1', '2026-07-18T12:00:00.000+02:00', '2026-07-18T13:00:00.000+02:00', 6.5,
-          '2026-07-18T11:00:00.000+02:00');
-    `);
-  }
-  if (outdoorConditionsJson !== undefined) {
-    database.exec("ALTER TABLE outdoor_temperature_samples ADD COLUMN conditions_json TEXT");
-    database.prepare("UPDATE outdoor_temperature_samples SET conditions_json = ?").run(outdoorConditionsJson);
-  }
-  return database;
-}
+import { createTelemetryFixture, temporaryDirectory } from "./data-safety-test-support.mjs";
 
 test("scheduled backups include protected integration data only when its file exists", () => {
   const withoutSecrets = backupArguments("/app/backups/without-secrets", false);
@@ -604,163 +518,5 @@ test("runtime database and proxy credentials are generated once without fixed de
   for (const [name, value] of Object.entries(first)) {
     assert.ok(Buffer.byteLength(value, "utf8") >= 32);
     assert.equal(readFileSync(paths[name], "utf8").trim(), value);
-  }
-});
-
-test("backup creates and re-verifies snapshots, assets, manifest, and opt-in fake secrets", async (t) => {
-  const directory = temporaryDirectory(t);
-  const source = join(directory, "source.sqlite");
-  const writer = createTelemetryFixture(source);
-  writer.exec("CREATE TABLE tracking_tags (id TEXT PRIMARY KEY); INSERT INTO tracking_tags VALUES ('tag-1')");
-
-  const spatial = join(directory, "spatial.sqlite");
-  const spatialWriter = new DatabaseSync(spatial);
-  spatialWriter.exec("CREATE TABLE layers (id TEXT PRIMARY KEY); INSERT INTO layers VALUES ('layer-1')");
-  spatialWriter.close();
-
-  const assets = join(directory, "assets");
-  mkdirSync(join(assets, "floorplans"), { recursive: true });
-  writeFileSync(join(assets, "floorplans", "ground.txt"), "fixture floor plan\n");
-  const secrets = join(directory, "integration-secrets.json");
-  writeFileSync(secrets, '{"version":1,"fakeToken":"test-only"}\n');
-  const stugubyIdentity = join(directory, "stuguby-identity.json");
-  writeFileSync(stugubyIdentity, '{"version":1,"nodeId":"test-node","displayName":"Test","publicKey":"fake","privateKey":"fake","createdAt":"2026-07-22T00:00:00.000Z"}\n');
-  const trackingSecretKey = join(directory, "tracking-secret.key");
-  writeFileSync(trackingSecretKey, `${Buffer.alloc(32, 7).toString("base64url")}\n`);
-  const output = join(directory, "backup");
-  try {
-    const options = parseBackupArgs([
-      "--database", source,
-      "--output", output,
-      "--assets", assets,
-      "--spatial-db", spatial,
-      "--stuguby-identity", stugubyIdentity,
-      "--tracking-secret-key", trackingSecretKey,
-      "--include-secrets",
-      "--secrets-file", secrets,
-    ], {});
-    const manifest = await createBackup(options);
-    assert.equal(manifest.verification.status, "passed");
-    assert.equal(manifest.sources.integrationSecrets.status, "included");
-    assert.equal(manifest.sources.timescale.status, "excluded");
-    assert.ok(manifest.files.some(({ category }) => category === "core-sqlite"));
-    assert.ok(manifest.files.some(({ category }) => category === "spatial-sqlite"));
-    assert.ok(manifest.files.some(({ category }) => category === "asset"));
-    assert.ok(manifest.files.some(({ category }) => category === "integration-secrets"));
-    assert.ok(manifest.files.some(({ category }) => category === "stuguby-identity"));
-    assert.ok(manifest.files.some(({ category }) => category === "tracking-secret-key"));
-    assert.equal(manifest.sources.stugubyIdentity.status, "included");
-    assert.equal(manifest.sources.trackingSecretKey.encryptedTagRecords, 1);
-    assert.equal(manifest.files.every(({ sensitive }) => sensitive === true), true);
-    assert.equal(existsSync(join(output, "manifest.sha256")), true);
-    assert.equal(existsSync(join(output, "INCOMPLETE.json")), false);
-    assert.match(readFileSync(join(output, "manifest.sha256"), "utf8"), /^[a-f0-9]{64}  manifest\.json\n$/u);
-    const verification = await verifyBackup(output);
-    assert.equal(verification.status, "passed");
-    if (process.platform !== "win32") {
-      assert.equal(statSync(output).mode & 0o777, 0o700);
-      for (const record of manifest.files) {
-        assert.equal(statSync(join(output, record.path)).mode & 0o777, 0o600, record.path);
-      }
-      assert.equal(statSync(join(output, "manifest.json")).mode & 0o777, 0o600);
-    }
-  } finally {
-    writer.close();
-  }
-});
-
-test("backup refuses encrypted tracking tags without their restore key", async (t) => {
-  const directory = temporaryDirectory(t);
-  const source = join(directory, "source.sqlite");
-  const writer = createTelemetryFixture(source);
-  try {
-    writer.exec("CREATE TABLE tracking_tags (id TEXT PRIMARY KEY); INSERT INTO tracking_tags VALUES ('tag-1')");
-    const options = parseBackupArgs([
-      "--database", source,
-      "--output", join(directory, "backup"),
-      "--assets", join(directory, "missing-assets"),
-      "--spatial-db", join(directory, "missing-spatial.sqlite"),
-      "--stuguby-identity", join(directory, "missing-identity.json"),
-      "--tracking-secret-key", join(directory, "missing-tracking-secret.key"),
-    ], {});
-    await assert.rejects(
-      createBackup(options),
-      /encrypted tracking tags but TRACKING_SECRET_KEY_FILE is missing/u,
-    );
-  } finally {
-    writer.close();
-  }
-});
-
-test("backup preserves every snapshotted Stuguby blob across a concurrent live deletion and verifies the cross-reference", async (t) => {
-  const directory = temporaryDirectory(t);
-  const source = join(directory, "source.sqlite");
-  const writer = createTelemetryFixture(source);
-  try {
-  const assets = join(directory, "assets");
-  const stugubyAssets = join(assets, "stuguby");
-  mkdirSync(stugubyAssets, { recursive: true });
-  const content = Buffer.from("snapshotted Stuguby floor plan");
-  const temporaryAsset = join(stugubyAssets, "blob");
-  writeFileSync(temporaryAsset, content);
-  const digest = await sha256File(temporaryAsset);
-  const asset = join(stugubyAssets, digest);
-  writeFileSync(asset, content);
-  unlinkSync(temporaryAsset);
-  writer.exec(`
-    CREATE TABLE stugby_blob_metadata (
-      digest TEXT PRIMARY KEY,
-      byte_length INTEGER NOT NULL,
-      media_type TEXT NOT NULL,
-      relative_path TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-    CREATE TABLE stugby_blob_references (
-      stugby_id TEXT NOT NULL,
-      digest TEXT NOT NULL,
-      grant_id TEXT NOT NULL,
-      grant_epoch INTEGER NOT NULL,
-      kind TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-  `);
-  writer.prepare(`INSERT INTO stugby_blob_metadata
-    (digest,byte_length,media_type,relative_path,created_at) VALUES (?,?,?,?,?)`)
-    .run(digest, content.byteLength, "image/png", digest, "2026-07-23T00:00:00.000Z");
-  writer.prepare(`INSERT INTO stugby_blob_references
-    (stugby_id,digest,grant_id,grant_epoch,kind,created_at) VALUES (?,?,?,?,?,?)`)
-    .run("stuguby-1", digest, "grant-1", 1, "local", "2026-07-23T00:00:00.000Z");
-
-  const output = join(directory, "backup");
-  const options = parseBackupArgs([
-    "--database", source,
-    "--output", output,
-    "--assets", assets,
-    "--spatial-db", join(directory, "missing-spatial.sqlite"),
-    "--stuguby-identity", join(directory, "missing-identity.json"),
-  ], {});
-  const manifest = await createBackup(options, {
-    afterCoreSnapshot() {
-      writer.prepare("DELETE FROM stugby_blob_references WHERE digest=?").run(digest);
-      writer.prepare("DELETE FROM stugby_blob_metadata WHERE digest=?").run(digest);
-      unlinkSync(asset);
-    },
-  });
-  assert.equal(manifest.sources.assets.requiredStugubyBlobs, 1);
-  assert.equal(existsSync(join(output, "assets", "stuguby", digest)), true);
-  assert.equal(await sha256File(join(output, "assets", "stuguby", digest)), digest);
-  assert.equal((await verifyBackup(output)).status, "passed");
-
-  const manifestPath = join(output, "manifest.json");
-  const withoutBlobRecord = JSON.parse(readFileSync(manifestPath, "utf8"));
-  withoutBlobRecord.files = withoutBlobRecord.files.filter((record) => record.path !== `assets/stuguby/${digest}`);
-  writeFileSync(manifestPath, `${JSON.stringify(withoutBlobRecord, null, 2)}\n`);
-  writeFileSync(join(output, "manifest.sha256"), `${await sha256File(manifestPath)}  manifest.json\n`);
-  await assert.rejects(
-    verifyBackup(output),
-    /missing the checksummed Stuguby asset required by its core snapshot/u,
-  );
-  } finally {
-    writer.close();
   }
 });

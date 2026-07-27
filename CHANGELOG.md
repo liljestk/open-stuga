@@ -4,6 +4,20 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.14.0 - 2026-07-27
+
+- Split oversized application, API, persistence, protocol, localization,
+  styling, tooling, and test sources into focused modules while preserving
+  existing public entry points, and added an enforced 600-line source-file
+  ceiling.
+- Made iPad and Mac Catalyst present the complete server-hosted web product
+  with shared sessions, native downloads and confirmations, Apple-only actions,
+  deep links, and a protected offline companion fallback; iPhone keeps the
+  deliberately lighter native tab interface.
+- Expanded the iOS 26 Inventory map with Property boundaries, areas, and Homes,
+  plus one-shot current-location and Property-aware map-pin choices when adding
+  equipment.
+
 ## 0.13.0 - 2026-07-26
 
 - Added actionable native iOS notifications sent directly from each Stugu

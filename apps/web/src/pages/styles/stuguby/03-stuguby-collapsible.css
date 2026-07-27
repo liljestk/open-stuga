@@ -1,0 +1,438 @@
+
+.stuguby-collapsible {
+  display: block;
+  padding: 0;
+}
+
+
+.stuguby-collapsible > summary,
+.stuguby-subdetails > summary,
+.stuguby-summary-actions > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+
+.stuguby-collapsible > summary::-webkit-details-marker,
+.stuguby-subdetails > summary::-webkit-details-marker,
+.stuguby-summary-actions > summary::-webkit-details-marker {
+  display: none;
+}
+
+
+.stuguby-collapsible > summary {
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px;
+}
+
+
+.stuguby-collapsible > summary::after,
+.stuguby-subdetails > summary::after,
+.stuguby-summary-actions > summary::after {
+  width: 8px;
+  height: 8px;
+  justify-self: end;
+  content: "";
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform .16s ease;
+}
+
+
+.stuguby-collapsible[open] > summary::after,
+.stuguby-subdetails[open] > summary::after,
+.stuguby-summary-actions[open] > summary::after {
+  transform: rotate(225deg);
+}
+
+
+.stuguby-collapsible > summary:hover,
+.stuguby-subdetails > summary:hover,
+.stuguby-summary-actions > summary:hover {
+  background: var(--panel-soft);
+}
+
+
+.stuguby-collapsible > summary > svg {
+  width: 36px;
+  height: 36px;
+  padding: 8px;
+  border-radius: var(--radius);
+  color: var(--action);
+  background: var(--action-soft);
+}
+
+
+.stuguby-collapsible > summary strong,
+.stuguby-collapsible > summary small {
+  display: block;
+}
+
+
+.stuguby-collapsible > summary strong {
+  color: var(--ink);
+  font: 700 1.05rem / 1.3 "Manrope", sans-serif;
+  letter-spacing: -.025em;
+}
+
+
+.stuguby-collapsible > summary small {
+  margin-top: 3px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+
+.stuguby-collapsible[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+
+.stuguby-collapsible-body {
+  display: grid;
+  gap: 16px;
+  padding: 20px 24px 24px;
+}
+
+
+.stuguby-connect-panel > summary {
+  min-height: 64px;
+}
+
+
+.stuguby-connect-panel .stuguby-collapsible-body {
+  background: var(--panel-soft);
+}
+
+
+.stuguby-connect-panel .stuguby-setup-card {
+  box-shadow: none;
+}
+
+
+.stuguby-subdetails {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+
+.stuguby-subdetails > summary {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+
+.stuguby-subdetails[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+
+.stuguby-subdetails-body {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+
+.stuguby-summary-actions {
+  position: relative;
+}
+
+
+.stuguby-summary-actions > summary {
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: auto 14px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-weight: 700;
+}
+
+
+.stuguby-summary-actions > div {
+  position: absolute;
+  z-index: 2;
+  inset: calc(100% + 6px) 0 auto auto;
+  min-width: min(360px, 75vw);
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+
+.stuguby-summary-actions code {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
+
+.stuguby-summary-actions .stuguby-delete-action {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+
+.stuguby-delete-action small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+
+.stuguby-delete-action .danger-button {
+  width: 100%;
+}
+
+
+.stuguby-summary-error {
+  grid-column: 1 / -1;
+}
+
+
+.stuguby-invite-form {
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+
+.stuguby-quick-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+}
+
+
+.stuguby-quick-action strong,
+.stuguby-quick-action small {
+  display: block;
+}
+
+
+.stuguby-quick-action small {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+
+.stuguby-invite-local-label {
+  min-width: min(320px, 100%);
+  max-width: 440px;
+  flex: 1 1 360px;
+}
+
+
+.stuguby-recommended-profile {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--positive) 34%, var(--line));
+  border-radius: var(--radius);
+  background: var(--positive-soft);
+}
+
+
+.stuguby-recommended-profile > svg {
+  width: 36px;
+  height: 36px;
+  padding: 8px;
+  border-radius: var(--radius);
+  color: var(--positive);
+  background: var(--panel);
+}
+
+
+.stuguby-recommended-profile p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+
+.stuguby-sharing-options > summary {
+  color: var(--ink);
+}
+
+
+.stuguby-expiry-field {
+  max-width: 360px;
+}
+
+
+.stuguby-page-header > .stuguby-mark {
+  width: 56px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+
+.stuguby-card-title > .stuguby-mark {
+  width: 39px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  filter: none;
+}
+
+
+.stuguby-adoption-action,
+.stuguby-migration {
+  display: grid;
+  gap: 12px;
+}
+
+
+.stuguby-adoption-action > .primary-button,
+.stuguby-adoption-action > .primary-button .stuguby-mark {
+  width: fit-content;
+}
+
+
+.stuguby-adoption-action > .primary-button .stuguby-mark {
+  width: 28px;
+  height: 20px;
+  filter: none;
+}
+
+
+.stuguby-property-state {
+  display: grid;
+  gap: 4px;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, var(--positive) 34%, var(--line));
+  border-radius: var(--radius);
+  background: var(--positive-soft);
+}
+
+
+.stuguby-property-state > span {
+  width: fit-content;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: var(--positive);
+  background: var(--panel);
+  font-size: .75rem;
+  font-weight: 750;
+}
+
+
+.stuguby-property-state > span[data-state="detached"] {
+  color: var(--muted);
+}
+
+
+.stuguby-property-state small {
+  color: var(--muted);
+}
+
+
+.stuguby-conflicts {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--yellow) 44%, var(--line));
+  border-radius: var(--radius);
+  background: var(--yellow-soft);
+}
+
+
+.stuguby-conflicts > div,
+.stuguby-conflicts article {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+
+.stuguby-conflicts > div > svg {
+  flex: 0 0 auto;
+  color: var(--yellow);
+}
+
+
+.stuguby-conflicts :is(h3, p) {
+  margin: 0;
+}
+
+
+.stuguby-conflicts article {
+  justify-content: space-between;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+
+.stuguby-conflicts article > div {
+  display: grid;
+  gap: 3px;
+}
+
+
+.stuguby-conflicts article small {
+  color: var(--muted);
+}
+
+
+.stuguby-disconnect p,
+.stuguby-migration p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+
+.stuguby-policy-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(180px, .8fr));
+  align-items: start;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+}
+
+
+.stuguby-policy-panel > div {
+  align-self: start;
+}
+
+
+.stuguby-policy-panel p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+}

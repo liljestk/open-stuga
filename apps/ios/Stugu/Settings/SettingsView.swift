@@ -18,8 +18,14 @@ private var companionPlatformName: String {
 }
 
 struct SettingsView: View {
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var model: AppModel
+    let showsDismissButton: Bool
     @State private var confirmDisconnect = false
+
+    init(showsDismissButton: Bool = false) {
+        self.showsDismissButton = showsDismissButton
+    }
 
     var body: some View {
         NavigationStack {
@@ -50,6 +56,13 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .toolbar {
+                if showsDismissButton {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
+                }
+            }
             .confirmationDialog(
                 "Disconnect this Stugu?",
                 isPresented: $confirmDisconnect,

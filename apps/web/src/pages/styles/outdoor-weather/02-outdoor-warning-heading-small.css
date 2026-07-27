@@ -1,0 +1,450 @@
+
+.outdoor-warning-heading small {
+  color: currentColor;
+  font-size: 9px;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+}
+
+
+.outdoor-warning-area > p,
+.outdoor-warning-caveat {
+  margin: 10px 0 0 47px;
+  max-width: 850px;
+  line-height: 1.5;
+}
+
+
+.outdoor-warning-scope {
+  margin: 15px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+
+.outdoor-warning-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 13px;
+}
+
+
+.outdoor-warning-item {
+  padding: 13px;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-radius: 7px;
+  background: var(--panel);
+}
+
+
+.outdoor-warning-item > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+
+.outdoor-warning-item h3 {
+  margin: 0;
+  color: currentColor;
+  font-family: "Manrope", sans-serif;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+
+.outdoor-warning-item > div:first-child span {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+
+.outdoor-warning-item p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+
+.outdoor-warning-item dl {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+
+.outdoor-warning-item dl > div {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 8px;
+}
+
+
+.outdoor-warning-item dt {
+  color: var(--muted);
+}
+
+
+.outdoor-warning-item dd {
+  margin: 0;
+}
+
+
+.outdoor-warning-details {
+  margin-top: 9px;
+  padding-top: 7px;
+  border-top: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+}
+
+
+.outdoor-warning-details > summary {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: currentColor;
+  cursor: pointer;
+  list-style: none;
+}
+
+
+.outdoor-warning-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+
+.outdoor-warning-details > summary > span {
+  display: grid;
+  gap: 2px;
+}
+
+
+.outdoor-warning-details > summary small {
+  color: var(--muted);
+}
+
+
+.outdoor-warning-details > summary svg {
+  flex: 0 0 auto;
+  transition: transform .16s ease;
+}
+
+
+.outdoor-warning-details[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+
+.outdoor-warning-details-body {
+  padding: 4px 0 2px;
+}
+
+
+.outdoor-issue-details {
+  width: 100%;
+  margin-top: 13px;
+  border-top: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+  color: var(--ink);
+  text-align: left;
+}
+
+
+.outdoor-issue-details > summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+
+.outdoor-issue-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+
+.outdoor-issue-details > summary > span {
+  display: grid;
+  gap: 2px;
+}
+
+
+.outdoor-issue-details > summary small {
+  color: var(--muted);
+}
+
+
+.outdoor-issue-details > summary svg {
+  flex: 0 0 auto;
+  transition: transform .16s ease;
+}
+
+
+.outdoor-issue-details[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+
+.outdoor-issue-details-body {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  padding: 12px 0 5px;
+  border-top: 1px solid var(--line);
+}
+
+
+.outdoor-issue-details-body h3 {
+  margin: 0 0 7px;
+  color: var(--ink);
+  font-family: "Manrope", sans-serif;
+  font-size: 13px;
+}
+
+
+.outdoor-issue-details-body p,
+.outdoor-issue-details-body ul,
+.outdoor-issue-details-body ol {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+
+.outdoor-issue-details-body ul,
+.outdoor-issue-details-body ol {
+  padding-left: 19px;
+}
+
+
+.outdoor-issue-details-body li + li,
+.outdoor-issue-details-body p + p {
+  margin-top: 6px;
+}
+
+
+.outdoor-inline-action {
+  min-height: 40px;
+  margin-top: 11px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  color: var(--ink);
+  background: var(--panel);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+
+.outdoor-recovery-status {
+  display: grid;
+  gap: 7px;
+  margin: 11px 0 0;
+}
+
+
+.outdoor-recovery-status > div {
+  display: grid;
+  gap: 2px;
+}
+
+
+.outdoor-recovery-status dt {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+
+.outdoor-recovery-status dd {
+  margin: 0;
+}
+
+
+.outdoor-warning-details-body dl {
+  margin-top: 9px;
+}
+
+
+.outdoor-warning-item a {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 9px;
+  color: inherit;
+  font-weight: 750;
+}
+
+
+.outdoor-full-summary {
+  display: grid;
+  grid-template-columns: minmax(180px, .75fr) minmax(0, 2fr);
+  align-items: stretch;
+  overflow: hidden;
+}
+
+
+.outdoor-full-summary > div:first-child {
+  display: grid;
+  align-content: center;
+  padding: 18px;
+  color: var(--outdoor-accent-on);
+  background: var(--outdoor-accent-surface);
+}
+
+
+.outdoor-full-summary > div:first-child span {
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .1em;
+}
+
+
+.outdoor-full-summary > div:first-child h2 {
+  color: inherit;
+}
+
+
+.outdoor-full-summary dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  margin: 0;
+}
+
+
+.outdoor-full-summary dl > div {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  min-height: 90px;
+  padding: 13px;
+  border-left: 1px solid var(--line);
+}
+
+
+.outdoor-full-summary dt {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+
+.outdoor-full-summary dd {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+
+.outdoor-forecast-navigator {
+  padding: 19px;
+}
+
+
+.outdoor-forecast-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+}
+
+
+.outdoor-forecast-heading p strong {
+  display: block;
+  color: var(--ink);
+}
+
+
+.outdoor-forecast-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 7px;
+  margin-top: 15px;
+}
+
+
+.outdoor-forecast-tabs button {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--ink);
+  background: var(--panel-soft);
+  font-weight: 750;
+  cursor: pointer;
+}
+
+
+.outdoor-forecast-tabs button small {
+  min-width: 23px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--panel);
+  text-align: center;
+}
+
+
+.outdoor-forecast-tabs button[aria-selected="true"] {
+  border-color: var(--outdoor-accent-surface);
+  color: var(--outdoor-accent-on);
+  background: var(--outdoor-accent-surface);
+}
+
+
+.outdoor-forecast-tabs button[aria-selected="true"] small {
+  color: var(--outdoor-blue);
+}
+
+
+.outdoor-forecast-panel {
+  min-width: 0;
+  margin-top: 10px;
+  border-radius: 7px;
+}
+
+
+.outdoor-forecast-panel:focus-visible,
+.outdoor-forecast-tabs button:focus-visible,
+.outdoor-weather-page button:focus-visible,
+.outdoor-weather-page select:focus-visible,
+.outdoor-warning-details summary:focus-visible,
+.outdoor-freshness-details summary:focus-visible,
+.outdoor-forecast-details summary:focus-visible,
+.outdoor-advanced-details summary:focus-visible {
+  outline: 3px solid #2d73bd;
+  outline-offset: 2px;
+}
+
+
+.outdoor-forecast-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+
+.outdoor-forecast-table {
+  width: 100%;
+  min-width: 780px;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+
+.outdoor-forecast-table caption {
+  padding: 9px 11px;
+  color: var(--muted);
+  background: var(--panel-soft);
+  text-align: left;
+}

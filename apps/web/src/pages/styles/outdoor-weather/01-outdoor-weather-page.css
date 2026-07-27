@@ -1,0 +1,454 @@
+.outdoor-weather-page {
+  --outdoor-blue: #174f7a;
+  --outdoor-blue-soft: #eaf4fb;
+  --outdoor-green: #1f6b50;
+  --outdoor-green-soft: #e8f4ee;
+  --outdoor-amber: #8c5b12;
+  --outdoor-amber-soft: #fff3d8;
+  --outdoor-warning: #8a321f;
+  --outdoor-warning-soft: #fff0ea;
+  --outdoor-accent-surface: #174f7a;
+  --outdoor-accent-on: #fff;
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+
+.outdoor-weather-page button,
+.outdoor-weather-page select {
+  font: inherit;
+}
+
+
+.outdoor-weather-page-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 22px;
+  margin-bottom: 0;
+}
+
+
+.outdoor-weather-page-heading h1 {
+  margin: 7px 0 5px;
+  color: var(--ink);
+  font-family: "Manrope", sans-serif;
+  font-size: clamp(30px, 3vw, 46px);
+  line-height: 1.06;
+  letter-spacing: -.035em;
+}
+
+
+.outdoor-weather-page-heading p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+
+.outdoor-weather-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--outdoor-blue);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+}
+
+
+.outdoor-weather-heading-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+
+.outdoor-weather-heading-actions label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+
+.outdoor-weather-heading-actions select,
+.outdoor-weather-refresh,
+.outdoor-weather-state button {
+  min-height: 44px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--ink);
+  background: var(--panel);
+}
+
+
+.outdoor-weather-heading-actions select {
+  min-width: 190px;
+  padding: 0 34px 0 11px;
+}
+
+
+.outdoor-weather-refresh,
+.outdoor-weather-state button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 14px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+
+.outdoor-weather-refresh:disabled {
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+
+.outdoor-weather-state .primary-button {
+  border-color: var(--action);
+  color: var(--on-action);
+  background: var(--action);
+}
+
+
+.outdoor-weather-state .primary-button:hover {
+  border-color: var(--action-hover);
+  background: var(--action-hover);
+}
+
+
+.outdoor-current-card,
+.outdoor-warning-area,
+.outdoor-full-summary,
+.outdoor-forecast-navigator,
+.outdoor-forecast-details,
+.outdoor-advanced-details,
+.outdoor-weather-state {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+
+.outdoor-current-card {
+  padding: 19px;
+}
+
+
+.outdoor-current-heading,
+.outdoor-forecast-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 15px;
+}
+
+
+.outdoor-current-heading > div > span,
+.outdoor-forecast-heading > div > span {
+  color: var(--outdoor-blue);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+}
+
+
+.outdoor-current-heading h2,
+.outdoor-forecast-heading h2,
+.outdoor-full-summary h2,
+.outdoor-warning-heading h2 {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-family: "Manrope", sans-serif;
+  font-size: 19px;
+  letter-spacing: -.02em;
+}
+
+
+.outdoor-current-heading small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+
+.outdoor-freshness {
+  max-width: 360px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+
+.outdoor-freshness.fresh {
+  color: var(--outdoor-green);
+  background: var(--outdoor-green-soft);
+}
+
+
+.outdoor-freshness.stale {
+  color: var(--outdoor-amber);
+  background: var(--outdoor-amber-soft);
+}
+
+
+.outdoor-freshness-details {
+  max-width: min(390px, 100%);
+  color: var(--ink);
+}
+
+
+.outdoor-freshness-details > summary {
+  min-height: 36px;
+  border: 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+
+.outdoor-freshness-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+
+.outdoor-freshness-details > summary .outdoor-freshness-chevron {
+  flex: 0 0 auto;
+  transition: transform .16s ease;
+}
+
+
+.outdoor-freshness-details[open] > summary .outdoor-freshness-chevron {
+  transform: rotate(180deg);
+}
+
+
+.outdoor-freshness-details-body {
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--outdoor-amber) 38%, var(--line));
+  border-radius: 8px;
+  background: var(--panel-soft);
+  box-shadow: var(--shadow);
+}
+
+
+.outdoor-freshness-details-body > strong {
+  display: block;
+  color: var(--outdoor-amber);
+  font-family: "Manrope", sans-serif;
+  font-size: 13px;
+}
+
+
+.outdoor-freshness-details-body p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+
+.outdoor-freshness-details-body dl {
+  display: grid;
+  gap: 7px;
+  margin: 11px 0 0;
+}
+
+
+.outdoor-freshness-details-body dl > div {
+  display: grid;
+  grid-template-columns: minmax(94px, .45fr) minmax(0, 1fr);
+  gap: 9px;
+}
+
+
+.outdoor-freshness-details-body dt {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+
+.outdoor-freshness-details-body dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+
+.outdoor-freshness-details-body .outdoor-freshness-retry-note {
+  margin-top: 11px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+
+
+.outdoor-current-values {
+  display: grid;
+  grid-template-columns: minmax(230px, 1.5fr) repeat(3, minmax(120px, .75fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+
+.outdoor-current-values > div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+
+.outdoor-current-values > div > svg {
+  flex: 0 0 auto;
+  color: var(--outdoor-blue);
+}
+
+
+.outdoor-current-values span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+
+.outdoor-current-values small {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+
+.outdoor-current-values strong {
+  color: var(--ink);
+  font-size: 16px;
+}
+
+
+.outdoor-current-values .temperature strong {
+  font-size: 28px;
+  letter-spacing: -.04em;
+}
+
+
+.outdoor-provenance {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 13px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+}
+
+
+.outdoor-provenance > svg {
+  flex: 0 0 auto;
+}
+
+
+.outdoor-provenance > span {
+  display: grid;
+  gap: 2px;
+}
+
+
+.outdoor-provenance > span + span {
+  margin-left: auto;
+  text-align: right;
+}
+
+
+.outdoor-provenance strong {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+
+.outdoor-provenance small {
+  font-size: 10px;
+}
+
+
+.outdoor-warning-area {
+  padding: 17px 19px;
+}
+
+
+.outdoor-warning-area.clear {
+  border-color: color-mix(in srgb, var(--outdoor-green) 55%, transparent);
+  color: var(--outdoor-green);
+  background: var(--outdoor-green-soft);
+}
+
+
+.outdoor-warning-area.compact-clear {
+  padding-block: 11px;
+}
+
+
+.outdoor-warning-area.compact-clear .outdoor-warning-heading > span {
+  width: 30px;
+  height: 30px;
+}
+
+
+.outdoor-warning-area.compact-clear .outdoor-warning-heading h2 {
+  margin-top: 1px;
+  font-size: 15px;
+}
+
+
+.outdoor-warning-area.unverified {
+  border-color: color-mix(in srgb, var(--outdoor-amber) 55%, transparent);
+  color: var(--outdoor-amber);
+  background: var(--outdoor-amber-soft);
+}
+
+
+.outdoor-warning-area.has-warning {
+  border-color: color-mix(in srgb, var(--outdoor-warning) 55%, transparent);
+  color: var(--outdoor-warning);
+  background: var(--outdoor-warning-soft);
+}
+
+
+.outdoor-warning-area .outdoor-warning-heading h2 { color: currentColor; }
+
+
+.outdoor-warning-heading {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+
+.outdoor-warning-heading > span {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+
+
+.outdoor-warning-heading svg {
+  width: 18px;
+}

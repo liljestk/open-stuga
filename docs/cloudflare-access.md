@@ -61,11 +61,11 @@ prevents first-owner setup from replacing the only working edge identity.
 
 ## Native apps behind Access
 
-Cloudflare Access answers an unauthenticated API request with a redirect to its
-hosted login page. A browser completes that flow; the iOS and Mac Catalyst app
-cannot, so every call — including `GET /api/v1/health` — receives Cloudflare's
-HTML login document instead of Stugu JSON. The app detects this and asks for a
-service token rather than reporting malformed Stugu data.
+Cloudflare Access answers an unauthenticated native API request with a redirect
+to its hosted login page. The native connection bootstrap cannot complete that
+HTML flow, so every call — including `GET /api/v1/health` — receives
+Cloudflare's login document instead of Stugu JSON. The app detects this and
+asks for a service token rather than reporting malformed Stugu data.
 
 A service token is the supported non-interactive identity. Unlike the Stuguby
 protocol Bypass, Cloudflare still authenticates it and records it in Access
@@ -83,6 +83,14 @@ logs, so the outer gate keeps an audit trail for the app.
 The app stores the pair in the device Keychain, keyed by server origin, and
 sends `CF-Access-Client-Id`/`CF-Access-Client-Secret` only to that origin and
 only over HTTPS. A cleartext LAN address never receives the token.
+
+On iPad and Mac, the full product runs in WebKit after this native bootstrap.
+The service-token secret is never injected into web content. Instead, the app
+copies the resulting `CF_Authorization` cookie into WebKit. Keep at least one
+Access **Allow** policy on the application as well as the Service Auth policy;
+Cloudflare requires the raw service-token headers on every request when an
+application has only Service Auth policies, which a browser surface cannot do
+safely.
 
 Passing Access is not signing in. The app still authenticates to a local Stugu
 account, and local roles and resource grants remain authoritative for every API

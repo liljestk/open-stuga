@@ -1,0 +1,350 @@
+
+.portfolio-facts dd {
+  margin: 0;
+  font-size: 0.83rem;
+  font-weight: 650;
+  text-align: right;
+}
+
+
+.portfolio-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: auto;
+}
+
+
+.portfolio-monitoring { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 8px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-soft); }
+
+.portfolio-monitoring > svg { margin-top: 1px; }
+
+.portfolio-monitoring > span { display: grid; gap: 2px; }
+
+.portfolio-monitoring strong { font-size: 11px; }
+
+.portfolio-monitoring small { color: var(--muted); font-size: 10px; line-height: 1.4; }
+
+.portfolio-monitoring.monitoring-ok { color: var(--pine); background: var(--pine-soft); }
+
+.portfolio-monitoring.action-required { color: var(--red); background: var(--red-soft); }
+
+.portfolio-monitoring.inspection-recommended { color: var(--orange); background: var(--orange-soft); }
+
+.portfolio-monitoring.unknown { color: var(--orange); background: color-mix(in srgb, var(--orange-soft) 55%, var(--panel)); }
+
+.portfolio-monitoring strong, .portfolio-monitoring small { color: inherit; }
+
+
+.portfolio-attention { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; margin-bottom: 1rem; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--orange) 45%, var(--line)); border-radius: var(--radius); background: var(--orange-soft); box-shadow: inset 4px 0 0 var(--orange); }
+
+.portfolio-attention > span { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; color: var(--orange); background: var(--panel); }
+
+.portfolio-attention h3 { margin: 3px 0 2px; font: 700 16px/1.25 "Manrope", sans-serif; }
+
+.portfolio-attention p { margin: 0; color: var(--muted); font-size: 11px; }
+
+.portfolio-attention-zone { margin-bottom: 1rem; }
+
+
+.portfolio-system-summary { display: block; margin-top: 1rem; padding: 0; }
+
+.portfolio-system-summary > summary { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 20px; cursor: pointer; list-style: none; }
+
+.portfolio-system-summary > summary::-webkit-details-marker { display: none; }
+
+.portfolio-system-summary > summary > span { display: grid; gap: 4px; }
+
+.portfolio-system-summary > summary strong { font: 700 16px/1.25 "Manrope", sans-serif; }
+
+.portfolio-system-summary > summary svg { transition: transform .16s ease; }
+
+.portfolio-system-summary[open] > summary { border-bottom: 1px solid var(--line); }
+
+.portfolio-system-summary[open] > summary svg { transform: rotate(180deg); }
+
+.portfolio-confirmed-homes > .portfolio-grid { padding: 16px 20px 20px; }
+
+
+.portfolio-system-summary ul {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin: 0;
+  padding: 14px 20px 18px;
+  list-style: none;
+}
+
+
+.portfolio-system-summary li {
+  position: relative;
+  padding-left: 1rem;
+  color: var(--muted, #68756f);
+  font-size: 0.86rem;
+}
+
+
+.portfolio-system-summary li::before {
+  position: absolute;
+  left: 0;
+  top: 0.45em;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #9ba7a1;
+  content: "";
+}
+
+
+.portfolio-system-summary li[data-state="ready"]::before {
+  background: var(--positive);
+}
+
+
+@media (max-width: 700px) {
+  .portfolio-system-summary ul { grid-template-columns: 1fr; }
+
+  .portfolio-card-title {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .portfolio-property {
+    padding: 14px;
+  }
+
+  .portfolio-property > .portfolio-card-title > .secondary-button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .portfolio-alert {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}
+
+
+/* Elder-friendly readability and interaction baseline. Individual charts keep
+   their compact labels, while every actionable control and explanatory label
+   remains comfortably readable and touchable. */
+body { font-size: 16px; line-height: 1.5; }
+
+.main-content :is(p, li, label, input, select, textarea, button:not(.icon-button), summary),
+.bootstrap-screen :is(p, label, input, button:not(.icon-button)) { font-size: max(14px, 1em); }
+
+.main-content :is(small, dt, dd, .eyebrow),
+.bootstrap-screen small { font-size: max(13px, .8125rem) !important; line-height: 1.45; }
+
+.main-content :is(button, input, select), .bootstrap-screen :is(button, input, select) { min-height: 44px; }
+
+.main-content textarea { min-height: 88px; }
+
+.nav-button { min-height: 48px; font-size: 15px; }
+
+.nav-button small, .brand small, .sidebar-footer small { font-size: 12px; line-height: 1.4; }
+
+.password-input { position: relative; display: grid; }
+
+.password-input input { padding-right: 54px; }
+
+.password-toggle { position: absolute; top: 50%; right: 4px; transform: translateY(-50%); width: 44px; height: 44px; }
+
+.caps-lock-notice { color: var(--yellow); font-weight: 700; }
+
+.sensor-details-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+
+.connection-row time span { color: inherit; font-weight: 700; }
+
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
+
+.location-discovery {
+  display: grid;
+  gap: 0.85rem;
+}
+
+
+.location-discovery-current {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--positive) 45%, var(--line-strong));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--positive-soft) 42%, var(--panel));
+  padding: 0.75rem;
+}
+
+
+.location-discovery-current > span:first-child {
+  color: var(--positive);
+}
+
+
+.location-discovery-current strong,
+.location-discovery-current small {
+  display: block;
+}
+
+
+.location-discovery-current small {
+  margin-top: 0.15rem;
+  color: var(--muted, #60635d);
+}
+
+
+.location-discovery-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(12rem, auto);
+  align-items: end;
+  gap: 0.7rem;
+}
+
+
+.location-search-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.55rem;
+}
+
+
+.location-choice-divider {
+  align-self: center;
+  color: var(--muted, #60635d);
+  font-size: 0.78rem;
+}
+
+
+.location-results {
+  display: grid;
+  gap: 0.4rem;
+  max-height: 18rem;
+  overflow: auto;
+  padding: 0.15rem;
+}
+
+
+.location-results > button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--panel, #fcfbf7);
+  color: var(--ink, #1b1d1a);
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+
+.location-results > button:hover,
+.location-results > button.selected {
+  border-color: var(--action, #0755c9);
+  background: color-mix(in srgb, var(--action, #0755c9) 6%, var(--panel, #fcfbf7));
+}
+
+
+.location-results strong,
+.location-results small {
+  display: block;
+}
+
+
+.location-results small {
+  margin-top: 0.15rem;
+  color: var(--muted, #60635d);
+}
+
+
+.location-suggestion-review {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-radius: 12px;
+  background: var(--panel-soft, #f5f3ed);
+  padding: 0.8rem;
+}
+
+
+.location-suggestion-review strong {
+  display: block;
+  margin-top: 0.2rem;
+}
+
+
+.location-privacy-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--muted, #60635d);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+
+.location-privacy-note svg {
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+}
+
+
+@media (max-width: 760px) {
+  .location-discovery-actions,
+  .location-search-form {
+    grid-template-columns: 1fr;
+  }
+
+  .location-choice-divider {
+    justify-self: center;
+  }
+
+  .location-device-button,
+  .location-search-form .secondary-button {
+    width: 100%;
+  }
+
+  .location-suggestion-review {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+
+@media (max-width: 700px) {
+  .connection-banner { grid-template-columns: auto minmax(0, 1fr); }
+  .connection-banner .secondary-button { grid-column: 1 / -1; width: 100%; }
+  .bootstrap-card { grid-template-columns: 1fr; }
+  .bootstrap-card > .stugu-mark, .bootstrap-card > form, .bootstrap-card > button, .bootstrap-card > details, .bootstrap-card > .inline-error { grid-column: 1; }
+  .bootstrap-card > form .primary-button, .bootstrap-card > .primary-button { width: 100%; }
+  .route-recovery { min-height: 520px; grid-template-columns: 1fr; padding: 20px 0; }
+  .route-recovery > button { grid-column: 1; width: 100%; }
+  .editor-mode-tools { width: 100%; flex-wrap: wrap; }
+  .editor-tool-disclosure[open] { flex-basis: 100%; }
+  .editor-disclosure-content { position: static; width: 100%; min-width: 0; margin-top: 6px; box-shadow: var(--shadow); }
+  .editor-options .editor-disclosure-content { right: auto; }
+  .editor-disclosure-content .element-palette { flex: 1 0 100%; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .editor-disclosure-content .element-palette > .grid-size-control,
+  .editor-disclosure-content .element-palette > .tool-button { width: 100%; }
+  .editor-disclosure-content .element-palette select { min-width: 0; flex: 1; }
+  .setup-recommended-action { grid-template-columns: auto minmax(0, 1fr); }
+  .setup-recommended-action .primary-button { grid-column: 1 / -1; width: 100%; }
+  .event-row { grid-template-columns: auto minmax(0, 1fr); }
+  .event-actions, .event-action-error, .related-alert-count, .alert-explanation { grid-column: 2; justify-content: flex-start; }
+  .portfolio-confirmed-homes > .portfolio-grid { padding: 12px; }
+}
+
+
+@media (pointer: coarse) {
+  .text-button, .tool-button, .series-chip, .segmented.compact button, .sensor-list-actions .secondary-button, .alert-explanation > summary, .observation-provenance > summary, .replay-event-button { min-height: 44px; }
+  .icon-button.small { width: 44px; height: 44px; }
+}

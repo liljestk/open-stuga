@@ -279,6 +279,9 @@ Use a 4 px base grid. Preferred spacing steps are `4, 8, 12, 16, 24, 32, 48, 64`
 
 ### Responsive behaviour
 
+- iPadOS and macOS expose the complete desktop product and use the same
+  information architecture and feature surface as web. Only the iPhone
+  companion intentionally reduces navigation and workflow density.
 - At 900 px, navigation becomes a modal drawer with focus containment and Escape dismissal.
 - At 680 px, headings and controls stack into a single reading order.
 - Support 320 CSS px without horizontal page scrolling. A complex chart may scroll inside its labelled region.

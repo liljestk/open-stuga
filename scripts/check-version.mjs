@@ -32,9 +32,11 @@ for (const [name, version] of Object.entries(json("apps/web/package.json").depen
     mismatches.push(`apps/web/package.json ${name}: ${version}`);
   }
 }
-const contractsSource = readFileSync(resolve(root, "packages/contracts/src/index.ts"), "utf8");
+const contractsSource = readFileSync(resolve(root, "packages/contracts/src/measurement-analytics.ts"), "utf8");
 const runtimeVersion = /export const SYSTEM_VERSION = "([^"]+)"/.exec(contractsSource)?.[1];
-if (runtimeVersion !== expected) mismatches.push(`packages/contracts/src/index.ts: ${runtimeVersion ?? "missing"}`);
+if (runtimeVersion !== expected) {
+  mismatches.push(`packages/contracts/src/measurement-analytics.ts: ${runtimeVersion ?? "missing"}`);
+}
 const apiVersionSource = readFileSync(resolve(root, "apps/api/src/version.ts"), "utf8");
 const apiRuntimeVersion = /export const SYSTEM_VERSION = "([^"]+)"/.exec(apiVersionSource)?.[1];
 if (apiRuntimeVersion !== expected) mismatches.push(`apps/api/src/version.ts: ${apiRuntimeVersion ?? "missing"}`);

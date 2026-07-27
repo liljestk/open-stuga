@@ -50,7 +50,7 @@ private extension View {
     @ViewBuilder
     func stuguWindowSizing() -> some View {
         #if targetEnvironment(macCatalyst)
-        self.frame(minWidth: 820, minHeight: 620)
+        self.frame(minWidth: 960, minHeight: 680)
         #else
         self
         #endif

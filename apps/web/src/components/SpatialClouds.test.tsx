@@ -5,7 +5,7 @@ import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import { definitionFor } from "../measurements";
 import { createCloudLobes, estimateFieldFlows, interpolateHeat, MAX_SPATIAL_FIELD_CELLS } from "../spatialField";
-import styles from "../styles.css?raw";
+import { globalStyles as styles } from "../test/styleSources";
 import { BuildingScene } from "./BuildingScene";
 import { FloorPlan } from "./FloorPlan";
 import type { ClimateSampleMatrix } from "../airflowSimulation";

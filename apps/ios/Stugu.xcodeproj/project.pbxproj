@@ -11,6 +11,7 @@
 		A60000000000000000000002 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000002 /* AppModel.swift */; };
 		A60000000000000000000003 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000003 /* RootView.swift */; };
 		A60000000000000000000004 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000004 /* MainTabView.swift */; };
+		F60000000000000000000001 /* LargeScreenExperienceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F50000000000000000000001 /* LargeScreenExperienceView.swift */; };
 		A60000000000000000000005 /* StuguTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000005 /* StuguTheme.swift */; };
 		A60000000000000000000006 /* StuguMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000006 /* StuguMark.swift */; };
 		A60000000000000000000007 /* ConditionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000007 /* ConditionViews.swift */; };
@@ -109,6 +110,7 @@
 		A50000000000000000000002 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		A50000000000000000000003 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		A50000000000000000000004 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
+		F50000000000000000000001 /* LargeScreenExperienceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LargeScreenExperienceView.swift; sourceTree = "<group>"; };
 		A50000000000000000000005 /* StuguTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StuguTheme.swift; sourceTree = "<group>"; };
 		A50000000000000000000006 /* StuguMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StuguMark.swift; sourceTree = "<group>"; };
 		A50000000000000000000007 /* ConditionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConditionViews.swift; sourceTree = "<group>"; };
@@ -228,6 +230,7 @@
 				A50000000000000000000002 /* AppModel.swift */,
 				A50000000000000000000003 /* RootView.swift */,
 				A50000000000000000000004 /* MainTabView.swift */,
+				F50000000000000000000001 /* LargeScreenExperienceView.swift */,
 				E50000000000000000000002 /* EdgeCredentialStore.swift */,
 			);
 			path = App;
@@ -535,6 +538,7 @@
 				A60000000000000000000002 /* AppModel.swift in Sources */,
 				A60000000000000000000003 /* RootView.swift in Sources */,
 				A60000000000000000000004 /* MainTabView.swift in Sources */,
+				F60000000000000000000001 /* LargeScreenExperienceView.swift in Sources */,
 				A60000000000000000000005 /* StuguTheme.swift in Sources */,
 				A60000000000000000000006 /* StuguMark.swift in Sources */,
 				A60000000000000000000007 /* ConditionViews.swift in Sources */,
@@ -656,7 +660,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -706,7 +710,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
@@ -737,7 +741,7 @@
 					"@executable_path/Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 0.13.0;
+				MARKETING_VERSION = 0.14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = net.nysta.stuga;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTS_MACCATALYST = YES;
@@ -770,7 +774,7 @@
 					"@executable_path/Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 0.13.0;
+				MARKETING_VERSION = 0.14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = net.nysta.stuga;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTS_MACCATALYST = YES;
@@ -796,7 +800,7 @@
 					"$(inherited)",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.13.0;
+				MARKETING_VERSION = 0.14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = net.nysta.stuga.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -821,7 +825,7 @@
 					"$(inherited)",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.13.0;
+				MARKETING_VERSION = 0.14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = net.nysta.stuga.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -847,7 +851,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.13.0;
+				MARKETING_VERSION = 0.14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = net.nysta.stuga.watchkitapp;
 				PRODUCT_NAME = StuguWatch;
 				SDKROOT = watchos;
@@ -876,7 +880,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.13.0;
+				MARKETING_VERSION = 0.14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = net.nysta.stuga.watchkitapp;
 				PRODUCT_NAME = StuguWatch;
 				SDKROOT = watchos;

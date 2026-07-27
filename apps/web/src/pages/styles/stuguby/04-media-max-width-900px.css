@@ -1,0 +1,184 @@
+
+@media (max-width: 900px) {
+  .stuguby-onboarding-grid,
+  .stuguby-form-grid,
+  .stuguby-json-grid,
+  .stuguby-telemetry-options {
+    grid-template-columns: 1fr;
+  }
+
+  .stuguby-summary-card {
+    grid-template-columns: 1fr;
+  }
+
+  .stuguby-summary-actions {
+    justify-self: start;
+  }
+
+  .stuguby-member {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .stuguby-existing-grants article {
+    grid-template-columns: 1fr;
+  }
+
+  .stuguby-member select {
+    width: 100%;
+    max-width: none;
+  }
+
+  .stuguby-member-identity,
+  .stuguby-member-local-label {
+    width: 100%;
+    max-width: none;
+  }
+
+  .stuguby-member-controls {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .stuguby-record-actions > button {
+    flex: 1 1 144px;
+  }
+
+  .stuguby-record-actions {
+    justify-content: stretch;
+  }
+
+  .stuguby-catalog-error {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .stuguby-policy-panel {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+@media (max-width: 680px) {
+  .stuguby-page {
+    gap: 16px;
+  }
+
+  .stuguby-page-header {
+    gap: 12px;
+    padding-left: 16px;
+  }
+
+  .stuguby-page-header > svg:not(.stuguby-mark) {
+    width: 40px;
+    height: 40px;
+    padding: 9px;
+  }
+
+  .stuguby-page-header > .stuguby-mark {
+    width: 48px;
+    height: 34px;
+  }
+
+  .stuguby-conflicts article {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .stuguby-boundary {
+    grid-template-columns: 1fr;
+  }
+
+  .stuguby-boundary > svg {
+    width: 36px;
+    height: 36px;
+    padding: 7px;
+  }
+
+  .stuguby-dataset-heading {
+    display: none;
+  }
+
+  .stuguby-dataset-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    padding: 12px;
+  }
+
+  .stuguby-dataset-option {
+    min-height: 44px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    place-items: center stretch;
+    gap: 12px;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+  }
+
+  .stuguby-dataset-option > span {
+    display: block;
+    color: var(--muted);
+    font-weight: 600;
+  }
+
+  .stuguby-dataset-option > input {
+    justify-self: end;
+  }
+
+  .stuguby-dataset-option > input[type="number"] {
+    width: min(112px, 42vw);
+  }
+
+  .stuguby-inline-form {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .stuguby-inline-form .field {
+    flex-basis: auto;
+  }
+
+  .stuguby-collapsible > summary {
+    grid-template-columns: 32px minmax(0, 1fr) 16px;
+    padding: 14px 16px;
+  }
+
+  .stuguby-collapsible > summary > svg {
+    width: 32px;
+    height: 32px;
+    padding: 7px;
+  }
+
+  .stuguby-collapsible-body {
+    padding: 16px;
+  }
+
+  .stuguby-quick-action {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .stuguby-quick-action .primary-button {
+    width: 100%;
+  }
+}
+
+
+@media (forced-colors: active) {
+  .stuguby-page-header::before,
+  .stuguby-dataset-row.sensitive {
+    background: CanvasText;
+    box-shadow: inset 4px 0 0 CanvasText;
+  }
+
+  .stuguby-selector button.active {
+    border: 3px solid Highlight;
+    box-shadow: none;
+  }
+
+  .status-dot {
+    border: 2px solid CanvasText;
+    background: CanvasText;
+    box-shadow: none;
+  }
+}

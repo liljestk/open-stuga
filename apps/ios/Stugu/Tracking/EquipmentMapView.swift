@@ -38,6 +38,12 @@ struct EquipmentMapView: View {
         var id: Self { self }
     }
 
+    private enum AddLocationChoice {
+        case currentLocation
+        case propertyMap
+        case withoutMapPin
+    }
+
     @EnvironmentObject private var model: AppModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ObservedObject var tracker: MobileTrackingController
@@ -50,6 +56,11 @@ struct EquipmentMapView: View {
     @State private var conditionFilter: ConditionFilter = .all
     @State private var showingScanner = false
     @State private var showingEquipmentEditor = false
+    @State private var showingAddLocationChoice = false
+    @State private var showingAddMapPicker = false
+    @State private var addEquipmentCoordinate: GeoCoordinate?
+    @State private var openEditorAfterMapPicker = false
+    @StateObject private var addLocation = EquipmentCurrentLocationProvider()
 
     var body: some View {
         NavigationStack {
@@ -69,7 +80,7 @@ struct EquipmentMapView: View {
                     Menu {
                         if !model.selectedPropertyReadOnly {
                             Button {
-                                showingEquipmentEditor = true
+                                beginAddingEquipment()
                             } label: {
                                 Label("Add equipment", systemImage: "plus")
                             }
@@ -135,13 +146,76 @@ struct EquipmentMapView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingEquipmentEditor) {
-            EquipmentEditorView(equipment: nil)
+        .sheet(isPresented: $showingEquipmentEditor, onDismiss: {
+            addEquipmentCoordinate = nil
+        }) {
+            EquipmentEditorView(
+                equipment: nil,
+                initialCoordinate: addEquipmentCoordinate
+            )
                 .environmentObject(model)
+        }
+        .sheet(isPresented: $showingAddMapPicker, onDismiss: {
+            if openEditorAfterMapPicker {
+                openEditorAfterMapPicker = false
+                showingEquipmentEditor = true
+            }
+        }) {
+            EquipmentLocationMapPicker(
+                propertyName: model.selectedProperty?.name ?? "Property",
+                areas: model.selectedPropertyAreas,
+                homes: model.selectedPropertyHouses,
+                boundary: propertyBoundary(snapshot: model.trackingSnapshot),
+                equipment: model.selectedPropertyEquipment,
+                initialCoordinate: nil
+            ) { coordinate in
+                addEquipmentCoordinate = coordinate
+                openEditorAfterMapPicker = true
+            }
+        }
+        .confirmationDialog(
+            "Use your location for this equipment?",
+            isPresented: $showingAddLocationChoice,
+            titleVisibility: .visible
+        ) {
+            Button("Use current location") {
+                handleAddLocationChoice(.currentLocation)
+            }
+            Button("Choose on Property map") {
+                handleAddLocationChoice(.propertyMap)
+            }
+            Button("Add without map pin") {
+                handleAddLocationChoice(.withoutMapPin)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(
+                "Stugu can request your location once or let you choose a point "
+                    + "on the map. This does not start live location sharing."
+            )
+        }
+        .alert("Current location unavailable", isPresented: Binding(
+            get: { addLocation.errorMessage != nil },
+            set: { if !$0 { addLocation.clearError() } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(addLocation.errorMessage ?? "")
+        }
+        .onChange(of: addLocation.coordinate) { _, coordinate in
+            guard let coordinate else { return }
+            addEquipmentCoordinate = coordinate
+            showingEquipmentEditor = true
         }
         .onChange(of: model.selectedPropertyID) {
             displayMode = .list
+            cameraPosition = .automatic
             resetFilters()
+        }
+        .onChange(of: displayMode) { _, mode in
+            if mode == .map {
+                cameraPosition = .automatic
+            }
         }
         .onChange(of: model.propertyInventory?.syncToken) {
             if !placementFilterID.isEmpty,
@@ -160,7 +234,10 @@ struct EquipmentMapView: View {
     }
 
     private func mapContent(snapshot: TrackingMapSnapshot?) -> some View {
-        let zones = snapshot?.zones ?? model.selectedPropertyAreas
+        let zones = model.selectedPropertyAreas.isEmpty
+            ? snapshot?.zones ?? []
+            : model.selectedPropertyAreas
+        let boundary = propertyBoundary(snapshot: snapshot)
         let assets = filteredAssets(snapshot?.assets ?? [])
         let selected = assets.first { $0.id == selectedEquipmentID }
         return VStack(spacing: 0) {
@@ -180,11 +257,26 @@ struct EquipmentMapView: View {
             .padding(.vertical, 8)
 
             Map(position: $cameraPosition) {
-                if let boundary = snapshot?.settings.propertyBoundary,
-                   boundary.count >= 3 {
+                if boundary.count >= 3 {
                     MapPolygon(coordinates: boundary.map(\.clCoordinate))
                         .foregroundStyle(StuguTheme.action.opacity(0.05))
                         .stroke(StuguTheme.action.opacity(0.55), lineWidth: 1.5)
+                }
+                ForEach(zones) { zone in
+                    if zone.polygon.count >= 3 {
+                        MapPolygon(coordinates: zone.polygon.map(\.clCoordinate))
+                            .foregroundStyle(StuguTheme.action.opacity(0.08))
+                            .stroke(StuguTheme.action.opacity(0.6), lineWidth: 1.25)
+                    }
+                    if let coordinate = mapCoordinate(for: zone) {
+                        Annotation(zone.name, coordinate: coordinate) {
+                            PropertyMapContextLabel(
+                                name: zone.name,
+                                systemImage: "square.dashed"
+                            )
+                            .accessibilityLabel("Property area, \(zone.name)")
+                        }
+                    }
                 }
                 if let selected,
                    let position = selected.position,
@@ -195,12 +287,23 @@ struct EquipmentMapView: View {
                         .stroke(StuguTheme.action.opacity(0.75), lineWidth: 1.5)
                 }
                 if let selected,
-                   let zoneID = selected.position?.zoneId,
+                   let zoneID = selected.position?.zoneId ?? selected.equipment.areaId,
                    let zone = zones.first(where: { $0.id == zoneID }),
                    zone.polygon.count >= 3 {
                     MapPolygon(coordinates: zone.polygon.map(\.clCoordinate))
                         .foregroundStyle(StuguTheme.warning.opacity(0.14))
                         .stroke(StuguTheme.warning, lineWidth: 2)
+                }
+                ForEach(model.selectedPropertyHouses) { home in
+                    if let coordinate = mapCoordinate(for: home) {
+                        Annotation(home.name, coordinate: coordinate) {
+                            PropertyMapContextLabel(
+                                name: home.name,
+                                systemImage: "house.fill"
+                            )
+                            .accessibilityLabel("Home, \(home.name)")
+                        }
+                    }
                 }
                 ForEach(snapshot?.members ?? []) { member in
                     MapCircle(
@@ -301,7 +404,7 @@ struct EquipmentMapView: View {
                         if model.selectedPropertyEquipment.isEmpty,
                            !model.selectedPropertyReadOnly {
                             Button {
-                                showingEquipmentEditor = true
+                                beginAddingEquipment()
                             } label: {
                                 Label("Add equipment", systemImage: "plus")
                             }
@@ -770,6 +873,17 @@ struct EquipmentMapView: View {
 
     private var mapAvailable: Bool {
         if model.trackingSnapshot != nil { return true }
+        if propertyBoundary(snapshot: nil).count >= 3 { return true }
+        if model.selectedPropertyAreas.contains(where: {
+            $0.location != nil || !$0.polygon.isEmpty
+        }) {
+            return true
+        }
+        if model.selectedPropertyHouses.contains(where: {
+            $0.mapPlacement != nil || $0.location != nil
+        }) {
+            return true
+        }
         return model.selectedPropertyEquipment.contains { item in
             if item.location != nil { return true }
             if let houseID = item.houseId,
@@ -796,6 +910,66 @@ struct EquipmentMapView: View {
         serviceFilter = .all
         placementFilterID = ""
         conditionFilter = .all
+    }
+
+    private func beginAddingEquipment() {
+        addEquipmentCoordinate = nil
+        openEditorAfterMapPicker = false
+        addLocation.clearError()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            showingAddLocationChoice = true
+        }
+    }
+
+    private func handleAddLocationChoice(_ choice: AddLocationChoice) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            switch choice {
+            case .currentLocation:
+                addLocation.request()
+            case .propertyMap:
+                showingAddMapPicker = true
+            case .withoutMapPin:
+                showingEquipmentEditor = true
+            }
+        }
+    }
+
+    private func propertyBoundary(snapshot: TrackingMapSnapshot?) -> [GeoCoordinate] {
+        if let boundary = snapshot?.settings.propertyBoundary, !boundary.isEmpty {
+            return boundary
+        }
+        return model.trackingSettings?.propertyBoundary ?? []
+    }
+
+    private func mapCoordinate(for area: PropertyArea) -> CLLocationCoordinate2D? {
+        if let location = area.location {
+            return location.clCoordinate
+        }
+        guard !area.polygon.isEmpty else { return nil }
+        return CLLocationCoordinate2D(
+            latitude: area.polygon.map(\.latitude).reduce(0, +)
+                / Double(area.polygon.count),
+            longitude: area.polygon.map(\.longitude).reduce(0, +)
+                / Double(area.polygon.count)
+        )
+    }
+
+    private func mapCoordinate(for home: House) -> CLLocationCoordinate2D? {
+        if let placement = home.mapPlacement {
+            return CLLocationCoordinate2D(
+                latitude: placement.latitude,
+                longitude: placement.longitude
+            )
+        }
+        guard let location = home.location else { return nil }
+        return CLLocationCoordinate2D(
+            latitude: location.latitude,
+            longitude: location.longitude
+        )
     }
 
     private func displayCoordinate(
@@ -910,6 +1084,26 @@ struct EquipmentMapView: View {
         if let areaID = equipment.areaId { return "area:\(areaID)" }
         if let houseID = equipment.houseId { return "home:\(houseID)" }
         return "unassigned"
+    }
+}
+
+private struct PropertyMapContextLabel: View {
+    let name: String
+    let systemImage: String
+
+    var body: some View {
+        Label(name, systemImage: systemImage)
+            .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 5)
+            .foregroundStyle(StuguTheme.ink)
+            .background(.regularMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(StuguTheme.strongLine, lineWidth: 1)
+            }
     }
 }
 

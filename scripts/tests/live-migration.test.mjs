@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+
 import { createHash, generateKeyPairSync } from "node:crypto";
+
 import {
   copyFileSync,
   existsSync,
@@ -10,9 +12,13 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+
 import { tmpdir } from "node:os";
+
 import { join } from "node:path";
+
 import test from "node:test";
+
 import {
   assembleMigrationBundle,
   createMigrationBundle,
@@ -20,11 +26,13 @@ import {
   validateMigrationPlan,
   verifyAssembledMigrationBundle,
 } from "../stugu-migration-bundle.mjs";
+
 import {
   compareReleaseVersions,
   mergePortableEnvironment,
   portableEnvironment,
 } from "../stugu-migration-common.mjs";
+
 import {
   assertRunningSourceVersion,
   assertTargetCapacity,
@@ -34,6 +42,7 @@ import {
   stopSourceWriters,
   uploadMissingChunks,
 } from "../stugu-live-migrate.mjs";
+
 import {
   applyDeploymentSettings,
   commitMigration,
@@ -44,38 +53,7 @@ import {
   targetForDeploymentPath,
 } from "../stugu-migration-target.mjs";
 
-function temporaryDirectory(t) {
-  const directory = mkdtempSync(join(tmpdir(), "stugu-live-migration-"));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
-  return directory;
-}
-
-function sha256(value) {
-  return createHash("sha256").update(value).digest("hex");
-}
-
-function backupFixture(root) {
-  const directory = join(root, "backup");
-  mkdirSync(join(directory, "databases"), { recursive: true });
-  const payload = Buffer.alloc(150_000, 0x61);
-  writeFileSync(join(directory, "databases", "climate-twin.sqlite"), payload);
-  const manifest = {
-    format: "stugu-backup",
-    version: 2,
-    verification: { status: "passed" },
-    files: [{
-      path: "databases/climate-twin.sqlite",
-      category: "core-sqlite",
-      size: payload.length,
-      sha256: sha256(payload),
-      sensitive: true,
-    }],
-  };
-  const manifestText = `${JSON.stringify(manifest, null, 2)}\n`;
-  writeFileSync(join(directory, "manifest.json"), manifestText);
-  writeFileSync(join(directory, "manifest.sha256"), `${sha256(manifestText)}  manifest.json\n`);
-  return directory;
-}
+import { backupFixture, sha256, temporaryDirectory } from "./live-migration-test-support.mjs";
 
 test("portable settings exclude target-specific networking and storage", () => {
   const migrated = portableEnvironment([
@@ -561,68 +539,4 @@ test("capacity preflight reserves the actual TimescaleDB device and aggregates s
     }, plan),
     /insufficient migration\/application data\/TimescaleDB free space/u,
   );
-});
-
-test("apply intent is durable, idempotent, and bound to a fully verified cutover plan", async (t) => {
-  const root = temporaryDirectory(t);
-  const migrationRoot = join(root, "migrations");
-  const id = "419f8ada-fdc9-78e0-93e8-b63126fb1257";
-  const previousRoot = process.env.STUGA_MIGRATION_ROOT;
-  process.env.STUGA_MIGRATION_ROOT = migrationRoot;
-  t.after(() => {
-    if (previousRoot === undefined) delete process.env.STUGA_MIGRATION_ROOT;
-    else process.env.STUGA_MIGRATION_ROOT = previousRoot;
-  });
-  const bundle = await createMigrationBundle({
-    backupDirectory: backupFixture(root),
-    workspaceDirectory: join(root, "workspace"),
-    phase: "cutover",
-    sourceVersion: "0.5.0",
-    chunkSize: 65_536,
-    id,
-  });
-  mkdirSync(join(migrationRoot, "incoming"), { recursive: true });
-  copyFileSync(bundle.planPath, join(migrationRoot, "incoming", `${id}.json`));
-  const staged = join(migrationRoot, "staged", id);
-  await assembleMigrationBundle({
-    plan: bundle.plan,
-    chunkDirectory: bundle.chunkDirectory,
-    outputDirectory: staged,
-  });
-  writeFileSync(join(staged, ".stugu-assembled.json"), `${JSON.stringify({
-    version: 1,
-    planSha256: bundle.planSha256,
-    backupVerified: true,
-  })}\n`);
-
-  const first = await createApplyIntent(id, bundle.planSha256);
-  const second = await createApplyIntent(id, bundle.planSha256);
-  assert.equal(first.status, "apply-intent");
-  assert.equal(second.intentAt, first.intentAt);
-  assert.equal(
-    JSON.parse(readFileSync(join(migrationRoot, "receipts", `${id}.json`), "utf8")).status,
-    "apply-intent",
-  );
-
-  writeFileSync(join(staged, "backup", "manifest.json"), "{}\n");
-  await assert.rejects(createApplyIntent(id, bundle.planSha256), /checksum mismatch|invalid/u);
-});
-
-test("migration plans reject traversal and corrupt cached chunks", async (t) => {
-  const root = temporaryDirectory(t);
-  const bundle = await createMigrationBundle({
-    backupDirectory: backupFixture(root),
-    workspaceDirectory: join(root, "workspace"),
-    phase: "cutover",
-    sourceVersion: "0.5.0",
-    chunkSize: 65_536,
-    id: "119f8ada-fdc9-78e0-93e8-b63126fb1257",
-  });
-  const unsafe = structuredClone(bundle.plan);
-  unsafe.files[0].path = "../escape";
-  assert.throws(() => validateMigrationPlan(unsafe), /unsafe|relative/u);
-
-  const digest = readdirSync(bundle.chunkDirectory)[0];
-  writeFileSync(join(bundle.chunkDirectory, digest), "corrupt");
-  assert.ok((await missingMigrationChunks(bundle.plan, bundle.chunkDirectory)).includes(digest));
 });

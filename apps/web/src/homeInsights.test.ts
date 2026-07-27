@@ -6,7 +6,9 @@ import type {
   Sensor,
   WeatherWarning,
 } from "@climate-twin/contracts";
+
 import { describe, expect, it } from "vitest";
+
 import {
   deriveHomeInsights,
   deriveHomePulse,
@@ -14,91 +16,7 @@ import {
   type HomeInsightInput,
 } from "./homeInsights";
 
-const NOW = "2026-07-14T12:00:00.000Z";
-const NOW_MS = Date.parse(NOW);
-
-const house: House = {
-  id: "house-1",
-  propertyId: "property-1",
-  name: "Pine House",
-  timezone: "Europe/Helsinki",
-  floors: [{
-    id: "floor-1",
-    name: "Ground floor",
-    width: 100,
-    height: 100,
-    elevation: 0,
-    walls: [],
-    rooms: [],
-  }],
-  createdAt: "2026-01-01T00:00:00.000Z",
-  updatedAt: "2026-01-01T00:00:00.000Z",
-};
-
-function sensor(id: string, room: string, overrides: Partial<Sensor> = {}): Sensor {
-  return {
-    id,
-    houseId: house.id,
-    floorId: "floor-1",
-    name: `${room} sensor`,
-    room,
-    model: "Tapo T315",
-    x: 10,
-    y: 10,
-    z: 1.2,
-    tags: [],
-    enabled: true,
-    ...overrides,
-  };
-}
-
-function sample(
-  target: Sensor,
-  metric: string,
-  value: number,
-  minutesAgo: number,
-  overrides: Partial<MeasurementSample> = {},
-): MeasurementSample {
-  const units: Record<string, string> = { temperature: "\u00b0C", humidity: "%", co2: "ppm" };
-  return {
-    sensorId: target.id,
-    metric,
-    value,
-    canonicalUnit: units[metric] ?? "",
-    timestamp: new Date(NOW_MS - minutesAgo * 60_000).toISOString(),
-    source: "tp-link",
-    quality: "good",
-    ...overrides,
-  };
-}
-
-function baseInput(overrides: Partial<HomeInsightInput> = {}): HomeInsightInput {
-  return {
-    house,
-    sensors: [],
-    latestMeasurements: {},
-    referenceTime: NOW,
-    ...overrides,
-  };
-}
-
-function warning(overrides: Partial<WeatherWarning> = {}): WeatherWarning {
-  return {
-    id: "wind-warning",
-    event: "Strong wind",
-    headline: "Strong wind warning",
-    description: "Strong gusts expected",
-    severity: "severe",
-    urgency: "immediate",
-    certainty: "likely",
-    effectiveAt: "2026-07-14T10:00:00.000Z",
-    onsetAt: "2026-07-14T10:00:00.000Z",
-    expiresAt: "2026-07-14T14:00:00.000Z",
-    areas: ["Uusimaa"],
-    web: null,
-    ...overrides,
-  };
-}
+import { NOW, NOW_MS, baseInput, house, sample, sensor, warning } from "./homeInsightsTestSupport.js";
 
 describe("deriveHomePulse", () => {
   it("returns a steady, evidence-backed empty pulse when fresh readings need no action", () => {
@@ -614,54 +532,5 @@ describe("deriveHomePulse", () => {
       target: { houseId: house.id },
       confidence: { level: "high" },
     });
-  });
-
-  it("uses the alert operator for advice and always keeps critical alerts above warnings", () => {
-    const nursery = sensor("nursery", "Nursery");
-    const office = sensor("office", "Office");
-    const lowHumidityRule: AlertRule = {
-      id: "low-humidity",
-      name: "Low humidity",
-      sensorId: nursery.id,
-      metric: "humidity",
-      operator: "lt",
-      threshold: 30,
-      durationSeconds: 600,
-      severity: "critical",
-      enabled: true,
-      webhookEnabled: false,
-      telegramEnabled: false,
-    };
-    const criticalAlert: AlertEvent = {
-      id: "low-humidity-alert",
-      ruleId: lowHumidityRule.id,
-      sensorId: nursery.id,
-      metric: "humidity",
-      value: 25,
-      threshold: 30,
-      severity: "critical",
-      startedAt: "2026-07-14T11:30:00.000Z",
-      acknowledgedAt: "2026-07-14T11:35:00.000Z",
-      resolvedAt: null,
-    };
-    const insights = deriveHomeInsights(baseInput({
-      sensors: [nursery, office],
-      latestMeasurements: {
-        [nursery.id]: { humidity: sample(nursery, "humidity", 25, 3) },
-        [office.id]: { co2: sample(office, "co2", 2_500, 3) },
-      },
-      alerts: [criticalAlert],
-      alertRules: [lowHumidityRule],
-      maxInsights: 2,
-    }));
-
-    expect(insights.map((item) => item.severity)).toEqual(["critical", "warning"]);
-    expect(insights[0]?.id).toBe("active-alert:low-humidity-alert");
-    expect(insights[0]?.action).toContain("follow the configured alert rule");
-    expect(insights[0]?.action).not.toMatch(/extractor|dehumidifier/i);
-  });
-
-  it("rejects an invalid reference time instead of consulting the wall clock", () => {
-    expect(() => deriveHomePulse(baseInput({ referenceTime: "not-a-time" }))).toThrow(RangeError);
   });
 });

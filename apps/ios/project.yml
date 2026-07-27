@@ -3,25 +3,25 @@ name: Stugu
 options:
   bundleIdPrefix: net.nysta
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "26.0"
   developmentLanguage: en
   createIntermediateGroups: true
 
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.13.0"
+    MARKETING_VERSION: "0.14.0"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: ""
-    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
     SWIFT_STRICT_CONCURRENCY: targeted
 
 targets:
   Stugu:
     type: application
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "26.0"
     sources:
       - path: Stugu
         excludes:
@@ -59,7 +59,7 @@ targets:
   StuguWidget:
     type: app-extension
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "26.0"
     sources:
       - path: StuguWidget
         excludes:

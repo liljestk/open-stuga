@@ -49,7 +49,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Stugu uses the camera only when you choose to scan an equipment QR tag or create a reviewed RoomPlan floor plan.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>While Stugu is open, you can locate equipment detections or explicitly share your current, accuracy-qualified position on your Property map.</string>
+	<string>With your permission, Stugu can use your current location for an expected equipment pin, nearby equipment detection, or explicit Property-map sharing.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Property automation lets iOS notify Stugu when this iPhone enters or leaves your configured Property so opportunistic tag observation can adjust without continuous GPS.</string>
 	<key>UIBackgroundModes</key>

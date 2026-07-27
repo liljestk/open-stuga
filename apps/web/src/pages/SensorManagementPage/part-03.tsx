@@ -1,0 +1,318 @@
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import {
+  Archive,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  CircleDot,
+  Copy,
+  Database,
+  Edit3,
+  FileSpreadsheet,
+  Home,
+  LoaderCircle,
+  MapPin,
+  Plus,
+  Printer,
+  QrCode,
+  RadioTower,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Sparkles,
+  ThermometerSun,
+  Trash2,
+  TriangleAlert,
+  X,
+} from "lucide-react";
+import type {
+  Floor,
+  House,
+  IntegrationStatus,
+  MeasurementSample,
+  Metric,
+  Sensor,
+  SensorLabelDescriptor,
+  TpLinkDiscoveredDevice,
+  UnitSystem,
+} from "@climate-twin/contracts";
+import { api, type CreateSensorInput, type HistoricalImportResult, type SensorPatch } from "../../api";
+import type { ClimateState, TimeRange } from "../../domain";
+import { useI18n, type TranslationKey } from "../../i18n";
+import { formatInTimeZone } from "../../dateTime";
+import { measurementLabel } from "../../measurements";
+import { useNow } from "../../useNow";
+import { integrationForHouse } from "../../integrationScope";
+import { assessSensorCoverage, suggestSensorPlacement, type SensorCoverageAssessment, type SensorPlacementSuggestion } from "../../experimentalSpatialLayers";
+import { configuredSpatialMaxSampleAgeMs } from "../../spatialFreshness";
+import { useSpatialLayers } from "../../useSpatialLayers";
+import { qrCodeMatrix } from "../../qrCode";
+import { TrendChart } from "../../components/TrendChart";
+import { HistoricalImportWizard, PlacementPicker, SensorLabelCard, UNPLACED_TAG, availableForSensor, clamp, deviceBindingKey, draftContext, draftForSensor, errorMessage, hasHomeAssistantBinding, hasRealBinding, initialDraft, isDemoSensor, isLive, isUnplaced, latestSensorTimestamp, mergeMetricSamples, normalizedMeasurementEntityIds, roomCenter, rounded, sameMeasurementEntityIds, sensorFloor, sensorHasMetric, sensorMeasurementEntityIds, sensorStatus, stableRoomId, tpLinkDeviceSummary, validationErrors } from "./support";
+import type { AddStep, DraftErrors, DraftSource, EditorMode, Feedback, SensorDraft, SensorFilter, SensorManagementPageProps, SensorStatus, Translate } from "./support";
+import { useSensorManagementPagePart02 } from "./part-02";
+export function useSensorManagementPagePart03(context: ReturnType<typeof useSensorManagementPagePart02>) {
+  const { state, house, houses, integration, tpLinkDevices, tpLinkDevicesLoading, tpLinkDevicesError, requestedDevice, requestedDeviceId, readOnly, localAuthority, units, onRequestedDeviceHandled, onLoadSeries, onHouse, onRefreshDevices, onCreateSensor, onUpdateSensor, onDeleteSensor, onImportHistoricalData, locale, t, now, tpLinkStatus, formId, pageHeadingRef, editorHeadingRef, editorOpenerRef, importButtonRef, detailsHeadingRef, detailsOpenerRef, detailsRequestGeneration, search, setSearch, filter, setFilter, mode, setMode, addStep, setAddStep, editingSensorId, setEditingSensorId, attachSensorId, setAttachSensorId, draft, setDraft, errors, setErrors, editorFeedback, setEditorFeedback, pageFeedback, setPageFeedback, submitting, setSubmitting, rowBusyId, setRowBusyId, cleanupBusy, setCleanupBusy, refreshing, setRefreshing, refreshError, setRefreshError, importOpen, setImportOpen, detailsSensor, setDetailsSensor, detailSamples, setDetailSamples, detailCursor, setDetailCursor, detailsLoading, setDetailsLoading, detailsError, setDetailsError, detailMetric, setDetailMetric, detailRange, setDetailRange, currentSensors, currentSensorIds, visibleDetailsSensor, demoSensors, hasExistingRealBoundSensor, enabledMeasurementDefinitions, detailDefinitions, detailDefinition, detailHistory, usedDeviceIds, homeTpLinkDevices, addableDevices, attachableSensors, sensorStatuses, statusCounts, normalizedSearch, visibleSensors, draftHouse, draftFloor, editingSensor, selectableDevices, currentBindingMissing, draftDevice, energyOnlyDraft, placementAnalysisEnabled, placementLayerScope, placementLayers, placementCoverage, placementSuggestion, clearError, beginAdd, beginEdit, restoreEditorFocus, cancelEditor, closeImport, loadSensorDetails, closeSensorDetails, chooseSource, chooseDevice, attachDeviceToExistingSensor, changeDraftHouse, changeDraftFloor, focusFirstError, advanceAdd, retreatAdd, buildPlacement } = context;
+  const submitAdd = async (event: FormEvent) => {
+      event.preventDefault();
+      if (readOnly || submitting) return;
+      if (addStep < 4) {
+        advanceAdd();
+        return;
+      }
+      const nextErrors = validationErrors(draft, houses, t);
+      if (Object.keys(nextErrors).length > 0) {
+        setErrors(nextErrors);
+        setEditorFeedback({ kind: "error", message: t("sensors.fixFields") });
+        const firstStep: AddStep = nextErrors.source ? 1
+          : [nextErrors.name, nextErrors.model, nextErrors.house, nextErrors.floor, nextErrors.room].some(Boolean) ? 2 : 3;
+        setAddStep(firstStep);
+        focusFirstError(nextErrors);
+        return;
+      }
+      setSubmitting(true);
+      setEditorFeedback(null);
+      try {
+        const placement = buildPlacement();
+        const measurementEntityIds = normalizedMeasurementEntityIds(draft.measurementEntityIds);
+        const input: CreateSensorInput = {
+          houseId: draft.houseId,
+          floorId: draft.floorId,
+          name: draft.name.trim(),
+          roomId: stableRoomId(placement.floor, draft.room.trim()),
+          room: draft.room.trim(),
+          model: draft.model.trim(),
+          x: placement.x,
+          y: placement.y,
+          z: placement.z,
+          tags: [],
+          enabled: true,
+          ...(draft.source === "tp-link" && draft.deviceId ? {
+            tpLinkDeviceId: draft.deviceId,
+            ...(draft.connectionId ? { tpLinkConnectionId: draft.connectionId } : {}),
+          } : {}),
+          ...(Object.keys(measurementEntityIds).length > 0 ? { measurementEntityIds } : {}),
+        };
+        const saved = await onCreateSensor(input);
+        const offerDemoCleanup = integration.mock.mode === "real"
+          && demoSensors.length > 0
+          && !hasExistingRealBoundSensor
+          && hasRealBinding(saved);
+        if (offerDemoCleanup && window.confirm(t("sensors.cleanupConfirm", { count: demoSensors.length }))) {
+          const results = await Promise.allSettled(demoSensors.map((sensor) => onDeleteSensor(sensor.id)));
+          const selectedResultIndex = demoSensors.findIndex((sensor) => sensor.id === detailsSensor?.id);
+          if (selectedResultIndex >= 0 && results[selectedResultIndex]?.status === "fulfilled") closeSensorDetails();
+          const failed = results.filter((result) => result.status === "rejected").length;
+          setPageFeedback(failed > 0
+            ? { kind: "error", message: t("sensors.cleanupPartial", { name: saved.name, count: failed }) }
+            : { kind: "success", message: t("sensors.cleanupDone", { name: saved.name, count: demoSensors.length }) });
+        } else {
+          setPageFeedback({ kind: "success", message: t("sensors.added", { name: saved.name }) });
+        }
+        setMode("closed");
+        restoreEditorFocus();
+        if (saved.houseId !== house.id) onHouse(saved.houseId);
+      } catch (error) {
+        setEditorFeedback({ kind: "error", message: errorMessage(error, t("sensors.addError")) });
+      } finally {
+        setSubmitting(false);
+      }
+    };
+  const submitEdit = async (event: FormEvent) => {
+      event.preventDefault();
+      if (readOnly || submitting || !editingSensor) return;
+      const nextErrors = validationErrors(draft, houses, t);
+      if (Object.keys(nextErrors).length > 0) {
+        setErrors(nextErrors);
+        setEditorFeedback({ kind: "error", message: t("sensors.fixFields") });
+        focusFirstError(nextErrors);
+        return;
+      }
+      setSubmitting(true);
+      setEditorFeedback(null);
+      try {
+        const placement = buildPlacement();
+        const measurementEntityIds = normalizedMeasurementEntityIds(draft.measurementEntityIds);
+        const existingMeasurementEntityIds = normalizedMeasurementEntityIds(sensorMeasurementEntityIds(editingSensor));
+        const measurementBindingsChanged = !sameMeasurementEntityIds(measurementEntityIds, existingMeasurementEntityIds);
+        const patch = {
+          houseId: draft.houseId,
+          floorId: draft.floorId,
+          name: draft.name.trim(),
+          roomId: stableRoomId(placement.floor, draft.room.trim()),
+          room: draft.room.trim(),
+          model: draft.model.trim(),
+          x: placement.x,
+          y: placement.y,
+          z: placement.z,
+          enabled: draft.enabled,
+          tags: editingSensor.tags.filter((tag) => tag !== UNPLACED_TAG),
+          ...(localAuthority ? {
+            tpLinkDeviceId: draft.deviceId || null,
+            ...((editingSensor.tpLinkConnectionId !== undefined || draft.connectionId)
+              ? { tpLinkConnectionId: draft.deviceId && draft.connectionId ? draft.connectionId : null }
+              : {}),
+            ...(measurementBindingsChanged ? { measurementEntityIds } : {}),
+          } : {}),
+        } as SensorPatch;
+        const saved = await onUpdateSensor(editingSensor.id, patch);
+        setPageFeedback({ kind: "success", message: t("sensors.updated", { name: saved.name }) });
+        setMode("closed");
+        setEditingSensorId(null);
+        restoreEditorFocus();
+        if (saved.houseId !== house.id) onHouse(saved.houseId);
+      } catch (error) {
+        setEditorFeedback({ kind: "error", message: errorMessage(error, t("sensors.updateError")) });
+      } finally {
+        setSubmitting(false);
+      }
+    };
+  const setArchived = async (sensor: Sensor, archived: boolean) => {
+      if (readOnly || rowBusyId) return;
+      setRowBusyId(sensor.id);
+      setPageFeedback(null);
+      try {
+        const saved = await onUpdateSensor(sensor.id, { enabled: !archived });
+        setPageFeedback({
+          kind: "success",
+          message: archived ? t("sensors.archivedFeedback", { name: saved.name }) : t("sensors.restoredFeedback", { name: saved.name }),
+        });
+        if (editingSensorId === sensor.id) setDraft((current) => ({ ...current, enabled: saved.enabled }));
+      } catch (error) {
+        setPageFeedback({ kind: "error", message: errorMessage(error, archived ? t("sensors.archiveError") : t("sensors.restoreError")) });
+      } finally {
+        setRowBusyId(null);
+      }
+    };
+  const removeSensor = async (sensor: Sensor) => {
+      if (readOnly || rowBusyId || cleanupBusy || !window.confirm(t("sensors.deleteConfirm", { name: sensor.name }))) return;
+      setRowBusyId(sensor.id);
+      setPageFeedback(null);
+      try {
+        await onDeleteSensor(sensor.id);
+        if (detailsSensor?.id === sensor.id) closeSensorDetails();
+        setPageFeedback({ kind: "success", message: t("sensors.deletedFeedback", { name: sensor.name }) });
+        if (editingSensorId === sensor.id) cancelEditor();
+      } catch (error) {
+        setPageFeedback({ kind: "error", message: errorMessage(error, t("sensors.deleteError")) });
+      } finally {
+        setRowBusyId(null);
+      }
+    };
+  const removeDemoSensors = async () => {
+      if (readOnly || cleanupBusy || demoSensors.length === 0
+        || !window.confirm(t("sensors.cleanupConfirm", { count: demoSensors.length }))) return;
+      setCleanupBusy(true);
+      setPageFeedback(null);
+      try {
+        const results = await Promise.allSettled(demoSensors.map((sensor) => onDeleteSensor(sensor.id)));
+        const selectedResultIndex = demoSensors.findIndex((sensor) => sensor.id === detailsSensor?.id);
+        if (selectedResultIndex >= 0 && results[selectedResultIndex]?.status === "fulfilled") closeSensorDetails();
+        const failed = results.filter((result) => result.status === "rejected").length;
+        setPageFeedback(failed > 0
+          ? { kind: "error", message: t("sensors.demoCleanupPartial", { count: failed }) }
+          : { kind: "success", message: t("sensors.demoCleanupDone", { count: demoSensors.length }) });
+      } finally {
+        setCleanupBusy(false);
+      }
+    };
+  const refreshDevices = async () => {
+      if (readOnly || refreshing || tpLinkDevicesLoading) return;
+      setRefreshing(true);
+      setRefreshError(null);
+      try {
+        await onRefreshDevices();
+      } catch (error) {
+        setRefreshError(errorMessage(error, t("sensors.discoveryError")));
+      } finally {
+        setRefreshing(false);
+      }
+    };
+  const renderFieldError = (key: keyof DraftErrors) => errors[key]
+      ? <span className="sensor-field-error" id={`${formId}-${key}-error`}>{errors[key]}</span>
+      : null;
+  const fieldA11y = (key: keyof DraftErrors) => ({
+      "aria-invalid": errors[key] ? true as const : undefined,
+      "aria-describedby": errors[key] ? `${formId}-${key}-error` : undefined,
+    });
+  const renderDetailsFields = () => (
+      <div className="sensor-form-grid">
+        <label className="field sensor-field-wide">
+          <span>{t("sensors.name")}</span>
+          <input
+            id={`${formId}-name`}
+            required
+            autoComplete="off"
+            value={draft.name}
+            onChange={(event) => { setDraft((current) => ({ ...current, name: event.target.value })); clearError("name"); }}
+            placeholder={t("sensors.namePlaceholder")}
+            {...fieldA11y("name")}
+          />
+          {renderFieldError("name")}
+        </label>
+        <label className="field">
+          <span>{t("sensors.model")}</span>
+          <input
+            id={`${formId}-model`}
+            required
+            value={draft.model}
+            onChange={(event) => { setDraft((current) => ({ ...current, model: event.target.value })); clearError("model"); }}
+            placeholder={t("sensors.modelPlaceholder")}
+            {...fieldA11y("model")}
+          />
+          {renderFieldError("model")}
+        </label>
+        <label className="field">
+          <span>{t("common.house")}</span>
+          <select id={`${formId}-house`} value={draft.houseId} onChange={(event) => changeDraftHouse(event.target.value)} {...fieldA11y("house")}>
+            {houses.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
+          </select>
+          {renderFieldError("house")}
+        </label>
+        <label className="field">
+          <span>{t("common.floor")}</span>
+          <select id={`${formId}-floor`} value={draft.floorId} onChange={(event) => changeDraftFloor(event.target.value)} {...fieldA11y("floor")}>
+            {(draftHouse?.floors ?? []).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
+          </select>
+          {renderFieldError("floor")}
+        </label>
+        <label className="field">
+          <span>{t("sensors.room")}</span>
+          <input
+            id={`${formId}-room`}
+            required
+            list={`${formId}-rooms`}
+            value={draft.room}
+            onChange={(event) => {
+              const room = event.target.value;
+              const center = draftFloor ? roomCenter(draftFloor, room) : null;
+              const exactRoom = draftFloor?.rooms.some((candidate) => candidate.name.trim().toLocaleLowerCase() === room.trim().toLocaleLowerCase());
+              setDraft((current) => ({
+                ...current,
+                room,
+                ...(center && exactRoom ? { x: String(rounded(center.x)), y: String(rounded(center.y)) } : {}),
+              }));
+              clearError("room");
+            }}
+            placeholder={t("sensors.roomPlaceholder")}
+            {...fieldA11y("room")}
+          />
+          <datalist id={`${formId}-rooms`}>{(draftFloor?.rooms ?? []).map((room) => <option key={room.id} value={room.name} />)}</datalist>
+          {renderFieldError("room")}
+        </label>
+      </div>
+    );
+  return Object.assign(context, { submitAdd, submitEdit, setArchived, removeSensor, removeDemoSensors, refreshDevices, renderFieldError, fieldA11y, renderDetailsFields });
+}

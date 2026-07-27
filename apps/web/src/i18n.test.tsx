@@ -4,7 +4,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import { I18nProvider, SUPPORTED_LOCALES, translationCatalogs, useI18n, type TranslationKey } from "./i18n";
 
 const uiSources = import.meta.glob(
-  ["./App.tsx", "./components/*.tsx", "./pages/*.tsx", "!./components/*.test.tsx", "!./pages/*.test.tsx"],
+  [
+    "./App.tsx",
+    "./components/*.tsx",
+    "./pages/*.tsx",
+    "!./components/*.test.tsx",
+    "!./components/*TestSupport.tsx",
+    "!./pages/*.test.tsx",
+    "!./pages/*TestSupport.tsx",
+  ],
   { query: "?raw", import: "default", eager: true },
 ) as Record<string, string>;
 

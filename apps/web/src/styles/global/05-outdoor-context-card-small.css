@@ -1,0 +1,349 @@
+.outdoor-context-card small { color: var(--muted); font-size: 10px; line-height: 1.35; }
+
+.outdoor-context-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+
+.outdoor-context-heading > b { padding: 2px 6px; border-radius: 9px; color: var(--yellow); background: var(--yellow-soft); font-size: 7px; letter-spacing: .045em; text-transform: uppercase; }
+
+.outdoor-context-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+
+.outdoor-context-values > span { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 4px; padding: 6px; border-radius: 8px; background: var(--panel-soft); }
+
+.outdoor-context-values > span.outdoor-condition-color { background: color-mix(in srgb, var(--outdoor-condition-color) 16%, var(--panel-soft)); box-shadow: inset 3px 0 0 var(--outdoor-condition-color); }
+
+.outdoor-context-values > span.outdoor-condition-color > svg { color: var(--outdoor-condition-color); }
+
+.outdoor-context-values > span > svg { grid-row: 1 / span 3; color: var(--blue); }
+
+.outdoor-context-values b { min-width: 0; overflow: hidden; font-family: "Manrope", sans-serif; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+
+.outdoor-context-values small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.outdoor-boundary-note { margin: 0; display: flex; align-items: flex-start; gap: 5px; color: var(--blue); font-size: 8.5px; font-weight: 700; line-height: 1.35; }
+
+.outdoor-boundary-note svg { flex: 0 0 auto; }
+
+.outdoor-boundary-note.setup { color: var(--yellow); }
+
+.outdoor-boundary-note.warning { color: var(--yellow); }
+
+.outdoor-compass { display: flex; align-items: center; gap: 7px; }
+
+.outdoor-compass-dial { position: relative; width: 31px; height: 31px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--panel-soft); }
+
+.outdoor-compass-dial i { position: absolute; inset: 4px; display: grid; place-items: start center; color: var(--red); font-size: 16px; font-style: normal; transform-origin: center; }
+
+.outdoor-compass-dial b { font-size: 7px; transform: translateY(7px); }
+
+.outdoor-model-note { padding-top: 6px; border-top: 1px solid var(--line); }
+
+.outdoor-badge-provenance { display: grid; gap: 2px; color: var(--muted-2) !important; }
+
+.outdoor-badge-provenance span { display: block; }
+
+
+.building-scene { min-width: 0; display: flex; flex-direction: column; overflow: hidden; container: building-scene / inline-size; background: #f4f2ec; }
+
+.building-scene-controls { min-height: 52px; padding: 8px 13px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+
+.building-scene-controls > div { min-width: 0; display: grid; gap: 2px; }
+
+.building-scene-controls strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+
+.building-scene-controls label { min-width: 185px; display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 11px; font-weight: 600; }
+
+.building-scene-controls input[type="range"] { min-height: 24px; height: 24px; padding: 0; border: 0; accent-color: var(--pine); background: transparent; }
+
+.building-orbit-controls { display: flex !important; align-items: center; justify-content: flex-end; gap: 5px !important; flex-wrap: wrap; }
+
+.building-orbit-controls .secondary-button { min-width: 31px; min-height: 31px; height: 31px; padding: 0 8px; justify-content: center; }
+
+.building-scene-controls .building-zoom { min-width: 145px; margin-left: 5px; }
+
+.building-zoom input { width: 92px; }
+
+.building-orbit-controls .building-reset { min-width: auto; padding-inline: 10px; }
+
+.building-element-editor { min-height: 104px; display: grid; grid-template-columns: 132px minmax(300px, 1fr) auto; align-items: center; gap: 12px; padding: 10px 13px; border-bottom: 1px solid var(--line); background: var(--panel); }
+
+.building-element-editor-heading { min-width: 0; display: grid; gap: 2px; }
+
+.building-element-editor > .element-dimension-fields { grid-column: 2; }
+
+.building-element-editor > .plan-element-airflow-fields { grid-column: 2; grid-template-columns: repeat(3, minmax(130px, 1fr)); }
+
+.building-element-editor > .plan-element-fixture-fields { grid-column: 2; }
+
+.building-element-add { grid-column: 2; display: flex; align-items: end; gap: 7px; }
+
+.building-element-add label { min-width: 150px; display: grid; gap: 3px; color: var(--muted); font-size: 9px; font-weight: 700; }
+
+.building-element-add select, .building-element-editor .plan-element-airflow-fields input, .building-element-editor .plan-element-airflow-fields select, .building-element-editor .plan-element-fixture-fields input, .building-element-editor .plan-element-fixture-fields select { min-height: 31px; padding-inline: 8px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: var(--panel); font-size: 10px; }
+
+.building-element-editor > .opening-inventory { grid-column: 3; grid-row: 1; justify-self: end; }
+
+.building-fireplace-fields { grid-column: 2; grid-row: 2; display: flex; align-items: end; gap: 8px; }
+
+.building-fireplace-fields label { min-width: 150px; display: grid; gap: 4px; color: var(--muted); font-size: 9px; font-weight: 700; }
+
+.building-fireplace-fields select, .building-fireplace-fields input { min-height: 31px; }
+
+.building-element-editor-heading strong, .building-element-editor-heading small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.building-element-editor-heading strong { font-size: 12px; }
+
+.building-element-editor-heading small { color: var(--muted); font-size: 9px; }
+
+.building-element-editor > p { grid-column: 2 / -1; margin: 0; color: var(--muted); font-size: 10.5px; line-height: 1.45; }
+
+.building-element-delete { grid-column: 3; grid-row: 2; justify-self: end; }
+
+@container building-scene (max-width: 620px) {
+  .building-element-editor { min-height: 0; grid-template-columns: 1fr; align-items: stretch; }
+  .building-element-editor > p { grid-column: 1; }
+  .building-element-editor > .element-dimension-fields, .building-element-editor > .plan-element-airflow-fields, .building-element-editor > .plan-element-fixture-fields, .building-element-editor > .opening-inventory, .building-element-add, .building-fireplace-fields, .building-element-delete { grid-column: 1; grid-row: auto; justify-self: stretch; }
+  .building-fireplace-fields { align-items: stretch; flex-wrap: wrap; }
+  .building-element-delete { justify-self: stretch; }
+}
+
+@container building-scene (max-width: 420px) {
+  .building-element-editor .element-dimension-fields { grid-template-columns: 1fr; }
+}
+
+.building-viewport { position: relative; min-width: 0; flex: 1; overflow: hidden; overscroll-behavior: contain; background-color: #f0eee8; background-image: radial-gradient(rgb(27 29 26 / .09) .7px, transparent .7px); background-size: 17px 17px; }
+
+.building-svg { width: 100%; height: 100%; min-height: 520px; display: block; cursor: grab; touch-action: none; user-select: none; font-family: "DM Sans", sans-serif; }
+
+.building-svg:active { cursor: grabbing; }
+
+.building-outdoor-shell { pointer-events: none; }
+
+.building-outdoor-shell-face { fill: rgb(63 118 211 / .035); stroke: none; }
+
+.building-outdoor-shell-outline, .building-outdoor-shell-edge { fill: none; stroke: var(--blue); stroke-width: 2; stroke-dasharray: 10 8; opacity: .72; vector-effect: non-scaling-stroke; }
+
+.building-outdoor-shell-bottom { opacity: .46; }
+
+.building-outdoor-shell.compared .building-outdoor-shell-face { fill: var(--outdoor-active-color); fill-opacity: .045; }
+
+.building-outdoor-shell.compared .building-outdoor-shell-outline, .building-outdoor-shell.compared .building-outdoor-shell-edge { stroke: var(--outdoor-active-color); }
+
+.building-outdoor-shell.stale .building-outdoor-shell-outline, .building-outdoor-shell.stale .building-outdoor-shell-edge { stroke: var(--yellow); }
+
+.building-outdoor-shell-connector { stroke: var(--blue); stroke-width: 1.5; stroke-dasharray: 4 4; opacity: .7; vector-effect: non-scaling-stroke; }
+
+.building-outdoor-shell-rail { filter: drop-shadow(0 3px 7px rgb(36 83 155 / .14)); }
+
+.building-outdoor-shell-rail .outdoor-shell-chip rect { height: 52px; }
+
+.building-outdoor-shell-rail .outdoor-shell-chip-label { font-size: 9.5px; }
+
+.building-outdoor-shell-rail .outdoor-shell-chip-value { font-size: 16px; }
+
+.building-shell-title rect { fill: var(--blue); }
+
+.building-shell-title .outdoor-shell-chip-label { fill: #fff; font-size: 9.5px; opacity: 1; }
+
+.building-floor { cursor: pointer; outline: none; }
+
+.floor-surface { fill: #fcfbf7; stroke: #aaa79f; stroke-width: 1.6; transition: stroke .16s ease, filter .16s ease; }
+
+.floor-slab-side { fill: #c8c5bc; stroke: #99968e; stroke-width: 1; }
+
+.floor-slab-front { fill: #d7d4cb; stroke: #99968e; stroke-width: 1; }
+
+.building-floor:hover .floor-surface, .building-floor:focus-visible .floor-surface { stroke: var(--pine); stroke-width: 3; filter: drop-shadow(0 4px 7px rgb(7 85 201 / .18)); }
+
+.building-floor.active .floor-surface { stroke: var(--pine); stroke-width: 3.5; }
+
+.building-clouds { opacity: .78; mix-blend-mode: multiply; pointer-events: none; }
+
+.building-cloud-lobe { pointer-events: none; }
+
+.building-volume-cloud { transition: cx .24s linear, cy .24s linear, rx .24s linear, ry .24s linear, opacity .24s linear; }
+
+.building-room-surfaces, .building-walls { pointer-events: none; }
+
+.building-room-surface { fill: rgb(47 118 94 / .055); stroke: rgb(47 118 94 / .24); stroke-width: 1; vector-effect: non-scaling-stroke; }
+
+.building-wall-face { fill: rgb(236 233 225 / .82); stroke: #73756f; stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+
+.building-wall-top { stroke: #343733; stroke-width: 3.2; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+
+.building-plan-elements { isolation: isolate; }
+
+.building-plan-element { outline: none; }
+
+.building-plan-element.editable, .building-plan-element.opening-control { cursor: pointer; }
+
+.building-element-hit-target { fill: transparent; stroke: transparent; pointer-events: all; }
+
+.building-plan-element .building-element-front { stroke-width: 2.1; vector-effect: non-scaling-stroke; transition: filter .12s ease, stroke .12s ease; }
+
+.building-plan-element .building-element-side { stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+
+.building-plan-element.door .building-element-front { fill: #ba8b5e; stroke: #714b2d; }
+
+.building-plan-element.window .building-element-front { fill: rgb(119 194 230 / .78); stroke: #22638a; }
+
+.building-plan-element.fireplace .building-element-front { fill: #605b54; stroke: #332f2a; }
+
+.building-plan-element.vent .building-element-front { fill: #d6ddd9; stroke: #50645c; }
+
+.building-plan-element.fireEscape .building-element-front { fill: rgb(94 108 103 / .13); stroke: #44544f; }
+
+.building-plan-element.fireEscape .building-element-side { fill: rgb(94 108 103 / .2); stroke: #44544f; }
+
+.building-plan-element.fireplace .building-element-side { fill: #46423d; stroke: #2e2b27; }
+
+.building-plan-element.vent .building-element-side { fill: #aebbb5; stroke: #50645c; }
+
+.building-plan-element.opening-open .building-element-front { fill-opacity: .42; stroke-dasharray: 6 3; }
+
+.building-plan-element.opening-open .building-element-side { fill-opacity: .3; }
+
+.building-opening-state-dot { fill: var(--muted); stroke: #fff; stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
+
+.building-plan-element.opening-open .building-opening-state-dot { fill: var(--positive); }
+
+.building-plan-element.editable:hover .building-element-front, .building-plan-element.editable:focus-visible .building-element-front, .building-plan-element.opening-control:hover .building-element-front, .building-plan-element.opening-control:focus-visible .building-element-front { stroke: var(--action); stroke-width: 3.2; filter: drop-shadow(0 3px 5px rgb(7 85 201 / .24)); }
+
+.building-plan-element.opening-control.pending { opacity: .58; cursor: wait; }
+
+.building-element-selection { fill: rgb(7 85 201 / .08); stroke: var(--action); stroke-width: 4; stroke-dasharray: 7 4; vector-effect: non-scaling-stroke; pointer-events: none; }
+
+.building-window-frame { stroke: rgb(255 255 255 / .9); stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
+
+.building-door-handle { fill: #f1d278; stroke: #6b482c; stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
+
+.building-fireplace-flame { fill: #e57b42; stroke: #9b3f24; stroke-width: 1.2; vector-effect: non-scaling-stroke; pointer-events: none; }
+
+.building-fire-escape-detail { fill: none; stroke: #44544f; stroke-width: 2; vector-effect: non-scaling-stroke; pointer-events: none; }
+
+.building-roofs { pointer-events: none; }
+
+.building-roof-face { fill: rgb(151 84 48 / .35); stroke: #784328; stroke-width: 1.8; vector-effect: non-scaling-stroke; }
+
+.building-roof-face.roof-flat { fill: rgb(118 113 104 / .3); stroke: #646059; }
+
+.building-chimney-front { fill: #95513f; stroke: #4a2f27; stroke-width: 1.8; vector-effect: non-scaling-stroke; }
+
+.building-chimney-side { fill: #704134; stroke: #3e2923; stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+
+.building-chimney-cap { fill: #292724; stroke: #151413; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+
+.building-chimney-course { stroke: rgb(242 225 204 / .58); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
+
+.building-floor-label { pointer-events: none; }
+
+.building-floor-label rect { fill: rgb(255 255 255 / .94); stroke: var(--line-strong); filter: drop-shadow(0 3px 8px rgb(13 39 31 / .1)); }
+
+.building-floor-label text { fill: var(--ink); font-size: 11px; font-weight: 700; }
+
+.building-floor-label .sub-label { fill: var(--muted); font-size: 11px; font-weight: 500; }
+
+.building-observation { color: var(--blue); pointer-events: none; }
+
+.building-observation.warning { color: var(--orange); }
+
+.building-observation.critical { color: var(--red); }
+
+.building-observation.resolved { color: var(--positive); opacity: .68; }
+
+.building-observation path { fill: currentColor; stroke: #fff; stroke-width: 2; filter: drop-shadow(0 3px 4px rgb(13 39 31 / .24)); }
+
+.building-observation text { fill: #fff; font-size: 11px; font-weight: 800; pointer-events: none; }
+
+.building-sensor { cursor: pointer; outline: none; pointer-events: bounding-box; }
+
+.building-sensor-hit { fill: transparent; pointer-events: all; }
+
+.sensor-tether { stroke: #6b6f67; stroke-width: 1.4; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+
+.building-sensor-ring { fill: rgb(255 255 255 / .88); stroke: var(--pine); stroke-width: 2.5; transition: r .15s ease, stroke-width .15s ease; }
+
+.building-sensor-core { fill: var(--pine); stroke: #fff; stroke-width: 2; }
+
+.building-sensor.selected .building-sensor-ring { fill: #dce8ff; stroke-width: 4; }
+
+.building-sensor.stale { opacity: .58; }
+
+.building-sensor.stale .building-sensor-core { fill: var(--muted); }
+
+.building-sensor:hover .building-sensor-ring, .building-sensor:focus-visible .building-sensor-ring { r: 24; stroke: var(--pine); stroke-width: 4; }
+
+.building-sensor-value { fill: #fff; font-family: "Manrope", sans-serif; font-size: 11px; font-weight: 800; }
+
+.building-sensor-name { fill: var(--ink); font-size: 11px; font-weight: 700; paint-order: stroke; stroke: rgb(255 255 255 / .94); stroke-width: 4px; stroke-linejoin: round; }
+
+.building-sensor.energy-device .building-sensor-ring { stroke: var(--orange); }
+
+.building-sensor.energy-device .building-sensor-core { fill: var(--orange); }
+
+.building-sensor.energy-device.stale .building-sensor-core { fill: var(--muted); }
+
+.building-sensor-energy-glyph { fill: #fff; pointer-events: none; }
+
+.building-sensor-energy-stats { fill: #7a3f10; font-family: "Manrope", sans-serif; font-size: 10px; font-weight: 800; paint-order: stroke; stroke: rgb(255 255 255 / .94); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+
+.vertical-gradient line { stroke: var(--orange); stroke-width: 3; stroke-dasharray: 7 6; vector-effect: non-scaling-stroke; }
+
+.building-flow-path { fill: none; stroke: var(--pine); stroke-width: 2.5; stroke-dasharray: 7 7; opacity: .82; vector-effect: non-scaling-stroke; }
+
+.building-volume-vector.has-z .building-flow-path { stroke: var(--orange); }
+
+.building-flow-particle { fill: var(--panel); stroke: var(--pine); stroke-width: 2; }
+
+.building-volume-vector.has-z .building-flow-particle { stroke: var(--orange); }
+
+.simulated-building-flow-path, .building-volume-vector.has-z .simulated-building-flow-path { stroke: var(--aqua); stroke-width: 3; stroke-dasharray: 10 7; stroke-linecap: round; opacity: .86; }
+
+.simulated-volume-flow .building-flow-particle, .simulated-volume-flow.has-z .building-flow-particle { stroke: var(--aqua); }
+
+.building-arrow-head { fill: var(--pine); }
+
+.vertical-arrow-head { fill: var(--orange); }
+
+.vertical-flow-particle { fill: #fff; stroke: var(--orange); stroke-width: 2; }
+
+.vertical-gradient rect { fill: rgb(255 255 255 / .94); stroke: var(--line-strong); }
+
+.vertical-gradient text { fill: var(--ink); font-size: 9.5px; font-weight: 700; }
+
+.vertical-gradient .sub-label { fill: var(--muted); font-size: 7.8px; font-weight: 500; }
+
+.building-legend { min-height: 38px; padding: 7px 13px; display: flex; align-items: center; gap: 18px; border-top: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: 11px; }
+
+.building-legend-content { display: contents; }
+
+.building-legend .map-information-toggle { flex: 0 0 auto; margin-left: auto; box-shadow: none; }
+
+.building-legend.collapsed { justify-content: flex-end; }
+
+.building-legend span { display: inline-flex; align-items: center; gap: 7px; }
+
+.building-legend .building-airflow-key { max-width: 540px; align-items: flex-start; }
+
+.building-legend .building-airflow-key > span { display: grid; gap: 1px; }
+
+.building-legend .building-airflow-key strong { color: var(--ink); font-size: 11px; }
+
+.building-legend .building-airflow-key small { color: var(--muted); line-height: 1.3; }
+
+.building-legend .heat-gradient { width: 78px; height: 7px; }
+
+.vertical-key { width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: 50%; color: var(--orange); background: var(--orange-soft); font-style: normal; font-size: 14px; font-weight: 800; }
+
+.volume-vector-key { width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: 50%; color: var(--pine); background: var(--pine-soft); font-style: normal; font-size: 14px; font-weight: 800; }
+
+.volume-vector-key.simulated { color: var(--aqua); background: rgb(0 111 158 / .11); }
+
+.building-help { margin: 0; padding: 0 13px 9px; color: var(--muted); background: var(--panel); font-size: 11px; }
+
+
+.sensor-inspector { padding: 20px 17px; border-left: 1px solid var(--line); background: var(--panel); }
+
+.sensor-inspector.editing { padding: 16px 14px; }
+
+.sensor-heading { display: flex; gap: 11px; align-items: center; padding-bottom: 17px; border-bottom: 1px solid var(--line); }
+
+.sensor-heading h2 { margin: 3px 0; font-family: "Manrope", sans-serif; font-size: 16px; }

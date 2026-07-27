@@ -19,7 +19,7 @@ struct RootView: View {
             case .ownerSetupRequired:
                 OwnerSetupRequiredView()
             case .ready:
-                MainTabView()
+                ReadyExperienceView()
             }
         }
         .foregroundStyle(StuguTheme.ink)

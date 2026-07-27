@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, ApiRequestError } from "../api";
 import { I18nProvider } from "../i18n";
 import { OutdoorWeatherPage, OutdoorWeatherView } from "./OutdoorWeatherPage";
-import outdoorStyles from "./OutdoorWeatherPage.css?raw";
+import { outdoorWeatherStyles as outdoorStyles } from "../test/styleSources";
 
 const house: House = {
   id: "house-coast",
