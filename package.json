@@ -1,6 +1,6 @@
 {
   "name": "climate-twin",
-  "version": "0.14.2",
+  "version": "0.15.0",
   "private": true,
   "license": "MIT",
   "description": "A local-first digital twin for extensible whole-home environmental telemetry.",
@@ -46,6 +46,7 @@
     "migrate": "node scripts/stugu-live-migrate.mjs",
     "version:check": "node scripts/check-version.mjs",
     "version:check-pr": "node scripts/check-version.mjs --require-base-bump",
+    "release:local": "node scripts/publish-local-release.mjs",
     "mcp": "npm run build:packages && npm run mcp --workspace @climate-twin/api",
     "tracking:simulate": "tsx apps/api/src/tracking/simulator.ts"
   },

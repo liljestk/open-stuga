@@ -1,18 +1,21 @@
-name: Raspberry Pi release
+name: Raspberry Pi release (manual fallback)
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing GitHub release tag to build (for example v0.3.0)
+        description: Existing GitHub release tag to rebuild (for example v0.15.0)
         required: true
         type: string
+      confirm_hosted_build:
+        description: Confirm use of hosted runners for all Linux and Pi images
+        required: true
+        default: false
+        type: boolean
       deploy:
         description: Deploy to the configured Raspberry Pi after publishing
         required: true
-        default: true
+        default: false
         type: boolean
 
 permissions:
@@ -20,16 +23,17 @@ permissions:
   packages: write
 
 concurrency:
-  group: rpi-release-${{ github.event.release.tag_name || inputs.release_tag }}
+  group: rpi-release-${{ inputs.release_tag }}
   cancel-in-progress: false
 
 env:
-  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+  RELEASE_TAG: ${{ inputs.release_tag }}
   IMAGE_PREFIX: ghcr.io/${{ github.repository }}
 
 jobs:
   containers:
     name: Container (${{ matrix.target }})
+    if: ${{ inputs.confirm_hosted_build }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:

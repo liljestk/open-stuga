@@ -18,14 +18,15 @@ package updates.
 - The first boot expands the final persistent partition to fill the external
   disk.
 - Docker and containerd state are shared across both OS slots.
-- CI-built factory and OTA images pull release-tagged, digest-pinned ARM64
-  containers and wait for their health checks. A local factory build uses the
-  release tag unless you supply exact image references.
+- Locally built factory and OTA images pull release-tagged, digest-pinned ARM64
+  containers and wait for their health checks.
 - If new application containers fail, the startup service restores the last
   known-good image set.
-- A GitHub Release builds multi-architecture containers, creates an OTA
-  artifact, attaches it to the release, registers it with Raspberry Pi
-  Connect, deploys it, and waits for the result.
+- One guarded local command builds and publishes the multi-architecture
+  containers, creates the Pi artifacts, publishes the GitHub Release, and can
+  optionally deploy it through Raspberry Pi Connect.
+- GitHub's hosted release workflow is manual fallback only. Publishing a
+  release does not start an expensive hosted image build.
 
 Raspberry Pi's A/B mechanism protects against an unbootable OS update. The
 application fallback is an additional safeguard; it does not replace an
@@ -44,18 +45,21 @@ For the appliance:
 
 For image builds:
 
-- The release workflow uses GitHub's native `ubuntu-24.04-arm` runner and runs
-  `rpi-image-gen` in a privileged, digest-pinned Debian Trixie container.
-- Add the recovery public key as the repository secret
-  `RPI_FACTORY_SSH_PUBLIC_KEY`. Keep the matching private key off GitHub.
-- `rpi-image-gen` recommends at least 20 GB of free build space. The workflow
-  reports the hosted runner's allocation before building. If a standard runner
-  is too small for a future image, use an ARM64 larger or self-hosted runner
-  with at least 20 GB while keeping the Debian build container unchanged.
+- Node.js 22.13 or newer, Git, GitHub CLI, and Docker with Buildx.
+- Docker must support privileged Linux containers and either native ARM64 or
+  ARM64 emulation. Current Docker Desktop is sufficient.
+- Authenticate GitHub CLI for the repository and GHCR package writes. Set
+  `GHCR_TOKEN` and `GHCR_USERNAME` when the GitHub CLI token cannot write
+  packages.
+- Keep the recovery private key off GitHub. The local publisher reads only its
+  public key.
+- `rpi-image-gen` recommends at least 20 GB of free Docker/build space.
 
 The build runner is deliberately separate from the immutable appliance. A
 local build remains available on a current 64-bit Raspberry Pi OS Trixie,
-Debian Trixie, or Debian Bookworm host.
+Debian Trixie, Debian Bookworm, Windows, macOS, or Linux host with compatible
+Docker. The manual fallback workflow retains the native
+`ubuntu-24.04-arm` path and requires explicit hosted-build confirmation.
 
 ## 1. Prepare USB boot
 
@@ -106,9 +110,9 @@ install -m 0600 /dev/null /tmp/stugu-connect.authkey
 nano /tmp/stugu-connect.authkey
 ```
 
-This is a per-device auth key, not the organisation management API token. The
-management token must only be stored in GitHub Actions or another trusted CI
-system.
+This is a per-device auth key, not the organisation management API token. Keep
+the management token in a trusted local secret store or in GitHub Actions only
+for the manual fallback.
 
 For Wi-Fi, create an iwd file named exactly `<SSID>.psk`:
 
@@ -153,32 +157,61 @@ The outputs are written to `dist/rpi/`:
 If supplied, the factory image contains the single-use Connect key, so it is
 mode `0600`. Do not upload such an image to a public release. Delete it after
 the disk is installed and verified. OTA artifacts do not contain the
-persistent Connect identity. The CI factory image described below embeds only
+persistent Connect identity. The local publisher and hosted fallback embed only
 the recovery SSH public key, never its private key or a Connect auth key.
 
-## 4. Publish the matching application images
+## 4. Publish the release locally
 
 The appliance pulls immutable images tagged with the Git release, for example
-`v0.4.0`. Before publishing the first release:
+`v0.15.0`. Before publishing the first release, create a dedicated recovery
+key:
 
-1. Create a dedicated recovery key with
-   `ssh-keygen -t ed25519 -f ~/.ssh/stuga_appliance`.
-2. Add `~/.ssh/stuga_appliance.pub` as the repository secret
-   `RPI_FACTORY_SSH_PUBLIC_KEY`.
-3. Publish the existing tag as a GitHub Release.
+```sh
+ssh-keygen -t ed25519 -f ~/.ssh/stuga_appliance
+```
 
-The workflow builds on GitHub's native hosted ARM64 runner. It attaches only
-the OTA image and its checksum to the public release. The factory image and a
-separate factory checksum are uploaded to that workflow run as an uncompressed
-Actions artifact retained for three days. Download it before the retention
-window expires; it can be rebuilt by rerunning the release workflow.
+Install dependencies, commit the tested release, and push its immutable tag:
 
-The `Raspberry Pi release` workflow publishes these GHCR packages:
+```sh
+npm ci
+git tag v0.15.0
+git push origin main v0.15.0
+```
+
+Preview the resolved local release plan:
+
+```sh
+npm run release:local -- --ssh-public-key "$HOME/.ssh/stuga_appliance.pub"
+```
+
+Add `--publish` to execute it:
+
+```sh
+npm run release:local -- \
+  --ssh-public-key "$HOME/.ssh/stuga_appliance.pub" \
+  --publish
+```
+
+The command requires a clean checkout at the pushed tag on `origin/main`. It
+runs the release checks, builds and pushes all AMD64/ARM64 containers, resolves
+their registry digests, builds the Pi OTA and factory images in a pinned
+privileged ARM64 Debian container, creates a draft GitHub Release, uploads the
+OTA and checksum, and then publishes the release.
+
+The factory image remains under `dist/rpi/` by default. Add
+`--upload-factory` only when it contains no Connect auth key, Wi-Fi profile, or
+other provisioning secret. Use `--notes-file PATH` for curated notes, or let
+GitHub generate them. After a partial failure that already published all
+containers, `--reuse-containers` skips rebuilding and resolves their existing
+digests.
+
+The local publisher creates these GHCR packages:
 
 - `ghcr.io/liljestk/open-stuga-api:<tag>`
 - `ghcr.io/liljestk/open-stuga-web:<tag>`
 - `ghcr.io/liljestk/open-stuga-backup:<tag>`
 - `ghcr.io/liljestk/open-stuga-tapo-export-runner:<tag>`
+- `ghcr.io/liljestk/open-stuga-update-agent:<tag>`
 
 Make the packages public so the appliance can pull anonymously. If they must
 remain private, sign in once on the appliance with a read-only package token:
@@ -188,9 +221,14 @@ DOCKER_CONFIG=/persistent/stugu/docker-config docker login ghcr.io
 stuguctl restart
 ```
 
-The workflow's GitHub Release URL must be anonymously downloadable by the Pi.
+The GitHub Release URL must be anonymously downloadable by the Pi.
 For a private repository, upload the OTA artifact to a private HTTPS object
-store that the device can access and adjust the workflow's `RPI_OTA_URI`.
+store that the device can access and adjust `RPI_OTA_URI`.
+
+If local Docker is temporarily unavailable, manually dispatch
+**Raspberry Pi release (manual fallback)** with the existing tag and enable
+**Confirm use of hosted runners**. It performs the former hosted build and
+upload path. Deployment is a separate, default-off input.
 
 ## 5. Write the external disk once
 
@@ -266,34 +304,34 @@ In Raspberry Pi Connect for Organisations:
 2. Create a management API access token.
 3. Obtain the device UUID from the organisation device list/API.
 
-Add these GitHub Actions repository secrets:
+For local deployment, export these values from a trusted secret store:
 
-| Secret | Value |
+| Variable | Value |
 | --- | --- |
 | `RPI_CONNECT_API_TOKEN` | Organisation management API token |
 | `RPI_CONNECT_DEVICE_ID` | The appliance's Connect device UUID |
 
 The management token is administrator-equivalent. Never put it in an image,
-repository variable, `.env`, or appliance filesystem.
+repository file, `.env`, or appliance filesystem. The same names may remain as
+GitHub Actions secrets for the manual fallback.
 
 For every later release:
 
 1. Update and test the code.
 2. Bump `package.json`, `package-lock.json`, and the changelog consistently.
-3. Tag that commit, for example `v0.3.1`.
-4. Publish the tag as a GitHub Release.
+3. Commit and push `main`, then tag and push that exact commit.
+4. Run the local publisher with `--publish`.
 
-The workflow then builds the four multi-architecture images, freezes their
-registry digests into the OS release, builds the Trixie A/B artifact, attaches
-it and its checksum to the release, registers its HTTPS URL and SHA-256
+To register and deploy the uploaded OTA in the same command, also pass
+`--deploy` with `RPI_CONNECT_API_TOKEN` and `RPI_CONNECT_DEVICE_ID` present in
+the process environment. The publisher registers the HTTPS URL and SHA-256
 checksum with Connect, deploys it, and waits up to 30 minutes for success.
 Connect keeps an offline device's deployment pending so it can receive it when
-it reconnects. If that takes more than 30 minutes, the GitHub job reports a
+it reconnects. If that takes more than 30 minutes, the local command reports a
 polling timeout; the Connect deployment itself remains available to the device.
 
-Without Connect for Organisations, the build and upload remain automatic, but
-you must select the artifact and press **Deploy** in your personal Raspberry Pi
-Connect dashboard.
+Without Connect for Organisations, omit `--deploy`, then select the artifact
+and press **Deploy** in your personal Raspberry Pi Connect dashboard.
 
 ## Routine commands
 

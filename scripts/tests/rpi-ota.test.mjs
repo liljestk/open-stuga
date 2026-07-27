@@ -8,6 +8,12 @@ import {
   readConfig,
   waitForDeployment,
 } from "../deploy-rpi-ota.mjs";
+import {
+  artifactDefinitions,
+  imageDefinitions,
+  parseArguments,
+  repositoryFromRemote,
+} from "../publish-local-release.mjs";
 
 const baseEnv = {
   RPI_CONNECT_API_TOKEN: "secret-token",
@@ -72,20 +78,57 @@ test("the appliance layer and build overrides use the declared Stugu variable pr
   assert.doesNotMatch(`${layer}\n${buildScript}`, /IGconf_stuga_/);
 });
 
-test("the release workflow builds recoverable images on a hosted native ARM64 runner", async () => {
-  const workflow = await readFile(
-    new URL("../../.github/workflows/rpi-release.yml", import.meta.url),
-    "utf8",
-  );
+test("local publishing owns expensive builds and hosted release work is an explicit fallback", async () => {
+  const [workflow, publisher] = await Promise.all([
+    readFile(new URL("../../.github/workflows/rpi-release.yml", import.meta.url), "utf8"),
+    readFile(new URL("../publish-local-release.mjs", import.meta.url), "utf8"),
+  ]);
 
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /confirm_hosted_build:/);
+  assert.match(workflow, /if: \$\{\{ inputs\.confirm_hosted_build \}\}/);
   assert.match(workflow, /runs-on: ubuntu-24\.04-arm/);
-  assert.match(workflow, /docker run --rm --privileged --platform linux\/arm64/);
-  assert.match(workflow, /RPI_FACTORY_SSH_PUBLIC_KEY/);
-  assert.match(workflow, /actions\/upload-artifact@[0-9a-f]{40}/);
-  assert.match(workflow, /retention-days: 3/);
-  assert.match(workflow, /github\.event_name == 'workflow_dispatch' &&[\s\S]*inputs\.deploy &&/);
-  assert.doesNotMatch(workflow, /github\.event_name == 'release' \|\| inputs\.deploy/);
-  assert.doesNotMatch(workflow, /runs-on: \[self-hosted/);
+  assert.doesNotMatch(workflow, /^\s{2}release:\s*$/mu);
+  assert.doesNotMatch(workflow, /github\.event\.release/);
+
+  assert.match(publisher, /linux\/amd64,linux\/arm64/);
+  assert.match(publisher, /"buildx",\s*\n\s*"build"/);
+  assert.match(publisher, /scripts\/build-rpi-image\.sh/);
+  assert.match(publisher, /"release",\s*\n\s*"upload"/);
+  assert.match(publisher, /--publish/);
+});
+
+test("local release options and output names are deterministic", () => {
+  const options = parseArguments([
+    "--tag",
+    "v1.2.3",
+    "--ssh-public-key",
+    "recovery.pub",
+    "--publish",
+    "--reuse-containers",
+    "--upload-factory",
+  ]);
+  assert.equal(options.tag, "v1.2.3");
+  assert.equal(options.sshPublicKey, "recovery.pub");
+  assert.equal(options.publish, true);
+  assert.equal(options.reuseContainers, true);
+  assert.equal(options.uploadFactory, true);
+
+  assert.equal(
+    repositoryFromRemote("git@github.com:liljestk/open-stuga.git"),
+    "liljestk/open-stuga",
+  );
+  const images = imageDefinitions("ghcr.io/liljestk/open-stuga", "v1.2.3");
+  assert.deepEqual(
+    images.map(({ target }) => target),
+    ["api", "web", "backup", "tapo-export-runner", "update-agent"],
+  );
+  assert.equal(images[0].ref, "ghcr.io/liljestk/open-stuga-api:v1.2.3");
+
+  const artifacts = artifactDefinitions("/workspace", "1.2.3");
+  assert.match(artifacts.ota, /stugu-rpi4-1\.2\.3-ota\.tar\.zst$/);
+  assert.match(artifacts.factory, /stugu-rpi4-1\.2\.3\.img\.zst$/);
+  assert.notEqual(artifacts.combinedChecksum, artifacts.releaseChecksum);
 });
 
 test("the factory image export uses the portable zstd output option", async () => {

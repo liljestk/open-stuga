@@ -4,6 +4,13 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.15.0 - 2026-07-27
+
+- Move expensive AMD64/ARM64 container and Raspberry Pi artifact publishing to
+  a guarded local release command, with immutable image digest resolution,
+  release asset upload, optional Connect deployment, and an explicitly
+  confirmed GitHub-hosted fallback.
+
 ## 0.14.2 - 2026-07-27
 
 - Align the Raspberry Pi image-generator layer and build overrides on the
