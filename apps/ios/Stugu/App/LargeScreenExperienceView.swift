@@ -340,7 +340,7 @@ struct LargeScreenExperienceView: View {
             showingRoomScan = true
         case let .equipment(code):
             Task {
-                selectedEquipment = await model.resolveEquipmentCode(code)
+                selectedEquipment = await model.resolveEquipmentCode(code)?.equipment
             }
         }
         model.consumeDeepLink()
