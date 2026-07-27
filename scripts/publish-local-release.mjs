@@ -15,7 +15,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const arm64BuilderImage =
+const rpiBuilderImage =
   "debian:trixie-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd";
 const containerTargets = [
   ["api", "api"],
@@ -363,7 +363,7 @@ function buildRaspberryPi({
     "--rm",
     "--privileged",
     "--platform",
-    "linux/arm64",
+    "linux/amd64",
     "--volume",
     `${root}:/workspace`,
     "--volume",
@@ -384,6 +384,7 @@ function buildRaspberryPi({
     RPI_EXPORT_FACTORY_IMAGE: "1",
     RPI_IMAGE_GEN_INSTALL_DEPS: "1",
     RPI_SSH_PUBLIC_KEY_FILE: "/run/secrets/stugu-appliance.pub",
+    ARCH: "arm64",
   };
   if (typeof process.getuid === "function" && typeof process.getgid === "function") {
     variables.HOST_UID = String(process.getuid());
@@ -393,13 +394,15 @@ function buildRaspberryPi({
     dockerArguments.push("--env", `${name}=${value}`);
   }
   dockerArguments.push(
-    arm64BuilderImage,
+    rpiBuilderImage,
     "bash",
     "-c",
     [
       "set -Eeuo pipefail",
       "apt-get update",
-      "apt-get install --yes --no-install-recommends ca-certificates git zstd",
+      "apt-get install --yes --no-install-recommends binfmt-support ca-certificates debian-archive-keyring git qemu-user-static zstd",
+      "mountpoint --quiet /proc/sys/fs/binfmt_misc || mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc",
+      "test -r /proc/sys/fs/binfmt_misc/aarch64 || test -r /proc/sys/fs/binfmt_misc/qemu-aarch64",
       "bash scripts/build-rpi-image.sh",
       'if [[ -n "${HOST_UID:-}" ]]; then chown -R "$HOST_UID:$HOST_GID" dist/rpi; fi',
     ].join("\n"),
