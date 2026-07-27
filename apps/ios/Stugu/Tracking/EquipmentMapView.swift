@@ -126,7 +126,7 @@ struct EquipmentMapView: View {
             set: { selectedEquipmentID = $0?.id }
         )) { equipment in
             EquipmentDetailView(
-                asset: model.trackedState(for: equipment.id)
+                state: model.trackedState(for: equipment.id)
                     ?? TrackedEquipmentState(equipment: equipment),
                 snapshot: model.trackingSnapshot,
                 tracker: tracker
@@ -140,8 +140,8 @@ struct EquipmentMapView: View {
                     return
                 }
                 Task {
-                    if let asset = await model.resolveEquipmentCode(code) {
-                        selectedEquipmentID = asset.id
+                    if let state = await model.resolveEquipmentCode(code) {
+                        selectedEquipmentID = state.id
                     }
                 }
             }
@@ -238,8 +238,8 @@ struct EquipmentMapView: View {
             ? snapshot?.zones ?? []
             : model.selectedPropertyAreas
         let boundary = propertyBoundary(snapshot: snapshot)
-        let assets = filteredAssets(snapshot?.assets ?? [])
-        let selected = assets.first { $0.id == selectedEquipmentID }
+        let states = filteredEquipmentStates(snapshot?.equipment ?? [])
+        let selected = states.first { $0.id == selectedEquipmentID }
         return VStack(spacing: 0) {
             VStack(spacing: 10) {
                 displayModePicker
@@ -281,7 +281,7 @@ struct EquipmentMapView: View {
                 if let selected,
                    let position = selected.position,
                    let coordinate = position.coordinate,
-                   let radius = position.accuracyRadiusMeters {
+                   let radius = position.uncertaintyRadiusMeters {
                     MapCircle(center: coordinate.clCoordinate, radius: radius)
                         .foregroundStyle(StuguTheme.action.opacity(0.12))
                         .stroke(StuguTheme.action.opacity(0.75), lineWidth: 1.5)
@@ -316,19 +316,19 @@ struct EquipmentMapView: View {
                         MemberLocationMarker(member: member)
                     }
                 }
-                ForEach(assets) { asset in
-                    if let coordinate = displayCoordinate(for: asset, zones: zones) {
-                        Annotation(asset.equipment.name, coordinate: coordinate) {
+                ForEach(states) { state in
+                    if let coordinate = displayCoordinate(for: state, zones: zones) {
+                        Annotation(state.equipment.name, coordinate: coordinate) {
                             Button {
-                                selectedEquipmentID = asset.id
+                                selectedEquipmentID = state.id
                             } label: {
                                 EquipmentMarker(
-                                    asset: asset,
-                                    selected: selectedEquipmentID == asset.id
+                                    state: state,
+                                    selected: selectedEquipmentID == state.id
                                 )
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel(markerAccessibility(asset, zones: zones))
+                            .accessibilityLabel(markerAccessibility(state, zones: zones))
                         }
                     }
                 }
@@ -346,7 +346,7 @@ struct EquipmentMapView: View {
             }
             .frame(minHeight: 280)
 
-            assetTray(assets, zones: zones)
+            equipmentTray(states, zones: zones)
                 .frame(maxHeight: 260)
         }
         .refreshable {
@@ -743,13 +743,13 @@ struct EquipmentMapView: View {
         }
     }
 
-    private func assetTray(
-        _ assets: [TrackedEquipmentState],
+    private func equipmentTray(
+        _ states: [TrackedEquipmentState],
         zones: [PropertyArea]
     ) -> some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                if assets.isEmpty {
+                if states.isEmpty {
                     VStack(spacing: 6) {
                         Label("No mapped items match", systemImage: "map")
                             .font(.subheadline.weight(.semibold))
@@ -760,7 +760,7 @@ struct EquipmentMapView: View {
                     .frame(maxWidth: .infinity)
                     .padding(20)
                 }
-                let unknown = assets.filter {
+                let unknown = states.filter {
                     displayCoordinate(for: $0, zones: zones) == nil
                 }
                 if !unknown.isEmpty {
@@ -775,13 +775,13 @@ struct EquipmentMapView: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
                 }
-                ForEach(assets) { asset in
+                ForEach(states) { state in
                     Button {
-                        selectedEquipmentID = asset.id
+                        selectedEquipmentID = state.id
                     } label: {
                         EquipmentRow(
-                            asset: asset,
-                            zoneName: zoneName(for: asset, zones: zones)
+                            state: state,
+                            zoneName: zoneName(for: state, zones: zones)
                         )
                     }
                     .buttonStyle(.plain)
@@ -800,8 +800,8 @@ struct EquipmentMapView: View {
         }
     }
 
-    private func filteredAssets(_ assets: [TrackedEquipmentState]) -> [TrackedEquipmentState] {
-        let available = Dictionary(uniqueKeysWithValues: assets.map { ($0.id, $0) })
+    private func filteredEquipmentStates(_ states: [TrackedEquipmentState]) -> [TrackedEquipmentState] {
+        let available = Dictionary(uniqueKeysWithValues: states.map { ($0.id, $0) })
         return filteredInventory(model.selectedPropertyEquipment).map { item in
             model.trackedState(for: item.id)
                 ?? available[item.id]
@@ -845,11 +845,11 @@ struct EquipmentMapView: View {
             case .moving:
                 return tracked?.position?.movementState == "moving"
             case .lowBattery:
-                return (tracked?.tag?.batteryPercent ?? 101) <= 20
+                return (tracked?.endpoint?.reportedBatteryPercent ?? 101) <= 20
             case .notSeen:
                 guard let tracked else { return false }
-                return ["last-known", "stale", "unknown"].contains(
-                    tracked.position?.freshnessState ?? "unknown"
+                return ["aging", "stale", "unknown"].contains(
+                    tracked.position?.freshness ?? "unknown"
                 )
             }
         }.sorted {
@@ -865,9 +865,9 @@ struct EquipmentMapView: View {
     private func needsAttention(_ item: AreaEquipment) -> Bool {
         if item.status == "out-of-service" { return true }
         guard let tracked = model.trackedState(for: item.id) else { return false }
-        if (tracked.tag?.batteryPercent ?? 101) <= 20 { return true }
+        if (tracked.endpoint?.reportedBatteryPercent ?? 101) <= 20 { return true }
         return ["stale", "unknown"].contains(
-            tracked.position?.freshnessState ?? "unknown"
+            tracked.position?.freshness ?? "unknown"
         )
     }
 
@@ -973,15 +973,15 @@ struct EquipmentMapView: View {
     }
 
     private func displayCoordinate(
-        for asset: TrackedEquipmentState,
+        for state: TrackedEquipmentState,
         zones: [PropertyArea]
     ) -> CLLocationCoordinate2D? {
-        if let position = asset.position,
-           position.freshnessState != "unknown",
+        if let position = state.position,
+           position.freshness != "unknown",
            let coordinate = position.coordinate {
             return coordinate.clCoordinate
         }
-        if let zoneID = asset.position?.zoneId,
+        if let zoneID = state.position?.zoneId,
            let zone = zones.first(where: { $0.id == zoneID }) {
             if let location = zone.location { return location.clCoordinate }
             if !zone.polygon.isEmpty {
@@ -993,10 +993,10 @@ struct EquipmentMapView: View {
                 )
             }
         }
-        if let location = asset.equipment.location {
+        if let location = state.equipment.location {
             return location.clCoordinate
         }
-        if let houseID = asset.equipment.houseId,
+        if let houseID = state.equipment.houseId,
            let home = model.selectedPropertyHouses.first(where: { $0.id == houseID }) {
             if let placement = home.mapPlacement {
                 return CLLocationCoordinate2D(
@@ -1011,7 +1011,7 @@ struct EquipmentMapView: View {
                 )
             }
         }
-        guard let areaID = asset.equipment.areaId,
+        guard let areaID = state.equipment.areaId,
               let area = model.selectedPropertyAreas.first(where: { $0.id == areaID }) else {
             return nil
         }
@@ -1028,35 +1028,35 @@ struct EquipmentMapView: View {
     }
 
     private func zoneName(
-        for asset: TrackedEquipmentState,
+        for state: TrackedEquipmentState,
         zones: [PropertyArea]
     ) -> String? {
-        guard let zoneID = asset.position?.zoneId else { return nil }
+        guard let zoneID = state.position?.zoneId else { return nil }
         return zones.first { $0.id == zoneID }?.name
     }
 
     private func markerAccessibility(
-        _ asset: TrackedEquipmentState,
+        _ state: TrackedEquipmentState,
         zones: [PropertyArea]
     ) -> String {
         let location: String
-        if asset.position == nil {
-            if asset.equipment.location != nil {
+        if state.position == nil {
+            if state.equipment.location != nil {
                 location = "Pinned expected location"
-            } else if asset.equipment.houseId != nil {
+            } else if state.equipment.houseId != nil {
                 location = "Expected at assigned Home"
-            } else if asset.equipment.areaId != nil {
+            } else if state.equipment.areaId != nil {
                 location = "Expected in assigned area"
             } else {
                 location = "Unknown location"
             }
         } else {
             location = TrackingPresentation.locationText(
-                asset,
-                zoneName: zoneName(for: asset, zones: zones)
+                state,
+                zoneName: zoneName(for: state, zones: zones)
             )
         }
-        return "\(asset.equipment.name), \(location)"
+        return "\(state.equipment.name), \(location)"
     }
 
     private var validPlacementFilterIDs: Set<String> {
@@ -1209,14 +1209,14 @@ private struct MemberLocationMarker: View {
 }
 
 private struct EquipmentMarker: View {
-    let asset: TrackedEquipmentState
+    let state: TrackedEquipmentState
     let selected: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulsing = false
 
     var body: some View {
         ZStack {
-            if asset.position?.freshnessState == "live", !reduceMotion {
+            if state.position?.freshness == "live", !reduceMotion {
                 Circle()
                     .fill(StuguTheme.success.opacity(0.25))
                     .frame(width: pulsing ? 46 : 28, height: pulsing ? 46 : 28)
@@ -1232,7 +1232,7 @@ private struct EquipmentMarker: View {
                 .shadow(radius: 2, y: 1)
         }
         .onAppear {
-            guard asset.position?.freshnessState == "live", !reduceMotion else { return }
+            guard state.position?.freshness == "live", !reduceMotion else { return }
             withAnimation(.easeOut(duration: 1.8).repeatForever(autoreverses: false)) {
                 pulsing = true
             }
@@ -1240,21 +1240,21 @@ private struct EquipmentMarker: View {
     }
 
     private var markerColor: Color {
-        switch asset.position?.freshnessState {
+        switch state.position?.freshness {
         case "live": StuguTheme.success
         case "recent": StuguTheme.action
-        case "last-known", "stale": StuguTheme.muted
+        case "aging", "stale": StuguTheme.muted
         default: StuguTheme.strongLine
         }
     }
 
     private var markerSymbol: String {
-        asset.position?.movementState == "moving" ? "arrow.up.right" : "wrench.and.screwdriver.fill"
+        state.position?.movementState == "moving" ? "arrow.up.right" : "wrench.and.screwdriver.fill"
     }
 }
 
 private struct EquipmentRow: View {
-    let asset: TrackedEquipmentState
+    let state: TrackedEquipmentState
     let zoneName: String?
 
     var body: some View {
@@ -1265,7 +1265,7 @@ private struct EquipmentRow: View {
                 .background(StuguTheme.action.opacity(0.1))
                 .clipShape(Circle())
             VStack(alignment: .leading, spacing: 3) {
-                Text(asset.equipment.name)
+                Text(state.equipment.name)
                     .font(.subheadline.weight(.semibold))
                 Text(locationText)
                     .font(.caption)
@@ -1273,7 +1273,7 @@ private struct EquipmentRow: View {
                     .lineLimit(1)
             }
             Spacer()
-            if let battery = asset.tag?.batteryPercent {
+            if let battery = state.endpoint?.reportedBatteryPercent {
                 Label("\(battery)%", systemImage: battery <= 20 ? "battery.25" : "battery.75")
                     .labelStyle(.titleAndIcon)
                     .font(.caption.monospacedDigit())
@@ -1290,12 +1290,12 @@ private struct EquipmentRow: View {
     }
 
     private var locationText: String {
-        guard asset.position == nil else {
-            return TrackingPresentation.locationText(asset, zoneName: zoneName)
+        guard state.position == nil else {
+            return TrackingPresentation.locationText(state, zoneName: zoneName)
         }
-        if asset.equipment.location != nil { return "Pinned expected location" }
-        if asset.equipment.houseId != nil { return "Expected at assigned Home" }
-        if asset.equipment.areaId != nil { return "Expected in assigned area" }
+        if state.equipment.location != nil { return "Pinned expected location" }
+        if state.equipment.houseId != nil { return "Expected at assigned Home" }
+        if state.equipment.areaId != nil { return "Expected in assigned area" }
         return "Unknown location"
     }
 }
@@ -1338,7 +1338,7 @@ private struct InventoryEquipmentRow: View {
                     Text(statusText)
                         .font(.caption2.weight(.bold))
                         .foregroundStyle(statusColor)
-                    if let battery = tracked?.tag?.batteryPercent {
+                    if let battery = tracked?.endpoint?.reportedBatteryPercent {
                         Label("\(battery)%", systemImage: battery <= 20 ? "battery.25" : "battery.75")
                             .font(.caption2.monospacedDigit())
                             .foregroundStyle(battery <= 20 ? StuguTheme.warning : StuguTheme.muted)
@@ -1382,5 +1382,13 @@ private struct InventoryEquipmentRow: View {
 private extension GeoCoordinate {
     var clCoordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+}
+
+private extension TrackingEndpoint {
+    var reportedBatteryPercent: Int? {
+        guard let raw = telemetry["batteryPercent"],
+              case let .number(value) = raw else { return nil }
+        return Int(value)
     }
 }

@@ -29,10 +29,10 @@ while positioning equipment.
 
 One record represents one physical item. Its nullable `areaId`, nullable
 `houseId`, and optional `location` describe the saved expected location, not a
-claim about its current position. If a BLE tag is assigned, tracking state
+claim about its current position. If a tracking endpoint is bound, tracking state
 joins through the same stable equipment identifier and is presented separately
 with freshness, confidence, observation time, and uncertainty. Maintenance and
-notes therefore keep working when tracking is disabled, a tag is replaced, or
+notes therefore keep working when tracking is disabled, an endpoint is replaced, or
 an item has not been observed recently.
 
 Each equipment record can optionally keep multiple item photos, manuals or
@@ -41,8 +41,8 @@ and documents are stored against the stable equipment ID, accept only the
 document and image types listed by the UI, and are limited to 10 MiB each.
 Removing equipment removes its attachments and links.
 
-The Property map includes inventory markers. A fresh tag estimate takes
-display priority, followed by a tag-confirmed area, saved pin, Home position,
+The Property map includes inventory markers. A fresh tracking estimate takes
+display priority, followed by an endpoint-confirmed area, saved pin, Home position,
 or area centre. Marker styling distinguishes observed estimates from saved
 fallbacks, and accuracy circles remain visible. The map loads only on request;
 only then does the browser request the live snapshot. Consented companion-app

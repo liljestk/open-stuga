@@ -194,6 +194,7 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
   context.app.get(`${context.prefix}/houses/:id/weather`, async (request, response) => {
       const house = context.database.getHouse(request.params.id as string);
       if (!house || !context.visibility(response).house(house.id)) throw new HttpError(404, "NOT_FOUND", "House not found");
+      context.stuguby.assertHouseLocalAuthority(house.id);
       if (!house.location) {
         throw new HttpError(409, "HOUSE_LOCATION_REQUIRED", "Set the house location before requesting weather");
       }
@@ -224,6 +225,7 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
   context.app.get(`${context.v2Prefix}/houses/:id/outdoor-temperature/history`, async (request, response) => {
       const house = context.database.getHouse(request.params.id as string);
       if (!house || !context.visibility(response).house(house.id)) throw new HttpError(404, "NOT_FOUND", "House not found");
+      context.stuguby.assertHouseLocalAuthority(house.id);
       const to = dateValue(request.query.to, new Date(), "to");
       const from = dateValue(request.query.from, new Date(Date.parse(to) - 24 * 3_600_000), "from");
       if (Date.parse(from) > Date.parse(to)) throw new HttpError(400, "INVALID_RANGE", "from must be before to");

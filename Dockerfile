@@ -29,6 +29,8 @@ COPY packages/spatial-layers ./packages/spatial-layers
 COPY packages/stuguby-protocol ./packages/stuguby-protocol
 COPY scripts/init-runtime-secrets.mjs scripts/migrate-telemetry-to-timescale.mjs \
   scripts/sqlite-snapshot-utils.mjs scripts/stugu-backup.mjs ./scripts/
+COPY scripts/migrate-telemetry-to-timescale ./scripts/migrate-telemetry-to-timescale
+COPY scripts/stugu-backup ./scripts/stugu-backup
 
 RUN npm run build:packages && npm run build --workspace @climate-twin/api
 
@@ -129,8 +131,10 @@ COPY --from=api-build --chown=node:node /app/packages/stuguby-protocol/package.j
 COPY --from=api-build --chown=node:node /app/packages/stuguby-protocol/dist ./packages/stuguby-protocol/dist
 COPY --from=api-build --chown=node:node /app/scripts/init-runtime-secrets.mjs ./scripts/init-runtime-secrets.mjs
 COPY --from=api-build --chown=node:node /app/scripts/migrate-telemetry-to-timescale.mjs ./scripts/migrate-telemetry-to-timescale.mjs
+COPY --from=api-build --chown=node:node /app/scripts/migrate-telemetry-to-timescale ./scripts/migrate-telemetry-to-timescale
 COPY --from=api-build --chown=node:node /app/scripts/sqlite-snapshot-utils.mjs ./scripts/sqlite-snapshot-utils.mjs
 COPY --from=api-build --chown=node:node /app/scripts/stugu-backup.mjs ./scripts/stugu-backup.mjs
+COPY --from=api-build --chown=node:node /app/scripts/stugu-backup ./scripts/stugu-backup
 
 USER node
 
@@ -167,6 +171,7 @@ COPY --from=node-base /usr/local/bin/node /usr/local/bin/node
 COPY package.json ./package.json
 COPY scripts/sqlite-snapshot-utils.mjs scripts/stugu-backup.mjs scripts/stugu-backup-scheduler.mjs scripts/stugu-restore-drill.mjs \
   scripts/stugu-migration-common.mjs scripts/stugu-migration-bundle.mjs scripts/stugu-migration-target.mjs ./scripts/
+COPY scripts/stugu-backup ./scripts/stugu-backup
 COPY --chmod=755 scripts/export-scheduled-backups.sh ./scripts/export-scheduled-backups.sh
 
 RUN install -d -o 1000 -g 1000 -m 0700 /app/backups

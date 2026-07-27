@@ -126,8 +126,23 @@ registerStugubyServiceMethods({
           continue;
         }
         const projected = this.projectDataset(grant, house, dataset);
-        if (!projected) continue;
-        this.publishDataset(grant, dataset.dataset, projected, `${grant.publicationId}:${dataset.dataset}`, revision);
+        const resourceId = `${grant.publicationId}:${dataset.dataset}`;
+        if (projected) {
+          this.publishDataset(grant, dataset.dataset, projected, resourceId, revision);
+          continue;
+        }
+        this.distribute(this.createEvent({
+          stugubyId: grant.stugubyId,
+          eventKind: "dataset.published",
+          streamId: `dataset:${grant.id}:${dataset.dataset}`,
+          schema: dataset.dataset,
+          resourceId,
+          operation: "tombstone",
+          revision: Math.max(1, Math.min(Number.MAX_SAFE_INTEGER, revision)),
+          grantId: grant.id,
+          grantEpoch: grant.epoch,
+          payload: null,
+        }), grant);
       }
     },
   projectDataset(this: StugubyServiceInternals, grant: StugubyShareGrant, house: House, dataset: StugubyDatasetGrant): JsonValue | null {

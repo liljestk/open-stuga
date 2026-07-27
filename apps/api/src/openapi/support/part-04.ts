@@ -42,32 +42,39 @@ export const trackingObserverBearerSecurity = [{ trackingObserverBearer: [] }] a
 
 export const trackingPaths = {
   "/tracking/capabilities": {
-    get: { tags: ["Equipment tracking"], operationId: "getTrackingCapabilities", responses: { "200": jsonResponse("Feature-gated BLE tracking capabilities and wire protocol.", { $ref: "#/components/schemas/TrackingCapabilities" }) } },
+    get: { tags: ["Equipment tracking"], operationId: "getTrackingCapabilities", responses: { "200": jsonResponse("Versioned tracking capabilities independent of any one BLE product.", { $ref: "#/components/schemas/TrackingCapabilities" }) } },
+  },
+  "/tracking/profiles": {
+    get: { tags: ["Equipment tracking"], operationId: "getTrackingProfileManifest", responses: { "200": jsonResponse("Declarative, integrity-described advertisement profiles.", { $ref: "#/components/schemas/TrackingProfileManifest" }) } },
+  },
+  "/tracking/compatibility-assessments": {
+    post: { tags: ["Equipment tracking"], operationId: "assessTrackingCompatibility", requestBody: jsonRequestBody({ $ref: "#/components/schemas/TrackingCompatibilityAssessmentInput" }), responses: { "200": jsonResponse("Platform- and scan-context-specific compatibility assessment.", { type: "object", additionalProperties: false, required: ["assessment"], properties: { assessment: { $ref: "#/components/schemas/TrackingCompatibilityAssessment" } } }), "404": { description: "Profile version is not supported" } } },
   },
   "/properties/{propertyId}/tracking-settings": {
     parameters: [trackingPathParameter("propertyId")],
     get: { tags: ["Equipment tracking"], operationId: "getTrackingSettings", responses: { "200": jsonResponse("Property tracking thresholds and boundary.", { type: "object", required: ["settings"], properties: { settings: { $ref: "#/components/schemas/TrackingPropertySettings" } } }) } },
     patch: { tags: ["Equipment tracking"], operationId: "updateTrackingSettings", requestBody: jsonRequestBody(trackingObject), responses: { "200": jsonResponse("Updated property tracking settings.", { type: "object", required: ["settings"], properties: { settings: { $ref: "#/components/schemas/TrackingPropertySettings" } } }) } },
   },
-  "/tracking/tags": {
-    get: { tags: ["Equipment tracking"], operationId: "listTrackingTags", parameters: [{ name: "propertyId", in: "query", required: true, schema: { type: "string" } }], responses: { "200": jsonResponse("Registered tags without secret material.", { type: "object", required: ["tags"], properties: { tags: { type: "array", items: { $ref: "#/components/schemas/TrackingTag" } } } }) } },
-    post: { tags: ["Equipment tracking"], operationId: "createTrackingTag", requestBody: jsonRequestBody(trackingObject), responses: { "201": jsonResponse("Provisioned tag; secret material is returned only in this response.", trackingObject) } },
+  "/tracking/endpoints": {
+    get: { tags: ["Equipment tracking"], operationId: "listTrackingEndpoints", parameters: [{ name: "propertyId", in: "query", required: true, schema: { type: "string" } }], responses: { "200": jsonResponse("Claimed tracking endpoints, with no raw identity material.", { type: "object", additionalProperties: false, required: ["endpoints"], properties: { endpoints: { type: "array", items: { $ref: "#/components/schemas/TrackingEndpoint" } } } }) } },
+    post: { tags: ["Equipment tracking"], operationId: "enrollTrackingEndpoint", requestBody: jsonRequestBody({ $ref: "#/components/schemas/TrackingEndpointEnrollmentInput" }), responses: { "201": jsonResponse("Endpoint enrolled after physical or cryptographic proof.", { type: "object", additionalProperties: false, required: ["endpoint"], properties: { endpoint: { $ref: "#/components/schemas/TrackingEndpoint" } } }) } },
   },
-  "/tracking/tags/{tagId}/claim": {
-    parameters: [trackingPathParameter("tagId")],
-    post: { tags: ["Equipment tracking"], operationId: "claimTrackingTag", responses: { "200": jsonResponse("Claimed tag.", { type: "object", required: ["tag"], properties: { tag: { $ref: "#/components/schemas/TrackingTag" } } }) } },
+  "/tracking/endpoints/{endpointId}": {
+    parameters: [trackingPathParameter("endpointId")],
+    get: { tags: ["Equipment tracking"], operationId: "getTrackingEndpoint", responses: { "200": jsonResponse("Tracking endpoint metadata.", { type: "object", additionalProperties: false, required: ["endpoint"], properties: { endpoint: { $ref: "#/components/schemas/TrackingEndpoint" } } }) } },
   },
-  "/tracking/tags/{tagId}/assign": {
-    parameters: [trackingPathParameter("tagId")],
-    post: { tags: ["Equipment tracking"], operationId: "assignTrackingTag", requestBody: jsonRequestBody({ type: "object", additionalProperties: false, required: ["equipmentId"], properties: { equipmentId: { type: "string", minLength: 1 } } }), responses: { "201": jsonResponse("Created an immutable-history asset/tag assignment.", trackingObject) } },
+  "/tracking/endpoints/{endpointId}/status": {
+    parameters: [trackingPathParameter("endpointId")],
+    patch: { tags: ["Equipment tracking"], operationId: "updateTrackingEndpointStatus", requestBody: jsonRequestBody({ type: "object", additionalProperties: false, required: ["status"], properties: { status: { enum: ["CLAIMED", "DEGRADED", "REVOKED", "RETIRED"] } } }), responses: { "200": jsonResponse("Updated endpoint lifecycle status.", { type: "object", additionalProperties: false, required: ["endpoint"], properties: { endpoint: { $ref: "#/components/schemas/TrackingEndpoint" } } }) } },
   },
-  "/tracking/tags/{tagId}/assignment": {
-    parameters: [trackingPathParameter("tagId")],
-    delete: { tags: ["Equipment tracking"], operationId: "unassignTrackingTag", responses: { "200": jsonResponse("Closed the active asset/tag assignment.", trackingObject) } },
+  "/properties/{propertyId}/tracking-bindings": {
+    parameters: [trackingPathParameter("propertyId")],
+    get: { tags: ["Equipment tracking"], operationId: "listEquipmentTrackingBindings", parameters: [{ name: "history", in: "query", schema: { type: "boolean", default: false } }], responses: { "200": jsonResponse("Active or historical endpoint-to-equipment bindings.", { type: "object", additionalProperties: false, required: ["bindings"], properties: { bindings: { type: "array", items: { $ref: "#/components/schemas/EquipmentTrackingBinding" } } } }) } },
   },
-  "/tracking/tags/{tagId}/rotate-secret": {
-    parameters: [trackingPathParameter("tagId")],
-    post: { tags: ["Equipment tracking"], operationId: "rotateTrackingTagSecret", responses: { "200": jsonResponse("Rotated tag secret; new material is returned only in this response.", trackingObject) } },
+  "/area-equipment/{equipmentId}/tracking-binding": {
+    parameters: [trackingPathParameter("equipmentId")],
+    post: { tags: ["Equipment tracking"], operationId: "bindTrackingEndpoint", requestBody: jsonRequestBody({ $ref: "#/components/schemas/EquipmentTrackingBindingInput" }), responses: { "201": jsonResponse("Bound a claimed endpoint to canonical Property equipment.", { type: "object", additionalProperties: false, required: ["binding"], properties: { binding: { $ref: "#/components/schemas/EquipmentTrackingBinding" } } }) } },
+    delete: { tags: ["Equipment tracking"], operationId: "unbindTrackingEndpoint", responses: { "200": jsonResponse("Closed the active equipment binding while retaining history.", { type: "object", additionalProperties: false, required: ["binding"], properties: { binding: { $ref: "#/components/schemas/EquipmentTrackingBinding" } } }) } },
   },
   "/properties/{propertyId}/tracking-observers": {
     parameters: [trackingPathParameter("propertyId")],
@@ -80,6 +87,10 @@ export const trackingPaths = {
     parameters: [trackingPathParameter("observerId")],
     patch: { tags: ["Equipment tracking"], operationId: "updateTrackingObserver", requestBody: jsonRequestBody(trackingObject), responses: { "200": jsonResponse("Updated observer metadata or status.", { type: "object", required: ["observer"], properties: { observer: { $ref: "#/components/schemas/TrackingObserver" } } }) } },
   },
+  "/tracking/observers/{observerId}/resolution-manifest": {
+    parameters: [trackingPathParameter("observerId")],
+    get: { security: trackingObserverBearerSecurity, tags: ["Equipment tracking"], operationId: "getTrackingResolutionManifest", description: "Short-lived, observer-scoped identity resolver. Raw advertisements stay on the observer.", responses: { "200": jsonResponse("Claimed endpoint identities visible to this observer.", { $ref: "#/components/schemas/TrackingResolutionManifest" }) } },
+  },
   "/tracking/observers/{observerId}/heartbeat": {
     parameters: [trackingPathParameter("observerId")],
     post: { security: trackingObserverBearerSecurity, tags: ["Equipment tracking"], operationId: "heartbeatTrackingObserver", requestBody: jsonRequestBody(trackingObject), responses: { "200": jsonResponse("Updated observer health.", { type: "object", required: ["observer"], properties: { observer: { $ref: "#/components/schemas/TrackingObserver" } } }) } },
@@ -88,8 +99,8 @@ export const trackingPaths = {
     parameters: [trackingPathParameter("observerId")],
     post: { tags: ["Equipment tracking"], operationId: "positionTrackingObserver", requestBody: jsonRequestBody(trackingObject), responses: { "200": jsonResponse("Updated fixed gateway position and zone.", { type: "object", required: ["observer"], properties: { observer: { $ref: "#/components/schemas/TrackingObserver" } } }) } },
   },
-  "/tracking/observations:batch": {
-    post: { security: trackingObserverSecurity, tags: ["Equipment tracking"], operationId: "ingestTrackingObservations", requestBody: jsonRequestBody({ $ref: "#/components/schemas/TrackingObservationBatchInput" }), responses: { "200": jsonResponse("Idempotent observation admission results.", { $ref: "#/components/schemas/TrackingObservationBatchResult" }) } },
+  "/tracking/evidence:batch": {
+    post: { security: trackingObserverSecurity, tags: ["Equipment tracking"], operationId: "ingestTrackingEvidence", description: "Accepts normalized evidence for claimed, actively bound endpoints only. Raw and unknown BLE frames are prohibited.", requestBody: jsonRequestBody({ $ref: "#/components/schemas/TrackingObservationBatchInput" }), responses: { "200": jsonResponse("Idempotent claimed-evidence admission results.", { $ref: "#/components/schemas/TrackingObservationBatchResult" }) } },
   },
   "/properties/{propertyId}/equipment-loans": {
     parameters: [trackingPathParameter("propertyId")],
@@ -112,25 +123,29 @@ export const trackingPaths = {
     put: { tags: ["Equipment tracking"], operationId: "sharePropertyMemberLocation", description: "Explicitly starts or refreshes foreground, time-limited sharing for the authenticated member.", requestBody: jsonRequestBody({ $ref: "#/components/schemas/PropertyMemberLocationInput" }), responses: { "200": jsonResponse("Current shared position.", { type: "object", additionalProperties: false, required: ["location"], properties: { location: { $ref: "#/components/schemas/PropertyMemberLocation" } } }) } },
     delete: { tags: ["Equipment tracking"], operationId: "stopPropertyMemberLocation", description: "Immediately removes the authenticated member's current shared position.", responses: { "204": { description: "Location sharing stopped and current position removed" } } },
   },
-  "/properties/{propertyId}/tracked-assets": {
+  "/properties/{propertyId}/tracked-equipment": {
     parameters: [trackingPathParameter("propertyId")],
-    get: { tags: ["Equipment tracking"], operationId: "listTrackedEquipment", responses: { "200": jsonResponse("Current state for assigned equipment.", trackingObject), "413": { description: "The Property inventory exceeds the supported tracking join size." } } },
+    get: { tags: ["Equipment tracking"], operationId: "listTrackedEquipment", responses: { "200": jsonResponse("Current state for endpoint-bound equipment.", { type: "object", additionalProperties: false, required: ["equipment"], properties: { equipment: { type: "array", items: { $ref: "#/components/schemas/TrackedEquipmentState" } } } }), "413": { description: "The Property inventory exceeds the supported tracking join size." } } },
   },
-  "/assets/{equipmentId}/position": {
+  "/area-equipment/{equipmentId}/tracking-position": {
     parameters: [trackingPathParameter("equipmentId")],
-    get: { tags: ["Equipment tracking"], operationId: "getTrackedEquipmentPosition", responses: { "200": jsonResponse("Current uncertainty-aware position estimate.", trackingObject) } },
+    get: { tags: ["Equipment tracking"], operationId: "getTrackedEquipmentPosition", responses: { "200": jsonResponse("Current uncertainty-aware position estimate.", { type: "object", additionalProperties: false, required: ["position"], properties: { position: { oneOf: [{ $ref: "#/components/schemas/EquipmentLocationEstimate" }, { type: "null" }] } } }) } },
   },
-  "/assets/{equipmentId}/position-history": {
+  "/area-equipment/{equipmentId}/tracking-position-history": {
     parameters: [trackingPathParameter("equipmentId")],
-    get: { tags: ["Equipment tracking"], operationId: "getTrackedEquipmentPositionHistory", parameters: [{ name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 100 } }], responses: { "200": jsonResponse("Versioned derived position history.", trackingObject) } },
+    get: { tags: ["Equipment tracking"], operationId: "getTrackedEquipmentPositionHistory", parameters: [{ name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 100 } }], responses: { "200": jsonResponse("Versioned derived position history.", { type: "object", additionalProperties: false, required: ["positions"], properties: { positions: { type: "array", items: { $ref: "#/components/schemas/EquipmentLocationEstimate" } } } }) } },
   },
-  "/assets/{equipmentId}/observations": {
+  "/area-equipment/{equipmentId}/manual-tracking-position": {
     parameters: [trackingPathParameter("equipmentId")],
-    get: { tags: ["Equipment tracking"], operationId: "getTrackedEquipmentEvidence", parameters: [{ name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 100 } }], responses: { "200": jsonResponse("Auditable raw evidence; mobile coordinates are role-redacted.", trackingObject) } },
+    put: { tags: ["Equipment tracking"], operationId: "setManualEquipmentTrackingPosition", requestBody: jsonRequestBody({ $ref: "#/components/schemas/EquipmentManualLocationInput" }), responses: { "200": jsonResponse("Explicit manual location estimate.", { type: "object", additionalProperties: false, required: ["position"], properties: { position: { $ref: "#/components/schemas/EquipmentLocationEstimate" } } }) } },
   },
-  "/assets/{equipmentId}/tracking-scan-token": {
+  "/area-equipment/{equipmentId}/tracking-observations": {
     parameters: [trackingPathParameter("equipmentId")],
-    get: { tags: ["Equipment tracking"], operationId: "createTrackingScanToken", responses: { "200": jsonResponse("Short-lived rotating identifiers for an authorized foreground Find session.", { $ref: "#/components/schemas/TrackingScanToken" }) } },
+    get: { tags: ["Equipment tracking"], operationId: "getTrackedEquipmentEvidence", parameters: [{ name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 100 } }], responses: { "200": jsonResponse("Normalized claimed evidence; mobile coordinates are role-redacted.", trackingObject) } },
+  },
+  "/area-equipment/{equipmentId}/tracking-find-descriptor": {
+    parameters: [trackingPathParameter("equipmentId")],
+    get: { tags: ["Equipment tracking"], operationId: "getTrackingFindDescriptor", responses: { "200": jsonResponse("Short-lived, profile-bound descriptor for an authorized foreground Find session.", { $ref: "#/components/schemas/TrackingFindDescriptor" }) } },
   },
   "/properties/{propertyId}/tracking-map-snapshot": {
     parameters: [trackingPathParameter("propertyId")],

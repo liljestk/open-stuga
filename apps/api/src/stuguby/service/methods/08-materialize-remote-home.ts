@@ -91,21 +91,71 @@ import {
   type StugubyOutboxItem,
   type StugubyPropertyAdoption,
 } from "../../store.js";
-import { grantExpired, recoveryAssetReferences } from "../support/01-stuguby-error-to-without-local-grant-identity.js";
+import { grantAudienceIncludes, grantExpired, recoveryAssetReferences } from "../support/01-stuguby-error-to-without-local-grant-identity.js";
 import { registerStugubyServiceMethods, stugubyServiceState, type StugubyServiceInternals } from "../core.js";
 
 registerStugubyServiceMethods({
+  removeRemoteHomeProjection(
+      this: StugubyServiceInternals,
+      stugubyId: string,
+      authorityNodeId: string,
+      publicationId: string,
+    ): void {
+      const projection = this.store.getHomeProjection(stugubyId, authorityNodeId, publicationId);
+      const localHouseId = projection?.localHouseId
+        ?? this.store.projectionId(stugubyId, authorityNodeId, "home", publicationId);
+      const house = this.database.getHouse(localHouseId);
+      const projectionIds = house ? [
+        { resourceType: "home" as const, localId: house.id },
+        ...house.floors.flatMap((floor) => [
+          { resourceType: "floor" as const, localId: floor.id },
+          ...floor.rooms.map((room) => ({ resourceType: "room" as const, localId: room.id })),
+          ...floor.walls.map((wall) => ({ resourceType: "wall" as const, localId: wall.id })),
+          ...(floor.planElements ?? [])
+            .map((element) => ({ resourceType: "plan-element" as const, localId: element.id })),
+        ]),
+        ...this.database.listSensors(house.id)
+          .map((sensor) => ({ resourceType: "sensor" as const, localId: sensor.id })),
+        ...this.store.listProjectionIds(stugubyId, authorityNodeId, "home-note")
+          .filter((item) => this.database.getPropertyNote(item.localId)?.houseId === house.id)
+          .map((item) => ({ resourceType: "home-note" as const, localId: item.localId })),
+        ...this.store.listProjectionIds(stugubyId, authorityNodeId, "observation")
+          .filter((item) => this.database.getObservation(item.localId)?.houseId === house.id)
+          .map((item) => ({ resourceType: "observation" as const, localId: item.localId })),
+      ] : [{ resourceType: "home" as const, localId: localHouseId }];
+      if (house?.stuguby?.ownership === "shared"
+        && house.stuguby.syncState !== "detached"
+        && house.stuguby.stugubyId === stugubyId
+        && house.stuguby.authorityNodeId === authorityNodeId
+        && house.stuguby.publicationId === publicationId) {
+        this.database.purgeSharedHouseProjection(house.id);
+      }
+      this.store.removeHomeProjection(stugubyId, authorityNodeId, publicationId);
+      this.store.removeProjectionIds(stugubyId, authorityNodeId, projectionIds);
+    },
   materializeRemoteHome(this: StugubyServiceInternals, stugubyId: string, authorityNodeId: string, publicationId: string): void {
       const adoption = this.store.getPropertyAdoption(stugubyId);
-      if (!adoption || adoption.state !== "adopted") return;
+      if (!adoption || adoption.state !== "adopted") {
+        this.removeRemoteHomeProjection(stugubyId, authorityNodeId, publicationId);
+        return;
+      }
       const grant = this.store.listGrants(stugubyId, authorityNodeId)
-        .find((item) => item.publicationId === publicationId && !item.revokedAt && !grantExpired(item));
-      if (!grant) return;
+        .find((item) => item.publicationId === publicationId
+          && !item.revokedAt
+          && !grantExpired(item)
+          && grantAudienceIncludes(item, this.identity.nodeId));
+      if (!grant) {
+        this.removeRemoteHomeProjection(stugubyId, authorityNodeId, publicationId);
+        return;
+      }
       const resources = this.store.listRemoteResources(stugubyId)
         .filter((resource) => resource.authorityNodeId === authorityNodeId && resource.publicationId === publicationId);
       const bySchema = new Map(resources.map((resource) => [resource.schema, resource]));
       const directory = bySchema.get("home.directory.v1")?.payload as unknown as StugubyHomeDirectoryPayload | undefined;
-      if (!directory) return;
+      if (!directory) {
+        this.removeRemoteHomeProjection(stugubyId, authorityNodeId, publicationId);
+        return;
+      }
 
       const localHouseId = this.store.projectionId(stugubyId, authorityNodeId, "home", publicationId);
       const structure = bySchema.get("home.structure.v1")?.payload as unknown as StugubyHomeStructurePayload | undefined;
@@ -209,9 +259,9 @@ registerStugubyServiceMethods({
           propertyId: adoption.localPropertyId,
           name: directory.name,
           timezone: directory.timezone,
-          ...(location ? { location } : {}),
-          ...(mapPlacement ? { mapPlacement } : {}),
-          ...(locationPayload?.orientationDegrees !== undefined ? { orientationDegrees: locationPayload.orientationDegrees } : {}),
+          location: location ?? null,
+          mapPlacement: mapPlacement ?? null,
+          orientationDegrees: locationPayload?.orientationDegrees ?? null,
           ...(floors ? { floors } : {}),
         }, "system-service")!;
       }
@@ -234,13 +284,13 @@ registerStugubyServiceMethods({
       }
 
       const sensorCatalog = bySchema.get("home.sensor-catalog.v1")?.payload as unknown as StugubySensorCatalogPayload | undefined;
+      const expectedSensorIds = new Set<string>();
       if (sensorCatalog) {
-        const expected = new Set<string>();
         for (const item of sensorCatalog.sensors) {
           const floorId = floorIds.get(item.floorPublicationId);
           if (!floorId) continue;
           const id = this.store.projectionId(stugubyId, authorityNodeId, "sensor", item.sensorPublicationId);
-          expected.add(id);
+          expectedSensorIds.add(id);
           const roomId = item.roomPublicationId ? roomIds.get(item.roomPublicationId) ?? null : null;
           const room = roomId
             ? house.floors.find((floor) => floor.id === floorId)?.rooms.find((candidate) => candidate.id === roomId)?.name ?? ""
@@ -278,17 +328,19 @@ registerStugubyServiceMethods({
             });
           }
         }
-        for (const sensor of this.database.listSensors(house.id)) {
-          if (sensor.tags.includes("stuguby-shared") && !expected.has(sensor.id)) this.database.deleteSensor(sensor.id);
+      }
+      for (const sensor of this.database.listSensors(house.id)) {
+        if (sensor.tags.includes("stuguby-shared") && !expectedSensorIds.has(sensor.id)) {
+          this.database.deleteSensor(sensor.id);
         }
       }
 
       const notesPayload = bySchema.get("home.notes.v1")?.payload as unknown as StugubyHomeNotesPayload | undefined;
+      const expectedNoteIds = new Set<string>();
       if (notesPayload) {
-        const expected = new Set<string>();
         for (const item of notesPayload.notes) {
           const id = this.store.projectionId(stugubyId, authorityNodeId, "home-note", item.notePublicationId);
-          expected.add(id);
+          expectedNoteIds.add(id);
           const existing = this.database.getPropertyNote(id);
           if (existing) {
             this.database.updatePropertyNote(id, { houseId: house.id, areaId: null, equipmentId: null, kind: item.kind, text: item.text });
@@ -306,14 +358,17 @@ registerStugubyServiceMethods({
           this.database.db.prepare("UPDATE property_notes SET created_at=?,updated_at=? WHERE id=?")
             .run(item.createdAt, item.updatedAt, id);
         }
-        for (const projection of this.store.listProjectionIds(stugubyId, authorityNodeId, "home-note")) {
-          if (!expected.has(projection.localId)) this.database.deletePropertyNote(projection.localId);
+      }
+      for (const projection of this.store.listProjectionIds(stugubyId, authorityNodeId, "home-note")) {
+        const note = this.database.getPropertyNote(projection.localId);
+        if (note?.houseId === house.id && !expectedNoteIds.has(projection.localId)) {
+          this.database.deletePropertyNote(projection.localId);
         }
       }
 
       const observationsPayload = bySchema.get("home.observations.v1")?.payload as unknown as StugubyHomeObservationsPayload | undefined;
+      const expectedObservationIds = new Set<string>();
       if (observationsPayload) {
-        const expected = new Set<string>();
         for (const item of observationsPayload.observations) {
           const floorId = floorIds.get(item.floorPublicationId);
           if (!floorId) continue;
@@ -322,7 +377,7 @@ registerStugubyServiceMethods({
             : null;
           if (sensorId && !this.database.getSensor(sensorId)) continue;
           const id = this.store.projectionId(stugubyId, authorityNodeId, "observation", item.observationPublicationId);
-          expected.add(id);
+          expectedObservationIds.add(id);
           const existing = this.database.getObservation(id);
           if (!existing) {
             this.database.createObservation({
@@ -363,8 +418,11 @@ registerStugubyServiceMethods({
             }, "system-service");
           }
         }
-        for (const projection of this.store.listProjectionIds(stugubyId, authorityNodeId, "observation")) {
-          if (!expected.has(projection.localId)) this.database.deleteObservation(projection.localId);
+      }
+      for (const projection of this.store.listProjectionIds(stugubyId, authorityNodeId, "observation")) {
+        const observation = this.database.getObservation(projection.localId);
+        if (observation?.houseId === house.id && !expectedObservationIds.has(projection.localId)) {
+          this.database.deleteObservation(projection.localId);
         }
       }
 

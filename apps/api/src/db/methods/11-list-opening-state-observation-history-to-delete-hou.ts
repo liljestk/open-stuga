@@ -438,6 +438,58 @@ registerDatabaseMethods({
         return next;
       });
     },
+  /**
+   * Revoked federation replicas must be erasable even if a local-only producer
+   * was accidentally attached before the authority boundary was enforced.
+   */
+  purgeSharedHouseProjection(id: string): boolean {
+      return this.immediateTransaction(() => {
+        const house = this.getHouse(id);
+        if (!house) return false;
+        if (house.stuguby?.ownership !== "shared" || house.stuguby.syncState === "detached") {
+          throw new ClimateDataValidationError(
+            409,
+            "HOUSE_NOT_SHARED_PROJECTION",
+            `House ${id} is not an active shared federation projection`,
+          );
+        }
+        while (true) {
+          const items = this.listAreaEquipment({ houseId: id, limit: 10_000 });
+          if (items.length === 0) break;
+          for (const item of items) {
+            if (!this.updateAreaEquipment(item.id, { houseId: null }, "system-service")) {
+              throw new Error(`Could not detach equipment ${item.id} from shared Home ${id}`);
+            }
+          }
+        }
+        while (true) {
+          const notes = this.listPropertyNotes({ houseId: id, limit: 10_000 });
+          if (notes.length === 0) break;
+          for (const note of notes) {
+            if (!this.deletePropertyNote(note.id)) {
+              throw new Error(`Could not delete note ${note.id} from shared Home ${id}`);
+            }
+          }
+        }
+        while (true) {
+          const tasks = this.listMaintenanceTasks({ houseId: id, limit: 10_000 });
+          if (tasks.length === 0) break;
+          for (const task of tasks) {
+            if (!this.updateMaintenanceTask(task.id, {
+              baseRevision: task.revision,
+              houseId: null,
+              floorId: null,
+              observationIds: task.observationIds.filter((observationId) => (
+                this.getObservation(observationId)?.houseId !== id
+              )),
+            }, "system-service")) {
+              throw new Error(`Could not detach maintenance task ${task.id} from shared Home ${id}`);
+            }
+          }
+        }
+        return Number(this.db.prepare("DELETE FROM houses WHERE id = ?").run(id).changes) > 0;
+      });
+    },
   deleteHouse(id: string): boolean {
       if (this.db.prepare("SELECT 1 FROM maintenance_tasks WHERE house_id = ? LIMIT 1").get(id)) {
         throw new ClimateDataValidationError(

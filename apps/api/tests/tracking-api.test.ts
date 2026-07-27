@@ -1,28 +1,12 @@
-import { randomBytes, randomUUID } from "node:crypto";
-
+import { randomUUID } from "node:crypto";
+import { TRACKING_SCHEMA_VERSION } from "@climate-twin/contracts";
 import request from "supertest";
-
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-
 import { createApi, type ApiRuntime } from "../src/app.js";
-
 import { loadConfig } from "../src/config.js";
-
 import { ClimateDatabase } from "../src/db.js";
 
-import {
-  encodeTrackingAdvertisement,
-  trackingEpochCounter,
-  TRACKING_FLAGS,
-} from "../src/tracking/protocol.js";
-
-import { TrackingSecretBox } from "../src/tracking/crypto.js";
-
-import { TrackingStore } from "../src/tracking/store.js";
-
-import "./tracking-apiTestSupport.js";
-
-describe("property equipment tracking API", () => {
+describe("profile-driven equipment tracking API", () => {
   let runtime: ApiRuntime;
 
   beforeEach(() => {
@@ -59,7 +43,6 @@ describe("property equipment tracking API", () => {
         TRACKING_LIVE_MAP_ENABLED: "true",
         TRACKING_EXIT_ALERTS_ENABLED: "true",
         TRACKING_USER_LOCATION_SHARING_ENABLED: "true",
-        TRACKING_EXPERIMENTAL_COORDINATE_INFERENCE_ENABLED: "true",
       }),
       database,
       startBackground: false,
@@ -68,31 +51,58 @@ describe("property equipment tracking API", () => {
 
   afterEach(() => runtime.close());
 
-  it("ingests authenticated evidence and distinguishes zone, nearby, duplicate, and rejected states", async () => {
-    const provisioned = await request(runtime.app)
-      .post("/api/v1/tracking/tags")
+  async function enrollAndBind() {
+    const enrolled = await request(runtime.app)
+      .post("/api/v1/tracking/endpoints")
       .send({
         propertyId: "property-main",
-        serialNumber: "TAG-0001",
-        hardwareModel: "stugu-motion-v1",
-        capabilities: { motion: true, battery: true },
+        profileId: "org.bluetooth.ibeacon",
+        profileVersion: "2026.07",
+        identityFields: {
+          proximityUuid: "7f7e4b10-2f5f-4fc9-a66a-06db0fa042f8",
+          major: "1",
+          minor: "7",
+        },
+        displayName: "Chainsaw beacon",
+        manufacturer: "Example",
+        model: "Beacon",
+        proof: { kind: "PHYSICAL_ACCESS" },
       })
       .expect(201);
-    const tagId = provisioned.body.tag.id as string;
-    const secretValue = provisioned.body.provisioningSecret as string;
-    const secret = Buffer.from(secretValue, "base64url");
-    expect(secret).toHaveLength(32);
-
-    await request(runtime.app)
-      .post(`/api/v1/tracking/tags/${tagId}/claim`)
-      .send({})
-      .expect(200);
-    await request(runtime.app)
-      .post(`/api/v1/tracking/tags/${tagId}/assign`)
-      .send({ equipmentId: "equipment-chainsaw" })
+    const endpoint = enrolled.body.endpoint;
+    expect(endpoint).toMatchObject({
+      propertyId: "property-main",
+      profileId: "org.bluetooth.ibeacon",
+      identityScope: "GLOBAL",
+      identityStrength: "STATIC_CLEAR",
+      trackabilityTier: "PROPERTY_BEACON",
+      claimStatus: "CLAIMED",
+    });
+    expect(endpoint.identityFields).toBeUndefined();
+    const bound = await request(runtime.app)
+      .post("/api/v1/area-equipment/equipment-chainsaw/tracking-binding")
+      .send({ endpointId: endpoint.id })
       .expect(201);
+    expect(bound.body.binding).toMatchObject({
+      equipmentId: "equipment-chainsaw",
+      endpointId: endpoint.id,
+      observerId: null,
+    });
+    return endpoint as { id: string; identityReference: string };
+  }
 
-    const gatewayRegistration = await request(runtime.app)
+  it("accepts only claimed, bound, normalized evidence and derives a zone estimate", async () => {
+    const manifest = await request(runtime.app).get("/api/v1/tracking/profiles").expect(200);
+    expect(manifest.body.schemaVersion).toBe("2026-07-01");
+    expect(manifest.body.profiles.map((item: { profile: { id: string } }) => item.profile.id))
+      .toContain("org.bluetooth.ibeacon");
+    expect(manifest.body.profiles[0].integrity).toMatchObject({
+      digestAlgorithm: "SHA-256",
+      signatureAlgorithm: null,
+    });
+
+    const endpoint = await enrollAndBind();
+    const registration = await request(runtime.app)
       .post("/api/v1/tracking/observers/register")
       .send({
         propertyId: "property-main",
@@ -101,457 +111,221 @@ describe("property equipment tracking API", () => {
         zoneId: "zone-tool-shed",
       })
       .expect(201);
-    const gatewayId = gatewayRegistration.body.observer.id as string;
-    const gatewayCredential = gatewayRegistration.body.credential as string;
-    await request(runtime.app)
-      .post("/api/v1/tracking/observations:batch")
-      .set("Authorization", `Bearer ${gatewayCredential}`)
-      .send({ observations: [], padding: "x".repeat(300 * 1024) })
-      .expect(413)
-      .expect({
-        error: {
-          code: "PAYLOAD_TOO_LARGE",
-          message: "Request body exceeds the 256 KiB limit",
-        },
-      });
-    await request(runtime.app)
-      .post(`/api/v1/tracking/observers/${gatewayId}/heartbeat`)
-      .set("Authorization", `Bearer ${gatewayCredential}`)
-      .send({ status: "online", hardwareMetadata: { scannerStatus: "RUNNING", queueDepth: 0 } })
-      .expect(200);
-    const openapi = await request(runtime.app).get("/api/v1/openapi.json").expect(200);
-    expect(openapi.body.paths["/tracking/observers/{observerId}/heartbeat"].post.security)
-      .toEqual([{ trackingObserverBearer: [] }]);
-    await request(runtime.app)
-      .post(`/api/v1/tracking/observers/${gatewayId}/nested/heartbeat`)
-      .set("Authorization", "Bearer stuga_observer_v1.invalid")
-      .send({})
-      .expect(404);
+    const observerId = registration.body.observer.id as string;
+    const credential = registration.body.credential as string;
+    expect(credential).toMatch(/^stugu_observer\./u);
 
-    const observedAt = new Date();
-    const epochCounter = trackingEpochCounter(observedAt, 15);
-    const gatewayAdvertisement = encodeTrackingAdvertisement(secret, {
-      epochCounter,
-      eventCounter: 100,
-      batteryPercent: 72,
-    });
-    const gatewayObservation = {
-      observationId: randomUUID(),
+    const resolutionManifest = await request(runtime.app)
+      .get(`/api/v1/tracking/observers/${observerId}/resolution-manifest`)
+      .set("Authorization", `Bearer ${credential}`)
+      .expect(200);
+    expect(resolutionManifest.headers["cache-control"]).toContain("no-store");
+    expect(resolutionManifest.body).toMatchObject({
       propertyId: "property-main",
-      observerId: gatewayId,
-      observedAt: observedAt.toISOString(),
-      rotatingTagId: gatewayAdvertisement.rotatingTagId,
-      authenticator: gatewayAdvertisement.authenticator,
-      protocolVersion: gatewayAdvertisement.protocolVersion,
-      advertisementFlags: gatewayAdvertisement.flags,
-      epochCounter,
-      eventCounter: gatewayAdvertisement.eventCounter,
+      observerId,
+      dataMode: "demo",
+      entries: [{
+        equipmentId: "equipment-chainsaw",
+        endpointId: endpoint.id,
+        profileId: "org.bluetooth.ibeacon",
+        identityFields: { major: "1", minor: "7" },
+      }],
+    });
+
+    const observedAt = new Date().toISOString();
+    const evidence = {
+      schemaVersion: TRACKING_SCHEMA_VERSION,
+      dataMode: "demo",
+      observationId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      propertyId: "property-main",
+      endpointId: endpoint.id,
+      equipmentId: "equipment-chainsaw",
+      observerId,
+      observedAt,
+      profileId: "org.bluetooth.ibeacon",
+      profileVersion: "2026.07",
       rssi: -61,
-      batteryPercent: gatewayAdvertisement.batteryPercent,
-      scanMode: "gateway",
-      appState: "background",
-      rawPayload: gatewayAdvertisement.rawPayload,
-      metadata: { platform: "LINUX", agentVersion: "1.0.0" },
+      batteryPercent: 72,
+      scanContext: "fixed-gateway",
+      telemetry: { packetType: "ibeacon" },
     };
     const ingested = await request(runtime.app)
-      .post("/api/v1/tracking/observations:batch")
-      .set("Authorization", `Bearer ${gatewayCredential}`)
-      .send({ observations: [gatewayObservation] })
+      .post("/api/v1/tracking/evidence:batch")
+      .set("Authorization", `Bearer ${credential}`)
+      .send({ observations: [evidence] })
       .expect(200);
     expect(ingested.body).toMatchObject({ accepted: 1, duplicates: 0, rejected: 0 });
-    await request(runtime.app)
-      .post("/api/v1/tracking/observations-not-a-batch")
-      .set("Authorization", `Bearer ${gatewayCredential}`)
-      .send({ observations: [gatewayObservation] })
-      .expect(404);
-
-    const zonePosition = await request(runtime.app)
-      .get("/api/v1/assets/equipment-chainsaw/position")
-      .expect(200);
-    expect(zonePosition.body.position).toMatchObject({
-      positionType: "confirmed-zone",
-      zoneId: "zone-tool-shed",
-      freshnessState: "live",
-    });
-    expect(zonePosition.body.position.coordinate).toBeNull();
-
-    const scanToken = await request(runtime.app)
-      .get("/api/v1/assets/equipment-chainsaw/tracking-scan-token")
-      .expect(200);
-    expect(scanToken.body).toMatchObject({
-      equipmentId: "equipment-chainsaw",
-      protocolVersion: 1,
-    });
-    expect(scanToken.body.rotatingTagIds).toHaveLength(3);
-    expect(JSON.stringify(scanToken.body)).not.toContain(secretValue);
 
     const duplicate = await request(runtime.app)
-      .post("/api/v1/tracking/observations:batch")
-      .set("Authorization", `Bearer ${gatewayCredential}`)
-      .send({ observations: [gatewayObservation] })
+      .post("/api/v1/tracking/evidence:batch")
+      .set("Authorization", `Bearer ${credential}`)
+      .send({ observations: [evidence] })
       .expect(200);
     expect(duplicate.body).toMatchObject({ accepted: 0, duplicates: 1, rejected: 0 });
 
-    const invalid = await request(runtime.app)
-      .post("/api/v1/tracking/observations:batch")
-      .set("Authorization", `Bearer ${gatewayCredential}`)
-      .send({
-        observations: [{
-          ...gatewayObservation,
-          observationId: randomUUID(),
-          eventCounter: 101,
-          authenticator: Buffer.alloc(4, 0xff).toString("base64url"),
-          rawPayload: undefined,
-        }],
-      })
+    const position = await request(runtime.app)
+      .get("/api/v1/area-equipment/equipment-chainsaw/tracking-position")
       .expect(200);
-    expect(invalid.body).toMatchObject({
-      accepted: 0,
-      duplicates: 0,
-      rejected: 1,
-      errors: [{ index: 0, code: "INVALID_AUTHENTICATOR" }],
+    expect(position.body.position).toMatchObject({
+      dataMode: "demo",
+      equipmentId: "equipment-chainsaw",
+      endpointId: endpoint.id,
+      kind: "zone",
+      zoneId: "zone-tool-shed",
+      truthClass: "inferred",
+      source: "fixed-gateway",
+      freshness: "live",
     });
-
-    const replayEpoch = (epochCounter + 0x1_0000 - 10) & 0xffff;
-    const replayedAdvertisement = encodeTrackingAdvertisement(secret, {
-      epochCounter: replayEpoch,
-      eventCounter: 101,
-      batteryPercent: 72,
-    });
-    const replayed = await request(runtime.app)
-      .post("/api/v1/tracking/observations:batch")
-      .set("Authorization", `Bearer ${gatewayCredential}`)
-      .send({
-        observations: [{
-          ...gatewayObservation,
-          observationId: randomUUID(),
-          observedAt: new Date().toISOString(),
-          rotatingTagId: replayedAdvertisement.rotatingTagId,
-          authenticator: replayedAdvertisement.authenticator,
-          epochCounter: replayEpoch,
-          eventCounter: replayedAdvertisement.eventCounter,
-          rawPayload: replayedAdvertisement.rawPayload,
-        }],
-      })
-      .expect(200);
-    expect(replayed.body).toMatchObject({
-      accepted: 0,
-      duplicates: 0,
-      rejected: 1,
-      errors: [{ index: 0, code: "CLOCK_UNRELIABLE" }],
-    });
-
-    const fixedGatewayObservationId = randomUUID();
-    const fixedGatewayAdvertisement = encodeTrackingAdvertisement(secret, {
-      epochCounter,
-      eventCounter: 102,
-      batteryPercent: 72,
-    });
-    await request(runtime.app)
-      .post("/api/v1/tracking/observations:batch")
-      .set("Authorization", `Bearer ${gatewayCredential}`)
-      .send({
-        observations: [{
-          ...gatewayObservation,
-          observationId: fixedGatewayObservationId,
-          observedAt: new Date().toISOString(),
-          rotatingTagId: fixedGatewayAdvertisement.rotatingTagId,
-          authenticator: fixedGatewayAdvertisement.authenticator,
-          eventCounter: fixedGatewayAdvertisement.eventCounter,
-          observerPosition: {
-            latitude: 60.17012,
-            longitude: 24.93016,
-            horizontalAccuracyMeters: 2,
-            source: "fixed",
-          },
-          rawPayload: fixedGatewayAdvertisement.rawPayload,
-        }],
-      })
-      .expect(200)
-      .expect(({ body }) => expect(body.accepted).toBe(1));
-
-    const phoneRegistration = await request(runtime.app)
-      .post("/api/v1/tracking/observers/register")
-      .send({
-        propertyId: "property-main",
-        type: "ios-phone",
-        name: "Field iPhone",
-        appInstallationId: "ios-installation-1",
-      })
-      .expect(201);
-    const phoneId = phoneRegistration.body.observer.id as string;
-    const phoneCredential = phoneRegistration.body.credential as string;
-    const phoneAdvertisement = encodeTrackingAdvertisement(secret, {
-      flags: TRACKING_FLAGS.moving,
-      epochCounter,
-      eventCounter: 103,
-      batteryPercent: 71,
-    });
-    const phoneObservationId = randomUUID();
-    await request(runtime.app)
-      .post("/api/v1/tracking/observations:batch")
-      .set("Authorization", `Bearer ${phoneCredential}`)
-      .send({
-        observations: [{
-          observationId: phoneObservationId,
-          propertyId: "property-main",
-          observerId: phoneId,
-          observedAt: new Date().toISOString(),
-          rotatingTagId: phoneAdvertisement.rotatingTagId,
-          authenticator: phoneAdvertisement.authenticator,
-          protocolVersion: phoneAdvertisement.protocolVersion,
-          advertisementFlags: phoneAdvertisement.flags,
-          epochCounter,
-          eventCounter: phoneAdvertisement.eventCounter,
-          rssi: -49,
-          motion: true,
-          batteryPercent: 71,
-          scanMode: "find-nearby",
-          appState: "foreground",
-          observerPosition: {
-            latitude: 60.17015,
-            longitude: 24.93018,
-            horizontalAccuracyMeters: 5,
-            source: "gps",
-            capturedAt: new Date().toISOString(),
-          },
-          rawPayload: phoneAdvertisement.rawPayload,
-          metadata: { platform: "IOS", appVersion: "1.0.0" },
-        }],
-      })
-      .expect(200)
-      .expect(({ body }) => expect(body.accepted).toBe(1));
+    expect(position.body.position.coordinate).toBeNull();
+    expect(position.body.position.provenance.observationIds).toEqual([evidence.observationId]);
 
     const snapshot = await request(runtime.app)
       .get("/api/v1/properties/property-main/tracking-map-snapshot")
       .expect(200);
-    expect(snapshot.body.assets).toHaveLength(1);
-    expect(snapshot.body.assets[0].position).toMatchObject({
-      positionType: "nearby-live",
-      movementState: "moving",
+    expect(snapshot.body).toMatchObject({ propertyId: "property-main", dataMode: "demo" });
+    expect(snapshot.body.equipment[0]).toMatchObject({
+      equipment: { id: "equipment-chainsaw" },
+      endpoint: { id: endpoint.id },
+      position: { kind: "zone" },
     });
-    expect(snapshot.body.assets[0].position.accuracyRadiusMeters).toBeGreaterThanOrEqual(5);
-    expect(JSON.stringify(snapshot.body)).not.toContain(secretValue);
 
-    const evidence = await request(runtime.app)
-      .get("/api/v1/assets/equipment-chainsaw/observations")
+    const descriptor = await request(runtime.app)
+      .get("/api/v1/area-equipment/equipment-chainsaw/tracking-find-descriptor")
       .expect(200);
-    expect(evidence.body.observations).toHaveLength(5);
-    expect(evidence.body.observations.filter((item: { accepted: boolean }) => item.accepted))
-      .toHaveLength(3);
-    expect(evidence.body.observations.filter((item: { accepted: boolean }) => !item.accepted))
-      .toHaveLength(2);
-    const roleRedactedEvidence = runtime.tracking.equipmentObservations(
-      "equipment-chainsaw",
-      100,
-      false,
-    );
-    expect(roleRedactedEvidence.find((item) => item.id === fixedGatewayObservationId)?.observerPosition)
-      .toMatchObject({ source: "fixed" });
-    expect(roleRedactedEvidence.find((item) => item.id === phoneObservationId)?.observerPosition)
-      .toBeNull();
+    expect(descriptor.headers["cache-control"]).toContain("no-store");
+    expect(descriptor.body).toMatchObject({
+      equipmentId: "equipment-chainsaw",
+      endpointId: endpoint.id,
+      identityFields: { major: "1", minor: "7" },
+      profile: { profile: { id: "org.bluetooth.ibeacon", version: "2026.07" } },
+    });
 
+    const openApi = await request(runtime.app).get("/api/v1/openapi.json").expect(200);
+    expect(openApi.body.paths).toHaveProperty("/tracking/profiles");
+    expect(openApi.body.paths).toHaveProperty("/tracking/endpoints");
+    expect(openApi.body.paths).toHaveProperty("/tracking/evidence:batch");
+    expect(openApi.body.paths).toHaveProperty("/properties/{propertyId}/tracked-equipment");
+    expect(openApi.body.paths).not.toHaveProperty("/tracking/tags");
+    expect(openApi.body.components.schemas.TrackingObservationInput.properties)
+      .not.toHaveProperty("rawPayload");
+
+    await request(runtime.app).get("/api/v1/tracking/tags").expect(404);
+    await request(runtime.app).get("/api/v1/assets/equipment-chainsaw/position").expect(404);
+  });
+
+  it("does not admit raw, unknown, unbound, cross-mode, or cross-profile evidence", async () => {
+    const endpoint = await enrollAndBind();
+    const registration = await request(runtime.app)
+      .post("/api/v1/tracking/observers/register")
+      .send({
+        propertyId: "property-main",
+        type: "linux-gateway",
+        name: "Gateway",
+        zoneId: "zone-tool-shed",
+      })
+      .expect(201);
+    const observerId = registration.body.observer.id as string;
+    const credential = registration.body.credential as string;
+    const base = {
+      schemaVersion: TRACKING_SCHEMA_VERSION,
+      dataMode: "demo",
+      observationId: randomUUID(),
+      idempotencyKey: randomUUID(),
+      propertyId: "property-main",
+      endpointId: endpoint.id,
+      equipmentId: "equipment-chainsaw",
+      observerId,
+      observedAt: new Date().toISOString(),
+      profileId: "org.bluetooth.ibeacon",
+      profileVersion: "2026.07",
+      rssi: -70,
+      scanContext: "fixed-gateway",
+    };
     await request(runtime.app)
-      .patch(`/api/v1/tracking/observers/${phoneId}`)
-      .send({ status: "disabled" })
+      .post("/api/v1/tracking/evidence:batch")
+      .set("Authorization", `Bearer ${credential}`)
+      .send({ observations: [{ ...base, rawPayload: "unknown-frame" }] })
+      .expect(400)
+      .expect((response) => expect(response.body.error.code).toBe("UNKNOWN_FIELD"));
+
+    const crossMode = await request(runtime.app)
+      .post("/api/v1/tracking/evidence:batch")
+      .set("Authorization", `Bearer ${credential}`)
+      .send({
+        observations: [{
+          ...base,
+          observationId: randomUUID(),
+          idempotencyKey: randomUUID(),
+          dataMode: "live",
+        }],
+      })
       .expect(200);
-    await request(runtime.app)
-      .post("/api/v1/tracking/observations:batch")
-      .set("Authorization", `Bearer ${phoneCredential}`)
-      .send({ observations: [] })
-      .expect(401);
-    const reregisteredPhone = await request(runtime.app)
+    expect(crossMode.body).toMatchObject({
+      accepted: 0,
+      rejected: 1,
+      errors: [{ kind: "observation", code: "DATA_MODE_MISMATCH" }],
+    });
+
+    const wrongProfile = await request(runtime.app)
+      .post("/api/v1/tracking/evidence:batch")
+      .set("Authorization", `Bearer ${credential}`)
+      .send({
+        observations: [{
+          ...base,
+          observationId: randomUUID(),
+          idempotencyKey: randomUUID(),
+          profileVersion: "2099.01",
+        }],
+      })
+      .expect(200);
+    expect(wrongProfile.body.errors[0].code).toBe("PROFILE_VERSION_MISMATCH");
+
+    const observations = await request(runtime.app)
+      .get("/api/v1/area-equipment/equipment-chainsaw/tracking-observations")
+      .expect(200);
+    expect(observations.body.observations).toEqual([]);
+  });
+
+  it("enforces observer scope for observer-local identities", async () => {
+    const first = await request(runtime.app)
       .post("/api/v1/tracking/observers/register")
       .send({
         propertyId: "property-main",
         type: "ios-phone",
-        name: "Field iPhone",
-        appInstallationId: "ios-installation-1",
+        name: "First phone",
+        appInstallationId: "install-first",
       })
       .expect(201);
-    expect(reregisteredPhone.body.observer.id).toBe(phoneId);
-    expect(reregisteredPhone.body.credential).not.toBe(phoneCredential);
-
-    runtime.tracking.refreshProperty(
-      "property-main",
-      new Date(observedAt.getTime() + 91_000),
-    );
-    expect(runtime.tracking.store.getObserver(gatewayId)?.status).toBe("offline");
-  });
-
-  it("checks equipment out and shares only an expiring current member position", async () => {
-    const expectedReturnAt = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
-    const borrowed = await request(runtime.app)
-      .post("/api/v1/area-equipment/equipment-chainsaw/borrow")
-      .send({ expectedReturnAt, note: "For the north fence" })
+    const second = await request(runtime.app)
+      .post("/api/v1/tracking/observers/register")
+      .send({
+        propertyId: "property-main",
+        type: "ios-phone",
+        name: "Second phone",
+        appInstallationId: "install-second",
+      })
       .expect(201);
-    expect(borrowed.body.loan).toMatchObject({
-      propertyId: "property-main",
-      equipmentId: "equipment-chainsaw",
-      borrowerLabel: "Property member",
-      expectedReturnAt,
-      returnedAt: null,
-    });
-
+    const endpoint = await request(runtime.app)
+      .post("/api/v1/tracking/endpoints")
+      .send({
+        propertyId: "property-main",
+        profileId: "org.stugu.generic-gatt-observer-local",
+        profileVersion: "2026.07",
+        identityFields: { peripheralIdentifier: "8B5035B8-6C35-4D59-A24D-E470E87D9F41" },
+        observerScopeId: first.body.observer.id,
+        displayName: "Local peripheral",
+        proof: { kind: "PHYSICAL_ACCESS" },
+      })
+      .expect(201);
     await request(runtime.app)
-      .post("/api/v1/area-equipment/equipment-chainsaw/borrow")
-      .send({})
+      .post("/api/v1/area-equipment/equipment-chainsaw/tracking-binding")
+      .send({ endpointId: endpoint.body.endpoint.id, observerId: second.body.observer.id })
       .expect(409)
-      .expect(({ body }) => expect(body.error.code).toBe("EQUIPMENT_ALREADY_BORROWED"));
-
-    const active = await request(runtime.app)
-      .get("/api/v1/properties/property-main/equipment-loans?active=true&equipmentId=equipment-chainsaw")
-      .expect(200);
-    expect(active.body.loans).toHaveLength(1);
-
-    const returned = await request(runtime.app)
-      .post(`/api/v1/equipment-loans/${borrowed.body.loan.id}/return`)
-      .send({ note: "Back in the shed" })
-      .expect(200);
-    expect(returned.body.loan).toMatchObject({
-      returnedByLabel: "Property member",
-      returnNote: "Back in the shed",
-    });
-    const returnedAgain = await request(runtime.app)
-      .post(`/api/v1/equipment-loans/${borrowed.body.loan.id}/return`)
-      .send({ note: "Retry must not overwrite history" })
-      .expect(200);
-    expect(returnedAgain.body.loan.returnedAt).toBe(returned.body.loan.returnedAt);
-    expect(returnedAgain.body.loan.returnNote).toBe("Back in the shed");
-
-    const capturedAt = new Date();
-    const shared = await request(runtime.app)
-      .put("/api/v1/properties/property-main/member-location")
-      .send({
-        coordinate: { latitude: 60.17015, longitude: 24.93018 },
-        horizontalAccuracyMeters: 18,
-        reducedAccuracy: true,
-        capturedAt: capturedAt.toISOString(),
-        sharingUntil: new Date(capturedAt.getTime() + 60 * 60_000).toISOString(),
-      })
-      .expect(200);
-    expect(shared.body.location).toMatchObject({
-      propertyId: "property-main",
-      memberLabel: "Property member",
-      horizontalAccuracyMeters: 18,
-      reducedAccuracy: true,
-    });
-
-    const locations = await request(runtime.app)
-      .get("/api/v1/properties/property-main/member-locations")
-      .expect(200);
-    expect(locations.body.locations).toHaveLength(1);
-    const map = await request(runtime.app)
-      .get("/api/v1/properties/property-main/tracking-map-snapshot")
-      .expect(200);
-    expect(map.body.members).toHaveLength(1);
-
-    const signals = runtime.database.db.prepare(`SELECT state_json FROM tracking_events
-      WHERE type LIKE 'member.location.%'`).all() as Array<{ state_json: string }>;
-    expect(signals).not.toHaveLength(0);
-    expect(JSON.stringify(signals)).not.toContain("60.17015");
-    expect(JSON.stringify(signals)).not.toContain("24.93018");
-
-    runtime.tracking.flags["tracking.userLocationSharing.enabled"] = false;
-    runtime.tracking.refreshProperty(
-      "property-main",
-      new Date(capturedAt.getTime() + 91_000),
-    );
-    expect(runtime.tracking.store.memberLocations(
-      "property-main",
-      new Date(capturedAt.getTime() + 91_000),
-    )).toEqual([]);
-    runtime.tracking.flags["tracking.userLocationSharing.enabled"] = true;
-
-    const refreshedAt = new Date();
+      .expect((response) => expect(response.body.error.code).toBe("BINDING_OBSERVER_SCOPE"));
     await request(runtime.app)
-      .put("/api/v1/properties/property-main/member-location")
-      .send({
-        coordinate: { latitude: 60.17016, longitude: 24.93019 },
-        horizontalAccuracyMeters: 9,
-        reducedAccuracy: false,
-        capturedAt: refreshedAt.toISOString(),
-        sharingUntil: new Date(refreshedAt.getTime() + 60 * 60_000).toISOString(),
-      })
-      .expect(200);
-    runtime.tracking.flags["tracking.userLocationSharing.enabled"] = false;
-    await request(runtime.app)
-      .delete("/api/v1/properties/property-main/member-location")
-      .expect(204);
-    expect(runtime.tracking.store.memberLocations("property-main")).toEqual([]);
-    runtime.tracking.flags["tracking.userLocationSharing.enabled"] = true;
-    await request(runtime.app)
-      .get("/api/v1/properties/property-main/member-locations")
-      .expect(200)
-      .expect(({ body }) => expect(body.locations).toEqual([]));
-
-    await request(runtime.app)
-      .put("/api/v1/properties/property-main/member-location")
-      .send({
-        coordinate: { latitude: 60.17016, longitude: 24.93019 },
-        horizontalAccuracyMeters: 9,
-        reducedAccuracy: false,
-        capturedAt: refreshedAt.toISOString(),
-        sharingUntil: new Date(refreshedAt.getTime() + 60 * 60_000).toISOString(),
-      })
-      .expect(200);
-    const restartedStore = new TrackingStore(
-      runtime.database,
-      new TrackingSecretBox(randomBytes(32)),
-    );
-    expect(restartedStore.memberLocations("property-main")).toEqual([]);
-
-    runtime.database.createProperty({
-      id: "property-workshop",
-      name: "Workshop Property",
-    });
-    runtime.database.createPropertyArea({
-      id: "zone-workshop",
-      propertyId: "property-workshop",
-      name: "Workshop",
-      kind: "building",
-      polygon: [],
-    });
-    runtime.database.updateAreaEquipment(
-      "equipment-chainsaw",
-      { areaId: "zone-workshop" },
-    );
-    expect(runtime.tracking.store.getEquipmentLoan(borrowed.body.loan.id)?.propertyId)
-      .toBe("property-workshop");
-  });
-
-  it("keeps tracking disabled unless the deployment explicitly opts in", async () => {
-    await runtime.close();
-    runtime = createApi({
-      config: loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", TRACKING_ENABLED: "false" }),
-      database: new ClimateDatabase(":memory:", false),
-      startBackground: false,
-    });
-    const capabilities = await request(runtime.app).get("/api/v1/tracking/capabilities").expect(200);
-    expect(capabilities.body.flags["tracking.enabled"]).toBe(false);
-    await request(runtime.app)
-      .get("/api/v1/properties/property-main/tracking-map-snapshot")
-      .expect(404)
-      .expect(({ body }) => expect(body.error.code).toBe("TRACKING_DISABLED"));
-  });
-
-  it("rate-limits repeated observer credential failures", async () => {
-    const invalidCredential = `stuga_observer_v1.${randomUUID()}.${randomBytes(32).toString("base64url")}`;
-    for (let attempt = 0; attempt < 120; attempt += 1) {
-      await request(runtime.app)
-        .post("/api/v1/tracking/observations:batch")
-        .set("Authorization", `Bearer ${invalidCredential}`)
-        .send({ observations: [] })
-        .expect(401);
-    }
-    await request(runtime.app)
-      .post("/api/v1/tracking/observations:batch")
-      .set("Authorization", `Bearer ${invalidCredential}`)
-      .send({ observations: [] })
-      .expect(429)
-      .expect(({ body, headers }) => {
-        expect(body.error.code).toBe("AUTH_RATE_LIMITED");
-        expect(Number(headers["retry-after"])).toBeGreaterThan(0);
-      });
+      .post("/api/v1/area-equipment/equipment-chainsaw/tracking-binding")
+      .send({ endpointId: endpoint.body.endpoint.id, observerId: first.body.observer.id })
+      .expect(201);
   });
 });

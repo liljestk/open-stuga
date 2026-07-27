@@ -26,7 +26,7 @@ export interface PropertyAreaMapProps {
   editableAssetId?: string | null;
   visibleAssetIds?: ReadonlySet<string> | null;
   equipment?: readonly AreaEquipment[];
-  trackedAssets?: readonly TrackedEquipmentState[];
+  trackedEquipment?: readonly TrackedEquipmentState[];
   members?: readonly PropertyMemberLocation[];
   selectedEquipmentId?: string | null;
   editableEquipmentId?: string | null;
@@ -125,11 +125,11 @@ export function equipmentMapPoint(
   houses: readonly PropertyMapHouse[],
 ): EquipmentMapPoint | null {
   const position = state?.position;
-  if (position?.coordinate && validCoordinate(position.coordinate) && position.freshnessState !== "unknown") {
+  if (position?.coordinate && validCoordinate(position.coordinate) && position.freshness !== "unknown") {
     return {
       coordinate: position.coordinate,
       source: "live",
-      accuracyRadiusMeters: position.accuracyRadiusMeters,
+      accuracyRadiusMeters: position.uncertaintyRadiusMeters,
     };
   }
   if (position?.zoneId) {

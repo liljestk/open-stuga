@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { isIP } from "node:net";
 import { dirname, join } from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
-import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, resolvePlanElementOpeningState } from "@climate-twin/contracts";
+import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, hasLocalHouseAuthority, resolvePlanElementOpeningState } from "@climate-twin/contracts";
 import type {
   AreaEquipmentInput,
   AreaEquipmentPatch,
@@ -197,9 +197,10 @@ export function configureApiPart24(context: ReturnType<typeof configureApiPart23
       const username = credentialString(body, "username", 320, true);
       const password = credentialString(body, "password", 4_096);
       const houseId = body.houseId === undefined
-        ? context.database.listHouses()[0]?.id
+        ? context.database.listHouses().find(hasLocalHouseAuthority)?.id
         : requiredString(body, "houseId");
       if (!houseId || !context.database.getHouse(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
+      context.stuguby.assertHouseLocalAuthority(houseId);
       const requestedConnectionId = body.connectionId === undefined ? null : requiredString(body, "connectionId");
       const generationKey = requestedConnectionId ?? houseId;
       const generation = (context.tpLinkConfigurationGenerations.get(generationKey) ?? 0) + 1;
@@ -213,7 +214,7 @@ export function configureApiPart24(context: ReturnType<typeof configureApiPart23
       }
       const explicitConnections = config.tpLinkConnections ?? [];
       const legacyHouseId = context.status.value.tpLink.connections?.find((candidate) => candidate.id === "legacy")?.houseId
-        ?? context.database.listHouses()[0]?.id;
+        ?? context.database.listHouses().find(hasLocalHouseAuthority)?.id;
       const legacyConnection: TpLinkConnectionSecret | null = explicitConnections.length === 0
         && !config.tpLinkLegacyDisabled && legacyHouseId
         && config.tpLinkHost && config.tpLinkUsername && config.tpLinkPassword

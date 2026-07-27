@@ -168,3 +168,10 @@ export interface House {
   createdAt: string;
   updatedAt: string;
 }
+
+/** True when this installation may attach local-only data and integrations to the Home. */
+export function hasLocalHouseAuthority(house: Pick<House, "stuguby">): boolean {
+  return !house.stuguby
+    || house.stuguby.syncState === "detached"
+    || house.stuguby.ownership === "local";
+}

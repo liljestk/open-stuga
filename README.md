@@ -147,7 +147,7 @@ docker compose --profile maintenance run --rm stugu-backup
 ```
 
 The output under `backups/` contains both SQLite databases, assets, the Stuguby
-node identity, the tracking-tag encryption key when present, protected
+node identity, the tracking endpoint identity-encryption key when present, protected
 integration secrets, and a full
 TimescaleDB dump. Treat it as sensitive and copy it to encrypted off-host
 storage.

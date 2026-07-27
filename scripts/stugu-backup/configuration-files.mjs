@@ -52,7 +52,7 @@ Create options:
   --assets <directory>     External assets directory (default: ASSET_DIRECTORY or ./data/assets)
   --spatial-db <file>      Spatial SQLite DB (default: SPATIAL_LAYERS_DATABASE_PATH or next to core DB)
   --stuguby-identity <file> Persistent Stuguby node identity (default: STUGBY_IDENTITY_FILE or next to core DB)
-  --tracking-secret-key <file> Key required to restore encrypted tracking-tag secrets
+  --tracking-secret-key <file> Key required to restore encrypted tracking endpoint identities
   --include-secrets        Opt in to copying the integration secrets file
   --secrets-file <file>    Secrets path (default: INTEGRATION_SECRETS_FILE or next to core DB)
   --include-timescale      Opt in to a pg_dump custom-format telemetry backup

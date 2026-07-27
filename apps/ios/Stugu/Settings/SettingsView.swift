@@ -470,7 +470,7 @@ private struct EquipmentObservationSettings: View {
             StuguCard {
                 VStack(alignment: .leading, spacing: 12) {
                     Toggle(
-                        "Let this \(companionDeviceName) observe Stugu tags",
+                        "Let this \(companionDeviceName) observe claimed tracking endpoints",
                         isOn: Binding(
                             get: { model.equipmentObservationEnabled },
                             set: { enabled in

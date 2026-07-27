@@ -4,7 +4,7 @@ import { Agent as HttpsAgent } from "node:https";
 import type { Socket } from "node:net";
 import { resolve } from "node:path";
 import WebSocket from "ws";
-import type { MeasurementSample, OpeningState, OpeningStateObservation, Reading } from "@climate-twin/contracts";
+import { hasLocalHouseAuthority, type MeasurementSample, type OpeningState, type OpeningStateObservation, type Reading } from "@climate-twin/contracts";
 import type { AppConfig } from "../../config.js";
 import type { ClimateDatabase } from "../../db.js";
 import type {
@@ -15,6 +15,12 @@ import type {
 import type { MeasurementService, RuntimeStatus, TelemetryService } from "../../services.js";
 import { EntityTarget, HA_COMPOSITE_MAX_SKEW_MS, HA_OPENING_HEARTBEAT_MS, HA_SNAPSHOT_EVENT_BUFFER_LIMIT, HA_SNAPSHOT_TIMEOUT_MS, HaMessage, HaState, OpeningTarget, normalizeHomeAssistantElectricityMeasurement, normalizeHomeAssistantTemperature, normalizeHomeAssistantTimestamp } from "../support/01-home-assistant-measurement-binding-to-validate-entit.js";
 import { registerHomeAssistantConnectionBridgeMethods, homeAssistantConnectionBridgeState, type HomeAssistantConnectionBridgeInternals } from "../core.js";
+
+function hasLocalSensorAuthority(state: HomeAssistantConnectionBridgeInternals, sensorId: string): boolean {
+  const sensor = state[homeAssistantConnectionBridgeState].database.getSensor(sensorId);
+  const house = sensor ? state[homeAssistantConnectionBridgeState].database.getHouse(sensor.houseId) : null;
+  return Boolean(sensor?.enabled && house && hasLocalHouseAuthority(house));
+}
 
 registerHomeAssistantConnectionBridgeMethods({
   handleResult(this: HomeAssistantConnectionBridgeInternals, message: HaMessage): void {
@@ -145,6 +151,8 @@ registerHomeAssistantConnectionBridgeMethods({
       return this.recordOpeningState(target, openingState, timestamp);
     },
   recordOpeningState(this: HomeAssistantConnectionBridgeInternals, target: OpeningTarget, state: OpeningState, timestamp: string): string | null {
+      const house = this[homeAssistantConnectionBridgeState].database.getHouse(target.houseId);
+      if (!house || !hasLocalHouseAuthority(house)) return null;
       try {
         const observation = this[homeAssistantConnectionBridgeState].database.recordOpeningStateObservation(target.houseId, {
           floorId: target.floorId,
@@ -227,6 +235,7 @@ registerHomeAssistantConnectionBridgeMethods({
       return { ...target, timestamp, value };
     },
   ingestMeasurementUpdate(this: HomeAssistantConnectionBridgeInternals, update: EntityTarget & { timestamp: string; value: number }): void {
+      if (!hasLocalSensorAuthority(this, update.sensorId)) return;
       const definition = this[homeAssistantConnectionBridgeState].database.getMeasurementDefinition(update.metric);
       if (!definition) {
         this[homeAssistantConnectionBridgeState].status.value.homeAssistant.error = `Unknown measurement metric ${update.metric}`;
@@ -261,6 +270,7 @@ registerHomeAssistantConnectionBridgeMethods({
       }
     },
   ingestCachedClimate(this: HomeAssistantConnectionBridgeInternals, sensorId: string, timestamp: string): void {
+      if (!hasLocalSensorAuthority(this, sensorId)) return;
       if (this[homeAssistantConnectionBridgeState].options.shouldIngestLiveMeasurement?.(sensorId, "temperature") === false
         || this[homeAssistantConnectionBridgeState].options.shouldIngestLiveMeasurement?.(sensorId, "humidity") === false) return;
       const cached = this[homeAssistantConnectionBridgeState].cache.get(sensorId);

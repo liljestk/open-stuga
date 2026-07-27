@@ -193,66 +193,68 @@ describe("measurement API client", () => {
 });
 
 describe("equipment tracking API client", () => {
-  it("uses the Property-scoped tag, assignment, and live-map endpoints", async () => {
-    const tag = {
-      id: "tag/main",
+  it("uses endpoint enrollment, equipment binding, and live-map endpoints", async () => {
+    const endpoint = {
+      id: "endpoint/main",
       propertyId: "property/main",
-      serialNumber: "TAG-001",
-      hardwareModel: "Stugu Tag",
-      status: "active",
+      displayName: "Garden beacon",
+      profileId: "org.bluetooth.ibeacon",
+      claimStatus: "CLAIMED",
     };
-    const assignment = {
-      id: "assignment/main",
+    const binding = {
+      id: "binding/main",
       equipmentId: "equipment/main",
-      tagId: tag.id,
+      endpointId: endpoint.id,
       validFrom: "2026-07-26T08:00:00.000Z",
       validTo: null,
-      assignedBy: "owner",
+      boundBy: "owner",
     };
     const capabilities = { flags: { "tracking.enabled": true } };
     const snapshot = {
       propertyId: "property/main",
+      dataMode: "live",
       generatedAt: "2026-07-26T08:01:00.000Z",
       sequence: 1,
-      assets: [],
+      equipment: [],
       members: [],
     };
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockReset();
     fetchMock
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => capabilities } as Response)
-      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ tags: [tag] }) } as Response)
-      .mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ tag, provisioningSecret: "one-time" }) } as Response)
-      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ tag }) } as Response)
-      .mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ assignment }) } as Response)
-      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ assignment }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ endpoints: [endpoint] }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ endpoint }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ binding }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ binding: null }) } as Response)
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => snapshot } as Response);
 
     await expect(api.trackingCapabilities()).resolves.toEqual(capabilities);
-    await expect(api.trackingTags("property/main")).resolves.toEqual([tag]);
-    await expect(api.createTrackingTag({
+    await expect(api.trackingEndpoints("property/main")).resolves.toEqual([endpoint]);
+    await expect(api.enrollTrackingEndpoint({
       propertyId: "property/main",
-      serialNumber: "TAG-001",
-      hardwareModel: "Stugu Tag",
-    })).resolves.toEqual({ tag, provisioningSecret: "one-time" });
-    await expect(api.claimTrackingTag(tag.id)).resolves.toEqual(tag);
-    await expect(api.assignTrackingTag(tag.id, "equipment/main")).resolves.toEqual(assignment);
-    await expect(api.unassignTrackingTag(tag.id)).resolves.toEqual(assignment);
+      profileId: "org.bluetooth.ibeacon",
+      profileVersion: "1.0.0",
+      identityFields: { uuid: "00112233-4455-6677-8899-aabbccddeeff", major: "1", minor: "2" },
+      displayName: "Garden beacon",
+      proof: { kind: "PHYSICAL_ACCESS" },
+    })).resolves.toEqual(endpoint);
+    await expect(api.bindTrackingEndpoint("equipment/main", endpoint.id)).resolves.toEqual(binding);
+    await expect(api.unbindTrackingEndpoint("equipment/main")).resolves.toBeNull();
     await expect(api.trackingMapSnapshot("property/main")).resolves.toEqual(snapshot);
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       "/api/v1/tracking/capabilities",
-      "/api/v1/tracking/tags?propertyId=property%2Fmain",
-      "/api/v1/tracking/tags",
-      "/api/v1/tracking/tags/tag%2Fmain/claim",
-      "/api/v1/tracking/tags/tag%2Fmain/assign",
-      "/api/v1/tracking/tags/tag%2Fmain/assignment",
+      "/api/v1/tracking/endpoints?propertyId=property%2Fmain",
+      "/api/v1/tracking/endpoints",
+      "/api/v1/area-equipment/equipment%2Fmain/tracking-binding",
+      "/api/v1/area-equipment/equipment%2Fmain/tracking-binding",
       "/api/v1/properties/property%2Fmain/tracking-map-snapshot",
     ]);
-    expect(fetchMock.mock.calls[4]?.[1]).toEqual(expect.objectContaining({
+    expect(fetchMock.mock.calls[3]?.[1]).toEqual(expect.objectContaining({
       method: "POST",
-      body: JSON.stringify({ equipmentId: "equipment/main" }),
+      body: JSON.stringify({ endpointId: "endpoint/main" }),
     }));
+    expect(fetchMock.mock.calls[4]?.[1]).toEqual(expect.objectContaining({ method: "DELETE" }));
   });
 });
 
@@ -480,7 +482,7 @@ describe("live event client", () => {
     const disposeTracking = subscribeToTrackingEvents("property/main", trackingRefresh, trackingState);
     const trackingSource = FakeEventSource.latest;
     expect(trackingSource?.url).toBe("/api/v1/properties/property%2Fmain/tracking-stream");
-    expect(trackingSource?.listeners.has("asset.position.updated")).toBe(true);
+    expect(trackingSource?.listeners.has("equipment.position.updated")).toBe(true);
     expect(trackingSource?.listeners.has("member.location.updated")).toBe(true);
     trackingSource?.onopen?.(new Event("open"));
     expect(trackingState).toHaveBeenLastCalledWith("live");

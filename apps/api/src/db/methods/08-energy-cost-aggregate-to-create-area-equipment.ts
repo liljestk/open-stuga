@@ -308,11 +308,11 @@ registerDatabaseMethods({
             .run(next.propertyId, next.name, next.kind, next.description,
               next.location ? JSON.stringify(next.location) : null, JSON.stringify(next.polygon), next.updatedAt, id);
         } catch (error) {
-          if (error instanceof Error && error.message.includes("TRACKING_ASSIGNMENT_PROPERTY_MOVE")) {
+          if (error instanceof Error && error.message.includes("TRACKING_BINDING_PROPERTY_MOVE")) {
             throw new ClimateDataValidationError(
               409,
               "TRACKED_EQUIPMENT_PROPERTY_MOVE",
-              "Remove active tracking-tag assignments before moving this area to another Property",
+              "Remove active tracking endpoint bindings before moving this area to another Property",
             );
           }
           throw error;

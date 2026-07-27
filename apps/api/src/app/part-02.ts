@@ -210,13 +210,8 @@ export function configureApiPart02(context: ReturnType<typeof configureApiPart01
       "tracking.liveMap.enabled": config.trackingLiveMapEnabled,
       "tracking.movementTrails.enabled": config.trackingMovementTrailsEnabled,
       "tracking.exitAlerts.enabled": config.trackingExitAlertsEnabled,
-      "tracking.rotatingIdentifiers.enabled": config.trackingRotatingIdentifiersEnabled,
       "tracking.userLocationSharing.enabled": config.trackingUserLocationSharingEnabled,
-      "tracking.experimentalCoordinateInference.enabled": config.trackingExperimentalCoordinateInferenceEnabled,
     };
-  if (config.trackingEnabled && !config.trackingRotatingIdentifiersEnabled) {
-      throw new Error("TRACKING_ROTATING_IDENTIFIERS_REQUIRED");
-    }
   if (config.trackingUserLocationSharingEnabled
       && (!config.trackingEnabled || !config.trackingLiveMapEnabled)) {
       throw new Error("TRACKING_USER_LOCATION_SHARING_REQUIRES_LIVE_MAP");
@@ -227,12 +222,10 @@ export function configureApiPart02(context: ReturnType<typeof configureApiPart01
         config.trackingEnabled ? config.trackingSecretKeyFile : null,
       )),
     );
-  if (config.trackingEnabled) trackingStore.verifyStoredSecrets();
   const tracking = new TrackingService(
       trackingStore,
       {
         flags: trackingFlags,
-        rawMobileCoordinateRetentionHours: config.trackingRawMobileCoordinateRetentionHours,
       },
     );
   const systemUpdates = new SystemUpdateService({

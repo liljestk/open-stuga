@@ -9,6 +9,7 @@ import type {
   Reading,
   Sensor,
 } from "@climate-twin/contracts";
+import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import { configuredAlertWebhookDestinations, type AppConfig } from "../config.js";
 import { ClimateDatabase } from "../db.js";
 import { TelemetryBus } from "../events.js";
@@ -82,7 +83,11 @@ export class MockEngine {
     this.#tick += 1;
     const now = new Date().toISOString();
     const generated: Reading[] = [];
-    const sensors = this.database.listSensors().filter((sensor) => sensor.enabled);
+    const sharedHouseIds = new Set(this.database.listHouses()
+      .filter((house) => !hasLocalHouseAuthority(house))
+      .map((house) => house.id));
+    const sensors = this.database.listSensors()
+      .filter((sensor) => sensor.enabled && !sharedHouseIds.has(sensor.houseId));
     const scenario = this.scenario;
     for (let index = 0; index < sensors.length; index += 1) {
       const sensor = sensors[index] as Sensor;

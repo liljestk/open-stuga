@@ -1,4 +1,4 @@
-import type { House, HouseWeather } from "@climate-twin/contracts";
+import { hasLocalHouseAuthority, type House, type HouseWeather } from "@climate-twin/contracts";
 import { outdoorLocationKey } from "./db.js";
 
 const DEFAULT_HOURS = 48;
@@ -246,7 +246,7 @@ export class WeatherMonitor {
     const houses = await this.#houses.listHouses();
     const unique = new Map<string, LocatedHouseSnapshot>();
     for (const house of houses) {
-      if (!house.location || unique.has(house.id)) continue;
+      if (!house.location || !hasLocalHouseAuthority(house) || unique.has(house.id)) continue;
       unique.set(house.id, {
         house,
         updatedAt: house.updatedAt,

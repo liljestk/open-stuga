@@ -53,7 +53,7 @@ import { createDemoState, nextMockReading, snapshotToReadings, timeRangeHours, t
 import { appendHistory, enabledDefinitions, legacyForecastSamples, readingSamples, upsertLatest } from "../measurements";
 import { routeFromLocation } from "../routing";
 import { publishHouseWeatherUpdate } from "../useHouseWeather";
-import { HEARTBEAT_POLL_MIN_INTERVAL_MS, LIVE_TELEMETRY_BUFFER_LIMIT, MAX_SERIES_SAMPLES, PORTFOLIO_LOAD_CONCURRENCY, STREAM_BOOTSTRAP_WAIT_MS, advanceMockTelemetry, aggregateConnection, apiStatus, blankState, bufferLiveTelemetry, bufferSeriesValue, canonicalSeries, errorMessage, houseMutationKey, isDemoSource, isPollingCompatibilityHeartbeat, legacySeries, loadPortfolioInBackground, mergeLegacySeries, mergeMeasurementSeries, metricForecastSamples, metricHistorySamples, optionalForecast, preserveMutatedSensorTelemetry, preserveSeriesCommittedDuringLoad, replaceFloor, replaceHouseSensors, replaceLoadedHouseTelemetry, replayBufferedLiveTelemetry, replayHouseInventory, replayHouseMutations, replayMaintenanceTaskMutation, sensorsFromSnapshots, seriesBucketSeconds, seriesLimit, seriesStateKey, settleInBackground, synchronizeSensorRoomLabels, unauthenticatedSession, withoutDemoTelemetry, withoutSensorIds } from "./support";
+import { HEARTBEAT_POLL_MIN_INTERVAL_MS, LIVE_TELEMETRY_BUFFER_LIMIT, MAX_SERIES_SAMPLES, PORTFOLIO_LOAD_CONCURRENCY, STREAM_BOOTSTRAP_WAIT_MS, advanceMockTelemetry, aggregateConnection, apiStatus, blankState, bufferLiveTelemetry, bufferSeriesValue, canonicalSeries, errorMessage, houseMutationKey, isDemoSource, isPollingCompatibilityHeartbeat, isRemoteSharedDemoTelemetry, legacySeries, loadPortfolioInBackground, mergeLegacySeries, mergeMeasurementSeries, metricForecastSamples, metricHistorySamples, optionalForecast, preserveMutatedSensorTelemetry, preserveSeriesCommittedDuringLoad, replaceFloor, replaceHouseSensors, replaceLoadedHouseTelemetry, replayBufferedLiveTelemetry, replayHouseInventory, replayHouseMutations, replayMaintenanceTaskMutation, sensorsFromSnapshots, seriesBucketSeconds, seriesLimit, seriesStateKey, settleInBackground, synchronizeSensorRoomLabels, unauthenticatedSession, withoutDemoTelemetry, withoutSensorIds } from "./support";
 import type { BootstrapStatus, BufferedHouseMutation, BufferedLiveTelemetry, BufferedSeriesTelemetry, DataMode, HistoricalSeriesWindow, HouseInventoryMutation, HouseMutationBuffer, LoadedTelemetryState, SeriesCommit, SeriesLoadState, SeriesLoadStatus, StreamConnections } from "./support";
 import { useuseClimateDataPart04 } from "./part-04";
 export function useuseClimateDataPart05(context: ReturnType<typeof useuseClimateDataPart04>) {
@@ -169,7 +169,8 @@ export function useuseClimateDataPart05(context: ReturnType<typeof useuseClimate
         }, 350);
       } else if (event.type === "reading" && "temperature" in event.data && "humidity" in event.data) {
         const reading = event.data;
-        if (dataModeRef.current === "real" && reading.source === "mock") return;
+        if ((dataModeRef.current === "real" && isDemoSource(reading.source))
+          || isRemoteSharedDemoTelemetry(stateRef.current, reading.sensorId, reading.source)) return;
         for (const buffer of activeTelemetryLoadBuffers.current) {
           bufferLiveTelemetry(buffer, { type: "reading", data: reading });
         }
@@ -178,7 +179,7 @@ export function useuseClimateDataPart05(context: ReturnType<typeof useuseClimate
         }
         setState((current) => {
           if (!current.sensors.some((sensor) => sensor.id === reading.sensorId)) return current;
-          if (current.integration.mock.mode === "real" && reading.source === "mock") return current;
+          if (current.integration.mock.mode === "real" && isDemoSource(reading.source)) return current;
           const previous = current.readings[reading.sensorId];
           const previousTime = previous ? Date.parse(previous.timestamp) : Number.NEGATIVE_INFINITY;
           const incomingTime = Date.parse(reading.timestamp);
@@ -227,7 +228,8 @@ export function useuseClimateDataPart05(context: ReturnType<typeof useuseClimate
       setState((current) => {
         const knownSensorIds = new Set(current.sensors.map((sensor) => sensor.id));
         const accepted = samples.filter((sample) => knownSensorIds.has(sample.sensorId)
-          && (current.integration.mock.mode !== "real" || sample.source !== "mock"));
+          && (current.integration.mock.mode !== "real" || !isDemoSource(sample.source))
+          && !isRemoteSharedDemoTelemetry(current, sample.sensorId, sample.source));
         if (!accepted.length) return current;
         return {
           ...current,
@@ -237,7 +239,8 @@ export function useuseClimateDataPart05(context: ReturnType<typeof useuseClimate
       });
     }, []);
   const handleMeasurement = useCallback((sample: MeasurementSample) => {
-      if (dataModeRef.current === "real" && sample.source === "mock") return;
+      if ((dataModeRef.current === "real" && isDemoSource(sample.source))
+        || isRemoteSharedDemoTelemetry(stateRef.current, sample.sensorId, sample.source)) return;
       for (const buffer of activeTelemetryLoadBuffers.current) {
         bufferLiveTelemetry(buffer, { type: "measurement", data: sample });
       }

@@ -338,9 +338,15 @@ registerDatabaseMethods({
       return row ? houseFromRow(row) : null;
     },
   setHouseStugubyLink(id: string, link: StugubyHouseLink | null): House | null {
-      const result = this.db.prepare("UPDATE houses SET stugby_json = ? WHERE id = ?")
-        .run(link ? JSON.stringify(link) : null, id);
-      return Number(result.changes) === 1 ? this.getHouse(id) : null;
+      return this.immediateTransaction(() => {
+        const result = this.db.prepare("UPDATE houses SET stugby_json = ? WHERE id = ?")
+          .run(link ? JSON.stringify(link) : null, id);
+        if (Number(result.changes) !== 1) return null;
+        if (link?.ownership === "shared" && link.syncState !== "detached") {
+          this.purgeSharedHomeLocalState(id);
+        }
+        return this.getHouse(id);
+      });
     },
   clearStugubyLinks(stugubyId: string): { properties: number; houses: number } {
       return this.immediateTransaction(() => ({

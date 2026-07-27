@@ -91,7 +91,7 @@ import {
   type StugubyOutboxItem,
   type StugubyPropertyAdoption,
 } from "../../store.js";
-import { PROPERTY_AREA_KINDS, StugubyError, grantExpired } from "../support/01-stuguby-error-to-without-local-grant-identity.js";
+import { PROPERTY_AREA_KINDS, StugubyError, grantAudienceIncludes, grantExpired } from "../support/01-stuguby-error-to-without-local-grant-identity.js";
 import { registerStugubyServiceMethods, stugubyServiceState, type StugubyServiceInternals } from "../core.js";
 
 registerStugubyServiceMethods({
@@ -257,8 +257,25 @@ registerStugubyServiceMethods({
       this.refreshPropertyLink(shared.stugubyId);
     },
   materializeAllRemoteHomes(this: StugubyServiceInternals, stugubyId: string): void {
-      for (const grant of this.store.listGrants(stugubyId)) {
-        if (grant.authorityNodeId === this.identity.nodeId || grant.revokedAt || grantExpired(grant)) continue;
+      const grants = this.store.listGrants(stugubyId);
+      const activeProjectionKeys = new Set(grants.flatMap((grant) => (
+        grant.authorityNodeId !== this.identity.nodeId
+          && !grant.revokedAt
+          && !grantExpired(grant)
+          && grantAudienceIncludes(grant, this.identity.nodeId)
+          ? [`${grant.authorityNodeId}\u0000${grant.publicationId}`]
+          : []
+      )));
+      for (const projection of this.store.listHomeProjections(stugubyId)) {
+        if (!activeProjectionKeys.has(`${projection.authorityNodeId}\u0000${projection.publicationId}`)) {
+          this.removeRemoteHomeProjection(stugubyId, projection.authorityNodeId, projection.publicationId);
+        }
+      }
+      for (const grant of grants) {
+        if (grant.authorityNodeId === this.identity.nodeId
+          || grant.revokedAt
+          || grantExpired(grant)
+          || !grantAudienceIncludes(grant, this.identity.nodeId)) continue;
         this.materializeRemoteHome(stugubyId, grant.authorityNodeId, grant.publicationId);
       }
     },

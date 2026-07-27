@@ -132,7 +132,7 @@ struct LargeScreenExperienceView: View {
         }
         .sheet(item: $selectedEquipment) { equipment in
             EquipmentDetailView(
-                asset: model.trackedState(for: equipment.id)
+                state: model.trackedState(for: equipment.id)
                     ?? TrackedEquipmentState(equipment: equipment),
                 snapshot: model.trackingSnapshot,
                 tracker: model.mobileTracking

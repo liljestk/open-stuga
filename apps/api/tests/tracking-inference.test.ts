@@ -1,5 +1,5 @@
 import type {
-  AssetPositionEstimate,
+  EquipmentLocationEstimate,
   TrackingObservation,
   TrackingObserver,
   TrackingPropertySettings,
@@ -7,7 +7,7 @@ import type {
 import { describe, expect, it } from "vitest";
 import { inferTrackedEquipmentPosition } from "../src/tracking/inference.js";
 
-const now = new Date("2026-07-25T19:14:30.000Z");
+const now = new Date("2026-07-27T12:00:00.000Z");
 const settings: TrackingPropertySettings = {
   propertyId: "property-main",
   enabled: true,
@@ -20,6 +20,9 @@ const settings: TrackingPropertySettings = {
   movementMaximumIntervalSeconds: 120,
   minimumMovementConfidence: 0.55,
   exitAlertDebounceSeconds: 120,
+  observationRetentionDays: 14,
+  rollupRetentionDays: 180,
+  estimateRetentionDays: 730,
   updatedAt: now.toISOString(),
 };
 
@@ -55,68 +58,84 @@ function observation(
 ): TrackingObservation {
   return {
     id,
+    observationId: id,
+    idempotencyKey: `key-${id}`,
+    dataMode: "demo",
     tenantId: "local",
     propertyId: "property-main",
-    tagId: "tag-1",
+    endpointId: "endpoint-1",
+    equipmentId: "equipment-1",
     observerId,
     observerType: "ios-phone",
     observedAt: new Date(now.getTime() - 2_000).toISOString(),
     receivedAt: now.toISOString(),
-    rotatingTagId: "AQIDBAUGBwg",
-    protocolVersion: 1,
-    epochCounter: 1,
-    eventCounter: 1,
+    profileId: "org.bluetooth.ibeacon",
+    profileVersion: "2026.07",
     rssi: -67,
     txPower: null,
-    motion: false,
     batteryPercent: 80,
+    motion: null,
+    counter: null,
     observerPosition: null,
-    scanMode: "passive",
-    appState: "foreground",
-    deviceTimeOffsetMs: 0,
+    scanContext: "foreground",
     qualityFlags: [],
-    accepted: true,
-    metadata: {},
+    trust: 1,
+    telemetry: {},
     ...options,
   };
 }
 
 function infer(
   entries: Array<{ observation: TrackingObservation; observer: TrackingObserver }>,
-  previous: AssetPositionEstimate | null = null,
+  options: {
+    previous?: EquipmentLocationEstimate | null;
+    mapCapability?: "NEARBY" | "AREA" | "ZONE" | "COORDINATE";
+    at?: Date;
+  } = {},
 ) {
   return inferTrackedEquipmentPosition({
+    dataMode: "demo",
     equipmentId: "equipment-1",
     propertyId: "property-main",
+    endpointId: "endpoint-1",
+    mapCapability: options.mapCapability ?? "ZONE",
     observations: entries,
-    previous,
+    rollups: [],
+    previous: options.previous ?? null,
     settings,
-    zones: [],
-    now,
+    now: options.at ?? now,
   });
 }
 
-describe("tracking location inference", () => {
-  it("represents foreground proximity without fabricating a phone coordinate", () => {
+describe("uncertainty-aware tracking inference", () => {
+  it("uses current foreground Find evidence as nearby, not an exact device coordinate", () => {
     const phone = observer("phone-1", "ios-phone");
     const result = infer([{
       observer: phone,
       observation: observation("observation-1", phone.id, {
-        scanMode: "find-nearby",
+        scanContext: "foreground-find",
         rssi: -51,
-        qualityFlags: ["LOCATION_UNAVAILABLE"],
+        observerPosition: {
+          latitude: 60.17,
+          longitude: 24.93,
+          horizontalAccuracyMeters: 6,
+          source: "gps",
+          capturedAt: new Date(now.getTime() - 1_000).toISOString(),
+        },
       }),
-    }]);
+    }], { mapCapability: "NEARBY" });
 
-    expect(result.positionType).toBe("nearby-live");
-    expect(result.coordinate).toBeNull();
-    expect(result.accuracyRadiusMeters).toBeNull();
-    expect(result.explanation.primaryFactors).toContain(
-      "LIVE_PROXIMITY_WITHOUT_OBSERVER_COORDINATE",
-    );
+    expect(result).toMatchObject({
+      kind: "nearby",
+      source: "mobile-observer",
+      freshness: "live",
+      coordinate: { latitude: 60.17, longitude: 24.93 },
+    });
+    expect(result.uncertaintyRadiusMeters).toBeGreaterThan(6);
+    expect(result.provenance.factors[0]).toMatch(/Find/u);
   });
 
-  it("keeps a single-phone map estimate broad", () => {
+  it("keeps opportunistic phone observations as a broad area estimate", () => {
     const phone = observer("phone-1", "ios-phone");
     const result = infer([{
       observer: phone,
@@ -127,60 +146,63 @@ describe("tracking location inference", () => {
           longitude: 24.93,
           horizontalAccuracyMeters: 5,
           source: "gps",
+          capturedAt: new Date(now.getTime() - 1_000).toISOString(),
         },
       }),
-    }]);
+    }], { mapCapability: "AREA" });
 
-    expect(result.positionType).toBe("estimated-coordinate");
-    expect(result.coordinate).toEqual({ latitude: 60.17, longitude: 24.93 });
-    expect(result.accuracyRadiusMeters).toBeGreaterThanOrEqual(35);
+    expect(result).toMatchObject({
+      kind: "area",
+      source: "mobile-observer",
+      coordinate: { latitude: 60.17, longitude: 24.93 },
+    });
+    expect(result.uncertaintyRadiusMeters).toBeGreaterThanOrEqual(25);
+    expect(result.confidence).toBeLessThanOrEqual(0.65);
   });
 
-  it("requires persistent evidence before changing a fresh gateway zone", () => {
-    const firstGateway = observer("gateway-a", "linux-gateway", { zoneId: "zone-a" });
-    const initial = infer([{
-      observer: firstGateway,
-      observation: observation("observation-a", firstGateway.id, {
+  it("uses a fixed gateway as zone evidence without fabricating coordinates", () => {
+    const gateway = observer("gateway-1", "linux-gateway", { zoneId: "zone-shed" });
+    const result = infer([{
+      observer: gateway,
+      observation: observation("observation-1", gateway.id, {
         observerType: "linux-gateway",
-        scanMode: "gateway",
+        scanContext: "fixed-gateway",
         rssi: -55,
       }),
-    }]);
-    const previous: AssetPositionEstimate = { ...initial, id: "estimate-1", version: 1 };
-    const nextGateway = observer("gateway-b", "linux-gateway", { zoneId: "zone-b" });
-    const isolated = infer([{
-      observer: nextGateway,
-      observation: observation("observation-b1", nextGateway.id, {
+    }], { mapCapability: "ZONE" });
+
+    expect(result).toMatchObject({
+      kind: "zone",
+      zoneId: "zone-shed",
+      coordinate: null,
+      source: "fixed-gateway",
+    });
+  });
+
+  it("decays the previous estimate during radio silence instead of inventing an exit", () => {
+    const gateway = observer("gateway-1", "linux-gateway", { zoneId: "zone-shed" });
+    const first = infer([{
+      observer: gateway,
+      observation: observation("observation-1", gateway.id, {
         observerType: "linux-gateway",
-        scanMode: "gateway",
-        rssi: -50,
+        scanContext: "fixed-gateway",
       }),
-    }], previous);
+    }], { mapCapability: "ZONE" });
+    const previous: EquipmentLocationEstimate = { ...first, id: "estimate-1", version: 1 };
+    const later = infer([], {
+      previous,
+      mapCapability: "ZONE",
+      at: new Date(now.getTime() + 31 * 60_000),
+    });
 
-    expect(initial.zoneId).toBe("zone-a");
-    expect(isolated.zoneId).toBe("zone-a");
-
-    const persistent = infer([
-      {
-        observer: nextGateway,
-        observation: observation("observation-b1", nextGateway.id, {
-          observerType: "linux-gateway",
-          scanMode: "gateway",
-          rssi: -50,
-        }),
-      },
-      {
-        observer: nextGateway,
-        observation: observation("observation-b2", nextGateway.id, {
-          observerType: "linux-gateway",
-          scanMode: "gateway",
-          eventCounter: 2,
-          observedAt: new Date(now.getTime() - 1_000).toISOString(),
-          rssi: -52,
-        }),
-      },
-    ], previous);
-
-    expect(persistent.zoneId).toBe("zone-b");
+    expect(later).toMatchObject({
+      kind: "zone",
+      zoneId: "zone-shed",
+      freshness: "stale",
+      movementState: "unknown",
+    });
+    expect(later.confidence).toBeLessThan(previous.confidence);
+    expect(later.provenance.observationIds).toEqual([]);
+    expect(later.provenance.factors[0]).toMatch(/No new evidence/u);
   });
 });

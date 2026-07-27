@@ -292,21 +292,13 @@
 .inventory-resources-feedback { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 10px; }
 .inventory-resources-feedback.success { color: var(--positive); background: var(--positive-soft); }
 .inventory-resources-feedback.error { color: var(--red); background: var(--red-soft); }
-.inventory-tag-panel { display: grid; gap: 10px; padding: 13px; border: 1px solid var(--line); border-radius: 10px; }
-.inventory-tag-panel h3, .inventory-tag-create summary { margin: 0; font: 700 11px/1.35 "Manrope", sans-serif; }
-.inventory-tag-panel .property-placement-group-header > span { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; }
-.inventory-assigned-tag, .inventory-tag-assignment, .inventory-provisioning-tags article { display: flex; align-items: end; justify-content: space-between; gap: 10px; }
-.inventory-assigned-tag > div, .inventory-provisioning-tags article > span { min-width: 0; display: grid; gap: 2px; }
-.inventory-assigned-tag small, .inventory-provisioning-tags small { color: var(--muted); font-size: 10px; }
-.inventory-tag-assignment .field { min-width: min(320px, 100%); }
-.inventory-provisioning-tags { display: grid; gap: 6px; }
-.inventory-provisioning-tags article { align-items: center; padding: 8px; border: 1px dashed var(--line); border-radius: 8px; }
-.inventory-tag-create { padding-top: 9px; border-top: 1px solid var(--line); }
-.inventory-tag-create summary { cursor: pointer; }
-.inventory-tag-create form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; align-items: end; gap: 8px; margin-top: 10px; }
-.inventory-provisioning-secret { display: grid; gap: 4px; margin-top: 10px; padding: 10px; border: 1px solid color-mix(in srgb, var(--pine) 35%, var(--line)); border-radius: 8px; background: var(--pine-soft); }
-.inventory-provisioning-secret code { overflow-wrap: anywhere; }
-.inventory-provisioning-secret small { color: var(--muted); font-size: 10px; }
+.inventory-endpoint-panel { display: grid; gap: 10px; padding: 13px; border: 1px solid var(--line); border-radius: 10px; }
+.inventory-endpoint-panel h3 { margin: 0; font: 700 11px/1.35 "Manrope", sans-serif; }
+.inventory-endpoint-panel .property-placement-group-header > span { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; }
+.inventory-bound-endpoint, .inventory-endpoint-binding { display: flex; align-items: end; justify-content: space-between; gap: 10px; }
+.inventory-bound-endpoint > div { min-width: 0; display: grid; gap: 2px; }
+.inventory-bound-endpoint small { color: var(--muted); font-size: 10px; }
+.inventory-endpoint-binding .field { min-width: min(320px, 100%); }
 .inventory-form-pin { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin: 0; padding: 11px; border: 1px solid var(--line); border-radius: 10px; }
 .inventory-form-pin legend { padding: 0 4px; font-size: 10.5px; font-weight: 700; }
 .inventory-form-pin > p { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 10px; }
@@ -388,7 +380,7 @@
   .area-description, .equipment-notes, .equipment-form > button { grid-column: auto; }
   .inventory-controls, .inventory-form { grid-template-columns: 1fr; }
   .inventory-form-notes, .inventory-form-actions, .inventory-form-pin { grid-column: auto; }
-  .inventory-form-pin, .inventory-location-comparison, .inventory-tag-create form { grid-template-columns: 1fr; }
+  .inventory-form-pin, .inventory-location-comparison { grid-template-columns: 1fr; }
   .inventory-form-pin > p { grid-column: auto; }
   .inventory-resources-grid { grid-template-columns: 1fr; gap: 12px; }
   .inventory-resource-group, .inventory-resource-group:first-child, .inventory-resource-group:last-child { padding: 12px 0 0; }
@@ -399,7 +391,7 @@
   .equipment-label-card { grid-template-columns: 92px minmax(0, 1fr); }
   .equipment-label-qr { width: 92px; height: 92px; }
   .equipment-label-actions { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .inventory-assigned-tag, .inventory-tag-assignment { align-items: stretch; flex-direction: column; }
+  .inventory-bound-endpoint, .inventory-endpoint-binding { align-items: stretch; flex-direction: column; }
   .inventory-list > article { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
   .inventory-item-state, .inventory-item-actions { grid-column: 1 / -1; justify-items: start; justify-content: flex-start; padding-left: 50px; }
   .inventory-needs-area { grid-template-columns: auto minmax(0, 1fr); }

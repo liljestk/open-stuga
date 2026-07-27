@@ -31,6 +31,8 @@ export const originalClipboard = navigator.clipboard;
 
 export function enabledTrackingCapabilities(): TrackingCapabilities {
   return {
+    schemaVersion: "2026-07-01",
+    profileSchemaVersion: "2026-07-01",
     flags: {
       "tracking.enabled": true,
       "tracking.mobileObserver.enabled": true,
@@ -40,14 +42,11 @@ export function enabledTrackingCapabilities(): TrackingCapabilities {
       "tracking.liveMap.enabled": true,
       "tracking.movementTrails.enabled": false,
       "tracking.exitAlerts.enabled": false,
-      "tracking.rotatingIdentifiers.enabled": true,
       "tracking.userLocationSharing.enabled": true,
-      "tracking.experimentalCoordinateInference.enabled": false,
     },
-    bleServiceUuid: "F8A57A01-9D58-4C66-8D2D-2026A11E0001",
-    protocolVersions: [1],
     maximumObservationBatchSize: 100,
-    observerModes: ["passive", "property", "active-property", "find-nearby", "gateway"],
+    maximumRollupBatchSize: 100,
+    observerTypes: ["esp32-gateway", "linux-gateway", "android-gateway", "android-phone", "ios-phone"],
   };
 }
 

@@ -8,25 +8,23 @@ import UIKit
 
 enum TrackingPresentation {
     static func locationText(
-        _ asset: TrackedEquipmentState,
+        _ state: TrackedEquipmentState,
         zoneName: String?
     ) -> String {
-        guard let position = asset.position else { return "Unknown location" }
-        switch position.positionType {
-        case "nearby-live":
-            return "Live nearby"
-        case "confirmed-zone":
-            return zoneName.map { "In or near \($0)" } ?? "Confirmed area"
-        case "estimated-coordinate":
+        guard let position = state.position else { return "Unknown location" }
+        switch position.kind {
+        case "nearby":
+            return position.freshness == "live" ? "Live nearby" : "Recently nearby"
+        case "zone", "area":
+            return zoneName.map { "In or near \($0)" } ?? "Estimated area"
+        case "coordinate":
             return "Estimated location"
-        case "last-known":
-            return relativeLastSeen(position) ?? "Last known location"
         default:
             return "Unknown location"
         }
     }
 
-    static func relativeLastSeen(_ position: AssetPositionEstimate) -> String? {
+    static func relativeLastSeen(_ position: EquipmentLocationEstimate) -> String? {
         guard let date = position.lastObservedDate else { return nil }
         return "Last observed \(date.formatted(.relative(presentation: .named)))"
     }
@@ -39,18 +37,18 @@ enum TrackingPresentation {
 struct EquipmentDetailView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var tracker: MobileTrackingController
-    let asset: TrackedEquipmentState
+    let state: TrackedEquipmentState
     let snapshot: TrackingMapSnapshot?
     @Environment(\.dismiss) private var dismiss
     @State private var showingFind = false
     @State private var showingEditor = false
 
     init(
-        asset: TrackedEquipmentState,
+        state: TrackedEquipmentState,
         snapshot: TrackingMapSnapshot?,
         tracker: MobileTrackingController
     ) {
-        self.asset = asset
+        self.state = state
         self.snapshot = snapshot
         self.tracker = tracker
     }
@@ -62,7 +60,7 @@ struct EquipmentDetailView: View {
                     identity
                     equipmentDetails
                     location
-                    if let tag = currentAsset.tag { tagStatus(tag) }
+                    if let endpoint = currentState.endpoint { endpointStatus(endpoint) }
                     evidence
                     findAction
                     EquipmentResourcesView(equipment: equipment)
@@ -81,7 +79,7 @@ struct EquipmentDetailView: View {
                 }
             }
             .sheet(isPresented: $showingFind) {
-                FindNearbyView(asset: currentAsset, tracker: tracker)
+                FindNearbyView(state: currentState, tracker: tracker)
                     .environmentObject(model)
             }
             .sheet(isPresented: $showingEditor) {
@@ -159,8 +157,7 @@ struct EquipmentDetailView: View {
                         .foregroundStyle(StuguTheme.muted)
                     Text(primaryLocationText)
                         .font(.title3.weight(.semibold))
-                    if currentAsset.position?.positionType != "last-known",
-                       let seen = currentAsset.position.flatMap(TrackingPresentation.relativeLastSeen) {
+                    if let seen = currentState.position.flatMap(TrackingPresentation.relativeLastSeen) {
                         Text(seen)
                             .font(.caption)
                             .foregroundStyle(StuguTheme.muted)
@@ -172,14 +169,15 @@ struct EquipmentDetailView: View {
 
     private var location: some View {
         section("Location estimate") {
-            if let position = currentAsset.position {
+            if let position = currentState.position {
                 valueRow("Type", locationType(position))
                 valueRow(
                     "Confidence",
-                    TrackingPresentation.confidence(position.confidenceLevel)
+                    "\(Int((position.confidence * 100).rounded()))% · "
+                        + TrackingPresentation.confidence(position.truthClass)
                 )
-                if let radius = position.accuracyRadiusMeters {
-                    valueRow("Accuracy", "Approximately \(Int(radius.rounded())) metres")
+                if let radius = position.uncertaintyRadiusMeters {
+                    valueRow("Uncertainty", "Approximately ±\(Int(radius.rounded())) metres")
                 } else if let zoneName {
                     valueRow("Area", "In or near \(zoneName)")
                 }
@@ -204,31 +202,31 @@ struct EquipmentDetailView: View {
         }
     }
 
-    private func tagStatus(_ tag: TrackingTag) -> some View {
-        section("Tag") {
-            valueRow("Model", tag.hardwareModel)
-            if let battery = tag.batteryPercent {
+    private func endpointStatus(_ endpoint: TrackingEndpoint) -> some View {
+        section("Tracking endpoint") {
+            valueRow("Name", endpoint.displayName)
+            valueRow("Profile", endpoint.profileId)
+            valueRow("Model", endpoint.model ?? "Not reported")
+            if let raw = endpoint.telemetry["batteryPercent"],
+               case let .number(value) = raw {
+                let battery = Int(value)
                 valueRow("Battery", "\(battery)%")
             } else {
                 valueRow("Battery", "Not reported")
             }
-            valueRow("Status", tag.status.capitalized)
-            if tag.capabilities.motion {
-                Label("Motion reporting", systemImage: "figure.walk.motion")
-                    .font(.caption)
-                    .foregroundStyle(StuguTheme.muted)
-            }
+            valueRow("Claim", endpoint.claimStatus.capitalized)
+            valueRow("Trackability", endpoint.trackabilityTier.capitalized)
         }
     }
 
     private var evidence: some View {
         section("Why this location") {
-            if let position = currentAsset.position {
+            if let position = currentState.position {
                 Text(explanation(position))
                     .font(.subheadline)
                 Text(
-                    "\(position.explanation.acceptedObservationCount) supporting observation"
-                        + (position.explanation.acceptedObservationCount == 1 ? "" : "s")
+                    "\(position.provenance.observationIds.count) supporting observation"
+                        + (position.provenance.observationIds.count == 1 ? "" : "s")
                 )
                 .font(.caption)
                 .foregroundStyle(StuguTheme.muted)
@@ -247,10 +245,10 @@ struct EquipmentDetailView: View {
                 Label("Find nearby", systemImage: "dot.radiowaves.left.and.right")
             }
             .buttonStyle(PrimaryButtonStyle())
-            .disabled(currentAsset.tag == nil || !model.equipmentObservationEnabled)
+            .disabled(currentState.endpoint == nil || !model.equipmentObservationEnabled)
 
-            if currentAsset.tag == nil {
-                Text("Assign a BLE tracking tag to use foreground Find nearby.")
+            if currentState.endpoint == nil {
+                Text("Bind a compatible tracking endpoint to use foreground Find nearby.")
                     .font(.caption)
                     .foregroundStyle(StuguTheme.muted)
             } else if !model.equipmentObservationEnabled {
@@ -266,16 +264,16 @@ struct EquipmentDetailView: View {
     }
 
     private var zoneName: String? {
-        guard let zoneID = currentAsset.position?.zoneId else { return nil }
+        guard let zoneID = currentState.position?.zoneId else { return nil }
         return snapshot?.zones.first { $0.id == zoneID }?.name
     }
 
-    private func locationType(_ position: AssetPositionEstimate) -> String {
-        switch position.positionType {
-        case "nearby-live": "Live nearby"
-        case "confirmed-zone": "Confirmed zone"
-        case "estimated-coordinate": "Estimated map position"
-        case "last-known": "Last known"
+    private func locationType(_ position: EquipmentLocationEstimate) -> String {
+        switch position.kind {
+        case "nearby": "Nearby"
+        case "zone": "Estimated zone"
+        case "area": "Estimated area"
+        case "coordinate": "Estimated map position"
         default: "Unknown"
         }
     }
@@ -290,42 +288,39 @@ struct EquipmentDetailView: View {
     }
 
     private var equipment: AreaEquipment {
-        model.selectedPropertyEquipment.first { $0.id == asset.id }
-            ?? asset.equipment
+        model.selectedPropertyEquipment.first { $0.id == state.id }
+            ?? state.equipment
     }
 
-    private var currentAsset: TrackedEquipmentState {
-        model.trackedState(for: asset.id)
+    private var currentState: TrackedEquipmentState {
+        model.trackedState(for: state.id)
             ?? TrackedEquipmentState(equipment: equipment)
     }
 
     private var primaryLocationText: String {
-        if currentAsset.position == nil {
+        if currentState.position == nil {
             if equipment.location != nil { return "Pinned expected location" }
             if equipment.areaId != nil || equipment.houseId != nil {
                 return "Expected at \(model.equipmentPlacementName(equipment))"
             }
         }
-        return TrackingPresentation.locationText(currentAsset, zoneName: zoneName)
+        return TrackingPresentation.locationText(currentState, zoneName: zoneName)
     }
 
-    private func explanation(_ position: AssetPositionEstimate) -> String {
-        switch position.explanation.method {
-        case "FIND_NEARBY":
+    private func explanation(_ position: EquipmentLocationEstimate) -> String {
+        switch position.source {
+        case "mobile-observer":
             "Detected directly by a phone in foreground Find mode."
-        case "MULTI_OBSERVER_WEIGHTED_MEDIAN":
+        case "multi-observer":
             "Estimated from several recent observers that broadly agree."
-        case "SINGLE_MOBILE_OBSERVER":
-            "Estimated around one nearby phone, with broad uncertainty."
-        case "MULTIPLE_FIXED_GATEWAYS":
-            "Estimated from multiple fixed gateways."
-        case "FIXED_GATEWAY_ZONE":
+        case "fixed-gateway":
             zoneName.map { "The strongest reliable gateway evidence places it in or near \($0)." }
                 ?? "The strongest reliable gateway evidence identifies this area."
-        case "LAST_KNOWN":
-            "No recent detection is available; this is the last reliable estimate."
+        case "manual":
+            "This estimate was set manually and remains separate from the expected inventory location."
         default:
-            "Available observations are too old or unreliable."
+            position.provenance.factors.first
+                ?? "Available observations are too old or unreliable."
         }
     }
 
@@ -1608,12 +1603,12 @@ extension EquipmentCurrentLocationProvider: CLLocationManagerDelegate {
 private struct FindNearbyView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var tracker: MobileTrackingController
-    let asset: TrackedEquipmentState
+    let state: TrackedEquipmentState
     @Environment(\.dismiss) private var dismiss
     @State private var startedAt = Date()
 
-    init(asset: TrackedEquipmentState, tracker: MobileTrackingController) {
-        self.asset = asset
+    init(state: TrackedEquipmentState, tracker: MobileTrackingController) {
+        self.state = state
         self.tracker = tracker
     }
 
@@ -1640,11 +1635,11 @@ private struct FindNearbyView: View {
                 .padding(16)
             }
             .background(StuguScreenBackground())
-            .navigationTitle(asset.equipment.name)
+            .navigationTitle(state.equipment.name)
             .navigationBarTitleDisplayMode(.inline)
             .task {
                 startedAt = Date()
-                await model.findNearby(asset)
+                await model.findNearby(state)
             }
             .onDisappear { model.stopFindingNearby() }
         }
@@ -1685,7 +1680,7 @@ private struct FindNearbyView: View {
     }
 
     private var primaryText: String {
-        guard tracker.findingEquipmentID == asset.id else {
+        guard tracker.findingEquipmentID == state.id else {
             return Date().timeIntervalSince(startedAt) > 4 ? "Not detected" : "Searching"
         }
         guard let reading = tracker.proximity else { return "Searching" }
@@ -1698,8 +1693,8 @@ private struct FindNearbyView: View {
     }
 
     private var secondaryText: String {
-        guard tracker.findingEquipmentID == asset.id else {
-            return "Move around the last known area while Stugu listens for the tag."
+        guard tracker.findingEquipmentID == state.id else {
+            return "Move around the last known area while Stugu listens for the endpoint."
         }
         guard let reading = tracker.proximity else {
             return "Keep this screen open and move around slowly."

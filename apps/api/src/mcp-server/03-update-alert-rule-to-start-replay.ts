@@ -1,7 +1,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, resolvePlanElementOpeningState } from "@climate-twin/contracts";
+import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, hasLocalHouseAuthority, resolvePlanElementOpeningState } from "@climate-twin/contracts";
 import type { StugubyRole, StugubySummary } from "@climate-twin/stuguby-protocol";
 import type {
   AreaEquipment,
@@ -386,8 +386,20 @@ export function selectMockScenario(args: Record<string, unknown>): object {
 }
 
 export function startReplay(args: Record<string, unknown>): object {
-  const sensorIds = optionalStringArray(args, "sensorIds", database.listSensors().map((sensor) => sensor.id));
-  for (const sensorId of sensorIds) requireMcpSensor(database, sensorId);
+  const sensorIds = optionalStringArray(args, "sensorIds", database.listSensors()
+    .filter((sensor) => {
+      const house = database.getHouse(sensor.houseId);
+      return Boolean(house && hasLocalHouseAuthority(house));
+    })
+    .map((sensor) => sensor.id));
+  for (const sensorId of sensorIds) {
+    requireMcpSensor(database, sensorId);
+    const sensor = database.getSensor(sensorId)!;
+    const house = database.getHouse(sensor.houseId);
+    if (house && !hasLocalHouseAuthority(house)) {
+      throw new Error(`Sensor ${sensorId} belongs to a remote Stuguby Home`);
+    }
+  }
   const to = args.to === undefined ? new Date().toISOString() : mcpIsoDate(requiredString(args, "to"), "to");
   const from = args.from === undefined
     ? new Date(Date.parse(to) - 3_600_000).toISOString()

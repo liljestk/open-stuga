@@ -5,7 +5,7 @@ import { request as httpsRequest } from "node:https";
 import { BlockList, isIP } from "node:net";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { MeasurementSample } from "@climate-twin/contracts";
+import { hasLocalHouseAuthority, type MeasurementSample } from "@climate-twin/contracts";
 import type { AppConfig } from "../../config.js";
 import type {
   ClimateDatabase,
@@ -78,7 +78,8 @@ registerTapoHistoryExportServiceMethods({
         );
       }
       const sensor = this[tapoHistoryExportServiceState].database.getSensor(sensorId);
-      if (!sensor?.enabled || !this.boundDeviceId(sensorId)) {
+      const house = sensor ? this[tapoHistoryExportServiceState].database.getHouse(sensor.houseId) : null;
+      if (!sensor?.enabled || !house || !hasLocalHouseAuthority(house) || !this.boundDeviceId(sensorId)) {
         throw new TapoHistoryCanaryError(
           "TAPO_BACKFILL_SENSOR_NOT_BOUND",
           "Backfill sensor must be enabled and have an immutable TP-Link device binding",
@@ -124,7 +125,8 @@ registerTapoHistoryExportServiceMethods({
       }
       const sensor = this[tapoHistoryExportServiceState].database.getSensor(sensorId);
       const deviceId = this.boundDeviceId(sensorId);
-      if (!sensor?.enabled || !deviceId) {
+      const house = sensor ? this[tapoHistoryExportServiceState].database.getHouse(sensor.houseId) : null;
+      if (!sensor?.enabled || !house || !hasLocalHouseAuthority(house) || !deviceId) {
         throw new TapoHistoryCanaryError("TAPO_CANARY_SENSOR_NOT_BOUND", "Canary sensor needs an immutable TP-Link device binding");
       }
       if (!["temperature", "humidity"].every(
@@ -159,6 +161,7 @@ registerTapoHistoryExportServiceMethods({
       if (!sensor || !deviceId) throw new Error("TP-Link sensor binding disappeared");
       const house = this[tapoHistoryExportServiceState].database.getHouse(sensor.houseId);
       if (!house) throw new Error("TP-Link sensor house disappeared");
+      if (!hasLocalHouseAuthority(house)) throw new Error("TP-Link history requires local Home authority");
       const reusable = !canary ? this.findJob(sensorId, deviceId, house.timezone, from, to, [
         "queued", "claimed", "running", "waiting-email", "needs-attention", "completed", "failed", "cancelled",
       ], provider, deviceName, this[tapoHistoryExportServiceState].config.tapoHistoryExportIntervalMinutes ?? 15, metric) : null;
@@ -251,7 +254,7 @@ registerTapoHistoryExportServiceMethods({
       const canaryDefinitionsEnabled = !job.canary || ["temperature", "humidity"]
         .every((metric) => this[tapoHistoryExportServiceState].database.getMeasurementDefinition(metric)?.enabled === true);
       if (job.provider !== "appium" || !sensor || !sensor.enabled || !definition?.enabled
-        || !canaryDefinitionsEnabled || !house
+        || !canaryDefinitionsEnabled || !house || !hasLocalHouseAuthority(house)
         || sensor.tpLinkDeviceId?.trim() !== job.expectedDeviceId
         || house.timezone !== job.timeZone
         || job.acceptanceRevision !== this.acceptanceRevision()) return false;

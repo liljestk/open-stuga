@@ -279,6 +279,32 @@ registerStugubyStoreMethods({
         .all(stugubyId, authorityNodeId, resourceType) as Array<{ remote_id: string; local_id: string }>;
       return rows.map((row) => ({ remoteId: row.remote_id, localId: row.local_id }));
     },
+  removeProjectionIds(this: StugubyStoreInternals,
+      stugubyId: string,
+      authorityNodeId: string,
+      projections: Array<{ resourceType: ProjectionResourceType; localId: string }>,
+    ): number {
+      if (projections.length === 0) return 0;
+      const remove = this[stugubyStoreState].db.prepare(`DELETE FROM stugby_projection_ids
+        WHERE stugby_id=? AND authority_node_id=? AND resource_type=? AND local_id=?`);
+      this[stugubyStoreState].db.exec("BEGIN IMMEDIATE");
+      try {
+        let removed = 0;
+        for (const projection of projections) {
+          removed += Number(remove.run(
+            stugubyId,
+            authorityNodeId,
+            projection.resourceType,
+            projection.localId,
+          ).changes);
+        }
+        this[stugubyStoreState].db.exec("COMMIT");
+        return removed;
+      } catch (error) {
+        this[stugubyStoreState].db.exec("ROLLBACK");
+        throw error;
+      }
+    },
   projectionRemoteId(this: StugubyStoreInternals,
       stugubyId: string,
       authorityNodeId: string,

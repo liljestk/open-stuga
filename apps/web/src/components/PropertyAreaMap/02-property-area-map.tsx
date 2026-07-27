@@ -25,7 +25,7 @@ export function PropertyAreaMap({
   editableAssetId = null,
   visibleAssetIds = null,
   equipment = [],
-  trackedAssets = [],
+  trackedEquipment = [],
   members = [],
   selectedEquipmentId = null,
   editableEquipmentId = null,
@@ -334,7 +334,7 @@ export function PropertyAreaMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const stateByEquipmentId = new Map(trackedAssets.map((state) => [state.equipment.id, state]));
+    const stateByEquipmentId = new Map(trackedEquipment.map((state) => [state.equipment.id, state]));
     const plotted = equipment.flatMap((item) => {
       const state = stateByEquipmentId.get(item.id) ?? null;
       const point = equipmentMapPoint(item, state, areas, houses);
@@ -356,7 +356,7 @@ export function PropertyAreaMap({
     for (const { item, state, point } of plotted) {
       const selected = item.id === selectedEquipmentId;
       const draggable = item.id === editableEquipmentId;
-      const freshness = state?.position?.freshnessState ?? "expected";
+      const freshness = state?.position?.freshness ?? "expected";
       const latLng: L.LatLngExpression = [point.coordinate.latitude, point.coordinate.longitude];
       const existing = equipmentLayersRef.current.get(item.id);
       const marker = existing ?? L.marker(latLng, {
@@ -423,7 +423,7 @@ export function PropertyAreaMap({
         );
       }
     }
-  }, [areas, editableEquipmentId, equipment, equipmentLabel, houses, selectedEquipmentId, trackedAssets]);
+  }, [areas, editableEquipmentId, equipment, equipmentLabel, houses, selectedEquipmentId, trackedEquipment]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -554,7 +554,7 @@ export function PropertyAreaMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const stateByEquipmentId = new Map(trackedAssets.map((state) => [state.equipment.id, state]));
+    const stateByEquipmentId = new Map(trackedEquipment.map((state) => [state.equipment.id, state]));
     const additionalPoints = [
       ...equipment.flatMap((item) => {
         const point = equipmentMapPoint(item, stateByEquipmentId.get(item.id) ?? null, areas, houses);
@@ -570,7 +570,7 @@ export function PropertyAreaMap({
     if (plan.points.length === 1) map.setView(plan.points[0]!, AREA_ZOOM, { animate: false });
     else map.fitBounds(plan.points, { animate: false, maxZoom: AREA_ZOOM, padding: VIEWPORT_PADDING });
     appliedViewportRef.current = plan.state;
-  }, [areas, equipment, houses, members, propertyLocation, trackedAssets, viewportKey]);
+  }, [areas, equipment, houses, members, propertyLocation, trackedEquipment, viewportKey]);
 
   return <div ref={containerRef} className={`property-area-map ${drawing ? "is-drawing" : ""}${editableHouseId || editableAssetId || editableEquipmentId ? " is-placing-house" : ""}`} role="region" aria-label={ariaLabel} />;
 }

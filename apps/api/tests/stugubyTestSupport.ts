@@ -104,3 +104,129 @@ export function fullRecoveryDatasets(): StugubyDatasetGrant[] {
     } : {}),
   }));
 }
+
+export async function verifyMembershipProjectionCleanup(
+  coordinator: RunningNode,
+  participant: RunningNode,
+  observer: RunningNode,
+  stugubyId: string,
+): Promise<void> {
+  const observerAdoption = observer.runtime.stuguby!.store.getPropertyAdoption(stugubyId)!;
+  await request(observer.runtime.app).post(`/api/v1/stugbys/${stugubyId}/property/disconnect`)
+    .send({ confirmation: "DISCONNECT" }).expect(200);
+  await request(observer.runtime.app).post(`/api/v1/stugbys/${stugubyId}/sync`).expect(200);
+  for (const source of [coordinator, participant]) {
+    const activeGrants = source.runtime.stuguby!.store.listGrants(
+      stugubyId,
+      source.runtime.stuguby!.identity.nodeId,
+    ).filter((grant) => !grant.revokedAt);
+    for (const grant of activeGrants) {
+      await request(source.runtime.app)
+        .delete(`/api/v1/stugbys/${stugubyId}/grants/${grant.id}`).expect(200);
+    }
+    if (source !== coordinator) {
+      await request(source.runtime.app).post(`/api/v1/stugbys/${stugubyId}/sync`).expect(200);
+    }
+  }
+  await request(observer.runtime.app).post(`/api/v1/stugbys/${stugubyId}/sync`).expect(200);
+  observer.runtime.stuguby!.store.adoptProperty(
+    stugubyId,
+    observerAdoption.localPropertyId,
+    observerAdoption.lastMaterializedRevision,
+  );
+
+  const coordinatorNodeId = coordinator.runtime.stuguby!.identity.nodeId;
+  const stalePublicationId = "stale-departed-home";
+  const seedStaleDepartureProjection = () => {
+    const houseId = observer.runtime.stuguby!.store.projectionId(
+      stugubyId,
+      coordinatorNodeId,
+      "home",
+      stalePublicationId,
+    );
+    observer.runtime.database.createHouse({
+      id: houseId,
+      propertyId: observerAdoption.localPropertyId,
+      name: "Stale shared Home",
+      timezone: "Europe/Helsinki",
+      floors: [],
+    });
+    observer.runtime.database.setHouseStugubyLink(houseId, {
+      stugubyId,
+      authorityNodeId: coordinatorNodeId,
+      publicationId: stalePublicationId,
+      ownership: "shared",
+      editPolicy: "read-only",
+      syncState: "current",
+      authorityEpoch: 1,
+      pendingChangeCount: 0,
+      conflictCount: 0,
+      recoveryState: "not-enabled",
+    });
+    observer.runtime.stuguby!.store.upsertHomeProjection({
+      stugubyId,
+      authorityNodeId: coordinatorNodeId,
+      publicationId: stalePublicationId,
+      localHouseId: houseId,
+      editPolicy: "read-only",
+      recoveryMode: "none",
+      recoveryState: "not-enabled",
+      designatedSuccessorNodeId: null,
+      recoverySyncedThrough: null,
+      authorityEpoch: 1,
+      detachedAt: null,
+      updatedAt: new Date().toISOString(),
+    });
+    const noteId = observer.runtime.stuguby!.store.projectionId(
+      stugubyId,
+      coordinatorNodeId,
+      "note",
+      "departure-note",
+    );
+    observer.runtime.database.createPropertyNote({
+      id: noteId,
+      propertyId: observerAdoption.localPropertyId,
+      kind: "inspection",
+      text: "Projected common note",
+    });
+    return { houseId, noteId };
+  };
+  let { houseId: staleHouseId, noteId: departedNoteId } = seedStaleDepartureProjection();
+
+  await request(coordinator.runtime.app)
+    .patch(`/api/v1/stugbys/${stugubyId}/members/${observer.runtime.stuguby!.identity.nodeId}`)
+    .send({ role: "participant", state: "suspended" }).expect(200);
+  await request(observer.runtime.app).post(`/api/v1/stugbys/${stugubyId}/sync`).expect(200);
+  expect(observer.runtime.database.getPropertyNote(departedNoteId)).toBeNull();
+  expect(observer.runtime.database.getHouse(staleHouseId)).toBeNull();
+  expect(observer.runtime.stuguby!.store.getPropertyAdoption(stugubyId)).toMatchObject({ state: "adopted" });
+  expect(observer.runtime.database.getProperty(observerAdoption.localPropertyId)?.stuguby).toMatchObject({
+    syncState: "offline",
+  });
+  const suspendedEdit = await request(observer.runtime.app)
+    .patch(`/api/v1/properties/${observerAdoption.localPropertyId}`)
+    .send({ description: "Must not be accepted while suspended" });
+  expect(suspendedEdit.status).toBe(403);
+  expect(suspendedEdit.body.error.code).toBe("MEMBERSHIP_INACTIVE");
+
+  await request(coordinator.runtime.app)
+    .patch(`/api/v1/stugbys/${stugubyId}/members/${observer.runtime.stuguby!.identity.nodeId}`)
+    .send({ role: "participant", state: "active" }).expect(200);
+  await request(observer.runtime.app).post(`/api/v1/stugbys/${stugubyId}/sync`).expect(200);
+  expect(observer.runtime.stuguby!.store.getPropertyAdoption(stugubyId)).toMatchObject({ state: "adopted" });
+  expect(observer.runtime.database.getProperty(observerAdoption.localPropertyId)?.stuguby).toMatchObject({
+    syncState: "current",
+  });
+  ({ houseId: staleHouseId, noteId: departedNoteId } = seedStaleDepartureProjection());
+
+  await request(coordinator.runtime.app)
+    .patch(`/api/v1/stugbys/${stugubyId}/members/${observer.runtime.stuguby!.identity.nodeId}`)
+    .send({ role: "participant", state: "revoked" }).expect(200);
+  await request(observer.runtime.app).post(`/api/v1/stugbys/${stugubyId}/sync`).expect(200);
+  expect(observer.runtime.database.getPropertyNote(departedNoteId)).toBeNull();
+  expect(observer.runtime.database.getHouse(staleHouseId)).toBeNull();
+  expect(observer.runtime.stuguby!.store.getPropertyAdoption(stugubyId)).toMatchObject({ state: "detached" });
+  expect(observer.runtime.database.getProperty(observerAdoption.localPropertyId)?.stuguby).toMatchObject({
+    syncState: "detached",
+  });
+}

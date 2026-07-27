@@ -50,7 +50,7 @@ test("backup creates and re-verifies snapshots, assets, manifest, and opt-in fak
   const directory = temporaryDirectory(t);
   const source = join(directory, "source.sqlite");
   const writer = createTelemetryFixture(source);
-  writer.exec("CREATE TABLE tracking_tags (id TEXT PRIMARY KEY); INSERT INTO tracking_tags VALUES ('tag-1')");
+  writer.exec("CREATE TABLE tracking_endpoints (id TEXT PRIMARY KEY); INSERT INTO tracking_endpoints VALUES ('endpoint-1')");
 
   const spatial = join(directory, "spatial.sqlite");
   const spatialWriter = new DatabaseSync(spatial);
@@ -89,7 +89,7 @@ test("backup creates and re-verifies snapshots, assets, manifest, and opt-in fak
     assert.ok(manifest.files.some(({ category }) => category === "stuguby-identity"));
     assert.ok(manifest.files.some(({ category }) => category === "tracking-secret-key"));
     assert.equal(manifest.sources.stugubyIdentity.status, "included");
-    assert.equal(manifest.sources.trackingSecretKey.encryptedTagRecords, 1);
+    assert.equal(manifest.sources.trackingSecretKey.encryptedEndpointRecords, 1);
     assert.equal(manifest.files.every(({ sensitive }) => sensitive === true), true);
     assert.equal(existsSync(join(output, "manifest.sha256")), true);
     assert.equal(existsSync(join(output, "INCOMPLETE.json")), false);
@@ -108,12 +108,12 @@ test("backup creates and re-verifies snapshots, assets, manifest, and opt-in fak
   }
 });
 
-test("backup refuses encrypted tracking tags without their restore key", async (t) => {
+test("backup refuses encrypted tracking endpoint identities without their restore key", async (t) => {
   const directory = temporaryDirectory(t);
   const source = join(directory, "source.sqlite");
   const writer = createTelemetryFixture(source);
   try {
-    writer.exec("CREATE TABLE tracking_tags (id TEXT PRIMARY KEY); INSERT INTO tracking_tags VALUES ('tag-1')");
+    writer.exec("CREATE TABLE tracking_endpoints (id TEXT PRIMARY KEY); INSERT INTO tracking_endpoints VALUES ('endpoint-1')");
     const options = parseBackupArgs([
       "--database", source,
       "--output", join(directory, "backup"),
@@ -124,7 +124,7 @@ test("backup refuses encrypted tracking tags without their restore key", async (
     ], {});
     await assert.rejects(
       createBackup(options),
-      /encrypted tracking tags but TRACKING_SECRET_KEY_FILE is missing/u,
+      /encrypted tracking endpoint identities but TRACKING_SECRET_KEY_FILE is missing/u,
     );
   } finally {
     writer.close();

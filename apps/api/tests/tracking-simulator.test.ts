@@ -26,7 +26,7 @@ describe("tracking field simulation and replay", () => {
     )).toBe(true);
   });
 
-  it("replays the same raw stream through uncertainty-aware inference", () => {
+  it("replays normalized claimed evidence through uncertainty-aware inference", () => {
     const simulation = generateTrackingSimulation({
       seed: 7,
       durationSeconds: 180,
@@ -38,10 +38,13 @@ describe("tracking field simulation and replay", () => {
     expect(replay.length).toBeGreaterThan(20);
     expect(coordinateEstimates.length).toBeGreaterThan(5);
     expect(coordinateEstimates.every(
-      (item) => (item.estimate.accuracyRadiusMeters ?? 0) >= 5,
+      (item) => (item.estimate.uncertaintyRadiusMeters ?? 0) >= 10,
     )).toBe(true);
-    expect(replay.some(
-      (item) => item.estimate.explanation.method === "MULTI_OBSERVER_WEIGHTED_MEDIAN",
-    )).toBe(true);
+    expect(replay.every((item) => item.estimate.dataMode === "demo")).toBe(true);
+    expect(replay.every((item) => item.estimate.truthClass === "simulated")).toBe(true);
+    expect(replay.some((item) => (
+      item.estimate.provenance.algorithm === "stugu.profile-fusion.2026-07"
+      && item.estimate.source === "multi-observer"
+    ))).toBe(true);
   });
 });

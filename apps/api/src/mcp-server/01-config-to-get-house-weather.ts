@@ -1,7 +1,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, resolvePlanElementOpeningState } from "@climate-twin/contracts";
+import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, hasLocalHouseAuthority, resolvePlanElementOpeningState } from "@climate-twin/contracts";
 import type { StugubyRole, StugubySummary } from "@climate-twin/stuguby-protocol";
 import type {
   AreaEquipment,
@@ -352,6 +352,9 @@ export function measurementSnapshot(houseId?: string): MeasurementSnapshotEntry[
 
 export async function getHouseWeather(houseId: string, hours: number): Promise<HouseWeather> {
   const house = requireMcpHouse(database, houseId);
+  if (!hasLocalHouseAuthority(house)) {
+    throw new Error(`House ${houseId} is a remote Stuguby projection`);
+  }
   if (!house.location) throw new Error(`House ${houseId} does not have a weather location`);
   const result = await weather.get(house, hours);
   const current = database.getHouse(house.id);

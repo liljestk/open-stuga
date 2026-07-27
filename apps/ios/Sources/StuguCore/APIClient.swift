@@ -54,6 +54,7 @@ public actor StuguAPIClient {
     private struct LinkEnvelope: Decodable { let link: EquipmentLink }
     private struct TrackingSettingsEnvelope: Decodable { let settings: TrackingPropertySettings }
     private struct TrackingObserverEnvelope: Decodable { let observer: TrackingObserver }
+    private struct TrackingEndpointEnvelope: Decodable { let endpoint: TrackingEndpoint }
     private struct NotesEnvelope: Decodable { let notes: [PropertyNote] }
     private struct NoteEnvelope: Decodable { let note: PropertyNote }
     private struct MaintenanceTasksEnvelope: Decodable { let maintenanceTasks: [MaintenanceTask] }
@@ -438,6 +439,22 @@ public actor StuguAPIClient {
         try await request(version: 1, path: "/tracking/capabilities")
     }
 
+    public func trackingProfiles() async throws -> TrackingProfileManifest {
+        try await request(version: 1, path: "/tracking/profiles")
+    }
+
+    public func enrollTrackingEndpoint(
+        _ input: TrackingEndpointEnrollmentInput
+    ) async throws -> TrackingEndpoint {
+        let value: TrackingEndpointEnvelope = try await request(
+            version: 1,
+            path: "/tracking/endpoints",
+            method: "POST",
+            body: input
+        )
+        return value.endpoint
+    }
+
     public func trackingMapSnapshot(propertyID: String) async throws -> TrackingMapSnapshot {
         try await request(
             version: 1,
@@ -590,10 +607,11 @@ public actor StuguAPIClient {
         return value.settings
     }
 
-    public func trackingScanToken(equipmentID: String) async throws -> TrackingScanToken {
+    public func trackingFindDescriptor(equipmentID: String) async throws
+        -> TrackingFindDescriptor {
         try await request(
             version: 1,
-            path: "/assets/\(escaped(equipmentID))/tracking-scan-token"
+            path: "/area-equipment/\(escaped(equipmentID))/tracking-find-descriptor"
         )
     }
 
@@ -618,13 +636,24 @@ public actor StuguAPIClient {
         return value.observer
     }
 
+    public func trackingResolutionManifest(
+        observerID: String,
+        observerCredential: String
+    ) async throws -> TrackingResolutionManifest {
+        try await request(
+            version: 1,
+            path: "/tracking/observers/\(escaped(observerID))/resolution-manifest",
+            headers: ["Authorization": "Bearer \(observerCredential)"]
+        )
+    }
+
     public func uploadTrackingObservations(
         _ observations: [TrackingObservationInput],
         observerCredential: String
     ) async throws -> TrackingObservationBatchResult {
         try await request(
             version: 1,
-            path: "/tracking/observations:batch",
+            path: "/tracking/evidence:batch",
             method: "POST",
             body: TrackingObservationBatchInput(observations: observations),
             headers: ["Authorization": "Bearer \(observerCredential)"]

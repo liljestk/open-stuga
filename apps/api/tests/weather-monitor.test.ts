@@ -61,7 +61,22 @@ describe("WeatherMonitor", () => {
       `house-${index + 1}`,
       { latitude: 60 + index / 100, longitude: 24 + index / 100 },
     ));
-    const houses = repository([...located, house("unlocated")]);
+    const projected = {
+      ...house("shared-home", { latitude: 61, longitude: 25 }),
+      stuguby: {
+        stugubyId: "stuguby-test",
+        authorityNodeId: "remote-node",
+        publicationId: "remote-publication",
+        ownership: "shared" as const,
+        editPolicy: "read-only" as const,
+        syncState: "current" as const,
+        authorityEpoch: 1,
+        pendingChangeCount: 0,
+        conflictCount: 0,
+        recoveryState: "not-enabled" as const,
+      },
+    };
+    const houses = repository([...located, house("unlocated"), projected]);
     let active = 0;
     let maximumActive = 0;
     const weather: WeatherMonitorRefreshService = {

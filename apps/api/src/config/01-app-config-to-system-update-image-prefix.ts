@@ -28,11 +28,8 @@ export interface AppConfig {
   trackingLiveMapEnabled?: boolean;
   trackingMovementTrailsEnabled?: boolean;
   trackingExitAlertsEnabled?: boolean;
-  trackingRotatingIdentifiersEnabled?: boolean;
   trackingUserLocationSharingEnabled?: boolean;
-  trackingExperimentalCoordinateInferenceEnabled?: boolean;
-  trackingRawMobileCoordinateRetentionHours?: number;
-  /** Server-owned AES key used only to encrypt per-tag secrets at rest. */
+  /** Server-owned key for endpoint identity encryption and pseudonymous references. */
   trackingSecretKeyFile?: string | null;
   integrationSecretsFile: string;
   assetDirectory: string;

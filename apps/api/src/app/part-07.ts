@@ -208,7 +208,7 @@ export function configureApiPart07(context: ReturnType<typeof configureApiPart06
         return;
       }
       if (request.method === "POST" && (
-        request.path === `${context.prefix}/tracking/observations:batch`
+        request.path === `${context.prefix}/tracking/evidence:batch`
         || isTrackingObserverHeartbeatPath(request.path, context.prefix)
       )) {
         response.locals.accountBodyLimit = "256 KiB";
@@ -231,7 +231,7 @@ export function configureApiPart07(context: ReturnType<typeof configureApiPart06
         || request.path === `${context.prefix}/readings`
         || request.path === `${context.v2Prefix}/measurements`
         || request.path === `${context.v2Prefix}/measurements/import`
-        || request.path === `${context.prefix}/tracking/observations:batch`
+        || request.path === `${context.prefix}/tracking/evidence:batch`
         || isTrackingObserverHeartbeatPath(request.path, context.prefix)
         || request.path.startsWith(`${context.prefix}/mock/`)
         || request.path === `${context.prefix}/replay`;

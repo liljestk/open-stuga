@@ -49,6 +49,10 @@ declare module "../core.js" {
             remoteId: string;
             localId: string;
         }>;
+    removeProjectionIds(stugubyId: string, authorityNodeId: string, projections: Array<{
+            resourceType: ProjectionResourceType;
+            localId: string;
+        }>): number;
     projectionRemoteId(stugubyId: string, authorityNodeId: string, resourceType: ProjectionResourceType, localId: string): string;
     publicationLocalId(stugubyId: string, authorityNodeId: string, resourceType: PublicationResourceType, publicationId: string, create?: boolean): string | null;
     enqueuePropertyCommand(command: StugubyPropertyCommand): StugubyStoredPropertyCommand;
@@ -76,6 +80,10 @@ declare module "../core.js" {
             remoteId: string;
             localId: string;
         }>;
+    removeProjectionIds(stugubyId: string, authorityNodeId: string, projections: Array<{
+            resourceType: ProjectionResourceType;
+            localId: string;
+        }>): number;
     projectionRemoteId(stugubyId: string, authorityNodeId: string, resourceType: ProjectionResourceType, localId: string): string;
     publicationLocalId(stugubyId: string, authorityNodeId: string, resourceType: PublicationResourceType, publicationId: string, create?: boolean): string | null;
     enqueuePropertyCommand(command: StugubyPropertyCommand): StugubyStoredPropertyCommand;

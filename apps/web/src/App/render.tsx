@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import type { Floor, Metric, TpLinkDiscoveredDevice, UnitSystem } from "@climate-twin/contracts";
+import { hasLocalHouseAuthority, type Floor, type Metric, type TpLinkDiscoveredDevice, type UnitSystem } from "@climate-twin/contracts";
 import { AlertTriangle, HousePlus, LoaderCircle, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
 import { AppShell } from "../components/AppShell";
 import { type AppPage, type ViewMode } from "../domain";
@@ -25,6 +25,7 @@ import type { TpLinkDeviceReference } from "./support";
 import { useAppPart03 } from "./part-03";
 export function renderApp(context: ReturnType<typeof useAppPart03>) {
   const { t, climate, state, workspaceReadOnly, canManagePeople, loadSeriesInBackground, initialRoute, initialHouse, initialPropertyId, initialSelectedHouse, page, setPage, routeLoading, routeNotFound, setRouteNotFound, setRouteRevision, propertyId, setPropertyId, houseId, setHouseId, floorId, setFloorId, metric, setMetric, viewMode, setViewMode, selectedSensorId, setSelectedSensorId, units, setUnitsState, firstHomeName, setFirstHomeName, firstPropertyName, setFirstPropertyName, firstHomePropertyId, setFirstHomePropertyId, bootstrapAction, setBootstrapAction, maintenanceObservationId, setMaintenanceObservationId, requestedSensorDevice, setRequestedSensorDevice, dismissedTpLinkDeviceIds, setDismissedTpLinkDeviceIds, invitationToken, setInvitationToken, logoutUncertain, setLogoutUncertain, previousPage, logout, property, propertyReadOnly, propertyElectricityAvailable, propertyHouses, selectedPropertyHouse, house, activeSharedHouse, houseReadOnly, houseLocalAuthority, locationRoute, readOnly, routeHouse, routeScopeInvalid, effectiveRouteNotFound, floor, measurementDefinitions, availableMeasurements, lastUpdated, openAlertCount, scopedIntegration, availableTpLinkDevices, currentTpLinkDevices, undisclosedTpLinkDevices, discoveredSensorNotice, applyHouse, setUnits, dismissTpLinkDeviceNotices, navigate, chooseHouse, chooseProperty, createHouse, deleteHouse, createFirstHome, repairHome, renderFirstHomeCard, renderNoAccessCard } = context;
+  const localAuthorityHouses = propertyHouses.filter(hasLocalHouseAuthority);
   if (climate.loading || climate.bootstrapStatus === "loading") {
       return <output className="loading-screen"><span className="loading-logo" aria-hidden="true" /><strong>{t("app.name")}</strong><span>{t("common.loading")}</span></output>;
     }
@@ -467,7 +468,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
           <SensorManagementPage
             state={state}
             house={house}
-            houses={houseLocalAuthority ? propertyHouses : [house]}
+            houses={houseLocalAuthority ? localAuthorityHouses : [house]}
             integration={state.integration}
             tpLinkDevices={climate.tpLinkDevices}
             tpLinkDevicesLoading={climate.tpLinkDevicesLoading}
@@ -500,8 +501,8 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
           <IntegrationsPage
             integration={state.integration}
             house={house}
-            houses={propertyHouses}
-            connectionHouses={propertyHouses}
+            houses={localAuthorityHouses}
+            connectionHouses={localAuthorityHouses}
             units={units}
             streamConnection={climate.connection}
             tpLinkDevicesLoading={climate.tpLinkDevicesLoading}

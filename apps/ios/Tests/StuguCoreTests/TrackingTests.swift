@@ -3,25 +3,79 @@ import XCTest
 @testable import StuguCore
 
 final class TrackingTests: XCTestCase {
-    func testParsesCompactTrackingAdvertisement() throws {
-        let bytes: [UInt8] = [
-            0b0100_0011,
-            1, 2, 3, 4, 5, 6, 7, 8,
-            0x12, 0x34,
-            0x01, 0x02,
-            72,
-            9, 10, 11, 12,
-        ]
-        let parsed = try TrackingAdvertisementParser.parse(Data(bytes))
+    func testDeclarativeProfileResolvesOnlyClaimedEndpoint() throws {
+        let profile = try JSONDecoder().decode(TrackingProfile.self, from: Data(#"""
+        {
+          "schemaVersion":"2026-07-01",
+          "id":"org.bluetooth.ibeacon",
+          "version":"2026.07",
+          "displayName":"iBeacon",
+          "description":"Test profile",
+          "serviceUuids":[],
+          "match":[{"source":"manufacturerData","key":"004c","offset":0,"value":"0215"}],
+          "fields":[
+            {"name":"proximityUuid","source":"manufacturerData","key":"004c","offset":2,"length":16,"encoding":"uuid"},
+            {"name":"major","source":"manufacturerData","key":"004c","offset":18,"length":2,"encoding":"uint16be"},
+            {"name":"minor","source":"manufacturerData","key":"004c","offset":20,"length":2,"encoding":"uint16be"},
+            {"name":"txPower","source":"manufacturerData","key":"004c","offset":22,"length":1,"encoding":"int8"}
+          ],
+          "identity":{
+            "namespace":"org.bluetooth.ibeacon","namespaceVersion":1,
+            "scope":"GLOBAL","strength":"STATIC_CLEAR",
+            "fields":["proximityUuid","major","minor"],"separator":":"
+          },
+          "capabilities":{
+            "trackabilityTier":"PROPERTY_BEACON","discoverability":"FOREGROUND",
+            "backgroundSupport":"FOREGROUND_ONLY","mapCapability":"ZONE",
+            "connectable":false,"reportsBattery":false,
+            "reportsMotion":false,"reportsCounter":false
+          },
+          "platformSupport":[{"platform":"ios","scanContexts":["foreground","foreground-find"],"notes":[]}],
+          "maximumFrameBytes":31,
+          "deprecatedAt":null
+        }
+        """#.utf8))
+        let payload = Data([
+            0x02, 0x15,
+            0x7f, 0x7e, 0x4b, 0x10, 0x2f, 0x5f, 0x4f, 0xc9,
+            0xa6, 0x6a, 0x06, 0xdb, 0x0f, 0xa0, 0x42, 0xf8,
+            0x00, 0x01, 0x00, 0x07, 0xc5,
+        ])
+        let frame = TrackingLocalAdvertisementFrame(
+            serviceUuids: [],
+            manufacturerData: ["004c": payload],
+            serviceData: [:],
+            localName: nil,
+            peripheralIdentifier: "observer-local-id",
+            connectable: false,
+            rssi: -63,
+            observedAt: "2026-07-27T08:00:00.000Z"
+        )
+        let entry = TrackingResolutionEntry(
+            equipmentId: "equipment-main",
+            endpointId: "endpoint-main",
+            profileId: profile.id,
+            profileVersion: profile.version,
+            identityFields: [
+                "proximityUuid": "7f7e4b10-2f5f-4fc9-a66a-06db0fa042f8",
+                "major": "1",
+                "minor": "7",
+            ]
+        )
 
-        XCTAssertEqual(parsed.protocolVersion, 1)
-        XCTAssertEqual(parsed.flags, 3)
-        XCTAssertEqual(parsed.epochCounter, 0x1234)
-        XCTAssertEqual(parsed.eventCounter, 0x0102)
-        XCTAssertEqual(parsed.batteryPercent, 72)
-        XCTAssertTrue(parsed.isMoving)
-        XCTAssertTrue(parsed.isLowBattery)
-        XCTAssertEqual(Data(base64Encoded: parsed.rawPayload.base64URLToStandard())?.count, 18)
+        let resolved = TrackingAdvertisementParser.resolve(
+            frame,
+            profiles: [profile],
+            entries: [entry]
+        )
+        XCTAssertEqual(resolved?.resolution.endpointId, "endpoint-main")
+        XCTAssertEqual(resolved?.match.identityFields, entry.identityFields)
+        XCTAssertEqual(resolved?.match.telemetry["txPower"], .number(-59))
+        XCTAssertNil(TrackingAdvertisementParser.resolve(
+            frame,
+            profiles: [profile],
+            entries: []
+        ))
     }
 
     func testSignalSmoothingUsesWordsRatherThanDistance() {
@@ -90,6 +144,7 @@ final class TrackingTests: XCTestCase {
         let data = Data(#"""
         {
           "propertyId":"property-main",
+          "dataMode":"demo",
           "generatedAt":"2026-07-25T19:14:25.000Z",
           "sequence":12,
           "settings":{
@@ -97,19 +152,22 @@ final class TrackingTests: XCTestCase {
             "liveNearbySeconds":10,"recentlySeenSeconds":120,"staleSeconds":1800,
             "unknownSeconds":604800,"movementThresholdMeters":8,
             "movementMaximumIntervalSeconds":120,"minimumMovementConfidence":0.55,
-            "exitAlertDebounceSeconds":120,"updatedAt":"2026-07-25T19:00:00.000Z"
+            "exitAlertDebounceSeconds":120,"observationRetentionDays":30,
+            "rollupRetentionDays":180,"estimateRetentionDays":365,
+            "updatedAt":"2026-07-25T19:00:00.000Z"
           },
           "zones":[],
           "gateways":[],
-          "assets":[],
+          "equipment":[],
           "members":[]
         }
         """#.utf8)
 
         let snapshot = try JSONDecoder().decode(TrackingMapSnapshot.self, from: data)
         XCTAssertEqual(snapshot.propertyId, "property-main")
+        XCTAssertEqual(snapshot.dataMode, "demo")
         XCTAssertEqual(snapshot.settings.liveNearbySeconds, 10)
-        XCTAssertTrue(snapshot.assets.isEmpty)
+        XCTAssertTrue(snapshot.equipment.isEmpty)
     }
 
     func testEquipmentQRCodeRoundTripsAndRejectsAmbiguousValues() {
@@ -164,31 +222,26 @@ final class TrackingTests: XCTestCase {
 
     private func fixtureObservation(id: String) -> TrackingObservationInput {
         TrackingObservationInput(
+            dataMode: "demo",
             observationId: id,
             propertyId: "property-main",
+            endpointId: "endpoint-main",
+            equipmentId: "equipment-main",
             observerId: "observer-ios",
             observedAt: "2026-07-25T19:14:22.341Z",
-            rotatingTagId: "AQIDBAUGBwg",
-            authenticator: "CQoLDA",
-            protocolVersion: 1,
-            advertisementFlags: 1,
-            epochCounter: 1,
-            eventCounter: 2,
+            profileId: "org.bluetooth.ibeacon",
+            profileVersion: "2026.07",
             rssi: -67,
-            motion: true,
-            batteryPercent: 72,
-            scanMode: "property",
-            appState: "background",
-            rawPayload: "QwECAwQFBgcIAAEAAkgJCgsM"
+            txPower: -59,
+            observerPosition: TrackingObserverPosition(
+                latitude: 60.17,
+                longitude: 24.93,
+                horizontalAccuracyMeters: 15,
+                source: "gps",
+                capturedAt: "2026-07-25T19:14:22.000Z"
+            ),
+            scanContext: "background",
+            telemetry: ["platform": .string("IOS")]
         )
-    }
-}
-
-private extension String {
-    func base64URLToStandard() -> String {
-        var value = replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        value += String(repeating: "=", count: (4 - value.count % 4) % 4)
-        return value
     }
 }

@@ -278,21 +278,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     trackingLiveMapEnabled: booleanValue(env.TRACKING_LIVE_MAP_ENABLED, false),
     trackingMovementTrailsEnabled: booleanValue(env.TRACKING_MOVEMENT_TRAILS_ENABLED, false),
     trackingExitAlertsEnabled: booleanValue(env.TRACKING_EXIT_ALERTS_ENABLED, false),
-    trackingRotatingIdentifiersEnabled: booleanValue(env.TRACKING_ROTATING_IDENTIFIERS_ENABLED, true),
     trackingUserLocationSharingEnabled: booleanValue(
       env.TRACKING_USER_LOCATION_SHARING_ENABLED,
       false,
-    ),
-    trackingExperimentalCoordinateInferenceEnabled: booleanValue(
-      env.TRACKING_EXPERIMENTAL_COORDINATE_INFERENCE_ENABLED,
-      false,
-    ),
-    trackingRawMobileCoordinateRetentionHours: boundedInteger(
-      env.TRACKING_RAW_MOBILE_COORDINATE_RETENTION_HOURS,
-      24,
-      1,
-      24 * 30,
-      "TRACKING_RAW_MOBILE_COORDINATE_RETENTION_HOURS",
     ),
     trackingSecretKeyFile: databasePath === ":memory:"
       ? null

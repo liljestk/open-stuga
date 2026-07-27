@@ -251,9 +251,14 @@ registerStugubyServiceMethods({
             }
             if (grantExpired(grant)) throw new StugubyError(400, "GRANT_EXPIRED", "An expired grant cannot be published");
             this.validateGrantAgainstMembership(grant, actor.nodeId);
-            validateGrantTransition(this.store.getGrant(grant.id), grant, 409);
+            const previousGrant = this.store.getGrant(grant.id);
+            validateGrantTransition(previousGrant, grant, 409);
             this.store.upsertGrant(grant);
-            if (grantAudienceIncludes(grant, this.identity.nodeId)) {
+            if (previousGrant
+              && grantAudienceIncludes(previousGrant, this.identity.nodeId)
+              && !grantAudienceIncludes(grant, this.identity.nodeId)) {
+              this.store.purgeGrantData(stugubyId, grant.id, grant.epoch);
+              this.deleteUnreferencedBlobs(this.store.purgeReplicaBlobReferences(stugubyId, grant.id, grant.epoch));
               this.materializeRemoteHome(stugubyId, grant.authorityNodeId, grant.publicationId);
             }
             this.distribute(event, grant);
@@ -279,6 +284,9 @@ registerStugubyServiceMethods({
                 this.store.purgeGrantData(stugubyId, grant.id, revokedEpoch);
                 this.deleteUnreferencedBlobs(this.store.purgeReplicaBlobReferences(stugubyId, grant.id, revokedEpoch));
               }
+              if (grantAudienceIncludes(grant, this.identity.nodeId)) {
+                this.materializeRemoteHome(stugubyId, grant.authorityNodeId, grant.publicationId);
+              }
               this.distribute(event, grant);
               this.deleteUnreferencedBlobs(this.store.releaseRelayReferencesWithoutAccess(stugubyId, grant.id, revokedEpoch));
             }
@@ -295,9 +303,7 @@ registerStugubyServiceMethods({
           }
           if (grantAudienceIncludes(grant, this.identity.nodeId)) {
             this.store.applyDatasetEvent(event);
-            if (event.operation === "upsert" && event.payload && typeof event.payload === "object" && !Array.isArray(event.payload)) {
-              this.materializeRemoteHome(stugubyId, event.authorityNodeId, String(event.payload.publicationId));
-            }
+            this.materializeRemoteHome(stugubyId, grant.authorityNodeId, grant.publicationId);
             const policy = enabledDataset(grant, event.schema as StugubyDataset);
             if (policy?.allowReplicaCache && policy.retentionDays > 0) {
               for (const reference of blobReferences) {

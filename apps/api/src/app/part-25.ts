@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { isIP } from "node:net";
 import { dirname, join } from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
-import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, resolvePlanElementOpeningState } from "@climate-twin/contracts";
+import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, hasLocalHouseAuthority, resolvePlanElementOpeningState } from "@climate-twin/contracts";
 import type {
   AreaEquipmentInput,
   AreaEquipmentPatch,
@@ -195,10 +195,11 @@ export function configureApiPart25(context: ReturnType<typeof configureApiPart24
       const connectionId = request.params.connectionId as string;
       const targetHouseId = requiredString(bodyObject(request.body), "houseId");
       if (!context.database.getHouse(targetHouseId)) throw new HttpError(404, "NOT_FOUND", "Target house not found");
+      context.stuguby.assertHouseLocalAuthority(targetHouseId);
       const existing = config.tpLinkConnections ?? [];
       const explicitConnection = existing.find((candidate) => candidate.id === connectionId);
       const legacyHouseId = context.status.value.tpLink.connections?.find((candidate) => candidate.id === "legacy")?.houseId
-        ?? context.database.listHouses()[0]?.id;
+        ?? context.database.listHouses().find(hasLocalHouseAuthority)?.id;
       const legacyConnection = connectionId === "legacy" && existing.length === 0 && !config.tpLinkLegacyDisabled
         && legacyHouseId && config.tpLinkHost && config.tpLinkUsername && config.tpLinkPassword
         ? {
@@ -254,10 +255,11 @@ export function configureApiPart25(context: ReturnType<typeof configureApiPart24
       const fromHouseId = request.params.houseId as string;
       const targetHouseId = requiredString(bodyObject(request.body), "houseId");
       if (!context.database.getHouse(targetHouseId)) throw new HttpError(404, "NOT_FOUND", "Target house not found");
+      context.stuguby.assertHouseLocalAuthority(targetHouseId);
       const existing = config.homeAssistantConnections ?? [];
       const explicitConnection = existing.find((candidate) => candidate.houseId === fromHouseId);
       const legacyHouseId = context.status.value.homeAssistant.connections?.find((candidate) => candidate.houseId === fromHouseId)?.houseId
-        ?? context.database.listHouses()[0]?.id;
+        ?? context.database.listHouses().find(hasLocalHouseAuthority)?.id;
       const legacyConnection = existing.length === 0 && !config.homeAssistantLegacyDisabled
         && legacyHouseId === fromHouseId && config.haUrl && config.haToken
         ? { houseId: legacyHouseId, url: config.haUrl, token: config.haToken }
@@ -306,7 +308,7 @@ export function configureApiPart25(context: ReturnType<typeof configureApiPart24
       const existing = config.tpLinkConnections ?? [];
       const explicitConnection = existing.find((candidate) => candidate.id === connectionId);
       const legacyHouseId = context.status.value.tpLink.connections?.find((candidate) => candidate.id === "legacy")?.houseId
-        ?? context.database.listHouses()[0]?.id;
+        ?? context.database.listHouses().find(hasLocalHouseAuthority)?.id;
       const legacyConnection = connectionId === "legacy" && existing.length === 0 && !config.tpLinkLegacyDisabled
         && legacyHouseId && config.tpLinkHost && config.tpLinkUsername && config.tpLinkPassword
         ? {
@@ -346,7 +348,7 @@ export function configureApiPart25(context: ReturnType<typeof configureApiPart24
       const existing = config.homeAssistantConnections ?? [];
       const explicitConnection = existing.find((connection) => connection.houseId === houseId);
       const legacyHouseId = context.status.value.homeAssistant.connections?.find((candidate) => candidate.houseId === houseId)?.houseId
-        ?? context.database.listHouses()[0]?.id;
+        ?? context.database.listHouses().find(hasLocalHouseAuthority)?.id;
       const disconnectingLegacy = explicitConnection === undefined && existing.length === 0
         && !config.homeAssistantLegacyDisabled && legacyHouseId === houseId && Boolean(config.haUrl && config.haToken);
       if (!explicitConnection && !disconnectingLegacy) {

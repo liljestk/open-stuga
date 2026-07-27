@@ -1,5 +1,6 @@
-import type {
-  AlertEvent,
+import {
+  hasLocalHouseAuthority,
+  type AlertEvent,
   AlertRule,
   ForecastPoint,
   IntegrationStatus,
@@ -123,7 +124,9 @@ export class RuntimeStatus {
   }
 
   private configuredWeatherHouses(): number {
-    return this.#database.listHouses().filter((house) => house.location !== undefined).length;
+    return this.#database.listHouses()
+      .filter((house) => hasLocalHouseAuthority(house) && house.location !== undefined)
+      .length;
   }
 
   private weatherConnections(
@@ -131,7 +134,7 @@ export class RuntimeStatus {
     fallbackProvider: IntegrationStatus["weather"]["provider"] = "fmi",
   ): WeatherConnectionStatus[] {
     const previous = new Map(existing.map((connection) => [connection.houseId, connection]));
-    return this.#database.listHouses().map((house) => {
+    return this.#database.listHouses().filter(hasLocalHouseAuthority).map((house) => {
       const prior = previous.get(house.id);
       const configured = house.location !== undefined;
       return {

@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { isIP } from "node:net";
 import { dirname, join } from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
-import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, resolvePlanElementOpeningState } from "@climate-twin/contracts";
+import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, hasLocalHouseAuthority, resolvePlanElementOpeningState } from "@climate-twin/contracts";
 import type {
   AreaEquipmentInput,
   AreaEquipmentPatch,
@@ -243,7 +243,19 @@ export function configureApiPart27(context: ReturnType<typeof configureApiPart26
   context.app.get(`${context.prefix}/replay`, (_request, response) => response.json({ replay: context.replay.state }));
   context.app.post(`${context.prefix}/replay`, async (request, response) => {
       const body = bodyObject(request.body);
-      const sensorIds = Array.isArray(body.sensorIds) ? body.sensorIds.filter((id): id is string => typeof id === "string") : context.database.listSensors().map((sensor) => sensor.id);
+      const sensorIds = Array.isArray(body.sensorIds)
+        ? body.sensorIds.filter((id): id is string => typeof id === "string")
+        : context.database.listSensors()
+            .filter((sensor) => {
+              const house = context.database.getHouse(sensor.houseId);
+              return Boolean(house && hasLocalHouseAuthority(house));
+            })
+            .map((sensor) => sensor.id);
+      for (const sensorId of sensorIds) {
+        const sensor = context.database.getSensor(sensorId);
+        if (!sensor) throw new HttpError(404, "NOT_FOUND", `Sensor ${sensorId} not found`);
+        context.stuguby.assertHouseLocalAuthority(sensor.houseId);
+      }
       const to = dateValue(body.to, new Date(), "to");
       const from = dateValue(body.from, new Date(Date.parse(to) - 3_600_000), "from");
       const speed = typeof body.speed === "number" ? body.speed : 60;

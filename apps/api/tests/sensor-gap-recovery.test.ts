@@ -7,10 +7,7 @@ import request from "supertest";
 import { WebSocketServer, type WebSocket } from "ws";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
-import {
-  SensorGapRecoveryCoordinator,
-  type SensorGapRecoveryAdapter,
-} from "../src/sensor-gap-recovery.js";
+import { SensorGapRecoveryCoordinator, type SensorGapRecoveryAdapter } from "../src/sensor-gap-recovery.js";
 
 async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
   const started = Date.now();
@@ -22,21 +19,15 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<voi
 
 function config(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
-    port: 0,
-    apiHost: "127.0.0.1",
-    databasePath: ":memory:",
+    port: 0, apiHost: "127.0.0.1", databasePath: ":memory:",
     integrationSecretsFile: "unused.json",
     assetDirectory: ".",
     mockEnabled: false,
     mockIntervalMs: 2_000,
     retentionDays: 730,
     ingestApiKey: null,
-    haUrl: null,
-    haToken: null,
-    haEntityMapFile: null,
-    tpLinkHost: null,
-    tpLinkUsername: null,
-    tpLinkPassword: null,
+    haUrl: null, haToken: null, haEntityMapFile: null,
+    tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null,
     tpLinkDeviceMapFile: null,
     tpLinkPollIntervalMs: 10_000,
     tpLinkPython: "python",
@@ -61,6 +52,53 @@ describe("sensor data-gap recovery", () => {
     server = null;
     if (temporaryDirectory) rmSync(temporaryDirectory, { recursive: true, force: true });
     temporaryDirectory = null;
+  });
+
+  it("does not recover persisted integration gaps into a shared Home projection", async () => {
+    runtime = createApi({ config: config(), startBackground: false });
+    const from = "2026-07-01T00:00:00.000Z";
+    const to = "2026-07-01T01:00:00.000Z";
+    runtime.database.setHouseStugubyLink("house-main", {
+      stugubyId: "stuguby-test",
+      authorityNodeId: "remote-node",
+      publicationId: "remote-publication",
+      ownership: "shared",
+      editPolicy: "read-only",
+      syncState: "current",
+      authorityEpoch: 1,
+      pendingChangeCount: 0,
+      conflictCount: 0,
+      recoveryState: "not-enabled",
+    });
+    runtime.database.noteHistoricalSensorDataGap("sensor-01", "temperature", "tp-link", from, to, from);
+    const recoverHistory = vi.fn<NonNullable<SensorGapRecoveryAdapter["recoverHistory"]>>(async () => ({
+      state: "complete",
+      error: null,
+      samples: [{
+        sensorId: "sensor-01",
+        metric: "temperature",
+        value: 99,
+        canonicalUnit: "\u00b0C",
+        timestamp: "2026-07-01T00:30:00.000Z",
+        source: "tp-link",
+        quality: "good",
+      }],
+    }));
+    const recovery = new SensorGapRecoveryCoordinator(runtime.database, runtime.measurements, [{
+      source: "tp-link",
+      availability: () => [],
+      recoverHistory,
+    }]);
+
+    await recovery.runOnce(new Date("2026-07-02T00:00:00.000Z"));
+
+    expect(recoverHistory).not.toHaveBeenCalled();
+    expect(runtime.database.listSensorDataGaps("sensor-01")[0]).toMatchObject({
+      recoveryState: "not-supported",
+      recoveredPoints: 0,
+    });
+    expect(runtime.database.measurementHistory("sensor-01", "temperature", from, to))
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ value: 99 })]));
   });
 
   it("durably detects an unavailable metric and backfills it after recovery", async () => {

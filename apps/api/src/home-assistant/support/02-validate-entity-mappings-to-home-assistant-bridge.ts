@@ -4,7 +4,7 @@ import { Agent as HttpsAgent } from "node:https";
 import type { Socket } from "node:net";
 import { resolve } from "node:path";
 import WebSocket from "ws";
-import type { MeasurementSample, OpeningState, OpeningStateObservation, Reading } from "@climate-twin/contracts";
+import { hasLocalHouseAuthority, type MeasurementSample, type OpeningState, type OpeningStateObservation, type Reading } from "@climate-twin/contracts";
 import type { AppConfig } from "../../config.js";
 import type { ClimateDatabase } from "../../db.js";
 import type {
@@ -140,9 +140,12 @@ export class HomeAssistantBridge implements SensorGapRecoveryAdapter {
 
   private configuredConnections(): Array<{ houseId: string; url: string; token: string }> {
     const explicit = (this.config.homeAssistantConnections ?? [])
-      .filter((connection) => this.database.getHouse(connection.houseId));
+      .filter((connection) => {
+        const house = this.database.getHouse(connection.houseId);
+        return Boolean(house && hasLocalHouseAuthority(house));
+      });
     if (explicit.length > 0) return explicit.map((connection) => ({ ...connection }));
-    const houseId = this.database.listHouses()[0]?.id;
+    const houseId = this.database.listHouses().find(hasLocalHouseAuthority)?.id;
     return !this.config.homeAssistantLegacyDisabled && houseId && this.config.haUrl && this.config.haToken
       ? [{ houseId, url: this.config.haUrl, token: this.config.haToken }]
       : [];
@@ -220,7 +223,8 @@ export class HomeAssistantBridge implements SensorGapRecoveryAdapter {
 
   recoverHistory(sensorId: string, metric: string, from: string, to: string): Promise<SensorHistoryRecoveryResult> {
     const houseId = this.database.getSensor(sensorId)?.houseId;
-    const worker = houseId ? this.#workers.get(houseId) : undefined;
+    const house = houseId ? this.database.getHouse(houseId) : null;
+    const worker = houseId && house && hasLocalHouseAuthority(house) ? this.#workers.get(houseId) : undefined;
     if (!worker) {
       return Promise.resolve({ state: "not-supported", samples: [], error: "No Home Assistant connection owns this sensor" });
     }

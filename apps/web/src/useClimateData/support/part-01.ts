@@ -35,6 +35,7 @@ import type {
   TelemetryEvent,
   TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
+import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import {
   api,
   cancelPendingApiRequests,
@@ -200,6 +201,19 @@ export function isDemoSource(source: string): boolean {
   return source === "mock" || source === "replay";
 }
 
+export function isRemoteSharedDemoTelemetry(
+  current: Pick<ClimateState, "houses" | "sensors">,
+  sensorId: string,
+  source: string,
+): boolean {
+  if (!isDemoSource(source)) return false;
+  const sensor = current.sensors.find((candidate) => candidate.id === sensorId);
+  const house = sensor
+    ? current.houses.find((candidate) => candidate.id === sensor.houseId)
+    : null;
+  return Boolean(house && !hasLocalHouseAuthority(house));
+}
+
 /** Removes demo values already held in browser memory when the API enters real-data mode. */
 export function withoutDemoTelemetry(current: ClimateState, clearAlerts = false): ClimateState {
   const readings = Object.fromEntries(Object.entries(current.readings).filter(([, reading]) => !isDemoSource(reading.source)));
@@ -238,11 +252,39 @@ export function advanceMockTelemetry(
   tick: number,
 ): ClimateState {
   if (!current.integration.mock.enabled || current.integration.mock.mode === "real") return current;
-  const readings = { ...current.readings };
-  const history = { ...current.history };
-  let latestMeasurements = current.latestMeasurements;
-  let measurementHistory = current.measurementHistory;
+  const sharedHouseIds = new Set(current.houses
+    .filter((house) => !hasLocalHouseAuthority(house))
+    .map((house) => house.id));
+  const sharedSensorIds = new Set(current.sensors
+    .filter((sensor) => sharedHouseIds.has(sensor.houseId))
+    .map((sensor) => sensor.id));
+  const readings = Object.fromEntries(Object.entries(current.readings)
+    .filter(([sensorId, reading]) => !sharedSensorIds.has(sensorId) || !isDemoSource(reading.source)));
+  const history = Object.fromEntries(Object.entries(current.history).flatMap(([sensorId, values]) => {
+    const retained = sharedSensorIds.has(sensorId)
+      ? values.filter((reading) => !isDemoSource(reading.source))
+      : values;
+    return retained.length ? [[sensorId, retained]] : [];
+  }));
+  let latestMeasurements = Object.fromEntries(Object.entries(current.latestMeasurements)
+    .flatMap(([sensorId, values]) => {
+      const retained = sharedSensorIds.has(sensorId)
+        ? Object.fromEntries(Object.entries(values).filter(([, sample]) => !isDemoSource(sample.source)))
+        : values;
+      return Object.keys(retained).length ? [[sensorId, retained]] : [];
+    }));
+  let measurementHistory = Object.fromEntries(Object.entries(current.measurementHistory)
+    .flatMap(([sensorId, byMetric]) => {
+      const retained = sharedSensorIds.has(sensorId)
+        ? Object.fromEntries(Object.entries(byMetric).flatMap(([metric, samples]) => {
+            const realSamples = samples.filter((sample) => !isDemoSource(sample.source));
+            return realSamples.length ? [[metric, realSamples]] : [];
+          }))
+        : byMetric;
+      return Object.keys(retained).length ? [[sensorId, retained]] : [];
+    }));
   for (const sensor of current.sensors) {
+    if (sharedSensorIds.has(sensor.id)) continue;
     const previous = readings[sensor.id];
     if (!previous) continue;
     const next = nextMockReading(sensor, previous, scenario, tick);
@@ -252,7 +294,15 @@ export function advanceMockTelemetry(
     latestMeasurements = upsertLatest(latestMeasurements, samples);
     measurementHistory = appendHistory(measurementHistory, samples, 500);
   }
-  return { ...current, readings, history, latestMeasurements, measurementHistory };
+  return {
+    ...current,
+    readings,
+    history,
+    latestMeasurements,
+    measurementHistory,
+    forecasts: withoutSensorIds(current.forecasts, sharedSensorIds),
+    measurementForecasts: withoutSensorIds(current.measurementForecasts, sharedSensorIds),
+  };
 }
 
 export function seriesLimit(range: TimeRange): number {

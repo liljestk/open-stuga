@@ -16,6 +16,7 @@ import type {
   StugubyHouseLink,
   StugubyPropertyLink,
 } from "@climate-twin/contracts";
+import { hasLocalHouseAuthority } from "@climate-twin/contracts";
 import {
   STUGBY_MAX_BATCH_EVENTS,
   STUGBY_MAX_BLOB_BYTES,
@@ -366,6 +367,10 @@ registerStugubyServiceMethods({
       // the caller. This guard only adds Stuguby authority policy.
       if (!property) return;
       if (!property.stuguby || property.stuguby.syncState === "detached") return;
+      const stuguby = this.store.getStuguby(property.stuguby.stugubyId);
+      if (!stuguby || stuguby.localMemberState !== "active") {
+        throw new StugubyError(403, "MEMBERSHIP_INACTIVE", "An inactive Stuguby member cannot edit shared Property data");
+      }
       if (property.stuguby.editPolicy === "read-only" && property.stuguby.authorityNodeId !== this.identity.nodeId) {
         throw new StugubyError(403, "PROPERTY_READ_ONLY", "The Stuguby coordinator has shared this Property as read-only");
       }
@@ -381,7 +386,7 @@ registerStugubyServiceMethods({
   assertHouseLocalAuthority(this: StugubyServiceInternals, houseId: string): void {
       const house = this.database.getHouse(houseId);
       if (!house) return;
-      if (!house.stuguby || house.stuguby.syncState === "detached" || house.stuguby.ownership === "local") return;
+      if (hasLocalHouseAuthority(house)) return;
       throw new StugubyError(
         403,
         "HOME_LOCAL_AUTHORITY_REQUIRED",

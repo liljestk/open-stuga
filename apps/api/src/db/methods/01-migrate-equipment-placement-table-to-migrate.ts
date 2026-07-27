@@ -382,6 +382,56 @@ registerDatabaseMethods({
         this.db.prepare("DELETE FROM analytics_daily_findings WHERE data_mode = 'demo'").run();
       });
     },
+  /** Removes every local producer/runtime artifact from active remote Homes. */
+  purgeSharedHomeLocalState(houseId?: string): void {
+      this.immediateTransaction(() => {
+        const houseFilter = houseId ? "AND house.id = ?" : "";
+        const sharedSensorIds = `SELECT sensor.id
+          FROM sensors sensor
+          JOIN houses house ON house.id = sensor.house_id
+          WHERE json_extract(house.stugby_json, '$.ownership') = 'shared'
+            AND json_extract(house.stugby_json, '$.syncState') <> 'detached' ${houseFilter}`;
+        const parameters = houseId ? [houseId] : [];
+        this.db.prepare(`DELETE FROM alert_evaluation_state WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
+        this.db.prepare(`DELETE FROM alert_events WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
+        this.db.prepare(`DELETE FROM alert_rules WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
+        this.db.prepare(`DELETE FROM sensor_data_gaps WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
+        this.db.prepare(`DELETE FROM tapo_history_export_jobs WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
+        this.db.prepare(`DELETE FROM sensor_measurement_bindings WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
+        this.db.prepare(`DELETE FROM measurement_samples
+          WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
+        this.db.prepare(`DELETE FROM readings
+          WHERE sensor_id IN (${sharedSensorIds})`).run(...parameters);
+        this.db.prepare(`UPDATE sensors
+          SET temperature_entity_id = NULL, humidity_entity_id = NULL, battery_entity_id = NULL,
+              tp_link_device_id = NULL, tp_link_connection_id = NULL, measurement_entity_ids_json = '{}'
+          WHERE id IN (${sharedSensorIds})`).run(...parameters);
+        this.db.prepare(`DELETE FROM opening_state_observations
+          WHERE house_id IN (
+            SELECT id FROM houses
+            WHERE json_extract(stugby_json, '$.ownership') = 'shared'
+              AND json_extract(stugby_json, '$.syncState') <> 'detached' ${houseId ? "AND id = ?" : ""}
+          )`).run(...parameters);
+        this.db.prepare(`DELETE FROM outdoor_temperature_samples
+          WHERE house_id IN (
+            SELECT id FROM houses
+            WHERE json_extract(stugby_json, '$.ownership') = 'shared'
+              AND json_extract(stugby_json, '$.syncState') <> 'detached' ${houseId ? "AND id = ?" : ""}
+          )`).run(...parameters);
+        this.db.prepare(`DELETE FROM weather_outages
+          WHERE house_id IN (
+            SELECT id FROM houses
+            WHERE json_extract(stugby_json, '$.ownership') = 'shared'
+              AND json_extract(stugby_json, '$.syncState') <> 'detached' ${houseId ? "AND id = ?" : ""}
+          )`).run(...parameters);
+        this.db.prepare(`DELETE FROM analytics_daily_findings
+          WHERE house_id IN (
+            SELECT id FROM houses
+            WHERE json_extract(stugby_json, '$.ownership') = 'shared'
+              AND json_extract(stugby_json, '$.syncState') <> 'detached' ${houseId ? "AND id = ?" : ""}
+          )`).run(...parameters);
+      });
+    },
   prepareTelemetrySources(sources: Array<MeasurementSample["source"] | Reading["source"]>): void {
       const hasDemo = sources.some((source) => DEMO_TELEMETRY_SOURCES.has(source));
       const hasReal = sources.some((source) => !DEMO_TELEMETRY_SOURCES.has(source));

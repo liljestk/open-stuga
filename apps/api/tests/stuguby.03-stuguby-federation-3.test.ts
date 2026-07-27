@@ -30,7 +30,14 @@ import { StugubyService } from "../src/stuguby/service.js";
 
 import { StugubyStore } from "../src/stuguby/store.js";
 
-import { RunningNode, editableHomeDatasets, fullRecoveryDatasets, node, stop } from "./stugubyTestSupport.js";
+import {
+  RunningNode,
+  editableHomeDatasets,
+  fullRecoveryDatasets,
+  node,
+  stop,
+  verifyMembershipProjectionCleanup,
+} from "./stugubyTestSupport.js";
 
 describe("Stuguby federation", () => {
   const nodes: RunningNode[] = [];
@@ -50,6 +57,16 @@ describe("Stuguby federation", () => {
       description: "Three independently managed households",
     }).expect(201);
     const stugubyId = created.body.id as string;
+    const coordinatorPropertyId = coordinator.runtime.database.getHouse("house-main")!.propertyId;
+    await request(coordinator.runtime.app).post(`/api/v1/stugbys/${stugubyId}/property/adopt`)
+      .send({ localPropertyId: coordinatorPropertyId }).expect(201);
+    for (const grant of coordinator.runtime.stuguby!.store.listGrants(
+      stugubyId,
+      coordinator.runtime.stuguby!.identity.nodeId,
+    ).filter((candidate) => !candidate.revokedAt)) {
+      await request(coordinator.runtime.app)
+        .delete(`/api/v1/stugbys/${stugubyId}/grants/${grant.id}`).expect(200);
+    }
 
     const inviteA = await request(coordinator.runtime.app).post(`/api/v1/stugbys/${stugubyId}/invitations`)
       .send({ role: "participant" }).expect(201);
@@ -131,10 +148,14 @@ describe("Stuguby federation", () => {
     const annexGrant = await request(household.runtime.app).post(`/api/v1/stugbys/${stugubyId}/grants`).send({
       localHouseId: "house-annex",
       audience: { kind: "members", nodeIds: [coordinator.runtime.stuguby!.identity.nodeId] },
-      datasets: [{ dataset: "home.directory.v1", enabled: true, includeLocalIds: false, allowReplicaCache: true, retentionDays: 30 }],
+      datasets: [
+        { dataset: "home.directory.v1", enabled: true, includeLocalIds: false, allowReplicaCache: true, retentionDays: 30 },
+        { dataset: "home.structure.v1", enabled: true, includeLocalIds: false, allowReplicaCache: true, retentionDays: 30 },
+      ],
     }).expect(201);
 
-    await request(household.runtime.app).post(`/api/v1/stugbys/${stugubyId}/sync`).expect(200);
+    const projectionSync = await request(household.runtime.app).post(`/api/v1/stugbys/${stugubyId}/sync`);
+    expect(projectionSync.status, JSON.stringify(projectionSync.body)).toBe(200);
 
     const coordinatorDetail = await request(coordinator.runtime.app).get(`/api/v1/stugbys/${stugubyId}`).expect(200);
     const schemas = coordinatorDetail.body.remoteResources.map((resource: { schema: string }) => resource.schema);
@@ -158,6 +179,82 @@ describe("Stuguby federation", () => {
     expect(directories).toHaveLength(2);
     expect(new Set(directories.map((resource) => resource.publicationId)).size).toBe(2);
 
+    const householdNodeId = household.runtime.stuguby!.identity.nodeId;
+    const coordinatorStore = coordinator.runtime.stuguby!.store;
+    const mainProjection = coordinatorStore.getHomeProjection(
+      stugubyId,
+      householdNodeId,
+      grantResponse.body.publicationId,
+    )!;
+    const annexProjection = coordinatorStore.getHomeProjection(
+      stugubyId,
+      householdNodeId,
+      annexGrant.body.publicationId,
+    )!;
+    expect(coordinator.runtime.database.getHouse(mainProjection.localHouseId)).not.toBeNull();
+    expect(coordinator.runtime.database.getHouse(annexProjection.localHouseId)).not.toBeNull();
+
+    const mainNoteId = coordinatorStore.projectionId(
+      stugubyId,
+      householdNodeId,
+      "home-note",
+      "synthetic-main-note",
+    );
+    const annexNoteId = coordinatorStore.projectionId(
+      stugubyId,
+      householdNodeId,
+      "home-note",
+      "synthetic-annex-note",
+    );
+    for (const [id, houseId, text] of [
+      [mainNoteId, mainProjection.localHouseId, "Main projected note"],
+      [annexNoteId, annexProjection.localHouseId, "Annex projected note"],
+    ] as const) {
+      coordinator.runtime.database.createPropertyNote({
+        id,
+        propertyId: coordinator.runtime.database.getHouse(houseId)!.propertyId,
+        houseId,
+        kind: "inspection",
+        text,
+      });
+    }
+    const mainObservationId = coordinatorStore.projectionId(
+      stugubyId,
+      householdNodeId,
+      "observation",
+      "synthetic-main-observation",
+    );
+    const annexObservationId = coordinatorStore.projectionId(
+      stugubyId,
+      householdNodeId,
+      "observation",
+      "synthetic-annex-observation",
+    );
+    for (const [id, houseId, note] of [
+      [mainObservationId, mainProjection.localHouseId, "Main projected observation"],
+      [annexObservationId, annexProjection.localHouseId, "Annex projected observation"],
+    ] as const) {
+      coordinator.runtime.database.createObservation({
+        id,
+        houseId,
+        floorId: coordinator.runtime.database.getHouse(houseId)!.floors[0]!.id,
+        kind: "inspection",
+        severity: "info",
+        note,
+        source: "owner",
+      }, "system-service");
+    }
+
+    coordinator.runtime.stuguby!.materializeRemoteHome(
+      stugubyId,
+      householdNodeId,
+      grantResponse.body.publicationId,
+    );
+    expect(coordinator.runtime.database.getPropertyNote(mainNoteId)).toBeNull();
+    expect(coordinator.runtime.database.getObservation(mainObservationId)).toBeNull();
+    expect(coordinator.runtime.database.getPropertyNote(annexNoteId)).not.toBeNull();
+    expect(coordinator.runtime.database.getObservation(annexObservationId)).not.toBeNull();
+
     const updatedDatasets = datasets.map((dataset) => dataset.dataset === "home.directory.v1"
       ? { ...dataset, includeLocalIds: true }
       : dataset);
@@ -169,7 +266,20 @@ describe("Stuguby federation", () => {
       expiresAt: null,
     }).expect(200);
     expect(updatedGrant.body).toMatchObject({ epoch: 3, revision: 3 });
-    await request(household.runtime.app).post(`/api/v1/stugbys/${stugubyId}/sync`).expect(200);
+    const updateSync = await request(household.runtime.app).post(`/api/v1/stugbys/${stugubyId}/sync`);
+    expect(updateSync.status, JSON.stringify({
+      body: updateSync.body,
+      mainHouseId: mainProjection.localHouseId,
+      mainHouseExists: Boolean(coordinator.runtime.database.getHouse(mainProjection.localHouseId)),
+      annexHouseId: annexProjection.localHouseId,
+      annexHouseExists: Boolean(coordinator.runtime.database.getHouse(annexProjection.localHouseId)),
+    })).toBe(200);
+    const refreshedMainProjection = coordinatorStore.getHomeProjection(
+      stugubyId,
+      householdNodeId,
+      grantResponse.body.publicationId,
+    )!;
+    expect(coordinator.runtime.database.getHouse(refreshedMainProjection.localHouseId)).not.toBeNull();
     const localIdProjection = coordinator.runtime.stuguby!.store.listRemoteResources(stugubyId)
       .find((resource) => resource.schema === "home.directory.v1" && resource.publicationId === grantResponse.body.publicationId);
     expect(localIdProjection?.payload).toMatchObject({ localHouseId: "house-main" });
@@ -213,6 +323,20 @@ describe("Stuguby federation", () => {
     await request(household.runtime.app).post(`/api/v1/stugbys/${stugubyId}/sync`).expect(200);
     expect(coordinator.runtime.stuguby!.store.listRemoteResources(stugubyId)).toEqual([]);
     expect(coordinator.runtime.stuguby!.store.remoteTelemetry({ stugubyId })).toEqual([]);
+    expect(coordinatorStore.getHomeProjection(
+      stugubyId,
+      householdNodeId,
+      grantResponse.body.publicationId,
+    )).toBeNull();
+    expect(coordinatorStore.getHomeProjection(
+      stugubyId,
+      householdNodeId,
+      annexGrant.body.publicationId,
+    )).toBeNull();
+    expect(coordinator.runtime.database.getHouse(refreshedMainProjection.localHouseId)).toBeNull();
+    expect(coordinator.runtime.database.getHouse(annexProjection.localHouseId)).toBeNull();
+    expect(coordinator.runtime.database.getPropertyNote(annexNoteId)).toBeNull();
+    expect(coordinator.runtime.database.getObservation(annexObservationId)).toBeNull();
     expect(coordinator.runtime.stuguby!.store.getBlob(floorPlanDigest)).toBeNull();
     expect(existsSync(join(coordinator.directory, "stuguby", floorPlanDigest))).toBe(false);
     expect(coordinator.runtime.stuguby!.store.listDeletionReceipts(stugubyId)).toEqual(expect.arrayContaining([
@@ -458,5 +582,7 @@ describe("Stuguby federation", () => {
       stugubyId,
       participant.runtime.stuguby!.identity.nodeId,
     ).every((candidate) => candidate.revokedAt !== null)).toBe(true);
+
+    await verifyMembershipProjectionCleanup(coordinator, participant, observer, stugubyId);
   }, 30_000);
 });

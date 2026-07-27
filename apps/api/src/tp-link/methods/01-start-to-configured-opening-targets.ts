@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { createInterface } from "node:readline";
-import type { OpeningStateObservation, Reading, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
+import { hasLocalHouseAuthority, type OpeningStateObservation, type Reading, type TpLinkDiscoveredDevice } from "@climate-twin/contracts";
 import type { AppConfig } from "../../config.js";
 import type { ClimateDatabase } from "../../db.js";
 import type {
@@ -307,7 +307,11 @@ registerTpLinkConnectionBridgeMethods({
   resolvedMappings(this: TpLinkConnectionBridgeInternals): Map<string, string> {
       const mappings = new Map<string, string>();
       const mappedSensors = new Set<string>();
-      for (const sensor of this[tpLinkConnectionBridgeState].database.listSensors(this[tpLinkConnectionBridgeState].connection?.houseId)) {
+      const effectiveHouseId = this[tpLinkConnectionBridgeState].connection?.houseId
+        ?? this[tpLinkConnectionBridgeState].database.listHouses().find(hasLocalHouseAuthority)?.id;
+      for (const sensor of effectiveHouseId
+        ? this[tpLinkConnectionBridgeState].database.listSensors(effectiveHouseId)
+        : []) {
         if (!sensor.tpLinkDeviceId) continue;
         if (this[tpLinkConnectionBridgeState].connection && sensor.tpLinkConnectionId !== this[tpLinkConnectionBridgeState].connection.id
           && !(this[tpLinkConnectionBridgeState].connection.acceptUnscoped && sensor.tpLinkConnectionId === undefined)) continue;
@@ -320,7 +324,9 @@ registerTpLinkConnectionBridgeMethods({
         ? `Ignored TP-Link mappings for unknown sensors: ${missingSensorIds.join(", ")}`
         : null;
       for (const [deviceId, sensorId] of this[tpLinkConnectionBridgeState].legacyMappings) {
-        if (!this[tpLinkConnectionBridgeState].database.getSensor(sensorId)) continue;
+        const sensor = this[tpLinkConnectionBridgeState].database.getSensor(sensorId);
+        const house = sensor ? this[tpLinkConnectionBridgeState].database.getHouse(sensor.houseId) : null;
+        if (!sensor || sensor.houseId !== effectiveHouseId || !house || !hasLocalHouseAuthority(house)) continue;
         if (mappings.has(deviceId) || mappedSensors.has(sensorId)) continue;
         mappings.set(deviceId, sensorId);
         mappedSensors.add(sensorId);
@@ -329,9 +335,10 @@ registerTpLinkConnectionBridgeMethods({
       return mappings;
     },
   configuredOpeningTargets(this: TpLinkConnectionBridgeInternals): TapoOpeningTarget[] {
-      const houseId = this[tpLinkConnectionBridgeState].connection?.houseId ?? this[tpLinkConnectionBridgeState].database.listHouses()[0]?.id;
+      const houseId = this[tpLinkConnectionBridgeState].connection?.houseId
+        ?? this[tpLinkConnectionBridgeState].database.listHouses().find(hasLocalHouseAuthority)?.id;
       const house = houseId ? this[tpLinkConnectionBridgeState].database.getHouse(houseId) : null;
-      if (!house) return [];
+      if (!house || !hasLocalHouseAuthority(house)) return [];
       const connectionId = this[tpLinkConnectionBridgeState].connection?.id ?? "legacy";
       return house.floors.flatMap((floor) => (floor.planElements ?? []).flatMap((element) => {
         if ((element.kind !== "door" && element.kind !== "window" && element.kind !== "vent") || element.stateBinding?.provider !== "tapo") return [];

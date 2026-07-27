@@ -1,4 +1,4 @@
-import type { MeasurementSample, Reading } from "@climate-twin/contracts";
+import { hasLocalHouseAuthority, type MeasurementSample, type Reading } from "@climate-twin/contracts";
 import {
   type ClimateDatabase,
   type SensorDataGapRecord,
@@ -70,6 +70,12 @@ function hasHomeAssistantMetricBinding(
   if (metric === "humidity") return Boolean(sensor.humidityEntityId);
   if (metric === "battery") return Boolean(sensor.batteryEntityId);
   return false;
+}
+
+function hasLocalSensorAuthority(database: ClimateDatabase, sensorId: string): boolean {
+  const sensor = database.getSensor(sensorId);
+  const house = sensor ? database.getHouse(sensor.houseId) : null;
+  return Boolean(sensor?.enabled && house && hasLocalHouseAuthority(house));
 }
 
 /**
@@ -184,7 +190,7 @@ export class SensorGapRecoveryCoordinator {
 
   #observe(item: SensorMetricAvailability): void {
     const observedAt = validIso(item.observedAt);
-    if (!observedAt || !this.database.getSensor(item.sensorId)?.enabled
+    if (!observedAt || !hasLocalSensorAuthority(this.database, item.sensorId)
       || !this.database.getMeasurementDefinition(item.metric)?.enabled) return;
     const key = availabilityKey(item);
     const previous = this.#availability.get(key);
@@ -232,14 +238,14 @@ export class SensorGapRecoveryCoordinator {
   async #recoverQueued(now: Date): Promise<void> {
     for (const queued of this.database.recoverableSensorDataGaps(now.toISOString())) {
       const attemptedAt = now.toISOString();
-      if (!this.database.getSensor(queued.sensorId)?.enabled
+      if (!hasLocalSensorAuthority(this.database, queued.sensorId)
         || !this.database.getMeasurementDefinition(queued.metric)?.enabled) {
         this.database.updateSensorDataGapRecovery(
           queued.id,
           "not-supported",
           queued.recoveredPoints,
           attemptedAt,
-          "Sensor or measurement metric was disabled before history recovery",
+          "Sensor is not locally authoritative or its measurement metric was disabled before history recovery",
         );
         continue;
       }
@@ -263,14 +269,14 @@ export class SensorGapRecoveryCoordinator {
     }
     try {
       const result = await adapter.recoverHistory(gap.sensorId, gap.metric, gap.startedAt, gap.endedAt!);
-      if (!this.database.getSensor(gap.sensorId)?.enabled
+      if (!hasLocalSensorAuthority(this.database, gap.sensorId)
         || !this.database.getMeasurementDefinition(gap.metric)?.enabled) {
         this.database.updateSensorDataGapRecovery(
           gap.id,
           "not-supported",
           gap.recoveredPoints,
           attemptedAt,
-          "Sensor or measurement metric was disabled while history recovery was in flight",
+          "Sensor lost local authority or its measurement metric was disabled while history recovery was in flight",
         );
         return;
       }

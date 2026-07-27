@@ -1,12 +1,13 @@
-import { pathToFileURL } from "node:url";
-import { writeFileSync } from "node:fs";
-import type {
-  AssetPositionEstimate,
-  GeoCoordinate,
-  PropertyArea,
-  TrackingObservation,
-  TrackingObserver,
-  TrackingPropertySettings,
+import { writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  TRACKING_SCHEMA_VERSION,
+  type EquipmentLocationEstimate,
+  type GeoCoordinate,
+  type TrackingObservation,
+  type TrackingObserver,
+  type TrackingPropertySettings,
 } from "@climate-twin/contracts";
 import {
   inferTrackedEquipmentPosition,
@@ -17,39 +18,51 @@ export interface TrackingSimulationOptions {
   seed?: number;
   durationSeconds?: number;
   stepSeconds?: number;
-  startAt?: string;
   missedAdvertisementRate?: number;
-  rssiNoiseDb?: number;
-  clockDriftMs?: number;
-  networkOutage?: { startsAtSeconds: number; durationSeconds: number };
+  networkOutage?: {
+    startsAtSeconds: number;
+    durationSeconds: number;
+  };
+}
+
+export interface TrackingSimulationFrame {
+  receivedAt: string;
+  observations: TrackingObservation[];
 }
 
 export interface TrackingSimulation {
-  schemaVersion: "stugu.tracking-simulation/v1";
-  seed: number;
-  generatedAt: string;
-  settings: TrackingPropertySettings;
-  zones: PropertyArea[];
+  schemaVersion: typeof TRACKING_SCHEMA_VERSION;
+  dataMode: "demo";
+  startedAt: string;
+  durationSeconds: number;
+  profile: {
+    id: string;
+    version: string;
+    mapCapability: "COORDINATE";
+  };
+  propertyId: string;
+  equipmentId: string;
+  endpointId: string;
   observers: TrackingObserver[];
-  frames: Array<{
-    at: string;
-    trueAssetPosition: GeoCoordinate;
-    observations: TrackingObservation[];
-  }>;
+  frames: TrackingSimulationFrame[];
 }
 
-export interface TrackingReplayResult {
-  sequence: number;
-  at: string;
-  trueAssetPosition: GeoCoordinate;
-  estimate: AssetPositionEstimate;
-  errorMeters: number | null;
+export interface TrackingSimulationReplayEntry {
+  receivedAt: string;
+  estimate: EquipmentLocationEstimate;
 }
+
+const simulationStart = new Date("2026-07-27T12:00:00.000Z");
+const profile = {
+  id: "org.stugu.simulated-verified-tracker",
+  version: "2026.07",
+  mapCapability: "COORDINATE",
+} as const;
 
 function seededRandom(seed: number): () => number {
   let state = seed >>> 0;
   return () => {
-    state += 0x6d2b79f5;
+    state += 0x6D2B79F5;
     let value = state;
     value = Math.imul(value ^ value >>> 15, value | 1);
     value ^= value + Math.imul(value ^ value >>> 7, value | 61);
@@ -57,126 +70,148 @@ function seededRandom(seed: number): () => number {
   };
 }
 
-function normal(random: () => number): number {
-  const left = Math.max(Number.EPSILON, random());
-  const right = random();
-  return Math.sqrt(-2 * Math.log(left)) * Math.cos(2 * Math.PI * right);
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
 }
 
-function interpolate(left: GeoCoordinate, right: GeoCoordinate, amount: number): GeoCoordinate {
+function observer(
+  id: string,
+  coordinate: GeoCoordinate,
+  now: string,
+): TrackingObserver {
   return {
-    latitude: left.latitude + (right.latitude - left.latitude) * amount,
-    longitude: left.longitude + (right.longitude - left.longitude) * amount,
+    id,
+    tenantId: "local",
+    propertyId: "property-simulation",
+    type: "linux-gateway",
+    name: id,
+    trustLevel: 0.95,
+    fixedPosition: coordinate,
+    fixedPositionAccuracyMeters: 4,
+    zoneId: null,
+    appInstallationId: null,
+    hardwareMetadata: { simulated: true },
+    lastHeartbeatAt: now,
+    status: "online",
+    createdAt: now,
+    updatedAt: now,
   };
 }
 
-function routePosition(progress: number): GeoCoordinate {
-  const route: Array<[number, GeoCoordinate]> = [
-    [0, { latitude: 60.17016, longitude: 24.93017 }],
-    [0.25, { latitude: 60.17016, longitude: 24.93017 }],
-    [0.55, { latitude: 60.17055, longitude: 24.93070 }],
-    [0.8, { latitude: 60.17092, longitude: 24.93120 }],
-    [1, { latitude: 60.17115, longitude: 24.93152 }],
-  ];
-  const rightIndex = route.findIndex(([point]) => point >= progress);
-  if (rightIndex <= 0) return route[0]![1];
-  const [rightAt, right] = route[rightIndex]!;
-  const [leftAt, left] = route[rightIndex - 1]!;
-  return interpolate(left, right, (progress - leftAt) / (rightAt - leftAt));
+function equipmentCoordinate(elapsed: number, duration: number): GeoCoordinate {
+  const progress = duration <= 0 ? 0 : elapsed / duration;
+  return {
+    latitude: 60.16945 + progress * 0.00055,
+    longitude: 24.93835 + progress * 0.00115,
+  };
 }
 
-function phonePosition(progress: number): GeoCoordinate {
-  return interpolate(
-    { latitude: 60.17010, longitude: 24.93005 },
-    { latitude: 60.17110, longitude: 24.93145 },
-    Math.min(1, Math.max(0, progress * 1.08)),
-  );
-}
-
-function square(center: GeoCoordinate, delta: number): GeoCoordinate[] {
-  return [
-    { latitude: center.latitude - delta, longitude: center.longitude - delta },
-    { latitude: center.latitude - delta, longitude: center.longitude + delta },
-    { latitude: center.latitude + delta, longitude: center.longitude + delta },
-    { latitude: center.latitude + delta, longitude: center.longitude - delta },
-  ];
-}
-
-function iso(date: Date): string {
-  return date.toISOString();
-}
-
-function simulatedRssi(distanceMeters: number, noise: number): number {
-  const value = -43 - 19 * Math.log10(Math.max(1, distanceMeters)) + noise;
-  return Math.max(-109, Math.min(-20, Math.round(value)));
+function receivedAt(
+  observedAt: Date,
+  elapsed: number,
+  random: () => number,
+  outage: TrackingSimulationOptions["networkOutage"],
+): Date {
+  const normalDelay = 100 + Math.floor(random() * 900);
+  if (!outage
+    || elapsed < outage.startsAtSeconds
+    || elapsed >= outage.startsAtSeconds + outage.durationSeconds) {
+    return new Date(observedAt.getTime() + normalDelay);
+  }
+  const outageEnd = simulationStart.getTime()
+    + (outage.startsAtSeconds + outage.durationSeconds) * 1_000;
+  return new Date(outageEnd + Math.floor(random() * 2_000));
 }
 
 export function generateTrackingSimulation(
   options: TrackingSimulationOptions = {},
 ): TrackingSimulation {
-  const seed = Math.trunc(options.seed ?? 20260725);
-  const durationSeconds = Math.max(10, Math.trunc(options.durationSeconds ?? 300));
-  const stepSeconds = Math.max(1, Math.trunc(options.stepSeconds ?? 2));
-  const missedRate = Math.max(0, Math.min(0.95, options.missedAdvertisementRate ?? 0.12));
-  const noiseDb = Math.max(0, Math.min(30, options.rssiNoiseDb ?? 4));
-  const clockDriftMs = Math.trunc(options.clockDriftMs ?? 1_500);
-  const start = new Date(options.startAt ?? "2026-07-25T19:00:00.000Z");
-  if (!Number.isFinite(start.getTime())) throw new Error("startAt must be an ISO 8601 timestamp");
+  const seed = options.seed ?? 42;
+  const durationSeconds = options.durationSeconds ?? 300;
+  const stepSeconds = options.stepSeconds ?? 2;
+  const missedRate = clamp(options.missedAdvertisementRate ?? 0.12, 0, 1);
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0
+    || !Number.isFinite(stepSeconds) || stepSeconds <= 0) {
+    throw new Error("Simulation duration and step must be positive");
+  }
   const random = seededRandom(seed);
-  const propertyId = "simulation-property";
-  const timestamp = iso(start);
-  const zoneCenters = {
-    shed: { latitude: 60.17016, longitude: 24.93017 },
-    yard: { latitude: 60.17058, longitude: 24.93072 },
-    driveway: { latitude: 60.17103, longitude: 24.93134 },
-  } as const;
-  const zones: PropertyArea[] = Object.entries(zoneCenters).map(([id, center]) => ({
-    id: `zone-${id}`,
-    propertyId,
-    name: id[0]!.toUpperCase() + id.slice(1),
-    kind: id === "shed" ? "building" : "yard",
-    description: "Deterministic tracking simulation zone",
-    location: center,
-    polygon: square(center, id === "shed" ? 0.00012 : 0.00025),
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  }));
-  const observerDefinitions: Array<{
-    id: string;
-    type: TrackingObserver["type"];
-    position: GeoCoordinate | null;
-    zoneId: string | null;
-    accuracy: number | null;
-  }> = [
-    { id: "gateway-shed", type: "linux-gateway", position: zoneCenters.shed, zoneId: "zone-shed", accuracy: 3 },
-    { id: "gateway-yard", type: "esp32-gateway", position: zoneCenters.yard, zoneId: "zone-yard", accuracy: 5 },
-    { id: "gateway-driveway", type: "esp32-gateway", position: zoneCenters.driveway, zoneId: "zone-driveway", accuracy: 5 },
-    { id: "phone-field", type: "android-phone", position: null, zoneId: null, accuracy: null },
+  const startedAt = simulationStart.toISOString();
+  const observers = [
+    observer("gateway-north", { latitude: 60.17035, longitude: 24.93865 }, startedAt),
+    observer("gateway-east", { latitude: 60.16975, longitude: 24.94050 }, startedAt),
+    observer("gateway-west", { latitude: 60.16920, longitude: 24.93755 }, startedAt),
   ];
-  const observers: TrackingObserver[] = observerDefinitions.map((definition) => ({
-    id: definition.id,
-    tenantId: "simulation",
-    propertyId,
-    type: definition.type,
-    name: definition.id,
-    trustLevel: definition.type === "android-phone" ? 0.85 : 0.95,
-    fixedPosition: definition.position,
-    fixedPositionAccuracyMeters: definition.accuracy,
-    zoneId: definition.zoneId,
-    appInstallationId: definition.type === "android-phone" ? "simulation-phone" : null,
-    hardwareMetadata: { simulated: true },
-    lastHeartbeatAt: timestamp,
-    status: "online",
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  }));
-  const settings: TrackingPropertySettings = {
-    propertyId,
+  const frames: TrackingSimulationFrame[] = [];
+  let observationIndex = 0;
+  for (let elapsed = 0; elapsed <= durationSeconds; elapsed += stepSeconds) {
+    const observedAt = new Date(simulationStart.getTime() + elapsed * 1_000);
+    const location = equipmentCoordinate(elapsed, durationSeconds);
+    const observations: TrackingObservation[] = [];
+    for (const gateway of observers) {
+      if (random() < missedRate) continue;
+      observationIndex += 1;
+      const distance = trackingDistanceMeters(location, gateway.fixedPosition!);
+      const noise = (random() - 0.5) * 8;
+      const rssi = Math.round(clamp(-42 - 18 * Math.log10(Math.max(1, distance)) + noise, -110, -30));
+      const acceptedAt = receivedAt(observedAt, elapsed, random, options.networkOutage);
+      const id = `simulation-observation-${String(observationIndex).padStart(6, "0")}`;
+      observations.push({
+        id,
+        observationId: id,
+        idempotencyKey: `simulation:${seed}:${gateway.id}:${elapsed}`,
+        dataMode: "demo",
+        tenantId: "local",
+        propertyId: "property-simulation",
+        endpointId: "endpoint-simulation",
+        equipmentId: "equipment-simulation",
+        observerId: gateway.id,
+        observerType: gateway.type,
+        observedAt: observedAt.toISOString(),
+        receivedAt: acceptedAt.toISOString(),
+        profileId: profile.id,
+        profileVersion: profile.version,
+        rssi,
+        txPower: -59,
+        batteryPercent: 82,
+        motion: elapsed > 0,
+        counter: observationIndex,
+        observerPosition: null,
+        scanContext: "fixed-gateway",
+        qualityFlags: acceptedAt.getTime() - observedAt.getTime() > 10_000
+          ? ["OUT_OF_ORDER"]
+          : [],
+        trust: gateway.trustLevel,
+        telemetry: { simulationSeed: seed },
+      });
+    }
+    if (observations.length === 0) continue;
+    const latestReceipt = observations
+      .map((item) => item.receivedAt)
+      .sort()
+      .at(-1)!;
+    const normalized = observations.map((item) => ({ ...item, receivedAt: latestReceipt }));
+    frames.push({ receivedAt: latestReceipt, observations: normalized });
+  }
+  frames.sort((left, right) => Date.parse(left.receivedAt) - Date.parse(right.receivedAt));
+  return {
+    schemaVersion: TRACKING_SCHEMA_VERSION,
+    dataMode: "demo",
+    startedAt,
+    durationSeconds,
+    profile,
+    propertyId: "property-simulation",
+    equipmentId: "equipment-simulation",
+    endpointId: "endpoint-simulation",
+    observers,
+    frames,
+  };
+}
+
+function simulationSettings(startedAt: string): TrackingPropertySettings {
+  return {
+    propertyId: "property-simulation",
     enabled: true,
-    propertyBoundary: square(
-      { latitude: 60.17063, longitude: 24.93077 },
-      0.00085,
-    ),
+    propertyBoundary: [],
     liveNearbySeconds: 10,
     recentlySeenSeconds: 120,
     staleSeconds: 1_800,
@@ -185,156 +220,77 @@ export function generateTrackingSimulation(
     movementMaximumIntervalSeconds: 120,
     minimumMovementConfidence: 0.55,
     exitAlertDebounceSeconds: 120,
-    updatedAt: timestamp,
-  };
-  const frames: TrackingSimulation["frames"] = [];
-  let eventCounter = 0;
-  for (let elapsed = 0; elapsed <= durationSeconds; elapsed += stepSeconds) {
-    const progress = elapsed / durationSeconds;
-    const trueAssetPosition = routePosition(progress);
-    const frameAt = new Date(start.getTime() + elapsed * 1_000);
-    const observations: TrackingObservation[] = [];
-    for (const observer of observers) {
-      const coordinate = observer.type === "android-phone"
-        ? phonePosition(progress)
-        : observer.fixedPosition;
-      if (!coordinate) continue;
-      const distance = trackingDistanceMeters(trueAssetPosition, coordinate);
-      const detectionProbability = Math.max(0.05, 1 - distance / 115) * (1 - missedRate);
-      if (random() > detectionProbability) continue;
-      eventCounter += 1;
-      const observedAt = new Date(frameAt.getTime() + (
-        observer.type === "android-phone" ? clockDriftMs : 0
-      ));
-      const outage = options.networkOutage;
-      const delayed = outage
-        && elapsed >= outage.startsAtSeconds
-        && elapsed < outage.startsAtSeconds + outage.durationSeconds;
-      const receivedAt = delayed
-        ? new Date(observedAt.getTime() + outage.durationSeconds * 1_000)
-        : new Date(observedAt.getTime() + 800);
-      observations.push({
-        id: `sim-${elapsed}-${observer.id}`,
-        tenantId: "simulation",
-        propertyId,
-        tagId: "simulation-tag",
-        observerId: observer.id,
-        observerType: observer.type,
-        observedAt: iso(observedAt),
-        receivedAt: iso(receivedAt),
-        rotatingTagId: "c2ltdWxhdGVk",
-        protocolVersion: 1,
-        epochCounter: 1,
-        eventCounter,
-        rssi: simulatedRssi(distance, normal(random) * noiseDb),
-        txPower: -8,
-        motion: progress > 0.25,
-        batteryPercent: 76,
-        observerPosition: observer.type === "android-phone"
-          ? {
-            ...coordinate,
-            horizontalAccuracyMeters: 6,
-            source: "fused",
-            capturedAt: iso(frameAt),
-          }
-          : null,
-        scanMode: observer.type === "android-phone" ? "property" : "gateway",
-        appState: observer.type === "android-phone" ? "background" : "background",
-        deviceTimeOffsetMs: observer.type === "android-phone" ? clockDriftMs : 0,
-        qualityFlags: [],
-        accepted: true,
-        metadata: { simulated: true, distanceMeters: Math.round(distance * 10) / 10 },
-      });
-    }
-    frames.push({ at: iso(frameAt), trueAssetPosition, observations });
-  }
-  return {
-    schemaVersion: "stugu.tracking-simulation/v1",
-    seed,
-    generatedAt: new Date(start.getTime() + durationSeconds * 1_000).toISOString(),
-    settings,
-    zones,
-    observers,
-    frames,
+    observationRetentionDays: 14,
+    rollupRetentionDays: 180,
+    estimateRetentionDays: 730,
+    updatedAt: startedAt,
   };
 }
 
 export function replayTrackingSimulation(
   simulation: TrackingSimulation,
-): TrackingReplayResult[] {
-  const observers = new Map(simulation.observers.map((observer) => [observer.id, observer]));
-  const accumulated: TrackingObservation[] = [];
-  const results: TrackingReplayResult[] = [];
-  let previous: AssetPositionEstimate | null = null;
-  for (const frame of simulation.frames) {
-    accumulated.push(...frame.observations);
-    if (frame.observations.length === 0 && !previous) continue;
+): TrackingSimulationReplayEntry[] {
+  const observers = new Map(simulation.observers.map((item) => [item.id, item]));
+  const accepted: TrackingObservation[] = [];
+  const replay: TrackingSimulationReplayEntry[] = [];
+  let previous: EquipmentLocationEstimate | null = null;
+  for (const [index, frame] of simulation.frames.entries()) {
+    accepted.push(...frame.observations);
+    const evidence = accepted.flatMap((observation) => {
+      const resolvedObserver = observers.get(observation.observerId);
+      return resolvedObserver ? [{ observation, observer: resolvedObserver }] : [];
+    });
     const inferred = inferTrackedEquipmentPosition({
-      equipmentId: "simulation-equipment",
-      propertyId: simulation.settings.propertyId,
-      observations: accumulated.flatMap((observation) => {
-        const observer = observers.get(observation.observerId);
-        return observer ? [{ observation, observer }] : [];
-      }),
+      dataMode: simulation.dataMode,
+      equipmentId: simulation.equipmentId,
+      propertyId: simulation.propertyId,
+      endpointId: simulation.endpointId,
+      mapCapability: simulation.profile.mapCapability,
+      observations: evidence,
+      rollups: [],
       previous,
-      settings: simulation.settings,
-      zones: simulation.zones,
-      now: new Date(frame.at),
+      settings: simulationSettings(simulation.startedAt),
+      now: new Date(frame.receivedAt),
     });
-    const estimate: AssetPositionEstimate = {
+    previous = {
       ...inferred,
-      id: `simulation-estimate-${results.length + 1}`,
-      version: results.length + 1,
+      id: `simulation-estimate-${String(index + 1).padStart(6, "0")}`,
+      truthClass: "simulated",
+      provenance: {
+        ...inferred.provenance,
+        factors: [...inferred.provenance.factors, "Generated by the deterministic tracking simulator."],
+      },
+      version: index + 1,
     };
-    previous = estimate;
-    results.push({
-      sequence: results.length + 1,
-      at: frame.at,
-      trueAssetPosition: frame.trueAssetPosition,
-      estimate,
-      errorMeters: estimate.coordinate
-        ? trackingDistanceMeters(estimate.coordinate, frame.trueAssetPosition)
-        : null,
-    });
+    replay.push({ receivedAt: frame.receivedAt, estimate: previous });
   }
-  return results;
+  return replay;
 }
 
-function cliArguments(argv: string[]): {
-  options: TrackingSimulationOptions;
-  output: string | null;
-} {
-  const options: TrackingSimulationOptions = {};
-  let output: string | null = null;
-  for (let index = 0; index < argv.length; index += 1) {
-    const argument = argv[index];
-    const value = argv[index + 1];
-    if (argument === "--seed" && value) { options.seed = Number(value); index += 1; }
-    else if (argument === "--duration-seconds" && value) { options.durationSeconds = Number(value); index += 1; }
-    else if (argument === "--step-seconds" && value) { options.stepSeconds = Number(value); index += 1; }
-    else if (argument === "--output" && value) { output = value; index += 1; }
-    else throw new Error(`Unknown or incomplete argument: ${argument}`);
-  }
-  return { options, output };
+function argument(name: string): string | undefined {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const { options, output } = cliArguments(process.argv.slice(2));
-  const simulation = generateTrackingSimulation(options);
-  const replay = replayTrackingSimulation(simulation);
-  const errors = replay.map((item) => item.errorMeters).filter((value): value is number => value !== null);
-  const payload = {
+async function main(): Promise<void> {
+  const simulation = generateTrackingSimulation({
+    seed: Number(argument("--seed") ?? 42),
+    durationSeconds: Number(argument("--duration-seconds") ?? 300),
+    stepSeconds: Number(argument("--step-seconds") ?? 2),
+    missedAdvertisementRate: Number(argument("--missed-rate") ?? 0.12),
+  });
+  const output = JSON.stringify({
     simulation,
-    replay,
-    summary: {
-      estimates: replay.length,
-      coordinateEstimates: errors.length,
-      medianErrorMeters: errors.length === 0
-        ? null
-        : [...errors].sort((left, right) => left - right)[Math.floor(errors.length / 2)],
-    },
-  };
-  const json = `${JSON.stringify(payload, null, 2)}\n`;
-  if (output) writeFileSync(output, json, { encoding: "utf8", flag: "wx" });
-  else process.stdout.write(json);
+    replay: replayTrackingSimulation(simulation),
+  }, null, 2);
+  const outputPath = argument("--output");
+  if (outputPath) {
+    await writeFile(resolve(outputPath), `${output}\n`, "utf8");
+    return;
+  }
+  process.stdout.write(`${output}\n`);
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
 }

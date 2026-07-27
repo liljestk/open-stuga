@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { isIP } from "node:net";
 import { dirname, join } from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
-import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, resolvePlanElementOpeningState } from "@climate-twin/contracts";
+import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, hasLocalHouseAuthority, resolvePlanElementOpeningState } from "@climate-twin/contracts";
 import type {
   AreaEquipmentInput,
   AreaEquipmentPatch,
@@ -357,7 +357,7 @@ export function initializeIntegrationMetadata(config: AppConfig, database: Clima
           ? { appleNotesGrants: config.appleNotesGrants.map((grant) => ({ ...grant })) }
           : {}),
       };
-  const firstHouseId = database.listHouses()[0]?.id ?? null;
+  const firstHouseId = database.listHouses().find(hasLocalHouseAuthority)?.id ?? null;
   const homeAssistantFromEnvironment = Boolean(
     firstHouseId && !config.homeAssistantLegacyDisabled && config.haUrl && config.haToken
       && !sameHomeAssistantCredential(protectedSecrets?.homeAssistant, { url: config.haUrl, token: config.haToken }),

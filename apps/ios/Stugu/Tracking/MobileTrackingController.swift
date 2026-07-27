@@ -13,15 +13,6 @@ final class MobileTrackingController: NSObject, ObservableObject {
         case activeProperty
         case findNearby
 
-        var apiValue: String {
-            switch self {
-            case .disabled, .passive: "passive"
-            case .property: "property"
-            case .activeProperty: "active-property"
-            case .findNearby: "find-nearby"
-            }
-        }
-
         var displayName: String {
             switch self {
             case .disabled: "Disabled"
@@ -48,9 +39,7 @@ final class MobileTrackingController: NSObject, ObservableObject {
     var isEnabled: Bool { identity != nil && mode != .disabled }
     var hasObserverRegistration: Bool { identity != nil }
     var supportsPropertyAutomation: Bool {
-        capabilities?.featureEnabled(
-            "tracking.mobileObserver.iosBackground.enabled"
-        ) == true
+        capabilities?.featureEnabled("tracking.mobileObserver.iosBackground.enabled") == true
             && CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self)
     }
 
@@ -61,12 +50,14 @@ final class MobileTrackingController: NSObject, ObservableObject {
     private var identity: TrackingObserverIdentity?
     private var capabilities: TrackingCapabilities?
     private var settings: TrackingPropertySettings?
+    private var profileManifest: TrackingProfileManifest?
+    private var resolutionManifest: TrackingResolutionManifest?
+    private var findDescriptor: TrackingFindDescriptor?
     private var queue: TrackingObservationQueue?
-    private var serviceUUID: CBUUID?
     private var lastLocation: CLLocation?
-    private var findToken: TrackingScanToken?
     private var signalSmoother = TrackingSignalSmoother()
     private var uploadTask: Task<Void, Never>?
+    private var resolutionRefreshTask: Task<Void, Never>?
     private var modeTimeoutTask: Task<Void, Never>?
     private var uploadInProgress = false
     private var sceneIsActive = true
@@ -80,7 +71,7 @@ final class MobileTrackingController: NSObject, ObservableObject {
         centralManager = CBCentralManager(
             delegate: self,
             queue: .main,
-            options: [CBCentralManagerOptionRestoreIdentifierKey: "net.nysta.stuga.tracking.central"]
+            options: [CBCentralManagerOptionRestoreIdentifierKey: "net.nysta.stugu.tracking.central"]
         )
         updatePermissionPresentation()
     }
@@ -92,19 +83,14 @@ final class MobileTrackingController: NSObject, ObservableObject {
         capabilities: TrackingCapabilities,
         settings: TrackingPropertySettings
     ) async throws {
-        guard capabilities.featureEnabled("tracking.enabled"),
+        guard capabilities.schemaVersion == TrackingSchema.version,
+              capabilities.profileSchemaVersion == TrackingSchema.profileVersion,
+              capabilities.featureEnabled("tracking.enabled"),
               capabilities.featureEnabled("tracking.mobileObserver.enabled") else {
             throw StuguAPIError(
                 status: 404,
                 code: "MOBILE_OBSERVER_DISABLED",
                 message: "Mobile equipment observation is not enabled on this Stugu."
-            )
-        }
-        guard UUID(uuidString: capabilities.bleServiceUUID) != nil else {
-            throw StuguAPIError(
-                status: 0,
-                code: "INVALID_BLE_SERVICE",
-                message: "Stugu returned an invalid BLE tracking service identifier."
             )
         }
         let preservingMode = identity?.serverOrigin == serverOrigin
@@ -143,29 +129,46 @@ final class MobileTrackingController: NSObject, ObservableObject {
             try credentialStore.save(observerIdentity)
         }
 
+        async let profilesRequest = client.trackingProfiles()
+        async let resolutionRequest = client.trackingResolutionManifest(
+            observerID: observerIdentity.observerId,
+            observerCredential: observerIdentity.credential
+        )
+        let (profiles, resolutions) = try await (profilesRequest, resolutionRequest)
+        guard profiles.schemaVersion == TrackingSchema.profileVersion,
+              resolutions.propertyId == propertyID,
+              resolutions.observerId == observerIdentity.observerId,
+              StuguDateParser.date(from: resolutions.validUntil).map({ $0 > Date() }) == true else {
+            throw StuguAPIError(
+                status: 0,
+                code: "INVALID_TRACKING_MANIFEST",
+                message: "Stugu returned an invalid tracking profile or resolver manifest."
+            )
+        }
+
         self.client = client
         identity = observerIdentity
         self.capabilities = capabilities
         self.settings = settings
-        serviceUUID = CBUUID(string: capabilities.bleServiceUUID)
+        profileManifest = profiles
+        resolutionManifest = resolutions
         let directory = try trackingApplicationSupportDirectory()
         queue = TrackingObservationQueue(
             storageURL: directory.appendingPathComponent(
-                "\(observerIdentity.observerId).observations.json",
+                "\(observerIdentity.observerId).evidence.json",
                 isDirectory: false
             )
         )
-        if let queue {
-            queueStatus = await queue.status
-        }
+        if let queue { queueStatus = await queue.status }
         if !preservingMode {
             modeTimeoutTask?.cancel()
-            findToken = nil
+            findDescriptor = nil
             findingEquipmentID = nil
             proximity = nil
             signalSmoother.reset()
             mode = .passive
         }
+        scheduleResolutionRefresh()
         configurePropertyRegionIfAuthorized()
         applyScan()
         scheduleUpload(after: 0)
@@ -174,12 +177,14 @@ final class MobileTrackingController: NSObject, ObservableObject {
     func disable() {
         uploadTask?.cancel()
         uploadTask = nil
+        resolutionRefreshTask?.cancel()
+        resolutionRefreshTask = nil
         modeTimeoutTask?.cancel()
         modeTimeoutTask = nil
         centralManager.stopScan()
         stopMonitoringPropertyRegions()
         mode = .disabled
-        findToken = nil
+        findDescriptor = nil
         findingEquipmentID = nil
         proximity = nil
         signalSmoother.reset()
@@ -202,23 +207,20 @@ final class MobileTrackingController: NSObject, ObservableObject {
         identity = nil
         capabilities = nil
         settings = nil
+        profileManifest = nil
+        resolutionManifest = nil
         queue = nil
-        serviceUUID = nil
     }
 
     func applicationBecameActive() {
         sceneIsActive = true
-        if mode == .findNearby || mode == .activeProperty {
-            applyScan()
-        }
+        if mode == .findNearby || mode == .activeProperty { applyScan() }
         scheduleUpload(after: 0)
     }
 
     func applicationBecameInactive() {
         sceneIsActive = false
-        if mode == .findNearby || mode == .activeProperty {
-            endTemporaryMode()
-        }
+        if mode == .findNearby || mode == .activeProperty { endTemporaryMode() }
         applyScan()
     }
 
@@ -242,16 +244,19 @@ final class MobileTrackingController: NSObject, ObservableObject {
         }
     }
 
-    func beginFind(_ token: TrackingScanToken, duration: TimeInterval = 10 * 60) {
+    func beginFind(_ descriptor: TrackingFindDescriptor, duration: TimeInterval = 10 * 60) {
         guard isEnabled,
-              token.propertyProtocolSupported(by: capabilities),
-              StuguDateParser.date(from: token.validUntil).map({ $0 > Date() }) == true else {
-            errorMessage = "The Find session expired. Try again."
+              descriptor.profile.profile.schemaVersion == TrackingSchema.profileVersion,
+              StuguDateParser.date(from: descriptor.validUntil).map({ $0 > Date() }) == true,
+              descriptor.profile.profile.platformSupport.contains(where: {
+                  $0.platform == "ios" && $0.scanContexts.contains("foreground-find")
+              }) else {
+            errorMessage = "This endpoint cannot be found from this iPhone, or the Find session expired."
             return
         }
         modeTimeoutTask?.cancel()
-        findToken = token
-        findingEquipmentID = token.equipmentId
+        findDescriptor = descriptor
+        findingEquipmentID = descriptor.equipmentId
         signalSmoother.reset()
         proximity = nil
         mode = .findNearby
@@ -266,7 +271,7 @@ final class MobileTrackingController: NSObject, ObservableObject {
     }
 
     func endFind() {
-        findToken = nil
+        findDescriptor = nil
         findingEquipmentID = nil
         proximity = nil
         signalSmoother.reset()
@@ -277,7 +282,7 @@ final class MobileTrackingController: NSObject, ObservableObject {
         modeTimeoutTask?.cancel()
         modeTimeoutTask = nil
         mode = isInsideMonitoredProperty ? .property : .passive
-        findToken = nil
+        findDescriptor = nil
         findingEquipmentID = nil
         proximity = nil
         signalSmoother.reset()
@@ -285,8 +290,7 @@ final class MobileTrackingController: NSObject, ObservableObject {
     }
 
     private var isInsideMonitoredProperty: Bool {
-        guard let region = monitoredPropertyRegion,
-              let location = lastLocation else { return false }
+        guard let region = monitoredPropertyRegion, let location = lastLocation else { return false }
         return region.contains(location.coordinate)
     }
 
@@ -322,26 +326,64 @@ final class MobileTrackingController: NSObject, ObservableObject {
     }
 
     private func stopMonitoringPropertyRegions() {
-        for region in locationManager.monitoredRegions where
-            region.identifier.hasPrefix("stugu-property-") {
+        for region in locationManager.monitoredRegions
+            where region.identifier.hasPrefix("stugu-property-") {
             locationManager.stopMonitoring(for: region)
+        }
+    }
+
+    private var scanContext: String {
+        if mode == .findNearby { return "foreground-find" }
+        return sceneIsActive ? "foreground" : "background"
+    }
+
+    private var activeProfiles: [TrackingProfile] {
+        if let findDescriptor { return [findDescriptor.profile.profile] }
+        guard let profileManifest, let resolutionManifest else { return [] }
+        let references = Set(
+            resolutionManifest.entries.map { "\($0.profileId)\u{001f}\($0.profileVersion)" }
+        )
+        return profileManifest.profiles.map(\.profile).filter {
+            references.contains("\($0.id)\u{001f}\($0.version)")
+                && $0.platformSupport.contains(where: { support in
+                    support.platform == "ios" && support.scanContexts.contains(scanContext)
+                })
         }
     }
 
     private func applyScan() {
         guard mode != .disabled,
               sceneIsActive || capabilities?.featureEnabled(
-                "tracking.mobileObserver.iosBackground.enabled"
+                  "tracking.mobileObserver.iosBackground.enabled"
               ) == true,
-              centralManager.state == .poweredOn,
-              let serviceUUID else {
+              centralManager.state == .poweredOn else {
             centralManager.stopScan()
             updateBluetoothPresentation()
             return
         }
+        let profiles = activeProfiles
+        guard !profiles.isEmpty else {
+            centralManager.stopScan()
+            bluetoothStatus = "No claimed endpoints match this scan mode"
+            return
+        }
+        let broadForegroundScan = sceneIsActive && profiles.contains {
+            $0.serviceUuids.isEmpty
+        }
+        let identifiers = Set(profiles.flatMap(\.serviceUuids))
+        let services: [CBUUID]?
+        if broadForegroundScan {
+            services = nil
+        } else if identifiers.isEmpty {
+            centralManager.stopScan()
+            bluetoothStatus = "No background-compatible endpoint filters"
+            return
+        } else {
+            services = identifiers.map(CBUUID.init(string:))
+        }
         centralManager.stopScan()
         centralManager.scanForPeripherals(
-            withServices: [serviceUUID],
+            withServices: services,
             options: [
                 CBCentralManagerScanOptionAllowDuplicatesKey:
                     mode == .findNearby && sceneIsActive,
@@ -351,57 +393,65 @@ final class MobileTrackingController: NSObject, ObservableObject {
     }
 
     private func handleAdvertisement(
-        data: Data,
-        rssi: Int,
-        txPower: Int?
+        _ frame: TrackingLocalAdvertisementFrame,
+        advertisedTxPower: Int?
     ) {
-        guard let identity,
-              let capabilities,
-              let queue else { return }
-        let parsed: ParsedTrackingAdvertisement
-        do {
-            parsed = try TrackingAdvertisementParser.parse(
-                data,
-                supportedVersions: Set(capabilities.protocolVersions)
+        guard let identity, let resolutionManifest, let queue else { return }
+        let resolved: ResolvedTrackingAdvertisement?
+        if let descriptor = findDescriptor,
+           let match = TrackingAdvertisementParser.parse(
+               frame,
+               profile: descriptor.profile.profile
+           ),
+           match.identityFields == descriptor.identityFields {
+            resolved = ResolvedTrackingAdvertisement(
+                resolution: TrackingResolutionEntry(
+                    equipmentId: descriptor.equipmentId,
+                    endpointId: descriptor.endpointId,
+                    profileId: match.profileId,
+                    profileVersion: match.profileVersion,
+                    identityFields: match.identityFields
+                ),
+                match: match
             )
-        } catch {
-            return
+        } else {
+            resolved = TrackingAdvertisementParser.resolve(
+                frame,
+                profiles: activeProfiles,
+                entries: resolutionManifest.entries
+            )
         }
+        guard let resolved else { return } // Unknown and ambiguous frames remain local.
+
         if mode == .findNearby {
-            guard findToken?.rotatingTagIds.contains(parsed.rotatingTagId) == true else {
-                return
-            }
-            let reading = signalSmoother.add(rssi: rssi)
+            guard resolved.resolution.equipmentId == findingEquipmentID else { return }
+            let reading = signalSmoother.add(rssi: frame.rssi)
             proximity = reading
             provideFindHaptic(for: reading.band)
         }
         lastDetectionAt = Date()
-        if mode != .passive {
-            requestFreshLocation()
-        }
+        if mode != .passive { requestFreshLocation() }
         let now = Date()
+        var telemetry = resolved.match.telemetry
+        telemetry["platform"] = .string("IOS")
+        telemetry["osVersion"] = .string(UIDevice.current.systemVersion)
         let observation = TrackingObservationInput(
+            dataMode: resolutionManifest.dataMode,
             propertyId: identity.propertyId,
+            endpointId: resolved.resolution.endpointId,
+            equipmentId: resolved.resolution.equipmentId,
             observerId: identity.observerId,
             observedAt: Self.timestamp(now),
-            rotatingTagId: parsed.rotatingTagId,
-            authenticator: parsed.authenticator,
-            protocolVersion: parsed.protocolVersion,
-            advertisementFlags: parsed.flags,
-            epochCounter: parsed.epochCounter,
-            eventCounter: parsed.eventCounter,
-            rssi: rssi,
-            txPower: txPower,
-            motion: parsed.isMoving,
-            batteryPercent: parsed.batteryPercent,
+            profileId: resolved.match.profileId,
+            profileVersion: resolved.match.profileVersion,
+            rssi: frame.rssi,
+            txPower: advertisedTxPower ?? integerTelemetry("txPower", in: telemetry),
+            motion: booleanTelemetry("motion", in: telemetry),
+            batteryPercent: integerTelemetry("batteryPercent", in: telemetry),
+            counter: integerTelemetry("counter", in: telemetry),
             observerPosition: currentObserverPosition(at: now),
-            scanMode: mode.apiValue,
-            appState: sceneIsActive ? "foreground" : "background",
-            rawPayload: parsed.rawPayload,
-            metadata: [
-                "platform": .string("IOS"),
-                "osVersion": .string(UIDevice.current.systemVersion),
-            ]
+            scanContext: scanContext,
+            telemetry: telemetry
         )
         Task { [weak self] in
             guard let self else { return }
@@ -409,9 +459,25 @@ final class MobileTrackingController: NSObject, ObservableObject {
                 self.queueStatus = try await queue.enqueue(observation)
                 self.scheduleUpload(after: self.uploadDelay)
             } catch {
-                self.errorMessage = "A nearby detection could not be saved on this iPhone."
+                self.errorMessage = "A claimed endpoint detection could not be saved on this iPhone."
             }
         }
+    }
+
+    private func integerTelemetry(
+        _ key: String,
+        in telemetry: [String: JSONValue]
+    ) -> Int? {
+        guard let raw = telemetry[key], case let .number(value) = raw else { return nil }
+        return Int(value)
+    }
+
+    private func booleanTelemetry(
+        _ key: String,
+        in telemetry: [String: JSONValue]
+    ) -> Bool? {
+        guard let raw = telemetry[key], case let .bool(value) = raw else { return nil }
+        return value
     }
 
     private var uploadDelay: TimeInterval {
@@ -427,9 +493,7 @@ final class MobileTrackingController: NSObject, ObservableObject {
         if uploadTask != nil, delay > 0 { return }
         uploadTask?.cancel()
         uploadTask = Task { [weak self] in
-            if delay > 0 {
-                try? await Task.sleep(for: .seconds(delay))
-            }
+            if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
             guard !Task.isCancelled else { return }
             await self?.flushQueue()
         }
@@ -458,17 +522,17 @@ final class MobileTrackingController: NSObject, ObservableObject {
             return
         }
         do {
-            _ = try await client.uploadTrackingObservations(
+            let result = try await client.uploadTrackingObservations(
                 batch,
                 observerCredential: identity.credential
             )
             queueStatus = try await queue.acknowledge(
                 observationIDs: Set(batch.map(\.id))
             )
-            errorMessage = nil
-            if queueStatus.queuedCount > 0 {
-                scheduleUpload(after: uploadDelay)
-            }
+            errorMessage = result.rejected == 0
+                ? nil
+                : "\(result.rejected) stale or no-longer-authorized detection(s) were discarded."
+            if queueStatus.queuedCount > 0 { scheduleUpload(after: uploadDelay) }
         } catch {
             queueStatus = await queue.status
             if let apiError = error as? StuguAPIError, apiError.status == 401 {
@@ -477,6 +541,46 @@ final class MobileTrackingController: NSObject, ObservableObject {
                 errorMessage = "Detections are saved on this iPhone and will upload when Stugu is reachable."
                 scheduleUpload(after: max(30, uploadDelay))
             }
+        }
+    }
+
+    private func scheduleResolutionRefresh(retryAfter: TimeInterval? = nil) {
+        resolutionRefreshTask?.cancel()
+        let delay = retryAfter ?? resolutionManifest.flatMap {
+            StuguDateParser.date(from: $0.validUntil)
+        }.map {
+            max(60, $0.timeIntervalSinceNow - 60)
+        } ?? 60
+        resolutionRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            await self?.refreshResolutionManifest()
+        }
+    }
+
+    private func refreshResolutionManifest() async {
+        guard let client, let identity else { return }
+        do {
+            let manifest = try await client.trackingResolutionManifest(
+                observerID: identity.observerId,
+                observerCredential: identity.credential
+            )
+            guard manifest.propertyId == identity.propertyId,
+                  manifest.observerId == identity.observerId,
+                  StuguDateParser.date(from: manifest.validUntil).map({ $0 > Date() }) == true else {
+                throw StuguAPIError(
+                    status: 0,
+                    code: "INVALID_TRACKING_MANIFEST",
+                    message: "Stugu returned an invalid resolver manifest."
+                )
+            }
+            resolutionManifest = manifest
+            errorMessage = nil
+            applyScan()
+            scheduleResolutionRefresh()
+        } catch {
+            errorMessage = "The claimed-endpoint resolver cache could not refresh."
+            scheduleResolutionRefresh(retryAfter: 60)
         }
     }
 
@@ -579,7 +683,9 @@ final class MobileTrackingController: NSObject, ObservableObject {
         }
         switch centralManager.state {
         case .poweredOn:
-            bluetoothStatus = mode == .disabled ? "Observation off" : "Listening for Stugu tags"
+            bluetoothStatus = mode == .disabled
+                ? "Observation off"
+                : "Listening for claimed tracking endpoints"
         case .poweredOff: bluetoothStatus = "Bluetooth off"
         case .unauthorized: bluetoothStatus = "Bluetooth permission denied"
         case .unsupported: bluetoothStatus = "Bluetooth LE unavailable"
@@ -608,13 +714,46 @@ extension MobileTrackingController: CBCentralManagerDelegate {
         advertisementData: [String: Any],
         rssi RSSI: NSNumber
     ) {
-        guard RSSI.intValue != 127,
-              let serviceUUID,
-              let serviceData = advertisementData[CBAdvertisementDataServiceDataKey]
-                as? [CBUUID: Data],
-              let payload = serviceData[serviceUUID] else { return }
-        let txPower = (advertisementData[CBAdvertisementDataTxPowerLevelKey] as? NSNumber)?.intValue
-        handleAdvertisement(data: payload, rssi: RSSI.intValue, txPower: txPower)
+        guard RSSI.intValue != 127 else { return }
+        let serviceData = (
+            advertisementData[CBAdvertisementDataServiceDataKey] as? [CBUUID: Data]
+        ) ?? [:]
+        let serviceUuids = (
+            advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID]
+        ) ?? []
+        let overflowUuids = (
+            advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID]
+        ) ?? []
+        let manufacturerData: [String: Data]
+        if let value = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data,
+           value.count >= 2 {
+            let company = UInt16(value[0]) | UInt16(value[1]) << 8
+            manufacturerData = [
+                String(format: "%04x", company): Data(value.dropFirst(2)),
+            ]
+        } else {
+            manufacturerData = [:]
+        }
+        let frame = TrackingLocalAdvertisementFrame(
+            serviceUuids: (serviceUuids + overflowUuids).map(\.uuidString),
+            manufacturerData: manufacturerData,
+            serviceData: Dictionary(
+                uniqueKeysWithValues: serviceData.map { ($0.key.uuidString, $0.value) }
+            ),
+            localName: advertisementData[CBAdvertisementDataLocalNameKey] as? String,
+            peripheralIdentifier: peripheral.identifier.uuidString.lowercased(),
+            connectable: (
+                advertisementData[CBAdvertisementDataIsConnectable] as? NSNumber
+            )?.boolValue,
+            rssi: RSSI.intValue,
+            observedAt: Self.timestamp(Date())
+        )
+        handleAdvertisement(
+            frame,
+            advertisedTxPower: (
+                advertisementData[CBAdvertisementDataTxPowerLevelKey] as? NSNumber
+            )?.intValue
+        )
     }
 
     func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
@@ -636,21 +775,19 @@ extension MobileTrackingController: CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         if (error as? CLError)?.code != .locationUnknown {
-            errorMessage = "The iPhone location was unavailable; tag detections can still be uploaded without it."
+            errorMessage = "The iPhone location was unavailable; claimed detections can still upload without it."
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
-        guard region.identifier.hasPrefix("stugu-property-"),
-              mode == .passive else { return }
+        guard region.identifier.hasPrefix("stugu-property-"), mode == .passive else { return }
         mode = .property
         requestFreshLocation()
         applyScan()
     }
 
     func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
-        guard region.identifier.hasPrefix("stugu-property-"),
-              mode == .property else { return }
+        guard region.identifier.hasPrefix("stugu-property-"), mode == .property else { return }
         mode = .passive
         applyScan()
     }
@@ -664,13 +801,5 @@ extension MobileTrackingController: CLLocationManagerDelegate {
               mode == .passive || mode == .property else { return }
         mode = state == .inside ? .property : .passive
         applyScan()
-    }
-}
-
-private extension TrackingScanToken {
-    func propertyProtocolSupported(by capabilities: TrackingCapabilities?) -> Bool {
-        guard let capabilities else { return false }
-        return capabilities.protocolVersions.contains(protocolVersion)
-            && capabilities.bleServiceUUID.caseInsensitiveCompare(bleServiceUUID) == .orderedSame
     }
 }

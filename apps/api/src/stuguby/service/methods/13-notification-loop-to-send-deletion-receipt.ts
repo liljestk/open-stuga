@@ -150,6 +150,7 @@ registerStugubyServiceMethods({
       this.deleteUnreferencedBlobs(this.store.reconcileReplicaBlobReferences(stugubyId));
       if (this.store.isCoordinator(stugubyId)) {
         this.store.recordSync(stugubyId, this.store.pullCursor(stugubyId), null);
+        this.materializeAllRemoteHomes(stugubyId);
         this.refreshPropertyLink(stugubyId);
         return;
       }
@@ -336,10 +337,85 @@ registerStugubyServiceMethods({
         }
         this.store.upsertMember(member);
         if (member.nodeId === this.identity.nodeId && member.state !== "active") {
+          const now = new Date().toISOString();
+          const terminalDeparture = member.state === "left" || member.state === "revoked";
+          for (const projection of this.store.listHomeProjections(stuguby.id)) {
+            this.removeRemoteHomeProjection(
+              stuguby.id,
+              projection.authorityNodeId,
+              projection.publicationId,
+            );
+          }
+          const adoption = this.store.getPropertyAdoption(stuguby.id);
+          if (adoption?.state === "adopted") {
+            this.database.transaction(() => {
+              if (terminalDeparture) {
+                for (const house of this.database.listHouses(adoption.localPropertyId)) {
+                  if (house.stuguby?.stugubyId === stuguby.id && house.stuguby.ownership === "local") {
+                    this.database.setHouseStugubyLink(house.id, null);
+                  }
+                }
+              }
+              for (const projection of this.store.listProjectionIds(
+                stuguby.id,
+                stuguby.coordinatorNodeId,
+                "note",
+              )) {
+                if (this.database.getPropertyNote(projection.localId)?.propertyId === adoption.localPropertyId) {
+                  this.database.deletePropertyNote(projection.localId);
+                }
+              }
+              for (const projection of this.store.listProjectionIds(
+                stuguby.id,
+                stuguby.coordinatorNodeId,
+                "maintenance",
+              )) {
+                if (this.database.getMaintenanceTask(projection.localId)?.propertyId === adoption.localPropertyId) {
+                  this.database.deleteMaintenanceTask(projection.localId);
+                }
+              }
+              for (const projection of this.store.listProjectionIds(
+                stuguby.id,
+                stuguby.coordinatorNodeId,
+                "equipment",
+              )) {
+                if (this.database.getAreaEquipment(projection.localId)?.propertyId === adoption.localPropertyId) {
+                  this.database.deleteAreaEquipment(projection.localId);
+                }
+              }
+              for (const projection of this.store.listProjectionIds(
+                stuguby.id,
+                stuguby.coordinatorNodeId,
+                "area",
+              )) {
+                if (this.database.getPropertyArea(projection.localId)?.propertyId === adoption.localPropertyId) {
+                  this.database.deletePropertyArea(projection.localId);
+                }
+              }
+              const property = this.database.getProperty(adoption.localPropertyId);
+              if (property?.stuguby?.stugubyId === stuguby.id) {
+                this.database.updateProperty(property.id, {
+                  name: stuguby.name,
+                  description: null,
+                  location: null,
+                });
+                this.database.setPropertyStugubyLink(property.id, {
+                  ...property.stuguby,
+                  syncState: terminalDeparture ? "detached" : "offline",
+                  pendingChangeCount: 0,
+                  conflictCount: 0,
+                  ...(terminalDeparture ? { detachedAt: now } : {}),
+                });
+              }
+            });
+            if (terminalDeparture) this.store.detachProperty(stuguby.id, now);
+          }
           this.store.purgeDepartedReplicas(stuguby.id);
           this.deleteUnreferencedBlobs(this.store.reconcileReplicaBlobReferences(stuguby.id));
-          this[stugubyServiceState].streamControllers.get(stuguby.id)?.abort();
-          this[stugubyServiceState].streamControllers.delete(stuguby.id);
+          if (terminalDeparture) {
+            this[stugubyServiceState].streamControllers.get(stuguby.id)?.abort();
+            this[stugubyServiceState].streamControllers.delete(stuguby.id);
+          }
         }
         if (member.state === "active" && member.nodeId !== this.identity.nodeId) {
           for (const grant of this.store.listGrants(stuguby.id, this.identity.nodeId)) {
@@ -384,7 +460,6 @@ registerStugubyServiceMethods({
           if (grantExpired(grant)) throw new StugubyError(502, "EXPIRED_GRANT_EVENT", "Coordinator returned an expired grant");
           validateGrantTransition(this.store.getGrant(grant.id), grant, 502);
           this.store.upsertGrant(grant);
-          this.materializeRemoteHome(stuguby.id, grant.authorityNodeId, grant.publicationId);
         }
         else if (event.grantId && event.grantEpoch !== null) {
           const existing = this.store.getGrant(event.grantId);
@@ -403,6 +478,7 @@ registerStugubyServiceMethods({
             const receipt = this.store.getDeletionReceipt(stuguby.id, this.identity.nodeId, event.grantId, event.grantEpoch)
               ?? this.store.purgeGrantData(stuguby.id, event.grantId, event.grantEpoch);
             this.deleteUnreferencedBlobs(this.store.purgeReplicaBlobReferences(stuguby.id, event.grantId, event.grantEpoch));
+            this.materializeRemoteHome(stuguby.id, existing.authorityNodeId, existing.publicationId);
             this.store.recordInboxEvent(event);
             await this.sendDeletionReceipt(stuguby, receipt);
             return;
@@ -415,9 +491,7 @@ registerStugubyServiceMethods({
       const grant = this.authorizeDatasetEvent(event);
       if (!grantAudienceIncludes(grant, this.identity.nodeId)) throw new StugubyError(502, "DATASET_AUDIENCE_MISMATCH", "Coordinator returned a dataset outside this node's grant audience");
       this.store.applyDatasetEvent(event);
-      if (event.operation === "upsert" && event.payload && typeof event.payload === "object" && !Array.isArray(event.payload)) {
-        this.materializeRemoteHome(stuguby.id, event.authorityNodeId, String(event.payload.publicationId));
-      }
+      this.materializeRemoteHome(stuguby.id, grant.authorityNodeId, grant.publicationId);
       const policy = enabledDataset(grant, event.schema as StugubyDataset);
       const blobReferences = eventBlobReferences(event);
       if (blobReferences.length > 0 && policy?.allowReplicaCache && policy.retentionDays > 0) {

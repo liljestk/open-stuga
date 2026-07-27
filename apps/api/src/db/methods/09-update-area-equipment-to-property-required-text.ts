@@ -180,11 +180,11 @@ registerDatabaseMethods({
               "Move or unlink maintenance observation evidence before assigning this equipment to another Home",
             );
           }
-          if (error instanceof Error && error.message.includes("TRACKING_ASSIGNMENT_PROPERTY_MOVE")) {
+          if (error instanceof Error && error.message.includes("TRACKING_BINDING_PROPERTY_MOVE")) {
             throw new ClimateDataValidationError(
               409,
               "TRACKED_EQUIPMENT_PROPERTY_MOVE",
-              "Remove the active tracking-tag assignment before moving this equipment to another Property",
+              "Remove the active tracking endpoint binding before moving this equipment to another Property",
             );
           }
           throw error;

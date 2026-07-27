@@ -118,6 +118,7 @@ declare module "../core.js" {
     telemetryArchiveWatermarks(): TelemetryArchiveWatermarks;
     activateRealDataMode(): DemoTelemetryPurgeResult;
     purgeSourceLabelledDemoTelemetry(): void;
+    purgeSharedHomeLocalState(houseId?: string): void;
     prepareTelemetrySources(sources: Array<MeasurementSample["source"] | Reading["source"]>): void;
     migrate(): void;
   }
@@ -137,6 +138,7 @@ declare module "../core.js" {
     telemetryArchiveDirtyCount(): number;
     telemetryArchiveWatermarks(): TelemetryArchiveWatermarks;
     activateRealDataMode(): DemoTelemetryPurgeResult;
+    purgeSharedHomeLocalState(houseId?: string): void;
     migrate(): void;
   }
 }

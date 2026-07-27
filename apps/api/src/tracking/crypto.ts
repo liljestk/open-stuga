@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -64,5 +64,21 @@ export class TrackingSecretBox {
     const decipher = createDecipheriv("aes-256-gcm", this.key, nonce, { authTagLength: AUTH_TAG_BYTES });
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  }
+
+  encryptText(value: string): string {
+    return this.encrypt(Buffer.from(value, "utf8"));
+  }
+
+  decryptText(envelope: string): string {
+    return this.decrypt(envelope).toString("utf8");
+  }
+
+  fingerprint(namespace: string, value: string): string {
+    return createHmac("sha256", this.key)
+      .update(namespace)
+      .update("\0")
+      .update(value)
+      .digest("hex");
   }
 }

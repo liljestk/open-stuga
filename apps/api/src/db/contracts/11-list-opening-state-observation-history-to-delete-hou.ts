@@ -123,6 +123,7 @@ declare module "../core.js" {
             mapPlacement?: HouseMapPlacement | null;
             orientationDegrees?: number | null;
         }, actor?: LocalMaintenanceTaskRevisionActor): House | null;
+    purgeSharedHouseProjection(id: string): boolean;
     deleteHouse(id: string): boolean;
   }
 
@@ -146,6 +147,7 @@ declare module "../core.js" {
             mapPlacement?: HouseMapPlacement | null;
             orientationDegrees?: number | null;
         }, actor?: LocalMaintenanceTaskRevisionActor): House | null;
+    purgeSharedHouseProjection(id: string): boolean;
     deleteHouse(id: string): boolean;
   }
 }

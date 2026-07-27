@@ -220,6 +220,9 @@ export function configureApiPart26(context: ReturnType<typeof configureApiPart25
       const body = bodyObject(request.body);
       rejectUnknownFields(body, new Set(["sensorId", "metric", "from", "to"]), "Tapo history canary");
       const sensorId = requiredString(body, "sensorId");
+      const sensor = context.database.getSensor(sensorId);
+      if (!sensor) throw new HttpError(404, "NOT_FOUND", "Sensor not found");
+      context.stuguby.assertHouseLocalAuthority(sensor.houseId);
       const metric = enumValue(body.metric, ["temperature", "humidity"] as const, "metric");
       const fromMs = Date.parse(requiredString(body, "from"));
       const toMs = Date.parse(requiredString(body, "to"));
@@ -254,6 +257,7 @@ export function configureApiPart26(context: ReturnType<typeof configureApiPart25
       const metric = enumValue(body.metric, ["temperature", "humidity"] as const, "metric");
       const sensor = context.database.getSensor(sensorId);
       if (!sensor) throw new HttpError(404, "NOT_FOUND", "Sensor not found");
+      context.stuguby.assertHouseLocalAuthority(sensor.houseId);
       const definition = context.database.getMeasurementDefinition(metric);
       if (!sensor.enabled || !definition?.enabled) {
         throw new HttpError(409, "TAPO_BACKFILL_TARGET_DISABLED", "Backfill sensor and metric must both be enabled");

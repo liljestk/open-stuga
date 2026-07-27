@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { isIP } from "node:net";
 import { dirname, join } from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
-import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, resolvePlanElementOpeningState } from "@climate-twin/contracts";
+import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, hasLocalHouseAuthority, resolvePlanElementOpeningState } from "@climate-twin/contracts";
 import type {
   AreaEquipmentInput,
   AreaEquipmentPatch,
@@ -201,8 +201,11 @@ export function configureApiPart23(context: ReturnType<typeof configureApiPart22
     });
   context.app.put(`${context.prefix}/integrations/home-assistant/config`, async (request, response) => {
       const body = bodyObject(request.body);
-      const houseId = body.houseId === undefined ? context.database.listHouses()[0]?.id : requiredString(body, "houseId");
+      const houseId = body.houseId === undefined
+        ? context.database.listHouses().find(hasLocalHouseAuthority)?.id
+        : requiredString(body, "houseId");
       if (!houseId || !context.database.getHouse(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
+      context.stuguby.assertHouseLocalAuthority(houseId);
       const generation = (context.homeAssistantConfigurationGenerations.get(houseId) ?? 0) + 1;
       context.homeAssistantConfigurationGenerations.set(houseId, generation);
       const url = homeAssistantUrl(credentialString(body, "url", 2_048, true));

@@ -201,7 +201,7 @@ describe("PropertyManagementPage", () => {
       manufacturer: "Nordic Pumps",
       status: "out-of-service",
     });
-    vi.spyOn(api, "trackedAssets").mockResolvedValue([]);
+    vi.spyOn(api, "trackedEquipment").mockResolvedValue([]);
 
     const { rerender } = render(<I18nProvider><PropertyManagementPage state={state} {...handlers} /></I18nProvider>);
     fireEvent.click(screen.getByRole("tab", { name: "Inventory" }));
@@ -209,12 +209,12 @@ describe("PropertyManagementPage", () => {
     expect(screen.getByRole("heading", { name: "Well pump" })).not.toBeNull();
     expect(screen.getByText("PUMP-001")).not.toBeNull();
     expect(screen.getByRole("button", { name: "Edit inventory item: Well pump" })).not.toBeNull();
-    await waitFor(() => expect(api.trackedAssets).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.trackedEquipment).toHaveBeenCalledTimes(1));
     rerender(<I18nProvider><PropertyManagementPage
       state={{ ...state, areaEquipment: state.areaEquipment.map((item) => ({ ...item })) }}
       {...handlers}
     /></I18nProvider>);
-    expect(api.trackedAssets).toHaveBeenCalledTimes(1);
+    expect(api.trackedEquipment).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Edit inventory item: Well pump" }));
     fireEvent.change(screen.getByLabelText("Manufacturer"), { target: { value: "Nordic Pumps" } });
     fireEvent.change(screen.getAllByLabelText("Service state")[1]!, {
@@ -327,7 +327,7 @@ describe("PropertyManagementPage", () => {
       ...enabledTrackingCapabilities(),
       flags: { ...enabledTrackingCapabilities().flags, "tracking.enabled": false },
     });
-    vi.spyOn(api, "trackedAssets").mockResolvedValue([]);
+    vi.spyOn(api, "trackedEquipment").mockResolvedValue([]);
 
     render(<I18nProvider><PropertyManagementPage state={state} {...handlers} /></I18nProvider>);
     fireEvent.click(screen.getByRole("tab", { name: "Inventory" }));
@@ -378,6 +378,7 @@ describe("PropertyManagementPage", () => {
     };
     const snapshot = {
       propertyId: DEMO_PROPERTY_ID,
+      dataMode: "demo",
       generatedAt: new Date().toISOString(),
       sequence: 3,
       settings: {
@@ -392,11 +393,14 @@ describe("PropertyManagementPage", () => {
         movementMaximumIntervalSeconds: 300,
         minimumMovementConfidence: 0.6,
         exitAlertDebounceSeconds: 120,
+        observationRetentionDays: 30,
+        rollupRetentionDays: 180,
+        estimateRetentionDays: 365,
         updatedAt: new Date().toISOString(),
       },
       zones: [],
       gateways: [],
-      assets: [],
+      equipment: [],
       members: [activeMember, expiredMember],
     } satisfies TrackingMapSnapshot;
     vi.spyOn(api, "trackingCapabilities").mockResolvedValue(enabledTrackingCapabilities());
@@ -419,16 +423,16 @@ describe("PropertyManagementPage", () => {
       const state = createDemoState();
       state.propertyAreas = [area];
       state.areaEquipment = [equipment];
-      const trackedAssets = vi.spyOn(api, "trackedAssets").mockRejectedValue(
+      const trackedEquipment = vi.spyOn(api, "trackedEquipment").mockRejectedValue(
         new ApiRequestError(404, "TRACKING_DISABLED", "Equipment tracking is not enabled"),
       );
       const { unmount } = render(
         <I18nProvider><PropertyManagementPage state={state} {...callbacks()} /></I18nProvider>,
       );
       fireEvent.click(screen.getByRole("tab", { name: "Inventory" }));
-      await vi.waitFor(() => expect(trackedAssets).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() => expect(trackedEquipment).toHaveBeenCalledTimes(1));
       await vi.advanceTimersByTimeAsync(90_000);
-      expect(trackedAssets).toHaveBeenCalledTimes(1);
+      expect(trackedEquipment).toHaveBeenCalledTimes(1);
       unmount();
     } finally {
       vi.useRealTimers();

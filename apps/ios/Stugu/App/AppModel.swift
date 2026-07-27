@@ -156,7 +156,7 @@ final class AppModel: ObservableObject {
     }
 
     func trackedState(for equipmentID: String) -> TrackedEquipmentState? {
-        guard let tracked = trackingSnapshot?.assets.first(where: {
+        guard let tracked = trackingSnapshot?.equipment.first(where: {
             $0.equipment.id == equipmentID
         }) else {
             return nil
@@ -165,8 +165,8 @@ final class AppModel: ObservableObject {
             ?? tracked.equipment
         return TrackedEquipmentState(
             equipment: equipment,
-            tag: tracked.tag,
-            assignment: tracked.assignment,
+            endpoint: tracked.endpoint,
+            binding: tracked.binding,
             position: tracked.position
         )
     }
@@ -765,8 +765,8 @@ final class AppModel: ObservableObject {
             return
         }
         do {
-            let token = try await client.trackingScanToken(equipmentID: equipment.id)
-            mobileTracking.beginFind(token)
+            let descriptor = try await client.trackingFindDescriptor(equipmentID: equipment.id)
+            mobileTracking.beginFind(descriptor)
             errorMessage = nil
         } catch {
             errorMessage = friendlyMessage(for: error)
@@ -2132,8 +2132,8 @@ final class AppModel: ObservableObject {
                             return
                         }
                         if event.type == "snapshot-required"
-                            || event.type.hasPrefix("asset.")
-                            || event.type.hasPrefix("tag.")
+                            || event.type.hasPrefix("equipment.")
+                            || event.type.hasPrefix("endpoint.")
                             || event.type.hasPrefix("gateway.")
                             || event.type.hasPrefix("member.") {
                             self.scheduleTrackingRefresh()

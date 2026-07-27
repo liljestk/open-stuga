@@ -81,9 +81,9 @@ export async function verifyBackup(path, pgRestore = "pg_restore", env = process
     }
   }
   if (!coreSnapshotPath) throw new Error("Backup manifest has no core SQLite snapshot");
-  if (sqliteTableRowCount(coreSnapshotPath, "tracking_tags") > 0
+  if (sqliteTableRowCount(coreSnapshotPath, "tracking_endpoints") > 0
     && !manifest.files.some((record) => record.category === "tracking-secret-key")) {
-    throw new Error("Backup is missing the tracking secret key required by its encrypted tag records");
+    throw new Error("Backup is missing the tracking secret key required by its encrypted endpoint identities");
   }
   verifySnapshotStugubyAssetInventory(coreSnapshotPath, manifest.files);
   return {
@@ -186,7 +186,7 @@ export async function createBackup(options, { afterCoreSnapshot } = {}) {
     manifest.sources.stugubyIdentity = { status: "missing", originalPath: options.stugubyIdentityFile };
   }
 
-  const trackingTagCount = sqliteTableRowCount(coreDestination, "tracking_tags");
+  const trackingEndpointCount = sqliteTableRowCount(coreDestination, "tracking_endpoints");
   if (existsSync(options.trackingSecretKeyFile)) {
     if (!statSync(options.trackingSecretKeyFile).isFile()) {
       throw new Error("The tracking secret key path is not a regular file");
@@ -201,18 +201,18 @@ export async function createBackup(options, { afterCoreSnapshot } = {}) {
       status: "included",
       sensitive: true,
       originalPath: options.trackingSecretKeyFile,
-      encryptedTagRecords: trackingTagCount,
+      encryptedEndpointRecords: trackingEndpointCount,
     };
   } else {
-    if (trackingTagCount > 0) {
+    if (trackingEndpointCount > 0) {
       throw new Error(
-        "The core snapshot contains encrypted tracking tags but TRACKING_SECRET_KEY_FILE is missing",
+        "The core snapshot contains encrypted tracking endpoint identities but TRACKING_SECRET_KEY_FILE is missing",
       );
     }
     manifest.sources.trackingSecretKey = {
       status: "missing",
       originalPath: options.trackingSecretKeyFile,
-      encryptedTagRecords: 0,
+      encryptedEndpointRecords: 0,
     };
   }
 

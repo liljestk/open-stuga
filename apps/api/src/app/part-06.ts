@@ -281,15 +281,25 @@ export function configureApiPart06(context: ReturnType<typeof configureApiPart05
         return;
       }
 
-      const trackingObserverPath = request.method === "POST" && (
-        request.path === `${context.prefix}/tracking/observations:batch`
-        || isTrackingObserverHeartbeatPath(request.path, context.prefix)
+      const trackingObserverPath = (
+        request.method === "POST"
+        && (
+          request.path === `${context.prefix}/tracking/evidence:batch`
+          || isTrackingObserverHeartbeatPath(request.path, context.prefix)
+        )
+      ) || (
+        request.method === "GET"
+        && new RegExp(
+          `^${context.prefix.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`
+          + "/tracking/observers/[^/]+/resolution-manifest$",
+          "u",
+        ).test(request.path)
       );
       const trackingAuthorization = request.header("authorization");
       const trackingBearer = trackingAuthorization?.startsWith("Bearer ")
         ? trackingAuthorization.slice(7)
         : null;
-      if (trackingObserverPath && trackingBearer?.startsWith("stuga_observer_v1.")) {
+      if (trackingObserverPath && trackingBearer?.startsWith("stugu_observer.")) {
         if (!context.tracking.enabled) {
           next(new TrackingError(404, "TRACKING_DISABLED", "Equipment tracking is not enabled"));
           return;

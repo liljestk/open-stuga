@@ -1,162 +1,220 @@
 # Property-wide equipment tracking
 
-Stugu’s first tracking slice keeps raw BLE observations separate from derived
-asset positions. It is feature-gated and off by default.
+Stugu tracking is a profile-driven evidence system for canonical Property
+equipment. It does not assume that every BLE advertiser is trackable, and it
+does not define a private BLE wire format.
 
-Tracked assets are canonical Property inventory equipment records. The
-equipment ID is stable across web inventory management, maintenance, Stuguby
-sharing, iOS inventory sync, tag replacement, and position history. The
-saved Home, area, or map pin remains the expected location; a derived tracking
-position never silently overwrites it.
+`AreaEquipment` remains the only equipment identity. Its saved Home, area, or
+map pin is the expected location. Tracking produces a separate, derived
+`EquipmentLocationEstimate` and never overwrites that saved placement.
 
-## Included
+## Domain model
 
-- Native iOS Core Bluetooth observer with a specific service UUID.
-- Opt-in passive/property observation and foreground Active/Find modes.
-- Keychain observer credentials and a protected, bounded seven-day queue.
-- Rotating tag identifiers and authenticated 18-byte service-data payloads.
-- Fixed gateway registration, heartbeats, zones, and authenticated batches.
-- Immutable raw evidence, deduplication, confidence, uncertainty, freshness,
-  movement, ordered SSE updates, and explainable current state.
-- MapKit Property map, uncertainty circles/zones, unknown tray, filters, and
-  warmer/colder Find nearby guidance.
-- Property-wide inventory on iOS, with an in-app QR scanner and printable QR
-  labels for every equipment record, plus optional item photos, manuals,
-  documents, and relevant links.
-- Property-wide browser inventory with Home/area/unassigned placement, optional
-  map pins, printable QR labels, optional item resources,
-  tag registration/activation/assignment, and a saved-versus-live location
-  comparison.
-- Browser Property map markers for tracked and untracked equipment, including
-  freshness styling and uncertainty circles. Live snapshots are requested only
-  after the map is explicitly loaded.
-- Equipment notes, issue reporting through Property maintenance, and
-  conflict-safe borrowing/return history.
-- Optional foreground-only member location sharing with an accuracy circle,
-  explicit one-hour timeout, and no retained location trail.
-- Raw mobile observer-coordinate redaction after 24 hours by default.
+- A `TrackingProfile` is a versioned, declarative description of advertisement
+  matching, safe field extraction, identity rules, platform support, and
+  capabilities.
+- A `TrackingEndpoint` is a physically or cryptographically claimed location
+  source. It can be a beacon, observer-local peripheral, verified tracker, or
+  future external provider.
+- An `EquipmentTrackingBinding` is the temporal relationship between one
+  endpoint and one canonical equipment record. Closing a binding retains its
+  history.
+- A `TrackingObserver` is an authorized phone or fixed gateway.
+- A `TrackingObservation` is immutable, normalized, claimed-only evidence.
+  Raw BLE frames are not an ingestion or storage type.
+- A `TrackingGatewayRollupInput` summarizes a gateway observation window so a
+  dense deployment does not amplify every packet into storage and live events.
+- An `EquipmentLocationEstimate` is versioned derived state with uncertainty,
+  freshness, source, truth class, and complete provenance.
 
-iOS background discoveries are opportunistic. iOS may coalesce duplicates,
-increase scan intervals, suspend the app, or provide no execution opportunity.
-The UI must never imply continuous background coverage or an exact GPS asset
-position.
+Trackability, identity scope, identity strength, background support, and map
+capability are separate dimensions. Supporting a profile never implies exact
+coordinates, reliable background scanning, spoof resistance, or alert
+eligibility.
 
-## Enable a test deployment
+## Data flow
 
-Start with fixed gateways and zone inference:
+```text
+local BLE frame
+  -> bounded declarative profile parser
+  -> observer-scoped claimed-identity resolver
+  -> normalized observation or gateway rollup
+  -> scope, binding, profile, and data-mode validation
+  -> immutable evidence
+  -> uncertainty-aware estimate
+  -> Property map and ordered equipment events
+```
+
+Unknown and ambiguous frames stay on the observer and are discarded. The
+backend accepts evidence only when the endpoint is claimed, actively bound,
+visible to that observer, and uses the binding's exact profile version.
+
+The observer resolver is a short-lived, machine-authenticated manifest. It
+contains only the identity fields required to resolve endpoints visible to that
+observer. It is not a general inventory export and is returned with
+`Cache-Control: private, no-store`.
+
+## Profiles and compatibility
+
+Profiles contain data only: filters, byte ranges, encodings, identity fields,
+capabilities, and platform conditions. They cannot contain executable code,
+expressions, arbitrary GATT operations, JavaScript, WASM, or native modules.
+Every profile envelope includes a detached digest and can carry a registry
+signature. Profile ID and version are recorded with every accepted item of
+evidence and every estimate.
+
+Built-in profiles cover iBeacon, Eddystone UID, reviewed stable service or
+manufacturer data, and observer-local GATT peripherals. Generic profiles
+require explicit enrollment identity and never auto-match an ambient frame.
+Compiled and reviewed drivers are the separate extension point for connection,
+configuration, buzzer, firmware, or vendor-account behavior.
+
+Compatibility is assessed for an exact profile version, platform, scan
+context, and optional OS version. The result reports:
+
+- trackability tier;
+- identity scope and strength;
+- background support;
+- map capability; and
+- concrete operating conditions.
+
+Proprietary crowd networks are not generic BLE profiles. Any official future
+integration belongs behind an external location-provider adapter.
+
+## Enrollment, identity, and access
+
+Endpoint enrollment requires an explicit proof kind such as physical access,
+GATT challenge, vendor attestation, cryptographic challenge, or external
+account authorization. Raw identity fields are encrypted at rest. Lookup uses
+tenant-scoped HMAC references, and responses expose only an opaque
+`identityReference`.
+
+Only Owners and Admins can enroll endpoints, change their lifecycle state, or
+bind them to equipment. Mobile observers may be registered by a Property
+member, while fixed gateways require an administrator. Observer credentials are
+opaque, returned once, and stored as verifiers.
+
+Observer-local identities must include an observer scope and can bind only to
+that observer. A phone-local peripheral UUID is never promoted to a
+cross-observer identity.
+
+## Evidence and privacy
+
+The evidence endpoint accepts two bounded arrays:
+
+- normalized observations for event-level evidence; and
+- gateway rollups for packet-dense observation windows.
+
+Both carry `schemaVersion`, `dataMode`, an idempotency key, Property, endpoint,
+equipment, observer, and exact profile version. `live` and `demo` are isolated
+at admission, storage, inference, snapshots, and streams.
+
+The server rejects unknown fields, raw payloads, unclaimed endpoints, missing
+bindings, observer-scope violations, Property mismatches, profile mismatches,
+and cross-mode evidence. Mobile coordinates are role-redacted in evidence
+queries. Property settings independently configure observation, rollup, and
+estimate retention.
+
+There is no public crowdsourcing, ambient unknown-device upload, or automatic
+tracking from discovery.
+
+## Location semantics
+
+- A fixed gateway normally supports an area or zone observation.
+- A phone sighting supports a broad last-seen area around the phone.
+- A current foreground Find session supports nearby guidance with an
+  uncertainty radius.
+- Multiple suitable observers may support a coordinate estimate, still with a
+  non-zero uncertainty radius.
+- A manual position is explicit manual provenance.
+- Radio silence decays confidence and freshness. It never fabricates an exit.
+
+Every estimate records the algorithm, evidence and rollup IDs, observers,
+profile versions, factors, source, confidence, truth class, and version.
+Unknown equipment remains unplaced rather than appearing at an arbitrary map
+center.
+
+iOS scanning is profile-filtered and opportunistic in the background. The app
+keeps raw frames in memory only long enough to parse and resolve them, queues
+only normalized evidence, and uses a short-lived resolver cache. Foreground
+Find is the high-feedback mobile mode. Fixed gateways are the reliable
+continuous-coverage layer.
+
+## API
+
+The OpenAPI document exposes the future model under `/api/v1`:
+
+- `GET /tracking/capabilities`
+- `GET /tracking/profiles`
+- `POST /tracking/compatibility-assessments`
+- `GET|POST /tracking/endpoints`
+- `GET /tracking/endpoints/{endpointId}`
+- `PATCH /tracking/endpoints/{endpointId}/status`
+- `GET /properties/{propertyId}/tracking-bindings`
+- `POST|DELETE /area-equipment/{equipmentId}/tracking-binding`
+- `GET /properties/{propertyId}/tracking-observers`
+- `POST /tracking/observers/register`
+- `PATCH /tracking/observers/{observerId}`
+- `GET /tracking/observers/{observerId}/resolution-manifest`
+- `POST /tracking/observers/{observerId}/heartbeat`
+- `POST /tracking/observers/{observerId}/position`
+- `POST /tracking/evidence:batch`
+- `GET /properties/{propertyId}/tracked-equipment`
+- `GET /area-equipment/{equipmentId}/tracking-position`
+- `GET /area-equipment/{equipmentId}/tracking-position-history`
+- `PUT /area-equipment/{equipmentId}/manual-tracking-position`
+- `GET /area-equipment/{equipmentId}/tracking-observations`
+- `GET /area-equipment/{equipmentId}/tracking-find-descriptor`
+- `GET /properties/{propertyId}/tracking-map-snapshot`
+- `GET /properties/{propertyId}/tracking-stream`
+
+Machine observer credentials are accepted only for the resolver manifest,
+heartbeat, and evidence ingestion. Find descriptors and resolver manifests are
+short-lived and marked `no-store`.
+
+## Configuration
+
+Tracking is off by default. Enable only the capabilities deployed at a
+Property:
 
 ```dotenv
 TRACKING_ENABLED=true
 TRACKING_LIVE_MAP_ENABLED=true
-TRACKING_ROTATING_IDENTIFIERS_ENABLED=true
-```
-
-Enable mobile behavior only after consent, privacy wording, and field testing:
-
-```dotenv
 TRACKING_MOBILE_OBSERVER_ENABLED=true
 TRACKING_IOS_BACKGROUND_ENABLED=true
-TRACKING_EXPERIMENTAL_COORDINATE_INFERENCE_ENABLED=true
-```
-
-Enable optional live member presence separately:
-
-```dotenv
+TRACKING_ANDROID_BACKGROUND_ENABLED=true
+TRACKING_ANDROID_GATEWAY_MODE_ENABLED=true
+TRACKING_MOVEMENT_TRAILS_ENABLED=true
+TRACKING_EXIT_ALERTS_ENABLED=true
 TRACKING_USER_LOCATION_SHARING_ENABLED=true
 ```
 
-This flag requires tracking and the live map. Sharing starts only after a
-member taps **Share**, requests iOS When In Use permission, stops when Stugu
-leaves the foreground or after at most four hours, and is removed immediately
-when stopped. The default iOS session is one hour; a 90-second server fail-safe
-removes clients that stop updating.
+`TRACKING_SECRET_KEY_FILE` locates the key used for encrypted enrollment
+identity. Losing that key fails closed.
 
-The browser shows a member only while `sharingUntil` is still in the future,
-keeps the accuracy radius and expiry visible, and does not load member
-coordinates until the Property map is opened.
+Member location sharing is a separate, explicit, foreground, time-limited
+capability. It retains no location trail and does not change equipment
+tracking identity or inference.
 
-`TRACKING_SECRET_KEY_FILE` encrypts per-tag secrets. A backup containing
-provisioned tags fails closed if this key is unavailable.
+## Deterministic simulation
 
-## BLE payload
-
-Stugu v1 uses 18 bytes of service data:
-
-```text
-header(1) | rotating id(8) | epoch(2) | event(2) | battery(1) | auth(4)
-```
-
-The private service UUID is
-`F8A57A01-9D58-4C66-8D2D-2026A11E0001`. Tags advertise the rotating identifier,
-never their permanent asset or tag identifier.
-
-With a 128-bit service UUID, this 18-byte service-data value requires BLE 5
-extended advertising. Before selecting legacy 31-byte-only tag hardware,
-finalize either a SIG-assigned compact service identifier or a smaller v2
-payload and validate its iOS background behavior.
-
-## API
-
-The OpenAPI document covers provisioning, observer management, batch ingestion,
-evidence, current/history state, short-lived Find tokens, map snapshots, and
-ordered SSE updates under `/api/v1`.
-
-Browser inventory uses:
-
-- `GET /tracking/capabilities`
-- `GET|POST /tracking/tags`
-- `POST /tracking/tags/{tagId}/claim`
-- `POST /tracking/tags/{tagId}/assign`
-- `DELETE /tracking/tags/{tagId}/assignment`
-- `GET /properties/{propertyId}/tracking-map-snapshot`
-- `GET /properties/{propertyId}/tracking-stream`
-
-Equipment operations use:
-
-- `GET|POST /area-equipment/{equipmentId}/attachments`
-- `GET|DELETE /area-equipment/{equipmentId}/attachments/{attachmentId}`
-- `GET|POST /area-equipment/{equipmentId}/links`
-- `PATCH|DELETE /area-equipment/{equipmentId}/links/{linkId}`
-- `GET /properties/{propertyId}/equipment-loans`
-- `POST /area-equipment/{equipmentId}/borrow`
-- `POST /equipment-loans/{loanId}/return`
-- existing Property note and maintenance-task APIs
-
-Current member presence uses:
-
-- `GET /properties/{propertyId}/member-locations`
-- `PUT /properties/{propertyId}/member-location`
-- `DELETE /properties/{propertyId}/member-location`
-
-QR labels contain only stable Property and equipment identifiers. A scan is not
-authorization: the app must reload or use its authorized Property inventory
-before opening the equipment.
-
-Machine observer credentials are accepted only for:
-
-- `POST /tracking/observations:batch`
-- `POST /tracking/observers/{observerId}/heartbeat`
-
-Provisioning secrets and observer credentials are returned once and responses
-are marked `no-store`.
-
-## Deterministic simulation and replay
-
-Generate a seeded property walk with RSSI noise, missed advertisements, mobile
-and fixed observers, and an outage-delayed queue, then replay it through the
-current inference algorithm:
+The simulator produces normalized demo evidence with RSSI noise, missed
+advertisements, and optional outage-delayed delivery, then replays it through
+the production profile-fusion inference function:
 
 ```powershell
 npm run tracking:simulate -- --seed 42 --duration-seconds 300 --output tracking-run.json
 ```
 
-The output contains truth positions, immutable simulated observations, each
-derived estimate, uncertainty, explanation, and the median coordinate error.
-The command refuses to overwrite an existing output file.
+The output keeps `dataMode: "demo"` and `truthClass: "simulated"` explicit.
+No simulated item can influence live state.
 
-## Current boundary
+## Deliberate boundaries
 
-This slice does not include Android clients, gateway firmware, GATT buzzer
-control, public crowdsourcing, Apple/Google finding networks, or calibrated
-room-scale ranging. Full alert configuration and field-calibrated RF models
-remain later phases, as do end-user tracking-data export/deletion workflows.
+The model does not claim universal BLE compatibility, infer identity from a
+MAC address or fingerprint, download executable parsers, reverse engineer
+encrypted tracker networks, or promise exact GPS-like positions. A verified
+open beacon can be added later as another signed profile and compiled driver
+without changing equipment, binding, evidence, or estimate contracts; its
+physical wire format must be selected through hardware and platform
+validation.

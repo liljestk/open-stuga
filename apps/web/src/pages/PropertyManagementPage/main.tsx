@@ -60,9 +60,8 @@ import type {
   PropertyPatch,
   TenantMemberSummary,
   TrackingCapabilities,
+  TrackingEndpoint,
   TrackingMapSnapshot,
-  TrackingTag,
-  TrackingTagProvisioningResult,
   TrackedEquipmentState,
 } from "@climate-twin/contracts";
 import { api, ApiRequestError, subscribeToTrackingEvents, type HouseGeoreferencePatch } from "../../api";

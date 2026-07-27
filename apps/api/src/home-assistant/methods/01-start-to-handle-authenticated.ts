@@ -4,7 +4,7 @@ import { Agent as HttpsAgent } from "node:https";
 import type { Socket } from "node:net";
 import { resolve } from "node:path";
 import WebSocket from "ws";
-import type { MeasurementSample, OpeningState, OpeningStateObservation, Reading } from "@climate-twin/contracts";
+import { hasLocalHouseAuthority, type MeasurementSample, type OpeningState, type OpeningStateObservation, type Reading } from "@climate-twin/contracts";
 import type { AppConfig } from "../../config.js";
 import type { ClimateDatabase } from "../../db.js";
 import type {
@@ -52,6 +52,11 @@ registerHomeAssistantConnectionBridgeMethods({
     },
   async recoverHistory(this: HomeAssistantConnectionBridgeInternals, sensorId: string, metric: string, from: string, to: string): Promise<SensorHistoryRecoveryResult> {
       const binding = [...this[homeAssistantConnectionBridgeState].entities.entries()].find(([, target]) => target.sensorId === sensorId && target.metric === metric);
+      const sensor = this[homeAssistantConnectionBridgeState].database.getSensor(sensorId);
+      const house = sensor ? this[homeAssistantConnectionBridgeState].database.getHouse(sensor.houseId) : null;
+      if (!house || !hasLocalHouseAuthority(house)) {
+        return { state: "not-supported", samples: [], error: "Home Assistant history recovery requires local Home authority" };
+      }
       if (!binding || !this[homeAssistantConnectionBridgeState].config.haUrl || !this[homeAssistantConnectionBridgeState].config.haToken) {
         return { state: "not-supported", samples: [], error: "The sensor metric has no active Home Assistant history binding" };
       }
@@ -126,6 +131,7 @@ registerHomeAssistantConnectionBridgeMethods({
     },
   configuredMappings(this: HomeAssistantConnectionBridgeInternals): HomeAssistantEntityMapping[] {
       let fileMappings: HomeAssistantEntityMapping[] = [];
+      const scopedHouseId = this[homeAssistantConnectionBridgeState].houseId;
       // The compatibility map is workspace-global and must never leak into a
       // house-scoped UI connection. For the one legacy connection, an existing
       // file is an explicit bootstrap/update and SQLite is the durable fallback.
@@ -137,6 +143,18 @@ registerHomeAssistantConnectionBridgeMethods({
           const stored = this[homeAssistantConnectionBridgeState].database.getIntegrationMappingSet<unknown>("home-assistant");
           fileMappings = stored ? validateEntityMappings(stored.mappings) : [];
         }
+        fileMappings = fileMappings.filter((mapping) => {
+          const sensor = this[homeAssistantConnectionBridgeState].database.getSensor(mapping.sensorId);
+          const house = sensor
+            ? this[homeAssistantConnectionBridgeState].database.getHouse(sensor.houseId)
+            : null;
+          return Boolean(
+            sensor
+            && (!scopedHouseId || sensor.houseId === scopedHouseId)
+            && house
+            && hasLocalHouseAuthority(house),
+          );
+        });
         const unavailableSensorIds = [...new Set(fileMappings
           .filter((mapping) => !this[homeAssistantConnectionBridgeState].database.getSensor(mapping.sensorId)?.enabled)
           .map((mapping) => mapping.sensorId))].sort();
@@ -153,7 +171,9 @@ registerHomeAssistantConnectionBridgeMethods({
       )));
       const fileEntityClaims = new Set(claimMappings.flatMap(mappedEntityIds).map((entityId) => entityId.trim()));
       const persistedMappings: HomeAssistantEntityMapping[] = [];
-      for (const sensor of this[homeAssistantConnectionBridgeState].database.listSensors(this[homeAssistantConnectionBridgeState].houseId)) {
+      for (const sensor of this[homeAssistantConnectionBridgeState].database.listSensors(scopedHouseId)) {
+        const house = this[homeAssistantConnectionBridgeState].database.getHouse(sensor.houseId);
+        if (!house || !hasLocalHouseAuthority(house)) continue;
         if (!sensor.enabled) continue;
         const persisted = sensor.measurementEntityIds ?? {};
         const mapping: HomeAssistantEntityMapping = { sensorId: sensor.id };
@@ -180,7 +200,12 @@ registerHomeAssistantConnectionBridgeMethods({
       return [...activeFileMappings, ...persistedMappings];
     },
   configuredOpeningTargets(this: HomeAssistantConnectionBridgeInternals): OpeningTarget[] {
-      const houses = this[homeAssistantConnectionBridgeState].houseId ? [this[homeAssistantConnectionBridgeState].database.getHouse(this[homeAssistantConnectionBridgeState].houseId)].filter(Boolean) : this[homeAssistantConnectionBridgeState].database.listHouses().slice(0, 1);
+      const houseId = this[homeAssistantConnectionBridgeState].houseId
+        ?? this[homeAssistantConnectionBridgeState].database.listHouses().find(hasLocalHouseAuthority)?.id;
+      const houses = houseId
+        ? [this[homeAssistantConnectionBridgeState].database.getHouse(houseId)]
+            .filter((house) => Boolean(house && hasLocalHouseAuthority(house)))
+        : [];
       return houses.flatMap((house) => house!.floors.flatMap((floor) => (floor.planElements ?? []).flatMap((element) => {
         if ((element.kind !== "door" && element.kind !== "window" && element.kind !== "vent") || element.stateBinding?.provider !== "home-assistant") return [];
         if (element.stateBinding.connectionId && element.stateBinding.connectionId !== house!.id) return [];

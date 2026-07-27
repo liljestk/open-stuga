@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { createInterface } from "node:readline";
-import type { OpeningStateObservation, Reading, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
+import { hasLocalHouseAuthority, type OpeningStateObservation, type Reading, type TpLinkDiscoveredDevice } from "@climate-twin/contracts";
 import type { AppConfig } from "../../config.js";
 import type { ClimateDatabase } from "../../db.js";
 import type {
@@ -50,9 +50,12 @@ export class TpLinkBridge implements SensorGapRecoveryAdapter {
     deviceId?: string;
     legacyEnvironment: boolean;
   }> {
-    const explicit = (this.config.tpLinkConnections ?? []).filter((connection) => this.database.getHouse(connection.houseId));
+    const explicit = (this.config.tpLinkConnections ?? []).filter((connection) => {
+      const house = this.database.getHouse(connection.houseId);
+      return Boolean(house && hasLocalHouseAuthority(house));
+    });
     if (explicit.length > 0) return explicit.map((connection) => ({ ...connection, legacyEnvironment: false }));
-    const houseId = this.database.listHouses()[0]?.id;
+    const houseId = this.database.listHouses().find(hasLocalHouseAuthority)?.id;
     return !this.config.tpLinkLegacyDisabled && houseId && this.config.tpLinkHost && this.config.tpLinkUsername && this.config.tpLinkPassword
       ? [{
           id: "legacy",
@@ -179,6 +182,10 @@ export class TpLinkBridge implements SensorGapRecoveryAdapter {
 
   async recoverHistory(sensorId: string, metric: string, from: string, to: string): Promise<SensorHistoryRecoveryResult> {
     const sensor = this.database.getSensor(sensorId);
+    const house = sensor ? this.database.getHouse(sensor.houseId) : null;
+    if (!house || !hasLocalHouseAuthority(house)) {
+      return { state: "not-supported", samples: [], error: "TP-Link history recovery requires local Home authority" };
+    }
     const candidates = [...this.#workers.entries()].filter(([, worker]) => worker.houseId === sensor?.houseId);
     const owned = sensor?.tpLinkConnectionId
       ? this.#workers.get(sensor.tpLinkConnectionId)?.bridge

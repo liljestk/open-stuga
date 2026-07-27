@@ -440,7 +440,7 @@ export const fiSupplementPart3 = {
   "properties.inventoryNeedsAreaHelp": "Kohde tarvitsee odotetun sijaintialueen. Kiinteistö toimii silti ilman Kotia.",
   "properties.inventoryTracking.live": "Lähellä nyt",
   "properties.inventoryTracking.recent": "Nähty äskettäin",
-  "properties.inventoryTracking.last-known": "Viimeksi tunnettu",
+  "properties.inventoryTracking.aging": "Vanheneva arvio",
   "properties.inventoryTracking.stale": "Ei nähty äskettäin",
   "properties.inventoryTracking.unknown": "Sijainti tuntematon",
   "properties.equipmentQrLabel": "Laite-etiketti",

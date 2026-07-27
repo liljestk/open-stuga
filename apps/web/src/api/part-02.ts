@@ -82,13 +82,13 @@ import type {
   TelegramDiscoveryResult,
   ThermalIsolationResult,
   ThermalSimulationResult,
-  TrackingAssetTagAssignment,
+  EquipmentTrackingBinding,
   TrackingCapabilities,
   TrackingEvent,
   TrackingMapSnapshot,
-  TrackingTag,
-  TrackingTagCreateInput,
-  TrackingTagProvisioningResult,
+  TrackingEndpoint,
+  TrackingEndpointEnrollmentInput,
+  TrackingProfileManifest,
   TrackedEquipmentState,
   TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
@@ -177,40 +177,43 @@ export const apiPart02 = {
       `/area-equipment/${encodeURIComponent(equipmentId)}/links/${encodeURIComponent(linkId)}`,
       { method: "DELETE" },
     ),
-  trackedAssets: async (propertyId: string) => list<TrackedEquipmentState>(
-      await request<unknown>(`/properties/${encodeURIComponent(propertyId)}/tracked-assets`),
-      ["assets", "data"],
+  trackedEquipment: async (propertyId: string) => list<TrackedEquipmentState>(
+      await request<unknown>(`/properties/${encodeURIComponent(propertyId)}/tracked-equipment`),
+      ["equipment", "data"],
     ),
   trackingCapabilities: () => request<TrackingCapabilities>("/tracking/capabilities"),
-  trackingTags: async (propertyId: string) => list<TrackingTag>(
-      await request<unknown>(`/tracking/tags?propertyId=${encodeURIComponent(propertyId)}`),
-      ["tags", "data"],
+  trackingProfiles: () => request<TrackingProfileManifest>("/tracking/profiles"),
+  trackingEndpoints: async (propertyId: string) => list<TrackingEndpoint>(
+      await request<unknown>(`/tracking/endpoints?propertyId=${encodeURIComponent(propertyId)}`),
+      ["endpoints", "data"],
     ),
-  createTrackingTag: (input: TrackingTagCreateInput) => request<TrackingTagProvisioningResult>(
-      "/tracking/tags",
+  enrollTrackingEndpoint: async (input: TrackingEndpointEnrollmentInput) => entity<TrackingEndpoint>(
+    await request<TrackingEndpoint | { endpoint: TrackingEndpoint }>(
+      "/tracking/endpoints",
       { method: "POST", body: JSON.stringify(input) },
     ),
-  claimTrackingTag: async (tagId: string) => entity<TrackingTag>(
-      await request<TrackingTag | { tag: TrackingTag }>(
-        `/tracking/tags/${encodeURIComponent(tagId)}/claim`,
-        { method: "POST" },
+    "endpoint",
+  ),
+  bindTrackingEndpoint: async (
+    equipmentId: string,
+    endpointId: string,
+    observerId?: string,
+  ) => entity<EquipmentTrackingBinding>(
+      await request<EquipmentTrackingBinding | { binding: EquipmentTrackingBinding }>(
+        `/area-equipment/${encodeURIComponent(equipmentId)}/tracking-binding`,
+        {
+          method: "POST",
+          body: JSON.stringify({ endpointId, ...(observerId ? { observerId } : {}) }),
+        },
       ),
-      "tag",
+      "binding",
     ),
-  assignTrackingTag: async (tagId: string, equipmentId: string) => entity<TrackingAssetTagAssignment>(
-      await request<TrackingAssetTagAssignment | { assignment: TrackingAssetTagAssignment }>(
-        `/tracking/tags/${encodeURIComponent(tagId)}/assign`,
-        { method: "POST", body: JSON.stringify({ equipmentId }) },
-      ),
-      "assignment",
-    ),
-  unassignTrackingTag: async (tagId: string) => entity<TrackingAssetTagAssignment>(
-      await request<TrackingAssetTagAssignment | { assignment: TrackingAssetTagAssignment }>(
-        `/tracking/tags/${encodeURIComponent(tagId)}/assignment`,
+  unbindTrackingEndpoint: async (equipmentId: string) => (
+      await request<{ binding: EquipmentTrackingBinding | null }>(
+        `/area-equipment/${encodeURIComponent(equipmentId)}/tracking-binding`,
         { method: "DELETE" },
-      ),
-      "assignment",
-    ),
+      )
+    ).binding,
   trackingMapSnapshot: (propertyId: string) => request<TrackingMapSnapshot>(
       `/properties/${encodeURIComponent(propertyId)}/tracking-map-snapshot`,
     ),

@@ -227,10 +227,7 @@ export function configureApiPart01(context: { options: CreateApiOptions }) {
   config.trackingLiveMapEnabled ??= false;
   config.trackingMovementTrailsEnabled ??= false;
   config.trackingExitAlertsEnabled ??= false;
-  config.trackingRotatingIdentifiersEnabled ??= true;
   config.trackingUserLocationSharingEnabled ??= false;
-  config.trackingExperimentalCoordinateInferenceEnabled ??= false;
-  config.trackingRawMobileCoordinateRetentionHours ??= 24;
   config.trackingSecretKeyFile ??= config.databasePath === ":memory:"
       ? null
       : join(dirname(config.databasePath), "tracking-secret.key");

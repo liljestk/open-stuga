@@ -5,7 +5,7 @@ import { request as httpsRequest } from "node:https";
 import { BlockList, isIP } from "node:net";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { MeasurementSample } from "@climate-twin/contracts";
+import { hasLocalHouseAuthority, type MeasurementSample } from "@climate-twin/contracts";
 import type { AppConfig } from "../../config.js";
 import type {
   ClimateDatabase,
@@ -62,6 +62,9 @@ registerTapoHistoryExportServiceMethods({
       }
       const house = this[tapoHistoryExportServiceState].database.getHouse(sensor.houseId);
       if (!house) return { state: "not-supported", samples: [], error: "Sensor house no longer exists" };
+      if (!hasLocalHouseAuthority(house)) {
+        return { state: "not-supported", samples: [], error: "Tapo history recovery requires local Home authority" };
+      }
       const requestedFrom = Date.parse(from);
       const requestedTo = Date.parse(to);
       if (!Number.isFinite(requestedFrom) || !Number.isFinite(requestedTo) || requestedTo <= requestedFrom) {
@@ -148,7 +151,8 @@ registerTapoHistoryExportServiceMethods({
           const currentSensor = this[tapoHistoryExportServiceState].database.getSensor(sensorId);
           const currentHouse = currentSensor ? this[tapoHistoryExportServiceState].database.getHouse(currentSensor.houseId) : null;
           if (!currentSensor?.enabled || !this[tapoHistoryExportServiceState].database.getMeasurementDefinition(metric)?.enabled
-            || currentSensor.tpLinkDeviceId?.trim() !== deviceId || currentHouse?.timezone !== house.timezone) {
+            || currentSensor.tpLinkDeviceId?.trim() !== deviceId || currentHouse?.timezone !== house.timezone
+            || !hasLocalHouseAuthority(currentHouse)) {
             throw new Error("Tapo sensor binding, enabled state, or house timezone changed during private history fetch");
           }
           const requestedSamples = samples.filter((sample) => sample.metric === metric);
@@ -201,7 +205,8 @@ registerTapoHistoryExportServiceMethods({
       const currentSensor = this[tapoHistoryExportServiceState].database.getSensor(sensorId);
       const currentHouse = currentSensor ? this[tapoHistoryExportServiceState].database.getHouse(currentSensor.houseId) : null;
       if (!currentSensor?.enabled || !this[tapoHistoryExportServiceState].database.getMeasurementDefinition(metric)?.enabled
-        || currentSensor.tpLinkDeviceId?.trim() !== deviceId || currentHouse?.timezone !== house.timezone) {
+        || currentSensor.tpLinkDeviceId?.trim() !== deviceId || currentHouse?.timezone !== house.timezone
+        || !hasLocalHouseAuthority(currentHouse)) {
         return {
           state: "partial",
           samples: [],

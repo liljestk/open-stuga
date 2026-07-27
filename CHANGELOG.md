@@ -4,6 +4,17 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.16.0 - 2026-07-27
+
+- Redesigned opt-in equipment tracking around explicit profiles, bounded
+  evidence, people-presence sharing, and matching iOS and web workflows.
+- Isolated Stuguby shared Homes from local demo/replay telemetry, integrations,
+  gap recovery, weather, analytics, alerts, openings, and other local-authority
+  data, including browser fallbacks and stale federation projections.
+- Existing databases migrate automatically. Federation grant, suspension,
+  revocation, and regrant transitions now clean and rematerialize projections
+  without transferring local credentials or integration state.
+
 ## 0.15.0 - 2026-07-27
 
 - Move expensive AMD64/ARM64 container and Raspberry Pi artifact publishing to

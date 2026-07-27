@@ -107,6 +107,7 @@ export type DatabaseMethodSet = Record<string, unknown> & ThisType<DatabaseInter
 export interface ClimateDatabaseCore {
   migrateEquipmentPlacementTable(): void;
   purgeSourceLabelledDemoTelemetry(): void;
+  purgeSharedHomeLocalState(houseId?: string): void;
   backfillLegacyMeasurements(): void;
   backfillSeedOutdoorTemperature(): void;
 }
@@ -131,6 +132,7 @@ export class ClimateDatabaseCore {
       // partially restored databases whose seed metadata is missing.
       if (seed && !realDataMode) this.seed();
       if (realDataMode) this.purgeSourceLabelledDemoTelemetry();
+      this.purgeSharedHomeLocalState();
       this.backfillLegacyMeasurements();
       if (seed && !realDataMode) this.backfillSeedOutdoorTemperature();
       // A persisted real-data latch is authoritative even if a database was
