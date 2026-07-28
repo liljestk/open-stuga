@@ -220,6 +220,7 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
       const stoppingTapoHistory = context.tapoHistory.stop();
       context.homeAssistant.stop();
       context.tpLink.stop();
+      context.integrationDiscoveryJobs.stop();
       context.electricityPrices.stop();
       context.weatherMonitor.stop();
       const stoppingDailyAnalyticsFindings = context.dailyAnalyticsFindings.stop();

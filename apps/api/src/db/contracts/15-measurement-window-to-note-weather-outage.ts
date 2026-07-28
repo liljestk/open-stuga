@@ -114,6 +114,7 @@ declare module "../core.js" {
             nextCursor: string | null;
         };
     thermalTemperatureHistory(sensorId: string, from: string, to: string, bucketMinutes?: number, limit?: number): MeasurementSample[];
+    thermalClimateHistory(sensorId: string, from: string, to: string, bucketMinutes?: number, limitPerMetric?: number): MeasurementSample[];
     upsertOutdoorTemperatureSample(sample: OutdoorTemperatureSample): OutdoorTemperatureSample;
     upsertCurrentOutdoorTemperatureSample(sample: OutdoorTemperatureSample): OutdoorTemperatureSample;
     outdoorTemperatureHistory(houseId: string, locationKey: string, from: string, to: string, limit?: number): OutdoorTemperatureSample[];
@@ -135,6 +136,7 @@ declare module "../core.js" {
             nextCursor: string | null;
         };
     thermalTemperatureHistory(sensorId: string, from: string, to: string, bucketMinutes?: number, limit?: number): MeasurementSample[];
+    thermalClimateHistory(sensorId: string, from: string, to: string, bucketMinutes?: number, limitPerMetric?: number): MeasurementSample[];
     upsertOutdoorTemperatureSample(sample: OutdoorTemperatureSample): OutdoorTemperatureSample;
     upsertCurrentOutdoorTemperatureSample(sample: OutdoorTemperatureSample): OutdoorTemperatureSample;
     outdoorTemperatureHistory(houseId: string, locationKey: string, from: string, to: string, limit?: number): OutdoorTemperatureSample[];

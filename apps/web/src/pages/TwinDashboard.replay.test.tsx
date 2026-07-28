@@ -6,10 +6,17 @@ import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import { observationTimeFields, TwinDashboard } from "./TwinDashboard";
 
-function renderDashboard(state: ClimateState, dataMode: "demo" | "real" | "unknown" = "demo", readOnly = false, viewMode: "plan" | "isometric" = "plan") {
+function renderDashboard(
+  state: ClimateState,
+  dataMode: "demo" | "real" | "unknown" = "demo",
+  readOnly = false,
+  viewMode: "plan" | "isometric" = "plan",
+  selectedSensorId?: string,
+) {
   const house = state.houses[0]!;
   const floor = house.floors[0]!;
-  const sensor = state.sensors.find((item) => item.houseId === house.id && item.enabled)!;
+  const sensor = state.sensors.find((item) => item.id === selectedSensorId)
+    ?? state.sensors.find((item) => item.houseId === house.id && item.enabled)!;
   const props = {
     house, floor, houseId: house.id, floorId: floor.id,
     metric: "temperature" as const, units: "metric" as const, viewMode,
@@ -100,7 +107,7 @@ describe("TwinDashboard plug map layer", () => {
       sensors: [...base.sensors, plug],
       latestMeasurements: { ...base.latestMeasurements, [plug.id]: { power, energy } },
     };
-    const view = renderDashboard(state);
+    const view = renderDashboard(state, "demo", false, "plan", plug.id);
     fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
 
     const marker = await waitFor(() => {
@@ -110,6 +117,14 @@ describe("TwinDashboard plug map layer", () => {
     });
     expect(marker?.textContent).toContain("840 W");
     expect(marker?.textContent).toContain("2.50 kWh");
+    const inspector = await waitFor(() => {
+      const candidate = view.container.querySelector<HTMLElement>(".sensor-inspector");
+      expect(candidate).not.toBeNull();
+      return candidate!;
+    });
+    expect(within(inspector).queryByText("Temperature")).toBeNull();
+    expect(within(inspector).getByText("Power")).not.toBeNull();
+    expect(within(inspector).getByText("Electricity consumption")).not.toBeNull();
     const layerButton = screen.getByRole("button", { name: "Plug sensors" });
     expect(layerButton.getAttribute("aria-pressed")).toBe("true");
 
@@ -118,6 +133,43 @@ describe("TwinDashboard plug map layer", () => {
     expect(view.container.querySelector(".sensor-marker.energy-device")).toBeNull();
     view.unmount();
     localStorage.removeItem("stugu-home-map-energy-devices-visible");
+  });
+});
+
+describe("TwinDashboard climate-sensor map layer", () => {
+  it("hides only the markers in 2D and 3D while keeping the climate visualizations", async () => {
+    const preferenceKey = "stugu-home-map-climate-sensors-visible";
+    localStorage.removeItem(preferenceKey);
+
+    const plan = renderDashboard(createDemoState(), "demo", false, "plan");
+    fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    await waitFor(() => {
+      expect(plan.container.querySelector(".sensor-marker:not(.energy-device)")).not.toBeNull();
+      expect(plan.container.querySelector(".heat-cloud-lobe")).not.toBeNull();
+    });
+
+    const planLayerButton = screen.getByRole("button", { name: "Climate sensors" });
+    fireEvent.click(planLayerButton);
+    expect(planLayerButton.getAttribute("aria-pressed")).toBe("false");
+    expect(plan.container.querySelector(".sensor-marker:not(.energy-device)")).toBeNull();
+    expect(plan.container.querySelector(".heat-cloud-lobe")).not.toBeNull();
+    await waitFor(() => expect(localStorage.getItem(preferenceKey)).toBe("false"));
+    plan.unmount();
+
+    const building = renderDashboard(createDemoState(), "demo", false, "isometric");
+    fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    const buildingLayerButton = await screen.findByRole("button", { name: "Climate sensors" });
+    expect(buildingLayerButton.getAttribute("aria-pressed")).toBe("false");
+    await waitFor(() => {
+      expect(building.container.querySelector(".building-sensor:not(.energy-device)")).toBeNull();
+      expect(building.container.querySelector(".building-volume-cloud")).not.toBeNull();
+    });
+
+    fireEvent.click(buildingLayerButton);
+    expect(buildingLayerButton.getAttribute("aria-pressed")).toBe("true");
+    await waitFor(() => expect(building.container.querySelector(".building-sensor:not(.energy-device)")).not.toBeNull());
+    building.unmount();
+    localStorage.removeItem(preferenceKey);
   });
 });
 

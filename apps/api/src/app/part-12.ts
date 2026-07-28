@@ -230,8 +230,11 @@ export function configureApiPart12(context: ReturnType<typeof configureApiPart11
   context.app.post(`${context.prefix}/property-areas`, (request, response) => {
       const input = parsePropertyAreaInput(request.body);
       context.stuguby.assertPropertyWriteAllowed(input.propertyId);
-      const area = context.database.createPropertyArea(input);
-      context.stuguby.captureCurrentPropertyEntity(area.propertyId, "area", area.id, "upsert");
+      const area = context.database.transaction(() => {
+        const created = context.database.createPropertyArea(input);
+        context.stuguby.captureCurrentPropertyEntity(created.propertyId, "area", created.id, "upsert");
+        return created;
+      });
       context.notifySpatial((runtime) => runtime.scheduler.enqueueScope(
         { kind: "property", id: area.propertyId },
         new Date().toISOString(),
@@ -252,15 +255,18 @@ export function configureApiPart12(context: ReturnType<typeof configureApiPart11
       context.stuguby.assertPropertyWriteAllowed(previous.propertyId);
       const patch = parsePropertyAreaPatch(request.body);
       if (patch.propertyId && patch.propertyId !== previous.propertyId) context.stuguby.assertPropertyWriteAllowed(patch.propertyId);
-      const area = context.database.updatePropertyArea(areaId, patch);
-      if (!area) throw new HttpError(404, "NOT_FOUND", "Property area not found");
-      if (previous.propertyId !== area.propertyId) {
-        context.stuguby.captureCurrentPropertyEntity(previous.propertyId, "area", area.id, "delete");
-        context.stuguby.captureCurrentPropertyEntity(area.propertyId, "area", area.id, "upsert");
-      } else {
-        context.stuguby.captureCurrentPropertyEntity(area.propertyId, "area", area.id, "upsert",
-          Object.keys(patch).filter((field) => field !== "propertyId"));
-      }
+      const area = context.database.transaction(() => {
+        const updated = context.database.updatePropertyArea(areaId, patch);
+        if (!updated) throw new HttpError(404, "NOT_FOUND", "Property area not found");
+        if (previous.propertyId !== updated.propertyId) {
+          context.stuguby.captureCurrentPropertyEntity(previous.propertyId, "area", updated.id, "delete");
+          context.stuguby.captureCurrentPropertyEntity(updated.propertyId, "area", updated.id, "upsert");
+        } else {
+          context.stuguby.captureCurrentPropertyEntity(updated.propertyId, "area", updated.id, "upsert",
+            Object.keys(patch).filter((field) => field !== "propertyId"));
+        }
+        return updated;
+      });
       if (previous) {
         const observedAt = new Date().toISOString();
         context.notifySpatial((runtime) => {
@@ -276,10 +282,12 @@ export function configureApiPart12(context: ReturnType<typeof configureApiPart11
       const areaId = request.params.id as string;
       const previous = context.database.getPropertyArea(areaId);
       if (previous) context.stuguby.assertPropertyWriteAllowed(previous.propertyId);
-      if (!context.database.deletePropertyArea(areaId)) {
-        throw new HttpError(404, "NOT_FOUND", "Property area not found");
-      }
-      if (previous) context.stuguby.captureCurrentPropertyEntity(previous.propertyId, "area", areaId, "delete");
+      context.database.transaction(() => {
+        if (!context.database.deletePropertyArea(areaId)) {
+          throw new HttpError(404, "NOT_FOUND", "Property area not found");
+        }
+        if (previous) context.stuguby.captureCurrentPropertyEntity(previous.propertyId, "area", areaId, "delete");
+      });
       if (previous) context.notifySpatial((runtime) => runtime.scheduler.enqueueScope(
         { kind: "property", id: previous.propertyId },
         new Date().toISOString(),
@@ -358,8 +366,11 @@ export function configureApiPart12(context: ReturnType<typeof configureApiPart11
       const house = input.houseId ? context.database.getHouse(input.houseId) : null;
       const propertyId = area?.propertyId ?? house?.propertyId ?? input.propertyId;
       if (propertyId) context.stuguby.assertPropertyWriteAllowed(propertyId);
-      const equipment = context.database.createAreaEquipment(input);
-      context.stuguby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert");
+      const equipment = context.database.transaction(() => {
+        const created = context.database.createAreaEquipment(input);
+        context.stuguby.captureCurrentPropertyEntity(created.propertyId, "equipment", created.id, "upsert");
+        return created;
+      });
       context.notifySpatial((runtime) => runtime.scheduler.enqueueScope(
         { kind: "property", id: equipment.propertyId },
         new Date().toISOString(),

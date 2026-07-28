@@ -504,6 +504,8 @@ take precedence after restart.
 | `TP_LINK_PASSWORD` | empty | TP-Link account password used for local hub authentication |
 | `TP_LINK_DEVICE_MAP_FILE` | `./config/tp-link.devices.json` | optional legacy child-device-to-sensor bootstrap map; in-app mappings are stored in SQLite |
 | `TP_LINK_POLL_INTERVAL_MS` | `2000` | fixed-rate direct local hub polling interval; minimum effective value is one second |
+| `TP_LINK_CONTACT_POLL_INTERVAL_MS` | `500` | T110 trigger-log polling interval for door/window transitions; minimum effective value is 250 ms |
+| `TP_LINK_DISCOVERY_TARGETS` | current active IPv4 broadcasts | optional comma-separated LAN broadcast addresses used for discovery and safe address recovery; set the physical LAN broadcast for Docker/VM NAT |
 | `TP_LINK_PYTHON` | `python` on Windows, `python3` elsewhere | Python 3.11+ executable for the direct bridge |
 | `TAPO_HISTORY_ENABLED` | `false` | enables the asynchronous older-history provider and mailbox service after local TP-Link recovery is incomplete |
 | `TAPO_HISTORY_WORKER_TOKEN` | empty | non-Compose bearer secret shared only by the API and runner; Compose generates it in a dedicated volume |

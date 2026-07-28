@@ -46,6 +46,10 @@ public actor StuguAPIClient {
     private struct AlertsEnvelope: Decodable { let alerts: [AlertEvent] }
     private struct RulesEnvelope: Decodable { let rules: [AlertRule] }
     private struct HistoryEnvelope: Decodable { let samples: [MeasurementSample] }
+    private struct TpLinkDevicesEnvelope: Decodable { let devices: [TpLinkDiscoveredDevice] }
+    private struct OpeningStateHistoryEnvelope: Decodable {
+        let history: [OpeningStateObservation]?
+    }
     private struct InventoryEnvelope: Decodable { let inventory: PropertyInventorySnapshot }
     private struct EquipmentEnvelope: Decodable { let equipment: AreaEquipment }
     private struct AttachmentsEnvelope: Decodable { let attachments: [EquipmentAttachment] }
@@ -344,6 +348,35 @@ public actor StuguAPIClient {
         let query = queryString([URLQueryItem(name: "houseId", value: houseID)])
         let value: SnapshotEnvelope = try await request(version: 2, path: "/measurements/snapshot?\(query)")
         return value.snapshot
+    }
+
+    public func tpLinkDevices(houseID: String) async throws -> [TpLinkDiscoveredDevice] {
+        let query = queryString([URLQueryItem(name: "houseId", value: houseID)])
+        let value: TpLinkDevicesEnvelope = try await request(
+            version: 1,
+            path: "/integrations/tp-link/devices?\(query)"
+        )
+        return value.devices
+    }
+
+    public func openingStateHistory(
+        houseID: String,
+        from: Date,
+        to: Date = Date(),
+        limit: Int = 10_000
+    ) async throws -> [OpeningStateObservation] {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let query = queryString([
+            URLQueryItem(name: "from", value: formatter.string(from: from)),
+            URLQueryItem(name: "to", value: formatter.string(from: to)),
+            URLQueryItem(name: "limit", value: String(max(1, min(limit, 10_000)))),
+        ])
+        let value: OpeningStateHistoryEnvelope = try await request(
+            version: 1,
+            path: "/houses/\(escaped(houseID))/opening-states?\(query)"
+        )
+        return value.history ?? []
     }
 
     public func alerts(activeOnly: Bool = false) async throws -> [AlertEvent] {

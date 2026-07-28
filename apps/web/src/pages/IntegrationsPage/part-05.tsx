@@ -49,7 +49,7 @@ import { useI18n } from "../../i18n";
 import { integrationForHouse } from "../../integrationScope";
 import { AutomationSetupPanel } from "../AutomationSetupPanel";
 import { SetupOperationsPanel } from "../SetupOperationsPanel";
-import { ACTIVE_TP_LINK_EXPORT_STATUSES, HouseLocationMap, RETRYABLE_TP_LINK_EXPORT_STATUSES, TP_LINK_CHILD_DISCOVERY_ATTEMPTS, TP_LINK_CHILD_DISCOVERY_INTERVAL_MS, TP_LINK_EXPORT_PROVIDER_KEYS, TP_LINK_EXPORT_STATUS_KEYS, connectionError, dateTime, decimal, defaultFootprintWidthMeters, floorPlanSize, footprintFloorFor, mapLocation, placementForm, setupSectionFromPath, setupSectionOrder, validTimeZone, waitForChildDiscoveryAttempt, writeSetupSection } from "./support";
+import { ACTIVE_TP_LINK_EXPORT_STATUSES, HouseLocationMap, RETRYABLE_TP_LINK_EXPORT_STATUSES, TP_LINK_EXPORT_PROVIDER_KEYS, TP_LINK_EXPORT_STATUS_KEYS, connectionError, dateTime, decimal, defaultFootprintWidthMeters, floorPlanSize, footprintFloorFor, mapLocation, placementForm, setupSectionFromPath, setupSectionOrder, validTimeZone, writeSetupSection } from "./support";
 import type { DiscoveryOutcome, Feedback, HouseFloor, IntegrationsPageProps, SetupSection, TpLinkChildDiscovery } from "./support";
 import { useIntegrationsPagePart04 } from "./part-04";
 export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrationsPagePart04>) {
@@ -194,7 +194,8 @@ export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrat
         if (isCurrentLocationRequest(request)) setSavingLocation(false);
       }
     };
-  const discoveredCount = (discovery?.tpLink.length ?? 0) + (discovery?.homeAssistant.length ?? 0);
+  const addableTpLinkSources = (discovery?.tpLink ?? []).filter((source) => !source.configuredConnectionId);
+  const discoveredCount = addableTpLinkSources.length + (discovery?.homeAssistant.length ?? 0);
   const sensorHardwareDetected = discoveredCount > 0
       || integration.tpLink.discoveredDevices > 0
       || integration.tpLink.mappedDevices > 0
@@ -204,6 +205,10 @@ export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrat
   const mappedSensorSources = integration.tpLink.mappedDevices > 0 || integration.homeAssistant.mappedEntities > 0;
   const tpLinkReadyDevices = Math.max(0, integration.tpLink.discoveredDevices - integration.tpLink.mappedDevices);
   const tpLinkHubName = integration.tpLink.hubModel ?? t("setup.tpLinkEnergyDevice");
+  const tpLinkSourceCount = integration.tpLink.connections?.length ?? Number(integration.tpLink.configured);
+  const connectedTpLinkSourceCount = integration.tpLink.connections
+    ? integration.tpLink.connections.filter((connection) => connection.connected).length
+    : Number(integration.tpLink.connected);
   const connectedSourceCount = Number(integration.tpLink.connected) + Number(integration.homeAssistant.connected);
   const assignmentCount = homeAssistantAssignments.length + tpLinkAssignments.length;
   const connectedSourceLabel = connectedSourceCount > 1
@@ -222,9 +227,10 @@ export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrat
       : tpLinkHealthState === "warning"
         ? t("setup.tpLinkWarning")
         : t("common.notConnected");
-  const tpLinkStatusTitle = tpLinkHealthState === "error"
-      ? `TP-Link ${tpLinkHubName} · ${t("common.notConnected")}`
-      : t(integration.tpLink.connected ? "setup.tpLinkConnectedTitle" : "setup.tpLinkConnectingTitle", { hub: tpLinkHubName });
+  const tpLinkStatusTitle = t("setup.tpLinkSourcesStatusTitle", {
+      connected: connectedTpLinkSourceCount,
+      count: tpLinkSourceCount,
+    });
   const connectionWorkspaceActive = activeSection === "connections" && sensorSourceConfigured;
   const steps = [
       { icon: Router, title: t("setup.step1"), body: t("setup.step1body"), complete: sensorHardwareDetected },
@@ -237,7 +243,7 @@ export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrat
   const nextStep = nextStepIndex >= 0 ? steps[nextStepIndex]! : null;
   const weatherHomes = houses.filter((candidate) => candidate.location).length;
   const notesGrantCount = integration.appleNotes?.grantCount ?? 0;
-  const selectedDiscoveredTpLink = discovery?.tpLink.find((candidate) => candidate.host === tpLinkHost);
+  const selectedDiscoveredTpLink = addableTpLinkSources.find((candidate) => candidate.host === tpLinkHost);
   const selectedDiscoveredHomeAssistant = discovery?.homeAssistant.find((candidate) => candidate.url === haUrl);
   const setupSections: Array<{ id: SetupSection; label: string; detail: string }> = [
       { id: "overview", label: t("setup.workspaceOverview"), detail: t("setup.workspaceOverviewDetail") },
@@ -258,5 +264,5 @@ export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrat
       setActiveSection(section);
       writeSetupSection(section);
     };
-  return Object.assign(context, { resetPlacementDraft, savePlacement, removePlacement, clearOrientation, updateFromMap, usePlacementForWeather, savePlacementForWeather, applyDiscoveredDefaults, discoveredCount, sensorHardwareDetected, sensorSourceConfigured, sensorSourceConnected, mappedSensorSources, tpLinkReadyDevices, tpLinkHubName, connectedSourceCount, assignmentCount, connectedSourceLabel, streamStatusLabel, tpLinkHealthState, tpLinkHealthLabel, tpLinkStatusTitle, connectionWorkspaceActive, steps, completeCount, nextStepIndex, nextStep, weatherHomes, notesGrantCount, selectedDiscoveredTpLink, selectedDiscoveredHomeAssistant, setupSections, activeSectionLabel, sectionHeading, sectionDescription, activateSection });
+  return Object.assign(context, { resetPlacementDraft, savePlacement, removePlacement, clearOrientation, updateFromMap, usePlacementForWeather, savePlacementForWeather, applyDiscoveredDefaults, addableTpLinkSources, discoveredCount, sensorHardwareDetected, sensorSourceConfigured, sensorSourceConnected, mappedSensorSources, tpLinkReadyDevices, tpLinkHubName, connectedSourceCount, assignmentCount, connectedSourceLabel, streamStatusLabel, tpLinkHealthState, tpLinkHealthLabel, tpLinkStatusTitle, connectionWorkspaceActive, steps, completeCount, nextStepIndex, nextStep, weatherHomes, notesGrantCount, selectedDiscoveredTpLink, selectedDiscoveredHomeAssistant, setupSections, activeSectionLabel, sectionHeading, sectionDescription, activateSection });
 }

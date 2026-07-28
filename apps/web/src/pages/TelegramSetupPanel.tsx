@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import type { IntegrationStatus, TelegramDiscoveryResult } from "@climate-twin/contracts";
 import { api } from "../api";
+import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
 import "./AutomationSetupPanel.css";
 
@@ -166,7 +167,7 @@ export function TelegramSetupPanel({
     ? `https://t.me/${telegramDiscovery.botUsername.replace(/^@/, "")}`
     : null;
   const formattedTelegramDelivery = telegram.lastDeliveryAt
-    ? new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(telegram.lastDeliveryAt))
+    ? formatInTimeZone(telegram.lastDeliveryAt, locale, undefined, { dateStyle: "medium", timeStyle: "short" })
     : null;
 
   return <details

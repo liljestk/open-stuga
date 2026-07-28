@@ -58,6 +58,11 @@ export function renderPage(overrides: Partial<React.ComponentProps<typeof Sensor
     tpLinkDevicesLoading: false,
     tpLinkDevicesError: null,
     onHouse: vi.fn(),
+    onUpdateHouse: vi.fn().mockImplementation(async (id, patch) => {
+      const current = state.houses.find((candidate) => candidate.id === id);
+      if (!current) throw new Error("House not found");
+      return { ...current, ...patch };
+    }),
     onRefreshDevices: vi.fn().mockResolvedValue([discoveredDevice]),
     onCreateSensor: vi.fn().mockImplementation(async (input) => ({ ...input, id: "sensor-created" })),
     onUpdateSensor: vi.fn().mockImplementation(async (id, patch) => {

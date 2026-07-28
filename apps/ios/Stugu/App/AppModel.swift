@@ -42,6 +42,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var sensors: [Sensor] = []
     @Published private(set) var definitions: [MeasurementDefinition] = []
     @Published private(set) var snapshot: [MeasurementSnapshotEntry] = []
+    @Published private(set) var tpLinkDevices: [TpLinkDiscoveredDevice] = []
+    @Published private(set) var latestOpeningStateObservation: OpeningStateObservation?
     @Published private(set) var alerts: [AlertEvent] = []
     @Published private(set) var rules: [AlertRule] = []
     @Published private(set) var propertyInventory: PropertyInventorySnapshot?
@@ -244,9 +246,132 @@ final class AppModel: ObservableObject {
         let measurementsBySensor = Dictionary(uniqueKeysWithValues: snapshot.map {
             ($0.sensorId, $0.measurements)
         })
-        return selectedSensors.map {
+        return selectedSensors.filter { sensor in
+            !selectedContactDevices.contains { device in
+                device.deviceId == sensor.tpLinkDeviceId
+                    && (sensor.tpLinkConnectionId == nil
+                        || sensor.tpLinkConnectionId == device.connectionId)
+            }
+        }.map {
             SensorCondition(sensor: $0, measurements: measurementsBySensor[$0.id] ?? [:])
         }
+    }
+
+    var selectedContactDevices: [TpLinkDiscoveredDevice] {
+        guard let selectedHomeID else { return [] }
+        return tpLinkDevices.filter {
+            $0.isContact && ($0.houseId == nil || $0.houseId == selectedHomeID)
+        }.sorted {
+            contactDisplayName($0).localizedStandardCompare(contactDisplayName($1))
+                == .orderedAscending
+        }
+    }
+
+    func contactDevice(id: String) -> TpLinkDiscoveredDevice? {
+        tpLinkDevices.first { $0.id == id }
+    }
+
+    func contactOpeningAssignment(
+        for device: TpLinkDiscoveredDevice
+    ) -> ContactOpeningAssignment? {
+        guard let homeID = device.houseId ?? selectedHomeID,
+              let home = houses.first(where: { $0.id == homeID }) else {
+            return nil
+        }
+        for floor in home.floors {
+            for element in floor.planElements ?? [] {
+                guard ["door", "window", "vent"].contains(element.kind),
+                      let binding = element.stateBinding,
+                      binding.provider == "tapo",
+                      binding.externalId == device.deviceId,
+                      binding.connectionId == nil
+                        || binding.connectionId == device.connectionId else {
+                    continue
+                }
+                return ContactOpeningAssignment(
+                    floorId: floor.id,
+                    floorName: floor.name,
+                    elementId: element.id,
+                    kind: element.kind,
+                    label: nonEmpty(element.label)
+                        ?? defaultOpeningLabel(kind: element.kind),
+                    invert: binding.invert ?? false,
+                    staleAfterSeconds: binding.staleAfterSeconds ?? 900
+                )
+            }
+        }
+        guard let mapped = device.mappedOpening else { return nil }
+        let floor = home.floors.first { $0.id == mapped.floorId }
+        let element = floor?.planElements?.first { $0.id == mapped.elementId }
+        return ContactOpeningAssignment(
+            floorId: mapped.floorId,
+            floorName: floor?.name ?? "Unknown floor",
+            elementId: mapped.elementId,
+            kind: mapped.kind,
+            label: nonEmpty(mapped.label)
+                ?? nonEmpty(element?.label)
+                ?? defaultOpeningLabel(kind: mapped.kind),
+            invert: element?.stateBinding?.invert ?? false,
+            staleAfterSeconds: element?.stateBinding?.staleAfterSeconds ?? 900
+        )
+    }
+
+    func contactDisplayName(_ device: TpLinkDiscoveredDevice) -> String {
+        nonEmpty(device.alias)
+            ?? contactOpeningAssignment(for: device)?.label
+            ?? device.model
+    }
+
+    func contactState(
+        for device: TpLinkDiscoveredDevice,
+        now: Date = Date()
+    ) -> StuguOpeningState {
+        guard let isOpen = device.contactOpen,
+              let lastSeen = device.lastSeenDate else {
+            return .unknown
+        }
+        let assignment = contactOpeningAssignment(for: device)
+        let staleAfter = TimeInterval(assignment?.staleAfterSeconds ?? 900)
+        guard now.timeIntervalSince(lastSeen) <= staleAfter,
+              now.timeIntervalSince(lastSeen) >= -300 else {
+            return .unknown
+        }
+        let effectiveOpen = assignment?.invert == true ? !isOpen : isOpen
+        return effectiveOpen ? .open : .closed
+    }
+
+    func contactHistory(
+        device: TpLinkDiscoveredDevice,
+        hours: Int,
+        to: Date = Date()
+    ) async throws -> [OpeningStateObservation] {
+        guard !usingCachedData,
+              let client,
+              let homeID = device.houseId ?? selectedHomeID else {
+            throw StuguAPIError(
+                status: 0,
+                code: "OFFLINE",
+                message: "Opening history is unavailable while this iPhone is offline."
+            )
+        }
+        return try await client.openingStateHistory(
+            houseID: homeID,
+            from: to.addingTimeInterval(-TimeInterval(max(1, hours)) * 3_600),
+            to: to
+        )
+    }
+
+    private func defaultOpeningLabel(kind: String) -> String {
+        switch kind {
+        case "window": "Window"
+        case "vent": "Vent"
+        default: "Door"
+        }
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     var selectedHomeAlerts: [AlertEvent] {
@@ -544,10 +669,14 @@ final class AppModel: ObservableObject {
         UserDefaults.standard.set(id, forKey: DefaultsKey.selectedHome)
         UserDefaults.standard.set(home.propertyId, forKey: DefaultsKey.selectedProperty)
         snapshot = []
+        tpLinkDevices = []
+        latestOpeningStateObservation = nil
         do {
             let next = try await client.measurementSnapshot(houseID: id)
+            let devices = await loadTpLinkDevices(homeID: id)
             guard generation == requestGeneration, selectedHomeID == id else { return }
             snapshot = next
+            tpLinkDevices = devices
             try await loadInventoryWorkspace()
             guard generation == requestGeneration, selectedHomeID == id else { return }
             await loadTodayContext()
@@ -578,9 +707,13 @@ final class AppModel: ObservableObject {
             if let selectedHomeID {
                 UserDefaults.standard.set(selectedHomeID, forKey: DefaultsKey.selectedHome)
                 snapshot = (try? await client.measurementSnapshot(houseID: selectedHomeID)) ?? []
+                tpLinkDevices = await loadTpLinkDevices(homeID: selectedHomeID)
+                latestOpeningStateObservation = nil
             } else {
                 UserDefaults.standard.removeObject(forKey: DefaultsKey.selectedHome)
                 snapshot = []
+                tpLinkDevices = []
+                latestOpeningStateObservation = nil
             }
         }
 
@@ -1527,11 +1660,15 @@ final class AppModel: ObservableObject {
 
         if let selectedHomeID {
             let nextSnapshot = try await client.measurementSnapshot(houseID: selectedHomeID)
+            let nextTpLinkDevices = await loadTpLinkDevices(homeID: selectedHomeID)
             guard generation == requestGeneration else { return }
             snapshot = nextSnapshot
+            tpLinkDevices = nextTpLinkDevices
             UserDefaults.standard.set(selectedHomeID, forKey: DefaultsKey.selectedHome)
         } else {
             snapshot = []
+            tpLinkDevices = []
+            latestOpeningStateObservation = nil
             UserDefaults.standard.removeObject(forKey: DefaultsKey.selectedHome)
         }
         if let selectedPropertyID {
@@ -1553,6 +1690,19 @@ final class AppModel: ObservableObject {
         }
         lastUpdated = Date()
         usingCachedData = false
+    }
+
+    private func loadTpLinkDevices(homeID: String) async -> [TpLinkDiscoveredDevice] {
+        guard !isReadOnly, let client else { return [] }
+        do {
+            return try await client.tpLinkDevices(houseID: homeID)
+        } catch {
+            // Device inventory is an administrative, additive companion resource.
+            // Keep the rest of the Home usable when it is unavailable.
+            return tpLinkDevices.filter {
+                $0.houseId == homeID || ($0.houseId == nil && selectedHomeID == homeID)
+            }
+        }
     }
 
     private func loadInventoryWorkspace() async throws {
@@ -1668,6 +1818,8 @@ final class AppModel: ObservableObject {
         sensors = cache.sensors
         definitions = cache.definitions
         snapshot = cache.measurementSnapshot
+        tpLinkDevices = cache.tpLinkDevices ?? []
+        latestOpeningStateObservation = cache.latestOpeningStateObservation
         alerts = sortedAlerts(cache.alerts)
         rules = cache.rules
         propertyInventory = cache.propertyInventory
@@ -1721,7 +1873,9 @@ final class AppModel: ObservableObject {
             selectedPropertyId: selectedPropertyID,
             history: Array(historyCache.values),
             todayContext: todayContext,
-            pendingActions: pendingActions
+            pendingActions: pendingActions,
+            tpLinkDevices: tpLinkDevices,
+            latestOpeningStateObservation: latestOpeningStateObservation
         )
         do {
             try await cacheStore.save(cache)
@@ -2084,6 +2238,11 @@ final class AppModel: ObservableObject {
                             self.phase = .signIn
                             return
                         }
+                        if event.type == "opening" {
+                            self.applyOpeningStateEvent(event.data)
+                            self.scheduleEventRefresh()
+                            continue
+                        }
                         if ["reading", "measurement", "alert", "mutation", "weather"].contains(event.type) {
                             self.scheduleEventRefresh()
                         }
@@ -2104,6 +2263,39 @@ final class AppModel: ObservableObject {
             }
         }
         startTrackingEventLoop()
+    }
+
+    private func applyOpeningStateEvent(_ payload: String) {
+        guard let data = payload.data(using: .utf8),
+              let observation = try? JSONDecoder().decode(
+                  OpeningStateObservation.self,
+                  from: data
+              ),
+              observation.houseId == selectedHomeID else {
+            return
+        }
+        latestOpeningStateObservation = observation
+        guard observation.source == "tapo",
+              let externalID = observation.externalId else {
+            return
+        }
+        let candidates = tpLinkDevices.indices.filter {
+            tpLinkDevices[$0].deviceId == externalID
+                && (observation.connectionId == nil
+                    || tpLinkDevices[$0].connectionId == observation.connectionId)
+        }
+        guard candidates.count == 1, let index = candidates.first else { return }
+        let isOpen: Bool?
+        switch observation.state {
+        case .open: isOpen = true
+        case .closed: isOpen = false
+        case .unknown: isOpen = nil
+        }
+        tpLinkDevices[index] = tpLinkDevices[index].updatingContact(
+            open: isOpen,
+            observedAt: observation.observedAt
+        )
+        lastUpdated = observation.observedDate ?? Date()
     }
 
     private func startTrackingEventLoop() {
@@ -2199,6 +2391,8 @@ final class AppModel: ObservableObject {
         sensors = []
         definitions = []
         snapshot = []
+        tpLinkDevices = []
+        latestOpeningStateObservation = nil
         alerts = []
         rules = []
         propertyInventory = nil

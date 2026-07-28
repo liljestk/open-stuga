@@ -2,7 +2,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 
-import type { Sensor, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
+import type { DoorPlanElement, Sensor, TpLinkDiscoveredDevice, WindowPlanElement } from "@climate-twin/contracts";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -19,6 +19,119 @@ import { deferred, discoveredDevice, expectDescribedError, renderPage } from "./
 afterEach(() => vi.restoreAllMocks());
 
 describe("sensor onboarding and management", () => {
+  it("recognizes a T110 and attaches it to a chosen opening on the 2D plan", async () => {
+    const user = userEvent.setup();
+    const base = createDemoState();
+    const frontDoor: DoorPlanElement = {
+      id: "front-door",
+      kind: "door",
+      wallId: "g-o1",
+      position: { x: 220, y: 45 },
+      rotationDegrees: 0,
+      width: 90,
+      variant: "exterior",
+      state: "closed",
+      label: "Front door",
+    };
+    const kitchenWindow: WindowPlanElement = {
+      id: "kitchen-window",
+      kind: "window",
+      wallId: "g-o1",
+      position: { x: 760, y: 45 },
+      rotationDegrees: 0,
+      width: 110,
+      variant: "casement",
+      state: "closed",
+      label: "Kitchen window",
+    };
+    const fixedWindow: WindowPlanElement = {
+      ...kitchenWindow,
+      id: "fixed-window",
+      position: { x: 880, y: 45 },
+      variant: "fixed",
+      label: "Fixed picture window",
+    };
+    const ground = {
+      ...base.houses[0]!.floors[0]!,
+      planElements: [frontDoor, kitchenWindow, fixedWindow],
+    };
+    const house = {
+      ...base.houses[0]!,
+      floors: [ground, ...base.houses[0]!.floors.slice(1)],
+    };
+    const {
+      temperatureEntityId: _temperatureEntityId,
+      humidityEntityId: _humidityEntityId,
+      batteryEntityId: _batteryEntityId,
+      measurementEntityIds: _measurementEntityIds,
+      ...sensorTemplate
+    } = base.sensors[0]!;
+    const legacyContactSensor: Sensor = {
+      ...sensorTemplate,
+      id: "sensor-t110-legacy",
+      houseId: house.id,
+      floorId: ground.id,
+      name: "Entry contact",
+      model: "T110",
+      tpLinkDeviceId: "tapo-t110-entry",
+      tpLinkConnectionId: "tp-link-main",
+      tags: [],
+    };
+    const state = { ...base, houses: [house], sensors: [...base.sensors, legacyContactSensor] };
+    const contactDevice: TpLinkDiscoveredDevice = {
+      ...discoveredDevice,
+      connectionId: "tp-link-main",
+      deviceId: "tapo-t110-entry",
+      model: "Tapo T110",
+      alias: "Entry contact",
+      temperature: null,
+      humidity: null,
+      contactOpen: null,
+      mappedSensorId: legacyContactSensor.id,
+      mappedOpening: null,
+    };
+    const onUpdateHouse = vi.fn().mockResolvedValue(house);
+    const onUpdateSensor = vi.fn().mockResolvedValue({ ...legacyContactSensor, enabled: false });
+    const rendered = renderPage({
+      state,
+      house,
+      houses: [house],
+      tpLinkDevices: [contactDevice],
+      onUpdateHouse,
+      onUpdateSensor,
+    });
+
+    expect(screen.getByRole("heading", { name: "Entry contact is a door/window sensor" })).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Choose door or window" }));
+
+    expect(await screen.findByRole("heading", { name: "Attach Entry contact" })).not.toBeNull();
+    expect(screen.getByRole("group", { name: "Door and window picker for Ground floor" })).not.toBeNull();
+    const openingList = screen.getByRole("group", { name: "Available doors and windows" });
+    expect((within(openingList).getByRole("button", { name: /Fixed picture window.*Fixed/i }) as HTMLButtonElement).disabled).toBe(true);
+    await user.click(within(openingList).getByRole("button", { name: /Kitchen window.*Window.*Available/i }));
+    await user.click(screen.getByRole("button", { name: "Attach sensor" }));
+
+    await waitFor(() => expect(onUpdateHouse).toHaveBeenCalledTimes(1));
+    expect(onUpdateSensor).toHaveBeenCalledWith(legacyContactSensor.id, {
+      tpLinkDeviceId: null,
+      tpLinkConnectionId: null,
+      enabled: false,
+    });
+    const floors = onUpdateHouse.mock.calls[0]![1].floors;
+    expect(floors[0]!.planElements).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "kitchen-window",
+        stateBinding: {
+          provider: "tapo",
+          externalId: "tapo-t110-entry",
+          connectionId: "tp-link-main",
+        },
+      }),
+    ]));
+    expect(rendered.props.onCreateSensor).not.toHaveBeenCalled();
+    expect(await screen.findByText("Entry contact is now attached to Kitchen window.")).not.toBeNull();
+  });
+
   it("binds every enabled electricity measurement to a Home Assistant entity", async () => {
     const user = userEvent.setup();
     const base = createDemoState();

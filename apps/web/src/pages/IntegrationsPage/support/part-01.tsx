@@ -45,6 +45,7 @@ import {
 } from "../../../api";
 import type { HouseLocationMapItem, MapLocation } from "../../../components/HouseLocationMap";
 import { LocationDiscoveryPanel, type DiscoveredHomeDefaults } from "../../../components/LocationDiscoveryPanel";
+import { formatInTimeZone } from "../../../dateTime";
 import { useI18n } from "../../../i18n";
 import { integrationForHouse } from "../../../integrationScope";
 import { AutomationSetupPanel } from "../../AutomationSetupPanel";
@@ -71,7 +72,13 @@ export interface IntegrationsPageProps {
   onDisconnectTpLink?: (connectionId: string) => ReturnType<typeof api.disconnectTpLink>;
   onMoveHomeAssistant?: (fromHouseId: string, houseId: string) => ReturnType<typeof api.moveHomeAssistant>;
   onMoveTpLink?: (connectionId: string, houseId: string) => ReturnType<typeof api.moveTpLink>;
-  onOpenSensors?: () => void;
+  onOpenSensors?: (device?: {
+    deviceId: string;
+    connectionId: string | null;
+    model?: string;
+    alias?: string | null;
+    deviceType?: "climate" | "contact" | "energy" | "unknown";
+  }) => void;
   onOpenLayout?: () => void;
 }
 
@@ -83,15 +90,11 @@ export type DiscoveryOutcome = "idle" | "found" | "empty" | "error";
 
 export type TpLinkChildDiscovery =
   | { phase: "idle" }
-  | { phase: "settling"; attempt: number; hubModel: "H100" | "H200" | null }
+  | { phase: "settling"; hubModel: "H100" | "H200" | null; baselineLastPollAt: string | null }
   | { phase: "found"; count: number; hubModel: "H100" | "H200" | null }
   | { phase: "empty" | "error"; hubModel: "H100" | "H200" | null };
 
 export const setupSectionOrder: SetupSection[] = ["overview", "layout", "connections", "weather", "operations", "automations"];
-
-export const TP_LINK_CHILD_DISCOVERY_ATTEMPTS = 7;
-
-export const TP_LINK_CHILD_DISCOVERY_INTERVAL_MS = 5_000;
 
 export const RETRYABLE_TP_LINK_EXPORT_STATUSES = new Set<TpLinkHistoryExportJobStatus>(["failed", "needs-attention"]);
 
@@ -117,22 +120,6 @@ export function connectionError(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim() ? error.message : fallback;
 }
 
-export function waitForChildDiscoveryAttempt(signal: AbortSignal): Promise<boolean> {
-  if (signal.aborted) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    const finish = (completed: boolean) => {
-      signal.removeEventListener("abort", cancel);
-      resolve(completed);
-    };
-    const timer = window.setTimeout(() => finish(true), TP_LINK_CHILD_DISCOVERY_INTERVAL_MS);
-    const cancel = () => {
-      window.clearTimeout(timer);
-      finish(false);
-    };
-    signal.addEventListener("abort", cancel, { once: true });
-  });
-}
-
 export function setupSectionFromPath(pathname = typeof window === "undefined" ? "" : window.location.pathname): SetupSection {
   const candidate = pathname.match(/\/setup\/([^/]+)\/?$/)?.[1];
   return setupSectionOrder.includes(candidate as SetupSection) ? candidate as SetupSection : "overview";
@@ -147,15 +134,42 @@ export function writeSetupSection(section: SetupSection, replace = false): void 
   window.history[replace ? "replaceState" : "pushState"](null, "", next);
 }
 
+const integrationDiscoveryStorageKey = (houseId: string) => `stugu.integration-discovery.${houseId}`;
+
+export function rememberedIntegrationDiscovery(houseId: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const id = window.localStorage.getItem(integrationDiscoveryStorageKey(houseId));
+    return id && id.length <= 200 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberIntegrationDiscovery(houseId: string, jobId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(integrationDiscoveryStorageKey(houseId), jobId);
+  } catch {
+    // Discovery still completes server-side when browser storage is unavailable.
+  }
+}
+
+export function forgetIntegrationDiscovery(houseId: string, jobId?: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const key = integrationDiscoveryStorageKey(houseId);
+    if (!jobId || window.localStorage.getItem(key) === jobId) window.localStorage.removeItem(key);
+  } catch {
+    // Nothing sensitive or authoritative is stored here.
+  }
+}
+
 export function dateTime(value: string | null | undefined, locale: string, timeZone: string, options?: Intl.DateTimeFormatOptions): string | null {
   if (!value) return null;
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return null;
-  try {
-    return new Intl.DateTimeFormat(locale, { ...(options ?? { dateStyle: "short", timeStyle: "short" }), timeZone }).format(date);
-  } catch {
-    return new Intl.DateTimeFormat(locale, options ?? { dateStyle: "short", timeStyle: "short" }).format(date);
-  }
+  return formatInTimeZone(date, locale, timeZone, options ?? { dateStyle: "short", timeStyle: "short" });
 }
 
 export function decimal(value: number, locale: string, maximumFractionDigits = 1): string {

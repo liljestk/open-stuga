@@ -313,9 +313,12 @@ export function configureApiPart11(context: ReturnType<typeof configureApiPart10
       const propertyId = request.params.id as string;
       context.stuguby.assertPropertyWriteAllowed(propertyId);
       const patch = parsePropertyPatch(request.body);
-      const property = context.database.updateProperty(propertyId, patch);
-      if (!property) throw new HttpError(404, "NOT_FOUND", "Property not found");
-      context.stuguby.captureCurrentPropertyEntity(property.id, "property", property.id, "upsert", Object.keys(patch));
+      const property = context.database.transaction(() => {
+        const updated = context.database.updateProperty(propertyId, patch);
+        if (!updated) throw new HttpError(404, "NOT_FOUND", "Property not found");
+        context.stuguby.captureCurrentPropertyEntity(updated.id, "property", updated.id, "upsert", Object.keys(patch));
+        return updated;
+      });
       context.notifySpatial((runtime) => runtime.scheduler.enqueueScope(
         { kind: "property", id: property.id },
         new Date().toISOString(),

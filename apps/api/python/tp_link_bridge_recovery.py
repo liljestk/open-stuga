@@ -311,6 +311,29 @@ def recovery_targets(reference_hosts: list[str]) -> list[str]:
     )
 
 
+def _recovery_source(
+    host: str, device: Any, expected_device_id: str | None
+) -> dict[str, Any] | None:
+    model = str(device.model).upper().split("(", 1)[0].strip()
+    is_hub = model in {"H100", "H200"}
+    if not is_hub and not direct_energy_snapshots(device):
+        return None
+    if expected_device_id and not _device_matches(device, expected_device_id):
+        return None
+    device_id = source_device_id(device)
+    try:
+        alias = device.alias
+    except Exception:
+        alias = None
+    return {
+        "host": host,
+        "model": model,
+        "alias": str(alias) if alias is not None else None,
+        "sourceType": "hub" if is_hub else "energy-device",
+        "sourceDeviceId": device_id,
+    }
+
+
 async def _probe_recovery_target(
     host: str,
     username: str,
@@ -331,24 +354,7 @@ async def _probe_recovery_target(
             if device is None:
                 return None
             await device.update(update_children=True)
-        model = str(device.model).upper().split("(", 1)[0].strip()
-        is_hub = model in {"H100", "H200"}
-        if not is_hub and not direct_energy_snapshots(device):
-            return None
-        device_id = source_device_id(device)
-        if expected_device_id and device_id != expected_device_id:
-            return None
-        try:
-            alias = device.alias
-        except Exception:
-            alias = None
-        return {
-            "host": host,
-            "model": model,
-            "alias": str(alias) if alias is not None else None,
-            "sourceType": "hub" if is_hub else "energy-device",
-            "sourceDeviceId": device_id,
-        }
+        return _recovery_source(host, device, expected_device_id)
     except asyncio.CancelledError:
         raise
     except Exception:
@@ -384,15 +390,111 @@ async def scan_recovery_subnets(
     )
 
 
+async def _inspect_recovery_discovery_device(
+    host: str,
+    device: Any,
+    expected_device_id: str | None,
+    semaphore: asyncio.Semaphore,
+) -> dict[str, Any] | None:
+    try:
+        async with semaphore:
+            await device.update(update_children=True)
+        return _recovery_source(host, device, expected_device_id)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        return None
+    finally:
+        try:
+            await device.disconnect()
+        except Exception:
+            pass
+
+
+async def discover_recovery_sources(
+    username: str,
+    password: str,
+    expected_device_id: str | None,
+    targets: list[str | None] | None = None,
+) -> list[dict[str, Any]]:
+    """Discover supported sources on current LAN broadcasts for host recovery."""
+    configured_targets = [
+        target.strip()
+        for target in os.environ.get("TP_LINK_DISCOVERY_TARGETS", "").split(",")
+        if target.strip()
+    ]
+    discovery_targets = list(
+        dict.fromkeys(targets if targets is not None else configured_targets)
+    ) or [None]
+    results = await asyncio.gather(
+        *(
+            Discover.discover(
+                discovery_timeout=5,
+                timeout=10,
+                **({"target": target} if target else {}),
+                username=username,
+                password=password,
+            )
+            for target in discovery_targets
+        ),
+        return_exceptions=True,
+    )
+    devices: dict[str, Any] = {}
+    for result in results:
+        if isinstance(result, BaseException):
+            if isinstance(result, asyncio.CancelledError):
+                raise result
+            continue
+        for host, device in result.items():
+            host_text = str(host)
+            if host_text not in devices:
+                devices[host_text] = device
+                continue
+            try:
+                await device.disconnect()
+            except Exception:
+                pass
+    semaphore = asyncio.Semaphore(16)
+    inspected = await asyncio.gather(
+        *(
+            _inspect_recovery_discovery_device(
+                host, device, expected_device_id, semaphore
+            )
+            for host, device in devices.items()
+        )
+    )
+    return sorted(
+        (source for source in inspected if source is not None),
+        key=lambda source: source["host"],
+    )
+
+
 async def recover_source_host(
     previous_host: str,
     username: str,
     password: str,
     expected_device_id: str | None,
 ) -> dict[str, Any] | None:
-    matches = await scan_recovery_subnets(
-        [previous_host], username, password, expected_device_id
+    broadcast_matches = await discover_recovery_sources(
+        username, password, expected_device_id
     )
+    if expected_device_id and len(broadcast_matches) == 1:
+        return broadcast_matches[0]
+
+    # A directed broadcast address also identifies the current bounded /24
+    # fallback when broadcast traffic is hidden by a VM or container bridge.
+    current_targets = [
+        target.strip()
+        for target in os.environ.get("TP_LINK_DISCOVERY_TARGETS", "").split(",")
+        if target.strip()
+    ]
+    scanned_matches = await scan_recovery_subnets(
+        list(dict.fromkeys([previous_host, *current_targets])),
+        username,
+        password,
+        expected_device_id,
+    )
+    matches = {match["host"]: match for match in [*broadcast_matches, *scanned_matches]}
     # Without a learned stable identity, fail closed when credentials can open
-    # more than one supported source on the subnet.
-    return matches[0] if len(matches) == 1 else None
+    # more than one supported source across the reachable networks.
+    return next(iter(matches.values())) if len(matches) == 1 else None

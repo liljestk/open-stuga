@@ -414,6 +414,7 @@ describe("live event client", () => {
     expect(source?.url).toBe("/api/v1/events");
     expect(source?.options).toEqual({ withCredentials: true });
     expect(source?.listeners.has("weather")).toBe(true);
+    expect(source?.listeners.has("opening")).toBe(true);
     expect(source?.listeners.has("mutation")).toBe(true);
 
     source?.emit("weather", {
@@ -441,6 +442,23 @@ describe("live event client", () => {
         resource: "/sensors/sensor-main",
         occurredAt: "2026-07-16T12:01:00.000Z",
       },
+    });
+    source?.emit("opening", {
+      id: "opening-live",
+      houseId: "house-main",
+      floorId: "floor-main",
+      elementId: "door-main",
+      state: "open",
+      source: "tapo",
+      observedAt: "2026-07-16T12:01:01.000Z",
+    });
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "opening",
+      data: expect.objectContaining({
+        id: "opening-live",
+        houseId: "house-main",
+        state: "open",
+      }),
     });
     source?.emit("heartbeat", {
       timestamp: "2026-07-16T12:00:00.000Z",

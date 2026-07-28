@@ -53,6 +53,7 @@ export interface FloorPlanProps {
   samples: Record<string, MeasurementSample>;
   /** Metric-complete samples used by capability-specific markers such as energy plugs. */
   sensorMeasurements?: LatestMeasurements;
+  climateSensorMarkersVisible?: boolean;
   energyDevicesVisible?: boolean;
   climateSamples?: ClimateSampleMatrix;
   observations: ManualObservation[];

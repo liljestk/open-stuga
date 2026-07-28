@@ -44,6 +44,118 @@ public struct StuguOpeningStateBinding: Codable, Equatable, Sendable {
     public let staleAfterSeconds: Int?
 }
 
+public enum StuguOpeningState: String, Codable, Equatable, Sendable {
+    case open
+    case closed
+    case unknown
+}
+
+public struct OpeningStateObservation: Codable, Identifiable, Equatable, Sendable {
+    public let id: String
+    public let houseId: String
+    public let floorId: String
+    public let elementId: String
+    public let state: StuguOpeningState
+    public let openFraction: Double?
+    public let source: String
+    public let observedAt: String
+    public let validUntil: String?
+    public let externalId: String?
+    public let connectionId: String?
+
+    public var observedDate: Date? {
+        StuguDateParser.date(from: observedAt)
+    }
+}
+
+public struct TpLinkMappedOpening: Codable, Equatable, Sendable {
+    public let floorId: String
+    public let elementId: String
+    public let kind: String
+    public let label: String?
+}
+
+public struct TpLinkDiscoveredDevice: Codable, Identifiable, Equatable, Sendable {
+    public let houseId: String?
+    public let connectionId: String?
+    public let deviceId: String
+    public let model: String
+    public let alias: String?
+    public let status: String?
+    public let temperature: Double?
+    public let humidity: Double?
+    public let battery: Double?
+    public let contactOpen: Bool?
+    public let deviceType: String?
+    public let power: Double?
+    public let energy: Double?
+    public let lastSeenAt: String
+    public let mappedSensorId: String?
+    public let mappedOpening: TpLinkMappedOpening?
+
+    public var id: String {
+        [connectionId ?? houseId ?? "", deviceId].joined(separator: "\u{1f}")
+    }
+
+    public var isContact: Bool {
+        if deviceType == "contact" || contactOpen != nil { return true }
+        return model.uppercased().contains("T110")
+    }
+
+    public var lastSeenDate: Date? {
+        StuguDateParser.date(from: lastSeenAt)
+    }
+
+    public func updatingContact(open: Bool?, observedAt: String) -> TpLinkDiscoveredDevice {
+        TpLinkDiscoveredDevice(
+            houseId: houseId,
+            connectionId: connectionId,
+            deviceId: deviceId,
+            model: model,
+            alias: alias,
+            status: status,
+            temperature: temperature,
+            humidity: humidity,
+            battery: battery,
+            contactOpen: open,
+            deviceType: deviceType,
+            power: power,
+            energy: energy,
+            lastSeenAt: observedAt,
+            mappedSensorId: mappedSensorId,
+            mappedOpening: mappedOpening
+        )
+    }
+}
+
+public struct ContactOpeningAssignment: Equatable, Sendable {
+    public let floorId: String
+    public let floorName: String
+    public let elementId: String
+    public let kind: String
+    public let label: String
+    public let invert: Bool
+    public let staleAfterSeconds: Int
+
+    public init(
+        floorId: String,
+        floorName: String,
+        elementId: String,
+        kind: String,
+        label: String,
+        invert: Bool = false,
+        staleAfterSeconds: Int = 900
+    ) {
+        self.floorId = floorId
+        self.floorName = floorName
+        self.elementId = elementId
+        self.kind = kind
+        self.label = label
+        self.invert = invert
+        self.staleAfterSeconds = staleAfterSeconds
+    }
+}
+
 public struct StuguPlanElement: Codable, Identifiable, Equatable, Sendable {
     public let id: String
     public let kind: String

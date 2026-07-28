@@ -285,10 +285,13 @@ export function configureApiPart17(context: ReturnType<typeof configureApiPart16
         context.stuguby.assertHouseLocalAuthority(input.houseId);
       }
       context.assertTpLinkConnectionScope(input);
-      const sensor = context.database.createSensor(input);
+      const sensor = context.database.transaction(() => {
+        const created = context.database.createSensor(input);
+        context.stuguby.captureHomeMutation(created.houseId);
+        return created;
+      });
       context.homeAssistant.refreshMappings();
       context.notifySpatialSensorChange(null, sensor);
-      context.stuguby.captureHomeMutation(sensor.houseId);
       response.status(201).json({ sensor });
     });
   context.app.get(`${context.prefix}/sensors/:id`, (request, response) => {
@@ -315,12 +318,15 @@ export function configureApiPart17(context: ReturnType<typeof configureApiPart16
         if (patch.tpLinkConnectionId === null) delete candidate.tpLinkConnectionId;
         context.assertTpLinkConnectionScope(candidate);
       }
-      const sensor = context.database.updateSensor(request.params.id as string, patch);
-      if (!sensor) throw new HttpError(404, "NOT_FOUND", "Sensor not found");
+      const sensor = context.database.transaction(() => {
+        const updated = context.database.updateSensor(request.params.id as string, patch);
+        if (!updated) throw new HttpError(404, "NOT_FOUND", "Sensor not found");
+        if (current && current.houseId !== updated.houseId) context.stuguby.captureHomeMutation(current.houseId);
+        context.stuguby.captureHomeMutation(updated.houseId);
+        return updated;
+      });
       context.homeAssistant.refreshMappings();
       context.notifySpatialSensorChange(current, sensor);
-      if (current && current.houseId !== sensor.houseId) context.stuguby.captureHomeMutation(current.houseId);
-      context.stuguby.captureHomeMutation(sensor.houseId);
       response.json({ sensor });
     });
   context.app.put(`${context.prefix}/sensors/:id`, (request, response) => {
@@ -342,22 +348,27 @@ export function configureApiPart17(context: ReturnType<typeof configureApiPart16
         if (patch.tpLinkConnectionId === null) delete candidate.tpLinkConnectionId;
         context.assertTpLinkConnectionScope(candidate);
       }
-      const sensor = context.database.updateSensor(request.params.id as string, patch);
-      if (!sensor) throw new HttpError(404, "NOT_FOUND", "Sensor not found");
+      const sensor = context.database.transaction(() => {
+        const updated = context.database.updateSensor(request.params.id as string, patch);
+        if (!updated) throw new HttpError(404, "NOT_FOUND", "Sensor not found");
+        if (current && current.houseId !== updated.houseId) context.stuguby.captureHomeMutation(current.houseId);
+        context.stuguby.captureHomeMutation(updated.houseId);
+        return updated;
+      });
       context.homeAssistant.refreshMappings();
       context.notifySpatialSensorChange(current, sensor);
-      if (current && current.houseId !== sensor.houseId) context.stuguby.captureHomeMutation(current.houseId);
-      context.stuguby.captureHomeMutation(sensor.houseId);
       response.json(sensor);
     });
   context.app.delete(`${context.prefix}/sensors/:id`, async (request, response) => {
       const current = context.database.getSensor(request.params.id as string);
       if (current) context.stuguby.assertHouseWriteAllowed(current.houseId);
       context.requireImmutableTelemetryLineage("sensor", request.params.id as string);
-      if (!context.database.deleteSensor(request.params.id as string)) throw new HttpError(404, "NOT_FOUND", "Sensor not found");
+      context.database.transaction(() => {
+        if (!context.database.deleteSensor(request.params.id as string)) throw new HttpError(404, "NOT_FOUND", "Sensor not found");
+        if (current) context.stuguby.captureHomeMutation(current.houseId);
+      });
       context.homeAssistant.refreshMappings();
       context.notifySpatialSensorChange(current, null);
-      if (current) context.stuguby.captureHomeMutation(current.houseId);
       response.status(204).end();
     });
   context.app.post(`${context.prefix}/readings`, context.requireIngestKey, (request, response) => {

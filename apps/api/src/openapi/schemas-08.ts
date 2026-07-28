@@ -14,7 +14,7 @@ export const schemasPart08 = {
         },
   TpLinkDiscoveredDevice: {
           type: "object",
-          required: ["deviceId", "model", "alias", "status", "temperature", "humidity", "battery", "lastSeenAt", "mappedSensorId"],
+          required: ["deviceId", "model", "alias", "status", "temperature", "humidity", "battery", "deviceType", "lastSeenAt", "mappedSensorId", "mappedOpening"],
           properties: {
             houseId: { type: "string" },
             connectionId: { type: "string" },
@@ -26,10 +26,24 @@ export const schemasPart08 = {
             humidity: { oneOf: [{ type: "number" }, { type: "null" }] },
             battery: { oneOf: [{ type: "number" }, { type: "null" }] },
             contactOpen: { oneOf: [{ type: "boolean" }, { type: "null" }], description: "Contact state reported by devices such as Tapo T110." },
+            deviceType: { enum: ["climate", "contact", "energy", "unknown"], description: "Provider-normalized onboarding purpose derived from the model and exposed capabilities." },
             power: { oneOf: [{ type: "number" }, { type: "null" }], description: "Instantaneous active power in W when the device exposes python-kasa's Energy module." },
             energy: { oneOf: [{ type: "number" }, { type: "null" }], description: "Cumulative device energy in kWh when consumption_total is available; currently total since reboot." },
             lastSeenAt: { type: "string", format: "date-time" },
             mappedSensorId: { oneOf: [{ type: "string" }, { type: "null" }] },
+            mappedOpening: {
+              oneOf: [{
+                type: "object",
+                additionalProperties: false,
+                required: ["floorId", "elementId", "kind", "label"],
+                properties: {
+                  floorId: { type: "string" },
+                  elementId: { type: "string" },
+                  kind: { enum: ["door", "window", "vent"] },
+                  label: { oneOf: [{ type: "string" }, { type: "null" }] },
+                },
+              }, { type: "null" }],
+            },
           },
         },
 } as const;

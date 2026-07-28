@@ -20,6 +20,7 @@ import {
   LocalAuthPage,
 } from "../pages/LocalAuthPage";
 import { integrationForHouse } from "../integrationScope";
+import { houseHasTpLinkOpeningBinding } from "../tpLinkDeviceClassification";
 import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, dismissedTpLinkDevicesKey, firstFloor, freshTpLinkDiscoveryWindowMs, latestIso, pageTitleKeys, settleInBackground, storedDismissedTpLinkDevices, tpLinkDeviceKey } from "./support";
 import type { TpLinkDeviceReference } from "./support";
 export function useAppPart01(context: Record<string, never>) {
@@ -161,8 +162,9 @@ export function useAppPart01(context: Record<string, never>) {
       })] : []));
       return climate.tpLinkDevices.filter((device) => device.houseId === house.id
         && device.mappedSensorId === null
+        && !houseHasTpLinkOpeningBinding(house, device)
         && !assignedDeviceIds.has(tpLinkDeviceKey(device)));
-    }, [climate.tpLinkDevices, house?.id, state.sensors]);
+    }, [climate.tpLinkDevices, house, state.sensors]);
   const currentTpLinkDevices = useMemo(() => {
       const lastPollAt = Date.parse(scopedIntegration?.tpLink.lastPollAt ?? "");
       if (!scopedIntegration?.tpLink.connected || !Number.isFinite(lastPollAt)) return [];

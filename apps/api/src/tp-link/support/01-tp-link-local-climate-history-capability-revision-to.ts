@@ -40,7 +40,22 @@ export interface TpLinkSnapshotMessage {
   hubModel: string;
   sourceType?: "hub" | "energy-device";
   sourceDeviceId?: string | null;
+  sourceAlias?: string | null;
   devices: TpLinkSnapshotDevice[];
+}
+
+export interface TpLinkContactEvent {
+  deviceId: string;
+  eventId: string;
+  sequence?: number;
+  state: "open" | "closed";
+  timestamp: string;
+}
+
+export interface TpLinkContactEventsMessage {
+  type: "contact-events";
+  timestamp: string;
+  events: TpLinkContactEvent[];
 }
 
 export interface TpLinkErrorMessage {
@@ -56,7 +71,7 @@ export interface TpLinkHostChangeMessage {
   sourceDeviceId?: string | null;
 }
 
-export type TpLinkHelperMessage = TpLinkSnapshotMessage | TpLinkErrorMessage | TpLinkHostChangeMessage | TpLinkHistoryResultMessage;
+export type TpLinkHelperMessage = TpLinkSnapshotMessage | TpLinkContactEventsMessage | TpLinkErrorMessage | TpLinkHostChangeMessage | TpLinkHistoryResultMessage;
 
 export interface TpLinkHistorySample {
   deviceId: string;
@@ -97,6 +112,9 @@ export interface TpLinkConnectionUpdate {
   previousHost: string;
   host: string;
   deviceId?: string;
+  sourceType?: "hub" | "energy-device";
+  sourceModel?: string;
+  sourceAlias?: string | null;
 }
 
 export interface TpLinkBridgeOptions {
@@ -134,6 +152,8 @@ export interface TpLinkDiscoveredSource {
   model: string;
   alias: string | null;
   sourceType: "hub" | "energy-device";
+  deviceId: string | null;
+  configuredConnectionId?: string;
 }
 
 export interface TpLinkSourceDiscoveryResult {
@@ -162,7 +182,7 @@ export function ipv4BroadcastAddress(address: string, netmask: string): string |
   return addressOctets.map((octet, index) => octet | ((~maskOctets[index]!) & 255)).join(".");
 }
 
-export function tpLinkDiscoveryTargets(): string[] {
+export function tpLinkDiscoveryTargets(referenceHosts: string[] = []): string[] {
   const targets = new Set<string>();
   for (const entries of Object.values(networkInterfaces())) {
     for (const entry of entries ?? []) {
@@ -170,6 +190,15 @@ export function tpLinkDiscoveryTargets(): string[] {
       const broadcast = ipv4BroadcastAddress(entry.address, entry.netmask);
       if (broadcast && broadcast !== entry.address) targets.add(broadcast);
     }
+  }
+  for (const host of referenceHosts) {
+    const octets = ipv4Octets(host);
+    if (!octets) continue;
+    const [first, second] = octets;
+    const isPrivate = first === 10
+      || (first === 172 && second! >= 16 && second! <= 31)
+      || (first === 192 && second === 168);
+    if (isPrivate) targets.add(`${octets[0]}.${octets[1]}.${octets[2]}.255`);
   }
   return [...targets].sort((left, right) => left.localeCompare(right));
 }
@@ -194,6 +223,8 @@ export interface TapoOpeningTarget {
   elementId: string;
   deviceId: string;
   connectionId: string;
+  kind: "door" | "window" | "vent";
+  label: string | null;
 }
 
 export interface LastIngestedOpeningState {
@@ -215,6 +246,17 @@ export function nonEmptyString(value: unknown): string | null {
 
 export function finiteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function tpLinkDeviceType(
+  device: Pick<TpLinkSnapshotDevice, "model" | "contactOpen" | "temperature" | "humidity" | "power" | "energy">,
+): NonNullable<TpLinkDiscoveredDevice["deviceType"]> {
+  const model = device.model.trim().toUpperCase();
+  if (typeof device.contactOpen === "boolean" || /\bT110\b/u.test(model)) return "contact";
+  if (typeof device.power === "number" || typeof device.energy === "number") return "energy";
+  if (typeof device.temperature === "number" || typeof device.humidity === "number"
+    || /^T3(?:10|15)(?:\b|\s|\()/u.test(model)) return "climate";
+  return "unknown";
 }
 
 export function safeTpLinkHistoryFailure(value: unknown): string | null {

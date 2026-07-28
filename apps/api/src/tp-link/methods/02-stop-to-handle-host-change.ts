@@ -42,15 +42,16 @@ registerTpLinkConnectionBridgeMethods({
       this.start();
     },
   discoverSources(this: TpLinkConnectionBridgeInternals,
-      timeoutMs = 35_000,
+      timeoutMs = 50_000,
       preferredConnection?: { username: string; password: string },
     ): Promise<TpLinkSourceDiscoveryResult> {
       return new Promise((resolve, reject) => {
         const configuredTargets = process.env.TP_LINK_DISCOVERY_TARGETS?.trim();
-        const discoveryTargets = configuredTargets || tpLinkDiscoveryTargets().join(",");
         const savedConnection = this[tpLinkConnectionBridgeState].config.tpLinkConnections?.[0];
-        const recoveryHosts = (this[tpLinkConnectionBridgeState].config.tpLinkConnections ?? []).map((connection) => connection.host)
-          .concat(this[tpLinkConnectionBridgeState].config.tpLinkHost ?? []).filter(Boolean).join(",");
+        const recoveryHostList = (this[tpLinkConnectionBridgeState].config.tpLinkConnections ?? []).map((connection) => connection.host)
+          .concat(this[tpLinkConnectionBridgeState].config.tpLinkHost ?? []).filter(Boolean);
+        const discoveryTargets = configuredTargets || tpLinkDiscoveryTargets(recoveryHostList).join(",");
+        const recoveryHosts = recoveryHostList.join(",");
         const username = preferredConnection?.username ?? this[tpLinkConnectionBridgeState].config.tpLinkUsername ?? savedConnection?.username;
         const password = preferredConnection?.password ?? this[tpLinkConnectionBridgeState].config.tpLinkPassword ?? savedConnection?.password;
         const child = spawn(this[tpLinkConnectionBridgeState].config.tpLinkPython, [this[tpLinkConnectionBridgeState].config.tpLinkBridgeScript, "--discover"], {
@@ -105,9 +106,11 @@ registerTpLinkConnectionBridgeMethods({
             const sourceType = declaredSourceType === "hub" || declaredSourceType === "energy-device"
               ? declaredSourceType
               : model === "H100" || model === "H200" ? "hub" : null;
+            const rawDeviceId = nonEmptyString(item.deviceId);
+            const deviceId = rawDeviceId && rawDeviceId.length <= 1_024 ? rawDeviceId : null;
             if (!host || !model || !sourceType) return [];
             if (sourceType === "hub" && model !== "H100" && model !== "H200") return [];
-            return [{ host, model, alias: nonEmptyString(item.alias), sourceType }];
+            return [{ host, model, alias: nonEmptyString(item.alias), sourceType, deviceId }];
           });
           const warnings = Array.isArray(message.warnings)
             ? message.warnings.flatMap((value): string[] => {
@@ -175,6 +178,10 @@ registerTpLinkConnectionBridgeMethods({
               message: "TP-Link credentials and local device polling are available.",
               details: {
                 model: nonEmptyString(snapshot.hubModel),
+                sourceType: snapshot.sourceType === "hub" || snapshot.sourceType === "energy-device"
+                  ? snapshot.sourceType
+                  : null,
+                sourceAlias: nonEmptyString(snapshot.sourceAlias)?.slice(0, 512),
                 deviceCount: snapshot.devices.length,
                 sourceDeviceId: nonEmptyString(snapshot.sourceDeviceId),
                 deviceIds: [...new Set(deviceIds)].slice(0, 2_048),
@@ -189,6 +196,9 @@ registerTpLinkConnectionBridgeMethods({
   spawnHelper(this: TpLinkConnectionBridgeInternals): void {
       if (!this[tpLinkConnectionBridgeState].running || this[tpLinkConnectionBridgeState].child || !this[tpLinkConnectionBridgeState].config.tpLinkHost || !this[tpLinkConnectionBridgeState].config.tpLinkUsername || !this[tpLinkConnectionBridgeState].config.tpLinkPassword) return;
       this[tpLinkConnectionBridgeState].stderr = "";
+      const configuredTargets = process.env.TP_LINK_DISCOVERY_TARGETS?.trim();
+      const discoveryTargets = configuredTargets
+        || tpLinkDiscoveryTargets([this[tpLinkConnectionBridgeState].config.tpLinkHost]).join(",");
       const child = spawn(this[tpLinkConnectionBridgeState].config.tpLinkPython, [this[tpLinkConnectionBridgeState].config.tpLinkBridgeScript], {
         env: {
           ...process.env,
@@ -197,6 +207,7 @@ registerTpLinkConnectionBridgeMethods({
           TP_LINK_PASSWORD: this[tpLinkConnectionBridgeState].config.tpLinkPassword,
           TP_LINK_POLL_INTERVAL_MS: String(this[tpLinkConnectionBridgeState].config.tpLinkPollIntervalMs),
           ...(this[tpLinkConnectionBridgeState].managedConnection?.deviceId ? { TP_LINK_DEVICE_ID: this[tpLinkConnectionBridgeState].managedConnection.deviceId } : {}),
+          ...(discoveryTargets ? { TP_LINK_DISCOVERY_TARGETS: discoveryTargets } : {}),
         },
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
@@ -210,6 +221,9 @@ registerTpLinkConnectionBridgeMethods({
       });
       child.stderr?.on("data", (chunk: Buffer | string) => {
         this[tpLinkConnectionBridgeState].stderr = `${this[tpLinkConnectionBridgeState].stderr}${chunk.toString()}`.slice(-2_000);
+      });
+      child.stdin?.on("error", () => {
+        this.failPendingHistory(child, "TP-Link helper input became unavailable");
       });
       child.once("error", (error) => {
         this.failPendingHistory(child, `TP-Link helper failed: ${error.message}`);
@@ -290,6 +304,10 @@ registerTpLinkConnectionBridgeMethods({
         this.handleHostChange(message);
         return;
       }
+      if (message.type === "contact-events") {
+        if (Array.isArray(message.events)) this.ingestContactEvents(message);
+        return;
+      }
       if (message.type !== "snapshot" || !Array.isArray(message.devices)) return;
       this.ingestSnapshot(message);
     },
@@ -316,6 +334,7 @@ registerTpLinkConnectionBridgeMethods({
       }
       const deviceId = reportedDeviceId ?? knownDeviceId;
       this[tpLinkConnectionBridgeState].config.tpLinkHost = host;
+      this[tpLinkConnectionBridgeState].status.value.tpLink.host = host;
       if (this[tpLinkConnectionBridgeState].managedConnection) {
         this[tpLinkConnectionBridgeState].managedConnection.host = host;
         if (deviceId) this[tpLinkConnectionBridgeState].managedConnection.deviceId = deviceId;

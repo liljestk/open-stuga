@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChartLine, ChevronDown, CloudSun, Database, Download, FileJson, FileSpreadsheet, RefreshCw, ShieldCheck, Table2, TriangleAlert } from "lucide-react";
+import { ChartLine, ChevronDown, CloudSun, Database, Download, Droplets, FileJson, FileSpreadsheet, RefreshCw, ShieldCheck, Table2, TriangleAlert } from "lucide-react";
 import type {
   AnalyticsAggregation,
   AnalyticsQueryResponse,
@@ -18,7 +18,9 @@ import { api } from "../api";
 import { SensorAnalyticsChart } from "../components/SensorAnalyticsChart";
 import { DailyAnalyticsFindings } from "../components/DailyAnalyticsFindings";
 import { HomePerformancePanel } from "../components/HomePerformancePanel";
+import { OpeningAnalyticsPanel } from "../components/OpeningAnalyticsPanel";
 import { ThermalIsolationPanel } from "../components/ThermalIsolationPanel";
+import { MoistureResponsePanel } from "../components/MoistureResponsePanel";
 import { chartGapThresholdMs, detectSeriesGaps } from "../chartGaps";
 import { formatInTimeZone } from "../dateTime";
 import { useHouseWeather } from "../useHouseWeather";
@@ -136,6 +138,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [refreshRevision, setRefreshRevision] = useState(0);
   const [isolationOpen, setIsolationOpen] = useState(false);
+  const [moistureOpen, setMoistureOpen] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const weather = useHouseWeather(props.house);
   const sensors = useMemo(
@@ -256,15 +259,17 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
           : [{ timestamp }];
       })
       .sort((left, right) => left.timestamp - right.timestamp);
-    return detectSeriesGaps(points, thresholdMs).map((gap) => ({ sensor, gap }));
-  }), [fromMs, metric, props.state.measurementHistory, selectedSensors, thresholdMs]);
+    return detectSeriesGaps(points, thresholdMs, { startedAt: fromMs, endedAt: now })
+      .map((gap) => ({ sensor, gap }));
+  }), [fromMs, metric, now, props.state.measurementHistory, selectedSensors, thresholdMs]);
   const visibleOutdoorGaps = useMemo(() => detectSeriesGaps(
     outdoorHistory.flatMap((sample) => {
       const timestamp = Date.parse(sample.timestamp);
       return Number.isFinite(timestamp) && timestamp >= fromMs ? [{ timestamp }] : [];
     }).sort((left, right) => left.timestamp - right.timestamp),
     thresholdMs,
-  ), [fromMs, outdoorHistory, thresholdMs]);
+    { startedAt: fromMs, endedAt: now },
+  ), [fromMs, now, outdoorHistory, thresholdMs]);
   const relevantOutdoorGaps = metric === "temperature" && weatherObservationsVisible ? visibleOutdoorGaps : [];
 
   const continuityRows = useMemo<ContinuityRow[]>(() => {
@@ -286,10 +291,13 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
       }];
     });
     const visibleSensors = visibleSensorGaps.flatMap(({ sensor, gap }, index) => {
-      const recorded = sensorGaps.some((candidate) => candidate.sensorId === sensor.id
-        && candidate.metric === metric
-        && Math.abs(Date.parse(candidate.startedAt) - gap.startedAt) < 1_000
-        && Math.abs(Date.parse(candidate.endedAt ?? "") - gap.endedAt) < 1_000);
+      const recorded = sensorGaps.some((candidate) => {
+        if (candidate.sensorId !== sensor.id || candidate.metric !== metric) return false;
+        const candidateStart = Date.parse(candidate.startedAt);
+        const candidateEnd = Date.parse(candidate.endedAt ?? new Date(now).toISOString());
+        return Number.isFinite(candidateStart) && Number.isFinite(candidateEnd)
+          && candidateStart < gap.endedAt && candidateEnd > gap.startedAt;
+      });
       return recorded ? [] : [{
         id: `visible-sensor-gap-${sensor.id}-${gap.startedAt}-${index}`,
         source: sensor.name,
@@ -314,11 +322,12 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     return [...durable, ...visibleSensors, ...outdoor].sort((left, right) => right.startedAt - left.startedAt);
   }, [fromMs, locale, metric, now, relevantOutdoorGaps, selectedDefinition, selectedSensors, sensorGaps, t, visibleSensorGaps]);
   const showTpLinkImportHelp = useMemo(() => sensorGaps.some((gap) => {
-    if (gap.source !== "tp-link" || gap.metric !== metric || gap.recoveryState !== "not-supported") return false;
+    if (gap.source !== "tp-link" || gap.metric !== metric
+      || (gap.recoveryState !== "not-supported" && gap.recoveryState !== "partial")) return false;
     const endedAt = Date.parse(gap.endedAt ?? new Date(now).toISOString());
     return selectedSensors.some((sensor) => sensor.id === gap.sensorId) && Number.isFinite(endedAt) && endedAt >= fromMs;
   }), [fromMs, metric, now, selectedSensors, sensorGaps]);
-  const visibleGapCount = visibleSensorGaps.length + relevantOutdoorGaps.length;
+  const visibleGapCount = continuityRows.filter((row) => row.state !== "complete").length;
 
   return (
     <>
@@ -344,6 +353,16 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
         refreshRevision={refreshRevision}
       />
 
+      <OpeningAnalyticsPanel
+        house={props.house}
+        range={range}
+        refreshRevision={refreshRevision}
+        {...(props.state.latestOpeningStateObservation?.houseId === props.house.id
+          ? { liveObservationId: props.state.latestOpeningStateObservation.id }
+          : {})}
+        onRange={setRange}
+      />
+
       {definitions.length > 0 && sensors.length > 0 ? <SensorAnalyticsChart
         houseId={props.house.id}
         dataMode={props.dataMode}
@@ -355,6 +374,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
         outdoorHistory={outdoorHistory}
         weather={weather.weather}
         electricityPrices={electricityPrices}
+        sensorGaps={sensorGaps}
         metric={metric}
         units={props.units}
         range={range}
@@ -378,6 +398,15 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
             <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
           </summary>
           {isolationOpen && <ThermalIsolationPanel house={props.house} units={props.units} embedded />}
+        </details>
+
+        <details className="analytics-tool" onToggle={(event) => setMoistureOpen(event.currentTarget.open)}>
+          <summary>
+            <span className="analytics-tool-icon"><Droplets size={18} aria-hidden="true" /></span>
+            <span className="analytics-tool-copy"><strong>{t("moisture.title")}</strong><small>{t("moisture.description")}</small></span>
+            <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
+          </summary>
+          {moistureOpen && <MoistureResponsePanel house={props.house} embedded />}
         </details>
 
         <details className="analytics-tool analytics-evidence-tool" onToggle={(event) => setEvidenceOpen(event.currentTarget.open)}>

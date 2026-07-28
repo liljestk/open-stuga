@@ -18,7 +18,11 @@ sys.modules.setdefault(
     "kasa",
     SimpleNamespace(
         Discover=object(),
-        Module=SimpleNamespace(Energy="Energy", ContactSensor="ContactSensor"),
+        Module=SimpleNamespace(
+            Energy="Energy",
+            ContactSensor="ContactSensor",
+            TriggerLogs="TriggerLogs",
+        ),
     ),
 )
 SPEC = importlib.util.spec_from_file_location("tp_link_bridge", MODULE_PATH)

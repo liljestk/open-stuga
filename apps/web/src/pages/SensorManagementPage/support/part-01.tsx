@@ -40,6 +40,7 @@ import {
 import type {
   Floor,
   House,
+  HousePatch,
   IntegrationStatus,
   MeasurementSample,
   Metric,
@@ -60,6 +61,7 @@ import { configuredSpatialMaxSampleAgeMs } from "../../../spatialFreshness";
 import { useSpatialLayers } from "../../../useSpatialLayers";
 import { qrCodeMatrix } from "../../../qrCode";
 import { TrendChart } from "../../../components/TrendChart";
+import { isTpLinkContactDevice } from "../../../tpLinkDeviceClassification";
 
 export const HistoricalImportWizard = lazy(() => import("../../../components/HistoricalImportWizard")
   .then((module) => ({ default: module.HistoricalImportWizard })));
@@ -72,7 +74,13 @@ export interface SensorManagementPageProps {
   tpLinkDevices: TpLinkDiscoveredDevice[];
   tpLinkDevicesLoading: boolean;
   tpLinkDevicesError: string | null;
-  requestedDevice?: { deviceId: string; connectionId: string | null } | null;
+  requestedDevice?: {
+    deviceId: string;
+    connectionId: string | null;
+    model?: string;
+    alias?: string | null;
+    deviceType?: "climate" | "contact" | "energy" | "unknown";
+  } | null;
   /** Compatibility for older embedders; ambiguous across multiple connections. */
   requestedDeviceId?: string | null;
   readOnly?: boolean;
@@ -82,6 +90,7 @@ export interface SensorManagementPageProps {
   onRequestedDeviceHandled?: () => void;
   onLoadSeries?: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported: boolean) => void;
   onHouse: (houseId: string) => void;
+  onUpdateHouse: (houseId: string, patch: HousePatch) => Promise<House>;
   onRefreshDevices: () => Promise<void>;
   onCreateSensor: (sensor: CreateSensorInput) => Promise<Sensor>;
   onUpdateSensor: (sensorId: string, patch: SensorPatch) => Promise<Sensor>;
@@ -137,7 +146,9 @@ export function rounded(value: number): number {
 export function tpLinkDeviceSummary(device: TpLinkDiscoveredDevice, t: Translate, locale: string): string {
   const hasPower = typeof device.power === "number" && Number.isFinite(device.power);
   const hasEnergy = typeof device.energy === "number" && Number.isFinite(device.energy);
-  const kind = hasPower || hasEnergy ? t("sensors.energyEndpoint") : t("sensors.climateDevice");
+  const kind = isTpLinkContactDevice(device)
+    ? t("sensors.contactDevice")
+    : hasPower || hasEnergy ? t("sensors.energyEndpoint") : t("sensors.climateDevice");
   const number = new Intl.NumberFormat(locale, { maximumFractionDigits: 3 });
   return [
     device.model,

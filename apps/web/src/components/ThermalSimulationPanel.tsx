@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { Activity, AlertCircle, FlaskConical, Play, RotateCcw } from "lucide-react";
 import type { Sensor, ThermalSimulationPoint, UnitSystem } from "@climate-twin/contracts";
+import { formatInTimeZone } from "../dateTime";
 import type { TimeRange } from "../domain";
 import { useI18n, type TranslationKey } from "../i18n";
 import { useThermalSimulation } from "../useThermalSimulation";
@@ -68,11 +69,7 @@ function path(points: Array<{ x: number; y: number }>): string {
 }
 
 function formatHouseTime(value: number, locale: string, timeZone: string, options: Intl.DateTimeFormatOptions): string {
-  try {
-    return new Intl.DateTimeFormat(locale, { ...options, timeZone }).format(value);
-  } catch {
-    return new Intl.DateTimeFormat(locale, options).format(value);
-  }
+  return formatInTimeZone(value, locale, timeZone, options);
 }
 
 export function ThermalSimulationPanel({

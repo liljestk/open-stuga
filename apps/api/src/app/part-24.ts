@@ -194,24 +194,12 @@ export function configureApiPart24(context: ReturnType<typeof configureApiPart23
   context.app.put(`${context.prefix}/integrations/tp-link/config`, async (request, response) => {
       const body = bodyObject(request.body);
       const host = networkHost(credentialString(body, "host", 253, true));
-      const username = credentialString(body, "username", 320, true);
-      const password = credentialString(body, "password", 4_096);
       const houseId = body.houseId === undefined
         ? context.database.listHouses().find(hasLocalHouseAuthority)?.id
         : requiredString(body, "houseId");
       if (!houseId || !context.database.getHouse(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
       context.stuguby.assertHouseLocalAuthority(houseId);
       const requestedConnectionId = body.connectionId === undefined ? null : requiredString(body, "connectionId");
-      const generationKey = requestedConnectionId ?? houseId;
-      const generation = (context.tpLinkConfigurationGenerations.get(generationKey) ?? 0) + 1;
-      context.tpLinkConfigurationGenerations.set(generationKey, generation);
-      const validation = await context.tpLinkCredentialTester(host, username, password);
-      if (!validation.ok || !validation.connected) {
-        throw new HttpError(422, "INTEGRATION_VALIDATION_FAILED", validation.message);
-      }
-      if (generation !== context.tpLinkConfigurationGenerations.get(generationKey)) {
-        throw new HttpError(409, "INTEGRATION_CONFIG_SUPERSEDED", "A newer TP-Link configuration superseded this request");
-      }
       const explicitConnections = config.tpLinkConnections ?? [];
       const legacyHouseId = context.status.value.tpLink.connections?.find((candidate) => candidate.id === "legacy")?.houseId
         ?? context.database.listHouses().find(hasLocalHouseAuthority)?.id;
@@ -230,6 +218,41 @@ export function configureApiPart24(context: ReturnType<typeof configureApiPart23
       // Otherwise the first different device saved through the UI would silently
       // retire the working legacy hub.
       const existing = legacyConnection ? [legacyConnection] : explicitConnections;
+      const credentialSourceConnectionId = body.credentialSourceConnectionId === undefined
+        ? null
+        : requiredString(body, "credentialSourceConnectionId");
+      if (credentialSourceConnectionId && (body.username !== undefined || body.password !== undefined)) {
+        throw new HttpError(
+          400,
+          "AMBIGUOUS_TP_LINK_CREDENTIALS",
+          "Use either saved TP-Link credentials or a new username and password, not both",
+        );
+      }
+      const credentialSource = credentialSourceConnectionId
+        ? existing.find((connection) => connection.id === credentialSourceConnectionId)
+        : undefined;
+      if (credentialSourceConnectionId && !credentialSource) {
+        throw new HttpError(404, "TP_LINK_CREDENTIAL_SOURCE_NOT_FOUND", "Saved TP-Link credential source not found");
+      }
+      if (credentialSource) context.stuguby.assertHouseLocalAuthority(credentialSource.houseId);
+      const username = credentialSource?.username ?? credentialString(body, "username", 320, true);
+      const password = credentialSource?.password ?? credentialString(body, "password", 4_096);
+      const generationKey = requestedConnectionId ?? houseId;
+      const generation = (context.tpLinkConfigurationGenerations.get(generationKey) ?? 0) + 1;
+      context.tpLinkConfigurationGenerations.set(generationKey, generation);
+      const credentialSourceGeneration = credentialSource
+        ? context.tpLinkConfigurationGenerations.get(credentialSource.id) ?? 0
+        : null;
+      const validation = await context.tpLinkCredentialTester(host, username, password);
+      if (!validation.ok || !validation.connected) {
+        throw new HttpError(422, "INTEGRATION_VALIDATION_FAILED", validation.message);
+      }
+      if (generation !== context.tpLinkConfigurationGenerations.get(generationKey)) {
+        throw new HttpError(409, "INTEGRATION_CONFIG_SUPERSEDED", "A newer TP-Link configuration superseded this request");
+      }
+      if (credentialSource && credentialSourceGeneration !== (context.tpLinkConfigurationGenerations.get(credentialSource.id) ?? 0)) {
+        throw new HttpError(409, "TP_LINK_CREDENTIAL_SOURCE_CHANGED", "The saved TP-Link credential source changed during import");
+      }
       const rawTestedDeviceId = typeof validation.details?.sourceDeviceId === "string"
         ? validation.details.sourceDeviceId.trim()
         : "";
@@ -237,6 +260,17 @@ export function configureApiPart24(context: ReturnType<typeof configureApiPart23
         throw new HttpError(422, "INVALID_TP_LINK_DEVICE_ID", "The TP-Link helper returned an invalid source identity");
       }
       const testedDeviceId = rawTestedDeviceId || null;
+      const rawTestedModel = typeof validation.details?.model === "string"
+        ? validation.details.model.trim()
+        : "";
+      const testedSourceModel = rawTestedModel && rawTestedModel.length <= 128 ? rawTestedModel : null;
+      const testedSourceType = validation.details?.sourceType === "hub" || validation.details?.sourceType === "energy-device"
+        ? validation.details.sourceType
+        : null;
+      const rawTestedAlias = typeof validation.details?.sourceAlias === "string"
+        ? validation.details.sourceAlias.trim()
+        : "";
+      const testedSourceAlias = rawTestedAlias && rawTestedAlias.length <= 512 ? rawTestedAlias : null;
       const identityKey = (value: string | null | undefined): string | null => value?.trim().toUpperCase() || null;
       const testedIdentity = identityKey(testedDeviceId);
       const requestedConnection = requestedConnectionId
@@ -288,10 +322,17 @@ export function configureApiPart24(context: ReturnType<typeof configureApiPart23
       // updates a known device after an address change, but creates a second
       // connection when discovery finds genuinely different hardware.
       const matching = requestedConnection ?? identityMatch ?? hostMatch;
+      const created = matching === undefined;
       const resolvedDeviceId = testedDeviceId ?? matching?.deviceId;
+      const resolvedSourceType = testedSourceType ?? matching?.sourceType;
+      const resolvedSourceModel = testedSourceModel ?? matching?.sourceModel;
+      const resolvedSourceAlias = testedSourceAlias ?? matching?.sourceAlias;
       const connection: TpLinkConnectionSecret = {
         id: matching?.id ?? randomUUID(), houseId, host, username, password,
         ...(resolvedDeviceId ? { deviceId: resolvedDeviceId } : {}),
+        ...(resolvedSourceType ? { sourceType: resolvedSourceType } : {}),
+        ...(resolvedSourceModel ? { sourceModel: resolvedSourceModel } : {}),
+        ...(resolvedSourceAlias ? { sourceAlias: resolvedSourceAlias } : {}),
       };
       const connections = [...existing.filter((candidate) => candidate.id !== connection.id), connection];
       const sameHouseConnections = existing.filter((candidate) => candidate.houseId === houseId);
@@ -386,6 +427,10 @@ export function configureApiPart24(context: ReturnType<typeof configureApiPart23
         return {
           id: candidate.id, houseId: candidate.houseId, configured: true, connected: false, lastPollAt: null,
           mappedDevices: 0, discoveredDevices: 0, hubModel: null, error: null,
+          host: candidate.host,
+          sourceType: candidate.sourceType ?? null,
+          sourceModel: candidate.sourceModel ?? null,
+          sourceAlias: candidate.sourceAlias ?? null,
         };
       });
       const wasRealMode = context.dataMode.isRealMode;
@@ -398,7 +443,18 @@ export function configureApiPart24(context: ReturnType<typeof configureApiPart23
         subjectId: `tp-link:${connection.id}`,
         details: { integration: "tp-link", connectionId: connection.id, houseId },
       });
-      response.json({ ok: true, configured: true, connectionId: connection.id, houseId, integration: structuredClone(context.status.value) });
+      response.json({
+        ok: true,
+        configured: true,
+        created,
+        connectionId: connection.id,
+        houseId,
+        deviceId: resolvedDeviceId ?? null,
+        sourceType: resolvedSourceType ?? null,
+        sourceModel: resolvedSourceModel ?? null,
+        sourceAlias: resolvedSourceAlias ?? null,
+        integration: structuredClone(context.status.value),
+      });
     });
   const extended = Object.assign(context, {  });
   return extended;

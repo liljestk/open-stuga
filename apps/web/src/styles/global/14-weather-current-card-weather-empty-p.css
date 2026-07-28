@@ -294,8 +294,6 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; fo
   .simulation-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .setup-layout { grid-template-columns: 1fr; }
   .setup-side { grid-template-columns: 1fr 1fr; }
-  .tp-link-live-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .tp-link-live-metrics > div:nth-child(-n + 2) { grid-column: span 1; }
   .form-grid { grid-template-columns: 1fr 1fr; }
   .weather-grid { grid-template-columns: 1fr; }
   .weather-preview { grid-column: auto; }

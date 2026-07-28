@@ -438,6 +438,26 @@ describe("Climate Twin API v1", () => {
     }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_OPENING_STATE_BINDING"));
 
     await request(runtime.app).post("/api/v1/houses").send({
+      id: "house-duplicate-tapo-contact", name: "Duplicate Tapo contact", timezone: "UTC",
+      floors: [{
+        ...floor,
+        planElements: [
+          {
+            ...floor.planElements[0],
+            position: { x: 3, y: 0 },
+            stateBinding: { provider: "tapo", externalId: "contact-entry", connectionId: "hub-main" },
+          },
+          {
+            ...floor.planElements[0],
+            id: "door-2",
+            position: { x: 7, y: 0 },
+            stateBinding: { provider: "tapo", externalId: "contact-entry", connectionId: "hub-main" },
+          },
+        ],
+      }],
+    }).expect(409).expect(({ body }) => expect(body.error.code).toBe("DUPLICATE_TAPO_OPENING_BINDING"));
+
+    await request(runtime.app).post("/api/v1/houses").send({
       id: "house-invalid-vent-variant", name: "Invalid vent", timezone: "UTC",
       floors: [{ ...floor, planElements: [{ ...floor.planElements[1], variant: "combustion" }] }],
     }).expect(400).expect(({ body }) => expect(body.error.code).toBe("INVALID_PLAN_ELEMENT_VARIANT"));

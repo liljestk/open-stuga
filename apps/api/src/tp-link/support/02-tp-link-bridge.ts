@@ -48,6 +48,9 @@ export class TpLinkBridge implements SensorGapRecoveryAdapter {
     username: string;
     password: string;
     deviceId?: string;
+    sourceType?: "hub" | "energy-device";
+    sourceModel?: string;
+    sourceAlias?: string;
     legacyEnvironment: boolean;
   }> {
     const explicit = (this.config.tpLinkConnections ?? []).filter((connection) => {
@@ -93,6 +96,10 @@ export class TpLinkBridge implements SensorGapRecoveryAdapter {
       localValue.tpLink = {
         configured: true, connected: false, lastPollAt: null, mappedDevices: 0,
         discoveredDevices: 0, hubModel: null, error: null, connections: [],
+        host: connection.host,
+        sourceType: connection.sourceType ?? null,
+        sourceModel: connection.sourceModel ?? null,
+        sourceAlias: connection.sourceAlias ?? null,
       };
       const localStatus: TpLinkStatusHost = { value: localValue, changed: () => this.aggregateStatus() };
       const localConfig: AppConfig = {
@@ -112,6 +119,9 @@ export class TpLinkBridge implements SensorGapRecoveryAdapter {
           houseId: connection.houseId,
           host: connection.host,
           ...(connection.deviceId ? { deviceId: connection.deviceId } : {}),
+          ...(connection.sourceType ? { sourceType: connection.sourceType } : {}),
+          ...(connection.sourceModel ? { sourceModel: connection.sourceModel } : {}),
+          ...(connection.sourceAlias ? { sourceAlias: connection.sourceAlias } : {}),
           ...(this.options.onConnectionUpdate ? { onUpdate: this.options.onConnectionUpdate } : {}),
           ...(this.options.onAvailabilityChange ? { onAvailabilityChange: this.options.onAvailabilityChange } : {}),
           ...(this.options.onOpeningStateRecorded ? { onOpeningStateRecorded: this.options.onOpeningStateRecorded } : {}),
@@ -207,12 +217,55 @@ export class TpLinkBridge implements SensorGapRecoveryAdapter {
   discoverSources(
     houseId?: string,
     credentials?: { username: string; password: string },
-    timeoutMs = 35_000,
+    timeoutMs = 50_000,
   ): Promise<TpLinkSourceDiscoveryResult> {
-    const preferredConnection = credentials ?? (houseId
-      ? this.config.tpLinkConnections?.find((connection) => connection.houseId === houseId)
-      : undefined);
-    return this.#tester.discoverSources(timeoutMs, preferredConnection);
+    const credentialCandidates = credentials
+      ? [credentials]
+      : this.configuredConnections()
+          .filter((connection) => !houseId || connection.houseId === houseId)
+          .map((connection) => ({ username: connection.username, password: connection.password }));
+    const uniqueCredentials = [...new Map(credentialCandidates.map((candidate) => [
+      `${candidate.username}\u0000${candidate.password}`,
+      candidate,
+    ])).values()];
+    const attempts = uniqueCredentials.length > 0
+      ? uniqueCredentials.map((candidate) => this.#tester.discoverSources(timeoutMs, candidate))
+      : [this.#tester.discoverSources(timeoutMs)];
+    return Promise.allSettled(attempts).then((attemptResults) => {
+      const successful = attemptResults.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+      if (successful.length === 0) {
+        const failure = attemptResults.find((result) => result.status === "rejected");
+        throw failure?.status === "rejected" ? failure.reason : new Error("TP-Link discovery failed");
+      }
+      const discovered = new Map<string, TpLinkSourceDiscoveryResult["sources"][number]>();
+      for (const result of successful) {
+        for (const source of result.sources) {
+          const identity = source.deviceId?.trim().toUpperCase();
+          const key = identity ? `device:${identity}` : `host:${source.host}`;
+          if (!discovered.has(key)) discovered.set(key, source);
+        }
+      }
+      const result: TpLinkSourceDiscoveryResult = {
+        sources: [...discovered.values()].sort((left, right) => left.host.localeCompare(right.host)),
+        warnings: [...new Set(successful.flatMap((candidate) => candidate.warnings))],
+      };
+      const connections = this.configuredConnections();
+      const identity = (value: string | null | undefined) => value?.trim().toUpperCase() || null;
+      return {
+        ...result,
+        sources: result.sources.map((source) => {
+          const sourceIdentity = identity(source.deviceId);
+          const configured = connections.find((connection) => {
+            const connectionIdentity = identity(connection.deviceId);
+            if (sourceIdentity && connectionIdentity) return sourceIdentity === connectionIdentity;
+            return connection.host === source.host;
+          });
+          return configured
+            ? { ...source, configuredConnectionId: configured.id }
+            : source;
+        }),
+      };
+    });
   }
 
   testCredentials(host: string, username: string, password: string, timeoutMs = 15_000): Promise<TpLinkCredentialTestResult> {
@@ -230,6 +283,10 @@ export class TpLinkBridge implements SensorGapRecoveryAdapter {
       discoveredDevices: worker.status.value.tpLink.discoveredDevices,
       hubModel: worker.status.value.tpLink.hubModel,
       error: worker.status.value.tpLink.error,
+      host: worker.status.value.tpLink.host ?? null,
+      sourceType: worker.status.value.tpLink.sourceType ?? null,
+      sourceModel: worker.status.value.tpLink.sourceModel ?? null,
+      sourceAlias: worker.status.value.tpLink.sourceAlias ?? null,
     }));
     const aggregate = this.status.value.tpLink;
     aggregate.connections = connections;
@@ -239,6 +296,10 @@ export class TpLinkBridge implements SensorGapRecoveryAdapter {
     aggregate.mappedDevices = connections.reduce((total, connection) => total + connection.mappedDevices, 0);
     aggregate.discoveredDevices = connections.reduce((total, connection) => total + connection.discoveredDevices, 0);
     aggregate.hubModel = connections.length === 1 ? connections[0]!.hubModel : null;
+    aggregate.host = connections.length === 1 ? connections[0]!.host : null;
+    aggregate.sourceType = connections.length === 1 ? connections[0]!.sourceType : null;
+    aggregate.sourceModel = connections.length === 1 ? connections[0]!.sourceModel : null;
+    aggregate.sourceAlias = connections.length === 1 ? connections[0]!.sourceAlias : null;
     aggregate.error = connections.length > 0 && connections.every((connection) => connection.error)
       ? connections.map((connection) => connection.error).filter(Boolean).join("; ")
       : null;

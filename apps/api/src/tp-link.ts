@@ -12,7 +12,7 @@ export { mergeTpLinkHistoryRecovery } from "./tp-link/support/01-tp-link-local-c
 export type { TpLinkDiscoveredSource } from "./tp-link/support/01-tp-link-local-climate-history-capability-revision-to.js";
 export type { TpLinkSourceDiscoveryResult } from "./tp-link/support/01-tp-link-local-climate-history-capability-revision-to.js";
 export type { TpLinkCredentialTestResult } from "./tp-link/support/01-tp-link-local-climate-history-capability-revision-to.js";
-export { ipv4BroadcastAddress } from "./tp-link/support/01-tp-link-local-climate-history-capability-revision-to.js";
+export { ipv4BroadcastAddress, tpLinkDiscoveryTargets } from "./tp-link/support/01-tp-link-local-climate-history-capability-revision-to.js";
 export { loadTpLinkDeviceMappings } from "./tp-link/support/01-tp-link-local-climate-history-capability-revision-to.js";
 export { normalizeTpLinkTemperature } from "./tp-link/support/01-tp-link-local-climate-history-capability-revision-to.js";
 export { TpLinkBridge } from "./tp-link/support/02-tp-link-bridge.js";

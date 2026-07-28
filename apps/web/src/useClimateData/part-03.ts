@@ -145,6 +145,7 @@ export function useuseClimateDataPart03(context: ReturnType<typeof useuseClimate
             replaceLoadedHouseTelemetry(current, houseId, loadedSensorIds, legacyReadings, samples),
             bufferedLiveTelemetry.values(),
             new Set(loadedSensorIds),
+            definitions,
           );
           const telemetryWithSeries = preserveSeriesCommittedDuringLoad(
             telemetryWithLiveEvents,
@@ -310,6 +311,7 @@ export function useuseClimateDataPart03(context: ReturnType<typeof useuseClimate
             replaceLoadedHouseTelemetry(current, houseId, loadedSensorIds, legacyReadings, samples),
             bufferedLiveTelemetry.values(),
             new Set(loadedSensorIds),
+            current.measurementDefinitions,
           );
           const telemetryWithSeries = preserveSeriesCommittedDuringLoad(
             telemetryWithLiveEvents,

@@ -48,7 +48,7 @@
 
 .sensor-house-picker > span { color: var(--muted); font-size: 10px; font-weight: 650; }
 
-.sensor-list-controls { display: grid; grid-template-columns: minmax(190px, 1fr) minmax(145px, auto); align-items: end; gap: 8px; padding: 11px 14px; border-bottom: 1px solid var(--line); background: var(--panel-soft); }
+.sensor-list-controls { display: grid; grid-template-columns: minmax(190px, 1fr) minmax(145px, auto) minmax(145px, auto); align-items: end; gap: 8px; padding: 11px 14px; border-bottom: 1px solid var(--line); background: var(--panel-soft); }
 
 .sensor-search-field, .sensor-filter { min-width: 0; margin: 0; }
 
@@ -191,6 +191,7 @@
   .sensor-analytics-chart { min-width: 680px; }
   .calendar-comparison-controls { grid-template-columns: minmax(0, 1fr); }
   .calendar-comparison-summary { grid-template-columns: minmax(0, 1fr); }
+  .calendar-comparison-period-summaries { grid-template-columns: minmax(0, 1fr); }
   .calendar-comparison-chart { min-width: 680px; }
   .sensor-analytics-stats { grid-template-columns: 1fr; }
   .sensor-analytics-stats > div { border-top: 1px solid var(--line); border-left: 0; }

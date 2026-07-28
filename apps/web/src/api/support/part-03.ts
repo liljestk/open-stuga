@@ -134,7 +134,12 @@ import type { HouseGeoreferencePatch } from "./part-01";
 import { API_BASE, API_REQUEST_TIMEOUT_MS, API_V2_BASE, ApiRequestError, COLLECTION_PAGE_SIZE, SAFE_HTTP_METHODS, activeRequestControllers, apiClientState, apiRequestGeneration, assertSafeApiPath, authorizationChange, notifyAuthorizationChange } from "./part-02";
 import type { SystemUpdateLiveStatus } from "./part-02";
 
-export async function requestFrom<T>(base: string, path: string, options?: RequestInit): Promise<T> {
+export async function requestFrom<T>(
+  base: string,
+  path: string,
+  options?: RequestInit,
+  timeoutMs = API_REQUEST_TIMEOUT_MS,
+): Promise<T> {
   assertSafeApiPath(path);
   const requestGeneration = apiRequestGeneration;
   const controller = new AbortController();
@@ -144,7 +149,7 @@ export async function requestFrom<T>(base: string, path: string, options?: Reque
   else callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
   const timeout = globalThis.setTimeout(() => {
     controller.abort(new DOMException("The API request timed out", "TimeoutError"));
-  }, API_REQUEST_TIMEOUT_MS);
+  }, timeoutMs);
   activeRequestControllers.add(controller);
 
   try {
@@ -195,9 +200,9 @@ export async function requestFrom<T>(base: string, path: string, options?: Reque
   }
 }
 
-export const request = <T,>(path: string, options?: RequestInit) => requestFrom<T>(API_BASE, path, options);
+export const request = <T,>(path: string, options?: RequestInit, timeoutMs?: number) => requestFrom<T>(API_BASE, path, options, timeoutMs);
 
-export const requestV2 = <T,>(path: string, options?: RequestInit) => requestFrom<T>(API_V2_BASE, path, options);
+export const requestV2 = <T,>(path: string, options?: RequestInit, timeoutMs?: number) => requestFrom<T>(API_V2_BASE, path, options, timeoutMs);
 
 export function list<T>(value: unknown, keys: string[]): T[] {
   if (Array.isArray(value)) return value as T[];

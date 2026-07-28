@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { createDemoState } from "../domain";
@@ -77,6 +77,25 @@ describe("SensorAnalyticsChart", () => {
     expect(screen.getByRole("button", { name: "1 year" })).not.toBeNull();
     const observedLines = Array.from(container.querySelectorAll<SVGPathElement>(".sensor-series-line"));
     expect(observedLines.some((line) => Boolean(line.getAttribute("stroke-dasharray")))).toBe(true);
+
+    const chart = container.querySelector<HTMLElement>(".sensor-analytics-chart-wrap")!;
+    const svg = container.querySelector<SVGSVGElement>(".sensor-analytics-chart")!;
+    const latestPoint = container.querySelector<SVGCircleElement>(".sensor-analytics-end-label circle")!;
+    vi.spyOn(svg, "getBoundingClientRect").mockReturnValue({
+      x: 0, y: 0, top: 0, left: 0, right: 1_100, bottom: 300, width: 1_100, height: 300, toJSON: () => ({}),
+    } as DOMRect);
+    fireEvent(svg, new MouseEvent("pointermove", {
+      bubbles: true,
+      clientX: Number(latestPoint.getAttribute("cx")),
+      clientY: Number(latestPoint.getAttribute("cy")),
+    }));
+    expect(container.querySelector(".sensor-analytics-hover")).not.toBeNull();
+    expect(container.querySelector(".sensor-analytics-tooltip")?.textContent).toContain("Home average");
+    fireEvent.pointerLeave(svg);
+    expect(container.querySelector(".sensor-analytics-hover")).toBeNull();
+    fireEvent.focus(chart);
+    expect(container.querySelector(".sensor-analytics-hover")).not.toBeNull();
+    fireEvent.keyDown(chart, { key: "ArrowLeft" });
 
     await user.click(screen.getByText(/Show accessible data table/));
     expect(screen.getByRole("region", { name: "Analytics source data" })).not.toBeNull();
@@ -167,6 +186,69 @@ describe("SensorAnalyticsChart", () => {
     expect(screen.getByText("2 series selected")).not.toBeNull();
     expect(container.querySelectorAll(".sensor-series-line")).toHaveLength(2);
     expect(container.querySelector(".sensor-aggregate-line")).not.toBeNull();
+  });
+
+  it("marks a leading history gap and reports its recovery state", () => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const sensor = state.sensors.find((candidate) => candidate.houseId === house.id && candidate.enabled)!;
+    const now = Date.now();
+    const firstAt = new Date(now - 20 * 60_000).toISOString();
+    const latestAt = new Date(now - 15 * 60_000).toISOString();
+    const history = {
+      ...state.measurementHistory,
+      [sensor.id]: {
+        temperature: [
+          { sensorId: sensor.id, metric: "temperature", value: 18, canonicalUnit: "\u00b0C", timestamp: firstAt, source: "tp-link" as const, quality: "estimated" as const },
+          { sensorId: sensor.id, metric: "temperature", value: 18.2, canonicalUnit: "\u00b0C", timestamp: latestAt, source: "tp-link" as const, quality: "good" as const },
+        ],
+      },
+    };
+    const { container } = render(
+      <I18nProvider>
+        <SensorAnalyticsChart
+          houseId={house.id}
+          dataMode="demo"
+          sensors={[sensor]}
+          history={history}
+          forecasts={{}}
+          latestMeasurements={{ [sensor.id]: { temperature: history[sensor.id]!.temperature![1]! } }}
+          definitions={state.measurementDefinitions}
+          sensorGaps={[{
+            id: 1,
+            sensorId: sensor.id,
+            metric: "temperature",
+            source: "tp-link",
+            startedAt: new Date(now - 2 * 24 * 60 * 60_000).toISOString(),
+            detectedAt: firstAt,
+            endedAt: firstAt,
+            recoveryState: "partial",
+            recoveredPoints: 2,
+            attemptCount: 2,
+            lastAttemptAt: firstAt,
+            nextAttemptAt: null,
+            recoveryError: "The source retained only part of the interval",
+          }]}
+          metric="temperature"
+          units="metric"
+          range="24h"
+          timeZone={house.timezone}
+          selectedSensorIds={null}
+          weatherObservationsVisible={false}
+          weatherForecastVisible={false}
+          onMetric={vi.fn()}
+          onRange={vi.fn()}
+          onSensors={vi.fn()}
+          onWeatherObservationsVisible={vi.fn()}
+          onWeatherForecastVisible={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByText("Missing data in 1 selected series")).not.toBeNull();
+    expect(screen.getByText("Some history was restored, but part of the interval is still missing.")).not.toBeNull();
+    expect(screen.getByText("Missing data")).not.toBeNull();
+    expect(container.querySelector(".sensor-data-gap-region")).not.toBeNull();
   });
 
   it("plots the configured property electricity-price schedule without a sensor binding", () => {

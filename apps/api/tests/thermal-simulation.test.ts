@@ -345,6 +345,25 @@ describe("thermal simulation API and outdoor persistence", () => {
   });
 
   it("compares thermal isolation across rooms, floors, and the whole demo home", async () => {
+    const demoHouse = runtime.database.getHouse("house-main")!;
+    const floor = demoHouse.floors[0]!;
+    const room = floor.rooms[0]!;
+    for (let index = 0; index < 65; index += 1) {
+      runtime.database.createSensor({
+        id: `energy-only-${index}`,
+        houseId: demoHouse.id,
+        floorId: floor.id,
+        roomId: room.id,
+        room: room.name,
+        name: `Energy plug ${index}`,
+        model: "Tapo P110",
+        x: 1,
+        y: 1,
+        z: 0.2,
+        tags: [],
+        enabled: true,
+      });
+    }
     const response = await request(runtime.app)
       .get("/api/v1/houses/house-main/thermal-isolation")
       .expect(200);
@@ -364,6 +383,8 @@ describe("thermal simulation API and outdoor persistence", () => {
     }>;
     expect(new Set(entries.map((entry) => entry.scope.type))).toEqual(new Set(["house", "floor", "room", "sensor"]));
     expect(entries.find((entry) => entry.scope.type === "house")?.score).toEqual(expect.any(Number));
+    expect(response.body.isolation.entries.some((entry: { scope: { sensorIds: string[] } }) =>
+      entry.scope.sensorIds.some((sensorId) => sensorId.startsWith("energy-only-")))).toBe(false);
 
     await request(runtime.app)
       .get("/api/v1/houses/house-main/thermal-isolation")

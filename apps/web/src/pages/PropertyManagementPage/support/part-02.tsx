@@ -67,6 +67,7 @@ import type {
 import { api, ApiRequestError, subscribeToTrackingEvents, type HouseGeoreferencePatch } from "../../../api";
 import { EquipmentQrLabel } from "../../../components/EquipmentQrLabel";
 import { StugubyMark } from "../../../components/StugubyMark";
+import { formatInTimeZone } from "../../../dateTime";
 import type { ClimateState } from "../../../domain";
 import { useI18n, type TranslationKey } from "../../../i18n";
 import { derivePropertyTrafficLights, type PropertyTrafficLight } from "../../../propertyStatus";
@@ -260,7 +261,7 @@ export function AccessPanel({ state, properties, canRemoveGuests, workspaceMode 
       {workspaceMode && activation && <section className="guest-activation-card" aria-labelledby="guest-activation-title" aria-live="polite">
         <div><span><KeyRound size={15} aria-hidden="true" /></span><div><h3 id="guest-activation-title">{t("properties.activationReady")}</h3><p>{t("properties.activationReadyHelp", { email: activation.email })}</p></div><button type="button" className="icon-button small" onClick={() => setActivation(null)} aria-label={t("properties.dismissActivation")}><X size={15} aria-hidden="true" /></button></div>
         <label className="field"><span>{t("properties.activationLink")}</span><div className="guest-activation-copy"><input readOnly value={activation.url} onFocus={(event) => event.currentTarget.select()} /><button type="button" className="secondary-button" onClick={() => void copyActivation()}><Clipboard size={14} aria-hidden="true" />{t("properties.copyActivation")}</button></div></label>
-        <small>{t("properties.activationExpires", { time: new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(activation.expiresAt)) })}</small>
+        <small>{t("properties.activationExpires", { time: formatInTimeZone(activation.expiresAt, locale, undefined, { dateStyle: "medium", timeStyle: "short" }) })}</small>
         {activation.cloudflareStatus === "pending" && <p className="inline-error" role="status">{t("properties.cloudflareAccessPending")}</p>}
         {activationCopy !== "idle" && <p className={activationCopy === "failed" ? "inline-error" : "property-feedback success"} role={activationCopy === "failed" ? "alert" : "status"}>{activationCopy === "copied" ? <><Check size={14} aria-hidden="true" />{t("properties.activationCopied")}</> : t("properties.activationCopyFailed")}</p>}
       </section>}

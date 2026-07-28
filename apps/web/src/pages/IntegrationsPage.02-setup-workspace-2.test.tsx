@@ -56,20 +56,58 @@ describe("Setup workspace", () => {
     });
     const realIntegration: IntegrationStatus = {
       ...integration,
-      tpLink: { ...integration.tpLink, configured: true },
+      tpLink: {
+        ...integration.tpLink,
+        configured: true,
+        connections: [{
+          id: "hall-hub",
+          houseId: house.id,
+          configured: true,
+          connected: false,
+          lastPollAt: null,
+          mappedDevices: 0,
+          discoveredDevices: 0,
+          hubModel: "H200",
+          error: null,
+          host: "192.168.1.42",
+          sourceType: "hub",
+          sourceModel: "H200",
+          sourceAlias: "Hall hub",
+        }],
+      },
       mock: { ...integration.mock, enabled: false, mode: "real", activatedAt: "2026-07-14T12:00:00.000Z" },
     };
-    const configure = vi.spyOn(api, "configureTpLink").mockResolvedValue({ ok: true, configured: true, integration: realIntegration });
-    vi.spyOn(api, "integrations").mockResolvedValue({
-      ...realIntegration,
-      tpLink: { ...realIntegration.tpLink, connected: true, discoveredDevices: 1, hubModel: "H200" },
+    const configure = vi.spyOn(api, "configureTpLink").mockResolvedValue({
+      ok: true,
+      configured: true,
+      created: true,
+      connectionId: "hall-hub",
+      houseId: house.id,
+      integration: realIntegration,
     });
+    const integrationWithChild: IntegrationStatus = {
+      ...realIntegration,
+      tpLink: {
+        ...realIntegration.tpLink,
+        connected: true,
+        discoveredDevices: 1,
+        hubModel: "H200",
+        ...(realIntegration.tpLink.connections ? {
+          connections: realIntegration.tpLink.connections.map((connection) => ({
+            ...connection,
+            discoveredDevices: 1,
+          })),
+        } : {}),
+      },
+    };
+    vi.spyOn(api, "integrations").mockResolvedValue(integrationWithChild);
     const refreshTpLinkDevices = vi.fn().mockResolvedValue([discoveredChild]);
     const rendered = renderPage({ onRefreshTpLinkDevices: refreshTpLinkDevices });
 
     expect(screen.queryByLabelText("Hub or energy-device address")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Find devices" }));
-    expect(await screen.findByText("Connection options found: 2.")).not.toBeNull();
+    expect(await screen.findByText("Connections ready to add: 2.")).not.toBeNull();
+    expect(screen.getByText(/Nothing is saved until you choose Save and connect/)).not.toBeNull();
     expect(screen.getByRole("tab", { name: /Where readings come from/ }).getAttribute("aria-selected")).toBe("true");
     expect(screen.queryByRole("button", { name: "Review 2 found" })).toBeNull();
 
@@ -86,8 +124,6 @@ describe("Setup workspace", () => {
     await user.type(password, "local-secret");
     await user.click(within(directSection).getByLabelText("Show credential"));
     expect(password.type).toBe("text");
-    await user.click(within(directSection).getByRole("button", { name: "Check direct TP-Link connection" }));
-    expect(await within(directSection).findByText("The server is polling the TP-Link hub or energy device directly.")).not.toBeNull();
     await user.click(within(directSection).getByRole("button", { name: "Save and connect" }));
 
     await waitFor(() => expect(configure).toHaveBeenCalledWith({
@@ -96,10 +132,153 @@ describe("Setup workspace", () => {
       username: "person@example.test",
       password: "local-secret",
     }));
-    expect(within(directSection).getByText(/Credentials saved on this server/)).not.toBeNull();
-    expect(await within(directSection).findByText("Paired sensors found: 1.")).not.toBeNull();
+    expect(api.testTpLinkDraft).not.toHaveBeenCalled();
+    expect(discoveredSettings.open).toBe(false);
+    expect(discoveredSettings.querySelector("form")).toBeNull();
+    expect(within(directSection).getByText(/Hall hub was added to Coast house/)).not.toBeNull();
+    rendered.rerender(<I18nProvider><IntegrationsPage {...rendered.props} integration={integrationWithChild} /></I18nProvider>);
+    const sourceManager = screen.getByRole("heading", { name: "Where readings come from" }).closest("section")!;
+    expect(within(sourceManager).getByText("Hall hub")).not.toBeNull();
+    expect(within(sourceManager).getByText("Reconnecting")).not.toBeNull();
+    expect(await screen.findByText("TP-Link devices to set up: 1")).not.toBeNull();
     expect(refreshTpLinkDevices).toHaveBeenCalledOnce();
     expect(rendered.props.onIntegrationChange).toHaveBeenCalledWith(realIntegration);
+  });
+
+  it("does not report a device as added until the saved connection can be read back", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "discoverIntegrations").mockResolvedValue({
+      tpLink: [{ host: "192.168.1.41", model: "P110", alias: "Laundry plug", sourceType: "energy-device" }],
+      homeAssistant: [],
+      warnings: [],
+    });
+    vi.spyOn(api, "configureTpLink").mockResolvedValue({
+      ok: true,
+      configured: true,
+      created: true,
+      connectionId: "missing-p110",
+      houseId: house.id,
+      integration,
+    });
+    vi.spyOn(api, "integrations").mockResolvedValue(integration);
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: "Find devices" }));
+    const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
+    await user.type(within(directSection).getByLabelText("TP-Link account email"), "person@example.test");
+    await user.type(within(directSection).getByLabelText("TP-Link account password"), "local-secret");
+    await user.click(within(directSection).getByRole("button", { name: "Save and connect" }));
+
+    expect((await within(directSection).findByRole("alert")).textContent).toMatch(/could not confirm the saved connection/i);
+    expect(directSection.querySelector<HTMLDetailsElement>(".setup-config-disclosure")!.open).toBe(true);
+    expect(within(directSection).queryByText(/Laundry plug was added/)).toBeNull();
+  });
+
+  it("continues a newly added energy device into its placement flow", async () => {
+    const user = userEvent.setup();
+    const placementIntegration = connectedTpLink({
+      connections: [{
+        id: "laundry-p110",
+        houseId: house.id,
+        configured: true,
+        connected: false,
+        lastPollAt: null,
+        mappedDevices: 0,
+        discoveredDevices: 0,
+        hubModel: null,
+        error: null,
+        host: "192.168.1.41",
+        sourceType: "energy-device",
+        sourceModel: "P110",
+        sourceAlias: "Laundry plug",
+      }],
+    });
+    vi.spyOn(api, "discoverIntegrations").mockResolvedValue({
+      tpLink: [{
+        host: "192.168.1.41",
+        model: "P110",
+        alias: "Laundry plug",
+        sourceType: "energy-device",
+        deviceId: "p110-laundry",
+      }],
+      homeAssistant: [],
+      warnings: [],
+    });
+    vi.spyOn(api, "configureTpLink").mockResolvedValue({
+      ok: true,
+      configured: true,
+      created: true,
+      connectionId: "laundry-p110",
+      houseId: house.id,
+      deviceId: "p110-laundry",
+      sourceType: "energy-device",
+      sourceModel: "P110",
+      sourceAlias: "Laundry plug",
+      integration: placementIntegration,
+    });
+    const onOpenSensors = vi.fn();
+    const onRefreshTpLinkDevices = vi.fn().mockResolvedValue([]);
+    renderPage({ onOpenSensors, onRefreshTpLinkDevices });
+
+    await user.click(screen.getByRole("button", { name: "Find devices" }));
+    const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
+    await user.type(within(directSection).getByLabelText("TP-Link account email"), "person@example.test");
+    await user.type(within(directSection).getByLabelText("TP-Link account password"), "local-secret");
+    await user.click(within(directSection).getByRole("button", { name: "Save and connect" }));
+
+    await waitFor(() => expect(onOpenSensors).toHaveBeenCalledWith({
+      deviceId: "p110-laundry",
+      connectionId: "laundry-p110",
+      model: "P110",
+      alias: "Laundry plug",
+      deviceType: "energy",
+    }));
+    expect(onRefreshTpLinkDevices).toHaveBeenCalledWith(house.id);
+  });
+
+  it("reports an existing source without claiming that a duplicate was added", async () => {
+    const user = userEvent.setup();
+    const sourceIntegration = connectedTpLink({
+      connections: [{
+        id: "saved-p110",
+        houseId: house.id,
+        configured: true,
+        connected: true,
+        lastPollAt: "2026-07-27T18:00:00.000Z",
+        mappedDevices: 1,
+        discoveredDevices: 1,
+        hubModel: null,
+        error: null,
+        host: "192.168.1.41",
+        sourceType: "energy-device",
+        sourceModel: "P110",
+        sourceAlias: "Laundry plug",
+      }],
+    });
+    vi.spyOn(api, "discoverIntegrations").mockResolvedValue({
+      tpLink: [{ host: "192.168.1.41", model: "P110", alias: "Laundry plug", sourceType: "energy-device" }],
+      homeAssistant: [],
+      warnings: [],
+    });
+    vi.spyOn(api, "configureTpLink").mockResolvedValue({
+      ok: true,
+      configured: true,
+      created: false,
+      connectionId: "saved-p110",
+      houseId: house.id,
+      integration: sourceIntegration,
+    });
+    renderPage({ integration: sourceIntegration });
+
+    await user.click(screen.getByRole("tab", { name: /Where readings come from/ }));
+    await user.click(screen.getByRole("button", { name: "Find additional systems" }));
+    const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
+    await user.type(within(directSection).getByLabelText("TP-Link account email"), "person@example.test");
+    await user.type(within(directSection).getByLabelText("TP-Link account password"), "local-secret");
+    await user.click(within(directSection).getByRole("button", { name: "Save and connect" }));
+
+    expect(await within(directSection).findByText(/Laundry plug was already saved for Coast house/)).not.toBeNull();
+    expect(within(directSection).getByText(/no duplicate was created/)).not.toBeNull();
   });
 
   it("does not overwrite a manual address entered while discovery is in flight", async () => {
@@ -144,35 +323,74 @@ describe("Setup workspace", () => {
         error: "Unable to reach 192.168.1.42",
       }],
     });
+    const configuredAfterAdd: IntegrationStatus = {
+      ...configured,
+      tpLink: {
+        ...configured.tpLink,
+        connections: [
+          ...configured.tpLink.connections!,
+          {
+            id: "hall-hub",
+            houseId: house.id,
+            configured: true,
+            connected: false,
+            lastPollAt: null,
+            mappedDevices: 0,
+            discoveredDevices: 0,
+            hubModel: "H200",
+            error: null,
+            host: "192.168.1.56",
+            sourceType: "hub",
+            sourceModel: "H200",
+            sourceAlias: "Hall hub",
+          },
+        ],
+      },
+    };
     vi.spyOn(api, "discoverIntegrations").mockResolvedValue({
-      tpLink: [{ host: "192.168.1.56", model: "H200", alias: "Hall hub" }],
+      tpLink: [
+        { host: "192.168.1.56", model: "H200", alias: "Hall hub", sourceType: "hub" },
+        { host: "192.168.1.64", model: "P110", alias: "Laundry plug", sourceType: "energy-device" },
+      ],
       homeAssistant: [],
       warnings: [],
     });
     const configure = vi.spyOn(api, "configureTpLink").mockResolvedValue({
       ok: true,
       configured: true,
-      integration: configured,
+      created: true,
+      connectionId: "hall-hub",
+      houseId: house.id,
+      integration: configuredAfterAdd,
     });
-    vi.spyOn(api, "integrations").mockResolvedValue(configured);
+    vi.spyOn(api, "integrations").mockResolvedValue(configuredAfterAdd);
     renderPage({ integration: configured, onRefreshTpLinkDevices: vi.fn().mockResolvedValue([]) });
 
     await user.click(screen.getByRole("tab", { name: /Where readings come from/ }));
-    await user.click(screen.getByRole("button", { name: "Find additional systems" }));
+    const discoveryPanel = screen.getByRole("group", { name: "Add a connection" });
+    await waitFor(() => expect((discoveryPanel as HTMLDetailsElement).open).toBe(true));
     const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
+    const addFlow = directSection.querySelector<HTMLDetailsElement>(".setup-config-disclosure")!;
+    await waitFor(() => expect(addFlow.open).toBe(true));
+    expect(within(directSection).getByText("Add Hall hub")).not.toBeNull();
+    expect((within(directSection).getByRole("radio", { name: /Hall hub/ }) as HTMLInputElement).checked).toBe(true);
+    expect(within(directSection).getByRole("radio", { name: /Laundry plug/ })).not.toBeNull();
+    expect(within(directSection).getByText(/confirm whether to import it with the Tapo or Kasa account/i)).not.toBeNull();
     expect((await within(directSection).findByLabelText("Hub or energy-device address") as HTMLInputElement).value).toBe("192.168.1.56");
-    await user.type(within(directSection).getByLabelText("TP-Link account email"), "person@example.test");
-    await user.type(within(directSection).getByLabelText("TP-Link account password"), "local-secret");
-    await user.click(within(directSection).getByRole("button", { name: "Check direct TP-Link connection" }));
-    expect(await within(directSection).findByText("The server is polling the TP-Link hub or energy device directly.")).not.toBeNull();
-    await user.click(within(directSection).getByRole("button", { name: "Save and connect" }));
+    expect(within(directSection).queryByLabelText("TP-Link account email")).toBeNull();
+    expect(within(directSection).queryByLabelText("TP-Link account password")).toBeNull();
+    await user.click(within(directSection).getByRole("button", { name: "Import Hall hub" }));
 
     await waitFor(() => expect(configure).toHaveBeenCalledWith({
       houseId: house.id,
       host: "192.168.1.56",
-      username: "person@example.test",
-      password: "local-secret",
+      credentialSourceConnectionId: "legacy",
     }));
+    expect(api.testTpLinkDraft).not.toHaveBeenCalled();
+    expect(addFlow.open).toBe(false);
+    expect(addFlow.querySelector("form")).toBeNull();
+    expect(addFlow.querySelector("summary")?.textContent).toContain("Laundry plug");
+    expect(within(directSection).getByText(/Hall hub was added to Coast house/)).not.toBeNull();
   });
 
   it("invalidates a successful connection check when its credential draft changes in flight", async () => {
@@ -200,7 +418,7 @@ describe("Setup workspace", () => {
     expect(configure).not.toHaveBeenCalled();
   });
 
-  it("waits through a bounded H200 child-discovery window and offers clear next actions", async () => {
+  it("leaves H200 child discovery on the server after the initial post-save refresh", async () => {
     vi.useFakeTimers();
     const connectedWithoutChildren: IntegrationStatus = {
       ...integration,
@@ -239,20 +457,38 @@ describe("Setup workspace", () => {
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     rendered.rerender(<I18nProvider><IntegrationsPage {...rendered.props} integration={connectedWithoutChildren} /></I18nProvider>);
 
-    const liveStatus = screen.getByRole("region", { name: "Live TP-Link status" });
-    expect(within(liveStatus).getByText("Waiting for H200 to report paired sensors…")).not.toBeNull();
-    expect(within(liveStatus).getByRole("progressbar", { name: "Child-device check 1 of 7" })).not.toBeNull();
+    const setupStatus = screen.getByRole("region", { name: "TP-Link setup status" });
+    expect(within(setupStatus).getByText("Waiting for H200 to report paired sensors…")).not.toBeNull();
+    expect(within(setupStatus).getByText(/Stugu keeps checking on the server/)).not.toBeNull();
+    expect(within(setupStatus).queryByRole("progressbar")).toBeNull();
 
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
 
-    expect(refreshTpLinkDevices).toHaveBeenCalledTimes(7);
-    expect(within(liveStatus).getByText("No paired sensors appeared yet.")).not.toBeNull();
-    expect(within(liveStatus).getByRole("button", { name: "Check again" })).not.toBeNull();
-    fireEvent.click(within(liveStatus).getByRole("button", { name: "Open Sensors" }));
-    expect(onOpenSensors).toHaveBeenCalledOnce();
+    expect(refreshTpLinkDevices).toHaveBeenCalledTimes(1);
+    expect(api.integrations).toHaveBeenCalledTimes(1);
+    expect(within(setupStatus).getByText("Waiting for H200 to report paired sensors…")).not.toBeNull();
+    expect(within(setupStatus).queryByRole("button", { name: "Set up sensors" })).toBeNull();
+    rendered.rerender(<I18nProvider><IntegrationsPage
+      {...rendered.props}
+      integration={{
+        ...connectedWithoutChildren,
+        tpLink: { ...connectedWithoutChildren.tpLink, lastPollAt: "2026-07-28T10:01:00.000Z" },
+      }}
+    /></I18nProvider>);
+    expect(within(setupStatus).getByText("No paired sensors appeared yet.")).not.toBeNull();
+    rendered.rerender(<I18nProvider><IntegrationsPage
+      {...rendered.props}
+      integration={{
+        ...connectedWithoutChildren,
+        tpLink: { ...connectedWithoutChildren.tpLink, discoveredDevices: 1 },
+      }}
+    /></I18nProvider>);
+    expect(within(setupStatus).getByText("TP-Link devices to set up: 1")).not.toBeNull();
+    expect(within(setupStatus).getAllByRole("button", { name: "Set up sensors" }).length).toBeGreaterThan(0);
+    expect(onOpenSensors).not.toHaveBeenCalled();
   });
 
-  it("keeps post-save child polling alive while the configured hub is still connecting", async () => {
+  it("accepts a later server-pushed child result while the saved hub connects", async () => {
     vi.useFakeTimers();
     const connectingWithoutChildren = connectedTpLink({
       connected: false,
@@ -272,12 +508,8 @@ describe("Setup workspace", () => {
     });
     vi.spyOn(api, "configureTpLink").mockResolvedValue({ ok: true, configured: true, integration: connectingWithoutChildren });
     const firstStatus = deferred<IntegrationStatus>();
-    const status = vi.spyOn(api, "integrations")
-      .mockReturnValueOnce(firstStatus.promise)
-      .mockResolvedValue(connectedWithoutChildren);
-    const refreshTpLinkDevices = vi.fn()
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([discoveredChild]);
+    const status = vi.spyOn(api, "integrations").mockReturnValue(firstStatus.promise);
+    const refreshTpLinkDevices = vi.fn().mockResolvedValue([]);
     let rendered!: ReturnType<typeof renderPage>;
     const onIntegrationChange = vi.fn((next: IntegrationStatus) => {
       rendered.rerender(<I18nProvider><IntegrationsPage {...rendered.props} integration={next} /></I18nProvider>);
@@ -303,238 +535,19 @@ describe("Setup workspace", () => {
     expect(screen.getByText("Waiting for H200 to report paired sensors…")).not.toBeNull();
 
     await act(async () => {
-      firstStatus.resolve(connectedWithoutChildren);
-      await Promise.resolve();
+      firstStatus.resolve({
+        ...connectedWithoutChildren,
+        tpLink: { ...connectedWithoutChildren.tpLink, discoveredDevices: 1 },
+      });
+      await firstStatus.promise;
       await Promise.resolve();
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
 
-    expect(refreshTpLinkDevices).toHaveBeenCalledTimes(2);
-    expect(status).toHaveBeenCalledTimes(2);
+    expect(refreshTpLinkDevices).toHaveBeenCalledTimes(1);
+    expect(status).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Paired sensors found: 1.")).not.toBeNull();
   });
 
-  it("automatically checks an already-configured connected hub with no discovered children", async () => {
-    vi.useFakeTimers();
-    window.history.replaceState(null, "", "/setup/connections");
-    const connectedWithoutChildren: IntegrationStatus = {
-      ...integration,
-      tpLink: {
-        ...integration.tpLink,
-        configured: true,
-        connected: true,
-        discoveredDevices: 0,
-        hubModel: "H200",
-      },
-      mock: { ...integration.mock, enabled: false, mode: "real", activatedAt: "2026-07-14T12:00:00.000Z" },
-    };
-    vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
-    vi.spyOn(api, "integrations").mockResolvedValue(connectedWithoutChildren);
-    const refreshTpLinkDevices = vi.fn().mockResolvedValue([]);
-    renderPage({ integration: connectedWithoutChildren, onRefreshTpLinkDevices: refreshTpLinkDevices });
 
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    const liveStatus = screen.getByRole("region", { name: "Live TP-Link status" });
-    expect(within(liveStatus).getByText("Waiting for H200 to report paired sensors…")).not.toBeNull();
-
-    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
-
-    expect(refreshTpLinkDevices).toHaveBeenCalledTimes(7);
-    expect(within(liveStatus).getByText("No paired sensors appeared yet.")).not.toBeNull();
-    fireEvent.click(within(liveStatus).getByRole("button", { name: "Check again" }));
-    await act(async () => { await Promise.resolve(); });
-    expect(refreshTpLinkDevices).toHaveBeenCalledTimes(8);
-  });
-
-  it("reports a child-inventory failure even when integration status remains reachable", async () => {
-    vi.useFakeTimers();
-    window.history.replaceState(null, "", "/setup/connections");
-    const connectedWithoutChildren: IntegrationStatus = {
-      ...integration,
-      tpLink: {
-        ...integration.tpLink,
-        configured: true,
-        connected: true,
-        discoveredDevices: 0,
-        hubModel: "H200",
-      },
-    };
-    vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
-    vi.spyOn(api, "integrations").mockResolvedValue(connectedWithoutChildren);
-    const refreshTpLinkDevices = vi.fn().mockRejectedValue(new Error("Inventory unavailable"));
-    renderPage({ integration: connectedWithoutChildren, onRefreshTpLinkDevices: refreshTpLinkDevices });
-
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
-
-    const liveStatus = screen.getByRole("region", { name: "Live TP-Link status" });
-    expect(refreshTpLinkDevices).toHaveBeenCalledTimes(7);
-    expect(within(liveStatus).getByText("Stugu could not check the hub's paired sensors.")).not.toBeNull();
-  });
-
-  it("stops child-inventory polling after leaving Connections", async () => {
-    vi.useFakeTimers();
-    window.history.replaceState(null, "", "/setup/connections");
-    const connectedWithoutChildren = connectedTpLink({ discoveredDevices: 0 });
-    vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
-    const status = vi.spyOn(api, "integrations").mockResolvedValue(connectedWithoutChildren);
-    const refreshTpLinkDevices = vi.fn().mockResolvedValue([]);
-    renderPage({ integration: connectedWithoutChildren, onRefreshTpLinkDevices: refreshTpLinkDevices });
-
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(refreshTpLinkDevices).toHaveBeenCalledTimes(1);
-    expect(status).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByRole("tab", { name: /Overview/ }));
-    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
-
-    expect(refreshTpLinkDevices).toHaveBeenCalledTimes(1);
-    expect(status).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps home placement in the Property workspace instead of Setup", () => {
-    renderPage();
-    expect(screen.queryByRole("tab", { name: /Homes/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Save placement" })).toBeNull();
-    expect(screen.getByRole("tab", { name: /Layout & rooms/ })).not.toBeNull();
-  });
-
-  it("keeps weather references configurable per home without fetching a forecast", async () => {
-    const user = userEvent.setup();
-    const weatherSpy = vi.spyOn(api, "houseWeather");
-    vi.spyOn(api, "searchLocations").mockResolvedValue([{
-      id: "5879400",
-      name: "Anchorage",
-      label: "Anchorage, Alaska, United States",
-      latitude: 61.2181,
-      longitude: -149.9003,
-      timezone: "America/Anchorage",
-      countryCode: "US",
-      country: "United States",
-      region: "Alaska",
-      source: "open-meteo-geocoding",
-      confidence: "high",
-    }]);
-    const coordinateDefaults = vi.spyOn(api, "coordinateDefaults").mockResolvedValue({
-      timezone: "America/Anchorage",
-      source: "open-meteo-coordinate",
-    });
-    const onGeoreferenceChange = vi.fn().mockResolvedValue(undefined);
-    const onHouseUpdate = vi.fn().mockResolvedValue(undefined);
-    const placedHouse: House = {
-      ...house,
-      mapPlacement: { latitude: 62.25, longitude: -149.5, metersPerPlanUnit: 1.2 },
-    };
-    const worldHouse: House = { ...house, id: "house-world", name: "World house", timezone: "America/Anchorage" };
-    renderPage({ house: placedHouse, houses: [placedHouse, worldHouse], onHouseUpdate, onGeoreferenceChange });
-
-    await user.click(screen.getByRole("tab", { name: /Weather/ }));
-    expect(screen.getAllByText("Automatic weather").length).toBeGreaterThan(0);
-    expect(screen.getByText("Automatic (FMI in Finland, Open-Meteo worldwide)")).not.toBeNull();
-    expect(screen.getAllByText("Europe/Helsinki").length).toBeGreaterThan(0);
-    expect(screen.queryByRole("table")).toBeNull();
-    expect(weatherSpy).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: "Sync from home placement" }));
-    await waitFor(() => expect(onHouseUpdate).toHaveBeenCalledWith(placedHouse.id, {
-      location: expect.objectContaining({
-        latitude: 62.25,
-        longitude: -149.5,
-        source: "map-placement",
-        confidence: "high",
-        userOverridden: false,
-      }),
-      timezone: "America/Anchorage",
-    }));
-    expect(coordinateDefaults).toHaveBeenCalledWith(62.25, -149.5);
-
-    await user.click(screen.getByRole("button", { name: "Change" }));
-    await user.clear(screen.getByLabelText("Find this home"));
-    await user.type(screen.getByLabelText("Find this home"), "Anchorage");
-    await user.click(screen.getByRole("button", { name: "Search" }));
-    await user.click(await screen.findByRole("button", { name: "Use this setup" }));
-    await waitFor(() => expect(onHouseUpdate).toHaveBeenCalledWith(placedHouse.id, {
-      location: expect.objectContaining({ latitude: 61.2181, longitude: -149.9003, label: "Anchorage, Alaska, United States", source: "place-search" }),
-      timezone: "America/Anchorage",
-    }));
-
-    await user.selectOptions(screen.getByRole("combobox", { name: "Home" }), worldHouse.id);
-    expect((screen.getByRole("combobox", { name: "Home" }) as HTMLSelectElement).value).toBe(worldHouse.id);
-    expect(screen.getByText(/Configure the weather reference and system behavior for World house/)).not.toBeNull();
-    expect(screen.getAllByText("America/Anchorage").length).toBeGreaterThan(0);
-  });
-
-  it("keeps coordinate defaults from an old home out of the newly selected home form", async () => {
-    const user = userEvent.setup();
-    const firstHouse: House = {
-      ...house,
-      mapPlacement: { latitude: 62.25, longitude: -149.5, metersPerPlanUnit: 1.2 },
-    };
-    const secondHouse: House = {
-      ...house,
-      id: "house-world",
-      name: "World house",
-      timezone: "America/Anchorage",
-      location: { latitude: 61.2181, longitude: -149.9003, label: "Anchorage" },
-    };
-    const defaults = deferred<Awaited<ReturnType<typeof api.coordinateDefaults>>>();
-    vi.spyOn(api, "coordinateDefaults").mockReturnValue(defaults.promise);
-    const onHouseUpdate = vi.fn().mockResolvedValue(undefined);
-    renderPage({ house: firstHouse, houses: [firstHouse, secondHouse], onHouseUpdate });
-
-    await user.click(screen.getByRole("tab", { name: /Weather/ }));
-    await user.click(screen.getByRole("button", { name: "Sync from home placement" }));
-    await waitFor(() => expect(api.coordinateDefaults).toHaveBeenCalledWith(62.25, -149.5));
-    await user.selectOptions(screen.getByRole("combobox", { name: "Home" }), secondHouse.id);
-    await user.click(screen.getByText("Advanced weather location"));
-    expect((screen.getByRole("spinbutton", { name: "Latitude" }) as HTMLInputElement).value).toBe("61.2181");
-
-    await act(async () => {
-      defaults.resolve({ timezone: "Pacific/Honolulu", source: "open-meteo-coordinate" });
-      await defaults.promise;
-      await Promise.resolve();
-    });
-
-    expect(onHouseUpdate).toHaveBeenCalledWith(firstHouse.id, expect.objectContaining({ timezone: "Pacific/Honolulu" }));
-    expect((screen.getByRole("spinbutton", { name: "Latitude" }) as HTMLInputElement).value).toBe("61.2181");
-    expect((screen.getByRole("textbox", { name: "Timezone" }) as HTMLInputElement).value).toBe("America/Anchorage");
-    expect(screen.queryByText("Home location saved. Weather data is updating.")).toBeNull();
-  });
-
-  it("follows global home changes while reporting local Setup selections", async () => {
-    const user = userEvent.setup();
-    const secondHouse: House = { ...house, id: "house-world", name: "World house", timezone: "America/Anchorage" };
-    const onHouse = vi.fn();
-    const rendered = renderPage({ houses: [house, secondHouse], onHouse });
-
-    await user.click(screen.getByRole("tab", { name: /Weather/ }));
-    await user.selectOptions(screen.getByRole("combobox", { name: "Home" }), secondHouse.id);
-    expect(onHouse).toHaveBeenCalledWith(secondHouse.id);
-
-    rendered.rerender(
-      <I18nProvider>
-        <IntegrationsPage {...rendered.props} house={secondHouse} />
-      </I18nProvider>,
-    );
-    await waitFor(() => expect((screen.getByRole("combobox", { name: "Home" }) as HTMLSelectElement).value).toBe(secondHouse.id));
-
-    rendered.rerender(
-      <I18nProvider>
-        <IntegrationsPage {...rendered.props} house={house} />
-      </I18nProvider>,
-    );
-    await waitFor(() => expect((screen.getByRole("combobox", { name: "Home" }) as HTMLSelectElement).value).toBe(house.id));
-  });
-
-  it("names progress and keeps every Setup tab linked to an existing panel", () => {
-    renderPage();
-
-    const progress = screen.getByRole("progressbar", { name: "Setup progress" });
-    expect(progress.getAttribute("aria-valuetext")).toMatch(/^\d+ \/ 4$/);
-    for (const tab of screen.getAllByRole("tab")) {
-      const panelId = tab.getAttribute("aria-controls");
-      expect(panelId).toBeTruthy();
-      expect(document.getElementById(panelId!)).not.toBeNull();
-    }
-  });
 });

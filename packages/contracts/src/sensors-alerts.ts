@@ -55,12 +55,24 @@ export interface TpLinkDiscoveredDevice {
   battery: number | null;
   /** Contact state reported by devices such as Tapo T110; null when unavailable. */
   contactOpen?: boolean | null;
+  /**
+   * Provider-normalized device purpose. Older servers may omit this, so
+   * clients should retain model/capability detection as a compatibility path.
+   */
+  deviceType?: "climate" | "contact" | "energy" | "unknown";
   /** Instantaneous active power reported by a python-kasa Energy module, in W. */
   power?: number | null;
   /** Device-provided cumulative energy counter, in kWh. Currently total since reboot. */
   energy?: number | null;
   lastSeenAt: string;
   mappedSensorId: string | null;
+  /** Architectural opening currently driven by this contact device. */
+  mappedOpening?: {
+    floorId: string;
+    elementId: string;
+    kind: "door" | "window" | "vent";
+    label: string | null;
+  } | null;
 }
 
 export interface Reading {

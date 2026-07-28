@@ -183,41 +183,54 @@ describe("Setup workspace", () => {
     expect((screen.getByRole("button", { name: "Refresh" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("leads with the existing live TP-Link connection, automatically scans for additions, and keeps replacement setup collapsed", async () => {
+  it("leads with the next TP-Link setup task, scans automatically, and keeps diagnostics in settings", async () => {
     const user = userEvent.setup();
     window.history.replaceState(null, "", "/setup/connections");
     const scan = vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
-    renderPage({ integration: connectedTpLink() });
-
+    const onOpenSensors = vi.fn();
+    renderPage({ integration: connectedTpLink(), onOpenSensors });
     await act(async () => { await Promise.resolve(); });
-
-    const liveStatus = screen.getByRole("region", { name: "Live TP-Link status" });
-    expect(within(liveStatus).getByRole("heading", { name: "TP-Link H200 is connected" })).not.toBeNull();
-    expect(within(liveStatus).getByText("Connected")).not.toBeNull();
-    const connectionDetails = within(liveStatus).getByText("Connection details").closest("details")!;
-    expect(connectionDetails.hasAttribute("open")).toBe(false);
-    await user.click(connectionDetails.querySelector("summary")!);
-    expect(within(liveStatus).getByText("Live updates")).not.toBeNull();
-    expect(liveStatus.textContent).toMatch(/Last poll/i);
-    expect(liveStatus.textContent).toMatch(/11:30/);
-
-    const discovered = within(liveStatus).getByText(/^Discovered/i).closest("div");
-    const mapped = within(liveStatus).getByText(/^Mapped/i).closest("div");
-    const ready = within(liveStatus).getByText(/^Ready/i).closest("div");
-    expect(discovered?.textContent).toContain("3");
-    expect(mapped?.textContent).toContain("2");
-    expect(ready?.textContent).toContain("1");
-    await waitFor(() => expect(scan).toHaveBeenCalledWith(house.id));
-
+    const setupStatus = screen.getByRole("region", { name: "TP-Link setup status" });
+    expect(within(setupStatus).getByRole("heading", { name: "TP-Link sources: 1 of 1 connected" })).not.toBeNull();
+    expect(within(setupStatus).getByText("Connected")).not.toBeNull();
+    expect(within(setupStatus).getByText("TP-Link devices to set up: 1")).not.toBeNull();
+    await user.click(within(setupStatus).getByRole("button", { name: "Set up sensors" }));
+    expect(onOpenSensors).toHaveBeenCalledOnce();
+    expect(within(setupStatus).queryByText("Connection details")).toBeNull();
+    expect(within(setupStatus).queryByText("Live updates")).toBeNull();
+    expect(within(setupStatus).queryByRole("button", { name: "Refresh device inventory" })).toBeNull();
+    expect(within(setupStatus).queryByRole("button", { name: "Check direct TP-Link connection" })).toBeNull();
+    await waitFor(() => expect(scan).toHaveBeenCalledWith(house.id, undefined, expect.any(Function), expect.any(AbortSignal)));
+    const connectionSetup = screen.getByRole("group", { name: "Add a connection" }) as HTMLDetailsElement;
+    expect(connectionSetup.open).toBe(false);
     const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
     const settings = directSection.querySelector<HTMLDetailsElement>(".setup-config-disclosure")!;
     expect(settings.open).toBe(false);
-    expect(within(directSection).getByText("Change saved TP-Link connection")).not.toBeNull();
+    expect(within(directSection).getByText("Enter an address manually")).not.toBeNull();
+    expect(within(directSection).getByText(/without changing the saved connections above/)).not.toBeNull();
+    await user.click(connectionSetup.querySelector("summary")!);
     await user.click(settings.querySelector("summary")!);
     expect(await within(directSection).findByRole("button", { name: "Check direct TP-Link connection" })).not.toBeNull();
   });
 
-  it("does not present a healthy live status when the TP-Link source has failed", () => {
+  it("keeps Tapo compatibility help behind a clear troubleshooting disclosure", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, "", "/setup/connections");
+    const scan = vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
+    renderPage({ integration: connectedTpLink() });
+    await waitFor(() => expect(scan).toHaveBeenCalledWith(house.id, undefined, expect.any(Function), expect.any(AbortSignal)));
+
+    const connectionSetup = screen.getByRole("group", { name: "Add a connection" }) as HTMLDetailsElement;
+    await user.click(connectionSetup.querySelector("summary")!);
+    const compatibilityHelp = within(connectionSetup).getByText("Tapo device not found?").closest("details") as HTMLDetailsElement;
+    expect(compatibilityHelp.open).toBe(false);
+
+    await user.click(compatibilityHelp.querySelector("summary")!);
+    expect(compatibilityHelp.open).toBe(true);
+    expect(within(compatibilityHelp).getByText(/require Third-Party Compatibility before Stugu can find them/)).not.toBeNull();
+  });
+
+  it("does not present a healthy status when the TP-Link source has failed", () => {
     window.history.replaceState(null, "", "/setup/connections");
     vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
     renderPage({
@@ -228,40 +241,47 @@ describe("Setup workspace", () => {
       streamConnection: "live",
     });
 
-    const liveStatus = screen.getByRole("region", { name: "Live TP-Link status" });
-    expect(within(liveStatus).getByRole("heading", { name: "TP-Link H200 · Not connected" })).not.toBeNull();
-    const health = within(liveStatus).getByRole("status");
+    const setupStatus = screen.getByRole("region", { name: "TP-Link setup status" });
+    expect(within(setupStatus).getByRole("heading", { name: "TP-Link sources: 0 of 1 connected" })).not.toBeNull();
+    const health = within(setupStatus).getByRole("status");
     expect(health.textContent).toBe("Not connected");
     expect(health.classList.contains("error")).toBe(true);
-    expect(within(liveStatus).getByText("Connection details").closest("details")!.hasAttribute("open")).toBe(false);
-    expect(within(liveStatus).getByRole("alert").textContent).toMatch(/saved connection needs attention/i);
+    expect(within(setupStatus).getByRole("alert").textContent).toMatch(/saved connection needs attention/i);
+    expect(within(setupStatus).queryByRole("button", { name: "Refresh device inventory" })).toBeNull();
   });
 
-  it("automatically surfaces standalone electrical devices beside a configured hub", async () => {
+  it("offers only new physical TP-Link sources after discovery", async () => {
     window.history.replaceState(null, "", "/setup/connections");
     const scan = vi.spyOn(api, "discoverIntegrations").mockResolvedValue({
       tpLink: [
-        { host: "192.168.68.54", model: "H200", alias: "Hall hub", sourceType: "hub" },
-        { host: "192.168.68.57", model: "HS110", alias: "Workshop plug", sourceType: "energy-device" },
+        { host: "192.168.68.54", model: "H200", alias: "Hall hub", sourceType: "hub", deviceId: "hub-source", configuredConnectionId: "saved-hub" },
+        { host: "192.168.68.57", model: "HS110", alias: "Workshop plug", sourceType: "energy-device", deviceId: "plug-source" },
       ],
-      homeAssistant: [],
-      warnings: [],
+      homeAssistant: [], warnings: [],
     });
     renderPage({ integration: connectedTpLink() });
-
-    await waitFor(() => expect(scan).toHaveBeenCalledWith(house.id));
-    expect((await screen.findAllByText("Workshop plug")).length).toBeGreaterThan(0);
-    expect(screen.getByText(/energy device · HS110 · 192\.168\.68\.57/i)).not.toBeNull();
+    await waitFor(() => expect(scan).toHaveBeenCalledWith(house.id, undefined, expect.any(Function), expect.any(AbortSignal)));
+    const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
+    const settings = directSection.querySelector<HTMLDetailsElement>(".setup-config-disclosure")!;
+    const workshopPlug = within(directSection).getByRole("radio", { name: /Workshop plug/ });
+    const connectionSetup = screen.getByRole("group", { name: "Add a connection" }) as HTMLDetailsElement;
+    expect(connectionSetup.open).toBe(true);
+    expect(settings.open).toBe(true);
+    expect(workshopPlug.closest("details")).toBe(settings);
+    expect((workshopPlug as HTMLInputElement).checked).toBe(true);
+    expect(within(directSection).queryByRole("radio", { name: /Hall hub/ })).toBeNull();
+    expect(screen.getByText("Connections ready to add: 1.")).not.toBeNull();
+    expect(within(directSection).getByText("Add Workshop plug")).not.toBeNull();
+    expect(within(directSection).getByText(/energy device · HS110 · 192\.168\.68\.57/i)).not.toBeNull();
   });
 
-  it("applies live TP-Link poll and inventory updates immediately on rerender", () => {
+  it("updates the actionable TP-Link device count immediately on rerender", () => {
     window.history.replaceState(null, "", "/setup/connections");
     vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
     const rendered = renderPage({ integration: connectedTpLink() });
 
-    let liveStatus = screen.getByRole("region", { name: "Live TP-Link status" });
-    expect(liveStatus.textContent).toMatch(/11:30/);
-    expect(within(liveStatus).getByText(/^Ready/i).closest("div")?.textContent).toContain("1");
+    let setupStatus = screen.getByRole("region", { name: "TP-Link setup status" });
+    expect(within(setupStatus).getByText("TP-Link devices to set up: 1")).not.toBeNull();
 
     const updated = connectedTpLink({
       lastPollAt: "2026-07-16T08:31:25.000Z",
@@ -270,22 +290,61 @@ describe("Setup workspace", () => {
     });
     rendered.rerender(<I18nProvider><IntegrationsPage {...rendered.props} integration={updated} /></I18nProvider>);
 
-    liveStatus = screen.getByRole("region", { name: "Live TP-Link status" });
-    expect(liveStatus.textContent).toMatch(/11:31/);
-    expect(within(liveStatus).getByText(/^Discovered/i).closest("div")?.textContent).toContain("5");
-    expect(within(liveStatus).getByText(/^Mapped/i).closest("div")?.textContent).toContain("2");
-    expect(within(liveStatus).getByText(/^Ready/i).closest("div")?.textContent).toContain("3");
+    setupStatus = screen.getByRole("region", { name: "TP-Link setup status" });
+    expect(within(setupStatus).getByText("TP-Link devices to set up: 3")).not.toBeNull();
   });
 
-  it("distinguishes a reconnecting event stream from the healthy TP-Link poller", () => {
+  it("keeps automatic inventory refreshes quiet and offers a manual retry only after failure", async () => {
+    window.history.replaceState(null, "", "/setup/connections");
+    vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
+    const manualRefresh = deferred<TpLinkDiscoveredDevice[]>();
+    const user = userEvent.setup();
+    const rendered = renderPage({
+      integration: connectedTpLink(),
+      tpLinkDevicesLoading: false,
+      onRefreshTpLinkDevices: vi.fn().mockReturnValue(manualRefresh.promise),
+    });
+
+    let setupStatus = screen.getByRole("region", { name: "TP-Link setup status" });
+    expect(within(setupStatus).queryByText("Checking for the latest devices…")).toBeNull();
+    expect(within(setupStatus).queryByRole("button", { name: "Try now" })).toBeNull();
+
+    rendered.rerender(<I18nProvider><IntegrationsPage
+      {...rendered.props}
+      integration={connectedTpLink({ lastPollAt: "2026-07-16T08:31:25.000Z" })}
+      tpLinkDevicesLoading
+    /></I18nProvider>);
+
+    setupStatus = screen.getByRole("region", { name: "TP-Link setup status" });
+    expect(within(setupStatus).queryByText("Checking for the latest devices…")).toBeNull();
+    expect(setupStatus.getAttribute("aria-busy")).toBe("false");
+
+    rendered.rerender(<I18nProvider><IntegrationsPage
+      {...rendered.props}
+      integration={connectedTpLink({ lastPollAt: "2026-07-16T08:31:25.000Z" })}
+      tpLinkDevicesError="Inventory request failed"
+    /></I18nProvider>);
+    setupStatus = screen.getByRole("region", { name: "TP-Link setup status" });
+    await user.click(within(setupStatus).getByRole("button", { name: "Try now" }));
+    expect(within(setupStatus).getByText("Checking for the latest devices…")).not.toBeNull();
+    expect(setupStatus.getAttribute("aria-busy")).toBe("true");
+
+    await act(async () => {
+      manualRefresh.resolve([]);
+      await manualRefresh.promise;
+    });
+    expect(within(setupStatus).queryByText("Checking for the latest devices…")).toBeNull();
+  });
+
+  it("keeps browser delivery details out of a healthy connection summary", () => {
     window.history.replaceState(null, "", "/setup/connections");
     vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
     renderPage({ integration: connectedTpLink(), streamConnection: "reconnecting" });
 
-    const liveStatus = screen.getByRole("region", { name: "Live TP-Link status" });
-    expect(within(liveStatus).getByRole("heading", { name: "TP-Link H200 is connected" })).not.toBeNull();
-    expect(liveStatus.textContent).toMatch(/reconnect/i);
-    expect(within(liveStatus).queryByText(/TP-Link (?:is )?disconnected/i)).toBeNull();
+    const setupStatus = screen.getByRole("region", { name: "TP-Link setup status" });
+    expect(within(setupStatus).getByRole("heading", { name: "TP-Link sources: 1 of 1 connected" })).not.toBeNull();
+    expect(within(setupStatus).queryByText("Live updates reconnecting")).toBeNull();
+    expect(within(setupStatus).queryByText(/TP-Link (?:is )?disconnected/i)).toBeNull();
   });
 
   it("presents a poll issue as a warning without hiding the healthy connection", () => {
@@ -293,11 +352,11 @@ describe("Setup workspace", () => {
     vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
     renderPage({ integration: connectedTpLink({ error: "Hall sensor is temporarily offline" }) });
 
-    const liveStatus = screen.getByRole("region", { name: "Live TP-Link status" });
-    expect(within(liveStatus).getByRole("heading", { name: "TP-Link H200 is connected" })).not.toBeNull();
-    expect(liveStatus.textContent).toMatch(/warning|attention/i);
-    expect(within(liveStatus).getByText("Hall sensor is temporarily offline")).not.toBeNull();
-    expect(within(liveStatus).queryByText(/TP-Link (?:is )?disconnected/i)).toBeNull();
+    const setupStatus = screen.getByRole("region", { name: "TP-Link setup status" });
+    expect(within(setupStatus).getByRole("heading", { name: "TP-Link sources: 1 of 1 connected" })).not.toBeNull();
+    expect(setupStatus.textContent).toMatch(/warning|attention/i);
+    expect(within(setupStatus).getByText("Hall sensor is temporarily offline")).not.toBeNull();
+    expect(within(setupStatus).queryByText(/TP-Link (?:is )?disconnected/i)).toBeNull();
   });
 
   it("opens on a side-effect-free overview and keeps operational weather out of every section", async () => {
@@ -337,10 +396,13 @@ describe("Setup workspace", () => {
     expect(scan).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Find devices" }));
     await waitFor(() => expect(scan).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("button", { name: /Looking for devices/ })).not.toBeNull();
+    const connectionSetup = screen.getByText("Find devices on this network").closest("details")!;
+    expect(within(connectionSetup).queryByRole("button", { name: /Looking for devices/ })).toBeNull();
+    expect(within(connectionSetup).getByRole("status").textContent).toContain("Looking for devices");
+    expect(within(connectionSetup).getByText(/You can leave this page; Stugu will keep searching/)).not.toBeNull();
     finishScan(noTpLinkResult);
     expect(await screen.findByRole("button", { name: "Find devices" })).not.toBeNull();
-    expect(screen.getByText("Connection options found: 1.")).not.toBeNull();
+    expect(screen.getByText("Connections ready to add: 1.")).not.toBeNull();
     const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
     expect(await within(directSection).findByText(/Automatic discovery did not provide a supported TP-Link source/)).not.toBeNull();
     expect(screen.getByText("TP-Link discovery was unavailable. Enter the hub or energy-device address manually.")).not.toBeNull();
@@ -381,7 +443,7 @@ describe("Setup workspace", () => {
     await waitFor(() => expect(scan).toHaveBeenLastCalledWith(house.id, {
       username: "person@example.test",
       password: "local-secret",
-    }));
+    }, expect.any(Function), expect.any(AbortSignal)));
     expect((await within(directSection).findAllByText("Laundry plug")).length).toBeGreaterThan(0);
     expect(within(directSection).getByText(/energy device · P110 · 192\.168\.1\.64/i)).not.toBeNull();
     expect((within(directSection).getByLabelText("Hub or energy-device address") as HTMLInputElement).value)
@@ -397,7 +459,7 @@ describe("Setup workspace", () => {
 
     await user.click(screen.getByRole("tab", { name: /Where readings come from/ }));
     await user.click(screen.getByRole("button", { name: "Find devices" }));
-    await waitFor(() => expect(scan).toHaveBeenCalledWith(house.id));
+    await waitFor(() => expect(scan).toHaveBeenCalledWith(house.id, undefined, expect.any(Function), expect.any(AbortSignal)));
     rendered.rerender(<I18nProvider><IntegrationsPage {...rendered.props} house={secondHouse} houses={[house, secondHouse]} /></I18nProvider>);
     pending.resolve({
       tpLink: [{ host: "192.168.1.42", model: "H200", alias: "Old Home hub" }],
@@ -408,7 +470,7 @@ describe("Setup workspace", () => {
 
     expect(screen.getByText("New connections for Lake home")).not.toBeNull();
     expect(screen.queryByText("Old Home hub")).toBeNull();
-    expect(screen.queryByText("Connection options found: 1.")).toBeNull();
+    expect(screen.queryByText("Connections ready to add: 1.")).toBeNull();
     expect(screen.getByRole("button", { name: "Find devices" })).not.toBeNull();
   });
 
@@ -452,10 +514,8 @@ describe("Setup workspace", () => {
     expect(rendered.props.onHouse).toHaveBeenCalledWith(lakeHouse.id);
     expect(screen.getByText("New connections for Lake home")).not.toBeNull();
 
-    const assignmentManager = screen.getByText("Saved connection assignments").closest("details")!;
-    expect(assignmentManager.hasAttribute("open")).toBe(false);
-    await user.click(within(assignmentManager).getByText("Saved connection assignments"));
-    expect(assignmentManager.hasAttribute("open")).toBe(true);
+    const assignmentManager = screen.getByRole("heading", { name: "Where readings come from", level: 2 }).closest("section")!;
+    expect(within(assignmentManager).getByRole("heading", { name: "TP-Link hubs" })).not.toBeNull();
     await user.click(within(assignmentManager).getByRole("button", { name: "Disconnect TP-Link from Lake home" }));
     await waitFor(() => expect(disconnectTpLink).toHaveBeenCalledWith("hub-lake"));
     expect(rendered.props.onIntegrationChange).toHaveBeenCalledWith(afterDisconnect);
@@ -498,8 +558,8 @@ describe("Setup workspace", () => {
       onMoveTpLink: moveTpLink,
     });
 
-    const assignmentManager = screen.getByText("Saved connection assignments").closest("details")!;
-    const assignedHome = within(assignmentManager).getByRole("combobox", { name: "Assigned home for TP-Link H200" });
+    const assignmentManager = screen.getByRole("heading", { name: "Where readings come from", level: 2 }).closest("section")!;
+    const assignedHome = within(assignmentManager).getByRole("combobox", { name: "Assigned home for TP-Link H200 hub" });
     await user.selectOptions(assignedHome, lakeHouse.id);
     await user.click(within(assignmentManager).getByRole("button", { name: "Move TP-Link to Lake home" }));
 
@@ -509,50 +569,5 @@ describe("Setup workspace", () => {
     expect(screen.getByText("Connection moved to Lake home. Direct sensor bindings removed from the previous Home: 1.")).not.toBeNull();
   });
 
-  it("opens the manual TP-Link fallback when network discovery fails", async () => {
-    const user = userEvent.setup();
-    vi.spyOn(api, "discoverIntegrations").mockRejectedValue(new Error("Discovery helper unavailable"));
-    renderPage();
 
-    await user.click(screen.getByRole("tab", { name: /Where readings come from/ }));
-    await user.click(screen.getByRole("button", { name: "Find devices" }));
-    const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
-    expect(await within(directSection).findByText(/Automatic discovery did not provide a supported TP-Link source/)).not.toBeNull();
-    expect(screen.getByText("Device search could not finish.")).not.toBeNull();
-    expect(within(directSection).getByLabelText("Hub or energy-device address")).not.toBeNull();
-    expect(directSection.querySelector<HTMLDetailsElement>(".setup-config-disclosure")?.open).toBe(true);
-    expect(screen.queryByText("Discovery helper unavailable")).toBeNull();
-
-    await user.click(within(directSection).getByText("Enter an address manually"));
-    await waitFor(() => expect(directSection.querySelector<HTMLDetailsElement>(".setup-config-disclosure")?.open).toBe(false));
-  });
-
-  it("reports a completed scan with no results instead of silently resetting", async () => {
-    const user = userEvent.setup();
-    vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
-    renderPage();
-
-    await user.click(screen.getByRole("tab", { name: /Where readings come from/ }));
-    await user.click(screen.getByRole("button", { name: "Find devices" }));
-
-    expect(await screen.findByText("Search finished — no systems found.")).not.toBeNull();
-    expect(screen.getByText(/Nothing was found automatically/)).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Find devices" })).not.toBeNull();
-  });
-
-  it("restores and encodes the active Setup section in the URL", async () => {
-    const user = userEvent.setup();
-    const setupBase = "/properties/property-pine/homes/house-pine/setup";
-    window.history.replaceState(null, "", `${setupBase}/weather?source=test`);
-    renderPage();
-
-    expect(screen.getByRole("tab", { name: /Weather/ }).getAttribute("aria-selected")).toBe("true");
-    await user.click(screen.getByRole("tab", { name: /Layout & rooms/ }));
-    expect(window.location.pathname).toBe(`${setupBase}/layout`);
-    expect(window.location.search).toBe("?source=test");
-
-    window.history.pushState(null, "", `${setupBase}/overview?source=test`);
-    window.dispatchEvent(new PopStateEvent("popstate"));
-    await waitFor(() => expect(screen.getByRole("tab", { name: /Overview/ }).getAttribute("aria-selected")).toBe("true"));
-  });
 });

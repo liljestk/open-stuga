@@ -207,14 +207,17 @@ export function configureApiPart13(context: ReturnType<typeof configureApiPart12
           context.stuguby.assertPropertyWriteAllowed(targetHouse.propertyId);
         }
       }
-      const equipment = context.database.updateAreaEquipment(equipmentId, patch);
-      if (!equipment) throw new HttpError(404, "NOT_FOUND", "Area equipment not found");
-      if (previous.propertyId !== equipment.propertyId) {
-        context.stuguby.captureCurrentPropertyEntity(previous.propertyId, "equipment", equipment.id, "delete");
-        context.stuguby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert");
-      } else {
-        context.stuguby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert", Object.keys(patch));
-      }
+      const equipment = context.database.transaction(() => {
+        const updated = context.database.updateAreaEquipment(equipmentId, patch);
+        if (!updated) throw new HttpError(404, "NOT_FOUND", "Area equipment not found");
+        if (previous.propertyId !== updated.propertyId) {
+          context.stuguby.captureCurrentPropertyEntity(previous.propertyId, "equipment", updated.id, "delete");
+          context.stuguby.captureCurrentPropertyEntity(updated.propertyId, "equipment", updated.id, "upsert");
+        } else {
+          context.stuguby.captureCurrentPropertyEntity(updated.propertyId, "equipment", updated.id, "upsert", Object.keys(patch));
+        }
+        return updated;
+      });
       if (previous && (
         previous.propertyId !== equipment.propertyId
         || previous.areaId !== equipment.areaId
@@ -235,10 +238,12 @@ export function configureApiPart13(context: ReturnType<typeof configureApiPart12
       const equipmentId = request.params.id as string;
       const previous = context.database.getAreaEquipment(equipmentId);
       if (previous) context.stuguby.assertPropertyWriteAllowed(previous.propertyId);
-      if (!context.database.deleteAreaEquipment(equipmentId)) {
-        throw new HttpError(404, "NOT_FOUND", "Area equipment not found");
-      }
-      if (previous) context.stuguby.captureCurrentPropertyEntity(previous.propertyId, "equipment", equipmentId, "delete");
+      context.database.transaction(() => {
+        if (!context.database.deleteAreaEquipment(equipmentId)) {
+          throw new HttpError(404, "NOT_FOUND", "Area equipment not found");
+        }
+        if (previous) context.stuguby.captureCurrentPropertyEntity(previous.propertyId, "equipment", equipmentId, "delete");
+      });
       if (previous) context.notifySpatial((runtime) => runtime.scheduler.enqueueScope(
         { kind: "property", id: previous.propertyId },
         new Date().toISOString(),
@@ -373,10 +378,13 @@ export function configureApiPart13(context: ReturnType<typeof configureApiPart12
       const input = parsePropertyNoteInput(request.body);
       if (input.houseId) context.stuguby.assertHouseWriteAllowed(input.houseId);
       else context.stuguby.assertPropertyWriteAllowed(input.propertyId);
-      const note = context.database.createPropertyNote(input);
-      const sharedHouse = note.houseId ? context.database.getHouse(note.houseId)?.stuguby : null;
-      if (note.houseId && sharedHouse && sharedHouse.syncState !== "detached") context.stuguby.captureHomeMutation(note.houseId);
-      else context.stuguby.captureCurrentPropertyEntity(note.propertyId, "note", note.id, "upsert");
+      const note = context.database.transaction(() => {
+        const created = context.database.createPropertyNote(input);
+        const sharedHouse = created.houseId ? context.database.getHouse(created.houseId)?.stuguby : null;
+        if (created.houseId && sharedHouse && sharedHouse.syncState !== "detached") context.stuguby.captureHomeMutation(created.houseId);
+        else context.stuguby.captureCurrentPropertyEntity(created.propertyId, "note", created.id, "upsert");
+        return created;
+      });
       response.status(201).json({ note });
     });
   context.app.get(`${context.prefix}/property-notes/:id`, (request, response) => {

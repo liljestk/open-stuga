@@ -24,8 +24,9 @@ accepted direct `power` or `energy` sample through the normal metric alert
 engine.
 
 The Tapo/Kasa app is still used to commission devices, pair hub children,
-update firmware, and give devices useful names. Reserve a stable LAN address
-for the configured hub or direct energy device before configuring Stugu. For
+update firmware, and give devices useful names. A DHCP reservation remains
+recommended, but Stugu learns each source's stable device identity and can
+safely update its saved address after discovery finds it elsewhere. For
 T310/T315, TP-Link also documents app-based CSV export and up to two calendar
 years of cloud retention in its [history-export FAQ](https://www.tp-link.com/us/support/faq/4048/).
 
@@ -44,6 +45,8 @@ set `TP_LINK_PYTHON=python3`.
 ## 2. Find or address the device and save credentials
 
 Use the TP-Link account email and password that can authenticate to the hub.
+The credentials authenticate devices on the local network; they do not
+enumerate every device attached to the TP-Link cloud account.
 Select the owning Home and open **Set up > Connections** at
 `/properties/{propertyId}/homes/{homeId}/setup/connections`, then select
 **Find devices**. Choose an H100/H200 hub or a supported energy device, or enter
@@ -96,6 +99,7 @@ TP_LINK_HOST=192.0.2.10
 TP_LINK_USERNAME=user@example.com
 TP_LINK_PASSWORD=replace-me
 TP_LINK_POLL_INTERVAL_MS=2000
+TP_LINK_CONTACT_POLL_INTERVAL_MS=500
 ```
 
 ## 3. Discover and add sensors
@@ -135,9 +139,17 @@ endpoint. Climate readings and generic power/energy samples have
 `TP_LINK_POLL_INTERVAL_MS` (two seconds by default). Temperature or humidity
 changes are persisted immediately; otherwise an unchanged climate heartbeat is
 persisted every minute to keep freshness explicit without writing an identical
-row on every poll. SQLite is the crash-safe ingestion buffer, and the telemetry
-archive worker copies both raw measurement samples and legacy climate readings
-to TimescaleDB with durable checkpoints.
+row on every poll. T110 contacts use their timestamped trigger log at
+`TP_LINK_CONTACT_POLL_INTERVAL_MS` (500 ms by default), so a complete open/close
+cycle between full hub polls is still retained. Trigger-event IDs make that
+ingestion idempotent. On startup, every event still available in the sensor's
+retained trigger log is replayed, so transitions during a Stugu outage are
+backfilled without duplicating events already stored. These raw transitions
+feed opening counts, duration and response analysis, and future pattern
+statistics. Firmware without the trigger-log capability falls back to the
+latest state in the full hub snapshot. SQLite is the crash-safe ingestion
+buffer, and the telemetry archive worker copies both raw measurement samples
+and legacy climate readings to TimescaleDB with durable checkpoints.
 
 ## Retained-history recovery
 
@@ -234,9 +246,19 @@ credentials are removed. Use a separate database for demonstrations.
   bridge boundaries. Use the manual address field; this does not prevent normal
   polling when the hub is routable.
 - On a multi-interface host, Stugu scans each active IPv4 subnet using its
-  directed broadcast address. To restrict a local development scan, set a
-  comma-separated override such as
-  `TP_LINK_DISCOVERY_TARGETS=192.168.71.255` before starting the API.
+  directed broadcast address. After two connection failures, it matches the
+  learned stable source identity on those broadcasts, then falls back to bounded
+  `/24` scans around the old address and current targets. This recovers DHCP
+  address changes without attaching a connection to a different TP-Link source.
+- A bridged VM, native Raspberry Pi, or Linux host-network container normally
+  exposes the physical LAN automatically. Docker/VM NAT may expose only its
+  virtual network; set the physical LAN broadcast explicitly, for example
+  `TP_LINK_DISCOVERY_TARGETS=192.168.71.255`. Compose passes this setting into
+  both interactive discovery and the live recovery helper.
+- Older saved connections without a learned source identity recover only when
+  exactly one supported source is reachable. Update the intended connection
+  once in the UI to learn its identity; ambiguous matches deliberately require
+  manual confirmation.
 - Confirm `python --version` is 3.11 or newer and `python-kasa` is installed.
 - Re-run the helper with `--list` after firmware changes or re-pairing.
 - Treat an offline mapped child as a radio/power issue; cached hub values are

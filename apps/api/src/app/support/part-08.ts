@@ -26,6 +26,7 @@ import type {
   HouseLocation,
   HouseMapPlacement,
   HomeElectricityPricePoint,
+  IntegrationDiscoveryResult,
   IntegrationStatus,
   MaintenanceTaskInput,
   MaintenanceTaskPatch,
@@ -256,6 +257,10 @@ export interface CreateApiOptions {
   telegram?: TelegramService;
   homeAssistantCredentialTester?: (url: string, token: string) => Promise<IntegrationDraftTestResult>;
   tpLinkCredentialTester?: (host: string, username: string, password: string) => Promise<IntegrationDraftTestResult>;
+  integrationDiscoverer?: (
+    houseId?: string,
+    tpLinkCredentials?: { username: string; password: string },
+  ) => Promise<IntegrationDiscoveryResult>;
   electricityPriceFetcher?: typeof fetch;
   cloudflareAccessFetcher?: typeof fetch;
   cloudflareSetupFetcher?: typeof fetch;

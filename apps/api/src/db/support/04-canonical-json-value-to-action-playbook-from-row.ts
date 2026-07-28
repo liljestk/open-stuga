@@ -164,6 +164,15 @@ export function roomPolygonSelfIntersects(points: LayoutPoint[], coordinateScale
   return false;
 }
 
+function stugubyLinkFromJson<T extends { stugubyId: string }>(value: string): T {
+  const link = parseJson<Record<string, unknown>>(value);
+  if (typeof link.stugubyId !== "string" && typeof link.stugbyId === "string") {
+    link.stugubyId = link.stugbyId;
+    delete link.stugbyId;
+  }
+  return link as T;
+}
+
 export function houseFromRow(row: HouseRow): House {
   return {
     id: row.id,
@@ -174,7 +183,7 @@ export function houseFromRow(row: HouseRow): House {
     ...(row.map_placement_json ? { mapPlacement: parseJson<HouseMapPlacement>(row.map_placement_json) } : {}),
     ...(row.orientation_degrees !== null ? { orientationDegrees: row.orientation_degrees } : {}),
     floors: parseJson<Floor[]>(row.floors_json),
-    ...(row.stugby_json ? { stuguby: parseJson<StugubyHouseLink>(row.stugby_json) } : {}),
+    ...(row.stugby_json ? { stuguby: stugubyLinkFromJson<StugubyHouseLink>(row.stugby_json) } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -202,7 +211,7 @@ export function propertyFromRow(row: PropertyRow): Property {
     name: row.name,
     description: row.description,
     location: row.location_json ? parseJson<HouseLocation>(row.location_json) : null,
-    ...(row.stugby_json ? { stuguby: parseJson<StugubyPropertyLink>(row.stugby_json) } : {}),
+    ...(row.stugby_json ? { stuguby: stugubyLinkFromJson<StugubyPropertyLink>(row.stugby_json) } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

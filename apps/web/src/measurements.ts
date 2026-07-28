@@ -131,7 +131,13 @@ export function forecastMeasurement(
 
 export function readingSamples(reading: Reading, definitions: MeasurementDefinition[]): MeasurementSample[] {
   return enabledDefinitions(definitions).flatMap((definition) => {
-    const value = measurementValue(reading, definition.id);
+    // Match server ingestion: the canonical legacy fields override an optional
+    // generic map so the pushed visual cannot briefly show an older duplicate.
+    const value = definition.id === "temperature"
+      ? reading.temperature
+      : definition.id === "humidity"
+        ? reading.humidity
+        : measurementValue(reading, definition.id);
     return value == null ? [] : [{
       sensorId: reading.sensorId,
       metric: definition.id,

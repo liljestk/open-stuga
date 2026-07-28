@@ -8,6 +8,7 @@ import {
   Compass,
   ExternalLink,
   Home,
+  Hourglass,
   LocateFixed,
   Link2,
   LoaderCircle,
@@ -15,6 +16,7 @@ import {
   MapPin,
   Maximize2,
   Move,
+  Pencil,
   RadioTower,
   RefreshCw,
   Router,
@@ -49,11 +51,42 @@ import { useI18n } from "../../i18n";
 import { integrationForHouse } from "../../integrationScope";
 import { AutomationSetupPanel } from "../AutomationSetupPanel";
 import { SetupOperationsPanel } from "../SetupOperationsPanel";
-import { ACTIVE_TP_LINK_EXPORT_STATUSES, HouseLocationMap, RETRYABLE_TP_LINK_EXPORT_STATUSES, TP_LINK_CHILD_DISCOVERY_ATTEMPTS, TP_LINK_CHILD_DISCOVERY_INTERVAL_MS, TP_LINK_EXPORT_PROVIDER_KEYS, TP_LINK_EXPORT_STATUS_KEYS, connectionError, dateTime, decimal, defaultFootprintWidthMeters, floorPlanSize, footprintFloorFor, mapLocation, placementForm, setupSectionFromPath, setupSectionOrder, validTimeZone, waitForChildDiscoveryAttempt, writeSetupSection } from "./support";
+import { ConnectionSourceManager } from "./ConnectionSourceManager";
+import { ACTIVE_TP_LINK_EXPORT_STATUSES, HouseLocationMap, RETRYABLE_TP_LINK_EXPORT_STATUSES, TP_LINK_EXPORT_PROVIDER_KEYS, TP_LINK_EXPORT_STATUS_KEYS, connectionError, dateTime, decimal, defaultFootprintWidthMeters, floorPlanSize, footprintFloorFor, mapLocation, placementForm, setupSectionFromPath, setupSectionOrder, validTimeZone, writeSetupSection } from "./support";
 import type { DiscoveryOutcome, Feedback, HouseFloor, IntegrationsPageProps, SetupSection, TpLinkChildDiscovery } from "./support";
 import { useIntegrationsPagePart06 } from "./part-06";
 export function renderIntegrationsPage(context: ReturnType<typeof useIntegrationsPagePart06>) {
-  const { aggregateIntegration, initialHouse, houses, connectionHouses, streamConnection, tpLinkDevicesLoading, tpLinkDevicesError, onHouse, onHouseUpdate, onGeoreferenceChange, onIntegrationChange, onRefreshTpLinkDevices, onDisconnectHomeAssistant, onDisconnectTpLink, onMoveHomeAssistant, onMoveTpLink, onOpenSensors, onOpenLayout, locale, t, setupHouseId, setSetupHouseId, house, integration, activeSection, setActiveSection, mapLoaded, setMapLoaded, testing, setTesting, result, setResult, homeAssistantTestGeneration, discoveryGeneration, automaticallyScannedHouseId, inventoryRefreshGeneration, historyExportRequestGeneration, testingDirect, setTestingDirect, directResult, setDirectResult, tpLinkTestGeneration, validatedTpLinkDraft, setValidatedTpLinkDraft, discovering, setDiscovering, discovery, setDiscovery, discoveryOutcome, setDiscoveryOutcome, tpLinkSettingsOpen, setTpLinkSettingsOpen, tpLinkHost, setTpLinkHost, tpLinkHostDraft, tpLinkUsername, setTpLinkUsername, tpLinkPassword, setTpLinkPassword, showTpLinkPassword, setShowTpLinkPassword, savingTpLink, setSavingTpLink, tpLinkFeedback, setTpLinkFeedback, refreshingTpLinkInventory, setRefreshingTpLinkInventory, tpLinkInventoryRefreshFailed, setTpLinkInventoryRefreshFailed, tpLinkExportEnabled, setTpLinkExportEnabled, tpLinkExportJobs, setTpLinkExportJobs, tpLinkExportAutomation, setTpLinkExportAutomation, tpLinkExportJobsLoading, setTpLinkExportJobsLoading, tpLinkExportJobsError, setTpLinkExportJobsError, busyTpLinkExportJobId, setBusyTpLinkExportJobId, tpLinkCanaryTargets, setTpLinkCanaryTargets, tpLinkCanarySensorId, setTpLinkCanarySensorId, tpLinkCanaryMetric, setTpLinkCanaryMetric, tpLinkCanaryRunning, setTpLinkCanaryRunning, tpLinkChildDiscovery, setTpLinkChildDiscovery, tpLinkChildDiscoveryAbort, tpLinkChildDiscoveryKey, tpLinkChildDiscoveryRunning, haUrl, setHaUrl, haToken, setHaToken, showHaToken, setShowHaToken, savingHomeAssistant, setSavingHomeAssistant, homeAssistantFeedback, setHomeAssistantFeedback, busyAssignment, setBusyAssignment, assignmentHouseDrafts, setAssignmentHouseDrafts, assignmentFeedback, setAssignmentFeedback, validatedHomeAssistantDraft, setValidatedHomeAssistantDraft, latitude, setLatitude, longitude, setLongitude, locationLabel, setLocationLabel, timezone, setTimezone, locationValidationAttempted, setLocationValidationAttempted, placementLatitude, setPlacementLatitude, placementLongitude, setPlacementLongitude, footprintFloorId, setFootprintFloorId, footprintWidthMeters, setFootprintWidthMeters, placementEditing, setPlacementEditing, mapViewport, setMapViewport, orientation, setOrientation, savingLocation, setSavingLocation, locationFeedback, setLocationFeedback, savingPlacement, setSavingPlacement, placementFeedback, setPlacementFeedback, activeSetupHouseId, locationRequestGeneration, placementRequestGeneration, localDateTime, managedHouseIds, homeAssistantAssignments, tpLinkAssignments, beginLocationRequest, isCurrentLocationRequest, beginPlacementRequest, isCurrentPlacementRequest, stopTpLinkChildDiscovery, tpLinkDraftKey, homeAssistantDraftKey, changeTpLinkDraft, changeHomeAssistantDraft, draftLocation, coordinateValidationVisible, timezoneValidationVisible, selectedFootprintFloor, selectedPlanSize, draftMapLocation, draftPlacement, draftOrientation, footprintDepthMeters, mapItems, orientationDirection, orientationExplanation, selectSetupHouse, disconnectHomeAssistantAssignment, disconnectTpLinkAssignment, moveHomeAssistantAssignment, moveTpLinkAssignment, testConnection, testDirectConnection, updateTpLinkCanaryTargets, loadTpLinkCanaryTargets, refreshTpLinkInventory, loadTpLinkExportJobs, runTpLinkCanary, retryTpLinkExportJob, cancelTpLinkExportJob, scanIntegrations, settleTpLinkChildren, saveTpLink, saveHomeAssistant, saveLocation, removeLocation, resetPlacementDraft, savePlacement, removePlacement, clearOrientation, updateFromMap, usePlacementForWeather, savePlacementForWeather, applyDiscoveredDefaults, discoveredCount, sensorHardwareDetected, sensorSourceConfigured, sensorSourceConnected, mappedSensorSources, tpLinkReadyDevices, tpLinkHubName, connectedSourceCount, assignmentCount, connectedSourceLabel, streamStatusLabel, tpLinkHealthState, tpLinkHealthLabel, tpLinkStatusTitle, connectionWorkspaceActive, steps, completeCount, nextStepIndex, nextStep, weatherHomes, notesGrantCount, selectedDiscoveredTpLink, selectedDiscoveredHomeAssistant, setupSections, activeSectionLabel, sectionHeading, sectionDescription, activateSection, handleSectionKeyDown, runRecommendedAction, recommendedActionLabel } = context;
+  const { aggregateIntegration, initialHouse, houses, connectionHouses, streamConnection, tpLinkDevicesLoading, tpLinkDevicesError, onHouse, onHouseUpdate, onGeoreferenceChange, onIntegrationChange, onRefreshTpLinkDevices, onDisconnectHomeAssistant, onDisconnectTpLink, onMoveHomeAssistant, onMoveTpLink, onOpenSensors, onOpenLayout, locale, t, setupHouseId, setSetupHouseId, house, integration, activeSection, setActiveSection, mapLoaded, setMapLoaded, testing, setTesting, result, setResult, homeAssistantTestGeneration, discoveryGeneration, automaticallyScannedHouseId, inventoryRefreshGeneration, historyExportRequestGeneration, testingDirect, setTestingDirect, directResult, setDirectResult, tpLinkTestGeneration, validatedTpLinkDraft, setValidatedTpLinkDraft, discovering, setDiscovering, discovery, setDiscovery, discoveryOutcome, setDiscoveryOutcome, connectionSetupOpen, setConnectionSetupOpen, tpLinkSettingsOpen, setTpLinkSettingsOpen, tpLinkHost, setTpLinkHost, tpLinkHostDraft, tpLinkUsername, setTpLinkUsername, tpLinkPassword, setTpLinkPassword, reuseSavedTpLinkAccount, setReuseSavedTpLinkAccount, showTpLinkPassword, setShowTpLinkPassword, savingTpLink, setSavingTpLink, tpLinkFeedback, setTpLinkFeedback, refreshingTpLinkInventory, setRefreshingTpLinkInventory, tpLinkInventoryRefreshFailed, setTpLinkInventoryRefreshFailed, tpLinkExportEnabled, setTpLinkExportEnabled, tpLinkExportJobs, setTpLinkExportJobs, tpLinkExportAutomation, setTpLinkExportAutomation, tpLinkExportJobsLoading, setTpLinkExportJobsLoading, tpLinkExportJobsError, setTpLinkExportJobsError, busyTpLinkExportJobId, setBusyTpLinkExportJobId, tpLinkCanaryTargets, setTpLinkCanaryTargets, tpLinkCanarySensorId, setTpLinkCanarySensorId, tpLinkCanaryMetric, setTpLinkCanaryMetric, tpLinkCanaryRunning, setTpLinkCanaryRunning, tpLinkChildDiscovery, setTpLinkChildDiscovery, tpLinkChildDiscoveryAbort, tpLinkChildDiscoveryKey, tpLinkChildDiscoveryRunning, haUrl, setHaUrl, haToken, setHaToken, showHaToken, setShowHaToken, savingHomeAssistant, setSavingHomeAssistant, homeAssistantFeedback, setHomeAssistantFeedback, busyAssignment, setBusyAssignment, assignmentHouseDrafts, setAssignmentHouseDrafts, assignmentFeedback, setAssignmentFeedback, validatedHomeAssistantDraft, setValidatedHomeAssistantDraft, latitude, setLatitude, longitude, setLongitude, locationLabel, setLocationLabel, timezone, setTimezone, locationValidationAttempted, setLocationValidationAttempted, placementLatitude, setPlacementLatitude, placementLongitude, setPlacementLongitude, footprintFloorId, setFootprintFloorId, footprintWidthMeters, setFootprintWidthMeters, placementEditing, setPlacementEditing, mapViewport, setMapViewport, orientation, setOrientation, savingLocation, setSavingLocation, locationFeedback, setLocationFeedback, savingPlacement, setSavingPlacement, placementFeedback, setPlacementFeedback, activeSetupHouseId, locationRequestGeneration, placementRequestGeneration, localDateTime, managedHouseIds, homeAssistantAssignments, tpLinkAssignments, beginLocationRequest, isCurrentLocationRequest, beginPlacementRequest, isCurrentPlacementRequest, stopTpLinkChildDiscovery, tpLinkDraftKey, homeAssistantDraftKey, changeTpLinkDraft, changeHomeAssistantDraft, draftLocation, coordinateValidationVisible, timezoneValidationVisible, selectedFootprintFloor, selectedPlanSize, draftMapLocation, draftPlacement, draftOrientation, footprintDepthMeters, mapItems, orientationDirection, orientationExplanation, selectSetupHouse, disconnectHomeAssistantAssignment, disconnectTpLinkAssignment, moveHomeAssistantAssignment, moveTpLinkAssignment, testConnection, testDirectConnection, updateTpLinkCanaryTargets, loadTpLinkCanaryTargets, refreshTpLinkInventory, loadTpLinkExportJobs, runTpLinkCanary, retryTpLinkExportJob, cancelTpLinkExportJob, scanIntegrations, settleTpLinkChildren, saveTpLink, saveHomeAssistant, saveLocation, removeLocation, resetPlacementDraft, savePlacement, removePlacement, clearOrientation, updateFromMap, usePlacementForWeather, savePlacementForWeather, applyDiscoveredDefaults, discoveredCount, sensorHardwareDetected, sensorSourceConfigured, sensorSourceConnected, mappedSensorSources, tpLinkReadyDevices, tpLinkHubName, connectedSourceCount, assignmentCount, connectedSourceLabel, streamStatusLabel, tpLinkHealthState, tpLinkHealthLabel, tpLinkStatusTitle, connectionWorkspaceActive, steps, completeCount, nextStepIndex, nextStep, weatherHomes, notesGrantCount, selectedDiscoveredTpLink, selectedDiscoveredHomeAssistant, setupSections, activeSectionLabel, sectionHeading, sectionDescription, activateSection, handleSectionKeyDown, runRecommendedAction, recommendedActionLabel } = context;
+  const editingTpLinkConnection = tpLinkAssignments.find((connection) => connection.id === context.tpLinkEditingConnectionId.current);
+  const editingTpLinkSourceName = editingTpLinkConnection?.sourceAlias ?? editingTpLinkConnection?.sourceModel
+    ?? (editingTpLinkConnection ? t("setup.sourceUnknownName") : null);
+  const reusableTpLinkSources = selectedDiscoveredTpLink && !editingTpLinkConnection
+    ? tpLinkAssignments.filter((connection) => connection.host !== selectedDiscoveredTpLink.host) : [];
+  const reusableTpLinkCredentialSource = reusableTpLinkSources.find((connection) => (
+    connection.houseId === house.id && connection.connected
+  )) ?? reusableTpLinkSources.find((connection) => connection.houseId === house.id)
+    ?? reusableTpLinkSources.find((connection) => connection.connected)
+    ?? reusableTpLinkSources[0];
+  const reusableTpLinkCredentialSourceHome = reusableTpLinkCredentialSource
+    ? connectionHouses.find((candidate) => candidate.id === reusableTpLinkCredentialSource.houseId) : undefined;
+  const reusableTpLinkCredentialSourceName = reusableTpLinkCredentialSource
+    ? reusableTpLinkCredentialSource.sourceAlias ?? reusableTpLinkCredentialSource.sourceModel
+      ?? reusableTpLinkCredentialSource.hubModel ?? t("setup.sourceUnknownName") : null;
+  const reusableTpLinkCredentialSourceLabel = reusableTpLinkCredentialSourceName
+    ? reusableTpLinkCredentialSourceHome && reusableTpLinkCredentialSourceHome.id !== house.id
+      ? `${reusableTpLinkCredentialSourceName} · ${reusableTpLinkCredentialSourceHome.name}`
+      : reusableTpLinkCredentialSourceName : null;
+  const importingWithSavedTpLinkAccount = Boolean(reusableTpLinkCredentialSource
+    && reusableTpLinkCredentialSourceLabel && reuseSavedTpLinkAccount);
+  const tpLinkInventoryNeedsAttention = Boolean(tpLinkDevicesError || tpLinkInventoryRefreshFailed);
+  const aggregateTpLinkErrorVisible = Boolean(integration.tpLink.error)
+    && !tpLinkAssignments.some((connection) => connection.error === integration.tpLink.error);
+  const showTpLinkSetupStatus = tpLinkAssignments.length === 0
+    || tpLinkReadyDevices > 0
+    || aggregateTpLinkErrorVisible
+    || tpLinkInventoryNeedsAttention
+    || refreshingTpLinkInventory
+    || tpLinkChildDiscovery.phase !== "idle";
   return (
       <>
         <header className="page-heading">
@@ -112,64 +145,71 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
             </details>
           </section>}
           <div className="setup-side">
-            {activeSection === "connections" && integration.tpLink.configured && <section
-              className={`panel tp-link-live-status ${tpLinkHealthState}`}
+            {activeSection === "connections" && assignmentCount > 0 && <ConnectionSourceManager
+              connectionHouses={connectionHouses}
+              homeAssistantAssignments={homeAssistantAssignments}
+              tpLinkAssignments={tpLinkAssignments}
+              busyAssignment={busyAssignment}
+              assignmentHouseDrafts={assignmentHouseDrafts}
+              assignmentFeedback={assignmentFeedback}
+              onAssignmentHouseDraft={(key, houseId) => setAssignmentHouseDrafts((current) => ({ ...current, [key]: houseId }))}
+              onMoveHomeAssistant={(fromHouseId, targetHouseId) => void moveHomeAssistantAssignment(fromHouseId, targetHouseId)}
+              onDisconnectHomeAssistant={(houseId) => void disconnectHomeAssistantAssignment(houseId)}
+              onMoveTpLink={(connectionId, fromHouseId, targetHouseId) => void moveTpLinkAssignment(connectionId, fromHouseId, targetHouseId)}
+              onDisconnectTpLink={(connectionId, houseId) => void disconnectTpLinkAssignment(connectionId, houseId)}
+              onEditTpLink={(connection) => {
+                context.tpLinkEditingConnectionId.current = connection.id;
+                changeTpLinkDraft("host", connection.host ?? "");
+                setTpLinkFeedback(null);
+                setConnectionSetupOpen(true);
+                setTpLinkSettingsOpen(true);
+                queueMicrotask(() => document.getElementById("tp-link-host")?.focus());
+              }}
+              formatDateTime={localDateTime}
+            />}
+            {activeSection === "connections" && integration.tpLink.configured && showTpLinkSetupStatus && <section
+              className={`panel tp-link-setup-status ${tpLinkReadyDevices > 0 ? "ready" : ""}`}
               aria-label={t("setup.tpLinkLiveRegion")}
-              aria-busy={tpLinkDevicesLoading || refreshingTpLinkInventory}
+              aria-busy={refreshingTpLinkInventory}
             >
-              <header className="tp-link-live-header">
+              {tpLinkAssignments.length === 0 && <header className="tp-link-live-header">
                 <span className={`tp-link-live-icon ${tpLinkHealthState}`} aria-hidden="true"><Router size={24} /></span>
                 <span className="tp-link-live-copy">
-                  <span className="eyebrow">{t("setup.tpLinkLiveEyebrow")}</span>
                   <h2 id="tp-link-live-status-heading">{tpLinkStatusTitle}</h2>
                   <p>{t(integration.tpLink.connected ? "setup.tpLinkConnectedBody" : "setup.tpLinkConnectingBody")}</p>
                 </span>
                 <span className={`source-health-pill ${tpLinkHealthState}`} role="status"><span aria-hidden="true" />{tpLinkHealthLabel}</span>
-              </header>
+              </header>}
 
-              {onOpenSensors && <div className="tp-link-live-next">
-                <span><strong>{t("setup.tpLinkDeviceSummary", { mapped: integration.tpLink.mappedDevices, ready: tpLinkReadyDevices })}</strong><small>{t("setup.childFoundDetail")}</small></span>
-                <button type="button" className="primary-button" onClick={onOpenSensors}><ThermometerSun size={16} aria-hidden="true" />{t("setup.childOpenSensors")}</button>
+              {tpLinkReadyDevices > 0 && <div className="tp-link-ready-action">
+                <span className="tp-link-ready-icon" aria-hidden="true"><ThermometerSun size={20} /></span>
+                <span><strong>{t("setup.tpLinkReadyTitle", { count: tpLinkReadyDevices })}</strong><small>{t("setup.tpLinkReadyBody")}</small></span>
+                {onOpenSensors && <button type="button" className="primary-button" onClick={() => onOpenSensors()}>{t("setup.tpLinkReadyAction")}</button>}
               </div>}
 
-              {integration.tpLink.error && <div className={`tp-link-live-alert ${integration.tpLink.connected ? "warning" : "error"}`} role="alert"><TriangleAlert size={17} aria-hidden="true" /><span><strong>{t(integration.tpLink.connected ? "setup.tpLinkWarning" : "setup.tpLinkConnectionError")}</strong><small>{integration.tpLink.error}</small></span></div>}
-              {(tpLinkDevicesError || tpLinkInventoryRefreshFailed) && <div className="tp-link-live-alert error" role="alert"><TriangleAlert size={17} aria-hidden="true" /><span><strong>{t("setup.tpLinkInventoryError")}</strong><small>{t("setup.tpLinkInventoryErrorDetail")}</small></span></div>}
-              {(tpLinkDevicesLoading || refreshingTpLinkInventory) && <p className="tp-link-inventory-refresh" role="status"><LoaderCircle className="spin" size={16} aria-hidden="true" />{t("setup.tpLinkInventoryRefreshing")}</p>}
+              {aggregateTpLinkErrorVisible && <div className={`tp-link-live-alert ${integration.tpLink.connected ? "warning" : "error"}`} role="alert"><TriangleAlert size={17} aria-hidden="true" /><span><strong>{t(integration.tpLink.connected ? "setup.tpLinkWarning" : "setup.tpLinkConnectionError")}</strong><small>{integration.tpLink.error}</small></span></div>}
+              {tpLinkInventoryNeedsAttention && <>
+                <div className="tp-link-live-alert error" role="alert"><TriangleAlert size={17} aria-hidden="true" /><span><strong>{t("setup.tpLinkInventoryError")}</strong><small>{t("setup.tpLinkInventoryErrorDetail")}</small></span></div>
+                <div className="tp-link-recovery-action">
+                  <button type="button" className="secondary-button" disabled={refreshingTpLinkInventory} onClick={() => void refreshTpLinkInventory()}><RefreshCw size={16} aria-hidden="true" />{t("setup.tpLinkRetryNow")}</button>
+                </div>
+              </>}
+              {refreshingTpLinkInventory && <p className="tp-link-inventory-refresh" role="status"><LoaderCircle className="spin" size={16} aria-hidden="true" />{t("setup.tpLinkInventoryRefreshing")}</p>}
 
               {tpLinkChildDiscovery.phase !== "idle" && <div className={`tp-link-child-discovery ${tpLinkChildDiscovery.phase}`} aria-busy={tpLinkChildDiscovery.phase === "settling"}>
                 {tpLinkChildDiscovery.phase === "settling" && <>
                   <p className="setup-discovery-message" role="status"><LoaderCircle className="spin" size={18} aria-hidden="true" /><span><strong>{t("setup.childSettling", { hub: tpLinkChildDiscovery.hubModel ?? t("setup.tpLinkHub") })}</strong><small>{t("setup.childSettlingDetail", { hub: tpLinkChildDiscovery.hubModel ?? t("setup.tpLinkHub") })}</small></span></p>
-                  <div className="child-discovery-progress" role="progressbar" aria-label={t("setup.childProgress", { attempt: tpLinkChildDiscovery.attempt, total: TP_LINK_CHILD_DISCOVERY_ATTEMPTS })} aria-valuemin={1} aria-valuemax={TP_LINK_CHILD_DISCOVERY_ATTEMPTS} aria-valuenow={tpLinkChildDiscovery.attempt}><span style={{ width: `${tpLinkChildDiscovery.attempt / TP_LINK_CHILD_DISCOVERY_ATTEMPTS * 100}%` }} /></div>
                 </>}
                 {tpLinkChildDiscovery.phase === "found" && <p className="setup-discovery-message" role="status"><Check size={18} aria-hidden="true" /><span><strong>{t("setup.childFound", { count: tpLinkChildDiscovery.count })}</strong><small>{t("setup.childFoundDetail")}</small></span></p>}
                 {tpLinkChildDiscovery.phase === "empty" && <p className="setup-discovery-message" role="status"><CircleDot size={18} aria-hidden="true" /><span><strong>{t("setup.childEmpty")}</strong><small>{t("setup.childEmptyDetail")}</small></span></p>}
                 {tpLinkChildDiscovery.phase === "error" && <p className="setup-discovery-message" role="alert"><TriangleAlert size={18} aria-hidden="true" /><span><strong>{t("setup.childError")}</strong><small>{t("setup.childErrorDetail")}</small></span></p>}
                 {tpLinkChildDiscovery.phase !== "settling" && <div className="child-discovery-actions">
-                  <button type="button" className="secondary-button" onClick={() => void settleTpLinkChildren(tpLinkChildDiscovery.hubModel)}><RefreshCw size={16} aria-hidden="true" />{t("setup.childRetry")}</button>
+                  {tpLinkChildDiscovery.phase === "found" && onOpenSensors
+                    ? <button type="button" className="primary-button" onClick={() => onOpenSensors()}><ThermometerSun size={16} aria-hidden="true" />{t("setup.tpLinkReadyAction")}</button>
+                    : <button type="button" className="secondary-button" onClick={() => void settleTpLinkChildren(tpLinkChildDiscovery.hubModel)}><RefreshCw size={16} aria-hidden="true" />{t("setup.childRetry")}</button>}
                 </div>}
               </div>}
 
-              <details className="setup-config-disclosure tp-link-detail-disclosure">
-                <summary><span><Link2 size={16} aria-hidden="true" />{t("setup.tpLinkDetails")}</span><small>{t("setup.tpLinkDetailsSummary")}</small></summary>
-                <div className="tp-link-detail-content">
-                  <dl className="tp-link-live-metrics">
-                    <div><dt>{t("setup.tpLinkSource")}</dt><dd>TP-Link {tpLinkHubName}</dd></div>
-                    <div><dt>{t("setup.tpLinkLastPoll")}</dt><dd>{integration.tpLink.lastPollAt ? <time dateTime={integration.tpLink.lastPollAt}>{localDateTime(integration.tpLink.lastPollAt) ?? "—"}</time> : t("setup.tpLinkNoPoll")}</dd></div>
-                    <div><dt>{t("setup.tpLinkDiscovered")}</dt><dd>{integration.tpLink.discoveredDevices}</dd></div>
-                    <div><dt>{t("setup.tpLinkMapped")}</dt><dd>{integration.tpLink.mappedDevices}</dd></div>
-                    <div><dt>{t("setup.tpLinkReady")}</dt><dd>{tpLinkReadyDevices}</dd></div>
-                  </dl>
-                  <div className="tp-link-polling-note">
-                    <RadioTower size={17} aria-hidden="true" />
-                    <span><strong>{streamStatusLabel}</strong><small>{t(`setup.streamHelp.${streamConnection}`)}</small></span>
-                  </div>
-                  <div className="tp-link-live-actions">
-                    <button type="button" className="secondary-button" disabled={tpLinkDevicesLoading || refreshingTpLinkInventory} onClick={() => void refreshTpLinkInventory()}>{tpLinkDevicesLoading || refreshingTpLinkInventory ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <RefreshCw size={16} aria-hidden="true" />}{t("setup.tpLinkRefreshInventory")}</button>
-                    <button type="button" className="secondary-button" disabled={testingDirect} onClick={() => void testDirectConnection()}>{testingDirect ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Router size={16} aria-hidden="true" />}{testingDirect ? t("setup.scanning") : t("setup.testDirect")}</button>
-                  </div>
-                  {directResult && <p className={`test-result ${directResult}`} role={directResult === "failure" ? "alert" : "status"}>{directResult === "success" ? <ShieldCheck size={17} aria-hidden="true" /> : <CircleDot size={17} aria-hidden="true" />}{directResult === "success" ? t("setup.directTestSuccess") : t("setup.directTestFailure")}</p>}
-                </div>
-              </details>
             </section>}
             {activeSection === "connections" && integration.tpLink.configured && <details className="panel connection-card connection-tool-disclosure" aria-labelledby="tp-link-history-export-heading">
               <summary className="connection-card-summary">
@@ -233,69 +273,118 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
                 </div>}
               </div>
             </details>}
-            {activeSection === "connections" && <details className={`panel connection-card discovery-card ${sensorSourceConfigured ? "optional" : ""}`} aria-labelledby="network-discovery-heading" open={!sensorSourceConfigured || discovering || discoveryOutcome !== "idle"}>
+            {activeSection === "connections" && <details id="connection-setup-disclosure" className={`panel connection-card discovery-card ${sensorSourceConfigured ? "optional" : ""}`} aria-labelledby="network-discovery-heading" open={connectionSetupOpen} onToggle={(event) => setConnectionSetupOpen(event.currentTarget.open)}>
               <summary className="connection-card-summary">
                 <span className="connection-card-summary-copy"><span className="eyebrow">{t(sensorSourceConfigured ? "setup.addConnectionEyebrow" : "setup.scanTitle")}</span><strong id="network-discovery-heading">{t(sensorSourceConfigured ? "setup.addConnectionTitle" : "setup.scanDescription")}</strong><small>{t(sensorSourceConfigured ? "setup.addConnectionDescription" : "setup.scanScope")}</small></span>
                 <span className="ha-mark" aria-hidden="true"><RadioTower size={22} /></span>
               </summary>
               <div className="discovery-card-content">
                 <div className="connection-check guided-setup">
-                <button type="button" className={`${sensorSourceConfigured ? "secondary-button" : "primary-button"} full-width`} disabled={discovering} onClick={() => void scanIntegrations()}>{discovering ? <LoaderCircle className="spin" size={17} aria-hidden="true" /> : <RefreshCw size={17} aria-hidden="true" />}{discovering ? t("setup.scanning") : t(sensorSourceConfigured ? "setup.findAdditionalSystems" : "setup.scan")}</button>
+                {!discovering && <button type="button" className={`${sensorSourceConfigured ? "secondary-button" : "primary-button"} full-width`} onClick={() => void scanIntegrations()}><RefreshCw size={17} aria-hidden="true" />{t(sensorSourceConfigured ? "setup.findAdditionalSystems" : "setup.scan")}</button>}
                 <div className={`setup-discovery-feedback ${discovering ? "running" : discoveryOutcome}`} aria-live="polite" aria-busy={discovering}>
-                  {discovering && <p className="setup-discovery-message" role="status"><LoaderCircle className="spin" size={18} aria-hidden="true" /><span><strong>{t("setup.scanning")}</strong><small>{t("setup.scanProgress")}</small></span></p>}
+                  {discovering && <p className="setup-discovery-message" role="status"><LoaderCircle className="spin setup-discovery-spin-icon" size={18} aria-hidden="true" /><Hourglass className="setup-discovery-wait-icon" size={18} aria-hidden="true" /><span><strong>{t("setup.scanning")}</strong><small>{t("setup.scanProgress")}</small></span></p>}
                   {!discovering && discoveryOutcome === "found" && <p className="setup-discovery-message" role="status"><Check size={18} aria-hidden="true" /><span><strong>{t("setup.scanFound", { count: discoveredCount })}</strong><small>{t("setup.scanComplete")}</small></span></p>}
                   {!discovering && discoveryOutcome === "empty" && <p className="setup-discovery-message" role="status"><CircleDot size={18} aria-hidden="true" /><span><strong>{t(sensorSourceConfigured ? "setup.scanAdditionalEmpty" : "setup.scanEmpty")}</strong><small>{t(sensorSourceConfigured ? "setup.scanAdditionalEmptyDetail" : "setup.noDevices")}</small></span></p>}
                   {!discovering && discoveryOutcome === "error" && <p className="setup-discovery-message" role="alert"><TriangleAlert size={18} aria-hidden="true" /><span><strong>{t("setup.scanError")}</strong><small>{t("setup.scanPartial")}</small></span></p>}
                   {!discovering && discoveryOutcome === "found" && (discovery?.warnings.length ?? 0) > 0 && <p className="setup-discovery-partial"><TriangleAlert size={15} aria-hidden="true" />{t("setup.scanPartial")}</p>}
                   {!discovering && discovery && discovery.warnings.length > 0 && <ul className="setup-discovery-warnings">{discovery.warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul>}
                 </div>
+                <details className="advanced-setup tp-link-compatibility-help">
+                  <summary>{t("setup.tapoCompatibilityTitle")}</summary>
+                  <p className="setup-scan-scope">{t("setup.tapoCompatibilityHelp")}</p>
+                </details>
                 </div>
-              </div>
-            </details>}
-            {activeSection === "connections" && <section className="panel connection-card" aria-labelledby="direct-connection-heading">
+                <div className="connection-provider-options">
+            {activeSection === "connections" && <section className="connection-provider" aria-labelledby="direct-connection-heading">
               <div className="panel-header"><div><span className="eyebrow">{t("setup.directTitle")}</span><h2 id="direct-connection-heading">{t("setup.directConnectionTitle")}</h2></div><span className="ha-mark" aria-hidden="true"><Router size={22} /></span></div>
               <p className="connection-card-description">{t("setup.directDescription")}</p>
+              {tpLinkFeedback?.kind === "success" && !tpLinkSettingsOpen && <p className="configured-note connection-save-confirmation" role="status" aria-live="polite"><Check size={17} aria-hidden="true" /><span>{tpLinkFeedback.message}</span></p>}
+              <details className="setup-config-disclosure" open={tpLinkSettingsOpen} onToggle={(event) => {
+                setTpLinkSettingsOpen(event.currentTarget.open);
+                if (event.currentTarget.open && tpLinkFeedback?.kind === "success") setTpLinkFeedback(null);
+                if (!event.currentTarget.open) context.tpLinkEditingConnectionId.current = null;
+              }}>
+                <summary><span><Router size={16} aria-hidden="true" />{editingTpLinkSourceName
+                  ? t("setup.updateSourceTitle", { source: editingTpLinkSourceName })
+                  : selectedDiscoveredTpLink
+                    ? t("setup.addDiscoveredTpLinkTitle", { device: selectedDiscoveredTpLink.alias ?? `TP-Link ${selectedDiscoveredTpLink.model}` })
+                    : t("setup.manualConnection")}</span><small>{editingTpLinkConnection?.host
+                       ?? (selectedDiscoveredTpLink
+                         ? `${selectedDiscoveredTpLink.model} · ${selectedDiscoveredTpLink.host}`
+                         : t("setup.manualHost"))}</small></summary>
               {discovery && discovery.tpLink.length > 0 && <fieldset className="discovery-results setup-found-results"><legend>{t("setup.selectTpLink")}</legend>{discovery.tpLink.map((source) => <label key={source.host}><input type="radio" name="tp-link-discovery" value={source.host} checked={tpLinkHost === source.host} disabled={savingTpLink} onChange={() => changeTpLinkDraft("host", source.host)} /><span><strong>{source.alias ?? `TP-Link ${source.model}`}</strong><small>{t(source.sourceType === "energy-device" ? "setup.tpLinkEnergyDevice" : "setup.tpLinkHub")} · {source.model} · {source.host}</small></span></label>)}</fieldset>}
-              <p className="setup-help setup-child-discovery-explainer">{t(integration.tpLink.configured ? "setup.tpLinkSettingsDescription" : "setup.childDiscoveryExplainer")}</p>
+              <p className="setup-help setup-child-discovery-explainer">{t(selectedDiscoveredTpLink
+                ? reusableTpLinkCredentialSource ? "setup.reuseDiscoveredTpLinkDescription" : "setup.addDiscoveredTpLinkDescription"
+                : editingTpLinkSourceName ? "setup.tpLinkSettingsDescription"
+                  : integration.tpLink.configured ? "setup.addManualTpLinkDescription" : "setup.childDiscoveryExplainer")}</p>
               {!integration.tpLink.configured && (discoveryOutcome === "error" || (discovery && discovery.tpLink.length === 0)) && <p className="setup-help setup-manual-fallback">{t("setup.tpLinkManualFallback")}</p>}
-              <details className="setup-config-disclosure" open={tpLinkSettingsOpen} onToggle={(event) => setTpLinkSettingsOpen(event.currentTarget.open)}>
-                <summary><span><Router size={16} aria-hidden="true" />{selectedDiscoveredTpLink ? selectedDiscoveredTpLink.alias ?? `TP-Link ${selectedDiscoveredTpLink.model}` : t(integration.tpLink.configured ? "setup.changeSavedTpLink" : "setup.manualConnection")}</span><small>{selectedDiscoveredTpLink ? `${selectedDiscoveredTpLink.model} · ${selectedDiscoveredTpLink.host}` : t(integration.tpLink.configured ? "setup.credentialsSavedShort" : "setup.manualHost")}</small></summary>
-              {tpLinkSettingsOpen && <form className="connection-check guided-setup" onSubmit={(event) => void saveTpLink(event)}>
-                {integration.tpLink.configured && <p className="configured-note"><Check size={17} aria-hidden="true" />{t("setup.configured")}</p>}
+              {tpLinkSettingsOpen && <form className="connection-check guided-setup" onSubmit={(event) => void saveTpLink(
+                event,
+                importingWithSavedTpLinkAccount ? reusableTpLinkCredentialSource?.id : undefined,
+              )}>
+                {editingTpLinkSourceName
+                  ? <p className="configured-note"><Pencil size={17} aria-hidden="true" />{t("setup.updatingSource", { source: editingTpLinkSourceName })}</p>
+                  : null}
                 <label className="field" htmlFor="tp-link-host"><span>{t("setup.host")}</span><input id="tp-link-host" type="text" value={tpLinkHost} maxLength={253} placeholder={t("setup.hostPlaceholder")} aria-describedby="tp-link-host-help" autoCapitalize="none" autoCorrect="off" disabled={savingTpLink} onChange={(event) => changeTpLinkDraft("host", event.target.value)} required /></label>
                 <p className="setup-help" id="tp-link-host-help">{t("setup.hostHelp")}</p>
-                <label className="field" htmlFor="tp-link-username"><span>{t("setup.username")}</span><input id="tp-link-username" type="email" value={tpLinkUsername} maxLength={320} aria-describedby="tp-link-username-help" autoComplete="username" disabled={savingTpLink} onChange={(event) => changeTpLinkDraft("username", event.target.value)} required /></label>
-                <p className="setup-help" id="tp-link-username-help">{t("setup.usernameHelp")}</p>
-                <label className="field" htmlFor="tp-link-password"><span>{t("setup.password")}</span><input id="tp-link-password" type={showTpLinkPassword ? "text" : "password"} value={tpLinkPassword} maxLength={4096} autoComplete="current-password" disabled={savingTpLink} onChange={(event) => changeTpLinkDraft("password", event.target.value)} required /></label>
-                <label className="show-secret"><input type="checkbox" checked={showTpLinkPassword} onChange={(event) => setShowTpLinkPassword(event.target.checked)} /><span>{t("setup.showSecret")}</span></label>
-                <p className="security-note"><LockKeyhole size={15} aria-hidden="true" />{t("setup.security")}</p>
-                <button type="submit" className="primary-button full-width" disabled={savingTpLink || testingDirect}>{savingTpLink ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <LockKeyhole size={16} aria-hidden="true" />}{savingTpLink ? t("common.saving") : t("setup.saveConnect")}</button>
+                {reusableTpLinkCredentialSource && reusableTpLinkCredentialSourceLabel && <fieldset className="discovery-results tp-link-account-options">
+                  <legend>{t("setup.tpLinkAccountChoice")}</legend>
+                  <label>
+                    <input type="radio" name="tp-link-account-choice" value="saved" checked={reuseSavedTpLinkAccount} disabled={savingTpLink} onChange={() => {
+                      setReuseSavedTpLinkAccount(true);
+                      setTpLinkFeedback(null);
+                    }} />
+                    <span><strong>{t("setup.reuseSavedTpLinkAccount")}</strong><small>{t("setup.reuseSavedTpLinkAccountHelp", { source: reusableTpLinkCredentialSourceLabel })}</small></span>
+                  </label>
+                  <label>
+                    <input type="radio" name="tp-link-account-choice" value="different" checked={!reuseSavedTpLinkAccount} disabled={savingTpLink} onChange={() => {
+                      setReuseSavedTpLinkAccount(false);
+                      setTpLinkFeedback(null);
+                    }} />
+                    <span><strong>{t("setup.useDifferentTpLinkAccount")}</strong><small>{t("setup.useDifferentTpLinkAccountHelp")}</small></span>
+                  </label>
+                </fieldset>}
+                {!importingWithSavedTpLinkAccount && <>
+                  <label className="field" htmlFor="tp-link-username"><span>{t("setup.username")}</span><input id="tp-link-username" type="email" value={tpLinkUsername} maxLength={320} aria-describedby="tp-link-username-help" autoComplete="username" disabled={savingTpLink} onChange={(event) => changeTpLinkDraft("username", event.target.value)} required /></label>
+                  <p className="setup-help" id="tp-link-username-help">{t("setup.usernameHelp")}</p>
+                  <label className="field" htmlFor="tp-link-password"><span>{t("setup.password")}</span><input id="tp-link-password" type={showTpLinkPassword ? "text" : "password"} value={tpLinkPassword} maxLength={4096} autoComplete="current-password" disabled={savingTpLink} onChange={(event) => changeTpLinkDraft("password", event.target.value)} required /></label>
+                  <label className="show-secret"><input type="checkbox" checked={showTpLinkPassword} onChange={(event) => setShowTpLinkPassword(event.target.checked)} /><span>{t("setup.showSecret")}</span></label>
+                  <p className="security-note"><LockKeyhole size={15} aria-hidden="true" />{t("setup.security")}</p>
+                </>}
+                {importingWithSavedTpLinkAccount && <p className="security-note"><LockKeyhole size={15} aria-hidden="true" />{t("setup.savedTpLinkAccountSecurity")}</p>}
+                <button type="submit" className="primary-button full-width" disabled={savingTpLink || testingDirect}>{savingTpLink ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <LockKeyhole size={16} aria-hidden="true" />}{savingTpLink
+                  ? t("common.saving")
+                  : importingWithSavedTpLinkAccount
+                    ? t("setup.importTpLinkDevice", { device: selectedDiscoveredTpLink?.alias ?? selectedDiscoveredTpLink?.model ?? t("setup.tpLinkEnergyDevice") })
+                    : t("setup.saveConnect")}</button>
                 {tpLinkFeedback && <p className={`test-result ${tpLinkFeedback.kind}`} role={tpLinkFeedback.kind === "error" ? "alert" : "status"}>{tpLinkFeedback.kind === "success" ? <Check size={17} aria-hidden="true" /> : <TriangleAlert size={17} aria-hidden="true" />}{tpLinkFeedback.message}</p>}
                 {!integration.tpLink.configured && tpLinkChildDiscovery.phase !== "idle" && <div className={`tp-link-child-discovery ${tpLinkChildDiscovery.phase}`} aria-live="polite" aria-busy={tpLinkChildDiscovery.phase === "settling"}>
                   {tpLinkChildDiscovery.phase === "settling" && <>
                     <p className="setup-discovery-message" role="status"><LoaderCircle className="spin" size={18} aria-hidden="true" /><span><strong>{t("setup.childSettling", { hub: tpLinkChildDiscovery.hubModel ?? t("setup.tpLinkHub") })}</strong><small>{t("setup.childSettlingDetail", { hub: tpLinkChildDiscovery.hubModel ?? t("setup.tpLinkHub") })}</small></span></p>
-                    <div className="child-discovery-progress" role="progressbar" aria-label={t("setup.childProgress", { attempt: tpLinkChildDiscovery.attempt, total: TP_LINK_CHILD_DISCOVERY_ATTEMPTS })} aria-valuemin={1} aria-valuemax={TP_LINK_CHILD_DISCOVERY_ATTEMPTS} aria-valuenow={tpLinkChildDiscovery.attempt}><span style={{ width: `${tpLinkChildDiscovery.attempt / TP_LINK_CHILD_DISCOVERY_ATTEMPTS * 100}%` }} /></div>
                   </>}
                   {tpLinkChildDiscovery.phase === "found" && <p className="setup-discovery-message" role="status"><Check size={18} aria-hidden="true" /><span><strong>{t("setup.childFound", { count: tpLinkChildDiscovery.count })}</strong><small>{t("setup.childFoundDetail")}</small></span></p>}
                   {tpLinkChildDiscovery.phase === "empty" && <p className="setup-discovery-message" role="status"><CircleDot size={18} aria-hidden="true" /><span><strong>{t("setup.childEmpty")}</strong><small>{t("setup.childEmptyDetail")}</small></span></p>}
                   {tpLinkChildDiscovery.phase === "error" && <p className="setup-discovery-message" role="alert"><TriangleAlert size={18} aria-hidden="true" /><span><strong>{t("setup.childError")}</strong><small>{t("setup.childErrorDetail")}</small></span></p>}
                   {tpLinkChildDiscovery.phase !== "settling" && <div className="child-discovery-actions">
-                    <button type="button" className="secondary-button" onClick={() => void settleTpLinkChildren(tpLinkChildDiscovery.hubModel)}><RefreshCw size={16} aria-hidden="true" />{t("setup.childRetry")}</button>
-                    {onOpenSensors && <button type="button" className="primary-button" onClick={onOpenSensors}><ThermometerSun size={16} aria-hidden="true" />{t("setup.childOpenSensors")}</button>}
+                    {tpLinkChildDiscovery.phase === "found" && onOpenSensors
+                      ? <button type="button" className="primary-button" onClick={() => onOpenSensors()}><ThermometerSun size={16} aria-hidden="true" />{t("setup.tpLinkReadyAction")}</button>
+                      : <button type="button" className="secondary-button" onClick={() => void settleTpLinkChildren(tpLinkChildDiscovery.hubModel)}><RefreshCw size={16} aria-hidden="true" />{t("setup.childRetry")}</button>}
                   </div>}
                 </div>}
-                <button type="button" className="secondary-button full-width" disabled={testingDirect || savingTpLink} onClick={() => void testDirectConnection()}>{testingDirect ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Router size={16} aria-hidden="true" />}{testingDirect ? t("setup.scanning") : t("setup.testDirect")}</button>
-                {directResult && <p className={`test-result ${directResult}`} role={directResult === "failure" ? "alert" : "status"}>{directResult === "success" ? <ShieldCheck size={17} aria-hidden="true" /> : <CircleDot size={17} aria-hidden="true" />}{directResult === "success" ? t("setup.directTestSuccess") : t("setup.directTestFailure")}</p>}
-                <details className="advanced-setup"><summary>{t("setup.advanced")}</summary><pre className="env-example" aria-label={t("setup.directEnvironmentVariables")}><code>TP_LINK_HOST=192.0.2.10{"\n"}TP_LINK_USERNAME=user@example.com{"\n"}TP_LINK_PASSWORD=••••••••</code></pre></details>
+                {!importingWithSavedTpLinkAccount && <>
+                  <button type="button" className="secondary-button full-width" disabled={testingDirect || savingTpLink} onClick={() => void testDirectConnection()}>{testingDirect ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Router size={16} aria-hidden="true" />}{testingDirect ? t("setup.scanning") : t("setup.testDirect")}</button>
+                  {directResult && <p className={`test-result ${directResult}`} role={directResult === "failure" ? "alert" : "status"}>{directResult === "success" ? <ShieldCheck size={17} aria-hidden="true" /> : <CircleDot size={17} aria-hidden="true" />}{directResult === "success" ? t("setup.directTestSuccess") : t("setup.directTestFailure")}</p>}
+                  <details className="advanced-setup"><summary>{t("setup.advanced")}</summary><pre className="env-example" aria-label={t("setup.directEnvironmentVariables")}><code>TP_LINK_HOST=192.0.2.10{"\n"}TP_LINK_USERNAME=user@example.com{"\n"}TP_LINK_PASSWORD=••••••••</code></pre></details>
+                </>}
               </form>}
               </details>
             </section>}
-            {activeSection === "connections" && <section className="panel connection-card" aria-labelledby="connection-heading">
+            {activeSection === "connections" && <section className="connection-provider" aria-labelledby="connection-heading">
               <div className="panel-header"><div><span className="eyebrow">Home Assistant</span><h2 id="connection-heading">{t("setup.homeAssistantConnectionTitle")}</h2></div><span className="ha-mark" aria-hidden="true"><Home size={22} /></span></div>
               <p className="connection-card-description">{t("setup.homeAssistantConnectionDescription")}</p>
-              {discovery && discovery.homeAssistant.length > 0 && <fieldset className="discovery-results setup-found-results"><legend>{t("setup.selectHomeAssistant")}</legend>{discovery.homeAssistant.map((instance) => <label key={instance.url}><input type="radio" name="home-assistant-discovery" value={instance.url} checked={haUrl === instance.url} disabled={savingHomeAssistant} onChange={() => changeHomeAssistantDraft("url", instance.url)} /><span><strong>{instance.name}</strong><small>{instance.url}{instance.version ? ` · ${instance.version}` : ""}</small></span></label>)}</fieldset>}
               <details className="setup-config-disclosure">
                 <summary><span><Home size={16} aria-hidden="true" />{selectedDiscoveredHomeAssistant?.name ?? t("setup.manualConnection")}</span><small>{selectedDiscoveredHomeAssistant ? selectedDiscoveredHomeAssistant.url : t("setup.manualService")}</small></summary>
+              {discovery && discovery.homeAssistant.length > 0 && <fieldset className="discovery-results setup-found-results"><legend>{t("setup.selectHomeAssistant")}</legend>{discovery.homeAssistant.map((instance) => <label key={instance.url}><input type="radio" name="home-assistant-discovery" value={instance.url} checked={haUrl === instance.url} disabled={savingHomeAssistant} onChange={() => changeHomeAssistantDraft("url", instance.url)} /><span><strong>{instance.name}</strong><small>{instance.url}{instance.version ? ` · ${instance.version}` : ""}</small></span></label>)}</fieldset>}
               <form className="connection-check guided-setup" onSubmit={(event) => void saveHomeAssistant(event)}>
                 {integration.homeAssistant.configured && <p className="configured-note"><Check size={17} aria-hidden="true" />{t("setup.configured")}</p>}
                 <label className="field" htmlFor="home-assistant-url"><span>{t("setup.haUrl")}</span><input id="home-assistant-url" type="url" value={haUrl} maxLength={2048} placeholder={t("setup.haUrlPlaceholder")} aria-describedby="home-assistant-url-help" autoCapitalize="none" autoCorrect="off" disabled={savingHomeAssistant} onChange={(event) => changeHomeAssistantDraft("url", event.target.value)} required /></label>
@@ -310,62 +399,9 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
                 {result && <p className={`test-result ${result}`} role={result === "failure" ? "alert" : "status"}>{result === "success" ? <ShieldCheck size={17} aria-hidden="true" /> : <CircleDot size={17} aria-hidden="true" />}{result === "success" ? t("setup.testSuccess") : t("setup.testFailure")}</p>}
                 <details className="advanced-setup"><summary>{t("setup.advanced")}</summary><pre className="env-example" aria-label={t("setup.homeAssistantEnvironmentVariables")}><code>HA_URL=http://homeassistant.local:8123{"\n"}HA_TOKEN=••••••••</code></pre></details>
               </form>
-              </details>
-            </section>}
-            {activeSection === "connections" && <details className="panel connection-assignment-manager" aria-labelledby="connection-assignment-title">
-              <summary className="connection-manager-summary">
-                <span className="ha-mark" aria-hidden="true"><Link2 size={22} /></span>
-                <span className="connection-manager-summary-copy"><span className="eyebrow">{t("setup.connectionManagerEyebrow")}</span><strong id="connection-assignment-title">{t("setup.connectionManagerTitle")}</strong><small>{t("setup.connectionManagerCount", { count: assignmentCount })}</small></span>
-              </summary>
-              <div className="connection-assignment-content">
-                <p className="setup-help">{t("setup.connectionManagerBody")}</p>
-                {assignmentCount === 0
-                  ? <p className="connection-assignment-empty">{t("setup.noConnectionAssignments")}</p>
-                  : <div className="connection-assignment-list">
-                    {homeAssistantAssignments.map((assignment) => {
-                      const assignedHouse = connectionHouses.find((candidate) => candidate.id === assignment.houseId);
-                      const key = `ha:${assignment.houseId}`;
-                      const targetHouseId = assignmentHouseDrafts[key] ?? assignment.houseId;
-                      const targetHouse = connectionHouses.find((candidate) => candidate.id === targetHouseId);
-                      const sourceName = "Home Assistant";
-                      return <article key={key} className="connection-assignment-row">
-                        <span className={`status-symbol ${assignment.connected ? "positive" : ""}`} aria-hidden="true"><Home size={17} /></span>
-                        <span><strong>Home Assistant</strong><small>{t("setup.assignedToHome", { home: assignedHouse?.name ?? assignment.houseId })}</small></span>
-                        <label className="connection-assignment-home">
-                          <span>{t("setup.assignedHome")}</span>
-                          <select value={targetHouseId} disabled={busyAssignment !== null} aria-label={t("setup.assignedHomeFor", { source: sourceName })} onChange={(event) => setAssignmentHouseDrafts((current) => ({ ...current, [key]: event.target.value }))}>
-                            {connectionHouses.map((candidate) => <option key={candidate.id} value={candidate.id} disabled={candidate.id !== assignment.houseId && homeAssistantAssignments.some((current) => current.houseId === candidate.id)}>{candidate.name}</option>)}
-                          </select>
-                        </label>
-                        <div className="connection-assignment-actions">
-                          <button type="button" className="secondary-button" disabled={busyAssignment !== null || targetHouseId === assignment.houseId} aria-label={t("setup.moveHomeAssistantLabel", { home: targetHouse?.name ?? targetHouseId })} onClick={() => void moveHomeAssistantAssignment(assignment.houseId, targetHouseId)}>{busyAssignment === key ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Move size={14} aria-hidden="true" />}{t("setup.move")}</button>
-                          <button type="button" className="danger-button" disabled={busyAssignment !== null} aria-label={t("setup.disconnectHomeAssistantLabel", { home: assignedHouse?.name ?? assignment.houseId })} onClick={() => void disconnectHomeAssistantAssignment(assignment.houseId)}>{busyAssignment === key ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}{t("setup.disconnect")}</button>
-                        </div>
-                      </article>;
-                    })}
-                    {tpLinkAssignments.map((assignment) => {
-                      const assignedHouse = connectionHouses.find((candidate) => candidate.id === assignment.houseId);
-                      const key = `tp:${assignment.id}`;
-                      const targetHouseId = assignmentHouseDrafts[key] ?? assignment.houseId;
-                      const targetHouse = connectionHouses.find((candidate) => candidate.id === targetHouseId);
-                      const sourceName = `TP-Link ${assignment.hubModel ?? t("setup.tpLinkDefault")}`;
-                      return <article key={key} className="connection-assignment-row">
-                        <span className={`status-symbol ${assignment.connected ? "positive" : ""}`} aria-hidden="true"><Router size={17} /></span>
-                        <span><strong>{sourceName}</strong><small>{t(assignment.connected ? "common.connected" : "common.notConnected")}</small></span>
-                        <label className="connection-assignment-home">
-                          <span>{t("setup.assignedHome")}</span>
-                          <select value={targetHouseId} disabled={busyAssignment !== null} aria-label={t("setup.assignedHomeFor", { source: sourceName })} onChange={(event) => setAssignmentHouseDrafts((current) => ({ ...current, [key]: event.target.value }))}>
-                            {connectionHouses.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
-                          </select>
-                        </label>
-                        <div className="connection-assignment-actions">
-                          <button type="button" className="secondary-button" disabled={busyAssignment !== null || targetHouseId === assignment.houseId} aria-label={t("setup.moveTpLinkLabel", { home: targetHouse?.name ?? targetHouseId })} onClick={() => void moveTpLinkAssignment(assignment.id, assignment.houseId, targetHouseId)}>{busyAssignment === key ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Move size={14} aria-hidden="true" />}{t("setup.move")}</button>
-                          <button type="button" className="danger-button" disabled={busyAssignment !== null} aria-label={t("setup.disconnectTpLinkLabel", { home: assignedHouse?.name ?? assignment.houseId })} onClick={() => void disconnectTpLinkAssignment(assignment.id, assignment.houseId)}>{busyAssignment === key ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}{t("setup.disconnect")}</button>
-                        </div>
-                      </article>;
-                    })}
-                  </div>}
-                {assignmentFeedback && <p className={`test-result ${assignmentFeedback.kind}`} role={assignmentFeedback.kind === "error" ? "alert" : "status"}>{assignmentFeedback.kind === "success" ? <Check size={17} aria-hidden="true" /> : <TriangleAlert size={17} aria-hidden="true" />}{assignmentFeedback.message}</p>}
+               </details>
+             </section>}
+                </div>
               </div>
             </details>}
             {activeSection === "overview" && <section className="panel integration-status" aria-label={t("status.dataSource")}>

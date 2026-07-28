@@ -284,6 +284,76 @@ registerDatabaseMethods({
         quality: row.has_good ? "good" : "estimated",
       }));
     },
+  /**
+     * Bounded, aligned temperature and humidity buckets for moisture-response fitting.
+     * Each metric receives its own limit so dense temperature telemetry cannot crowd
+     * humidity out of the requested evidence window.
+     */
+  thermalClimateHistory(
+      sensorId: string,
+      from: string,
+      to: string,
+      bucketMinutes = 5,
+      limitPerMetric = 5_000,
+    ): MeasurementSample[] {
+      if (!Number.isInteger(bucketMinutes) || bucketMinutes < 1 || bucketMinutes > 60) {
+        throw new ClimateDataValidationError(400, "INVALID_BUCKET_SIZE", "Climate bucket size must be 1 to 60 minutes");
+      }
+      if (!Number.isInteger(limitPerMetric) || limitPerMetric < 1 || limitPerMetric > 20_000) {
+        throw new ClimateDataValidationError(400, "INVALID_LIMIT", "Climate history limit must be 1 to 20000 per metric");
+      }
+      const bucketSeconds = bucketMinutes * 60;
+      const rows = this.db.prepare(`WITH source_rows AS (
+          SELECT
+            metric,
+            CAST(CAST(strftime('%s', timestamp) AS INTEGER) / ? AS INTEGER) * ? AS bucket_epoch,
+            value,
+            canonical_unit,
+            source,
+            quality,
+            CASE quality WHEN 'estimated' THEN 0.25 ELSE 1.0 END AS sample_weight
+          FROM measurement_samples
+          WHERE sensor_id = ? AND metric IN ('temperature', 'humidity')
+            AND timestamp >= ? AND timestamp <= ?
+            AND quality <> 'stale' AND source <> 'replay'
+        ), aggregated AS (
+          SELECT
+            metric,
+            bucket_epoch,
+            SUM(value * sample_weight) / SUM(sample_weight) AS value,
+            MAX(canonical_unit) AS canonical_unit,
+            MIN(source) AS source,
+            MAX(CASE WHEN quality = 'good' THEN 1 ELSE 0 END) AS has_good
+          FROM source_rows
+          WHERE bucket_epoch IS NOT NULL
+          GROUP BY metric, bucket_epoch
+        ), ranked AS (
+          SELECT *, ROW_NUMBER() OVER (
+            PARTITION BY metric ORDER BY bucket_epoch DESC
+          ) AS bucket_rank
+          FROM aggregated
+        )
+        SELECT metric, bucket_epoch, value, canonical_unit, source, has_good
+        FROM ranked WHERE bucket_rank <= ?
+        ORDER BY bucket_epoch ASC, metric ASC`)
+        .all(bucketSeconds, bucketSeconds, sensorId, from, to, limitPerMetric) as unknown as Array<{
+          metric: MeasurementSample["metric"];
+          bucket_epoch: number;
+          value: number;
+          canonical_unit: string;
+          source: MeasurementSample["source"];
+          has_good: number;
+        }>;
+      return rows.map((row) => ({
+        sensorId,
+        metric: row.metric,
+        value: row.value,
+        canonicalUnit: row.canonical_unit,
+        timestamp: new Date(row.bucket_epoch * 1_000).toISOString(),
+        source: row.source,
+        quality: row.has_good ? "good" : "estimated",
+      }));
+    },
   upsertOutdoorTemperatureSample(sample: OutdoorTemperatureSample): OutdoorTemperatureSample {
       if (![sample.temperatureC, Date.parse(sample.timestamp), Date.parse(sample.fetchedAt)].every(Number.isFinite)) {
         throw new ClimateDataValidationError(400, "INVALID_OUTDOOR_SAMPLE", "Outdoor temperature and timestamps must be finite");

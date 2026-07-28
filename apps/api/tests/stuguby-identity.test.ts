@@ -31,4 +31,24 @@ describe("Stuguby node identity persistence", () => {
       rmSync(directory, { recursive: true, force: true });
     }
   });
+
+  it("preserves the legacy default identity when adopting the corrected filename", () => {
+    const directory = mkdtempSync(join(tmpdir(), "stuguby-legacy-identity-"));
+    try {
+      const legacyPath = join(directory, "stugby-identity.json");
+      const path = join(directory, "stuguby-identity.json");
+      const legacy = loadOrCreateStugubyNodeKeys(legacyPath, "Original Stugu");
+      const migrated = loadOrCreateStugubyNodeKeys(path, "Replacement name");
+      const persisted = JSON.parse(readFileSync(path, "utf8")) as { nodeId: string; displayName: string };
+
+      expect(migrated.identity).toEqual(legacy.identity);
+      expect(persisted).toMatchObject({
+        nodeId: legacy.identity.nodeId,
+        displayName: "Original Stugu",
+      });
+      expect(readdirSync(directory).sort()).toEqual(["stugby-identity.json", "stuguby-identity.json"]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });

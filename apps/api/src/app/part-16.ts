@@ -197,8 +197,12 @@ export function configureApiPart16(context: ReturnType<typeof configureApiPart15
       const body = bodyObject(request.body);
       if (!Array.isArray(body.floors)) throw new HttpError(400, "INVALID_FIELD", "floors must be an array");
       context.stuguby.assertSharedHouseFloorPlanAssetsUnchanged(houseId, body.floors as Floor[]);
-      const house = context.database.updateHouse(houseId, { floors: body.floors as Floor[] });
-      if (!house) throw new HttpError(404, "NOT_FOUND", "House not found");
+      const house = context.database.transaction(() => {
+        const updated = context.database.updateHouse(houseId, { floors: body.floors as Floor[] });
+        if (!updated) throw new HttpError(404, "NOT_FOUND", "House not found");
+        context.stuguby.captureHomeMutation(updated.id);
+        return updated;
+      });
       context.homeAssistant.refreshMappings();
       context.notifySpatial((runtime) => runtime.scheduler.wakeHouse(
         house.id,
@@ -206,7 +210,6 @@ export function configureApiPart16(context: ReturnType<typeof configureApiPart15
         new Date().toISOString(),
         "property-context-changed",
       ));
-      context.stuguby.captureHomeMutation(house.id);
       response.json({ house });
     });
   context.app.put(`${context.prefix}/houses/:id/floors/:floorId`, (request, response) => {
@@ -220,8 +223,12 @@ export function configureApiPart16(context: ReturnType<typeof configureApiPart15
       const floors = house.floors.slice();
       floors[index] = floor;
       context.stuguby.assertSharedHouseFloorPlanAssetsUnchanged(house.id, floors);
-      const updated = context.database.updateHouse(house.id, { floors });
-      if (!updated) throw new HttpError(404, "NOT_FOUND", "House not found");
+      const updated = context.database.transaction(() => {
+        const saved = context.database.updateHouse(house.id, { floors });
+        if (!saved) throw new HttpError(404, "NOT_FOUND", "House not found");
+        context.stuguby.captureHomeMutation(saved.id);
+        return saved;
+      });
       context.homeAssistant.refreshMappings();
       context.notifySpatial((runtime) => runtime.scheduler.wakeHouse(
         updated.id,
@@ -229,7 +236,6 @@ export function configureApiPart16(context: ReturnType<typeof configureApiPart15
         new Date().toISOString(),
         "property-context-changed",
       ));
-      context.stuguby.captureHomeMutation(updated.id);
       response.json(floor);
     });
   context.app.post(`${context.prefix}/houses/:id/floors/:floorId/roomplan-import`, (request, response) => {
@@ -360,8 +366,12 @@ export function configureApiPart16(context: ReturnType<typeof configureApiPart15
       const floors = house.floors.slice();
       floors[index] = floor;
       context.stuguby.assertSharedHouseFloorPlanAssetsUnchanged(house.id, floors);
-      const updated = context.database.updateHouse(house.id, { floors });
-      if (!updated) throw new HttpError(404, "NOT_FOUND", "House not found");
+      const updated = context.database.transaction(() => {
+        const saved = context.database.updateHouse(house.id, { floors });
+        if (!saved) throw new HttpError(404, "NOT_FOUND", "House not found");
+        context.stuguby.captureHomeMutation(saved.id);
+        return saved;
+      });
       context.homeAssistant.refreshMappings();
       context.notifySpatial((runtime) => runtime.scheduler.wakeHouse(
         updated.id,
@@ -369,7 +379,6 @@ export function configureApiPart16(context: ReturnType<typeof configureApiPart15
         new Date().toISOString(),
         "property-context-changed",
       ));
-      context.stuguby.captureHomeMutation(updated.id);
       response.json({ house: updated, floor: updated.floors[index] });
     });
   const extended = Object.assign(context, {  });

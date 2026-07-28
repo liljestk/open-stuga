@@ -28,6 +28,7 @@ describe("direct TP-Link H100/H200 bridge", () => {
     runtime = null;
     if (temporaryDirectory) rmSync(temporaryDirectory, { recursive: true, force: true });
     temporaryDirectory = null;
+    vi.unstubAllEnvs();
   });
 
   it("runs independent TP-Link meter connections per house", async () => {
@@ -37,7 +38,7 @@ describe("direct TP-Link H100/H200 bridge", () => {
       const second = process.env.TP_LINK_HOST === "192.0.2.32";
       process.stdout.write(JSON.stringify({
         type: "snapshot", timestamp: new Date(Date.now() - 1000).toISOString(),
-        sourceType: "energy-device", hubModel: "P110", devices: [{
+        sourceType: "energy-device", hubModel: "P110", sourceAlias: second ? "Cottage meter" : "Home meter", devices: [{
           deviceId: "meter", model: "P110", alias: second ? "Cottage meter" : "Home meter", status: "online",
           temperature: null, temperatureUnit: null, humidity: null, battery: null,
           power: second ? 220 : 110, energy: second ? 8 : 4
@@ -76,8 +77,14 @@ describe("direct TP-Link H100/H200 bridge", () => {
     await waitFor(() => runtime?.database.getLatestMeasurementSample("sensor-01", "power")?.value === 110);
     expect(runtime.database.getLatestMeasurementSample("sensor-01", "power")?.value).toBe(110);
     expect(runtime.status.value.tpLink.connections).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "main-meter", houseId: "house-main", connected: true }),
-      expect.objectContaining({ id: "cottage-meter", houseId: "house-cottage", connected: true }),
+      expect.objectContaining({
+        id: "main-meter", houseId: "house-main", connected: true, host: "192.0.2.31",
+        sourceType: "energy-device", sourceModel: "P110", sourceAlias: "Home meter",
+      }),
+      expect.objectContaining({
+        id: "cottage-meter", houseId: "house-cottage", connected: true, host: "192.0.2.32",
+        sourceType: "energy-device", sourceModel: "P110", sourceAlias: "Cottage meter",
+      }),
     ]));
     const cottageDevices = await request(runtime.app).get("/api/v1/integrations/tp-link/devices?houseId=house-cottage").expect(200);
     expect(cottageDevices.body.devices).toEqual([expect.objectContaining({
@@ -179,10 +186,12 @@ describe("direct TP-Link H100/H200 bridge", () => {
       temperature: 22.5,
       humidity: expect.any(Number),
       battery: 87,
+      deviceType: "climate",
       mappedSensorId: null,
+      mappedOpening: null,
     });
     expect(Object.keys(discovered.body.devices[0]).sort()).toEqual([
-      "alias", "battery", "contactOpen", "deviceId", "energy", "houseId", "humidity", "lastSeenAt", "mappedSensorId", "model", "power", "status", "temperature",
+      "alias", "battery", "contactOpen", "deviceId", "deviceType", "energy", "houseId", "humidity", "lastSeenAt", "mappedOpening", "mappedSensorId", "model", "power", "status", "temperature",
     ]);
 
     await request(runtime.app).patch("/api/v1/sensors/sensor-01")
@@ -217,8 +226,8 @@ describe("direct TP-Link H100/H200 bridge", () => {
       process.stdout.write(JSON.stringify({
         type: "discovery",
         sources: [
-          { host: "192.168.1.42", model: "H200", alias: "Hall hub", sourceType: "hub", credential: "must-not-leak" },
-          { host: "192.168.1.41", model: "P110", alias: "Laundry plug", sourceType: "energy-device", credential: "must-not-leak" },
+          { host: "192.168.1.42", model: "H200", alias: "Hall hub", sourceType: "hub", deviceId: "h200-source", credential: "must-not-leak" },
+          { host: "192.168.1.41", model: "P110", alias: "Laundry plug", sourceType: "energy-device", deviceId: "p110-source", credential: "must-not-leak" },
           { host: "192.168.1.40", model: "P100", alias: "Unverified plug" }
         ],
         warnings: ["One directed broadcast was unreachable"]
@@ -229,6 +238,11 @@ describe("direct TP-Link H100/H200 bridge", () => {
       mockEnabled: false, mockIntervalMs: 2_000, retentionDays: 730, ingestApiKey: null,
       haUrl: null, haToken: null, haEntityMapFile: null,
       tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null, tpLinkDeviceMapFile: null,
+      tpLinkConnections: [{
+        id: "saved-laundry", houseId: "house-main", host: "192.168.1.99",
+        username: "draft@example.test", password: "draft-secret", deviceId: "P110-SOURCE",
+      }],
+      tpLinkLegacyDisabled: true,
       tpLinkPollIntervalMs: 10_000, tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
       alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
     };
@@ -239,10 +253,76 @@ describe("direct TP-Link H100/H200 bridge", () => {
       password: "draft-secret",
     })).toEqual({
       sources: [
-        { host: "192.168.1.41", model: "P110", alias: "Laundry plug", sourceType: "energy-device" },
-        { host: "192.168.1.42", model: "H200", alias: "Hall hub", sourceType: "hub" },
+        { host: "192.168.1.41", model: "P110", alias: "Laundry plug", sourceType: "energy-device", deviceId: "p110-source", configuredConnectionId: "saved-laundry" },
+        { host: "192.168.1.42", model: "H200", alias: "Hall hub", sourceType: "hub", deviceId: "h200-source" },
       ],
       warnings: ["One directed broadcast was unreachable"],
     });
+  });
+
+  it("tries every saved sign-in when searching for additional TP-Link sources", async () => {
+    temporaryDirectory = mkdtempSync(join(tmpdir(), "climate-twin-tp-link-multi-account-discovery-"));
+    const helperPath = join(temporaryDirectory, "fake-multi-account-discovery-helper.mjs");
+    writeFileSync(helperPath, `
+      if (!process.argv.includes("--discover")) process.exit(2);
+      const source = process.env.TP_LINK_USERNAME === "first@example.test"
+        ? { host: "192.168.1.41", model: "P110", alias: "Laundry plug", sourceType: "energy-device", deviceId: "p110-source" }
+        : process.env.TP_LINK_USERNAME === "second@example.test"
+          ? { host: "192.168.1.42", model: "P115", alias: "Water heater", sourceType: "energy-device", deviceId: "p115-source" }
+          : null;
+      if (!source) process.exit(3);
+      process.stdout.write(JSON.stringify({ type: "discovery", sources: [source], warnings: [] }) + "\\n");
+    `);
+    const config: AppConfig = {
+      port: 0, apiHost: "127.0.0.1", databasePath: ":memory:", integrationSecretsFile: join(temporaryDirectory, "secrets.json"), assetDirectory: temporaryDirectory,
+      mockEnabled: false, mockIntervalMs: 2_000, retentionDays: 730, ingestApiKey: null,
+      haUrl: null, haToken: null, haEntityMapFile: null,
+      tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null, tpLinkDeviceMapFile: null,
+      tpLinkConnections: [
+        { id: "saved-first", houseId: "house-main", host: "192.168.1.10", username: "first@example.test", password: "first-secret", deviceId: "saved-first-source" },
+        { id: "saved-second", houseId: "house-main", host: "192.168.1.11", username: "second@example.test", password: "second-secret", deviceId: "saved-second-source" },
+      ],
+      tpLinkLegacyDisabled: true,
+      tpLinkPollIntervalMs: 10_000, tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
+      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+    };
+    runtime = createApi({ config, startBackground: false });
+
+    expect(await runtime.tpLink.discoverSources("house-main")).toEqual({
+      sources: [
+        { host: "192.168.1.41", model: "P110", alias: "Laundry plug", sourceType: "energy-device", deviceId: "p110-source" },
+        { host: "192.168.1.42", model: "P115", alias: "Water heater", sourceType: "energy-device", deviceId: "p115-source" },
+      ],
+      warnings: [],
+    });
+  });
+
+  it("passes LAN discovery targets to the live address-recovery helper", async () => {
+    vi.stubEnv("TP_LINK_DISCOVERY_TARGETS", "192.168.71.255");
+    temporaryDirectory = mkdtempSync(join(tmpdir(), "climate-twin-tp-link-live-recovery-"));
+    const helperPath = join(temporaryDirectory, "fake-live-recovery-helper.mjs");
+    writeFileSync(helperPath, `
+      if (process.env.TP_LINK_DISCOVERY_TARGETS !== "192.168.71.255") process.exit(3);
+      process.stdout.write(JSON.stringify({
+        type: "snapshot", timestamp: new Date().toISOString(), sourceType: "hub",
+        hubModel: "H200", sourceDeviceId: "stable-hub", devices: []
+      }) + "\\n");
+      setInterval(() => {}, 1000);
+    `);
+    const config: AppConfig = {
+      port: 0, apiHost: "127.0.0.1", databasePath: ":memory:",
+      integrationSecretsFile: join(temporaryDirectory, "secrets.json"), assetDirectory: temporaryDirectory,
+      mockEnabled: false, mockIntervalMs: 2_000, retentionDays: 730, ingestApiKey: null,
+      haUrl: null, haToken: null, haEntityMapFile: null,
+      tpLinkHost: "192.168.68.54", tpLinkUsername: "user", tpLinkPassword: "password",
+      tpLinkDeviceMapFile: null, tpLinkPollIntervalMs: 10_000,
+      tpLinkPython: process.execPath, tpLinkBridgeScript: helperPath,
+      alertWebhookUrl: null, alertWebhookBearerToken: null, corsOrigin: null,
+    };
+    runtime = createApi({ config, startBackground: false });
+    runtime.tpLink.start();
+
+    await waitFor(() => runtime?.status.value.tpLink.connected === true);
+    expect(runtime.status.value.tpLink.hubModel).toBe("H200");
   });
 });

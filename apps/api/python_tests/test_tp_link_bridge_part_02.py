@@ -29,6 +29,7 @@ async def test_connect_and_poll_emits_capability_based_direct_energy_snapshot(
     payload = emitted_lines(capsys)[0]
     assert payload["sourceType"] == "energy-device"
     assert payload["hubModel"] == model
+    assert payload["sourceAlias"] == f"{model} outlet"
     assert payload["devices"] == [
         {
             "deviceId": f"{model.lower()}-device",
@@ -91,18 +92,26 @@ async def test_discover_sources_filters_sorts_and_disconnects(
     assert payload == {
         "type": "discovery",
         "sources": [
-            {"host": "192.0.2.10", "model": "H100", "alias": None, "sourceType": "hub"},
+            {
+                "host": "192.0.2.10",
+                "model": "H100",
+                "alias": None,
+                "sourceType": "hub",
+                "deviceId": "hub-device-id",
+            },
             {
                 "host": "192.0.2.20",
                 "model": "H200",
                 "alias": "Hallway hub",
                 "sourceType": "hub",
+                "deviceId": "hub-device-id",
             },
             {
                 "host": "192.0.2.25",
                 "model": "P110",
                 "alias": "P110 outlet",
                 "sourceType": "energy-device",
+                "deviceId": "p110-device",
             },
         ],
         "warnings": [],
@@ -149,12 +158,14 @@ async def test_discover_sources_merges_multiple_directed_broadcasts(
                 "model": "H200",
                 "alias": "Hallway hub",
                 "sourceType": "hub",
+                "deviceId": "hub-device-id",
             },
             {
                 "host": "198.51.100.10",
                 "model": "H100",
                 "alias": "Hallway hub",
                 "sourceType": "hub",
+                "deviceId": "hub-device-id",
             },
         ],
         "warnings": [],
@@ -184,6 +195,7 @@ async def test_discover_sources_updates_legacy_energy_devices_without_credential
                 "model": "HS110",
                 "alias": "HS110 outlet",
                 "sourceType": "energy-device",
+                "deviceId": "hs110-device",
             }
         ],
         "warnings": [],
@@ -294,6 +306,7 @@ async def test_discovery_falls_back_to_saved_host_subnets(
             "model": "H200",
             "alias": "Recovered hub",
             "sourceType": "hub",
+            "deviceId": "expected-hub",
         }
     ]
     assert scan_targets[0] == ["192.168.68.54"]
@@ -339,12 +352,14 @@ async def test_discovery_supplements_a_partial_broadcast_with_energy_devices(
             "model": "H200",
             "alias": "Hallway hub",
             "sourceType": "hub",
+            "deviceId": "hub-device-id",
         },
         {
             "host": "192.168.68.57",
             "model": "HS110",
             "alias": "Workshop plug",
             "sourceType": "energy-device",
+            "deviceId": "legacy-plug",
         },
     ]
     assert len(scan_targets) == 1
@@ -495,9 +510,11 @@ async def test_main_uses_safe_interval_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[Any, ...]] = []
+    contact_intervals: list[float] = []
 
     async def connect_and_poll(*args: Any, **kwargs: Any) -> None:
         calls.append((*args, kwargs.get("on_success")))
+        contact_intervals.append(kwargs["contact_interval_seconds"])
         kwargs["on_success"]()
 
     monkeypatch.setattr(bridge, "connect_and_poll", connect_and_poll)
@@ -506,7 +523,9 @@ async def test_main_uses_safe_interval_fallback(
     monkeypatch.setenv("TP_LINK_USERNAME", "user")
     monkeypatch.setenv("TP_LINK_PASSWORD", "password")
     monkeypatch.setenv("TP_LINK_POLL_INTERVAL_MS", "invalid")
+    monkeypatch.setenv("TP_LINK_CONTACT_POLL_INTERVAL_MS", "invalid")
 
     await bridge.main()
     assert calls[0][:-1] == ("192.0.2.10", "user", "password", 2.0, True)
     assert callable(calls[0][-1])
+    assert contact_intervals == [0.5]

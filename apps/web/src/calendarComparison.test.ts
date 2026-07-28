@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   appendAnalyticsSeries,
   calendarAccumulatorValue,
+  calendarComparisonBuckets,
   calendarComparisonPeriods,
   comparisonAggregationOptions,
   createCalendarValueAccumulator,
@@ -84,6 +85,83 @@ describe("calendarComparisonPeriods", () => {
     expect(periods[1]).toMatchObject({ start: "1999-12-31T22:00:00.000Z", end: "2009-12-31T22:00:00.000Z" });
     expect(periods.at(-1)?.partial).toBe(true);
   });
+
+  it("breaks matching ISO weeks into Monday-through-Sunday local buckets", () => {
+    const periods = calendarComparisonPeriods({
+      unit: "week",
+      anchor: { ...anchor, week: 6 },
+      coverageStart: "2026-01-01T00:00:00.000Z",
+      coverageEnd: "2027-12-31T00:00:00.000Z",
+      timeZone: "Europe/Helsinki",
+      now: Date.parse("2028-01-01T00:00:00.000Z"),
+    });
+
+    expect(periods.map((period) => period.key)).toEqual(["2026-W06", "2027-W06"]);
+    const buckets = calendarComparisonBuckets(periods[0]!, "Europe/Helsinki");
+    expect(buckets).toHaveLength(7);
+    expect(buckets.map((bucket) => bucket.slot)).toEqual([
+      "day-0", "day-1", "day-2", "day-3", "day-4", "day-5", "day-6",
+    ]);
+    expect(buckets[0]).toMatchObject({
+      start: "2026-02-01T22:00:00.000Z",
+      end: "2026-02-02T22:00:00.000Z",
+    });
+  });
+
+  it("uses stable seven-day blocks inside a month and calendar months inside a year", () => {
+    const month = calendarComparisonPeriods({
+      unit: "month",
+      anchor: { ...anchor, month: 10 },
+      coverageStart: "2024-01-01T00:00:00.000Z",
+      coverageEnd: "2024-12-31T00:00:00.000Z",
+      timeZone: "Europe/Helsinki",
+      now: Date.parse("2025-01-01T00:00:00.000Z"),
+    })[0]!;
+    const years = calendarComparisonPeriods({
+      unit: "year",
+      anchor,
+      coverageStart: "2025-01-01T00:00:00.000Z",
+      coverageEnd: "2026-12-31T00:00:00.000Z",
+      timeZone: "Europe/Helsinki",
+      now: Date.parse("2027-01-01T00:00:00.000Z"),
+    });
+
+    const monthBuckets = calendarComparisonBuckets(month, "Europe/Helsinki");
+    expect(monthBuckets).toHaveLength(5);
+    expect(monthBuckets.map((bucket) => bucket.slot)).toEqual([
+      "week-0", "week-1", "week-2", "week-3", "week-4",
+    ]);
+    expect(monthBuckets.at(-1)).toMatchObject({
+      start: "2024-10-28T22:00:00.000Z",
+      end: "2024-10-31T22:00:00.000Z",
+    });
+    expect(years.map((period) => period.key)).toEqual(["2025", "2026"]);
+    expect(years.every((period) => calendarComparisonBuckets(period, "Europe/Helsinki").length === 12)).toBe(true);
+  });
+
+  it("represents 23- and 25-hour local days without inventing or dropping an instant", () => {
+    const spring = calendarComparisonPeriods({
+      unit: "day",
+      anchor: { ...anchor, month: 3, day: 29 },
+      coverageStart: "2026-03-01T00:00:00.000Z",
+      coverageEnd: "2026-04-01T00:00:00.000Z",
+      timeZone: "Europe/Helsinki",
+      now: Date.parse("2027-01-01T00:00:00.000Z"),
+    })[0]!;
+    const autumn = calendarComparisonPeriods({
+      unit: "day",
+      anchor: { ...anchor, month: 10, day: 25 },
+      coverageStart: "2026-10-01T00:00:00.000Z",
+      coverageEnd: "2026-11-01T00:00:00.000Z",
+      timeZone: "Europe/Helsinki",
+      now: Date.parse("2027-01-01T00:00:00.000Z"),
+    })[0]!;
+
+    expect(calendarComparisonBuckets(spring, "Europe/Helsinki")).toHaveLength(23);
+    const autumnBuckets = calendarComparisonBuckets(autumn, "Europe/Helsinki");
+    expect(autumnBuckets).toHaveLength(25);
+    expect(autumnBuckets.some((bucket) => bucket.slot.endsWith("-1"))).toBe(true);
+  });
 });
 
 describe("calendar comparison aggregation", () => {
@@ -128,5 +206,17 @@ describe("calendar comparison aggregation", () => {
     expect(calendarAccumulatorValue(accumulator)?.value).toBe(5);
     expect(comparisonAggregationOptions("cumulative_counter")).toContain("delta");
     expect(comparisonAggregationOptions("rate")).not.toContain("sum");
+  });
+
+  it("normalizes coverage for a range that clips a UTC bucket boundary", () => {
+    const accumulator = createCalendarValueAccumulator("mean");
+    appendAnalyticsSeries(accumulator, series("mean", "1h", [
+      { timestamp: "2026-01-01T00:00:00.000Z", value: 12, minimum: 12, maximum: 12, sampleCount: 30, coverage: 0.5, qualityFlags: ["low_coverage"] },
+    ]), {
+      start: "2026-01-01T00:30:00.000Z",
+      end: "2026-01-01T01:00:00.000Z",
+    });
+
+    expect(calendarAccumulatorValue(accumulator)).toMatchObject({ value: 12, coverage: 1 });
   });
 });

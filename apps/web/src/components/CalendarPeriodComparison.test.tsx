@@ -1,3 +1,4 @@
+import axe from "axe-core";
 import type { AnalyticsQueryResponse, AnalyticsSeries } from "@climate-twin/contracts";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -15,7 +16,7 @@ function analyticsSeries(entityId: string, entityLabel: string, timestamp: strin
     canonicalUnit: "°C",
     truthClass: "derived",
     aggregation: "mean",
-    resolution: "1d",
+    resolution: "15m",
     points: [{ timestamp, value, minimum: value - 1, maximum: value + 1, sampleCount: 24, coverage: 1, qualityFlags: [] }],
     summary: {
       entityId, measurementId: "temperature", canonicalUnit: "°C", count: 24, coverage: 1,
@@ -32,42 +33,41 @@ function analyticsSeries(entityId: string, entityLabel: string, timestamp: strin
 afterEach(() => vi.restoreAllMocks());
 
 describe("CalendarPeriodComparison", () => {
-  it("compares every recorded October for the currently selected sensors", async () => {
+  it("compares two explicit Octobers as aligned weekly buckets and can isolate one sensor", async () => {
     const user = userEvent.setup();
     const state = createDemoState();
     const house = state.houses[0]!;
     const sensors = state.sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled).slice(0, 2);
     const definition = state.measurementDefinitions.find((item) => item.id === "temperature")!;
-    vi.spyOn(api, "analyticsCoverage").mockResolvedValue({
+    const coverage = vi.spyOn(api, "analyticsCoverage").mockResolvedValue({
       apiVersion: "1.0",
       requestId: "coverage",
       dataMode: "demo",
-      range: { start: "2022-10-10T00:00:00.000Z", end: "2024-10-20T00:00:00.000Z" },
+      range: { start: "2022-09-01T00:00:00.000Z", end: "2024-11-02T00:00:00.000Z" },
       series: sensors.map((sensor) => ({
         entityId: sensor.id,
         entityLabel: sensor.name,
         measurementId: "temperature",
-        start: "2022-10-10T00:00:00.000Z",
-        end: "2024-10-20T00:00:00.000Z",
+        start: "2022-09-01T00:00:00.000Z",
+        end: "2024-11-02T00:00:00.000Z",
       })),
       complete: true,
       archiveState: "not-configured",
       generatedAt: "2026-07-21T00:00:00.000Z",
     });
     const query = vi.spyOn(api, "analyticsQuery").mockImplementation(async (request): Promise<AnalyticsQueryResponse> => {
-      const year = Number(request.range.start.slice(0, 4));
-      const availableSensorIds = (request.scope.entityIds ?? [])
-        .filter((sensorId) => year !== 2023 || sensorId === sensors[1]!.id);
-      const responseSeries = availableSensorIds.map((sensorId, index) => {
+      const year = Number(request.requestId.match(/calendar-month-(\d{4})-10/)?.[1] ?? 0);
+      const bucket = Number(request.requestId.match(/week-(\d)/)?.[1] ?? 0);
+      const responseSeries = (request.scope.entityIds ?? []).map((sensorId, index) => {
         const sensor = sensors.find((candidate) => candidate.id === sensorId)!;
-        return analyticsSeries(sensorId, sensor.name, request.range.start, year === 2022 ? 18 + index : 20 + index);
+        return analyticsSeries(sensorId, sensor.name, request.range.start, (year === 2024 ? 20 : 18) + bucket + index);
       });
       return {
         apiVersion: "1.0",
         requestId: request.requestId,
         dataMode: "demo",
         resolvedRange: request.range,
-        resolution: "1d",
+        resolution: "15m",
         series: responseSeries,
         summaries: responseSeries.map((item) => item.summary),
         quality: {
@@ -81,7 +81,7 @@ describe("CalendarPeriodComparison", () => {
       };
     });
 
-    render(<I18nProvider><CalendarPeriodComparison
+    const view = render(<I18nProvider><CalendarPeriodComparison
       houseId={house.id}
       timeZone="Europe/Helsinki"
       dataMode="demo"
@@ -96,29 +96,52 @@ describe("CalendarPeriodComparison", () => {
     query.mockClear();
     await user.selectOptions(screen.getByRole("combobox", { name: "Month of year" }), "10");
 
-    const chartName = "Temperature across 3 matching calendar periods.";
+    const chartName = "Temperature for Selected sensors average across 2 selected calendar periods.";
     const chart = await screen.findByRole("img", { name: chartName });
     expect(screen.getByRole("region", { name: chartName }).getAttribute("tabindex")).toBe("0");
     expect(screen.getAllByText("Selected sensors average").length).toBeGreaterThan(0);
-    expect(screen.getByText("matching periods").textContent).toBe("3matching periods");
-    await waitFor(() => expect(query).toHaveBeenCalledTimes(3));
-    expect(query.mock.calls.map(([request]) => request.scope.entityIds)).toEqual(Array.from(
-      { length: 3 },
-      () => sensors.map((sensor) => sensor.id),
-    ));
-    expect(query.mock.calls.map(([request]) => request.range)).toEqual([
-      { start: "2022-09-30T21:00:00.000Z", end: "2022-10-31T22:00:00.000Z", timezone: "Europe/Helsinki" },
-      { start: "2023-09-30T21:00:00.000Z", end: "2023-10-31T22:00:00.000Z", timezone: "Europe/Helsinki" },
-      { start: "2024-09-30T21:00:00.000Z", end: "2024-10-31T22:00:00.000Z", timezone: "Europe/Helsinki" },
-    ]);
+    expect((screen.getByRole("combobox", { name: "Period A" }) as HTMLSelectElement).value).toBe("2024-10");
+    expect((screen.getByRole("combobox", { name: "Period B" }) as HTMLSelectElement).value).toBe("2023-10");
+    await waitFor(() => expect(query).toHaveBeenCalledTimes(10));
+    expect(query.mock.calls.every(([request]) => request.scope.entityIds?.length === 2)).toBe(true);
+    expect(query.mock.calls.map(([request]) => request.range)).toContainEqual({
+      start: "2024-09-30T21:00:00.000Z",
+      end: "2024-10-07T21:00:00.000Z",
+      timezone: "Europe/Helsinki",
+    });
+    expect(query.mock.calls.map(([request]) => request.range)).toContainEqual({
+      start: "2023-10-28T21:00:00.000Z",
+      end: "2023-10-31T22:00:00.000Z",
+      timezone: "Europe/Helsinki",
+    });
+    expect(chart.querySelectorAll(".calendar-comparison-series > path")).toHaveLength(2);
+    expect(screen.getAllByText("+2.0°C").length).toBeGreaterThan(0);
+    const accessibility = await axe.run(view.container, {
+      rules: { "color-contrast": { enabled: false } },
+    });
+    expect(accessibility.violations).toEqual([]);
 
-    const combinedPath = chart.querySelector(".calendar-comparison-series.combined > path")?.getAttribute("d") ?? "";
-    expect(combinedPath.match(/M/g)).toHaveLength(2);
-    expect(combinedPath).not.toContain("L");
-
-    await user.click(screen.getByText("Show accessible comparison table (3 periods)"));
+    await user.click(screen.getByText("Show accessible comparison table (5 buckets)"));
     const table = within(screen.getByRole("region", { name: "Calendar period comparison data" })).getByRole("table");
-    expect(within(table).getAllByText("Selected sensors average")).toHaveLength(2);
-    expect(within(table).getAllByRole("row")).toHaveLength(8);
+    expect(within(table).getAllByRole("row")).toHaveLength(6);
+    expect(within(table).getByText("1–7")).not.toBeNull();
+
+    query.mockClear();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Sensor scope" }), sensors[0]!.id);
+    await waitFor(() => expect(query).toHaveBeenCalledTimes(10));
+    expect(query.mock.calls.every(([request]) => request.scope.entityIds?.length === 1)).toBe(true);
+    expect(screen.queryByText(/Every bucket uses the same/)).toBeNull();
+
+    const coverageCalls = coverage.mock.calls.length;
+    view.rerender(<I18nProvider><CalendarPeriodComparison
+      houseId={house.id}
+      timeZone="Europe/Helsinki"
+      dataMode="demo"
+      sensors={sensors.map((sensor) => ({ ...sensor }))}
+      metric="temperature"
+      definition={definition}
+      units="metric"
+    /></I18nProvider>);
+    expect(coverage).toHaveBeenCalledTimes(coverageCalls);
   });
 });

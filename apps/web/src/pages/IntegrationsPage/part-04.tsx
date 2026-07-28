@@ -49,46 +49,94 @@ import { useI18n } from "../../i18n";
 import { integrationForHouse } from "../../integrationScope";
 import { AutomationSetupPanel } from "../AutomationSetupPanel";
 import { SetupOperationsPanel } from "../SetupOperationsPanel";
-import { ACTIVE_TP_LINK_EXPORT_STATUSES, HouseLocationMap, RETRYABLE_TP_LINK_EXPORT_STATUSES, TP_LINK_CHILD_DISCOVERY_ATTEMPTS, TP_LINK_CHILD_DISCOVERY_INTERVAL_MS, TP_LINK_EXPORT_PROVIDER_KEYS, TP_LINK_EXPORT_STATUS_KEYS, connectionError, dateTime, decimal, defaultFootprintWidthMeters, floorPlanSize, footprintFloorFor, mapLocation, placementForm, setupSectionFromPath, setupSectionOrder, validTimeZone, waitForChildDiscoveryAttempt, writeSetupSection } from "./support";
+import { ACTIVE_TP_LINK_EXPORT_STATUSES, HouseLocationMap, RETRYABLE_TP_LINK_EXPORT_STATUSES, TP_LINK_EXPORT_PROVIDER_KEYS, TP_LINK_EXPORT_STATUS_KEYS, connectionError, dateTime, decimal, defaultFootprintWidthMeters, floorPlanSize, footprintFloorFor, forgetIntegrationDiscovery, mapLocation, placementForm, rememberIntegrationDiscovery, rememberedIntegrationDiscovery, setupSectionFromPath, setupSectionOrder, validTimeZone, writeSetupSection } from "./support";
 import type { DiscoveryOutcome, Feedback, HouseFloor, IntegrationsPageProps, SetupSection, TpLinkChildDiscovery } from "./support";
 import { useIntegrationsPagePart03 } from "./part-03";
 export function useIntegrationsPagePart04(context: ReturnType<typeof useIntegrationsPagePart03>) {
-  const { aggregateIntegration, initialHouse, houses, connectionHouses, streamConnection, tpLinkDevicesLoading, tpLinkDevicesError, onHouse, onHouseUpdate, onGeoreferenceChange, onIntegrationChange, onRefreshTpLinkDevices, onDisconnectHomeAssistant, onDisconnectTpLink, onMoveHomeAssistant, onMoveTpLink, onOpenSensors, onOpenLayout, locale, t, setupHouseId, setSetupHouseId, house, integration, activeSection, setActiveSection, mapLoaded, setMapLoaded, testing, setTesting, result, setResult, homeAssistantTestGeneration, discoveryGeneration, automaticallyScannedHouseId, inventoryRefreshGeneration, historyExportRequestGeneration, testingDirect, setTestingDirect, directResult, setDirectResult, tpLinkTestGeneration, validatedTpLinkDraft, setValidatedTpLinkDraft, discovering, setDiscovering, discovery, setDiscovery, discoveryOutcome, setDiscoveryOutcome, tpLinkSettingsOpen, setTpLinkSettingsOpen, tpLinkHost, setTpLinkHost, tpLinkHostDraft, tpLinkUsername, setTpLinkUsername, tpLinkPassword, setTpLinkPassword, showTpLinkPassword, setShowTpLinkPassword, savingTpLink, setSavingTpLink, tpLinkFeedback, setTpLinkFeedback, refreshingTpLinkInventory, setRefreshingTpLinkInventory, tpLinkInventoryRefreshFailed, setTpLinkInventoryRefreshFailed, tpLinkExportEnabled, setTpLinkExportEnabled, tpLinkExportJobs, setTpLinkExportJobs, tpLinkExportAutomation, setTpLinkExportAutomation, tpLinkExportJobsLoading, setTpLinkExportJobsLoading, tpLinkExportJobsError, setTpLinkExportJobsError, busyTpLinkExportJobId, setBusyTpLinkExportJobId, tpLinkCanaryTargets, setTpLinkCanaryTargets, tpLinkCanarySensorId, setTpLinkCanarySensorId, tpLinkCanaryMetric, setTpLinkCanaryMetric, tpLinkCanaryRunning, setTpLinkCanaryRunning, tpLinkChildDiscovery, setTpLinkChildDiscovery, tpLinkChildDiscoveryAbort, tpLinkChildDiscoveryKey, tpLinkChildDiscoveryRunning, haUrl, setHaUrl, haToken, setHaToken, showHaToken, setShowHaToken, savingHomeAssistant, setSavingHomeAssistant, homeAssistantFeedback, setHomeAssistantFeedback, busyAssignment, setBusyAssignment, assignmentHouseDrafts, setAssignmentHouseDrafts, assignmentFeedback, setAssignmentFeedback, validatedHomeAssistantDraft, setValidatedHomeAssistantDraft, latitude, setLatitude, longitude, setLongitude, locationLabel, setLocationLabel, timezone, setTimezone, locationValidationAttempted, setLocationValidationAttempted, placementLatitude, setPlacementLatitude, placementLongitude, setPlacementLongitude, footprintFloorId, setFootprintFloorId, footprintWidthMeters, setFootprintWidthMeters, placementEditing, setPlacementEditing, mapViewport, setMapViewport, orientation, setOrientation, savingLocation, setSavingLocation, locationFeedback, setLocationFeedback, savingPlacement, setSavingPlacement, placementFeedback, setPlacementFeedback, activeSetupHouseId, locationRequestGeneration, placementRequestGeneration, localDateTime, managedHouseIds, homeAssistantAssignments, tpLinkAssignments, beginLocationRequest, isCurrentLocationRequest, beginPlacementRequest, isCurrentPlacementRequest, stopTpLinkChildDiscovery, tpLinkDraftKey, homeAssistantDraftKey, changeTpLinkDraft, changeHomeAssistantDraft, draftLocation, coordinateValidationVisible, timezoneValidationVisible, selectedFootprintFloor, selectedPlanSize, draftMapLocation, draftPlacement, draftOrientation, footprintDepthMeters, mapItems, orientationDirection, orientationExplanation, selectSetupHouse, disconnectHomeAssistantAssignment, disconnectTpLinkAssignment, moveHomeAssistantAssignment, moveTpLinkAssignment, testConnection, testDirectConnection, updateTpLinkCanaryTargets, loadTpLinkCanaryTargets, refreshTpLinkInventory, loadTpLinkExportJobs, runTpLinkCanary, retryTpLinkExportJob, cancelTpLinkExportJob } = context;
-  const scanIntegrations = async (options: { automatic?: boolean } = {}) => {
+  const { aggregateIntegration, initialHouse, houses, connectionHouses, streamConnection, tpLinkDevicesLoading, tpLinkDevicesError, onHouse, onHouseUpdate, onGeoreferenceChange, onIntegrationChange, onRefreshTpLinkDevices, onDisconnectHomeAssistant, onDisconnectTpLink, onMoveHomeAssistant, onMoveTpLink, onOpenSensors, onOpenLayout, locale, t, setupHouseId, setSetupHouseId, house, integration, activeSection, setActiveSection, mapLoaded, setMapLoaded, testing, setTesting, result, setResult, homeAssistantTestGeneration, discoveryGeneration, automaticallyScannedHouseId, inventoryRefreshGeneration, historyExportRequestGeneration, testingDirect, setTestingDirect, directResult, setDirectResult, tpLinkTestGeneration, validatedTpLinkDraft, setValidatedTpLinkDraft, discovering, setDiscovering, discovery, setDiscovery, discoveryOutcome, setDiscoveryOutcome, tpLinkSettingsOpen, setTpLinkSettingsOpen, tpLinkHost, setTpLinkHost, tpLinkHostDraft, tpLinkUsername, setTpLinkUsername, tpLinkPassword, setTpLinkPassword, reuseSavedTpLinkAccount, setReuseSavedTpLinkAccount, showTpLinkPassword, setShowTpLinkPassword, savingTpLink, setSavingTpLink, tpLinkFeedback, setTpLinkFeedback, refreshingTpLinkInventory, setRefreshingTpLinkInventory, tpLinkInventoryRefreshFailed, setTpLinkInventoryRefreshFailed, tpLinkExportEnabled, setTpLinkExportEnabled, tpLinkExportJobs, setTpLinkExportJobs, tpLinkExportAutomation, setTpLinkExportAutomation, tpLinkExportJobsLoading, setTpLinkExportJobsLoading, tpLinkExportJobsError, setTpLinkExportJobsError, busyTpLinkExportJobId, setBusyTpLinkExportJobId, tpLinkCanaryTargets, setTpLinkCanaryTargets, tpLinkCanarySensorId, setTpLinkCanarySensorId, tpLinkCanaryMetric, setTpLinkCanaryMetric, tpLinkCanaryRunning, setTpLinkCanaryRunning, tpLinkChildDiscovery, setTpLinkChildDiscovery, tpLinkChildDiscoveryAbort, tpLinkChildDiscoveryKey, tpLinkChildDiscoveryRunning, haUrl, setHaUrl, haToken, setHaToken, showHaToken, setShowHaToken, savingHomeAssistant, setSavingHomeAssistant, homeAssistantFeedback, setHomeAssistantFeedback, busyAssignment, setBusyAssignment, assignmentHouseDrafts, setAssignmentHouseDrafts, assignmentFeedback, setAssignmentFeedback, validatedHomeAssistantDraft, setValidatedHomeAssistantDraft, latitude, setLatitude, longitude, setLongitude, locationLabel, setLocationLabel, timezone, setTimezone, locationValidationAttempted, setLocationValidationAttempted, placementLatitude, setPlacementLatitude, placementLongitude, setPlacementLongitude, footprintFloorId, setFootprintFloorId, footprintWidthMeters, setFootprintWidthMeters, placementEditing, setPlacementEditing, mapViewport, setMapViewport, orientation, setOrientation, savingLocation, setSavingLocation, locationFeedback, setLocationFeedback, savingPlacement, setSavingPlacement, placementFeedback, setPlacementFeedback, activeSetupHouseId, locationRequestGeneration, placementRequestGeneration, localDateTime, managedHouseIds, homeAssistantAssignments, tpLinkAssignments, beginLocationRequest, isCurrentLocationRequest, beginPlacementRequest, isCurrentPlacementRequest, stopTpLinkChildDiscovery, tpLinkDraftKey, homeAssistantDraftKey, changeTpLinkDraft, changeHomeAssistantDraft, draftLocation, coordinateValidationVisible, timezoneValidationVisible, selectedFootprintFloor, selectedPlanSize, draftMapLocation, draftPlacement, draftOrientation, footprintDepthMeters, mapItems, orientationDirection, orientationExplanation, selectSetupHouse, disconnectHomeAssistantAssignment, disconnectTpLinkAssignment, moveHomeAssistantAssignment, moveTpLinkAssignment, testConnection, testDirectConnection, updateTpLinkCanaryTargets, loadTpLinkCanaryTargets, refreshTpLinkInventory, loadTpLinkExportJobs, runTpLinkCanary, retryTpLinkExportJob, cancelTpLinkExportJob } = context;
+  const pageMounted = useRef(true);
+  const discoverySubscription = useRef<AbortController | null>(null);
+  const scanIntegrations = async (options: { automatic?: boolean; resumeJobId?: string } = {}) => {
       const targetHouseId = house.id;
+      const tpLinkHostAtStart = tpLinkHostDraft.current.trim();
+      discoverySubscription.current?.abort();
+      const subscription = new AbortController();
+      discoverySubscription.current = subscription;
       automaticallyScannedHouseId.current = targetHouseId;
       const generation = ++discoveryGeneration.current;
       setDiscovering(true);
       setDiscovery(null);
       setDiscoveryOutcome("idle");
+      setTpLinkFeedback(null);
+      let startedJobId = options.resumeJobId ?? null;
       try {
         const draftCredentials = tpLinkUsername.trim() && tpLinkPassword
           ? { username: tpLinkUsername.trim(), password: tpLinkPassword }
           : null;
-        const result = draftCredentials
-          ? await api.discoverIntegrations(targetHouseId, draftCredentials)
-          : await api.discoverIntegrations(targetHouseId);
-        if (activeSetupHouseId.current !== targetHouseId || discoveryGeneration.current !== generation) return;
-        setDiscovery(result);
-        const count = result.tpLink.length + result.homeAssistant.length;
+        const result = options.resumeJobId
+          ? await api.resumeIntegrationDiscovery(options.resumeJobId, subscription.signal)
+          : await api.discoverIntegrations(targetHouseId, draftCredentials ?? undefined, (job) => {
+              startedJobId = job.id;
+              rememberIntegrationDiscovery(targetHouseId, job.id);
+            }, subscription.signal);
+        if (!pageMounted.current || activeSetupHouseId.current !== targetHouseId || discoveryGeneration.current !== generation) return;
+        const addableTpLinkSources = result.tpLink.filter((source) => !source.configuredConnectionId);
+        setDiscovery({ ...result, tpLink: addableTpLinkSources });
+        const count = addableTpLinkSources.length + result.homeAssistant.length;
         setDiscoveryOutcome(count > 0 ? "found" : result.warnings.length > 0 ? "error" : "empty");
-        if (result.tpLink.length === 1 && !tpLinkHostDraft.current.trim()
-          && (!options.automatic || !integration.tpLink.configured)) {
-          changeTpLinkDraft("host", result.tpLink[0]!.host);
+        if (addableTpLinkSources.length > 0) {
+          context.tpLinkEditingConnectionId.current = null;
+          const currentHost = tpLinkHostDraft.current.trim();
+          if (currentHost === tpLinkHostAtStart) {
+            const selectedSource = addableTpLinkSources.find(
+              (source) => source.host === currentHost,
+            ) ?? addableTpLinkSources[0]!;
+            if (currentHost !== selectedSource.host) {
+              changeTpLinkDraft("host", selectedSource.host);
+            }
+          }
+          context.setConnectionSetupOpen(true);
           setTpLinkSettingsOpen(true);
         }
-        if (result.tpLink.length === 0 && !integration.tpLink.configured && !integration.homeAssistant.configured) setTpLinkSettingsOpen(true);
+        if (addableTpLinkSources.length === 0 && !integration.tpLink.configured && !integration.homeAssistant.configured) setTpLinkSettingsOpen(true);
+        forgetIntegrationDiscovery(targetHouseId, startedJobId ?? undefined);
       } catch {
-        if (activeSetupHouseId.current !== targetHouseId || discoveryGeneration.current !== generation) return;
+        if (subscription.signal.aborted) return;
+        if (startedJobId) {
+          try {
+            const latestJob = await api.latestIntegrationDiscovery(targetHouseId);
+            if (!latestJob || latestJob.id !== startedJobId || latestJob.status !== "running") {
+              forgetIntegrationDiscovery(targetHouseId, startedJobId);
+            }
+          } catch {
+            // Preserve the id while offline so this server-owned job can be resumed later.
+          }
+        }
+        if (!pageMounted.current || activeSetupHouseId.current !== targetHouseId || discoveryGeneration.current !== generation) return;
         setDiscovery(null);
         setDiscoveryOutcome("error");
         if (!integration.tpLink.configured && !integration.homeAssistant.configured) setTpLinkSettingsOpen(true);
       } finally {
-        if (activeSetupHouseId.current === targetHouseId && discoveryGeneration.current === generation) {
+        if (discoverySubscription.current === subscription) discoverySubscription.current = null;
+        if (pageMounted.current && activeSetupHouseId.current === targetHouseId && discoveryGeneration.current === generation) {
           setDiscovering(false);
         }
       }
     };
+  useEffect(() => {
+      pageMounted.current = true;
+      return () => {
+        pageMounted.current = false;
+        discoverySubscription.current?.abort();
+        discoverySubscription.current = null;
+      };
+    }, []);
+  useEffect(() => {
+      const jobId = rememberedIntegrationDiscovery(house.id);
+      if (!jobId) return;
+      automaticallyScannedHouseId.current = house.id;
+      void scanIntegrations({ resumeJobId: jobId });
+    }, [house.id]);
   useEffect(() => {
       if (activeSection !== "connections" || !integration.tpLink.configured
         || automaticallyScannedHouseId.current === house.id) return;
@@ -99,142 +147,168 @@ export function useIntegrationsPagePart04(context: ReturnType<typeof useIntegrat
       void loadTpLinkExportJobs();
     }, [activeSection, integration.tpLink.configured]);
   const settleTpLinkChildren = async (hubModel: "H100" | "H200" | null) => {
-      stopTpLinkChildDiscovery();
       const targetHouseId = house.id;
-      const controller = new AbortController();
-      tpLinkChildDiscoveryAbort.current = controller;
-      tpLinkChildDiscoveryKey.current = hubModel ?? "unknown";
-      tpLinkChildDiscoveryRunning.current = true;
-      let receivedResponse = false;
-      let receivedDeviceInventory = false;
-      let latestStatus: IntegrationStatus["tpLink"] | null = null;
-      const isCurrentHouse = () => !controller.signal.aborted
-        && activeSetupHouseId.current === targetHouseId
-        && tpLinkChildDiscoveryAbort.current === controller;
-
+      setTpLinkChildDiscovery({
+        phase: "settling",
+        hubModel,
+        baselineLastPollAt: integration.tpLink.lastPollAt,
+      });
       try {
-        for (let attempt = 1; attempt <= TP_LINK_CHILD_DISCOVERY_ATTEMPTS; attempt += 1) {
-          if (attempt > 1 && !await waitForChildDiscoveryAttempt(controller.signal)) return;
-          if (!isCurrentHouse()) return;
-          setTpLinkChildDiscovery({ phase: "settling", attempt, hubModel });
-          const [devicesResult, statusResult] = await Promise.allSettled([
-            onRefreshTpLinkDevices ? onRefreshTpLinkDevices(targetHouseId) : api.tpLinkDevices(targetHouseId),
-            api.integrations(targetHouseId),
-          ]);
-          if (!isCurrentHouse()) return;
-
-          const devices = devicesResult.status === "fulfilled" ? devicesResult.value : [];
-          if (devicesResult.status === "fulfilled") updateTpLinkCanaryTargets(devices);
-          if (devicesResult.status === "fulfilled") {
-            receivedResponse = true;
-            receivedDeviceInventory = true;
-          }
-          if (statusResult.status === "fulfilled") {
-            receivedResponse = true;
-            latestStatus = statusResult.value.tpLink;
-          }
-          const discoveredDevices = Math.max(devices.length, latestStatus?.discoveredDevices ?? 0);
-          if (discoveredDevices > 0) {
-            setTpLinkChildDiscovery({ phase: "found", count: discoveredDevices, hubModel: latestStatus?.hubModel ?? hubModel });
-            return;
-          }
+        const [devicesResult, statusResult] = await Promise.allSettled([
+          onRefreshTpLinkDevices ? onRefreshTpLinkDevices(targetHouseId) : api.tpLinkDevices(targetHouseId),
+          api.integrations(targetHouseId),
+        ]);
+        if (activeSetupHouseId.current !== targetHouseId) return;
+        const devices = devicesResult.status === "fulfilled" ? devicesResult.value : [];
+        if (devicesResult.status === "fulfilled") updateTpLinkCanaryTargets(devices);
+        if (statusResult.status === "fulfilled") onIntegrationChange(statusResult.value);
+        const latestStatus = statusResult.status === "fulfilled" ? statusResult.value.tpLink : null;
+        const discoveredDevices = Math.max(devices.length, latestStatus?.discoveredDevices ?? 0);
+        if (discoveredDevices > 0) {
+          setTpLinkChildDiscovery({ phase: "found", count: discoveredDevices, hubModel: latestStatus?.hubModel ?? hubModel });
+        } else if (devicesResult.status === "rejected" || statusResult.status === "rejected" || latestStatus?.error) {
+          setTpLinkChildDiscovery({ phase: "error", hubModel: latestStatus?.hubModel ?? hubModel });
         }
-
-        if (!isCurrentHouse()) return;
-        setTpLinkChildDiscovery({
-          phase: !receivedResponse || !receivedDeviceInventory || Boolean(latestStatus?.error) ? "error" : "empty",
-          hubModel: latestStatus?.hubModel ?? hubModel,
-        });
-      } finally {
-        if (tpLinkChildDiscoveryAbort.current === controller) {
-          tpLinkChildDiscoveryAbort.current = null;
-          tpLinkChildDiscoveryKey.current = null;
-          tpLinkChildDiscoveryRunning.current = false;
-        }
+      } catch {
+        if (activeSetupHouseId.current === targetHouseId) setTpLinkChildDiscovery({ phase: "error", hubModel });
       }
     };
   useEffect(() => {
-      const hubModel = integration.tpLink.hubModel;
-      const eligible = activeSection === "connections"
-        && integration.tpLink.configured
-        && integration.tpLink.connected
-        && integration.tpLink.discoveredDevices === 0
-        && Boolean(hubModel);
-      const configuredHubDiscoveryRunning = activeSection === "connections"
-        && integration.tpLink.configured
-        && integration.tpLink.discoveredDevices === 0
-        && tpLinkChildDiscoveryRunning.current;
-      if (!eligible && !configuredHubDiscoveryRunning) {
-        stopTpLinkChildDiscovery(integration.tpLink.discoveredDevices === 0);
-      }
+      setTpLinkChildDiscovery((current) => {
+        const hubModel = integration.tpLink.hubModel
+          ?? (current.phase === "idle" ? null : current.hubModel);
+        if (activeSection !== "connections" || !integration.tpLink.configured || !hubModel) {
+          return { phase: "idle" };
+        }
+        if (!integration.tpLink.connected && integration.tpLink.error) {
+          return current.phase === "settling" ? { phase: "error", hubModel } : { phase: "idle" };
+        }
+        if (integration.tpLink.discoveredDevices > 0) {
+          return current.phase === "settling" || current.phase === "found"
+            ? { phase: "found", count: integration.tpLink.discoveredDevices, hubModel }
+            : { phase: "idle" };
+        }
+        if (current.phase === "found") return { phase: "idle" };
+        if (current.phase !== "settling") return current;
+        if (integration.tpLink.lastPollAt
+          && integration.tpLink.lastPollAt !== current.baselineLastPollAt) {
+          return { phase: "empty", hubModel };
+        }
+        return { ...current, hubModel };
+      });
     }, [
       activeSection,
       integration.tpLink.configured,
       integration.tpLink.connected,
+      integration.tpLink.error,
       integration.tpLink.discoveredDevices,
       integration.tpLink.hubModel,
+      integration.tpLink.lastPollAt,
     ]);
-  useEffect(() => {
-      const hubModel = integration.tpLink.hubModel;
-      const eligible = activeSection === "connections"
-        && integration.tpLink.configured
-        && integration.tpLink.connected
-        && integration.tpLink.discoveredDevices === 0
-        && Boolean(hubModel);
-      if (!eligible || !hubModel) return;
-      const expectedKey = hubModel;
-      if (tpLinkChildDiscoveryRunning.current) {
-        if (tpLinkChildDiscoveryKey.current !== expectedKey) void settleTpLinkChildren(hubModel);
-        return;
-      }
-      const displayedHubModel = tpLinkChildDiscovery.phase === "idle" ? null : tpLinkChildDiscovery.hubModel;
-      if (tpLinkChildDiscovery.phase === "idle" || displayedHubModel !== hubModel) void settleTpLinkChildren(hubModel);
-    }, [
-      activeSection,
-      integration.tpLink.configured,
-      integration.tpLink.connected,
-      integration.tpLink.discoveredDevices,
-      integration.tpLink.hubModel,
-      tpLinkChildDiscovery.phase,
-    ]);
-  const saveTpLink = async (event: FormEvent<HTMLFormElement>) => {
+  const saveTpLink = async (
+      event: FormEvent<HTMLFormElement>,
+      credentialSourceConnectionId?: string,
+    ) => {
       event.preventDefault();
-      if (validatedTpLinkDraft !== tpLinkDraftKey) {
-        setTpLinkFeedback({ kind: "error", message: t("setup.validationRequired") });
-        return;
-      }
-      if (!window.confirm(t("setup.activationConfirm"))) return;
+      if (!credentialSourceConnectionId && !window.confirm(t("setup.activationConfirm"))) return;
       setSavingTpLink(true);
       setTpLinkFeedback(null);
-      const requestHouseId = house.id;
+      const requestViewHouseId = house.id;
+      const editingConnection = tpLinkAssignments.find((connection) => connection.id === context.tpLinkEditingConnectionId.current);
+      const requestHouseId = editingConnection?.houseId ?? requestViewHouseId;
+      const submittedHost = tpLinkHost.trim();
+      const selectedSource = discovery?.tpLink.find((candidate) => candidate.host === submittedHost);
+      const sourceName = editingConnection?.sourceAlias
+        ?? editingConnection?.sourceModel
+        ?? selectedSource?.alias
+        ?? (selectedSource?.model ? `TP-Link ${selectedSource.model}` : submittedHost);
+      const requestHomeName = connectionHouses.find((candidate) => candidate.id === requestHouseId)?.name ?? house.name;
       try {
-        const configured = await api.configureTpLink({
+        const configuration = {
           houseId: requestHouseId,
+          ...(context.tpLinkEditingConnectionId.current ? { connectionId: context.tpLinkEditingConnectionId.current } : {}),
           host: tpLinkHost,
-          username: tpLinkUsername,
-          password: tpLinkPassword,
-        });
-        if (activeSetupHouseId.current !== requestHouseId) return;
-        onIntegrationChange(configured.integration);
+        };
+        const configured = credentialSourceConnectionId
+          ? await api.configureTpLink({ ...configuration, credentialSourceConnectionId })
+          : await api.configureTpLink({ ...configuration, username: tpLinkUsername, password: tpLinkPassword });
+        if (activeSetupHouseId.current !== requestViewHouseId) return;
+        const savedConnection = (status: typeof configured.integration) => (
+          status.tpLink.connections?.find((connection) => connection.id === configured.connectionId)
+        );
+        let confirmedIntegration = configured.integration;
+        let confirmedConnection = configured.connectionId ? savedConnection(confirmedIntegration) : undefined;
+        if (configured.connectionId && !confirmedConnection) {
+          confirmedIntegration = await api.integrations();
+          confirmedConnection = savedConnection(confirmedIntegration);
+        }
+        if (configured.connectionId && !confirmedConnection) throw new Error(t("setup.tpLinkSaveVerificationError"));
+        onIntegrationChange(confirmedIntegration);
+        const previouslySaved = confirmedConnection
+          ? tpLinkAssignments.some((connection) => connection.id === confirmedConnection.id)
+          : Boolean(editingConnection);
+        const created = configured.created ?? (!editingConnection && !previouslySaved);
+        const confirmedSourceName = confirmedConnection?.sourceAlias
+          ?? confirmedConnection?.sourceModel
+          ?? sourceName;
+        const remainingSources = (discovery?.tpLink ?? []).filter((candidate) => candidate.host !== submittedHost);
+        const nextSource = remainingSources.find((candidate) => !candidate.configuredConnectionId);
+        if (discovery) {
+          setDiscovery({ ...discovery, tpLink: remainingSources });
+          setDiscoveryOutcome(remainingSources.length + discovery.homeAssistant.length > 0 ? "found" : "empty");
+        }
+        tpLinkHostDraft.current = nextSource?.host ?? "";
+        setTpLinkHost(nextSource?.host ?? "");
+        setTpLinkUsername("");
         setTpLinkPassword("");
+        setReuseSavedTpLinkAccount(true);
+        context.tpLinkEditingConnectionId.current = null;
+        tpLinkTestGeneration.current += 1;
         setValidatedTpLinkDraft(null);
+        setDirectResult(null);
         setShowTpLinkPassword(false);
-        setTpLinkFeedback({ kind: "success", message: t("setup.credentialsSaved") });
-        const selectedSource = discovery?.tpLink.find((candidate) => candidate.host === tpLinkHost);
+        setTpLinkSettingsOpen(false);
+        setTpLinkFeedback({
+          kind: "success",
+          message: t(editingConnection || created
+            ? editingConnection ? "setup.tpLinkConnectionUpdated" : "setup.tpLinkConnectionAdded"
+            : "setup.tpLinkConnectionAlreadySaved", {
+            device: confirmedSourceName,
+            home: requestHomeName,
+          }),
+        });
+        const placementDeviceId = configured.deviceId ?? selectedSource?.deviceId ?? null;
+        const placementSourceType = configured.sourceType
+          ?? confirmedConnection?.sourceType
+          ?? selectedSource?.sourceType
+          ?? null;
+        if (created && !editingConnection && placementSourceType === "energy-device"
+          && placementDeviceId && configured.connectionId && onOpenSensors) {
+          if (onRefreshTpLinkDevices) void onRefreshTpLinkDevices(requestHouseId).catch(() => undefined);
+          onOpenSensors({
+            deviceId: placementDeviceId,
+            connectionId: configured.connectionId,
+            model: configured.sourceModel ?? selectedSource?.model ?? "TP-Link energy device",
+            alias: configured.sourceAlias ?? selectedSource?.alias ?? null,
+            deviceType: "energy",
+          });
+        }
         const discoveredHubModel = selectedSource?.sourceType !== "energy-device"
           && (selectedSource?.model === "H100" || selectedSource?.model === "H200")
           ? selectedSource.model
           : null;
-        const hubModel = configured.integration.tpLink.hubModel ?? discoveredHubModel;
+        const hubModel = confirmedIntegration.tpLink.hubModel ?? discoveredHubModel;
         if (hubModel) void settleTpLinkChildren(hubModel);
         else {
           stopTpLinkChildDiscovery();
           setTpLinkChildDiscovery({ phase: "idle" });
         }
-      } catch {
-        if (activeSetupHouseId.current === requestHouseId) setTpLinkFeedback({ kind: "error", message: t("setup.credentialsError") });
+      } catch (error) {
+        if (activeSetupHouseId.current === requestViewHouseId) {
+          setTpLinkFeedback({ kind: "error", message: connectionError(error, t("setup.credentialsError")) });
+        }
       } finally {
-        if (activeSetupHouseId.current === requestHouseId) setSavingTpLink(false);
+        if (activeSetupHouseId.current === requestViewHouseId) setSavingTpLink(false);
       }
     };
   const saveHomeAssistant = async (event: FormEvent<HTMLFormElement>) => {

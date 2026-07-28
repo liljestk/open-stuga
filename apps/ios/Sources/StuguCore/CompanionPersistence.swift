@@ -199,6 +199,8 @@ public struct CompanionCache: Codable, Equatable, Sendable {
     public let history: [CompanionHistorySeries]
     public let todayContext: TodayContext?
     public let pendingActions: [PendingCompanionAction]
+    public let tpLinkDevices: [TpLinkDiscoveredDevice]?
+    public let latestOpeningStateObservation: OpeningStateObservation?
 
     public init(
         serverOrigin: String,
@@ -216,7 +218,9 @@ public struct CompanionCache: Codable, Equatable, Sendable {
         selectedPropertyId: String?,
         history: [CompanionHistorySeries],
         todayContext: TodayContext?,
-        pendingActions: [PendingCompanionAction]
+        pendingActions: [PendingCompanionAction],
+        tpLinkDevices: [TpLinkDiscoveredDevice]? = nil,
+        latestOpeningStateObservation: OpeningStateObservation? = nil
     ) {
         schemaVersion = Self.currentSchemaVersion
         self.serverOrigin = serverOrigin
@@ -235,6 +239,8 @@ public struct CompanionCache: Codable, Equatable, Sendable {
         self.history = history
         self.todayContext = todayContext
         self.pendingActions = pendingActions
+        self.tpLinkDevices = tpLinkDevices
+        self.latestOpeningStateObservation = latestOpeningStateObservation
     }
 
     public func bounded(
@@ -267,7 +273,9 @@ public struct CompanionCache: Codable, Equatable, Sendable {
             selectedPropertyId: selectedPropertyId,
             history: boundedHistory,
             todayContext: todayContext,
-            pendingActions: Array(pendingActions.filter(\.isWellFormed).suffix(maximumPendingActions))
+            pendingActions: Array(pendingActions.filter(\.isWellFormed).suffix(maximumPendingActions)),
+            tpLinkDevices: tpLinkDevices.map { Array($0.prefix(500)) },
+            latestOpeningStateObservation: latestOpeningStateObservation
         )
     }
 }

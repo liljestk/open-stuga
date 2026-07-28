@@ -42,6 +42,9 @@ export interface TpLinkConnectionBridgeState {
       houseId: string;
       host: string;
       deviceId?: string;
+      sourceType?: "hub" | "energy-device";
+      sourceModel?: string;
+      sourceAlias?: string;
       onUpdate?: (update: TpLinkConnectionUpdate) => void;
       onAvailabilityChange?: () => void;
       onOpeningStateRecorded?: (observation: OpeningStateObservation) => void;
@@ -75,6 +78,9 @@ export function createTpLinkConnectionBridgeState(): TpLinkConnectionBridgeState
       houseId: string;
       host: string;
       deviceId?: string;
+      sourceType?: "hub" | "energy-device";
+      sourceModel?: string;
+      sourceAlias?: string;
       onUpdate?: (update: TpLinkConnectionUpdate) => void;
       onAvailabilityChange?: () => void;
       onOpeningStateRecorded?: (observation: OpeningStateObservation) => void;
@@ -102,6 +108,9 @@ export class TpLinkConnectionBridgeCore {
         houseId: string;
         host: string;
         deviceId?: string;
+        sourceType?: "hub" | "energy-device";
+        sourceModel?: string;
+        sourceAlias?: string;
         onUpdate?: (update: TpLinkConnectionUpdate) => void;
         onAvailabilityChange?: () => void;
         onOpeningStateRecorded?: (observation: OpeningStateObservation) => void;

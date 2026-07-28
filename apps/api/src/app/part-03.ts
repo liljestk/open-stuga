@@ -329,14 +329,24 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         if (!current || current.houseId !== update.houseId) return;
         if (update.host !== current.host && current.host !== update.previousHost) return;
         if (update.deviceId && update.deviceId.length > 1_024) return;
+        if (update.sourceModel && update.sourceModel.length > 128) return;
+        if (update.sourceAlias && update.sourceAlias.length > 512) return;
         if (current.deviceId && update.deviceId
           && current.deviceId.trim().toUpperCase() !== update.deviceId.trim().toUpperCase()) return;
         const nextConnection: TpLinkConnectionSecret = {
           ...current,
           host: update.host,
           ...(update.deviceId ? { deviceId: update.deviceId } : {}),
+          ...(update.sourceType ? { sourceType: update.sourceType } : {}),
+          ...(update.sourceModel ? { sourceModel: update.sourceModel } : {}),
+          ...(update.sourceAlias ? { sourceAlias: update.sourceAlias } : {}),
         };
-        if (nextConnection.host === current.host && nextConnection.deviceId === current.deviceId) return;
+        if (update.sourceAlias === null) delete nextConnection.sourceAlias;
+        if (nextConnection.host === current.host
+          && nextConnection.deviceId === current.deviceId
+          && nextConnection.sourceType === current.sourceType
+          && nextConnection.sourceModel === current.sourceModel
+          && nextConnection.sourceAlias === current.sourceAlias) return;
         const connections = existing.map((connection) => connection.id === current.id ? nextConnection : connection);
         updateIntegrationSecrets(config.integrationSecretsFile, { tpLinkConnections: connections });
         config.tpLinkConnections = connections;

@@ -192,6 +192,50 @@ describe("sensor onboarding and management", () => {
     expect(onRequestedDeviceHandled).toHaveBeenCalledOnce();
   });
 
+  it("opens placement for a just-saved energy device before its first live inventory arrives", async () => {
+    const user = userEvent.setup();
+    const onRequestedDeviceHandled = vi.fn();
+    renderPage({
+      tpLinkDevices: [],
+      requestedDevice: {
+        deviceId: "p115-water-heater",
+        connectionId: "water-heater-connection",
+        model: "P115",
+        alias: "Water heater",
+        deviceType: "energy",
+      },
+      onRequestedDeviceHandled,
+    });
+
+    const detailsHeading = await screen.findByRole("heading", { name: "Sensor details" });
+    const editor = detailsHeading.closest<HTMLElement>(".sensor-editor-card")!;
+    expect((within(editor).getByRole("textbox", { name: "Sensor name" }) as HTMLInputElement).value).toBe("Water heater");
+    expect((within(editor).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("P115");
+    await user.click(within(editor).getByRole("button", { name: "Continue" }));
+    expect(await within(editor).findByRole("heading", { name: "Place sensor" })).not.toBeNull();
+    expect(within(editor).getByRole("group", { name: /Placement map/ })).not.toBeNull();
+    expect(onRequestedDeviceHandled).toHaveBeenCalledOnce();
+  });
+
+  it("shows discovered sensors as a direct setup action", async () => {
+    const user = userEvent.setup();
+    const secondDevice: TpLinkDiscoveredDevice = {
+      ...discoveredDevice,
+      deviceId: "tapo-child-bedroom",
+      alias: "Bedroom sensor",
+    };
+    renderPage({ tpLinkDevices: [discoveredDevice, secondDevice] });
+
+    const ready = screen.getByRole("region", { name: "2 new TP-Link sensors found" });
+    expect(within(ready).getByText("Office window · T315, plus 1 more. Choose where they belong.")).not.toBeNull();
+    await user.click(within(ready).getByRole("button", { name: "Choose home & room" }));
+
+    const editor = await screen.findByRole("heading", { name: "Sensor details" });
+    const panel = editor.closest<HTMLElement>(".sensor-editor-card")!;
+    expect((within(panel).getByRole("textbox", { name: "Sensor name" }) as HTMLInputElement).value).toBe("Office window");
+    expect((within(panel).getByRole("textbox", { name: "Model" }) as HTMLInputElement).value).toBe("T315");
+  });
+
   it("never offers a TP-Link device assigned to a different Home", async () => {
     const user = userEvent.setup();
     const siblingDevice: TpLinkDiscoveredDevice = {

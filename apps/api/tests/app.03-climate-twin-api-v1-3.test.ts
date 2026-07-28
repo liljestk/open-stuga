@@ -434,6 +434,9 @@ describe("Climate Twin API v1", () => {
     expect(openapi.body.components.schemas.SensorInput.properties.tpLinkDeviceId.oneOf).toContainEqual({ type: "null" });
     expect(openapi.body.components.schemas.SensorPatch.properties.tpLinkDeviceId.description).toContain("clear");
     expect(openapi.body.components.schemas.TpLinkDiscoveredDevice.required).toContain("mappedSensorId");
+    expect(openapi.body.components.schemas.TpLinkDiscoveredDevice.required).toContain("deviceType");
+    expect(openapi.body.components.schemas.TpLinkDiscoveredDevice.required).toContain("mappedOpening");
+    expect(openapi.body.components.schemas.TpLinkDiscoveredDevice.properties.deviceType.enum).toContain("contact");
     expect(openapi.body.components.schemas.HouseWeather.properties.provider.enum).toEqual(["fmi", "open-meteo"]);
     expect(openapi.body.components.schemas.HouseWeather.properties.componentStatus.$ref).toContain("WeatherComponentStatuses");
     expect(openapi.body.components.schemas.WeatherComponentStatus.required).toContain("emptyResultIsAuthoritative");
@@ -446,6 +449,7 @@ describe("Climate Twin API v1", () => {
     expect(setup.body.entityMapSchema.entities[0]).toHaveProperty("temperature");
     const tpLinkSetup = await request(runtime.app).get("/api/v1/integrations/tp-link/setup").expect(200);
     expect(tpLinkSetup.body.sensorPatchSchema).toEqual({ tpLinkDeviceId: "hub-child-device-id" });
+    expect(tpLinkSetup.body.supportedContactSensors).toEqual(["T110"]);
     expect(tpLinkSetup.body.notes.join(" ")).toContain("optional legacy fallback");
   });
 

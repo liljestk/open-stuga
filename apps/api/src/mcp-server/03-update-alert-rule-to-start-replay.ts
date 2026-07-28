@@ -130,8 +130,11 @@ export function acknowledgeAlert(args: Record<string, unknown>): unknown {
 export function createObservation(args: Record<string, unknown>): ManualObservation {
   const input = parseObservationInput(args);
   stuguby.assertHouseWriteAllowed(input.houseId);
-  const observation = database.createObservation(input, "local-mcp");
-  stuguby.captureHomeMutation(observation.houseId);
+  const observation = database.transaction(() => {
+    const created = database.createObservation(input, "local-mcp");
+    stuguby.captureHomeMutation(created.houseId);
+    return created;
+  });
   return observation;
 }
 
@@ -140,13 +143,16 @@ export function updateObservation(args: Record<string, unknown>): ManualObservat
   const current = database.getObservation(observationId);
   if (!current) throw new Error(`Unknown observation: ${observationId}`);
   stuguby.assertHouseWriteAllowed(current.houseId);
-  const observation = database.updateObservation(
-    observationId,
-    parseObservationPatch({ ...requiredObject(args, "patch"), baseRevision: args.baseRevision }),
-    "local-mcp",
-  );
-  if (!observation) throw new Error(`Unknown observation: ${observationId}`);
-  stuguby.captureHomeMutation(observation.houseId);
+  const observation = database.transaction(() => {
+    const updated = database.updateObservation(
+      observationId,
+      parseObservationPatch({ ...requiredObject(args, "patch"), baseRevision: args.baseRevision }),
+      "local-mcp",
+    );
+    if (!updated) throw new Error(`Unknown observation: ${observationId}`);
+    stuguby.captureHomeMutation(updated.houseId);
+    return updated;
+  });
   return observation;
 }
 
@@ -161,8 +167,10 @@ export function deleteObservation(args: Record<string, unknown>): { deleted: tru
   const observationId = requiredString(args, "observationId");
   const current = database.getObservation(observationId);
   if (current) stuguby.assertHouseWriteAllowed(current.houseId);
-  if (!database.deleteObservation(observationId)) throw new Error(`Unknown observation: ${observationId}`);
-  if (current) stuguby.captureHomeMutation(current.houseId);
+  database.transaction(() => {
+    if (!database.deleteObservation(observationId)) throw new Error(`Unknown observation: ${observationId}`);
+    if (current) stuguby.captureHomeMutation(current.houseId);
+  });
   return { deleted: true, observationId };
 }
 
@@ -170,8 +178,11 @@ export function createMaintenanceTask(args: Record<string, unknown>): Maintenanc
   const input = parseMaintenanceTaskInput(args);
   const propertyId = input.propertyId ?? (input.houseId ? database.getHouse(input.houseId)?.propertyId : undefined);
   if (propertyId) stuguby.assertPropertyWriteAllowed(propertyId);
-  const task = database.createMaintenanceTask(input, "local-mcp");
-  stuguby.captureCurrentPropertyEntity(task.propertyId, "maintenance", task.id, "upsert");
+  const task = database.transaction(() => {
+    const created = database.createMaintenanceTask(input, "local-mcp");
+    stuguby.captureCurrentPropertyEntity(created.propertyId, "maintenance", created.id, "upsert");
+    return created;
+  });
   return task;
 }
 
@@ -193,13 +204,16 @@ export function updateMaintenanceTask(args: Record<string, unknown>): Maintenanc
   const previous = database.getMaintenanceTask(maintenanceTaskId);
   if (!previous) throw new Error(`Unknown maintenance task: ${maintenanceTaskId}`);
   stuguby.assertPropertyWriteAllowed(previous.propertyId);
-  const task = database.updateMaintenanceTask(
-    maintenanceTaskId,
-    parseMaintenanceTaskPatch({ ...requiredObject(args, "patch"), baseRevision: args.baseRevision }),
-    "local-mcp",
-  );
-  if (!task) throw new Error(`Unknown maintenance task: ${maintenanceTaskId}`);
-  stuguby.captureCurrentPropertyEntity(task.propertyId, "maintenance", task.id, "upsert");
+  const task = database.transaction(() => {
+    const updated = database.updateMaintenanceTask(
+      maintenanceTaskId,
+      parseMaintenanceTaskPatch({ ...requiredObject(args, "patch"), baseRevision: args.baseRevision }),
+      "local-mcp",
+    );
+    if (!updated) throw new Error(`Unknown maintenance task: ${maintenanceTaskId}`);
+    stuguby.captureCurrentPropertyEntity(updated.propertyId, "maintenance", updated.id, "upsert");
+    return updated;
+  });
   return task;
 }
 
@@ -216,10 +230,12 @@ export function deleteMaintenanceTask(args: Record<string, unknown>): { deleted:
   const maintenanceTaskId = requiredString(args, "maintenanceTaskId");
   const previous = database.getMaintenanceTask(maintenanceTaskId);
   if (previous) stuguby.assertPropertyWriteAllowed(previous.propertyId);
-  if (!database.deleteMaintenanceTask(maintenanceTaskId)) {
-    throw new Error(`Unknown maintenance task: ${maintenanceTaskId}`);
-  }
-  if (previous) stuguby.captureCurrentPropertyEntity(previous.propertyId, "maintenance", maintenanceTaskId, "delete");
+  database.transaction(() => {
+    if (!database.deleteMaintenanceTask(maintenanceTaskId)) {
+      throw new Error(`Unknown maintenance task: ${maintenanceTaskId}`);
+    }
+    if (previous) stuguby.captureCurrentPropertyEntity(previous.propertyId, "maintenance", maintenanceTaskId, "delete");
+  });
   return { deleted: true, maintenanceTaskId };
 }
 

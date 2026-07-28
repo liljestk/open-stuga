@@ -182,6 +182,7 @@ export function replayBufferedLiveTelemetry(
   loaded: LoadedTelemetryState,
   buffered: Iterable<BufferedLiveTelemetry>,
   loadedSensorIds: Set<string>,
+  definitions: ClimateState["measurementDefinitions"],
 ): LoadedTelemetryState {
   let latestMeasurements = loaded.latestMeasurements;
   let measurementHistory = loaded.measurementHistory;
@@ -208,6 +209,9 @@ export function replayBufferedLiveTelemetry(
         .sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp))
         .slice(-MAX_SERIES_SAMPLES),
     };
+    const samples = readingSamples(reading, definitions);
+    latestMeasurements = upsertLatest(latestMeasurements, samples);
+    measurementHistory = appendHistory(measurementHistory, samples);
   }
   return { ...loaded, latestMeasurements, measurementHistory, readings, history };
 }

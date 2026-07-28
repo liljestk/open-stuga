@@ -112,6 +112,16 @@ async def test_recover_source_host_accepts_one_identity_matched_source(
 ) -> None:
     match = {"host": "192.168.1.24", "sourceDeviceId": "hub-1"}
 
+    async def discover(
+        username: str, password: str, expected_device_id: str | None
+    ) -> list[dict[str, Any]]:
+        assert (username, password, expected_device_id) == (
+            "user",
+            "secret",
+            "hub-1",
+        )
+        return []
+
     async def scan(
         reference_hosts: list[str],
         username: str,
@@ -128,6 +138,7 @@ async def test_recover_source_host_accepts_one_identity_matched_source(
         )
         return [match]
 
+    monkeypatch.setattr(bridge, "discover_recovery_sources", discover)
     monkeypatch.setattr(bridge, "scan_recovery_subnets", scan)
     assert (
         await bridge.recover_source_host("192.168.1.20", "user", "secret", "hub-1")

@@ -51,6 +51,10 @@ export interface TpLinkConnectionSecret {
   password: string;
   /** Stable local device identity learned after the first authenticated poll. */
   deviceId?: string;
+  /** Non-secret source details retained so an offline connection stays identifiable. */
+  sourceType?: "hub" | "energy-device";
+  sourceModel?: string;
+  sourceAlias?: string;
 }
 
 export interface AppleNotesGrantSecret {
@@ -115,7 +119,10 @@ function normalizedTpLinkConnections(value: unknown): TpLinkConnectionSecret[] {
     const item = candidate as Record<string, unknown>;
     if (!item || !isNonEmptyString(item.id) || !isNonEmptyString(item.houseId)
       || !isNonEmptyString(item.host) || !isNonEmptyString(item.username) || !isNonEmptyString(item.password)
-      || (item.deviceId !== undefined && (!isNonEmptyString(item.deviceId) || item.deviceId.length > 1_024))) {
+      || (item.deviceId !== undefined && (!isNonEmptyString(item.deviceId) || item.deviceId.length > 1_024))
+      || (item.sourceType !== undefined && item.sourceType !== "hub" && item.sourceType !== "energy-device")
+      || (item.sourceModel !== undefined && (!isNonEmptyString(item.sourceModel) || item.sourceModel.length > 128))
+      || (item.sourceAlias !== undefined && (!isNonEmptyString(item.sourceAlias) || item.sourceAlias.length > 512))) {
       throw new Error("The TP-Link connections in the integration secrets file are invalid");
     }
     const id = item.id.trim();
@@ -137,6 +144,9 @@ function normalizedTpLinkConnections(value: unknown): TpLinkConnectionSecret[] {
       username: item.username.trim(),
       password: item.password,
       ...(deviceId ? { deviceId } : {}),
+      ...(item.sourceType === "hub" || item.sourceType === "energy-device" ? { sourceType: item.sourceType } : {}),
+      ...(isNonEmptyString(item.sourceModel) ? { sourceModel: item.sourceModel.trim() } : {}),
+      ...(isNonEmptyString(item.sourceAlias) ? { sourceAlias: item.sourceAlias.trim() } : {}),
     });
   }
   return connections;

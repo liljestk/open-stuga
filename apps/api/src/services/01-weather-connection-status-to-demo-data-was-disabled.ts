@@ -56,6 +56,10 @@ export class RuntimeStatus {
         connections: (config.tpLinkConnections ?? []).map((connection) => ({
           id: connection.id, houseId: connection.houseId, configured: true, connected: false,
           lastPollAt: null, mappedDevices: 0, discoveredDevices: 0, hubModel: null, error: null,
+          host: connection.host,
+          sourceType: connection.sourceType ?? null,
+          sourceModel: connection.sourceModel ?? null,
+          sourceAlias: connection.sourceAlias ?? null,
         })),
       },
       webhook: {

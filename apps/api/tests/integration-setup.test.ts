@@ -149,6 +149,7 @@ describe("guided integration setup", () => {
     const hub = await request(runtime.app).put("/api/v1/integrations/tp-link/config").send({
       houseId: "house-main", host: "192.168.1.56", username: "owner@example.test", password: "secret",
     }).expect(200);
+    expect(hub.body.created).toBe(true);
     const beforeMismatch = readFileSync(secretsPath, "utf8");
     await request(runtime.app).put("/api/v1/integrations/tp-link/config").send({
       houseId: "house-main",
@@ -165,6 +166,7 @@ describe("guided integration setup", () => {
       houseId: "house-main", host: "192.168.1.57", username: "owner@example.test", password: "secret",
     }).expect(200);
 
+    expect(plug.body.created).toBe(true);
     expect(plug.body.connectionId).not.toBe(hub.body.connectionId);
     expect(readIntegrationSecrets(secretsPath).tpLinkConnections).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: hub.body.connectionId, host: "192.168.1.56", deviceId: "h200-stable-id" }),
@@ -174,6 +176,7 @@ describe("guided integration setup", () => {
     const movedHub = await request(runtime.app).put("/api/v1/integrations/tp-link/config").send({
       houseId: "house-main", host: "192.168.1.58", username: "owner@example.test", password: "new-secret",
     }).expect(200);
+    expect(movedHub.body.created).toBe(false);
     expect(movedHub.body.connectionId).toBe(hub.body.connectionId);
     expect(readIntegrationSecrets(secretsPath).tpLinkConnections).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: hub.body.connectionId, host: "192.168.1.58", password: "new-secret" }),
@@ -228,7 +231,13 @@ describe("guided integration setup", () => {
               ok: true,
               connected: true,
               message: "validated",
-              details: { sourceDeviceId: source.deviceId, deviceIds: [source.deviceId] },
+              details: {
+                sourceDeviceId: source.deviceId,
+                deviceIds: [source.deviceId],
+                sourceType: "energy-device",
+                model: "P110",
+                sourceAlias: source.alias,
+              },
             }
           : { ok: false, connected: false, message: "unknown source" };
       },
@@ -242,6 +251,13 @@ describe("guided integration setup", () => {
         username: "owner@example.test",
         password: "secret",
       }).expect(200);
+      expect(configured.body).toMatchObject({
+        created: true,
+        deviceId: sources[host as keyof typeof sources].deviceId,
+        sourceType: "energy-device",
+        sourceModel: "P110",
+        sourceAlias: sources[host as keyof typeof sources].alias,
+      });
       connectionIds.push(configured.body.connectionId as string);
     }
 
@@ -370,7 +386,11 @@ describe("guided integration setup", () => {
           details: { sensorIds: ["sensor-03"] },
         });
       });
-    expect(readIntegrationSecrets(secretsPath).tpLinkConnections).toEqual([existingConnection]);
+    expect(readIntegrationSecrets(secretsPath).tpLinkConnections).toEqual([{
+      ...existingConnection,
+      sourceType: "hub",
+      sourceModel: "H200",
+    }]);
     expect(runtime.database.getSensor("sensor-01")).not.toHaveProperty("tpLinkConnectionId");
     expect(runtime.database.getSensor("sensor-02")).not.toHaveProperty("tpLinkConnectionId");
     runtime.database.updateSensor("sensor-03", { tpLinkDeviceId: null });

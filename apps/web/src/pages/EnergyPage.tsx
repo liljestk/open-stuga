@@ -481,7 +481,6 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
 }
 
 function formatOptimizationWindow(startAt: string, endAt: string, locale: string, timeZone?: string): string {
-  const options: Intl.DateTimeFormatOptions = { weekday: "short", hour: "2-digit", minute: "2-digit", ...(timeZone ? { timeZone } : {}) };
-  const formatter = new Intl.DateTimeFormat(locale, options);
-  return `${formatter.format(new Date(startAt))}–${formatter.format(new Date(endAt))}`;
+  const options: Intl.DateTimeFormatOptions = { weekday: "short", hour: "2-digit", minute: "2-digit" };
+  return `${formatInTimeZone(startAt, locale, timeZone, options)}–${formatInTimeZone(endAt, locale, timeZone, options)}`;
 }

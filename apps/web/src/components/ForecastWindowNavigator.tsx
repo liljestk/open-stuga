@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { OutdoorConditions, UnitSystem } from "@climate-twin/contracts";
+import { getDateTimeFormatter } from "../dateTime";
 import { useI18n, type Locale, type TranslationKey } from "../i18n";
 
 export const FORECAST_WINDOW_HOURS = 12;
@@ -64,9 +65,9 @@ export function formatZonedForecastTime(timestamp: string, locale: string, timeZ
     timeZoneName: "shortOffset",
   };
   try {
-    return new Intl.DateTimeFormat(locale, { ...options, timeZone }).format(date);
+    return getDateTimeFormatter(locale, { ...options, timeZone }).format(date);
   } catch {
-    return new Intl.DateTimeFormat(locale, { ...options, timeZone: "UTC" }).format(date);
+    return getDateTimeFormatter(locale, { ...options, timeZone: "UTC" }).format(date);
   }
 }
 

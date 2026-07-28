@@ -139,6 +139,42 @@ body { font-size: 16px; line-height: 1.5; }
 
 .main-content textarea { min-height: 88px; }
 
+/* The live-view toolbar is a dense control surface. Keep its overall targets
+   accessible without adding the global target height on top of segment padding. */
+.main-content .twin-panel { container-type: inline-size; }
+
+.main-content .twin-toolbar :is(.toolbar-floor-picker, .metric-picker) { font-size: 12px; }
+
+.main-content .twin-toolbar :is(select, .toolbar-actions button) {
+  min-height: 44px;
+  font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.main-content .twin-toolbar .toolbar-title strong { min-height: 44px; font-size: 12px; }
+
+.main-content .twin-toolbar .segmented {
+  min-height: 44px;
+  flex: 0 0 auto;
+  gap: 1px;
+  padding: 1px;
+}
+
+.main-content .twin-toolbar .segmented button {
+  min-height: 40px;
+  flex: 0 0 auto;
+  font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.main-content .twin-toolbar .map-device-layers button {
+  min-width: 0;
+  width: auto;
+  flex: 1 1 auto;
+}
+
 .nav-button { min-height: 48px; font-size: 15px; }
 
 .nav-button small, .brand small, .sidebar-footer small { font-size: 12px; line-height: 1.4; }

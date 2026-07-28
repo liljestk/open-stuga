@@ -80,6 +80,7 @@ import type {
   TelemetryEvent,
   TelegramConfigInput,
   TelegramDiscoveryResult,
+  MoistureResponseResult,
   ThermalIsolationResult,
   ThermalSimulationResult,
   EquipmentTrackingBinding,
@@ -226,6 +227,17 @@ export const apiPart04 = {
         `/houses/${encodeURIComponent(houseId)}/thermal-isolation?${query.toString()}`,
         signal ? { signal } : undefined,
       )).isolation;
+    },
+  moistureResponse: async (
+      houseId: string,
+      options: { from: string; to: string },
+      signal?: AbortSignal,
+    ) => {
+      const query = new URLSearchParams({ from: options.from, to: options.to });
+      return (await request<{ moistureResponse: MoistureResponseResult }>(
+        `/houses/${encodeURIComponent(houseId)}/moisture-response?${query.toString()}`,
+        signal ? { signal } : undefined,
+      )).moistureResponse;
     },
   spatialLayerEngines: async (): Promise<SpatialLayerEngineManifest[]> => spatialLayerEngines(
       await request<unknown>("/layer-engines"),

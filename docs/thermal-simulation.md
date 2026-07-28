@@ -107,7 +107,9 @@ Sensor scores are combined with medians: sensor → room, room → floor, and fl
 → house. This prevents one densely instrumented room from dominating a floor or
 the house. Rooms without a usable sensor remain visible as missing evidence;
 they are never assigned an inferred score. The API ranks only scored peers at
-the same scope level and reports partial coverage explicitly.
+the same scope level and reports partial coverage explicitly. Aggregate time
+constants and 50% response times are derived from the aggregate retention score,
+so the displayed metrics describe the same modeled response.
 
 Despite the product label, this remains an empirical **thermal isolation
 comparison**, not a physical insulation measurement. The response mixes the
@@ -122,6 +124,30 @@ partition. A scenario beyond the calibrated outdoor envelope or longer than 48
 hours is explicitly marked provisional. If the latest aligned observation is
 more than two hours before the requested scenario start, the API reports a
 stale-anchor warning and withholds future points.
+
+## Moisture response comparison
+
+The analytics page exposes a separate moisture model:
+
+```http
+GET /api/v1/houses/{houseId}/moisture-response
+    ?from={ISO timestamp}
+    &to={ISO timestamp}
+```
+
+It requires paired indoor temperature and relative humidity plus persisted
+outdoor temperature and relative humidity. Both sides are converted to water-
+vapor pressure with the Buck equation using the meteorological liquid-water
+reference, including below freezing; raw relative-humidity percentages at
+different temperatures are never compared directly. The model
+reports response time, fitted outdoor coupling, indoor moisture excess,
+chronological validation skill, coverage, and confidence.
+
+This is intentionally not part of the thermal-isolation score and has no
+good/bad rating. Ventilation, leakage, occupants, showers, cooking, laundry,
+plants, HVAC, dehumidification, condensation, material sorption, and sensor
+placement remain mixed into the response. It is not an airtightness, dampness,
+mould, condensation-risk, or building-code assessment.
 
 ## Path to higher fidelity
 

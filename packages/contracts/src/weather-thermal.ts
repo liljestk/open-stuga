@@ -293,7 +293,7 @@ export type ThermalIsolationConfidence = "high" | "medium" | "low" | "unavailabl
 export type ThermalIsolationRating = "low" | "moderate" | "high" | "very-high";
 
 export interface ThermalIsolationMetrics {
-  /** Median fitted time constant for this scope. */
+  /** Fitted sensor time constant, or the score-equivalent time constant for an aggregate scope. */
   effectiveTimeConstantHours: number | null;
   /** Time for the fitted first-order response to move halfway toward equilibrium. */
   halfResponseHours: number | null;
@@ -362,6 +362,76 @@ export interface ThermalIsolationResult {
   methodology: {
     scoreMethod: "modeled-24h-retention-v1";
     aggregationMethod: "median-child-score-v1";
+    interpretation: string;
+    limitations: string[];
+  };
+}
+
+export type MoistureResponseConfidence = "high" | "medium" | "low" | "unavailable";
+
+export interface MoistureResponseMetrics {
+  /** Fitted time constant for the indoor vapor-pressure response to the outdoor boundary. */
+  responseTimeHours: number | null;
+  halfResponseHours: number | null;
+  /** Fitted equilibrium change indoors per outdoor vapor-pressure change, expressed as percent. */
+  outdoorCouplingPct: number | null;
+  medianIndoorVaporPressureHpa: number | null;
+  medianOutdoorVaporPressureHpa: number | null;
+  /** Median indoor minus outdoor vapor pressure. Positive values indicate an indoor moisture excess. */
+  medianMoistureExcessHpa: number | null;
+  /** Improvement over a last-value persistence baseline on chronological validation. */
+  modelSkillPct: number | null;
+}
+
+export interface MoistureResponseEntry {
+  scope: {
+    type: ThermalIsolationScopeType;
+    id: string;
+    label: string;
+    parentId?: string;
+    floorId?: string;
+    sensorIds: string[];
+  };
+  calibrationStatus: ThermalCalibrationStatus;
+  confidence: MoistureResponseConfidence;
+  /** Rank among modeled peers by response time; 1 reacts fastest. */
+  rank: number | null;
+  childCoveragePct: number;
+  sensorCount: number;
+  eligibleSensorCount: number;
+  metrics: MoistureResponseMetrics;
+  quality: {
+    durationHours: number;
+    outdoorRangeHpa: number;
+    validationMaeHpa: number | null;
+    persistenceMaeHpa: number | null;
+  };
+  warnings: string[];
+}
+
+export interface MoistureResponseInsight {
+  code:
+    | "FASTEST_MOISTURE_RESPONSE_ROOM"
+    | "STRONGEST_OUTDOOR_MOISTURE_COUPLING"
+    | "HIGHEST_INDOOR_MOISTURE_EXCESS"
+    | "LIMITED_MOISTURE_EVIDENCE";
+  scopeIds: string[];
+  value: number;
+  unit: "hours" | "percent" | "hectopascal";
+}
+
+export interface MoistureResponseResult {
+  generatedAt: string;
+  systemVersion: typeof SYSTEM_VERSION;
+  houseId: string;
+  from: string;
+  to: string;
+  entries: MoistureResponseEntry[];
+  insights: MoistureResponseInsight[];
+  methodology: {
+    conversionMethod: "buck-vapor-pressure-v1";
+    modelMethod: "first-order-moisture-response-v1";
+    aggregationMethod: "median-child-metric-v1";
     interpretation: string;
     limitations: string[];
   };

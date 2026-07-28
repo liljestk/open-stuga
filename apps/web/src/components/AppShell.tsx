@@ -41,6 +41,7 @@ interface AppShellProps {
   sensorDiscoveryNotice?: {
     name: string;
     model: string;
+    kind: "sensor" | "contact";
     additionalCount: number;
   } | undefined;
   onAddDiscoveredSensor?: (() => void) | undefined;
@@ -516,16 +517,20 @@ export function AppShell({
         {sensorDiscoveryNotice && !menuOpen && <section className="sensor-found-toast" role="status" aria-live="polite" aria-atomic="true">
           <span className="sensor-found-toast-icon" aria-hidden="true"><RadioTower size={21} /></span>
           <span className="sensor-found-toast-copy">
-            <strong>{t(sensorDiscoveryNotice.additionalCount > 0 ? "sensors.foundNoticeTitleMany" : "sensors.foundNoticeTitle", {
+            <strong>{t(sensorDiscoveryNotice.kind === "contact"
+              ? sensorDiscoveryNotice.additionalCount > 0 ? "sensors.foundContactNoticeTitleMany" : "sensors.foundContactNoticeTitle"
+              : sensorDiscoveryNotice.additionalCount > 0 ? "sensors.foundNoticeTitleMany" : "sensors.foundNoticeTitle", {
               count: sensorDiscoveryNotice.additionalCount + 1,
             })}</strong>
-            <small>{t(sensorDiscoveryNotice.additionalCount > 0 ? "sensors.foundNoticeBodyMany" : "sensors.foundNoticeBody", {
+            <small>{t(sensorDiscoveryNotice.kind === "contact"
+              ? sensorDiscoveryNotice.additionalCount > 0 ? "sensors.foundContactNoticeBodyMany" : "sensors.foundContactNoticeBody"
+              : sensorDiscoveryNotice.additionalCount > 0 ? "sensors.foundNoticeBodyMany" : "sensors.foundNoticeBody", {
               name: sensorDiscoveryNotice.name,
               model: sensorDiscoveryNotice.model,
               count: sensorDiscoveryNotice.additionalCount,
             })}</small>
           </span>
-          {onAddDiscoveredSensor && <button type="button" className="primary-button" onClick={onAddDiscoveredSensor}><House size={16} aria-hidden="true" />{t("sensors.foundNoticeAdd")}</button>}
+          {onAddDiscoveredSensor && <button type="button" className="primary-button" onClick={onAddDiscoveredSensor}><House size={16} aria-hidden="true" />{t(sensorDiscoveryNotice.kind === "contact" ? "sensors.foundContactNoticeAdd" : "sensors.foundNoticeAdd")}</button>}
           {onDismissDiscoveredSensors && <button type="button" className="icon-button" onClick={onDismissDiscoveredSensors} aria-label={t("sensors.foundNoticeDismiss")}><X size={18} aria-hidden="true" /></button>}
         </section>}
       </div>

@@ -11,11 +11,16 @@ import type {
   ThermalIsolationRating,
   ThermalIsolationResult,
 } from "@climate-twin/contracts";
-import { runThermalSimulation } from "./thermal-simulation.js";
+import {
+  prepareThermalOutdoorBoundary,
+  runThermalSimulation,
+  type PreparedThermalOutdoorBoundary,
+} from "./thermal-simulation.js";
 import { SYSTEM_VERSION } from "./version.js";
 
 const DAY_HOURS = 24;
 const CALIBRATION_BUCKET_MS = 5 * 60_000;
+const TP_LINK_TEMPERATURE_MODEL_PATTERN = /\bT3(?:10|15)\b/i;
 
 export interface ThermalIsolationInput {
   house: Pick<House, "id" | "name" | "floors">;
@@ -56,6 +61,16 @@ function percentile(values: number[], fraction: number): number | null {
 
 function unique<T>(values: T[]): T[] {
   return [...new Set(values)];
+}
+
+export function isThermalIsolationTemperatureSensor(
+  sensor: Sensor,
+  hasRecordedTemperature = false,
+): boolean {
+  return hasRecordedTemperature
+    || Boolean(sensor.temperatureEntityId?.trim())
+    || Boolean(sensor.measurementEntityIds?.temperature?.trim())
+    || Boolean(sensor.tpLinkDeviceId && TP_LINK_TEMPERATURE_MODEL_PATTERN.test(sensor.model));
 }
 
 /**
@@ -122,6 +137,7 @@ function sensorEntry(
   input: ThermalIsolationInput,
   sensor: Sensor,
   parentId: string,
+  preparedOutdoor: PreparedThermalOutdoorBoundary,
 ): ThermalIsolationEntry {
   const calibration = runThermalSimulation({
     houseId: input.house.id,
@@ -133,7 +149,7 @@ function sensorEntry(
     outdoorSamples: input.outdoorSamples,
     horizonHours: 0,
     ...(input.generatedAt ? { generatedAt: input.generatedAt } : {}),
-  }).calibration;
+  }, preparedOutdoor).calibration;
   const metrics = metricsForCalibration(calibration);
   const score = metrics.retainedAfter24HoursPct;
   const sensitivity = sensitivityScores(calibration);
@@ -235,6 +251,13 @@ function aggregateEntry(
     }));
     return value === null ? null : round(value, 2);
   };
+  const aggregateScore = score === null ? null : round(score, 1);
+  const medianTimeConstant = metricMedian((entry) => entry.metrics.effectiveTimeConstantHours);
+  const effectiveTimeConstantHours = aggregateScore === null
+    ? null
+    : aggregateScore <= 0 || aggregateScore >= 100
+      ? medianTimeConstant
+      : round(-DAY_HOURS / Math.log(aggregateScore / 100), 2);
   const eligibleSensorCount = Math.min(
     sensorIds.length,
     scoredChildren.reduce((sum, child) => sum + child.eligibleSensorCount, 0),
@@ -247,18 +270,18 @@ function aggregateEntry(
     scope,
     calibrationStatus: status,
     confidence: aggregateConfidence(status, childCoveragePct, children),
-    rating: ratingFor(score),
-    score: score === null ? null : round(score, 1),
+    rating: ratingFor(aggregateScore),
+    score: aggregateScore,
     rank: null,
     comparedWithHousePoints: null,
     childCoveragePct,
     sensorCount: sensorIds.length,
     eligibleSensorCount,
     metrics: {
-      effectiveTimeConstantHours: metricMedian((entry) => entry.metrics.effectiveTimeConstantHours),
-      halfResponseHours: metricMedian((entry) => entry.metrics.halfResponseHours),
-      retainedAfter24HoursPct: score === null ? null : round(score, 1),
-      outdoorResponseAfter24HoursPct: score === null ? null : round(100 - score, 1),
+      effectiveTimeConstantHours,
+      halfResponseHours: effectiveTimeConstantHours === null ? null : round(effectiveTimeConstantHours * Math.log(2), 1),
+      retainedAfter24HoursPct: aggregateScore,
+      outdoorResponseAfter24HoursPct: aggregateScore === null ? null : round(100 - aggregateScore, 1),
       modelSkillPct: metricMedian((entry) => entry.metrics.modelSkillPct),
       ...spread,
     },
@@ -308,7 +331,14 @@ function ranked(entries: ThermalIsolationEntry[]): ThermalIsolationEntry[] {
   const order = [...entries]
     .filter((entry) => entry.score !== null)
     .sort((left, right) => (right.score ?? 0) - (left.score ?? 0) || left.scope.label.localeCompare(right.scope.label));
-  const ranks = new Map(order.map((entry, index) => [entry.scope.id, index + 1]));
+  const ranks = new Map<string, number>();
+  let previousScore: number | null = null;
+  let currentRank = 0;
+  order.forEach((entry, index) => {
+    if (previousScore === null || entry.score !== previousScore) currentRank = index + 1;
+    ranks.set(entry.scope.id, currentRank);
+    previousScore = entry.score;
+  });
   return entries.map((entry) => ({ ...entry, rank: ranks.get(entry.scope.id) ?? null }));
 }
 
@@ -316,15 +346,33 @@ function buildInsights(entries: ThermalIsolationEntry[]): ThermalIsolationInsigh
   const insights: ThermalIsolationInsight[] = [];
   const rooms = entries.filter((entry) => entry.scope.type === "room" && entry.score !== null);
   const floors = entries.filter((entry) => entry.scope.type === "floor" && entry.score !== null);
-  const weakestRoom = [...rooms].sort((left, right) => (left.score ?? 0) - (right.score ?? 0))[0];
-  if (weakestRoom?.score !== null && weakestRoom?.score !== undefined) {
+  const orderedRooms = [...rooms].sort((left, right) => (left.score ?? 0) - (right.score ?? 0));
+  const weakestRoom = orderedRooms[0];
+  const nextWeakestRoom = orderedRooms[1];
+  if (
+    weakestRoom?.score !== null
+    && weakestRoom?.score !== undefined
+    && nextWeakestRoom?.score !== null
+    && nextWeakestRoom?.score !== undefined
+    && nextWeakestRoom.score > weakestRoom.score
+  ) {
     insights.push({ code: "LOWEST_BUFFERING_ROOM", scopeIds: [weakestRoom.scope.id], value: weakestRoom.score, unit: "score-points" });
   }
   if (floors.length > 1) {
     const ordered = [...floors].sort((left, right) => (left.score ?? 0) - (right.score ?? 0));
     const low = ordered[0];
     const high = ordered.at(-1);
-    if (low?.score !== null && low?.score !== undefined && high?.score !== null && high?.score !== undefined) {
+    const uniqueLow = ordered.filter((entry) => entry.score === low?.score).length === 1;
+    const uniqueHigh = ordered.filter((entry) => entry.score === high?.score).length === 1;
+    if (
+      low?.score !== null
+      && low?.score !== undefined
+      && high?.score !== null
+      && high?.score !== undefined
+      && high.score > low.score
+      && uniqueLow
+      && uniqueHigh
+    ) {
       insights.push({
         code: "FLOOR_CONTRAST",
         scopeIds: [high.scope.id, low.scope.id],
@@ -356,12 +404,38 @@ function buildInsights(entries: ThermalIsolationEntry[]): ThermalIsolationInsigh
   return insights;
 }
 
-export function runThermalIsolation(input: ThermalIsolationInput): ThermalIsolationResult {
-  const enabledSensors = input.sensors.filter((sensor) => sensor.enabled && sensor.houseId === input.house.id);
+interface PreparedThermalIsolationRun {
+  enabledSensors: Sensor[];
+  groups: RoomGroup[];
+  parentBySensor: Map<string, string>;
+  outdoor: PreparedThermalOutdoorBoundary;
+}
+
+function prepareThermalIsolationRun(input: ThermalIsolationInput): PreparedThermalIsolationRun {
+  const sensorsWithTemperatureSamples = new Set(
+    [...input.indoorSamplesBySensor.entries()].flatMap(([sensorId, samples]) =>
+      samples.some((sample) => sample.metric === "temperature") ? [sensorId] : []),
+  );
+  const enabledSensors = input.sensors.filter((sensor) =>
+    sensor.enabled
+    && sensor.houseId === input.house.id
+    && isThermalIsolationTemperatureSensor(sensor, sensorsWithTemperatureSamples.has(sensor.id)));
   const groups = roomGroups(input.house, enabledSensors);
   const parentBySensor = new Map(groups.flatMap((group) => group.sensorIds.map((sensorId) => [sensorId, group.id] as const)));
-  let sensorEntries = enabledSensors.map((sensor) => sensorEntry(input, sensor, parentBySensor.get(sensor.id) ?? `floor:${sensor.floorId}`));
-  sensorEntries = ranked(sensorEntries);
+  return {
+    enabledSensors,
+    groups,
+    parentBySensor,
+    outdoor: prepareThermalOutdoorBoundary(input.outdoorSamples),
+  };
+}
+
+function completeThermalIsolation(
+  input: ThermalIsolationInput,
+  groups: RoomGroup[],
+  entriesForSensors: ThermalIsolationEntry[],
+): ThermalIsolationResult {
+  const sensorEntries = ranked(entriesForSensors);
   const sensorEntryById = new Map(sensorEntries.map((entry) => [entry.scope.sensorIds[0]!, entry]));
 
   let roomEntries = groups.map((group) => aggregateEntry(
@@ -440,4 +514,45 @@ export function runThermalIsolation(input: ThermalIsolationInput): ThermalIsolat
       ],
     },
   };
+}
+
+export function runThermalIsolation(input: ThermalIsolationInput): ThermalIsolationResult {
+  const prepared = prepareThermalIsolationRun(input);
+  const sensorEntries = prepared.enabledSensors.map((sensor) => sensorEntry(
+    input,
+    sensor,
+    prepared.parentBySensor.get(sensor.id) ?? `floor:${sensor.floorId}`,
+    prepared.outdoor,
+  ));
+  return completeThermalIsolation(input, prepared.groups, sensorEntries);
+}
+
+export interface ThermalIsolationAsyncOptions {
+  signal?: AbortSignal;
+  yieldEvery?: number;
+}
+
+export async function runThermalIsolationAsync(
+  input: ThermalIsolationInput,
+  options: ThermalIsolationAsyncOptions = {},
+): Promise<ThermalIsolationResult> {
+  const prepared = prepareThermalIsolationRun(input);
+  const sensorEntries: ThermalIsolationEntry[] = [];
+  const yieldEvery = Math.max(1, Math.floor(options.yieldEvery ?? 1));
+  for (let index = 0; index < prepared.enabledSensors.length; index += 1) {
+    if (index % yieldEvery === 0) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    options.signal?.throwIfAborted();
+    const sensor = prepared.enabledSensors[index];
+    if (!sensor) continue;
+    sensorEntries.push(sensorEntry(
+      input,
+      sensor,
+      prepared.parentBySensor.get(sensor.id) ?? `floor:${sensor.floorId}`,
+      prepared.outdoor,
+    ));
+  }
+  options.signal?.throwIfAborted();
+  return completeThermalIsolation(input, prepared.groups, sensorEntries);
 }

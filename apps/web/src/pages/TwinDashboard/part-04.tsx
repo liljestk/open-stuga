@@ -125,7 +125,7 @@ export function useTwinDashboardPart04(context: ReturnType<typeof useTwinDashboa
     });
   const hasUsableReadings = houseSensors.some((sensor) => Object.values(state.latestMeasurements[sensor.id] ?? {})
       .some((sample) => Number.isFinite(sample.value) && isSpatialSampleFresh(sample, {
-        referenceTimeMs: liveSpatialClockMs,
+        referenceTimeMs: spatialReferenceTimeMs,
         maxSampleAgeMs: liveSpatialMaxSampleAgeMs,
       })));
   const houseValues = houseSensors.flatMap((sensor) => {
@@ -152,7 +152,7 @@ export function useTwinDashboardPart04(context: ReturnType<typeof useTwinDashboa
           const sample = state.latestMeasurements[sensor.id]?.[conditionMetric];
           const value = measurementValue(sample, conditionMetric);
           return isSpatialSampleFresh(sample, {
-            referenceTimeMs: liveSpatialClockMs,
+            referenceTimeMs: spatialReferenceTimeMs,
             maxSampleAgeMs: liveSpatialMaxSampleAgeMs,
           }) && value != null ? [value] : [];
         });
