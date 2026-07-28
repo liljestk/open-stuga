@@ -4,6 +4,8 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.17.0 - 2026-07-28
+
 - Redesign calendar comparison around two explicit periods. Week views now
   align Monday through Sunday, months use seven-day blocks, years use months,
   and decades use years. The view can compare a stable selected-sensor
