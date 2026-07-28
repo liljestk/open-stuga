@@ -149,8 +149,9 @@ export const apiPart01 = {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  setupOwner: (input: LocalOwnerSetupInput) => completeAuthentication(request<AppSession>("/auth/setup", {
+  setupOwner: (input: LocalOwnerSetupInput, bootstrapSecret?: string | null) => completeAuthentication(request<AppSession>("/auth/setup", {
       method: "POST",
+      ...(bootstrapSecret ? { headers: { "X-Stugu-Bootstrap-Secret": bootstrapSecret } } : {}),
       body: JSON.stringify(input),
     })),
   login: (input: LocalLoginInput) => completeAuthentication(request<AppSession>("/auth/login", {

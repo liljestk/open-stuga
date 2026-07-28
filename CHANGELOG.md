@@ -4,6 +4,15 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.17.1 - 2026-07-28
+
+- Make Raspberry Pi appliances reachable on their private LAN by default,
+  include an enabled Tailscale client whose identity persists across A/B
+  updates, and add one-command Tailnet login and access discovery.
+- Keep first-owner setup protected on network-bound appliances with a
+  device-generated persistent secret delivered through a private browser
+  fragment instead of weakening the local bootstrap boundary.
+
 ## 0.17.0 - 2026-07-28
 
 - Make clean Raspberry Pi installations self-healing when PostgreSQL

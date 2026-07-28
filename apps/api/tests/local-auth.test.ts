@@ -180,14 +180,16 @@ describe("local account authentication and authorization", () => {
     const address = privateIpv4Address();
     expect(address, "A private IPv4 interface is required for the proxy-boundary test").not.toBeNull();
     const proxySecret = "proxy-secret-".padEnd(48, "x");
+    const bootstrapSecret = "bootstrap-secret-".padEnd(48, "y");
     const runtime = createApi({
       config: loadConfig({
         NODE_ENV: "test",
         DATABASE_PATH: ":memory:",
         MOCK_ENABLED: "false",
         LOCAL_AUTH_TEST_BYPASS: "false",
-        LOCAL_AUTH_PROXY_BIND_ADDRESS: "127.0.0.1",
+        LOCAL_AUTH_PROXY_BIND_ADDRESS: "0.0.0.0",
         LOCAL_AUTH_PROXY_SECRET: proxySecret,
+        LOCAL_AUTH_BOOTSTRAP_SECRET: bootstrapSecret,
       }),
       startBackground: false,
     });
@@ -211,6 +213,8 @@ describe("local account authentication and authorization", () => {
           "x-forwarded-proto": "https",
           "x-real-ip": "192.0.2.1",
           "x-stugu-local-proxy": proxySecret,
+          "x-stugu-bootstrap-secret": bootstrapSecret,
+          origin: `https://${address}:${port}`,
         },
         body: JSON.stringify(OWNER),
       });

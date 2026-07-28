@@ -68,6 +68,37 @@ if [[ ! -e "$local_env" ]]; then
     "$project_dir/stugu.env.example" "$local_env"
 fi
 
+bootstrap_secret="$(sed -n 's/^LOCAL_AUTH_BOOTSTRAP_SECRET=//p' "$local_env" | tail -n 1)"
+if [[ -z "$bootstrap_secret" ]]; then
+  bootstrap_secret="$(
+    dd if=/dev/urandom bs=32 count=1 status=none \
+      | base64 -w0 \
+      | tr '+/' '-_' \
+      | tr -d '='
+  )"
+  if [[ ! "$bootstrap_secret" =~ ^[A-Za-z0-9_-]{43}$ ]]; then
+    echo "Failed to generate the first-owner bootstrap secret" >&2
+    exit 1
+  fi
+
+  temporary_env="$(mktemp "$state_dir/.stugu.env.XXXXXX")"
+  bootstrap_setting_seen=0
+  while IFS= read -r setting || [[ -n "$setting" ]]; do
+    if [[ "$setting" == LOCAL_AUTH_BOOTSTRAP_SECRET=* ]]; then
+      printf 'LOCAL_AUTH_BOOTSTRAP_SECRET=%s\n' "$bootstrap_secret"
+      bootstrap_setting_seen=1
+    else
+      printf '%s\n' "$setting"
+    fi
+  done < "$local_env" > "$temporary_env"
+  if (( bootstrap_setting_seen == 0 )); then
+    printf 'LOCAL_AUTH_BOOTSTRAP_SECRET=%s\n' "$bootstrap_secret" >> "$temporary_env"
+  fi
+  chown "$appliance_user:$appliance_user" "$temporary_env"
+  chmod 0640 "$temporary_env"
+  mv -f "$temporary_env" "$local_env"
+fi
+
 if [[ ! -e "$state_dir/config/tapo-flow.json" ]]; then
   install -m 0640 -o "$appliance_user" -g "$appliance_user" \
     "$project_dir/apps/tapo-export-runner/flow.example.json" \

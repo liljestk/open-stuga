@@ -139,6 +139,27 @@ test("clean appliance startup includes every runtime path and repairs interrupte
   );
 });
 
+test("the appliance exposes secure LAN access and persistent Tailscale by default", async () => {
+  const [layer, environment, composeStart, control, tailscaleSource] = await Promise.all([
+    readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu.env.example", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu-compose-start", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stuguctl", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/tailscale-trixie.sources", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(tailscaleSource, /pkgs\.tailscale\.com\/stable\/debian[\s\S]*Suites: trixie/);
+  assert.match(layer, /trixie\.noarmor\.gpg/);
+  assert.match(layer, /packages:[\s\S]*- tailscale/);
+  assert.match(layer, /Path=\/var\/lib\/tailscale/);
+  assert.match(layer, /tailscaled\.service\.d[\s\S]*Requires=stugu-data-grow\.service var-lib-tailscale\.mount/);
+  assert.match(layer, /enable-units "\$1" tailscaled stugu-data-grow stugu/);
+  assert.match(environment, /^BIND_ADDRESS=0\.0\.0\.0$/mu);
+  assert.match(composeStart, /dd if=\/dev\/urandom bs=32 count=1[\s\S]*LOCAL_AUTH_BOOTSTRAP_SECRET/);
+  assert.match(control, /#bootstrap=%s/);
+  assert.match(control, /tailscale up --operator=stugu/);
+});
+
 test("factory builds fail closed unless Linux validates the complete SSD layout", async () => {
   const [buildScript, validator] = await Promise.all([
     readFile(new URL("../build-rpi-image.sh", import.meta.url), "utf8"),

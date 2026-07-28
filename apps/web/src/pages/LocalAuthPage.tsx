@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Eye, EyeOff, KeyRound, LoaderCircle, LockKeyhole, LogIn, ShieldCheck } from "lucide-react";
 import { api, ApiRequestError } from "../api";
 import { StuguMark } from "../components/StuguMark";
@@ -9,6 +9,7 @@ export type LocalAuthMode = "setup" | "login" | "invitation";
 // randomBytes(32).toString("base64url") is exactly 43 URL-safe characters.
 const INVITATION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const INVITATION_SESSION_KEY = "stugu-invitation-token";
+const BOOTSTRAP_SECRET_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 /** Pure parsing keeps the token stable when React probes initializers in Strict Mode. */
 export function invitationTokenFromFragment(hash = window.location.hash): string | null {
@@ -32,6 +33,18 @@ export function invitationTokenFromBootstrapStorage(storage: Storage = window.se
 
 export function clearInvitationBootstrapStorage(storage: Storage = window.sessionStorage): void {
   storage.removeItem(INVITATION_SESSION_KEY);
+}
+
+export function bootstrapSecretFromFragment(hash = window.location.hash): string | null {
+  if (!hash.startsWith("#")) return null;
+  const secret = new URLSearchParams(hash.slice(1)).get("bootstrap")?.trim() ?? "";
+  return BOOTSTRAP_SECRET_PATTERN.test(secret) ? secret : null;
+}
+
+export function clearBootstrapFragment(): void {
+  const parameters = new URLSearchParams(window.location.hash.slice(1));
+  if (!parameters.has("bootstrap")) return;
+  window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}`);
 }
 
 type AuthError = { key: TranslationKey; field: "email" | "password" | null };
@@ -74,12 +87,17 @@ export function LocalAuthPage({ mode, invitationToken = null, noticeKey = null, 
   const [errorField, setErrorField] = useState<AuthError["field"]>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [capsLock, setCapsLock] = useState(false);
+  const [bootstrapSecret] = useState(bootstrapSecretFromFragment);
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const needsConfirmation = mode !== "login";
   const titleKey: TranslationKey = mode === "setup" ? "auth.setupTitle" : mode === "invitation" ? "auth.invitationTitle" : "auth.loginTitle";
   const descriptionKey: TranslationKey = mode === "setup" ? "auth.setupDescription" : mode === "invitation" ? "auth.invitationDescription" : "auth.loginDescription";
   const submitKey: TranslationKey = mode === "setup" ? "auth.createOwner" : mode === "invitation" ? "auth.activateAccount" : "auth.signIn";
+
+  useEffect(() => {
+    if (bootstrapSecret) clearBootstrapFragment();
+  }, [bootstrapSecret]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -98,7 +116,8 @@ export function LocalAuthPage({ mode, invitationToken = null, noticeKey = null, 
     setErrorKey(null);
     setErrorField(null);
     try {
-      if (mode === "setup") await api.setupOwner({ email, password });
+      if (mode === "setup" && bootstrapSecret) await api.setupOwner({ email, password }, bootstrapSecret);
+      else if (mode === "setup") await api.setupOwner({ email, password });
       else if (mode === "login") await api.login({ email, password });
       else await api.registerInvitation({ token: invitationToken!, email, password });
       onAuthenticated();

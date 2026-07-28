@@ -4,7 +4,8 @@ This installation turns a Raspberry Pi 4 and USB SSD/HDD into a Stugu
 appliance. You write the disk once. Later releases are installed into the
 inactive operating-system slot and Raspberry Pi Connect switches slots on
 reboot. Stugu's databases, generated secrets, Docker state, configuration, and
-backups remain on the shared persistent partition.
+backups remain on the shared persistent partition. Tailscale is installed and
+enabled, and its device identity also remains shared across A/B slots.
 
 The release is immutable: do not use `apt upgrade` on the appliance. Package,
 kernel, firmware, configuration, and application updates are built together as
@@ -18,6 +19,10 @@ package updates.
 - The first boot expands the final persistent partition to fill the external
   disk.
 - Docker and containerd state are shared across both OS slots.
+- Stugu listens on the trusted LAN and Tailscale interfaces by default, while
+  first-owner creation requires a device-generated setup link.
+- Tailscale is enabled and ready for a one-time interactive Tailnet login; no
+  reusable Tailnet credential is embedded in the image.
 - Locally built factory and OTA images pull release-tagged, digest-pinned ARM64
   containers and wait for their health checks.
 - If new application containers fail, the startup service restores the last
@@ -115,7 +120,7 @@ Clone Stugu and check out the exact release you want to install:
 ```sh
 git clone https://github.com/liljestk/open-stuga.git
 cd open-stuga
-RELEASE_TAG=v0.17.0  # replace with the release you want to install
+RELEASE_TAG=v0.17.1  # replace with the release you want to install
 git switch --detach "$RELEASE_TAG"
 ```
 
@@ -299,8 +304,9 @@ read-only but hashes both A/B slots, so it can take a minute. Run it before the
 first boot, which expands the final persistent partition.
 
 On first boot the appliance expands the persistent partition, signs in to
-Connect, pulls the pinned containers, creates runtime secrets, and starts
-Stugu. Large images and a slow HDD can make this take several minutes.
+Connect when configured, pulls the pinned containers, creates runtime secrets
+and a first-owner setup secret, and starts Stugu. Large images and a slow HDD
+can make this take several minutes.
 
 ## 6. Verify and open Stugu
 
@@ -309,37 +315,24 @@ Connect through SSH using the key from step 2:
 ```sh
 ssh stugu@stugu.local
 stuguctl status
+stuguctl access
 ```
 
-The web service initially binds only to loopback. Create a secure tunnel:
+Open the displayed LAN URL. Before the first Owner exists, use the displayed
+`Setup:` URL; its secret is carried in the browser fragment and is removed
+before the browser sends the owner request. After setup, use the normal LAN URL
+and owner password.
+
+To join the Pi to a Tailnet, start the one-time interactive login:
 
 ```sh
-ssh -L 8080:127.0.0.1:8080 stugu@stugu.local
+stuguctl tailscale up
 ```
 
-Keep that terminal open and browse to <http://127.0.0.1:8080>. Complete the
-owner setup there.
-
-To expose Stugu deliberately on a trusted LAN, edit the persistent settings:
-
-```sh
-stuguctl config
-```
-
-Set the Pi's reserved LAN address and exact browser origin, then restart:
-
-```dotenv
-BIND_ADDRESS=192.168.1.50
-CORS_ORIGIN=http://192.168.1.50:8080
-```
-
-```sh
-stuguctl restart
-```
-
-Prefer a specific reserved address over `0.0.0.0`, restrict the host/network
-firewall to the trusted subnet, and use Cloudflare Access or another TLS
-reverse proxy for access beyond the private LAN.
+Open the URL printed by Tailscale, authorize the device, then run
+`stuguctl access` again for its Tailnet URL. Tailscale traffic is encrypted,
+but direct LAN access is plain HTTP and should remain on a trusted private
+network. Use Cloudflare Access or another TLS reverse proxy for public access.
 
 ## 7. Enable completely automatic OTA deployment
 
@@ -382,6 +375,8 @@ and press **Deploy** in your personal Raspberry Pi Connect dashboard.
 
 ```sh
 stuguctl status       # OS version, last release result, and container health
+stuguctl access       # LAN/Tailnet URLs and the first-owner setup link
+stuguctl tailscale up # one-time interactive Tailnet login
 stuguctl logs         # live application logs
 stuguctl system-log   # image/container startup and fallback log
 stuguctl config       # persistent appliance settings

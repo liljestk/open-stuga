@@ -6,6 +6,9 @@
 #  pinned release containers for Raspberry Pi 4 A/B updates.
 # X-Env-Layer-Requires: docker-debian-trixie,rpi-connect-lite,rpi-connect-ota
 #
+# X-Env-VarRequires: IGconf_sys_apt_keydir
+# X-Env-VarRequires-Valid: string
+#
 # X-Env-VarPrefix: stugu
 #
 # X-Env-Var-assetdir: ${@SRCROOT}/assets
@@ -46,11 +49,19 @@
 # METAEND
 ---
 mmdebstrap:
+  mirrors:
+    - ${IGconf_stugu_assetdir}/tailscale-trixie.sources
+  setup-hooks:
+    - mkdir -p "$1/usr/share/keyrings"
+    - curl -fsSL https://pkgs.tailscale.com/stable/debian/trixie.noarmor.gpg -o "$1/usr/share/keyrings/tailscale-archive-keyring.gpg"
+    - chmod 0644 "$1/usr/share/keyrings/tailscale-archive-keyring.gpg"
+    - cp -p "$1/usr/share/keyrings/tailscale-archive-keyring.gpg" "$IGconf_sys_apt_keydir"
   packages:
     - ca-certificates
     - cloud-guest-utils
     - curl
     - nano
+    - tailscale
   customize-hooks:
     - |-
       set -eu
@@ -63,6 +74,7 @@ mmdebstrap:
       install -d -m 0755 "$1/etc/systemd/system"
       install -d -m 0755 "$1/etc/systemd/system/containerd.service.d"
       install -d -m 0755 "$1/etc/systemd/system/docker.service.d"
+      install -d -m 0755 "$1/etc/systemd/system/tailscaled.service.d"
       install -d -m 0755 "$1/etc/initramfs-tools/hooks"
       install -d -m 0755 "$1/etc/initramfs-tools/scripts/local-block"
       install -d -m 0755 "$1/etc/rpi-image-gen/slot-shared.d"
@@ -116,6 +128,7 @@ mmdebstrap:
       Version=1
       Path=/var/lib/docker
       Path=/var/lib/containerd
+      Path=/var/lib/tailscale
       EOF
       chmod 0644 "$1/etc/rpi-image-gen/slot-shared.d/stugu.conf"
 
@@ -136,10 +149,18 @@ mmdebstrap:
       EOF
       chmod 0644 "$1/etc/systemd/system/docker.service.d/stugu-shared-storage.conf"
 
+      cat > "$1/etc/systemd/system/tailscaled.service.d/stugu-shared-storage.conf" <<-'EOF'
+      [Unit]
+      Requires=stugu-data-grow.service var-lib-tailscale.mount
+      After=stugu-data-grow.service var-lib-tailscale.mount
+      EOF
+      chmod 0644 "$1/etc/systemd/system/tailscaled.service.d/stugu-shared-storage.conf"
+
       cat > "$1/etc/sudoers.d/020_stuguctl" <<-EOF
       ${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/systemctl start stugu.service
       ${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/systemctl stop stugu.service
       ${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/systemctl restart stugu.service
+      ${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/tailscale up --operator=${IGconf_device_user1}
       EOF
       chmod 0440 "$1/etc/sudoers.d/020_stuguctl"
-    - $BDEBSTRAP_HOOKS/enable-units "$1" stugu-data-grow stugu
+    - $BDEBSTRAP_HOOKS/enable-units "$1" tailscaled stugu-data-grow stugu

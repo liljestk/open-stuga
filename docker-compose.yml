@@ -149,8 +149,8 @@ services:
     environment:
       PORT: "8787"
       API_HOST: 0.0.0.0
-      # The API permits first-owner setup through the bundled proxy only while
-      # the browser-facing port remains loopback-bound.
+      # Dynamic LAN/Tailnet hosts are authenticated by the bundled proxy.
+      # First-owner setup on a non-loopback bind also needs the bootstrap secret.
       LOCAL_AUTH_PROXY_BIND_ADDRESS: ${BIND_ADDRESS:-127.0.0.1}
       LOCAL_AUTH_PROXY_SECRET_FILE: /app/runtime/proxy/secret
       LOCAL_AUTH_BOOTSTRAP_SECRET: ${LOCAL_AUTH_BOOTSTRAP_SECRET:-}

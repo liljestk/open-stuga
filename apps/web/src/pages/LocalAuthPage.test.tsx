@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, ApiRequestError } from "../api";
 import { I18nProvider } from "../i18n";
 import {
+  bootstrapSecretFromFragment,
+  clearBootstrapFragment,
   clearInvitationBootstrapStorage,
   clearInvitationFragment,
   invitationTokenFromBootstrapStorage,
@@ -56,6 +58,28 @@ describe("LocalAuthPage", () => {
     clearInvitationBootstrapStorage();
     expect(window.sessionStorage.getItem("stugu-invitation-token")).toBeNull();
     expect(invitationTokenFromBootstrapStorage()).toBeNull();
+  });
+
+  it("forwards a setup-link secret from the fragment without leaving it in browser history", async () => {
+    const bootstrapSecret = "b".repeat(43);
+    window.history.replaceState(null, "", `/#bootstrap=${bootstrapSecret}`);
+    expect(bootstrapSecretFromFragment()).toBe(bootstrapSecret);
+
+    const setupOwner = vi.spyOn(api, "setupOwner").mockResolvedValue(session);
+    renderPage({ mode: "setup", onAuthenticated: vi.fn() });
+    await waitFor(() => expect(window.location.hash).toBe(""));
+
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "owner@example.test" } });
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: "correct horse battery staple" } });
+    fireEvent.change(screen.getByLabelText("Confirm password"), { target: { value: "correct horse battery staple" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create owner account" }));
+
+    await waitFor(() => expect(setupOwner).toHaveBeenCalledWith({
+      email: "owner@example.test",
+      password: "correct horse battery staple",
+    }, bootstrapSecret));
+    clearBootstrapFragment();
+    expect(window.location.hash).toBe("");
   });
 
   it("requires matching passwords before creating the first owner", async () => {

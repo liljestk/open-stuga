@@ -1,0 +1,5 @@
+X-IG-Signed-By: /usr/share/keyrings/tailscale-archive-keyring.gpg
+Types: deb
+URIs: https://pkgs.tailscale.com/stable/debian
+Suites: trixie
+Components: main

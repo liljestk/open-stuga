@@ -182,6 +182,12 @@ allowed by the host network. Prefer TLS with a VPN or reverse proxy/firewall
 policy that exposes only the snapshot and capture routes to the phone and keeps
 **Set up** and grant administration private.
 
+The Raspberry Pi appliance deliberately listens on its private LAN and
+Tailscale interfaces. Same-origin browser requests must pass through its
+credentialed bundled proxy, and first-owner creation additionally requires the
+device-generated `stuguctl access` link. Keep direct LAN use on a trusted
+network; Tailnet traffic is encrypted.
+
 The production CSP permits map images only from the exact HTTPS
 `tile.openstreetmap.org` origin; FMI and Open-Meteo are server-to-server and are
 not allowed in browser `connect-src`. The map is not loaded until an explicit

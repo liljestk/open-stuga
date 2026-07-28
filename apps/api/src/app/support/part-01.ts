@@ -317,6 +317,7 @@ export function browserOriginAllowed(request: Request, origin: string, config: A
   if (!normalized) return false;
   if (normalized === normalizedOrigin(config.corsOrigin)) return true;
   if (normalized !== requestOrigin(request, config)) return false;
+  if (trustedProxyRequest(request, config)) return true;
   return trustedSelfHostname(new URL(normalized).hostname, config.apiHost);
 }
 

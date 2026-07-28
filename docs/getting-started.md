@@ -13,7 +13,7 @@ additional finite numeric scalar measurements can be registered later.
 | Docker Compose | normal home installation and evaluation | `http://localhost:8080` |
 | Podman Compose | rootless/container-focused core installation | `http://localhost:8080` |
 | Local Node.js | development and contributing | `http://localhost:5173` |
-| Raspberry Pi 4 appliance | dedicated, immutable home appliance | SSH tunnel to `http://localhost:8080` |
+| Raspberry Pi 4 appliance | dedicated, immutable home appliance | private LAN or Tailscale address on port `8080` |
 
 The API listens on port `8787` in local development. In a container or
 appliance it is private to the Compose network; the web container exposes the
@@ -239,7 +239,9 @@ npm run setup -- --mode rpi
 The wizard routes to either image flashing or a supported ARM64 image build
 without changing the workstation's `.env`. Follow the complete
 [Raspberry Pi appliance guide](raspberry-pi-appliance.md) before writing a
-disk; flashing destroys the selected disk.
+disk; flashing destroys the selected disk. The image enables Tailscale and
+private-LAN access by default; use `stuguctl access` for the first-owner link
+and `stuguctl tailscale up` for the one-time Tailnet login.
 
 ## Optional first-run mock workflow
 

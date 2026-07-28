@@ -30,6 +30,8 @@ Usage: stuguctl <command>
 
 Commands:
   status      Show the installed version, update status, and containers
+  access      Show private LAN/Tailnet and first-owner setup URLs
+  tailscale   Show status or run the one-time Tailnet login
   logs        Follow Stugu container logs
   system-log  Follow the appliance startup/update log
   config      Edit persistent appliance settings
@@ -38,6 +40,22 @@ Commands:
   migration   Receive, verify, apply, or roll back a live system migration
   images      Show the immutable container references for this OS release
 EOF
+}
+
+environment_value() {
+  local key="$1"
+  sed -n "s/^${key}=//p" "$local_env" | tail -n 1
+}
+
+print_access_url() {
+  local label="$1"
+  local address="$2"
+  local port="$3"
+  local bootstrap_secret="$4"
+  printf '%-10s http://%s:%s/\n' "$label:" "$address" "$port"
+  if [[ "$bootstrap_secret" =~ ^[A-Za-z0-9_-]{43}$ ]]; then
+    printf '%-10s http://%s:%s/#bootstrap=%s\n' "Setup:" "$address" "$port" "$bootstrap_secret"
+  fi
 }
 
 migration_usage() {
@@ -123,6 +141,40 @@ case "${1:-}" in
     [[ -r "$state_dir/release-status" ]] && cat "$state_dir/release-status"
     systemctl --no-pager --full status stugu.service || true
     compose ps
+    ;;
+  access)
+    port="$(environment_value APP_PORT)"
+    port="${port:-8080}"
+    bootstrap_secret="$(environment_value LOCAL_AUTH_BOOTSTRAP_SECRET)"
+    lan_address="$(
+      ip -4 -o address show scope global up \
+        | awk '$2 !~ /^(docker|br-|veth|tailscale)/ { sub(/\/.*/, "", $4); print $4; exit }'
+    )"
+    if [[ -n "$lan_address" ]]; then
+      print_access_url "LAN" "$lan_address" "$port" "$bootstrap_secret"
+    else
+      print_access_url "LAN" "$(hostname -s).local" "$port" "$bootstrap_secret"
+    fi
+    tailnet_address="$(tailscale ip -4 2>/dev/null | head -n 1 || true)"
+    if [[ -n "$tailnet_address" ]]; then
+      print_access_url "Tailnet" "$tailnet_address" "$port" "$bootstrap_secret"
+    else
+      echo "Tailnet:   not connected (run 'stuguctl tailscale up')"
+    fi
+    ;;
+  tailscale)
+    case "${2:-status}" in
+      status)
+        tailscale status
+        ;;
+      up)
+        sudo -n /usr/bin/tailscale up --operator=stugu
+        ;;
+      *)
+        echo "Usage: stuguctl tailscale [status|up]" >&2
+        exit 2
+        ;;
+    esac
     ;;
   logs)
     shift
