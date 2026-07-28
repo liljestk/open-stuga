@@ -20,6 +20,7 @@ import {
   LocalAuthPage,
 } from "../pages/LocalAuthPage";
 import { integrationForHouse } from "../integrationScope";
+import { isTpLinkContactDevice } from "../tpLinkDeviceClassification";
 import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, dismissedTpLinkDevicesKey, firstFloor, freshTpLinkDiscoveryWindowMs, latestIso, pageTitleKeys, settleInBackground, storedDismissedTpLinkDevices, tpLinkDeviceKey } from "./support";
 import type { TpLinkDeviceReference } from "./support";
 import { useAppPart03 } from "./part-03";
@@ -388,7 +389,10 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         sensorDiscoveryNotice={!readOnly && discoveredSensorNotice ? {
           name: discoveredSensorNotice.alias?.trim() || t("sensors.unnamedDevice"),
           model: discoveredSensorNotice.model,
-          additionalCount: undisclosedTpLinkDevices.length - 1,
+          kind: isTpLinkContactDevice(discoveredSensorNotice) ? "contact" : "sensor",
+          additionalCount: undisclosedTpLinkDevices.filter((device) => (
+            isTpLinkContactDevice(device) === isTpLinkContactDevice(discoveredSensorNotice)
+          )).length - 1,
         } : undefined}
         onAddDiscoveredSensor={discoveredSensorNotice ? () => {
           dismissTpLinkDeviceNotices([discoveredSensorNotice]);
@@ -480,6 +484,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             onLoadSeries={loadSeriesInBackground}
             onRequestedDeviceHandled={() => setRequestedSensorDevice(null)}
             onHouse={chooseHouse}
+            onUpdateHouse={climate.updateHouse}
             onRefreshDevices={async () => { await climate.refreshTpLinkDevices(house.id); }}
             onCreateSensor={climate.createSensor}
             onUpdateSensor={climate.updateSensor}
@@ -516,7 +521,10 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             onDisconnectTpLink={climate.disconnectTpLink}
             onMoveHomeAssistant={climate.moveHomeAssistant}
             onMoveTpLink={climate.moveTpLink}
-            onOpenSensors={() => navigate("sensors", house.id)}
+            onOpenSensors={(device) => {
+              if (device) setRequestedSensorDevice(device);
+              navigate("sensors", house.id);
+            }}
             onOpenLayout={() => navigate("twin", house.id)}
           />
         )}

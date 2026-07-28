@@ -122,7 +122,7 @@ struct EquipmentOperationsView: View {
                         Text(note.text)
                             .font(.subheadline)
                         if let created = StuguDateParser.date(from: note.createdAt) {
-                            Text(created.formatted(date: .abbreviated, time: .shortened))
+                            Text(StuguDateParser.dateTime(from: created))
                                 .font(.caption)
                                 .foregroundStyle(StuguTheme.muted)
                         }
@@ -226,7 +226,7 @@ struct EquipmentOperationsView: View {
         }
         if let value = loan.expectedReturnAt,
            let expected = StuguDateParser.date(from: value) {
-            parts.append("Expected back \(expected.formatted(date: .abbreviated, time: .shortened))")
+            parts.append("Expected back \(StuguDateParser.dateTime(from: expected))")
         }
         return parts.joined(separator: " · ")
     }

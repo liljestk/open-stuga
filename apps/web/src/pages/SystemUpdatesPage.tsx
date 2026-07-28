@@ -20,6 +20,7 @@ import {
   type SystemUpdateSettings,
   type SystemUpdateStatus,
 } from "../api";
+import { formatInTimeZone, twentyFourHourInputLocale } from "../dateTime";
 import { useI18n } from "../i18n";
 import "./SystemUpdatesPage.css";
 
@@ -42,7 +43,7 @@ function message(error: unknown, fallback: string): string {
 
 function dateTime(value: string | null, locale: string): string {
   if (!value) return "—";
-  return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+  return formatInTimeZone(value, locale, undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 function operationTone(phase: NonNullable<SystemUpdateStatus["operation"]>["phase"]): "ready" | "warning" | "error" {
@@ -54,7 +55,7 @@ function operationTone(phase: NonNullable<SystemUpdateStatus["operation"]>["phas
 function time(value: string, locale: string): string {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "--:--";
-  return new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(date);
+  return formatInTimeZone(date, locale, undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 function elapsedTime(startedAt: string, now: number): string {
@@ -434,7 +435,7 @@ export function SystemUpdatesPage() {
           <label className="field"><span>{t("updates.checkInterval")}</span><select value={draft.checkIntervalHours} onChange={(event) => setDraft({ ...draft, checkIntervalHours: Number(event.target.value) as SystemUpdateSettings["checkIntervalHours"] })}>
             {intervals.map((hours) => <option key={hours} value={hours}>{t(`updates.interval.${hours}`)}</option>)}
           </select></label>
-          <label className="field"><span>{t("updates.updateTime")}</span><input type="time" value={draft.updateTime} onChange={(event) => setDraft({ ...draft, updateTime: event.target.value })} /></label>
+          <label className="field"><span>{t("updates.updateTime")}</span><input type="time" lang={twentyFourHourInputLocale(locale)} value={draft.updateTime} onChange={(event) => setDraft({ ...draft, updateTime: event.target.value })} /></label>
           <label className="field"><span>{t("updates.timezone")}</span><input value={draft.timezone} onChange={(event) => setDraft({ ...draft, timezone: event.target.value })} /><button className="text-button" type="button" onClick={() => setDraft({ ...draft, timezone })}>{t("updates.useBrowserTimezone")}</button></label>
         </div>
         <fieldset className="updates-days"><legend>{t("updates.days")}</legend><div>

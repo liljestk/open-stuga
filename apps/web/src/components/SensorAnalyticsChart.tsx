@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import { Activity, BrainCircuit, ChevronDown, CloudSun, GitCompareArrows } from "lucide-react";
+import { Activity, BrainCircuit, ChevronDown, CloudSun, GitCompareArrows, TriangleAlert } from "lucide-react";
 import type {
   MeasurementDefinition,
   MeasurementForecastPoint,
@@ -9,6 +9,7 @@ import type {
   HomeElectricityPricePoint,
   OutdoorTemperatureSample,
   Sensor,
+  SensorDataGap,
   UnitSystem,
 } from "@climate-twin/contracts";
 import { ANALYTICS_TIME_RANGES, timeRangeHours, type TimeRange } from "../domain";
@@ -26,8 +27,18 @@ import {
   type MeasurementHistory,
 } from "../measurements";
 import { useNow } from "../useNow";
-import { chartGapThresholdMs, splitSeriesAtGaps } from "../chartGaps";
+import { chartGapThresholdMs } from "../chartGaps";
 import { CalendarPeriodComparison } from "./CalendarPeriodComparison";
+import { deriveSensorAnalyticsGapStatus } from "./sensorAnalyticsGaps";
+import {
+  SensorAnalyticsPlot,
+  sensorDashes,
+  type AggregateSeriesPoint,
+  type ForecastSeriesPoint,
+  type SeriesPoint,
+} from "./SensorAnalyticsPlot";
+
+export type { AggregateSeriesPoint } from "./SensorAnalyticsPlot";
 
 interface SensorAnalyticsChartProps {
   houseId: string;
@@ -40,6 +51,7 @@ interface SensorAnalyticsChartProps {
   outdoorHistory?: OutdoorTemperatureSample[];
   weather?: HouseWeather | null;
   electricityPrices?: HomeElectricityPricePoint[];
+  sensorGaps?: SensorDataGap[];
   metric: Metric;
   units: UnitSystem;
   range: TimeRange;
@@ -55,27 +67,6 @@ interface SensorAnalyticsChartProps {
   onLoadSeries?: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported: boolean) => void;
 }
 
-interface SeriesPoint {
-  timestamp: number;
-  value: number;
-}
-
-interface ForecastSeriesPoint extends SeriesPoint {
-  low: number;
-  high: number;
-}
-
-export interface AggregateSeriesPoint extends SeriesPoint {
-  low: number;
-  high: number;
-  sensorCount: number;
-}
-
-const width = 1_100;
-const height = 300;
-const margin = { top: 24, right: 28, bottom: 38, left: 62 };
-const sensorDashes = [undefined, "10 5", "3 4", "12 4 3 4"] as const;
-
 function bucketMilliseconds(range: TimeRange): number {
   if (range === "6h") return 5 * 60_000;
   if (range === "24h") return 15 * 60_000;
@@ -83,13 +74,6 @@ function bucketMilliseconds(range: TimeRange): number {
   if (range === "30d") return 6 * 60 * 60_000;
   if (range === "90d") return 12 * 60 * 60_000;
   return 2 * 24 * 60 * 60_000;
-}
-
-function tickDateOptions(range: TimeRange): Intl.DateTimeFormatOptions {
-  if (range === "6h" || range === "24h") return { hour: "2-digit", minute: "2-digit" };
-  if (range === "7d") return { weekday: "short", hour: "2-digit" };
-  if (range === "1y") return { month: "short" };
-  return { month: "short", day: "numeric" };
 }
 
 function validTimestamp(value: string): number | null {
@@ -199,34 +183,12 @@ export function aggregateForecastSeries(
   });
 }
 
-function linePath(points: SeriesPoint[], x: (timestamp: number) => number, y: (value: number) => number): string {
-  return points.map((point, index) => `${index === 0 ? "M" : "L"}${x(point.timestamp).toFixed(1)} ${y(point.value).toFixed(1)}`).join(" ");
-}
-
-function stepLinePath(points: SeriesPoint[], x: (timestamp: number) => number, y: (value: number) => number): string {
-  return points.map((point, index) => index === 0
-    ? `M${x(point.timestamp).toFixed(1)} ${y(point.value).toFixed(1)}`
-    : `H${x(point.timestamp).toFixed(1)} V${y(point.value).toFixed(1)}`).join(" ");
-}
-
-function areaPoints(
-  points: Array<Pick<AggregateSeriesPoint, "timestamp" | "low" | "high">>,
-  x: (timestamp: number) => number,
-  y: (value: number) => number,
-): string {
-  return [
-    ...points.map((point) => `${x(point.timestamp).toFixed(1)},${y(point.high).toFixed(1)}`),
-    ...[...points].reverse().map((point) => `${x(point.timestamp).toFixed(1)},${y(point.low).toFixed(1)}`),
-  ].join(" ");
-}
-
 export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>) {
   const { locale, t } = useI18n();
   const now = useNow();
   const summaryId = useId();
   const rangeLabelId = `${summaryId}-range`;
   const [exactDataOpen, setExactDataOpen] = useState(false);
-  const clipId = `${useId().replace(/:/g, "")}-sensor-analytics-clip`;
   const definition = props.definitions.find((candidate) => candidate.id === props.metric) ?? props.definitions[0];
   const activeSensors = useMemo(() => props.selectedSensorIds === null
     ? props.sensors
@@ -310,6 +272,8 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
   if (!definition) return null;
 
   const from = now - timeRangeHours(props.range) * 60 * 60_000;
+  const gapThresholdMs = chartGapThresholdMs(props.range);
+  const forecastGapThresholdMs = Math.max(gapThresholdMs, 2 * 60 * 60_000);
   const forecastEnd = Math.max(data.aggregateForecast.at(-1)?.timestamp ?? now, data.electricityPrice.at(-1)?.timestamp ?? now);
   const timeMax = Math.max(now, forecastEnd);
   const values = [
@@ -321,12 +285,6 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
     ...data.electricityPrice.map((point) => point.value),
   ];
   const domain = measurementDomain(definition, values);
-  const plotWidth = width - margin.left - margin.right;
-  const plotHeight = height - margin.top - margin.bottom;
-  const x = (timestamp: number) => margin.left + (timestamp - from) / Math.max(timeMax - from, 1) * plotWidth;
-  const y = (value: number) => margin.top + ((domain?.max ?? 1) - value) / Math.max((domain?.max ?? 1) - (domain?.min ?? 0), Number.EPSILON) * plotHeight;
-  const xTicks = Array.from({ length: 5 }, (_, index) => from + (timeMax - from) * index / 4);
-  const yTicks = domain ? Array.from({ length: 4 }, (_, index) => domain.max - (domain.max - domain.min) * index / 3) : [];
   const latestSensorAggregate = data.aggregate.at(-1);
   const latestWeatherObservation = data.outdoorObserved.at(-1);
   const currentPropertyPrice = data.electricityPrice.filter((point) => point.timestamp <= now).at(-1);
@@ -339,6 +297,15 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
   const finalPrediction = data.aggregateForecast.at(-1) ?? (activeSensors.length === 0 && latestWeatherForecast ? {
     ...latestWeatherForecast, low: latestWeatherForecast.value, high: latestWeatherForecast.value, sensorCount: 1,
   } : undefined);
+  const { missingSeriesCount, missingIntervals, statusKey: gapStatusKey } = deriveSensorAnalyticsGapStatus({
+    observed: data.observed,
+    durable: props.sensorGaps ?? [],
+    activeSensorIds: activeSensors.map((sensor) => sensor.id),
+    metric: definition.id,
+    from,
+    to: now,
+    thresholdMs: gapThresholdMs,
+  });
   const reportingSensors = data.observed.filter((series) => series.points.length > 0).length;
   const observedValues = activeSensors.length > 0
     ? data.observed.flatMap((series) => series.points.map((point) => point.value))
@@ -348,8 +315,6 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
   const chartLabel = isCombined
     ? t("sensors.analyticsAria", { metric: metricLabel })
     : t("sensors.analyticsSensorAria", { metric: metricLabel, sensor: activeSensors[0]?.name ?? "" });
-  const gapThresholdMs = chartGapThresholdMs(props.range);
-  const forecastGapThresholdMs = Math.max(gapThresholdMs, 2 * 60 * 60_000);
   const summary = [
     chartLabel,
     latestAggregate ? t(isCombined && !(reportingSensors === 0 && data.electricityPrice.length > 0)
@@ -393,7 +358,9 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
     sensorTotal = 1,
   ) => points.forEach((point, index) => {
     const previous = points[index - 1];
-    const interval = previous ? point.timestamp - previous.timestamp : 0;
+    const interval = previous
+      ? point.timestamp - previous.timestamp
+      : point.timestamp - (kind === "observed" ? from : now);
     exactRows.push({
       id: `${source}:${kind}:${point.timestamp}:${index}`,
       source,
@@ -514,6 +481,11 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
         <div><span><BrainCircuit size={14} aria-hidden="true" />{predictionLabel}</span><strong>{finalPrediction ? formatMeasurement(finalPrediction.value, definition, props.units) : "—"}</strong><small>{finalPrediction ? formatInTimeZone(finalPrediction.timestamp, locale, props.timeZone, { weekday: "short", hour: "2-digit", minute: "2-digit" }) : t("sensors.analyticsNoPrediction")}</small></div>
       </div>
 
+      {missingSeriesCount > 0 && <div className="sensor-analytics-gap-status" role="status">
+        <TriangleAlert size={18} aria-hidden="true" />
+        <span><strong>{t("analytics.missingSeriesStatus", { count: missingSeriesCount })}</strong><small>{t(gapStatusKey)}</small></span>
+      </div>}
+
       <div className="sensor-analytics-legend" aria-label={t("sensors.analyticsLegend")}>
         {data.observed.map(({ sensor, points }, index) => points.length > 0 && <span key={sensor.id}><i className={`sensor-series-swatch series-${index % 6}`} style={{ borderTopStyle: sensorDashes[index % sensorDashes.length] ? "dashed" : "solid" }} aria-hidden="true" />{sensor.name}</span>)}
         {isCombined && data.aggregate.length > 0 && <span><i className="sensor-series-swatch aggregate" aria-hidden="true" />{aggregateLabel}</span>}
@@ -521,33 +493,30 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
         {data.outdoorObserved.length > 0 && <span><i className="sensor-series-swatch outdoor" aria-hidden="true" />{t("decision.outdoor")}</span>}
         {data.outdoorForecast.length > 0 && <span><i className="sensor-series-swatch outdoor-forecast" aria-hidden="true" />{t("analytics.outdoorForecast")}</span>}
         {data.electricityPrice.length > 0 && <span><i className="sensor-series-swatch electricity-price" aria-hidden="true" />{t("sensors.analyticsPropertyPrice")}</span>}
+        {missingIntervals.length > 0 && <span><i className="sensor-gap-swatch" aria-hidden="true" />{t("analytics.missingData")}</span>}
       </div>
 
-      {domain && (data.aggregate.length > 0 || data.outdoorObserved.length > 0 || data.outdoorForecast.length > 0 || data.electricityPrice.length > 0) ? <div className="sensor-analytics-chart-wrap" role="region" aria-label={chartLabel} tabIndex={0}>
-        <p id={summaryId} className="sr-only">{summary}</p>
-        <svg className="sensor-analytics-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={chartLabel} aria-describedby={summaryId}>
-          <title>{chartLabel}</title>
-          <defs><clipPath id={clipId}><rect x={margin.left} y={margin.top} width={plotWidth} height={plotHeight} /></clipPath></defs>
-          <g className="chart-grid" aria-hidden="true">{yTicks.map((tick, index) => <line key={`${tick}-${index}`} x1={margin.left} x2={width - margin.right} y1={y(tick)} y2={y(tick)} />)}</g>
-          <g className="chart-axis" aria-hidden="true">
-            {yTicks.map((tick, index) => <text key={`${tick}-${index}`} x={margin.left - 10} y={y(tick) + 4} textAnchor="end">{toDisplayValue(tick, definition, props.units).toFixed(definition.precision)}</text>)}
-            {xTicks.map((tick, index) => <text key={tick} x={x(tick)} y={height - 10} textAnchor={index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle"}>{formatInTimeZone(tick, locale, props.timeZone, tickDateOptions(props.range))}</text>)}
-            <text x="7" y="16">{displayUnit(definition, props.units)}</text>
-          </g>
-          <g clipPath={`url(#${clipId})`} aria-hidden="true">
-            {isCombined && definition.id !== "power" && definition.id !== "energy" && splitSeriesAtGaps(data.aggregate, gapThresholdMs).map((segment, index) => segment.length > 1 && <polygon key={`aggregate-range-${index}`} className="sensor-aggregate-range" points={areaPoints(segment, x, y)} />)}
-            {splitSeriesAtGaps(data.aggregateForecast, forecastGapThresholdMs).map((segment, index) => segment.length > 1 && <polygon key={`prediction-range-${index}`} className="sensor-prediction-range" points={areaPoints(segment, x, y)} />)}
-            {data.observed.flatMap((series, index) => splitSeriesAtGaps(series.points, gapThresholdMs).map((segment, segmentIndex) => segment.length > 1 && <path key={`${series.sensor.id}-${segmentIndex}`} className={`sensor-series-line series-${index % 6}`} strokeDasharray={sensorDashes[index % sensorDashes.length]} d={linePath(segment, x, y)} />))}
-            {isCombined && splitSeriesAtGaps(data.aggregate, gapThresholdMs).map((segment, index) => segment.length > 1 && <path key={`aggregate-${index}`} className="sensor-aggregate-line" d={linePath(segment, x, y)} />)}
-            {splitSeriesAtGaps(data.aggregateForecast, forecastGapThresholdMs).map((segment, index) => segment.length > 1 && <path key={`prediction-${index}`} className="sensor-prediction-line" d={linePath(segment, x, y)} />)}
-            {splitSeriesAtGaps(data.outdoorObserved, gapThresholdMs).map((segment, index) => segment.length > 1 && <path key={`outdoor-${index}`} className="sensor-outdoor-line" d={linePath(segment, x, y)} />)}
-            {splitSeriesAtGaps(data.outdoorForecast, forecastGapThresholdMs).map((segment, index) => segment.length > 1 && <path key={`outdoor-forecast-${index}`} className="sensor-outdoor-forecast-line" d={linePath(segment, x, y)} />)}
-            {data.electricityPrice.length > 1 && <path className="sensor-electricity-price-line" d={stepLinePath(data.electricityPrice, x, y)} />}
-            <line className="sensor-analytics-now" x1={x(now)} x2={x(now)} y1={margin.top} y2={height - margin.bottom} />
-          </g>
-          {latestAggregate && <g className="sensor-analytics-end-label" aria-hidden="true"><circle cx={x(latestAggregate.timestamp)} cy={y(latestAggregate.value)} r="4" /><text x={Math.min(width - margin.right - 4, x(latestAggregate.timestamp) + 8)} y={y(latestAggregate.value) - 8} textAnchor={x(latestAggregate.timestamp) > width - 120 ? "end" : "start"}>{formatMeasurement(latestAggregate.value, definition, props.units)}</text></g>}
-        </svg>
-      </div> : <div className="empty-state">{t("common.noData")}</div>}
+      {domain && (data.aggregate.length > 0 || data.outdoorObserved.length > 0 || data.outdoorForecast.length > 0 || data.electricityPrice.length > 0) ? <SensorAnalyticsPlot
+        data={data}
+        definition={definition}
+        units={props.units}
+        range={props.range}
+        timeZone={props.timeZone}
+        from={from}
+        now={now}
+        timeMax={timeMax}
+        domain={domain}
+        chartLabel={chartLabel}
+        summary={summary}
+        summaryId={summaryId}
+        isCombined={isCombined}
+        latestAggregate={latestAggregate}
+        missingIntervals={missingIntervals}
+        gapThresholdMs={gapThresholdMs}
+        forecastGapThresholdMs={forecastGapThresholdMs}
+        aggregateLabel={aggregateLabel}
+        predictionLabel={predictionLabel}
+      /> : <div className="empty-state">{t("common.noData")}</div>}
       {exactRows.length > 0 && <details className="analytics-data-details" open={exactDataOpen}>
         <summary onClick={(event) => { event.preventDefault(); setExactDataOpen((current) => !current); }}>{t("analytics.showDataTable", { count: exactRows.length })}</summary>
         {exactDataOpen && <div className="analytics-data-table-wrap" role="region" aria-label={t("analytics.dataTable")} tabIndex={0}>

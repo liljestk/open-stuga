@@ -7,6 +7,7 @@ import type {
   ThermalSimulationPoint,
   ThermalSimulationResult,
 } from "@climate-twin/contracts";
+import { mean, median, percentile, range, round } from "./thermal-math.js";
 import { SYSTEM_VERSION } from "./version.js";
 
 const HOUR_MS = 3_600_000;
@@ -32,6 +33,11 @@ interface OutdoorPoint {
   timestamp: string;
   time: number;
   temperatureC: number;
+}
+
+export interface PreparedThermalOutdoorBoundary {
+  points: OutdoorPoint[];
+  interpolationCache: Map<number, number | null>;
 }
 
 interface AlignedPoint extends IndoorPoint {
@@ -64,33 +70,6 @@ export interface ThermalSimulationInput {
   horizonHours?: number;
   scenarioOutdoorTemperatureC?: number | null;
   generatedAt?: string;
-}
-
-function round(value: number, precision = 4): number {
-  return Number(value.toFixed(precision));
-}
-
-function mean(values: number[]): number {
-  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
-}
-
-function median(values: number[]): number {
-  if (!values.length) return 0;
-  const sorted = [...values].sort((first, second) => first - second);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2
-    ? sorted[middle] ?? 0
-    : ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
-}
-
-function percentile(values: number[], fraction: number): number {
-  if (!values.length) return 0;
-  const sorted = [...values].sort((first, second) => first - second);
-  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * fraction) - 1))] ?? 0;
-}
-
-function range(values: number[]): number {
-  return values.length ? Math.max(...values) - Math.min(...values) : 0;
 }
 
 function thermalStep(indoorC: number, outdoorC: number, dtHours: number, tauHours: number, liftC: number): number {
@@ -169,25 +148,50 @@ function outdoorPoints(samples: OutdoorTemperatureSample[]): OutdoorPoint[] {
   return [...deduplicated.values()].sort((first, second) => first.time - second.time);
 }
 
-function interpolateOutdoor(points: OutdoorPoint[], timestamp: number): number | null {
-  if (!points.length || timestamp < (points[0]?.time ?? Infinity) || timestamp > (points.at(-1)?.time ?? -Infinity)) return null;
+export function prepareThermalOutdoorBoundary(
+  samples: OutdoorTemperatureSample[],
+): PreparedThermalOutdoorBoundary {
+  return {
+    points: outdoorPoints(samples),
+    interpolationCache: new Map(),
+  };
+}
+
+function interpolateOutdoor(boundary: PreparedThermalOutdoorBoundary, timestamp: number): number | null {
+  if (boundary.interpolationCache.has(timestamp)) {
+    return boundary.interpolationCache.get(timestamp) ?? null;
+  }
+  const { points } = boundary;
+  if (!points.length || timestamp < (points[0]?.time ?? Infinity) || timestamp > (points.at(-1)?.time ?? -Infinity)) {
+    boundary.interpolationCache.set(timestamp, null);
+    return null;
+  }
   let low = 0;
   let high = points.length - 1;
   while (low <= high) {
     const middle = Math.floor((low + high) / 2);
     const time = points[middle]?.time ?? 0;
-    if (time === timestamp) return points[middle]?.temperatureC ?? null;
+    if (time === timestamp) {
+      const exact = points[middle]?.temperatureC ?? null;
+      boundary.interpolationCache.set(timestamp, exact);
+      return exact;
+    }
     if (time < timestamp) low = middle + 1;
     else high = middle - 1;
   }
   const before = points[high];
   const after = points[low];
-  if (!before || !after || after.time - before.time > MAX_OUTDOOR_GAP_MS) return null;
+  if (!before || !after || after.time - before.time > MAX_OUTDOOR_GAP_MS) {
+    boundary.interpolationCache.set(timestamp, null);
+    return null;
+  }
   const fraction = (timestamp - before.time) / Math.max(1, after.time - before.time);
-  return before.temperatureC + (after.temperatureC - before.temperatureC) * fraction;
+  const interpolated = before.temperatureC + (after.temperatureC - before.temperatureC) * fraction;
+  boundary.interpolationCache.set(timestamp, interpolated);
+  return interpolated;
 }
 
-function align(indoor: IndoorPoint[], outdoor: OutdoorPoint[]): AlignedPoint[] {
+function align(indoor: IndoorPoint[], outdoor: PreparedThermalOutdoorBoundary): AlignedPoint[] {
   return indoor.flatMap((point) => {
     const outdoorTemperatureC = interpolateOutdoor(outdoor, point.time);
     return outdoorTemperatureC === null ? [] : [{ ...point, outdoorTemperatureC }];
@@ -244,29 +248,31 @@ function longestTransitionSegment(transitions: Transition[]): Transition[] {
 
 function fitLift(transitions: Transition[], tauHours: number): number | null {
   if (!transitions.length) return null;
+  const terms = transitions.map((transition) => {
+    const memory = Math.exp(-transition.dtHours / tauHours);
+    const z = 1 - memory;
+    return {
+      y: transition.nextIndoorC - memory * transition.indoorC - z * transition.outdoorC,
+      z,
+      weight: transition.weight,
+    };
+  });
   let robustWeights = transitions.map(() => 1);
   let lift = 0;
   for (let iteration = 0; iteration < 5; iteration += 1) {
     let numerator = 0;
     let denominator = 0;
-    for (let index = 0; index < transitions.length; index += 1) {
-      const transition = transitions[index];
-      if (!transition) continue;
-      const memory = Math.exp(-transition.dtHours / tauHours);
-      const z = 1 - memory;
-      const y = transition.nextIndoorC - memory * transition.indoorC - z * transition.outdoorC;
-      const weight = transition.weight * (robustWeights[index] ?? 1);
-      numerator += weight * z * y;
-      denominator += weight * z * z;
+    for (let index = 0; index < terms.length; index += 1) {
+      const term = terms[index];
+      if (!term) continue;
+      const weight = term.weight * (robustWeights[index] ?? 1);
+      numerator += weight * term.z * term.y;
+      denominator += weight * term.z * term.z;
     }
     if (denominator <= 1e-10) return null;
     lift = numerator / denominator;
-    const residuals = transitions.map((transition) => {
-      const memory = Math.exp(-transition.dtHours / tauHours);
-      const z = 1 - memory;
-      const y = transition.nextIndoorC - memory * transition.indoorC - z * transition.outdoorC;
-      return y - z * lift;
-    });
+    if (iteration === 4) break;
+    const residuals = terms.map((term) => term.y - term.z * lift);
     const center = median(residuals);
     const scale = Math.max(0.03, 1.4826 * median(residuals.map((residual) => Math.abs(residual - center))));
     robustWeights = residuals.map((residual) => Math.min(1, 1.5 * scale / Math.max(Math.abs(residual), 1e-12)));
@@ -293,12 +299,10 @@ function rolloutResiduals(transitions: Transition[], tauHours: number, liftC: nu
   return { residuals, persistence };
 }
 
-function tauCandidates(): number[] {
-  return [
-    ...Array.from({ length: 47 }, (_, index) => index + 2),
-    ...Array.from({ length: 48 }, (_, index) => 52 + index * 4),
-  ];
-}
+const TAU_CANDIDATES = [
+  ...Array.from({ length: 47 }, (_, index) => index + 2),
+  ...Array.from({ length: 48 }, (_, index) => 52 + index * 4),
+];
 
 function emptyQuality(indoor: IndoorPoint[], outdoor: OutdoorPoint[], aligned: AlignedPoint[], transitions: Transition[]): ThermalCalibrationQuality {
   return {
@@ -358,7 +362,7 @@ function calibrate(
   const prevalidation = transitions.slice(0, tuningEnd);
   const validation = transitions.slice(tuningEnd);
   const candidates: Candidate[] = [];
-  for (const tauHours of tauCandidates()) {
+  for (const tauHours of TAU_CANDIDATES) {
     const liftC = fitLift(training, tauHours);
     if (liftC === null) continue;
     const selectionResiduals = rolloutResiduals(tuning, tauHours, liftC).residuals;
@@ -518,9 +522,12 @@ function scenarioPoints(
   return points;
 }
 
-export function runThermalSimulation(input: ThermalSimulationInput): ThermalSimulationResult {
+export function runThermalSimulation(
+  input: ThermalSimulationInput,
+  preparedOutdoor?: PreparedThermalOutdoorBoundary,
+): ThermalSimulationResult {
   const indoor = indoorPoints(input.indoorSamples);
-  const outdoor = outdoorPoints(input.outdoorSamples);
+  const outdoor = preparedOutdoor ?? prepareThermalOutdoorBoundary(input.outdoorSamples);
   const allAligned = align(indoor, outdoor);
   const transitions = longestTransitionSegment(transitionsFrom(allAligned));
   const firstUsedTime = transitions[0]?.fromTime;
@@ -528,7 +535,7 @@ export function runThermalSimulation(input: ThermalSimulationInput): ThermalSimu
   const aligned = firstUsedTime === undefined || lastUsedTime === undefined
     ? allAligned
     : allAligned.filter((point) => point.time >= firstUsedTime && point.time <= lastUsedTime);
-  const calibration = calibrate(input.houseId, input.sensorId, indoor, outdoor, aligned, transitions, input.outdoorSamples);
+  const calibration = calibrate(input.houseId, input.sensorId, indoor, outdoor.points, aligned, transitions, input.outdoorSamples);
   const horizonHours = Math.max(0, Math.min(MAX_HORIZON_HOURS, Math.floor(input.horizonHours ?? 12)));
   const scenarioOutdoorTemperatureC = Number.isFinite(input.scenarioOutdoorTemperatureC)
     ? input.scenarioOutdoorTemperatureC as number

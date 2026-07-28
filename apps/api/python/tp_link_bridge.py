@@ -123,6 +123,12 @@ async def main() -> None:
         interval_ms = max(1000, int(os.environ.get("TP_LINK_POLL_INTERVAL_MS", "2000")))
     except ValueError:
         interval_ms = 2000
+    try:
+        contact_interval_ms = max(
+            250, int(os.environ.get("TP_LINK_CONTACT_POLL_INTERVAL_MS", "500"))
+        )
+    except ValueError:
+        contact_interval_ms = 500
     if not host or not username or not password:
         emit(
             {
@@ -158,6 +164,7 @@ async def main() -> None:
                 on_success=reset_backoff,
                 expected_device_id=expected_device_id,
                 on_identity=remember_identity,
+                contact_interval_seconds=contact_interval_ms / 1000,
             )
             if list_once:
                 return

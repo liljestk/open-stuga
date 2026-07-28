@@ -78,6 +78,134 @@ describe("TwinDashboard whole-building replay", () => {
     }
   });
 
+  it("applies streamed opening states immediately in both 2D and 3D", async () => {
+    const user = userEvent.setup();
+    const demo = createDemoState();
+    const baseFloor = demo.houses[0]!.floors[0]!;
+    const floor: Floor = {
+      ...baseFloor,
+      planElements: [{
+        id: "stream-door", kind: "door", wallId: baseFloor.walls[0]!.id,
+        position: { x: 220, y: 45 }, rotationDegrees: 0, state: "closed",
+        stateBinding: { provider: "tapo", externalId: "contact-stream" },
+      }],
+    };
+    const house = { ...demo.houses[0]!, floors: [floor] };
+    const state = { ...demo, houses: [house] };
+    const openingStates = vi.spyOn(api, "openingStates").mockResolvedValue({
+      snapshot: { houseId: house.id, at: new Date().toISOString(), states: [] }, observations: [],
+    });
+    const common = {
+      house, floor, houseId: house.id, floorId: floor.id, metric: "temperature" as const,
+      units: "metric" as const, selectedSensorId: demo.sensors[0]!.id,
+      saveState: "idle" as const, scenario: "normal" as const, onHouse: vi.fn(), onFloor: vi.fn(),
+      onMetric: vi.fn(), onViewMode: vi.fn(), onSensorSelect: vi.fn(), onSensorMove: vi.fn(),
+      onSensorUpdate: vi.fn(), onFloorChange: vi.fn(), onSaveLayout: vi.fn(), onLoadSeries: vi.fn(),
+      onRunScenario: vi.fn(), onCreateObservation: vi.fn().mockResolvedValue(demo.observations[0]!),
+      onCreateStaticParameter: vi.fn().mockResolvedValue(demo.staticParameters[0]!),
+    };
+    const dashboard = (
+      nextState: typeof state & { latestOpeningStateObservation?: OpeningStateObservation },
+      viewMode: "plan" | "isometric",
+    ) => <I18nProvider><TwinDashboard state={nextState} viewMode={viewMode} {...common} /></I18nProvider>;
+    try {
+      const view = render(dashboard(state, "plan"));
+      await waitFor(() => expect(openingStates).toHaveBeenCalled());
+      await user.click(screen.getByRole("button", { name: "Open live home view" }));
+      expect((await screen.findByRole("button", { name: /Door 1, Closed.*Open/i }))
+        .getAttribute("data-opening-state")).toBe("closed");
+
+      const openedAt = Date.now();
+      const openObservation: OpeningStateObservation = {
+        id: "stream-open", houseId: house.id, floorId: floor.id, elementId: "stream-door",
+        state: "open", source: "tapo", externalId: "contact-stream",
+        observedAt: new Date(openedAt).toISOString(),
+      };
+      view.rerender(dashboard({ ...state, latestOpeningStateObservation: openObservation }, "plan"));
+      await waitFor(() => expect(screen.getByRole("button", { name: /Door 1, Open.*Closed/i })
+        .getAttribute("data-opening-state")).toBe("open"));
+
+      const closeObservation: OpeningStateObservation = {
+        ...openObservation, id: "stream-close", state: "closed",
+        observedAt: new Date(openedAt + 1).toISOString(),
+      };
+      view.rerender(dashboard({ ...state, latestOpeningStateObservation: closeObservation }, "isometric"));
+      await waitFor(() => expect(view.container.querySelector('[data-element-id="stream-door"]')
+        ?.getAttribute("data-opening-state")).toBe("closed"));
+    } finally {
+      openingStates.mockRestore();
+    }
+  });
+
+  it("renders streamed sensor values immediately in both 2D and 3D without waiting for the visual clock", async () => {
+    const initialNow = Date.parse("2026-07-27T18:00:00.000Z");
+    const now = vi.spyOn(Date, "now").mockReturnValue(initialNow);
+    try {
+      const demo = createDemoState();
+      const house = demo.houses[0]!;
+      const floor = house.floors[0]!;
+      const sensor = demo.sensors.find((candidate) => candidate.houseId === house.id
+        && candidate.floorId === floor.id
+        && demo.latestMeasurements[candidate.id]?.temperature)!;
+      const baseSample = demo.latestMeasurements[sensor.id]!.temperature!;
+      const state = {
+        ...demo,
+        sensors: [sensor],
+        latestMeasurements: {
+          [sensor.id]: {
+            ...demo.latestMeasurements[sensor.id],
+            temperature: { ...baseSample, value: 20, timestamp: new Date(initialNow).toISOString() },
+          },
+        },
+      };
+      const common = {
+        house, floor, houseId: house.id, floorId: floor.id, metric: "temperature" as const,
+        units: "metric" as const, selectedSensorId: sensor.id, saveState: "idle" as const,
+        scenario: "normal" as const, onHouse: vi.fn(), onFloor: vi.fn(), onMetric: vi.fn(),
+        onViewMode: vi.fn(), onSensorSelect: vi.fn(), onSensorMove: vi.fn(), onSensorUpdate: vi.fn(),
+        onFloorChange: vi.fn(), onSaveLayout: vi.fn(), onLoadSeries: vi.fn(), onRunScenario: vi.fn(),
+        onCreateObservation: vi.fn().mockResolvedValue(demo.observations[0]!),
+        onCreateStaticParameter: vi.fn().mockResolvedValue(demo.staticParameters[0]!),
+      };
+      const dashboard = (nextState: typeof state, viewMode: "plan" | "isometric") => (
+        <I18nProvider><TwinDashboard state={nextState} viewMode={viewMode} {...common} /></I18nProvider>
+      );
+      const view = render(dashboard(state, "plan"));
+      fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+      expect(view.container.querySelector(".sensor-marker .sensor-value")?.textContent).toBe("20.0");
+
+      const planNow = initialNow + 60_000;
+      now.mockReturnValue(planNow);
+      const planState = {
+        ...state,
+        latestMeasurements: {
+          [sensor.id]: {
+            ...state.latestMeasurements[sensor.id],
+            temperature: { ...baseSample, value: 27.4, timestamp: new Date(planNow).toISOString() },
+          },
+        },
+      };
+      view.rerender(dashboard(planState, "plan"));
+      await waitFor(() => expect(view.container.querySelector(".sensor-marker .sensor-value")?.textContent).toBe("27.4"));
+
+      const buildingNow = planNow + 60_000;
+      now.mockReturnValue(buildingNow);
+      const buildingState = {
+        ...state,
+        latestMeasurements: {
+          [sensor.id]: {
+            ...state.latestMeasurements[sensor.id],
+            temperature: { ...baseSample, value: 18.2, timestamp: new Date(buildingNow).toISOString() },
+          },
+        },
+      };
+      view.rerender(dashboard(buildingState, "isometric"));
+      await waitFor(() => expect(view.container.querySelector(".building-sensor-value")?.textContent).toBe("18.2"));
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("suppresses derived summaries when there are no usable readings", () => {
     const demo = createDemoState();
     const house = demo.houses[0]!;

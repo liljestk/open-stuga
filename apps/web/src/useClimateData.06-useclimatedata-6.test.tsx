@@ -261,7 +261,7 @@ describe("useClimateData", () => {
     expect(result.current.state.measurementHistory[sensor.id]?.temperature?.at(-1)?.value).toBe(27.3);
   });
 
-  it("applies a live measurement once even when the legacy reading stream also reports it", async () => {
+  it("renders a legacy reading immediately and still applies its live measurement only once", async () => {
     const demo = createDemoState();
     const sensor = demo.sensors[0]!;
     const priorSample = demo.latestMeasurements[sensor.id]!.temperature!;
@@ -275,7 +275,8 @@ describe("useClimateData", () => {
 
     act(() => handleTelemetry({ type: "reading", data: reading }));
     expect(result.current.state.readings[sensor.id]?.temperature).toBe(26.5);
-    expect(result.current.state.latestMeasurements[sensor.id]?.temperature?.value).toBe(priorSample.value);
+    expect(result.current.state.latestMeasurements[sensor.id]?.temperature?.value).toBe(26.5);
+    expect(result.current.state.measurementHistory[sensor.id]?.temperature?.at(-1)?.value).toBe(26.5);
 
     act(() => {
       handleMeasurement(sample);

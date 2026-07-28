@@ -41,6 +41,10 @@ export function integrationForHouse(value: IntegrationStatus, houseId: string, w
         mappedDevices: tpLinkConnections.reduce((total, connection) => total + connection.mappedDevices, 0),
         discoveredDevices: tpLinkConnections.reduce((total, connection) => total + connection.discoveredDevices, 0),
         hubModel: tpLinkConnections.length === 1 ? tpLinkConnections[0]!.hubModel : null,
+        host: tpLinkConnections.length === 1 ? tpLinkConnections[0]!.host ?? null : null,
+        sourceType: tpLinkConnections.length === 1 ? tpLinkConnections[0]!.sourceType ?? null : null,
+        sourceModel: tpLinkConnections.length === 1 ? tpLinkConnections[0]!.sourceModel ?? null : null,
+        sourceAlias: tpLinkConnections.length === 1 ? tpLinkConnections[0]!.sourceAlias ?? null : null,
         error: tpLinkConnections.map((connection) => connection.error).filter(Boolean).join("; ") || null,
         connections: tpLinkConnections,
       };

@@ -106,6 +106,16 @@
 
 .sensor-analytics-stats small { color: var(--muted-2); font-size: 9.5px; }
 
+.sensor-analytics-gap-status { display: flex; align-items: flex-start; gap: 9px; padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--yellow-soft); }
+
+.sensor-analytics-gap-status > svg { flex: 0 0 auto; margin-top: 1px; color: var(--yellow); }
+
+.sensor-analytics-gap-status > span { min-width: 0; display: grid; gap: 2px; }
+
+.sensor-analytics-gap-status strong { color: var(--ink); font-size: 11px; }
+
+.sensor-analytics-gap-status small { color: var(--yellow); font-size: 10px; line-height: 1.4; }
+
 .sensor-analytics-legend { display: flex; flex-wrap: wrap; gap: 7px 13px; padding: 10px 18px 2px; color: var(--muted); font-size: 9.5px; }
 
 .sensor-analytics-legend span { display: inline-flex; align-items: center; gap: 5px; }
@@ -134,9 +144,13 @@
 
 .sensor-series-swatch.electricity-price { border-color: var(--orange); border-top-style: solid; }
 
+.sensor-gap-swatch { width: 18px; height: 8px; display: inline-block; border: 1px solid var(--line-strong); background: repeating-linear-gradient(135deg, transparent 0 3px, var(--yellow) 3px 4px); }
+
 .sensor-analytics-chart-wrap { min-width: 0; overflow-x: auto; padding: 0 16px 9px; }
 
-.sensor-analytics-chart { width: 100%; height: auto; display: block; overflow: visible; }
+.sensor-analytics-chart { width: 100%; height: auto; display: block; overflow: visible; cursor: crosshair; touch-action: pan-y; }
+
+.sensor-analytics-hit-area { fill: transparent; pointer-events: all; }
 
 .sensor-series-line, .sensor-aggregate-line, .sensor-prediction-line, .sensor-outdoor-line, .sensor-outdoor-forecast-line, .sensor-electricity-price-line { fill: none; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 
@@ -156,11 +170,50 @@
 
 .sensor-prediction-range { fill: color-mix(in srgb, var(--coverage) 16%, transparent); }
 
+.sensor-data-gap-region { pointer-events: none; }
+
+.sensor-data-gap-hatch { fill: none; stroke: var(--yellow); stroke-width: 1; opacity: .35; vector-effect: non-scaling-stroke; }
+
 .sensor-analytics-now { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 4; vector-effect: non-scaling-stroke; }
 
 .sensor-analytics-end-label circle { fill: var(--panel); stroke: var(--ink); stroke-width: 2; vector-effect: non-scaling-stroke; }
 
 .sensor-analytics-end-label text { fill: var(--ink); font-family: "DM Sans", sans-serif; font-size: 9px; font-weight: 700; paint-order: stroke; stroke: var(--panel); stroke-width: 4px; stroke-linejoin: round; }
+
+.sensor-analytics-hover { pointer-events: none; }
+
+.sensor-analytics-hover-crosshair { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 3 3; opacity: .52; vector-effect: non-scaling-stroke; }
+
+.sensor-analytics-hover-dot { fill: var(--panel); stroke: var(--ink); stroke-width: 2.5; vector-effect: non-scaling-stroke; }
+
+.sensor-analytics-tooltip > rect { fill: var(--panel); stroke: var(--line-strong); stroke-width: 1; vector-effect: non-scaling-stroke; }
+
+.sensor-analytics-tooltip text { fill: var(--ink); font-family: "DM Sans", sans-serif; }
+
+.sensor-analytics-tooltip-time { font-size: 8px; }
+
+.sensor-analytics-tooltip-label { font-size: 9px; font-weight: 650; }
+
+.sensor-analytics-tooltip-value { font-size: 13px; font-weight: 750; }
+
+.sensor-analytics-hover-dot.series-0 { stroke: var(--blue); }
+.sensor-analytics-hover-dot.series-1 { stroke: var(--orange); }
+.sensor-analytics-hover-dot.series-2 { stroke: var(--positive); }
+.sensor-analytics-hover-dot.series-3 { stroke: var(--yellow); }
+.sensor-analytics-hover-dot.series-4 { stroke: var(--coverage); }
+.sensor-analytics-hover-dot.series-5 { stroke: var(--red); }
+.sensor-analytics-hover-dot.prediction, .sensor-analytics-hover-dot.outdoor, .sensor-analytics-hover-dot.outdoor-forecast { stroke: var(--coverage); }
+.sensor-analytics-hover-dot.electricity-price { stroke: var(--orange); }
+
+.sensor-analytics-tooltip-marker.series-0 { fill: var(--blue); }
+.sensor-analytics-tooltip-marker.series-1 { fill: var(--orange); }
+.sensor-analytics-tooltip-marker.series-2 { fill: var(--positive); }
+.sensor-analytics-tooltip-marker.series-3 { fill: var(--yellow); }
+.sensor-analytics-tooltip-marker.series-4 { fill: var(--coverage); }
+.sensor-analytics-tooltip-marker.series-5 { fill: var(--red); }
+.sensor-analytics-tooltip-marker.aggregate { fill: var(--ink); }
+.sensor-analytics-tooltip-marker.prediction, .sensor-analytics-tooltip-marker.outdoor, .sensor-analytics-tooltip-marker.outdoor-forecast { fill: var(--coverage); }
+.sensor-analytics-tooltip-marker.electricity-price { fill: var(--orange); }
 
 .calendar-comparison { border-top: 1px solid var(--line); background: var(--panel); }
 
@@ -200,6 +253,22 @@
 
 .calendar-comparison-summary strong { overflow: hidden; color: var(--ink); font-family: "Manrope", sans-serif; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 
+.calendar-comparison-period-summaries { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1px; border-block: 1px solid var(--line); background: var(--line); }
+
+.calendar-comparison-period-summaries article { position: relative; min-width: 0; display: grid; gap: 3px; padding: 12px 18px; background: var(--panel); }
+
+.calendar-comparison-period-summaries article > span { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+
+.calendar-comparison-period-summaries article > strong { color: var(--ink); font-family: "Manrope", sans-serif; font-size: 17px; }
+
+.calendar-comparison-period-summaries article > small { color: var(--muted); font-size: 9.5px; line-height: 1.4; }
+
+.calendar-comparison-period-summaries article > em { position: absolute; top: 10px; right: 12px; padding: 2px 6px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--muted); background: var(--panel-soft); font-size: 9px; font-style: normal; font-weight: 700; }
+
+.calendar-comparison-period-summaries .calendar-comparison-delta { border-left: 3px solid var(--action); }
+
+.calendar-comparison-cohort { margin: 0; padding: 8px 18px 0; color: var(--muted); font-size: 9.5px; line-height: 1.45; }
+
 .calendar-comparison-legend { display: flex; flex-wrap: wrap; gap: 7px 13px; padding: 10px 18px 3px; color: var(--muted); font-size: 10px; }
 
 .calendar-comparison-legend span { display: inline-flex; align-items: center; gap: 5px; }
@@ -218,6 +287,10 @@
 
 .calendar-comparison-legend i.series-5 { border-top-style: dotted; border-top-width: 3px; }
 
+.calendar-comparison-legend i.period-1 { border-top-style: dashed; }
+
+.calendar-comparison-legend i.partial { border-color: var(--line-strong); border-top-style: dotted; }
+
 .calendar-comparison-legend i.series-0, .calendar-comparison-series.series-0 { border-color: var(--blue); stroke: var(--blue); }
 
 .calendar-comparison-legend i.series-1, .calendar-comparison-series.series-1 { border-color: var(--orange); stroke: var(--orange); }
@@ -229,6 +302,14 @@
 .calendar-comparison-legend i.series-4, .calendar-comparison-series.series-4 { border-color: var(--coverage); stroke: var(--coverage); }
 
 .calendar-comparison-legend i.series-5, .calendar-comparison-series.series-5 { border-color: var(--red); stroke: var(--red); }
+
+.calendar-comparison-legend i.period-0, .calendar-comparison-series.period-0 { border-color: var(--blue); stroke: var(--blue); }
+
+.calendar-comparison-legend i.period-1, .calendar-comparison-series.period-1 { border-color: var(--orange); stroke: var(--orange); }
+
+.calendar-comparison-legend i.period-2, .calendar-comparison-series.period-2 { border-color: var(--positive); stroke: var(--positive); }
+
+.calendar-comparison-legend i.period-3, .calendar-comparison-series.period-3 { border-color: var(--coverage); stroke: var(--coverage); }
 
 .calendar-comparison-chart-wrap { min-width: 0; overflow-x: auto; padding: 0 16px 8px; }
 
@@ -252,6 +333,10 @@
 
 .calendar-comparison-series.series-5 > path:not(.calendar-comparison-marker) { stroke-dasharray: 5 4 1 4; }
 
+.calendar-comparison-series.period-1 > path:not(.calendar-comparison-marker) { stroke-dasharray: 9 5; }
+
+.calendar-comparison-series .partial { stroke-dasharray: 2 2; stroke-width: 2.4; }
+
 .calendar-comparison-series.combined { stroke: var(--ink); stroke-width: 2.8; }
 
 .calendar-comparison-unit { fill: var(--muted); font-family: "DM Sans", sans-serif; font-size: 10px; font-weight: 700; }
@@ -269,6 +354,10 @@
 .calendar-comparison-table-wrap thead th { position: sticky; top: 0; z-index: 1; color: var(--muted); background: var(--panel); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
 
 .calendar-comparison-table-wrap tbody th { font-weight: 700; }
+
+.calendar-comparison-table-wrap td strong, .calendar-comparison-table-wrap td small { display: block; }
+
+.calendar-comparison-table-wrap td small { margin-top: 2px; color: var(--muted); font-size: 9px; }
 
 .daily-findings { min-width: 0; margin-bottom: 16px; overflow: hidden; }
 

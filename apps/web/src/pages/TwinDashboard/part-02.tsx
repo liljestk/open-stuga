@@ -169,7 +169,9 @@ export function useTwinDashboardPart02(context: ReturnType<typeof useTwinDashboa
       { maxEvents: 24, from: replayMin, to: replayMax },
     ), [state.measurementHistory, houseSensorIdList, replayMin, replayMax]);
   const [replayTimestamp, setReplayTimestamp] = useState(replayMax);
-  const spatialReferenceTimeMs = replayActive ? replayTimestamp : liveSpatialClockMs;
+  // Every pushed visual update already causes a render. Use that render's
+  // current time immediately; the slower clock only ages an otherwise idle view.
+  const spatialReferenceTimeMs = replayActive ? replayTimestamp : Math.max(liveSpatialClockMs, Date.now());
   const spatialLayerScope = useMemo(() => ({ kind: "house" as const, id: houseId }), [houseId]);
   const spatialLayers = useSpatialLayers({
       scope: spatialLayerScope,

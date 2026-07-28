@@ -300,10 +300,9 @@ struct SettingsView: View {
     }
 
     private func activityDate(_ value: String) -> String {
-        StuguDateParser.date(from: value)?.formatted(
-            date: .omitted,
-            time: .standard
-        ) ?? "—"
+        StuguDateParser.date(from: value).map {
+            StuguDateParser.time(from: $0, includesSeconds: true)
+        } ?? "—"
     }
 
     private var notificationsSection: some View {

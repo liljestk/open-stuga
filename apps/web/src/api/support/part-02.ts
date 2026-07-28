@@ -279,6 +279,8 @@ export const API_V2_BASE = API_BASE.replace(/\/v1$/, "/v2");
 
 export const API_REQUEST_TIMEOUT_MS = 30_000;
 
+export const INTEGRATION_DISCOVERY_REQUEST_TIMEOUT_MS = 90_000;
+
 export const STREAM_STABILITY_DELAY_MS = 750;
 
 export const COLLECTION_PAGE_SIZE = 500;

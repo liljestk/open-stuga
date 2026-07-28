@@ -33,11 +33,14 @@ psychrometrics, causal inference, or new forecast models.
 - Explorer ranges for 6 hours, 24 hours, 7 days, 30 days, 90 days, and 1 year,
   with range-aware server buckets, query budgets, labels, and visible-gap
   thresholds.
-- Calendar-period comparison for the active all/single/multiple-sensor
-  selection. A user can compare the same house-local calendar day, ISO week, or
-  month across years, every recorded calendar year, or calendar decades. The
-  view preserves missing periods, exposes sample coverage, and supports the
-  registry-valid calculation and source-quality choices.
+- Calendar-period comparison for either one selected sensor or a stable
+  aggregate of the active sensor selection. A user explicitly chooses two
+  matching house-local days, ISO weeks, months, years, or decades. Periods are
+  overlaid by their natural breakdown: hours, weekdays, seven-day month blocks,
+  months, or years. Headline values use only completed buckets available in
+  both periods; missing and ongoing buckets remain visible rather than becoming
+  zero. Registry-valid calculations, source-quality choices, sample coverage,
+  and signed differences remain explicit.
 - A side-effect-free `POST /api/v2/analytics/coverage` discovery endpoint. It
   merges the SQLite hot tail and Timescale archive span for each selected series
   and marks the result incomplete when an unavailable archive could contain
@@ -280,9 +283,9 @@ cadence so a lone old value cannot silently fill a long gap.
 | --- | --- | --- |
 | Live/demo isolation | Explicit and fail-closed at query/export boundaries; database remains a single irreversible mode | Add per-row mode keys only as a coordinated storage/archive migration with cross-mode constraint tests. |
 | Registry and units | Core semantics persisted and exposed; canonical ingest validation already exists | Add dimension-checked transformations and explicit conversion registry. |
-| Explorer | Multi-sensor/single-measurement rolling chart, explicit or auto rollup evidence controls, 6h-1y ranges, calendar day/week/month/year/decade comparisons, accessible tables, CSV/JSON | Add brush selection and saved views. |
+| Explorer | Multi-sensor/single-measurement rolling chart, explicit or auto rollup evidence controls, 6h-1y ranges, explicit two-period calendar comparisons with aligned breakdowns, accessible tables, CSV/JSON | Add brush selection and saved views. |
 | Quality | Missing, stale, source-estimated, low-coverage, and counter-reset flags; source-quality inclusion is explicit and exportable | Preserve richer source timestamps/flags and add declared interpolation policies. |
-| Rollups | Correct bounded on-demand UTC buckets | Add persisted rollups, source watermarks, late-data invalidation, and local-time daily buckets with 23/24/25-hour DST tests. |
+| Rollups | Correct bounded on-demand UTC buckets; calendar comparison composes exact house-local subranges and covers 23/24/25-hour days | Add persisted rollups, source watermarks, late-data invalidation, and reusable server-side local-calendar buckets if other analytics surfaces need them. |
 | Descriptive statistics | Core robust summaries | Add histogram/distribution and duration statistics where registry semantics allow them. |
 | Psychrometrics | A pinned Magnus calculation supports bounded within-event absolute-humidity recovery comparisons; no dew point, mould, or diagnostic claim is exposed | Add independent reference vectors and a reviewed library before broader psychrometric outputs. |
 | Statistics/findings | Daily practical-effect peer-period findings with persisted evidence; no causal or inferential claims | Add source-declared cadence, robust seasonal models, autocorrelation-aware uncertainty, multiple-testing control, user confirmation, and longer detector validation before calling results statistical anomalies. |
@@ -318,7 +321,7 @@ Run:
 ```powershell
 npm run build:packages
 npm run test --workspace @climate-twin/api -- tests/analytics.test.ts tests/timeseries-read-facade.test.ts tests/measurements.test.ts tests/openapi-parity.test.ts tests/app.test.ts
-npm run test --workspace @climate-twin/web -- src/homePerformance.test.ts src/calendarComparison.test.ts src/components/CalendarPeriodComparison.test.tsx src/pages/DataAnalyticsPage.test.tsx src/components/SensorAnalyticsChart.test.tsx src/chartGaps.test.ts src/measurements.test.ts
+npm run test --workspace @climate-twin/web -- src/homePerformance.test.ts src/calendarComparison.test.ts src/calendarComparisonView.test.ts src/components/CalendarPeriodComparison.test.tsx src/pages/DataAnalyticsPage.test.tsx src/components/SensorAnalyticsChart.test.tsx src/chartGaps.test.ts src/measurements.test.ts
 npm run typecheck --workspace @climate-twin/api
 npm run typecheck --workspace @climate-twin/web
 ```

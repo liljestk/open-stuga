@@ -132,6 +132,7 @@ import {
 import { publishAuthEpoch } from "../authEpoch";
 import { API_BASE, API_REQUEST_TIMEOUT_MS, API_V2_BASE, ApiRequestError, COLLECTION_PAGE_SIZE, SAFE_API_PATH, SAFE_HTTP_METHODS, STREAM_STABILITY_DELAY_MS, TRACKING_EVENT_TYPES, activeRequestControllers, apiClientState, apiRequestGeneration, assertSafeApiPath, authorizationChange, authorizationListeners, cancelPendingApiRequests, collectionPagePath, completeAuthentication, completeCollection, entity, houseResponse, isPollingHeartbeat, list, memberSummary, notifyAuthorizationChange, observationResponse, rememberSession, request, requestFrom, requestV2, sensorResponse, spatialConfigurationResponse, subscribeToApiAuthorizationChanges, subscribeToEvents, subscribeToMeasurementEvents, subscribeToSpatialLayerEvents, subscribeToSystemUpdateEvents, subscribeToTrackingEvents, updateHouseGeoreference } from "./support";
 import type { ApiAuthorizationChange, AppleNotesSetupMetadata, CloudflareSetupOperation, CloudflareSetupPhase, CloudflareSetupStartInput, CloudflareSetupStartResult, CloudflareSetupStatus, CoordinateDefaults, CreateHouseInput, CreateSensorInput, HistoricalImportResult, HomeAssistantDiscoveredInstance, HouseGeoreferencePatch, HousePatch, IntegrationDiscoveryResult, LocationSuggestion, MaintenanceTaskFilters, MeasurementHistoryPage, OutdoorTemperatureHistoryPage, SensorMeasurementPage, SensorPatch, StugubyAuthorityTransfer, StugubyDetailResponse, StugubyHomeProjection, StugubyInvitationCreated, StugubyListResponse, StugubyLocalInvitation, StugubyLocalMember, StugubyLocalPublicationCatalog, StugubyPropertyAdoption, StugubyRemoteTelemetrySample, SystemRelease, SystemUpdateDay, SystemUpdateLiveStatus, SystemUpdateOperation, SystemUpdateSettings, SystemUpdateStatus, TenantMembersResponse, TpLinkDiscoveredSource, TpLinkHistoryExportJob, TpLinkHistoryExportJobStatus, TpLinkHistoryExportJobsResponse, TpLinkHistoryExportProvider } from "./support";
+import { discoverIntegrationsInBackground, latestIntegrationDiscovery, resumeIntegrationDiscovery } from "./integration-discovery";
 
 
 
@@ -198,16 +199,9 @@ export const apiPart03 = {
   requestBackup: async () => entity(await request<BackupOperationStatus | { backup: BackupOperationStatus }>("/backups", { method: "POST" }), "backup"),
   createStaticParameter: (parameter: Omit<StaticParameter, "id">) => request<StaticParameter>("/static-parameters", { method: "POST", body: JSON.stringify(parameter) }),
   integrations: (houseId?: string) => request<IntegrationStatus>(`/integrations/status${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`),
-  discoverIntegrations: (houseId?: string, tpLinkCredentials?: { username: string; password: string }) => request<IntegrationDiscoveryResult>("/integrations/discover", {
-      method: "POST",
-      ...(houseId || tpLinkCredentials ? { body: JSON.stringify({
-        ...(houseId ? { houseId } : {}),
-        ...(tpLinkCredentials ? {
-          tpLinkUsername: tpLinkCredentials.username,
-          tpLinkPassword: tpLinkCredentials.password,
-        } : {}),
-      }) } : {}),
-    }),
+  discoverIntegrations: discoverIntegrationsInBackground,
+  resumeIntegrationDiscovery,
+  latestIntegrationDiscovery,
   discoverTelegram: (botToken: string, signal?: AbortSignal) => request<TelegramDiscoveryResult>("/integrations/telegram/discover", {
       method: "POST",
       body: JSON.stringify({ botToken }),
@@ -236,7 +230,14 @@ export const apiPart03 = {
       method: "PUT",
       body: JSON.stringify(configuration),
     }),
-  configureTpLink: (configuration: { houseId: string; connectionId?: string; host: string; username: string; password: string }) => request<{ ok: boolean; configured: boolean; connectionId?: string; houseId?: string; integration: IntegrationStatus }>("/integrations/tp-link/config", {
+  configureTpLink: (configuration: {
+    houseId: string;
+    connectionId?: string;
+    host: string;
+  } & (
+    { username: string; password: string; credentialSourceConnectionId?: never }
+    | { credentialSourceConnectionId: string; username?: never; password?: never }
+  )) => request<{ ok: boolean; configured: boolean; created?: boolean; connectionId?: string; houseId?: string; deviceId?: string | null; sourceType?: "hub" | "energy-device" | null; sourceModel?: string | null; sourceAlias?: string | null; integration: IntegrationStatus }>("/integrations/tp-link/config", {
       method: "PUT",
       body: JSON.stringify(configuration),
     }),

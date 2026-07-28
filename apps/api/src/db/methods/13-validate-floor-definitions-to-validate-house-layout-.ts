@@ -105,6 +105,7 @@ registerDatabaseMethods({
         throw new ClimateDataValidationError(400, "INVALID_FLOORS", "floors must be an array");
       }
       const ids = new Set<string>();
+      const tapoOpeningBindings = new Set<string>();
       for (const floor of floors) {
         if (!floor || typeof floor.id !== "string" || floor.id.trim() === "") {
           throw new ClimateDataValidationError(400, "INVALID_FLOOR", "Every floor must have a non-empty id");
@@ -282,6 +283,17 @@ registerDatabaseMethods({
               if (fixedState && stateBinding !== undefined) {
                 throw new ClimateDataValidationError(400, "INVALID_OPENING_STATE_BINDING", `Floor ${floor.id} ${element.variant} openings cannot use a contact-state binding`);
               }
+            }
+            if (stateBinding?.provider === "tapo") {
+              const bindingKey = `${stateBinding.connectionId ?? ""}\u0000${stateBinding.externalId}`;
+              if (tapoOpeningBindings.has(bindingKey)) {
+                throw new ClimateDataValidationError(
+                  409,
+                  "DUPLICATE_TAPO_OPENING_BINDING",
+                  "A Tapo contact sensor can be attached to only one opening in a Home",
+                );
+              }
+              tapoOpeningBindings.add(bindingKey);
             }
             if (nominalFlowM3h !== undefined && (element.kind !== "vent" || !Number.isFinite(nominalFlowM3h) || nominalFlowM3h < 0 || nominalFlowM3h > 100_000)) {
               throw new ClimateDataValidationError(400, "INVALID_VENT_FLOW", `Floor ${floor.id} vent design flow must be from 0 to 100000 cubic metres per hour`);

@@ -6,6 +6,27 @@ import type { AlertEvent, ForecastPoint, Reading } from "./sensors-alerts.js";
 
 import type { MeasurementSample } from "./measurement-analytics.js";
 
+import type { OpeningStateObservation } from "./building-structure.js";
+
+export type TpLinkConnectionSourceType = "hub" | "energy-device";
+
+export interface TpLinkConnectionStatus {
+  id: string;
+  houseId: string;
+  configured: boolean;
+  connected: boolean;
+  lastPollAt: string | null;
+  mappedDevices: number;
+  discoveredDevices: number;
+  hubModel: "H100" | "H200" | null;
+  error: string | null;
+  /** Safe local endpoint metadata. Optional for older Stugu servers. */
+  host?: string | null;
+  sourceType?: TpLinkConnectionSourceType | null;
+  sourceModel?: string | null;
+  sourceAlias?: string | null;
+}
+
 export interface IntegrationStatus {
   homeAssistant: {
     configured: boolean;
@@ -31,18 +52,13 @@ export interface IntegrationStatus {
     discoveredDevices: number;
     hubModel: "H100" | "H200" | null;
     error: string | null;
+    /** Present only when the aggregate represents one source. */
+    host?: string | null;
+    sourceType?: TpLinkConnectionSourceType | null;
+    sourceModel?: string | null;
+    sourceAlias?: string | null;
     /** Additive per-house status; aggregate fields above remain for older clients. */
-    connections?: Array<{
-      id: string;
-      houseId: string;
-      configured: boolean;
-      connected: boolean;
-      lastPollAt: string | null;
-      mappedDevices: number;
-      discoveredDevices: number;
-      hubModel: "H100" | "H200" | null;
-      error: string | null;
-    }>;
+    connections?: TpLinkConnectionStatus[];
   };
   webhook: {
     configured: boolean;
@@ -117,12 +133,29 @@ export interface TpLinkDiscoveredSource {
   model: string;
   alias: string | null;
   sourceType?: "hub" | "energy-device";
+  /** Stable local source identity when the device exposes one. */
+  deviceId?: string | null;
+  /** Present when this physical source already has a saved Stugu connection. */
+  configuredConnectionId?: string;
 }
 
 export interface IntegrationDiscoveryResult {
   homeAssistant: HomeAssistantDiscoveredInstance[];
   tpLink: TpLinkDiscoveredSource[];
   warnings: string[];
+}
+
+export type IntegrationDiscoveryJobStatus = "running" | "completed" | "failed";
+
+export interface IntegrationDiscoveryJob {
+  id: string;
+  houseId: string;
+  status: IntegrationDiscoveryJobStatus;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  result: IntegrationDiscoveryResult | null;
+  error: string | null;
 }
 
 export interface HomeAssistantConfigInput {
@@ -228,6 +261,7 @@ export type TelemetryEvent =
   | { type: "alert"; data: AlertEvent }
   | { type: "integration"; data: IntegrationStatus }
   | { type: "weather"; data: WeatherUpdateEvent }
+  | { type: "opening"; data: OpeningStateObservation }
   | { type: "mutation"; data: { method: string; resource: string; occurredAt: string } }
   | { type: "heartbeat"; data: { timestamp: string } };
 

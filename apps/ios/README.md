@@ -17,6 +17,8 @@ user-selected Stugu server; there is no intermediary app service.
   and edit-policy cues across the app, widgets, and Watch
 - Exception-first Home summary with live measurement freshness
 - Sensor list and native Swift Charts history
+- Live TP-Link door/window contact state, bounded opening history, transition
+  summaries, and direct handoff to the full management surface
 - Workspace alert list and explicit alert acknowledgement
 - Opt-in actionable native notifications delivered directly from the user's
   Stugu server through APNs, with generic lock-screen text by default

@@ -167,6 +167,10 @@ export function useuseClimateDataPart05(context: ReturnType<typeof useuseClimate
           mutationRefreshTimer.current = null;
           if (!sessionLockedRef.current) setBootstrapAttempt((attempt) => attempt + 1);
         }, 350);
+      } else if (event.type === "opening") {
+        setState((current) => current.houses.some((house) => house.id === event.data.houseId)
+          ? { ...current, latestOpeningStateObservation: event.data }
+          : current);
       } else if (event.type === "reading" && "temperature" in event.data && "humidity" in event.data) {
         const reading = event.data;
         if ((dataModeRef.current === "real" && isDemoSource(reading.source))
@@ -189,10 +193,13 @@ export function useuseClimateDataPart05(context: ReturnType<typeof useuseClimate
           const orderedHistory = [...(current.history[reading.sensorId] ?? []).filter((item) => item.timestamp !== reading.timestamp), reading]
             .sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp))
             .slice(-MAX_SERIES_SAMPLES);
+          const samples = readingSamples(reading, current.measurementDefinitions);
           return {
             ...current,
             readings: { ...current.readings, [reading.sensorId]: latest },
             history: { ...current.history, [reading.sensorId]: orderedHistory },
+            latestMeasurements: upsertLatest(current.latestMeasurements, samples),
+            measurementHistory: appendHistory(current.measurementHistory, samples),
           };
         });
       } else if (event.type === "alert" && "ruleId" in event.data) {

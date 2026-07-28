@@ -21,6 +21,7 @@ import {
   type StugubyRemoteTelemetrySample,
 } from "../../api";
 import { StugubyMark } from "../../components/StugubyMark";
+import { twentyFourHourInputLocale } from "../../dateTime";
 import { useI18n, type TranslationKey } from "../../i18n";
 import { CloudflareSetupPanel } from "../CloudflareSetupPanel";
 import "../StugubyPage.css";
@@ -235,7 +236,7 @@ export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart0
               </div>
               <details className="stuguby-subdetails">
                 <summary>{t("stuguby.invitationOptions")}</summary>
-                <div className="stuguby-form-grid stuguby-subdetails-body"><label className="field"><span>{t("stuguby.newRole")}</span><select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as typeof inviteRole)}><option value="participant">{t("stuguby.role.participant")}</option><option value="property-manager">{t("stuguby.role.propertyManager")}</option><option value="viewer">{t("stuguby.role.viewer")}</option></select></label><label className="field"><span>{t("stuguby.invitationExpiry")}</span><input type="datetime-local" value={inviteExpiresAt} onChange={(event) => setInviteExpiresAt(event.target.value)} /></label></div>
+                <div className="stuguby-form-grid stuguby-subdetails-body"><label className="field"><span>{t("stuguby.newRole")}</span><select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as typeof inviteRole)}><option value="participant">{t("stuguby.role.participant")}</option><option value="property-manager">{t("stuguby.role.propertyManager")}</option><option value="viewer">{t("stuguby.role.viewer")}</option></select></label><label className="field"><span>{t("stuguby.invitationExpiry")}</span><input type="datetime-local" lang={twentyFourHourInputLocale(locale)} value={inviteExpiresAt} onChange={(event) => setInviteExpiresAt(event.target.value)} /></label></div>
               </details>
             </form>}
             {createdInvitation?.stugubyId === detail.stuguby.id && <div className="stuguby-invitation" role="status"><strong>{t("stuguby.invitationOnce")}</strong><code>{createdInvitation.joinUrl}</code><button type="button" className="secondary-button" onClick={() => void (async () => {
@@ -326,7 +327,7 @@ export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart0
               <details key={editingGrantId ?? "new-grant"} className="stuguby-subdetails stuguby-sharing-options" open={editingGrantId !== null ? true : undefined}>
                 <summary>{t("stuguby.customizeSharing")}</summary>
                 <div className="stuguby-subdetails-body">
-                <label className="field stuguby-expiry-field"><span>{t("stuguby.expiresAt")}</span><input type="datetime-local" value={grantExpiresAt} onChange={(event) => setGrantExpiresAt(event.target.value)} /></label>
+                <label className="field stuguby-expiry-field"><span>{t("stuguby.expiresAt")}</span><input type="datetime-local" lang={twentyFourHourInputLocale(locale)} value={grantExpiresAt} onChange={(event) => setGrantExpiresAt(event.target.value)} /></label>
                 <div className="stuguby-dataset-table" role="group" aria-label={t("stuguby.sharedDatasets")}>
                 <div className="stuguby-dataset-heading"><span>{t("stuguby.dataset")}</span><span>{t("stuguby.localIds")}</span><span>{t("stuguby.cache")}</span><span>{t("stuguby.days")}</span></div>
                 {STUGBY_DATASETS.map((dataset) => {

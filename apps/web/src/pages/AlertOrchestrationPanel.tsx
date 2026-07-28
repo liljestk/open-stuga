@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { CheckCircle2, ChevronDown, CirclePlay, Clock3, LoaderCircle, RefreshCw, RotateCcw, Send, ShieldAlert } from "lucide-react";
 import type { ActionPlaybook, ActionRun, AlertEvent, NotificationDeliveryStatus } from "@climate-twin/contracts";
 import { api } from "../api";
+import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
 import "./AlertOrchestrationPanel.css";
 
@@ -176,7 +177,7 @@ function RunStatusIcon({ run }: Readonly<{ run: ActionRun }>) {
 }
 
 function formatDate(value: string | null, locale: string, pending: string): string {
-  return value ? new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : pending;
+  return value ? formatInTimeZone(value, locale, undefined, { dateStyle: "short", timeStyle: "short" }) : pending;
 }
 
 function message(error: unknown, fallback: string): string {

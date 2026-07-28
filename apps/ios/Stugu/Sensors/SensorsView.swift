@@ -4,12 +4,23 @@ struct SensorsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var searchText = ""
 
-    private var filtered: [SensorCondition] {
+    private var filteredConditions: [SensorCondition] {
         let conditions = model.selectedConditions
         guard !searchText.isEmpty else { return conditions }
         return conditions.filter {
             $0.sensor.name.localizedCaseInsensitiveContains(searchText)
                 || $0.sensor.room.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    private var filteredContacts: [TpLinkDiscoveredDevice] {
+        guard !searchText.isEmpty else { return model.selectedContactDevices }
+        return model.selectedContactDevices.filter { device in
+            let assignment = model.contactOpeningAssignment(for: device)
+            return model.contactDisplayName(device).localizedCaseInsensitiveContains(searchText)
+                || device.model.localizedCaseInsensitiveContains(searchText)
+                || assignment?.label.localizedCaseInsensitiveContains(searchText) == true
+                || assignment?.floorName.localizedCaseInsensitiveContains(searchText) == true
         }
     }
 
@@ -23,7 +34,8 @@ struct SensorsView: View {
                         systemImage: "house",
                         description: Text("Choose a Home to see its sensors.")
                     )
-                } else if model.selectedConditions.isEmpty {
+                } else if model.selectedConditions.isEmpty
+                            && model.selectedContactDevices.isEmpty {
                     ContentUnavailableView {
                         Label("No sensors yet", systemImage: "sensor")
                     } description: {
@@ -38,7 +50,26 @@ struct SensorsView: View {
                         LazyVStack(spacing: 12) {
                             ConnectionStatusLine()
                                 .padding(.bottom, 4)
-                            ForEach(filtered) { condition in
+
+                            if !filteredContacts.isEmpty {
+                                sectionHeading("Doors and windows")
+                                ForEach(filteredContacts) { device in
+                                    NavigationLink {
+                                        ContactSensorDetailView(
+                                            deviceID: device.id,
+                                            initialDevice: device
+                                        )
+                                    } label: {
+                                        ContactSensorListRow(device: device)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+
+                            if !filteredConditions.isEmpty {
+                                sectionHeading("Climate and energy")
+                            }
+                            ForEach(filteredConditions) { condition in
                                 NavigationLink {
                                     SensorDetailView(condition: condition)
                                 } label: {
@@ -57,6 +88,55 @@ struct SensorsView: View {
             .navigationTitle("Sensors")
             .searchable(text: $searchText, prompt: "Search sensors or rooms")
             .toolbar { HomePickerToolbar() }
+        }
+    }
+
+    private func sectionHeading(_ title: String) -> some View {
+        Text(title)
+            .font(.caption.weight(.bold))
+            .foregroundStyle(StuguTheme.muted)
+            .textCase(.uppercase)
+            .tracking(0.8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 4)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+private struct ContactSensorListRow: View {
+    @EnvironmentObject private var model: AppModel
+    let device: TpLinkDiscoveredDevice
+
+    var body: some View {
+        let assignment = model.contactOpeningAssignment(for: device)
+        let state = model.contactState(for: device)
+        StuguCard {
+            HStack(spacing: 14) {
+                Image(systemName: ContactPresentation.symbol(state, kind: assignment?.kind))
+                    .font(.title3)
+                    .foregroundStyle(ContactPresentation.color(state))
+                    .frame(width: 28)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.contactDisplayName(device))
+                        .font(.headline)
+                    Text(assignment.map { "\($0.label) · \($0.floorName)" } ?? "Opening not linked")
+                        .font(.subheadline)
+                        .foregroundStyle(StuguTheme.muted)
+                    Text(device.model)
+                        .font(.caption)
+                        .foregroundStyle(StuguTheme.muted)
+                }
+                Spacer(minLength: 8)
+                Text(ContactPresentation.label(state))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(ContactPresentation.color(state))
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(StuguTheme.muted)
+                    .accessibilityHidden(true)
+            }
+            .accessibilityElement(children: .combine)
         }
     }
 }

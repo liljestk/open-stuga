@@ -29,6 +29,9 @@ describe("BuildingScene", () => {
       planElements: [
         { id: "runtime-door", kind: "door", wallId: base.walls[0]!.id, position: { x: 220, y: 45 }, rotationDegrees: 0, state: "closed" },
         { id: "fixed-window", kind: "window", variant: "fixed", wallId: base.walls[0]!.id, position: { x: 420, y: 45 }, rotationDegrees: 0 },
+        { id: "open-window", kind: "window", variant: "casement", wallId: base.walls[0]!.id, position: { x: 520, y: 45 }, rotationDegrees: 0, state: "open" },
+        { id: "closed-vent", kind: "vent", position: { x: 320, y: 180 }, rotationDegrees: 0, state: "closed" },
+        { id: "open-vent", kind: "vent", position: { x: 420, y: 180 }, rotationDegrees: 0, state: "open" },
       ],
     };
     const observation: OpeningStateObservation = {
@@ -46,6 +49,11 @@ describe("BuildingScene", () => {
     expect(door.getAttribute("aria-label")).toContain(floor.name);
     expect(door.getAttribute("data-opening-state")).toBe("open");
     expect(door.getAttribute("aria-pressed")).toBe("true");
+    expect(door.getAttribute("data-opening-visual")).toBe("swing-open");
+    expect(door.querySelector(".building-opening-aperture")).not.toBeNull();
+    expect(door.querySelector(".building-opening-leaf")).not.toBeNull();
+    expect(door.querySelector(".building-opening-motion-path")).not.toBeNull();
+    expect(door.querySelector('[data-opening-state-label="open"]')?.textContent).toBe("Open");
     fireEvent.pointerDown(door);
     fireEvent.click(door);
     expect(onOpeningStateChange).toHaveBeenCalledWith(floor.id, "runtime-door", "closed");
@@ -54,6 +62,21 @@ describe("BuildingScene", () => {
     const fixedWindow = view.container.querySelector<SVGGElement>('[data-element-id="fixed-window"]');
     expect(fixedWindow?.getAttribute("role")).toBe("img");
     expect(fixedWindow?.hasAttribute("tabindex")).toBe(false);
+    expect(fixedWindow?.getAttribute("data-opening-visual")).toBe("closed");
+    expect(fixedWindow?.querySelector(".building-opening-leaf")).toBeNull();
+    expect(fixedWindow?.querySelector('[data-opening-state-label="closed"]')?.textContent).toBe("Closed");
+    const openWindow = view.container.querySelector<SVGGElement>('[data-element-id="open-window"]');
+    expect(openWindow?.getAttribute("data-opening-visual")).toBe("swing-open");
+    expect(openWindow?.querySelector(".building-opening-aperture")).not.toBeNull();
+    expect(openWindow?.querySelector(".building-opening-leaf")).not.toBeNull();
+    const closedVent = view.container.querySelector<SVGGElement>('[data-element-id="closed-vent"]');
+    expect(closedVent?.getAttribute("data-opening-state")).toBe("closed");
+    expect(closedVent?.getAttribute("data-opening-visual")).toBe("louvers-closed");
+    expect(closedVent?.querySelectorAll(".building-vent-louvers line")).toHaveLength(6);
+    expect(closedVent?.querySelector('[data-opening-state-label="closed"]')?.textContent).toBe("Closed");
+    const openVent = view.container.querySelector<SVGGElement>('[data-element-id="open-vent"]');
+    expect(openVent?.getAttribute("data-opening-visual")).toBe("louvers-open");
+    expect(openVent?.querySelectorAll(".building-vent-louvers line")).toHaveLength(4);
 
     onOpeningStateChange.mockClear();
     fireEvent.keyDown(door, { key: "Enter" });

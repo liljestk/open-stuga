@@ -189,6 +189,26 @@ registerDatabaseMethods({
       if (!houseColumns.some((column) => column.name === "stugby_json")) {
             this.db.exec("ALTER TABLE houses ADD COLUMN stugby_json TEXT");
           }
+      // A short-lived build persisted the Stuguby id as `stugbyId`. Normalize
+      // those links before any federation service reads them.
+      this.db.exec(`
+            UPDATE properties
+            SET stugby_json = json_remove(
+              json_set(stugby_json, '$.stugubyId', json_extract(stugby_json, '$.stugbyId')),
+              '$.stugbyId'
+            )
+            WHERE stugby_json IS NOT NULL
+              AND json_type(stugby_json, '$.stugubyId') IS NULL
+              AND json_type(stugby_json, '$.stugbyId') = 'text';
+            UPDATE houses
+            SET stugby_json = json_remove(
+              json_set(stugby_json, '$.stugubyId', json_extract(stugby_json, '$.stugbyId')),
+              '$.stugbyId'
+            )
+            WHERE stugby_json IS NOT NULL
+              AND json_type(stugby_json, '$.stugubyId') IS NULL
+              AND json_type(stugby_json, '$.stugbyId') = 'text';
+          `);
       this.db.exec(`
             CREATE INDEX IF NOT EXISTS idx_houses_property_name ON houses(property_id, name, id);
             DROP TRIGGER IF EXISTS require_house_property_insert;

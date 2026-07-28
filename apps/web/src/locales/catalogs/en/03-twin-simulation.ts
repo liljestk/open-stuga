@@ -2,6 +2,7 @@ export const enPart3 = {
   "twin.mode2d": "Plan",
   "twin.modeIso": "3D building",
   "twin.mapLayers": "Map layers",
+  "twin.climateSensorLayer": "Climate sensors",
   "twin.energyDeviceLayer": "Plug sensors",
   "twin.energyDevice": "Plug sensor",
   "twin.noEnergyStats": "No power data",

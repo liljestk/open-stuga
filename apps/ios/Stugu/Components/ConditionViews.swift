@@ -70,6 +70,85 @@ enum ConditionPresentation {
     }
 }
 
+@MainActor
+enum ContactPresentation {
+    static func label(_ state: StuguOpeningState) -> String {
+        switch state {
+        case .open: "Open"
+        case .closed: "Closed"
+        case .unknown: "No recent state"
+        }
+    }
+
+    static func symbol(_ state: StuguOpeningState, kind: String?) -> String {
+        switch state {
+        case .open: kind == "window" ? "window.casement" : "door.left.hand.open"
+        case .closed: kind == "window" ? "window.casement.closed" : "door.left.hand.closed"
+        case .unknown: "questionmark.diamond"
+        }
+    }
+
+    static func color(_ state: StuguOpeningState) -> Color {
+        switch state {
+        case .open: StuguTheme.action
+        case .closed: StuguTheme.success
+        case .unknown: StuguTheme.warning
+        }
+    }
+}
+
+struct ContactSensorCard: View {
+    @EnvironmentObject private var model: AppModel
+    let device: TpLinkDiscoveredDevice
+
+    var body: some View {
+        let assignment = model.contactOpeningAssignment(for: device)
+        let state = model.contactState(for: device)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.contactDisplayName(device))
+                        .font(.headline)
+                        .foregroundStyle(StuguTheme.ink)
+                        .lineLimit(2)
+                    Text(assignment.map { "\($0.label) · \($0.floorName)" } ?? "Opening not linked")
+                        .font(.caption)
+                        .foregroundStyle(StuguTheme.muted)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: ContactPresentation.symbol(state, kind: assignment?.kind))
+                    .font(.caption)
+                    .foregroundStyle(ContactPresentation.color(state))
+                    .accessibilityHidden(true)
+            }
+
+            Text(ContactPresentation.label(state))
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(ContactPresentation.color(state))
+
+            if let seen = device.lastSeenDate {
+                Text("Updated \(seen.formatted(.relative(presentation: .named)))")
+                    .font(.caption)
+                    .foregroundStyle(StuguTheme.muted)
+            } else {
+                Text("No observation time")
+                    .font(.caption)
+                    .foregroundStyle(StuguTheme.muted)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 166, alignment: .topLeading)
+        .background(StuguTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(StuguTheme.line, lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 struct ConnectionStatusLine: View {
     @EnvironmentObject private var model: AppModel
 

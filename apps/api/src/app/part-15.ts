@@ -99,7 +99,14 @@ import {
   TelemetryService,
 } from "../services.js";
 import { runThermalSimulation } from "../thermal-simulation.js";
-import { runThermalIsolation } from "../thermal-isolation.js";
+import {
+  isThermalIsolationTemperatureSensor,
+  runThermalIsolationAsync,
+} from "../thermal-isolation.js";
+import {
+  isMoistureResponseSensor,
+  runMoistureResponseAsync,
+} from "../moisture-response.js";
 import { SYSTEM_VERSION } from "../version.js";
 import { SystemUpdateError, SystemUpdateService } from "../system-updates.js";
 import { LocationDiscoveryService } from "../location-discovery.js";
@@ -285,7 +292,7 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
       });
       response.json({ simulation });
     });
-  context.app.get(`${context.prefix}/houses/:id/thermal-isolation`, (request, response) => {
+  context.app.get(`${context.prefix}/houses/:id/thermal-isolation`, async (request, response) => {
       const house = context.database.getHouse(request.params.id as string);
       if (!house || !context.visibility(response).house(house.id)) throw new HttpError(404, "NOT_FOUND", "House not found");
       const to = dateValue(request.query.to, new Date(), "to");
@@ -294,10 +301,18 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
       if (Date.parse(to) - Date.parse(from) > 14 * 24 * 3_600_000) {
         throw new HttpError(400, "RANGE_TOO_LARGE", "thermal isolation range cannot exceed 14 days");
       }
-      const sensors = context.database.listSensors(house.id)
+      const sensorCandidates = context.database.listSensors(house.id)
         .filter((sensor) => sensor.enabled && context.visibility(response).sensor(sensor.id));
+      const sensorsWithTemperatureHistory = new Set(
+        context.database.measurementCoverage(
+          sensorCandidates.map((sensor) => sensor.id),
+          ["temperature"],
+        ).map((coverage) => coverage.sensorId),
+      );
+      const sensors = sensorCandidates.filter((sensor) =>
+        isThermalIsolationTemperatureSensor(sensor, sensorsWithTemperatureHistory.has(sensor.id)));
       if (sensors.length > 64) {
-        throw new HttpError(422, "THERMAL_SCOPE_TOO_LARGE", "thermal isolation comparison supports at most 64 enabled sensors per request");
+        throw new HttpError(422, "THERMAL_SCOPE_TOO_LARGE", "thermal isolation comparison supports at most 64 temperature sensors per request");
       }
       const boundaryPaddingMs = 2 * 3_600_000;
       const outdoorSamples = context.database.outdoorTemperatureHistory(
@@ -311,16 +326,90 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
         sensor.id,
         context.database.thermalTemperatureHistory(sensor.id, from, to, 5, 5_000),
       ]));
-      const isolation = runThermalIsolation({
-        house,
-        sensors,
-        indoorSamplesBySensor,
-        outdoorSamples,
-        from,
-        to,
-      });
-      response.setHeader("cache-control", "no-store");
-      response.json({ isolation });
+      const abortController = new AbortController();
+      const abortOnClose = () => abortController.abort();
+      response.once("close", abortOnClose);
+      try {
+        const isolation = await runThermalIsolationAsync({
+          house,
+          sensors,
+          indoorSamplesBySensor,
+          outdoorSamples,
+          from,
+          to,
+        }, { signal: abortController.signal });
+        if (abortController.signal.aborted) return;
+        response.setHeader("cache-control", "no-store");
+        response.json({ isolation });
+      } catch (error) {
+        if (abortController.signal.aborted) return;
+        throw error;
+      } finally {
+        response.off("close", abortOnClose);
+      }
+    });
+  context.app.get(`${context.prefix}/houses/:id/moisture-response`, async (request, response) => {
+      const house = context.database.getHouse(request.params.id as string);
+      if (!house || !context.visibility(response).house(house.id)) throw new HttpError(404, "NOT_FOUND", "House not found");
+      const to = dateValue(request.query.to, new Date(), "to");
+      const from = dateValue(request.query.from, new Date(Date.parse(to) - 7 * 24 * 3_600_000), "from");
+      if (Date.parse(from) >= Date.parse(to)) throw new HttpError(400, "INVALID_RANGE", "from must be before to");
+      if (Date.parse(to) - Date.parse(from) > 14 * 24 * 3_600_000) {
+        throw new HttpError(400, "RANGE_TOO_LARGE", "moisture response range cannot exceed 14 days");
+      }
+      const sensorCandidates = context.database.listSensors(house.id)
+        .filter((sensor) => sensor.enabled && context.visibility(response).sensor(sensor.id));
+      const coverage = context.database.measurementCoverage(
+        sensorCandidates.map((sensor) => sensor.id),
+        ["temperature", "humidity"],
+      );
+      const sensorsWithTemperature = new Set(
+        coverage.filter((item) => item.metric === "temperature").map((item) => item.sensorId),
+      );
+      const sensorsWithHumidity = new Set(
+        coverage.filter((item) => item.metric === "humidity").map((item) => item.sensorId),
+      );
+      const sensors = sensorCandidates.filter((sensor) => isMoistureResponseSensor(
+        sensor,
+        sensorsWithTemperature.has(sensor.id),
+        sensorsWithHumidity.has(sensor.id),
+      ));
+      if (sensors.length > 64) {
+        throw new HttpError(422, "MOISTURE_SCOPE_TOO_LARGE", "moisture response comparison supports at most 64 paired climate sensors per request");
+      }
+      const boundaryPaddingMs = 2 * 3_600_000;
+      const outdoorSamples = context.database.outdoorTemperatureHistory(
+        house.id,
+        outdoorLocationKey(house.location),
+        new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
+        new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
+        50_000,
+      );
+      const indoorSamplesBySensor = new Map(sensors.map((sensor) => [
+        sensor.id,
+        context.database.thermalClimateHistory(sensor.id, from, to, 5, 5_000),
+      ]));
+      const abortController = new AbortController();
+      const abortOnClose = () => abortController.abort();
+      response.once("close", abortOnClose);
+      try {
+        const moistureResponse = await runMoistureResponseAsync({
+          house,
+          sensors,
+          indoorSamplesBySensor,
+          outdoorSamples,
+          from,
+          to,
+        }, { signal: abortController.signal });
+        if (abortController.signal.aborted) return;
+        response.setHeader("cache-control", "no-store");
+        response.json({ moistureResponse });
+      } catch (error) {
+        if (abortController.signal.aborted) return;
+        throw error;
+      } finally {
+        response.off("close", abortOnClose);
+      }
     });
   context.app.patch(`${context.prefix}/houses/:id`, async (request, response) => {
       const houseId = request.params.id as string;
@@ -369,8 +458,12 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
       }
       if (patch.floors) context.stuguby.assertSharedHouseFloorPlanAssetsUnchanged(houseId, patch.floors);
       if (patch.location !== undefined) await context.requireArchivedBeforeCascade("house-location", houseId);
-      const house = context.database.updateHouse(houseId, patch);
-      if (!house) throw new HttpError(404, "NOT_FOUND", "House not found");
+      const house = context.database.transaction(() => {
+        const updated = context.database.updateHouse(houseId, patch);
+        if (!updated) throw new HttpError(404, "NOT_FOUND", "House not found");
+        context.stuguby.captureHomeMutation(updated.id);
+        return updated;
+      });
       if (patch.floors !== undefined) context.homeAssistant.refreshMappings();
       if (previous) {
         const observedAt = new Date().toISOString();
@@ -392,7 +485,6 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
       context.weather.invalidate(house.id);
       context.weatherEvents.invalidate(house.id);
       context.status.refreshWeatherConfiguration();
-      context.stuguby.captureHomeMutation(house.id);
       response.json({ house });
     });
   const extended = Object.assign(context, {  });

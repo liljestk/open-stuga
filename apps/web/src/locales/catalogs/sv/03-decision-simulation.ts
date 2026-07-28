@@ -245,6 +245,7 @@ export const svPart3 = {
   "twin.mode2d": "Planera",
   "twin.modeIso": "3D-byggnad",
   "twin.mapLayers": "Kartlager",
+  "twin.climateSensorLayer": "Klimatsensorer",
   "twin.energyDeviceLayer": "Pluggsensorer",
   "twin.energyDevice": "Pluggsensor",
   "twin.noEnergyStats": "Ingen effektdata",

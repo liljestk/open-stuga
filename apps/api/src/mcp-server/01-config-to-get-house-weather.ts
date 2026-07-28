@@ -249,8 +249,11 @@ export function createPropertyArea(args: Record<string, unknown>): PropertyArea 
     polygon: requiredArray(args, "polygon", 500, 0) as GeoCoordinate[],
   };
   stuguby.assertPropertyWriteAllowed(input.propertyId);
-  const area = database.createPropertyArea(input);
-  stuguby.captureCurrentPropertyEntity(area.propertyId, "area", area.id, "upsert");
+  const area = database.transaction(() => {
+    const created = database.createPropertyArea(input);
+    stuguby.captureCurrentPropertyEntity(created.propertyId, "area", created.id, "upsert");
+    return created;
+  });
   return area;
 }
 
@@ -271,15 +274,18 @@ export function updatePropertyArea(args: Record<string, unknown>): PropertyArea 
   if (values.polygon !== undefined) patch.polygon = requiredArray(values, "polygon", 500, 0) as GeoCoordinate[];
   if (Object.keys(patch).length === 0) throw new Error("patch must contain at least one mutable field");
   if (patch.propertyId && patch.propertyId !== previous.propertyId) stuguby.assertPropertyWriteAllowed(patch.propertyId);
-  const area = database.updatePropertyArea(areaId, patch, "local-mcp");
-  if (!area) throw new Error(`Unknown property area: ${areaId}`);
-  if (area.propertyId !== previous.propertyId) {
-    stuguby.captureCurrentPropertyEntity(previous.propertyId, "area", area.id, "delete");
-    stuguby.captureCurrentPropertyEntity(area.propertyId, "area", area.id, "upsert");
-  } else {
-    stuguby.captureCurrentPropertyEntity(area.propertyId, "area", area.id, "upsert",
-      Object.keys(patch).filter((field) => field !== "propertyId"));
-  }
+  const area = database.transaction(() => {
+    const updated = database.updatePropertyArea(areaId, patch, "local-mcp");
+    if (!updated) throw new Error(`Unknown property area: ${areaId}`);
+    if (updated.propertyId !== previous.propertyId) {
+      stuguby.captureCurrentPropertyEntity(previous.propertyId, "area", updated.id, "delete");
+      stuguby.captureCurrentPropertyEntity(updated.propertyId, "area", updated.id, "upsert");
+    } else {
+      stuguby.captureCurrentPropertyEntity(updated.propertyId, "area", updated.id, "upsert",
+        Object.keys(patch).filter((field) => field !== "propertyId"));
+    }
+    return updated;
+  });
   return area;
 }
 
@@ -299,8 +305,11 @@ export function createAreaEquipment(args: Record<string, unknown>): AreaEquipmen
   const area = database.getPropertyArea(areaId);
   if (!area) throw new Error(`Unknown property area: ${areaId}`);
   stuguby.assertPropertyWriteAllowed(area.propertyId);
-  const equipment = database.createAreaEquipment(input);
-  stuguby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert");
+  const equipment = database.transaction(() => {
+    const created = database.createAreaEquipment(input);
+    stuguby.captureCurrentPropertyEntity(created.propertyId, "equipment", created.id, "upsert");
+    return created;
+  });
   return equipment;
 }
 
@@ -325,14 +334,17 @@ export function updateAreaEquipment(args: Record<string, unknown>): AreaEquipmen
     if (!targetArea) throw new Error(`Unknown property area: ${patch.areaId}`);
     if (targetArea.propertyId !== previous.propertyId) stuguby.assertPropertyWriteAllowed(targetArea.propertyId);
   }
-  const equipment = database.updateAreaEquipment(equipmentId, patch, "local-mcp");
-  if (!equipment) throw new Error(`Unknown area equipment: ${equipmentId}`);
-  if (equipment.propertyId !== previous.propertyId) {
-    stuguby.captureCurrentPropertyEntity(previous.propertyId, "equipment", equipment.id, "delete");
-    stuguby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert");
-  } else {
-    stuguby.captureCurrentPropertyEntity(equipment.propertyId, "equipment", equipment.id, "upsert", Object.keys(patch));
-  }
+  const equipment = database.transaction(() => {
+    const updated = database.updateAreaEquipment(equipmentId, patch, "local-mcp");
+    if (!updated) throw new Error(`Unknown area equipment: ${equipmentId}`);
+    if (updated.propertyId !== previous.propertyId) {
+      stuguby.captureCurrentPropertyEntity(previous.propertyId, "equipment", updated.id, "delete");
+      stuguby.captureCurrentPropertyEntity(updated.propertyId, "equipment", updated.id, "upsert");
+    } else {
+      stuguby.captureCurrentPropertyEntity(updated.propertyId, "equipment", updated.id, "upsert", Object.keys(patch));
+    }
+    return updated;
+  });
   return equipment;
 }
 

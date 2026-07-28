@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Archive, CheckCircle2, Database, Download, RefreshCw, ShieldAlert, Stethoscope, TriangleAlert } from "lucide-react";
 import type { BackupOperationStatus, DataExportPreview, DataExportPrivacyLevel, House, Sensor, SetupDoctorReport } from "@climate-twin/contracts";
 import { api } from "../api";
+import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
 import "./SetupOperationsPanel.css";
 
@@ -188,7 +189,7 @@ function backupState(state: BackupOperationStatus["state"], t: ReturnType<typeof
 }
 
 function formatDate(value: string | null, locale: string, never: string): string {
-  return value ? new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : never;
+  return value ? formatInTimeZone(value, locale, undefined, { dateStyle: "medium", timeStyle: "short" }) : never;
 }
 
 function message(error: unknown, fallback: string): string {

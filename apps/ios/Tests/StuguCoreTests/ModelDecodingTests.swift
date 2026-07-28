@@ -436,4 +436,57 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(operation.phaseStartedAt, "2026-07-26T10:00:01.000Z")
         XCTAssertEqual(operation.activity.first?.detail, "Creating backup")
     }
+
+    func testDecodesContactDeviceAndLiveOpeningObservation() throws {
+        let deviceData = Data(#"""
+        {
+          "houseId": "home-1",
+          "connectionId": "tapo-main",
+          "deviceId": "contact-1",
+          "model": "T110",
+          "alias": "Terrace door",
+          "status": "online",
+          "temperature": null,
+          "humidity": null,
+          "battery": 88,
+          "contactOpen": true,
+          "deviceType": "contact",
+          "power": null,
+          "energy": null,
+          "lastSeenAt": "2026-07-28T09:30:00.000Z",
+          "mappedSensorId": null,
+          "mappedOpening": {
+            "floorId": "ground",
+            "elementId": "terrace-door",
+            "kind": "door",
+            "label": "Terrace door"
+          }
+        }
+        """#.utf8)
+        let observationData = Data(#"""
+        {
+          "id": "opening-1",
+          "houseId": "home-1",
+          "floorId": "ground",
+          "elementId": "terrace-door",
+          "state": "open",
+          "source": "tapo",
+          "observedAt": "2026-07-28T09:30:00.000Z",
+          "externalId": "contact-1",
+          "connectionId": "tapo-main"
+        }
+        """#.utf8)
+
+        let device = try JSONDecoder().decode(TpLinkDiscoveredDevice.self, from: deviceData)
+        let observation = try JSONDecoder().decode(
+            OpeningStateObservation.self,
+            from: observationData
+        )
+
+        XCTAssertTrue(device.isContact)
+        XCTAssertEqual(device.mappedOpening?.elementId, "terrace-door")
+        XCTAssertEqual(device.contactOpen, true)
+        XCTAssertEqual(observation.state, .open)
+        XCTAssertEqual(observation.externalId, device.deviceId)
+    }
 }

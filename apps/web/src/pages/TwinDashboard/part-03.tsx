@@ -231,6 +231,17 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
       openingStateRequestsRef.current.clear();
     }, [houseId]);
   useEffect(() => {
+      const observation = state.latestOpeningStateObservation;
+      if (openingStateAt !== undefined || observation?.houseId !== houseId) return;
+      const observedAtMs = Date.parse(observation.observedAt);
+      setLiveSpatialClockMs((current) => Math.max(
+        current,
+        Date.now(),
+        Number.isFinite(observedAtMs) ? observedAtMs : 0,
+      ));
+      setOpeningStateObservations((current) => mergeOpeningStateObservations(current, [observation]));
+    }, [houseId, openingStateAt, state.latestOpeningStateObservation]);
+  useEffect(() => {
       if (!hasOpeningElements) return;
       const controller = new AbortController();
       let loading = false;
@@ -249,11 +260,12 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
         }
       };
       void load();
-      const timer = openingStateAt === undefined ? window.setInterval(() => { void load(); }, 30_000) : null;
+      const refreshMs = connection === "live" ? 30_000 : 5_000;
+      const timer = openingStateAt === undefined ? window.setInterval(() => { void load(); }, refreshMs) : null;
       return () => {
         controller.abort();
         if (timer !== null) window.clearInterval(timer);
       };
-    }, [hasOpeningElements, houseId, openingStateAt]);
+    }, [connection, hasOpeningElements, houseId, openingStateAt]);
   return Object.assign(context, { selectReplayEvent, loadReplayWindow, displayedSamples, mapSensorMeasurements, airflowSamples, sensorCoverage, airMovementSelected, coverageSelected, openingStateAt, openingStateObservations, setOpeningStateObservations, pendingOpeningStateKeys, setPendingOpeningStateKeys, openingStateError, setOpeningStateError, openingStateAnnouncement, setOpeningStateAnnouncement, openingStateRequestsRef, openingStateContextRef, houseOpeningStateObservations, controllableOpenings, hasOpeningElements });
 }

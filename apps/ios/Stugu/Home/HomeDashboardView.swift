@@ -286,7 +286,7 @@ struct HomeDashboardView: View {
                             if let startsAt = recommendation.startsAt,
                                let endsAt = recommendation.endsAt {
                                 Text(
-                                    "\(startsAt.formatted(date: .omitted, time: .shortened))–\(endsAt.formatted(date: .omitted, time: .shortened))"
+                                    "\(StuguDateParser.time(from: startsAt))–\(StuguDateParser.time(from: endsAt))"
                                 )
                                 .font(.subheadline.weight(.semibold))
                             }
@@ -312,17 +312,30 @@ struct HomeDashboardView: View {
 
     @ViewBuilder
     private var keyStatusSection: some View {
+        let contacts = Array(model.selectedContactDevices.prefix(3))
+        let conditionLimit = max(0, 6 - contacts.count)
         VStack(alignment: .leading, spacing: 12) {
             Text("Key status")
                 .font(.headline)
-            if model.selectedConditions.isEmpty {
+            if model.selectedConditions.isEmpty && contacts.isEmpty {
                 StuguCard {
                     Label("No enabled sensors are available for this Home.", systemImage: "sensor.tag.radiowaves.forward.slash")
                         .foregroundStyle(StuguTheme.muted)
                 }
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 155), spacing: 12)], spacing: 12) {
-                    ForEach(model.selectedConditions.prefix(6)) { condition in
+                    ForEach(contacts) { device in
+                        NavigationLink {
+                            ContactSensorDetailView(
+                                deviceID: device.id,
+                                initialDevice: device
+                            )
+                        } label: {
+                            ContactSensorCard(device: device)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    ForEach(model.selectedConditions.prefix(conditionLimit)) { condition in
                         NavigationLink {
                             SensorDetailView(condition: condition)
                         } label: {
@@ -345,9 +358,15 @@ struct HomeDashboardView: View {
             StuguCard {
                 DisclosureGroup {
                     VStack(alignment: .leading, spacing: 10) {
-                        Label("\(model.selectedSensors.count) enabled sensors", systemImage: "sensor")
+                        Label("\(model.selectedConditions.count) enabled measurement sensors", systemImage: "sensor")
+                        if !model.selectedContactDevices.isEmpty {
+                            Label(
+                                "\(model.selectedContactDevices.count) door and window contacts",
+                                systemImage: "door.left.hand.open"
+                            )
+                        }
                         Label("\(liveCount) reporting live", systemImage: "dot.radiowaves.left.and.right")
-                        if model.selectedConditions.count > 6 {
+                        if model.selectedConditions.count + model.selectedContactDevices.count > 6 {
                             Text("Open Sensors to see all rooms and measurements.")
                                 .foregroundStyle(StuguTheme.muted)
                         }
@@ -356,15 +375,15 @@ struct HomeDashboardView: View {
                     .padding(.top, 12)
                 } label: {
                     Label(
-                        liveCount == model.selectedSensors.count && liveCount > 0
+                        liveCount == model.selectedConditions.count && liveCount > 0
                             ? "Routine monitoring looks healthy"
                             : "Monitoring details",
-                        systemImage: liveCount == model.selectedSensors.count && liveCount > 0
+                        systemImage: liveCount == model.selectedConditions.count && liveCount > 0
                             ? "checkmark.circle.fill"
                             : "info.circle"
                     )
                     .foregroundStyle(
-                        liveCount == model.selectedSensors.count && liveCount > 0
+                        liveCount == model.selectedConditions.count && liveCount > 0
                             ? StuguTheme.success
                             : StuguTheme.ink
                     )

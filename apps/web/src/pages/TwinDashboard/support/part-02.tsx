@@ -68,12 +68,22 @@ export function SensorInspector({
     setPlacementError(false);
   }, [sensor?.id, sensor?.floorId, sensor?.z, house.floors, floor]);
   if (!sensor) return <aside className={`sensor-inspector ${editing ? "editing" : ""}`}><div className="empty-state">{editing ? t("twin.selectSensorToMove") : t("twin.selectSensor")}</div></aside>;
+  const energyDevice = isEnergyDeviceSensor(sensor, samples);
   const registeredForSensor = definitions.filter((definition) => samples[definition.id] || sensor.measurementEntityIds?.[definition.id]);
-  const availableDefinitions = registeredForSensor.length ? registeredForSensor : definitions;
-  const visibleDefinitions = availableDefinitions.some((definition) => definition.id === selectedDefinition.id)
+  const energyDefinitions = definitions.filter((definition) => definition.id === "power" || definition.id === "energy");
+  const registeredEnergyDefinitions = energyDefinitions.filter((definition) => (
+    samples[definition.id] || sensor.measurementEntityIds?.[definition.id]
+  ));
+  const availableDefinitions = energyDevice
+    ? (registeredEnergyDefinitions.length ? registeredEnergyDefinitions : energyDefinitions)
+    : (registeredForSensor.length ? registeredForSensor : definitions);
+  const visibleDefinitions = energyDevice || availableDefinitions.some((definition) => definition.id === selectedDefinition.id)
     ? availableDefinitions
     : [selectedDefinition, ...availableDefinitions];
-  const selectedSample = samples[selectedDefinition.id];
+  const activeDefinition = visibleDefinitions.find((definition) => definition.id === selectedDefinition.id)
+    ?? visibleDefinitions[0]
+    ?? selectedDefinition;
+  const selectedSample = samples[activeDefinition.id];
   const applyPlacement = async (event: FormEvent) => {
     event.preventDefault();
     const targetFloor = house.floors.find((item) => item.id === targetFloorId);
@@ -104,7 +114,7 @@ export function SensorInspector({
           const sample = samples[definition.id];
           const value = measurementValue(sample, definition.id);
           return (
-            <div key={definition.id} role="listitem" className={definition.id === selectedDefinition.id ? "selected" : undefined}>
+            <div key={definition.id} role="listitem" className={definition.id === activeDefinition.id ? "selected" : undefined}>
               <span><MeasurementGlyph definition={definition} size={16} />{measurementLabel(definition, locale)}</span>
               <strong>{value == null ? "—" : formatMeasurement(value, definition, units)}</strong>
               <small>

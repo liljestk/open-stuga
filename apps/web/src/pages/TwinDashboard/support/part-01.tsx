@@ -115,6 +115,8 @@ export const experimentalVisualizationPreferenceKey = "stugu-experimental-home-v
 
 export const energyDeviceLayerPreferenceKey = "stugu-home-map-energy-devices-visible";
 
+export const climateSensorLayerPreferenceKey = "stugu-home-map-climate-sensors-visible";
+
 export function initialExperimentalVisualizations(): ExperimentalVisualizationId[] {
   const stored = readLocalStorage(experimentalVisualizationPreferenceKey);
   if (!stored) return [];
@@ -130,6 +132,10 @@ export function initialExperimentalVisualizations(): ExperimentalVisualizationId
 
 export function initialEnergyDeviceLayerVisibility(): boolean {
   return readLocalStorage(energyDeviceLayerPreferenceKey) !== "false";
+}
+
+export function initialClimateSensorLayerVisibility(): boolean {
+  return readLocalStorage(climateSensorLayerPreferenceKey) !== "false";
 }
 
 export function mergeOpeningStateObservations(

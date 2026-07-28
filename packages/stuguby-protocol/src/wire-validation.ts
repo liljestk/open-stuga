@@ -1,6 +1,7 @@
 import { STUGBY_MAX_BLOB_BYTES, STUGBY_MAX_EVENT_BYTES, STUGBY_PROTOCOL_VERSION } from "./protocol-contracts.js";
 import type { JsonObject, JsonValue, StugubyDataset, StugubyDatasetPayload, StugubyHomeRecoveryKind, StugubySignedEvent, StugubyWireEvent } from "./protocol-contracts.js";
 
+import { eventPayloadForHash, legacySigningEnvelope, normalizeLegacySignedEvent, rememberLegacySignedEvent } from "./legacy-wire.js";
 import { ENVELOPE_SCHEMA_SET, EVENT_KIND_SET, assertSafeFederationPayload, coordinate, fail, isObject, isStugubyDataset, isStugubyRole, onlyKeys, optionalString, point, requireArray, requireBoolean, requireEnumString, requireFiniteNumber, requireIdentifier, requireInteger, requireIsoDate, requireNullableFiniteNumber, requireNullableString, requireString, requireStringArray, validateShareGrant, validateSharedProperty } from "./validation.js";
 
 export function validateDatasetPayload(dataset: StugubyDataset, value: unknown): StugubyDatasetPayload {
@@ -409,12 +410,15 @@ export function validateWireEvent(value: unknown): StugubyWireEvent {
 }
 
 export function validateSignedEvent(value: unknown): StugubySignedEvent {
-  const event = validateWireEvent(value);
-  if (!isObject(value)) fail("signed event must be an object");
-  requireString(value, "keyFingerprint");
-  if (!/^[a-f0-9]{64}$/.test(String(value.keyFingerprint))) fail("keyFingerprint must be lowercase SHA-256");
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(requireString(value, "signature"))) fail("signature must be base64");
-  return event as StugubySignedEvent;
+  const compatible = normalizeLegacySignedEvent(value);
+  const event = validateWireEvent(compatible.normalized);
+  if (!isObject(compatible.normalized)) fail("signed event must be an object");
+  requireString(compatible.normalized, "keyFingerprint");
+  if (!/^[a-f0-9]{64}$/.test(String(compatible.normalized.keyFingerprint))) fail("keyFingerprint must be lowercase SHA-256");
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(requireString(compatible.normalized, "signature"))) fail("signature must be base64");
+  const signed = event as StugubySignedEvent;
+  rememberLegacySignedEvent(signed, compatible.legacy);
+  return signed;
 }
 
 /** Stable JSON used for event hashing and signatures. */
@@ -429,7 +433,7 @@ export function canonicalJson(value: JsonValue): string {
 }
 
 export function eventSigningValue(event: StugubyWireEvent): string {
-  const envelope: JsonObject = {
+  const envelope: JsonObject = legacySigningEnvelope(event) ?? {
     protocolVersion: event.protocolVersion,
     stugubyId: event.stugubyId,
     eventId: event.eventId,
@@ -447,6 +451,11 @@ export function eventSigningValue(event: StugubyWireEvent): string {
     payload: event.payload,
   };
   return `${canonicalJson(envelope)}\n${event.payloadHash}`;
+}
+
+/** Stable payload JSON used when checking an event's signed payload hash. */
+export function eventPayloadHashValue(event: StugubyWireEvent): string {
+  return canonicalJson(eventPayloadForHash(event));
 }
 
 export function requestSigningValue(input: {

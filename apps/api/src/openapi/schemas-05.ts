@@ -91,6 +91,62 @@ export const schemasPart05 = {
             } },
           },
         },
+  MoistureResponseMetrics: {
+          type: "object",
+          additionalProperties: false,
+          required: ["responseTimeHours", "halfResponseHours", "outdoorCouplingPct", "medianIndoorVaporPressureHpa", "medianOutdoorVaporPressureHpa", "medianMoistureExcessHpa", "modelSkillPct"],
+          properties: {
+            responseTimeHours: { type: ["number", "null"], minimum: 0 },
+            halfResponseHours: { type: ["number", "null"], minimum: 0 },
+            outdoorCouplingPct: { type: ["number", "null"] },
+            medianIndoorVaporPressureHpa: { type: ["number", "null"], minimum: 0 },
+            medianOutdoorVaporPressureHpa: { type: ["number", "null"], minimum: 0 },
+            medianMoistureExcessHpa: { type: ["number", "null"] },
+            modelSkillPct: { type: ["number", "null"] },
+          },
+        },
+  MoistureResponseEntry: {
+          type: "object",
+          additionalProperties: false,
+          required: ["scope", "calibrationStatus", "confidence", "rank", "childCoveragePct", "sensorCount", "eligibleSensorCount", "metrics", "quality", "warnings"],
+          properties: {
+            scope: { type: "object", additionalProperties: false, required: ["type", "id", "label", "sensorIds"], properties: {
+              type: { enum: ["house", "floor", "room", "sensor"] }, id: { type: "string" }, label: { type: "string" },
+              parentId: { type: "string" }, floorId: { type: "string" }, sensorIds: { type: "array", items: { type: "string" } },
+            } },
+            calibrationStatus: { enum: ["ready", "provisional", "insufficient-data"] },
+            confidence: { enum: ["high", "medium", "low", "unavailable"] },
+            rank: { type: ["integer", "null"], minimum: 1 },
+            childCoveragePct: { type: "number", minimum: 0, maximum: 100 },
+            sensorCount: { type: "integer", minimum: 0 },
+            eligibleSensorCount: { type: "integer", minimum: 0 },
+            metrics: { $ref: "#/components/schemas/MoistureResponseMetrics" },
+            quality: { type: "object", additionalProperties: false, required: ["durationHours", "outdoorRangeHpa", "validationMaeHpa", "persistenceMaeHpa"], properties: {
+              durationHours: { type: "number", minimum: 0 }, outdoorRangeHpa: { type: "number", minimum: 0 },
+              validationMaeHpa: { type: ["number", "null"], minimum: 0 }, persistenceMaeHpa: { type: ["number", "null"], minimum: 0 },
+            } },
+            warnings: { type: "array", items: { type: "string" } },
+          },
+        },
+  MoistureResponseResult: {
+          type: "object",
+          additionalProperties: false,
+          required: ["generatedAt", "systemVersion", "houseId", "from", "to", "entries", "insights", "methodology"],
+          properties: {
+            generatedAt: { type: "string", format: "date-time" }, systemVersion: { type: "string" }, houseId: { type: "string" },
+            from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" },
+            entries: { type: "array", items: { $ref: "#/components/schemas/MoistureResponseEntry" } },
+            insights: { type: "array", items: { type: "object", additionalProperties: false, required: ["code", "scopeIds", "value", "unit"], properties: {
+              code: { enum: ["FASTEST_MOISTURE_RESPONSE_ROOM", "STRONGEST_OUTDOOR_MOISTURE_COUPLING", "HIGHEST_INDOOR_MOISTURE_EXCESS", "LIMITED_MOISTURE_EVIDENCE"] },
+              scopeIds: { type: "array", items: { type: "string" } }, value: { type: "number" }, unit: { enum: ["hours", "percent", "hectopascal"] },
+            } } },
+            methodology: { type: "object", additionalProperties: false, required: ["conversionMethod", "modelMethod", "aggregationMethod", "interpretation", "limitations"], properties: {
+              conversionMethod: { const: "buck-vapor-pressure-v1" }, modelMethod: { const: "first-order-moisture-response-v1" },
+              aggregationMethod: { const: "median-child-metric-v1" }, interpretation: { type: "string" },
+              limitations: { type: "array", items: { type: "string" } },
+            } },
+          },
+        },
   Sensor: {
           type: "object",
           required: ["id", "houseId", "floorId", "name", "roomId", "room", "model", "x", "y", "z", "tags", "enabled"],

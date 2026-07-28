@@ -46,6 +46,7 @@ async def _inspect_discovered_source(
                 "model": model,
                 "alias": str(alias) if alias is not None else None,
                 "sourceType": source_type,
+                "deviceId": source_device_id(device),
             },
             None,
         )
@@ -147,6 +148,7 @@ async def discover_sources(username: str, password: str) -> None:
                     "model": result["model"],
                     "alias": result["alias"],
                     "sourceType": result["sourceType"],
+                    "deviceId": result["sourceDeviceId"],
                 }
             )
     emit(

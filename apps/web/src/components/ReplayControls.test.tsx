@@ -57,6 +57,7 @@ describe("ReplayControls time and speed labels", () => {
       dateStyle: "medium",
       timeStyle: "short",
       timeZone: "Europe/Helsinki",
+      hourCycle: "h23",
     }).format(value);
     const labels = Array.from(view.container.querySelectorAll(".timeline-labels time"));
 
@@ -110,6 +111,7 @@ describe("ReplayControls time and speed labels", () => {
       hour: "2-digit",
       minute: "2-digit",
       timeZone: "Europe/Helsinki",
+      hourCycle: "h23",
     }).format(value);
     const temperatureDescription = "Temperature fell 3.6°F in Living room";
     const humidityDescription = "Humidity rose 12 percentage points in Bathroom";

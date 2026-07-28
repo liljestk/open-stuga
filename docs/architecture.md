@@ -108,6 +108,14 @@ creates or reads a note on the device. Stugu never receives an Apple Account
 credential and remains the canonical maintenance record.
 In the default Docker deployment an Nginx web service serves the static app and
 reverse-proxies `/api/*` to the API, including the server-sent event stream.
+LAN integration discovery is an owner- and Home-scoped API job: the start
+request returns immediately, discovery continues in the API process, and the
+browser receives the job snapshot over SSE with REST polling as a reconnect
+fallback. The browser remembers only the job ID so Set up can resume after
+navigation; draft credentials stay in the server-side run and are never part of
+the job snapshot. After a TP-Link hub is saved, its bridge keeps discovering
+paired sensors and the normal integration event stream updates the UI, without
+a page-owned retry loop.
 
 The HTTP boundary resolves a built-in local account from a server-managed
 HttpOnly session. One installation has one workspace. The API enforces roles
@@ -168,7 +176,7 @@ Workspace rather than any Property or Home.
 
 ```mermaid
 sequenceDiagram
-    participant T as T310/T315
+    participant T as Tapo child sensor
     participant H as H200
     participant D as Stugu direct adapter
     participant HA as Home Assistant
@@ -183,6 +191,9 @@ sequenceDiagram
         H-->>D: hub and child sensor states
         D->>D: child-device map, unit normalization, validation
         D->>DB: append temperature/humidity samples
+        D->>H: T110 trigger-log poll (500 ms default)
+        H-->>D: timestamped open/close events
+        D->>DB: append idempotent opening transitions
     and Home Assistant path
         HA->>H: local poll (currently every 5 s)
         H-->>HA: hub and child sensor states
@@ -200,13 +211,13 @@ sequenceDiagram
     DB-->>UI: samples + supported forecast through /api/v2
 ```
 
-"Near real-time" is deliberately not called "instantaneous." Both TP-Link
-paths poll locally: Stugu's direct interval defaults to two seconds and
-Home Assistant's official integration currently polls every five seconds.
-End-to-end freshness is the device sampling delay plus the chosen polling path,
-network/processing time, and browser delivery. Stugu cannot make the
-upstream sensor update more frequently. The UI must display timestamps and
-stale state rather than implying otherwise.
+"Near real-time" is deliberately not called "instantaneous." Stugu's full
+direct-device interval defaults to two seconds, its T110 trigger-log interval
+defaults to 500 ms, and Home Assistant's official integration currently polls
+every five seconds. End-to-end freshness is the device reporting delay plus the
+chosen polling path, network/processing time, and browser delivery. Stugu cannot
+make the upstream sensor report more frequently. The UI must display timestamps
+and stale state rather than implying otherwise.
 
 ## Domain and storage model
 

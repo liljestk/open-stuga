@@ -12,7 +12,7 @@ import type {
   SensorMetricAvailability,
 } from "../../sensor-gap-recovery.js";
 import { MeasurementService, RuntimeStatus, TelemetryService } from "../../services.js";
-import { PendingTpLinkHistoryRequest, TapoOpeningTarget, TpLinkHistoryResultMessage, importTpLinkMappingFile, nonEmptyString, safeTpLinkHistoryFailure, validateTpLinkDeviceMappings } from "../support/01-tp-link-local-climate-history-capability-revision-to.js";
+import { PendingTpLinkHistoryRequest, TapoOpeningTarget, TpLinkHistoryResultMessage, importTpLinkMappingFile, nonEmptyString, safeTpLinkHistoryFailure, tpLinkDeviceType, validateTpLinkDeviceMappings } from "../support/01-tp-link-local-climate-history-capability-revision-to.js";
 import { registerTpLinkConnectionBridgeMethods, tpLinkConnectionBridgeState, type TpLinkConnectionBridgeInternals } from "../core.js";
 
 registerTpLinkConnectionBridgeMethods({
@@ -49,12 +49,24 @@ registerTpLinkConnectionBridgeMethods({
     },
   listDiscoveredDevices(this: TpLinkConnectionBridgeInternals): TpLinkDiscoveredDevice[] {
       const mappings = this.resolvedMappings();
+      const openingTargets = new Map(this.configuredOpeningTargets()
+        .map((target) => [target.deviceId, target] as const));
       return [...this[tpLinkConnectionBridgeState].discovered.values()]
-        .map((device) => ({
-          ...device,
-          ...(this[tpLinkConnectionBridgeState].connection ? { connectionId: this[tpLinkConnectionBridgeState].connection.id, houseId: this[tpLinkConnectionBridgeState].connection.houseId } : {}),
-          mappedSensorId: mappings.get(device.deviceId) ?? null,
-        }))
+        .map((device) => {
+          const opening = openingTargets.get(device.deviceId);
+          return {
+            ...device,
+            ...(this[tpLinkConnectionBridgeState].connection ? { connectionId: this[tpLinkConnectionBridgeState].connection.id, houseId: this[tpLinkConnectionBridgeState].connection.houseId } : {}),
+            deviceType: tpLinkDeviceType(device),
+            mappedSensorId: mappings.get(device.deviceId) ?? null,
+            mappedOpening: opening ? {
+              floorId: opening.floorId,
+              elementId: opening.elementId,
+              kind: opening.kind,
+              label: opening.label,
+            } : null,
+          };
+        })
         .sort((first, second) => (first.alias ?? first.deviceId).localeCompare(second.alias ?? second.deviceId));
     },
   ownsSensor(this: TpLinkConnectionBridgeInternals, sensorId: string): boolean {
@@ -130,11 +142,18 @@ registerTpLinkConnectionBridgeMethods({
           type: "history-request", requestId, deviceId, metric,
           from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString(),
         })}\n`;
+        const input = child.stdin!;
+        const onInputError = (error: Error) => {
+          this.settlePendingHistory(pending, new Error(`Could not send TP-Link history request: ${error.message}`));
+        };
+        input.once("error", onInputError);
         try {
-          child.stdin!.write(line, (error) => {
+          input.write(line, (error) => {
+            input.off("error", onInputError);
             if (error) this.settlePendingHistory(pending, new Error(`Could not send TP-Link history request: ${error.message}`));
           });
         } catch (error) {
+          input.off("error", onInputError);
           this.settlePendingHistory(pending, error instanceof Error ? error : new Error("Could not send TP-Link history request"));
         }
       });
@@ -196,6 +215,7 @@ registerTpLinkConnectionBridgeMethods({
         });
         child.stderr?.on("data", (chunk: Buffer | string) => { stderr = `${stderr}${chunk.toString()}`.slice(-2_000); });
         child.once("error", (error) => finish(new Error(`Could not start TP-Link history helper: ${error.message}`)));
+        child.stdin?.once("error", () => finish(new Error("Could not send the TP-Link history request")));
         child.once("close", (code) => {
           if (settled) return;
           const lines = stdout.trim().split(/\r?\n/).filter(Boolean);
@@ -345,7 +365,8 @@ registerTpLinkConnectionBridgeMethods({
         if (element.stateBinding.connectionId && element.stateBinding.connectionId !== connectionId) return [];
         if (!element.stateBinding.connectionId && this[tpLinkConnectionBridgeState].connection && !this[tpLinkConnectionBridgeState].connection.acceptUnscoped) return [];
         return [{ houseId: house.id, floorId: floor.id, elementId: element.id,
-          deviceId: element.stateBinding.externalId, connectionId }];
+          deviceId: element.stateBinding.externalId, connectionId, kind: element.kind,
+          label: element.label?.trim() || null }];
       }));
     },
 });

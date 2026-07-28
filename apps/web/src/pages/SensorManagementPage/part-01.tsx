@@ -60,10 +60,17 @@ import { configuredSpatialMaxSampleAgeMs } from "../../spatialFreshness";
 import { useSpatialLayers } from "../../useSpatialLayers";
 import { qrCodeMatrix } from "../../qrCode";
 import { TrendChart } from "../../components/TrendChart";
+import {
+  houseHasTpLinkOpeningBinding,
+  isLegacyTpLinkContactSensor,
+  isTpLinkContactDevice,
+  tpLinkContactDeviceForSensor,
+  tpLinkOpeningForDevice,
+} from "../../tpLinkDeviceClassification";
 import { HistoricalImportWizard, PlacementPicker, SensorLabelCard, UNPLACED_TAG, availableForSensor, clamp, deviceBindingKey, draftContext, draftForSensor, errorMessage, hasHomeAssistantBinding, hasRealBinding, initialDraft, isDemoSensor, isLive, isUnplaced, latestSensorTimestamp, mergeMetricSamples, normalizedMeasurementEntityIds, roomCenter, rounded, sameMeasurementEntityIds, sensorFloor, sensorHasMetric, sensorMeasurementEntityIds, sensorStatus, stableRoomId, tpLinkDeviceSummary, validationErrors } from "./support";
 import type { AddStep, DraftErrors, DraftSource, EditorMode, Feedback, SensorDraft, SensorFilter, SensorManagementPageProps, SensorStatus, Translate } from "./support";
-export function useSensorManagementPagePart01(context: { state: SensorManagementPageProps["state"]; house: SensorManagementPageProps["house"]; houses: SensorManagementPageProps["houses"]; integration: SensorManagementPageProps["integration"]; tpLinkDevices: SensorManagementPageProps["tpLinkDevices"]; tpLinkDevicesLoading: SensorManagementPageProps["tpLinkDevicesLoading"]; tpLinkDevicesError: SensorManagementPageProps["tpLinkDevicesError"]; requestedDevice: Exclude<SensorManagementPageProps["requestedDevice"], undefined>; requestedDeviceId: Exclude<SensorManagementPageProps["requestedDeviceId"], undefined>; readOnly: Exclude<SensorManagementPageProps["readOnly"], undefined>; localAuthority: Exclude<SensorManagementPageProps["localAuthority"], undefined>; units: Exclude<SensorManagementPageProps["units"], undefined>; onRequestedDeviceHandled: SensorManagementPageProps["onRequestedDeviceHandled"]; onLoadSeries: SensorManagementPageProps["onLoadSeries"]; onHouse: SensorManagementPageProps["onHouse"]; onRefreshDevices: SensorManagementPageProps["onRefreshDevices"]; onCreateSensor: SensorManagementPageProps["onCreateSensor"]; onUpdateSensor: SensorManagementPageProps["onUpdateSensor"]; onDeleteSensor: SensorManagementPageProps["onDeleteSensor"]; onImportHistoricalData: SensorManagementPageProps["onImportHistoricalData"] }) {
-  const { state, house, houses, integration, tpLinkDevices, tpLinkDevicesLoading, tpLinkDevicesError, requestedDevice, requestedDeviceId, readOnly, localAuthority, units, onRequestedDeviceHandled, onLoadSeries, onHouse, onRefreshDevices, onCreateSensor, onUpdateSensor, onDeleteSensor, onImportHistoricalData } = context;
+export function useSensorManagementPagePart01(context: { state: SensorManagementPageProps["state"]; house: SensorManagementPageProps["house"]; houses: SensorManagementPageProps["houses"]; integration: SensorManagementPageProps["integration"]; tpLinkDevices: SensorManagementPageProps["tpLinkDevices"]; tpLinkDevicesLoading: SensorManagementPageProps["tpLinkDevicesLoading"]; tpLinkDevicesError: SensorManagementPageProps["tpLinkDevicesError"]; requestedDevice: Exclude<SensorManagementPageProps["requestedDevice"], undefined>; requestedDeviceId: Exclude<SensorManagementPageProps["requestedDeviceId"], undefined>; readOnly: Exclude<SensorManagementPageProps["readOnly"], undefined>; localAuthority: Exclude<SensorManagementPageProps["localAuthority"], undefined>; units: Exclude<SensorManagementPageProps["units"], undefined>; onRequestedDeviceHandled: SensorManagementPageProps["onRequestedDeviceHandled"]; onLoadSeries: SensorManagementPageProps["onLoadSeries"]; onHouse: SensorManagementPageProps["onHouse"]; onUpdateHouse: SensorManagementPageProps["onUpdateHouse"]; onRefreshDevices: SensorManagementPageProps["onRefreshDevices"]; onCreateSensor: SensorManagementPageProps["onCreateSensor"]; onUpdateSensor: SensorManagementPageProps["onUpdateSensor"]; onDeleteSensor: SensorManagementPageProps["onDeleteSensor"]; onImportHistoricalData: SensorManagementPageProps["onImportHistoricalData"] }) {
+  const { state, house, houses, integration, tpLinkDevices, tpLinkDevicesLoading, tpLinkDevicesError, requestedDevice, requestedDeviceId, readOnly, localAuthority, units, onRequestedDeviceHandled, onLoadSeries, onHouse, onUpdateHouse, onRefreshDevices, onCreateSensor, onUpdateSensor, onDeleteSensor, onImportHistoricalData } = context;
   const { locale, t } = useI18n();
   const now = useNow();
   const tpLinkStatus = useMemo(
@@ -80,6 +87,7 @@ export function useSensorManagementPagePart01(context: { state: SensorManagement
   const detailsRequestGeneration = useRef(0);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<SensorFilter>("all");
+  const [modelFilter, setModelFilter] = useState("");
   const [mode, setMode] = useState<EditorMode>("closed");
   const [addStep, setAddStep] = useState<AddStep>(1);
   const [editingSensorId, setEditingSensorId] = useState<string | null>(null);
@@ -88,6 +96,9 @@ export function useSensorManagementPagePart01(context: { state: SensorManagement
   const [errors, setErrors] = useState<DraftErrors>({});
   const [editorFeedback, setEditorFeedback] = useState<Feedback>(null);
   const [pageFeedback, setPageFeedback] = useState<Feedback>(null);
+  const [contactSetupDevice, setContactSetupDevice] = useState<TpLinkDiscoveredDevice | null>(null);
+  const [locallyAssignedContactKeys, setLocallyAssignedContactKeys] = useState<Set<string>>(() => new Set());
+  const contactOpenerRef = useRef<HTMLButtonElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [rowBusyId, setRowBusyId] = useState<string | null>(null);
   const [cleanupBusy, setCleanupBusy] = useState(false);
@@ -95,6 +106,7 @@ export function useSensorManagementPagePart01(context: { state: SensorManagement
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [detailsSensor, setDetailsSensor] = useState<Sensor | null>(null);
+  const [detailsContactKey, setDetailsContactKey] = useState<string | null>(null);
   const [detailSamples, setDetailSamples] = useState<MeasurementSample[]>([]);
   const [detailCursor, setDetailCursor] = useState<string | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
@@ -112,6 +124,9 @@ export function useSensorManagementPagePart01(context: { state: SensorManagement
   const visibleDetailsSensor = detailsSensor && currentSensorIds.has(detailsSensor.id)
       ? currentSensors.find((sensor) => sensor.id === detailsSensor.id) ?? null
       : null;
+  const visibleDetailsIsContactSensor = Boolean(
+      visibleDetailsSensor && isLegacyTpLinkContactSensor(visibleDetailsSensor),
+    );
   const demoSensors = useMemo(() => currentSensors.filter(isDemoSensor), [currentSensors]);
   const hasExistingRealBoundSensor = useMemo(
       () => currentSensors.some((sensor) => !isDemoSensor(sensor) && hasRealBinding(sensor)),
@@ -122,13 +137,14 @@ export function useSensorManagementPagePart01(context: { state: SensorManagement
       [state.measurementDefinitions],
     );
   const detailDefinitions = useMemo(() => {
+      if (visibleDetailsIsContactSensor) return [];
       if (!visibleDetailsSensor) return enabledMeasurementDefinitions;
       const available = enabledMeasurementDefinitions.filter((definition) => (
         sensorHasMetric(state, visibleDetailsSensor, definition.id)
         || detailSamples.some((sample) => sample.metric === definition.id)
       ));
       return available.length > 0 ? available : enabledMeasurementDefinitions;
-    }, [detailSamples, enabledMeasurementDefinitions, state, visibleDetailsSensor]);
+    }, [detailSamples, enabledMeasurementDefinitions, state, visibleDetailsIsContactSensor, visibleDetailsSensor]);
   const detailDefinition = detailDefinitions.find((definition) => definition.id === detailMetric) ?? detailDefinitions[0];
   const detailHistory = useMemo(() => visibleDetailsSensor && detailDefinition
       ? mergeMetricSamples(
@@ -146,6 +162,46 @@ export function useSensorManagementPagePart01(context: { state: SensorManagement
       () => tpLinkDevices.filter((device) => device.houseId === house.id),
       [house.id, tpLinkDevices],
     );
+  const contactDevices = useMemo(
+      () => homeTpLinkDevices.filter(isTpLinkContactDevice),
+      [homeTpLinkDevices],
+    );
+  const mappedContactDevices = useMemo(
+      () => contactDevices.filter((device) => houseHasTpLinkOpeningBinding(house, device)),
+      [contactDevices, house],
+    );
+  const contactHistoryDevice = useMemo(
+      () => detailsContactKey
+        ? mappedContactDevices.find((device) => deviceBindingKey(device.deviceId, device.connectionId) === detailsContactKey) ?? null
+        : null,
+      [detailsContactKey, mappedContactDevices],
+    );
+  const contactHistoryOpening = useMemo(
+      () => contactHistoryDevice ? tpLinkOpeningForDevice(house, contactHistoryDevice) : null,
+      [contactHistoryDevice, house],
+    );
+  const contactStatuses = useMemo(
+      () => new Map(mappedContactDevices.map((device) => [
+        deviceBindingKey(device.deviceId, device.connectionId),
+        device.status?.trim().toLocaleLowerCase() === "online" ? "live" as const : "waiting" as const,
+      ])),
+      [mappedContactDevices],
+    );
+  const visibleDetailsContactDevice = useMemo(
+      () => visibleDetailsSensor && visibleDetailsIsContactSensor
+        ? tpLinkContactDeviceForSensor(visibleDetailsSensor, contactDevices)
+        : null,
+      [contactDevices, visibleDetailsIsContactSensor, visibleDetailsSensor],
+    );
+  const visibleDetailsContactOpening = useMemo(
+      () => visibleDetailsContactDevice ? tpLinkOpeningForDevice(house, visibleDetailsContactDevice) : null,
+      [house, visibleDetailsContactDevice],
+    );
+  const availableContactDevices = useMemo(
+      () => contactDevices.filter((device) => !locallyAssignedContactKeys.has(deviceBindingKey(device.deviceId, device.connectionId))
+        && !houseHasTpLinkOpeningBinding(house, device)),
+      [contactDevices, house, locallyAssignedContactKeys],
+    );
   const addableDevices = useMemo(
       () => homeTpLinkDevices.filter((device) => availableForSensor(device, null, usedDeviceIds)),
       [homeTpLinkDevices, usedDeviceIds],
@@ -161,16 +217,41 @@ export function useSensorManagementPagePart01(context: { state: SensorManagement
   const statusCounts = useMemo(() => {
       const counts: Record<SensorStatus, number> = { waiting: 0, unplaced: 0, live: 0, archived: 0 };
       for (const status of sensorStatuses.values()) counts[status] += 1;
+      for (const status of contactStatuses.values()) counts[status] += 1;
       return counts;
-    }, [sensorStatuses]);
+    }, [contactStatuses, sensorStatuses]);
+  const sensorModels = useMemo(() => Array.from(new Set(
+      [
+        ...currentSensors.map((sensor) => sensor.model.trim()),
+        ...mappedContactDevices.map((device) => device.model.trim()),
+      ].filter(Boolean),
+    )).sort((left, right) => left.localeCompare(right, locale, { sensitivity: "base" })),
+    [currentSensors, locale, mappedContactDevices]);
   const normalizedSearch = search.trim().toLocaleLowerCase(locale);
   const visibleSensors = useMemo(() => currentSensors.filter((sensor) => {
       const matchesSearch = !normalizedSearch || [sensor.name, sensor.room, sensor.model, sensor.id, sensor.tpLinkDeviceId ?? ""]
         .some((value) => value.toLocaleLowerCase(locale).includes(normalizedSearch));
       if (!matchesSearch) return false;
+      if (modelFilter && sensor.model.trim() !== modelFilter) return false;
       if (filter !== "all") return sensorStatuses.get(sensor.id) === filter;
       return true;
-    }), [currentSensors, filter, locale, normalizedSearch, sensorStatuses]);
+    }), [currentSensors, filter, locale, modelFilter, normalizedSearch, sensorStatuses]);
+  const visibleContactDevices = useMemo(() => mappedContactDevices.filter((device) => {
+      const opening = tpLinkOpeningForDevice(house, device);
+      const matchesSearch = !normalizedSearch || [
+        device.alias ?? "",
+        device.model,
+        device.deviceId,
+        opening?.element.label ?? "",
+        opening?.floor.name ?? "",
+      ].some((value) => value.toLocaleLowerCase(locale).includes(normalizedSearch));
+      if (!matchesSearch) return false;
+      if (modelFilter && device.model.trim() !== modelFilter) return false;
+      if (filter !== "all") {
+        return contactStatuses.get(deviceBindingKey(device.deviceId, device.connectionId)) === filter;
+      }
+      return true;
+    }), [contactStatuses, filter, house, locale, mappedContactDevices, modelFilter, normalizedSearch]);
   const { house: draftHouse, floor: draftFloor } = draftContext(draft, houses);
   const editingSensor = editingSensorId ? state.sensors.find((sensor) => sensor.id === editingSensorId) ?? null : null;
   const selectableDevices = tpLinkDevices.filter((device) => device.houseId === draft.houseId
@@ -217,5 +298,8 @@ export function useSensorManagementPagePart01(context: { state: SensorManagement
       if (mode !== "closed") return;
       setDraft(initialDraft(house));
     }, [house.id, mode]);
-  return Object.assign(context, { locale, t, now, tpLinkStatus, formId, pageHeadingRef, editorHeadingRef, editorOpenerRef, importButtonRef, detailsHeadingRef, detailsOpenerRef, detailsRequestGeneration, search, setSearch, filter, setFilter, mode, setMode, addStep, setAddStep, editingSensorId, setEditingSensorId, attachSensorId, setAttachSensorId, draft, setDraft, errors, setErrors, editorFeedback, setEditorFeedback, pageFeedback, setPageFeedback, submitting, setSubmitting, rowBusyId, setRowBusyId, cleanupBusy, setCleanupBusy, refreshing, setRefreshing, refreshError, setRefreshError, importOpen, setImportOpen, detailsSensor, setDetailsSensor, detailSamples, setDetailSamples, detailCursor, setDetailCursor, detailsLoading, setDetailsLoading, detailsError, setDetailsError, detailMetric, setDetailMetric, detailRange, setDetailRange, currentSensors, currentSensorIds, visibleDetailsSensor, demoSensors, hasExistingRealBoundSensor, enabledMeasurementDefinitions, detailDefinitions, detailDefinition, detailHistory, usedDeviceIds, homeTpLinkDevices, addableDevices, attachableSensors, sensorStatuses, statusCounts, normalizedSearch, visibleSensors, draftHouse, draftFloor, editingSensor, selectableDevices, currentBindingMissing, draftDevice, energyOnlyDraft, placementAnalysisEnabled, placementLayerScope, placementLayers, placementCoverage, placementSuggestion });
+  useEffect(() => {
+      if (modelFilter && !sensorModels.includes(modelFilter)) setModelFilter("");
+    }, [modelFilter, sensorModels]);
+  return Object.assign(context, { locale, t, now, tpLinkStatus, formId, pageHeadingRef, editorHeadingRef, editorOpenerRef, importButtonRef, detailsHeadingRef, detailsOpenerRef, detailsRequestGeneration, search, setSearch, filter, setFilter, modelFilter, setModelFilter, mode, setMode, addStep, setAddStep, editingSensorId, setEditingSensorId, attachSensorId, setAttachSensorId, draft, setDraft, errors, setErrors, editorFeedback, setEditorFeedback, pageFeedback, setPageFeedback, contactSetupDevice, setContactSetupDevice, locallyAssignedContactKeys, setLocallyAssignedContactKeys, contactOpenerRef, submitting, setSubmitting, rowBusyId, setRowBusyId, cleanupBusy, setCleanupBusy, refreshing, setRefreshing, refreshError, setRefreshError, importOpen, setImportOpen, detailsSensor, setDetailsSensor, detailsContactKey, setDetailsContactKey, detailSamples, setDetailSamples, detailCursor, setDetailCursor, detailsLoading, setDetailsLoading, detailsError, setDetailsError, detailMetric, setDetailMetric, detailRange, setDetailRange, currentSensors, currentSensorIds, visibleDetailsSensor, visibleDetailsIsContactSensor, visibleDetailsContactDevice, visibleDetailsContactOpening, demoSensors, hasExistingRealBoundSensor, enabledMeasurementDefinitions, detailDefinitions, detailDefinition, detailHistory, usedDeviceIds, homeTpLinkDevices, contactDevices, mappedContactDevices, contactHistoryDevice, contactHistoryOpening, contactStatuses, availableContactDevices, addableDevices, attachableSensors, sensorStatuses, statusCounts, sensorModels, normalizedSearch, visibleSensors, visibleContactDevices, draftHouse, draftFloor, editingSensor, selectableDevices, currentBindingMissing, draftDevice, energyOnlyDraft, placementAnalysisEnabled, placementLayerScope, placementLayers, placementCoverage, placementSuggestion });
 }

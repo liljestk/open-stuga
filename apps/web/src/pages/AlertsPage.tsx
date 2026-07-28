@@ -4,7 +4,7 @@ import type { AlertDeliveryPolicy, AlertEvent, AlertOperator, AlertRule, AlertRu
 import { type ClimateState } from "../domain";
 import { useI18n } from "../i18n";
 import { defaultAlertThreshold, definitionFor, displayUnit, enabledDefinitions, formatMeasurement, fromDisplayValue, measurementLabel, toDisplayValue } from "../measurements";
-import { formatInTimeZone } from "../dateTime";
+import { formatInTimeZone, twentyFourHourInputLocale } from "../dateTime";
 import { deriveHouseMonitoring, type HouseMonitoringBlocker } from "../houseMonitoring";
 import { integrationForHouse } from "../integrationScope";
 import { useNow } from "../useNow";
@@ -238,15 +238,15 @@ function SavedDeliveryPolicyEditor({ rule, onUpdateRule }: Readonly<{ rule: Aler
 }
 
 function DeliveryPolicyEditor({ value, onChange, compact = false }: Readonly<{ value: AlertDeliveryPolicy; onChange: (value: AlertDeliveryPolicy) => void; compact?: boolean }>) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const minutes = (seconds: number | null) => seconds === null ? "" : String(seconds / 60);
   const optionalSeconds = (raw: string) => raw.trim() === "" ? null : Math.max(60, Math.round(Number(raw) * 60));
   return <fieldset className={`delivery-policy-editor ${compact ? "compact" : ""}`}>
     <legend>{compact ? t("alerts.policy.deliverySchedule") : t("alerts.policy.legend")}</legend>
     <div className="form-grid">
       <label className="field"><span>{t("alerts.policy.timezone")}</span><input value={value.timeZone} onChange={(event) => onChange({ ...value, timeZone: event.target.value })} /></label>
-      <label className="field"><span>{t("alerts.policy.quietFrom")}</span><input type="time" value={value.quietHoursFrom ?? ""} onChange={(event) => onChange({ ...value, quietHoursFrom: event.target.value || null })} /></label>
-      <label className="field"><span>{t("alerts.policy.quietUntil")}</span><input type="time" value={value.quietHoursUntil ?? ""} onChange={(event) => onChange({ ...value, quietHoursUntil: event.target.value || null })} /></label>
+      <label className="field"><span>{t("alerts.policy.quietFrom")}</span><input type="time" lang={twentyFourHourInputLocale(locale)} value={value.quietHoursFrom ?? ""} onChange={(event) => onChange({ ...value, quietHoursFrom: event.target.value || null })} /></label>
+      <label className="field"><span>{t("alerts.policy.quietUntil")}</span><input type="time" lang={twentyFourHourInputLocale(locale)} value={value.quietHoursUntil ?? ""} onChange={(event) => onChange({ ...value, quietHoursUntil: event.target.value || null })} /></label>
       <label className="field"><span>{t("alerts.policy.duringQuiet")}</span><select value={value.quietHoursMode} onChange={(event) => onChange({ ...value, quietHoursMode: event.target.value as AlertDeliveryPolicy["quietHoursMode"] })}><option value="defer">{t("alerts.policy.defer")}</option><option value="silent">{t("alerts.policy.silent")}</option></select></label>
       <label className="field"><span>{t("alerts.policy.escalateAfter")}</span><input type="number" min="1" value={minutes(value.escalationAfterSeconds)} onChange={(event) => onChange({ ...value, escalationAfterSeconds: optionalSeconds(event.target.value) })} /></label>
       <label className="field"><span>{t("alerts.policy.repeatEvery")}</span><input type="number" min="1" value={minutes(value.reminderIntervalSeconds)} onChange={(event) => onChange({ ...value, reminderIntervalSeconds: optionalSeconds(event.target.value) })} /></label>

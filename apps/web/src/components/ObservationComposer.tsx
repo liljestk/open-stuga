@@ -9,6 +9,7 @@ import type {
   ObservationSource,
   ObservationTimePrecision,
 } from "@climate-twin/contracts";
+import { twentyFourHourInputLocale } from "../dateTime";
 import { useI18n, type TranslationKey } from "../i18n";
 import { localObservationDate, localObservationDateTime, observationTimeFields } from "../observationTime";
 import { ApiRequestError } from "../api";
@@ -41,7 +42,7 @@ function initialLocalDateTime(observation: ManualObservation | undefined, house:
 }
 
 export function ObservationComposer({ house, floorId, observation, compact = false, collapsible = false, onCreate, onUpdate, onReload, onSaved, onCancel, onViewActivity }: Readonly<ObservationComposerProps>) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const id = useId();
   const editing = Boolean(observation);
   const [kind, setKind] = useState<ManualObservation["kind"]>(observation?.kind ?? "note");
@@ -158,7 +159,7 @@ export function ObservationComposer({ house, floorId, observation, compact = fal
           <div className="observation-more-grid">
             <label className="field"><span>{t("observations.quickSeverity")}</span><select value={severity} disabled={pending} onChange={(event) => setSeverity(event.target.value as ManualObservation["severity"])}><option value="info">{t("alerts.info")}</option><option value="warning">{t("alerts.warning")}</option><option value="critical">{t("alerts.critical")}</option></select></label>
             <label className="field"><span>{t("observations.quickTimePrecision")}</span><select value={precision} disabled={pending} onChange={(event) => { setPrecision(event.target.value as ObservationTimePrecision); setFeedback(null); }}>{precisions.map((item) => <option key={item} value={item}>{t(`observations.precision.${item}` as TranslationKey)}</option>)}</select></label>
-            {(precision === "exact" || precision === "approximate") && <label className="field observation-wide-field"><span>{t("observations.quickObservedAt")}</span><input type="datetime-local" required value={dateTime} disabled={pending} onChange={(event) => setDateTime(event.target.value)} /><small>{t("observations.localTimeHelp")}</small></label>}
+            {(precision === "exact" || precision === "approximate") && <label className="field observation-wide-field"><span>{t("observations.quickObservedAt")}</span><input type="datetime-local" lang={twentyFourHourInputLocale(locale)} required value={dateTime} disabled={pending} onChange={(event) => setDateTime(event.target.value)} /><small>{t("observations.localTimeHelp")}</small></label>}
             {precision === "date-only" && <label className="field observation-wide-field"><span>{t("observations.quickObservedDate")}</span><input type="date" required value={date} disabled={pending} onChange={(event) => setDate(event.target.value)} /></label>}
             {precision === "date-range" && <><label className="field"><span>{t("observations.quickValidFrom")}</span><input type="date" required max={validTo} value={validFrom} disabled={pending} onChange={(event) => setValidFrom(event.target.value)} /></label><label className="field"><span>{t("observations.quickValidTo")}</span><input type="date" required min={validFrom} value={validTo} disabled={pending} onChange={(event) => setValidTo(event.target.value)} /></label></>}
             {precision === "unknown" && <p className="field-help observation-wide-field">{t("observations.unknownTimeHelp")}</p>}

@@ -49,7 +49,7 @@ import { useI18n } from "../../i18n";
 import { integrationForHouse } from "../../integrationScope";
 import { AutomationSetupPanel } from "../AutomationSetupPanel";
 import { SetupOperationsPanel } from "../SetupOperationsPanel";
-import { ACTIVE_TP_LINK_EXPORT_STATUSES, HouseLocationMap, RETRYABLE_TP_LINK_EXPORT_STATUSES, TP_LINK_CHILD_DISCOVERY_ATTEMPTS, TP_LINK_CHILD_DISCOVERY_INTERVAL_MS, TP_LINK_EXPORT_PROVIDER_KEYS, TP_LINK_EXPORT_STATUS_KEYS, connectionError, dateTime, decimal, defaultFootprintWidthMeters, floorPlanSize, footprintFloorFor, mapLocation, placementForm, setupSectionFromPath, setupSectionOrder, validTimeZone, waitForChildDiscoveryAttempt, writeSetupSection } from "./support";
+import { ACTIVE_TP_LINK_EXPORT_STATUSES, HouseLocationMap, RETRYABLE_TP_LINK_EXPORT_STATUSES, TP_LINK_EXPORT_PROVIDER_KEYS, TP_LINK_EXPORT_STATUS_KEYS, connectionError, dateTime, decimal, defaultFootprintWidthMeters, floorPlanSize, footprintFloorFor, mapLocation, placementForm, setupSectionFromPath, setupSectionOrder, validTimeZone, writeSetupSection } from "./support";
 import type { DiscoveryOutcome, Feedback, HouseFloor, IntegrationsPageProps, SetupSection, TpLinkChildDiscovery } from "./support";
 import { useIntegrationsPagePart01 } from "./part-01";
 import { useIntegrationsPagePart02 } from "./part-02";

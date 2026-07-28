@@ -117,6 +117,85 @@ describe("guided integration setup", () => {
     expect(readIntegrationSecrets(secretsPath)).toEqual({ version: 1 });
   });
 
+  it("imports another TP-Link device with credentials reused only inside the server", async () => {
+    directory = mkdtempSync(join(tmpdir(), "climate-twin-tp-link-credential-reuse-"));
+    const secretsPath = join(directory, "integrations.json");
+    const testedCredentials: Array<{ host: string; username: string; password: string }> = [];
+    runtime = createApi({
+      config: loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:", INTEGRATION_SECRETS_FILE: secretsPath }),
+      startBackground: false,
+      tpLinkCredentialTester: async (host, username, password) => {
+        testedCredentials.push({ host, username, password });
+        const plug = host === "192.168.1.64";
+        return {
+          ok: true,
+          connected: true,
+          message: "validated",
+          details: {
+            sourceDeviceId: plug ? "p115-water-heater" : "h200-hall",
+            sourceType: plug ? "energy-device" : "hub",
+            model: plug ? "P115" : "H200",
+            sourceAlias: plug ? "Water heater" : "Hall hub",
+          },
+        };
+      },
+    });
+
+    const hub = await request(runtime.app).put("/api/v1/integrations/tp-link/config").send({
+      houseId: "house-main",
+      host: "192.168.1.56",
+      username: "owner@example.test",
+      password: "saved-secret",
+    }).expect(200);
+    const imported = await request(runtime.app).put("/api/v1/integrations/tp-link/config").send({
+      houseId: "house-main",
+      host: "192.168.1.64",
+      credentialSourceConnectionId: hub.body.connectionId,
+    }).expect(200);
+
+    expect(imported.body).toMatchObject({
+      created: true,
+      sourceType: "energy-device",
+      sourceModel: "P115",
+      sourceAlias: "Water heater",
+    });
+    expect(imported.body.connectionId).not.toBe(hub.body.connectionId);
+    expect(JSON.stringify(imported.body)).not.toContain("owner@example.test");
+    expect(JSON.stringify(imported.body)).not.toContain("saved-secret");
+    expect(testedCredentials.at(-1)).toEqual({
+      host: "192.168.1.64",
+      username: "owner@example.test",
+      password: "saved-secret",
+    });
+    expect(readIntegrationSecrets(secretsPath).tpLinkConnections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: hub.body.connectionId, password: "saved-secret" }),
+      expect.objectContaining({
+        id: imported.body.connectionId,
+        host: "192.168.1.64",
+        username: "owner@example.test",
+        password: "saved-secret",
+      }),
+    ]));
+
+    await request(runtime.app).put("/api/v1/integrations/tp-link/config").send({
+      houseId: "house-main",
+      host: "192.168.1.65",
+      credentialSourceConnectionId: "missing-source",
+    }).expect(404).expect(({ body }) => {
+      expect(body.error.code).toBe("TP_LINK_CREDENTIAL_SOURCE_NOT_FOUND");
+    });
+    await request(runtime.app).put("/api/v1/integrations/tp-link/config").send({
+      houseId: "house-main",
+      host: "192.168.1.65",
+      credentialSourceConnectionId: hub.body.connectionId,
+      username: "other@example.test",
+      password: "other-secret",
+    }).expect(400).expect(({ body }) => {
+      expect(body.error.code).toBe("AMBIGUOUS_TP_LINK_CREDENTIALS");
+    });
+    expect(readIntegrationSecrets(secretsPath).tpLinkConnections).toHaveLength(2);
+  });
+
   it("removes plaintext temporary secret files when atomic replacement fails", () => {
     directory = mkdtempSync(join(tmpdir(), "climate-twin-secret-cleanup-"));
     const target = join(directory, "integrations.json");

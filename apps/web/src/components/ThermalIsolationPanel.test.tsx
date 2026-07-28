@@ -105,4 +105,21 @@ describe("ThermalIsolationPanel", () => {
     fireEvent.click(screen.getByText("Show sensor-level evidence (1)"));
     expect(screen.getByText("Window sensor")).not.toBeNull();
   });
+
+  it("explains limited confidence without calling full scope coverage incomplete", () => {
+    mocks.result = result();
+    mocks.result.insights = [{
+      code: "LIMITED_EVIDENCE",
+      scopeIds: [mocks.result.entries[0]!.scope.id],
+      value: 100,
+      unit: "percent",
+    }];
+    const house = createDemoState().houses[0]!;
+
+    render(<I18nProvider><ThermalIsolationPanel house={house} units="metric" /></I18nProvider>);
+
+    expect(screen.getByText("Model confidence is limited")).not.toBeNull();
+    expect(screen.getByText("Every floor has a usable model. Treat comparisons as directional until confidence improves.")).not.toBeNull();
+    expect(screen.queryByText(/Only 100%/)).toBeNull();
+  });
 });

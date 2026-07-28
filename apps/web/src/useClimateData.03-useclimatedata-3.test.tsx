@@ -10,6 +10,7 @@ import type {
   ManualObservation,
   MeasurementForecastPoint,
   MeasurementSample,
+  OpeningStateObservation,
   Sensor,
   SensorSnapshot,
   StaticParameter,
@@ -290,6 +291,37 @@ describe("useClimateData", () => {
 
     expect(result.current.state.readings[sensor.id]).toEqual(liveReading);
     expect(result.current.state.history[sensor.id]?.at(-1)).toEqual(liveReading);
+    expect(result.current.state.latestMeasurements[sensor.id]?.temperature).toMatchObject({
+      value: liveReading.temperature,
+      timestamp: liveReading.timestamp,
+      source: liveReading.source,
+    });
+    expect(result.current.state.measurementHistory[sensor.id]?.temperature?.at(-1)).toMatchObject({
+      value: liveReading.temperature,
+      timestamp: liveReading.timestamp,
+      source: liveReading.source,
+    });
+  });
+
+  it("exposes the latest live opening observation from the shared event stream", async () => {
+    const demo = createDemoState();
+    const house = demo.houses[0]!;
+    const observation: OpeningStateObservation = {
+      id: "opening-live",
+      houseId: house.id,
+      floorId: house.floors[0]!.id,
+      elementId: "door-live",
+      state: "open",
+      source: "tapo",
+      observedAt: new Date().toISOString(),
+    };
+    const { result } = renderHook(() => useClimateData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const [[handleTelemetry]] = mocks.subscribeToEvents.mock.calls as unknown as [[(event: TelemetryEvent) => void]];
+
+    act(() => handleTelemetry({ type: "opening", data: observation }));
+
+    expect(result.current.state.latestOpeningStateObservation).toEqual(observation);
   });
 
   it("retries the currently selected house instead of the initial house", async () => {

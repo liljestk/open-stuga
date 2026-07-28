@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-Disk | Select-Object Number,FriendlyName,SerialNumber,@{n='SizeGB';e={[math]::Round\\($_.Size/1GB,1\\)}},PartitionStyle,BusType | Format-Table -AutoSize | Out-String -Width 200)",
+      "PowerShell(Get-Volume | Select-Object DriveLetter,FileSystemLabel,FileSystem,@{n='SizeGB';e={[math]::Round\\($_.Size/1GB,2\\)}},DriveType | Format-Table -AutoSize | Out-String -Width 200)"
+    ]
+  }
+}

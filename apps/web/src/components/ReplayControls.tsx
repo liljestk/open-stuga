@@ -1,6 +1,7 @@
 import { Activity, ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Pause, Play, Radio, RotateCcw, SkipBack, SkipForward } from "lucide-react";
 import { useEffect, useId, useState, type CSSProperties, type FormEvent } from "react";
 import type { MeasurementDefinition, Sensor, UnitSystem } from "@climate-twin/contracts";
+import { getDateTimeFormatter, twentyFourHourInputLocale } from "../dateTime";
 import { useI18n } from "../i18n";
 import { definitionFor, formatMeasurementDelta, measurementLabel } from "../measurements";
 import type { ReplayClimateEvent } from "../replayEvents";
@@ -79,7 +80,7 @@ function validTimeZone(timeZone: string): string | undefined {
 }
 
 function dateFormatter(locale: string, timeZone: string | undefined, options: Intl.DateTimeFormatOptions) {
-  return new Intl.DateTimeFormat(locale, timeZone ? { ...options, timeZone } : options);
+  return getDateTimeFormatter(locale, timeZone ? { ...options, timeZone } : options);
 }
 
 function calendarDay(timestamp: number, timeZone: string | undefined): string {
@@ -312,8 +313,8 @@ export function ReplayControls({
       </div>
       {historyWindowEnabled && <form className="replay-window-form" aria-label={t("replay.historyWindow")} aria-busy={loading} onSubmit={loadWindow}>
         <div className="replay-window-heading"><Activity size={16} aria-hidden="true" /><span><strong>{t("replay.historyWindow")}</strong><small>{t("replay.localTime", { timeZone })}</small></span></div>
-        <label className="replay-window-field"><span>{t("replay.from")}</span><input type="datetime-local" step="1" required value={windowFrom ?? ""} max={windowTo || undefined} disabled={loading || !onWindowFrom} onChange={(event) => onWindowFrom?.(event.target.value)} /></label>
-        <label className="replay-window-field"><span>{t("replay.to")}</span><input type="datetime-local" step="1" required value={windowTo ?? ""} min={windowFrom || undefined} disabled={loading || !onWindowTo} onChange={(event) => onWindowTo?.(event.target.value)} /></label>
+        <label className="replay-window-field"><span>{t("replay.from")}</span><input type="datetime-local" lang={twentyFourHourInputLocale(locale)} step="1" required value={windowFrom ?? ""} max={windowTo || undefined} disabled={loading || !onWindowFrom} onChange={(event) => onWindowFrom?.(event.target.value)} /></label>
+        <label className="replay-window-field"><span>{t("replay.to")}</span><input type="datetime-local" lang={twentyFourHourInputLocale(locale)} step="1" required value={windowTo ?? ""} min={windowFrom || undefined} disabled={loading || !onWindowTo} onChange={(event) => onWindowTo?.(event.target.value)} /></label>
         <div className="replay-window-resolution">
           <label htmlFor={resolutionId}>{t("replay.resolution")}</label>
           <div><select id={resolutionId} value={resolutionMode} disabled={loading || !onResolution} onChange={(event) => changeResolution(event.target.value)}>

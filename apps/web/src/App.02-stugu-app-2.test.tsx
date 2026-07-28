@@ -4,6 +4,8 @@ import { StrictMode } from "react";
 
 import userEvent from "@testing-library/user-event";
 
+import type { DoorPlanElement } from "@climate-twin/contracts";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
@@ -83,6 +85,80 @@ describe("Stugu app", () => {
     expect(screen.queryByText("New TP-Link sensor found")).toBeNull();
     await user.click(within(editor!).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1, name: "Sensors" })));
+  });
+
+  it("announces a T110 as a contact sensor and opens the 2D opening picker", async () => {
+    const user = userEvent.setup();
+    const climate = mockClimateData();
+    const door: DoorPlanElement = {
+      id: "front-door",
+      kind: "door",
+      wallId: "g-o1",
+      position: { x: 220, y: 45 },
+      rotationDegrees: 0,
+      width: 90,
+      variant: "exterior",
+      state: "closed",
+      label: "Front door",
+    };
+    const house = {
+      ...climate.state.houses[0]!,
+      floors: climate.state.houses[0]!.floors.map((floor, index) => index === 0
+        ? { ...floor, planElements: [door] }
+        : floor),
+    };
+    const lastPollAt = "2026-07-16T10:00:00.000Z";
+    climate.dataMode = "real";
+    climate.tpLinkDevices = [{
+      houseId: house.id,
+      connectionId: "hall-hub",
+      deviceId: "tapo-t110-entry",
+      model: "T110",
+      alias: "Entry contact",
+      status: "online",
+      temperature: null,
+      humidity: null,
+      battery: 92,
+      contactOpen: false,
+      deviceType: "contact",
+      lastSeenAt: lastPollAt,
+      mappedSensorId: null,
+      mappedOpening: null,
+    }];
+    climate.state = {
+      ...climate.state,
+      houses: [house],
+      integration: {
+        ...climate.state.integration,
+        tpLink: {
+          configured: true,
+          connected: true,
+          lastPollAt,
+          mappedDevices: 0,
+          discoveredDevices: 1,
+          hubModel: "H200",
+          error: null,
+        },
+      },
+    };
+    vi.mocked(climate.updateHouse).mockResolvedValue(house);
+    vi.mocked(useClimateData).mockReturnValue(climate);
+    renderApp();
+
+    expect(await screen.findByText("New door/window sensor found")).not.toBeNull();
+    expect(screen.getByText("Entry contact · T110 is ready. Attach it to an opening in your floor plan.")).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Choose door or window" }));
+
+    expect(await screen.findByRole(
+      "heading",
+      { name: "Attach Entry contact" },
+      { timeout: ROUTE_READY_TIMEOUT_MS },
+    )).not.toBeNull();
+    expect(screen.getByRole("group", { name: "Door and window picker for Ground floor" })).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Attach sensor" }));
+    await waitFor(() => expect(climate.updateHouse).toHaveBeenCalledWith(house.id, expect.objectContaining({
+      floors: expect.any(Array),
+    })));
   });
 
   it("shows a new-sensor notice only while its assigned Home is selected", async () => {

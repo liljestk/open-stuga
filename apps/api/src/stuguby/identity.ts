@@ -9,6 +9,7 @@ import {
   type KeyObject,
 } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { STUGBY_PROTOCOL_VERSION, type StugubyNodeIdentity } from "@climate-twin/stuguby-protocol";
 import { durableAtomicWriteFileSync } from "./durable-write.js";
 
@@ -92,6 +93,14 @@ function parseStoredIdentity(content: string): StoredNodeIdentity {
 export function loadOrCreateStugubyNodeKeys(path: string | null, displayName = "Stugu"): StugubyNodeKeys {
   if (!path) return nodeKeys(generate(displayName));
   if (existsSync(path)) return nodeKeys(parseStoredIdentity(readFileSync(path, "utf8")));
+  const legacyPath = basename(path) === "stuguby-identity.json"
+    ? join(dirname(path), "stugby-identity.json")
+    : null;
+  if (legacyPath && existsSync(legacyPath)) {
+    const stored = parseStoredIdentity(readFileSync(legacyPath, "utf8"));
+    durableAtomicWriteFileSync(path, `${JSON.stringify(stored, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    return nodeKeys(stored);
+  }
   const stored = generate(displayName);
   durableAtomicWriteFileSync(path, `${JSON.stringify(stored, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   return nodeKeys(stored);

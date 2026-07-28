@@ -1,6 +1,7 @@
 import { Compass, Droplets, Eye, EyeOff, LoaderCircle, PauseCircle, Thermometer, TriangleAlert, Wind } from "lucide-react";
 import { useState, type CSSProperties } from "react";
 import type { UnitSystem } from "@climate-twin/contracts";
+import { formatInTimeZone } from "../dateTime";
 import type { OutdoorBoundaryContext, PlanEdge } from "../outdoorContext";
 import { useI18n, type TranslationKey } from "../i18n";
 
@@ -65,11 +66,7 @@ function cardinalKey(cardinal: string): TranslationKey {
 function observedTime(timestamp: string, locale: string, timeZone: string): string {
   const parsed = new Date(timestamp);
   if (!Number.isFinite(parsed.getTime())) return timestamp;
-  try {
-    return new Intl.DateTimeFormat(locale, { timeStyle: "short", timeZone }).format(parsed);
-  } catch {
-    return new Intl.DateTimeFormat(locale, { timeStyle: "short" }).format(parsed);
-  }
+  return formatInTimeZone(parsed, locale, timeZone, { timeStyle: "short" });
 }
 
 export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: OutdoorConditionsBadgeProps) {

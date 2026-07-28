@@ -245,7 +245,7 @@ export const mcpToolDefinitionsPart02 = [
       },
   {
         name: "get_house_thermal_isolation",
-        description: "Compare the experimental thermal-isolation model across up to 64 enabled sensors in one Home.",
+        description: "Compare the experimental thermal-isolation model across up to 64 enabled temperature sensors in one Home.",
         inputSchema: {
           type: "object",
           properties: {

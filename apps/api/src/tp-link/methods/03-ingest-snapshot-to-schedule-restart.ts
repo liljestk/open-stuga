@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { networkInterfaces } from "node:os";
 import { createInterface } from "node:readline";
@@ -12,14 +12,79 @@ import type {
   SensorMetricAvailability,
 } from "../../sensor-gap-recovery.js";
 import { MeasurementService, RuntimeStatus, TelemetryService } from "../../services.js";
-import { CLIMATE_UNCHANGED_HEARTBEAT_MS, CachedTpLinkDevice, REDUNDANT_SOURCE_HANDOVER_MIN_MS, STATE_UNCHANGED_HEARTBEAT_MS, TpLinkSnapshotMessage, finiteNumber, nonEmptyString, normalizeTpLinkTemperature } from "../support/01-tp-link-local-climate-history-capability-revision-to.js";
+import { CLIMATE_UNCHANGED_HEARTBEAT_MS, CachedTpLinkDevice, REDUNDANT_SOURCE_HANDOVER_MIN_MS, STATE_UNCHANGED_HEARTBEAT_MS, TpLinkContactEventsMessage, TpLinkSnapshotMessage, finiteNumber, nonEmptyString, normalizeTpLinkTemperature } from "../support/01-tp-link-local-climate-history-capability-revision-to.js";
 import { registerTpLinkConnectionBridgeMethods, tpLinkConnectionBridgeState, type TpLinkConnectionBridgeInternals } from "../core.js";
 
 registerTpLinkConnectionBridgeMethods({
+  ingestContactEvents(this: TpLinkConnectionBridgeInternals, message: TpLinkContactEventsMessage): void {
+      const targets = new Map(this.configuredOpeningTargets()
+        .map((target) => [target.deviceId, target] as const));
+      const receivedAtMs = Date.now();
+      const batchTimestampMs = Date.parse(message.timestamp);
+      const latestAllowedMs = Math.min(
+        receivedAtMs + 5 * 60_000,
+        (Number.isFinite(batchTimestampMs) ? batchTimestampMs : receivedAtMs) + 5 * 60_000,
+      );
+      const events = message.events.slice(0, 2_048).flatMap((rawEvent) => {
+        const deviceId = nonEmptyString(rawEvent?.deviceId);
+        const eventId = nonEmptyString(rawEvent?.eventId);
+        const observedAtMs = Date.parse(rawEvent?.timestamp);
+        const sequence = finiteNumber(rawEvent?.sequence);
+        if (!deviceId || deviceId.length > 255 || !eventId || eventId.length > 512
+          || (rawEvent?.state !== "open" && rawEvent?.state !== "closed")
+          || !Number.isFinite(observedAtMs) || observedAtMs <= 0 || observedAtMs > latestAllowedMs) return [];
+        return [{
+          deviceId, eventId, state: rawEvent.state, observedAtMs,
+          sequence: sequence === null ? -1 : sequence,
+        }];
+      }).sort((left, right) => left.observedAtMs - right.observedAtMs
+        || left.deviceId.localeCompare(right.deviceId)
+        || left.sequence - right.sequence
+        || left.eventId.localeCompare(right.eventId));
+      const handled = new Set<string>();
+      for (const event of events) {
+        const target = targets.get(event.deviceId);
+        const eventKey = `${event.deviceId}\u0000${event.eventId}`;
+        if (!target || handled.has(eventKey)) continue;
+        handled.add(eventKey);
+        const id = `tapo-event:${createHash("sha256")
+          .update(`${target.connectionId}\u0000${event.deviceId}\u0000${event.eventId}`)
+          .digest("hex")}`;
+        try {
+          const observation = this[tpLinkConnectionBridgeState].database.recordOpeningStateObservation(target.houseId, {
+            id,
+            floorId: target.floorId,
+            elementId: target.elementId,
+            state: event.state,
+            source: "tapo",
+            observedAt: new Date(event.observedAtMs).toISOString(),
+            externalId: event.deviceId,
+            connectionId: target.connectionId,
+          });
+          this[tpLinkConnectionBridgeState].managedConnection?.onOpeningStateRecorded?.(observation);
+          const targetKey = `${target.floorId}\u0000${target.elementId}`;
+          const previous = this[tpLinkConnectionBridgeState].lastIngestedOpeningStates.get(targetKey);
+          if (!previous || event.observedAtMs >= previous.ingestedAt) {
+            this[tpLinkConnectionBridgeState].lastIngestedOpeningStates.set(
+              targetKey,
+              { state: event.state, ingestedAt: event.observedAtMs },
+            );
+          }
+        } catch (error) {
+          if (error && typeof error === "object" && "code" in error
+            && error.code === "OPENING_OBSERVATION_ID_CONFLICT") continue;
+          const reason = error instanceof Error ? error.message : "ingestion failed";
+          this[tpLinkConnectionBridgeState].status.value.tpLink.error = `Could not ingest Tapo contact ${event.deviceId}: ${reason}`;
+          this[tpLinkConnectionBridgeState].status.changed();
+        }
+      }
+    },
   ingestSnapshot(this: TpLinkConnectionBridgeInternals, message: TpLinkSnapshotMessage): void {
       const timestamp = Number.isFinite(Date.parse(message.timestamp)) ? new Date(message.timestamp).toISOString() : new Date().toISOString();
       const hubModel = nonEmptyString(message.hubModel)?.toUpperCase() ?? "";
       const sourceType = message.sourceType ?? "hub";
+      const sourceModel = hubModel.slice(0, 128);
+      const sourceAlias = nonEmptyString(message.sourceAlias)?.slice(0, 512) ?? null;
       const supportedHub = hubModel === "H100" || hubModel === "H200";
       if (!supportedHub && sourceType !== "energy-device") {
         this[tpLinkConnectionBridgeState].status.value.tpLink.connected = false;
@@ -44,15 +109,27 @@ registerTpLinkConnectionBridgeMethods({
         this[tpLinkConnectionBridgeState].managedConnection.onAvailabilityChange?.();
         return;
       }
-      if (sourceDeviceId && this[tpLinkConnectionBridgeState].managedConnection && !this[tpLinkConnectionBridgeState].managedConnection.deviceId) {
-        const previousHost = this[tpLinkConnectionBridgeState].managedConnection.host;
-        this[tpLinkConnectionBridgeState].managedConnection.deviceId = sourceDeviceId;
-        this[tpLinkConnectionBridgeState].managedConnection.onUpdate?.({
-          id: this[tpLinkConnectionBridgeState].managedConnection.id,
-          houseId: this[tpLinkConnectionBridgeState].managedConnection.houseId,
+      const managedConnection = this[tpLinkConnectionBridgeState].managedConnection;
+      if (managedConnection) {
+        const previousHost = managedConnection.host;
+        const metadataChanged = managedConnection.sourceType !== sourceType
+          || managedConnection.sourceModel !== sourceModel
+          || (managedConnection.sourceAlias ?? null) !== sourceAlias;
+        const identityLearned = Boolean(sourceDeviceId && !managedConnection.deviceId);
+        if (sourceDeviceId) managedConnection.deviceId = sourceDeviceId;
+        managedConnection.sourceType = sourceType;
+        managedConnection.sourceModel = sourceModel;
+        if (sourceAlias) managedConnection.sourceAlias = sourceAlias;
+        else delete managedConnection.sourceAlias;
+        if (identityLearned || metadataChanged) managedConnection.onUpdate?.({
+          id: managedConnection.id,
+          houseId: managedConnection.houseId,
           previousHost,
           host: previousHost,
-          deviceId: sourceDeviceId,
+          ...(managedConnection.deviceId ? { deviceId: managedConnection.deviceId } : {}),
+          sourceType,
+          sourceModel,
+          sourceAlias,
         });
       }
 
@@ -60,6 +137,9 @@ registerTpLinkConnectionBridgeMethods({
       this[tpLinkConnectionBridgeState].status.value.tpLink.connected = true;
       this[tpLinkConnectionBridgeState].status.value.tpLink.lastPollAt = timestamp;
       this[tpLinkConnectionBridgeState].status.value.tpLink.hubModel = supportedHub ? hubModel : null;
+      this[tpLinkConnectionBridgeState].status.value.tpLink.sourceType = sourceType;
+      this[tpLinkConnectionBridgeState].status.value.tpLink.sourceModel = sourceModel;
+      this[tpLinkConnectionBridgeState].status.value.tpLink.sourceAlias = sourceAlias;
       const devices = new Map<string, CachedTpLinkDevice>();
       for (const rawDevice of message.devices) {
         const deviceId = nonEmptyString(rawDevice?.deviceId);

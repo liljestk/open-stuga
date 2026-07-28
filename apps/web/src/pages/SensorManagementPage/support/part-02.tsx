@@ -60,6 +60,7 @@ import { configuredSpatialMaxSampleAgeMs } from "../../../spatialFreshness";
 import { useSpatialLayers } from "../../../useSpatialLayers";
 import { qrCodeMatrix } from "../../../qrCode";
 import { TrendChart } from "../../../components/TrendChart";
+import { isTpLinkContactDevice } from "../../../tpLinkDeviceClassification";
 import { clamp } from "./part-01";
 
 export function errorMessage(error: unknown, fallback: string): string {
@@ -71,6 +72,7 @@ export function deviceBindingKey(deviceId: string, connectionId?: string): strin
 }
 
 export function availableForSensor(device: TpLinkDiscoveredDevice, sensorId: string | null, usedDeviceIds: Set<string>): boolean {
+  if (isTpLinkContactDevice(device)) return false;
   if (sensorId && device.mappedSensorId === sensorId) return true;
   return device.mappedSensorId === null && !usedDeviceIds.has(deviceBindingKey(device.deviceId, device.connectionId));
 }

@@ -19,10 +19,24 @@ export const schemasPart07 = {
         },
   TpLinkConfigInput: {
           type: "object",
-          required: ["host", "username", "password"],
+          required: ["host"],
+          oneOf: [
+            { required: ["username", "password"] },
+            { required: ["credentialSourceConnectionId"] },
+          ],
           properties: {
             houseId: { type: "string", minLength: 1, description: "House which owns this TP-Link connection." },
             connectionId: { type: "string", minLength: 1, description: "Existing connection to update; omitted when adding another hub or socket." },
+            credentialSourceConnectionId: { type: "string", minLength: 1, writeOnly: true, description: "Saved TP-Link connection whose private account credentials should be reused. Mutually exclusive with username and password." },
+            host: { type: "string", minLength: 1, maxLength: 253 },
+            username: { type: "string", minLength: 1, maxLength: 320, writeOnly: true },
+            password: { type: "string", minLength: 1, maxLength: 4096, writeOnly: true },
+          },
+        },
+  TpLinkDraftInput: {
+          type: "object",
+          required: ["host", "username", "password"],
+          properties: {
             host: { type: "string", minLength: 1, maxLength: 253 },
             username: { type: "string", minLength: 1, maxLength: 320, writeOnly: true },
             password: { type: "string", minLength: 1, maxLength: 4096, writeOnly: true },
@@ -122,7 +136,7 @@ export const schemasPart07 = {
           required: ["homeAssistant", "tpLink", "webhook", "telegram", "appleNotes", "mock", "weather"],
           properties: {
             homeAssistant: { type: "object", required: ["configured", "connected", "lastEventAt", "mappedEntities", "error"], properties: { configured: { type: "boolean" }, connected: { type: "boolean" }, lastEventAt: { type: ["string", "null"], format: "date-time" }, mappedEntities: { type: "integer" }, error: { type: ["string", "null"] }, connections: { type: "array", items: { type: "object", required: ["houseId", "configured", "connected", "lastEventAt", "mappedEntities", "error"], properties: { houseId: { type: "string" }, configured: { type: "boolean" }, connected: { type: "boolean" }, lastEventAt: { type: ["string", "null"], format: "date-time" }, mappedEntities: { type: "integer" }, error: { type: ["string", "null"] } } } } } },
-            tpLink: { type: "object", required: ["configured", "connected", "lastPollAt", "mappedDevices", "discoveredDevices", "hubModel", "error"], properties: { configured: { type: "boolean" }, connected: { type: "boolean" }, lastPollAt: { type: ["string", "null"], format: "date-time" }, mappedDevices: { type: "integer" }, discoveredDevices: { type: "integer" }, hubModel: { enum: ["H100", "H200", null] }, error: { type: ["string", "null"] }, connections: { type: "array", items: { type: "object", additionalProperties: true } } } },
+            tpLink: { type: "object", required: ["configured", "connected", "lastPollAt", "mappedDevices", "discoveredDevices", "hubModel", "error"], properties: { configured: { type: "boolean" }, connected: { type: "boolean" }, lastPollAt: { type: ["string", "null"], format: "date-time" }, mappedDevices: { type: "integer" }, discoveredDevices: { type: "integer" }, hubModel: { enum: ["H100", "H200", null] }, error: { type: ["string", "null"] }, host: { type: ["string", "null"] }, sourceType: { enum: ["hub", "energy-device", null] }, sourceModel: { type: ["string", "null"] }, sourceAlias: { type: ["string", "null"] }, connections: { type: "array", items: { type: "object", additionalProperties: false, required: ["id", "houseId", "configured", "connected", "lastPollAt", "mappedDevices", "discoveredDevices", "hubModel", "error"], properties: { id: { type: "string" }, houseId: { type: "string" }, configured: { type: "boolean" }, connected: { type: "boolean" }, lastPollAt: { type: ["string", "null"], format: "date-time" }, mappedDevices: { type: "integer" }, discoveredDevices: { type: "integer" }, hubModel: { enum: ["H100", "H200", null] }, error: { type: ["string", "null"] }, host: { type: ["string", "null"] }, sourceType: { enum: ["hub", "energy-device", null] }, sourceModel: { type: ["string", "null"] }, sourceAlias: { type: ["string", "null"] } } } } } },
             webhook: { type: "object", required: ["configured", "lastDeliveryAt", "error"], properties: { configured: { type: "boolean" }, lastDeliveryAt: { type: ["string", "null"], format: "date-time" }, error: { type: ["string", "null"] }, destinations: { type: "array", maxItems: 16, items: { type: "object", additionalProperties: false, required: ["id", "lastDeliveryAt", "error"], properties: { id: { type: "string", pattern: "^[a-z0-9][a-z0-9._-]{0,63}$" }, lastDeliveryAt: { type: ["string", "null"], format: "date-time" }, error: { type: ["string", "null"] } } } } } },
             telegram: { type: "object", required: ["available", "configured", "connected", "botUsername", "chatLabel", "lastDeliveryAt", "error"], properties: { available: { type: "boolean" }, configured: { type: "boolean" }, connected: { type: "boolean" }, botUsername: { type: ["string", "null"] }, chatLabel: { type: ["string", "null"] }, lastDeliveryAt: { type: ["string", "null"], format: "date-time" }, error: { type: ["string", "null"] } } },
             appleNotes: { type: "object", required: ["available", "configured", "grantCount", "lastSyncAt", "error"], properties: { available: { type: "boolean" }, configured: { type: "boolean" }, grantCount: { type: "integer", minimum: 0 }, lastSyncAt: { type: ["string", "null"], format: "date-time" }, error: { type: ["string", "null"] } } },
@@ -135,8 +149,23 @@ export const schemasPart07 = {
           required: ["homeAssistant", "tpLink", "warnings"],
           properties: {
             homeAssistant: { type: "array", items: { type: "object", required: ["name", "url", "host", "port", "version"], properties: { name: { type: "string" }, url: { type: "string", format: "uri" }, host: { type: "string" }, port: { type: "integer" }, version: { type: ["string", "null"] } } } },
-            tpLink: { type: "array", items: { type: "object", required: ["host", "model", "alias", "sourceType"], properties: { host: { type: "string" }, model: { type: "string" }, alias: { type: ["string", "null"] }, sourceType: { enum: ["hub", "energy-device"] } } } },
+            tpLink: { type: "array", items: { type: "object", required: ["host", "model", "alias", "sourceType"], properties: { host: { type: "string" }, model: { type: "string" }, alias: { type: ["string", "null"] }, sourceType: { enum: ["hub", "energy-device"] }, deviceId: { type: ["string", "null"] }, configuredConnectionId: { type: "string" } } } },
             warnings: { type: "array", items: { type: "string" } },
+          },
+        },
+  IntegrationDiscoveryJob: {
+          type: "object",
+          additionalProperties: false,
+          required: ["id", "houseId", "status", "createdAt", "updatedAt", "expiresAt", "result", "error"],
+          properties: {
+            id: { type: "string", format: "uuid" },
+            houseId: { type: "string" },
+            status: { enum: ["running", "completed", "failed"] },
+            createdAt: { type: "string", format: "date-time" },
+            updatedAt: { type: "string", format: "date-time" },
+            expiresAt: { type: "string", format: "date-time" },
+            result: { oneOf: [{ $ref: "#/components/schemas/IntegrationDiscoveryResult" }, { type: "null" }] },
+            error: { type: ["string", "null"] },
           },
         },
   IntegrationTestResult: { type: "object", required: ["ok", "message"], properties: { ok: { type: "boolean" }, connected: { type: "boolean" }, message: { type: "string" }, details: { type: "object", additionalProperties: true } } },

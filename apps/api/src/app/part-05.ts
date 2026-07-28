@@ -260,6 +260,10 @@ export function configureApiPart05(context: ReturnType<typeof configureApiPart04
       value.tpLink.mappedDevices = tpLinkConnections.reduce((total, connection) => total + connection.mappedDevices, 0);
       value.tpLink.discoveredDevices = tpLinkConnections.reduce((total, connection) => total + connection.discoveredDevices, 0);
       value.tpLink.hubModel = tpLinkConnections.length === 1 ? tpLinkConnections[0]!.hubModel : null;
+      value.tpLink.host = tpLinkConnections.length === 1 ? tpLinkConnections[0]!.host ?? null : null;
+      value.tpLink.sourceType = tpLinkConnections.length === 1 ? tpLinkConnections[0]!.sourceType ?? null : null;
+      value.tpLink.sourceModel = tpLinkConnections.length === 1 ? tpLinkConnections[0]!.sourceModel ?? null : null;
+      value.tpLink.sourceAlias = tpLinkConnections.length === 1 ? tpLinkConnections[0]!.sourceAlias ?? null : null;
       value.tpLink.error = tpLinkConnections.map((connection) => connection.error).filter(Boolean).join("; ") || null;
       const weatherConnections = (value.weather.connections ?? []).filter((connection) => connection.houseId === houseId);
       value.weather.connections = weatherConnections;
@@ -274,8 +278,21 @@ export function configureApiPart05(context: ReturnType<typeof configureApiPart04
       tpLinkDeviceId?: string | null;
       tpLinkConnectionId?: string | null;
     }): void => {
+      if (!sensor.tpLinkDeviceId) {
+        if (sensor.tpLinkConnectionId) throw new HttpError(400, "INVALID_TP_LINK_BINDING", "tpLinkConnectionId requires tpLinkDeviceId");
+        return;
+      }
+      const discoveredDevice = context.tpLink.listDiscoveredDevices(sensor.houseId)
+        .find((device) => device.deviceId === sensor.tpLinkDeviceId
+          && (!sensor.tpLinkConnectionId || device.connectionId === sensor.tpLinkConnectionId));
+      if (discoveredDevice?.deviceType === "contact") {
+        throw new HttpError(
+          422,
+          "TP_LINK_CONTACT_REQUIRES_OPENING",
+          "Door and window contact sensors must be attached to an opening in the Home floor plan",
+        );
+      }
       if (!sensor.tpLinkConnectionId) return;
-      if (!sensor.tpLinkDeviceId) throw new HttpError(400, "INVALID_TP_LINK_BINDING", "tpLinkConnectionId requires tpLinkDeviceId");
       const connection = (config.tpLinkConnections ?? []).find((candidate) => candidate.id === sensor.tpLinkConnectionId);
       if (!connection) throw new HttpError(422, "TP_LINK_CONNECTION_NOT_FOUND", "The selected TP-Link connection no longer exists");
       if (connection.houseId !== sensor.houseId) {

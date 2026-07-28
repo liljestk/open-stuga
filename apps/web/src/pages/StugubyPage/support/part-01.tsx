@@ -21,6 +21,7 @@ import {
   type StugubyRemoteTelemetrySample,
 } from "../../../api";
 import { StugubyMark } from "../../../components/StugubyMark";
+import { formatInTimeZone } from "../../../dateTime";
 import { useI18n, type TranslationKey } from "../../../i18n";
 import { CloudflareSetupPanel } from "../../CloudflareSetupPanel";
 import "../../StugubyPage.css";
@@ -104,7 +105,12 @@ export function errorMessage(error: unknown, fallback: string): string {
 export function formattedTime(value: string | null, never: string, locale: string): string {
   if (!value) return never;
   const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? date.toLocaleString(locale) : value;
+  return Number.isFinite(date.getTime())
+    ? formatInTimeZone(date, locale, undefined, {
+        year: "numeric", month: "numeric", day: "numeric",
+        hour: "numeric", minute: "2-digit", second: "2-digit",
+      })
+    : value;
 }
 
 export function suggestedCoordinatorOrigin(): string {

@@ -25,6 +25,7 @@ import {
   STUGBY_PROTOCOL_VERSION,
   assertSafeFederationPayload,
   canonicalJson,
+  eventPayloadHashValue,
   eventSigningValue,
   isStugubyDataset,
   isStugubyRole,
@@ -340,7 +341,7 @@ registerStugubyServiceMethods({
     },
   verifyEvent(this: StugubyServiceInternals, event: StugubySignedEvent, publicKey: string): void {
       if (event.keyFingerprint !== publicKeyFingerprint(publicKey)) throw new StugubyError(401, "EVENT_KEY_MISMATCH", "Event signing key does not match member identity");
-      const expectedHash = sha256(canonicalJson(event.payload));
+      const expectedHash = sha256(eventPayloadHashValue(event));
       if (expectedHash !== event.payloadHash) throw new StugubyError(400, "EVENT_HASH_MISMATCH", "Event payload hash is invalid");
       if (!this.keys.verify(eventSigningValue(event), event.signature, publicKey)) throw new StugubyError(401, "INVALID_EVENT_SIGNATURE", "Event signature is invalid");
     },

@@ -180,11 +180,14 @@ export function updateHouse(args: Record<string, unknown>): unknown {
     }
   }
   if (patch.floors) stuguby.assertSharedHouseFloorPlanAssetsUnchanged(houseId, patch.floors);
-  const house = database.updateHouse(houseId, patch, "local-mcp");
-  if (!house) throw new Error(`Unknown house: ${houseId}`);
+  const house = database.transaction(() => {
+    const updated = database.updateHouse(houseId, patch, "local-mcp");
+    if (!updated) throw new Error(`Unknown house: ${houseId}`);
+    stuguby.captureHomeMutation(updated.id);
+    return updated;
+  });
   weather.invalidate(houseId);
   status.refreshWeatherConfiguration();
-  stuguby.captureHomeMutation(house.id);
   return house;
 }
 
@@ -193,9 +196,12 @@ export function replaceHouseLayout(args: Record<string, unknown>): unknown {
   stuguby.assertHouseWriteAllowed(houseId);
   const floors = requiredArray(args, "floors", 100, 0) as Floor[];
   stuguby.assertSharedHouseFloorPlanAssetsUnchanged(houseId, floors);
-  const house = database.updateHouse(houseId, { floors }, "local-mcp");
-  if (!house) throw new Error(`Unknown house: ${houseId}`);
-  stuguby.captureHomeMutation(house.id);
+  const house = database.transaction(() => {
+    const updated = database.updateHouse(houseId, { floors }, "local-mcp");
+    if (!updated) throw new Error(`Unknown house: ${houseId}`);
+    stuguby.captureHomeMutation(updated.id);
+    return updated;
+  });
   return house;
 }
 
@@ -211,8 +217,10 @@ export function replaceHouseFloor(args: Record<string, unknown>): Floor {
   const floors = house.floors.slice();
   floors[index] = floor;
   stuguby.assertSharedHouseFloorPlanAssetsUnchanged(houseId, floors);
-  database.updateHouse(houseId, { floors }, "local-mcp");
-  stuguby.captureHomeMutation(houseId);
+  database.transaction(() => {
+    database.updateHouse(houseId, { floors }, "local-mcp");
+    stuguby.captureHomeMutation(houseId);
+  });
   return floor;
 }
 
@@ -235,26 +243,29 @@ export function createSensor(args: Record<string, unknown>): Sensor {
     .some((field) => args[field] !== undefined && args[field] !== null)) {
     stuguby.assertHouseLocalAuthority(houseId);
   }
-  const sensor = database.createSensor({
-    ...(args.id === undefined ? {} : { id: requiredString(args, "id") }),
-    houseId,
-    floorId: requiredString(args, "floorId"),
-    name: requiredString(args, "name"),
-    ...(args.roomId === undefined ? {} : { roomId: args.roomId === null ? null : requiredString(args, "roomId") }),
-    room: requiredString(args, "room"),
-    model: requiredString(args, "model"),
-    x: requiredNumber(args, "x"), y: requiredNumber(args, "y"), z: requiredNumber(args, "z"),
-    tags,
-    enabled: optionalBoolean(args, "enabled", true),
-    ...(args.temperatureEntityId === undefined ? {} : { temperatureEntityId: requiredString(args, "temperatureEntityId") }),
-    ...(args.humidityEntityId === undefined ? {} : { humidityEntityId: requiredString(args, "humidityEntityId") }),
-    ...(args.batteryEntityId === undefined ? {} : { batteryEntityId: requiredString(args, "batteryEntityId") }),
-    ...(args.tpLinkDeviceId === undefined || args.tpLinkDeviceId === null ? {} : { tpLinkDeviceId: requiredString(args, "tpLinkDeviceId") }),
-    ...(args.measurementEntityIds === undefined
-      ? {}
-      : { measurementEntityIds: stringRecord(requiredObject(args, "measurementEntityIds"), "measurementEntityIds") }),
+  const sensor = database.transaction(() => {
+    const created = database.createSensor({
+      ...(args.id === undefined ? {} : { id: requiredString(args, "id") }),
+      houseId,
+      floorId: requiredString(args, "floorId"),
+      name: requiredString(args, "name"),
+      ...(args.roomId === undefined ? {} : { roomId: args.roomId === null ? null : requiredString(args, "roomId") }),
+      room: requiredString(args, "room"),
+      model: requiredString(args, "model"),
+      x: requiredNumber(args, "x"), y: requiredNumber(args, "y"), z: requiredNumber(args, "z"),
+      tags,
+      enabled: optionalBoolean(args, "enabled", true),
+      ...(args.temperatureEntityId === undefined ? {} : { temperatureEntityId: requiredString(args, "temperatureEntityId") }),
+      ...(args.humidityEntityId === undefined ? {} : { humidityEntityId: requiredString(args, "humidityEntityId") }),
+      ...(args.batteryEntityId === undefined ? {} : { batteryEntityId: requiredString(args, "batteryEntityId") }),
+      ...(args.tpLinkDeviceId === undefined || args.tpLinkDeviceId === null ? {} : { tpLinkDeviceId: requiredString(args, "tpLinkDeviceId") }),
+      ...(args.measurementEntityIds === undefined
+        ? {}
+        : { measurementEntityIds: stringRecord(requiredObject(args, "measurementEntityIds"), "measurementEntityIds") }),
+    });
+    stuguby.captureHomeMutation(created.houseId);
+    return created;
   });
-  stuguby.captureHomeMutation(sensor.houseId);
   return sensor;
 }
 
@@ -284,10 +295,13 @@ export function updateSensor(args: Record<string, unknown>): Sensor {
     .some((field) => Object.hasOwn(patch, field))) {
     stuguby.assertHouseLocalAuthority(current.houseId);
   }
-  const sensor = database.updateSensor(sensorId, patch);
-  if (!sensor) throw new Error(`Unknown sensor: ${sensorId}`);
-  if (sensor.houseId !== current.houseId) stuguby.captureHomeMutation(current.houseId);
-  stuguby.captureHomeMutation(sensor.houseId);
+  const sensor = database.transaction(() => {
+    const updated = database.updateSensor(sensorId, patch);
+    if (!updated) throw new Error(`Unknown sensor: ${sensorId}`);
+    if (updated.houseId !== current.houseId) stuguby.captureHomeMutation(current.houseId);
+    stuguby.captureHomeMutation(updated.houseId);
+    return updated;
+  });
   return sensor;
 }
 
@@ -297,8 +311,10 @@ export function deleteSensor(args: Record<string, unknown>): { deleted: true; se
   const current = database.getSensor(sensorId);
   if (!current) throw new Error(`Unknown sensor: ${sensorId}`);
   stuguby.assertHouseWriteAllowed(current.houseId);
-  if (!database.deleteSensor(sensorId)) throw new Error(`Unknown sensor: ${sensorId}`);
-  stuguby.captureHomeMutation(current.houseId);
+  database.transaction(() => {
+    if (!database.deleteSensor(sensorId)) throw new Error(`Unknown sensor: ${sensorId}`);
+    stuguby.captureHomeMutation(current.houseId);
+  });
   return { deleted: true, sensorId };
 }
 

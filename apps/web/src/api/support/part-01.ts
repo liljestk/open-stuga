@@ -196,6 +196,8 @@ export interface TpLinkDiscoveredSource {
   model: string;
   alias: string | null;
   sourceType?: "hub" | "energy-device";
+  deviceId?: string | null;
+  configuredConnectionId?: string;
 }
 
 export interface IntegrationDiscoveryResult {

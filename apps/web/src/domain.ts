@@ -14,6 +14,7 @@ import type {
   MeasurementSample,
   Metric,
   MockScenario,
+  OpeningStateObservation,
   Property,
   PropertyArea,
   PropertyNote,
@@ -69,6 +70,7 @@ export interface ClimateState {
   observations: ManualObservation[];
   maintenanceTasks: MaintenanceTask[];
   staticParameters: StaticParameter[];
+  latestOpeningStateObservation?: OpeningStateObservation;
   integration: IntegrationStatus;
   scenarios: MockScenario[];
 }

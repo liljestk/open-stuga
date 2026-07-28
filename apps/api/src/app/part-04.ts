@@ -275,6 +275,7 @@ export function configureApiPart04(context: ReturnType<typeof configureApiPart03
       }
     };
   context.notifyOpeningStateRecorded = (observation: OpeningStateObservation): void => {
+      context.bus.publish({ type: "opening", data: observation });
       const house = context.database.getHouse(observation.houseId);
       notifySpatial((runtime) => runtime.scheduler.wakeHouse(
         observation.houseId,

@@ -283,20 +283,26 @@ export function configureApiPart20(context: ReturnType<typeof configureApiPart19
   context.app.post(`${context.prefix}/observations`, (request, response) => {
       const input = parseObservationInput(request.body);
       context.stuguby.assertHouseWriteAllowed(input.houseId);
-      const { observation, created } = context.database.getOrCreateObservation(input, "local-rest");
-      if (created) context.stuguby.captureHomeMutation(observation.houseId);
+      const { observation, created } = context.database.transaction(() => {
+        const result = context.database.getOrCreateObservation(input, "local-rest");
+        if (result.created) context.stuguby.captureHomeMutation(result.observation.houseId);
+        return result;
+      });
       response.status(created ? 201 : 200).json(observation);
     });
   context.app.patch(`${context.prefix}/observations/:id`, (request, response) => {
       const current = context.database.getObservation(request.params.id as string);
       if (current) context.stuguby.assertHouseWriteAllowed(current.houseId);
-      const observation = context.database.updateObservation(
-        request.params.id as string,
-        parseObservationPatch(request.body),
-        "local-rest",
-      );
-      if (!observation) throw new HttpError(404, "NOT_FOUND", "Observation not found");
-      context.stuguby.captureHomeMutation(observation.houseId);
+      const observation = context.database.transaction(() => {
+        const updated = context.database.updateObservation(
+          request.params.id as string,
+          parseObservationPatch(request.body),
+          "local-rest",
+        );
+        if (!updated) throw new HttpError(404, "NOT_FOUND", "Observation not found");
+        context.stuguby.captureHomeMutation(updated.houseId);
+        return updated;
+      });
       response.json(observation);
     });
   context.app.get(`${context.prefix}/observations/:id/revisions`, (request, response) => {
@@ -311,8 +317,10 @@ export function configureApiPart20(context: ReturnType<typeof configureApiPart19
       const id = request.params.id as string;
       const current = context.database.getObservation(id);
       if (current) context.stuguby.assertHouseWriteAllowed(current.houseId);
-      if (!context.database.deleteObservation(id)) throw new HttpError(404, "NOT_FOUND", "Observation not found");
-      if (current) context.stuguby.captureHomeMutation(current.houseId);
+      context.database.transaction(() => {
+        if (!context.database.deleteObservation(id)) throw new HttpError(404, "NOT_FOUND", "Observation not found");
+        if (current) context.stuguby.captureHomeMutation(current.houseId);
+      });
       response.status(204).end();
     });
   context.app.get(`${context.prefix}/maintenance-tasks`, (request, response) => {
@@ -341,8 +349,16 @@ export function configureApiPart20(context: ReturnType<typeof configureApiPart19
       const input = parseMaintenanceTaskInput(request.body);
       const propertyId = input.propertyId ?? (input.houseId ? context.database.getHouse(input.houseId)?.propertyId : undefined);
       if (propertyId) context.stuguby.assertPropertyWriteAllowed(propertyId);
-      const { task, created } = context.database.getOrCreateMaintenanceTask(input, "local-rest");
-      if (created) context.stuguby.captureCurrentPropertyEntity(task.propertyId, "maintenance", task.id, "upsert");
+      const { task, created } = context.database.transaction(() => {
+        const result = context.database.getOrCreateMaintenanceTask(input, "local-rest");
+        if (result.created) context.stuguby.captureCurrentPropertyEntity(
+          result.task.propertyId,
+          "maintenance",
+          result.task.id,
+          "upsert",
+        );
+        return result;
+      });
       response.status(created ? 201 : 200).json(task);
     });
   context.app.get(`${context.prefix}/maintenance-tasks/:id`, (request, response) => {
@@ -354,13 +370,16 @@ export function configureApiPart20(context: ReturnType<typeof configureApiPart19
       const taskId = request.params.id as string;
       const previous = context.database.getMaintenanceTask(taskId);
       if (previous) context.stuguby.assertPropertyWriteAllowed(previous.propertyId);
-      const task = context.database.updateMaintenanceTask(
-        taskId,
-        parseMaintenanceTaskPatch(request.body),
-        "local-rest",
-      );
-      if (!task) throw new HttpError(404, "NOT_FOUND", "Maintenance task not found");
-      context.stuguby.captureCurrentPropertyEntity(task.propertyId, "maintenance", task.id, "upsert");
+      const task = context.database.transaction(() => {
+        const updated = context.database.updateMaintenanceTask(
+          taskId,
+          parseMaintenanceTaskPatch(request.body),
+          "local-rest",
+        );
+        if (!updated) throw new HttpError(404, "NOT_FOUND", "Maintenance task not found");
+        context.stuguby.captureCurrentPropertyEntity(updated.propertyId, "maintenance", updated.id, "upsert");
+        return updated;
+      });
       response.json(task);
     });
   context.app.get(`${context.prefix}/maintenance-tasks/:id/revisions`, (request, response) => {

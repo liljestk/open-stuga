@@ -76,6 +76,9 @@ export const freshTpLinkDiscoveryWindowMs = 60_000;
 export interface TpLinkDeviceReference {
   deviceId: string;
   connectionId: string | null;
+  model?: string;
+  alias?: string | null;
+  deviceType?: "climate" | "contact" | "energy" | "unknown";
 }
 
 export function tpLinkDeviceKey(device: { deviceId: string; connectionId?: string | null | undefined }): string {

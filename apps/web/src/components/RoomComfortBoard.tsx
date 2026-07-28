@@ -24,6 +24,7 @@ export interface RoomComfort {
   temperature: number | null;
   humidity: number | null;
   co2: number | null;
+  supportsCo2: boolean;
   updatedAt: string | null;
   temperatureTrend: number[];
 }
@@ -98,6 +99,11 @@ export function buildRoomComforts({
     const temperature = mean(fresh("temperature"));
     const humidity = mean(fresh("humidity"));
     const co2 = mean(fresh("co2"));
+    const supportsCo2 = roomSensors.some((sensor) => (
+      Boolean(sensor.measurementEntityIds?.co2)
+      || Boolean(latestMeasurements[sensor.id]?.co2)
+      || (measurementHistory[sensor.id]?.co2?.length ?? 0) > 0
+    ));
     const samples = roomSensors.flatMap((sensor) => Object.values(latestMeasurements[sensor.id] ?? {}));
     const updatedAt = latestTimestamp(samples, now);
     const roomHasAlert = roomSensors.some((sensor) => openAlertSensors.has(sensor.id));
@@ -127,6 +133,7 @@ export function buildRoomComforts({
       temperature,
       humidity,
       co2,
+      supportsCo2,
       updatedAt,
       temperatureTrend,
     };
@@ -171,19 +178,24 @@ export function RoomComfortBoard(props: Readonly<RoomComfortBoardProps>) {
     const path = sparkline(room.temperatureTrend);
     const ageMinutes = room.updatedAt ? Math.max(0, Math.round((now - Date.parse(room.updatedAt)) / 60_000)) : null;
     const updated = ageMinutes === null ? t("decision.noRecentReading") : relativeTime.format(-ageMinutes, "minute");
+    const readingLabels = [
+      `${t("common.temperature")}: ${formattedReading(room.temperature, temperatureDefinition, props.units)}`,
+      `${t("common.humidity")}: ${formattedReading(room.humidity, humidityDefinition, props.units)}`,
+      ...(room.supportsCo2 ? [`${t("common.co2")}: ${formattedReading(room.co2, co2Definition, props.units)}`] : []),
+    ].join(". ");
     return (
       <button
         type="button"
         className={`room-comfort-card ${room.state}`}
         key={room.key}
         onClick={() => props.onOpenRoom(room.floorId, room.sensorId)}
-        aria-label={`${t("decision.openRoom", { room: room.room, status: t(`decision.state.${room.state}`) })}. ${t("common.temperature")}: ${formattedReading(room.temperature, temperatureDefinition, props.units)}. ${t("common.humidity")}: ${formattedReading(room.humidity, humidityDefinition, props.units)}. ${t("common.co2")}: ${formattedReading(room.co2, co2Definition, props.units)}. ${updated}.`}
+        aria-label={`${t("decision.openRoom", { room: room.room, status: t(`decision.state.${room.state}`) })}. ${readingLabels}. ${updated}.`}
       >
         <span className="room-card-topline"><strong>{room.room}</strong><span className={`comfort-state ${room.state}`}><ComfortStateIcon state={room.state} />{t(`decision.state.${room.state}`)}</span></span>
-        <span className="room-card-readings">
+        <span className={`room-card-readings${room.supportsCo2 ? "" : " two-metrics"}`}>
           <span><b>{formattedReading(room.temperature, temperatureDefinition, props.units)}</b><small>{t("common.temperature")}</small></span>
           <span><b>{formattedReading(room.humidity, humidityDefinition, props.units)}</b><small><Droplets size={11} aria-hidden="true" />{t("common.humidity")}</small></span>
-          <span><b>{formattedReading(room.co2, co2Definition, props.units)}</b><small><Wind size={11} aria-hidden="true" />{t("common.co2")}</small></span>
+          {room.supportsCo2 && <span><b>{formattedReading(room.co2, co2Definition, props.units)}</b><small><Wind size={11} aria-hidden="true" />{t("common.co2")}</small></span>}
         </span>
         <span className="room-card-footer">
           <span>{updated}</span>

@@ -1,6 +1,6 @@
 .twin-panel.is-full-page .sensor-inspector { min-height: 0; overflow-y: auto; }
 
-.twin-toolbar { min-height: 78px; padding: 12px 14px 12px 18px; display: grid; grid-template-columns: minmax(400px, .85fr) auto; align-items: end; gap: 20px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--panel-soft) 28%, var(--panel)); }
+.twin-toolbar { min-height: 78px; padding: 12px 14px 12px 18px; display: grid; grid-template-columns: minmax(400px, 1fr) max-content; align-items: end; gap: 20px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--panel-soft) 28%, var(--panel)); }
 
 .toolbar-context { min-width: 0; display: flex; align-items: end; gap: 16px; }
 
@@ -37,6 +37,11 @@
 .segmented button[aria-pressed="true"] { color: var(--on-action); background: var(--pine); box-shadow: none; }
 
 .segmented.compact button { min-height: 34px; padding: 0 9px; font-size: 11px; }
+
+@container (max-width: 1220px) {
+  .twin-toolbar { grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: 10px; }
+  .toolbar-groups { justify-content: space-between; }
+}
 
 .inline-error { margin: 0; padding: 9px 18px; color: var(--red); background: var(--red-soft); font-size: 12px; }
 

@@ -405,6 +405,47 @@ registerStugubyStoreMethods({
       if (!invitationColumns.has("local_label")) {
         this[stugubyStoreState].db.exec("ALTER TABLE stugby_invitations ADD COLUMN local_label TEXT");
       }
+      // A short-lived protocol build persisted `stugbyId`. Normalize mutable
+      // state snapshots before service methods bind the corrected field to SQL.
+      // Signed event/outbox JSON is deliberately immutable.
+      this[stugubyStoreState].db.exec(`
+        UPDATE stugby_share_grants
+        SET grant_json = json_remove(
+          json_set(grant_json, '$.stugubyId', json_extract(grant_json, '$.stugbyId')),
+          '$.stugbyId'
+        )
+        WHERE json_type(grant_json, '$.stugubyId') IS NULL
+          AND json_type(grant_json, '$.stugbyId') = 'text';
+        UPDATE stugby_shared_properties
+        SET property_json = json_remove(
+          json_set(property_json, '$.stugubyId', json_extract(property_json, '$.stugbyId')),
+          '$.stugbyId'
+        )
+        WHERE json_type(property_json, '$.stugubyId') IS NULL
+          AND json_type(property_json, '$.stugbyId') = 'text';
+        UPDATE stugby_property_commands
+        SET command_json = json_remove(
+          json_set(command_json, '$.stugubyId', json_extract(command_json, '$.stugbyId')),
+          '$.stugbyId'
+        )
+        WHERE json_type(command_json, '$.stugubyId') IS NULL
+          AND json_type(command_json, '$.stugbyId') = 'text';
+        UPDATE stugby_property_commands
+        SET result_json = json_remove(
+          json_set(result_json, '$.property.stugubyId', json_extract(result_json, '$.property.stugbyId')),
+          '$.property.stugbyId'
+        )
+        WHERE result_json IS NOT NULL
+          AND json_type(result_json, '$.property.stugubyId') IS NULL
+          AND json_type(result_json, '$.property.stugbyId') = 'text';
+        UPDATE stugby_home_commands
+        SET command_json = json_remove(
+          json_set(command_json, '$.stugubyId', json_extract(command_json, '$.stugbyId')),
+          '$.stugbyId'
+        )
+        WHERE json_type(command_json, '$.stugubyId') IS NULL
+          AND json_type(command_json, '$.stugbyId') = 'text';
+      `);
       // Raw telemetry has its own indexed projection. Keeping every chunk a
       // second time as a generic JSON resource makes the owner detail endpoint
       // grow without bound and doubles sensitive storage.

@@ -17,6 +17,7 @@ export interface CalendarComparisonPeriod {
   unit: CalendarComparisonUnit;
   start: string;
   end: string;
+  naturalEnd: string;
   year: number;
   month: number | null;
   day: number | null;
@@ -113,7 +114,7 @@ function periodCandidate(
   startDate: LocalDateParts,
   endDate: LocalDateParts,
   timeZone: string,
-  metadata: Omit<CalendarComparisonPeriod, "start" | "end" | "partial">,
+  metadata: Omit<CalendarComparisonPeriod, "start" | "end" | "naturalEnd" | "partial">,
   coverageStart: number,
   coverageEnd: number,
   now: number,
@@ -129,6 +130,7 @@ function periodCandidate(
     unit,
     start: new Date(start).toISOString(),
     end: new Date(end).toISOString(),
+    naturalEnd: new Date(naturalEnd).toISOString(),
     partial: end < naturalEnd,
   };
 }
@@ -195,6 +197,128 @@ export function calendarComparisonPeriods(input: {
 
   return candidates.filter((period): period is CalendarComparisonPeriod => period !== null)
     .sort((left, right) => left.start.localeCompare(right.start));
+}
+
+export interface CalendarComparisonBucket {
+  key: string;
+  slot: string;
+  order: number;
+  index: number;
+  start: string;
+  end: string;
+  partial: boolean;
+}
+
+function comparisonBucket(
+  period: CalendarComparisonPeriod,
+  index: number,
+  slot: string,
+  order: number,
+  start: number | null,
+  end: number | null,
+): CalendarComparisonBucket | null {
+  const naturalEnd = Date.parse(period.naturalEnd);
+  if (start === null || end === null || !Number.isFinite(naturalEnd) || start >= end || start >= naturalEnd) return null;
+  const boundedEnd = Math.min(end, naturalEnd);
+  const availableEnd = Date.parse(period.end);
+  return {
+    key: `${period.key}:${slot}`,
+    slot,
+    order,
+    index,
+    start: new Date(start).toISOString(),
+    end: new Date(boundedEnd).toISOString(),
+    partial: availableEnd > start && availableEnd < boundedEnd,
+  };
+}
+
+/**
+ * Divides one concrete period into aligned, house-local comparison buckets.
+ * Month buckets are stable seven-day blocks (1-7, 8-14, 15-21, 22-28,
+ * 29-end), which avoids mixing days from adjacent months.
+ */
+export function calendarComparisonBuckets(
+  period: CalendarComparisonPeriod,
+  timeZone: string,
+): CalendarComparisonBucket[] {
+  const periodStart = Date.parse(period.start);
+  const naturalEnd = Date.parse(period.naturalEnd);
+  if (!Number.isFinite(periodStart) || !Number.isFinite(naturalEnd) || periodStart >= naturalEnd) return [];
+  const startDate = localDate(periodStart, timeZone);
+  const buckets: Array<CalendarComparisonBucket | null> = [];
+
+  if (period.unit === "day") {
+    const occurrences = new Map<string, number>();
+    let index = 0;
+    for (let start = periodStart; start < naturalEnd; start += 3_600_000) {
+      const end = Math.min(start + 3_600_000, naturalEnd);
+      const parts = zonedParts(start, timeZone);
+      const wallTime = `${pad2(parts[3])}:${pad2(parts[4])}`;
+      const occurrence = occurrences.get(wallTime) ?? 0;
+      occurrences.set(wallTime, occurrence + 1);
+      buckets.push(comparisonBucket(
+        period,
+        index,
+        `hour-${wallTime}-${occurrence}`,
+        (parts[3] * 60 + parts[4]) * 10 + occurrence,
+        start,
+        end,
+      ));
+      index += 1;
+    }
+  } else if (period.unit === "week") {
+    for (let index = 0; index < 7; index += 1) {
+      buckets.push(comparisonBucket(
+        period,
+        index,
+        `day-${index}`,
+        index,
+        localDateStart(addLocalDays(startDate, index), timeZone),
+        localDateStart(addLocalDays(startDate, index + 1), timeZone),
+      ));
+    }
+  } else if (period.unit === "month") {
+    for (let index = 0; index < 5; index += 1) {
+      buckets.push(comparisonBucket(
+        period,
+        index,
+        `week-${index}`,
+        index,
+        localDateStart(addLocalDays(startDate, index * 7), timeZone),
+        localDateStart(addLocalDays(startDate, (index + 1) * 7), timeZone),
+      ));
+    }
+  } else if (period.unit === "year") {
+    for (let index = 0; index < 12; index += 1) {
+      const month = index + 1;
+      const end = month === 12
+        ? { year: period.year + 1, month: 1, day: 1 }
+        : { year: period.year, month: month + 1, day: 1 };
+      buckets.push(comparisonBucket(
+        period,
+        index,
+        `month-${month}`,
+        index,
+        localDateStart({ year: period.year, month, day: 1 }, timeZone),
+        localDateStart(end, timeZone),
+      ));
+    }
+  } else {
+    const decade = period.decade ?? period.year;
+    for (let index = 0; index < 10; index += 1) {
+      const year = decade + index;
+      buckets.push(comparisonBucket(
+        period,
+        index,
+        `year-${index}`,
+        index,
+        localDateStart({ year, month: 1, day: 1 }, timeZone),
+        localDateStart({ year: year + 1, month: 1, day: 1 }, timeZone),
+      ));
+    }
+  }
+
+  return buckets.filter((bucket): bucket is CalendarComparisonBucket => bucket !== null);
 }
 
 type ResolvedAggregation = AnalyticsSeries["aggregation"];
@@ -274,12 +398,20 @@ export function createCalendarValueAccumulator(aggregation: ResolvedAggregation)
 export function appendAnalyticsSeries(
   accumulator: CalendarValueAccumulator,
   series: AnalyticsSeries,
+  range?: { start: string; end: string },
 ): CalendarValueAccumulator {
   const duration = resolutionSeconds[series.resolution];
+  const rangeStart = range ? Date.parse(range.start) : Number.NEGATIVE_INFINITY;
+  const rangeEnd = range ? Date.parse(range.end) : Number.POSITIVE_INFINITY;
   for (const point of series.points) {
+    const pointStart = Date.parse(point.timestamp);
+    const pointEnd = pointStart + duration * 1_000;
+    const overlapDuration = Math.max(0, Math.min(pointEnd, rangeEnd) - Math.max(pointStart, rangeStart)) / 1_000;
+    if (overlapDuration <= 0) continue;
+    const adjustedCoverage = Math.min(1, point.coverage * duration / overlapDuration);
     accumulator.sampleCount += point.sampleCount;
-    accumulator.coverageWeight += point.coverage * duration;
-    accumulator.coverageDuration += duration;
+    accumulator.coverageWeight += adjustedCoverage * overlapDuration;
+    accumulator.coverageDuration += overlapDuration;
     if (point.minimum !== null) accumulator.minimum = accumulator.minimum === null ? point.minimum : Math.min(accumulator.minimum, point.minimum);
     if (point.maximum !== null) accumulator.maximum = accumulator.maximum === null ? point.maximum : Math.max(accumulator.maximum, point.maximum);
     if (point.value === null) continue;
@@ -298,7 +430,7 @@ export function appendAnalyticsSeries(
     } else if (aggregation === "max") {
       accumulator.selected = accumulator.selected === null ? point.value : Math.max(accumulator.selected, point.value);
     } else {
-      const observedDuration = duration * Math.max(point.coverage, Number.EPSILON);
+      const observedDuration = overlapDuration * Math.max(adjustedCoverage, Number.EPSILON);
       accumulator.total += point.value * observedDuration;
       accumulator.weight += observedDuration;
     }

@@ -330,6 +330,7 @@ public struct Sensor: Codable, Identifiable, Equatable, Sendable {
     public let humidityEntityId: String?
     public let batteryEntityId: String?
     public let tpLinkDeviceId: String?
+    public let tpLinkConnectionId: String?
     public let measurementEntityIds: [String: String]?
 
     public init(
@@ -345,6 +346,7 @@ public struct Sensor: Codable, Identifiable, Equatable, Sendable {
         humidityEntityId: String? = nil,
         batteryEntityId: String? = nil,
         tpLinkDeviceId: String? = nil,
+        tpLinkConnectionId: String? = nil,
         measurementEntityIds: [String: String]? = nil
     ) {
         self.id = id
@@ -359,6 +361,7 @@ public struct Sensor: Codable, Identifiable, Equatable, Sendable {
         self.humidityEntityId = humidityEntityId
         self.batteryEntityId = batteryEntityId
         self.tpLinkDeviceId = tpLinkDeviceId
+        self.tpLinkConnectionId = tpLinkConnectionId
         self.measurementEntityIds = measurementEntityIds
     }
 }
@@ -493,5 +496,30 @@ enum StuguDateParser {
             value,
             strategy: Date.ISO8601FormatStyle(includingFractionalSeconds: false)
         )
+    }
+
+    static func time(
+        from date: Date,
+        includesSeconds: Bool = false,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = includesSeconds ? "HH:mm:ss" : "HH:mm"
+        return formatter.string(from: date)
+    }
+
+    static func dateTime(
+        from date: Date,
+        includesSeconds: Bool = false,
+        timeZone: TimeZone = .autoupdatingCurrent
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.timeZone = timeZone
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return "\(formatter.string(from: date)) \(time(from: date, includesSeconds: includesSeconds, timeZone: timeZone))"
     }
 }

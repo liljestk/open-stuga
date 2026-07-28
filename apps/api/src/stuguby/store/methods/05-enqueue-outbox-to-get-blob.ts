@@ -3,6 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import {
   STUGBY_PROTOCOL_VERSION,
   STUGBY_MAX_EVENT_PAGE_BYTES,
+  serializeSignedEvent,
   type JsonValue,
   type StugubyDataset,
   type StugubyDeletionReceipt,
@@ -32,7 +33,7 @@ registerStugubyStoreMethods({
       const now = new Date().toISOString();
       this[stugubyStoreState].db.prepare(`INSERT OR IGNORE INTO stugby_outbox
         (stugby_id,destination_node_id,event_id,event_json,next_attempt_at,created_at) VALUES (?,?,?,?,?,?)`)
-        .run(stugubyId, destinationNodeId, event.eventId, JSON.stringify(event), now, now);
+        .run(stugubyId, destinationNodeId, event.eventId, serializeSignedEvent(event), now, now);
     },
   dueOutbox(this: StugubyStoreInternals, limit = 100): StugubyOutboxItem[] {
       const rows = this[stugubyStoreState].db.prepare(`SELECT id,stugby_id,destination_node_id,event_json,attempts FROM stugby_outbox
@@ -91,7 +92,7 @@ registerStugubyStoreMethods({
       const now = new Date().toISOString();
       const result = this[stugubyStoreState].db.prepare(`INSERT OR IGNORE INTO stugby_event_log
         (stugby_id,target_node_id,event_id,event_json,created_at) VALUES (?,?,?,?,?)`)
-        .run(stugubyId, targetNodeId, event.eventId, JSON.stringify(event), now);
+        .run(stugubyId, targetNodeId, event.eventId, serializeSignedEvent(event), now);
       if (Number(result.changes) === 0) return null;
       return Number((this[stugubyStoreState].db.prepare("SELECT cursor FROM stugby_event_log WHERE stugby_id=? AND target_node_id=? AND event_id=?")
         .get(stugubyId, targetNodeId, event.eventId) as { cursor: number }).cursor);

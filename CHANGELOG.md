@@ -4,6 +4,22 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+- Redesign calendar comparison around two explicit periods. Week views now
+  align Monday through Sunday, months use seven-day blocks, years use months,
+  and decades use years. The view can compare a stable selected-sensor
+  aggregate or one sensor, reports signed headline differences over shared
+  completed buckets, and preserves local-time partial and missing evidence.
+- Poll T110 trigger logs every 500 ms by default so quick door/window cycles are
+  retained once, even when both transitions occur between full hub polls, and
+  replay retained logs after restarts to backfill recoverable outage events.
+  Push persisted opening states over the existing live stream so both 2D and 3D
+  views update without waiting for their periodic reconciliation poll. Keep
+  every Home visual event-driven too: streamed measurements, readings, weather,
+  alerts, and spatial layers now render without waiting for the visual clock.
+- Bring those TP-Link door/window contacts into the native iPhone companion
+  with live state, protected offline snapshots, bounded opening history,
+  transition summaries, and a handoff to the full management surface.
+
 ## 0.16.1 - 2026-07-27
 
 - Fixed Raspberry Pi 4 factory images installed on USB storage so initramfs

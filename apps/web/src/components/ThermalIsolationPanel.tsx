@@ -45,16 +45,23 @@ function InsightCard({
 }>) {
   const { t } = useI18n();
   const labels = insight.scopeIds.map((scopeId) => entries.find((entry) => entry.scope.id === scopeId)?.scope.label ?? scopeId);
+  const limitedEvidence = insight.code === "LIMITED_EVIDENCE";
+  const fullCoverage = limitedEvidence && insight.value >= 100;
   const detail = insight.code === "LOWEST_BUFFERING_ROOM"
     ? t("isolation.insight.weakestDetail", { room: labels[0] ?? "—", score: numeric(insight.value, locale, 0) })
     : insight.code === "FLOOR_CONTRAST"
       ? t("isolation.insight.floorDetail", { high: labels[0] ?? "—", low: labels[1] ?? "—", points: numeric(insight.value, locale, 1) })
       : insight.code === "ROOM_SENSOR_SPREAD"
         ? t("isolation.insight.spreadDetail", { room: labels[0] ?? "—", spread: temperatureSpread(insight.value, locale, units) })
-        : t("isolation.insight.coverageDetail", { percent: numeric(insight.value, locale, 0) });
-  return <article className={`isolation-insight ${insight.code === "LIMITED_EVIDENCE" ? "warning" : ""}`}>
-    {insight.code === "LIMITED_EVIDENCE" ? <TriangleAlert size={16} aria-hidden="true" /> : <Gauge size={16} aria-hidden="true" />}
-    <div><strong>{t(`isolation.insight.${insight.code}`)}</strong><p>{detail}</p></div>
+        : fullCoverage
+          ? t("isolation.insight.confidenceDetail")
+          : t("isolation.insight.coverageDetail", { percent: numeric(insight.value, locale, 1) });
+  const title = fullCoverage
+    ? t("isolation.insight.LIMITED_CONFIDENCE")
+    : t(`isolation.insight.${insight.code}`);
+  return <article className={`isolation-insight ${limitedEvidence ? "warning" : ""}`}>
+    {limitedEvidence ? <TriangleAlert size={16} aria-hidden="true" /> : <Gauge size={16} aria-hidden="true" />}
+    <div><strong>{title}</strong><p>{detail}</p></div>
   </article>;
 }
 

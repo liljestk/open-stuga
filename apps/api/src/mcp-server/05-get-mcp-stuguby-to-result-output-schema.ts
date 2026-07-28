@@ -85,7 +85,10 @@ import {
 } from "../services.js";
 import { SetupDoctor } from "../setup-doctor.js";
 import { HybridTelemetryReader } from "../timeseries/read-facade.js";
-import { runThermalIsolation } from "../thermal-isolation.js";
+import {
+  isThermalIsolationTemperatureSensor,
+  runThermalIsolationAsync,
+} from "../thermal-isolation.js";
 import { runThermalSimulation } from "../thermal-simulation.js";
 import { TpLinkBridge } from "../tp-link.js";
 import { SYSTEM_VERSION } from "../version.js";
@@ -304,11 +307,19 @@ export function outdoorTemperatureHistory(args: Record<string, unknown>): object
   return { samples: truncated ? samples.slice(-limit) : samples, from, to, truncated };
 }
 
-export function thermalIsolation(args: Record<string, unknown>): unknown {
+export async function thermalIsolation(args: Record<string, unknown>): Promise<unknown> {
   const house = requireMcpHouse(database, requiredString(args, "houseId"));
   const { from, to } = mcpThermalDateRange(optionalString(args, "from"), optionalString(args, "to"));
-  const sensors = database.listSensors(house.id).filter((sensor) => sensor.enabled);
-  if (sensors.length > 64) throw new Error("Thermal isolation comparison supports at most 64 enabled sensors");
+  const sensorCandidates = database.listSensors(house.id).filter((sensor) => sensor.enabled);
+  const sensorsWithTemperatureHistory = new Set(
+    database.measurementCoverage(
+      sensorCandidates.map((sensor) => sensor.id),
+      ["temperature"],
+    ).map((coverage) => coverage.sensorId),
+  );
+  const sensors = sensorCandidates.filter((sensor) =>
+    isThermalIsolationTemperatureSensor(sensor, sensorsWithTemperatureHistory.has(sensor.id)));
+  if (sensors.length > 64) throw new Error("Thermal isolation comparison supports at most 64 temperature sensors");
   const boundaryPaddingMs = 2 * 3_600_000;
   const outdoorSamples = database.outdoorTemperatureHistory(
     house.id,
@@ -317,7 +328,7 @@ export function thermalIsolation(args: Record<string, unknown>): unknown {
     new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
     50_000,
   );
-  return runThermalIsolation({
+  return runThermalIsolationAsync({
     house,
     sensors,
     indoorSamplesBySensor: new Map(sensors.map((sensor) => [

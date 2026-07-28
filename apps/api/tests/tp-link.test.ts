@@ -14,7 +14,7 @@ import type { AppConfig } from "../src/config.js";
 
 import { readIntegrationSecrets, writeIntegrationSecrets } from "../src/integration-secrets.js";
 
-import { ipv4BroadcastAddress, loadTpLinkDeviceMappings, normalizeTpLinkTemperature } from "../src/tp-link.js";
+import { ipv4BroadcastAddress, loadTpLinkDeviceMappings, normalizeTpLinkTemperature, tpLinkDiscoveryTargets } from "../src/tp-link.js";
 
 import { waitFor } from "./tp-linkTestSupport.js";
 
@@ -102,6 +102,9 @@ describe("direct TP-Link H100/H200 bridge", () => {
     expect(ipv4BroadcastAddress("10.0.0.4", "255.255.255.0")).toBe("10.0.0.255");
     expect(ipv4BroadcastAddress("not-an-address", "255.255.255.0")).toBeNull();
     expect(ipv4BroadcastAddress("192.168.1.2", "255.255.999.0")).toBeNull();
+    const targets = tpLinkDiscoveryTargets(["192.168.100.3", "8.8.8.8"]);
+    expect(targets).toContain("192.168.100.255");
+    expect(targets).not.toContain("8.8.8.255");
   });
 
   it("ingests mapped T310/T315 snapshots without requiring Home Assistant", async () => {
@@ -382,6 +385,33 @@ describe("direct TP-Link H100/H200 bridge", () => {
     runtime.tpLink.start();
 
     await waitFor(() => runtime!.database.listOpeningStateObservations(house.id).length === 1);
+    const discovered = await request(runtime.app).get("/api/v1/integrations/tp-link/devices").expect(200);
+    expect(discovered.body.devices[0]).toMatchObject({
+      deviceId: "contact-entry",
+      deviceType: "contact",
+      mappedSensorId: null,
+      mappedOpening: {
+        floorId: floors[0]!.id,
+        elementId: "entry-door",
+        kind: "door",
+        label: null,
+      },
+    });
+    await request(runtime.app).post("/api/v1/sensors").send({
+      houseId: house.id,
+      floorId: floors[0]!.id,
+      name: "Incorrect contact mapping",
+      room: floors[0]!.rooms[0]?.name ?? "Unassigned",
+      model: "T110",
+      x: 1,
+      y: 1,
+      z: 1.4,
+      tags: [],
+      enabled: true,
+      tpLinkDeviceId: "contact-entry",
+    }).expect(422).expect(({ body }) => {
+      expect(body.error.code).toBe("TP_LINK_CONTACT_REQUIRES_OPENING");
+    });
     const observation = runtime.database.listOpeningStateObservations(house.id)[0]!;
     expect(observation).toMatchObject({
       floorId: floors[0]!.id, elementId: "entry-door", state: "open", source: "tapo",

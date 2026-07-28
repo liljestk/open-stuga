@@ -47,9 +47,10 @@ system described in the roadmap.
   large periods into bounded queries. When a configured archive is unavailable,
   the UI warns that older matching periods may be absent instead of claiming the
   locally visible range is complete.
-- Buckets are aligned to UTC. The requested house timezone is preserved for
-  rendering and export, but local-calendar daily aggregation and explicit
-  23/24/25-hour daylight-saving behavior are not implemented yet.
+- Generic analytics-query buckets remain aligned to UTC. Calendar comparison
+  composes bounded queries over exact house-local hour/day/week/month/year
+  windows, including 23/24/25-hour days, but that local-calendar alignment is
+  not yet reusable by other analytics-query consumers.
 - Coverage is inferred from the median cadence present in the requested series.
   It is useful evidence of missingness, not a substitute for a source-declared
   sampling schedule. Only source-estimated, stale, missing, low-coverage, and

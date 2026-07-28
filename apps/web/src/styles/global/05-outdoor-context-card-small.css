@@ -201,11 +201,27 @@
 
 .building-plan-element.opening-open .building-element-side { fill-opacity: .3; }
 
-.building-opening-state-dot { fill: var(--muted); stroke: #fff; stroke-width: 1.5; vector-effect: non-scaling-stroke; pointer-events: none; }
+.building-opening-aperture { fill: var(--bg); stroke: var(--line-strong); stroke-width: 2.2; stroke-dasharray: 5 3; vector-effect: non-scaling-stroke; }
 
-.building-plan-element.opening-open .building-opening-state-dot { fill: var(--positive); }
+.building-plan-element.opening-open .building-opening-leaf { fill-opacity: .94; stroke-dasharray: none; filter: drop-shadow(3px 4px 3px color-mix(in srgb, var(--ink) 22%, transparent)); }
 
-.building-plan-element.editable:hover .building-element-front, .building-plan-element.editable:focus-visible .building-element-front, .building-plan-element.opening-control:hover .building-element-front, .building-plan-element.opening-control:focus-visible .building-element-front { stroke: var(--action); stroke-width: 3.2; filter: drop-shadow(0 3px 5px rgb(7 85 201 / .24)); }
+.building-opening-motion-path { fill: none; stroke: var(--line-strong); stroke-width: 1.5; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; pointer-events: none; }
+
+.building-vent-louvers { fill: none; stroke: var(--muted); stroke-width: 2.2; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
+
+.building-plan-element.vent.opening-open .building-vent-louvers { stroke: var(--positive); stroke-width: 2.8; }
+
+.building-opening-state-badge { pointer-events: none; }
+
+.building-opening-state-badge rect { fill: var(--panel); stroke: var(--line-strong); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+
+.building-opening-state-badge text { fill: var(--ink); font-family: "DM Sans", sans-serif; font-size: 10px; font-weight: 750; dominant-baseline: middle; }
+
+.building-opening-state-icon { fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+
+.building-plan-element.opening-open .building-opening-state-badge rect, .building-plan-element.opening-open .building-opening-state-icon { stroke: var(--positive); }
+
+.building-plan-element.editable:hover .building-element-front, .building-plan-element.editable:focus-visible .building-element-front, .building-plan-element.editable:hover .building-opening-aperture, .building-plan-element.editable:focus-visible .building-opening-aperture, .building-plan-element.opening-control:hover .building-element-front, .building-plan-element.opening-control:focus-visible .building-element-front, .building-plan-element.opening-control:hover .building-opening-aperture, .building-plan-element.opening-control:focus-visible .building-opening-aperture { stroke: var(--action); stroke-width: 3.2; filter: drop-shadow(0 3px 5px rgb(7 85 201 / .24)); }
 
 .building-plan-element.opening-control.pending { opacity: .58; cursor: wait; }
 

@@ -25,6 +25,40 @@ import { observationInstantTimestamp } from "./RoomComparisonChart";
 import { integration, now, openHomePulseMore, sample, sensor } from "./DecisionLayerTestSupport";
 
 describe("decision layer", () => {
+  it("omits unsupported CO2 from room cards but keeps configured missing readings visible", () => {
+    const unsupported = render(<I18nProvider><RoomComfortBoard
+      sensors={[sensor]}
+      latestMeasurements={{ [sensor.id]: { temperature: sample("temperature", 22), humidity: sample("humidity", 45) } }}
+      measurementHistory={{}}
+      definitions={BUILTIN_MEASUREMENTS}
+      alerts={[]}
+      units="metric"
+      now={now}
+      onOpenRoom={vi.fn()}
+    /></I18nProvider>);
+
+    const unsupportedCard = screen.getByRole("button", { name: /^Open Office\./ });
+    expect(within(unsupportedCard).queryByText("Carbon dioxide")).toBeNull();
+    expect(unsupportedCard.getAttribute("aria-label")).not.toMatch(/Carbon dioxide/);
+    expect(unsupportedCard.querySelector(".room-card-readings.two-metrics")).not.toBeNull();
+    unsupported.unmount();
+
+    render(<I18nProvider><RoomComfortBoard
+      sensors={[{ ...sensor, measurementEntityIds: { co2: "sensor.office_co2" } }]}
+      latestMeasurements={{ [sensor.id]: { temperature: sample("temperature", 22), humidity: sample("humidity", 45) } }}
+      measurementHistory={{}}
+      definitions={BUILTIN_MEASUREMENTS}
+      alerts={[]}
+      units="metric"
+      now={now}
+      onOpenRoom={vi.fn()}
+    /></I18nProvider>);
+
+    const supportedCard = screen.getByRole("button", { name: /^Open Office\./ });
+    expect(within(supportedCard).getByText("Carbon dioxide")).not.toBeNull();
+    expect(supportedCard.getAttribute("aria-label")).toMatch(/Carbon dioxide: —/);
+  });
+
   it("resurfaces a hidden insight when its severity changes", () => {
     const state = createDemoState();
     const house = state.houses[0]!;

@@ -339,7 +339,8 @@ describe("estimated spatial clouds and flows", () => {
 
   it("uses a theme-aware vector cue and keeps the airflow disclaimer visible on narrow screens", () => {
     expect(styles).toMatch(/\.flow-path\s*\{[^}]*stroke:\s*var\(--pine\)/s);
-    const mobile = styles.slice(styles.indexOf("@media (max-width: 680px)"), styles.indexOf("@media (prefers-reduced-motion"));
+    const mobileStart = styles.indexOf("@media (max-width: 680px)");
+    const mobile = styles.slice(mobileStart, styles.indexOf("@media (prefers-reduced-motion", mobileStart));
     expect(mobile).toMatch(/\.flow-legend\s*\{[^}]*display:\s*flex/s);
     expect(mobile).not.toMatch(/\.flow-legend\s*\{[^}]*display:\s*none/s);
     expect(contrastRatio("#79c7ad", "#19241f")).toBeGreaterThanOrEqual(3);

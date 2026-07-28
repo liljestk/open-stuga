@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { WebSocketServer, type WebSocket } from "ws";
 import { createApi, type ApiRuntime } from "../src/app.js";
-import type { AppConfig } from "../src/config.js";
 import { SensorGapRecoveryCoordinator, type SensorGapRecoveryAdapter } from "../src/sensor-gap-recovery.js";
+import { sensorGapRecoveryConfig as config } from "./sensor-gap-recoveryTestSupport.js";
 
 async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
   const started = Date.now();
@@ -15,28 +15,6 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<voi
     if (Date.now() - started > timeoutMs) throw new Error("Timed out waiting for condition");
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-}
-
-function config(overrides: Partial<AppConfig> = {}): AppConfig {
-  return {
-    port: 0, apiHost: "127.0.0.1", databasePath: ":memory:",
-    integrationSecretsFile: "unused.json",
-    assetDirectory: ".",
-    mockEnabled: false,
-    mockIntervalMs: 2_000,
-    retentionDays: 730,
-    ingestApiKey: null,
-    haUrl: null, haToken: null, haEntityMapFile: null,
-    tpLinkHost: null, tpLinkUsername: null, tpLinkPassword: null,
-    tpLinkDeviceMapFile: null,
-    tpLinkPollIntervalMs: 10_000,
-    tpLinkPython: "python",
-    tpLinkBridgeScript: "apps/api/python/tp_link_bridge.py",
-    alertWebhookUrl: null,
-    alertWebhookBearerToken: null,
-    corsOrigin: null,
-    ...overrides,
-  };
 }
 
 describe("sensor data-gap recovery", () => {

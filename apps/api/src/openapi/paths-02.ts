@@ -168,6 +168,24 @@ export const pathsPart02 = {
           },
         },
       },
+  "/houses/{id}/moisture-response": {
+        get: {
+          tags: ["Physics"],
+          operationId: "compareMoistureResponse",
+          description: "Compares how indoor water-vapor pressure follows the persisted outdoor moisture boundary across sensors, rooms, floors, and the whole house. Relative humidity is temperature-corrected before fitting. This is not an airtightness, dampness, mould, or building-code assessment.",
+          parameters: [
+            { $ref: "#/components/parameters/Id" },
+            { name: "from", in: "query", schema: { type: "string", format: "date-time" }, description: "Calibration start; the requested range may not exceed 14 days." },
+            { name: "to", in: "query", schema: { type: "string", format: "date-time" }, description: "Calibration end; defaults to now." },
+          ],
+          responses: {
+            "200": { description: "Room, floor, house, and sensor moisture-response comparison", content: { "application/json": { schema: { type: "object", required: ["moistureResponse"], properties: { moistureResponse: { $ref: "#/components/schemas/MoistureResponseResult" } } } } } },
+            "400": { description: "Malformed timestamp or calibration range" },
+            "404": { $ref: "#/components/responses/NotFound" },
+            "422": { description: "The enabled paired climate-sensor scope exceeds the bounded comparison limit" },
+          },
+        },
+      },
   "/houses/{id}/layout": {
         put: {
           tags: ["Digital twin"], operationId: "replaceHouseLayout", parameters: [{ $ref: "#/components/parameters/Id" }],

@@ -30,6 +30,7 @@ export function useThermalIsolation(houseId: string) {
     controller.current?.abort();
     const nextController = new AbortController();
     controller.current = nextController;
+    setResult(null);
     setLoading(true);
     setError(false);
     try {

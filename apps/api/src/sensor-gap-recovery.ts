@@ -304,7 +304,10 @@ export class SensorGapRecoveryCoordinator {
         this.#rebuildLegacyClimateProjection(gap);
       }
       const retryAt = result.state === "partial"
-        ? new Date(Date.parse(attemptedAt) + (accepted.length > 0 ? 1_000 : this.#retryDelay(gap.attemptCount))).toISOString()
+        // Continue segmented recovery promptly only when this attempt inserted
+        // new rows. Replayed retained rows are idempotent but must not create a
+        // one-second retry loop for an interval the source cannot fully cover.
+        ? new Date(Date.parse(attemptedAt) + (insertedCount > 0 ? 1_000 : this.#retryDelay(gap.attemptCount))).toISOString()
         : null;
       this.database.updateSensorDataGapRecovery(
         gap.id, result.state, recoveredPoints, attemptedAt, result.error, retryAt,
