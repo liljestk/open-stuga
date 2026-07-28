@@ -4,6 +4,11 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.18.1 - 2026-07-28
+
+- Fixed Raspberry Pi factory-image generation by using a valid FAT16 cluster
+  size for the enlarged first-partition USB rescue filesystem.
+
 ## 0.18.0 - 2026-07-28
 
 - Add bounded hybrid SQLite/Timescale history reads, archival coverage and
