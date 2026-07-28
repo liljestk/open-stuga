@@ -4,6 +4,12 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.18.2 - 2026-07-29
+
+- Fixed clean Raspberry Pi factory builds so the first-partition USB rescue
+  filesystem receives the complete firmware, kernel, initramfs, and autoboot
+  payload instead of only its partition metadata.
+
 ## 0.18.1 - 2026-07-28
 
 - Fixed Raspberry Pi factory-image generation by using a valid FAT16 cluster
