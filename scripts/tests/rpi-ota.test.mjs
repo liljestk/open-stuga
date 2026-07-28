@@ -173,7 +173,10 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
   assert.match(tryboot, /sed 's\/\^\[\^0-9\]\*\/\//);
   assert.match(rescuePatch, /size = 96M/);
   assert.match(rescuePatch, /extraargs = "-s 4 -S <SECTOR_SIZE>"/);
-  assert.match(rescuePatch, /mountpoint = "\/boot\/firmware"/);
+  assert.match(rescuePatch, /mountpoint = "\/boot\/rescue-firmware"/);
+  assert.match(rescuePatch, /cp -a "\$\{fs\}\/boot\/firmware\/\." "\$\{rescue_boot_dir\}\/"/);
+  assert.match(rescuePatch, /-      file "autoboot\.txt"/);
+  assert.match(rescuePatch, /cat << EOF > "\$\{rescue_boot_dir\}\/autoboot\.txt"/);
   assert.match(rescuePatch, /boot_partition=1/);
   assert.match(buildScript, /apply --check "\$usb_rescue_patch"/);
   assert.match(buildScript, /IGconf_image_idp_schema=\$usb_idp_schema/);
