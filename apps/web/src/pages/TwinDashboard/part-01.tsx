@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Activity, AlertTriangle, BatteryMedium, Bolt, Box, Check, ChevronDown, Droplets, Edit3, Gauge, History, Home, Map, MapPinPlus, Maximize2, Minimize2, Save, Sparkles, Thermometer, Wind } from "lucide-react";
-import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectionState, type Floor, type House, type ManualObservation, type ManualObservationInput, type ManualObservationPatch, type MeasurementDefinition, type MeasurementSample, type Metric, type MockScenario, type ObservationConfidence, type ObservationRevision, type ObservationSource, type ObservationTimePrecision, type OpeningStateObservation, type Point, type Reading, type Sensor, type StaticParameter, type UnitSystem } from "@climate-twin/contracts";
+import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectionState, type Floor, type House, type ManualObservation, type ManualObservationInput, type ManualObservationPatch, type MeasurementDefinition, type MeasurementSample, type Metric, type MockScenario, type ObservationConfidence, type ObservationRevision, type ObservationSource, type ObservationTimePrecision, type OpeningStateObservation, type OutdoorTemperatureSample, type Point, type Reading, type Sensor, type StaticParameter, type UnitSystem } from "@climate-twin/contracts";
 import { ReplayControls } from "../../components/ReplayControls";
 import { RoomComfortBoard } from "../../components/RoomComfortBoard";
 import { MoistureCoach } from "../../components/MoistureCoach";
@@ -38,7 +38,7 @@ import { readLocalStorage, writeLocalStorage } from "../../browserStorage";
 import { detectReplayClimateEvents, type ReplayClimateEvent } from "../../replayEvents";
 import { openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../openingState";
 import { integrationForHouse } from "../../integrationScope";
-import { BuildingScene, FloorPlan, HomeActivityTimeline, MeasurementGlyph, RoomComparisonChart, SensorInspector, SpatialLayerLab, StructureEditor, ThermalSimulationPanel, climateSensorLayerPreferenceKey, energyDeviceLayerPreferenceKey, experimentalVisualizationPreferenceKey, houseLocalDateTimeCandidates, initialClimateSensorLayerVisibility, initialEnergyDeviceLayerVisibility, initialExperimentalVisualizations, localDateTimeValue, localDateValue, mergeOpeningStateObservations, observationConfidences, observationKinds, observationSources, observationTimeFields, observationTimePrecisions, zonedDateTimeParts } from "./support";
+import { BuildingScene, FloorPlan, HomeActivityTimeline, MeasurementGlyph, RoomComparisonChart, SensorInspector, SpatialLayerLab, StructureEditor, ThermalSimulationPanel, climateSensorLayerPreferenceKey, energyDeviceLayerPreferenceKey, experimentalVisualizationPreferenceKey, houseLocalDateTimeCandidates, initialClimateSensorLayerVisibility, initialEnergyDeviceLayerVisibility, initialExperimentalVisualizations, initialOutdoorInfluenceMetric, localDateTimeValue, localDateValue, mergeOpeningStateObservations, observationConfidences, observationKinds, observationSources, observationTimeFields, observationTimePrecisions, outdoorInfluenceMetricPreferenceKey, zonedDateTimeParts } from "./support";
 import type { TwinDashboardProps } from "./support";
 export function useTwinDashboardPart01(context: { props: TwinDashboardProps }) {
   const { props } = context;
@@ -69,8 +69,12 @@ export function useTwinDashboardPart01(context: { props: TwinDashboardProps }) {
   const [replayLoadError, setReplayLoadError] = useState<string | null>(null);
   const [replayLoadPartial, setReplayLoadPartial] = useState(false);
   const [replaySampleCount, setReplaySampleCount] = useState<number | null>(null);
+  const [replayOutdoorSamples, setReplayOutdoorSamples] = useState<OutdoorTemperatureSample[]>([]);
+  const [replayOutdoorLoading, setReplayOutdoorLoading] = useState(false);
+  const [replayOutdoorPartial, setReplayOutdoorPartial] = useState(false);
   const [liveSpatialClockMs, setLiveSpatialClockMs] = useState(() => Date.now());
   const [experimentalVisualizations, setExperimentalVisualizations] = useState<ExperimentalVisualizationId[]>(initialExperimentalVisualizations);
+  const [outdoorInfluenceMetric, setOutdoorInfluenceMetric] = useState(() => initialOutdoorInfluenceMetric(metric));
   const [climateSensorsVisible, setClimateSensorsVisible] = useState(initialClimateSensorLayerVisibility);
   const [energyDevicesVisible, setEnergyDevicesVisible] = useState(initialEnergyDeviceLayerVisibility);
   const [observationPlacement, setObservationPlacement] = useState(false);
@@ -99,6 +103,7 @@ export function useTwinDashboardPart01(context: { props: TwinDashboardProps }) {
   const airflowReplayBatchRef = useRef("");
   const inspectorReplayBatchRef = useRef("");
   const replayWindowRequestRef = useRef(0);
+  const replayOutdoorBatchRef = useRef("");
   const previousReplayActiveRef = useRef(replayActive);
   const effectSeriesLoadsRef = useRef({ loader: props.onLoadSeries, keys: new Set<string>() });
   if (effectSeriesLoadsRef.current.loader !== props.onLoadSeries) {
@@ -169,6 +174,9 @@ export function useTwinDashboardPart01(context: { props: TwinDashboardProps }) {
       writeLocalStorage(experimentalVisualizationPreferenceKey, JSON.stringify(experimentalVisualizations));
     }, [experimentalVisualizations]);
   useEffect(() => {
+      writeLocalStorage(outdoorInfluenceMetricPreferenceKey, outdoorInfluenceMetric);
+    }, [outdoorInfluenceMetric]);
+  useEffect(() => {
       writeLocalStorage(climateSensorLayerPreferenceKey, String(climateSensorsVisible));
     }, [climateSensorsVisible]);
   useEffect(() => {
@@ -186,5 +194,5 @@ export function useTwinDashboardPart01(context: { props: TwinDashboardProps }) {
       setObservationStatus(false);
       setObservationError(false);
     }, [houseId, floorId, house.timezone]);
-  return Object.assign(context, { state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection, dataMode, locale, t, scopedIntegration, sensorSourceHealthy, editing, setEditing, fullPage, setFullPage, liveMapOpen, setLiveMapOpen, historyOpen, setHistoryOpen, analysisOpen, setAnalysisOpen, fullPagePanelRef, fullPageTriggerRef, readOnly, localAuthority, range, setRange, replayActive, setReplayActive, replayPlaying, setReplayPlaying, replayStartPending, setReplayStartPending, replayPrepared, setReplayPrepared, replaySpeed, setReplaySpeed, replayWindowFrom, setReplayWindowFrom, replayWindowTo, setReplayWindowTo, replayResolutionSeconds, setReplayResolutionSeconds, replayRequestedBounds, setReplayRequestedBounds, replayLoadState, setReplayLoadState, replayLoadError, setReplayLoadError, replayLoadPartial, setReplayLoadPartial, replaySampleCount, setReplaySampleCount, liveSpatialClockMs, setLiveSpatialClockMs, experimentalVisualizations, setExperimentalVisualizations, climateSensorsVisible, setClimateSensorsVisible, energyDevicesVisible, setEnergyDevicesVisible, observationPlacement, setObservationPlacement, observationKind, setObservationKind, observationSeverity, setObservationSeverity, observationNote, setObservationNote, observationTimePrecision, setObservationTimePrecision, observationDateTime, setObservationDateTime, observationDate, setObservationDate, observationValidFrom, setObservationValidFrom, observationValidTo, setObservationValidTo, observationSource, setObservationSource, observationSourceDetail, setObservationSourceDetail, observationConfidence, setObservationConfidence, observationDraft, setObservationDraft, observationValidationError, setObservationValidationError, observationStatus, setObservationStatus, observationError, setObservationError, parameterLabel, setParameterLabel, parameterValue, setParameterValue, parameterUnit, setParameterUnit, parameterPending, setParameterPending, parameterFeedback, setParameterFeedback, replayBatchRef, replayPreparationBatchRef, airflowReplayBatchRef, inspectorReplayBatchRef, replayWindowRequestRef, previousReplayActiveRef, effectSeriesLoadsRef, loadSeriesOnce });
+  return Object.assign(context, { state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection, dataMode, locale, t, scopedIntegration, sensorSourceHealthy, editing, setEditing, fullPage, setFullPage, liveMapOpen, setLiveMapOpen, historyOpen, setHistoryOpen, analysisOpen, setAnalysisOpen, fullPagePanelRef, fullPageTriggerRef, readOnly, localAuthority, range, setRange, replayActive, setReplayActive, replayPlaying, setReplayPlaying, replayStartPending, setReplayStartPending, replayPrepared, setReplayPrepared, replaySpeed, setReplaySpeed, replayWindowFrom, setReplayWindowFrom, replayWindowTo, setReplayWindowTo, replayResolutionSeconds, setReplayResolutionSeconds, replayRequestedBounds, setReplayRequestedBounds, replayLoadState, setReplayLoadState, replayLoadError, setReplayLoadError, replayLoadPartial, setReplayLoadPartial, replaySampleCount, setReplaySampleCount, replayOutdoorSamples, setReplayOutdoorSamples, replayOutdoorLoading, setReplayOutdoorLoading, replayOutdoorPartial, setReplayOutdoorPartial, liveSpatialClockMs, setLiveSpatialClockMs, experimentalVisualizations, setExperimentalVisualizations, outdoorInfluenceMetric, setOutdoorInfluenceMetric, climateSensorsVisible, setClimateSensorsVisible, energyDevicesVisible, setEnergyDevicesVisible, observationPlacement, setObservationPlacement, observationKind, setObservationKind, observationSeverity, setObservationSeverity, observationNote, setObservationNote, observationTimePrecision, setObservationTimePrecision, observationDateTime, setObservationDateTime, observationDate, setObservationDate, observationValidFrom, setObservationValidFrom, observationValidTo, setObservationValidTo, observationSource, setObservationSource, observationSourceDetail, setObservationSourceDetail, observationConfidence, setObservationConfidence, observationDraft, setObservationDraft, observationValidationError, setObservationValidationError, observationStatus, setObservationStatus, observationError, setObservationError, parameterLabel, setParameterLabel, parameterValue, setParameterValue, parameterUnit, setParameterUnit, parameterPending, setParameterPending, parameterFeedback, setParameterFeedback, replayBatchRef, replayPreparationBatchRef, airflowReplayBatchRef, inspectorReplayBatchRef, replayWindowRequestRef, replayOutdoorBatchRef, previousReplayActiveRef, effectSeriesLoadsRef, loadSeriesOnce });
 }

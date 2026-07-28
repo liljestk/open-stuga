@@ -1,4 +1,5 @@
-import { AlertTriangle, Box, ChevronDown, FlaskConical, History, Map as MapIcon, Radar, RefreshCw, Waves, Wind } from "lucide-react";
+import { AlertTriangle, Box, ChevronDown, CloudSun, FlaskConical, History, Map as MapIcon, Radar, RefreshCw, Waves, Wind } from "lucide-react";
+import type { UnitSystem } from "@climate-twin/contracts";
 import type { SpatialLayerEngineManifest, SpatialLayerSnapshot } from "../spatialLayers";
 import type { UseSpatialLayersResult } from "../useSpatialLayers";
 import type { AirflowEvidence } from "../airflowSimulation";
@@ -10,6 +11,11 @@ import type {
 import { formatInTimeZone } from "../dateTime";
 import { useI18n, type TranslationKey } from "../i18n";
 import { readLocalStorage, writeLocalStorage } from "../browserStorage";
+import {
+  formatOutdoorInfluenceValue,
+  type OutdoorInfluenceEstimate,
+  type OutdoorInfluenceMetric,
+} from "../outdoorInfluence";
 
 export interface SpatialLayerPanelProps {
   layers: UseSpatialLayersResult;
@@ -22,8 +28,12 @@ export interface SpatialLayerPanelProps {
     mode: "plan" | "isometric";
     coverage: SensorCoverageAssessment;
     airflow: AirflowEvidence | null;
+    outdoorInfluence: OutdoorInfluenceEstimate;
+    outdoorInfluenceMetric: OutdoorInfluenceMetric;
+    units: UnitSystem;
     suggestions: readonly ExperimentalLayerSuggestion[];
     onToggle: (layerId: ExperimentalVisualizationId, selected: boolean) => void;
+    onOutdoorInfluenceMetricChange: (metric: OutdoorInfluenceMetric) => void;
   };
 }
 
@@ -123,6 +133,21 @@ export function SpatialLayerPanel({ layers, timeZone, historyAt = null, compact 
   const quality = layers.snapshots.length
     ? Math.min(...layers.snapshots.map((snapshot) => snapshot.qualityScore))
     : null;
+  const influence = visualization?.outdoorInfluence;
+  const influenceDirection = influence
+    ? t(`spatial.outdoorInfluence.direction.${influence.direction}` as TranslationKey)
+    : t("spatial.outdoorInfluence.direction.neutral");
+  const influenceEvidence = influence?.availability === "ready"
+    && influence.outdoorValue !== null && influence.indoorValue !== null && influence.difference !== null && visualization
+    ? t("spatial.outdoorInfluence.evidence", {
+        outside: formatOutdoorInfluenceValue(influence.metric, influence.outdoorValue, visualization.units, locale),
+        inside: formatOutdoorInfluenceValue(influence.metric, influence.indoorValue, visualization.units, locale),
+        difference: formatOutdoorInfluenceValue(influence.metric, influence.difference, visualization.units, locale, true),
+        sensors: influence.sensorCount,
+      })
+    : t(influence?.availability === "no-outdoor"
+      ? "spatial.outdoorInfluence.needsOutdoor"
+      : "spatial.outdoorInfluence.needsIndoor");
 
   return (
     <details
@@ -149,24 +174,30 @@ export function SpatialLayerPanel({ layers, timeZone, historyAt = null, compact 
             <span className="spatial-view-badge">{visualization.mode === "plan" ? <MapIcon size={13} aria-hidden="true" /> : <Box size={13} aria-hidden="true" />}{visualization.mode === "plan" ? t("spatial.mode2d") : t("spatial.mode3d")}</span>
           </div>
           <div className="spatial-visualization-selector" role="group" aria-label={t("spatial.visualizations.selector")}>
-            {(["air-movement", "sensor-coverage"] as const).map((layerId) => {
+            {(["air-movement", "sensor-coverage", "outdoor-influence"] as const).map((layerId) => {
               const selected = visualization.selected.includes(layerId);
               const isAir = layerId === "air-movement";
-              const support = isAir ? visualization.airflow?.support ?? "low" : visualization.coverage.support;
+              const isCoverage = layerId === "sensor-coverage";
+              const support = isAir
+                ? visualization.airflow?.support ?? "low"
+                : isCoverage
+                  ? visualization.coverage.support
+                  : visualization.outdoorInfluence.support;
               return <button
                 key={layerId}
                 type="button"
+                data-layer-id={layerId}
                 aria-pressed={selected}
                 onClick={() => visualization.onToggle(layerId, !selected)}
               >
-                <span className="spatial-visualization-icon" aria-hidden="true">{isAir ? <Wind size={18} /> : <Radar size={18} />}</span>
-                <span><strong>{isAir ? t("spatial.airflow.title") : t("spatial.coverage.title")}</strong><small>{isAir ? t("spatial.airflow.short") : t("spatial.coverage.short")}</small></span>
+                <span className="spatial-visualization-icon" aria-hidden="true">{isAir ? <Wind size={18} /> : isCoverage ? <Radar size={18} /> : <CloudSun size={18} />}</span>
+                <span><strong>{isAir ? t("spatial.airflow.title") : isCoverage ? t("spatial.coverage.title") : t("spatial.outdoorInfluence.title")}</strong><small>{isAir ? t("spatial.airflow.short") : isCoverage ? t("spatial.coverage.short") : t("spatial.outdoorInfluence.short")}</small></span>
                 <em data-support={support}>{t(`spatial.airflow.support.${support}` as TranslationKey)}</em>
               </button>;
             })}
           </div>
           {visualization.selected.length > 0 && <div className="spatial-visualization-evidence">
-            {visualization.selected.includes("air-movement") && <article data-support={visualization.airflow?.support ?? "low"}>
+            {visualization.selected.includes("air-movement") && <article data-support={visualization.airflow?.support ?? "low"} data-layer-id="air-movement">
               <span className="spatial-visualization-icon" aria-hidden="true"><Wind size={16} /></span>
               <span><strong>{visualization.airflow && visualization.airflow.temperatureSensors >= 2 ? t("spatial.airflow.estimateReady") : t("spatial.airflow.needsData")}</strong><small>{t("spatial.airflow.evidence", {
                 temperature: visualization.airflow?.temperatureSensors ?? 0,
@@ -174,13 +205,33 @@ export function SpatialLayerPanel({ layers, timeZone, historyAt = null, compact 
                 tracer: visualization.airflow?.tracerSensors ?? 0,
               })}</small></span>
             </article>}
-            {visualization.selected.includes("sensor-coverage") && <article data-support={visualization.coverage.support}>
+            {visualization.selected.includes("sensor-coverage") && <article data-support={visualization.coverage.support} data-layer-id="sensor-coverage">
               <span className="spatial-visualization-icon" aria-hidden="true"><Radar size={16} /></span>
               <span><strong>{t("spatial.coverage.support", { support: Math.round(visualization.coverage.coverageScore * 100) })}</strong><small>{t("spatial.coverage.evidence", {
                 fresh: visualization.coverage.freshTemperatureSensors,
                 total: visualization.coverage.enabledSensors,
                 paired: visualization.coverage.pairedHumiditySensors,
               })}</small></span>
+            </article>}
+            {visualization.selected.includes("outdoor-influence") && <article data-support={visualization.outdoorInfluence.support} data-layer-id="outdoor-influence">
+              <span className="spatial-visualization-icon" aria-hidden="true"><CloudSun size={16} /></span>
+              <span>
+                <strong>{visualization.outdoorInfluence.availability === "ready"
+                  ? t("spatial.outdoorInfluence.estimateReady", { direction: influenceDirection })
+                  : t("spatial.outdoorInfluence.needsData")}</strong>
+                <small>{influenceEvidence}</small>
+                <label className="spatial-influence-metric">
+                  <span>{t("spatial.outdoorInfluence.metric")}</span>
+                  <select
+                    value={visualization.outdoorInfluenceMetric}
+                    onChange={(event) => visualization.onOutdoorInfluenceMetricChange(event.currentTarget.value as OutdoorInfluenceMetric)}
+                  >
+                    <option value="temperature">{t("spatial.outdoorInfluence.metric.temperature")}</option>
+                    <option value="moisture">{t("spatial.outdoorInfluence.metric.moisture")}</option>
+                  </select>
+                </label>
+                <small className="spatial-influence-disclaimer">{t("spatial.outdoorInfluence.disclaimer")}</small>
+              </span>
             </article>}
           </div>}
           {visualization.selected.length > 0 && visualization.suggestions.some((suggestion) => suggestionVisible(suggestion, visualization.selected)) && <div className="spatial-suggestions">

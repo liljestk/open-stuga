@@ -27,6 +27,16 @@ effectivePriceCentsPerKwh = rawPriceCentsPerKwh + marginCentsPerKwh
 effectivePriceEurPerKwh   = effectivePriceCentsPerKwh / 100
 ```
 
+Every successful fetch first commits all source intervals to the crash-safe
+SQLite outbox and immediately wakes TimeDB reconciliation. The permanent store
+keeps the interval boundaries, raw price, margin snapshot, and fetch
+time in the TimescaleDB `electricity_price_samples` hypertable. Repeated fetches
+are idempotent, and raw archive rows have no expiry policy. Historical API reads
+merge the SQLite current/unacknowledged tail with TimescaleDB, so daily, weekly,
+monthly, yearly, and later
+calendar-period analytics use durable price history rather than only the latest
+provider response.
+
 Changing a margin therefore never rewrites or rounds the upstream history.
 Contract metadata includes type, retailer, contract name, and optional monthly
 fee. The monthly fee is descriptive and is not folded into instantaneous €/h

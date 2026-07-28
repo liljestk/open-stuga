@@ -215,6 +215,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
       ? new TelemetryArchiveWorker(context.database, context.bus, timeseries, {
         batchSize: config.timeseriesBatchSize,
         requireTimescale: config.timeseriesRequired,
+        localHistoryRetentionDays: config.retentionDays,
       })
       : null;
   const telemetryRetention = telemetryArchive && config.retentionDays > 0
@@ -225,10 +226,12 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
       archive: timeseries,
       archivePhase: () => telemetryArchive?.status().phase,
       reconcile: () => telemetryArchive?.reconcileNow(),
-      localHistoryComplete: !telemetryRetention
+      localHistoryComplete: !telemetryArchive
         ? true
-        : (query) => Date.parse(query.from) >= Date.now() - config.retentionDays * 86_400_000,
+        : (query) => config.retentionDays > 0
+          && Date.parse(query.from) >= Date.now() - config.retentionDays * 86_400_000,
     });
+  context.energyOptimizer.setTelemetryReader(telemetryReader);
   const dailyAnalyticsFindings = new DailyAnalyticsFindingsWorker({
       database: context.database,
       telemetryReader,
@@ -255,7 +258,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
   const telegram = context.options.telegram ?? new TelegramService();
   const initialTelegramDeliveryGeneration: number = 0;
   Object.assign(context, { telegramDeliveryGeneration: initialTelegramDeliveryGeneration });
-  const alertEngine = new AlertEngine(context.database, context.bus, config, status, telegram);
+  const alertEngine = new AlertEngine(context.database, context.bus, config, status, telegram, telemetryReader);
   const telemetry = new TelemetryService(context.database, context.bus, alertEngine, context.dataMode);
   const measurements = new MeasurementService(context.database, context.bus, alertEngine, context.dataMode);
   const notificationOutbox = new NotificationOutboxWorker(
@@ -276,6 +279,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
   Object.assign(context, { notifyOpeningStateRecorded: initialNotifyOpeningStateRecorded });
   const wakeSensorGapRecovery = (): void => deferred.sensorGapRecovery?.wake();
   const tapoHistory = new TapoHistoryExportService(config, context.database, {
+      telemetryReader,
       onHistoryReady: wakeSensorGapRecovery,
       ...(context.options.tapoHistoryNow ? { now: context.options.tapoHistoryNow } : {}),
       deviceNameFor: context.options.tapoHistoryDeviceNameFor
@@ -359,6 +363,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
       },
     });
   deferred.sensorGapRecovery = new SensorGapRecoveryCoordinator(context.database, measurements, [homeAssistant, deferred.tpLink], {
+      telemetryReader,
       onRecovered: () => {
         measurementSnapshotCache.clear();
         return telemetryArchive?.reconcileNow();

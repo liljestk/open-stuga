@@ -268,6 +268,10 @@ export const apiPart01 = {
       `/stugbys/${encodeURIComponent(id)}/grants/${encodeURIComponent(grantId)}`,
       { method: "DELETE" },
     ),
+  removeInvalidStugubyGrant: (id: string, grantId: string) => request<{ removed: true; grantId: string }>(
+      `/stugbys/${encodeURIComponent(id)}/grants/${encodeURIComponent(grantId)}/invalid`,
+      { method: "DELETE" },
+    ),
   republishStugubyGrant: (id: string, grantId: string) => request<{ queued: boolean }>(
       `/stugbys/${encodeURIComponent(id)}/grants/${encodeURIComponent(grantId)}/republish`,
       { method: "POST" },

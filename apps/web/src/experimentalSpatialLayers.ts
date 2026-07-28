@@ -3,7 +3,7 @@ import type { AirflowEvidence, ClimateSampleMatrix } from "./airflowSimulation";
 import { isSpatialSampleFresh, type SpatialFreshnessOptions } from "./spatialFreshness";
 import type { SpatialLayerSnapshot, SpatialLayerZone } from "./spatialLayers";
 
-export type ExperimentalVisualizationId = "air-movement" | "sensor-coverage";
+export type ExperimentalVisualizationId = "air-movement" | "sensor-coverage" | "outdoor-influence";
 export type ExperimentalDataSupport = "low" | "medium" | "high";
 
 export interface SensorCoverageRegion {
@@ -69,6 +69,24 @@ export interface ExperimentalLayerSuggestion {
   floorName?: string;
   roomName?: string;
   count?: number;
+}
+
+/**
+ * Outdoor influence replaces other client-side overlays so its boundary cues
+ * cannot be mistaken for airflow or sensor-support geometry. The two existing
+ * overlays may still be combined.
+ */
+export function nextExperimentalVisualizationSelection(
+  current: readonly ExperimentalVisualizationId[],
+  layerId: ExperimentalVisualizationId,
+  selected: boolean,
+): ExperimentalVisualizationId[] {
+  if (!selected) return current.filter((candidate) => candidate !== layerId);
+  if (layerId === "outdoor-influence") return ["outdoor-influence"];
+  const withoutOutdoorInfluence = current.filter((candidate) => candidate !== "outdoor-influence");
+  return withoutOutdoorInfluence.includes(layerId)
+    ? withoutOutdoorInfluence
+    : [...withoutOutdoorInfluence, layerId];
 }
 
 function clamp(value: number, minimum = 0, maximum = 1): number {

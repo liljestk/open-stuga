@@ -4,6 +4,32 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ClimateDatabase } from "../src/db.js";
 
+function addArchiveDoor(database: ClimateDatabase, houseId: string): void {
+  database.createHouse({
+    id: houseId,
+    name: "Archive opening house",
+    timezone: "UTC",
+    floors: [{
+      id: "ground",
+      name: "Ground",
+      type: "ground",
+      width: 10,
+      height: 8,
+      elevation: 0,
+      walls: [{ id: "north", from: { x: 0, y: 0 }, to: { x: 10, y: 0 } }],
+      rooms: [],
+      planElements: [{
+        id: "front-door",
+        kind: "door",
+        wallId: "north",
+        position: { x: 4, y: 0 },
+        rotationDegrees: 0,
+        state: "closed",
+      }],
+    }],
+  });
+}
+
 describe("SQLite telemetry archive buffer", () => {
   let database: ClimateDatabase;
   let sensorId: string;
@@ -16,6 +42,7 @@ describe("SQLite telemetry archive buffer", () => {
   afterEach(() => database.close());
 
   it("uses explicit monotonic IDs for rowid-less archive tables across delete and VACUUM", () => {
+    addArchiveDoor(database, "archive-opening-house");
     database.upsertOutdoorTemperatureSample({
       houseId: "house-main",
       locationKey: "archive-location",
@@ -31,16 +58,27 @@ describe("SQLite telemetry archive buffer", () => {
       endAt: "2024-01-01T01:00:00.000Z",
       rawPriceCentsPerKwh: 5,
     }], "2024-01-01T00:01:00.000Z");
+    const firstOpeningObservation = database.recordOpeningStateObservation("archive-opening-house", {
+      floorId: "ground",
+      elementId: "front-door",
+      state: "open",
+      source: "api",
+      observedAt: "2024-01-01T00:00:00.000Z",
+    });
 
     const firstOutdoor = database.outdoorTemperatureArchivePage(0, 10_000)
       .find(({ record }) => record.locationKey === "archive-location")!;
     const firstPrice = database.electricityPriceArchivePage(0, 10_000)
       .find(({ record }) => record.startAt === "2024-01-01T00:00:00.000Z")!;
+    const firstOpening = database.openingStateArchivePage(0, 10_000)
+      .find(({ record }) => record.observationId === firstOpeningObservation.id)!;
     database.db.prepare(`DELETE FROM outdoor_temperature_samples
       WHERE house_id = ? AND location_key = ? AND timestamp = ? AND source = ?`)
       .run("house-main", "archive-location", "2024-01-01T00:00:00.000Z", "api");
     database.db.prepare("DELETE FROM electricity_price_points WHERE property_id = ? AND start_at = ?")
       .run("property-main", "2024-01-01T00:00:00.000Z");
+    database.db.prepare("DELETE FROM opening_state_observations WHERE id = ?")
+      .run(firstOpeningObservation.id);
     database.db.exec("VACUUM");
 
     database.upsertOutdoorTemperatureSample({
@@ -58,13 +96,23 @@ describe("SQLite telemetry archive buffer", () => {
       endAt: "2024-01-01T03:00:00.000Z",
       rawPriceCentsPerKwh: 6,
     }], "2024-01-01T02:01:00.000Z");
+    const nextOpeningObservation = database.recordOpeningStateObservation("archive-opening-house", {
+      floorId: "ground",
+      elementId: "front-door",
+      state: "closed",
+      source: "api",
+      observedAt: "2024-01-01T02:00:00.000Z",
+    });
 
     const nextOutdoor = database.outdoorTemperatureArchivePage(firstOutdoor.rowId, 10).at(0)!;
     const nextPrice = database.electricityPriceArchivePage(firstPrice.rowId, 10).at(0)!;
+    const nextOpening = database.openingStateArchivePage(firstOpening.rowId, 10).at(0)!;
     expect(nextOutdoor.rowId).toBeGreaterThan(firstOutdoor.rowId);
     expect(nextOutdoor.record.timestamp).toBe("2024-01-01T02:00:00.000Z");
     expect(nextPrice.rowId).toBeGreaterThan(firstPrice.rowId);
     expect(nextPrice.record.startAt).toBe("2024-01-01T02:00:00.000Z");
+    expect(nextOpening.rowId).toBeGreaterThan(firstOpening.rowId);
+    expect(nextOpening.record.observationId).toBe(nextOpeningObservation.id);
   });
 
   it("rewinds legacy implicit-rowid cursors exactly once during the explicit-ID upgrade", () => {
@@ -94,6 +142,71 @@ describe("SQLite telemetry archive buffer", () => {
       upgraded.saveTelemetryArchiveCheckpoint("outdoor_temperature_samples", 12);
       upgraded.migrate();
       expect(upgraded.telemetryArchiveCheckpoint("outdoor_temperature_samples")).toBe(12);
+    } finally {
+      upgraded?.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("upgrades the legacy archive-ID constraint and backfills existing opening events", () => {
+    const directory = mkdtempSync(join(tmpdir(), "stugu-opening-archive-upgrade-"));
+    const path = join(directory, "upgrade.sqlite");
+    let upgraded: ClimateDatabase | null = null;
+    try {
+      const legacy = new ClimateDatabase(path);
+      addArchiveDoor(legacy, "upgrade-opening-house");
+      const observation = legacy.recordOpeningStateObservation("upgrade-opening-house", {
+        floorId: "ground",
+        elementId: "front-door",
+        state: "open",
+        source: "api",
+        observedAt: "2024-01-01T00:00:00.000Z",
+      });
+      legacy.upsertOutdoorTemperatureSample({
+        houseId: "house-main",
+        locationKey: "upgrade-location",
+        timestamp: "2024-01-01T00:00:00.000Z",
+        temperatureC: -5,
+        source: "api",
+        fetchedAt: "2024-01-01T00:01:00.000Z",
+        stationId: null,
+        stationName: null,
+      });
+      legacy.db.exec(`
+        DROP TRIGGER IF EXISTS archive_outdoor_temperature_insert;
+        DROP TRIGGER IF EXISTS archive_outdoor_temperature_delete;
+        DROP TRIGGER IF EXISTS archive_electricity_price_insert;
+        DROP TRIGGER IF EXISTS archive_electricity_price_delete;
+        DROP TRIGGER IF EXISTS archive_opening_state_insert;
+        DROP TRIGGER IF EXISTS archive_opening_state_delete;
+        CREATE TABLE telemetry_archive_row_ids_legacy (
+          archive_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          table_name TEXT NOT NULL CHECK (
+            table_name IN ('outdoor_temperature_samples', 'electricity_price_samples')
+          ),
+          natural_key TEXT NOT NULL,
+          UNIQUE (table_name, natural_key)
+        );
+        INSERT INTO telemetry_archive_row_ids_legacy(archive_id, table_name, natural_key)
+          SELECT archive_id, table_name, natural_key
+          FROM telemetry_archive_row_ids
+          WHERE table_name <> 'opening_state_samples';
+        DROP TABLE telemetry_archive_row_ids;
+        ALTER TABLE telemetry_archive_row_ids_legacy RENAME TO telemetry_archive_row_ids;
+        CREATE INDEX idx_telemetry_archive_row_ids_page
+          ON telemetry_archive_row_ids(table_name, archive_id);
+      `);
+      legacy.close();
+
+      upgraded = new ClimateDatabase(path, false);
+      const definition = upgraded.db.prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'telemetry_archive_row_ids'",
+      ).get() as { sql: string };
+      expect(definition.sql).toContain("'opening_state_samples'");
+      expect(upgraded.outdoorTemperatureArchivePage(0, 10_000)
+        .some(({ record }) => record.locationKey === "upgrade-location")).toBe(true);
+      expect(upgraded.openingStateArchivePage(0, 10_000)
+        .some(({ record }) => record.observationId === observation.id)).toBe(true);
     } finally {
       upgraded?.close();
       rmSync(directory, { recursive: true, force: true });
@@ -240,6 +353,7 @@ describe("SQLite telemetry archive buffer", () => {
   });
 
   it("never prunes rows newer than the durable archive watermarks", () => {
+    addArchiveDoor(database, "retention-opening-house");
     const timestamps = ["2024-03-01T00:00:00.000Z", "2024-03-01T01:00:00.000Z"];
     for (const [index, timestamp] of timestamps.entries()) {
       database.insertReadings([{
@@ -262,17 +376,37 @@ describe("SQLite telemetry archive buffer", () => {
         stationName: null,
       });
     }
+    database.storePropertyElectricityPrices("property-main", timestamps.map((startAt, index) => ({
+      startAt,
+      endAt: new Date(Date.parse(startAt) + 30 * 60_000).toISOString(),
+      rawPriceCentsPerKwh: 5 + index,
+    })), "2024-03-01T02:00:00.000Z");
+    const openingObservations = timestamps.map((observedAt, index) => (
+      database.recordOpeningStateObservation("retention-opening-house", {
+        floorId: "ground",
+        elementId: "front-door",
+        state: index === 0 ? "open" : "closed",
+        source: "api",
+        observedAt,
+      })
+    ));
     const measurementRows = database.measurementArchivePage(0, 10_000)
       .filter(({ record }) => record.sensorId === sensorId && record.timestamp === timestamps[0]);
     const readingRow = database.readingArchivePage(0, 10_000)
       .find(({ record }) => record.sensorId === sensorId && record.timestamp === timestamps[0])!;
     const outdoorRow = database.outdoorTemperatureArchivePage(0, 10_000)
       .find(({ record }) => record.locationKey === "retention-location" && record.timestamp === timestamps[0])!;
+    const electricityRow = database.electricityPriceArchivePage(0, 10_000)
+      .find(({ record }) => record.startAt === timestamps[0])!;
+    const openingRow = database.openingStateArchivePage(0, 10_000)
+      .find(({ record }) => record.observationId === openingObservations[0]!.id)!;
 
     database.purgeReadingsBefore("2025-01-01T00:00:00.000Z", 100, {
       measurement_samples: Math.max(...measurementRows.map(({ rowId }) => rowId)),
       legacy_readings: readingRow.rowId,
       outdoor_temperature_samples: outdoorRow.rowId,
+      electricity_price_samples: electricityRow.rowId,
+      opening_state_samples: openingRow.rowId,
     });
 
     expect(database.history([sensorId], "2024-03-01T00:00:00.000Z", "2024-03-01T00:00:00.000Z")).toEqual([]);
@@ -282,6 +416,18 @@ describe("SQLite telemetry archive buffer", () => {
     )).toEqual([]);
     expect(database.outdoorTemperatureHistory(
       "house-main", "retention-location", timestamps[1], timestamps[1],
+    )).toHaveLength(1);
+    expect(database.listPropertyElectricityPrices(
+      "property-main", timestamps[0], "2024-03-01T00:30:00.000Z",
+    )).toEqual([]);
+    expect(database.listPropertyElectricityPrices(
+      "property-main", timestamps[1], "2024-03-01T01:30:00.000Z",
+    )).toHaveLength(1);
+    expect(database.listOpeningStateObservationHistory(
+      "retention-opening-house", timestamps[0], timestamps[0],
+    )).toEqual([]);
+    expect(database.listOpeningStateObservationHistory(
+      "retention-opening-house", timestamps[1], timestamps[1],
     )).toHaveLength(1);
   });
 });

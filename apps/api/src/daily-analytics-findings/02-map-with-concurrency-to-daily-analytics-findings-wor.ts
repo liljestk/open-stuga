@@ -24,7 +24,7 @@ import {
   IncompleteTelemetryHistoryError,
   type HybridArchiveReadState,
 } from "../timeseries/read-facade.js";
-import { DAILY_ANALYTICS_ALGORITHM_VERSION, DEFAULT_INTERVAL_MS, DEFAULT_STARTUP_JITTER_MS, DailyAnalyticsFindingsRunSummary, DailyAnalyticsFindingsWorkerOptions, DailyAnalyticsFindingsWorkerStatus, FindingPeriods, HISTORY_LIMIT, MAX_FINDINGS, MAX_MEASUREMENT_SERIES, OUTDOOR_TEMPERATURE_DEFINITION, PeerPeriod, PeriodValue, RankedFinding, aggregateAnalyticsSeries, comparisonFinding, dailyFindingPeriods, electricityDefinition, errorMessage, openingPeriodValue, usable } from "./01-daily-analytics-algorithm-version-to-error-message.js";
+import { DAILY_ANALYTICS_ALGORITHM_VERSION, DEFAULT_INTERVAL_MS, DEFAULT_STARTUP_JITTER_MS, DailyAnalyticsFindingsRunSummary, DailyAnalyticsFindingsWorkerOptions, DailyAnalyticsFindingsWorkerStatus, FindingPeriods, HISTORY_LIMIT, MAX_FINDINGS, MAX_MEASUREMENT_SERIES, OUTDOOR_TEMPERATURE_DEFINITION, PeerPeriod, PeriodValue, RankedFinding, aggregateAnalyticsSeries, comparisonFinding, dailyFindingPeriods, electricityDefinition, errorMessage, openingActivityFromObservations, openingPeriodValue, usable } from "./01-daily-analytics-algorithm-version-to-error-message.js";
 
 export async function mapWithConcurrency<T, R>(
   values: readonly T[],
@@ -184,7 +184,7 @@ export class DailyAnalyticsFindingsWorker {
       const outdoor = await this.#outdoorFinding(house, dataMode, periods, warnings);
       if (outdoor) ranked.push(outdoor);
     }
-    ranked.push(...this.#openingFindings(house, periods));
+    ranked.push(...await this.#openingFindings(house, periods, warnings));
 
     return {
       apiVersion: "1.0",
@@ -351,10 +351,38 @@ export class DailyAnalyticsFindingsWorker {
     });
   }
 
-  #openingFindings(house: House, periods: FindingPeriods): RankedFinding[] {
-    const activity = [periods.current, ...periods.baseline].map((period) => ({
-      period,
-      rows: this.#database.openingStateActivity(house.id, period.start, period.end),
+  async #openingFindings(
+    house: House,
+    periods: FindingPeriods,
+    warnings: Set<DailyAnalyticsFindingsSnapshot["warnings"][number]>,
+  ): Promise<RankedFinding[]> {
+    const activity = await Promise.all([periods.current, ...periods.baseline].map(async (period) => {
+      try {
+        const leadingAt = new Date(Date.parse(period.start) - 1).toISOString();
+        const [leading, history] = await Promise.all([
+          this.#telemetryReader.openingStateSnapshot({ houseId: house.id, at: leadingAt, limit: 10_000 }),
+          this.#telemetryReader.openingStateHistory({
+            houseId: house.id,
+            from: period.start,
+            to: period.end,
+            limit: HISTORY_LIMIT,
+          }),
+        ]);
+        return {
+          period,
+          rows: openingActivityFromObservations(
+            [...leading.records, ...history.records],
+            period.start,
+            period.end,
+          ),
+        };
+      } catch (error) {
+        if (error instanceof IncompleteTelemetryHistoryError) {
+          warnings.add("archive-incomplete");
+          return { period, rows: [] as OpeningStateActivityRecord[] };
+        }
+        throw error;
+      }
     }));
     const result: RankedFinding[] = [];
     for (const floor of house.floors) {

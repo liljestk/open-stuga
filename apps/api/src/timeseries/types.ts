@@ -64,6 +64,22 @@ export interface ElectricityPriceRecord {
   metadata?: TelemetryMetadata;
 }
 
+export interface OpeningStateRecord {
+  observationId: string;
+  houseId: string;
+  floorId: string;
+  elementId: string;
+  state: "open" | "closed" | "unknown";
+  openFraction: number | null;
+  source: TelemetrySource;
+  observedAt: string;
+  validUntil: string | null;
+  externalId: string | null;
+  connectionId: string | null;
+  recordedAt: string;
+  metadata?: TelemetryMetadata;
+}
+
 export interface EnergyCostAggregateQuery extends QueryControl {
   sensorId: string;
   propertyId: string;
@@ -91,7 +107,8 @@ export type ArchiveTableName =
   | "measurement_samples"
   | "legacy_readings"
   | "outdoor_temperature_samples"
-  | "electricity_price_samples";
+  | "electricity_price_samples"
+  | "opening_state_samples";
 
 export interface ArchiveCheckpoint {
   sourceId: string;
@@ -119,6 +136,16 @@ export interface MeasurementHistoryQuery extends QueryControl {
   from: string;
   to: string;
   limit?: number;
+}
+
+/** Quality-weighted, bounded buckets used by thermal and moisture models. */
+export interface ThermalMeasurementHistoryQuery extends QueryControl {
+  sensorId: string;
+  metrics: readonly string[];
+  from: string;
+  to: string;
+  bucketMinutes?: number;
+  limitPerMetric?: number;
 }
 
 /** Bounded multi-sensor raw window used by shared and derived consumers. */
@@ -160,6 +187,19 @@ export interface ElectricityPriceHistoryQuery extends QueryControl {
   propertyId: string;
   from: string;
   to: string;
+  limit?: number;
+}
+
+export interface OpeningStateHistoryQuery extends QueryControl {
+  houseId: string;
+  from: string;
+  to: string;
+  limit?: number;
+}
+
+export interface OpeningStateSnapshotQuery extends QueryControl {
+  houseId: string;
+  at: string;
   limit?: number;
 }
 
@@ -218,7 +258,7 @@ export interface TelemetryHealth {
 }
 
 export interface TelemetryTableStorage {
-  table: "measurement_samples" | "legacy_readings" | "outdoor_temperature_samples" | "electricity_price_samples";
+  table: ArchiveTableName;
   estimatedRows: number;
   totalBytes: number;
   tableBytes: number;

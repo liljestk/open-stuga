@@ -194,7 +194,7 @@ export function configureApiPart20(context: ReturnType<typeof configureApiPart19
   context.app.get(`${context.prefix}/data-export`, async (request, response) => {
       const privacyLevel = enumValue(request.query.privacyLevel ?? "operations", ["structure", "operations", "full"] as const, "privacyLevel") as DataExportPrivacyLevel;
       const includeTelemetry = request.query.includeTelemetry === "true";
-      if (includeTelemetry && context.telemetryRetention) {
+      if (includeTelemetry && context.telemetryArchive) {
         throw new HttpError(409, "ARCHIVE_EXPORT_REQUIRES_BACKUP", "A raw telemetry JSON export is unavailable after SQLite hot retention; use a verified backup, which includes both SQLite and TimescaleDB");
       }
       const generatedAt = new Date().toISOString();

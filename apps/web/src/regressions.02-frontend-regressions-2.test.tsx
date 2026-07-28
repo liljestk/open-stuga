@@ -404,12 +404,13 @@ describe("frontend regressions", () => {
     expect(view.container.querySelector(".chart-legend .predicted")).toBeNull();
   });
 
-  it("loads durable airflow-driver history once per enabled house sensor when replay starts", async () => {
+  it("loads every replay measurement once per enabled house sensor when replay starts", async () => {
     const user = userEvent.setup();
     const state = createDemoState();
     const house = state.houses[0]!;
     const floor = house.floors[0]!;
     const houseSensors = state.sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled);
+    const replayMetrics = state.measurementDefinitions.filter((definition) => definition.enabled).map((definition) => definition.id);
     const onLoadSeries = vi.fn();
     render(withI18n(
       <TwinDashboard
@@ -429,8 +430,8 @@ describe("frontend regressions", () => {
       expect(new Set(onLoadSeries.mock.calls.map(([sensorId]) => sensorId))).toEqual(new Set(houseSensors.map((sensor) => sensor.id)));
     });
     const loadedPairs = new Set(onLoadSeries.mock.calls.map(([sensorId, loadedMetric]) => `${sensorId}:${loadedMetric}`));
-    expect(loadedPairs.size).toBe(houseSensors.length * 3);
-    for (const metric of ["temperature", "humidity", "co2"]) {
+    expect(loadedPairs.size).toBe(houseSensors.length * replayMetrics.length);
+    for (const metric of replayMetrics) {
       expect(new Set(onLoadSeries.mock.calls.filter(([, loadedMetric]) => loadedMetric === metric).map(([sensorId]) => sensorId)))
         .toEqual(new Set(houseSensors.map((sensor) => sensor.id)));
     }

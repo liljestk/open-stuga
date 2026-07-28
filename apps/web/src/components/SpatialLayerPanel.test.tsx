@@ -83,9 +83,10 @@ describe("SpatialLayerPanel disclosure", () => {
     expect(view.container.childElementCount).toBe(0);
   });
 
-  it("toggles the two view layers independently and exposes data-improvement guidance", () => {
+  it("offers the default-off outdoor influence layer and its single-metric control", () => {
     localStorage.setItem(preferenceKey, "expanded");
     const onToggle = vi.fn();
+    const onOutdoorInfluenceMetricChange = vi.fn();
     render(<I18nProvider><SpatialLayerPanel
       layers={layerState()}
       timeZone="Europe/Helsinki"
@@ -115,8 +116,26 @@ describe("SpatialLayerPanel disclosure", () => {
           support: "low",
           divergenceRms: 0,
         },
+        outdoorInfluence: {
+          metric: "temperature",
+          availability: "ready",
+          direction: "cooling",
+          support: "medium",
+          sensorCount: 2,
+          outdoorValue: 3,
+          indoorValue: 21,
+          difference: -18,
+          strength: .8,
+          stale: false,
+          windDriven: true,
+          windwardEdge: "left",
+          edges: [],
+        },
+        outdoorInfluenceMetric: "temperature",
+        units: "metric",
         suggestions: [{ id: "refresh", code: "refresh-sensor", layer: "sensor-coverage", roomName: "Bedroom" }],
         onToggle,
+        onOutdoorInfluenceMetricChange,
       }}
     /></I18nProvider>);
 
@@ -124,7 +143,13 @@ describe("SpatialLayerPanel disclosure", () => {
     expect(onToggle).toHaveBeenCalledWith("air-movement", true);
     fireEvent.click(screen.getByRole("button", { name: /sensor support/i }));
     expect(onToggle).toHaveBeenCalledWith("sensor-coverage", false);
+    const influenceButton = screen.getByRole("button", { name: /outdoor influence/i });
+    expect(influenceButton.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(influenceButton);
+    expect(onToggle).toHaveBeenCalledWith("outdoor-influence", true);
     expect(screen.getByText(/restore fresh temperature readings.*bedroom/i)).not.toBeNull();
     expect(screen.getByText("2D slice")).not.toBeNull();
+
+    expect(onOutdoorInfluenceMetricChange).not.toHaveBeenCalled();
   });
 });

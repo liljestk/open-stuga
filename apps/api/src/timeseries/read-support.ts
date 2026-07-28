@@ -1,0 +1,92 @@
+import type { MeasurementCoverageRecord } from "./types.js";
+
+export const DEFAULT_HISTORY_LIMIT = 20_000;
+export const DEFAULT_WINDOW_LIMIT = 100_000;
+export const MAX_HISTORY_LIMIT = 100_000;
+export const MAX_WINDOW_LIMIT = 250_000;
+
+export type HybridTelemetryFamily =
+  | "measurement"
+  | "legacy-reading"
+  | "outdoor-temperature"
+  | "electricity-price"
+  | "opening-state";
+export type HybridArchiveReadState = "not-configured" | "not-ready" | "merged" | "failed";
+
+export interface HybridTelemetryReadProvenance {
+  localSource: "sqlite";
+  archiveSource: "timescale" | null;
+  archiveState: HybridArchiveReadState;
+  localHistoryComplete: boolean;
+  localRecordCount: number;
+  archiveRecordCount: number;
+  duplicateRecordCount: number;
+  filteredSyntheticRecordCount: number;
+  returnedRecordCount: number;
+}
+
+export interface HybridTelemetryReadResult<T> {
+  records: T[];
+  /** Counts and source state only; errors, credentials, paths, and query values are never exposed. */
+  provenance: HybridTelemetryReadProvenance;
+}
+
+export interface HybridMeasurementCoverageResult {
+  records: MeasurementCoverageRecord[];
+  archiveState: HybridArchiveReadState;
+  /** True when SQLite is complete or archive coverage was merged successfully. */
+  complete: boolean;
+}
+
+export interface LocalCompletenessQuery {
+  family: HybridTelemetryFamily;
+  from: string;
+  to: string;
+}
+
+export class IncompleteTelemetryHistoryError extends Error {
+  readonly code = "TELEMETRY_ARCHIVE_REQUIRED";
+
+  constructor(readonly archiveState: Exclude<HybridArchiveReadState, "merged">) {
+    super("Complete telemetry history is temporarily unavailable");
+  }
+}
+
+export function positiveLimit(value: number | undefined, fallback: number, maximum: number): number {
+  const resolved = value ?? fallback;
+  if (!Number.isInteger(resolved) || resolved < 1 || resolved > maximum) {
+    throw new RangeError(`limit must be an integer from 1 to ${maximum}`);
+  }
+  return resolved;
+}
+
+export function isSyntheticSource(source: string): boolean {
+  return source === "mock" || source === "replay";
+}
+
+export function unique(values: readonly string[]): string[] {
+  return [...new Set(values)];
+}
+
+export async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  operation: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const result = new Array<R>(values.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < values.length) {
+      const index = next;
+      next += 1;
+      result[index] = await operation(values[index]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, worker));
+  return result;
+}
+
+export function aborted(signal: AbortSignal | undefined): Error | null {
+  if (!signal?.aborted) return null;
+  return signal.reason instanceof Error ? signal.reason : new Error("Telemetry read aborted");
+}

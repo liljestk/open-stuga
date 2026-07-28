@@ -73,11 +73,46 @@ test("dry-run inventories all telemetry without changing the SQLite source", asy
     assert.equal(inventory.outdoor_temperature_samples.optionalJsonColumns.conditions_json.present, false);
     assert.equal(inventory.outdoor_temperature_samples.optionalJsonColumns.conditions_json.populatedRows, 0);
     assert.equal(inventory.electricity_price_points.rows, 1);
+    assert.equal(inventory.opening_state_observations.rows, 1);
     assert.equal(await sha256File(source), before);
     assert.equal(existsSync(options.snapshot), false);
     assert.equal(existsSync(options.checkpoint), false);
   } finally {
     writer.close();
+  }
+});
+
+test("migration maps electricity margin and opening-state event history", (t) => {
+  const directory = temporaryDirectory(t);
+  const source = join(directory, "event-history.sqlite");
+  const writer = createTelemetryFixture(source);
+  writer.close();
+  const database = openReadOnlySqlite(source);
+  try {
+    const price = mapRows("electricity_price_points", [
+      database.prepare("SELECT * FROM electricity_price_points").get(),
+    ])[0];
+    assert.equal(price.margin_cents_per_kwh, 0.45);
+    const opening = mapRows("opening_state_observations", [
+      database.prepare("SELECT * FROM opening_state_observations").get(),
+    ])[0];
+    assert.deepEqual(opening, {
+      observation_id: "opening-1",
+      house_id: "house-1",
+      floor_id: "floor-1",
+      element_id: "door-1",
+      observed_at: "2026-07-18T10:00:00.000Z",
+      source: "api",
+      state: "open",
+      open_fraction: 1,
+      valid_until: null,
+      external_id: "binary_sensor.door",
+      connection_id: "ha-1",
+      recorded_at: "2026-07-18T10:00:01.000Z",
+      metadata: {},
+    });
+  } finally {
+    database.close();
   }
 });
 
@@ -347,10 +382,12 @@ test("migration requires and validates canonical hypertables under a dedicated m
   assert.ok(queries.some(({ text, values }) => (
     text.includes("set_config('statement_timeout'") && values[0] === "123456ms"
   )));
-  assert.equal(queries.filter(({ text }) => text.includes("create_hypertable(")).length, 4);
-  assert.equal(queries.filter(({ text }) => text.includes("set_chunk_time_interval(")).length, 4);
+  assert.equal(queries.filter(({ text }) => text.includes("create_hypertable(")).length, 5);
+  assert.equal(queries.filter(({ text }) => text.includes("set_chunk_time_interval(")).length, 5);
   const schemaSql = queries.find(({ text }) => text.includes("CREATE TABLE IF NOT EXISTS \"telemetry\".measurement_samples"))?.text;
   assert.match(schemaSql, /archive_source_state/u);
+  assert.match(schemaSql, /opening_state_samples/u);
+  assert.match(schemaSql, /margin_cents_per_kwh/u);
   assert.match(schemaSql, /VALUES \(2, 'Checkpointed SQLite archive reconciliation/u);
 });
 

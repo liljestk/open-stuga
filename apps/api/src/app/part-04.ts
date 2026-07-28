@@ -203,6 +203,7 @@ export function configureApiPart04(context: ReturnType<typeof configureApiPart03
         allowPrivateNetwork: config.electricityAllowPrivateEndpoints,
         ...(context.options.electricityEndpointResolver ? { resolver: context.options.electricityEndpointResolver } : {}),
       },
+      () => context.telemetryArchive?.reconcileNow(),
     );
   const homeAssistantCredentialTester = context.options.homeAssistantCredentialTester ?? testHomeAssistantCredentials;
   const tpLinkCredentialTester = context.options.tpLinkCredentialTester
@@ -213,6 +214,7 @@ export function configureApiPart04(context: ReturnType<typeof configureApiPart03
         new OpenMeteoWeatherProvider(),
       );
   const weatherRecovery = new WeatherRecoveryCoordinator(context.database, weatherProvider, {
+      telemetryReader: context.telemetryReader,
       onRecovered: () => context.telemetryArchive?.reconcileNow(),
     });
   const weather = new WeatherService(
@@ -227,6 +229,7 @@ export function configureApiPart04(context: ReturnType<typeof configureApiPart03
   const weatherEvents = context.options.weatherEventBroker ?? new InMemoryWeatherEventBroker();
   const removeWeatherProjector = weatherEvents.addProjector((event) => {
       persistWeatherObservation(context.database, event.weather, context.dataMode);
+      void context.telemetryArchive?.reconcileNow().catch(() => undefined);
     });
   const removeWeatherTelemetryBridge = weatherEvents.subscribe((event) => {
       context.bus.publish({ type: "weather", data: event });
@@ -276,6 +279,7 @@ export function configureApiPart04(context: ReturnType<typeof configureApiPart03
     };
   context.notifyOpeningStateRecorded = (observation: OpeningStateObservation): void => {
       context.bus.publish({ type: "opening", data: observation });
+      void context.telemetryArchive?.reconcileNow().catch(() => undefined);
       const house = context.database.getHouse(observation.houseId);
       notifySpatial((runtime) => runtime.scheduler.wakeHouse(
         observation.houseId,

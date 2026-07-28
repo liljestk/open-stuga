@@ -16,8 +16,10 @@ package updates.
 
 - `rpi-image-gen` builds Raspberry Pi OS Trixie for Pi 4 with read-only A/B
   system slots.
-- The first boot expands the final persistent partition to fill the external
-  disk.
+- The first boot relocates the backup GPT and expands the final persistent
+  partition and ext4 filesystem to fill the complete external disk.
+- A complete first-partition rescue payload boots slot A directly before any
+  A/B partition handoff has been proven on that Pi/USB bridge combination.
 - Docker and containerd state are shared across both OS slots.
 - Stugu listens on the trusted LAN and Tailscale interfaces by default, while
   first-owner creation requires a device-generated setup link.
@@ -80,12 +82,14 @@ In `raspi-config`, choose **Advanced Options → Boot Order → NVMe/USB Boot**.
 Early Pi 4 boards may update their EEPROM during the package upgrade. Power the
 Pi off cleanly after any requested reboot.
 
-Do not skip this step. The A/B layout selects its boot slot through
+Do not skip this step. The A/B layout selects later boot slots through
 `autoboot.txt` on a GPT partition table. Raspberry Pi boot firmware older than
 2025-01-22 resolves that combination incorrectly on Pi 4 and older boards: it
 loads `start4.elf` but then looks for the kernel in the wrong partition. Every
-Stugu factory build now parses the included `start4.elf` build date and rejects
-firmware older than that fix. See
+Stugu factory build parses the included `start4.elf` build date and rejects
+firmware older than that fix. The factory's normal path nevertheless starts
+from its complete first partition; an alternate slot is made normal only after
+a real tryboot succeeds. See
 [rpi-eeprom#654](https://github.com/raspberrypi/rpi-eeprom/issues/654).
 
 USB discovery and boot order are handled separately by the Pi 4 EEPROM. Update
@@ -120,7 +124,7 @@ Clone Stugu and check out the exact release you want to install:
 ```sh
 git clone https://github.com/liljestk/open-stuga.git
 cd open-stuga
-RELEASE_TAG=v0.17.1  # replace with the release you want to install
+RELEASE_TAG=v0.18.0  # replace with the release you want to install
 git switch --detach "$RELEASE_TAG"
 ```
 
@@ -187,8 +191,9 @@ The outputs are written to `dist/rpi/`:
 
 Before compression, the build validates the raw image with Linux `sfdisk` and
 `mtools`. It fails unless the protective MBR, GPT, six aligned/named
-partitions, filesystem signatures, current Pi firmware, boot files, and
-identical factory A/B slots are all valid.
+partitions, filesystem signatures, current Pi firmware, complete rescue
+payload, explicit Pi 4 kernel/initramfs selection, and identical factory A/B
+slots are all valid.
 
 If supplied, the factory image contains the single-use Connect key, so it is
 mode `0600`. Do not upload such an image to a public release. Delete it after
@@ -403,11 +408,12 @@ source after an ambiguous network failure until the target receipt is known.
   `/persistent/stugu/release-status`.
 - If the new OS cannot boot, Raspberry Pi's try-boot A/B mechanism returns to
   the previous slot.
-- Seven green ACT flashes means the firmware did not find a kernel. On an old
-  image this can be the pre-2025-01-22 GPT/autoboot firmware bug. On an image
-  that passes the validator, confirm the EEPROM USB boot order and the written
-  disk, then inspect the USB bridge, cable, and power. Some USB-SATA adapters
-  work in bootloader mass-storage mode but fail when Linux selects UAS.
+- Seven green ACT flashes means the firmware did not find a kernel. Release
+  0.18.0 and newer include a complete first-partition rescue boot and explicit
+  Pi 4 kernel/initramfs filenames, so repeated seven-flash failures first point
+  to an incomplete write, old EEPROM boot order, cable, bridge, or power issue.
+  Some USB-SATA adapters work in bootloader mass-storage mode but fail when
+  Linux selects UAS.
   `enable_uart=1` and `uart_2ndstage=1` are already set, so a 115200-baud
   serial console on GPIO 14/15 shows exactly which file fails.
 - Do not run `docker compose down -v`; it deletes the named data and credential

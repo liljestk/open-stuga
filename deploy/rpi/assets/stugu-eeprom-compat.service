@@ -1,0 +1,13 @@
+[Unit]
+Description=Apply Stugu Raspberry Pi 4 EEPROM USB compatibility
+After=bootfs.mount rpi-eeprom-update.service
+RequiresMountsFor=/bootfs
+ConditionPathExists=/proc/device-tree/chosen/bootloader
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/stugu-eeprom-compat
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

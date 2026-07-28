@@ -592,8 +592,8 @@ An MCP client's executable can similarly be `docker` with arguments `compose`,
 its working directory.
 
 The local stdio server exposes 54 inspection tools. It opens the existing
-SQLite database in read-only/query-only mode and has a fail-closed allowlist:
-there are no create, update, delete, import, migration, sharing,
+SQLite database in read-only/query-only mode and uses the configured TimeDB for
+telemetry history. Its fail-closed allowlist has no create, update, delete, import, migration, sharing,
 synchronization, or control tools. Start the API once after an upgrade so the
 database schema is current. Raw credentials, binary asset downloads, SSE
 streams, invitation secrets, federation event payloads, and browser
@@ -626,7 +626,7 @@ account/session administration are also excluded.
 | <code>get_house_opening_states</code> | Effective door, window, and vent state with optional bounded history |
 | <code>get_house_electricity_price</code> | Current effective Home electricity price and optional Property price history |
 | <code>get_house_energy_cost</code> | Energy consumption, price coverage, and cost for one energy sensor |
-| <code>query_outdoor_temperature_history</code> | Locally retained outdoor-temperature history |
+| <code>query_outdoor_temperature_history</code> | Bounded permanent observed outdoor-temperature history |
 | <code>run_thermal_simulation</code> | Fit and run the experimental first-order room thermal model |
 | <code>get_house_thermal_isolation</code> | Experimental cross-sensor Home thermal-isolation comparison |
 

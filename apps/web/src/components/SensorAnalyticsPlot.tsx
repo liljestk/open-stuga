@@ -22,7 +22,7 @@ export interface AggregateSeriesPoint extends SeriesPoint {
   sensorCount: number;
 }
 
-interface SensorAnalyticsPlotData {
+export interface SensorAnalyticsPlotData {
   observed: Array<{ sensor: { id: string; name: string }; points: SeriesPoint[] }>;
   aggregate: AggregateSeriesPoint[];
   aggregateForecast: AggregateSeriesPoint[];

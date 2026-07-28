@@ -95,7 +95,7 @@ import { SYSTEM_VERSION } from "../version.js";
 import { FmiWeatherProvider, WeatherRequestSupersededError, WeatherService } from "../weather.js";
 import type { StugubyService } from "../stuguby/service.js";
 import { StugubyStore } from "../stuguby/store.js";
-import { config, dataMode, dataOperations, database, energyCost, optionalString, requiredString, status, stuguby, stugubyStore, telemetry } from "./01-config-to-get-house-weather.js";
+import { config, dataMode, dataOperations, database, energyCost, optionalString, requiredString, status, stuguby, stugubyStore, telemetry, telemetryReader } from "./01-config-to-get-house-weather.js";
 import { activeStugubyGrant, recommendedOverviewGrant, stugubySide, summarizeMcpStuguby } from "./04-point-schema-to-summarize-mcp-stuguby.js";
 
 export function getMcpStuguby(args: Record<string, unknown>): object {
@@ -186,7 +186,7 @@ export function dailyAnalyticsFindings(args: Record<string, unknown>): object {
   };
 }
 
-export function propertyElectricity(args: Record<string, unknown>): object {
+export async function propertyElectricity(args: Record<string, unknown>): Promise<object> {
   const propertyId = requiredString(args, "propertyId");
   if (!database.getProperty(propertyId)) throw new Error(`Unknown property: ${propertyId}`);
   const electricity = database.getPropertyElectricityConfig(propertyId);
@@ -194,10 +194,16 @@ export function propertyElectricity(args: Record<string, unknown>): object {
   const to = mcpDateTime(args, "to", new Date(Date.now() + 48 * 3_600_000));
   const from = mcpDateTime(args, "from", new Date(Date.now() - 24 * 3_600_000));
   validateMcpDateRange(from, to);
+  const prices = (await telemetryReader.electricityPriceHistory({
+    propertyId,
+    from,
+    to,
+    limit: 10_000,
+  })).records;
   return {
     config: publicElectricityConfiguration(electricity, true),
     current: database.getCurrentPropertyElectricityPrice(propertyId),
-    prices: database.listPropertyElectricityPrices(propertyId, from, to),
+    prices,
   };
 }
 
@@ -211,10 +217,14 @@ export function listPropertyNotes(args: Record<string, unknown>): unknown {
   });
 }
 
-export function houseOpeningStates(args: Record<string, unknown>): object {
+export async function houseOpeningStates(args: Record<string, unknown>): Promise<object> {
   const house = requireMcpHouse(database, requiredString(args, "houseId"));
   const at = mcpDateTime(args, "at", new Date());
-  const observations = database.listOpeningStateObservations(house.id, 10_000, at);
+  const observations = (await telemetryReader.openingStateSnapshot({
+    houseId: house.id,
+    at,
+    limit: 10_000,
+  })).records;
   const states = house.floors.flatMap((floor) => (floor.planElements ?? []).flatMap((element) => {
     if (element.kind !== "door" && element.kind !== "window" && element.kind !== "vent") return [];
     return [{
@@ -237,20 +247,19 @@ export function houseOpeningStates(args: Record<string, unknown>): object {
     throw new Error("Opening-state history must cover more than zero and at most 366 days");
   }
   const limit = mcpBoundedInteger(args.limit, "limit", 10_000, 1, 10_000);
-  const initial = database.listOpeningStateObservations(house.id, limit, from);
-  const history = database.listOpeningStateObservationHistory(
-    house.id,
-    from,
-    to,
-    Math.max(1, limit - Math.min(initial.length, limit - 1)),
-  );
+  const [initialRead, historyRead] = await Promise.all([
+    telemetryReader.openingStateSnapshot({ houseId: house.id, at: from, limit }),
+    telemetryReader.openingStateHistory({ houseId: house.id, from, to, limit }),
+  ]);
+  const initial = initialRead.records;
+  const history = historyRead.records;
   const merged = [...new Map([...initial, ...history].map((observation) => [observation.id, observation])).values()]
     .sort((left, right) => Date.parse(left.observedAt) - Date.parse(right.observedAt) || left.id.localeCompare(right.id))
     .slice(-limit);
   return { snapshot: { houseId: house.id, at, states }, observations, history: merged, from, to };
 }
 
-export function houseElectricityPrice(args: Record<string, unknown>): object {
+export async function houseElectricityPrice(args: Record<string, unknown>): Promise<object> {
   const house = requireMcpHouse(database, requiredString(args, "houseId"));
   const toHomePrice = (price: NonNullable<ReturnType<ClimateDatabase["getCurrentPropertyElectricityPrice"]>>) => ({
     startAt: price.startAt,
@@ -267,7 +276,12 @@ export function houseElectricityPrice(args: Record<string, unknown>): object {
   validateMcpDateRange(from, to);
   return {
     current,
-    prices: database.listPropertyElectricityPrices(house.propertyId, from, to).map(toHomePrice),
+    prices: (await telemetryReader.electricityPriceHistory({
+      propertyId: house.propertyId,
+      from,
+      to,
+      limit: 10_000,
+    })).records.map(toHomePrice),
   };
 }
 
@@ -289,20 +303,20 @@ export async function houseEnergyCost(args: Record<string, unknown>): Promise<un
   });
 }
 
-export function outdoorTemperatureHistory(args: Record<string, unknown>): object {
+export async function outdoorTemperatureHistory(args: Record<string, unknown>): Promise<object> {
   const house = requireMcpHouse(database, requiredString(args, "houseId"));
   const to = mcpDateTime(args, "to", new Date());
   const from = mcpDateTime(args, "from", new Date(Date.parse(to) - 24 * 3_600_000));
   validateMcpDateRange(from, to);
   const limit = mcpBoundedInteger(args.limit, "limit", 20_000, 1, 50_000);
   if (!house.location) return { samples: [], from, to, truncated: false };
-  const samples = database.outdoorTemperatureHistory(
-    house.id,
-    outdoorLocationKey(house.location),
+  const samples = (await telemetryReader.outdoorTemperatureHistory({
+    houseId: house.id,
+    locationKey: outdoorLocationKey(house.location),
     from,
     to,
-    limit + 1,
-  );
+    limit: limit + 1,
+  })).records;
   const truncated = samples.length > limit;
   return { samples: truncated ? samples.slice(-limit) : samples, from, to, truncated };
 }
@@ -312,30 +326,40 @@ export async function thermalIsolation(args: Record<string, unknown>): Promise<u
   const { from, to } = mcpThermalDateRange(optionalString(args, "from"), optionalString(args, "to"));
   const sensorCandidates = database.listSensors(house.id).filter((sensor) => sensor.enabled);
   const sensorsWithTemperatureHistory = new Set(
-    database.measurementCoverage(
-      sensorCandidates.map((sensor) => sensor.id),
-      ["temperature"],
-    ).map((coverage) => coverage.sensorId),
+    (await telemetryReader.measurementCoverage({
+      sensorIds: sensorCandidates.map((sensor) => sensor.id),
+      metrics: ["temperature"],
+    })).records.map((coverage) => coverage.sensorId),
   );
   const sensors = sensorCandidates.filter((sensor) =>
     isThermalIsolationTemperatureSensor(sensor, sensorsWithTemperatureHistory.has(sensor.id)));
   if (sensors.length > 64) throw new Error("Thermal isolation comparison supports at most 64 temperature sensors");
   const boundaryPaddingMs = 2 * 3_600_000;
-  const outdoorSamples = database.outdoorTemperatureHistory(
-    house.id,
-    outdoorLocationKey(house.location),
-    new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
-    new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
-    50_000,
-  );
+  const [outdoorRead, ...indoorReads] = await Promise.all([
+    telemetryReader.outdoorTemperatureHistory({
+      houseId: house.id,
+      locationKey: outdoorLocationKey(house.location),
+      from: new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
+      to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
+      limit: 50_000,
+    }),
+    ...sensors.map((sensor) => telemetryReader.thermalMeasurementHistory({
+      sensorId: sensor.id,
+      metrics: ["temperature"],
+      from,
+      to,
+      bucketMinutes: 5,
+      limitPerMetric: 5_000,
+    })),
+  ]);
   return runThermalIsolationAsync({
     house,
     sensors,
-    indoorSamplesBySensor: new Map(sensors.map((sensor) => [
+    indoorSamplesBySensor: new Map(sensors.map((sensor, index) => [
       sensor.id,
-      database.thermalTemperatureHistory(sensor.id, from, to, 5, 5_000),
+      indoorReads[index]!.records,
     ])),
-    outdoorSamples,
+    outdoorSamples: outdoorRead.records,
     from,
     to,
   });

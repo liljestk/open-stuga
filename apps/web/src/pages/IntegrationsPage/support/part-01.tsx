@@ -30,6 +30,7 @@ import type {
   House,
   HouseLocation,
   HouseMapPlacement,
+  IntegrationDiscoveryJob,
   IntegrationStatus,
   TpLinkDiscoveredDevice,
   UnitSystem,
@@ -48,6 +49,11 @@ import { LocationDiscoveryPanel, type DiscoveredHomeDefaults } from "../../../co
 import { formatInTimeZone } from "../../../dateTime";
 import { useI18n } from "../../../i18n";
 import { integrationForHouse } from "../../../integrationScope";
+export {
+  forgetIntegrationDiscovery,
+  rememberIntegrationDiscovery,
+  rememberedIntegrationDiscovery,
+} from "../../../integrationDiscoveryStorage";
 import { AutomationSetupPanel } from "../../AutomationSetupPanel";
 import { SetupOperationsPanel } from "../../SetupOperationsPanel";
 
@@ -80,6 +86,7 @@ export interface IntegrationsPageProps {
     deviceType?: "climate" | "contact" | "energy" | "unknown";
   }) => void;
   onOpenLayout?: () => void;
+  onDiscoveryStarted?: (job: IntegrationDiscoveryJob) => void;
 }
 
 export type Feedback = { kind: "success" | "error"; message: string } | null;
@@ -132,37 +139,6 @@ export function writeSetupSection(section: SetupSection, replace = false): void 
   const next = `${setupPath[1]}/${section}${window.location.search}${window.location.hash}`;
   if (`${window.location.pathname}${window.location.search}${window.location.hash}` === next) return;
   window.history[replace ? "replaceState" : "pushState"](null, "", next);
-}
-
-const integrationDiscoveryStorageKey = (houseId: string) => `stugu.integration-discovery.${houseId}`;
-
-export function rememberedIntegrationDiscovery(houseId: string): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const id = window.localStorage.getItem(integrationDiscoveryStorageKey(houseId));
-    return id && id.length <= 200 ? id : null;
-  } catch {
-    return null;
-  }
-}
-
-export function rememberIntegrationDiscovery(houseId: string, jobId: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(integrationDiscoveryStorageKey(houseId), jobId);
-  } catch {
-    // Discovery still completes server-side when browser storage is unavailable.
-  }
-}
-
-export function forgetIntegrationDiscovery(houseId: string, jobId?: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    const key = integrationDiscoveryStorageKey(houseId);
-    if (!jobId || window.localStorage.getItem(key) === jobId) window.localStorage.removeItem(key);
-  } catch {
-    // Nothing sensitive or authoritative is stored here.
-  }
 }
 
 export function dateTime(value: string | null | undefined, locale: string, timeZone: string, options?: Intl.DateTimeFormatOptions): string | null {

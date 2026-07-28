@@ -1,0 +1,53 @@
+#!/bin/sh
+# Emit the persistent/tryboot partition selection for MMC, NVMe, and USB.
+
+set -eu
+
+partition_number() {
+  name="${1##*/}"
+  case "$name" in
+    *p[0-9]*) number="${name##*p}" ;;
+    *) number="$(printf '%s\n' "$name" | sed 's/^[^0-9]*//')" ;;
+  esac
+  case "$number" in
+    ""|*[!0-9]*) return 1 ;;
+  esac
+  printf '%s\n' "$number"
+}
+
+read_dt_u32() {
+  # shellcheck disable=SC2046,SC2312
+  set -- $(od -An -tu1 -N4 "$1" 2>/dev/null)
+  [ "$#" -eq 4 ] || return 1
+  echo $(( $1 * 16777216 + $2 * 65536 + $3 * 256 + $4 ))
+}
+
+active_boot="$(readlink -f /dev/disk/by-slot/active/boot)"
+other_boot="$(readlink -f /dev/disk/by-slot/other/boot)"
+current_partition="$(partition_number "$active_boot")"
+other_partition="$(partition_number "$other_boot")"
+
+normal_partition="$current_partition"
+boot_partition="$(read_dt_u32 \
+  /proc/device-tree/chosen/bootloader/partition 2>/dev/null || true)"
+if [ -n "$boot_partition" ] && command -v stugu-usb-bootdev >/dev/null 2>&1; then
+  boot_disk="$(stugu-usb-bootdev 2>/dev/null || true)"
+  if [ -n "$boot_disk" ]; then
+    boot_label="$(blkid -s PARTLABEL -o value \
+      "/dev/${boot_disk}${boot_partition}" 2>/dev/null || true)"
+    # A factory image first boots the complete rescue payload on partition 1.
+    # Keep that known-good path as normal until the alternate slot has passed
+    # a real firmware tryboot.
+    if [ "$boot_label" = "bootconfig" ]; then
+      normal_partition="$boot_partition"
+    fi
+  fi
+fi
+
+cat <<EOF
+[all]
+tryboot_a_b=1
+boot_partition=${normal_partition}
+[tryboot]
+boot_partition=${other_partition}
+EOF

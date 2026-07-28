@@ -325,14 +325,28 @@ registerStugubyServiceMethods({
     },
   requireLocalPublisher(this: StugubyServiceInternals, id: string): StugubySummary {
       const stuguby = this.requireStuguby(id);
+      const member = this.store.getMember(id, this.identity.nodeId);
+      if (!member || member.publicKey !== this.identity.publicKey) {
+        throw new StugubyError(
+          409,
+          "STUGBY_IDENTITY_MISMATCH",
+          "This Stugu's saved identity does not match its Stuguby membership. Restore the original identity before sharing or synchronizing.",
+        );
+      }
       if (stuguby.localMemberState !== "active" || stuguby.localRole === "viewer") {
         throw new StugubyError(403, "PUBLISHING_FORBIDDEN", "An active steward, property manager, or participant node is required to publish Home data");
+      }
+      if (member.state !== stuguby.localMemberState || member.role !== stuguby.localRole) {
+        throw new StugubyError(409, "STUGBY_MEMBERSHIP_MISMATCH", "The local Stuguby membership summary is out of date. Synchronize before publishing Home data.");
       }
       return stuguby;
     },
   requireCoordinator(this: StugubyServiceInternals, id: string): StugubySummary {
-      const stuguby = this.requireStuguby(id);
-      if (!this.store.isCoordinator(id)) throw new StugubyError(409, "COORDINATOR_REQUIRED", "This operation must be performed by the Stuguby coordinator");
+      const stuguby = this.requireLocalPublisher(id);
+      const member = this.store.getMember(id, this.identity.nodeId);
+      if (!this.store.isCoordinator(id) || stuguby.coordinatorNodeId !== this.identity.nodeId || member?.role !== "steward") {
+        throw new StugubyError(409, "COORDINATOR_REQUIRED", "This operation must be performed by the Stuguby coordinator");
+      }
       return stuguby;
     },
   requireReadyCoordinator(this: StugubyServiceInternals, id: string): StugubySummary {

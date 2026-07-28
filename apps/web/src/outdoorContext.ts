@@ -125,7 +125,14 @@ export function createOutdoorBoundaryContext(
 ): OutdoorBoundaryContext | null {
   const conditions = weather?.current;
   if (!conditions) return null;
+  return createOutdoorBoundaryContextFromConditions(house, conditions, weather.stale);
+}
 
+export function createOutdoorBoundaryContextFromConditions(
+  house: House,
+  conditions: OutdoorConditions,
+  stale = false,
+): OutdoorBoundaryContext {
   const rawWindFrom = conditions.windDirectionDegrees;
   const windFromDegrees = typeof rawWindFrom === "number" && Number.isFinite(rawWindFrom)
     ? normalizeDegrees(rawWindFrom)
@@ -140,7 +147,7 @@ export function createOutdoorBoundaryContext(
   return {
     conditions,
     observedAt: conditions.timestamp,
-    stale: weather.stale,
+    stale,
     windFromDegrees,
     windFromCardinal: windFromDegrees === null ? null : cardinalDirection(windFromDegrees),
     planWindFromDegrees,

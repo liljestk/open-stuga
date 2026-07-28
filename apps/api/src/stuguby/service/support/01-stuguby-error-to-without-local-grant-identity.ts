@@ -110,6 +110,7 @@ export interface StugubyServiceOptions {
   publicOrigin?: string | null;
   suggestedPublicOrigin?: string | null;
   allowUiPublicOrigin?: boolean;
+  localTelemetryHistoryComplete?: (from?: string) => boolean;
 }
 
 export interface MachineRequestProof {

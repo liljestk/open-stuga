@@ -1,0 +1,36 @@
+diff --git a/image/gpt/ab_userdata/genimage.cfg.in.erofs b/image/gpt/ab_userdata/genimage.cfg.in.erofs
+index d0acb69..fe02013 100644
+--- a/image/gpt/ab_userdata/genimage.cfg.in.erofs
++++ b/image/gpt/ab_userdata/genimage.cfg.in.erofs
+@@ -83,3 +83,5 @@ image bootconfig.vfat {
+    }
+-   size = 32M
++   size = 96M
++   mountpoint = "/boot/firmware"
++   exec-pre = "<SLOTP> BOOT"
+ }
+diff --git a/image/gpt/ab_userdata/genimage.cfg.in.ext4 b/image/gpt/ab_userdata/genimage.cfg.in.ext4
+index cd6aa59..981fd94 100644
+--- a/image/gpt/ab_userdata/genimage.cfg.in.ext4
++++ b/image/gpt/ab_userdata/genimage.cfg.in.ext4
+@@ -83,3 +83,5 @@ image bootconfig.vfat {
+    }
+-   size = 32M
++   size = 96M
++   mountpoint = "/boot/firmware"
++   exec-pre = "<SLOTP> BOOT"
+ }
+diff --git a/image/gpt/ab_userdata/pre-image.sh b/image/gpt/ab_userdata/pre-image.sh
+index 557761a..4b6c315 100755
+--- a/image/gpt/ab_userdata/pre-image.sh
++++ b/image/gpt/ab_userdata/pre-image.sh
+@@ -30,2 +30,4 @@ VERITY_ARGS_SYSTEM="\
++# Keep the complete first-partition rescue payload as the normal factory boot.
++# Raspberry Pi Connect replaces this after an alternate slot passes tryboot.
+ # Set up the partition layout for tryboot support. Partition numbering
+ # relates directly to the layout in genimage.cfg.in
+@@ -35,3 +37,3 @@ VERITY_ARGS_SYSTEM="\
+ tryboot_a_b=1
+-boot_partition=2
++boot_partition=1
+ [tryboot]

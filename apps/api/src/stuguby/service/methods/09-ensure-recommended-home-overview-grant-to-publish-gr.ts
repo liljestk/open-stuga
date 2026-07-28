@@ -116,6 +116,7 @@ registerStugubyServiceMethods({
       const adoption = this.store.getPropertyAdoption(stugubyId);
       if (!stuguby || stuguby.localMemberState !== "active" || stuguby.localRole === "viewer"
         || !adoption || adoption.state !== "adopted") return;
+      this.requireLocalPublisher(stugubyId);
       const grants = this.store.listGrants(stugubyId, this.identity.nodeId);
       for (const house of this.database.listHouses(adoption.localPropertyId)) {
         if (house.stuguby?.stugubyId !== stugubyId || house.stuguby.ownership !== "local") continue;
@@ -274,6 +275,33 @@ registerStugubyServiceMethods({
       this.refreshLocalSharedHouseLink(revoked.stugubyId, previous.localHouseId ?? "");
       this.deleteUnreferencedBlobs(this.store.pendingBlobDeletions(1_000));
       return revoked;
+    },
+  removeInvalidGrant(this: StugubyServiceInternals, grantId: string): { removed: true; grantId: string } {
+      const grant = this.store.getGrant(grantId);
+      if (!grant) throw new StugubyError(404, "GRANT_NOT_FOUND", "Share grant was not found");
+      this.requireLocalPublisher(grant.stugubyId);
+      if (grant.revokedAt || grantExpired(grant)) {
+        throw new StugubyError(409, "GRANT_NOT_ACTIVE", "Only an active invalid share record can be removed");
+      }
+      const authority = this.store.getMember(grant.stugubyId, grant.authorityNodeId);
+      if (grant.authorityNodeId === this.identity.nodeId || authority?.state === "active") {
+        throw new StugubyError(409, "GRANT_AUTHORITY_ACTIVE", "This share has an active authority and must use the normal revoke flow");
+      }
+      const anotherActivePublicationGrant = this.store.listGrants(grant.stugubyId, grant.authorityNodeId)
+        .some((candidate) => candidate.id !== grant.id
+          && candidate.publicationId === grant.publicationId
+          && !candidate.revokedAt
+          && !grantExpired(candidate));
+      if (!anotherActivePublicationGrant) {
+        this.removeRemoteHomeProjection(grant.stugubyId, grant.authorityNodeId, grant.publicationId);
+      }
+      const unreferenced = this.store.removeInvalidGrant(grantId);
+      this.store.audit(grant.stugubyId, "grant.invalid-removed", this.identity.nodeId, grant.id, {
+        formerAuthorityNodeId: grant.authorityNodeId,
+        publicationId: grant.publicationId,
+      });
+      this.deleteUnreferencedBlobs(unreferenced);
+      return { removed: true, grantId };
     },
   republishGrant(this: StugubyServiceInternals, grantId: string): void {
       const grant = this.store.getGrant(grantId);

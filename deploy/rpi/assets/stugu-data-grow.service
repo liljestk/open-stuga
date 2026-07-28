@@ -1,8 +1,9 @@
 [Unit]
 Description=Expand the Stugu persistent partition
+DefaultDependencies=no
 Requires=persistent.mount
 After=persistent.mount
-Before=persistent-shared-init.service containerd.service docker.service stugu.service
+Before=persistent-shared-init.service var.mount local-fs.target
 ConditionPathExists=!/persistent/.stugu-expanded
 
 [Service]
@@ -11,4 +12,4 @@ ExecStart=/usr/local/sbin/stugu-grow-persistent
 RemainAfterExit=yes
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=local-fs.target

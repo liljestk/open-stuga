@@ -10,7 +10,7 @@ import {
   type StugubySharedProperty,
   type StugubySummary,
 } from "@climate-twin/stuguby-protocol";
-import { AlertTriangle, Check, Copy, Database, KeyRound, Link, LoaderCircle, Network, Pencil, Plus, RefreshCw, Settings2, ShieldCheck, Sparkles, Trash2, Unplug, Users } from "lucide-react";
+import { AlertTriangle, Check, Copy, Database, KeyRound, Link, LoaderCircle, Network, Plus, RefreshCw, Settings2, ShieldCheck, Sparkles, Trash2, Unplug, Users } from "lucide-react";
 import {
   api,
   type StugubyDetailResponse,
@@ -25,9 +25,10 @@ import { twentyFourHourInputLocale } from "../../dateTime";
 import { useI18n, type TranslationKey } from "../../i18n";
 import { CloudflareSetupPanel } from "../CloudflareSetupPanel";
 import "../StugubyPage.css";
-import { MemberIdentity, activeGrant, datasetLabelKeys, editableHomeDatasets, errorMessage, formattedTime, grantHomeName, idlePublicationCatalog, initialDatasetDraft, localDateTimeInput, loopbackOrigin, memberStateLabelKeys, parseArray, roleLabelKeys, suggestedCoordinatorOrigin } from "./support";
+import { MemberIdentity, datasetLabelKeys, editableHomeDatasets, errorMessage, formattedTime, idlePublicationCatalog, initialDatasetDraft, localDateTimeInput, loopbackOrigin, memberStateLabelKeys, parseArray, roleLabelKeys, suggestedCoordinatorOrigin } from "./support";
 import type { DatasetDraft, PublicationCatalogState, StugubyPageProps } from "./support";
 import { useStugubyPagePart03 } from "./part-03";
+import { GrantOverview } from "./GrantOverview";
 export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart03>) {
   const { houses, properties, onInventoryChange, locale, t, roleLabel, stateLabel, index, setIndex, detail, setDetail, selectedId, setSelectedId, loading, setLoading, busy, setBusy, error, setError, notice, setNotice, detailLoading, setDetailLoading, telemetryError, setTelemetryError, copied, setCopied, cloudflareSetupRequested, setCloudflareSetupRequested, createdInvitation, setCreatedInvitation, telemetrySamples, setTelemetrySamples, createName, setCreateName, createDescription, setCreateDescription, createCoordinatorUrl, setCreateCoordinatorUrl, joinCoordinatorUrl, setJoinCoordinatorUrl, joinUrl, setJoinUrl, joinInvitationId, setJoinInvitationId, joinSecret, setJoinSecret, inviteRole, setInviteRole, inviteLocalLabel, setInviteLocalLabel, inviteExpiresAt, setInviteExpiresAt, publishableHouses, grantHouseId, setGrantHouseId, audienceKind, setAudienceKind, audienceNodes, setAudienceNodes, datasetDraft, setDatasetDraft, telemetryLive, setTelemetryLive, telemetryHistoryHours, setTelemetryHistoryHours, telemetryMetrics, setTelemetryMetrics, telemetrySensors, setTelemetrySensors, telemetryRate, setTelemetryRate, grantExpiresAt, setGrantExpiresAt, houseEditPolicy, setHouseEditPolicy, recoveryMode, setRecoveryMode, houseSuccessorNodeId, setHouseSuccessorNodeId, editingGrantId, setEditingGrantId, publicationCatalog, setPublicationCatalog, catalogRevision, setCatalogRevision, activeLocalGrantHouseIds, unsharedHouses, grantHouseOptions, propertyName, setPropertyName, propertyDescription, setPropertyDescription, propertyLatitude, setPropertyLatitude, propertyLongitude, setPropertyLongitude, propertyLocationLabel, setPropertyLocationLabel, areasJson, setAreasJson, equipmentJson, setEquipmentJson, notesJson, setNotesJson, maintenanceJson, setMaintenanceJson, propertyEditPolicy, setPropertyEditPolicy, propertySuccessorNodeId, setPropertySuccessorNodeId, adoptionPropertyId, setAdoptionPropertyId, migrationPropertyId, setMigrationPropertyId, detailRequest, selectedIdRef, resetGrantDraft, resetStugubyScopedUi, beginSelection, loadDetail, load, withBusy, createStuguby, joinStuguby, activeRemoteMembers, selectRecoveryMode, selectHouseEditPolicy, saveGrant, editGrant, saveProperty, memberName, updateMember, updateMemberLocalLabel, adoptSharedProperty, migrateLocalProperty, disconnectProperty, deleteStuguby } = context;
   if (loading) return <output className="page-loading"><LoaderCircle className="spin" size={20} aria-hidden="true" />{t("common.loading")}</output>;
@@ -59,17 +60,6 @@ export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart0
       ? publicationCatalog.data
       : null;
   const catalogMatches = matchingCatalog !== null;
-  const activeGrantCounts = new Map<string, number>();
-  for (const grant of currentDetail?.grants ?? []) {
-      if (grant.authorityNodeId !== index?.identity.nodeId || !grant.localHouseId || !activeGrant(grant)) continue;
-      activeGrantCounts.set(grant.localHouseId, (activeGrantCounts.get(grant.localHouseId) ?? 0) + 1);
-    }
-  const duplicatedLocalHouseIds = new Set(
-      [...activeGrantCounts].filter(([, count]) => count > 1).map(([houseId]) => houseId),
-    );
-  const duplicatedHomeNames = publishableHouses
-      .filter((house) => duplicatedLocalHouseIds.has(house.id))
-      .map((house) => house.name);
   const coordinatorSetupRequired = !index?.publicOrigin && index?.publicOriginConfigurable === false;
   const localCoordinator = loopbackOrigin(index?.publicOrigin);
   const showCloudflareSetup = coordinatorSetupRequired || (localCoordinator && cloudflareSetupRequested);
@@ -129,7 +119,7 @@ export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart0
         <button className="primary-button" disabled={busy !== null || !joinCoordinatorUrl || !joinInvitationId || !joinSecret}>{busy === "join" ? <LoaderCircle className="spin" size={16} /> : <Link size={16} />}{t("stuguby.joinWithoutSharing")}</button>
       </form>
     </div>;
-  Object.assign(context, { currentDetail, coordinator, unsharedProperties, migrationProperties, deletionBlocked, coordinatorInvitationReady, propertyWriter, canPublish, cannotPublishMessage, matchingCatalog, catalogMatches, activeGrantCounts, duplicatedLocalHouseIds, duplicatedHomeNames, coordinatorSetupRequired, localCoordinator, showCloudflareSetup, setupAddress, createPanel, connectionSetup });
+  Object.assign(context, { currentDetail, coordinator, unsharedProperties, migrationProperties, deletionBlocked, coordinatorInvitationReady, propertyWriter, canPublish, cannotPublishMessage, matchingCatalog, catalogMatches, coordinatorSetupRequired, localCoordinator, showCloudflareSetup, setupAddress, createPanel, connectionSetup });
   return <div className="stuguby-page">
       <header className="stuguby-page-header">
         <div><span className="eyebrow">{t("stuguby.eyebrow")}</span><h1>{t("nav.stugubys")}</h1><p>{t("stuguby.description")}</p></div>
@@ -347,31 +337,31 @@ export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart0
               </details>
               <div className="stuguby-grant-submit"><button className="primary-button" disabled={busy !== null || !grantHouseId || (recoveryMode === "full" ? !houseSuccessorNodeId : audienceKind === "members" && audienceNodes.length === 0) || (datasetDraft["home.telemetry.v1"].enabled && !catalogMatches)}>{busy === "grant" ? <LoaderCircle aria-hidden="true" className="spin" size={16} /> : <ShieldCheck aria-hidden="true" size={16} />}{t(editingGrantId ? "stuguby.updateGrant" : "stuguby.startSharing")}</button>{editingGrantId && <button type="button" className="secondary-button" onClick={resetGrantDraft}>{t("stuguby.cancelEdit")}</button>}</div>
             </form> : <p className="stuguby-capability-note">{t(publishableHouses.length === 0 ? "stuguby.noLocalHomesToShare" : "stuguby.allHomesAlreadyShared")}</p> : <p>{cannotPublishMessage}</p>}
-            {duplicatedHomeNames.length > 0 && <p className="stuguby-duplicate-warning" role="note">{t("stuguby.duplicateHomeShares", { homes: duplicatedHomeNames.join(", ") })}</p>}
-            <div className="stuguby-existing-grants">{detail.grants.length === 0 ? <p>{t("stuguby.noGrants")}</p> : detail.grants.map((grant) => {
-              const homeName = grantHomeName(grant, houses, detail.remoteResources);
-              const isActive = activeGrant(grant);
-              const duplicate = Boolean(grant.localHouseId && duplicatedLocalHouseIds.has(grant.localHouseId) && isActive);
-              const stateKey = grant.revokedAt ? "stuguby.state.revoked" : isActive ? "stuguby.state.active" : "stuguby.state.expired";
-              const audienceKey = grant.audience.kind === "all-members"
-                ? "stuguby.grantAudienceAll"
-                : grant.audience.nodeIds.length === 1 ? "stuguby.grantAudienceSelectedOne" : "stuguby.grantAudienceSelectedMany";
-              return <article className={duplicate ? "has-duplicate" : undefined} key={grant.id}>
-                <div className="stuguby-record-copy">
-                  <strong>{homeName ?? `${grant.publicationId.slice(0, 12)}…`}</strong>
-                  {duplicate && <small className="stuguby-duplicate-label">{t("stuguby.duplicateActiveShare")}</small>}
-                  <span>{t("stuguby.grantSummary", { authority: t(grant.authorityNodeId === index.identity.nodeId ? "stuguby.localAuthority" : "stuguby.remoteAuthority"), epoch: grant.epoch, state: t(stateKey) })}</span>
-                  <small>{t(audienceKey, { count: grant.audience.nodeIds.length })}</small>
-                  <small>{t(grant.housePolicy.editPolicy === "read-only" ? "stuguby.sharedHomeReadOnly" : "stuguby.sharedHomeEditable")}{grant.housePolicy.recoveryMode === "full" ? ` · ${t("stuguby.fullRecoveryEnabled")}` : ""}</small>
-                  <small>{grant.datasets.filter((dataset) => dataset.enabled).map((dataset) => t(datasetLabelKeys[dataset.dataset])).join(" · ")}</small>
-                </div>
-                {grant.authorityNodeId === index.identity.nodeId && isActive && <div className="stuguby-record-actions">
-                  <button type="button" className="secondary-button" disabled={busy !== null} onClick={() => editGrant(grant)}><Pencil size={15} aria-hidden="true" />{t("stuguby.editGrant")}</button>
-                  <button type="button" className="secondary-button" disabled={busy !== null} onClick={() => void withBusy(`republish:${grant.id}`, async () => { await api.republishStugubyGrant(detail.stuguby.id, grant.id); setNotice(t("stuguby.republishQueued")); })}><RefreshCw size={15} aria-hidden="true" />{t("stuguby.republish")}</button>
-                  <button type="button" className="danger-button" disabled={busy !== null} onClick={() => { if (window.confirm(t("stuguby.confirmRevoke"))) void withBusy(`revoke:${grant.id}`, async () => { await api.revokeStugubyGrant(detail.stuguby.id, grant.id); setNotice(t("stuguby.changesSaved")); await loadDetail(detail.stuguby.id); }); }}><Trash2 size={15} aria-hidden="true" />{t("stuguby.revoke")}</button>
-                </div>}
-              </article>;
-            })}</div>
+            <GrantOverview
+              detail={detail}
+              houses={houses}
+              localNodeId={index.identity.nodeId}
+              busy={busy !== null}
+              onEdit={editGrant}
+              onRepublish={(grant) => void withBusy(`republish:${grant.id}`, async () => {
+                await api.republishStugubyGrant(detail.stuguby.id, grant.id);
+                setNotice(t("stuguby.republishQueued"));
+              })}
+              onRevoke={(grant) => {
+                if (window.confirm(t("stuguby.confirmRevoke"))) void withBusy(`revoke:${grant.id}`, async () => {
+                  await api.revokeStugubyGrant(detail.stuguby.id, grant.id);
+                  setNotice(t("stuguby.changesSaved"));
+                  await loadDetail(detail.stuguby.id);
+                });
+              }}
+              onRemoveInvalid={(grant) => {
+                if (window.confirm(t("stuguby.confirmRemoveInvalidShare"))) void withBusy(`remove-invalid:${grant.id}`, async () => {
+                  await api.removeInvalidStugubyGrant(detail.stuguby.id, grant.id);
+                  setNotice(t("stuguby.invalidShareRemoved"));
+                  await loadDetail(detail.stuguby.id);
+                });
+              }}
+            />
           </section>
 
           <details className="stuguby-card stuguby-collapsible">

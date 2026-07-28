@@ -92,7 +92,7 @@ import { SYSTEM_VERSION } from "../version.js";
 import { FmiWeatherProvider, WeatherRequestSupersededError, WeatherService } from "../weather.js";
 import type { StugubyService } from "../stuguby/service.js";
 import { StugubyStore } from "../stuguby/store.js";
-import { createAreaEquipment, createProperty, createPropertyArea, dataMode, database, energyOptimizer, getHouseWeather, homeAssistant, locationDiscovery, measurementSnapshot, mock, objectArguments, optionalBoolean, optionalString, replay, requiredString, setupDoctor, status, stugubyStore, tpLink, updateAreaEquipment, updatePropertyArea } from "./01-config-to-get-house-weather.js";
+import { createAreaEquipment, createProperty, createPropertyArea, dataMode, database, energyOptimizer, getHouseWeather, homeAssistant, locationDiscovery, measurementSnapshot, mock, objectArguments, optionalBoolean, optionalString, replay, requiredString, setupDoctor, status, stugubyStore, telemetryReader, timeseries, tpLink, updateAreaEquipment, updatePropertyArea } from "./01-config-to-get-house-weather.js";
 import { createAlertRule, createHouse, createMeasurementDefinition, createSensor, deleteHouse, deleteSensor, disableMeasurementDefinition, importMeasurements, ingestMeasurements, ingestReadings, queryMeasurementHistory, querySensorHistory, replaceHouseFloor, replaceHouseLayout, thermalSimulation, updateHouse, updateMeasurementDefinition, updateSensor } from "./02-thermal-simulation-to-create-alert-rule.js";
 import { acknowledgeAlert, assetMetadata, createMaintenanceTask, createObservation, deleteAlertRule, deleteAsset, deleteMaintenanceTask, deleteObservation, deleteStaticParameter, discoverIntegrations, homeAssistantConnectionTest, homeAssistantSetup, listMaintenanceTaskRevisions, listMaintenanceTasks, listObservationRevisions, selectMockScenario, startReplay, tpLinkConnectionTest, tpLinkSetup, updateAlertRule, updateMaintenanceTask, updateObservation, uploadAsset, upsertStaticParameter } from "./03-update-alert-rule-to-start-replay.js";
 import { summarizeMcpStuguby } from "./04-point-schema-to-summarize-mcp-stuguby.js";
@@ -173,7 +173,13 @@ export const allToolHandlers: Record<string, ToolHandler> = {
     const sensorId = requiredString(args, "sensorId");
     const metric = requiredString(args, "metric");
     requireMcpMeasurementTarget(database, sensorId, metric);
-    return forecastMeasurement(database, sensorId, metric, mcpBoundedInteger(args.hours, "hours", 12, 1, 168));
+    return forecastMeasurement(
+      database,
+      sensorId,
+      metric,
+      mcpBoundedInteger(args.hours, "hours", 12, 1, 168),
+      telemetryReader,
+    );
   },
   get_sensor_snapshot: (args) => {
     const sensorId = requiredString(args, "sensorId");
@@ -185,7 +191,12 @@ export const allToolHandlers: Record<string, ToolHandler> = {
   forecast_sensor: (args) => {
     const sensorId = requiredString(args, "sensorId");
     requireMcpSensor(database, sensorId);
-    return forecast(database, sensorId, mcpBoundedInteger(args.hours, "hours", 12, 1, 168));
+    return forecast(
+      database,
+      sensorId,
+      mcpBoundedInteger(args.hours, "hours", 12, 1, 168),
+      telemetryReader,
+    );
   },
   list_active_alerts: () => database.listAlertEvents(200, true),
   list_alert_rules: () => database.listAlertRules(),
@@ -319,7 +330,11 @@ export function close(): Promise<void> {
       await server.close();
       if (drainError) throw drainError;
     } finally {
-      closeResources();
+      try {
+        await timeseries?.close();
+      } finally {
+        closeResources();
+      }
     }
   })();
   return shutdownPromise;

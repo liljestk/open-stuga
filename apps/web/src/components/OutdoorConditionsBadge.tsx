@@ -72,6 +72,7 @@ function observedTime(timestamp: string, locale: string, timeZone: string): stri
 export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: OutdoorConditionsBadgeProps) {
   const { locale, t } = useI18n();
   const { context } = outdoor;
+  const title = t(outdoor.replayActive ? "outdoor.replayTitle" : "outdoor.title");
   const [collapsed, setCollapsed] = useState(() => {
     const preference = localStorage.getItem(outdoorPanelPreferenceKey);
     if (preference) return preference === "collapsed";
@@ -91,13 +92,11 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
   const direction = context?.windFromDegrees === null || context?.windFromDegrees === undefined || context.windFromCardinal === null
     ? null
     : `${t(cardinalKey(context.windFromCardinal))} · ${decimal(context.windFromDegrees, locale, 0)}°`;
-  const collapsedWindSummary = outdoor.replayActive
-    ? ""
-    : [outsideWind, direction].filter(Boolean).join(" · ");
+  const collapsedWindSummary = [outsideWind, direction].filter(Boolean).join(" · ");
 
   if (collapsed) {
     return (
-      <aside className="outdoor-context-card collapsed" aria-label={[t("outdoor.title"), t("outdoor.collapsed"), collapsedWindSummary].filter(Boolean).join(". ")}>
+      <aside className="outdoor-context-card collapsed" aria-label={[title, t("outdoor.collapsed"), collapsedWindSummary].filter(Boolean).join(". ")}>
         <button
           type="button"
           className="outdoor-context-toggle"
@@ -108,7 +107,7 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
         >
           <Eye size={15} aria-hidden="true" />
           <span className="outdoor-collapsed-copy">
-            <strong>{t("outdoor.title")}</strong>
+            <strong>{title}</strong>
             {collapsedWindSummary && <small className="outdoor-collapsed-wind"><Wind size={13} aria-hidden="true" />{collapsedWindSummary}</small>}
           </span>
         </button>
@@ -129,12 +128,12 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
     </button>
   );
 
-  if (outdoor.replayActive) {
+  if (outdoor.replayActive && !context && !outdoor.loading) {
     return (
-      <aside className="outdoor-context-card compact muted has-toggle" aria-label={t("outdoor.replayHidden")}>
+      <aside className="outdoor-context-card compact muted has-toggle" aria-label={t("outdoor.replayUnavailable")}>
         {collapseControl}
         <PauseCircle size={16} aria-hidden="true" />
-        <span><strong>{t("outdoor.title")}</strong><small>{t("outdoor.replayHidden")}</small></span>
+        <span><strong>{title}</strong><small>{t("outdoor.replayUnavailable")}</small></span>
       </aside>
     );
   }
@@ -144,7 +143,7 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
       <aside className="outdoor-context-card compact has-toggle" aria-label={t("outdoor.loading")}>
         {collapseControl}
         <LoaderCircle className="spin" size={16} aria-hidden="true" />
-        <span><strong>{t("outdoor.title")}</strong><small>{t("outdoor.loading")}</small></span>
+        <span><strong>{title}</strong><small>{t("outdoor.loading")}</small></span>
       </aside>
     );
   }
@@ -154,7 +153,7 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
       <aside className="outdoor-context-card compact warning has-toggle" aria-label={t("outdoor.unavailable")}>
         {collapseControl}
         <TriangleAlert size={16} aria-hidden="true" />
-        <span><strong>{t("outdoor.title")}</strong><small>{t("outdoor.unavailable")}</small></span>
+        <span><strong>{title}</strong><small>{t("outdoor.unavailable")}</small></span>
       </aside>
     );
   }
@@ -184,10 +183,10 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
   ].filter(Boolean).join(". ");
 
   return (
-    <aside className={`outdoor-context-card has-toggle ${context.stale ? "stale" : ""}`} aria-label={`${t("outdoor.title")}. ${accessibleSummary}`}>
+    <aside className={`outdoor-context-card has-toggle ${context.stale ? "stale" : ""}`} aria-label={`${title}. ${accessibleSummary}`}>
       {collapseControl}
       <div className="outdoor-context-heading">
-        <span><strong>{t("outdoor.title")}</strong><small>{t("outdoor.observedAt", { time: observedTime(context.observedAt, locale, outdoor.timeZone) })}</small></span>
+        <span><strong>{title}</strong><small>{t("outdoor.observedAt", { time: observedTime(context.observedAt, locale, outdoor.timeZone) })}</small></span>
         {context.stale && <b>{t("outdoor.stale")}</b>}
       </div>
       <div className="outdoor-context-values">

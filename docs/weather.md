@@ -148,8 +148,10 @@ orientation, Stugu converts it into plan coordinates as
 `windFrom - orientationDegrees` (normalized to 0–359 degrees). The resulting
 arrow starts at the windward plan edge and points inward in the 2D and 3D
 views. If orientation or wind direction is unknown, the numeric outside values
-remain available but the plan-relative arrow is withheld. Current live weather
-is not overlaid on historical replay.
+remain available but the plan-relative arrow is withheld. Historical replay
+uses the latest durable outdoor observation at or before the replay cursor,
+including its complete canonical conditions and provenance. It never substitutes
+the current live snapshot for a historical observation.
 
 This overlay is a structured external boundary condition only. It is not added
 as a synthetic indoor sensor, interpolation anchor, or measurement-history
@@ -295,11 +297,10 @@ Open-Meteo's historical-forecast service. A failed or partial backfill remains
 durable and is retried after a later successful weather update.
 
 Each recovered point keeps its canonical outdoor fields, observation time,
-retrieval time, provider, and station provenance. It is upserted into the
-location-keyed outdoor history used by thermal and spatial replay consumers.
-The SQLite row retains the complete canonical observation as JSON alongside the
-indexed temperature boundary; the optional Timescale archive carries the same
-observation in row metadata.
+retrieval time, provider, and station provenance. It is upserted through the
+crash-safe SQLite outbox into the permanent, location-keyed TimeDB history used
+by thermal and spatial replay consumers. Timescale metadata retains the complete
+canonical conditions payload, not only the indexed temperature boundary.
 
 Forecast and warning outages are recorded but are marked non-reconstructible.
 Stugu does not substitute a newer forecast or warning feed for what was actually

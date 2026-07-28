@@ -95,7 +95,7 @@ import {
 } from "../../notification-policy.js";
 import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord } from "../../timeseries/types.js";
 import { CORE_SCHEMA_SQL } from "../migrations/core-schema.js";
-import { ElectricityPriceArchiveRecord, ElectricityPricePointRow, TelemetryArchiveDirtyRow, TelemetryArchiveMutableTable, TelemetryArchiveRow, TelemetryCascadeScope } from "../support/01-json-value-to-area-equipment-row.js";
+import { ElectricityPriceArchiveRecord, ElectricityPricePointRow, OpeningStateArchiveRecord, OpeningStateObservationRow, TelemetryArchiveDirtyRow, TelemetryArchiveMutableTable, TelemetryArchiveRow, TelemetryCascadeScope } from "../support/01-json-value-to-area-equipment-row.js";
 import { MeasurementSampleRow, OutdoorTemperatureRow, ReadingRow } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
 import { measurementSampleFromRow, readingFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
 import { outdoorTemperatureFromRow } from "../support/06-canonical-observation-patch-time-to-outdoor-location.js";
@@ -313,6 +313,43 @@ registerDatabaseMethods({
         },
       }));
     },
+  openingStateArchivePage(
+      afterRowId: number,
+      limit: number,
+      since?: string,
+    ): TelemetryArchiveRow<OpeningStateArchiveRecord>[] {
+      const pageSize = this.telemetryArchivePageSize(limit);
+      const recentClause = since ? "AND observation.observed_at >= ?" : "";
+      const parameters = since ? [afterRowId, since, pageSize] : [afterRowId, pageSize];
+      const rows = this.db.prepare(`SELECT archive.archive_id AS archive_row_id, observation.*
+        FROM telemetry_archive_row_ids AS archive
+        JOIN opening_state_observations AS observation
+          ON observation.id = json_extract(archive.natural_key, '$[0]')
+        WHERE archive.table_name = 'opening_state_samples'
+          AND archive.archive_id > ? ${recentClause}
+        ORDER BY archive.archive_id LIMIT ?`)
+        .all(...parameters) as unknown as (OpeningStateObservationRow & {
+          archive_row_id: number;
+          created_at: string;
+        })[];
+      return rows.map((row) => ({
+        rowId: row.archive_row_id,
+        record: {
+          observationId: row.id,
+          houseId: row.house_id,
+          floorId: row.floor_id,
+          elementId: row.element_id,
+          state: row.state,
+          openFraction: row.open_fraction,
+          source: row.source,
+          observedAt: row.observed_at,
+          validUntil: row.valid_until,
+          externalId: row.external_id,
+          connectionId: row.connection_id,
+          recordedAt: row.created_at,
+        },
+      }));
+    },
   readingArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<Reading>[] {
       const pageSize = this.telemetryArchivePageSize(limit);
       const rows = this.db.prepare(`SELECT dirty.dirty_id, dirty.version, reading.sensor_id, reading.timestamp,
@@ -390,6 +427,8 @@ registerDatabaseMethods({
             WHERE table_name = 'outdoor_temperature_samples'), 0) AS outdoor_max,
           COALESCE((SELECT MAX(archive_id) FROM telemetry_archive_row_ids
             WHERE table_name = 'electricity_price_samples'), 0) AS electricity_max,
+          COALESCE((SELECT MAX(archive_id) FROM telemetry_archive_row_ids
+            WHERE table_name = 'opening_state_samples'), 0) AS opening_max,
           COALESCE((SELECT COUNT(*) FROM telemetry_archive_dirty_rows), 0) AS dirty_count,
           COALESCE((SELECT MAX(dirty_id) FROM telemetry_archive_dirty_rows), 0) AS dirty_max,
           COALESCE((SELECT SUM(version) FROM telemetry_archive_dirty_rows), 0) AS dirty_versions`)
@@ -399,6 +438,7 @@ registerDatabaseMethods({
         row.reading_max,
         row.outdoor_max,
         row.electricity_max,
+        row.opening_max,
         row.dirty_count,
         row.dirty_max,
         row.dirty_versions,
@@ -422,7 +462,9 @@ registerDatabaseMethods({
                 OR EXISTS(SELECT 1 FROM readings reading JOIN sensors sensor ON sensor.id = reading.sensor_id
                   WHERE sensor.house_id = ? AND reading.source NOT IN ('mock', 'replay'))
                 OR EXISTS(SELECT 1 FROM outdoor_temperature_samples
-                  WHERE house_id = ? AND source <> 'mock') AS found`).get(resourceId, resourceId, resourceId)
+                  WHERE house_id = ? AND source <> 'mock')
+                OR EXISTS(SELECT 1 FROM opening_state_observations WHERE house_id = ?) AS found`)
+              .get(resourceId, resourceId, resourceId, resourceId)
             : this.db.prepare(`SELECT
                 EXISTS(SELECT 1 FROM measurement_samples sample
                   JOIN sensors sensor ON sensor.id = sample.sensor_id
@@ -435,8 +477,11 @@ registerDatabaseMethods({
                 OR EXISTS(SELECT 1 FROM outdoor_temperature_samples sample
                   JOIN houses house ON house.id = sample.house_id
                   WHERE house.property_id = ? AND sample.source <> 'mock')
-                OR EXISTS(SELECT 1 FROM electricity_price_points WHERE property_id = ?) AS found`)
-              .get(resourceId, resourceId, resourceId, resourceId);
+                OR EXISTS(SELECT 1 FROM electricity_price_points WHERE property_id = ?)
+                OR EXISTS(SELECT 1 FROM opening_state_observations observation
+                  JOIN houses house ON house.id = observation.house_id
+                  WHERE house.property_id = ?) AS found`)
+              .get(resourceId, resourceId, resourceId, resourceId, resourceId);
       return Number((selected as { found: number } | undefined)?.found ?? 0) === 1;
     },
 });

@@ -215,7 +215,7 @@ describe("outdoor boundary visualization", () => {
     expect(screen.getByText(/Helsinki Kaisaniemi.*0.4 mi/)).not.toBeNull();
   });
 
-  it("shows no live values or windward-edge highlight during replay", () => {
+  it("shows recorded outdoor values and their windward edge during replay", () => {
     localStorage.setItem("climate-twin-locale", "en");
     const demo = createDemoState();
     const house: House = {
@@ -223,9 +223,9 @@ describe("outdoor boundary visualization", () => {
     };
     const outdoor = { ...outdoorState(house), replayActive: true };
     const view = floorView(house, outdoor);
-    expect(screen.getByText(/Live outdoor context is hidden during historical replay/)).not.toBeNull();
-    expect(screen.queryByText("3 °C")).toBeNull();
-    expect(view.container.querySelector(".outdoor-shell-windward-edge")).toBeNull();
+    expect(screen.getByText("Outside then")).not.toBeNull();
+    expect(screen.getAllByText("3 °C")).toHaveLength(2);
+    expect(view.container.querySelector(".outdoor-shell-windward-edge")).not.toBeNull();
   });
 
   it("projects the same windward boundary into the rotatable 3D world", () => {

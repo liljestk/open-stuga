@@ -76,7 +76,7 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
     configuration: SpatialConfigurationVersion;
     bindings: StoredSpatialSensorBinding[];
   }): Promise<SpatialCoreDescription> {
-    const resolved = this.#resolveControlData(
+    const resolved = await this.#resolveControlData(
       request.scope,
       request.bucketAt,
       request.configuration,
@@ -100,19 +100,39 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
     if (!Number.isFinite(bucketEpoch)) throw new TypeError("bucketAt must be an ISO timestamp");
     const windowStart = new Date(bucketEpoch - request.windowMinutes * 60_000).toISOString();
     const windowEnd = new Date(bucketEpoch).toISOString();
-    const resolved = this.#resolveControlData(
+    const resolved = await this.#resolveControlData(
       request.scope,
       request.bucketAt,
       request.configuration,
       request.bindings,
     );
-    const openingStateObservations = resolved.house === null
-      ? []
-      : [...new Map([
+    let openingStateObservations: OpeningStateObservation[] = [];
+    let openingProvenance: HybridTelemetryReadProvenance[] = [];
+    if (resolved.house !== null) {
+      if (this.telemetry.openingStateSnapshot && this.telemetry.openingStateHistory) {
+        const [leading, history] = await Promise.all([
+          this.telemetry.openingStateSnapshot({ houseId: resolved.house.id, at: windowStart, limit: 10_000 }),
+          this.telemetry.openingStateHistory({
+            houseId: resolved.house.id,
+            from: windowStart,
+            to: windowEnd,
+            limit: 10_000,
+          }),
+        ]);
+        openingStateObservations = [...leading.records, ...history.records];
+        openingProvenance = [leading.provenance, history.provenance];
+      } else {
+        openingStateObservations = [
           ...this.core.listOpeningStateObservations(resolved.house.id, 10_000, windowStart),
           ...this.core.listOpeningStateObservationHistory(resolved.house.id, windowStart, windowEnd, 10_000),
-        ].map((observation) => [observation.id, observation])).values()]
-        .sort((left, right) => left.observedAt.localeCompare(right.observedAt) || left.id.localeCompare(right.id));
+        ];
+      }
+      openingStateObservations = [...new Map(
+        openingStateObservations.map((observation) => [observation.id, observation]),
+      ).values()].sort((left, right) => (
+        left.observedAt.localeCompare(right.observedAt) || left.id.localeCompare(right.id)
+      ));
+    }
     const measurements = await this.telemetry.measurementWindow({
       sensorIds: resolved.sensors.map((sensor) => sensor.id),
       metrics: queryMetrics(request.requiredMetrics),
@@ -166,17 +186,21 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
       topology: resolved.built.topology,
       warnings: [
         ...resolved.built.warnings,
-        ...telemetryReadWarnings([measurements.provenance, ...outdoorReads.map((result) => result.provenance)]),
+        ...telemetryReadWarnings([
+          measurements.provenance,
+          ...outdoorReads.map((result) => result.provenance),
+          ...openingProvenance,
+        ]),
       ],
     };
   }
 
-  #resolveControlData(
+  async #resolveControlData(
     scope: SpatialScope,
     bucketAt: string,
     configuration: SpatialConfigurationVersion,
     bindings: StoredSpatialSensorBinding[],
-  ): ResolvedSpatialControlData {
+  ): Promise<ResolvedSpatialControlData> {
     if (!Number.isFinite(Date.parse(bucketAt))) throw new TypeError("bucketAt must be an ISO timestamp");
     const houses = this.housesForScope(scope);
     const house = scope.kind === "house" ? houses[0] ?? null : null;
@@ -188,7 +212,9 @@ export class ClimateDatabaseSpatialInputAdapter implements SpatialCoreInputPort 
     }
     const sensors = houses.flatMap((candidate) => this.core.listSensors(candidate.id)).filter((sensor) => sensor.enabled);
     const openingStateObservations = house
-      ? this.core.listOpeningStateObservations(house.id, 10_000, bucketAt)
+      ? this.telemetry.openingStateSnapshot
+        ? (await this.telemetry.openingStateSnapshot({ houseId: house.id, at: bucketAt, limit: 10_000 })).records
+        : this.core.listOpeningStateObservations(house.id, 10_000, bucketAt)
       : [];
     const built = house
       ? buildHouseTopology({ house, sensors, bindings, at: bucketAt, configuration: configuration.config,

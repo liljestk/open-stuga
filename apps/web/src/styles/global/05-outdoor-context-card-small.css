@@ -143,6 +143,12 @@
 
 .building-shell-title .outdoor-shell-chip-label { fill: #fff; font-size: 9.5px; opacity: 1; }
 
+.building-outdoor-influence { pointer-events: none; }
+
+.building-outdoor-influence-face { fill: var(--outdoor-influence-color); fill-opacity: var(--outdoor-influence-face-fill-opacity); stroke: var(--outdoor-influence-color); stroke-width: 1.8; stroke-dasharray: 7 5; opacity: var(--outdoor-influence-face-opacity); vector-effect: non-scaling-stroke; }
+
+.building-outdoor-influence-arrow { stroke-width: 3.4; }
+
 .building-floor { cursor: pointer; outline: none; }
 
 .floor-surface { fill: #fcfbf7; stroke: #aaa79f; stroke-width: 1.6; transition: stroke .16s ease, filter .16s ease; }

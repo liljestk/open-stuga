@@ -139,6 +139,51 @@ describe("Stuguby federation", () => {
     expect(unavailableAdmission.body.error.code).toBe("STUGBY_PUBLIC_ORIGIN_REQUIRED");
   });
 
+  it("fails closed instead of publishing compacted TimeDB history as complete", async () => {
+    const runtime = createApi({
+      config: loadConfig({
+        NODE_ENV: "test",
+        DATABASE_PATH: ":memory:",
+        TIMESERIES_ENABLED: "true",
+        RETENTION_DAYS: "0",
+      }),
+      startBackground: false,
+    });
+    try {
+      const created = await request(runtime.app).post("/api/v1/stugbys")
+        .send({ name: "Archived history" }).expect(201);
+      const result = await request(runtime.app)
+        .post(`/api/v1/stugbys/${created.body.id as string}/grants`)
+        .send({
+          localHouseId: "house-main",
+          audience: { kind: "all-members", nodeIds: [] },
+          datasets: [{
+            dataset: "home.telemetry.v1",
+            enabled: true,
+            includeLocalIds: false,
+            allowReplicaCache: true,
+            retentionDays: 30,
+            telemetry: {
+              sensorPublicationIds: [],
+              metricIds: [],
+              historyFrom: "2000-01-01T00:00:00.000Z",
+              live: true,
+              maxSamplesPerHour: 1_000,
+            },
+          }],
+          housePolicy: {
+            editPolicy: "read-only",
+            recoveryMode: "none",
+            designatedSuccessorNodeId: null,
+          },
+        }).expect(409);
+      expect(result.body.error.code).toBe("ARCHIVED_TELEMETRY_EXPORT_UNAVAILABLE");
+      expect(runtime.stuguby!.store.listGrants(created.body.id as string)).toEqual([]);
+    } finally {
+      await runtime.close();
+    }
+  });
+
   it("persists an admin-confirmed coordinator origin when deployment configuration has none", async () => {
     const originProbe = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
       error: { code: "STUGBY_PUBLIC_ORIGIN_REQUIRED" },

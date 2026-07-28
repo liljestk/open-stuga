@@ -103,6 +103,13 @@ registerStugubyServiceMethods({
       const policy = dataset.telemetry;
       if (!policy?.historyFrom) throw new StugubyError(400, "RECOVERY_HISTORY_REQUIRED", "Full recovery requires a telemetry history start");
       const from = parseIso(policy.historyFrom, "Telemetry history start");
+      if (!this.localTelemetryHistoryComplete()) {
+        throw new StugubyError(
+          409,
+          "ARCHIVED_TELEMETRY_EXPORT_UNAVAILABLE",
+          "Full recovery cannot be assembled completely from the bounded SQLite cache; an archive-aware federation export is required",
+        );
+      }
       const to = new Date().toISOString();
       const sensors = this.database.listSensors(house.id);
       const publications = new Map(sensors.map((sensor) => [

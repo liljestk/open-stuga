@@ -3,8 +3,10 @@ import type {
   EnergyOptimizationReport,
   EnergyOptimizationWindow,
   MeasurementSample,
+  PropertyElectricityPricePoint,
 } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "./db.js";
+import type { HybridTelemetryReader } from "./timeseries/read-facade.js";
 
 function percentile(values: readonly number[], fraction: number): number | null {
   if (values.length === 0) return null;
@@ -25,7 +27,7 @@ function cumulativeConsumption(samples: readonly MeasurementSample[]): number {
 }
 
 function rankedWindows(
-  prices: ReturnType<ClimateDatabase["listPropertyElectricityPrices"]>,
+  prices: PropertyElectricityPricePoint[],
   hours: number,
 ): EnergyOptimizationWindow[] {
   if (prices.length === 0) return [];
@@ -57,15 +59,51 @@ function rankedWindows(
 }
 
 export class EnergyOptimizer {
-  constructor(private readonly database: ClimateDatabase) {}
+  private telemetryReader: HybridTelemetryReader | null;
 
-  report(propertyId: string, windowHours = 2, now = new Date()): EnergyOptimizationReport {
+  constructor(private readonly database: ClimateDatabase, telemetryReader?: HybridTelemetryReader | null) {
+    this.telemetryReader = telemetryReader ?? null;
+  }
+
+  setTelemetryReader(telemetryReader: HybridTelemetryReader): void {
+    this.telemetryReader = telemetryReader;
+  }
+
+  async report(propertyId: string, windowHours = 2, now = new Date()): Promise<EnergyOptimizationReport> {
     const property = this.database.getProperty(propertyId);
     if (!property) throw new Error("Property not found");
     const hours = Math.max(1, Math.min(12, Math.round(windowHours)));
     const priceFrom = new Date(now.getTime() - 24 * 3_600_000).toISOString();
     const priceUntil = new Date(now.getTime() + 72 * 3_600_000).toISOString();
-    const prices = this.database.listPropertyElectricityPrices(propertyId, priceFrom, priceUntil);
+    const houses = this.database.listHouses(propertyId);
+    const sensors = houses.flatMap((house) => this.database.listSensors(house.id)).filter((sensor) => sensor.enabled);
+    const from = new Date(now.getTime() - 24 * 3_600_000).toISOString();
+    const [prices, measurements] = this.telemetryReader
+      ? await Promise.all([
+        this.telemetryReader.electricityPriceHistory({
+          propertyId,
+          from: priceFrom,
+          to: priceUntil,
+          limit: 5_000,
+        }).then((result) => result.records),
+        this.telemetryReader.measurementWindow({
+          sensorIds: sensors.map((sensor) => sensor.id),
+          metrics: ["power", "energy"],
+          from,
+          to: now.toISOString(),
+          limit: 200_000,
+        }).then((result) => result.records),
+      ])
+      : [
+        this.database.listPropertyElectricityPrices(propertyId, priceFrom, priceUntil),
+        this.database.measurementWindow(
+          sensors.map((sensor) => sensor.id),
+          ["power", "energy"],
+          from,
+          now.toISOString(),
+          200_000,
+        ),
+      ];
     const futurePrices = prices.filter((price) => Date.parse(price.endAt) > now.getTime());
     const averagePrice = futurePrices.length
       ? futurePrices.reduce((sum, price) => sum + price.effectivePriceCentsPerKwh, 0) / futurePrices.length
@@ -74,12 +112,9 @@ export class EnergyOptimizer {
     const percentileRank = current && futurePrices.length
       ? futurePrices.filter((price) => price.effectivePriceCentsPerKwh <= current.effectivePriceCentsPerKwh).length / futurePrices.length * 100
       : null;
-    const houses = this.database.listHouses(propertyId);
-    const sensors = houses.flatMap((house) => this.database.listSensors(house.id)).filter((sensor) => sensor.enabled);
-    const from = new Date(now.getTime() - 24 * 3_600_000).toISOString();
-    const powerSamples = this.database.measurementWindow(sensors.map((sensor) => sensor.id), ["power"], from, now.toISOString(), 100_000)
+    const powerSamples = measurements.filter((sample) => sample.metric === "power")
       .filter((sample) => sample.quality !== "stale");
-    const energySamples = this.database.measurementWindow(sensors.map((sensor) => sensor.id), ["energy"], from, now.toISOString(), 100_000)
+    const energySamples = measurements.filter((sample) => sample.metric === "energy")
       .filter((sample) => sample.quality !== "stale");
     const bySensor = new Map<string, MeasurementSample[]>();
     for (const sample of energySamples) {

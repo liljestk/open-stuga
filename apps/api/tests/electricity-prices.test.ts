@@ -4,12 +4,49 @@ import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT } from "@climate-twin/contracts";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import {
+  ElectricityPriceService,
   MAX_ELECTRICITY_RESPONSE_BYTES,
   parseElectricityPricePayload,
   validateElectricityEndpointUrl,
 } from "../src/electricity-prices.js";
+import { ClimateDatabase } from "../src/db.js";
+import { HybridTelemetryReader } from "../src/timeseries/read-facade.js";
 
 const PUBLIC_RESOLVER = async (): Promise<string[]> => ["93.184.216.34"];
+
+describe("electricity price archival", () => {
+  it("wakes durable archival immediately after storing fetched intervals", async () => {
+    const database = new ClimateDatabase(":memory:");
+    const archivedProperties: string[] = [];
+    try {
+      const service = new ElectricityPriceService(
+        database,
+        async () => new Response(JSON.stringify({ prices: [{
+          price: 5.25,
+          startDate: "2026-07-17T09:00:00.000Z",
+          endDate: "2026-07-17T09:15:00.000Z",
+        }] }), { status: 200 }),
+        12 * 60 * 60_000,
+        { resolver: PUBLIC_RESOLVER },
+        (propertyId) => { archivedProperties.push(propertyId); },
+      );
+
+      await service.refresh("property-main");
+
+      expect(archivedProperties).toEqual(["property-main"]);
+      expect(database.electricityPriceArchivePage(0, 10)).toEqual([
+        expect.objectContaining({
+          record: expect.objectContaining({
+            propertyId: "property-main",
+            rawPriceCentsPerKwh: 5.25,
+          }),
+        }),
+      ]);
+    } finally {
+      database.close();
+    }
+  });
+});
 
 describe("property electricity prices", () => {
   let runtime: ApiRuntime | null = null;
@@ -107,6 +144,60 @@ describe("property electricity prices", () => {
       rawPriceCentsPerKwh: 9, effectivePriceCentsPerKwh: 10,
     });
     expect(endpoints).toEqual([DEFAULT_ELECTRICITY_PRICE_ENDPOINT, "https://second.example/prices.json"]);
+  });
+
+  it("serves long-range Property and Home price history from the Timescale archive", async () => {
+    const database = new ClimateDatabase(":memory:");
+    const startAt = "2025-01-01T00:00:00.000Z";
+    const endAt = "2025-01-01T00:15:00.000Z";
+    const telemetryReader = new HybridTelemetryReader({
+      local: database,
+      archive: {
+        measurementHistory: async () => [],
+        legacyReadingHistory: async () => [],
+        outdoorTemperatureHistory: async () => [],
+        electricityPriceHistory: async () => [{
+          propertyId: "property-main",
+          startAt,
+          endAt,
+          rawPriceCentsPerKwh: 8,
+          marginCentsPerKwh: 0.5,
+          source: "sqlite",
+          fetchedAt: "2024-12-31T12:00:00.000Z",
+        }],
+      },
+      archivePhase: () => "ready",
+    });
+    runtime = createApi({
+      config: loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" }),
+      database,
+      telemetryReader,
+      startBackground: false,
+    });
+
+    const property = await request(runtime.app).get("/api/v1/properties/property-main/electricity")
+      .query({ from: startAt, to: endAt })
+      .expect(200);
+    expect(property.body.prices).toEqual([
+      expect.objectContaining({
+        propertyId: "property-main",
+        rawPriceCentsPerKwh: 8,
+        effectivePriceCentsPerKwh: 8.5,
+        effectivePriceEurPerKwh: 0.085,
+      }),
+    ]);
+
+    const home = await request(runtime.app).get("/api/v1/houses/house-main/electricity-price")
+      .query({ from: startAt, to: endAt })
+      .expect(200);
+    expect(home.body.prices).toEqual([
+      expect.objectContaining({
+        startAt,
+        effectivePriceCentsPerKwh: 8.5,
+        effectivePriceEurPerKwh: 0.085,
+      }),
+    ]);
+    expect(home.body.prices[0]).not.toHaveProperty("rawPriceCentsPerKwh");
   });
 
   it("calculates cumulative cost from time-aligned meter deltas and persisted interval prices", async () => {

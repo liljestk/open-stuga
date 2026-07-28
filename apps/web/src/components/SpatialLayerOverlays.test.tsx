@@ -37,6 +37,8 @@ function rawSnapshot(layerId = "climate.temperature") {
       anchor: { x: 200, y: 220, z: 4.3 },
       metrics: layerId.includes("activity")
         ? { activityEvidenceScore: { value: 0.8, quality: 0.8 } }
+        : layerId === "climate.relative-humidity"
+          ? { relativeHumidityPct: { value: 48, unit: "%", quality: 0.8 } }
         : { temperatureC: { value: 21.5, unit: "°C", quality: 0.8 } },
       evidence: [{ score: 0.8, kind: "inference", reasonCodes: [] }],
       reasonCodes: [],
@@ -77,6 +79,18 @@ describe("snapshot-backed spatial render adapters", () => {
     expect(view.container.querySelectorAll(".spatial-zone-value polygon")).toHaveLength(1);
     expect(view.getAllByText(/21.5/).length).toBeGreaterThan(0);
     expect(view.getByRole("img").getAttribute("aria-label")).toMatch(new RegExp(`${floor.rooms[0]!.name}.*21\\.5.*80%`, "i"));
+  });
+
+  it("stacks coincident 2D room labels instead of painting them on top of each other", () => {
+    const state = createDemoState();
+    const floor = state.houses[0]!.floors[1]!;
+    const snapshots = spatialLayerSnapshots({ layers: [rawSnapshot(), rawSnapshot("climate.relative-humidity")] });
+    const view = render(<I18nProvider><svg><SpatialLayerOverlay2D floor={floor} snapshots={snapshots} topology={null} scale={1} /></svg></I18nProvider>);
+    const labels = [...view.container.querySelectorAll<SVGTextElement>(".spatial-zone-value text")];
+
+    expect(labels.map((label) => label.textContent)).toEqual(expect.arrayContaining([expect.stringMatching(/21.5/), expect.stringMatching(/48/)]));
+    expect(labels.map((label) => label.getAttribute("data-label-slot"))).toEqual(["0", "1"]);
+    expect(Number(labels[0]!.getAttribute("y")) - Number(labels[1]!.getAttribute("y"))).toBe(16);
   });
 
   it("uses absolute snapshot z coordinates in 3D and never renders activity as an exact trail or point", () => {

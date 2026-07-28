@@ -5,7 +5,6 @@ import {
   type ElectricityContractType,
   type EnergyOptimizationReport,
   type House,
-  type HomeEnergyCost,
   type HomeElectricityPricePoint,
   type MeasurementSample,
   type Metric,
@@ -14,18 +13,17 @@ import {
   type Sensor,
   type UnitSystem,
 } from "@climate-twin/contracts";
-import type { ClimateState, TimeRange } from "../domain";
-import { TrendChart } from "../components/TrendChart";
+import { timeRangeHours, type ClimateState, type TimeRange } from "../domain";
 import { definitionFor, formatMeasurement, measurementLabel } from "../measurements";
 import { useI18n } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 import { api } from "../api";
 import { useNow } from "../useNow";
-import { seriesStateKey, type SeriesLoadState } from "../useClimateData";
+import type { SeriesLoadState } from "../useClimateData";
+import { ElectricityHistory, ELECTRICITY_METRICS, type ElectricityMetric } from "./ElectricityHistory";
 import "./EnergyPage.css";
 
-export const ELECTRICITY_METRICS = ["power", "energy", "electricity_price"] as const;
-export type ElectricityMetric = typeof ELECTRICITY_METRICS[number];
+export { ELECTRICITY_METRICS, type ElectricityMetric } from "./ElectricityHistory";
 
 const COST_INTERVALS = [
   { id: "1h", durationMs: 3_600_000, refreshMs: 60_000, labelKey: "energy.costInterval.1h" },
@@ -79,6 +77,14 @@ interface MetricSource {
   sample: MeasurementSample | null;
 }
 
+interface CombinedEnergyCost {
+  costEur: number | null;
+  priceCoveragePercent: number;
+  complete: boolean;
+  sourceCount: number;
+  totalSources: number;
+}
+
 function sampleTime(sample: MeasurementSample | null): number {
   if (!sample) return Number.NEGATIVE_INFINITY;
   const parsed = Date.parse(sample.timestamp);
@@ -87,6 +93,16 @@ function sampleTime(sample: MeasurementSample | null): number {
 
 function boundToMetric(sensor: Sensor, metric: ElectricityMetric): boolean {
   return Boolean(sensor.measurementEntityIds?.[metric]);
+}
+
+function supportsMetric(state: ClimateState, sensor: Sensor, metric: ElectricityMetric): boolean {
+  return boundToMetric(sensor, metric)
+    || Boolean(state.latestMeasurements[sensor.id]?.[metric])
+    || (state.measurementHistory[sensor.id]?.[metric]?.length ?? 0) > 0;
+}
+
+function sensorsForMetric(state: ClimateState, sensors: Sensor[], metric: ElectricityMetric): Sensor[] {
+  return sensors.filter((sensor) => supportsMetric(state, sensor, metric));
 }
 
 function sourceForMetric(state: ClimateState, sensors: Sensor[], metric: ElectricityMetric, now: number): MetricSource | null {
@@ -134,6 +150,18 @@ function metricSources(state: ClimateState, sensors: Sensor[], now: number): Rec
   };
 }
 
+function freshSourcesForMetric(
+  state: ClimateState,
+  sensors: Sensor[],
+  metric: ElectricityMetric,
+  now: number,
+): MetricSource[] {
+  return sensors.flatMap((sensor) => {
+    const sample = freshElectricitySample(state.latestMeasurements[sensor.id]?.[metric], metric, now);
+    return sample ? [{ sensor, sample }] : [];
+  });
+}
+
 const ELECTRICITY_FRESHNESS_MS: Record<ElectricityMetric, number> = {
   power: 15 * 60_000,
   energy: 2 * 60 * 60_000,
@@ -166,12 +194,15 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
   const [metric, setMetric] = useState<ElectricityMetric>("power");
   const [range, setRange] = useState<TimeRange>("24h");
   const [costInterval, setCostInterval] = useState<CostInterval>("month");
-  const [energyCost, setEnergyCost] = useState<HomeEnergyCost | null>(null);
+  const [energyCost, setEnergyCost] = useState<CombinedEnergyCost | null>(null);
   const [energyCostBusy, setEnergyCostBusy] = useState(false);
   const [energyCostError, setEnergyCostError] = useState(false);
-  const [consumptionWindow, setConsumptionWindow] = useState<MeasurementSample[]>([]);
+  const [consumptionWindows, setConsumptionWindows] = useState<Record<string, MeasurementSample[]>>({});
   const [propertyPrice, setPropertyPrice] = useState<{ config: PropertyElectricityConfig; current: PropertyElectricityPricePoint | null } | null>(null);
   const [homePrice, setHomePrice] = useState<HomeElectricityPricePoint | null>(null);
+  const [priceHistory, setPriceHistory] = useState<HomeElectricityPricePoint[]>([]);
+  const [priceHistoryBusy, setPriceHistoryBusy] = useState(false);
+  const [priceHistoryError, setPriceHistoryError] = useState(false);
   const [priceDraft, setPriceDraft] = useState<ElectricityPriceDraft>(emptyPriceDraft);
   const [priceBusy, setPriceBusy] = useState(false);
   const [priceFeedback, setPriceFeedback] = useState<{ kind: "success" | "error"; text: string } | null>(null);
@@ -187,29 +218,25 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
   );
   const sources = useMemo(() => metricSources(state, houseSensors, now), [houseSensors, now, state]);
   const electricitySensors = useMemo(() => houseSensors.filter((sensor) => ELECTRICITY_METRICS.some((candidate) => (
-    boundToMetric(sensor, candidate)
-      || Boolean(state.latestMeasurements[sensor.id]?.[candidate])
-      || (state.measurementHistory[sensor.id]?.[candidate]?.length ?? 0) > 0
+    supportsMetric(state, sensor, candidate)
   ))), [houseSensors, state.latestMeasurements, state.measurementHistory]);
-  const [sensorId, setSensorId] = useState("");
-  const metricSensors = useMemo(() => electricitySensors.filter((sensor) => (
-    boundToMetric(sensor, metric)
-      || Boolean(state.latestMeasurements[sensor.id]?.[metric])
-      || (state.measurementHistory[sensor.id]?.[metric]?.length ?? 0) > 0
-  )), [electricitySensors, metric, state.latestMeasurements, state.measurementHistory]);
-  const selectedSensor = metricSensors.find((sensor) => sensor.id === sensorId)
-    ?? sources[metric]?.sensor
-    ?? metricSensors[0]
-    ?? null;
-  const definition = definitionFor(state.measurementDefinitions, metric);
-  const history = selectedSensor ? state.measurementHistory[selectedSensor.id]?.[metric] ?? [] : [];
-  const forecast = selectedSensor ? state.measurementForecasts[selectedSensor.id]?.[metric] ?? [] : [];
-  const seriesState = selectedSensor ? seriesStates?.[seriesStateKey(selectedSensor.id, metric)] : undefined;
+  const powerSensors = useMemo(
+    () => sensorsForMetric(state, electricitySensors, "power"),
+    [electricitySensors, state.latestMeasurements, state.measurementHistory],
+  );
+  const energySensors = useMemo(
+    () => sensorsForMetric(state, electricitySensors, "energy"),
+    [electricitySensors, state.latestMeasurements, state.measurementHistory],
+  );
+  const energySensorIds = energySensors.map((sensor) => sensor.id).join("\u0000");
 
   useEffect(() => {
     const generation = ++priceContextGeneration.current;
     setPropertyPrice(null);
     setHomePrice(null);
+    setPriceHistory([]);
+    setPriceHistoryBusy(false);
+    setPriceHistoryError(false);
     setPriceDraft(emptyPriceDraft());
     setPriceBusy(false);
     setPriceFeedback(null);
@@ -244,6 +271,34 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
   }, [house?.id, propertyId]);
 
   useEffect(() => {
+    setPriceHistory([]);
+    setPriceHistoryError(false);
+    if (!house || metric !== "electricity_price") {
+      setPriceHistoryBusy(false);
+      return;
+    }
+    const controller = new AbortController();
+    const to = new Date();
+    const from = new Date(to.getTime() - timeRangeHours(range) * 3_600_000);
+    setPriceHistoryBusy(true);
+    void api.houseElectricityPrice(
+      house.id,
+      from.toISOString(),
+      to.toISOString(),
+      controller.signal,
+    ).then((result) => {
+      if (!controller.signal.aborted) {
+        setPriceHistory(result.prices ?? (result.current ? [result.current] : []));
+      }
+    }).catch(() => {
+      if (!controller.signal.aborted) setPriceHistoryError(true);
+    }).finally(() => {
+      if (!controller.signal.aborted) setPriceHistoryBusy(false);
+    });
+    return () => controller.abort();
+  }, [house?.id, metric, range]);
+
+  useEffect(() => {
     let active = true;
     setOptimization(null);
     setOptimizationError(false);
@@ -257,51 +312,51 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
   }, [propertyId]);
 
   useEffect(() => {
-    if (selectedSensor && selectedSensor.id !== sensorId) setSensorId(selectedSensor.id);
-  }, [selectedSensor, sensorId]);
-
-  useEffect(() => {
-    if (!selectedSensor) return;
-    onLoadSeries?.(selectedSensor.id, metric, range, false);
-  }, [metric, onLoadSeries, range, selectedSensor?.id]);
-
-  useEffect(() => {
-    const consumptionSourceId = sources.energy?.sensor.id;
-    if (!consumptionSourceId) {
-      setConsumptionWindow([]);
+    if (!energySensors.length) {
+      setConsumptionWindows({});
       return;
     }
     let active = true;
     const controller = new AbortController();
     const to = new Date();
     const from = new Date(to.getTime() - 24 * 3_600_000);
-    setConsumptionWindow([]);
-    void api.measurementHistory(consumptionSourceId, "energy", from.toISOString(), to.toISOString(), 50_000, controller.signal)
-      .then((samples) => {
-        if (!active) return;
-        setConsumptionWindow((current) => {
-          const unique = new Map([...samples, ...current].map((sample) => [sample.timestamp, sample]));
-          return [...unique.values()].filter((sample) => Date.parse(sample.timestamp) >= from.getTime());
-        });
-      })
-      .catch(() => undefined);
-    return () => { active = false; controller.abort(); };
-  }, [sources.energy?.sensor.id]);
-
-  useEffect(() => {
-    const latest = sources.energy?.sample;
-    const cutoff = now - 24 * 3_600_000;
-    setConsumptionWindow((current) => {
-      const unique = new Map((latest ? [...current, latest] : current).map((sample) => [sample.timestamp, sample]));
-      return [...unique.values()].filter((sample) => Date.parse(sample.timestamp) >= cutoff);
+    setConsumptionWindows({});
+    energySensors.forEach((sensor) => {
+      void api.measurementHistory(sensor.id, "energy", from.toISOString(), to.toISOString(), 50_000, controller.signal)
+        .then((samples) => {
+          if (!active) return;
+          setConsumptionWindows((current) => {
+            const existing = current[sensor.id] ?? [];
+            const unique = new Map([...samples, ...existing].map((sample) => [sample.timestamp, sample]));
+            return {
+              ...current,
+              [sensor.id]: [...unique.values()].filter((sample) => Date.parse(sample.timestamp) >= from.getTime()),
+            };
+          });
+        })
+        .catch(() => undefined);
     });
-  }, [now, sources.energy?.sample]);
+    return () => { active = false; controller.abort(); };
+  }, [energySensorIds]);
 
   useEffect(() => {
-    const energySensorId = sources.energy?.sensor.id;
+    const cutoff = now - 24 * 3_600_000;
+    setConsumptionWindows((current) => {
+      const next = { ...current };
+      energySensors.forEach((sensor) => {
+        const latest = state.latestMeasurements[sensor.id]?.energy;
+        const existing = current[sensor.id] ?? [];
+        const unique = new Map((latest ? [...existing, latest] : existing).map((sample) => [sample.timestamp, sample]));
+        next[sensor.id] = [...unique.values()].filter((sample) => Date.parse(sample.timestamp) >= cutoff);
+      });
+      return next;
+    });
+  }, [energySensorIds, now, state.latestMeasurements]);
+
+  useEffect(() => {
     setEnergyCost(null);
     setEnergyCostError(false);
-    if (!house || !energySensorId) {
+    if (!house || !energySensors.length) {
       setEnergyCostBusy(false);
       return;
     }
@@ -310,28 +365,82 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
     const to = new Date().toISOString();
     const from = new Date(Date.parse(to) - selectedCostInterval.durationMs).toISOString();
     setEnergyCostBusy(true);
-    void api.houseEnergyCost(house.id, energySensorId, from, to, controller.signal)
-      .then((cost) => { if (active) setEnergyCost(cost); })
-      .catch(() => { if (active) setEnergyCostError(true); })
-      .finally(() => { if (active) setEnergyCostBusy(false); });
+    void Promise.allSettled(energySensors.map((sensor) => (
+      api.houseEnergyCost(house.id, sensor.id, from, to, controller.signal)
+    ))).then((results) => {
+      if (!active) return;
+      const fulfilled = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+      const contributors = fulfilled.filter((cost) => cost.costEur !== null);
+      const consumption = fulfilled.reduce((sum, cost) => sum + (cost.consumptionKwh ?? 0), 0);
+      const pricedConsumption = fulfilled.reduce((sum, cost) => sum + (cost.pricedConsumptionKwh ?? 0), 0);
+      const coverage = consumption > 0
+        ? Math.min(100, pricedConsumption / consumption * 100)
+        : fulfilled.length ? Math.min(...fulfilled.map((cost) => cost.priceCoveragePercent)) : 0;
+      setEnergyCost({
+        costEur: contributors.length
+          ? contributors.reduce((sum, cost) => sum + (cost.costEur ?? 0), 0)
+          : null,
+        priceCoveragePercent: coverage,
+        complete: fulfilled.length === energySensors.length
+          && fulfilled.every((cost) => cost.complete && cost.costEur !== null),
+        sourceCount: contributors.length,
+        totalSources: energySensors.length,
+      });
+      setEnergyCostError(fulfilled.length === 0 && results.some((result) => result.status === "rejected"));
+    }).finally(() => {
+      if (active) setEnergyCostBusy(false);
+    });
     return () => { active = false; controller.abort(); };
-  }, [costInterval, costRefreshBucket, house?.id, sources.energy?.sensor.id]);
+  }, [costInterval, costRefreshBucket, energySensorIds, house?.id]);
 
-  const used24Hours = counterConsumption(consumptionWindow);
-  const powerSample = freshElectricitySample(sources.power?.sample, "power", now);
-  const energySample = freshElectricitySample(sources.energy?.sample, "energy", now);
+  const consumptionTotals = energySensors.flatMap((sensor) => {
+    const value = counterConsumption(consumptionWindows[sensor.id] ?? []);
+    return value === null ? [] : [{ sensor, value }];
+  });
+  const used24Hours = consumptionTotals.length
+    ? consumptionTotals.reduce((sum, item) => sum + item.value, 0)
+    : null;
+  const powerSources = freshSourcesForMetric(state, powerSensors, "power", now);
+  const energySources = freshSourcesForMetric(state, energySensors, "energy", now);
+  const combinedPower = powerSources.length
+    ? powerSources.reduce((sum, source) => sum + (source.sample?.value ?? 0), 0)
+    : null;
+  const combinedEnergyReading = energySources.length
+    ? energySources.reduce((sum, source) => sum + (source.sample?.value ?? 0), 0)
+    : null;
   const telemetryPriceSample = freshElectricitySample(sources.electricity_price?.sample, "electricity_price", now);
   const effectivePrice = house
     ? homePrice?.effectivePriceEurPerKwh ?? telemetryPriceSample?.value ?? null
     : propertyPrice?.current?.effectivePriceEurPerKwh ?? telemetryPriceSample?.value ?? null;
-  const anyData = Boolean(powerSample || energySample || effectivePrice !== null);
+  const anyData = combinedPower !== null || used24Hours !== null || combinedEnergyReading !== null || effectivePrice !== null;
+  const combinedSourceLabel = (sensors: Sensor[], reporting: number) => !sensors.length
+    ? t("energy.waitingForSource")
+    : sensors.length === 1
+      ? sensors[0]!.name
+      : t("energy.combinedSources", { count: reporting, total: sensors.length });
+  const powerSourceLabel = combinedSourceLabel(powerSensors, powerSources.length);
+  const energySourceLabel = combinedSourceLabel(
+    energySensors,
+    used24Hours === null ? energySources.length : consumptionTotals.length,
+  );
+  const priceSourceLabel = homePrice?.effectivePriceEurPerKwh !== undefined && homePrice?.effectivePriceEurPerKwh !== null
+    ? t("energy.propertyPriceForHome")
+    : sources.electricity_price?.sensor.name ?? t("energy.waitingForSource");
   const energyCostBasis = energyCostBusy
     ? t("energy.costLoading")
     : energyCostError || !energyCost
       ? t("energy.costUnavailable")
-      : energyCost.complete
-        ? t("energy.costBasis")
-        : t("energy.costPartial", { coverage: energyCost.priceCoveragePercent.toFixed(0) });
+      : energyCost.totalSources <= 1
+        ? energyCost.complete
+          ? t("energy.costBasis")
+          : t("energy.costPartial", { coverage: energyCost.priceCoveragePercent.toFixed(0) })
+        : energyCost.complete
+          ? t("energy.costCombinedBasis", { count: energyCost.sourceCount })
+          : t("energy.costCombinedPartial", {
+            count: energyCost.sourceCount,
+            total: energyCost.totalSources,
+            coverage: energyCost.priceCoveragePercent.toFixed(0),
+          });
 
   const savePriceConfiguration = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -376,13 +485,13 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
     kind: ElectricityMetric | "running_cost",
     title: string,
     value: string,
-    source: MetricSource | null,
+    sourceLabel: string,
     Icon: typeof Bolt,
   ) => (
     <article className={`energy-summary-card ${kind}`}>
       <span className="energy-summary-icon" aria-hidden="true"><Icon size={20} /></span>
       <span><small>{title}</small><strong>{value}</strong></span>
-      <small>{source?.sensor.name ?? t("energy.waitingForSource")}</small>
+      <small>{sourceLabel}</small>
     </article>
   );
 
@@ -432,13 +541,13 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
         </>}
       </section>
 
-      {house && (electricitySensors.length > 0 || effectivePrice !== null) && <>
+      {house && (electricitySensors.length > 0 || effectivePrice !== null || priceHistory.length > 0 || priceHistoryBusy) && <>
       <section className="energy-summary-grid" aria-label={t("energy.summary") }>
-        {card("power", t("energy.currentPower"), powerSample ? formatMeasurement(powerSample.value, definitionFor(state.measurementDefinitions, "power"), units) : "—", sources.power, CircleGauge)}
+        {card("power", t("energy.currentPower"), combinedPower !== null ? formatMeasurement(combinedPower, definitionFor(state.measurementDefinitions, "power"), units) : "—", powerSourceLabel, CircleGauge)}
         {card("energy", used24Hours === null ? t("energy.consumptionReading") : t("energy.consumption24h"), used24Hours !== null
           ? formatMeasurement(used24Hours, definitionFor(state.measurementDefinitions, "energy"), units)
-          : energySample ? formatMeasurement(energySample.value, definitionFor(state.measurementDefinitions, "energy"), units) : "—", sources.energy, Bolt)}
-        {card("electricity_price", t("energy.spotPrice"), effectivePrice !== null ? formatMeasurement(effectivePrice, definitionFor(state.measurementDefinitions, "electricity_price"), units) : "—", sources.electricity_price, Euro)}
+          : combinedEnergyReading !== null ? formatMeasurement(combinedEnergyReading, definitionFor(state.measurementDefinitions, "energy"), units) : "—", energySourceLabel, Bolt)}
+        {card("electricity_price", t("energy.spotPrice"), effectivePrice !== null ? formatMeasurement(effectivePrice, definitionFor(state.measurementDefinitions, "electricity_price"), units) : "—", priceSourceLabel, Euro)}
         <article className="energy-summary-card running_cost">
           <span className="energy-summary-icon" aria-hidden="true"><Euro size={20} /></span>
           <span><small>{t("energy.runningCost", { interval: t(selectedCostInterval.labelKey) })}</small><strong>{energyCost?.costEur === null || energyCost?.costEur === undefined ? "—" : formatCost(energyCost.costEur)}</strong></span>
@@ -454,18 +563,21 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
 
       {!anyData && electricitySensors.length > 0 && <p className="energy-waiting" role="status"><TriangleAlert size={17} aria-hidden="true" />{t("energy.waitingForReadings")}</p>}
 
-      <section className="panel energy-history-controls" aria-labelledby="energy-history-heading">
-        <div className="panel-header"><div><span className="eyebrow">{t("chart.history")}</span><h2 id="energy-history-heading">{t("energy.historyTitle")}</h2></div></div>
-        <div className="energy-source-controls">
-          <div className="segmented" role="group" aria-label={t("common.metric")}>{ELECTRICITY_METRICS.map((candidate) => {
-            const candidateDefinition = definitionFor(state.measurementDefinitions, candidate);
-            return <button key={candidate} type="button" aria-pressed={metric === candidate} onClick={() => setMetric(candidate)}>{measurementLabel(candidateDefinition, locale)}</button>;
-          })}</div>
-          <label className="field"><span>{t("energy.dataSource")}</span><select value={selectedSensor?.id ?? ""} disabled={!metricSensors.length} onChange={(event) => setSensorId(event.target.value)}><option value="">{t("energy.noSource")}</option>{metricSensors.map((sensor) => <option key={sensor.id} value={sensor.id}>{sensor.name}</option>)}</select></label>
-        </div>
-      </section>
-
-      <TrendChart sensor={selectedSensor} history={history} forecast={forecast} definition={definition} units={units} range={range} onRange={setRange} timeZone={house.timezone} {...(seriesState ? { loadState: seriesState } : {})} />
+      <ElectricityHistory
+        state={state}
+        sensors={electricitySensors}
+        metric={metric}
+        onMetric={setMetric}
+        units={units}
+        range={range}
+        onRange={setRange}
+        timeZone={house.timezone}
+        electricityPrices={priceHistory}
+        priceLoading={priceHistoryBusy}
+        priceError={priceHistoryError}
+        {...(onLoadSeries ? { onLoadSeries } : {})}
+        {...(seriesStates ? { seriesStates } : {})}
+      />
 
       <section className="panel energy-source-list" aria-labelledby="energy-sources-heading">
         <div className="panel-header"><div><span className="eyebrow">{electricitySensors.length}</span><h2 id="energy-sources-heading">{t("energy.sourcesTitle")}</h2></div>{canConfigureSources && onOpenSensors && <button type="button" className="secondary-button" onClick={onOpenSensors}>{t("energy.editSources")}</button>}</div>

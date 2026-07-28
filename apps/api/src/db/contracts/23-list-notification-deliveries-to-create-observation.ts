@@ -124,6 +124,7 @@ declare module "../core.js" {
     startActionRun(input: ActionRunStartInput, now?: Date): ActionRun;
     completeActionRun(id: string, now?: Date): ActionRun | null;
     cancelActionRun(id: string, note?: string | null, now?: Date): ActionRun | null;
+    verifyActionRun(id: string, samples: MeasurementSample[], now?: Date): ActionRun | null;
     verifyDueActionRuns(now?: Date): ActionRun[];
     listObservations(houseId?: string): ManualObservation[];
     getObservation(id: string): StoredObservation | null;
@@ -156,6 +157,7 @@ declare module "../core.js" {
     startActionRun(input: ActionRunStartInput, now?: Date): ActionRun;
     completeActionRun(id: string, now?: Date): ActionRun | null;
     cancelActionRun(id: string, note?: string | null, now?: Date): ActionRun | null;
+    verifyActionRun(id: string, samples: MeasurementSample[], now?: Date): ActionRun | null;
     verifyDueActionRuns(now?: Date): ActionRun[];
     listObservations(houseId?: string): ManualObservation[];
     getObservation(id: string): StoredObservation | null;

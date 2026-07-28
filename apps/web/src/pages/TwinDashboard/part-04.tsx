@@ -32,8 +32,10 @@ import { SpatialLayerPanel } from "../../components/SpatialLayerPanel";
 import {
   assessSensorCoverage,
   experimentalLayerSuggestions,
+  nextExperimentalVisualizationSelection,
   type ExperimentalVisualizationId,
 } from "../../experimentalSpatialLayers";
+import { estimateOutdoorInfluence } from "../../outdoorInfluence";
 import { readLocalStorage, writeLocalStorage } from "../../browserStorage";
 import { detectReplayClimateEvents, type ReplayClimateEvent } from "../../replayEvents";
 import { openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../openingState";
@@ -42,7 +44,7 @@ import { BuildingScene, FloorPlan, HomeActivityTimeline, MeasurementGlyph, RoomC
 import type { TwinDashboardProps } from "./support";
 import { useTwinDashboardPart03 } from "./part-03";
 export function useTwinDashboardPart04(context: ReturnType<typeof useTwinDashboardPart03>) {
-  const { props, state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection, dataMode, locale, t, scopedIntegration, sensorSourceHealthy, editing, setEditing, fullPage, setFullPage, liveMapOpen, setLiveMapOpen, historyOpen, setHistoryOpen, analysisOpen, setAnalysisOpen, fullPagePanelRef, fullPageTriggerRef, readOnly, localAuthority, range, setRange, replayActive, setReplayActive, replayPlaying, setReplayPlaying, replayStartPending, setReplayStartPending, replayPrepared, setReplayPrepared, replaySpeed, setReplaySpeed, replayWindowFrom, setReplayWindowFrom, replayWindowTo, setReplayWindowTo, replayResolutionSeconds, setReplayResolutionSeconds, replayRequestedBounds, setReplayRequestedBounds, replayLoadState, setReplayLoadState, replayLoadError, setReplayLoadError, replayLoadPartial, setReplayLoadPartial, replaySampleCount, setReplaySampleCount, liveSpatialClockMs, setLiveSpatialClockMs, experimentalVisualizations, setExperimentalVisualizations, energyDevicesVisible, setEnergyDevicesVisible, observationPlacement, setObservationPlacement, observationKind, setObservationKind, observationSeverity, setObservationSeverity, observationNote, setObservationNote, observationTimePrecision, setObservationTimePrecision, observationDateTime, setObservationDateTime, observationDate, setObservationDate, observationValidFrom, setObservationValidFrom, observationValidTo, setObservationValidTo, observationSource, setObservationSource, observationSourceDetail, setObservationSourceDetail, observationConfidence, setObservationConfidence, observationDraft, setObservationDraft, observationValidationError, setObservationValidationError, observationStatus, setObservationStatus, observationError, setObservationError, parameterLabel, setParameterLabel, parameterValue, setParameterValue, parameterUnit, setParameterUnit, parameterPending, setParameterPending, parameterFeedback, setParameterFeedback, replayBatchRef, replayPreparationBatchRef, airflowReplayBatchRef, inspectorReplayBatchRef, replayWindowRequestRef, previousReplayActiveRef, effectSeriesLoadsRef, loadSeriesOnce, houseWeather, outdoorContext, outdoor, houseSensors, energyDeviceCount, floorSensors, selectedSensor, selectedFloor, viewSensors, summarySensors, definitions, houseDefinitions, availableDefinitions, airflowDefinitions, airflowMetricKey, definition, metricOptions, metricLabel, liveSamples, houseSensorIdList, houseSensorIds, replayMetricIds, loadedReplayBounds, fallbackReplayBounds, replayMin, replayMax, replayHistoryReady, replayEvents, replayTimestamp, setReplayTimestamp, spatialReferenceTimeMs, spatialLayerScope, spatialLayers, liveSpatialMaxSampleAgeMs, spatialMaxSampleAgeMs, spatialFreshness, changeReplayPlaying, selectReplayEvent, loadReplayWindow, displayedSamples, mapSensorMeasurements, airflowSamples, sensorCoverage, airMovementSelected, coverageSelected, openingStateAt, openingStateObservations, setOpeningStateObservations, pendingOpeningStateKeys, setPendingOpeningStateKeys, openingStateError, setOpeningStateError, openingStateAnnouncement, setOpeningStateAnnouncement, openingStateRequestsRef, openingStateContextRef, houseOpeningStateObservations, controllableOpenings, hasOpeningElements } = context;
+  const { props, state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection, dataMode, locale, t, scopedIntegration, sensorSourceHealthy, editing, setEditing, fullPage, setFullPage, liveMapOpen, setLiveMapOpen, historyOpen, setHistoryOpen, analysisOpen, setAnalysisOpen, fullPagePanelRef, fullPageTriggerRef, readOnly, localAuthority, range, setRange, replayActive, setReplayActive, replayPlaying, setReplayPlaying, replayStartPending, setReplayStartPending, replayPrepared, setReplayPrepared, replaySpeed, setReplaySpeed, replayWindowFrom, setReplayWindowFrom, replayWindowTo, setReplayWindowTo, replayResolutionSeconds, setReplayResolutionSeconds, replayRequestedBounds, setReplayRequestedBounds, replayLoadState, setReplayLoadState, replayLoadError, setReplayLoadError, replayLoadPartial, setReplayLoadPartial, replaySampleCount, setReplaySampleCount, liveSpatialClockMs, setLiveSpatialClockMs, experimentalVisualizations, setExperimentalVisualizations, outdoorInfluenceMetric, setOutdoorInfluenceMetric, energyDevicesVisible, setEnergyDevicesVisible, observationPlacement, setObservationPlacement, observationKind, setObservationKind, observationSeverity, setObservationSeverity, observationNote, setObservationNote, observationTimePrecision, setObservationTimePrecision, observationDateTime, setObservationDateTime, observationDate, setObservationDate, observationValidFrom, setObservationValidFrom, observationValidTo, setObservationValidTo, observationSource, setObservationSource, observationSourceDetail, setObservationSourceDetail, observationConfidence, setObservationConfidence, observationDraft, setObservationDraft, observationValidationError, setObservationValidationError, observationStatus, setObservationStatus, observationError, setObservationError, parameterLabel, setParameterLabel, parameterValue, setParameterValue, parameterUnit, setParameterUnit, parameterPending, setParameterPending, parameterFeedback, setParameterFeedback, replayBatchRef, replayPreparationBatchRef, airflowReplayBatchRef, inspectorReplayBatchRef, replayWindowRequestRef, previousReplayActiveRef, effectSeriesLoadsRef, loadSeriesOnce, houseWeather, outdoorContext, outdoor, houseSensors, energyDeviceCount, floorSensors, selectedSensor, selectedFloor, viewSensors, summarySensors, definitions, houseDefinitions, availableDefinitions, airflowDefinitions, airflowMetricKey, definition, metricOptions, metricLabel, liveSamples, houseSensorIdList, houseSensorIds, replayMetricIds, loadedReplayBounds, fallbackReplayBounds, replayMin, replayMax, replayHistoryReady, replayEvents, replayTimestamp, setReplayTimestamp, spatialReferenceTimeMs, spatialLayerScope, spatialLayers, liveSpatialMaxSampleAgeMs, spatialMaxSampleAgeMs, spatialFreshness, changeReplayPlaying, selectReplayEvent, loadReplayWindow, displayedSamples, mapSensorMeasurements, airflowSamples, sensorCoverage, airMovementSelected, coverageSelected, openingStateAt, openingStateObservations, setOpeningStateObservations, pendingOpeningStateKeys, setPendingOpeningStateKeys, openingStateError, setOpeningStateError, openingStateAnnouncement, setOpeningStateAnnouncement, openingStateRequestsRef, openingStateContextRef, houseOpeningStateObservations, controllableOpenings, hasOpeningElements } = context;
   const changeOpeningState = async (targetFloorId: string, elementId: string, nextState: ConfiguredOpeningState) => {
       if (readOnly || !localAuthority || replayActive) return;
       const requestContext = openingStateContextRef.current;
@@ -90,20 +92,20 @@ export function useTwinDashboardPart04(context: ReturnType<typeof useTwinDashboa
         sensors: floorSensors,
         samples: airflowSamples,
         freshness: spatialFreshness,
-        outdoor: replayActive ? null : outdoorContext,
+        outdoor: outdoorContext,
         openingStateObservations: houseOpeningStateObservations,
       }, 9) : null
-    ), [spatialLayers.available, viewMode, floor, floorSensors, airflowSamples, spatialFreshness, replayActive, outdoorContext, houseOpeningStateObservations]);
+    ), [spatialLayers.available, viewMode, floor, floorSensors, airflowSamples, spatialFreshness, outdoorContext, houseOpeningStateObservations]);
   const experimentalBuildingAirflow = useMemo<BuildingAirflowEstimate | null>(() => (
       spatialLayers.available && viewMode === "isometric" ? simulateBuildingAirflow({
         house,
         sensors: houseSensors,
         samples: airflowSamples,
         freshness: spatialFreshness,
-        outdoor: replayActive ? null : outdoorContext,
+        outdoor: outdoorContext,
         openingStateObservations: houseOpeningStateObservations,
       }, 14) : null
-    ), [spatialLayers.available, viewMode, house, houseSensors, airflowSamples, spatialFreshness, replayActive, outdoorContext, houseOpeningStateObservations]);
+    ), [spatialLayers.available, viewMode, house, houseSensors, airflowSamples, spatialFreshness, outdoorContext, houseOpeningStateObservations]);
   const experimentalAirflowEvidence = experimentalFloorAirflow?.evidence ?? experimentalBuildingAirflow?.evidence ?? null;
   const experimentalSuggestions = useMemo(() => experimentalLayerSuggestions({
       house,
@@ -111,12 +113,16 @@ export function useTwinDashboardPart04(context: ReturnType<typeof useTwinDashboa
       airflow: experimentalAirflowEvidence,
       ...(viewMode === "plan" ? { floorId } : {}),
     }), [house, sensorCoverage, experimentalAirflowEvidence, viewMode, floorId]);
+  const outdoorInfluence = useMemo(() => estimateOutdoorInfluence({
+      metric: outdoorInfluenceMetric,
+      sensors: viewMode === "plan" ? floorSensors : houseSensors,
+      samples: airflowSamples,
+      freshness: spatialFreshness,
+      outdoor: outdoorContext,
+    }), [outdoorInfluenceMetric, viewMode, floorSensors, houseSensors, airflowSamples, spatialFreshness, outdoorContext]);
+  const outdoorInfluenceSelected = spatialLayers.available && experimentalVisualizations.includes("outdoor-influence");
   const toggleExperimentalVisualization = (layerId: ExperimentalVisualizationId, selected: boolean) => {
-      setExperimentalVisualizations((current) => {
-        return selected
-          ? current.includes(layerId) ? current : [...current, layerId]
-          : current.filter((candidate) => candidate !== layerId);
-      });
+      setExperimentalVisualizations((current) => nextExperimentalVisualizationSelection(current, layerId, selected));
     };
   const values = summarySensors.flatMap((sensor) => {
       const sample = displayedSamples[sensor.id];
@@ -149,12 +155,9 @@ export function useTwinDashboardPart04(context: ReturnType<typeof useTwinDashboa
       const indoorValues = conditionMetric === definition.id
         ? houseValues
         : houseSensors.flatMap((sensor) => {
-          const sample = state.latestMeasurements[sensor.id]?.[conditionMetric];
+          const sample = airflowSamples[sensor.id]?.[conditionMetric];
           const value = measurementValue(sample, conditionMetric);
-          return isSpatialSampleFresh(sample, {
-            referenceTimeMs: spatialReferenceTimeMs,
-            maxSampleAgeMs: liveSpatialMaxSampleAgeMs,
-          }) && value != null ? [value] : [];
+          return isSpatialSampleFresh(sample, spatialFreshness) && value != null ? [value] : [];
         });
       const comparison = conditionMetric === definition.id
         ? activeOutdoorComparison
@@ -243,5 +246,5 @@ export function useTwinDashboardPart04(context: ReturnType<typeof useTwinDashboa
       setObservationPlacement(false);
       setObservationDraft(null);
     };
-  return Object.assign(context, { changeOpeningState, experimentalFloorAirflow, experimentalBuildingAirflow, experimentalAirflowEvidence, experimentalSuggestions, toggleExperimentalVisualization, values, hasUsableReadings, houseValues, activeOutdoorValue, activeOutdoorComparison, houseColorDomain, outdoorConditionColors, visualOutdoor, average, spread, openAlerts, floorObservations, houseObservations, houseParameters, inspectorSamples, changeRange, submitObservation, placeObservation, cancelObservationPlacement });
+  return Object.assign(context, { changeOpeningState, experimentalFloorAirflow, experimentalBuildingAirflow, experimentalAirflowEvidence, experimentalSuggestions, outdoorInfluence, outdoorInfluenceSelected, toggleExperimentalVisualization, values, hasUsableReadings, houseValues, activeOutdoorValue, activeOutdoorComparison, houseColorDomain, outdoorConditionColors, visualOutdoor, average, spread, openAlerts, floorObservations, houseObservations, houseParameters, inspectorSamples, changeRange, submitObservation, placeObservation, cancelObservationPlacement });
 }

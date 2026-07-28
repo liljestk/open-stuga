@@ -1,10 +1,10 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { IntegrationDiscoveryJob } from "@climate-twin/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../api";
-import { deferred, house, renderPage } from "./IntegrationsPageTestSupport";
+import { connectedTpLink, deferred, house, renderPage } from "./IntegrationsPageTestSupport";
 
 vi.mock("../components/HouseLocationMap", () => ({
   HouseLocationMap: () => <div>Map</div>,
@@ -60,7 +60,7 @@ describe("integration discovery resume", () => {
     expect(localStorage.getItem(storageKey)).toBe(job.id);
   });
 
-  it("resumes the remembered server job instead of starting another scan", async () => {
+  it("keeps a completed server result available instead of starting another scan", async () => {
     localStorage.setItem(storageKey, job.id);
     const resume = vi.spyOn(api, "resumeIntegrationDiscovery").mockResolvedValue(result);
     const start = vi.spyOn(api, "discoverIntegrations");
@@ -68,7 +68,7 @@ describe("integration discovery resume", () => {
     renderPage();
 
     await waitFor(() => expect(resume).toHaveBeenCalledWith(job.id, expect.any(AbortSignal)));
-    await waitFor(() => expect(localStorage.getItem(storageKey)).toBeNull());
+    await waitFor(() => expect(localStorage.getItem(storageKey)).toBe(job.id));
     expect(start).not.toHaveBeenCalled();
   });
 
@@ -87,5 +87,53 @@ describe("integration discovery resume", () => {
     await user.click(screen.getByRole("button", { name: "Find devices" }));
 
     await waitFor(() => expect(localStorage.getItem(storageKey)).toBe(job.id));
+  });
+
+  it("restores the latest result and hides a source that was connected meanwhile", async () => {
+    window.history.replaceState(null, "", "/setup/connections");
+    const found = {
+      homeAssistant: [],
+      tpLink: [
+        { host: "192.168.1.20", model: "P110", alias: "Desk plug", sourceType: "energy-device" as const },
+        { host: "192.168.1.21", model: "P110", alias: "Heater plug", sourceType: "energy-device" as const },
+      ],
+      warnings: [],
+    };
+    const completedJob: IntegrationDiscoveryJob = {
+      ...job,
+      status: "completed",
+      updatedAt: "2026-07-28T10:00:30.000Z",
+      result: found,
+    };
+    vi.spyOn(api, "latestIntegrationDiscovery").mockResolvedValue(completedJob);
+    const resume = vi.spyOn(api, "resumeIntegrationDiscovery").mockResolvedValue(found);
+    const start = vi.spyOn(api, "discoverIntegrations");
+
+    renderPage({
+      integration: connectedTpLink({
+        host: "192.168.1.20",
+        connections: [{
+          id: "desk-plug",
+          houseId: house.id,
+          configured: true,
+          connected: true,
+          lastPollAt: "2026-07-28T10:01:00.000Z",
+          mappedDevices: 0,
+          discoveredDevices: 1,
+          hubModel: null,
+          error: null,
+          host: "192.168.1.20",
+          sourceType: "energy-device",
+          sourceModel: "P110",
+          sourceAlias: "Desk plug",
+        }],
+      }),
+    });
+
+    await waitFor(() => expect(resume).toHaveBeenCalledWith(completedJob.id, expect.any(AbortSignal)));
+    const foundDevices = await screen.findByRole("group", { name: "TP-Link devices found" });
+    expect(within(foundDevices).getByRole("radio", { name: /Heater plug/ })).not.toBeNull();
+    expect(within(foundDevices).queryByRole("radio", { name: /Desk plug/ })).toBeNull();
+    expect(start).not.toHaveBeenCalled();
   });
 });

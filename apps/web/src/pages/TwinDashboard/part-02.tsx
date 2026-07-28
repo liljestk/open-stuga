@@ -42,7 +42,7 @@ import { BuildingScene, FloorPlan, HomeActivityTimeline, MeasurementGlyph, RoomC
 import type { TwinDashboardProps } from "./support";
 import { useTwinDashboardPart01 } from "./part-01";
 export function useTwinDashboardPart02(context: ReturnType<typeof useTwinDashboardPart01>) {
-  const { props, state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection, dataMode, locale, t, scopedIntegration, sensorSourceHealthy, editing, setEditing, fullPage, setFullPage, liveMapOpen, setLiveMapOpen, historyOpen, setHistoryOpen, analysisOpen, setAnalysisOpen, fullPagePanelRef, fullPageTriggerRef, readOnly, localAuthority, range, setRange, replayActive, setReplayActive, replayPlaying, setReplayPlaying, replayStartPending, setReplayStartPending, replayPrepared, setReplayPrepared, replaySpeed, setReplaySpeed, replayWindowFrom, setReplayWindowFrom, replayWindowTo, setReplayWindowTo, replayResolutionSeconds, setReplayResolutionSeconds, replayRequestedBounds, setReplayRequestedBounds, replayLoadState, setReplayLoadState, replayLoadError, setReplayLoadError, replayLoadPartial, setReplayLoadPartial, replaySampleCount, setReplaySampleCount, liveSpatialClockMs, setLiveSpatialClockMs, experimentalVisualizations, setExperimentalVisualizations, energyDevicesVisible, setEnergyDevicesVisible, observationPlacement, setObservationPlacement, observationKind, setObservationKind, observationSeverity, setObservationSeverity, observationNote, setObservationNote, observationTimePrecision, setObservationTimePrecision, observationDateTime, setObservationDateTime, observationDate, setObservationDate, observationValidFrom, setObservationValidFrom, observationValidTo, setObservationValidTo, observationSource, setObservationSource, observationSourceDetail, setObservationSourceDetail, observationConfidence, setObservationConfidence, observationDraft, setObservationDraft, observationValidationError, setObservationValidationError, observationStatus, setObservationStatus, observationError, setObservationError, parameterLabel, setParameterLabel, parameterValue, setParameterValue, parameterUnit, setParameterUnit, parameterPending, setParameterPending, parameterFeedback, setParameterFeedback, replayBatchRef, replayPreparationBatchRef, airflowReplayBatchRef, inspectorReplayBatchRef, replayWindowRequestRef, previousReplayActiveRef, effectSeriesLoadsRef, loadSeriesOnce } = context;
+  const { props, state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection, dataMode, locale, t, scopedIntegration, sensorSourceHealthy, editing, setEditing, fullPage, setFullPage, liveMapOpen, setLiveMapOpen, historyOpen, setHistoryOpen, analysisOpen, setAnalysisOpen, fullPagePanelRef, fullPageTriggerRef, readOnly, localAuthority, range, setRange, replayActive, setReplayActive, replayPlaying, setReplayPlaying, replayStartPending, setReplayStartPending, replayPrepared, setReplayPrepared, replaySpeed, setReplaySpeed, replayWindowFrom, setReplayWindowFrom, replayWindowTo, setReplayWindowTo, replayResolutionSeconds, setReplayResolutionSeconds, replayRequestedBounds, setReplayRequestedBounds, replayLoadState, setReplayLoadState, replayLoadError, setReplayLoadError, replayLoadPartial, setReplayLoadPartial, replaySampleCount, setReplaySampleCount, replayOutdoorSamples, setReplayOutdoorSamples, setReplayOutdoorLoading, setReplayOutdoorPartial, liveSpatialClockMs, setLiveSpatialClockMs, experimentalVisualizations, setExperimentalVisualizations, energyDevicesVisible, setEnergyDevicesVisible, observationPlacement, setObservationPlacement, observationKind, setObservationKind, observationSeverity, setObservationSeverity, observationNote, setObservationNote, observationTimePrecision, setObservationTimePrecision, observationDateTime, setObservationDateTime, observationValidFrom, setObservationValidFrom, observationValidTo, setObservationValidTo, observationSource, setObservationSource, observationSourceDetail, setObservationSourceDetail, observationConfidence, setObservationConfidence, observationDraft, setObservationDraft, observationValidationError, setObservationValidationError, observationStatus, setObservationStatus, observationError, setObservationError, parameterLabel, setParameterLabel, parameterValue, setParameterValue, parameterUnit, setParameterUnit, parameterPending, setParameterPending, parameterFeedback, setParameterFeedback, replayBatchRef, replayPreparationBatchRef, airflowReplayBatchRef, inspectorReplayBatchRef, replayWindowRequestRef, replayOutdoorBatchRef, previousReplayActiveRef, effectSeriesLoadsRef, loadSeriesOnce } = context;
   useEffect(() => {
       const now = new Date();
       replayWindowRequestRef.current += 1;
@@ -56,6 +56,10 @@ export function useTwinDashboardPart02(context: ReturnType<typeof useTwinDashboa
       setReplayLoadError(null);
       setReplayLoadPartial(false);
       setReplaySampleCount(null);
+      setReplayOutdoorSamples([]);
+      setReplayOutdoorLoading(false);
+      setReplayOutdoorPartial(false);
+      replayOutdoorBatchRef.current = "";
     }, [houseId, house.timezone]);
   useEffect(() => {
       if (!readOnly) return;
@@ -131,8 +135,8 @@ export function useTwinDashboardPart02(context: ReturnType<typeof useTwinDashboa
   const houseSensorIdList = useMemo(() => houseSensors.map((sensor) => sensor.id), [houseSensors]);
   const houseSensorIds = houseSensorIdList.join(",");
   const replayMetricIds = useMemo(
-      () => [...new Set([...availableDefinitions.map((candidate) => candidate.id), definition.id, "temperature", "humidity"])],
-      [availableDefinitions, definition.id],
+      () => [...new Set([...definitions.map((candidate) => candidate.id), definition.id])],
+      [definitions, definition.id],
     );
   const loadedReplayBounds = useMemo(() => {
       let minimum = Number.POSITIVE_INFINITY;
@@ -149,8 +153,15 @@ export function useTwinDashboardPart02(context: ReturnType<typeof useTwinDashboa
           }
         }
       }
+      for (const sample of replayOutdoorSamples) {
+        const timestamp = Date.parse(sample.timestamp);
+        if (!Number.isFinite(timestamp)) continue;
+        minimum = Math.min(minimum, timestamp);
+        maximum = Math.max(maximum, timestamp);
+        count += 1;
+      }
       return count > 0 ? { minimum, maximum, count } : null;
-    }, [houseSensors, replayMetricIds, state.measurementHistory]);
+    }, [houseSensors, replayMetricIds, replayOutdoorSamples, state.measurementHistory]);
   const fallbackReplayBounds = useMemo(() => {
       const maximum = Date.now();
       return { minimum: maximum - 24 * 3600000, maximum };
@@ -162,7 +173,10 @@ export function useTwinDashboardPart02(context: ReturnType<typeof useTwinDashboa
     ).some((sample) => {
       const timestamp = Date.parse(sample.timestamp);
       return Number.isFinite(timestamp) && timestamp >= replayMin && timestamp <= replayMax;
-    }))), [houseSensors, replayMetricIds, replayMax, replayMin, state.measurementHistory]);
+    }))) || replayOutdoorSamples.some((sample) => {
+      const timestamp = Date.parse(sample.timestamp);
+      return Number.isFinite(timestamp) && timestamp >= replayMin && timestamp <= replayMax;
+    }), [houseSensors, replayMetricIds, replayMax, replayMin, replayOutdoorSamples, state.measurementHistory]);
   const replayEvents = useMemo(() => detectReplayClimateEvents(
       state.measurementHistory,
       houseSensorIdList,

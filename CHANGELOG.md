@@ -4,6 +4,26 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.18.0 - 2026-07-28
+
+- Add bounded hybrid SQLite/Timescale history reads, archival coverage and
+  recovery safeguards, richer daily analytics, and full electricity-history
+  exploration without presenting incomplete archive data as complete.
+- Add replay-aware outdoor context and influence overlays, resumable
+  integration discovery, and clearer Stuguby grant/identity repair workflows
+  across the API and web product.
+- Make Raspberry Pi 4 factory images boot reliably from USB SSDs with a
+  complete first-partition rescue payload, explicit Pi 4 kernel/initramfs
+  selection, portable initramfs A/B aliases, and firmware-qualified udev
+  device links.
+- Expand the final persistent partition across the complete SSD after moving
+  the backup GPT, remove early-boot systemd ordering cycles, seed shared
+  container state once per release, and accept either Ethernet or Wi-Fi as
+  the appliance uplink.
+- Keep stable EEPROM USB settings, LAN access, and an enabled persistent
+  Tailscale client in every appliance build. Existing application databases
+  migrate automatically; Tailnet enrollment remains a one-time operator step.
+
 ## 0.17.1 - 2026-07-28
 
 - Make Raspberry Pi appliances reachable on their private LAN by default,

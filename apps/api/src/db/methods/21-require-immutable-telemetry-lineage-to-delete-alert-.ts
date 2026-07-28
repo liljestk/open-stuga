@@ -186,7 +186,76 @@ registerDatabaseMethods({
         outdoorDeleted += changes;
         if (changes < batchSize) break;
       }
-      return deleteBatches("measurement_samples") + deleteBatches("readings") + outdoorDeleted;
+      const electricityStatement = archivedThrough
+        ? this.db.prepare(`DELETE FROM electricity_price_points WHERE rowid IN (
+            SELECT price.rowid
+            FROM telemetry_archive_row_ids AS archive
+            JOIN electricity_price_points AS price
+              ON price.property_id = json_extract(archive.natural_key, '$[0]')
+              AND price.start_at = json_extract(archive.natural_key, '$[1]')
+            WHERE archive.table_name = 'electricity_price_samples'
+              AND price.end_at < ? AND archive.archive_id <= ?
+            ORDER BY price.end_at, archive.archive_id LIMIT ?
+          )`)
+        : this.db.prepare(`DELETE FROM electricity_price_points WHERE rowid IN (
+            SELECT rowid FROM electricity_price_points
+            WHERE end_at < ? ORDER BY end_at, rowid LIMIT ?
+          )`);
+      let electricityDeleted = 0;
+      while (!archivedThrough || archivedThrough.electricity_price_samples !== undefined) {
+        const parameters = archivedThrough
+          ? [timestamp, archivedThrough.electricity_price_samples, batchSize]
+          : [timestamp, batchSize];
+        const changes = Number(electricityStatement.run(...parameters).changes);
+        electricityDeleted += changes;
+        if (changes < batchSize) break;
+      }
+      const openingStatement = archivedThrough
+        ? this.db.prepare(`DELETE FROM opening_state_observations WHERE rowid IN (
+            SELECT observation.rowid
+            FROM telemetry_archive_row_ids AS archive
+            JOIN opening_state_observations AS observation
+              ON observation.id = json_extract(archive.natural_key, '$[0]')
+            WHERE archive.table_name = 'opening_state_samples'
+              AND observation.observed_at < ? AND archive.archive_id <= ?
+              AND observation.id != (
+                SELECT latest.id FROM opening_state_observations latest
+                WHERE latest.house_id = observation.house_id
+                  AND latest.floor_id = observation.floor_id
+                  AND latest.element_id = observation.element_id
+                  AND latest.source = observation.source
+                  AND COALESCE(latest.external_id, '') = COALESCE(observation.external_id, '')
+                  AND COALESCE(latest.connection_id, '') = COALESCE(observation.connection_id, '')
+                ORDER BY latest.observed_at DESC, latest.id DESC LIMIT 1
+              )
+            ORDER BY observation.observed_at, archive.archive_id LIMIT ?
+          )`)
+        : this.db.prepare(`DELETE FROM opening_state_observations WHERE rowid IN (
+            SELECT observation.rowid FROM opening_state_observations observation
+            WHERE observation.observed_at < ?
+              AND observation.id != (
+                SELECT latest.id FROM opening_state_observations latest
+                WHERE latest.house_id = observation.house_id
+                  AND latest.floor_id = observation.floor_id
+                  AND latest.element_id = observation.element_id
+                  AND latest.source = observation.source
+                  AND COALESCE(latest.external_id, '') = COALESCE(observation.external_id, '')
+                  AND COALESCE(latest.connection_id, '') = COALESCE(observation.connection_id, '')
+                ORDER BY latest.observed_at DESC, latest.id DESC LIMIT 1
+              )
+            ORDER BY observation.observed_at, observation.rowid LIMIT ?
+          )`);
+      let openingDeleted = 0;
+      while (!archivedThrough || archivedThrough.opening_state_samples !== undefined) {
+        const parameters = archivedThrough
+          ? [timestamp, archivedThrough.opening_state_samples, batchSize]
+          : [timestamp, batchSize];
+        const changes = Number(openingStatement.run(...parameters).changes);
+        openingDeleted += changes;
+        if (changes < batchSize) break;
+      }
+      return deleteBatches("measurement_samples") + deleteBatches("readings")
+        + outdoorDeleted + electricityDeleted + openingDeleted;
     },
   saveIOSNotificationRegistration(
       userId: string,

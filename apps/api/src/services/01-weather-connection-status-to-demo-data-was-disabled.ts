@@ -15,6 +15,7 @@ import { ClimateDatabase } from "../db.js";
 import { TelemetryBus } from "../events.js";
 import { alertNotificationBindings } from "../notification-snapshot.js";
 import { DEFAULT_ALERT_DELIVERY_POLICY } from "../notification-policy.js";
+import type { HybridTelemetryReader } from "../timeseries/read-facade.js";
 
 export type WeatherConnectionStatus = NonNullable<IntegrationStatus["weather"]["connections"]>[number];
 
@@ -204,13 +205,14 @@ export class AlertEngine {
     private readonly config?: AppConfig,
     _status?: RuntimeStatus,
     _telegram?: unknown,
+    private readonly telemetryReader?: HybridTelemetryReader,
   ) {}
 
   start(): void {
     if (this.#timer) return;
-    this.#timer = setInterval(() => this.tick(), 5_000);
+    this.#timer = setInterval(() => { void this.tick(); }, 5_000);
     this.#timer.unref();
-    this.tick();
+    void this.tick();
   }
 
   stop(): void {
@@ -218,14 +220,17 @@ export class AlertEngine {
     this.#timer = null;
   }
 
-  tick(now = new Date()): void {
+  async tick(now = new Date()): Promise<void> {
     if (this.#tickActive) return;
     this.#tickActive = true;
     try {
       this.evaluateWallClock(now);
       this.enqueueFollowups(now);
       this.enqueueMaintenanceReminders(now);
-      for (const run of this.database.verifyDueActionRuns(now)) {
+      const verifiedRuns = this.telemetryReader
+        ? await this.#verifyDueActionRunsFromTelemetry(now)
+        : this.database.verifyDueActionRuns(now);
+      for (const run of verifiedRuns) {
         this.enqueueActionVerification(run, now);
         this.bus.publish({ type: "mutation", data: {
           method: "PATCH",
@@ -236,6 +241,28 @@ export class AlertEngine {
     } finally {
       this.#tickActive = false;
     }
+  }
+
+  async #verifyDueActionRunsFromTelemetry(now: Date): Promise<ReturnType<ClimateDatabase["listActionRuns"]>> {
+    const due = this.database.listActionRuns({ activeOnly: true, limit: 500 })
+      .filter((run) => run.status === "waiting" && run.verifyAfter && run.verificationDeadline
+        && Date.parse(run.verifyAfter) <= now.getTime());
+    const changed = [];
+    for (const run of due) {
+      const windowEnd = new Date(Math.min(now.getTime(), Date.parse(run.verificationDeadline!))).toISOString();
+      const evidenceFrom = new Date(Math.max(Date.parse(run.verifyAfter!), Date.parse(run.baselineTimestamp) + 1)).toISOString();
+      const samples = (await this.telemetryReader!.measurementHistory({
+        sensorId: run.sensorId,
+        metric: run.metric,
+        from: evidenceFrom,
+        to: windowEnd,
+        limit: 10_000,
+      })).records;
+      const updated = this.database.verifyActionRun(run.id, samples, now);
+      if (updated && (updated.status !== run.status || updated.sampleCount !== run.sampleCount
+        || updated.resultValue !== run.resultValue)) changed.push(updated);
+    }
+    return changed;
   }
 
   private evaluateWallClock(now: Date): void {

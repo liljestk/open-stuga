@@ -1,10 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { StrictMode } from "react";
 
 import userEvent from "@testing-library/user-event";
 
-import type { DoorPlanElement } from "@climate-twin/contracts";
+import type { DoorPlanElement, IntegrationDiscoveryJob } from "@climate-twin/contracts";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -25,6 +25,7 @@ vi.mock("./useClimateData", () => ({ useClimateData: vi.fn() }));
 beforeEach(() => {
   window.history.replaceState(null, "", "/");
   localStorage.removeItem("stugu-dismissed-tp-link-device-notices");
+  localStorage.removeItem("stugu-dismissed-integration-discovery-notices");
   mockClimateData();
 });
 
@@ -245,5 +246,58 @@ describe("Stugu app", () => {
 
     await findPageHeading("Your home, at a glance");
     expect(screen.queryByText("New TP-Link sensor found")).toBeNull();
+  });
+
+  it("finishes a device search off-page and keeps dismissed results in Set up", async () => {
+    const user = userEvent.setup();
+    const climate = mockClimateData();
+    const selectedHouse = climate.state.houses[0]!;
+    const result = {
+      homeAssistant: [],
+      tpLink: [
+        { host: "192.168.1.20", model: "P110", alias: "Desk plug", sourceType: "energy-device" as const },
+        { host: "192.168.1.21", model: "P110", alias: "Heater plug", sourceType: "energy-device" as const },
+      ],
+      warnings: [],
+    };
+    const job: IntegrationDiscoveryJob = {
+      id: "72d642ee-a2f4-40cb-8d68-5fd663454912",
+      houseId: selectedHouse.id,
+      status: "running",
+      createdAt: "2026-07-28T10:00:00.000Z",
+      updatedAt: "2026-07-28T10:00:00.000Z",
+      expiresAt: "2026-07-28T11:00:00.000Z",
+      result: null,
+      error: null,
+    };
+    let finish!: (value: typeof result) => void;
+    const pending = new Promise<typeof result>((resolve) => { finish = resolve; });
+    vi.spyOn(api, "latestIntegrationDiscovery").mockResolvedValue(null);
+    vi.spyOn(api, "discoverIntegrations").mockImplementation(async (_houseId, _credentials, onStarted) => {
+      onStarted?.(job);
+      return pending;
+    });
+    vi.spyOn(api, "resumeIntegrationDiscovery").mockImplementation(async () => pending);
+    vi.mocked(useClimateData).mockReturnValue(climate);
+    renderApp();
+
+    await user.click(screen.getByRole("link", { name: "Set up" }));
+    await user.click(await screen.findByRole("tab", { name: /Where readings come from/ }));
+    await user.click(screen.getByRole("button", { name: "Find devices" }));
+    await waitFor(() => expect(localStorage.getItem(`stugu.integration-discovery.${selectedHouse.id}`)).toBe(job.id));
+    await user.click(screen.getByRole("link", { name: /^Home$/ }));
+
+    await act(async () => {
+      finish(result);
+      await pending;
+    });
+    expect(await screen.findByText("2 home systems found")).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Dismiss found systems notification" }));
+    expect(screen.queryByText("2 home systems found")).toBeNull();
+
+    await user.click(screen.getByRole("link", { name: "Set up" }));
+    await user.click(await screen.findByRole("tab", { name: /Where readings come from/ }));
+    expect(await screen.findByRole("radio", { name: /Desk plug/ })).not.toBeNull();
+    expect(screen.getByRole("radio", { name: /Heater plug/ })).not.toBeNull();
   });
 });

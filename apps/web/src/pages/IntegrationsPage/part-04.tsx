@@ -78,11 +78,21 @@ export function useIntegrationsPagePart04(context: ReturnType<typeof useIntegrat
           : await api.discoverIntegrations(targetHouseId, draftCredentials ?? undefined, (job) => {
               startedJobId = job.id;
               rememberIntegrationDiscovery(targetHouseId, job.id);
+              context.onDiscoveryStarted?.(job);
             }, subscription.signal);
         if (!pageMounted.current || activeSetupHouseId.current !== targetHouseId || discoveryGeneration.current !== generation) return;
-        const addableTpLinkSources = result.tpLink.filter((source) => !source.configuredConnectionId);
-        setDiscovery({ ...result, tpLink: addableTpLinkSources });
-        const count = addableTpLinkSources.length + result.homeAssistant.length;
+        const configuredTpLinkHosts = new Set((aggregateIntegration.tpLink.connections ?? [])
+          .flatMap((connection) => connection.host ? [connection.host] : []));
+        if (integration.tpLink.host) configuredTpLinkHosts.add(integration.tpLink.host);
+        const addableTpLinkSources = result.tpLink.filter((source) => (
+          !source.configuredConnectionId
+          && (!options.resumeJobId || !configuredTpLinkHosts.has(source.host))
+        ));
+        const addableHomeAssistant = options.resumeJobId && integration.homeAssistant.configured
+          ? []
+          : result.homeAssistant;
+        setDiscovery({ ...result, homeAssistant: addableHomeAssistant, tpLink: addableTpLinkSources });
+        const count = addableTpLinkSources.length + addableHomeAssistant.length;
         setDiscoveryOutcome(count > 0 ? "found" : result.warnings.length > 0 ? "error" : "empty");
         if (addableTpLinkSources.length > 0) {
           context.tpLinkEditingConnectionId.current = null;
@@ -99,7 +109,6 @@ export function useIntegrationsPagePart04(context: ReturnType<typeof useIntegrat
           setTpLinkSettingsOpen(true);
         }
         if (addableTpLinkSources.length === 0 && !integration.tpLink.configured && !integration.homeAssistant.configured) setTpLinkSettingsOpen(true);
-        forgetIntegrationDiscovery(targetHouseId, startedJobId ?? undefined);
       } catch {
         if (subscription.signal.aborted) return;
         if (startedJobId) {
@@ -132,10 +141,40 @@ export function useIntegrationsPagePart04(context: ReturnType<typeof useIntegrat
       };
     }, []);
   useEffect(() => {
-      const jobId = rememberedIntegrationDiscovery(house.id);
-      if (!jobId) return;
-      automaticallyScannedHouseId.current = house.id;
-      void scanIntegrations({ resumeJobId: jobId });
+      let cancelled = false;
+      const targetHouseId = house.id;
+      const resumeJob = (jobId: string) => {
+        if (cancelled || activeSetupHouseId.current !== targetHouseId) return;
+        automaticallyScannedHouseId.current = targetHouseId;
+        void scanIntegrations({ resumeJobId: jobId });
+      };
+      const jobId = rememberedIntegrationDiscovery(targetHouseId);
+      if (jobId) {
+        resumeJob(jobId);
+        return () => { cancelled = true; };
+      }
+      // A completed server-owned result may predate browser persistence. Restore
+      // it before deciding whether this visit needs a new network search.
+      automaticallyScannedHouseId.current = targetHouseId;
+      void api.latestIntegrationDiscovery(targetHouseId).then((job) => {
+        if (cancelled || activeSetupHouseId.current !== targetHouseId) return;
+        if (job && job.status !== "failed") {
+          rememberIntegrationDiscovery(targetHouseId, job.id);
+          resumeJob(job.id);
+          return;
+        }
+        automaticallyScannedHouseId.current = null;
+        if (activeSection === "connections" && integration.tpLink.configured) {
+          void scanIntegrations({ automatic: true });
+        }
+      }).catch(() => {
+        if (cancelled || activeSetupHouseId.current !== targetHouseId) return;
+        automaticallyScannedHouseId.current = null;
+        if (activeSection === "connections" && integration.tpLink.configured) {
+          void scanIntegrations({ automatic: true });
+        }
+      });
+      return () => { cancelled = true; };
     }, [house.id]);
   useEffect(() => {
       if (activeSection !== "connections" || !integration.tpLink.configured

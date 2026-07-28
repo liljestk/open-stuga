@@ -251,7 +251,7 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
       const truncated = archived.length > limit;
       response.json({ samples: truncated ? archived.slice(-limit) : archived, from, to, truncated });
     });
-  context.app.get(`${context.prefix}/houses/:id/thermal-simulation`, (request, response) => {
+  context.app.get(`${context.prefix}/houses/:id/thermal-simulation`, async (request, response) => {
       const house = context.database.getHouse(request.params.id as string);
       if (!house || !context.visibility(response).house(house.id)) throw new HttpError(404, "NOT_FOUND", "House not found");
       if (typeof request.query.sensorId !== "string" || !request.query.sensorId) {
@@ -271,22 +271,31 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
       const horizonHours = safeInteger(request.query.horizonHours, 12, 0, 72);
       const scenarioOutdoorTemperatureC = optionalQueryNumber(request.query.scenarioOutdoorTemperatureC, "scenarioOutdoorTemperatureC");
       const boundaryPaddingMs = 2 * 3_600_000;
-      const indoorSamples = context.database.thermalTemperatureHistory(sensor.id, from, to, 5, 5_000);
-      const outdoorSamples = context.database.outdoorTemperatureHistory(
-        house.id,
-        outdoorLocationKey(house.location),
-        new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
-        new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
-        50_000,
-      );
+      const [indoorRead, outdoorRead] = await Promise.all([
+        context.telemetryReader.thermalMeasurementHistory({
+          sensorId: sensor.id,
+          metrics: ["temperature"],
+          from,
+          to,
+          bucketMinutes: 5,
+          limitPerMetric: 5_000,
+        }),
+        context.telemetryReader.outdoorTemperatureHistory({
+          houseId: house.id,
+          locationKey: outdoorLocationKey(house.location),
+          from: new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
+          to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
+          limit: 50_000,
+        }),
+      ]);
       const simulation = runThermalSimulation({
         houseId: house.id,
         sensorId: sensor.id,
         roomLabel: sensor.room,
         from,
         to,
-        indoorSamples,
-        outdoorSamples,
+        indoorSamples: indoorRead.records,
+        outdoorSamples: outdoorRead.records,
         horizonHours,
         scenarioOutdoorTemperatureC,
       });
@@ -304,10 +313,11 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
       const sensorCandidates = context.database.listSensors(house.id)
         .filter((sensor) => sensor.enabled && context.visibility(response).sensor(sensor.id));
       const sensorsWithTemperatureHistory = new Set(
-        context.database.measurementCoverage(
-          sensorCandidates.map((sensor) => sensor.id),
-          ["temperature"],
-        ).map((coverage) => coverage.sensorId),
+        (await context.telemetryReader.measurementCoverage({
+          sensorIds: sensorCandidates.map((sensor) => sensor.id),
+          metrics: ["temperature"],
+        })).records
+          .map((coverage) => coverage.sensorId),
       );
       const sensors = sensorCandidates.filter((sensor) =>
         isThermalIsolationTemperatureSensor(sensor, sensorsWithTemperatureHistory.has(sensor.id)));
@@ -315,16 +325,26 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
         throw new HttpError(422, "THERMAL_SCOPE_TOO_LARGE", "thermal isolation comparison supports at most 64 temperature sensors per request");
       }
       const boundaryPaddingMs = 2 * 3_600_000;
-      const outdoorSamples = context.database.outdoorTemperatureHistory(
-        house.id,
-        outdoorLocationKey(house.location),
-        new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
-        new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
-        50_000,
-      );
-      const indoorSamplesBySensor = new Map(sensors.map((sensor) => [
+      const [outdoorRead, ...indoorReads] = await Promise.all([
+        context.telemetryReader.outdoorTemperatureHistory({
+          houseId: house.id,
+          locationKey: outdoorLocationKey(house.location),
+          from: new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
+          to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
+          limit: 50_000,
+        }),
+        ...sensors.map((sensor) => context.telemetryReader.thermalMeasurementHistory({
+          sensorId: sensor.id,
+          metrics: ["temperature"],
+          from,
+          to,
+          bucketMinutes: 5,
+          limitPerMetric: 5_000,
+        })),
+      ]);
+      const indoorSamplesBySensor = new Map(sensors.map((sensor, index) => [
         sensor.id,
-        context.database.thermalTemperatureHistory(sensor.id, from, to, 5, 5_000),
+        indoorReads[index]!.records,
       ]));
       const abortController = new AbortController();
       const abortOnClose = () => abortController.abort();
@@ -334,7 +354,7 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
           house,
           sensors,
           indoorSamplesBySensor,
-          outdoorSamples,
+          outdoorSamples: outdoorRead.records,
           from,
           to,
         }, { signal: abortController.signal });
@@ -359,10 +379,10 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
       }
       const sensorCandidates = context.database.listSensors(house.id)
         .filter((sensor) => sensor.enabled && context.visibility(response).sensor(sensor.id));
-      const coverage = context.database.measurementCoverage(
-        sensorCandidates.map((sensor) => sensor.id),
-        ["temperature", "humidity"],
-      );
+      const coverage = (await context.telemetryReader.measurementCoverage({
+        sensorIds: sensorCandidates.map((sensor) => sensor.id),
+        metrics: ["temperature", "humidity"],
+      })).records;
       const sensorsWithTemperature = new Set(
         coverage.filter((item) => item.metric === "temperature").map((item) => item.sensorId),
       );
@@ -378,16 +398,26 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
         throw new HttpError(422, "MOISTURE_SCOPE_TOO_LARGE", "moisture response comparison supports at most 64 paired climate sensors per request");
       }
       const boundaryPaddingMs = 2 * 3_600_000;
-      const outdoorSamples = context.database.outdoorTemperatureHistory(
-        house.id,
-        outdoorLocationKey(house.location),
-        new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
-        new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
-        50_000,
-      );
-      const indoorSamplesBySensor = new Map(sensors.map((sensor) => [
+      const [outdoorRead, ...indoorReads] = await Promise.all([
+        context.telemetryReader.outdoorTemperatureHistory({
+          houseId: house.id,
+          locationKey: outdoorLocationKey(house.location),
+          from: new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
+          to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
+          limit: 50_000,
+        }),
+        ...sensors.map((sensor) => context.telemetryReader.thermalMeasurementHistory({
+          sensorId: sensor.id,
+          metrics: ["temperature", "humidity"],
+          from,
+          to,
+          bucketMinutes: 5,
+          limitPerMetric: 5_000,
+        })),
+      ]);
+      const indoorSamplesBySensor = new Map(sensors.map((sensor, index) => [
         sensor.id,
-        context.database.thermalClimateHistory(sensor.id, from, to, 5, 5_000),
+        indoorReads[index]!.records,
       ]));
       const abortController = new AbortController();
       const abortOnClose = () => abortController.abort();
@@ -397,7 +427,7 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
           house,
           sensors,
           indoorSamplesBySensor,
-          outdoorSamples,
+          outdoorSamples: outdoorRead.records,
           from,
           to,
         }, { signal: abortController.signal });

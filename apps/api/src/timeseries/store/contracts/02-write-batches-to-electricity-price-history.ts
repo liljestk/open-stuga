@@ -32,6 +32,10 @@ import type {
   MeasurementHistoryQuery,
   MeasurementSampleRecord,
   MeasurementWindowQuery,
+  ThermalMeasurementHistoryQuery,
+  OpeningStateHistoryQuery,
+  OpeningStateRecord,
+  OpeningStateSnapshotQuery,
   OutdoorTemperatureHistoryQuery,
   OutdoorTemperatureRecord,
   QueryControl,
@@ -41,7 +45,7 @@ import type {
   TelemetryStoreOptions,
   TelemetryTableStorage,
 } from "../../types.js";
-import { ArchiveCheckpointRow, ElectricityPriceRow, LatestLegacyReadingFilter, LatestMeasurementFilter, LegacyReadingRow, MAX_HISTORY_LIMIT, MAX_MEASUREMENT_WINDOW_LIMIT, MeasurementBucketRow, MeasurementCoverageRow, MeasurementRow, OutdoorTemperatureRow, SqlValue, electricityPriceFromRow, legacyReadingFromRow, measurementBucketFromRow, measurementFromRow, outdoorTemperatureFromRow, positiveInteger, timestamp } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
+import { ArchiveCheckpointRow, ElectricityPriceRow, LatestLegacyReadingFilter, LatestMeasurementFilter, LegacyReadingRow, MAX_HISTORY_LIMIT, MAX_MEASUREMENT_WINDOW_LIMIT, MeasurementBucketRow, MeasurementCoverageRow, MeasurementRow, OpeningStateRow, OutdoorTemperatureRow, SqlValue, electricityPriceFromRow, legacyReadingFromRow, measurementBucketFromRow, measurementFromRow, openingStateFromRow, outdoorTemperatureFromRow, positiveInteger, timestamp } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
 import "../core.js";
 
 declare module "../core.js" {
@@ -64,6 +68,7 @@ declare module "../core.js" {
     latestMeasurementSample(sensorId: string, metric: string, control?: QueryControl): Promise<MeasurementSampleRecord | null>;
     latestMeasurementSamples(filter?: LatestMeasurementFilter): Promise<MeasurementSampleRecord[]>;
     measurementHistory(query: MeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
+    thermalMeasurementHistory(query: ThermalMeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
     measurementWindow(query: MeasurementWindowQuery): Promise<MeasurementSampleRecord[]>;
     measurementCoverage(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]>;
     measurementBuckets(query: MeasurementBucketQuery): Promise<MeasurementBucketRecord[]>;
@@ -71,6 +76,8 @@ declare module "../core.js" {
     legacyReadingHistory(query: LegacyReadingHistoryQuery): Promise<LegacyReadingRecord[]>;
     outdoorTemperatureHistory(query: OutdoorTemperatureHistoryQuery): Promise<OutdoorTemperatureRecord[]>;
     electricityPriceHistory(query: ElectricityPriceHistoryQuery): Promise<ElectricityPriceRecord[]>;
+    openingStateHistory(query: OpeningStateHistoryQuery): Promise<OpeningStateRecord[]>;
+    openingStateSnapshot(query: OpeningStateSnapshotQuery): Promise<OpeningStateRecord[]>;
   }
 
   interface TimeseriesStoreCore {
@@ -83,6 +90,7 @@ declare module "../core.js" {
     latestMeasurementSample(sensorId: string, metric: string, control?: QueryControl): Promise<MeasurementSampleRecord | null>;
     latestMeasurementSamples(filter?: LatestMeasurementFilter): Promise<MeasurementSampleRecord[]>;
     measurementHistory(query: MeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
+    thermalMeasurementHistory(query: ThermalMeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
     measurementWindow(query: MeasurementWindowQuery): Promise<MeasurementSampleRecord[]>;
     measurementCoverage(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]>;
     measurementBuckets(query: MeasurementBucketQuery): Promise<MeasurementBucketRecord[]>;
@@ -90,5 +98,7 @@ declare module "../core.js" {
     legacyReadingHistory(query: LegacyReadingHistoryQuery): Promise<LegacyReadingRecord[]>;
     outdoorTemperatureHistory(query: OutdoorTemperatureHistoryQuery): Promise<OutdoorTemperatureRecord[]>;
     electricityPriceHistory(query: ElectricityPriceHistoryQuery): Promise<ElectricityPriceRecord[]>;
+    openingStateHistory(query: OpeningStateHistoryQuery): Promise<OpeningStateRecord[]>;
+    openingStateSnapshot(query: OpeningStateSnapshotQuery): Promise<OpeningStateRecord[]>;
   }
 }

@@ -19,7 +19,9 @@ export const CORE_SCHEMA_01 = `
       );
       CREATE TABLE IF NOT EXISTS telemetry_archive_row_ids (
         archive_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        table_name TEXT NOT NULL CHECK (table_name IN ('outdoor_temperature_samples', 'electricity_price_samples')),
+        table_name TEXT NOT NULL CHECK (table_name IN (
+          'outdoor_temperature_samples', 'electricity_price_samples', 'opening_state_samples'
+        )),
         natural_key TEXT NOT NULL,
         UNIQUE (table_name, natural_key)
       );

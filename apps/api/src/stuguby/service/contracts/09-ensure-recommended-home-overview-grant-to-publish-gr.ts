@@ -120,6 +120,7 @@ declare module "../core.js" {
         };
     updateGrant(grantId: string, baseRevision: number, input: Pick<StugubyShareGrant, "audience" | "datasets" | "expiresAt" | "housePolicy">): StugubyShareGrant;
     revokeGrant(grantId: string): StugubyShareGrant;
+    removeInvalidGrant(grantId: string): { removed: true; grantId: string };
     republishGrant(grantId: string): void;
     validateGrantAgainstMembership(grant: StugubyShareGrant, authorityNodeId?: unknown ): void;
     validateEditableHomeGrant(grant: StugubyShareGrant): void;
@@ -154,6 +155,7 @@ declare module "../core.js" {
         };
     updateGrant(grantId: string, baseRevision: number, input: Pick<StugubyShareGrant, "audience" | "datasets" | "expiresAt" | "housePolicy">): StugubyShareGrant;
     revokeGrant(grantId: string): StugubyShareGrant;
+    removeInvalidGrant(grantId: string): { removed: true; grantId: string };
     republishGrant(grantId: string): void;
     markLocalHouseInAdoptedProperty(houseId: string): House;
   }

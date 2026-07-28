@@ -88,6 +88,17 @@ function calendarDay(timestamp: number, timeZone: string | undefined): string {
   return ["year", "month", "day"].map((type) => parts.find((part) => part.type === type)?.value ?? "").join("-");
 }
 
+function replayEventMarkerLanes(events: readonly ReplayClimateEvent[], min: number, max: number): Map<string, number> {
+  const latestPositionByLane = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
+  return new Map(events.map((event) => {
+    const position = (event.timestamp - min) / Math.max(max - min, 1) * 100;
+    let lane = latestPositionByLane.findIndex((latest) => position - latest >= 4);
+    if (lane < 0) lane = latestPositionByLane.indexOf(Math.min(...latestPositionByLane));
+    latestPositionByLane[lane] = position;
+    return [event.id, lane];
+  }));
+}
+
 export function ReplayControls({
   active,
   playing,
@@ -146,6 +157,7 @@ export function ReplayControls({
   const visibleEvents = events
     .filter((event) => Number.isFinite(event.timestamp) && event.timestamp >= min && event.timestamp <= max)
     .sort((left, right) => left.timestamp - right.timestamp);
+  const eventMarkerLanes = replayEventMarkerLanes(visibleEvents, min, max);
   const replayProgress = Math.max(0, Math.min(100, (timestamp - min) / Math.max(max - min, 1) * 100));
   const selectedEventId = visibleEvents.find((event) => Math.abs(event.timestamp - timestamp) <= 1_000)?.id ?? null;
   const previousEvent = visibleEvents.filter((event) => event.timestamp < timestamp - 1_000).at(-1);
@@ -259,10 +271,16 @@ export function ReplayControls({
                   aria-label={t("replay.seekEvent", { event: description, time: eventTime })}
                   title={`${eventTime} · ${description}`}
                   data-direction={event.direction}
+                  data-lane={eventMarkerLanes.get(event.id) ?? 0}
                   data-edge={position < 15 ? "start" : position > 85 ? "end" : undefined}
                   style={{ "--replay-event-position": `${Math.max(0, Math.min(100, position))}%` } as CSSProperties}
                   onClick={() => selectEvent(event, false)}
-                ><span aria-hidden="true"><strong>{eventTime}</strong>{description}</span></button>;
+                >
+                  <span className="replay-event-marker" aria-hidden="true">
+                    {event.direction === "drop" ? <ArrowDown size={10} /> : <ArrowUp size={10} />}
+                  </span>
+                  <span className="replay-event-tooltip" aria-hidden="true"><strong>{eventTime}</strong>{description}</span>
+                </button>;
               })}
             </span>}
           </div>

@@ -1,0 +1,78 @@
+#!/bin/sh
+# Qualify a USB partition against the exact firmware-selected disk and emit
+# its A/B udev link. Output is suitable for udev IMPORT{program}.
+
+set -u
+
+proc_root="${STUGU_PROC_ROOT:-/proc}"
+sys_root="${STUGU_SYS_ROOT:-/sys}"
+dev_root="${STUGU_DEV_ROOT:-/dev}"
+udev_fmt=0
+device_name="${DEVNAME:-}"
+partition_label="${ID_PART_ENTRY_NAME:-}"
+
+die() {
+  echo "stugu-usb-udev-slot: $*" >&2
+  exit 1
+}
+
+read_dt_u32() {
+  # shellcheck disable=SC2046,SC2312
+  set -- $(od -An -tu1 -N4 "$1" 2>/dev/null)
+  [ "$#" -eq 4 ] || return 1
+  echo $(( $1 * 16777216 + $2 * 65536 + $3 * 256 + $4 ))
+}
+
+while getopts "d:l:u" option; do
+  case "$option" in
+    d) device_name="$OPTARG" ;;
+    l) partition_label="$OPTARG" ;;
+    u) udev_fmt=1 ;;
+    *) die "invalid arguments" ;;
+  esac
+done
+
+[ -n "$device_name" ] || die "missing device"
+[ -n "$partition_label" ] || die "missing partition label"
+
+boot_disk="$(STUGU_PROC_ROOT="$proc_root" STUGU_SYS_ROOT="$sys_root" \
+  /usr/bin/stugu-usb-bootdev 2>/dev/null)" ||
+  die "firmware-selected USB disk is not ready"
+
+partition_name="${device_name##*/}"
+partition_number="${partition_name#"$boot_disk"}"
+case "$partition_number" in
+  ""|*[!0-9]*) die "$device_name is not a partition of $boot_disk" ;;
+esac
+
+boot_partition="$(read_dt_u32 \
+  "${proc_root}/device-tree/chosen/bootloader/partition")" ||
+  die "missing boot partition"
+[ "$boot_partition" -gt 0 ] || die "invalid boot partition"
+boot_device="${dev_root}/${boot_disk}${boot_partition}"
+[ -b "$boot_device" ] || die "$boot_device is not ready"
+boot_label="$(blkid -s PARTLABEL -o value "$boot_device" 2>/dev/null)" ||
+  die "boot partition has no GPT label"
+
+case "$boot_label" in
+  bootconfig|boot_a) active_suffix="a"; other_suffix="b" ;;
+  boot_b) active_suffix="b"; other_suffix="a" ;;
+  *) die "unsupported boot partition label $boot_label" ;;
+esac
+
+slot=""
+case "$partition_label" in
+  bootconfig) slot="disk/by-slot/bootconfig" ;;
+  persistent) slot="disk/by-slot/persistent" ;;
+  "boot_${active_suffix}") slot="disk/by-slot/active/boot" ;;
+  "system_${active_suffix}") slot="disk/by-slot/active/system" ;;
+  "boot_${other_suffix}") slot="disk/by-slot/other/boot" ;;
+  "system_${other_suffix}") slot="disk/by-slot/other/system" ;;
+esac
+
+if [ "$udev_fmt" -eq 1 ]; then
+  echo "RPI_ONBOOTDEV=1"
+  [ -n "$slot" ] && echo "STUGU_SLOT=$slot"
+elif [ -n "$slot" ]; then
+  echo "$slot"
+fi

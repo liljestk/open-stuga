@@ -91,7 +91,7 @@ import {
   type StugubyOutboxItem,
   type StugubyPropertyAdoption,
 } from "../../store.js";
-import { Notification, asJson, parseIso, sha256 } from "../support/01-stuguby-error-to-without-local-grant-identity.js";
+import { Notification, StugubyError, asJson, parseIso, sha256 } from "../support/01-stuguby-error-to-without-local-grant-identity.js";
 import { registerStugubyServiceMethods, stugubyServiceState, type StugubyServiceInternals } from "../core.js";
 
 registerStugubyServiceMethods({
@@ -323,6 +323,13 @@ registerStugubyServiceMethods({
       // and live stream from each consuming a full allowance for that hour.
       const to = new Date(policy.live ? Math.floor(now / 3_600_000) * 3_600_000 - 1 : now).toISOString();
       if (Date.parse(from) > Date.parse(to)) return;
+      if (!this.localTelemetryHistoryComplete(from)) {
+        throw new StugubyError(
+          409,
+          "ARCHIVED_TELEMETRY_EXPORT_UNAVAILABLE",
+          "Stuguby cannot publish a complete history snapshot from the bounded SQLite cache; an archive-aware federation export is required",
+        );
+      }
       const sensors = this.selectedSensors(grant, house, policy.sensorPublicationIds);
       if (sensors.length === 0) return;
       const sensorIds = sensors.map((sensor) => sensor.id);

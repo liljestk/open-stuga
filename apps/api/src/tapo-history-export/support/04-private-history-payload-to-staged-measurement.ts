@@ -18,6 +18,7 @@ import type {
   TapoHistoryExportStagedSampleInput,
 } from "../../db.js";
 import type { SensorHistoryRecoveryResult } from "../../sensor-gap-recovery.js";
+import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import { MAX_TAPO_HISTORY_DATA_ROWS_PER_JOB, REQUEST_TIMEOUT_MS, TapoHistoryFormatError } from "./01-max-csv-bytes-to-tapo-csv-schema-signature.js";
 import { TapoPrivateHistoryClientOptions, boundedResponseJson } from "./03-bounded-response-bytes-to-tapo-private-history-clien.js";
 
@@ -237,6 +238,7 @@ export interface TapoHistoryServiceOptions {
   deviceNameFor?: (sensorId: string, deviceId: string) => string | null;
   /** Deterministic DNS hook for the explicitly configured private adapter. */
   privateResolver?: (hostname: string) => Promise<readonly string[]>;
+  telemetryReader?: HybridTelemetryReader;
 }
 
 export interface TapoWorkerStatusUpdate {

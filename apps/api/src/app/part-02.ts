@@ -306,6 +306,9 @@ export function configureApiPart02(context: ReturnType<typeof configureApiPart01
         publicOrigin: config.stugubyPublicOrigin,
         suggestedPublicOrigin: config.stugubySuggestedPublicOrigin ?? null,
         allowUiPublicOrigin: !config.stugubyCoordinatorProvisioningRequired,
+        localTelemetryHistoryComplete: (from) => !config.timeseriesEnabled
+          || (from !== undefined && config.retentionDays > 0
+            && Date.parse(from) >= Date.now() - config.retentionDays * 86_400_000),
         ...(context.options.stugubyFetcher ? { fetcher: context.options.stugubyFetcher } : {}),
       });
     })();

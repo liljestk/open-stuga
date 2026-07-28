@@ -1,0 +1,5 @@
+# Register USB A/B aliases as udev DEVLINKS so systemd creates matching device
+# units. The importer rejects every disk except the firmware-selected USB disk.
+SUBSYSTEM=="block", KERNEL=="sd*[0-9]", ENV{ID_PART_ENTRY_NAME}=="?*", ACTION=="add|change", \
+  IMPORT{program}="/usr/bin/stugu-usb-udev-slot -u -l $env{ID_PART_ENTRY_NAME} -d $env{DEVNAME}", \
+  ENV{STUGU_SLOT}=="?*", SYMLINK+="$env{STUGU_SLOT}"

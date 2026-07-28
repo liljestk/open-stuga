@@ -37,6 +37,7 @@ declare module "../core.js" {
     getGrant(id: string): StugubyShareGrant | null;
     listGrants(stugubyId: string, authorityNodeId?: string): StugubyShareGrant[];
     revokeGrant(id: string): StugubyShareGrant;
+    removeInvalidGrant(id: string): string[];
     getSharedProperty(stugubyId: string): StugubySharedProperty | null;
     saveSharedProperty(property: StugubySharedProperty, expectedRevision?: number): StugubySharedProperty;
     getPropertyAdoption(stugubyId: string): StugubyPropertyAdoption | null;
@@ -68,6 +69,7 @@ declare module "../core.js" {
     getGrant(id: string): StugubyShareGrant | null;
     listGrants(stugubyId: string, authorityNodeId?: string): StugubyShareGrant[];
     revokeGrant(id: string): StugubyShareGrant;
+    removeInvalidGrant(id: string): string[];
     getSharedProperty(stugubyId: string): StugubySharedProperty | null;
     saveSharedProperty(property: StugubySharedProperty, expectedRevision?: number): StugubySharedProperty;
     getPropertyAdoption(stugubyId: string): StugubyPropertyAdoption | null;

@@ -31,6 +31,8 @@ interface LocatedZone3D {
   center: Point3D;
 }
 
+const LABEL_ROW_HEIGHT = 16;
+
 function centroid(points: readonly Point[]): Point {
   return {
     x: points.reduce((sum, point) => sum + point.x, 0) / Math.max(points.length, 1),
@@ -86,6 +88,7 @@ export function SpatialLayerOverlay3D({ house, snapshots, topology, project }: S
   const { locale, t } = useI18n();
   const markerId = `spatial-3d-${useId().replaceAll(":", "")}`;
   if (!snapshots.length) return null;
+  const labelSlots = new Map<string, number>();
   return <g className="spatial-backend-layers spatial-backend-layers-3d">{snapshots.map((snapshot, snapshotIndex) => {
     const zones = snapshot.zones.flatMap((zone) => {
       const located = locateZone(zone, house, topology, snapshot.coordinateFrames);
@@ -109,18 +112,27 @@ export function SpatialLayerOverlay3D({ house, snapshots, topology, project }: S
         <marker id={`${token}-forward`} markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0L10 5L0 10Z" className="spatial-layer-arrow" /></marker>
         <marker id={`${token}-reverse`} markerWidth="10" markerHeight="10" refX="2" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0L10 5L0 10Z" className="spatial-layer-arrow" /></marker>
       </defs>
-      <g className="spatial-zone-values">{zones.map(({ zone, polygon, center, room }) => {
+      <g className="spatial-zone-values">{zones.map(({ zone, floor, polygon, center, room }) => {
         const confidence = layerConfidence(zone);
         const strength = layerVisualStrength(snapshot.layerId, zone);
         const metricText = layerMetricText(snapshot.layerId, zone, locale);
         const projected = polygon.map(project);
         const projectedCenter = project(center);
         const zoneLabel = zone.label ?? room?.name ?? zone.zoneId;
+        const showLabel = Boolean(metricText) || strength >= .35;
+        const labelStackKey = `${floor.id}:${room?.id ?? zone.roomId ?? zone.zoneId}`;
+        const labelSlot = labelSlots.get(labelStackKey) ?? 0;
+        if (showLabel) labelSlots.set(labelStackKey, labelSlot + 1);
         return <g key={`${zone.floorId ?? "floor"}:${zone.zoneId}`} className="spatial-zone-value" style={style(strength, confidence, zone.style?.opacity)} data-confidence={confidence.toFixed(2)}>
           {projected.length >= 3
             ? <polygon points={projected.map((point) => `${point.x},${point.y}`).join(" ")} />
             : <ellipse cx={projectedCenter.x} cy={projectedCenter.y} rx={Math.max(14, 30 * strength)} ry={Math.max(8, 16 * strength)} />}
-          {(metricText || strength >= .35) && <text x={projectedCenter.x} y={projectedCenter.y - 12} textAnchor="middle">{metricText ?? (activity ? t("spatial.activitySignal") : zoneLabel)}</text>}
+          {showLabel && <text
+            x={projectedCenter.x}
+            y={projectedCenter.y - 12 - labelSlot * LABEL_ROW_HEIGHT}
+            textAnchor="middle"
+            data-label-slot={labelSlot}
+          >{metricText ?? (activity ? t("spatial.activitySignal") : zoneLabel)}</text>}
         </g>;
       })}</g>
       {!activity && <g className="spatial-connection-values">{snapshot.connections.flatMap((connection) => {

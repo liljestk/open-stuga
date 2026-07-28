@@ -5,6 +5,7 @@ export const TELEMETRY_TABLES = [
   "legacy_readings",
   "outdoor_temperature_samples",
   "electricity_price_samples",
+  "opening_state_samples",
 ] as const;
 
 export type TelemetryTableName = (typeof TELEMETRY_TABLES)[number];
@@ -51,6 +52,14 @@ export const HYPERTABLE_DEFINITIONS: readonly HypertableDefinition[] = [
     orderBy: "starts_at DESC",
     coldAfter: "180 days",
   },
+  {
+    table: "opening_state_samples",
+    timeColumn: "observed_at",
+    chunkInterval: "30 days",
+    segmentBy: "house_id,element_id",
+    orderBy: "observed_at DESC",
+    coldAfter: "90 days",
+  },
 ] as const;
 
 export const MEASUREMENT_BUCKETS: Readonly<Record<MeasurementBucket, { interval: string; suffix: string }>> = {
@@ -91,12 +100,31 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
     `CREATE TABLE IF NOT EXISTS ${relation("archive_checkpoints")} (
       source_id TEXT NOT NULL CHECK (length(source_id) > 0),
       table_name TEXT NOT NULL CHECK (table_name IN (
-        'measurement_samples', 'legacy_readings', 'outdoor_temperature_samples', 'electricity_price_samples'
+        'measurement_samples', 'legacy_readings', 'outdoor_temperature_samples', 'electricity_price_samples',
+        'opening_state_samples'
       )),
       last_row_id BIGINT NOT NULL CHECK (last_row_id >= 0),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (source_id, table_name)
     )`,
+    `ALTER TABLE ${relation("archive_checkpoints")}
+      DROP CONSTRAINT IF EXISTS ${quoteIdentifier("archive_checkpoints_table_name_check")}`,
+    `DO $migration$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conrelid = '${relation("archive_checkpoints")}'::REGCLASS
+            AND conname = 'telemetry_archive_table_name_check'
+        ) THEN
+          ALTER TABLE ${relation("archive_checkpoints")}
+            ADD CONSTRAINT ${quoteIdentifier("telemetry_archive_table_name_check")}
+            CHECK (table_name IN (
+              'measurement_samples', 'legacy_readings', 'outdoor_temperature_samples', 'electricity_price_samples',
+              'opening_state_samples'
+            ));
+        END IF;
+      END
+    $migration$`,
     `CREATE TABLE IF NOT EXISTS ${relation("archive_source_state")} (
       source_id TEXT PRIMARY KEY CHECK (length(source_id) > 0),
       real_data_activated_at TIMESTAMPTZ NOT NULL,
@@ -196,6 +224,34 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
     `CREATE INDEX IF NOT EXISTS ${quoteIdentifier("electricity_price_latest_idx")}
       ON ${relation("electricity_price_samples")} (property_id, starts_at DESC)
       INCLUDE (ends_at, raw_price_cents_per_kwh, source, fetched_at)`,
+    `CREATE TABLE IF NOT EXISTS ${relation("opening_state_samples")} (
+      observation_id TEXT NOT NULL CHECK (length(observation_id) > 0),
+      house_id TEXT NOT NULL CHECK (length(house_id) > 0),
+      floor_id TEXT NOT NULL CHECK (length(floor_id) > 0),
+      element_id TEXT NOT NULL CHECK (length(element_id) > 0),
+      observed_at TIMESTAMPTZ NOT NULL CHECK (isfinite(observed_at)),
+      source TEXT NOT NULL CHECK (length(source) > 0),
+      state TEXT NOT NULL CHECK (state IN ('open', 'closed', 'unknown')),
+      open_fraction DOUBLE PRECISION CHECK (
+        open_fraction IS NULL OR (open_fraction >= 0 AND open_fraction <= 1)
+      ),
+      valid_until TIMESTAMPTZ CHECK (valid_until IS NULL OR valid_until > observed_at),
+      external_id TEXT,
+      connection_id TEXT,
+      recorded_at TIMESTAMPTZ NOT NULL CHECK (isfinite(recorded_at)),
+      metadata JSONB NOT NULL DEFAULT '{}'::JSONB,
+      ingested_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+      PRIMARY KEY (observation_id, observed_at)
+    )`,
+    `CREATE INDEX IF NOT EXISTS ${quoteIdentifier("opening_state_observed_at_brin")}
+      ON ${relation("opening_state_samples")} USING BRIN (observed_at)`,
+    `CREATE INDEX IF NOT EXISTS ${quoteIdentifier("opening_state_history_idx")}
+      ON ${relation("opening_state_samples")} (house_id, observed_at DESC)
+      INCLUDE (floor_id, element_id, state, open_fraction, source)`,
+    `CREATE INDEX IF NOT EXISTS ${quoteIdentifier("opening_state_identity_idx")}
+      ON ${relation("opening_state_samples")} (
+        house_id, floor_id, element_id, source, external_id, connection_id, observed_at DESC
+      )`,
     `INSERT INTO ${relation("schema_migrations")} (version, description)
       VALUES (1, 'Initial append-only telemetry schema')
       ON CONFLICT (version) DO NOTHING`,
@@ -206,6 +262,9 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
       ADD COLUMN IF NOT EXISTS margin_cents_per_kwh DOUBLE PRECISION NOT NULL DEFAULT 0`,
     `INSERT INTO ${relation("schema_migrations")} (version, description)
       VALUES (3, 'Snapshot contract margin with every electricity price interval')
+      ON CONFLICT (version) DO NOTHING`,
+    `INSERT INTO ${relation("schema_migrations")} (version, description)
+      VALUES (4, 'Archive door, window, and vent state observations')
       ON CONFLICT (version) DO NOTHING`,
   ];
 }

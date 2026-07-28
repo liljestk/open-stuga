@@ -145,6 +145,7 @@ export interface StugubyServiceInternals {
   readonly store: StugubyStore;
   readonly keys: StugubyNodeKeys;
   readonly suggestedPublicOrigin: string | null;
+  readonly localTelemetryHistoryComplete: (from?: string) => boolean;
   get publicOrigin(): string | null;
   get publicOriginConfigurable(): boolean;
   get identity(): StugubyNodeIdentity;
@@ -157,6 +158,7 @@ export class StugubyServiceCore {
   readonly store: StugubyStore;
   readonly keys: StugubyNodeKeys;
   readonly suggestedPublicOrigin: string | null;
+  readonly localTelemetryHistoryComplete: (from?: string) => boolean;
   readonly [stugubyServiceState] = createStugubyServiceState();
   constructor(options: StugubyServiceOptions) {
       const service = this as unknown as StugubyServiceInternals;
@@ -164,6 +166,7 @@ export class StugubyServiceCore {
       this.database = options.database;
       this.store = options.store;
       this.keys = options.keys;
+      this.localTelemetryHistoryComplete = options.localTelemetryHistoryComplete ?? (() => true);
       this[stugubyServiceState].bus = options.bus;
       this[stugubyServiceState].assetDirectory = join(options.assetDirectory, "stuguby");
       this[stugubyServiceState].fetcher = options.fetcher ?? fetch;

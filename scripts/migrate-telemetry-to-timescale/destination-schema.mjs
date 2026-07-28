@@ -226,7 +226,8 @@ export async function provisionDestination(client, schema, maintenanceTimeoutMs)
       CREATE TABLE IF NOT EXISTS ${s}.archive_checkpoints (
         source_id text NOT NULL CHECK (length(source_id) > 0),
         table_name text NOT NULL CHECK (table_name IN (
-          'measurement_samples', 'legacy_readings', 'outdoor_temperature_samples', 'electricity_price_samples'
+          'measurement_samples', 'legacy_readings', 'outdoor_temperature_samples', 'electricity_price_samples',
+          'opening_state_samples'
         )),
         last_row_id bigint NOT NULL CHECK (last_row_id >= 0),
         updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
@@ -293,11 +294,54 @@ export async function provisionDestination(client, schema, maintenanceTimeoutMs)
           raw_price_cents_per_kwh > '-Infinity'::double precision
           AND raw_price_cents_per_kwh < 'Infinity'::double precision
         ),
+        margin_cents_per_kwh double precision NOT NULL DEFAULT 0 CHECK (
+          margin_cents_per_kwh > '-Infinity'::double precision
+          AND margin_cents_per_kwh < 'Infinity'::double precision
+        ),
         fetched_at timestamptz NOT NULL CHECK (isfinite(fetched_at)),
         metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
         ingested_at timestamptz NOT NULL DEFAULT clock_timestamp(),
         PRIMARY KEY (property_id, starts_at, source)
       );
+      CREATE TABLE IF NOT EXISTS ${s}.opening_state_samples (
+        observation_id text NOT NULL CHECK (length(observation_id) > 0),
+        house_id text NOT NULL CHECK (length(house_id) > 0),
+        floor_id text NOT NULL CHECK (length(floor_id) > 0),
+        element_id text NOT NULL CHECK (length(element_id) > 0),
+        observed_at timestamptz NOT NULL CHECK (isfinite(observed_at)),
+        source text NOT NULL CHECK (length(source) > 0),
+        state text NOT NULL CHECK (state IN ('open', 'closed', 'unknown')),
+        open_fraction double precision CHECK (
+          open_fraction IS NULL OR (open_fraction >= 0 AND open_fraction <= 1)
+        ),
+        valid_until timestamptz CHECK (valid_until IS NULL OR valid_until > observed_at),
+        external_id text,
+        connection_id text,
+        recorded_at timestamptz NOT NULL CHECK (isfinite(recorded_at)),
+        metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+        ingested_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+        PRIMARY KEY (observation_id, observed_at)
+      );
+      ALTER TABLE ${s}.electricity_price_samples
+        ADD COLUMN IF NOT EXISTS margin_cents_per_kwh double precision NOT NULL DEFAULT 0;
+      ALTER TABLE ${s}.archive_checkpoints
+        DROP CONSTRAINT IF EXISTS archive_checkpoints_table_name_check;
+      DO $migration$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conrelid = '${s}.archive_checkpoints'::regclass
+            AND conname = 'telemetry_archive_table_name_check'
+        ) THEN
+          ALTER TABLE ${s}.archive_checkpoints
+            ADD CONSTRAINT telemetry_archive_table_name_check
+            CHECK (table_name IN (
+              'measurement_samples', 'legacy_readings', 'outdoor_temperature_samples',
+              'electricity_price_samples', 'opening_state_samples'
+            ));
+        END IF;
+      END
+      $migration$;
       CREATE INDEX IF NOT EXISTS ${q("measurement_samples_observed_at_brin")}
         ON ${s}.measurement_samples USING BRIN (observed_at);
       CREATE INDEX IF NOT EXISTS ${q("measurement_samples_latest_idx")}
@@ -327,11 +371,26 @@ export async function provisionDestination(client, schema, maintenanceTimeoutMs)
       CREATE INDEX IF NOT EXISTS ${q("electricity_price_latest_idx")}
         ON ${s}.electricity_price_samples (property_id, starts_at DESC)
         INCLUDE (ends_at, raw_price_cents_per_kwh, source, fetched_at);
+      CREATE INDEX IF NOT EXISTS ${q("opening_state_observed_at_brin")}
+        ON ${s}.opening_state_samples USING BRIN (observed_at);
+      CREATE INDEX IF NOT EXISTS ${q("opening_state_history_idx")}
+        ON ${s}.opening_state_samples (house_id, observed_at DESC)
+        INCLUDE (floor_id, element_id, state, open_fraction, source);
+      CREATE INDEX IF NOT EXISTS ${q("opening_state_identity_idx")}
+        ON ${s}.opening_state_samples (
+          house_id, floor_id, element_id, source, external_id, connection_id, observed_at DESC
+        );
       INSERT INTO ${s}.schema_migrations (version, description)
         VALUES (1, 'Initial append-only telemetry schema')
         ON CONFLICT (version) DO NOTHING;
       INSERT INTO ${s}.schema_migrations (version, description)
         VALUES (2, 'Checkpointed SQLite archive reconciliation and real-data boundary state')
+        ON CONFLICT (version) DO NOTHING;
+      INSERT INTO ${s}.schema_migrations (version, description)
+        VALUES (3, 'Snapshot contract margin with every electricity price interval')
+        ON CONFLICT (version) DO NOTHING;
+      INSERT INTO ${s}.schema_migrations (version, description)
+        VALUES (4, 'Opening-state event telemetry')
         ON CONFLICT (version) DO NOTHING;
     `);
     for (const definition of MIGRATION_HYPERTABLES) {
@@ -381,7 +440,12 @@ export async function validateDestinationSchema(client, schema) {
         "house_id", "location_key", "observed_at", "source", "temperature_c", "fetched_at", "station_id", "station_name", "metadata", "ingested_at",
       ],
       electricity_price_points: [
-        "property_id", "starts_at", "source", "ends_at", "raw_price_cents_per_kwh", "fetched_at", "metadata", "ingested_at",
+        "property_id", "starts_at", "source", "ends_at", "raw_price_cents_per_kwh",
+        "margin_cents_per_kwh", "fetched_at", "metadata", "ingested_at",
+      ],
+      opening_state_observations: [
+        "observation_id", "house_id", "floor_id", "element_id", "observed_at", "source", "state",
+        "open_fraction", "valid_until", "external_id", "connection_id", "recorded_at", "metadata", "ingested_at",
       ],
     }[sourceTable];
     const missing = expectedColumns.filter((column) => !columnNames.has(column));
@@ -462,9 +526,9 @@ export async function validateDestinationSchema(client, schema) {
     throw new Error(`Destination ${schema}.archive_source_state has an incompatible primary key`);
   }
   const migrations = await client.query(`SELECT version
-    FROM ${q(schema)}.schema_migrations WHERE version IN (1, 2) ORDER BY version`);
-  if (migrations.rows.map(({ version }) => Number(version)).join(",") !== "1,2") {
-    throw new Error(`Destination ${schema}.schema_migrations is missing required versions 1 and 2`);
+    FROM ${q(schema)}.schema_migrations WHERE version IN (1, 2, 3, 4) ORDER BY version`);
+  if (migrations.rows.map(({ version }) => Number(version)).join(",") !== "1,2,3,4") {
+    throw new Error(`Destination ${schema}.schema_migrations is missing required versions 1 through 4`);
   }
 }
 

@@ -27,7 +27,7 @@ import {
   quoteSqliteIdentifier,
 } from ".././sqlite-snapshot-utils.mjs";
 
-export const MANIFEST_VERSION = 2;
+export const MANIFEST_VERSION = 3;
 
 export const DEFAULT_BATCH_SIZE = 1_000;
 
@@ -41,9 +41,9 @@ export const MAX_MAINTENANCE_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 
 export const DESTINATION_TIMESTAMP_KEY_FUNCTION = "stuga_destination_timestamptz_key";
 
-export const PREFLIGHT_SEMANTICS_VERSION = 3;
+export const PREFLIGHT_SEMANTICS_VERSION = 4;
 
-export const DESTINATION_FINGERPRINT_VERSION = 2;
+export const DESTINATION_FINGERPRINT_VERSION = 3;
 
 export const SOURCE_TABLES = Object.freeze({
   measurement_samples: {
@@ -82,8 +82,21 @@ export const SOURCE_TABLES = Object.freeze({
     keyColumns: ["property_id", "start_at"],
     nonEmptyColumns: ["property_id"],
     numericColumns: [{ name: "raw_price_cents_per_kwh", nullable: false }],
+    optionalNumericColumns: [{ name: "margin_cents_per_kwh", nullable: false }],
     dateColumns: ["start_at", "end_at", "fetched_at"],
     timeColumn: "start_at",
+  },
+  opening_state_observations: {
+    requiredColumns: [
+      "id", "house_id", "floor_id", "element_id", "state", "open_fraction", "source",
+      "observed_at", "valid_until", "external_id", "connection_id", "created_at",
+    ],
+    keyColumns: ["id", "observed_at"],
+    nonEmptyColumns: ["id", "house_id", "floor_id", "element_id", "state", "source"],
+    numericColumns: [{ name: "open_fraction", nullable: true }],
+    dateColumns: ["observed_at", "created_at"],
+    nullableDateColumns: ["valid_until"],
+    timeColumn: "observed_at",
   },
 });
 
@@ -92,6 +105,7 @@ export const TARGET_PRIMARY_KEYS = Object.freeze({
   readings: ["sensor_id", "observed_at", "source"],
   outdoor_temperature_samples: ["house_id", "location_key", "observed_at", "source"],
   electricity_price_points: ["property_id", "starts_at", "source"],
+  opening_state_observations: ["observation_id", "observed_at"],
 });
 
 export const TARGET_TABLES = Object.freeze({
@@ -99,6 +113,7 @@ export const TARGET_TABLES = Object.freeze({
   readings: "legacy_readings",
   outdoor_temperature_samples: "outdoor_temperature_samples",
   electricity_price_points: "electricity_price_samples",
+  opening_state_observations: "opening_state_samples",
 });
 
 export const MIGRATION_HYPERTABLES = Object.freeze([
@@ -106,6 +121,7 @@ export const MIGRATION_HYPERTABLES = Object.freeze([
   { table: "legacy_readings", timeColumn: "observed_at", chunkInterval: "7 days" },
   { table: "outdoor_temperature_samples", timeColumn: "observed_at", chunkInterval: "30 days" },
   { table: "electricity_price_samples", timeColumn: "starts_at", chunkInterval: "90 days" },
+  { table: "opening_state_samples", timeColumn: "observed_at", chunkInterval: "30 days" },
 ]);
 
 export const MIGRATION_AGGREGATES = Object.freeze([
@@ -146,7 +162,7 @@ Safety and recovery:
     without permitting two migration/verification writers on one destination.
   * Duplicate source natural keys are rejected instead of silently collapsing data.
     Timestamp spellings are normalized to PostgreSQL timestamptz instants first.
-  * TimescaleDB is required. All four target tables are converted and validated
+  * TimescaleDB is required. All five target tables are converted and validated
     as hypertables before the first bulk batch is written.
   * Credentials are never stored in the checkpoint or printed. Supplying the URL
     through TIMESCALE_DATABASE_URL is safer than placing it in shell history.
