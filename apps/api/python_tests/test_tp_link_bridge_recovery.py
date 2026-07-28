@@ -88,9 +88,7 @@ async def test_recovery_without_an_identity_rejects_ambiguous_sources(
     monkeypatch.setenv("TP_LINK_DISCOVERY_TARGETS", "192.168.71.255")
 
     assert (
-        await bridge.recover_source_host(
-            "192.168.68.54", "user", "password", None
-        )
+        await bridge.recover_source_host("192.168.68.54", "user", "password", None)
         is None
     )
     assert first.disconnected and second.disconnected

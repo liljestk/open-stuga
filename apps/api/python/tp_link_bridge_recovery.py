@@ -494,9 +494,7 @@ async def recover_source_host(
         password,
         expected_device_id,
     )
-    matches = {
-        match["host"]: match for match in [*broadcast_matches, *scanned_matches]
-    }
+    matches = {match["host"]: match for match in [*broadcast_matches, *scanned_matches]}
     # Without a learned stable identity, fail closed when credentials can open
     # more than one supported source across the reachable networks.
     return next(iter(matches.values())) if len(matches) == 1 else None
