@@ -2,7 +2,10 @@ diff --git a/image/gpt/ab_userdata/genimage.cfg.in.erofs b/image/gpt/ab_userdata
 index d0acb69..fe02013 100644
 --- a/image/gpt/ab_userdata/genimage.cfg.in.erofs
 +++ b/image/gpt/ab_userdata/genimage.cfg.in.erofs
-@@ -83,3 +83,5 @@ image bootconfig.vfat {
+@@ -81,5 +81,7 @@ image bootconfig.vfat {
+       file "autoboot.txt" { image = "autoboot.txt" }
+-      extraargs = "-s 1 -S <SECTOR_SIZE>"
++      extraargs = "-s 4 -S <SECTOR_SIZE>"
     }
 -   size = 32M
 +   size = 96M
@@ -13,7 +16,10 @@ diff --git a/image/gpt/ab_userdata/genimage.cfg.in.ext4 b/image/gpt/ab_userdata/
 index cd6aa59..981fd94 100644
 --- a/image/gpt/ab_userdata/genimage.cfg.in.ext4
 +++ b/image/gpt/ab_userdata/genimage.cfg.in.ext4
-@@ -83,3 +83,5 @@ image bootconfig.vfat {
+@@ -81,5 +81,7 @@ image bootconfig.vfat {
+       file "autoboot.txt" { image = "autoboot.txt" }
+-      extraargs = "-s 1 -S <SECTOR_SIZE>"
++      extraargs = "-s 4 -S <SECTOR_SIZE>"
     }
 -   size = 32M
 +   size = 96M
