@@ -24,6 +24,7 @@ install -d -m 0750 -o "$appliance_user" -g "$appliance_user" \
   "$state_dir/update-operations" \
   "$state_dir/update-release" \
   "$state_dir/secrets" \
+  "$state_dir/secrets/apns" \
   "$state_dir/secrets/cloudflare" \
   "$state_dir/secrets/tapo-history-api" \
   "$state_dir/secrets/tapo-history-runner"
@@ -119,6 +120,24 @@ release_version() {
 
 start_release() {
   local selected_release_env="$1"
+
+  # A power loss can interrupt PostgreSQL after the administrator is created
+  # but before the entrypoint creates the application role. Bring up the
+  # archive first and idempotently reconcile both roles before starting API
+  # containers that depend on them.
+  compose "$selected_release_env" up \
+    --detach \
+    --no-build \
+    --pull never \
+    --wait \
+    --wait-timeout 600 \
+    runtime-secrets \
+    timescaledb
+  compose "$selected_release_env" --profile maintenance run \
+    --rm \
+    --no-deps \
+    timeseries-credential-reconcile
+
   compose "$selected_release_env" up \
     --detach \
     --no-build \

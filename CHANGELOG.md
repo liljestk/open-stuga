@@ -6,6 +6,12 @@ All notable Stugu releases are recorded here.
 
 ## 0.17.0 - 2026-07-28
 
+- Make clean Raspberry Pi installations self-healing when PostgreSQL
+  initialization is interrupted, persist the APNS secret mount, and include
+  every update-agent module in its container image.
+- Validate the complete factory image under Linux before release, including
+  the protective MBR, GPT, six named partitions, A/B slot contents, filesystem
+  signatures, and Pi firmware boot files required for USB SSD boot.
 - Redesign calendar comparison around two explicit periods. Week views now
   align Monday through Sunday, months use seven-day blocks, years use months,
   and decades use years. The view can compare a stable selected-sensor

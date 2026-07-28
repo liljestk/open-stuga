@@ -75,6 +75,32 @@ In `raspi-config`, choose **Advanced Options → Boot Order → NVMe/USB Boot**.
 Early Pi 4 boards may update their EEPROM during the package upgrade. Power the
 Pi off cleanly after any requested reboot.
 
+Do not skip this step. The A/B layout selects its boot slot through
+`autoboot.txt` on a GPT partition table. Raspberry Pi boot firmware older than
+2025-01-22 resolves that combination incorrectly on Pi 4 and older boards: it
+loads `start4.elf` but then looks for the kernel in the wrong partition. Every
+Stugu factory build now parses the included `start4.elf` build date and rejects
+firmware older than that fix. See
+[rpi-eeprom#654](https://github.com/raspberrypi/rpi-eeprom/issues/654).
+
+USB discovery and boot order are handled separately by the Pi 4 EEPROM. Update
+it to the current release and confirm that its boot order contains USB mode
+`4`:
+
+```sh
+sudo rpi-eeprom-update -a
+sudo reboot
+sudo rpi-eeprom-update
+sudo rpi-eeprom-config | grep '^BOOT_ORDER='
+```
+
+When there are no login credentials for the card, update the EEPROM without
+booting an OS at all: in Raspberry Pi Imager choose **Misc utility images →
+Bootloader (Pi 4 family) → USB Boot**, write that to any spare card, and boot
+the Pi from it. It rewrites the EEPROM and the boot order unattended; a steady
+green ACT LED, or a green screen over HDMI, means it finished. Power off and
+remove the card. This erases the card it is written to.
+
 ## 2. Prepare the build host
 
 Install the two small prerequisites used by the wrapper:
@@ -89,7 +115,7 @@ Clone Stugu and check out the exact release you want to install:
 ```sh
 git clone https://github.com/liljestk/open-stuga.git
 cd open-stuga
-RELEASE_TAG=v0.4.0  # replace with the release you want to install
+RELEASE_TAG=v0.17.0  # replace with the release you want to install
 git switch --detach "$RELEASE_TAG"
 ```
 
@@ -153,6 +179,11 @@ The outputs are written to `dist/rpi/`:
 - `stugu-rpi4-<version>.img.zst` — factory disk image.
 - `stugu-rpi4-<version>-ota.tar.zst` — remote A/B update.
 - `stugu-rpi4-<version>.sha256` — checksums for both.
+
+Before compression, the build validates the raw image with Linux `sfdisk` and
+`mtools`. It fails unless the protective MBR, GPT, six aligned/named
+partitions, filesystem signatures, current Pi firmware, boot files, and
+identical factory A/B slots are all valid.
 
 If supplied, the factory image contains the single-use Connect key, so it is
 mode `0600`. Do not upload such an image to a public release. Delete it after
@@ -236,7 +267,7 @@ Verify the image before writing it:
 
 ```sh
 cd dist/rpi
-VERSION=0.4.0  # the release tag without its leading v
+VERSION=0.17.0  # the release tag without its leading v
 sha256sum --check "stugu-rpi4-${VERSION}-factory.sha256"
 ```
 
@@ -252,6 +283,20 @@ Open a current Raspberry Pi Imager:
 4. Write and verify the image.
 5. Power the Pi off, remove the SD card, attach the external disk, connect
    Ethernet, and power it on.
+
+Raspberry Pi Imager performs a verified raw write on Windows, macOS, and Linux;
+rewriting the same bytes with Linux `dd` does not create a different GPT. For
+an additional Linux check before first boot, unmount the new partitions and
+run the repository validator against the whole disk:
+
+```sh
+sudo apt install --yes fdisk mtools python3
+sudo bash scripts/validate-rpi-image.sh /dev/sdX
+```
+
+Replace `/dev/sdX` with the external disk, not a partition. The command is
+read-only but hashes both A/B slots, so it can take a minute. Run it before the
+first boot, which expands the final persistent partition.
 
 On first boot the appliance expands the persistent partition, signs in to
 Connect, pulls the pinned containers, creates runtime secrets, and starts
@@ -363,6 +408,13 @@ source after an ambiguous network failure until the target receipt is known.
   `/persistent/stugu/release-status`.
 - If the new OS cannot boot, Raspberry Pi's try-boot A/B mechanism returns to
   the previous slot.
+- Seven green ACT flashes means the firmware did not find a kernel. On an old
+  image this can be the pre-2025-01-22 GPT/autoboot firmware bug. On an image
+  that passes the validator, confirm the EEPROM USB boot order and the written
+  disk, then inspect the USB bridge, cable, and power. Some USB-SATA adapters
+  work in bootloader mass-storage mode but fail when Linux selects UAS.
+  `enable_uart=1` and `uart_2ndstage=1` are already set, so a 115200-baud
+  serial console on GPIO 14/15 shows exactly which file fails.
 - Do not run `docker compose down -v`; it deletes the named data and credential
   volumes.
 - Do not run `apt upgrade`; the root filesystem is intentionally read-only.
@@ -376,3 +428,4 @@ Upstream references:
 - [Raspberry Pi Connect for Organisations API](https://www.raspberrypi.com/documentation/services/connect-for-organisations.html#management-api)
 - [rpi-image-gen](https://github.com/raspberrypi/rpi-image-gen)
 - [Raspberry Pi USB mass-storage boot](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#usb-mass-storage-boot)
+- [Pi 4 GPT/autoboot firmware report](https://github.com/raspberrypi/rpi-eeprom/issues/654)

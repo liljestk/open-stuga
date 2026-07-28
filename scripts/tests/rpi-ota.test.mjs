@@ -122,6 +122,49 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
   assert.match(buildScript, /"nvme", "usb"/);
 });
 
+test("clean appliance startup includes every runtime path and repairs interrupted Timescale init", async () => {
+  const [dockerfile, composeStart, environment] = await Promise.all([
+    readFile(new URL("../../Dockerfile", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu-compose-start", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu.env.example", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(dockerfile, /COPY scripts\/stugu-update-agent\/ \.\/stugu-update-agent\//);
+  assert.match(dockerfile, /COPY scripts\/cloudflare-stugu\/ \.\/cloudflare-stugu\//);
+  assert.match(environment, /STUGA_APNS_SECRET_DIR=\/persistent\/stugu\/secrets\/apns/);
+  assert.match(composeStart, /"\$state_dir\/secrets\/apns"/);
+  assert.match(
+    composeStart,
+    /start_release\(\)[\s\S]*runtime-secrets[\s\S]*timescaledb[\s\S]*--profile maintenance run[\s\S]*timeseries-credential-reconcile[\s\S]*--remove-orphans/,
+  );
+});
+
+test("factory builds fail closed unless Linux validates the complete SSD layout", async () => {
+  const [buildScript, validator] = await Promise.all([
+    readFile(new URL("../build-rpi-image.sh", import.meta.url), "utf8"),
+    readFile(new URL("../validate-rpi-image.sh", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(buildScript, /validate-rpi-image\.sh" "\$raw_image"[\s\S]*zstd/);
+  assert.match(validator, /sfdisk --verify/);
+  assert.match(validator, /partition table is not GPT/);
+  for (const label of [
+    "bootconfig",
+    "boot_a",
+    "boot_b",
+    "system_a",
+    "system_b",
+    "persistent",
+  ]) {
+    assert.match(validator, new RegExp(`"${label}"`));
+  }
+  assert.match(validator, /protective MBR does not contain a GPT 0xEE entry/);
+  assert.match(validator, /autoboot\.txt does not map normal\/tryboot to GPT partitions 2 and 3/);
+  assert.match(validator, /2025-01-22 GPT autoboot partition-number fix/);
+  assert.match(validator, /boot_a and boot_b differ/);
+  assert.match(validator, /system_a and system_b differ/);
+});
+
 test("local publishing owns expensive builds and hosted release work is an explicit fallback", async () => {
   const [workflow, publisher] = await Promise.all([
     readFile(new URL("../../.github/workflows/rpi-release.yml", import.meta.url), "utf8"),

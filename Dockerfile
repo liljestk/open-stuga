@@ -185,6 +185,8 @@ FROM docker:28-cli AS update-agent
 RUN apk add --no-cache nodejs
 WORKDIR /opt/stugu-agent
 COPY scripts/stugu-update-agent.mjs scripts/cloudflare-stugu.mjs scripts/cloudflare-oauth.mjs ./
+COPY scripts/stugu-update-agent/ ./stugu-update-agent/
+COPY scripts/cloudflare-stugu/ ./cloudflare-stugu/
 ENTRYPOINT ["node", "/opt/stugu-agent/stugu-update-agent.mjs"]
 
 FROM nginx:alpine AS web
