@@ -121,13 +121,21 @@ registerTapoHistoryExportServiceMethods({
                     to: job.to,
                     intervalMinutes: job.intervalMinutes,
                   });
-                  const live = this[tapoHistoryExportServiceState].database.measurementHistory(
-                    job.sensorId,
-                    canaryMetric,
-                    job.from,
-                    job.to,
-                    20_000,
-                  );
+                  const live = this[tapoHistoryExportServiceState].options.telemetryReader
+                    ? (await this[tapoHistoryExportServiceState].options.telemetryReader.measurementHistory({
+                      sensorId: job.sensorId,
+                      metric: canaryMetric,
+                      from: job.from,
+                      to: job.to,
+                      limit: 20_000,
+                    })).records
+                    : this[tapoHistoryExportServiceState].database.measurementHistory(
+                      job.sensorId,
+                      canaryMetric,
+                      job.from,
+                      job.to,
+                      20_000,
+                    );
                   assertTapoCanaryMatchesLive(
                     parsed.samples,
                     live,

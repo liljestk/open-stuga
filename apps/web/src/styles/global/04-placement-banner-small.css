@@ -284,6 +284,35 @@
 
 .volume-vector-key.coverage { background: var(--coverage-soft); }
 
+.outdoor-influence-layer { --outdoor-influence-color: var(--muted); color: var(--outdoor-influence-color); pointer-events: none; }
+
+.outdoor-influence-layer[data-direction="warming"] { --outdoor-influence-color: var(--brand-red); }
+
+.outdoor-influence-layer[data-direction="cooling"] { --outdoor-influence-color: var(--blue); }
+
+.outdoor-influence-layer[data-direction="moistening"] { --outdoor-influence-color: var(--aqua); }
+
+.outdoor-influence-layer[data-direction="drying"] { --outdoor-influence-color: var(--coverage); }
+
+.outdoor-influence-perimeter { fill: none; stroke: var(--outdoor-influence-color); stroke-width: 7; stroke-opacity: var(--outdoor-influence-opacity); vector-effect: non-scaling-stroke; }
+
+.outdoor-influence-arrow { stroke: var(--outdoor-influence-color); stroke-width: 4; stroke-linecap: round; opacity: var(--outdoor-influence-edge-opacity); vector-effect: non-scaling-stroke; }
+
+.outdoor-influence-layer[data-direction="cooling"] .outdoor-influence-arrow,
+.outdoor-influence-layer[data-direction="drying"] .outdoor-influence-arrow { stroke-dasharray: 9 6; }
+
+.outdoor-influence-layer[data-direction="neutral"] .outdoor-influence-arrow { stroke-dasharray: 2 7; }
+
+.outdoor-influence-arrow[data-windward="true"] { stroke-width: 6; }
+
+.outdoor-influence-arrow-head { fill: var(--outdoor-influence-color); }
+
+.outdoor-influence-legend { border-color: color-mix(in srgb, var(--brand-red) 35%, var(--line)) !important; background: color-mix(in srgb, var(--orange-soft) 72%, var(--panel)) !important; }
+
+.flow-sample.outdoor-influence, .volume-vector-key.outdoor-influence { color: var(--brand-red); }
+
+.volume-vector-key.outdoor-influence { border-radius: 5px; background: var(--orange-soft); }
+
 .outdoor-shell-halo { fill: rgb(63 118 211 / .025); stroke: rgb(63 118 211 / .11); stroke-width: 15; vector-effect: non-scaling-stroke; }
 
 .outdoor-shell-border { fill: none; stroke: var(--blue); stroke-width: 2.5; stroke-dasharray: 11 8; opacity: .8; vector-effect: non-scaling-stroke; }

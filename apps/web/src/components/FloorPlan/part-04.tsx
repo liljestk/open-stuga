@@ -266,7 +266,7 @@ export function useFloorPlanPart04(context: ReturnType<typeof useFloorPlanPart03
     };
   const legendMin = formatMeasurement(visualDomain.min, definition, units);
   const legendMax = formatMeasurement(visualDomain.max, definition, units);
-  const outdoorContext = !outdoor?.replayActive ? outdoor?.context ?? null : null;
+  const outdoorContext = outdoor?.context ?? null;
   const airflow = useMemo(() => {
       if (!experimentalAirflowEnabled || layoutEditing) return null;
       if (experimentalAirflow) return experimentalAirflow;

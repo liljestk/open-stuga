@@ -1,6 +1,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { isIP } from "node:net";
 import { MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, hasLocalHouseAuthority, resolvePlanElementOpeningState } from "@climate-twin/contracts";
 import type { StugubyRole, StugubySummary } from "@climate-twin/stuguby-protocol";
 import type {
@@ -85,6 +86,7 @@ import {
 } from "../services.js";
 import { SetupDoctor } from "../setup-doctor.js";
 import { HybridTelemetryReader } from "../timeseries/read-facade.js";
+import { TimeseriesStore } from "../timeseries/store.js";
 import { runThermalIsolation } from "../thermal-isolation.js";
 import { runThermalSimulation } from "../thermal-simulation.js";
 import { TpLinkBridge } from "../tp-link.js";
@@ -94,6 +96,7 @@ import type { StugubyService } from "../stuguby/service.js";
 import { StugubyStore } from "../stuguby/store.js";
 
 export const config = loadConfig();
+const mcpTimeseriesHost = config.timeseriesHost ?? "127.0.0.1";
 
 export const database = new ClimateDatabase(config.databasePath, false, { readOnly: true });
 
@@ -115,11 +118,48 @@ export const status = new RuntimeStatus(config, bus, database);
 
 export const dataOperations = new DataOperationsService(database, config);
 
-export const telemetryReader = new HybridTelemetryReader({ local: database });
+const timeseriesSsl = config.timeseriesSslMode === "disable"
+  ? undefined
+  : config.timeseriesSslMode === "require"
+    ? { rejectUnauthorized: false }
+    : config.timeseriesSslMode === "verify-ca"
+      ? {
+        rejectUnauthorized: true,
+        ...(config.timeseriesSslCa ? { ca: config.timeseriesSslCa } : {}),
+        checkServerIdentity: () => undefined,
+      }
+      : {
+        rejectUnauthorized: true,
+        ...(config.timeseriesSslCa ? { ca: config.timeseriesSslCa } : {}),
+        ...(isIP(mcpTimeseriesHost) === 0 ? { servername: mcpTimeseriesHost } : {}),
+      };
+
+export const timeseries = config.timeseriesEnabled ? new TimeseriesStore({
+  poolConfig: {
+    host: mcpTimeseriesHost,
+    port: config.timeseriesPort ?? 5432,
+    database: config.timeseriesDatabase ?? "stuga",
+    user: config.timeseriesUser ?? "stuga_app",
+    password: config.timeseriesPassword ?? "",
+    ...(timeseriesSsl ? { ssl: timeseriesSsl } : {}),
+  },
+  maxConnections: config.timeseriesPoolMax ?? 6,
+  connectionTimeoutMs: config.timeseriesConnectTimeoutMs ?? 5_000,
+  statementTimeoutMs: config.timeseriesStatementTimeoutMs ?? 15_000,
+}) : null;
+
+export const telemetryReader = new HybridTelemetryReader({
+  local: database,
+  archive: timeseries,
+  localHistoryComplete: !timeseries
+    ? true
+    : (query) => (config.retentionDays ?? 0) > 0
+      && Date.parse(query.from) >= Date.now() - (config.retentionDays ?? 0) * 86_400_000,
+});
 
 export const energyCost = new EnergyCostService(telemetryReader);
 
-export const energyOptimizer = new EnergyOptimizer(database);
+export const energyOptimizer = new EnergyOptimizer(database, telemetryReader);
 
 export const setupDoctor = new SetupDoctor(database, config, status, dataOperations, null);
 

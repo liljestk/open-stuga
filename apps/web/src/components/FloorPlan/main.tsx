@@ -54,11 +54,11 @@ export function FloorPlan({
   observationPlacement, onSensorSelect, onSensorMove, onFloorChange, onObservationPoint, onCancelObservationPlacement,
   referenceTimeMs, maxSampleAgeMs,
   outdoor, spatialLayerSnapshots = [], spatialLayerTopology = null,
-  experimentalAirflowEnabled = false, experimentalAirflow = null, experimentalSensorCoverage = null,
+  experimentalAirflowEnabled = false, experimentalAirflow = null, experimentalSensorCoverage = null, experimentalOutdoorInfluence = null,
   openingStateObservations = [], pendingOpeningStateKeys = new Set<string>(), onOpeningStateChange,
   sensorMeasurements = {}, climateSensorMarkersVisible = true, energyDevicesVisible = true, allowBackgroundImageEditing = true,
 }: FloorPlanProps) {
-  const context0 = { floor, house, sensors, samples, climateSamples, observations, definition, colorDomain, units, viewMode, selectedSensorId, editing, observationPlacement, onSensorSelect, onSensorMove, onFloorChange, onObservationPoint, onCancelObservationPlacement, referenceTimeMs, maxSampleAgeMs, outdoor, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalAirflow, experimentalSensorCoverage, openingStateObservations, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, climateSensorMarkersVisible, energyDevicesVisible, allowBackgroundImageEditing };
+  const context0 = { floor, house, sensors, samples, climateSamples, observations, definition, colorDomain, units, viewMode, selectedSensorId, editing, observationPlacement, onSensorSelect, onSensorMove, onFloorChange, onObservationPoint, onCancelObservationPlacement, referenceTimeMs, maxSampleAgeMs, outdoor, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalAirflow, experimentalSensorCoverage, experimentalOutdoorInfluence, openingStateObservations, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, climateSensorMarkersVisible, energyDevicesVisible, allowBackgroundImageEditing };
   const context1 = useFloorPlanPart01(context0);
   const context2 = useFloorPlanPart02(context1);
   const context3 = useFloorPlanPart03(context2);

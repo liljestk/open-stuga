@@ -32,6 +32,7 @@ import type {
   MeasurementHistoryQuery,
   MeasurementSampleRecord,
   MeasurementWindowQuery,
+  OpeningStateRecord,
   OutdoorTemperatureHistoryQuery,
   OutdoorTemperatureRecord,
   QueryControl,
@@ -372,6 +373,30 @@ registerTimeseriesStoreMethods({
         (sample) => [
           sample.propertyId, sample.startAt, sample.source, sample.endAt,
           sample.rawPriceCentsPerKwh, sample.marginCentsPerKwh, sample.fetchedAt, sample.metadata ?? {},
+        ],
+        control,
+      );
+    },
+  async upsertOpeningStateSamples(this: TimeseriesStoreInternals,
+      samples: readonly OpeningStateRecord[],
+      control: QueryControl = {},
+    ): Promise<BatchWriteResult> {
+      return this.__writeBatches(
+        "opening_state_samples",
+        [
+          "observation_id", "house_id", "floor_id", "element_id", "observed_at", "source", "state",
+          "open_fraction", "valid_until", "external_id", "connection_id", "recorded_at", "metadata",
+        ],
+        ["observation_id", "observed_at"],
+        [
+          "house_id", "floor_id", "element_id", "source", "state", "open_fraction", "valid_until",
+          "external_id", "connection_id", "recorded_at", "metadata",
+        ],
+        samples,
+        (sample) => [
+          sample.observationId, sample.houseId, sample.floorId, sample.elementId, sample.observedAt,
+          sample.source, sample.state, sample.openFraction, sample.validUntil, sample.externalId,
+          sample.connectionId, sample.recordedAt, sample.metadata ?? {},
         ],
         control,
       );

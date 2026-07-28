@@ -13,6 +13,7 @@ import type {
   WeatherProvider,
   WeatherRecoveryLifecycle,
 } from "./weather.js";
+import type { HybridTelemetryReader } from "./timeseries/read-facade.js";
 
 const WEATHER_COMPONENTS: readonly WeatherComponentName[] = [
   "observation", "forecast", "short-range", "warnings",
@@ -25,6 +26,7 @@ export interface WeatherRecoveryOptions {
   historicalScanWindowMs?: number;
   historicalGapLimit?: number;
   onRecovered?: () => void | Promise<void>;
+  telemetryReader?: HybridTelemetryReader;
 }
 
 function historicalObservationGapMs(provider: WeatherProviderName): number {
@@ -71,11 +73,13 @@ function backfillRank(state: WeatherRecoveryStatus["observationBackfill"]["state
  */
 export class WeatherRecoveryCoordinator implements WeatherRecoveryLifecycle {
   readonly #inFlight = new Map<string, Promise<void>>();
+  readonly #discoveryInFlight = new Set<Promise<void>>();
   readonly #generation = new Map<string, number>();
   #stopped = false;
   readonly #historicalScanWindowMs: number;
   readonly #historicalGapLimit: number;
   readonly #onRecovered: (() => void | Promise<void>) | undefined;
+  readonly #telemetryReader: HybridTelemetryReader | undefined;
 
   constructor(
     private readonly database: ClimateDatabase,
@@ -88,6 +92,7 @@ export class WeatherRecoveryCoordinator implements WeatherRecoveryLifecycle {
     );
     this.#historicalGapLimit = Math.max(1, Math.min(500, options.historicalGapLimit ?? HISTORICAL_GAP_LIMIT));
     this.#onRecovered = options.onRecovered;
+    this.#telemetryReader = options.telemetryReader;
   }
 
   recordFailure(house: House, error: unknown, detectedAt: string): void {
@@ -124,8 +129,13 @@ export class WeatherRecoveryCoordinator implements WeatherRecoveryLifecycle {
     }
 
     if (!unavailable.has("observation")) {
-      this.#discoverHistoricalObservationGaps(house, weather);
-      this.#scheduleBackfill(house, weather.provider);
+      const discovery = this.#discoverHistoricalObservationGaps(house, weather)
+        .catch(() => undefined)
+        .finally(() => {
+          this.#discoveryInFlight.delete(discovery);
+          this.#scheduleBackfill(house, weather.provider);
+        });
+      this.#discoveryInFlight.add(discovery);
     }
   }
 
@@ -171,6 +181,7 @@ export class WeatherRecoveryCoordinator implements WeatherRecoveryLifecycle {
   }
 
   async drain(): Promise<void> {
+    await Promise.allSettled([...this.#discoveryInFlight]);
     await Promise.allSettled([...this.#inFlight.values()]);
   }
 
@@ -225,16 +236,24 @@ export class WeatherRecoveryCoordinator implements WeatherRecoveryLifecycle {
     let recoveredPoints = 0;
     let failedChunks = 0;
     let lastError: string | null = null;
-    const persistedTimestamps = new Set(
-      this.database.outdoorTemperatureHistory(
+    const existing = this.#telemetryReader
+      ? (await this.#telemetryReader.outdoorTemperatureHistory({
+        houseId: house.id,
+        locationKey,
+        from: outage.backfillFrom,
+        to: outage.backfillTo,
+        limit: 100_000,
+      })).records
+      : this.database.outdoorTemperatureHistory(
         house.id,
         locationKey,
         outage.backfillFrom,
         outage.backfillTo,
         100_000,
-      ).filter((sample) => sample.source.startsWith(`${outage.provider}-`))
-        .map((sample) => sample.timestamp),
-    );
+      );
+    const persistedTimestamps = new Set(existing
+      .filter((sample) => sample.source.startsWith(`${outage.provider}-`))
+      .map((sample) => sample.timestamp));
 
     for (let cursor = startMs; cursor < endMs; cursor += BACKFILL_CHUNK_MS) {
       const chunkEnd = Math.min(endMs, cursor + BACKFILL_CHUNK_MS);
@@ -258,7 +277,7 @@ export class WeatherRecoveryCoordinator implements WeatherRecoveryLifecycle {
     if (recoveredPoints > 0) await this.#onRecovered?.();
   }
 
-  #discoverHistoricalObservationGaps(house: House, weather: HouseWeather): void {
+  async #discoverHistoricalObservationGaps(house: House, weather: HouseWeather): Promise<void> {
     if (!house.location) return;
     const currentTimestamp = weather.current?.timestamp;
     const toMs = currentTimestamp && Number.isFinite(Date.parse(currentTimestamp))
@@ -269,15 +288,33 @@ export class WeatherRecoveryCoordinator implements WeatherRecoveryLifecycle {
     const from = new Date(toMs - this.#historicalScanWindowMs).toISOString();
     const to = new Date(toMs).toISOString();
     const thresholdMs = historicalObservationGapMs(weather.provider);
-    const gaps = this.database.outdoorTemperatureGaps(
-      house.id,
-      locationKey,
-      weather.provider,
-      from,
-      to,
-      thresholdMs,
-      this.#historicalGapLimit,
-    );
+    const history = this.#telemetryReader
+      ? (await this.#telemetryReader.outdoorTemperatureHistory({
+        houseId: house.id,
+        locationKey,
+        from,
+        to,
+        limit: 100_000,
+      })).records
+        .filter((sample) => sample.source.startsWith(`${weather.provider}-`))
+        .sort((left, right) => left.timestamp.localeCompare(right.timestamp))
+      : null;
+    const gaps = history
+      ? history.slice(1).flatMap((sample, index) => {
+        const previous = history[index]!;
+        return Date.parse(sample.timestamp) - Date.parse(previous.timestamp) >= thresholdMs
+          ? [{ startedAt: previous.timestamp, endedAt: sample.timestamp }]
+          : [];
+      }).slice(0, this.#historicalGapLimit)
+      : this.database.outdoorTemperatureGaps(
+        house.id,
+        locationKey,
+        weather.provider,
+        from,
+        to,
+        thresholdMs,
+        this.#historicalGapLimit,
+      );
     for (const gap of gaps) {
       this.database.noteHistoricalWeatherObservationGap(
         house.id,
@@ -288,7 +325,8 @@ export class WeatherRecoveryCoordinator implements WeatherRecoveryLifecycle {
         weather.fetchedAt,
       );
     }
-    const latest = this.database.latestOutdoorTemperatureTimestamp(house.id, locationKey, weather.provider);
+    const latest = history?.at(-1)?.timestamp
+      ?? this.database.latestOutdoorTemperatureTimestamp(house.id, locationKey, weather.provider);
     if (latest && toMs - Date.parse(latest) >= thresholdMs) {
       this.database.noteHistoricalWeatherObservationGap(
         house.id,

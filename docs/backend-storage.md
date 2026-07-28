@@ -1,17 +1,19 @@
 # Backend storage and operations
 
-Stugu uses a hybrid local-first backend. Core SQLite keeps the transactional control plane and a hot local telemetry buffer; PostgreSQL with TimescaleDB keeps the durable, query-optimized telemetry archive. Together those two stores are one logical telemetry source. A separate SQLite database contains optional experimental spatial state, and a bounded process-local cache accelerates repeatable reads. Neither is a source of core facts.
+Stugu uses a hybrid local-first backend. Core SQLite keeps the transactional control plane, a crash-safe unacknowledged telemetry outbox, and latest-value projections. PostgreSQL with TimescaleDB is the permanent, query-optimized store for raw Home telemetry history. A separate SQLite database contains optional experimental spatial state, and a bounded process-local cache accelerates repeatable reads.
 
 ## Responsibilities
 
 | Layer | Owns | Does not own |
 | --- | --- | --- |
-| Core SQLite (`DATABASE_PATH`) | Authentication and access state, canonical properties/houses/areas/floor plans and sensors, alerts and automation state, local ingestion, the hot safety copy, and opt-in Stuguby federation state/replicas | Long-term analytical scaling, experimental model state, Stuguby private keys, or integration secrets |
-| TimescaleDB (`telemetry` schema) | Raw measurement, legacy reading, outdoor-temperature, and electricity-price history; time bucketing; cold-chunk optimization | Identity, authorization, configuration, or secrets |
+| Core SQLite (`DATABASE_PATH`) | Authentication and access state, canonical properties/houses/areas/floor plans and sensors, alerts and automation state, the telemetry outbox/current projections, privacy-bounded opt-in equipment-tracking evidence, and opt-in Stuguby federation state/replicas | Long-term raw climate/energy/opening telemetry history, experimental model state, Stuguby private keys, or integration secrets |
+| TimescaleDB (`telemetry` schema) | Permanent raw measurement (temperature, humidity, CO2, power, energy, and custom metrics), legacy-reading, outdoor-weather, electricity-price, and opening-state history; time bucketing; cold-chunk optimization | Identity, authorization, configuration, or secrets |
 | Spatial SQLite (`SPATIAL_LAYERS_DATABASE_PATH`) | Experimental overlays/configuration, bindings, calibrations, context, jobs/checkpoints, model runs, ground truth, and derived snapshot revisions | Property/sensor masters or raw telemetry samples |
 | In-process cache | Small, bounded, reconstructible response DTOs and snapshots | Writes, sessions, credentials, queues, or durable state |
 
-This split keeps local writes and the control API simple while allowing years of telemetry to be partitioned and aggregated efficiently. SQLite remains useful during an optional archive outage; losing the cache only causes cache misses.
+This split keeps ingestion crash-safe while allowing years of telemetry to be partitioned and aggregated efficiently. During a TimeDB outage SQLite accumulates unacknowledged rows; it is not pruned until reconciliation is durable.
+
+Experimental equipment tracking is a separate privacy boundary rather than permanent Home telemetry. Its radio observations, gateway rollups, inferred locations, and movement events remain in SQLite under explicit per-Property retention limits; current locations are projections. Moving that sensitive location evidence into the permanent TimeDB archive would defeat those deletion guarantees.
 
 ## SQLite control plane
 
@@ -41,11 +43,11 @@ Credential bytes are the deliberate exception. Home Assistant tokens, TP-Link an
 
 Environment variables remain valid deployment overrides. An environment webhook destination set takes precedence and is mirrored atomically into the protected secrets file so a complete backup can restore it after the override is removed; SQLite receives only safe per-destination references and revisions. The legacy `primary` destination retains its `singleton` metadata reference for upgrade compatibility. If protected-file mirroring is unavailable, the environment configuration continues to operate but the backup must retain the deployment secrets separately. In-process caches, connection status, discovery results, SSE listeners, in-flight work, and replay position are reconstructible runtime state; browser storage contains presentation preferences, not authoritative Property data.
 
-Ingestion commits to SQLite first. A reconciliation worker pages all four telemetry families from that crash-safe buffer and UPSERTs them into TimescaleDB. Each table has both a remote Timescale cursor and a local cursor stored inside SQLite. Reconciliation starts from the lower of the two; after a remote batch succeeds, it advances the remote cursor and only then the local cursor. A crash between those steps causes an idempotent replay rather than a gap, and a restored or rewound SQLite backup safely replays from its older local cursor even if TimescaleDB remembers a later position. A live wake-up path reduces normal archive latency, but checkpointed reconciliation remains the source of truth. This is lossless across API or TimescaleDB restarts only while the SQLite file/volume is retained until the archive has caught up.
+Ingestion commits to SQLite first. A reconciliation worker pages five telemetry families from that crash-safe outbox and UPSERTs them into TimescaleDB: measurements/readings, complete observed weather, electricity-price intervals with their contract-margin snapshot, and door/window/vent state events. Each table has both a remote Timescale cursor and a local cursor stored inside SQLite. Reconciliation starts from the lower of the two; after a remote batch succeeds, it advances the remote cursor and only then the local cursor. A crash between those steps causes an idempotent replay rather than a gap, and a restored or rewound SQLite backup safely replays from its older local cursor even if TimescaleDB remembers a later position. A live wake-up path reduces normal archive latency, but checkpointed reconciliation remains the source of truth. SQLite history is compacted only after a stable pass and durable per-family acknowledgement.
 
-Regular raw-history APIs and experimental spatial inference share `HybridTelemetryReader` rather than copying data between subsystems. It always reads the SQLite buffer and, while the archive is ready or synchronizing, merges the matching Timescale rows by their natural keys. SQLite wins an overlapping key, results are deterministically ordered and tail-limited, and real-data mode filters synthetic `mock`/`replay` rows. While the unpruned local buffer is complete, an archive read failure degrades to SQLite and requests reconciliation; returned provenance contains only safe source state and counts. This shared facade currently covers measurement history/windows, legacy readings, and outdoor temperature.
+Raw-history APIs, MCP, forecasting, energy/thermal analytics, recovery workers, daily findings, and experimental spatial inference share `HybridTelemetryReader` rather than copying historical data between subsystems. It merges the SQLite outbox/current tail with matching Timescale rows by natural key, deterministically orders and bounds results, and filters synthetic `mock`/`replay` rows in real-data mode. Exact local duplicates win; opening snapshots choose the newest state across both stores. If a requested range predates the bounded local cache and TimeDB cannot answer, the read fails closed instead of silently returning a shortened series.
 
-The time-series schema uses seven-day chunks for indoor measurements/readings, 30-day chunks for outdoor temperature, and 90-day chunks for electricity prices. Where supported, TimescaleDB configures columnstore or compression after 30, 90, and 180 days respectively. Measurement rollups are available at 5-minute, 1-hour, and 1-day resolutions. These policies change representation, not retention: they do not delete raw rows.
+The time-series schema uses seven-day chunks for indoor measurements/readings, 30-day chunks for outdoor weather and opening events, and 90-day chunks for electricity prices. Where supported, TimescaleDB configures columnstore or compression after 30, 90, and 180 days respectively. Measurement rollups are available at 5-minute, 1-hour, and 1-day resolutions. These policies change representation, not retention: they do not delete raw rows.
 
 The base tables and query API also work on ordinary PostgreSQL. When the TimescaleDB extension is unavailable, Stugu uses ordinary aggregate views and forgoes hypertables, continuous refresh, and cold-chunk optimization; initialization reports those capabilities instead of silently claiming them.
 
@@ -67,6 +69,12 @@ history as local historical data. Grant cache permissions and retention remain
 enforced for non-recovery replicas. A zero-day or no-cache dataset is not
 written as a durable replica.
 
+The local Stuguby publisher does not yet stream compacted TimeDB rows into a
+new historical or full-recovery grant. If the requested history is no longer
+complete in SQLite's bounded cache, publication fails with
+`ARCHIVED_TELEMETRY_EXPORT_UNAVAILABLE` instead of silently advertising a
+shortened recovery set as complete.
+
 The node's Ed25519 private key is stored only in `STUGBY_IDENTITY_FILE`, beside
 the core database by default. It is not in SQLite, an event, an exportable
 grant, or an API response. Floor-plan and recovery replicas are
@@ -80,23 +88,21 @@ one recovery unit. For the complete protocol and lifecycle, see
 
 ## Retention and idempotency
 
-`RETENTION_DAYS=0` keeps a complete redundant SQLite telemetry copy and is the safest/default development setting. A value of 30 or more bounds only the SQLite hot copy and requires `TIMESERIES_ENABLED=true`. The Timescale schema installs no raw-data retention policy, so archived raw samples remain permanent.
+With TimeDB enabled, `RETENTION_DAYS=0` means zero days of SQLite history: acknowledged rows are compacted immediately while the latest projection for each live series is retained. A value of 30 or more keeps that many days as a bounded local cache. The Timescale schema installs no raw-data retention policy, so raw history remains permanent. When TimeDB is deliberately disabled for standalone development, SQLite necessarily retains the only history and is not compacted.
 
-Before each pruning cycle the retention worker requires a healthy, caught-up archive, runs a fresh reconciliation, verifies that no mutable archive rows are dirty, and takes per-table archived watermarks. It preserves the latest local row for every sensor/metric, sensor tuple, and outdoor location. If an older query needs pruned history while Timescale is unavailable, the API fails closed instead of silently returning an incomplete series. Operational prerequisites remain:
+Before each compaction the worker requires a healthy, caught-up archive with all five hypertables, flushes mutable rows, proves a stable pass, and takes per-table archived watermarks. It preserves the latest local row for each sensor/metric, legacy sensor, outdoor location, and opening identity, plus current/future electricity-price intervals. Rows newer than a durable watermark are never removed. If an older query needs compacted history while TimeDB is unavailable, the API fails closed instead of silently returning an incomplete series. Operational prerequisites remain:
 
 1. The archive backfill has completed.
 2. Verification against the source snapshot succeeds.
 3. Both SQLite and PostgreSQL backups have been restored in a test environment.
 4. Monitoring shows sufficient archive capacity.
 
-The bounded-delete primitive is invoked only by the guarded retention worker.
-The shared archive-plus-hot-tail reader keeps regular raw history, bucketed
-history, replay, and spatial derivation on the same sources. MCP cold-history
-queries fail closed and direct forecast/thermal consumers remain inside the
-minimum 30-day hot window. Old ranges explicitly fail when they depend on an
-unavailable archive. Keep retention at zero when MCP needs direct cold-history
-access or when a single-file raw JSON telemetry export is required; verified
-backups cover both databases regardless of this setting.
+The shared archive-plus-current-tail reader keeps regular raw history, bucketed
+thermal history, replay, MCP, forecasts, energy analysis, opening activity, and
+spatial derivation on the same permanent source. Old ranges explicitly fail
+when they depend on an unavailable TimeDB. Verified backups must cover both
+databases: SQLite contains the control plane and unsent outbox, while Timescale
+contains the permanent telemetry history.
 
 Archive writes use natural keys and UPSERTs, so retrying a batch is safe. The keys are:
 
@@ -106,6 +112,7 @@ Archive writes use natural keys and UPSERTs, so retrying a batch is safe. The ke
 | Legacy reading | `sensor_id, observed_at, source` |
 | Outdoor temperature | `house_id, location_key, observed_at, source` |
 | Electricity price | `property_id, starts_at, source` |
+| Opening state | `observation_id, observed_at` |
 
 Changing a source identifier changes the identity of a sample. Do not rewrite source names during import unless the duplication is deliberate.
 
@@ -117,7 +124,7 @@ The planned lineage migration will capture immutable `property_id` and `house_id
 
 ## Configuration
 
-Local `npm run dev` remains SQLite-only unless `TIMESERIES_ENABLED=true` is set. Docker Compose enables TimescaleDB and starts the API after the database container has started; it deliberately does not wait for database health. The API can therefore begin serving from SQLite while the archive worker retries initialization and reconciliation. PostgreSQL is exposed only to the Compose network; it is not published on a host port.
+Local `npm run dev` remains a SQLite-only compatibility mode unless `TIMESERIES_ENABLED=true` is set. Docker Compose enables TimescaleDB and starts the API after the database container has started; it deliberately does not wait for database health. The API can therefore begin serving its control plane and buffering telemetry while the TimeDB worker retries initialization and reconciliation. PostgreSQL is exposed only to the Compose network; it is not published on a host port.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -130,7 +137,7 @@ Local `npm run dev` remains SQLite-only unless `TIMESERIES_ENABLED=true` is set.
 | `TIMESERIES_CONNECT_TIMEOUT_MS` | `5000` | Connection timeout |
 | `TIMESERIES_STATEMENT_TIMEOUT_MS` | `15000` | Per-statement server timeout |
 | `TIMESERIES_BATCH_SIZE` | `1000` | Maximum archive write batch |
-| `RETENTION_DAYS` | `0` | SQLite hot-copy retention; `0` keeps a full redundant copy, or use at least `30` with Timescale enabled |
+| `RETENTION_DAYS` | `0` | SQLite history cache after TimeDB acknowledgement; `0` keeps only current projections, or use at least `30` for a bounded cache |
 
 Compose generates persistent random database-admin, application-database, and local-proxy secrets on first start and mounts them as files; it does not ship fixed database passwords. PostgreSQL is restricted to the internal Compose backend network, where the supplied API connection disables TLS. For a non-local or externally hosted database, provide the application credential through a protected secret file or secret manager, require TLS, restrict network ingress, and retain the dedicated least-privilege application role. Never log the resolved configuration or put a credential-bearing URL in source control.
 
@@ -152,13 +159,13 @@ Good candidates are short-lived assembled latest-state snapshots and expensive h
 
 `TIMESERIES_REQUIRED=false` is the local and Compose default. The API remains available on its SQLite control plane and durable local buffer while the archive starts or recovers, and the worker retries initialization and checkpointed reconciliation. Set `TIMESERIES_REQUIRED=true` only when strict fail-closed startup is operationally preferable; in that mode the API fails startup if the archive cannot initialize.
 
-During an archive interruption, do not manually purge, replace, or discard SQLite. The API continues committing locally when degraded operation is allowed; after PostgreSQL recovers, reconciliation resumes from the minimum of the local and remote cursor for each table. Use the migration tool for a one-off database move or manual recovery, then verify it. When positive SQLite retention is configured, the maintenance worker pauses all pruning until the archive is healthy, caught up, freshly reconciled, and free of mutable dirty rows. Long-range archive queries may be unavailable or slower while degraded, but control-plane and hot local operations remain independent of cached data.
+During a TimeDB interruption, do not manually purge, replace, or discard SQLite. The API continues committing locally when degraded operation is allowed; after PostgreSQL recovers, reconciliation resumes from the minimum of the local and remote cursor for each table. Compaction pauses until the archive is healthy, caught up, freshly reconciled, and free of mutable dirty rows. Long-range queries may be unavailable while degraded, but the control plane and current local operations remain available.
 
 Use short connection and statement timeouts so an archive fault does not exhaust API workers. Keep the pool small relative to PostgreSQL `max_connections`; the supplied Compose defaults use a pool of 6 and a server ceiling of 30. Investigate repeated pool errors, growing PostgreSQL waiters, migration checkpoints that stop advancing, or divergence between source and destination counts.
 
 ## Migration
 
-The migration tool reads SQLite in read-only mode, checks its integrity and schema, creates a committed-WAL-aware snapshot for a real run, and migrates in transactional batches. Before the first batch it requires/enables TimescaleDB, converts all four destination tables to validated hypertables with the canonical time columns and chunk intervals, and uses a dedicated maintenance timeout rather than the API's 15-second statement timeout. Optional outdoor `conditions_json` is syntax-validated and preserved under Timescale metadata's `conditions` key; older SQLite schemas without that column remain supported. It writes a checkpoint after each committed batch. Inserts use natural keys with `ON CONFLICT DO NOTHING`: an older snapshot can never overwrite an existing destination row, and exact post-import verification includes the resulting metadata and fails if a colliding destination payload differs. It never deletes source or destination rows.
+The migration tool reads SQLite in read-only mode, checks its integrity and schema, creates a committed-WAL-aware snapshot for a real run, and migrates in transactional batches. Before the first batch it requires/enables TimescaleDB, converts all five destination tables to validated hypertables with the canonical time columns and chunk intervals, and uses a dedicated maintenance timeout rather than the API's 15-second statement timeout. Optional outdoor `conditions_json` is syntax-validated and preserved under Timescale metadata's `conditions` key; older SQLite schemas without conditions, price margins, or opening observations remain supported. It writes a checkpoint after each committed batch. Inserts use natural keys with `ON CONFLICT DO NOTHING`: an older snapshot can never overwrite an existing destination row, and exact post-import verification includes the resulting metadata and fails if a colliding destination payload differs. It never deletes source or destination rows.
 
 Run migration as single-writer maintenance: stop the API, archive worker, and every other process that can write the target schema for the full import and verification window. The tool acquires the destination/schema PostgreSQL advisory lock before its checkpoint-file lock, for both migration and verify-only runs. A lock records a random owner token and the durable database fingerprint. If a one-off container is killed, a replacement may remove its foreign-host lock only after acquiring the same database advisory lock and matching that fingerprint; delayed cleanup from the old owner cannot remove the replacement lock. This prevents concurrent CLI writers while allowing automatic recovery across changing container hostnames. The advisory lock cannot prevent ordinary application writes. After raw-table verification succeeds, the tool creates or validates the fixed measurement continuous aggregates and refreshes the imported historical range at 5-minute, 1-hour, and 1-day resolutions under the same maintenance timeout.
 

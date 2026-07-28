@@ -207,13 +207,13 @@ export function configureApiPart12(context: ReturnType<typeof configureApiPart11
         throw new HttpError(502, "ELECTRICITY_PRICE_SOURCE_FAILED", error instanceof Error ? error.message : "Electricity price refresh failed");
       }
     });
-  context.app.get(`${context.prefix}/properties/:id/energy-optimization`, (request, response) => {
+  context.app.get(`${context.prefix}/properties/:id/energy-optimization`, async (request, response) => {
       const propertyId = request.params.id as string;
       if (!context.database.getProperty(propertyId) || !context.visibility(response).hasProperty(propertyId)) {
         throw new HttpError(404, "NOT_FOUND", "Property not found");
       }
       const hours = safeInteger(request.query.windowHours, 2, 1, 12);
-      response.json({ report: context.energyOptimizer.report(propertyId, hours) });
+      response.json({ report: await context.energyOptimizer.report(propertyId, hours) });
     });
   context.app.get(`${context.prefix}/property-areas`, (request, response) => {
       const page = collectionPage(request.query);

@@ -59,8 +59,8 @@ import { useIntegrationsPagePart05 } from "./part-05";
 import { useIntegrationsPagePart06 } from "./part-06";
 import { renderIntegrationsPage } from "./render";
 
-export function IntegrationsPage({ integration: aggregateIntegration, house: initialHouse, houses, connectionHouses = houses, streamConnection, tpLinkDevicesLoading = false, tpLinkDevicesError = null, onHouse, onHouseUpdate, onGeoreferenceChange, onIntegrationChange, onRefreshTpLinkDevices, onDisconnectHomeAssistant, onDisconnectTpLink, onMoveHomeAssistant, onMoveTpLink, onOpenSensors, onOpenLayout }: IntegrationsPageProps) {
-  const context0 = { aggregateIntegration, initialHouse, houses, connectionHouses, streamConnection, tpLinkDevicesLoading, tpLinkDevicesError, onHouse, onHouseUpdate, onGeoreferenceChange, onIntegrationChange, onRefreshTpLinkDevices, onDisconnectHomeAssistant, onDisconnectTpLink, onMoveHomeAssistant, onMoveTpLink, onOpenSensors, onOpenLayout };
+export function IntegrationsPage({ integration: aggregateIntegration, house: initialHouse, houses, connectionHouses = houses, streamConnection, tpLinkDevicesLoading = false, tpLinkDevicesError = null, onHouse, onHouseUpdate, onGeoreferenceChange, onIntegrationChange, onRefreshTpLinkDevices, onDisconnectHomeAssistant, onDisconnectTpLink, onMoveHomeAssistant, onMoveTpLink, onOpenSensors, onOpenLayout, onDiscoveryStarted }: IntegrationsPageProps) {
+  const context0 = { aggregateIntegration, initialHouse, houses, connectionHouses, streamConnection, tpLinkDevicesLoading, tpLinkDevicesError, onHouse, onHouseUpdate, onGeoreferenceChange, onIntegrationChange, onRefreshTpLinkDevices, onDisconnectHomeAssistant, onDisconnectTpLink, onMoveHomeAssistant, onMoveTpLink, onOpenSensors, onOpenLayout, onDiscoveryStarted };
   const context1 = useIntegrationsPagePart01(context0);
   const context2 = useIntegrationsPagePart02(context1);
   const context3 = useIntegrationsPagePart03(context2);

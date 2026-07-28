@@ -34,6 +34,7 @@ import {
   experimentalLayerSuggestions,
   type ExperimentalVisualizationId,
 } from "../../../experimentalSpatialLayers";
+import type { OutdoorInfluenceMetric } from "../../../outdoorInfluence";
 import { readLocalStorage, writeLocalStorage } from "../../../browserStorage";
 import { detectReplayClimateEvents, type ReplayClimateEvent } from "../../../replayEvents";
 import { openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../../openingState";
@@ -113,6 +114,8 @@ export const observationConfidences: ObservationConfidence[] = ["confirmed", "pr
 
 export const experimentalVisualizationPreferenceKey = "stugu-experimental-home-visualizations";
 
+export const outdoorInfluenceMetricPreferenceKey = "stugu-outdoor-influence-metric";
+
 export const energyDeviceLayerPreferenceKey = "stugu-home-map-energy-devices-visible";
 
 export const climateSensorLayerPreferenceKey = "stugu-home-map-climate-sensors-visible";
@@ -123,11 +126,19 @@ export function initialExperimentalVisualizations(): ExperimentalVisualizationId
   try {
     const parsed = JSON.parse(stored);
     return Array.isArray(parsed)
-      ? parsed.filter((value): value is ExperimentalVisualizationId => value === "air-movement" || value === "sensor-coverage")
+      ? parsed.filter((value): value is ExperimentalVisualizationId => (
+          value === "air-movement" || value === "sensor-coverage" || value === "outdoor-influence"
+        ))
       : [];
   } catch {
     return [];
   }
+}
+
+export function initialOutdoorInfluenceMetric(activeMetric: string): OutdoorInfluenceMetric {
+  const stored = readLocalStorage(outdoorInfluenceMetricPreferenceKey);
+  if (stored === "temperature" || stored === "moisture") return stored;
+  return activeMetric === "humidity" ? "moisture" : "temperature";
 }
 
 export function initialEnergyDeviceLayerVisibility(): boolean {

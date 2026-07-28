@@ -81,6 +81,7 @@ describe("time-series schema", () => {
     expect(sql).toContain("PRIMARY KEY (sensor_id, observed_at, source)");
     expect(sql).toContain("PRIMARY KEY (house_id, location_key, observed_at, source)");
     expect(sql).toContain("PRIMARY KEY (property_id, starts_at, source)");
+    expect(sql).toContain("PRIMARY KEY (observation_id, observed_at)");
     expect(sql).toContain("margin_cents_per_kwh DOUBLE PRECISION NOT NULL DEFAULT 0");
     expect(sql).toContain("PRIMARY KEY (source_id, table_name)");
     expect(sql).toContain("last_row_id BIGINT NOT NULL CHECK (last_row_id >= 0)");
@@ -169,13 +170,14 @@ describe("TimeseriesStore", () => {
         "legacy_readings",
         "outdoor_temperature_samples",
         "electricity_price_samples",
+        "opening_state_samples",
       ],
       aggregateMode: "continuous",
       coldStorageMode: "columnstore",
       warnings: [],
     });
-    expect(pool.queries.filter(({ text }) => text.includes("create_hypertable("))).toHaveLength(4);
-    expect(pool.queries.filter(({ text }) => text.includes("CALL add_columnstore_policy"))).toHaveLength(4);
+    expect(pool.queries.filter(({ text }) => text.includes("create_hypertable("))).toHaveLength(5);
+    expect(pool.queries.filter(({ text }) => text.includes("CALL add_columnstore_policy"))).toHaveLength(5);
     expect(pool.queries.filter(({ text }) => text.includes("CREATE MATERIALIZED VIEW"))).toHaveLength(3);
     expect(pool.queries.filter(({ text }) => text.includes("SELECT add_continuous_aggregate_policy("))).toHaveLength(3);
     expect(pool.queries.some(({ text }) => text.includes("add_retention_policy"))).toBe(false);
@@ -356,6 +358,114 @@ describe("TimeseriesStore", () => {
     expect(select.text).toContain("ORDER BY observed_at DESC, sensor_id DESC, metric DESC, source DESC");
     expect(select.text).toContain("ORDER BY observed_at ASC, sensor_id ASC, metric ASC, source ASC");
     expect(select.text).not.toContain("sensor-1");
+  });
+
+  it("queries quality-weighted thermal buckets directly from permanent measurement history", async () => {
+    const pool = new FakePool(({ text }) => text.includes("WITH source_rows AS")
+      ? queryResult([{
+        sensor_id: "sensor-1",
+        metric: "temperature",
+        value: 20.25,
+        canonical_unit: "C",
+        observed_at: new Date("2026-07-18T08:00:00.000Z"),
+        source: "api",
+        quality: "good",
+        metadata: {},
+      }])
+      : queryResult());
+    const store = storeFor(pool);
+
+    await expect(store.thermalMeasurementHistory({
+      sensorId: "sensor-1",
+      metrics: ["temperature", "humidity", "temperature"],
+      from: FROM,
+      to: TO,
+      bucketMinutes: 15,
+      limitPerMetric: 250,
+    })).resolves.toEqual([
+      expect.objectContaining({
+        sensorId: "sensor-1",
+        metric: "temperature",
+        value: 20.25,
+        timestamp: "2026-07-18T08:00:00.000Z",
+      }),
+    ]);
+
+    const query = pool.queries.find(({ text }) => text.includes("WITH source_rows AS"))!;
+    expect(query.values).toEqual(["sensor-1", ["temperature", "humidity"], FROM, TO, 15, 250]);
+    expect(query.text).toContain("quality <> 'stale' AND source <> 'replay'");
+    expect(query.text).toContain("CASE quality WHEN 'estimated' THEN 0.25 ELSE 1.0 END");
+    expect(query.text).toContain("ROW_NUMBER() OVER (PARTITION BY metric ORDER BY observed_at DESC)");
+  });
+
+  it("upserts and reads immutable opening transitions with deterministic snapshots", async () => {
+    const openingRow = {
+      observation_id: "opening-event-1",
+      house_id: "house-1",
+      floor_id: "ground",
+      element_id: "front-door",
+      state: "open",
+      open_fraction: 1,
+      source: "tapo",
+      observed_at: new Date("2026-07-18T08:00:00.000Z"),
+      valid_until: null,
+      external_id: "contact-1",
+      connection_id: "tapo-main",
+      recorded_at: new Date("2026-07-18T08:00:01.000Z"),
+      metadata: {},
+    };
+    const pool = new FakePool(({ text }) => {
+      if (text.includes("INSERT INTO") && text.includes("opening_state_samples")) return queryResult([], 1);
+      if (text.includes("FROM \"telemetry\".\"opening_state_samples\"")) return queryResult([openingRow]);
+      return queryResult();
+    });
+    const store = storeFor(pool);
+    const record = {
+      observationId: "opening-event-1",
+      houseId: "house-1",
+      floorId: "ground",
+      elementId: "front-door",
+      state: "open" as const,
+      openFraction: 1,
+      source: "tapo",
+      observedAt: "2026-07-18T08:00:00.000Z",
+      validUntil: null,
+      externalId: "contact-1",
+      connectionId: "tapo-main",
+      recordedAt: "2026-07-18T08:00:01.000Z",
+    };
+
+    await expect(store.upsertOpeningStateSamples([record])).resolves.toEqual({ attempted: 1, affected: 1 });
+    await expect(store.openingStateHistory({
+      houseId: "house-1",
+      from: FROM,
+      to: TO,
+    })).resolves.toEqual([expect.objectContaining(record)]);
+    await expect(store.openingStateSnapshot({
+      houseId: "house-1",
+      at: TO,
+    })).resolves.toEqual([expect.objectContaining(record)]);
+
+    const insert = pool.queries.find(({ text }) => text.includes("INSERT INTO")
+      && text.includes("opening_state_samples"))!;
+    expect(insert.text).toContain('ON CONFLICT ("observation_id", "observed_at") DO UPDATE');
+    expect(insert.values.slice(0, 12)).toEqual([
+      "opening-event-1",
+      "house-1",
+      "ground",
+      "front-door",
+      "2026-07-18T08:00:00.000Z",
+      "tapo",
+      "open",
+      1,
+      null,
+      "contact-1",
+      "tapo-main",
+      "2026-07-18T08:00:01.000Z",
+    ]);
+    const snapshot = pool.queries.find(({ text }) => text.includes("SELECT DISTINCT ON"))!;
+    expect(snapshot.text).toContain("observed_at DESC, ingested_at DESC, observation_id DESC");
+    expect(snapshot.values).toEqual(["house-1", TO, 10_000]);
   });
 
   it("short-circuits empty measurement window filters without acquiring a connection", async () => {

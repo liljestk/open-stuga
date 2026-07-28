@@ -218,21 +218,26 @@ export function configureApiPart18(context: ReturnType<typeof configureApiPart17
       const truncated = requestedReadings.length > limit || (bucketSeconds !== null && archived.length === rawLimit);
       const readings = truncated ? requestedReadings.slice(-limit) : requestedReadings;
       const forecastHours = safeInteger(request.query.forecastHours, 0, 0, 168);
-      const series = selected.map((sensorId) => ({
+      const series = await Promise.all(selected.map(async (sensorId) => ({
         sensorId,
         readings: readings.filter((reading) => reading.sensorId === sensorId),
-        forecast: forecastHours ? forecast(context.database, sensorId, forecastHours) : [],
-      }));
+        forecast: forecastHours
+          ? await forecast(context.database, sensorId, forecastHours, context.telemetryReader)
+          : [],
+      })));
       response.json({ from, to, bucketSeconds, series, truncated });
     });
-  context.app.get(`${context.prefix}/forecast`, (request, response) => {
+  context.app.get(`${context.prefix}/forecast`, async (request, response) => {
       const sensorIds = queryList(request.query.sensorId);
       const access = context.visibility(response);
       const selected = (sensorIds.length ? sensorIds : context.database.listSensors().map((sensor) => sensor.id))
         .filter((sensorId) => access.sensor(sensorId));
       const horizonMinutes = safeInteger(request.query.horizonMinutes, 0, 0, 10_080);
       const hours = horizonMinutes > 0 ? Math.max(1, Math.ceil(horizonMinutes / 60)) : safeInteger(request.query.hours, 12, 1, 168);
-      const series = selected.map((sensorId) => ({ sensorId, forecast: forecast(context.database, sensorId, hours) }));
+      const series = await Promise.all(selected.map(async (sensorId) => ({
+        sensorId,
+        forecast: await forecast(context.database, sensorId, hours, context.telemetryReader),
+      })));
       response.json({ generatedAt: new Date().toISOString(), model: "linear-v1", series, ...(series.length === 1 ? { forecast: series[0]?.forecast ?? [] } : {}) });
     });
   const streamTelemetry = (request: Request, response: Response): void => {

@@ -109,6 +109,14 @@ fi
 git -C "$rpi_image_gen_dir" fetch --depth 1 origin "$rpi_image_gen_ref"
 git -C "$rpi_image_gen_dir" checkout --detach "$rpi_image_gen_ref"
 
+readonly usb_rescue_patch="$repo_root/deploy/rpi/patches/0001-pi4-usb-rescue-bootconfig.patch"
+if git -C "$rpi_image_gen_dir" apply --reverse --check "$usb_rescue_patch" 2>/dev/null; then
+  echo "Stugu Pi 4 USB rescue patch is already applied"
+else
+  git -C "$rpi_image_gen_dir" apply --check "$usb_rescue_patch"
+  git -C "$rpi_image_gen_dir" apply "$usb_rescue_patch"
+fi
+
 if [[ "${RPI_IMAGE_GEN_INSTALL_DEPS:-0}" == "1" ]]; then
   if (( EUID == 0 )); then
     "$rpi_image_gen_dir/install_deps.sh"

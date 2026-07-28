@@ -400,6 +400,13 @@ export function registerStugubyLocalRoutes(app: Express, service: StugubyService
     response.json(service.revokeGrant(grantId));
   }));
 
+  app.delete(`${LOCAL_PREFIX}/:stugubyId/grants/:grantId/invalid`, admin, route((request, response) => {
+    const id = stugubyId(request);
+    const grantId = stringValue(request.params.grantId, "Grant id");
+    service.assertGrantScope(id, grantId);
+    response.json(service.removeInvalidGrant(grantId));
+  }));
+
   app.post(`${LOCAL_PREFIX}/:stugubyId/grants/:grantId/republish`, admin, route((request, response) => {
     const id = stugubyId(request);
     const grantId = stringValue(request.params.grantId, "Grant id");

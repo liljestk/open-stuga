@@ -29,6 +29,7 @@ import { SpatialLayerOverlay3D } from "../SpatialLayerOverlay3D";
 import type { SpatialLayerSnapshot, SpatialTopology } from "../../spatialLayers";
 import type { SensorCoverageAssessment } from "../../experimentalSpatialLayers";
 import { ExperimentalSensorCoverage3D } from "../ExperimentalSensorCoverage";
+import { OutdoorInfluenceOverlay3D } from "../OutdoorInfluenceOverlay";
 import {
   clampPlanElementHeight,
   clampPlanElementWidth,
@@ -51,7 +52,7 @@ import { DEFAULT_CAMERA, VIEW_HEIGHT, VIEW_WIDTH, buildingBounds, elementAxis, e
 import type { AddableOpeningKind, BuildingSceneProps, DragState, ElementWorldGeometry, ProjectedCloud, SelectedElementPatch } from "./support";
 import { useBuildingScenePart03 } from "./part-03";
 export function renderBuildingScene(context: ReturnType<typeof useBuildingScenePart03>) {
-  const { house, sensors, samples, climateSamples, observations, definition, colorDomain, units, activeFloorId, selectedSensorId, referenceTimeMs, maxSampleAgeMs, outdoor, editing, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalAirflow, experimentalSensorCoverage, openingStateObservations, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, climateSensorMarkersVisible, energyDevicesVisible, onFloorSelect, onSensorSelect, onFloorChange, locale, t, houseOpeningStateObservations, metricLabel, markerId, camera, setCamera, reducedMotion, setReducedMotion, mapInformationExpanded, setMapInformationExpanded, mapInformationId, selectedElementKey, setSelectedElementKey, addableOpeningKind, setAddableOpeningKind, openingEditorMessage, setOpeningEditorMessage, dragRef, suppressClickRef, effectiveReferenceTimeMs, effectiveMaxAgeMs, freshness, boundsSignature, bounds, floorModels, volume, heatMin, heatMax, clouds, gradientFlows, allValues, project, outdoorContext, airflow, airflowPaths, activeGradientFlows, airflowSupport, airflowDriver, airflowDescription, airflowAria, outdoorTemperature, outdoorHumidity, outdoorTemperatureColor, outdoorHumidityColor, activeOutdoorColor, activeOutdoorStyle, outdoorTemperatureStyle, outdoorHumidityStyle, outdoorWindSpeed, outdoorWindDirection, outdoorWindwardSide, outdoorShellLabel, outdoorShellWorld, outdoorShellProjected, outdoorWindwardProjected, outdoorShellRail, projectedClouds, renderedSensors, orderedFloors, selectedElementFloor, selectedElement, changeCamera, rotateCamera, onPointerDown, onPointerMove, endPointer, onWheel, activateFloor, floorKeyDown, selectSensor, selectArchitecturalElement, updateSelectedElement, selectedWidthBounds, selectedHeightBounds, updateSelectedWidth, updateSelectedHeight, deleteSelectedElement, addOpeningIn3d, renderArchitecturalElement, observationName } = context;
+  const { house, sensors, samples, climateSamples, observations, definition, colorDomain, units, activeFloorId, selectedSensorId, referenceTimeMs, maxSampleAgeMs, outdoor, editing, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalAirflow, experimentalSensorCoverage, experimentalOutdoorInfluence, openingStateObservations, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, climateSensorMarkersVisible, energyDevicesVisible, onFloorSelect, onSensorSelect, onFloorChange, locale, t, houseOpeningStateObservations, metricLabel, markerId, camera, setCamera, reducedMotion, setReducedMotion, mapInformationExpanded, setMapInformationExpanded, mapInformationId, selectedElementKey, setSelectedElementKey, addableOpeningKind, setAddableOpeningKind, openingEditorMessage, setOpeningEditorMessage, dragRef, suppressClickRef, effectiveReferenceTimeMs, effectiveMaxAgeMs, freshness, boundsSignature, bounds, floorModels, volume, heatMin, heatMax, clouds, gradientFlows, allValues, project, outdoorContext, airflow, airflowPaths, activeGradientFlows, airflowSupport, airflowDriver, airflowDescription, airflowAria, outdoorTemperature, outdoorHumidity, outdoorTemperatureColor, outdoorHumidityColor, activeOutdoorColor, activeOutdoorStyle, outdoorTemperatureStyle, outdoorHumidityStyle, outdoorWindSpeed, outdoorWindDirection, outdoorWindwardSide, outdoorShellLabel, outdoorShellWorld, outdoorShellProjected, outdoorWindwardProjected, outdoorShellRail, projectedClouds, renderedSensors, orderedFloors, selectedElementFloor, selectedElement, changeCamera, rotateCamera, onPointerDown, onPointerMove, endPointer, onWheel, activateFloor, floorKeyDown, selectSensor, selectArchitecturalElement, updateSelectedElement, selectedWidthBounds, selectedHeightBounds, updateSelectedWidth, updateSelectedHeight, deleteSelectedElement, addOpeningIn3d, renderArchitecturalElement, observationName } = context;
   return (
       <div className="building-scene">
         <div className="building-scene-controls">
@@ -109,7 +110,7 @@ export function renderBuildingScene(context: ReturnType<typeof useBuildingSceneP
             data-camera-yaw={camera.yaw.toFixed(3)} data-camera-pitch={camera.pitch.toFixed(3)} data-camera-zoom={camera.zoom.toFixed(2)}
             onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endPointer} onPointerCancel={endPointer} onWheel={onWheel}
           >
-            <desc>{spatialLayerSnapshots.length || experimentalSensorCoverage || experimentalAirflowEnabled
+            <desc>{spatialLayerSnapshots.length || experimentalSensorCoverage || experimentalOutdoorInfluence || experimentalAirflowEnabled
               ? t("spatial.buildingDescription")
               : allValues.length
                 ? t("building.volumeDescription", { metric: metricLabel })
@@ -244,6 +245,10 @@ export function renderBuildingScene(context: ReturnType<typeof useBuildingSceneP
                 <polygon key={`${floor.id}:roof:${index}`} points={points(surface.map(project))} className={`building-roof-face roof-${floor.roof?.style ?? "none"}`} data-floor-id={floor.id} />
               )))}
             </g>
+
+            {!editing && experimentalOutdoorInfluence && (
+              <OutdoorInfluenceOverlay3D house={house} estimate={experimentalOutdoorInfluence} project={project} units={units} />
+            )}
 
             <g className="building-clouds building-volume-clouds" filter={`url(#${markerId}-cloud-soften)`} aria-hidden="true">
               {projectedClouds.map(({ blob, center, radiusX, radiusY, angle }) => (
@@ -390,6 +395,7 @@ export function renderBuildingScene(context: ReturnType<typeof useBuildingSceneP
         </div>
         <div className={`building-legend ${!editing && !mapInformationExpanded ? "collapsed" : ""}`}>
           {(editing || mapInformationExpanded) && <div id={mapInformationId} className="building-legend-content">
+            {!editing && experimentalOutdoorInfluence && <span className="building-airflow-key outdoor-influence-legend"><i className="volume-vector-key outdoor-influence" aria-hidden="true">→</i><span><strong>{t("spatial.outdoorInfluence.title")}</strong><small>{t("spatial.outdoorInfluence.disclaimer")}</small></span></span>}
             {editing ? <span className="building-structure-sync">{t("building.structureSync")}</span> : <span>{!definition.spatialInterpolation
               ? t("building.noSpatial", { metric: metricLabel })
               : allValues.length > 0

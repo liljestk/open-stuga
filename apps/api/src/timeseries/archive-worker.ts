@@ -29,6 +29,7 @@ export interface TelemetryArchiveStatus {
   queuedSamples: number;
   droppedQueueSamples: number;
   archivedRows: number;
+  localRowsPruned: number;
   lastSuccessAt: string | null;
   lastFailureAt: string | null;
   /** Public-safe failure category; connection details are deliberately omitted. */
@@ -41,6 +42,8 @@ export interface TelemetryArchiveWorkerOptions {
   retryIntervalMs?: number;
   /** Fail initialization unless Timescale and every expected hypertable are available. */
   requireTimescale?: boolean;
+  /** Days retained as a SQLite current/history cache after Timescale acknowledgement. Zero keeps only current projections. */
+  localHistoryRetentionDays?: number;
 }
 
 type CheckpointStore = TimeseriesStore & {
@@ -78,6 +81,7 @@ export class TelemetryArchiveWorker {
   readonly #reconcileIntervalMs: number;
   readonly #retryIntervalMs: number;
   readonly #requireTimescale: boolean;
+  readonly #localHistoryRetentionDays: number | null;
   readonly #queue: MeasurementSample[] = [];
   #status: TelemetryArchiveStatus = {
     phase: "idle",
@@ -91,6 +95,7 @@ export class TelemetryArchiveWorker {
     queuedSamples: 0,
     droppedQueueSamples: 0,
     archivedRows: 0,
+    localRowsPruned: 0,
     lastSuccessAt: null,
     lastFailureAt: null,
     lastError: null,
@@ -123,6 +128,11 @@ export class TelemetryArchiveWorker {
     );
     this.#retryIntervalMs = positiveInteger(options.retryIntervalMs, DEFAULT_RETRY_INTERVAL_MS, 60 * 60 * 1_000);
     this.#requireTimescale = options.requireTimescale ?? false;
+    if (options.localHistoryRetentionDays !== undefined
+      && (!Number.isSafeInteger(options.localHistoryRetentionDays) || options.localHistoryRetentionDays < 0)) {
+      throw new RangeError("Local telemetry retention must be a non-negative number of days");
+    }
+    this.#localHistoryRetentionDays = options.localHistoryRetentionDays ?? null;
   }
 
   get store(): TimeseriesStore {
@@ -205,6 +215,7 @@ export class TelemetryArchiveWorker {
         await this.#reconcileReadings();
         await this.#reconcileOutdoorTemperatures();
         await this.#reconcileElectricityPrices();
+        await this.#reconcileOpeningStates();
         await this.#flushDirtyRows();
         const realDataActivatedAt = this.#database.realDataModeActivatedAt();
         if (realDataActivatedAt && !this.#realDataBoundaryEnforced) {
@@ -219,6 +230,16 @@ export class TelemetryArchiveWorker {
         if (passGeneration === this.#reconcileGeneration && before === after && this.#queue.length === 0) break;
       }
       if (this.#stopping) return;
+      if (this.#localHistoryRetentionDays !== null
+        && this.#status.timescaleAvailable
+        && TELEMETRY_TABLES.every((table) => this.#status.hypertables.includes(table))) {
+        const cutoff = new Date(Date.now() - this.#localHistoryRetentionDays * 86_400_000).toISOString();
+        this.#status.localRowsPruned += this.#database.purgeReadingsBefore(
+          cutoff,
+          5_000,
+          this.#database.telemetryArchiveWatermarks(),
+        );
+      }
       this.#status.phase = "ready";
       this.#status.caughtUp = true;
       this.#status.lastSuccessAt = new Date().toISOString();
@@ -318,6 +339,14 @@ export class TelemetryArchiveWorker {
       "electricity_price_samples",
       (cursor) => this.#database.electricityPriceArchivePage(cursor, this.#batchSize),
       (rows) => this.#store.upsertElectricityPriceSamples(rows.map(({ record }) => ({ ...record }))),
+    );
+  }
+
+  async #reconcileOpeningStates(): Promise<void> {
+    await this.#reconcileTable(
+      "opening_state_samples",
+      (cursor) => this.#database.openingStateArchivePage(cursor, this.#batchSize),
+      (rows) => this.#store.upsertOpeningStateSamples(rows.map(({ record }) => ({ ...record }))),
     );
   }
 

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { TelemetryBus } from "../src/events.js";
 import { TelemetryArchiveWorker } from "../src/timeseries/archive-worker.js";
 import type { ClimateDatabase } from "../src/db.js";
-import type { TelemetryTableName } from "../src/timeseries/schema.js";
+import { TELEMETRY_TABLES, type TelemetryTableName } from "../src/timeseries/schema.js";
 import type { TimeseriesStore } from "../src/timeseries/store.js";
 
 function fixtures(overrides: Partial<Record<string, unknown>> = {}) {
@@ -23,6 +23,7 @@ function fixtures(overrides: Partial<Record<string, unknown>> = {}) {
     readingArchivePage: () => [],
     outdoorTemperatureArchivePage: () => [],
     electricityPriceArchivePage: () => [],
+    openingStateArchivePage: () => [],
     readingArchiveDirtyPage: () => [],
     outdoorTemperatureArchiveDirtyPage: () => [],
     electricityPriceArchiveDirtyPage: () => [],
@@ -46,6 +47,7 @@ function store(overrides: Partial<Record<string, unknown>> = {}) {
     upsertLegacyReadings: vi.fn(async (rows: unknown[]) => ({ attempted: rows.length, affected: rows.length })),
     upsertOutdoorTemperatureSamples: vi.fn(async (rows: unknown[]) => ({ attempted: rows.length, affected: rows.length })),
     upsertElectricityPriceSamples: vi.fn(async (rows: unknown[]) => ({ attempted: rows.length, affected: rows.length })),
+    upsertOpeningStateSamples: vi.fn(async (rows: unknown[]) => ({ attempted: rows.length, affected: rows.length })),
     enforceRealDataBoundary: vi.fn(async () => 0),
     invalidateInitialization: vi.fn(() => undefined),
     close: vi.fn(async () => undefined),
@@ -172,6 +174,117 @@ describe("TelemetryArchiveWorker", () => {
     ]);
     expect(archiveStore.saveArchiveCheckpoint).toHaveBeenCalledWith("sqlite-source", "measurement_samples", 2);
     expect(archiveStore.saveArchiveCheckpoint).toHaveBeenCalledWith("sqlite-source", "legacy_readings", 1);
+    await worker.stop();
+  });
+
+  it("archives fetched electricity-price intervals with their historical margin", async () => {
+    const archiveStore = store();
+    const worker = new TelemetryArchiveWorker(fixtures({
+      electricityPriceArchivePage: (cursor: number) => cursor === 0 ? [{
+        rowId: 7,
+        record: {
+          propertyId: "property-main",
+          startAt: "2026-07-18T00:00:00.000Z",
+          endAt: "2026-07-18T00:15:00.000Z",
+          rawPriceCentsPerKwh: 8.5,
+          marginCentsPerKwh: 0.45,
+          source: "sqlite",
+          fetchedAt: "2026-07-17T12:00:00.000Z",
+        },
+      }] : [],
+    }), new TelemetryBus(), archiveStore, { batchSize: 10 });
+
+    await worker.start();
+    await worker.reconcileNow();
+
+    expect(archiveStore.upsertElectricityPriceSamples).toHaveBeenCalledWith([
+      expect.objectContaining({
+        propertyId: "property-main",
+        rawPriceCentsPerKwh: 8.5,
+        marginCentsPerKwh: 0.45,
+      }),
+    ]);
+    expect(archiveStore.saveArchiveCheckpoint).toHaveBeenCalledWith(
+      "sqlite-source",
+      "electricity_price_samples",
+      7,
+    );
+    await worker.stop();
+  });
+
+  it("archives door and window transitions before compacting acknowledged SQLite history", async () => {
+    const calls: string[] = [];
+    const watermarks = Object.fromEntries(TELEMETRY_TABLES.map((table) => [table, 9]));
+    const database = fixtures({
+      openingStateArchivePage: (cursor: number) => cursor === 0 ? [{
+        rowId: 9,
+        record: {
+          observationId: "opening-event-9",
+          houseId: "house-main",
+          floorId: "ground",
+          elementId: "front-door",
+          state: "open",
+          openFraction: 1,
+          source: "tapo",
+          observedAt: "2026-07-18T00:15:00.000Z",
+          validUntil: null,
+          externalId: "contact-1",
+          connectionId: "tapo-main",
+          recordedAt: "2026-07-18T00:15:01.000Z",
+        },
+      }] : [],
+      telemetryArchiveWatermarks: () => watermarks,
+      purgeReadingsBefore: vi.fn(() => {
+        calls.push("prune");
+        return 3;
+      }),
+    });
+    const archiveStore = store({
+      initialize: vi.fn(async () => ({
+        schema: "telemetry",
+        timescaleAvailable: true,
+        timescaleVersion: "2.test",
+        hypertables: [...TELEMETRY_TABLES],
+        aggregateMode: "continuous",
+        coldStorageMode: "columnstore",
+        warnings: [],
+      })),
+      upsertOpeningStateSamples: vi.fn(async (rows: unknown[]) => {
+        calls.push("write");
+        return { attempted: rows.length, affected: rows.length };
+      }),
+      saveArchiveCheckpoint: vi.fn(async (_sourceId: string, table: TelemetryTableName) => {
+        if (table === "opening_state_samples") calls.push("checkpoint");
+      }),
+    });
+    const worker = new TelemetryArchiveWorker(database, new TelemetryBus(), archiveStore, {
+      batchSize: 10,
+      localHistoryRetentionDays: 0,
+    });
+
+    await worker.start();
+    await worker.reconcileNow();
+
+    expect(archiveStore.upsertOpeningStateSamples).toHaveBeenCalledWith([
+      expect.objectContaining({
+        observationId: "opening-event-9",
+        state: "open",
+        externalId: "contact-1",
+      }),
+    ]);
+    expect(archiveStore.saveArchiveCheckpoint).toHaveBeenCalledWith(
+      "sqlite-source",
+      "opening_state_samples",
+      9,
+    );
+    expect(database.purgeReadingsBefore).toHaveBeenCalledWith(
+      expect.any(String),
+      5_000,
+      watermarks,
+    );
+    expect(calls.indexOf("write")).toBeLessThan(calls.indexOf("checkpoint"));
+    expect(calls.indexOf("checkpoint")).toBeLessThan(calls.indexOf("prune"));
+    expect(worker.status()).toMatchObject({ caughtUp: true, localRowsPruned: 3 });
     await worker.stop();
   });
 

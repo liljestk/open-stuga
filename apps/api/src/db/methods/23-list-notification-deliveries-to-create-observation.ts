@@ -297,45 +297,59 @@ registerDatabaseMethods({
         .run(note?.trim() || "Cancelled by operator", now.toISOString(), id);
       return this.getActionRun(id);
     },
+  verifyActionRun(id: string, candidateSamples: MeasurementSample[], now = new Date()): ActionRun | null {
+      const run = this.getActionRun(id);
+      if (!run || run.status !== "waiting" || !run.verifyAfter || !run.verificationDeadline
+        || Date.parse(run.verifyAfter) > now.getTime()) return run;
+      const playbook = this.getActionPlaybook(run.playbookId);
+      if (!playbook) return run;
+      const windowEnd = new Date(Math.min(now.getTime(), Date.parse(run.verificationDeadline))).toISOString();
+      const evidenceFrom = new Date(Math.max(Date.parse(run.verifyAfter), Date.parse(run.baselineTimestamp) + 1)).toISOString();
+      const samples = candidateSamples
+        .filter((sample) => sample.sensorId === run.sensorId && sample.metric === run.metric
+          && sample.timestamp >= evidenceFrom && sample.timestamp <= windowEnd && sample.quality !== "stale")
+        .sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+      const latest = samples.at(-1) ?? null;
+      let improvement: number | null = null;
+      let succeeded = false;
+      if (latest) {
+        improvement = playbook.goal === "decrease" || playbook.goal === "below"
+          ? run.baselineValue - latest.value
+          : latest.value - run.baselineValue;
+        succeeded = playbook.goal === "decrease"
+          ? improvement >= playbook.minimumImprovement
+          : playbook.goal === "increase"
+            ? improvement >= playbook.minimumImprovement
+            : playbook.goal === "below"
+              ? latest.value <= (playbook.targetValue ?? -Infinity)
+              : latest.value >= (playbook.targetValue ?? Infinity);
+      }
+      const expired = now.getTime() >= Date.parse(run.verificationDeadline);
+      const status = succeeded ? "verified" : expired ? "not-improved" : "waiting";
+      const note = succeeded
+        ? "The measured result met the playbook verification goal."
+        : expired
+          ? latest ? "The verification window ended without meeting the goal." : "No fresh verification samples arrived before the deadline."
+          : null;
+      this.db.prepare(`UPDATE action_runs SET status = ?, result_value = ?, result_timestamp = ?, improvement = ?,
+        sample_count = ?, verification_note = ?, updated_at = ? WHERE id = ? AND status = 'waiting'`)
+        .run(status, latest?.value ?? null, latest?.timestamp ?? null, improvement, samples.length, note,
+          now.toISOString(), run.id);
+      return this.getActionRun(run.id);
+    },
   verifyDueActionRuns(now = new Date()): ActionRun[] {
       const due = (this.db.prepare(`SELECT * FROM action_runs
         WHERE status = 'waiting' AND verify_after <= ? ORDER BY verify_after LIMIT 200`)
         .all(now.toISOString()) as unknown as ActionRunRow[]).map(actionRunFromRow);
       const changed: ActionRun[] = [];
       for (const run of due) {
-        const playbook = this.getActionPlaybook(run.playbookId);
-        if (!playbook || !run.verifyAfter || !run.verificationDeadline) continue;
+        if (!run.verifyAfter || !run.verificationDeadline) continue;
         const windowEnd = new Date(Math.min(now.getTime(), Date.parse(run.verificationDeadline))).toISOString();
         const evidenceFrom = new Date(Math.max(Date.parse(run.verifyAfter), Date.parse(run.baselineTimestamp) + 1)).toISOString();
         const samples = this.measurementHistory(run.sensorId, run.metric, evidenceFrom, windowEnd, 10_000)
           .filter((sample) => sample.quality !== "stale");
-        const latest = samples.at(-1) ?? null;
-        let improvement: number | null = null;
-        let succeeded = false;
-        if (latest) {
-          improvement = playbook.goal === "decrease" || playbook.goal === "below"
-            ? run.baselineValue - latest.value
-            : latest.value - run.baselineValue;
-          succeeded = playbook.goal === "decrease"
-            ? improvement >= playbook.minimumImprovement
-            : playbook.goal === "increase"
-              ? improvement >= playbook.minimumImprovement
-              : playbook.goal === "below"
-                ? latest.value <= (playbook.targetValue ?? -Infinity)
-                : latest.value >= (playbook.targetValue ?? Infinity);
-        }
-        const expired = now.getTime() >= Date.parse(run.verificationDeadline);
-        const status = succeeded ? "verified" : expired ? "not-improved" : "waiting";
-        const note = succeeded
-          ? "The measured result met the playbook verification goal."
-          : expired
-            ? latest ? "The verification window ended without meeting the goal." : "No fresh verification samples arrived before the deadline."
-            : null;
-        this.db.prepare(`UPDATE action_runs SET status = ?, result_value = ?, result_timestamp = ?, improvement = ?,
-          sample_count = ?, verification_note = ?, updated_at = ? WHERE id = ? AND status = 'waiting'`)
-          .run(status, latest?.value ?? null, latest?.timestamp ?? null, improvement, samples.length, note,
-            now.toISOString(), run.id);
-        const updated = this.getActionRun(run.id)!;
+        const updated = this.verifyActionRun(run.id, samples, now);
+        if (!updated) continue;
         if (updated.status !== run.status || updated.sampleCount !== run.sampleCount || updated.resultValue !== run.resultValue) changed.push(updated);
       }
       return changed;

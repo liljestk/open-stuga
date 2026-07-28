@@ -116,9 +116,10 @@ unrelated commercial-service credentials. Home coordinates and place-search
 text are data, not credentials, but logs and support bundles should still redact
 or coarsen them.
 Outdoor-boundary rows use an opaque location digest, are deleted when Home
-coordinates change or are cleared, and follow normal sample retention. The
-digest is pseudonymisation, not encryption; protect the SQLite database and its
-backups as location-sensitive data.
+coordinates change or are cleared, and are archived with their available
+condition metadata in TimeDB after the crash-safe SQLite handoff. The digest is
+pseudonymisation, not encryption; protect SQLite, TimeDB, and their backups as
+location-sensitive data.
 
 ## Security audit trail
 
@@ -273,12 +274,13 @@ basis before correlating environment and wearable data.
 
 ## Retention policy
 
-The current implementation deliberately accepts only `RETENTION_DAYS=0`: raw
-telemetry is retained in TimescaleDB and the SQLite safety copy is not yet
-pruned. Positive values fail closed until every historical and degraded-mode
-read is archive-aware. This matches an explicit keep-all policy, but operators
-must still budget disk, protect backups, and periodically confirm that indefinite
-retention remains justified. A future configurable policy must also define:
+Raw Home telemetry is retained permanently in TimescaleDB. With TimeDB enabled,
+`RETENTION_DAYS=0` compacts acknowledged SQLite history to current projections;
+values of 30 or more retain a bounded local cache. Compaction pauses on any
+archive uncertainty, and old-range reads fail closed when TimeDB is unavailable.
+Operators must still budget disk, protect backups, and periodically confirm that
+indefinite raw-history retention remains justified. A future TimeDB deletion
+policy must also define:
 
 - which tables/artifacts it applies to;
 - whether alert events, manual observations, forecasts, audit logs, exports, and

@@ -63,7 +63,7 @@ ALIGNMENT_SECTORS = 8 * 1024 * 1024 // SECTOR_SIZE
 MICROSOFT_BASIC_DATA = "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7"
 LINUX_FILESYSTEM = "0fc63daf-8483-4772-8e79-3d69d8477de4"
 EXPECTED = (
-    ("bootconfig", MICROSOFT_BASIC_DATA, 32 * 1024 * 1024 // SECTOR_SIZE),
+    ("bootconfig", MICROSOFT_BASIC_DATA, 96 * 1024 * 1024 // SECTOR_SIZE),
     ("boot_a", MICROSOFT_BASIC_DATA, 256 * 1024 * 1024 // SECTOR_SIZE),
     ("boot_b", MICROSOFT_BASIC_DATA, 256 * 1024 * 1024 // SECTOR_SIZE),
     ("system_a", LINUX_FILESYSTEM, 3 * 1024 * 1024 * 1024 // SECTOR_SIZE),
@@ -199,15 +199,17 @@ expected_autoboot = "\n".join(
     (
         "[all]",
         "tryboot_a_b=1",
-        "boot_partition=2",
+        "boot_partition=1",
         "[tryboot]",
         "boot_partition=3",
     )
 )
 if autoboot != expected_autoboot:
-    fail("autoboot.txt does not map normal/tryboot to GPT partitions 2 and 3")
+    fail("autoboot.txt does not map rescue/tryboot to GPT partitions 1 and 3")
 
-for partition, slot in zip(partitions[1:3], ("boot_a", "boot_b")):
+for partition, slot in zip(
+    partitions[:3], ("bootconfig rescue", "boot_a", "boot_b")
+):
     offset = int(partition["start"]) * SECTOR_SIZE
     listing = mtools("mdir", "-b", "-i", f"{image_path}@@{offset}", "::")
     names = {
@@ -222,11 +224,26 @@ for partition, slot in zip(partitions[1:3], ("boot_a", "boot_b")):
         fail(f"{slot} is missing a Raspberry Pi kernel image")
     if not any(name.startswith("initramfs") for name in names):
         fail(f"{slot} is missing an initramfs")
+    config = mtools(
+        "mtype", "-i", f"{image_path}@@{offset}", "::config.txt"
+    ).replace("\r\n", "\n")
+    for required_line in (
+        "arm_64bit=1",
+        "kernel=kernel8.img",
+        "initramfs initramfs8 followkernel",
+    ):
+        if required_line not in config.splitlines():
+            fail(f"{slot} config.txt is missing {required_line!r}")
+    cmdline = mtools(
+        "mtype", "-i", f"{image_path}@@{offset}", "::cmdline.txt"
+    ).replace("\r\n", "\n")
+    if "root=/dev/disk/by-slot/active/system" not in cmdline.split():
+        fail(f"{slot} cmdline.txt does not select the active A/B system")
 
 firmware = mtools_binary(
     "mtype",
     "-i",
-    f"{image_path}@@{int(partitions[1]['start']) * SECTOR_SIZE}",
+    f"{image_path}@@{int(partitions[0]['start']) * SECTOR_SIZE}",
     "::start4.elf",
 )
 firmware_date_match = re.search(
@@ -259,7 +276,7 @@ if hash_partition(
 
 print(
     "Validated GPT, protective MBR, six aligned partitions, FAT/EROFS/ext4 "
-    f"filesystems, Pi firmware dated {firmware_date.isoformat()}, boot files, "
-    "and identical A/B slots."
+    f"filesystems, Pi firmware dated {firmware_date.isoformat()}, USB rescue "
+    "boot files, and identical A/B slots."
 )
 PY

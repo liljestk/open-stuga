@@ -248,6 +248,7 @@ describe("TwinDashboard whole-building replay", () => {
     };
     const state = { ...demo, sensors: [...demo.sensors.slice(0, -1), disabled, otherHouse] };
     const enabledHouseSensors = state.sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled);
+    const replayDefinitions = state.measurementDefinitions.filter((definition) => definition.enabled);
     const selectedSensor = enabledHouseSensors[0]!;
     const onLoadSeries = vi.fn();
     render(
@@ -266,13 +267,16 @@ describe("TwinDashboard whole-building replay", () => {
 
     await user.click(screen.getByRole("button", { name: "Open history and replay" }));
     await user.click(screen.getByRole("button", { name: "Play replay" }));
-    await waitFor(() => expect(onLoadSeries).toHaveBeenCalledTimes(enabledHouseSensors.length * 3));
-    for (const metric of ["temperature", "humidity", "co2"]) {
+    await waitFor(() => expect(onLoadSeries).toHaveBeenCalledTimes(enabledHouseSensors.length * replayDefinitions.length));
+    for (const metric of replayDefinitions.map((definition) => definition.id)) {
       expect(onLoadSeries.mock.calls.filter(([, loadedMetric]) => loadedMetric === metric).map(([sensorId]) => sensorId).sort())
         .toEqual(enabledHouseSensors.map((sensor) => sensor.id).sort());
     }
-    expect(onLoadSeries.mock.calls.filter(([sensorId]) => sensorId === selectedSensor.id)).toHaveLength(3);
-    expect(onLoadSeries.mock.calls.every(([, , range, forecastSupported]) => range === "24h" && forecastSupported === true)).toBe(true);
+    expect(onLoadSeries.mock.calls.filter(([sensorId]) => sensorId === selectedSensor.id)).toHaveLength(replayDefinitions.length);
+    expect(onLoadSeries.mock.calls.every(([, metric, range, forecastSupported]) => (
+      range === "24h"
+      && forecastSupported === replayDefinitions.find((definition) => definition.id === metric)?.forecastSupported
+    ))).toBe(true);
   });
 
   it("clamps an active replay when asynchronously loaded history changes its bounds", async () => {

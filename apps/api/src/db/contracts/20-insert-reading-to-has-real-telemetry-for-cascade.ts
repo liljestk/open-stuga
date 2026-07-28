@@ -95,7 +95,7 @@ import {
 } from "../../notification-policy.js";
 import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord } from "../../timeseries/types.js";
 import { CORE_SCHEMA_SQL } from "../migrations/core-schema.js";
-import { ElectricityPriceArchiveRecord, ElectricityPricePointRow, TelemetryArchiveDirtyRow, TelemetryArchiveMutableTable, TelemetryArchiveRow, TelemetryCascadeScope } from "../support/01-json-value-to-area-equipment-row.js";
+import { ElectricityPriceArchiveRecord, ElectricityPricePointRow, OpeningStateArchiveRecord, TelemetryArchiveDirtyRow, TelemetryArchiveMutableTable, TelemetryArchiveRow, TelemetryCascadeScope } from "../support/01-json-value-to-area-equipment-row.js";
 import { MeasurementSampleRow, OutdoorTemperatureRow, ReadingRow } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
 import { measurementSampleFromRow, readingFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
 import { outdoorTemperatureFromRow } from "../support/06-canonical-observation-patch-time-to-outdoor-location.js";
@@ -116,6 +116,7 @@ declare module "../core.js" {
     readingArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<Reading>[];
     outdoorTemperatureArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<OutdoorTemperatureSample>[];
     electricityPriceArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<ElectricityPriceArchiveRecord>[];
+    openingStateArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<OpeningStateArchiveRecord>[];
     readingArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<Reading>[];
     outdoorTemperatureArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<OutdoorTemperatureSample>[];
     electricityPriceArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<ElectricityPriceArchiveRecord>[];
@@ -139,6 +140,7 @@ declare module "../core.js" {
     readingArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<Reading>[];
     outdoorTemperatureArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<OutdoorTemperatureSample>[];
     electricityPriceArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<ElectricityPriceArchiveRecord>[];
+    openingStateArchivePage(afterRowId: number, limit: number, since?: string): TelemetryArchiveRow<OpeningStateArchiveRecord>[];
     readingArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<Reading>[];
     outdoorTemperatureArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<OutdoorTemperatureSample>[];
     electricityPriceArchiveDirtyPage(limit: number): TelemetryArchiveDirtyRow<ElectricityPriceArchiveRecord>[];

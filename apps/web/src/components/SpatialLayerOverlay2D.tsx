@@ -27,7 +27,10 @@ interface LocatedZone {
   polygon: Point[];
   center: Point;
   label: string;
+  labelStackKey: string;
 }
+
+const LABEL_ROW_HEIGHT = 16;
 
 function centroid(points: readonly Point[]): Point {
   if (!points.length) return { x: 0, y: 0 };
@@ -53,7 +56,13 @@ function locateZone(zone: SpatialLayerZone, floor: Floor, topology: SpatialTopol
   if (!floorId && !room) return null;
   const polygon = topologyZone?.polygon?.length ? topologyZone.polygon : zone.polygon?.length ? zone.polygon : room?.points ?? [];
   const center = zone.centroid ?? topologyZone?.centroid ?? (polygon.length ? centroid(polygon) : null);
-  return center ? { zone, polygon, center, label: topologyZone?.name ?? zone.label ?? room?.name ?? zone.zoneId } : null;
+  return center ? {
+    zone,
+    polygon,
+    center,
+    label: topologyZone?.name ?? zone.label ?? room?.name ?? zone.zoneId,
+    labelStackKey: room?.id ?? topologyZone?.roomId ?? zone.roomId ?? zone.zoneId,
+  } : null;
 }
 
 function connectionEndpoints(
@@ -86,6 +95,7 @@ export function SpatialLayerOverlay2D({ floor, snapshots, topology, scale }: Spa
   const { locale, t } = useI18n();
   const markerId = `spatial-2d-${useId().replaceAll(":", "")}`;
   if (!snapshots.length) return null;
+  const labelSlots = new Map<string, number>();
 
   return <g className="spatial-backend-layers">{snapshots.map((snapshot, snapshotIndex) => {
     const zones = snapshot.zones.flatMap((zone) => {
@@ -108,15 +118,23 @@ export function SpatialLayerOverlay2D({ floor, snapshots, topology, scale }: Spa
         <marker id={`${token}-forward`} markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0L10 5L0 10Z" className="spatial-layer-arrow" /></marker>
         <marker id={`${token}-reverse`} markerWidth="10" markerHeight="10" refX="2" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0 0L10 5L0 10Z" className="spatial-layer-arrow" /></marker>
       </defs>
-      <g className="spatial-zone-values">{zones.map(({ zone, polygon, center, label: zoneLabel }) => {
+      <g className="spatial-zone-values">{zones.map(({ zone, polygon, center, label: zoneLabel, labelStackKey }) => {
         const confidence = layerConfidence(zone);
         const strength = layerVisualStrength(snapshot.layerId, zone);
         const metricText = layerMetricText(snapshot.layerId, zone, locale);
+        const showLabel = Boolean(metricText) || strength >= .35;
+        const labelSlot = labelSlots.get(labelStackKey) ?? 0;
+        if (showLabel) labelSlots.set(labelStackKey, labelSlot + 1);
         return <g key={zone.zoneId} className="spatial-zone-value" style={overlayStyle(strength, confidence, zone.style?.opacity)} data-confidence={confidence.toFixed(2)}>
           {polygon.length >= 3
             ? <polygon points={polygon.map((point) => renderedPoint(point, scale)).join(" ")} />
             : <circle cx={center.x * scale} cy={center.y * scale} r={Math.max(18, 34 * strength)} />}
-          {(metricText || strength >= .35) && <text x={center.x * scale} y={center.y * scale - 18} textAnchor="middle">{metricText ?? (activity ? t("spatial.activitySignal") : zoneLabel)}</text>}
+          {showLabel && <text
+            x={center.x * scale}
+            y={center.y * scale - 18 - labelSlot * LABEL_ROW_HEIGHT}
+            textAnchor="middle"
+            data-label-slot={labelSlot}
+          >{metricText ?? (activity ? t("spatial.activitySignal") : zoneLabel)}</text>}
         </g>;
       })}</g>
       {!activity && <g className="spatial-connection-values">{snapshot.connections.flatMap((connection) => {

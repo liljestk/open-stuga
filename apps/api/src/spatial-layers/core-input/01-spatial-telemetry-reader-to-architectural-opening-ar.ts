@@ -45,7 +45,9 @@ import type {
   StoredSpatialSensorCalibration,
 } from "../types.js";
 
-export type SpatialTelemetryReader = Pick<HybridTelemetryReader, "measurementWindow" | "outdoorTemperatureHistory">;
+export type SpatialTelemetryReader =
+  Pick<HybridTelemetryReader, "measurementWindow" | "outdoorTemperatureHistory">
+  & Partial<Pick<HybridTelemetryReader, "openingStateHistory" | "openingStateSnapshot">>;
 
 /** Narrow structural view of ClimateDatabase containing reads only. */
 export interface CoreClimateReader {

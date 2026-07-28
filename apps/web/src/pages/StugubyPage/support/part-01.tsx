@@ -150,8 +150,11 @@ export function grantHomeName(
   grant: StugubyShareGrant,
   houses: StugubyPageProps["houses"],
   remoteResources: StugubyDetailResponse["remoteResources"],
+  localNodeId: string,
 ): string | null {
-  const localHouse = grant.localHouseId ? houses.find((house) => house.id === grant.localHouseId) : null;
+  const localHouse = grant.authorityNodeId === localNodeId && grant.localHouseId
+    ? houses.find((house) => house.id === grant.localHouseId)
+    : null;
   if (localHouse?.name.trim()) return localHouse.name;
 
   const projectedHouse = houses.find((house) => (

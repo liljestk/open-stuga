@@ -32,6 +32,10 @@ import type {
   MeasurementHistoryQuery,
   MeasurementSampleRecord,
   MeasurementWindowQuery,
+  ThermalMeasurementHistoryQuery,
+  OpeningStateHistoryQuery,
+  OpeningStateRecord,
+  OpeningStateSnapshotQuery,
   OutdoorTemperatureHistoryQuery,
   OutdoorTemperatureRecord,
   QueryControl,
@@ -41,7 +45,7 @@ import type {
   TelemetryStoreOptions,
   TelemetryTableStorage,
 } from "../../types.js";
-import { ArchiveCheckpointRow, ElectricityPriceRow, LatestLegacyReadingFilter, LatestMeasurementFilter, LegacyReadingRow, MAX_HISTORY_LIMIT, MAX_MEASUREMENT_WINDOW_LIMIT, MeasurementBucketRow, MeasurementCoverageRow, MeasurementRow, OutdoorTemperatureRow, SqlValue, electricityPriceFromRow, legacyReadingFromRow, measurementBucketFromRow, measurementFromRow, outdoorTemperatureFromRow, positiveInteger, timestamp } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
+import { ArchiveCheckpointRow, ElectricityPriceRow, LatestLegacyReadingFilter, LatestMeasurementFilter, LegacyReadingRow, MAX_HISTORY_LIMIT, MAX_MEASUREMENT_WINDOW_LIMIT, MeasurementBucketRow, MeasurementCoverageRow, MeasurementRow, OpeningStateRow, OutdoorTemperatureRow, SqlValue, electricityPriceFromRow, legacyReadingFromRow, measurementBucketFromRow, measurementFromRow, openingStateFromRow, outdoorTemperatureFromRow, positiveInteger, timestamp } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
 import { registerTimeseriesStoreMethods, timeseriesStoreState, type TimeseriesStoreInternals } from "../core.js";
 
 registerTimeseriesStoreMethods({
@@ -229,6 +233,42 @@ registerTimeseriesStoreMethods({
         ORDER BY observed_at ASC, source ASC`, [query.sensorId, query.metric, query.from, query.to, limit], query);
       return result.rows.map(measurementFromRow);
     },
+  async thermalMeasurementHistory(
+    this: TimeseriesStoreInternals,
+    query: ThermalMeasurementHistoryQuery,
+  ): Promise<MeasurementSampleRecord[]> {
+      const metrics = [...new Set(query.metrics)];
+      if (metrics.length === 0) return [];
+      const bucketMinutes = positiveInteger(query.bucketMinutes, 5, 60);
+      const limitPerMetric = positiveInteger(query.limitPerMetric, 5_000, 20_000);
+      const result = await this.__query<MeasurementRow>(`WITH source_rows AS (
+          SELECT sensor_id, metric,
+            date_bin(make_interval(mins => $5::INT), observed_at, TIMESTAMPTZ '2000-01-01 00:00:00+00') AS observed_at,
+            value, canonical_unit, source, quality,
+            CASE quality WHEN 'estimated' THEN 0.25 ELSE 1.0 END AS sample_weight
+          FROM ${qualifiedName(this.schema, "measurement_samples")}
+          WHERE sensor_id = $1 AND metric = ANY($2::TEXT[])
+            AND observed_at >= $3::TIMESTAMPTZ AND observed_at <= $4::TIMESTAMPTZ
+            AND quality <> 'stale' AND source <> 'replay'
+        ), aggregated AS (
+          SELECT sensor_id, metric, observed_at,
+            (SUM(value * sample_weight) / NULLIF(SUM(sample_weight), 0))::DOUBLE PRECISION AS value,
+            MIN(canonical_unit) AS canonical_unit,
+            MIN(source) AS source,
+            CASE WHEN BOOL_OR(quality = 'good') THEN 'good' ELSE 'estimated' END AS quality,
+            '{}'::JSONB AS metadata
+          FROM source_rows
+          GROUP BY sensor_id, metric, observed_at
+        ), ranked AS (
+          SELECT *, ROW_NUMBER() OVER (PARTITION BY metric ORDER BY observed_at DESC) AS bucket_rank
+          FROM aggregated
+        )
+        SELECT sensor_id, metric, value, canonical_unit, observed_at, source, quality, metadata
+        FROM ranked WHERE bucket_rank <= $6
+        ORDER BY observed_at ASC, metric ASC`,
+      [query.sensorId, metrics, query.from, query.to, bucketMinutes, limitPerMetric], query);
+      return result.rows.map(measurementFromRow);
+    },
   async measurementWindow(this: TimeseriesStoreInternals, query: MeasurementWindowQuery): Promise<MeasurementSampleRecord[]> {
       if (query.sensorIds.length === 0 || query.metrics.length === 0) return [];
       const limit = positiveInteger(query.limit, 100_000, MAX_MEASUREMENT_WINDOW_LIMIT);
@@ -344,5 +384,39 @@ registerTimeseriesStoreMethods({
         ) recent
         ORDER BY starts_at ASC, source ASC`, [query.propertyId, query.from, query.to, limit], query);
       return result.rows.map(electricityPriceFromRow);
+    },
+  async openingStateHistory(this: TimeseriesStoreInternals, query: OpeningStateHistoryQuery): Promise<OpeningStateRecord[]> {
+      const limit = positiveInteger(query.limit, 20_000, MAX_HISTORY_LIMIT);
+      const result = await this.__query<OpeningStateRow>(`SELECT observation_id, house_id, floor_id, element_id,
+          state, open_fraction, source, observed_at, valid_until, external_id, connection_id, recorded_at, metadata
+        FROM (
+          SELECT observation_id, house_id, floor_id, element_id, state, open_fraction, source, observed_at,
+            valid_until, external_id, connection_id, recorded_at, metadata, ingested_at
+          FROM ${qualifiedName(this.schema, "opening_state_samples")}
+          WHERE house_id = $1 AND observed_at >= $2::TIMESTAMPTZ AND observed_at <= $3::TIMESTAMPTZ
+          ORDER BY observed_at DESC, ingested_at DESC, observation_id DESC
+          LIMIT $4
+        ) recent
+        ORDER BY observed_at ASC, observation_id ASC`, [query.houseId, query.from, query.to, limit], query);
+      return result.rows.map(openingStateFromRow);
+    },
+  async openingStateSnapshot(this: TimeseriesStoreInternals, query: OpeningStateSnapshotQuery): Promise<OpeningStateRecord[]> {
+      const limit = positiveInteger(query.limit, 10_000, MAX_HISTORY_LIMIT);
+      const result = await this.__query<OpeningStateRow>(`SELECT observation_id, house_id, floor_id, element_id,
+          state, open_fraction, source, observed_at, valid_until, external_id, connection_id, recorded_at, metadata
+        FROM (
+          SELECT DISTINCT ON (
+              floor_id, element_id, source, COALESCE(external_id, ''), COALESCE(connection_id, '')
+            )
+            observation_id, house_id, floor_id, element_id, state, open_fraction, source, observed_at,
+            valid_until, external_id, connection_id, recorded_at, metadata, ingested_at
+          FROM ${qualifiedName(this.schema, "opening_state_samples")}
+          WHERE house_id = $1 AND observed_at <= $2::TIMESTAMPTZ
+          ORDER BY floor_id, element_id, source, COALESCE(external_id, ''), COALESCE(connection_id, ''),
+            observed_at DESC, ingested_at DESC, observation_id DESC
+        ) latest
+        ORDER BY observed_at DESC, observation_id DESC
+        LIMIT $3`, [query.houseId, query.at, limit], query);
+      return result.rows.map(openingStateFromRow);
     },
 });

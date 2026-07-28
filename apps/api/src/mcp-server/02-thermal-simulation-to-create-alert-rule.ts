@@ -92,10 +92,10 @@ import { SYSTEM_VERSION } from "../version.js";
 import { FmiWeatherProvider, WeatherRequestSupersededError, WeatherService } from "../weather.js";
 import type { StugubyService } from "../stuguby/service.js";
 import { StugubyStore } from "../stuguby/store.js";
-import { config, database, measurements, optionalBoolean, optionalString, optionalStringArray, requiredArray, requiredNumber, requiredObject, requiredString, status, stuguby, telemetry, weather } from "./01-config-to-get-house-weather.js";
+import { config, database, measurements, optionalBoolean, optionalString, optionalStringArray, requiredArray, requiredNumber, requiredObject, requiredString, status, stuguby, telemetry, telemetryReader, weather } from "./01-config-to-get-house-weather.js";
 import { outdoorTemperatureHistory } from "./05-get-mcp-stuguby-to-result-output-schema.js";
 
-export function thermalSimulation(args: Record<string, unknown>): unknown {
+export async function thermalSimulation(args: Record<string, unknown>): Promise<unknown> {
   const houseId = requiredString(args, "houseId");
   const house = requireMcpHouse(database, houseId);
   const sensor = requireMcpHouseSensor(database, houseId, requiredString(args, "sensorId"));
@@ -106,20 +106,31 @@ export function thermalSimulation(args: Record<string, unknown>): unknown {
     "scenarioOutdoorTemperatureC",
   );
   const boundaryPaddingMs = 2 * 3_600_000;
+  const [indoorRead, outdoorRead] = await Promise.all([
+    telemetryReader.thermalMeasurementHistory({
+      sensorId: sensor.id,
+      metrics: ["temperature"],
+      from,
+      to,
+      bucketMinutes: 5,
+      limitPerMetric: 5_000,
+    }),
+    telemetryReader.outdoorTemperatureHistory({
+      houseId,
+      locationKey: outdoorLocationKey(house.location),
+      from: new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
+      to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
+      limit: 50_000,
+    }),
+  ]);
   return runThermalSimulation({
     houseId,
     sensorId: sensor.id,
     roomLabel: sensor.room,
     from,
     to,
-    indoorSamples: database.thermalTemperatureHistory(sensor.id, from, to, 5, 5_000),
-    outdoorSamples: database.outdoorTemperatureHistory(
-      houseId,
-      outdoorLocationKey(house.location),
-      new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
-      new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
-      50_000,
-    ),
+    indoorSamples: indoorRead.records,
+    outdoorSamples: outdoorRead.records,
     horizonHours,
     scenarioOutdoorTemperatureC,
   });
@@ -380,37 +391,34 @@ export function ingestReadings(args: Record<string, unknown>): { readings: Readi
   return { readings, ignoredDuplicates: submitted.length - readings.length };
 }
 
-export function queryMeasurementHistory(args: Record<string, unknown>): MeasurementSample[] {
+export async function queryMeasurementHistory(args: Record<string, unknown>): Promise<MeasurementSample[]> {
   const sensorId = requiredString(args, "sensorId");
   const metric = requiredString(args, "metric");
   requireMcpMeasurementTarget(database, sensorId, metric);
   const from = mcpIsoDate(requiredString(args, "from"), "from");
   const to = mcpIsoDate(requiredString(args, "to"), "to");
   validateMcpDateRange(from, to);
-  assertMcpLocalHistoryComplete(from);
-  return database.measurementHistory(
+  return (await telemetryReader.measurementHistory({
     sensorId,
     metric,
     from,
     to,
-    mcpBoundedInteger(args.limit, "limit", 2_000, 1, 50_000),
-  );
+    limit: mcpBoundedInteger(args.limit, "limit", 2_000, 1, 50_000),
+  })).records;
 }
 
-export function querySensorHistory(args: Record<string, unknown>): Reading[] {
+export async function querySensorHistory(args: Record<string, unknown>): Promise<Reading[]> {
   const sensorId = requiredString(args, "sensorId");
   requireMcpSensor(database, sensorId);
   const from = mcpIsoDate(requiredString(args, "from"), "from");
   const to = mcpIsoDate(requiredString(args, "to"), "to");
   validateMcpDateRange(from, to);
-  assertMcpLocalHistoryComplete(from);
-  return database.history([sensorId], from, to, mcpBoundedInteger(args.limit, "limit", 2_000, 1, 50_000));
-}
-
-export function assertMcpLocalHistoryComplete(from: string): void {
-  if (config.retentionDays <= 0 || !config.timeseriesEnabled) return;
-  if (Date.parse(from) >= Date.now() - config.retentionDays * 86_400_000) return;
-  throw new Error("Complete cold telemetry history must be queried through the archive-aware REST API");
+  return (await telemetryReader.legacyReadingHistory({
+    sensorIds: [sensorId],
+    from,
+    to,
+    limit: mcpBoundedInteger(args.limit, "limit", 2_000, 1, 50_000),
+  })).records;
 }
 
 export function createAlertRule(args: Record<string, unknown>): AlertRule {

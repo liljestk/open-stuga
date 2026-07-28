@@ -299,6 +299,7 @@ describe("EnergyPage", () => {
   it("uses the Home-safe effective Property price without exposing contract controls", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2026-07-16T12:00:00.000Z"));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const state = createDemoState();
     const house = state.houses[0]!;
     const meter: Sensor = {
@@ -318,17 +319,19 @@ describe("EnergyPage", () => {
     state.measurementForecasts = { meter: {} };
     vi.spyOn(api, "measurementHistory").mockResolvedValue([]);
     const propertyContract = vi.spyOn(api, "propertyElectricity");
+    const projectedPrice = {
+      startAt: "2026-07-16T11:00:00.000Z",
+      endAt: "2026-07-16T12:00:00.000Z",
+      effectivePriceCentsPerKwh: 15,
+      effectivePriceEurPerKwh: 0.15,
+      fetchedAt: "2026-07-16T11:55:00.000Z",
+    };
     const homeProjection = vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({
-      current: {
-        startAt: "2026-07-16T11:00:00.000Z",
-        endAt: "2026-07-16T12:00:00.000Z",
-        effectivePriceCentsPerKwh: 15,
-        effectivePriceEurPerKwh: 0.15,
-        fetchedAt: "2026-07-16T11:55:00.000Z",
-      },
+      current: projectedPrice,
+      prices: [projectedPrice],
     });
 
-    render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={vi.fn()} onOpenAlerts={vi.fn()} /></I18nProvider>);
+    const view = render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={vi.fn()} onOpenAlerts={vi.fn()} /></I18nProvider>);
 
     expect(await screen.findByText("0.150 €/kWh")).not.toBeNull();
     expect(screen.queryByText("216.00 €")).toBeNull();
@@ -336,6 +339,91 @@ describe("EnergyPage", () => {
     expect(screen.queryByLabelText("Retailer")).toBeNull();
     expect(homeProjection).toHaveBeenCalledWith(house.id);
     expect(propertyContract).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Electricity price" }));
+    expect(await screen.findByRole("heading", { name: "Property electricity price" })).not.toBeNull();
+    expect(view.container.querySelector(".sensor-electricity-price-line")).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "1 year" }));
+    await waitFor(() => expect(homeProjection).toHaveBeenLastCalledWith(
+      house.id,
+      expect.any(String),
+      expect.any(String),
+      expect.any(AbortSignal),
+    ));
+    const oneYearCall = homeProjection.mock.calls.at(-1)!;
+    expect(Date.parse(oneYearCall[2]!) - Date.parse(oneYearCall[1]!)).toBe(365 * 24 * 3_600_000);
+  });
+
+  it("combines every electricity sensor and offers single, multiple, and combined charts", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-07-16T12:00:00.000Z"));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const first: Sensor = {
+      ...state.sensors[0]!,
+      id: "meter-first",
+      houseId: house.id,
+      name: "Kitchen plug",
+      measurementEntityIds: { power: "sensor.kitchen_power", energy: "sensor.kitchen_energy" },
+    };
+    const second: Sensor = {
+      ...state.sensors[0]!,
+      id: "meter-second",
+      houseId: house.id,
+      name: "Office plug",
+      measurementEntityIds: { power: "sensor.office_power", energy: "sensor.office_energy" },
+    };
+    const powerHistory = (sensorId: string, firstValue: number, lastValue: number) => [
+      { ...sample(firstValue, "2026-07-16T11:30:00.000Z"), sensorId, metric: "power" as const, canonicalUnit: "W" },
+      { ...sample(lastValue, "2026-07-16T11:59:00.000Z"), sensorId, metric: "power" as const, canonicalUnit: "W" },
+    ];
+    const firstEnergy = [
+      { ...sample(10, "2026-07-15T13:00:00.000Z"), sensorId: first.id },
+      { ...sample(12, "2026-07-16T11:59:00.000Z"), sensorId: first.id },
+    ];
+    const secondEnergy = [
+      { ...sample(20, "2026-07-15T13:00:00.000Z"), sensorId: second.id },
+      { ...sample(23, "2026-07-16T11:59:00.000Z"), sensorId: second.id },
+    ];
+    const firstPower = powerHistory(first.id, 80, 100);
+    const secondPower = powerHistory(second.id, 180, 200);
+    state.sensors = [first, second];
+    state.latestMeasurements = {
+      [first.id]: { power: firstPower.at(-1)!, energy: firstEnergy.at(-1)! },
+      [second.id]: { power: secondPower.at(-1)!, energy: secondEnergy.at(-1)! },
+    };
+    state.measurementHistory = {
+      [first.id]: { power: firstPower, energy: firstEnergy },
+      [second.id]: { power: secondPower, energy: secondEnergy },
+    };
+    state.measurementForecasts = { [first.id]: {}, [second.id]: {} };
+    vi.spyOn(api, "measurementHistory").mockImplementation(async (sensorId) => (
+      sensorId === first.id ? firstEnergy : secondEnergy
+    ));
+    vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({ current: null });
+    const costRequest = vi.spyOn(api, "houseEnergyCost").mockImplementation(async (houseId, sensorId, from, to) => (
+      cumulativeCost(houseId, sensorId, from, to, sensorId === first.id ? 1.2 : 2.3)
+    ));
+
+    const view = render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={vi.fn()} onOpenSensors={vi.fn()} onOpenAlerts={vi.fn()} /></I18nProvider>);
+
+    const powerCard = view.container.querySelector<HTMLElement>(".energy-summary-card.power")!;
+    expect(within(powerCard).getByText("300 W")).not.toBeNull();
+    expect(within(powerCard).getByText("2 of 2 sensors combined")).not.toBeNull();
+    const energyCard = view.container.querySelector<HTMLElement>(".energy-summary-card.energy")!;
+    expect(await within(energyCard).findByText("5.00 kWh")).not.toBeNull();
+    expect(within(energyCard).getByText("2 of 2 sensors combined")).not.toBeNull();
+    expect(await screen.findByText("3.50 €")).not.toBeNull();
+    await waitFor(() => expect(costRequest).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("button", { name: "Combined" }).getAttribute("aria-pressed")).toBe("true");
+    expect(view.container.querySelectorAll(".sensor-aggregate-line")).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "Multiple" }));
+    expect(view.container.querySelectorAll(".sensor-series-line")).toHaveLength(2);
+    await user.click(screen.getByRole("button", { name: "Single" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Data source" }), second.id);
+    expect(screen.getByRole("heading", { name: second.name })).not.toBeNull();
   });
 
   it("does not label a shorter chart cache as 24-hour consumption when the dedicated request fails", async () => {
@@ -397,7 +485,7 @@ describe("EnergyPage", () => {
 
     const summary = view.container.querySelector<HTMLElement>(".energy-summary-card.power")!;
     expect(within(summary).getByText("1500 W")).not.toBeNull();
-    expect(within(summary).getByText("Fresh meter")).not.toBeNull();
+    expect(within(summary).getByText("1 of 2 sensors combined")).not.toBeNull();
     expect(within(summary).queryByText("9000 W")).toBeNull();
   });
 });

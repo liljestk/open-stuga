@@ -166,6 +166,7 @@ export class ElectricityPriceService {
     private readonly fetcher: typeof fetch = fetch,
     private readonly refreshIntervalMs = DEFAULT_REFRESH_INTERVAL_MS,
     private readonly endpointPolicy: ElectricityEndpointPolicy = {},
+    private readonly onPricesStored?: (propertyId: string) => void | Promise<void>,
   ) {}
 
   start(): void {
@@ -219,6 +220,12 @@ export class ElectricityPriceService {
       const prices = parseElectricityPricePayload(payload);
       const fetchedAt = new Date().toISOString();
       this.database.storePropertyElectricityPrices(propertyId, prices, fetchedAt);
+      try {
+        const wake = this.onPricesStored?.(propertyId);
+        if (wake) void wake.catch(() => undefined);
+      } catch {
+        // SQLite remains the crash-safe buffer when a best-effort archive wake fails.
+      }
       return this.database.listPropertyElectricityPrices(
         propertyId,
         prices[0]!.startAt,

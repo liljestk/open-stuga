@@ -42,7 +42,7 @@ psychrometrics, causal inference, or new forecast models.
   zero. Registry-valid calculations, source-quality choices, sample coverage,
   and signed differences remain explicit.
 - A side-effect-free `POST /api/v2/analytics/coverage` discovery endpoint. It
-  merges the SQLite hot tail and Timescale archive span for each selected series
+  merges the SQLite unacknowledged/current tail and Timescale span for each selected series
   and marks the result incomplete when an unavailable archive could contain
   older matching periods.
 - A persisted daily month-to-date comparison run for each Home. It evaluates
@@ -76,8 +76,9 @@ The implementation reuses the existing architecture:
 | Concern | Existing path reused | Decision |
 | --- | --- | --- |
 | Canonical measurements | `packages/contracts`, v2 measurement definitions and samples | Extend the registry without changing package names or the ingest contract. |
-| Primary telemetry | SQLite measurement samples | Read through the database's bounded multi-series window. |
-| Historical archive | Hybrid SQLite/Timescale reader | Merge samples and per-series coverage through the existing read facade, exposing incomplete archive state instead of silently shortening comparisons. |
+| Primary telemetry history | TimescaleDB measurement samples | Permanent temperature, humidity, CO2, electricity, and custom-metric history with bounded queries and rollups. |
+| Ingestion/current tail | SQLite outbox and projections | Merge unacknowledged/current samples through the read facade; never treat it as complete long-term history. |
+| Historical read boundary | Hybrid SQLite/Timescale reader | Merge samples and per-series coverage, exposing incomplete archive state instead of silently shortening comparisons. |
 | Data-mode isolation | One-way database-wide demo-to-real transition | Require `demo` or `live` in every analytics request and reject the mode not active in the local database. |
 | API conventions | Express v1/v2 routes, local authorization, OpenAPI parity tests | Put registry analytics in v2 and treat the complex POST as read-only for guest/CSRF/mutation-event rules. |
 | UI | Existing Data & analytics route and SVG sensor chart | Add evidence below the chart; do not replace the chart renderer in this slice. |

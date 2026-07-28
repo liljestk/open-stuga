@@ -56,15 +56,30 @@ test("readConfig rejects malformed versions and device UUIDs", () => {
   );
 });
 
-test("the appliance orders both shared container stores before container startup", async () => {
-  const [layer, growService] = await Promise.all([
+test("the appliance grows storage before local shared mounts without an ordering cycle", async () => {
+  const [layer, growService, growScript, sharedInit] = await Promise.all([
     readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
     readFile(new URL("../../deploy/rpi/assets/stugu-data-grow.service", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu-grow-persistent", import.meta.url), "utf8"),
+    readFile(
+      new URL("../../deploy/rpi/assets/rpi-persistent-shared-init", import.meta.url),
+      "utf8",
+    ),
   ]);
 
   assert.match(layer, /containerd\.service\.d\/stugu-shared-storage\.conf[\s\S]*Requires=stugu-data-grow\.service var-lib-containerd\.mount/);
   assert.match(layer, /docker\.service\.d\/stugu-shared-storage\.conf[\s\S]*Requires=stugu-data-grow\.service var-lib-docker\.mount var-lib-containerd\.mount/);
-  assert.match(growService, /Before=persistent-shared-init\.service containerd\.service docker\.service stugu\.service/);
+  assert.match(growService, /DefaultDependencies=no/);
+  assert.match(growService, /Before=persistent-shared-init\.service var\.mount local-fs\.target/);
+  assert.match(growService, /WantedBy=local-fs\.target/);
+  assert.match(layer, /packages:[\s\S]*- gdisk/);
+  assert.match(growScript, /sgdisk --move-second-header/);
+  assert.match(growScript, /partition_label[\s\S]*persistent/);
+  assert.match(growScript, /last_partition_number/);
+  assert.match(growScript, /resize2fs/);
+  assert.match(sharedInit, /\.stugu-seeded/);
+  assert.match(sharedInit, /release .* already seeded/);
+  assert.match(layer, /rpi-persistent-shared-init/);
 });
 
 test("the appliance layer and build overrides use the declared Stugu variable prefix", async () => {
@@ -80,13 +95,37 @@ test("the appliance layer and build overrides use the declared Stugu variable pr
 });
 
 test("the USB appliance binds A/B slots to the firmware-selected boot disk", async () => {
-  const [config, layer, resolver, rootBinder, initramfsHook, buildScript] = await Promise.all([
+  const [
+    config,
+    layer,
+    resolver,
+    rootBinder,
+    udevImporter,
+    udevRules,
+    initramfsHook,
+    tryboot,
+    rescuePatch,
+    buildScript,
+  ] = await Promise.all([
     readFile(new URL("../../deploy/rpi/config/stugu.yaml", import.meta.url), "utf8"),
     readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
     readFile(new URL("../../deploy/rpi/assets/stugu-usb-bootdev", import.meta.url), "utf8"),
     readFile(new URL("../../deploy/rpi/assets/stugu-usb-ab-root", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu-usb-udev-slot", import.meta.url), "utf8"),
+    readFile(
+      new URL("../../deploy/rpi/assets/99-rpi-00-stugu-usb.rules", import.meta.url),
+      "utf8",
+    ),
     readFile(
       new URL("../../deploy/rpi/assets/stugu-usb-initramfs-hook", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../../deploy/rpi/assets/rpi-slot-tryboot", import.meta.url), "utf8"),
+    readFile(
+      new URL(
+        "../../deploy/rpi/patches/0001-pi4-usb-rescue-bootconfig.patch",
+        import.meta.url,
+      ),
       "utf8",
     ),
     readFile(new URL("../build-rpi-image.sh", import.meta.url), "utf8"),
@@ -114,10 +153,28 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
   }
   assert.match(rootBinder, /active\/system/);
   assert.match(rootBinder, /other\/system/);
+  assert.match(rootBinder, /bootconfig\)[\s\S]*active_suffix="a"/);
+  assert.doesNotMatch(rootBinder, /ln -snf/);
+  assert.match(rootBinder, /ln -sf "\$active_system_device"/);
+  assert.match(rootBinder, /readlink "\$link_path"/);
 
   assert.match(initramfsHook, /copy_exec \/usr\/bin\/stugu-usb-bootdev/);
+  assert.match(initramfsHook, /copy_exec \/usr\/bin\/stugu-usb-udev-slot/);
+  assert.match(initramfsHook, /99-rpi-00-stugu-usb\.rules/);
+  assert.match(udevImporter, /stugu-usb-bootdev/);
+  assert.match(udevImporter, /RPI_ONBOOTDEV=1/);
+  assert.match(udevImporter, /STUGU_SLOT=/);
+  assert.match(udevRules, /KERNEL=="sd\*\[0-9\]"/);
+  assert.match(udevRules, /SYMLINK\+="\$env\{STUGU_SLOT\}"/);
   assert.match(layer, /stugu-usb-bootdev/);
   assert.match(layer, /scripts\/local-block\/20-stugu-usb-ab-root/);
+  assert.match(layer, /scripts\/local-premount\/20-stugu-usb-ab-root/);
+  assert.match(tryboot, /boot_label" = "bootconfig"/);
+  assert.match(tryboot, /sed 's\/\^\[\^0-9\]\*\/\//);
+  assert.match(rescuePatch, /size = 96M/);
+  assert.match(rescuePatch, /mountpoint = "\/boot\/firmware"/);
+  assert.match(rescuePatch, /boot_partition=1/);
+  assert.match(buildScript, /apply --check "\$usb_rescue_patch"/);
   assert.match(buildScript, /IGconf_image_idp_schema=\$usb_idp_schema/);
   assert.match(buildScript, /"nvme", "usb"/);
 });
@@ -140,12 +197,13 @@ test("clean appliance startup includes every runtime path and repairs interrupte
 });
 
 test("the appliance exposes secure LAN access and persistent Tailscale by default", async () => {
-  const [layer, environment, composeStart, control, tailscaleSource] = await Promise.all([
+  const [layer, environment, composeStart, control, tailscaleSource, eepromCompat] = await Promise.all([
     readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
     readFile(new URL("../../deploy/rpi/assets/stugu.env.example", import.meta.url), "utf8"),
     readFile(new URL("../../deploy/rpi/assets/stugu-compose-start", import.meta.url), "utf8"),
     readFile(new URL("../../deploy/rpi/assets/stuguctl", import.meta.url), "utf8"),
     readFile(new URL("../../deploy/rpi/assets/tailscale-trixie.sources", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu-eeprom-compat", import.meta.url), "utf8"),
   ]);
 
   assert.match(tailscaleSource, /pkgs\.tailscale\.com\/stable\/debian[\s\S]*Suites: trixie/);
@@ -158,6 +216,12 @@ test("the appliance exposes secure LAN access and persistent Tailscale by defaul
   assert.match(composeStart, /dd if=\/dev\/urandom bs=32 count=1[\s\S]*LOCAL_AUTH_BOOTSTRAP_SECRET/);
   assert.match(control, /#bootstrap=%s/);
   assert.match(control, /tailscale up --operator=stugu/);
+  assert.match(layer, /systemd-networkd-wait-online --any --interface=eth0 --interface=wlan0 --timeout=30/);
+  assert.match(layer, /BOOTFS="\/bootfs"/);
+  assert.match(layer, /enable-units "\$1" tailscaled stugu-data-grow stugu-eeprom-compat stugu/);
+  assert.match(eepromCompat, /desired_boot_order=0xf14/);
+  assert.match(eepromCompat, /desired_self_update=1/);
+  assert.match(eepromCompat, /desired_usb_power_off=0/);
 });
 
 test("factory builds fail closed unless Linux validates the complete SSD layout", async () => {
@@ -180,7 +244,10 @@ test("factory builds fail closed unless Linux validates the complete SSD layout"
     assert.match(validator, new RegExp(`"${label}"`));
   }
   assert.match(validator, /protective MBR does not contain a GPT 0xEE entry/);
-  assert.match(validator, /autoboot\.txt does not map normal\/tryboot to GPT partitions 2 and 3/);
+  assert.match(validator, /96 \* 1024 \* 1024/);
+  assert.match(validator, /autoboot\.txt does not map rescue\/tryboot to GPT partitions 1 and 3/);
+  assert.match(validator, /bootconfig rescue/);
+  assert.match(validator, /initramfs initramfs8 followkernel/);
   assert.match(validator, /2025-01-22 GPT autoboot partition-number fix/);
   assert.match(validator, /boot_a and boot_b differ/);
   assert.match(validator, /system_a and system_b differ/);

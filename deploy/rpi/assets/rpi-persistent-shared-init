@@ -1,0 +1,68 @@
+#!/bin/sh
+# Seed shared immutable-root data once per Stugu release.
+
+set -eu
+
+conf_dir=/etc/rpi-image-gen/slot-shared.d
+shared_base=/persistent/shared
+version_file=/etc/stugu-version
+
+[ -d "$conf_dir" ] || exit 0
+[ -r "$version_file" ] || {
+  echo "persistent-shared-init: missing $version_file" >&2
+  exit 1
+}
+
+IFS= read -r release < "$version_file"
+case "$release" in
+  ""|*[!0-9A-Za-z._-]*)
+    echo "persistent-shared-init: invalid Stugu version" >&2
+    exit 1
+    ;;
+esac
+
+paths=""
+for conf in "$conf_dir"/*.conf; do
+  [ -f "$conf" ] || continue
+  version=""
+  conf_paths=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in ""|\#*) continue ;; esac
+    key="${line%%=*}"
+    value="${line#*=}"
+    case "$key" in
+      Version) version="$value" ;;
+      Path) conf_paths="$conf_paths /${value#/}" ;;
+    esac
+  done < "$conf"
+  if [ "$version" != "1" ]; then
+    echo "persistent-shared-init: $conf: unsupported version ${version:-missing}" >&2
+    continue
+  fi
+  paths="$paths $conf_paths"
+done
+
+marker_dir="${shared_base}/.stugu-seeded"
+marker="${marker_dir}/${release}"
+mkdir -p "$marker_dir"
+
+for path in $paths; do
+  mkdir -p "${shared_base}${path}"
+done
+
+if [ -e "$marker" ]; then
+  echo "persistent-shared-init: release $release already seeded"
+  exit 0
+fi
+
+for path in $paths; do
+  echo "persistent-shared-init: seeding $path for release $release"
+  [ -d "$path" ] &&
+    rsync -aHAXS --numeric-ids --checksum "$path/" "${shared_base}${path}/"
+done
+
+temporary_marker="${marker}.tmp.$$"
+trap 'rm -f "$temporary_marker"' EXIT HUP INT TERM
+: > "$temporary_marker"
+mv "$temporary_marker" "$marker"
+trap - EXIT HUP INT TERM

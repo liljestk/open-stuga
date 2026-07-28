@@ -23,6 +23,7 @@ import { OpeningInventory } from "../../OpeningInventory";
 import { SpatialLayerOverlay2D } from "../../SpatialLayerOverlay2D";
 import type { SpatialLayerSnapshot, SpatialTopology } from "../../../spatialLayers";
 import type { SensorCoverageAssessment } from "../../../experimentalSpatialLayers";
+import type { OutdoorInfluenceEstimate } from "../../../outdoorInfluence";
 import { ExperimentalSensorCoverage2D } from "../../ExperimentalSensorCoverage";
 import {
   clampPlanElementHeight,
@@ -74,6 +75,7 @@ export interface FloorPlanProps {
   experimentalAirflowEnabled?: boolean;
   experimentalAirflow?: FloorAirflowEstimate | null;
   experimentalSensorCoverage?: SensorCoverageAssessment | null;
+  experimentalOutdoorInfluence?: OutdoorInfluenceEstimate | null;
   openingStateObservations?: readonly OpeningStateObservation[];
   pendingOpeningStateKeys?: ReadonlySet<string>;
   onOpeningStateChange?: (floorId: string, elementId: string, state: ConfiguredOpeningState) => void;

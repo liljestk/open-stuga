@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import type { Floor, Metric, TpLinkDiscoveredDevice, UnitSystem } from "@climate-twin/contracts";
+import type { Floor, IntegrationDiscoveryJob, IntegrationDiscoveryResult, Metric, TpLinkDiscoveredDevice, UnitSystem } from "@climate-twin/contracts";
 import { AlertTriangle, HousePlus, LoaderCircle, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
 import { AppShell } from "../components/AppShell";
 import { type AppPage, type ViewMode } from "../domain";
@@ -20,9 +20,17 @@ import {
   LocalAuthPage,
 } from "../pages/LocalAuthPage";
 import { integrationForHouse } from "../integrationScope";
+import { rememberedIntegrationDiscovery } from "../integrationDiscoveryStorage";
 import { houseHasTpLinkOpeningBinding } from "../tpLinkDeviceClassification";
-import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, dismissedTpLinkDevicesKey, firstFloor, freshTpLinkDiscoveryWindowMs, latestIso, pageTitleKeys, settleInBackground, storedDismissedTpLinkDevices, tpLinkDeviceKey } from "./support";
+import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, dismissedIntegrationDiscoveryJobsKey, dismissedTpLinkDevicesKey, firstFloor, freshTpLinkDiscoveryWindowMs, latestIso, pageTitleKeys, settleInBackground, storedDismissedIntegrationDiscoveryJobs, storedDismissedTpLinkDevices, tpLinkDeviceKey } from "./support";
 import type { TpLinkDeviceReference } from "./support";
+
+export interface CompletedIntegrationDiscovery {
+  jobId: string;
+  houseId: string;
+  result: IntegrationDiscoveryResult;
+}
+
 export function useAppPart01(context: Record<string, never>) {
   const { t } = useI18n();
   const climate = useClimateData();
@@ -58,11 +66,77 @@ export function useAppPart01(context: Record<string, never>) {
   const [maintenanceObservationId, setMaintenanceObservationId] = useState<string | null>(null);
   const [requestedSensorDevice, setRequestedSensorDevice] = useState<TpLinkDeviceReference | null>(null);
   const [dismissedTpLinkDeviceIds, setDismissedTpLinkDeviceIds] = useState(storedDismissedTpLinkDevices);
+  const [dismissedIntegrationDiscoveryJobIds, setDismissedIntegrationDiscoveryJobIds] = useState(storedDismissedIntegrationDiscoveryJobs);
+  const [completedIntegrationDiscoveries, setCompletedIntegrationDiscoveries] = useState<Record<string, CompletedIntegrationDiscovery>>({});
+  const integrationDiscoverySubscriptions = useRef(new Map<string, { jobId: string; controller: AbortController }>());
+  const watchedIntegrationDiscoveryJobIds = useRef(new Set<string>());
   const [invitationToken, setInvitationToken] = useState(
       () => invitationTokenFromFragment() ?? invitationTokenFromBootstrapStorage(),
     );
   const [logoutUncertain, setLogoutUncertain] = useState(false);
   const previousPage = useRef(page);
+  const watchIntegrationDiscovery = useCallback((houseId: string, jobId: string) => {
+      if (watchedIntegrationDiscoveryJobIds.current.has(jobId)) return;
+      const active = integrationDiscoverySubscriptions.current.get(houseId);
+      if (active?.jobId === jobId && !active.controller.signal.aborted) return;
+      active?.controller.abort();
+      const controller = new AbortController();
+      integrationDiscoverySubscriptions.current.set(houseId, { jobId, controller });
+      void api.resumeIntegrationDiscovery(jobId, controller.signal).then((result) => {
+        if (controller.signal.aborted) return;
+        watchedIntegrationDiscoveryJobIds.current.add(jobId);
+        setCompletedIntegrationDiscoveries((current) => ({
+          ...current,
+          [houseId]: { jobId, houseId, result },
+        }));
+      }).catch(() => undefined).finally(() => {
+        if (integrationDiscoverySubscriptions.current.get(houseId)?.controller === controller) {
+          integrationDiscoverySubscriptions.current.delete(houseId);
+        }
+      });
+    }, []);
+  const onIntegrationDiscoveryStarted = useCallback((job: IntegrationDiscoveryJob) => {
+      setCompletedIntegrationDiscoveries((current) => {
+        if (!current[job.houseId] || current[job.houseId]?.jobId === job.id) return current;
+        const next = { ...current };
+        delete next[job.houseId];
+        return next;
+      });
+      if (job.status === "completed" && job.result) {
+        watchedIntegrationDiscoveryJobIds.current.add(job.id);
+        setCompletedIntegrationDiscoveries((current) => ({
+          ...current,
+          [job.houseId]: { jobId: job.id, houseId: job.houseId, result: job.result! },
+        }));
+      } else if (job.status === "running") {
+        watchIntegrationDiscovery(job.houseId, job.id);
+      }
+    }, [watchIntegrationDiscovery]);
+  const dismissIntegrationDiscoveryNotice = useCallback((jobId: string) => {
+      setDismissedIntegrationDiscoveryJobIds((current) => {
+        const next = [...new Set([...current, jobId])];
+        writeLocalStorage(dismissedIntegrationDiscoveryJobsKey, JSON.stringify(next));
+        return next;
+      });
+    }, []);
+  useEffect(() => {
+      if (climate.bootstrapStatus !== "ready" || !state.session?.authenticated) return;
+      for (const candidate of state.houses) {
+        const jobId = rememberedIntegrationDiscovery(candidate.id);
+        if (jobId) watchIntegrationDiscovery(candidate.id, jobId);
+      }
+    }, [climate.bootstrapStatus, state.houses, state.session?.authenticated, watchIntegrationDiscovery]);
+  useEffect(() => {
+      if (state.session?.authenticated) return;
+      for (const subscription of integrationDiscoverySubscriptions.current.values()) subscription.controller.abort();
+      integrationDiscoverySubscriptions.current.clear();
+      watchedIntegrationDiscoveryJobIds.current.clear();
+      setCompletedIntegrationDiscoveries({});
+    }, [state.session?.authenticated]);
+  useEffect(() => () => {
+      for (const subscription of integrationDiscoverySubscriptions.current.values()) subscription.controller.abort();
+      integrationDiscoverySubscriptions.current.clear();
+    }, []);
   useEffect(() => {
       clearInvitationFragment();
       clearInvitationBootstrapStorage();
@@ -178,5 +252,30 @@ export function useAppPart01(context: Record<string, never>) {
       return currentTpLinkDevices.filter((device) => !dismissed.has(tpLinkDeviceKey(device)) && !dismissed.has(device.deviceId));
     }, [currentTpLinkDevices, dismissedTpLinkDeviceIds]);
   const discoveredSensorNotice = scopedIntegration?.tpLink.configured ? undisclosedTpLinkDevices[0] : undefined;
-  return Object.assign(context, { t, climate, state, workspaceReadOnly, canManagePeople, loadSeriesInBackground, initialRoute, initialHouse, initialPropertyId, initialSelectedHouse, page, setPage, routeLoading, routeNotFound, setRouteNotFound, setRouteRevision, propertyId, setPropertyId, houseId, setHouseId, floorId, setFloorId, metric, setMetric, viewMode, setViewMode, selectedSensorId, setSelectedSensorId, units, setUnitsState, firstHomeName, setFirstHomeName, firstPropertyName, setFirstPropertyName, firstHomePropertyId, setFirstHomePropertyId, bootstrapAction, setBootstrapAction, maintenanceObservationId, setMaintenanceObservationId, requestedSensorDevice, setRequestedSensorDevice, dismissedTpLinkDeviceIds, setDismissedTpLinkDeviceIds, invitationToken, setInvitationToken, logoutUncertain, setLogoutUncertain, previousPage, logout, property, propertyReadOnly, propertyElectricityAvailable, propertyHouses, selectedPropertyHouse, house, activeSharedHouse, houseReadOnly, houseLocalAuthority, locationRoute, readOnly, routeHouse, routeScopeInvalid, effectiveRouteNotFound, floor, measurementDefinitions, availableMeasurements, lastUpdated, openAlertCount, scopedIntegration, availableTpLinkDevices, currentTpLinkDevices, undisclosedTpLinkDevices, discoveredSensorNotice });
+  const configuredTpLinkHosts = new Set((state.integration.tpLink.connections ?? [])
+    .flatMap((connection) => connection.host ? [connection.host] : []));
+  if (state.integration.tpLink.host) configuredTpLinkHosts.add(state.integration.tpLink.host);
+  const discoveredIntegrationNotice = Object.values(completedIntegrationDiscoveries)
+    .sort((left, right) => Number(right.houseId === house?.id) - Number(left.houseId === house?.id))
+    .flatMap((completion) => {
+      if (dismissedIntegrationDiscoveryJobIds.includes(completion.jobId)) return [];
+      const discoveryHouse = state.houses.find((candidate) => candidate.id === completion.houseId);
+      if (!discoveryHouse) return [];
+      const discoveryIntegration = integrationForHouse(state.integration, discoveryHouse.id, Boolean(discoveryHouse.location));
+      const tpLink = completion.result.tpLink.filter((source) => (
+        !source.configuredConnectionId && !configuredTpLinkHosts.has(source.host)
+      ));
+      const homeAssistant = discoveryIntegration.homeAssistant.configured ? [] : completion.result.homeAssistant;
+      const first = tpLink[0] ?? homeAssistant[0];
+      const count = tpLink.length + homeAssistant.length;
+      if (!first || count === 0) return [];
+      return [{
+        jobId: completion.jobId,
+        houseId: completion.houseId,
+        homeName: discoveryHouse.name,
+        name: "model" in first ? first.alias?.trim() || `TP-Link ${first.model}` : first.name,
+        count,
+      }];
+    })[0];
+  return Object.assign(context, { t, climate, state, workspaceReadOnly, canManagePeople, loadSeriesInBackground, initialRoute, initialHouse, initialPropertyId, initialSelectedHouse, page, setPage, routeLoading, routeNotFound, setRouteNotFound, setRouteRevision, propertyId, setPropertyId, houseId, setHouseId, floorId, setFloorId, metric, setMetric, viewMode, setViewMode, selectedSensorId, setSelectedSensorId, units, setUnitsState, firstHomeName, setFirstHomeName, firstPropertyName, setFirstPropertyName, firstHomePropertyId, setFirstHomePropertyId, bootstrapAction, setBootstrapAction, maintenanceObservationId, setMaintenanceObservationId, requestedSensorDevice, setRequestedSensorDevice, dismissedTpLinkDeviceIds, setDismissedTpLinkDeviceIds, dismissedIntegrationDiscoveryJobIds, setDismissedIntegrationDiscoveryJobIds, completedIntegrationDiscoveries, setCompletedIntegrationDiscoveries, onIntegrationDiscoveryStarted, dismissIntegrationDiscoveryNotice, invitationToken, setInvitationToken, logoutUncertain, setLogoutUncertain, previousPage, logout, property, propertyReadOnly, propertyElectricityAvailable, propertyHouses, selectedPropertyHouse, house, activeSharedHouse, houseReadOnly, houseLocalAuthority, locationRoute, readOnly, routeHouse, routeScopeInvalid, effectiveRouteNotFound, floor, measurementDefinitions, availableMeasurements, lastUpdated, openAlertCount, scopedIntegration, availableTpLinkDevices, currentTpLinkDevices, undisclosedTpLinkDevices, discoveredSensorNotice, discoveredIntegrationNotice });
 }

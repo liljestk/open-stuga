@@ -13,9 +13,9 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
 - Floor-plan upload, wall drawing, and drag-to-place sensors
 - Registry-defined measurements with built-in temperature (°C), humidity (%),
   and CO2 (ppm), plus independently timestamped custom numeric samples
-- A transactional SQLite control plane and crash-safe hot telemetry buffer,
-  with TimescaleDB for durable multi-year history, rollups, and efficient trend
-  queries
+- A transactional SQLite control plane with a crash-safe telemetry outbox and
+  current projections, plus TimescaleDB as the permanent store for sensor,
+  weather, electricity-price, and opening-event history
 - Resumable live system-to-system migration over authenticated SSH, with an
   online seed, content-addressed chunk reuse, verified final snapshot, isolated
   TimescaleDB candidate restore, portable settings transfer, health-gated
@@ -310,12 +310,13 @@ Build once, then configure a local MCP host to spawn:
 }
 ```
 
-The MCP process uses the same `DATABASE_PATH` as the API, so it can discover
+The MCP process uses the same `DATABASE_PATH` and TimeDB settings as the API, so it can discover
 Properties, Homes, Stugubys, measurement definitions, metric history/forecasts,
 current conditions, electricity/energy analysis, alerts, actions, maintenance,
 integrations, backups, and setup readiness without copying telemetry into an AI
-provider. It opens the existing SQLite database read-only and exposes no create,
-update, delete, import, sharing, synchronization, or control tools.
+provider. It opens SQLite read-only and queries TimeDB only for telemetry
+history; it exposes no create, update, delete, import, sharing, synchronization,
+or control tools.
 Start the API once after an upgrade so migrations are current, and run
 `npm run build` before launching the compiled server.
 

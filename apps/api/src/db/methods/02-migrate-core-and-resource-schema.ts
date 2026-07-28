@@ -101,6 +101,80 @@ import { registerDatabaseMethods } from "../core.js";
 registerDatabaseMethods({
   migrateCoreAndResourceSchema(): void {
       this.db.exec(CORE_SCHEMA_SQL);
+      const archiveRowIds = this.db.prepare(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'telemetry_archive_row_ids'",
+      ).get() as { sql: string } | undefined;
+      if (!archiveRowIds?.sql.includes("'opening_state_samples'")) {
+        this.db.exec(`
+          DROP TRIGGER IF EXISTS archive_outdoor_temperature_insert;
+          DROP TRIGGER IF EXISTS archive_outdoor_temperature_delete;
+          DROP TRIGGER IF EXISTS archive_electricity_price_insert;
+          DROP TRIGGER IF EXISTS archive_electricity_price_delete;
+          CREATE TABLE telemetry_archive_row_ids_v2 (
+            archive_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            table_name TEXT NOT NULL CHECK (table_name IN (
+              'outdoor_temperature_samples', 'electricity_price_samples', 'opening_state_samples'
+            )),
+            natural_key TEXT NOT NULL,
+            UNIQUE (table_name, natural_key)
+          );
+          INSERT INTO telemetry_archive_row_ids_v2(archive_id, table_name, natural_key)
+            SELECT archive_id, table_name, natural_key FROM telemetry_archive_row_ids ORDER BY archive_id;
+          DROP TABLE telemetry_archive_row_ids;
+          ALTER TABLE telemetry_archive_row_ids_v2 RENAME TO telemetry_archive_row_ids;
+          CREATE INDEX idx_telemetry_archive_row_ids_page
+            ON telemetry_archive_row_ids(table_name, archive_id);
+        `);
+      }
+      this.db.exec(`
+        INSERT OR IGNORE INTO telemetry_archive_row_ids(table_name, natural_key)
+          SELECT 'outdoor_temperature_samples', json_array(house_id, location_key, timestamp, source)
+          FROM outdoor_temperature_samples ORDER BY timestamp, house_id, location_key, source;
+        INSERT OR IGNORE INTO telemetry_archive_row_ids(table_name, natural_key)
+          SELECT 'electricity_price_samples', json_array(property_id, start_at)
+          FROM electricity_price_points ORDER BY start_at, property_id;
+        INSERT OR IGNORE INTO telemetry_archive_row_ids(table_name, natural_key)
+          SELECT 'opening_state_samples', json_array(id)
+          FROM opening_state_observations ORDER BY observed_at, id;
+        CREATE TRIGGER IF NOT EXISTS archive_outdoor_temperature_insert
+          AFTER INSERT ON outdoor_temperature_samples BEGIN
+            INSERT OR IGNORE INTO telemetry_archive_row_ids(table_name, natural_key)
+            VALUES ('outdoor_temperature_samples', json_array(NEW.house_id, NEW.location_key, NEW.timestamp, NEW.source));
+          END;
+        CREATE TRIGGER IF NOT EXISTS archive_outdoor_temperature_delete
+          AFTER DELETE ON outdoor_temperature_samples BEGIN
+            DELETE FROM telemetry_archive_row_ids
+            WHERE table_name = 'outdoor_temperature_samples'
+              AND natural_key = json_array(OLD.house_id, OLD.location_key, OLD.timestamp, OLD.source);
+            DELETE FROM telemetry_archive_dirty_rows
+            WHERE table_name = 'outdoor_temperature_samples'
+              AND natural_key = json_array(OLD.house_id, OLD.location_key, OLD.timestamp, OLD.source);
+          END;
+        CREATE TRIGGER IF NOT EXISTS archive_electricity_price_insert
+          AFTER INSERT ON electricity_price_points BEGIN
+            INSERT OR IGNORE INTO telemetry_archive_row_ids(table_name, natural_key)
+            VALUES ('electricity_price_samples', json_array(NEW.property_id, NEW.start_at));
+          END;
+        CREATE TRIGGER IF NOT EXISTS archive_electricity_price_delete
+          AFTER DELETE ON electricity_price_points BEGIN
+            DELETE FROM telemetry_archive_row_ids
+            WHERE table_name = 'electricity_price_samples'
+              AND natural_key = json_array(OLD.property_id, OLD.start_at);
+            DELETE FROM telemetry_archive_dirty_rows
+            WHERE table_name = 'electricity_price_samples'
+              AND natural_key = json_array(OLD.property_id, OLD.start_at);
+          END;
+        CREATE TRIGGER IF NOT EXISTS archive_opening_state_insert
+          AFTER INSERT ON opening_state_observations BEGIN
+            INSERT OR IGNORE INTO telemetry_archive_row_ids(table_name, natural_key)
+            VALUES ('opening_state_samples', json_array(NEW.id));
+          END;
+        CREATE TRIGGER IF NOT EXISTS archive_opening_state_delete
+          AFTER DELETE ON opening_state_observations BEGIN
+            DELETE FROM telemetry_archive_row_ids
+            WHERE table_name = 'opening_state_samples' AND natural_key = json_array(OLD.id);
+          END;
+      `);
       const orphanedMaintenanceRevision = this.db.prepare(`
               SELECT revision.maintenance_task_id, revision.revision
               FROM maintenance_task_revisions AS revision

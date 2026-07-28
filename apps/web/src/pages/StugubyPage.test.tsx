@@ -516,6 +516,15 @@ describe("StugubyPage", () => {
       updatedAt: "2026-07-23T06:00:00.000Z",
     };
     const remoteDetail = detail(stuguby, [grant]);
+    remoteDetail.members.push({
+      ...remoteDetail.members[0]!,
+      nodeId: grant.authorityNodeId,
+      displayName: "Remote Stugu",
+      localLabel: null,
+      role: "participant",
+      publicKey: "remote-public",
+      keyFingerprint: "remote-fingerprint",
+    });
     remoteDetail.remoteResources = [{
       stugubyId: stuguby.id,
       authorityNodeId: grant.authorityNodeId,
@@ -536,8 +545,40 @@ describe("StugubyPage", () => {
 
     render(<I18nProvider><StugubyPage houses={[]} /></I18nProvider>);
 
-    const authority = await screen.findByText(/Remote authority/);
+    expect(await screen.findByRole("heading", { name: "Shared with this Stugu" })).toBeTruthy();
+    const authority = screen.getByText("Shared by Remote Stugu");
     expect(within(authority.closest("article")!).getByText("Lake Home")).toBeTruthy();
+  });
+  it("separates invalid shares from active sharing and offers a guarded repair", async () => {
+    const user = userEvent.setup();
+    const stuguby = summary("stuguby-a", "North grounds");
+    const valid = localGrant(stuguby.id, "grant-valid", "home-1");
+    const orphan = {
+      ...localGrant(stuguby.id, "grant-orphan", "home-1"),
+      authorityNodeId: "node-no-longer-a-member",
+      publicationId: "publication-orphan",
+    };
+    const revoked = {
+      ...localGrant(stuguby.id, "grant-revoked", "home-2"),
+      revokedAt: "2026-07-24T06:00:00.000Z",
+    };
+    mockLoadedStugubys([stuguby], { [stuguby.id]: detail(stuguby, [orphan, valid, revoked]) });
+    const removeInvalid = vi.spyOn(api, "removeInvalidStugubyGrant")
+      .mockResolvedValue({ removed: true, grantId: orphan.id });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<I18nProvider><StugubyPage houses={[
+      { id: "home-1", propertyId: "property-1", name: "Main Home" },
+      { id: "home-2", propertyId: "property-1", name: "Annex" },
+    ]} /></I18nProvider>);
+    expect(await screen.findByRole("heading", { name: "Needs attention" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Shared from this Stugu" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Shared with this Stugu" })).toBeTruthy();
+    expect(screen.getByText("Sharing history (1)")).toBeTruthy();
+    const repair = screen.getByRole("button", { name: "Remove invalid record" });
+    expect(within(repair.closest("article")!).getByText("Main Home")).toBeTruthy();
+    await user.click(repair);
+    await waitFor(() => expect(removeInvalid).toHaveBeenCalledWith(stuguby.id, orphan.id));
+    expect(await screen.findByText("The invalid share record was removed.")).toBeTruthy();
   });
 
   it("fails closed when the telemetry sensor catalog cannot be loaded", async () => {

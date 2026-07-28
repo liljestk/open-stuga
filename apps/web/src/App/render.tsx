@@ -386,6 +386,14 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
           : navigate("twin", house.id, true)}
         onBackLabel={t(page === "twin" ? "header.backToProperty" : "header.backToHome")}
         onRetryConnection={climate.retryBootstrap}
+        integrationDiscoveryNotice={!readOnly ? context.discoveredIntegrationNotice : undefined}
+        onReviewIntegrationDiscovery={context.discoveredIntegrationNotice ? () => {
+          context.dismissIntegrationDiscoveryNotice(context.discoveredIntegrationNotice!.jobId);
+          navigate("integrations", context.discoveredIntegrationNotice!.houseId, false, "/setup/connections");
+        } : undefined}
+        onDismissIntegrationDiscovery={context.discoveredIntegrationNotice
+          ? () => context.dismissIntegrationDiscoveryNotice(context.discoveredIntegrationNotice!.jobId)
+          : undefined}
         sensorDiscoveryNotice={!readOnly && discoveredSensorNotice ? {
           name: discoveredSensorNotice.alias?.trim() || t("sensors.unnamedDevice"),
           model: discoveredSensorNotice.model,
@@ -521,6 +529,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             onDisconnectTpLink={climate.disconnectTpLink}
             onMoveHomeAssistant={climate.moveHomeAssistant}
             onMoveTpLink={climate.moveTpLink}
+            onDiscoveryStarted={context.onIntegrationDiscoveryStarted}
             onOpenSensors={(device) => {
               if (device) setRequestedSensorDevice(device);
               navigate("sensors", house.id);

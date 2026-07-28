@@ -234,14 +234,22 @@ export function configureApiPart11(context: ReturnType<typeof configureApiPart10
       }
       response.json(context.database.sensorMeasurementPage(request.params.id, before, limit));
     });
-  context.app.get(`${context.v2Prefix}/measurements/forecast`, (request, response) => {
+  context.app.get(`${context.v2Prefix}/measurements/forecast`, async (request, response) => {
       if (typeof request.query.sensorId !== "string") throw new HttpError(400, "INVALID_FIELD", "sensorId is required");
       if (!context.database.getSensor(request.query.sensorId) || !context.visibility(response).sensor(request.query.sensorId)) {
         throw new HttpError(404, "UNKNOWN_SENSOR", "Sensor not found");
       }
       const metric = measurementId(request.query.metric);
       const hours = safeInteger(request.query.hours, 12, 1, 168);
-      response.json({ forecast: forecastMeasurement(context.database, request.query.sensorId, metric, hours) });
+      response.json({
+        forecast: await forecastMeasurement(
+          context.database,
+          request.query.sensorId,
+          metric,
+          hours,
+          context.telemetryReader,
+        ),
+      });
     });
   context.app.get(`${context.v2Prefix}/measurements/events`, (request, response) => {
       if (context.rejectEventStreamDuringShutdown(response)) return;
@@ -337,7 +345,7 @@ export function configureApiPart11(context: ReturnType<typeof configureApiPart10
       if (!context.database.deleteProperty(propertyId)) throw new HttpError(404, "NOT_FOUND", "Property not found");
       response.status(204).end();
     });
-  context.app.get(`${context.prefix}/properties/:id/electricity`, (request, response) => {
+  context.app.get(`${context.prefix}/properties/:id/electricity`, async (request, response) => {
       const propertyId = request.params.id as string;
       const property = context.database.getProperty(propertyId);
       if (!property || !context.visibility(response).hasProperty(propertyId)) throw new HttpError(404, "NOT_FOUND", "Property not found");
@@ -345,10 +353,16 @@ export function configureApiPart11(context: ReturnType<typeof configureApiPart10
       if (!config) throw new HttpError(404, "NOT_FOUND", "Property electricity configuration not found");
       const from = dateValue(request.query.from, new Date(Date.now() - 24 * 60 * 60_000), "from");
       const to = dateValue(request.query.to, new Date(Date.now() + 48 * 60 * 60_000), "to");
+      const history = await context.telemetryReader.electricityPriceHistory({
+        propertyId,
+        from,
+        to,
+        limit: 100_000,
+      });
       response.json({
         config: publicElectricityConfiguration(config, requestPrincipal(response).role === "guest"),
         current: context.database.getCurrentPropertyElectricityPrice(propertyId),
-        prices: context.database.listPropertyElectricityPrices(propertyId, from, to),
+        prices: history.records,
       });
     });
   context.app.put(`${context.prefix}/properties/:id/electricity/config`, (request, response) => {

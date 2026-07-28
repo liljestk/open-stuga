@@ -32,6 +32,9 @@ import type {
   MeasurementHistoryQuery,
   MeasurementSampleRecord,
   MeasurementWindowQuery,
+  OpeningStateHistoryQuery,
+  OpeningStateRecord,
+  OpeningStateSnapshotQuery,
   OutdoorTemperatureHistoryQuery,
   OutdoorTemperatureRecord,
   QueryControl,
@@ -122,6 +125,22 @@ export interface ElectricityPriceRow extends QueryResultRow {
   margin_cents_per_kwh: number;
   source: string;
   fetched_at: string | Date;
+  metadata: Readonly<Record<string, unknown>>;
+}
+
+export interface OpeningStateRow extends QueryResultRow {
+  observation_id: string;
+  house_id: string;
+  floor_id: string;
+  element_id: string;
+  state: OpeningStateRecord["state"];
+  open_fraction: number | null;
+  source: string;
+  observed_at: string | Date;
+  valid_until: string | Date | null;
+  external_id: string | null;
+  connection_id: string | null;
+  recorded_at: string | Date;
   metadata: Readonly<Record<string, unknown>>;
 }
 
@@ -266,6 +285,24 @@ export function electricityPriceFromRow(row: ElectricityPriceRow): ElectricityPr
     marginCentsPerKwh: Number(row.margin_cents_per_kwh),
     source: row.source,
     fetchedAt: timestamp(row.fetched_at),
+    metadata: row.metadata,
+  };
+}
+
+export function openingStateFromRow(row: OpeningStateRow): OpeningStateRecord {
+  return {
+    observationId: row.observation_id,
+    houseId: row.house_id,
+    floorId: row.floor_id,
+    elementId: row.element_id,
+    state: row.state,
+    openFraction: row.open_fraction === null ? null : Number(row.open_fraction),
+    source: row.source,
+    observedAt: timestamp(row.observed_at),
+    validUntil: row.valid_until === null ? null : timestamp(row.valid_until),
+    externalId: row.external_id,
+    connectionId: row.connection_id,
+    recordedAt: timestamp(row.recorded_at),
     metadata: row.metadata,
   };
 }

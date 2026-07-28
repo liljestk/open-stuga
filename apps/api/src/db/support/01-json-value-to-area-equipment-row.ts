@@ -249,6 +249,21 @@ export interface ElectricityPriceArchiveRecord {
   fetchedAt: string;
 }
 
+export interface OpeningStateArchiveRecord {
+  observationId: string;
+  houseId: string;
+  floorId: string;
+  elementId: string;
+  state: OpeningStateObservation["state"];
+  openFraction: number | null;
+  source: OpeningStateObservation["source"];
+  observedAt: string;
+  validUntil: string | null;
+  externalId: string | null;
+  connectionId: string | null;
+  recordedAt: string;
+}
+
 export type IntegrationMappingKind = "home-assistant" | "tp-link";
 
 /**
@@ -271,12 +286,16 @@ export type TelemetryArchiveTable =
   | "measurement_samples"
   | "legacy_readings"
   | "outdoor_temperature_samples"
-  | "electricity_price_samples";
+  | "electricity_price_samples"
+  | "opening_state_samples";
 
-export type TelemetryArchiveMutableTable = Exclude<TelemetryArchiveTable, "measurement_samples">;
+export type TelemetryArchiveMutableTable = Exclude<
+  TelemetryArchiveTable,
+  "measurement_samples" | "opening_state_samples"
+>;
 
 export type TelemetryArchiveWatermarks = Readonly<Record<
-  "measurement_samples" | "legacy_readings" | "outdoor_temperature_samples",
+  TelemetryArchiveTable,
   number
 >>;
 

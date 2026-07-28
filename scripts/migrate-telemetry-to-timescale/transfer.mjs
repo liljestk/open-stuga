@@ -48,6 +48,10 @@ export function timestampValue(value, label) {
   return value;
 }
 
+export function nullableTimestampValue(value, label) {
+  return value === null ? null : timestampValue(value, label);
+}
+
 export function mapRows(table, rows) {
   if (table === "measurement_samples") return rows.map((row) => ({
     sensor_id: textValue(row.sensor_id, "sensor_id"),
@@ -88,7 +92,23 @@ export function mapRows(table, rows) {
     source: "sqlite",
     ends_at: timestampValue(row.end_at, "end_at"),
     raw_price_cents_per_kwh: finiteNumber(row.raw_price_cents_per_kwh, "raw_price_cents_per_kwh"),
+    margin_cents_per_kwh: finiteNumber(row.margin_cents_per_kwh ?? 0, "margin_cents_per_kwh"),
     fetched_at: timestampValue(row.fetched_at, "fetched_at"),
+    metadata: {},
+  }));
+  if (table === "opening_state_observations") return rows.map((row) => ({
+    observation_id: textValue(row.id, "id"),
+    house_id: textValue(row.house_id, "house_id"),
+    floor_id: textValue(row.floor_id, "floor_id"),
+    element_id: textValue(row.element_id, "element_id"),
+    observed_at: timestampValue(row.observed_at, "observed_at"),
+    source: textValue(row.source, "source"),
+    state: textValue(row.state, "state"),
+    open_fraction: finiteNumber(row.open_fraction, "open_fraction", true),
+    valid_until: nullableTimestampValue(row.valid_until, "valid_until"),
+    external_id: textValue(row.external_id, "external_id", true),
+    connection_id: textValue(row.connection_id, "connection_id", true),
+    recorded_at: timestampValue(row.created_at, "created_at"),
     metadata: {},
   }));
   throw new Error(`Unsupported source table: ${table}`);
@@ -135,6 +155,18 @@ export function fetchSourceBatch(database, table, cursor, batchSize) {
       cursor: last === undefined ? cursor : { startAt: last.start_at, propertyId: last.property_id },
     };
   }
+  if (table === "opening_state_observations") {
+    const columns = "observed_at, id";
+    const where = cursor === null ? "" : `WHERE (${columns}) > (?, ?)`;
+    const statement = database.prepare(`SELECT * FROM ${quoteSqliteIdentifier(table)} ${where} ORDER BY ${columns} LIMIT ?`);
+    const parameters = cursor === null ? [batchSize] : [cursor.observedAt, cursor.id, batchSize];
+    const rows = statement.all(...parameters);
+    const last = rows.at(-1);
+    return {
+      rows,
+      cursor: last === undefined ? cursor : { observedAt: last.observed_at, id: last.id },
+    };
+  }
   throw new Error(`Unsupported source table: ${table}`);
 }
 
@@ -147,7 +179,11 @@ export function recordDefinition(table) {
     outdoor_temperature_samples: `house_id text, location_key text, observed_at timestamptz, source text,
       temperature_c double precision, fetched_at timestamptz, station_id text, station_name text, conditions_json text`,
     electricity_price_points: `property_id text, starts_at timestamptz, source text, ends_at timestamptz,
-      raw_price_cents_per_kwh double precision, fetched_at timestamptz, metadata jsonb`,
+      raw_price_cents_per_kwh double precision, margin_cents_per_kwh double precision,
+      fetched_at timestamptz, metadata jsonb`,
+    opening_state_observations: `observation_id text, house_id text, floor_id text, element_id text,
+      observed_at timestamptz, source text, state text, open_fraction double precision,
+      valid_until timestamptz, external_id text, connection_id text, recorded_at timestamptz, metadata jsonb`,
   }[table];
 }
 
@@ -161,7 +197,12 @@ export function targetColumns(table) {
       "house_id", "location_key", "observed_at", "source", "temperature_c", "fetched_at", "station_id", "station_name", "metadata",
     ],
     electricity_price_points: [
-      "property_id", "starts_at", "source", "ends_at", "raw_price_cents_per_kwh", "fetched_at", "metadata",
+      "property_id", "starts_at", "source", "ends_at", "raw_price_cents_per_kwh", "margin_cents_per_kwh",
+      "fetched_at", "metadata",
+    ],
+    opening_state_observations: [
+      "observation_id", "house_id", "floor_id", "element_id", "observed_at", "source", "state",
+      "open_fraction", "valid_until", "external_id", "connection_id", "recorded_at", "metadata",
     ],
   }[table];
 }

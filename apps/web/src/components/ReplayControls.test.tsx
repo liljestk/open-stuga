@@ -192,6 +192,23 @@ describe("ReplayControls time and speed labels", () => {
     expect(onTimestamp).toHaveBeenCalledWith(min);
   });
 
+  it("staggers close directional markers instead of overlapping event circles", () => {
+    const closeEvents = Array.from({ length: 4 }, (_, index) => climateEvent({
+      id: `close-${index}`,
+      timestamp: timestamp + index * 1_000,
+      direction: index % 2 === 0 ? "rise" : "drop",
+    }));
+    const view = renderControls("Europe/Helsinki", {
+      events: closeEvents,
+      sensors: demo.sensors,
+      definitions: demo.measurementDefinitions,
+    });
+
+    const markers = Array.from(view.container.querySelectorAll<HTMLButtonElement>(".replay-event-ticks > button"));
+    expect(markers.map((marker) => marker.dataset.lane)).toEqual(["0", "1", "2", "3"]);
+    expect(markers.every((marker) => marker.querySelector(".replay-event-marker svg"))).toBe(true);
+  });
+
   it("localizes every speed option", () => {
     localStorage.setItem("climate-twin-locale", "fi");
     renderControls();

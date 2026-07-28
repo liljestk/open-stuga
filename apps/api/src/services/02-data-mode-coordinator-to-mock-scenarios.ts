@@ -14,6 +14,7 @@ import { ClimateDatabase } from "../db.js";
 import { TelemetryBus } from "../events.js";
 import { alertNotificationBindings } from "../notification-snapshot.js";
 import { DEFAULT_ALERT_DELIVERY_POLICY } from "../notification-policy.js";
+import type { HybridTelemetryReader } from "../timeseries/read-facade.js";
 import { AlertEngine, DEMO_TELEMETRY_SOURCES, MeasurementValidationError, TelemetrySource, TelemetryValidationError, validateLiveTimestamp } from "./01-weather-connection-status-to-demo-data-was-disabled.js";
 
 /** Coordinates the irreversible boundary between the bundled demo and real telemetry. */
@@ -251,10 +252,22 @@ export class TelemetryService {
   }
 }
 
-export function forecast(database: ClimateDatabase, sensorId: string, hours = 12): ForecastPoint[] {
+export async function forecast(
+  database: ClimateDatabase,
+  sensorId: string,
+  hours = 12,
+  telemetryReader?: HybridTelemetryReader,
+): Promise<ForecastPoint[]> {
   const end = new Date();
   const start = new Date(end.getTime() - 24 * 60 * 60_000);
-  const readings = database.history([sensorId], start.toISOString(), end.toISOString(), 5_000);
+  const readings = telemetryReader
+    ? (await telemetryReader.legacyReadingHistory({
+      sensorIds: [sensorId],
+      from: start.toISOString(),
+      to: end.toISOString(),
+      limit: 5_000,
+    })).records
+    : database.history([sensorId], start.toISOString(), end.toISOString(), 5_000);
   const latest = readings.at(-1) ?? database.getLatestReading(sensorId);
   if (!latest) return [];
 
@@ -305,12 +318,13 @@ export function forecast(database: ClimateDatabase, sensorId: string, hours = 12
   return result;
 }
 
-export function forecastMeasurement(
+export async function forecastMeasurement(
   database: ClimateDatabase,
   sensorId: string,
   metric: string,
   hours = 12,
-): MeasurementForecastPoint[] {
+  telemetryReader?: HybridTelemetryReader,
+): Promise<MeasurementForecastPoint[]> {
   const definition = database.getMeasurementDefinition(metric);
   if (!definition) throw new MeasurementValidationError("UNKNOWN_METRIC", 404, `Unknown measurement metric: ${metric}`);
   if (!definition.forecastSupported) {
@@ -318,7 +332,15 @@ export function forecastMeasurement(
   }
   const end = new Date();
   const start = new Date(end.getTime() - 24 * 60 * 60_000);
-  const samples = database.measurementHistory(sensorId, metric, start.toISOString(), end.toISOString(), 5_000);
+  const samples = telemetryReader
+    ? (await telemetryReader.measurementHistory({
+      sensorId,
+      metric,
+      from: start.toISOString(),
+      to: end.toISOString(),
+      limit: 5_000,
+    })).records
+    : database.measurementHistory(sensorId, metric, start.toISOString(), end.toISOString(), 5_000);
   const latest = samples.at(-1) ?? database.getLatestMeasurementSample(sensorId, metric);
   if (!latest) return [];
   const points = samples.length > 1 ? samples : [latest];

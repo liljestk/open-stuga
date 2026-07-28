@@ -11,7 +11,8 @@ usable local install.
   measurements with sparse per-metric timestamps/source/quality.
 - Registry-aware mock generation and scenario controls.
 - Home Assistant WebSocket adapter with legacy and generic entity mapping.
-- SQLite transactional control/current storage with a durable telemetry buffer.
+- SQLite transactional control/current storage with a durable telemetry outbox;
+  TimescaleDB owns permanent raw Home telemetry history.
 - Compatible `/api/v1` readings plus `/api/v2` measurement REST/SSE and stdio MCP.
 - Responsive accessible 2D authoring and whole-building stacked 3D views,
   current values, history, alerts, observations, static parameters, forecast
@@ -25,10 +26,10 @@ no secrets enter the browser/database/image.
 
 ## Stage 1 — harden the home installation
 
-- The hybrid TimescaleDB archive, continuous rollups, verified backup CLI,
-  resumable migration, and restore runbook are in place. Complete archive-aware
-  SQLite buffer pruning, scheduled backup/restore drills, retention telemetry,
-  and documented major-version rollback.
+- The hybrid TimescaleDB store, continuous rollups, verified backup CLI,
+  resumable migration, archive-aware SQLite outbox compaction, and restore
+  runbook are in place. Continue scheduled backup/restore drills, retention
+  telemetry, and documented major-version rollback.
 - Integration freshness metrics, historical gap import, malformed-state
   diagnostics, per-metric unit/conversion diagnostics, and longer-running
   reconnect/conformance tests.

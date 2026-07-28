@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { MeasurementSample, Sensor } from "@climate-twin/contracts";
+import type { MeasurementSample, OutdoorTemperatureSample, Sensor } from "@climate-twin/contracts";
+import { api } from "../api";
 import type { ClimateState } from "../domain";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
@@ -381,6 +382,78 @@ describe("TwinDashboard replay timing", () => {
     }]));
     await waitFor(() => expect(within(historyWindow).getByText("0 samples loaded")).not.toBeNull());
     expect(screen.getByRole("heading", { name: "History & Events" })).not.toBeNull();
+  });
+
+  it("loads every enabled measurement plus recorded external weather into replay", async () => {
+    const demo = createDemoState();
+    const house = {
+      ...demo.houses[0]!,
+      location: { latitude: 60.17, longitude: 24.94 },
+      orientationDegrees: 0,
+    };
+    const state: ClimateState = { ...demo, houses: [house] };
+    const weatherSample: OutdoorTemperatureSample = {
+      houseId: house.id,
+      locationKey: "test-location",
+      timestamp: "2024-02-10T10:00:00.000Z",
+      temperatureC: 5,
+      source: "fmi-observation",
+      fetchedAt: "2024-02-10T10:05:00.000Z",
+      stationId: "test-station",
+      stationName: "Test station",
+      conditions: {
+        timestamp: "2024-02-10T10:00:00.000Z",
+        temperatureC: 5,
+        relativeHumidityPercent: 83,
+        pressureHpa: 1_008,
+        windDirectionDegrees: 270,
+        windSpeedMps: 6,
+      },
+    };
+    const liveWeather = vi.spyOn(api, "houseWeather").mockRejectedValue(new Error("Live weather is not used by replay"));
+    const outdoorHistory = vi.spyOn(api, "outdoorTemperatureHistory").mockImplementation(async (_houseId, from, to) => ({
+      samples: Date.parse(from) <= Date.parse(weatherSample.timestamp) && Date.parse(to) >= Date.parse(weatherSample.timestamp)
+        ? [weatherSample]
+        : [],
+      from,
+      to,
+      truncated: false,
+    }));
+    const view = renderDashboard(state);
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Open history and replay" }));
+      const historyWindow = screen.getByRole("form", { name: "History window" });
+      fireEvent.change(within(historyWindow).getByLabelText("From"), { target: { value: "2024-02-10T00:00" } });
+      fireEvent.change(within(historyWindow).getByLabelText("To"), { target: { value: "2024-02-11T00:00" } });
+      fireEvent.click(within(historyWindow).getByRole("button", { name: "Load recording" }));
+
+      await waitFor(() => expect(outdoorHistory).toHaveBeenCalledWith(
+        house.id,
+        "2024-02-09T22:00:00.000Z",
+        "2024-02-10T22:00:00.000Z",
+      ));
+      const expectedPairs = state.sensors
+        .filter((sensor) => sensor.houseId === house.id && sensor.enabled)
+        .flatMap((sensor) => state.measurementDefinitions.map((definition) => `${sensor.id}:${definition.id}`));
+      await waitFor(() => {
+        const requestedPairs = new Set(view.onLoadReplaySeries.mock.calls.map(([sensorId, metric]) => `${sensorId}:${metric}`));
+        expect([...requestedPairs]).toEqual(expect.arrayContaining(expectedPairs));
+      });
+      expect(within(historyWindow).getByText("1 sample loaded")).not.toBeNull();
+
+      fireEvent.change(screen.getByRole("slider", { name: "Replay time" }), {
+        target: { value: String(Date.parse(weatherSample.timestamp)) },
+      });
+      expect(await screen.findByText("Outside then")).not.toBeNull();
+      expect(screen.getAllByText("5 °C")).toHaveLength(2);
+      expect(screen.getAllByText("83%").length).toBeGreaterThanOrEqual(2);
+      expect(screen.getByText("6 m/s")).not.toBeNull();
+      expect(view.container.querySelector(".outdoor-shell-windward-edge")).not.toBeNull();
+    } finally {
+      view.unmount();
+      outdoorHistory.mockRestore();
+      liveWeather.mockRestore();
+    }
   });
 
   it("preloads climate history and seeks a detected event in its metric, floor, and sensor context", async () => {

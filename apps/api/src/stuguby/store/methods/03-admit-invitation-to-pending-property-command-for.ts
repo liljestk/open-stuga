@@ -169,6 +169,63 @@ registerStugubyStoreMethods({
       this.upsertGrant(updated);
       return updated;
     },
+  removeInvalidGrant(this: StugubyStoreInternals, id: string): string[] {
+      return this.transaction(() => {
+        const grant = this.getGrant(id);
+        if (!grant) throw new Error("Stuguby share grant not found");
+        const candidates = this[stugubyStoreState].db.prepare(`SELECT digest FROM stugby_blob_references
+          WHERE stugby_id=? AND grant_id=?
+          UNION SELECT digest FROM stugby_blob_access WHERE stugby_id=? AND grant_id=?`)
+          .all(grant.stugubyId, id, grant.stugubyId, id) as Array<{ digest: string }>;
+
+        for (const table of [
+          "stugby_remote_resources",
+          "stugby_remote_telemetry",
+          "stugby_live_telemetry_usage",
+          "stugby_blob_access",
+          "stugby_blob_references",
+          "stugby_pending_deletions",
+          "stugby_deletion_receipts",
+        ]) {
+          this[stugubyStoreState].db.prepare(`DELETE FROM ${table} WHERE stugby_id=? AND grant_id=?`)
+            .run(grant.stugubyId, id);
+        }
+        for (const table of ["stugby_outbox", "stugby_event_log"]) {
+          this[stugubyStoreState].db.prepare(`DELETE FROM ${table} WHERE stugby_id=?
+            AND json_extract(event_json,'$.grantId')=?`).run(grant.stugubyId, id);
+        }
+        this[stugubyStoreState].db.prepare(`DELETE FROM stugby_stream_sequences
+          WHERE stugby_id=? AND authority_node_id=? AND (stream_id=? OR stream_id LIKE ?)`)
+          .run(grant.stugubyId, grant.authorityNodeId, `grant:${id}`, `dataset:${id}:%`);
+        this[stugubyStoreState].db.prepare("DELETE FROM stugby_share_grants WHERE id=?").run(id);
+
+        const publicationStillUsed = Boolean(this[stugubyStoreState].db.prepare(`SELECT 1 FROM stugby_share_grants
+          WHERE stugby_id=? AND authority_node_id=? AND publication_id=? LIMIT 1`)
+          .get(grant.stugubyId, grant.authorityNodeId, grant.publicationId));
+        if (!publicationStillUsed) {
+          for (const table of ["stugby_home_commands", "stugby_home_revisions"]) {
+            this[stugubyStoreState].db.prepare(`DELETE FROM ${table}
+              WHERE stugby_id=? AND authority_node_id=? AND publication_id=?`)
+              .run(grant.stugubyId, grant.authorityNodeId, grant.publicationId);
+          }
+          this[stugubyStoreState].db.prepare(`DELETE FROM stugby_publications
+            WHERE stugby_id=? AND authority_node_id=? AND publication_id=?`)
+            .run(grant.stugubyId, grant.authorityNodeId, grant.publicationId);
+          this[stugubyStoreState].db.prepare(`DELETE FROM stugby_publication_ids
+            WHERE stugby_id=? AND authority_node_id=? AND publication_id=?`)
+            .run(grant.stugubyId, grant.authorityNodeId, grant.publicationId);
+        }
+
+        const queuedAt = new Date().toISOString();
+        const unreferenced = candidates.map((row) => row.digest)
+          .filter((digest) => !this.hasBlobReferences(digest));
+        for (const digest of unreferenced) {
+          this[stugubyStoreState].db.prepare(`INSERT OR IGNORE INTO stugby_blob_deletion_queue
+            (digest,queued_at) VALUES (?,?)`).run(digest, queuedAt);
+        }
+        return unreferenced;
+      });
+    },
   getSharedProperty(this: StugubyStoreInternals, stugubyId: string): StugubySharedProperty | null {
       const row = this[stugubyStoreState].db.prepare("SELECT property_json FROM stugby_shared_properties WHERE stugby_id=?")
         .get(stugubyId) as unknown as SharedPropertyRow | undefined;

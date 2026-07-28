@@ -34,13 +34,13 @@ flowchart LR
         TPL[Direct TP-Link adapter\npython-kasa helper] --> N
         M[Mock / replay adapter] --> N
         I[Versioned ingest API] --> N
-        N --> DB[(SQLite control plane\nand hot telemetry buffer)]
+        N --> DB[(SQLite control plane,\noutbox, current projections)]
         DB --> AR[Checkpointed archive reconciler]
         AR --> TS[(TimescaleDB raw telemetry\nand continuous rollups)]
         DB --> HR[Hybrid raw-telemetry reader]
         TS --> HR
         N --> A[Alert evaluator]
-        DB --> P[Forecast service]
+        HR --> P[Forecast service]
         DB --> Q[Query service]
         HR --> Q
         TS -->|rollups| Q
@@ -278,16 +278,18 @@ The shared TypeScript contracts define the stable domain vocabulary:
 
 Core SQLite is the transactional control plane, canonical store for Property,
 Home, floor-plan, sensor, and other non-time-series records, and first durable
-telemetry commit. Metric samples use an entity-attribute-value table keyed by sensor, metric,
+telemetry commit. Metric samples use an entity-attribute-value outbox keyed by sensor, metric,
 timestamp, and source; temperature and humidity rows written through the
-compatibility API are also projected into that table. A checkpointed,
-idempotent worker then archives indoor measurements, compatibility readings,
-outdoor boundaries, and electricity prices into PostgreSQL with TimescaleDB.
-The shared `HybridTelemetryReader` presents SQLite's hot buffer and Timescale's
-archive as one logical source to regular raw-history APIs and experimental
-spatial inference. It merges natural-key overlaps with SQLite winning, applies
-the active demo/real boundary, and can fall back to the complete local copy
-while retention is disabled. Bounded current-state reads stay local. Existing
+compatibility API are also projected into it. A checkpointed, idempotent worker
+then writes indoor measurements, compatibility readings, complete outdoor
+observations, electricity-price intervals, and opening-state events into
+PostgreSQL with TimescaleDB. Once all five families are durably acknowledged,
+SQLite compacts history and keeps current projections.
+The shared `HybridTelemetryReader` presents SQLite's unacknowledged/current tail
+and Timescale's permanent history as one logical source to APIs, MCP, analytics,
+forecasts, recovery, replay, and experimental spatial inference. It merges
+natural-key overlaps, applies the active demo/real boundary, and fails closed
+when an unavailable TimeDB could make a range incomplete. Existing
 legacy rows are idempotently unpivoted into temperature/humidity samples during
 migration, so reopening the database does not duplicate them.
 
@@ -326,14 +328,14 @@ count, then remain in a durable dead-letter state for Owner/Admin inspection and
 manual retry. The contract is at-least-once and survives process restarts; this
 bounded delivery ledger is not a general message broker.
 
-Raw archive retention is unlimited in TimescaleDB. `RETENTION_DAYS=0` also keeps
-the full local SQLite copy; a value of 30 or more turns SQLite into a bounded hot
-buffer. The maintenance worker reconciles all telemetry families immediately
-before pruning, requires a healthy and caught-up archive, rejects mutable dirty
-rows, and never deletes the newest local value for a stream. It pauses without
+Raw archive retention is unlimited in TimescaleDB. With TimeDB enabled,
+`RETENTION_DAYS=0` compacts acknowledged SQLite history immediately; a value of
+30 or more keeps a bounded local cache. The worker reconciles all five telemetry
+families before compaction, requires a healthy and caught-up archive, rejects
+mutable dirty rows, and preserves current projections. It pauses without
 deleting anything whenever those proofs are unavailable. Historical, bucketed,
-replay, and spatial readers use the shared hybrid reader, so older data remains
-available from TimescaleDB. Sample count grows per metric: ten sensors times
+replay, MCP, forecast, analytics, opening, and spatial readers use the shared
+hybrid reader, so older data remains available from TimescaleDB. Sample count grows per metric: ten sensors times
 three metrics every five seconds is about 15.6 million metric samples per
 30-day month. Pruning runs outside request handling and does not configure a raw
 Timescale retention policy.
@@ -406,7 +408,7 @@ retention, migration, backup, and restore contract.
 | Weather adapters and monitor | automatic FMI/Open-Meteo routing, source mapping, warning authority, bounded cache/concurrency, jitter, per-home backoff, stale-write fencing | browser map tiles, event transports, or indoor measurement history |
 | Weather event broker | provider-neutral acceptance, durable projection ordering, cache-replay deduplication, stable event identity, live fan-out | upstream provider protocols or UI rendering |
 | REST/SSE transport | versioning, validation, errors, live fan-out | Home Assistant device protocol |
-| MCP server | read-only tool schemas and privacy-safe SQLite projections | writes, schema migration, credentials, binary assets, or browser authorization |
+| MCP server | read-only tool schemas, SQLite control-plane projections, and hybrid TimeDB telemetry reads | writes, schema migration, credentials, binary assets, or browser authorization |
 | Web app | accessible interaction and rendering | secrets or authoritative storage |
 
 Adapters depend inward on domain services. Domain services depend on repository

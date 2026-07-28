@@ -189,6 +189,46 @@
   padding: 1.125rem;
 }
 
+.energy-history-fields {
+  display: grid;
+  grid-template-columns: minmax(20rem, 1.3fr) minmax(17rem, 0.9fr) minmax(14rem, 0.8fr);
+  align-items: end;
+  gap: 1rem;
+}
+
+.energy-history-fields .field {
+  min-width: 0;
+  margin: 0;
+}
+
+.energy-history-fields .segmented {
+  width: 100%;
+  min-height: 2.75rem;
+}
+
+.energy-history-fields .segmented button {
+  min-width: 0;
+  flex: 1 1 0;
+  justify-content: center;
+}
+
+.energy-combined-source {
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 0.35rem;
+  color: var(--ink);
+  background: var(--panel-soft);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.energy-history-chart .sensor-analytics-chart-wrap {
+  padding-inline: 0;
+}
+
 .energy-waiting {
   display: flex;
   align-items: center;
@@ -457,14 +497,27 @@
   .energy-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .energy-history-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .energy-history-fields > :last-child {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 680px) {
   .energy-summary-grid,
   .energy-source-controls,
+  .energy-history-fields,
   .energy-price-config .energy-source-controls,
   .energy-onboarding {
     grid-template-columns: 1fr;
+  }
+
+  .energy-history-fields > :last-child {
+    grid-column: auto;
   }
 
   .energy-summary-card {

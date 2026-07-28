@@ -10,7 +10,7 @@ It is deliberately outside the telemetry core:
 - canonical house/property geometry and sensor records are read from core
   SQLite through a read-only input port;
 - raw history is read through the shared `HybridTelemetryReader`, which presents
-  the SQLite hot buffer and Timescale archive as one logical telemetry source;
+  the SQLite outbox/current tail and Timescale history as one logical telemetry source;
 - experimental overlays/configuration, rolling state, jobs, model runs, ground
   truth, and derived snapshots live in `experimental-spatial-layers.sqlite`;
 - the spatial database does not duplicate core Property/sensor masters or raw
@@ -23,7 +23,7 @@ It is deliberately outside the telemetry core:
 ## Runtime flow
 
 ```text
-core adapters -> core SQLite hot buffer -> checkpointed archive -> TimescaleDB
+core adapters -> SQLite outbox/current -> checkpointed reconcile -> TimescaleDB
                     |                                             |
                     +---------- HybridTelemetryReader <-----------+
                     |                     |
@@ -40,10 +40,11 @@ core adapters -> core SQLite hot buffer -> checkpointed archive -> TimescaleDB
                     house 2D        house 3D      property views
 ```
 
-The hybrid reader always consults SQLite, merges Timescale rows when the archive
-is ready or synchronizing, and lets SQLite win natural-key overlaps. With local
-retention disabled, an archive fault can fall back to the complete SQLite copy
-without making the experimental engine a second telemetry store.
+The hybrid reader merges the SQLite outbox/current tail with Timescale rows when
+the archive is ready or synchronizing and lets SQLite win exact natural-key
+overlaps. If TimeDB is unavailable and the requested range predates the local
+cache, inference fails closed without making the experimental engine a second
+telemetry store.
 
 The measurement bus may wake the scheduler, but it is not the durable source of
 work. A persisted watermark and bounded look-back make restarts and late samples
@@ -59,19 +60,27 @@ The initial engine registry contains:
 - experimental, event-conditioned inter-zone climate-propagation evidence;
 - research-grade sustained unexplained zone activity.
 
-The Home renderer also has two opt-in, client-only preview adapters owned by this
-experimental surface: the sensor-constrained air-movement estimate and the
-sensor-support volume. They use core measurements through read-only client
-inputs and do not write snapshots or derived measurements back into either
-database. They are non-authoritative previews, distinct from stored backend
-inference. Their toggles and legends are visually grouped with the research engine, never with
-regular monitoring controls.
+The Home renderer also has three opt-in, client-only preview adapters owned by
+this experimental surface: the sensor-constrained air-movement estimate, the
+sensor-support volume, and an outdoor-influence boundary estimate. They use core
+measurements through read-only client inputs and do not write snapshots or
+derived measurements back into either database. They are non-authoritative
+previews, distinct from stored backend inference. Their toggles and legends are
+visually grouped with the research engine, never with regular monitoring
+controls. Outdoor influence is off by default, is exclusive with the other
+client overlays, and compares replay-aware or live outdoor conditions with
+fresh indoor temperature or paired temperature/humidity samples. Its moisture
+view compares water-vapour quantity rather than relative humidity.
 
 Propagation is not an airflow meter. It reports ordered evidence from distinct
 temperature/humidity-ratio events on configured topology connections. It never
 emits velocity, volume flow, or current air direction. Unexplained activity is
 not a motion detector: it masks changes explained by propagation or configured
 context and does not emit people trails, identities, or counts.
+
+Outdoor influence is not causal attribution or a heat-flow calculation. It
+shows directional pressure at the Home boundary; heating, solar gain,
+occupancy, ventilation, and unmodelled openings can explain the indoor response.
 
 ## Renderer-neutral snapshots
 
@@ -110,11 +119,10 @@ When the core database crosses its one-way demo-to-real boundary, the engine
 switches partitions before serving or computing more snapshots. Demo state can
 never be returned in real mode.
 
-`RETENTION_DAYS=0` remains mandatory for the core SQLite telemetry buffer. The
-shared reader makes regular raw-history and spatial measurement-window reads
-archive-aware, but retention cannot be enabled until every remaining reader,
-pagination/logical cursor, and per-family coverage watermark is archive-aware
-and degraded old-range behavior is explicit. The separate
+With TimeDB enabled, `RETENTION_DAYS=0` keeps only acknowledged current
+projections in core SQLite; values of 30 or more keep a bounded local cache.
+Spatial measurement windows use the shared archive-aware reader and fail closed
+when an old range cannot be completed. The separate
 `SPATIAL_LAYERS_RETENTION_DAYS` setting applies only to derived operational
 history (snapshots and completed model runs/jobs); it never deletes spatial
 configuration, calibration, labels, core facts, or raw samples.

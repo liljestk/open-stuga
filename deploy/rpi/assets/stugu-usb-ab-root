@@ -39,6 +39,11 @@ boot_device="${dev_root}/${boot_disk}${boot_partition}"
 boot_label="$(blkid -s PARTLABEL -o value "$boot_device" 2>/dev/null)" || exit 0
 
 case "$boot_label" in
+  bootconfig)
+    # The factory rescue partition boots slot A directly on USB bridges whose
+    # firmware cannot hand off from GPT autoboot to a second FAT partition.
+    active_suffix="a"
+    ;;
   boot_a)
     active_suffix="a"
     ;;
@@ -102,12 +107,27 @@ for required_device in \
 done
 
 mkdir -p "${slot_root}/active" "${slot_root}/other"
-ln -snf "$bootconfig_device" "${slot_root}/bootconfig"
-ln -snf "$active_boot_device" "${slot_root}/active/boot"
-ln -snf "$active_system_device" "${slot_root}/active/system"
-ln -snf "$other_boot_device" "${slot_root}/other/boot"
-ln -snf "$other_system_device" "${slot_root}/other/system"
-ln -snf "$persistent_device" "${slot_root}/persistent"
+ln -sf "$bootconfig_device" "${slot_root}/bootconfig" || exit 0
+ln -sf "$active_boot_device" "${slot_root}/active/boot" || exit 0
+ln -sf "$active_system_device" "${slot_root}/active/system" || exit 0
+ln -sf "$other_boot_device" "${slot_root}/other/boot" || exit 0
+ln -sf "$other_system_device" "${slot_root}/other/system" || exit 0
+ln -sf "$persistent_device" "${slot_root}/persistent" || exit 0
+
+# initramfs uses klibc's deliberately small ln implementation. Verify every
+# link before allowing the upstream fail-closed root guard to continue.
+for link_spec in \
+  "${slot_root}/bootconfig:$bootconfig_device" \
+  "${slot_root}/active/boot:$active_boot_device" \
+  "${slot_root}/active/system:$active_system_device" \
+  "${slot_root}/other/boot:$other_boot_device" \
+  "${slot_root}/other/system:$other_system_device" \
+  "${slot_root}/persistent:$persistent_device"; do
+  link_path="${link_spec%%:*}"
+  link_target="${link_spec#*:}"
+  [ -L "$link_path" ] || exit 0
+  [ "$(readlink "$link_path" 2>/dev/null)" = "$link_target" ] || exit 0
+done
 
 : > /run/stugu-usb-ab-ready
 message="Stugu: bound USB boot disk ${boot_disk}, active slot ${active_suffix}"

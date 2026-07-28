@@ -38,6 +38,13 @@ interface AppShellProps {
   onBack?: () => void;
   onBackLabel?: string;
   onRetryConnection?: () => void;
+  integrationDiscoveryNotice?: {
+    name: string;
+    homeName: string;
+    count: number;
+  } | undefined;
+  onReviewIntegrationDiscovery?: (() => void) | undefined;
+  onDismissIntegrationDiscovery?: (() => void) | undefined;
   sensorDiscoveryNotice?: {
     name: string;
     model: string;
@@ -132,6 +139,9 @@ export function AppShell({
   onBack,
   onBackLabel,
   onRetryConnection,
+  integrationDiscoveryNotice,
+  onReviewIntegrationDiscovery,
+  onDismissIntegrationDiscovery,
   sensorDiscoveryNotice,
   onAddDiscoveredSensor,
   onDismissDiscoveredSensors,
@@ -443,7 +453,7 @@ export function AppShell({
         </button>
       )}
       <div
-        className={`app-main-column${sensorDiscoveryNotice && !menuOpen ? " has-sensor-found-toast" : ""}`}
+        className={`app-main-column${(integrationDiscoveryNotice || sensorDiscoveryNotice) && !menuOpen ? " has-sensor-found-toast" : ""}`}
         aria-hidden={mainIsolated ? true : undefined}
         {...(mainIsolated ? { inert: true } : {})}
       >
@@ -514,7 +524,23 @@ export function AppShell({
           )}
           {children}
         </main>
-        {sensorDiscoveryNotice && !menuOpen && <section className="sensor-found-toast" role="status" aria-live="polite" aria-atomic="true">
+        {integrationDiscoveryNotice && !menuOpen ? <section className="sensor-found-toast" role="status" aria-live="polite" aria-atomic="true">
+          <span className="sensor-found-toast-icon" aria-hidden="true"><Network size={21} /></span>
+          <span className="sensor-found-toast-copy">
+            <strong>{t(integrationDiscoveryNotice.count > 1
+              ? "setup.discoveryNoticeTitleMany"
+              : "setup.discoveryNoticeTitle", { count: integrationDiscoveryNotice.count })}</strong>
+            <small>{t(integrationDiscoveryNotice.count > 1
+              ? "setup.discoveryNoticeBodyMany"
+              : "setup.discoveryNoticeBody", {
+              name: integrationDiscoveryNotice.name,
+              home: integrationDiscoveryNotice.homeName,
+              count: integrationDiscoveryNotice.count - 1,
+            })}</small>
+          </span>
+          {onReviewIntegrationDiscovery && <button type="button" className="primary-button" onClick={onReviewIntegrationDiscovery}><Settings2 size={16} aria-hidden="true" />{t("setup.discoveryNoticeReview")}</button>}
+          {onDismissIntegrationDiscovery && <button type="button" className="icon-button" onClick={onDismissIntegrationDiscovery} aria-label={t("setup.discoveryNoticeDismiss")}><X size={18} aria-hidden="true" /></button>}
+        </section> : sensorDiscoveryNotice && !menuOpen && <section className="sensor-found-toast" role="status" aria-live="polite" aria-atomic="true">
           <span className="sensor-found-toast-icon" aria-hidden="true"><RadioTower size={21} /></span>
           <span className="sensor-found-toast-copy">
             <strong>{t(sensorDiscoveryNotice.kind === "contact"

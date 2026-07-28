@@ -14,7 +14,7 @@ import { useI18n, type TranslationKey } from "../../i18n";
 import { definitionFor, displayUnit, enabledDefinitions, formatMeasurement, formatMeasurementDelta, measurementComparisonColor, measurementDomain, measurementLabel, measurementValue, samplesAt, type LatestMeasurements } from "../../measurements";
 import { isEnergyDeviceSensor } from "../../energyDeviceMap";
 import { configuredSpatialMaxSampleAgeMs, configuredSpatialReplayMaxSampleAgeMs, isSpatialSampleFresh } from "../../spatialFreshness";
-import { createOutdoorBoundaryContext } from "../../outdoorContext";
+import { createOutdoorBoundaryContext, createOutdoorBoundaryContextFromConditions } from "../../outdoorContext";
 import { useHouseWeather } from "../../useHouseWeather";
 import type { OutdoorVisualizationState } from "../../components/OutdoorConditionsBadge";
 import type { CreateHouseInput } from "../../components/StructureEditor";
@@ -36,6 +36,7 @@ import {
 } from "../../experimentalSpatialLayers";
 import { readLocalStorage, writeLocalStorage } from "../../browserStorage";
 import { detectReplayClimateEvents, type ReplayClimateEvent } from "../../replayEvents";
+import { replayOutdoorAttribution, replayOutdoorConditions, replayOutdoorSampleAt } from "../../replayWeather";
 import { openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../openingState";
 import { integrationForHouse } from "../../integrationScope";
 import { BuildingScene, FloorPlan, HomeActivityTimeline, MeasurementGlyph, RoomComparisonChart, SensorInspector, SpatialLayerLab, StructureEditor, ThermalSimulationPanel, energyDeviceLayerPreferenceKey, experimentalVisualizationPreferenceKey, houseLocalDateTimeCandidates, initialEnergyDeviceLayerVisibility, initialExperimentalVisualizations, localDateTimeValue, localDateValue, mergeOpeningStateObservations, observationConfidences, observationKinds, observationSources, observationTimeFields, observationTimePrecisions, zonedDateTimeParts } from "./support";
@@ -72,24 +73,38 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
       setReplayLoadError(null);
       setReplayLoadPartial(false);
       setReplaySampleCount(null);
+      context.setReplayOutdoorLoading(Boolean(house.location));
+      context.setReplayOutdoorPartial(false);
       setReplayPlaying(false);
       setReplayStartPending(false);
       setReplayPrepared(true);
       try {
-        const pages = await Promise.all(houseSensors.flatMap((sensor) => replayMetricIds.map((replayMetric) => (
-          props.onLoadReplaySeries!(sensor.id, replayMetric, {
-            from,
-            to,
-            bucketSeconds: replayResolutionSeconds,
-          })
-        ))));
+        const [pages, outdoorResult] = await Promise.all([
+          Promise.all(houseSensors.flatMap((sensor) => replayMetricIds.map((replayMetric) => (
+            props.onLoadReplaySeries!(sensor.id, replayMetric, {
+              from,
+              to,
+              bucketSeconds: replayResolutionSeconds,
+            })
+          )))),
+          house.location
+            ? api.outdoorTemperatureHistory(houseId, from, to)
+              .then((page) => ({ page, failed: false as const }))
+              .catch(() => ({ page: null, failed: true as const }))
+            : Promise.resolve({ page: null, failed: false as const }),
+        ]);
         if (replayWindowRequestRef.current !== requestId) return;
         const minimum = Date.parse(from);
         const maximum = Date.parse(to);
-        const sampleCount = pages.reduce((total, page) => total + page.samples.length, 0);
+        const outdoorSamples = outdoorResult.page?.samples ?? [];
+        const sampleCount = pages.reduce((total, page) => total + page.samples.length, outdoorSamples.length);
         setReplayRequestedBounds({ minimum, maximum });
         setReplayTimestamp(minimum);
-        setReplayLoadPartial(pages.some((page) => page.truncated));
+        context.setReplayOutdoorSamples(outdoorSamples);
+        context.setReplayOutdoorPartial(outdoorResult.failed || Boolean(outdoorResult.page?.truncated));
+        setReplayLoadPartial(pages.some((page) => page.truncated)
+          || outdoorResult.failed
+          || Boolean(outdoorResult.page?.truncated));
         setReplaySampleCount(sampleCount);
         setReplayLoadState("ready");
         setReplayActive(sampleCount > 0);
@@ -97,8 +112,36 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
         if (replayWindowRequestRef.current !== requestId) return;
         setReplayLoadState("error");
         setReplayLoadError(error instanceof Error && error.message.trim() ? error.message : t("replay.loadFailed"));
+      } finally {
+        if (replayWindowRequestRef.current === requestId) context.setReplayOutdoorLoading(false);
       }
     };
+  useEffect(() => {
+      if (!house.location || replayRequestedBounds || (!historyOpen && !replayActive)) return;
+      const from = new Date(replayMin).toISOString();
+      const to = new Date(replayMax).toISOString();
+      const batchKey = `${houseId}:${from}:${to}`;
+      if (context.replayOutdoorBatchRef.current === batchKey) return;
+      context.replayOutdoorBatchRef.current = batchKey;
+      const controller = new AbortController();
+      context.setReplayOutdoorLoading(true);
+      context.setReplayOutdoorPartial(false);
+      void api.outdoorTemperatureHistory(houseId, from, to, 20_000, controller.signal)
+        .then((page) => {
+          if (controller.signal.aborted) return;
+          context.setReplayOutdoorSamples(page.samples);
+          context.setReplayOutdoorPartial(page.truncated);
+        })
+        .catch(() => {
+          if (controller.signal.aborted) return;
+          context.setReplayOutdoorSamples([]);
+          context.setReplayOutdoorPartial(true);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) context.setReplayOutdoorLoading(false);
+        });
+      return () => controller.abort();
+    }, [historyOpen, replayActive, replayRequestedBounds, replayMin, replayMax, houseId, house.location?.latitude, house.location?.longitude]);
   useEffect(() => {
       if (replayActive && replayRequestedBounds) return;
       if (selectedSensor) loadSeriesOnce(selectedSensor.id, definition);
@@ -123,12 +166,12 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
       const batchKey = `${houseId}:${range}:${houseSensorIds}:${airflowMetricKey}`;
       if (replayPreparationBatchRef.current === batchKey) return;
       replayPreparationBatchRef.current = batchKey;
-      airflowDefinitions
-        .filter((candidate) => candidate.id === "temperature" || candidate.id === "humidity")
+      definitions
+        .filter((candidate) => replayMetricIds.includes(candidate.id))
         .forEach((replayDefinition) => houseSensors.forEach((sensor) => {
           loadSeriesOnce(sensor.id, replayDefinition);
         }));
-    }, [replayPrepared, replayRequestedBounds, houseId, range, houseSensorIds, airflowMetricKey]);
+    }, [replayPrepared, replayRequestedBounds, houseId, range, houseSensorIds, replayMetricIds]);
   useEffect(() => {
       if (!replayActive || replayRequestedBounds) {
         airflowReplayBatchRef.current = "";
@@ -162,22 +205,53 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
         loadSeriesOnce(selectedSensor.id, candidate);
       });
     }, [replayActive, replayRequestedBounds, selectedSensor?.id, range, definition.id, airflowMetricKey, state.latestMeasurements, state.measurementHistory]);
+  const replayOutdoorSample = useMemo(
+      () => replayOutdoorSampleAt(context.replayOutdoorSamples, replayTimestamp),
+      [context.replayOutdoorSamples, replayTimestamp],
+    );
+  const historicalOutdoorContext = useMemo(() => {
+      if (!replayOutdoorSample) return null;
+      const observedAt = Date.parse(replayOutdoorSample.timestamp);
+      const stale = !Number.isFinite(observedAt)
+        || replayTimestamp - observedAt > spatialMaxSampleAgeMs;
+      return createOutdoorBoundaryContextFromConditions(
+        house,
+        replayOutdoorConditions(replayOutdoorSample),
+        stale,
+      );
+    }, [house, replayOutdoorSample, replayTimestamp, spatialMaxSampleAgeMs]);
+  const replayAwareOutdoor = useMemo<OutdoorVisualizationState>(() => {
+      if (!replayActive) return outdoor;
+      const attribution = replayOutdoorSample ? replayOutdoorAttribution(replayOutdoorSample) : null;
+      return {
+        context: historicalOutdoorContext,
+        loading: context.replayOutdoorLoading,
+        unavailable: !context.replayOutdoorLoading && !historicalOutdoorContext,
+        refreshFailed: false,
+        hasLocation: Boolean(house.location),
+        replayActive: true,
+        timeZone: house.timezone,
+        ...(house.orientationDegrees === undefined ? {} : { orientationDegrees: house.orientationDegrees }),
+        ...(attribution ? { attribution } : {}),
+      };
+    }, [replayActive, outdoor, historicalOutdoorContext, context.replayOutdoorLoading, house.location, house.orientationDegrees, house.timezone, replayOutdoorSample]);
+  const replayAwareOutdoorContext = replayActive ? historicalOutdoorContext : outdoorContext;
   const displayedSamples = useMemo(() => replayActive
       ? samplesAt(state.measurementHistory, houseSensors.map((sensor) => sensor.id), definition.id, replayTimestamp)
       : liveSamples,
     [replayActive, replayTimestamp, houseSensors, state.measurementHistory, liveSamples, definition.id]);
   const mapSensorMeasurements = useMemo<LatestMeasurements>(() => {
       if (!replayActive) return state.latestMeasurements;
-      const replayEnergySamples = ["power", "energy"].map((energyMetric) => (
-        samplesAt(state.measurementHistory, houseSensors.map((sensor) => sensor.id), energyMetric, replayTimestamp)
+      const replaySamples = replayMetricIds.map((replayMetric) => (
+        samplesAt(state.measurementHistory, houseSensors.map((sensor) => sensor.id), replayMetric, replayTimestamp)
       ));
       return Object.fromEntries(houseSensors.map((sensor) => [sensor.id, Object.fromEntries(
-        replayEnergySamples.flatMap((samplesBySensor) => {
+        replaySamples.flatMap((samplesBySensor) => {
           const sample = samplesBySensor[sensor.id];
           return sample ? [[sample.metric, sample]] : [];
         }),
       )]));
-    }, [replayActive, replayTimestamp, houseSensors, state.latestMeasurements, state.measurementHistory]);
+    }, [replayActive, replayTimestamp, houseSensors, replayMetricIds, state.latestMeasurements, state.measurementHistory]);
   const airflowSamples = useMemo<ClimateSampleMatrix>(() => {
       if (!replayActive) {
         return Object.fromEntries(houseSensors.map((sensor) => [sensor.id, state.latestMeasurements[sensor.id] ?? {}]));
@@ -267,5 +341,5 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
         if (timer !== null) window.clearInterval(timer);
       };
     }, [connection, hasOpeningElements, houseId, openingStateAt]);
-  return Object.assign(context, { selectReplayEvent, loadReplayWindow, displayedSamples, mapSensorMeasurements, airflowSamples, sensorCoverage, airMovementSelected, coverageSelected, openingStateAt, openingStateObservations, setOpeningStateObservations, pendingOpeningStateKeys, setPendingOpeningStateKeys, openingStateError, setOpeningStateError, openingStateAnnouncement, setOpeningStateAnnouncement, openingStateRequestsRef, openingStateContextRef, houseOpeningStateObservations, controllableOpenings, hasOpeningElements });
+  return Object.assign(context, { outdoor: replayAwareOutdoor, outdoorContext: replayAwareOutdoorContext, replayOutdoorSample, selectReplayEvent, loadReplayWindow, displayedSamples, mapSensorMeasurements, airflowSamples, sensorCoverage, airMovementSelected, coverageSelected, openingStateAt, openingStateObservations, setOpeningStateObservations, pendingOpeningStateKeys, setPendingOpeningStateKeys, openingStateError, setOpeningStateError, openingStateAnnouncement, setOpeningStateAnnouncement, openingStateRequestsRef, openingStateContextRef, houseOpeningStateObservations, controllableOpenings, hasOpeningElements });
 }

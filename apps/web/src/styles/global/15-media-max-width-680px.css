@@ -267,8 +267,12 @@
   .heat-gradient { border: 2px solid CanvasText; }
   .coverage-regions ellipse, .coverage-recommendation circle, .coverage-recommendation path, .coverage-recommendation line { stroke: CanvasText; }
   .coverage-gradient-core, .coverage-gradient-mid { stop-color: CanvasText; }
-  .replay-event-ticks i, .replay-event-ticks i::before { color: CanvasText; background: CanvasText; box-shadow: none; }
-  .replay-event-ticks i.selected, .replay-event-ticks i.selected::before { background: Highlight; }
+  .outdoor-influence-perimeter, .outdoor-influence-arrow, .building-outdoor-influence-face { stroke: CanvasText; }
+  .building-outdoor-influence-face { fill: none; }
+  .outdoor-influence-arrow-head { fill: CanvasText; }
+  .outdoor-influence-legend { border: 2px solid CanvasText !important; background: Canvas !important; }
+  .replay-event-marker { border: 2px solid CanvasText; color: CanvasText; background: Canvas; box-shadow: none; }
+  .replay-event-ticks > button.selected .replay-event-marker { border-color: Highlight; color: HighlightText; background: Highlight; box-shadow: none; }
   .replay-event-button[aria-current="time"] { border: 3px solid Highlight; box-shadow: none; }
 }
 

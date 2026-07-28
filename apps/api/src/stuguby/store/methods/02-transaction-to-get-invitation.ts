@@ -161,7 +161,9 @@ registerStugubyStoreMethods({
       });
     },
   isCoordinator(this: StugubyStoreInternals, stugubyId: string): boolean {
-      return Boolean((this[stugubyStoreState].db.prepare("SELECT is_coordinator FROM stugby_federations WHERE id=?").get(stugubyId) as { is_coordinator?: number } | undefined)?.is_coordinator);
+      return Boolean(this[stugubyStoreState].db.prepare(`SELECT 1 AS present FROM stugby_federations
+        WHERE id=? AND is_coordinator=1 AND coordinator_node_id=?`)
+        .get(stugubyId, this.localNodeId));
     },
   reconcileUnjoinedCoordinatorOrigins(this: StugubyStoreInternals, coordinatorUrl: string, now = new Date().toISOString()): number {
       return this.transaction(() => this.reconcileUnjoinedCoordinatorOriginsInTransaction(coordinatorUrl, now));

@@ -275,14 +275,18 @@ export function configureApiPart14(context: ReturnType<typeof configureApiPart13
       if (!house || !context.visibility(response).house(house.id)) throw new HttpError(404, "NOT_FOUND", "House not found");
       response.json({ house });
     });
-  context.app.get(`${context.prefix}/houses/:id/opening-states`, (request, response) => {
+  context.app.get(`${context.prefix}/houses/:id/opening-states`, async (request, response) => {
       const houseId = request.params.id as string;
       const house = context.database.getHouse(houseId);
       if (!house || !context.visibility(response).house(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
       const at = request.query.at === undefined && request.query.to !== undefined
         ? dateValue(request.query.to, new Date(), "to")
         : dateValue(request.query.at, new Date(), "at");
-      const observations = context.database.listOpeningStateObservations(houseId, 10_000, at);
+      const observations = (await context.telemetryReader.openingStateSnapshot({
+        houseId,
+        at,
+        limit: 10_000,
+      })).records;
       const states = house.floors.flatMap((floor) => (floor.planElements ?? []).flatMap((element) => {
         if (element.kind !== "door" && element.kind !== "window" && element.kind !== "vent") return [];
         return [{ floorId: floor.id, elementId: element.id, kind: element.kind, ...(element.label ? { label: element.label } : {}),
@@ -302,13 +306,17 @@ export function configureApiPart14(context: ReturnType<typeof configureApiPart13
       // Seed the requested interval with the effective candidates at its leading
       // edge so clients can distinguish a real closed-to-open transition from a
       // startup heartbeat whose previous state lies just outside the range.
-      const initial = context.database.listOpeningStateObservations(houseId, limit, from);
-      const history = context.database.listOpeningStateObservationHistory(
+      const initial = (await context.telemetryReader.openingStateSnapshot({
+        houseId,
+        at: from,
+        limit,
+      })).records;
+      const history = (await context.telemetryReader.openingStateHistory({
         houseId,
         from,
         to,
-        Math.max(1, limit - Math.min(initial.length, limit - 1)),
-      );
+        limit: Math.max(1, limit - Math.min(initial.length, limit - 1)),
+      })).records;
       const mergedHistory = [...new Map([...initial, ...history].map((observation) => [observation.id, observation])).values()]
         .sort((left, right) => Date.parse(left.observedAt) - Date.parse(right.observedAt) || left.id.localeCompare(right.id))
         .slice(-limit);
@@ -339,7 +347,7 @@ export function configureApiPart14(context: ReturnType<typeof configureApiPart13
       context.notifyOpeningStateRecorded(observation);
       response.status(201).json({ observation });
     });
-  context.app.get(`${context.prefix}/houses/:id/electricity-price`, (request, response) => {
+  context.app.get(`${context.prefix}/houses/:id/electricity-price`, async (request, response) => {
       const houseId = request.params.id as string;
       const house = context.database.getHouse(houseId);
       if (!house || !context.visibility(response).house(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
@@ -359,7 +367,13 @@ export function configureApiPart14(context: ReturnType<typeof configureApiPart13
       }
       const from = dateValue(request.query.from, new Date(Date.now() - 24 * 60 * 60_000), "from");
       const to = dateValue(request.query.to, new Date(Date.now() + 48 * 60 * 60_000), "to");
-      const prices = context.database.listPropertyElectricityPrices(house.propertyId, from, to).map(homePrice);
+      const history = await context.telemetryReader.electricityPriceHistory({
+        propertyId: house.propertyId,
+        from,
+        to,
+        limit: 100_000,
+      });
+      const prices = history.records.map(homePrice);
       response.json({ current, prices });
     });
   context.app.get(`${context.prefix}/houses/:id/energy-cost`, async (request, response) => {

@@ -169,12 +169,12 @@ services:
       STUGA_LOCAL_UI_PORT: ${APP_PORT:-8080}
       MOCK_ENABLED: ${MOCK_ENABLED:-false}
       MOCK_INTERVAL_MS: ${MOCK_INTERVAL_MS:-2000}
-      # Zero retains the complete SQLite copy. Values >=30 retain a bounded
-      # SQLite hot window only after a fresh, healthy Timescale reconciliation.
+      # Zero compacts acknowledged SQLite history to current projections.
+      # Values >=30 retain a bounded cache after healthy TimeDB reconciliation.
       RETENTION_DAYS: ${RETENTION_DAYS:-0}
       TIMESERIES_ENABLED: "true"
-      # SQLite is the durable local buffer, so API availability does not depend
-      # on PostgreSQL. Set true only when strict archive startup is preferred.
+      # SQLite is the crash-safe local outbox, so ingestion can buffer during a
+      # TimeDB outage. Set true only when strict TimeDB startup is preferred.
       TIMESERIES_REQUIRED: ${TIMESERIES_REQUIRED:-false}
       TIMESERIES_HOST: timescaledb
       TIMESERIES_PORT: "5432"

@@ -60,6 +60,7 @@ mmdebstrap:
     - ca-certificates
     - cloud-guest-utils
     - curl
+    - gdisk
     - nano
     - tailscale
   customize-hooks:
@@ -74,9 +75,12 @@ mmdebstrap:
       install -d -m 0755 "$1/etc/systemd/system"
       install -d -m 0755 "$1/etc/systemd/system/containerd.service.d"
       install -d -m 0755 "$1/etc/systemd/system/docker.service.d"
+      install -d -m 0755 "$1/etc/systemd/system/systemd-networkd-wait-online.service.d"
       install -d -m 0755 "$1/etc/systemd/system/tailscaled.service.d"
       install -d -m 0755 "$1/etc/initramfs-tools/hooks"
       install -d -m 0755 "$1/etc/initramfs-tools/scripts/local-block"
+      install -d -m 0755 "$1/etc/initramfs-tools/scripts/local-premount"
+      install -d -m 0755 "$1/etc/udev/rules.d"
       install -d -m 0755 "$1/etc/rpi-image-gen/slot-shared.d"
       install -d -m 0755 "$1/etc/sudoers.d"
 
@@ -100,16 +104,55 @@ mmdebstrap:
         "$1/usr/local/sbin/stugu-grow-persistent"
       install -m 0755 "${IGconf_stugu_assetdir}/stugu-usb-bootdev" \
         "$1/usr/bin/stugu-usb-bootdev"
+      install -m 0755 "${IGconf_stugu_assetdir}/stugu-usb-udev-slot" \
+        "$1/usr/bin/stugu-usb-udev-slot"
+      install -m 0644 "${IGconf_stugu_assetdir}/99-rpi-00-stugu-usb.rules" \
+        "$1/etc/udev/rules.d/99-rpi-00-stugu-usb.rules"
       install -m 0755 "${IGconf_stugu_assetdir}/stugu-usb-initramfs-hook" \
         "$1/etc/initramfs-tools/hooks/stugu-usb-bootdev"
       install -m 0755 "${IGconf_stugu_assetdir}/stugu-usb-ab-root" \
         "$1/etc/initramfs-tools/scripts/local-block/20-stugu-usb-ab-root"
+      install -m 0755 "${IGconf_stugu_assetdir}/stugu-usb-ab-root" \
+        "$1/etc/initramfs-tools/scripts/local-premount/20-stugu-usb-ab-root"
+      install -m 0755 "${IGconf_stugu_assetdir}/rpi-slot-tryboot" \
+        "$1/usr/bin/rpi-slot-tryboot"
+      install -m 0755 "${IGconf_stugu_assetdir}/rpi-persistent-shared-init" \
+        "$1/usr/sbin/rpi-persistent-shared-init"
+      install -m 0755 "${IGconf_stugu_assetdir}/stugu-eeprom-compat" \
+        "$1/usr/local/sbin/stugu-eeprom-compat"
       install -m 0755 "${IGconf_stugu_assetdir}/stuguctl" \
         "$1/usr/local/bin/stuguctl"
       install -m 0644 "${IGconf_stugu_assetdir}/stugu.service" \
         "$1/etc/systemd/system/stugu.service"
       install -m 0644 "${IGconf_stugu_assetdir}/stugu-data-grow.service" \
         "$1/etc/systemd/system/stugu-data-grow.service"
+      install -m 0644 "${IGconf_stugu_assetdir}/stugu-eeprom-compat.service" \
+        "$1/etc/systemd/system/stugu-eeprom-compat.service"
+
+      # Pi 4 firmware can lose its implicit kernel filename after a GPT
+      # autoboot partition handoff. Pin both files explicitly in every slot.
+      sed -i 's/^auto_initramfs=1$/# auto_initramfs is replaced by the explicit Pi 4 entry below/' \
+        "$1/boot/firmware/config.txt"
+      cat >> "$1/boot/firmware/config.txt" <<-'EOF'
+
+      [pi4]
+      arm_64bit=1
+      kernel=kernel8.img
+      initramfs initramfs8 followkernel
+      EOF
+
+      cat > "$1/etc/systemd/system/systemd-networkd-wait-online.service.d/stugu-any-uplink.conf" <<-'EOF'
+      [Service]
+      ExecStart=
+      ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any --interface=eth0 --interface=wlan0 --timeout=30
+      EOF
+      chmod 0644 "$1/etc/systemd/system/systemd-networkd-wait-online.service.d/stugu-any-uplink.conf"
+
+      cat > "$1/etc/default/rpi-eeprom-update" <<-'EOF'
+      FIRMWARE_RELEASE_STATUS="default"
+      BOOTFS="/bootfs"
+      EOF
+      chmod 0644 "$1/etc/default/rpi-eeprom-update"
 
       cat > "$1/opt/stugu/release.env" <<-EOF
       STUGA_VERSION=${IGconf_artefact_version}
@@ -163,4 +206,4 @@ mmdebstrap:
       ${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/tailscale up --operator=${IGconf_device_user1}
       EOF
       chmod 0440 "$1/etc/sudoers.d/020_stuguctl"
-    - $BDEBSTRAP_HOOKS/enable-units "$1" tailscaled stugu-data-grow stugu
+    - $BDEBSTRAP_HOOKS/enable-units "$1" tailscaled stugu-data-grow stugu-eeprom-compat stugu

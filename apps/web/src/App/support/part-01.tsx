@@ -71,6 +71,8 @@ export const pageTitleKeys = {
 
 export const dismissedTpLinkDevicesKey = "stugu-dismissed-tp-link-device-notices";
 
+export const dismissedIntegrationDiscoveryJobsKey = "stugu-dismissed-integration-discovery-notices";
+
 export const freshTpLinkDiscoveryWindowMs = 60_000;
 
 export interface TpLinkDeviceReference {
@@ -88,6 +90,15 @@ export function tpLinkDeviceKey(device: { deviceId: string; connectionId?: strin
 export function storedDismissedTpLinkDevices(): string[] {
   try {
     const value = JSON.parse(readLocalStorage(dismissedTpLinkDevicesKey) ?? "[]") as unknown;
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function storedDismissedIntegrationDiscoveryJobs(): string[] {
+  try {
+    const value = JSON.parse(readLocalStorage(dismissedIntegrationDiscoveryJobsKey) ?? "[]") as unknown;
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
   } catch {
     return [];

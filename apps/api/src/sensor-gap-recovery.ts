@@ -5,6 +5,7 @@ import {
   type SensorDataGapSource,
 } from "./db.js";
 import type { MeasurementService } from "./services.js";
+import type { HybridTelemetryReader } from "./timeseries/read-facade.js";
 
 export interface SensorMetricAvailability {
   sensorId: string;
@@ -36,6 +37,7 @@ export interface SensorGapRecoveryOptions {
   historicalScanWindowMs?: number;
   historicalGapLimit?: number;
   onRecovered?: () => void | Promise<void>;
+  telemetryReader?: HybridTelemetryReader;
 }
 
 const DEFAULT_SCAN_INTERVAL_MS = 30_000;
@@ -93,6 +95,7 @@ export class SensorGapRecoveryCoordinator {
   readonly #historicalScanWindowMs: number;
   readonly #historicalGapLimit: number;
   readonly #onRecovered: (() => void | Promise<void>) | undefined;
+  readonly #telemetryReader: HybridTelemetryReader | undefined;
   readonly #nextHistoricalScanAt = new Map<string, number>();
   #timer: NodeJS.Timeout | null = null;
   #running = false;
@@ -119,6 +122,7 @@ export class SensorGapRecoveryCoordinator {
     );
     this.#historicalGapLimit = Math.max(1, Math.min(100, options.historicalGapLimit ?? DEFAULT_HISTORICAL_GAP_LIMIT));
     this.#onRecovered = options.onRecovered;
+    this.#telemetryReader = options.telemetryReader;
   }
 
   start(): void {
@@ -182,7 +186,7 @@ export class SensorGapRecoveryCoordinator {
       }
       for (const item of availability) {
         this.#observe(item);
-        if (item.available) this.#discoverHistoricalGaps(item, now);
+        if (item.available) await this.#discoverHistoricalGaps(item, now);
       }
     }
     await this.#recoverQueued(now);
@@ -207,22 +211,42 @@ export class SensorGapRecoveryCoordinator {
     this.database.noteSensorDataGap(item.sensorId, item.metric, item.source, latest, observedAt);
   }
 
-  #discoverHistoricalGaps(item: SensorMetricAvailability, now: Date): void {
+  async #discoverHistoricalGaps(item: SensorMetricAvailability, now: Date): Promise<void> {
     if (item.source === "home-assistant") return;
     const key = availabilityKey(item);
     if ((this.#nextHistoricalScanAt.get(key) ?? 0) > now.getTime()) return;
     this.#nextHistoricalScanAt.set(key, now.getTime() + this.#historicalScanIntervalMs);
     const from = new Date(now.getTime() - this.#historicalScanWindowMs).toISOString();
     const to = now.toISOString();
-    const gaps = this.database.measurementSampleGaps(
-      item.sensorId,
-      item.metric,
-      item.source,
-      from,
-      to,
-      historicalGapThresholdMs(item.source),
-      this.#historicalGapLimit,
-    );
+    const thresholdMs = historicalGapThresholdMs(item.source);
+    const gaps = this.#telemetryReader
+      ? (() => [] as Array<{ startedAt: string; endedAt: string }>)()
+      : this.database.measurementSampleGaps(
+        item.sensorId,
+        item.metric,
+        item.source,
+        from,
+        to,
+        thresholdMs,
+        this.#historicalGapLimit,
+      );
+    if (this.#telemetryReader) {
+      const samples = (await this.#telemetryReader.measurementHistory({
+        sensorId: item.sensorId,
+        metric: item.metric,
+        from,
+        to,
+        limit: 100_000,
+      })).records
+        .filter((sample) => sample.source === item.source)
+        .sort((left, right) => left.timestamp.localeCompare(right.timestamp));
+      for (let index = 1; index < samples.length && gaps.length < this.#historicalGapLimit; index += 1) {
+        const previous = samples[index - 1]!;
+        const current = samples[index]!;
+        if (Date.parse(current.timestamp) - Date.parse(previous.timestamp) < thresholdMs) continue;
+        gaps.push({ startedAt: previous.timestamp, endedAt: current.timestamp });
+      }
+    }
     for (const gap of gaps) {
       this.database.noteHistoricalSensorDataGap(
         item.sensorId,
@@ -301,7 +325,7 @@ export class SensorGapRecoveryCoordinator {
       const recoveredPoints = gap.recoveredPoints + insertedCount;
       if ((gap.source === "home-assistant" || accepted.some((sample) => sample.source === "home-assistant"))
         && (gap.metric === "temperature" || gap.metric === "humidity")) {
-        this.#rebuildLegacyClimateProjection(gap);
+        await this.#rebuildLegacyClimateProjection(gap);
       }
       const retryAt = result.state === "partial"
         // Continue segmented recovery promptly only when this attempt inserted
@@ -331,19 +355,44 @@ export class SensorGapRecoveryCoordinator {
     return Math.min(60 * 60_000, this.#retryBaseMs * 2 ** Math.min(6, Math.max(0, attemptCount - 1)));
   }
 
-  #rebuildLegacyClimateProjection(gap: SensorDataGapRecord): void {
+  async #rebuildLegacyClimateProjection(gap: SensorDataGapRecord): Promise<void> {
     if (!gap.endedAt) return;
-    const temperatureBaseline = this.database.measurementSampleAtOrBefore(
+    let temperatureBaseline = this.database.measurementSampleAtOrBefore(
       gap.sensorId, "temperature", "home-assistant", gap.startedAt,
     );
-    const humidityBaseline = this.database.measurementSampleAtOrBefore(
+    let humidityBaseline = this.database.measurementSampleAtOrBefore(
       gap.sensorId, "humidity", "home-assistant", gap.startedAt,
     );
+    let events: MeasurementSample[];
+    if (this.#telemetryReader) {
+      const baselineFrom = new Date(Date.parse(gap.startedAt) - 30 * 86_400_000).toISOString();
+      const [temperatureBefore, humidityBefore, temperatureEvents, humidityEvents] = await Promise.all([
+        this.#telemetryReader.measurementHistory({
+          sensorId: gap.sensorId, metric: "temperature", from: baselineFrom, to: gap.startedAt, limit: 100_000,
+        }),
+        this.#telemetryReader.measurementHistory({
+          sensorId: gap.sensorId, metric: "humidity", from: baselineFrom, to: gap.startedAt, limit: 100_000,
+        }),
+        this.#telemetryReader.measurementHistory({
+          sensorId: gap.sensorId, metric: "temperature", from: gap.startedAt, to: gap.endedAt, limit: 100_000,
+        }),
+        this.#telemetryReader.measurementHistory({
+          sensorId: gap.sensorId, metric: "humidity", from: gap.startedAt, to: gap.endedAt, limit: 100_000,
+        }),
+      ]);
+      temperatureBaseline ??= temperatureBefore.records
+        .filter((sample) => sample.source === "home-assistant").at(-1) ?? null;
+      humidityBaseline ??= humidityBefore.records
+        .filter((sample) => sample.source === "home-assistant").at(-1) ?? null;
+      events = [...temperatureEvents.records, ...humidityEvents.records];
+    } else {
+      events = [
+        ...this.database.measurementHistory(gap.sensorId, "temperature", gap.startedAt, gap.endedAt, 100_000),
+        ...this.database.measurementHistory(gap.sensorId, "humidity", gap.startedAt, gap.endedAt, 100_000),
+      ];
+    }
     if (!temperatureBaseline || !humidityBaseline) return;
-    const events = [
-      ...this.database.measurementHistory(gap.sensorId, "temperature", gap.startedAt, gap.endedAt, 100_000),
-      ...this.database.measurementHistory(gap.sensorId, "humidity", gap.startedAt, gap.endedAt, 100_000),
-    ].filter((sample) => sample.source === "home-assistant")
+    events = events.filter((sample) => sample.source === "home-assistant")
       .sort((left, right) => left.timestamp.localeCompare(right.timestamp) || left.metric.localeCompare(right.metric));
     let temperature = temperatureBaseline;
     let humidity = humidityBaseline;

@@ -1,4 +1,10 @@
-import type { MeasurementSample, OutdoorTemperatureSample, Reading } from "@climate-twin/contracts";
+import type {
+  MeasurementSample,
+  OpeningStateObservation,
+  OutdoorTemperatureSample,
+  PropertyElectricityPricePoint,
+  Reading,
+} from "@climate-twin/contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
   HybridTelemetryReader,
@@ -45,6 +51,35 @@ function outdoor(timestamp: string, temperatureC: number): OutdoorTemperatureSam
   };
 }
 
+function price(startAt: string, raw: number, margin: number): PropertyElectricityPricePoint {
+  const effective = raw + margin;
+  return {
+    propertyId: "property-a",
+    startAt,
+    endAt: new Date(Date.parse(startAt) + 15 * 60_000).toISOString(),
+    rawPriceCentsPerKwh: raw,
+    effectivePriceCentsPerKwh: effective,
+    effectivePriceEurPerKwh: effective / 100,
+    fetchedAt: startAt,
+  };
+}
+
+function opening(
+  id: string,
+  observedAt: string,
+  state: OpeningStateObservation["state"],
+): OpeningStateObservation {
+  return {
+    id,
+    houseId: "house-a",
+    floorId: "floor-a",
+    elementId: "door-a",
+    state,
+    source: "api",
+    observedAt,
+  };
+}
+
 function localReader(overrides: Partial<LocalTelemetryReader> = {}): LocalTelemetryReader {
   return {
     isRealDataMode: vi.fn(() => false),
@@ -53,6 +88,9 @@ function localReader(overrides: Partial<LocalTelemetryReader> = {}): LocalTeleme
     measurementWindow: vi.fn(() => []),
     history: vi.fn(() => []),
     outdoorTemperatureHistory: vi.fn(() => []),
+    listPropertyElectricityPrices: vi.fn(() => []),
+    listOpeningStateObservations: vi.fn(() => []),
+    listOpeningStateObservationHistory: vi.fn(() => []),
     ...overrides,
   };
 }
@@ -62,6 +100,9 @@ function archiveReader(overrides: Partial<ArchiveTelemetryReader> = {}): Archive
     measurementHistory: vi.fn(async () => []),
     legacyReadingHistory: vi.fn(async () => []),
     outdoorTemperatureHistory: vi.fn(async () => []),
+    electricityPriceHistory: vi.fn(async () => []),
+    openingStateHistory: vi.fn(async () => []),
+    openingStateSnapshot: vi.fn(async () => []),
     ...overrides,
   };
 }
@@ -307,6 +348,128 @@ describe("HybridTelemetryReader", () => {
       expect.objectContaining({ temperatureC: 8 }),
     ]);
     expect(weather.provenance.archiveState).toBe("merged");
+  });
+
+  it("merges archived electricity prices with the SQLite hot copy and preserves historical margins", async () => {
+    const overlapAt = "2026-07-18T00:15:00.000Z";
+    const reader = new HybridTelemetryReader({
+      local: localReader({
+        listPropertyElectricityPrices: vi.fn(() => [price(overlapAt, 20, 2)]),
+      }),
+      archive: archiveReader({
+        electricityPriceHistory: vi.fn(async () => [
+          {
+            propertyId: "property-a",
+            startAt: FROM,
+            endAt: overlapAt,
+            rawPriceCentsPerKwh: 10,
+            marginCentsPerKwh: 1,
+            source: "sqlite",
+            fetchedAt: FROM,
+          },
+          {
+            propertyId: "property-a",
+            startAt: overlapAt,
+            endAt: "2026-07-18T00:30:00.000Z",
+            rawPriceCentsPerKwh: -99,
+            marginCentsPerKwh: 0,
+            source: "sqlite",
+            fetchedAt: FROM,
+          },
+        ]),
+      }),
+      archivePhase: () => "ready",
+    });
+
+    const result = await reader.electricityPriceHistory({
+      propertyId: "property-a",
+      from: FROM,
+      to: TO,
+    });
+
+    expect(result.records).toEqual([
+      expect.objectContaining({ startAt: FROM, effectivePriceCentsPerKwh: 11, effectivePriceEurPerKwh: 0.11 }),
+      expect.objectContaining({ startAt: overlapAt, effectivePriceCentsPerKwh: 22, effectivePriceEurPerKwh: 0.22 }),
+    ]);
+    expect(result.provenance).toMatchObject({
+      archiveState: "merged",
+      duplicateRecordCount: 1,
+    });
+  });
+
+  it("merges opening-event history and keeps the newest state in cross-store snapshots", async () => {
+    const localAt = "2026-07-18T00:15:00.000Z";
+    const archivedAt = "2026-07-18T00:30:00.000Z";
+    const reader = new HybridTelemetryReader({
+      local: localReader({
+        listOpeningStateObservationHistory: vi.fn(() => [
+          opening("event-overlap", localAt, "open"),
+        ]),
+        listOpeningStateObservations: vi.fn(() => [
+          opening("local-snapshot", localAt, "open"),
+        ]),
+      }),
+      archive: archiveReader({
+        openingStateHistory: vi.fn(async () => [{
+          observationId: "event-archived",
+          houseId: "house-a",
+          floorId: "floor-a",
+          elementId: "door-a",
+          state: "closed",
+          openFraction: null,
+          source: "api",
+          observedAt: FROM,
+          validUntil: null,
+          externalId: null,
+          connectionId: null,
+          recordedAt: FROM,
+          metadata: {},
+        }, {
+          observationId: "event-overlap",
+          houseId: "house-a",
+          floorId: "floor-a",
+          elementId: "door-a",
+          state: "closed",
+          openFraction: null,
+          source: "api",
+          observedAt: localAt,
+          validUntil: null,
+          externalId: null,
+          connectionId: null,
+          recordedAt: localAt,
+          metadata: {},
+        }]),
+        openingStateSnapshot: vi.fn(async () => [{
+          observationId: "archived-snapshot",
+          houseId: "house-a",
+          floorId: "floor-a",
+          elementId: "door-a",
+          state: "closed",
+          openFraction: null,
+          source: "api",
+          observedAt: archivedAt,
+          validUntil: null,
+          externalId: null,
+          connectionId: null,
+          recordedAt: archivedAt,
+          metadata: {},
+        }]),
+      }),
+      archivePhase: () => "ready",
+    });
+
+    const history = await reader.openingStateHistory({ houseId: "house-a", from: FROM, to: TO });
+    const snapshot = await reader.openingStateSnapshot({ houseId: "house-a", at: TO });
+
+    expect(history.records).toEqual([
+      expect.objectContaining({ id: "event-archived", state: "closed" }),
+      expect.objectContaining({ id: "event-overlap", state: "open" }),
+    ]);
+    expect(history.provenance.duplicateRecordCount).toBe(1);
+    expect(snapshot.records).toEqual([
+      expect.objectContaining({ id: "archived-snapshot", state: "closed", observedAt: archivedAt }),
+    ]);
+    expect(snapshot.provenance.duplicateRecordCount).toBe(1);
   });
 
   it("uses exactly one complete source for cumulative energy-cost aggregates", async () => {

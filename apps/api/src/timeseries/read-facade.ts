@@ -1,56 +1,79 @@
 import type {
   MeasurementSample,
-  OutdoorConditions,
+  OpeningStateObservation,
   OutdoorTemperatureSample,
+  PropertyElectricityPricePoint,
   Reading,
 } from "@climate-twin/contracts";
 import type {
   EnergyCostAggregateQuery,
   EnergyCostAggregateRecord,
+  ElectricityPriceHistoryQuery,
+  ElectricityPriceRecord,
   LegacyReadingHistoryQuery,
   LegacyReadingRecord,
   MeasurementCoverageQuery,
   MeasurementCoverageRecord,
   MeasurementHistoryQuery,
   MeasurementSampleRecord,
+  OpeningStateHistoryQuery,
+  OpeningStateRecord,
+  OpeningStateSnapshotQuery,
   OutdoorTemperatureHistoryQuery,
   OutdoorTemperatureRecord,
   QueryControl,
+  ThermalMeasurementHistoryQuery,
 } from "./types.js";
+import { bucketLegacyReadings, bucketMeasurementSamples } from "./read-buckets.js";
+import {
+  archivedElectricityPrice,
+  archivedMeasurement,
+  archivedOpeningState,
+  archivedOutdoor,
+  archivedReading,
+  compareElectricityPrices,
+  compareMeasurements,
+  compareOpeningStates,
+  compareOutdoor,
+  compareReadings,
+  compareText,
+  electricityPriceKey,
+  measurementCoverageKey,
+  measurementKey,
+  openingStateIdentityKey,
+  openingStateKey,
+  outdoorKey,
+  readingKey,
+  type SourcedElectricityPrice,
+} from "./read-records.js";
+import {
+  DEFAULT_HISTORY_LIMIT,
+  DEFAULT_WINDOW_LIMIT,
+  IncompleteTelemetryHistoryError,
+  MAX_HISTORY_LIMIT,
+  MAX_WINDOW_LIMIT,
+  aborted,
+  isSyntheticSource,
+  mapWithConcurrency,
+  positiveLimit,
+  unique,
+  type HybridArchiveReadState,
+  type HybridMeasurementCoverageResult,
+  type HybridTelemetryFamily,
+  type HybridTelemetryReadResult,
+  type LocalCompletenessQuery,
+} from "./read-support.js";
 
-const DEFAULT_HISTORY_LIMIT = 20_000;
-const DEFAULT_WINDOW_LIMIT = 100_000;
-const MAX_HISTORY_LIMIT = 100_000;
-const MAX_WINDOW_LIMIT = 250_000;
-
-export type HybridTelemetryFamily = "measurement" | "legacy-reading" | "outdoor-temperature";
-export type HybridArchiveReadState = "not-configured" | "not-ready" | "merged" | "failed";
-
-export interface HybridTelemetryReadProvenance {
-  /** SQLite is always consulted and remains authoritative for overlapping rows. */
-  localSource: "sqlite";
-  archiveSource: "timescale" | null;
-  archiveState: HybridArchiveReadState;
-  localHistoryComplete: boolean;
-  localRecordCount: number;
-  archiveRecordCount: number;
-  duplicateRecordCount: number;
-  filteredSyntheticRecordCount: number;
-  returnedRecordCount: number;
-}
-
-export interface HybridTelemetryReadResult<T> {
-  records: T[];
-  /** Counts and source state only; errors, credentials, paths, and query values are never exposed. */
-  provenance: HybridTelemetryReadProvenance;
-}
-
-export interface HybridMeasurementCoverageResult {
-  records: MeasurementCoverageRecord[];
-  archiveState: HybridArchiveReadState;
-  /** True when SQLite is complete or archive coverage was merged successfully. */
-  complete: boolean;
-}
+export { bucketLegacyReadings, bucketMeasurementSamples };
+export { IncompleteTelemetryHistoryError } from "./read-support.js";
+export type {
+  HybridArchiveReadState,
+  HybridMeasurementCoverageResult,
+  HybridTelemetryFamily,
+  HybridTelemetryReadProvenance,
+  HybridTelemetryReadResult,
+  LocalCompletenessQuery,
+} from "./read-support.js";
 
 export interface MeasurementWindowQuery extends QueryControl {
   sensorIds: readonly string[];
@@ -65,6 +88,12 @@ export interface LocalTelemetryReader {
   isRealDataMode(): boolean;
   measurementCoverage?(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[];
   measurementHistory(sensorId: string, metric: string, from: string, to: string, limit?: number): MeasurementSample[];
+  thermalTemperatureHistory?(
+    sensorId: string, from: string, to: string, bucketMinutes?: number, limit?: number,
+  ): MeasurementSample[];
+  thermalClimateHistory?(
+    sensorId: string, from: string, to: string, bucketMinutes?: number, limitPerMetric?: number,
+  ): MeasurementSample[];
   measurementWindow(sensorIds: string[], metrics: string[], from: string, to: string, limit?: number): MeasurementSample[];
   history(sensorIds: string[], from: string, to: string, limit?: number): Reading[];
   outdoorTemperatureHistory(
@@ -74,6 +103,13 @@ export interface LocalTelemetryReader {
     to: string,
     limit?: number,
   ): OutdoorTemperatureSample[];
+  listPropertyElectricityPrices?(propertyId: string, from: string, to: string): PropertyElectricityPricePoint[];
+  listOpeningStateObservations?(
+    houseId: string, limit?: number, at?: string | number | Date,
+  ): OpeningStateObservation[];
+  listOpeningStateObservationHistory?(
+    houseId: string, from: string | number | Date, to: string | number | Date, limit?: number,
+  ): OpeningStateObservation[];
   energyCostAggregate?(query: EnergyCostAggregateQuery): EnergyCostAggregateRecord;
 }
 
@@ -85,16 +121,14 @@ export interface LocalTelemetryReader {
 export interface ArchiveTelemetryReader {
   measurementCoverage?(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]>;
   measurementHistory(query: MeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
+  thermalMeasurementHistory?(query: ThermalMeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
   measurementWindow?(query: MeasurementWindowQuery): Promise<MeasurementSampleRecord[]>;
   legacyReadingHistory(query: LegacyReadingHistoryQuery): Promise<LegacyReadingRecord[]>;
   outdoorTemperatureHistory(query: OutdoorTemperatureHistoryQuery): Promise<OutdoorTemperatureRecord[]>;
+  electricityPriceHistory?(query: ElectricityPriceHistoryQuery): Promise<ElectricityPriceRecord[]>;
+  openingStateHistory?(query: OpeningStateHistoryQuery): Promise<OpeningStateRecord[]>;
+  openingStateSnapshot?(query: OpeningStateSnapshotQuery): Promise<OpeningStateRecord[]>;
   energyCostAggregate?(query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
-}
-
-export interface LocalCompletenessQuery {
-  family: HybridTelemetryFamily;
-  from: string;
-  to: string;
 }
 
 export interface HybridTelemetryReaderOptions {
@@ -104,189 +138,10 @@ export interface HybridTelemetryReaderOptions {
   archivePhase?: () => string | null | undefined;
   /** Best-effort wake-up after an archive read fails. */
   reconcile?: () => void | Promise<void>;
-  /** Defaults to true while SQLite retention is disabled. */
+  /** Defaults to true for standalone SQLite mode. */
   localHistoryComplete?: boolean | ((query: LocalCompletenessQuery) => boolean);
   /** Bounds the compatibility fan-out used until the archive has a batch window query. */
   archiveWindowConcurrency?: number;
-}
-
-export class IncompleteTelemetryHistoryError extends Error {
-  readonly code = "TELEMETRY_ARCHIVE_REQUIRED";
-
-  constructor(readonly archiveState: Exclude<HybridArchiveReadState, "merged">) {
-    super("Complete telemetry history is temporarily unavailable");
-  }
-}
-
-function positiveLimit(value: number | undefined, fallback: number, maximum: number): number {
-  const resolved = value ?? fallback;
-  if (!Number.isInteger(resolved) || resolved < 1 || resolved > maximum) {
-    throw new RangeError(`limit must be an integer from 1 to ${maximum}`);
-  }
-  return resolved;
-}
-
-function isSyntheticSource(source: string): boolean {
-  return source === "mock" || source === "replay";
-}
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
-function compareMeasurements(left: MeasurementSample, right: MeasurementSample): number {
-  return compareText(left.timestamp, right.timestamp)
-    || compareText(left.sensorId, right.sensorId)
-    || compareText(left.metric, right.metric)
-    || compareText(left.source, right.source);
-}
-
-function compareReadings(left: Reading, right: Reading): number {
-  return compareText(left.timestamp, right.timestamp)
-    || compareText(left.sensorId, right.sensorId)
-    || compareText(left.source, right.source);
-}
-
-function compareOutdoor(left: OutdoorTemperatureSample, right: OutdoorTemperatureSample): number {
-  return compareText(left.timestamp, right.timestamp)
-    || compareText(left.houseId, right.houseId)
-    || compareText(left.locationKey, right.locationKey)
-    || compareText(left.source, right.source);
-}
-
-function measurementKey(record: MeasurementSample): string {
-  return JSON.stringify([record.sensorId, record.metric, record.timestamp, record.source]);
-}
-
-function measurementCoverageKey(record: MeasurementCoverageRecord): string {
-  return JSON.stringify([record.sensorId, record.metric]);
-}
-
-function readingKey(record: Reading): string {
-  return JSON.stringify([record.sensorId, record.timestamp, record.source]);
-}
-
-function outdoorKey(record: OutdoorTemperatureSample): string {
-  return JSON.stringify([record.houseId, record.locationKey, record.timestamp, record.source]);
-}
-
-export function bucketMeasurementSamples(samples: readonly MeasurementSample[], bucketSeconds: number): MeasurementSample[] {
-  const buckets = new Map<number, MeasurementSample[]>();
-  for (const sample of samples) {
-    const epoch = Math.floor(Date.parse(sample.timestamp) / (bucketSeconds * 1_000)) * bucketSeconds;
-    if (!Number.isFinite(epoch)) continue;
-    const bucket = buckets.get(epoch) ?? [];
-    bucket.push(sample);
-    buckets.set(epoch, bucket);
-  }
-  return [...buckets.entries()].sort(([left], [right]) => left - right).map(([epoch, bucket]) => {
-    const latest = [...bucket].sort(compareMeasurements).at(-1)!;
-    return {
-      ...latest,
-      value: bucket.reduce((sum, sample) => sum + sample.value, 0) / bucket.length,
-      timestamp: new Date(epoch * 1_000).toISOString(),
-      quality: bucket.length > 1 || new Set(bucket.map((sample) => sample.source)).size > 1 ? "estimated" : latest.quality,
-    };
-  });
-}
-
-export function bucketLegacyReadings(readings: readonly Reading[], bucketSeconds: number): Reading[] {
-  const buckets = new Map<string, Reading[]>();
-  for (const reading of readings) {
-    const epoch = Math.floor(Date.parse(reading.timestamp) / (bucketSeconds * 1_000)) * bucketSeconds;
-    if (!Number.isFinite(epoch)) continue;
-    const key = JSON.stringify([reading.sensorId, epoch]);
-    const bucket = buckets.get(key) ?? [];
-    bucket.push(reading);
-    buckets.set(key, bucket);
-  }
-  return [...buckets.entries()].map(([key, bucket]) => {
-    const [sensorId, epoch] = JSON.parse(key) as [string, number];
-    const latest = [...bucket].sort(compareReadings).at(-1)!;
-    return {
-      ...latest,
-      sensorId,
-      timestamp: new Date(epoch * 1_000).toISOString(),
-      temperature: bucket.reduce((sum, reading) => sum + reading.temperature, 0) / bucket.length,
-      humidity: bucket.reduce((sum, reading) => sum + reading.humidity, 0) / bucket.length,
-      quality: bucket.length > 1 || new Set(bucket.map((reading) => reading.source)).size > 1 ? "estimated" : latest.quality,
-    };
-  }).sort(compareReadings);
-}
-
-function archivedMeasurement(record: MeasurementSampleRecord): MeasurementSample {
-  return {
-    sensorId: record.sensorId,
-    metric: record.metric,
-    value: record.value,
-    canonicalUnit: record.canonicalUnit,
-    timestamp: record.timestamp,
-    // Archive rows originate from the core contract. Its archive type is wider
-    // solely to permit future adapters without a storage migration.
-    source: record.source as MeasurementSample["source"],
-    quality: record.quality as MeasurementSample["quality"],
-  };
-}
-
-function archivedReading(record: LegacyReadingRecord): Reading {
-  return {
-    sensorId: record.sensorId,
-    timestamp: record.timestamp,
-    temperature: record.temperature,
-    humidity: record.humidity,
-    battery: record.battery,
-    source: record.source as Reading["source"],
-    quality: record.quality as Reading["quality"],
-  };
-}
-
-function objectValue(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-}
-
-function archivedOutdoor(record: OutdoorTemperatureRecord): OutdoorTemperatureSample {
-  const metadata = objectValue(record.metadata);
-  const conditions = objectValue(metadata?.conditions) as OutdoorConditions | null;
-  return {
-    houseId: record.houseId,
-    locationKey: record.locationKey,
-    timestamp: record.timestamp,
-    temperatureC: record.temperatureC,
-    source: record.source as OutdoorTemperatureSample["source"],
-    fetchedAt: record.fetchedAt,
-    stationId: record.stationId,
-    stationName: record.stationName,
-    ...(conditions ? { conditions } : {}),
-  };
-}
-
-function unique(values: readonly string[]): string[] {
-  return [...new Set(values)];
-}
-
-async function mapWithConcurrency<T, R>(
-  values: readonly T[],
-  concurrency: number,
-  operation: (value: T) => Promise<R>,
-): Promise<R[]> {
-  const result = new Array<R>(values.length);
-  let next = 0;
-  const worker = async (): Promise<void> => {
-    while (next < values.length) {
-      const index = next;
-      next += 1;
-      result[index] = await operation(values[index]!);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, worker));
-  return result;
-}
-
-function aborted(signal: AbortSignal | undefined): Error | null {
-  if (!signal?.aborted) return null;
-  return signal.reason instanceof Error ? signal.reason : new Error("Telemetry read aborted");
 }
 
 export class HybridTelemetryReader {
@@ -318,6 +173,73 @@ export class HybridTelemetryReader {
       signal: query.signal,
       archiveRead: async () => (await this.#archive!.measurementHistory({ ...query, limit })).map(archivedMeasurement),
       key: measurementKey,
+      compare: compareMeasurements,
+    });
+  }
+
+  async thermalMeasurementHistory(
+    query: ThermalMeasurementHistoryQuery,
+  ): Promise<HybridTelemetryReadResult<MeasurementSample>> {
+    const metrics = unique(query.metrics);
+    const bucketMinutes = positiveLimit(query.bucketMinutes, 5, 60);
+    const limitPerMetric = positiveLimit(query.limitPerMetric, 5_000, 20_000);
+    if (metrics.length === 0) {
+      return this.#localOnly({
+        limit: 1,
+        local: [],
+        compare: compareMeasurements,
+      }, [], 0, true, "not-configured");
+    }
+    if (metrics.length > 5) throw new RangeError("thermal history supports at most 5 metrics");
+    let local: MeasurementSample[];
+    if (metrics.length === 1 && metrics[0] === "temperature" && this.#local.thermalTemperatureHistory) {
+      local = this.#local.thermalTemperatureHistory(
+        query.sensorId,
+        query.from,
+        query.to,
+        bucketMinutes,
+        limitPerMetric,
+      );
+    } else if (metrics.every((metric) => metric === "temperature" || metric === "humidity")
+      && this.#local.thermalClimateHistory) {
+      local = this.#local.thermalClimateHistory(
+        query.sensorId,
+        query.from,
+        query.to,
+        bucketMinutes,
+        limitPerMetric,
+      ).filter((sample) => new Set<string>(metrics).has(sample.metric));
+    } else {
+      local = bucketMeasurementSamples(
+        this.#local.measurementWindow(
+          [query.sensorId],
+          metrics,
+          query.from,
+          query.to,
+          MAX_WINDOW_LIMIT,
+        ).filter((sample) => sample.quality !== "stale" && sample.source !== "replay"),
+        bucketMinutes * 60,
+      );
+    }
+    return this.#read({
+      family: "measurement",
+      from: query.from,
+      to: query.to,
+      limit: limitPerMetric * metrics.length,
+      local,
+      signal: query.signal,
+      archiveRead: async () => {
+        if (!this.#archive!.thermalMeasurementHistory) {
+          throw new Error("Thermal archive reads are unavailable");
+        }
+        return (await this.#archive!.thermalMeasurementHistory({
+          ...query,
+          metrics,
+          bucketMinutes,
+          limitPerMetric,
+        })).map(archivedMeasurement);
+      },
+      key: (record) => JSON.stringify([record.sensorId, record.metric, record.timestamp]),
       compare: compareMeasurements,
     });
   }
@@ -444,6 +366,81 @@ export class HybridTelemetryReader {
     });
   }
 
+  async electricityPriceHistory(
+    query: ElectricityPriceHistoryQuery,
+  ): Promise<HybridTelemetryReadResult<PropertyElectricityPricePoint>> {
+    const limit = positiveLimit(query.limit, DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
+    const local = (this.#local.listPropertyElectricityPrices?.(query.propertyId, query.from, query.to) ?? [])
+      .map((record) => ({ ...record, source: "sqlite" }));
+    const result = await this.#read({
+      family: "electricity-price",
+      from: query.from,
+      to: query.to,
+      limit,
+      local,
+      signal: query.signal,
+      archiveRead: async () => this.#archive!.electricityPriceHistory
+        ? (await this.#archive!.electricityPriceHistory({ ...query, limit })).map(archivedElectricityPrice)
+        : [],
+      key: electricityPriceKey,
+      compare: compareElectricityPrices,
+    });
+    return {
+      records: result.records.map(({ source: _source, ...record }) => record),
+      provenance: result.provenance,
+    };
+  }
+
+  async openingStateHistory(
+    query: OpeningStateHistoryQuery,
+  ): Promise<HybridTelemetryReadResult<OpeningStateObservation>> {
+    const limit = positiveLimit(query.limit, DEFAULT_HISTORY_LIMIT, MAX_HISTORY_LIMIT);
+    const local = this.#local.listOpeningStateObservationHistory?.(
+      query.houseId,
+      query.from,
+      query.to,
+      limit,
+    ) ?? [];
+    return this.#read({
+      family: "opening-state",
+      from: query.from,
+      to: query.to,
+      limit,
+      local,
+      signal: query.signal,
+      archiveRead: async () => {
+        if (!this.#archive!.openingStateHistory) throw new Error("Opening-state archive reads are unavailable");
+        return (await this.#archive!.openingStateHistory({ ...query, limit })).map(archivedOpeningState);
+      },
+      key: openingStateKey,
+      compare: compareOpeningStates,
+    });
+  }
+
+  async openingStateSnapshot(
+    query: OpeningStateSnapshotQuery,
+  ): Promise<HybridTelemetryReadResult<OpeningStateObservation>> {
+    const limit = positiveLimit(query.limit, 10_000, MAX_HISTORY_LIMIT);
+    const local = this.#local.listOpeningStateObservations?.(query.houseId, limit, query.at) ?? [];
+    return this.#read({
+      family: "opening-state",
+      from: "1970-01-01T00:00:00.000Z",
+      to: query.at,
+      limit,
+      local,
+      signal: query.signal,
+      archiveRead: async () => {
+        if (!this.#archive!.openingStateSnapshot) throw new Error("Opening-state archive snapshots are unavailable");
+        return (await this.#archive!.openingStateSnapshot({ ...query, limit })).map(archivedOpeningState);
+      },
+      key: openingStateIdentityKey,
+      compare: compareOpeningStates,
+      mergeDuplicate: (archived, local) => (
+        archived.observedAt > local.observedAt ? archived : local
+      ),
+    });
+  }
+
   /**
    * Derived aggregates cannot be merged without double-counting the hot tail.
    * Use SQLite only when its requested measurement window is complete;
@@ -484,6 +481,8 @@ export class HybridTelemetryReader {
     archiveRead: () => Promise<T[]>;
     key: (record: T) => string;
     compare: (left: T, right: T) => number;
+    /** Defaults to the local record; snapshots can instead keep a newer archived state. */
+    mergeDuplicate?: (archived: T, local: T) => T;
   }): Promise<HybridTelemetryReadResult<T>> {
     const cancellation = aborted(input.signal);
     if (cancellation) throw cancellation;
@@ -513,7 +512,13 @@ export class HybridTelemetryReader {
     const archiveFilteredCount = archived.length - filteredArchive.length;
     const merged = new Map<string, T>();
     for (const record of filteredArchive) merged.set(input.key(record), record);
-    for (const record of filteredLocal) merged.set(input.key(record), record);
+    for (const record of filteredLocal) {
+      const key = input.key(record);
+      const existing = merged.get(key);
+      merged.set(key, existing && input.mergeDuplicate
+        ? input.mergeDuplicate(existing, record)
+        : record);
+    }
     const duplicates = filteredArchive.length + filteredLocal.length - merged.size;
     const records = [...merged.values()].sort(input.compare).slice(-input.limit);
     return {

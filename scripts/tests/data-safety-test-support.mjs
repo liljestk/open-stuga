@@ -95,8 +95,23 @@ export function createTelemetryFixture(path, {
       start_at TEXT NOT NULL,
       end_at TEXT NOT NULL,
       raw_price_cents_per_kwh REAL NOT NULL,
+      margin_cents_per_kwh REAL NOT NULL DEFAULT 0,
       fetched_at TEXT NOT NULL,
       PRIMARY KEY(property_id, start_at)
+    );
+    CREATE TABLE opening_state_observations (
+      id TEXT PRIMARY KEY,
+      house_id TEXT NOT NULL,
+      floor_id TEXT NOT NULL,
+      element_id TEXT NOT NULL,
+      state TEXT NOT NULL,
+      open_fraction REAL,
+      source TEXT NOT NULL,
+      observed_at TEXT NOT NULL,
+      valid_until TEXT,
+      external_id TEXT,
+      connection_id TEXT,
+      created_at TEXT NOT NULL
     );
     INSERT INTO measurement_samples
       (sensor_id, metric, value, canonical_unit, timestamp, source, quality)
@@ -109,9 +124,15 @@ export function createTelemetryFixture(path, {
       VALUES ('house-1', 'yard', '2026-07-18T10:00:00.000Z', 17.2, 'fmi-observation',
         '2026-07-18T10:01:00.000Z', 'station-1', 'Test station');
     INSERT INTO electricity_price_points
-      (property_id, start_at, end_at, raw_price_cents_per_kwh, fetched_at)
-      VALUES ('property-1', '2026-07-18T10:00:00.000Z', '2026-07-18T11:00:00.000Z', 6.4,
+      (property_id, start_at, end_at, raw_price_cents_per_kwh, margin_cents_per_kwh, fetched_at)
+      VALUES ('property-1', '2026-07-18T10:00:00.000Z', '2026-07-18T11:00:00.000Z', 6.4, 0.45,
         '2026-07-18T09:00:00.000Z');
+    INSERT INTO opening_state_observations
+      (id, house_id, floor_id, element_id, state, open_fraction, source, observed_at,
+       valid_until, external_id, connection_id, created_at)
+      VALUES ('opening-1', 'house-1', 'floor-1', 'door-1', 'open', 1, 'api',
+        '2026-07-18T10:00:00.000Z', NULL, 'binary_sensor.door', 'ha-1',
+        '2026-07-18T10:00:01.000Z');
   `);
   if (duplicateReading) {
     database.exec(`INSERT INTO readings

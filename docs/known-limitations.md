@@ -214,14 +214,14 @@ system described in the roadmap.
   search sends text to Open-Meteo geocoding. Device geolocation requests browser
   permission only after an explicit action; loading the map is a separate
   explicit action that sends tile requests from the browser.
-- Fresh outdoor temperature observations are persisted only in a separate,
-  location-isolated boundary table with opaque location keys, weather-location
-  change/clear erasure, and configured retention; other weather fields, stale
-  fallbacks, and forecasts are not historical observations. Within the retained
-  30-day scan window, provider-supported observation gaps are discovered and
-  backfilled into SQLite and TimescaleDB; recovery cannot exceed upstream
-  availability or the configured retention window. Moving or clearing the
-  independent map placement does not purge this history. Weather and fitted
+- Fresh outdoor observations are persisted with their available condition
+  metadata in a location-isolated TimescaleDB hypertable; SQLite keeps only the
+  crash-safe outbox/current projection after acknowledgement. Stale fallbacks
+  and forecasts are not historical observations. Within the retained 30-day
+  recovery scan window, provider-supported observation gaps are discovered and
+  backfilled through the SQLite outbox into TimescaleDB; recovery cannot exceed
+  upstream availability. Moving or clearing the independent map placement does
+  not purge this history. Weather and fitted
   models must not directly drive safety-critical HVAC, freeze protection,
   shutters, or alarms. See [Outdoor weather and home location](weather.md).
 - House orientation is a user-supplied bearing for the top of the plan, not a
@@ -342,10 +342,16 @@ system described in the roadmap.
   subscribes before hydrating, buffers intervening events, and refreshes the
   relevant snapshot/history after reconnects. Other clients must do the same.
 - MCP authorization is the ability to launch the local stdio process and access
-  its database; it does not use browser account sessions or Guest grants. The
-  current MCP surface is inspection-only and opens SQLite read-only. It cannot
+  its configured stores; it does not use browser account sessions or Guest grants. The
+  current MCP surface is inspection-only, opens SQLite read-only, and queries
+  TimeDB only for telemetry history. It cannot
   create, update, delete, import, migrate, share, synchronize, or control local
   state.
+- Raw JSON telemetry export and Stuguby historical/full-recovery publication do
+  not yet stream directly from TimeDB. Raw JSON export requires a verified
+  SQLite-plus-TimeDB backup whenever the archive owns history; Stuguby refuses
+  a request that exceeds the complete local cache rather than publishing a
+  truncated set as complete.
 - SQLite is the single-host store. Multi-process MCP/API access is appropriate
   for this scale but not a substitute for a multi-user database deployment.
 
@@ -393,11 +399,12 @@ system described in the roadmap.
   Compose now archives raw telemetry in TimescaleDB hypertables and maintains
   5-minute, 1-hour, and 1-day measurement rollups, but disk growth still needs
   monitoring and capacity headroom.
-- Raw samples are not deleted from TimescaleDB. `RETENTION_DAYS=0` keeps the
-  complete redundant SQLite copy; values of 30 or more enable guarded hot-copy
-  pruning only after the archive is caught up and clean. A full raw JSON export
-  after pruning is intentionally rejected; use the verified dual-database
-  backup until an archive-streaming export is added.
+- Raw Home telemetry is not deleted from TimescaleDB. With TimeDB enabled,
+  `RETENTION_DAYS=0` keeps only acknowledged current projections in SQLite;
+  values of 30 or more keep a guarded local cache. Compaction occurs only after
+  all five telemetry families are caught up and clean. A full raw JSON export
+  is still not archive-streaming; use the verified dual-database backup for a
+  complete recovery set.
 - Observation revisions are append-only while an observation exists, but
   permanent observation deletion also deletes its revision ledger. There is no
   soft-delete/legal-hold workflow; export evidence before deletion.

@@ -12,14 +12,37 @@ partition="$(findmnt --noheadings --output SOURCE --target "$persistent_mount")"
 partition="$(readlink -f "$partition")"
 parent_name="$(lsblk --noheadings --nodeps --output PKNAME "$partition" | xargs)"
 partition_number="$(lsblk --noheadings --nodeps --output PARTN "$partition" | xargs)"
+partition_label="$(lsblk --noheadings --nodeps --output PARTLABEL "$partition" | xargs)"
+filesystem_type="$(findmnt --noheadings --output FSTYPE --target "$persistent_mount")"
 
 if [[ -z "$parent_name" || ! "$partition_number" =~ ^[0-9]+$ ]]; then
   echo "Cannot identify the parent disk for $partition" >&2
   exit 1
 fi
+if [[ "$partition_label" != "persistent" || "$filesystem_type" != "ext4" ]]; then
+  echo "Refusing to grow unexpected persistent device $partition" >&2
+  exit 1
+fi
 
 disk="/dev/$parent_name"
+last_partition_number="$(
+  lsblk --list --noheadings --output PARTN "$disk" |
+    awk '$1 ~ /^[0-9]+$/ { last=$1 } END { print last }'
+)"
+if [[ "$partition_number" != "$last_partition_number" ]]; then
+  echo "$partition is not the final partition on $disk" >&2
+  exit 1
+fi
+
 echo "Expanding $partition on $disk to use the remaining storage"
+
+# Raw factory images carry their backup GPT at the original image boundary.
+# Move it to the physical end of the SSD before asking growpart to consume the
+# newly available sectors.
+partition_table_type="$(lsblk --noheadings --nodeps --output PTTYPE "$disk" | xargs)"
+if [[ "$partition_table_type" == "gpt" ]]; then
+  sgdisk --move-second-header "$disk"
+fi
 
 set +e
 grow_output="$(growpart "$disk" "$partition_number" 2>&1)"
@@ -35,4 +58,4 @@ fi
 udevadm settle
 resize2fs "$partition"
 touch "$marker_file"
-sync
+sync -f "$marker_file"

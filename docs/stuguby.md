@@ -163,6 +163,11 @@ inventory, supported operational records, assets, and recorded history.
 While that grant remains active, the designated recovery replica is not
 age-pruned; its configured retention value does not discard older transfer
 material before decommission.
+The publishing Stugu must still have a complete local SQLite cache for the
+requested initial history. Once TimeDB compaction owns older rows, creation or
+republication of a historical/full-recovery grant fails closed with
+`ARCHIVED_TELEMETRY_EXPORT_UNAVAILABLE`; archive-aware federation streaming is
+not implemented yet.
 Integration connections, provider/entity bindings, endpoints, credentials,
 secrets, controls, automations, and account identities are stripped. The new
 owner must configure integrations again.

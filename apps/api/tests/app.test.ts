@@ -112,6 +112,23 @@ describe("Climate Twin API v1", () => {
     }).retentionDays).toBe(30);
   });
 
+  it("refuses a SQLite-only raw export when zero-day TimeDB compaction owns history", async () => {
+    await runtime.close();
+    runtime = createApi({
+      config: loadConfig({
+        NODE_ENV: "test",
+        DATABASE_PATH: ":memory:",
+        TIMESERIES_ENABLED: "true",
+        RETENTION_DAYS: "0",
+      }),
+      startBackground: false,
+    });
+    const result = await request(runtime.app)
+      .get("/api/v1/data-export?includeTelemetry=true")
+      .expect(409);
+    expect(result.body.error.code).toBe("ARCHIVE_EXPORT_REQUIRES_BACKUP");
+  });
+
   it("loads database credentials from a file and validates TLS modes", () => {
     const directory = mkdtempSync(join(tmpdir(), "stugu-timeseries-config-"));
     const passwordPath = join(directory, "password");

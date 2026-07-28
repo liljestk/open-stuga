@@ -48,11 +48,19 @@ export function inventoryTelemetrySource(database) {
       const field = quoteSqliteIdentifier(column);
       return `CASE WHEN ${normalizedTimestampExpression(column)} IS NULL THEN 1 ELSE 0 END`;
     });
+    invalidDateTerms.push(...(specification.nullableDateColumns ?? []).map((column) => {
+      const field = quoteSqliteIdentifier(column);
+      return `CASE WHEN ${field} IS NOT NULL AND ${normalizedTimestampExpression(column)} IS NULL THEN 1 ELSE 0 END`;
+    }));
     const invalidTextTerms = specification.nonEmptyColumns.map((column) => {
       const field = quoteSqliteIdentifier(column);
       return `CASE WHEN ${field} IS NULL OR length(${field}) = 0 THEN 1 ELSE 0 END`;
     });
-    const invalidNumericTerms = specification.numericColumns.map(({ name, nullable }) => {
+    const numericColumns = [
+      ...specification.numericColumns,
+      ...(specification.optionalNumericColumns ?? []).filter(({ name }) => columns.includes(name)),
+    ];
+    const invalidNumericTerms = numericColumns.map(({ name, nullable }) => {
       const field = quoteSqliteIdentifier(name);
       const conditions = [`${field} >= 1e999`, `${field} <= -1e999`];
       if (!nullable) conditions.unshift(`${field} IS NULL`);
@@ -195,15 +203,19 @@ export function readManifest(path) {
   } catch (error) {
     throw new Error(`Cannot read migration checkpoint ${path}: ${error.message}`);
   }
-  if (parsed?.format !== "stugu-telemetry-migration" || ![1, MANIFEST_VERSION].includes(parsed?.version)) {
+  if (parsed?.format !== "stugu-telemetry-migration"
+    || !Number.isInteger(parsed?.version)
+    || parsed.version < 1
+    || parsed.version > MANIFEST_VERSION) {
     throw new Error(`Unsupported migration checkpoint format: ${path}`);
   }
-  if (parsed.version === 1) {
+  if (parsed.version < MANIFEST_VERSION) {
+    const fromVersion = parsed.version;
     parsed.version = MANIFEST_VERSION;
     parsed.checkpointUpgrade = {
-      fromVersion: 1,
+      fromVersion,
       upgradedAt: new Date().toISOString(),
-      reason: "Require and validate Timescale hypertables before resuming bulk import",
+      reason: "Refresh the complete telemetry inventory and destination schema before resuming bulk import",
     };
   }
   return parsed;
