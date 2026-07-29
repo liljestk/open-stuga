@@ -160,7 +160,15 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
   }
   assert.match(rootBinder, /active\/system/);
   assert.match(rootBinder, /other\/system/);
-  assert.match(rootBinder, /bootconfig\)[\s\S]*active_suffix="a"/);
+  assert.match(rootBinder, /bootconfig_active_suffix\(\)/);
+  assert.match(rootBinder, /STUGU_BOOTCONFIG_SLOT_FILE/);
+  assert.match(rootBinder, /stugu-active-slot/);
+  assert.match(rootBinder, /selected_suffix="a"/);
+  assert.match(rootBinder, /a\|b\) selected_suffix="\$requested_suffix"/);
+  assert.match(
+    rootBinder,
+    /bootconfig\)[\s\S]*active_suffix="\$\(bootconfig_active_suffix\)"/,
+  );
   assert.doesNotMatch(rootBinder, /ln -snf/);
   assert.match(rootBinder, /ln -sf "\$active_system_device"/);
   assert.match(rootBinder, /readlink "\$link_path"/);
@@ -192,9 +200,12 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
   assert.match(rescuePatch, /extraargs = "-s 4 -S <SECTOR_SIZE>"/);
   assert.match(rescuePatch, /mountpoint = "\/boot\/rescue-firmware"/);
   assert.match(rescuePatch, /cp -a "\$\{fs\}\/boot\/firmware\/\." "\$\{rescue_boot_dir\}\/"/);
+  assert.match(rescuePatch, /printf 'a\\n' > "\$\{rescue_boot_dir\}\/stugu-active-slot"/);
   assert.match(rescuePatch, /-      file "autoboot\.txt"/);
   assert.doesNotMatch(rescuePatch, /\+.*autoboot\.txt.*>|\+boot_partition=/);
   assert.doesNotMatch(layer, /rpi-connect-ota/);
+  assert.match(layer, /grep -qx 'auto_initramfs=1'/);
+  assert.doesNotMatch(layer, /kernel=kernel8\.img|initramfs initramfs8 followkernel/);
   assert.match(buildScript, /config core\.autocrlf false/);
   assert.match(buildScript, /config core\.filemode false/);
   assert.match(
@@ -283,8 +294,10 @@ test("factory builds fail closed unless Linux validates the complete SSD layout"
   assert.match(validator, /protective MBR does not contain a GPT 0xEE entry/);
   assert.match(validator, /96 \* 1024 \* 1024/);
   assert.match(validator, /bootconfig rescue contains autoboot\.txt and can firmware-loop/);
+  assert.match(validator, /bootconfig rescue does not default its direct boot to slot A/);
   assert.match(validator, /bootconfig rescue/);
-  assert.match(validator, /initramfs initramfs8 followkernel/);
+  assert.match(validator, /does not enable automatic initramfs loading/);
+  assert.match(validator, /unsafe explicit kernel\/initramfs override/);
   assert.match(validator, /2025-01-22 GPT autoboot partition-number fix/);
   assert.match(validator, /boot_a and boot_b differ/);
   assert.match(validator, /system_a and system_b differ/);

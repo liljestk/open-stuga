@@ -38,11 +38,44 @@ boot_device="${dev_root}/${boot_disk}${boot_partition}"
 [ -b "$boot_device" ] || exit 0
 boot_label="$(blkid -s PARTLABEL -o value "$boot_device" 2>/dev/null)" || exit 0
 
+bootconfig_active_suffix() {
+  selected_suffix="a"
+  marker_file="${STUGU_BOOTCONFIG_SLOT_FILE:-}"
+  marker_mount=""
+
+  if [ -z "$marker_file" ]; then
+    marker_mount="${STUGU_BOOTCONFIG_MOUNT:-/run/stugu-bootconfig}"
+    if mkdir -p "$marker_mount" &&
+      mount -t vfat -o ro "$boot_device" "$marker_mount" 2>/dev/null; then
+      marker_file="${marker_mount}/stugu-active-slot"
+    else
+      marker_mount=""
+    fi
+  fi
+
+  if [ -r "$marker_file" ]; then
+    requested_suffix=""
+    IFS= read -r requested_suffix < "$marker_file" || :
+    case "$requested_suffix" in
+      a|b) selected_suffix="$requested_suffix" ;;
+      *) echo "Stugu: ignoring invalid USB slot marker" >&2 ;;
+    esac
+  fi
+
+  if [ -n "$marker_mount" ]; then
+    umount "$marker_mount" 2>/dev/null ||
+      echo "Stugu: could not unmount temporary bootconfig view" >&2
+  fi
+
+  printf '%s\n' "$selected_suffix"
+}
+
 case "$boot_label" in
   bootconfig)
-    # The factory rescue partition boots slot A directly on USB bridges whose
-    # firmware cannot hand off from GPT autoboot to a second FAT partition.
-    active_suffix="a"
+    # Direct boot avoids firmware partition handoff failures on USB-SATA
+    # bridges. A one-line marker selects the matching system slot; missing or
+    # invalid markers fail closed to the factory A slot.
+    active_suffix="$(bootconfig_active_suffix)"
     ;;
   boot_a)
     active_suffix="a"

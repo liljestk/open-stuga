@@ -4,6 +4,15 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.19.9 - 2026-07-29
+
+- Restore Raspberry Pi firmware-managed kernel/initramfs pairing to prevent
+  seven-flash Pi 4 USB-SSD failures.
+- Select the immutable A/B root from a validated marker on the direct-boot
+  partition, failing safely to slot A without unreliable firmware handoff.
+- Validate the complete SSD layout and record the hardware recovery evidence
+  and release gate.
+
 ## 0.19.8 - 2026-07-29
 
 - Pin the Raspberry Pi update agent to the appliance's actual `stugu` Compose

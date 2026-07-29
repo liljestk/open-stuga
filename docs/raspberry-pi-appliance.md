@@ -18,8 +18,8 @@ not used because it boot-looped on supported USB-SATA bridges.
   system slots.
 - The first boot relocates the backup GPT and expands the final persistent
   partition and ext4 filesystem to fill the complete external disk.
-- A complete first-partition rescue payload always boots slot A directly,
-  avoiding Pi 4 USB partition handoff.
+- A complete first-partition rescue payload boots directly and selects slot A
+  by default from a validated marker, avoiding Pi 4 USB partition handoff.
 - Docker and containerd state are shared across both OS slots.
 - Stugu listens on the trusted LAN and Tailscale interfaces by default, while
   first-owner creation requires a device-generated setup link.
@@ -84,7 +84,7 @@ Do not skip this step. Every Stugu factory image boots its complete first FAT
 partition directly and rejects any `autoboot.txt` there. This is a release
 gate: redirecting that partition to itself loops, while redirecting to a later
 GPT FAT partition proved unreliable on the tested Pi 4 USB bridge. The build
-also validates current firmware and explicit kernel/initramfs filenames.
+also validates current firmware and automatic kernel/initramfs pairing.
 
 USB discovery and boot order are handled separately by the Pi 4 EEPROM. Update
 it to the current release and confirm that its boot order contains USB mode
@@ -187,7 +187,7 @@ The outputs are written to `dist/rpi/`:
 Before compression, the build validates the raw image with Linux `sfdisk` and
 `mtools`. It fails unless the protective MBR, GPT, six aligned/named
 partitions, filesystem signatures, current Pi firmware, complete rescue
-payload, explicit Pi 4 kernel/initramfs selection, and identical factory A/B
+payload, automatic kernel/initramfs pairing, and identical factory A/B
 slots are all valid.
 
 If supplied, the factory image contains the single-use Connect key, so it is
@@ -379,9 +379,10 @@ source after an ambiguous network failure until the target receipt is known.
   `/persistent/stugu/release-status`.
 - Seven green ACT flashes means the firmware did not find a kernel. Release
   0.18.3 and newer reject `autoboot.txt` on the complete first-partition rescue
-  boot and use explicit Pi 4 kernel/initramfs filenames. Repeated seven-flash
-  failures first point to an incomplete write, old EEPROM boot order, cable,
-  bridge, or power issue.
+  boot. Release 0.19.9 and newer also retain firmware-managed automatic
+  kernel/initramfs pairing and reject unsafe explicit overrides. Repeated
+  seven-flash failures first point to an incomplete write, old EEPROM boot
+  order, cable, bridge, or power issue.
   Some USB-SATA adapters work in bootloader mass-storage mode but fail when
   Linux selects UAS.
   `enable_uart=1` and `uart_2ndstage=1` are already set, so a 115200-baud

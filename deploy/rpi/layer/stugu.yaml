@@ -136,17 +136,10 @@ mmdebstrap:
       install -m 0644 "${IGconf_stugu_assetdir}/stugu-eeprom-compat.service" \
         "$1/etc/systemd/system/stugu-eeprom-compat.service"
 
-      # Pin the Pi 4 kernel and initramfs filenames in the direct rescue payload
-      # and both retained system slots.
-      sed -i 's/^auto_initramfs=1$/# auto_initramfs is replaced by the explicit Pi 4 entry below/' \
-        "$1/boot/firmware/config.txt"
-      cat >> "$1/boot/firmware/config.txt" <<-'EOF'
-
-      [pi4]
-      arm_64bit=1
-      kernel=kernel8.img
-      initramfs initramfs8 followkernel
-      EOF
+      # The Pi 4 USB rescue path boots this FAT payload directly. Keep the
+      # firmware's automatic kernel/initramfs pairing: explicit late [pi4]
+      # overrides produced repeatable seven-flash failures on the target SSD.
+      grep -qx 'auto_initramfs=1' "$1/boot/firmware/config.txt"
 
       cat > "$1/etc/systemd/system/systemd-networkd-wait-online.service.d/stugu-any-uplink.conf" <<-'EOF'
       [Service]

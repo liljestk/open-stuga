@@ -203,6 +203,12 @@ for partition, slot in zip(
     }
     if slot == "bootconfig rescue" and "autoboot.txt" in names:
         fail("bootconfig rescue contains autoboot.txt and can firmware-loop")
+    if slot == "bootconfig rescue":
+        active_slot = mtools(
+            "mtype", "-i", f"{image_path}@@{offset}", "::stugu-active-slot"
+        ).replace("\r\n", "\n").strip()
+        if active_slot != "a":
+            fail("bootconfig rescue does not default its direct boot to slot A")
     for required in ("config.txt", "start4.elf", "fixup4.dat"):
         if required not in names:
             fail(f"{slot} is missing {required}")
@@ -213,13 +219,15 @@ for partition, slot in zip(
     config = mtools(
         "mtype", "-i", f"{image_path}@@{offset}", "::config.txt"
     ).replace("\r\n", "\n")
-    for required_line in (
-        "arm_64bit=1",
-        "kernel=kernel8.img",
-        "initramfs initramfs8 followkernel",
+    config_lines = config.splitlines()
+    if "auto_initramfs=1" not in config_lines:
+        fail(f"{slot} config.txt does not enable automatic initramfs loading")
+    if any(
+        line.strip().startswith(("kernel=", "initramfs "))
+        for line in config_lines
+        if not line.lstrip().startswith("#")
     ):
-        if required_line not in config.splitlines():
-            fail(f"{slot} config.txt is missing {required_line!r}")
+        fail(f"{slot} config.txt contains an unsafe explicit kernel/initramfs override")
     cmdline = mtools(
         "mtype", "-i", f"{image_path}@@{offset}", "::cmdline.txt"
     ).replace("\r\n", "\n")
