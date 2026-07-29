@@ -54,6 +54,7 @@ Create options:
   --stuguby-identity <file> Persistent Stuguby node identity (default: STUGBY_IDENTITY_FILE or next to core DB)
   --tracking-secret-key <file> Key required to restore encrypted tracking endpoint identities
   --include-secrets        Opt in to copying the integration secrets file
+  --include-secrets-if-present Include the integration secrets file when it exists
   --secrets-file <file>    Secrets path (default: INTEGRATION_SECRETS_FILE or next to core DB)
   --include-timescale      Opt in to a pg_dump custom-format telemetry backup
   --schema <name>          Telemetry schema recorded for restore checks (default: telemetry)
@@ -121,11 +122,18 @@ export function timeseriesPasswordFromEnvironment(env) {
 }
 
 export function parseBackupArgs(argv, env = process.env, now = new Date()) {
-  const parsed = { help: false, includeSecrets: false, includeTimescale: false };
+  const parsed = {
+    help: false,
+    includeSecrets: false,
+    includeSecretsIfPresent: false,
+    includeTimescale: false,
+    quiescedSqlite: false,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "-h" || argument === "--help") parsed.help = true;
     else if (argument === "--include-secrets") parsed.includeSecrets = true;
+    else if (argument === "--include-secrets-if-present") parsed.includeSecretsIfPresent = true;
     else if (argument === "--include-timescale") parsed.includeTimescale = true;
     else if (argument === "--database") {
       parsed.database = argumentValue(argv, index, argument);
@@ -173,8 +181,11 @@ export function parseBackupArgs(argv, env = process.env, now = new Date()) {
 
   parsed.pgDump ??= "pg_dump";
   parsed.pgRestore ??= "pg_restore";
+  if (parsed.includeSecrets && parsed.includeSecretsIfPresent) {
+    throw new Error("Configure only one of --include-secrets or --include-secrets-if-present");
+  }
   if (parsed.verify !== undefined) {
-    const incompatible = parsed.includeSecrets || parsed.includeTimescale
+    const incompatible = parsed.includeSecrets || parsed.includeSecretsIfPresent || parsed.includeTimescale
       || parsed.database !== undefined || parsed.output !== undefined || parsed.assets !== undefined
       || parsed.spatialDatabase !== undefined || parsed.stugubyIdentityFile !== undefined || parsed.secretsFile !== undefined
       || parsed.trackingSecretKeyFile !== undefined
@@ -182,6 +193,13 @@ export function parseBackupArgs(argv, env = process.env, now = new Date()) {
     if (incompatible) throw new Error("--verify cannot be combined with backup creation options");
     parsed.verify = resolve(parsed.verify);
     return parsed;
+  }
+
+  if (env.STUGU_BACKUP_QUIESCED_SQLITE !== undefined) {
+    if (env.STUGU_BACKUP_QUIESCED_SQLITE !== "true") {
+      throw new Error("STUGU_BACKUP_QUIESCED_SQLITE must be exactly 'true' when enabled");
+    }
+    parsed.quiescedSqlite = true;
   }
 
   const databaseValue = parsed.database ?? env.DATABASE_PATH ?? "./data/climate-twin.sqlite";
@@ -209,6 +227,7 @@ export function parseBackupArgs(argv, env = process.env, now = new Date()) {
       ?? env.INTEGRATION_SECRETS_FILE
       ?? join(dirname(parsed.database), "integration-secrets.json"),
   );
+  if (parsed.includeSecretsIfPresent) parsed.includeSecrets = existsSync(parsed.secretsFile);
   parsed.schema ??= DEFAULT_SCHEMA;
   if (!/^[a-z_][a-z0-9_]*$/.test(parsed.schema)) {
     throw new Error("--schema must be a lowercase PostgreSQL identifier");

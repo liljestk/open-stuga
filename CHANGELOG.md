@@ -4,6 +4,15 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.19.3 - 2026-07-29
+
+- Read quiesced WAL-mode SQLite databases safely from read-only backup mounts
+  during cutover, while failing closed if a WAL sidecar remains.
+- Keep appliance maintenance locks writable by both root services and the
+  authenticated `stugu` migration user after clean boots and updates.
+- Allow clean-install safety backups without an integration-secrets file and
+  keep Timescale ownership validation compatible with non-interactive `psql`.
+
 ## 0.19.2 - 2026-07-29
 
 - Run appliance maintenance and migration jobs with the active last-known-good

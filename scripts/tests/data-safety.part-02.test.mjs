@@ -108,6 +108,61 @@ test("backup creates and re-verifies snapshots, assets, manifest, and opt-in fak
   }
 });
 
+test("quiesced backups safely read clean WAL-mode databases from a read-only mount", async (t) => {
+  const directory = temporaryDirectory(t);
+  const source = join(directory, "source.sqlite");
+  const writer = createTelemetryFixture(source);
+  writer.exec("PRAGMA journal_mode = WAL");
+  writer.close();
+
+  const spatial = join(directory, "spatial.sqlite");
+  const spatialWriter = new DatabaseSync(spatial);
+  spatialWriter.exec("PRAGMA journal_mode = WAL; CREATE TABLE layers (id TEXT PRIMARY KEY); INSERT INTO layers VALUES ('layer-1')");
+  spatialWriter.close();
+  assert.equal(existsSync(`${source}-wal`), false);
+  assert.equal(existsSync(`${spatial}-wal`), false);
+
+  const options = parseBackupArgs([
+    "--database", source,
+    "--output", join(directory, "backup"),
+    "--assets", join(directory, "missing-assets"),
+    "--spatial-db", spatial,
+  ], { STUGU_BACKUP_QUIESCED_SQLITE: "true" });
+  const manifest = await createBackup(options);
+  assert.equal(manifest.verification.status, "passed");
+  assert.ok(manifest.files.some(({ category }) => category === "spatial-sqlite"));
+
+  writeFileSync(`${spatial}-wal`, "unsafe pending WAL");
+  const unsafe = parseBackupArgs([
+    "--database", source,
+    "--output", join(directory, "unsafe-backup"),
+    "--assets", join(directory, "missing-assets"),
+    "--spatial-db", spatial,
+  ], { STUGU_BACKUP_QUIESCED_SQLITE: "true" });
+  await assert.rejects(createBackup(unsafe), /still has a -wal sidecar/u);
+  assert.throws(
+    () => parseBackupArgs([], { STUGU_BACKUP_QUIESCED_SQLITE: "1" }),
+    /must be exactly 'true'/u,
+  );
+});
+
+test("optional integration secrets are included only when present", (t) => {
+  const directory = temporaryDirectory(t);
+  const secret = join(directory, "integration-secrets.json");
+  const arguments_ = [
+    "--database", join(directory, "source.sqlite"),
+    "--include-secrets-if-present",
+    "--secrets-file", secret,
+  ];
+  assert.equal(parseBackupArgs(arguments_, {}).includeSecrets, false);
+  writeFileSync(secret, '{"version":1}\n');
+  assert.equal(parseBackupArgs(arguments_, {}).includeSecrets, true);
+  assert.throws(
+    () => parseBackupArgs([...arguments_, "--include-secrets"], {}),
+    /only one of --include-secrets/u,
+  );
+});
+
 test("backup refuses encrypted tracking endpoint identities without their restore key", async (t) => {
   const directory = temporaryDirectory(t);
   const source = join(directory, "source.sqlite");

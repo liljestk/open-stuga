@@ -388,8 +388,8 @@ test("Timescale recovery preserves roles and records fail-closed ownership valid
   assert.match(plan.preRestoreSql, /timescaledb_pre_restore/u);
   assert.equal(plan.restoreDrill.status, "not-performed");
   assert.match(plan.ownershipValidation.command, /validate-timescale-ownership\.sql/u);
-
   const sql = timescaleOwnershipValidationSql("telemetry", "stuga_app");
+  assert.doesNotMatch(sql, /^\\/mu);
   assert.match(sql, /timescaledb_information\.chunks/u);
   assert.match(sql, /timescaledb_information\.continuous_aggregates/u);
   assert.match(sql, /materialization_hypertable_schema/u);

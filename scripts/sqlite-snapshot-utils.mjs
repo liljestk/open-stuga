@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { pathToFileURL } from "node:url";
 
 let cachedWindowsSid;
 
@@ -89,11 +90,23 @@ export function quoteSqliteIdentifier(identifier) {
   return `"${identifier.replaceAll('"', '""')}"`;
 }
 
-export function openReadOnlySqlite(path) {
+function immutableSqliteTarget(absolute) {
+  for (const suffix of ["-wal", "-shm"]) {
+    const sidecar = `${absolute}${suffix}`;
+    if (existsSync(sidecar)) {
+      throw new Error(`Quiesced SQLite source still has a ${suffix} sidecar: ${sidecar}`);
+    }
+  }
+  const target = pathToFileURL(absolute);
+  target.searchParams.set("immutable", "1");
+  return target;
+}
+
+export function openReadOnlySqlite(path, { immutable = false } = {}) {
   const absolute = resolve(path);
   const details = statSync(absolute);
   if (!details.isFile()) throw new Error(`SQLite source is not a regular file: ${absolute}`);
-  const database = new DatabaseSync(absolute, { readOnly: true });
+  const database = new DatabaseSync(immutable ? immutableSqliteTarget(absolute) : absolute, { readOnly: true });
   database.exec("PRAGMA busy_timeout = 10000");
   return database;
 }
@@ -141,6 +154,7 @@ export async function createVerifiedSqliteSnapshot({
   destinationPath,
   fullSourceCheck = false,
   hashSource = true,
+  sourceImmutable = false,
 }) {
   const source = resolve(sourcePath);
   const destination = resolve(destinationPath);
@@ -154,7 +168,7 @@ export async function createVerifiedSqliteSnapshot({
 
   let sourceDatabase;
   try {
-    sourceDatabase = openReadOnlySqlite(source);
+    sourceDatabase = openReadOnlySqlite(source, { immutable: sourceImmutable });
     const sourceQuickCheck = assertSqliteCheck(sourceDatabase, "quick_check");
     const sourceIntegrityCheck = fullSourceCheck
       ? assertSqliteCheck(sourceDatabase, "integrity_check")
@@ -163,6 +177,7 @@ export async function createVerifiedSqliteSnapshot({
     // VACUUM INTO reads one consistent SQLite transaction, including committed WAL
     // pages, while never writing to the source database or its sidecar files.
     sourceDatabase.exec(`VACUUM INTO ${sqliteString(destination)}`);
+    if (sourceImmutable) immutableSqliteTarget(source);
     sourceDatabase.close();
     sourceDatabase = undefined;
     hardenPrivateFile(destination);
@@ -181,6 +196,7 @@ export async function createVerifiedSqliteSnapshot({
     } finally {
       snapshotDatabase.close();
     }
+    if (sourceImmutable) immutableSqliteTarget(source);
 
     return {
       source: await describeFile(source, { hash: hashSource }),

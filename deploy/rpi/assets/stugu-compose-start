@@ -29,6 +29,12 @@ install -d -m 0750 -o "$appliance_user" -g "$appliance_user" \
   "$state_dir/secrets/tapo-history-api" \
   "$state_dir/secrets/tapo-history-runner"
 
+# The service starts as root, while migration commands run as stugu. Keep one
+# shared inode so both callers coordinate through the same flock after boot.
+touch "$lock_file"
+chown root:"$appliance_user" "$lock_file"
+chmod 0660 "$lock_file"
+
 # Never boot application containers over a partially mutated migration. The
 # receipt is a write-ahead journal; an operator must finish rollback before the
 # service can expose SQLite, WAL sidecars, settings, or database names.

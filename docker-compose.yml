@@ -397,7 +397,7 @@ services:
       - --spatial-db
       - /app/data/experimental-spatial-layers.sqlite
       - --include-timescale
-      - --include-secrets
+      - --include-secrets-if-present
       - --secrets-file
       - /app/data/integration-secrets.json
     environment:

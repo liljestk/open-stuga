@@ -131,6 +131,7 @@ export async function createBackup(options, { afterCoreSnapshot } = {}) {
     sourcePath: options.database,
     destinationPath: coreDestination,
     hashSource: false,
+    sourceImmutable: options.quiescedSqlite,
   });
   await afterCoreSnapshot?.({ snapshotPath: coreDestination });
   const requiredStugubyBlobCount = await ensureSnapshotStugubyAssets(
@@ -161,6 +162,7 @@ export async function createBackup(options, { afterCoreSnapshot } = {}) {
       sourcePath: options.spatialDatabase,
       destinationPath: spatialDestination,
       hashSource: false,
+      sourceImmutable: options.quiescedSqlite,
     });
     manifest.files.push(describedFileRecord(options.output, spatial.snapshot, "spatial-sqlite"));
     manifest.sources.spatialDatabase = {

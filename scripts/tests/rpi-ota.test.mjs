@@ -405,7 +405,8 @@ test("the appliance exposes a health-gated migration receiver with rollback", as
     readFile(new URL("../../deploy/rpi/assets/stugu.env.example", import.meta.url), "utf8"),
     readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
   ]);
-  assert.match(control, /migration_tool intent[\s\S]*stugu-backup[\s\S]*stop_application_containers[\s\S]*migration_tool apply/);
+  assert.match(control, /migration_tool intent[\s\S]*target_safety_backup[\s\S]*stop_application_containers[\s\S]*migration_tool apply/);
+  assert.match(control, /target_safety_backup[\s\S]*test -f \/app\/data\/integration-secrets\.json/);
   assert.match(control, /migration_tool apply[\s\S]*authorize_pending_health_check[\s\S]*systemctl restart stugu\.service && expected_release_is_healthy[\s\S]*commit_healthy_migration/);
   assert.match(control, /migration_tool commit "\$migration_id" "\$version" "\$healthy_at"/);
   assert.match(control, /resume\)[\s\S]*commit_healthy_migration[\s\S]*systemctl restart stugu\.service/);
@@ -417,11 +418,14 @@ test("the appliance exposes a health-gated migration receiver with rollback", as
   assert.match(composeStart, /health-check-authorization/);
   assert.match(composeStart, /stuguctl migration resume/);
   assert.match(composeStart, /Refusing to start over incomplete migration receipt/);
+  assert.match(composeStart, /chown root:"\$appliance_user" "\$lock_file"[\s\S]*chmod 0660 "\$lock_file"/);
   assert.match(compose, /stugu-migration:[\s\S]*stugu-migration-target\.mjs/);
+  assert.match(compose, /--include-secrets-if-present/);
   assert.match(compose, /STUGA_MIGRATION_DIRECTORY[^\n]*:\/app\/migrations/);
   assert.match(compose, /stuga-timeseries-data:\/app\/timeseries-data:ro/);
   assert.match(environment, /STUGA_MIGRATION_DIRECTORY=\/persistent\/stugu\/migrations/);
   assert.match(layer, /STUGA_VERSION=\$\{IGconf_artefact_version\}/);
+  assert.match(layer, /stugu-lock\.conf/);
 });
 
 test("live cutover fails closed when target state is ambiguous", async () => {

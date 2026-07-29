@@ -63,6 +63,19 @@ compose() {
     "$@"
 }
 
+target_safety_backup() {
+  local -a arguments=(
+    --database /app/data/climate-twin.sqlite
+    --assets /app/data/assets
+    --spatial-db /app/data/experimental-spatial-layers.sqlite
+    --include-timescale
+  )
+  if compose exec --no-TTY api test -f /app/data/integration-secrets.json; then
+    arguments+=(--include-secrets --secrets-file /app/data/integration-secrets.json)
+  fi
+  compose --profile maintenance run --rm stugu-backup "${arguments[@]}"
+}
+
 usage() {
   cat <<'EOF'
 Usage: stuguctl <command>
@@ -274,7 +287,7 @@ case "${1:-}" in
         # Preserve the target's current state after a durable apply intent is
         # visible. An interrupted controller can no longer mistake a missing
         # receipt for proof that the target is idle.
-        if ! compose --profile maintenance run --rm stugu-backup; then
+        if ! target_safety_backup; then
           migration_tool rollback "$migration_id" || true
           flock -u 9
           sudo -n systemctl restart stugu.service || true

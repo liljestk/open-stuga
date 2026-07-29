@@ -36,6 +36,7 @@ import {
 import {
   assertRunningSourceVersion,
   assertTargetCapacity,
+  composeBackupArguments,
   effectiveSettingsFile,
   parseLiveMigrationArgs,
   safeSshTarget,
@@ -160,6 +161,17 @@ test("source runtime profiles migrate even when they were enabled outside .env",
     }, []),
     /Authoritative settings path is missing/u,
   );
+});
+
+test("cutover backups use quiesced immutable SQLite reads", () => {
+  const base = {
+    projectDirectory: "C:\\source",
+    composeFile: "docker-compose.yml",
+  };
+  const cutover = composeBackupArguments({ ...base, phase: "cutover" });
+  const seed = composeBackupArguments({ ...base, phase: "seed" });
+  assert.ok(cutover.includes("STUGU_BACKUP_QUIESCED_SQLITE=true"));
+  assert.equal(seed.includes("STUGU_BACKUP_QUIESCED_SQLITE=true"), false);
 });
 
 test("partial source quiescence failure restarts every service that was stopped", async () => {

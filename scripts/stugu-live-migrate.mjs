@@ -278,7 +278,7 @@ function backupDirectories(root) {
 async function createComposeBackup(options) {
   mkdirSync(options.backupRoot, { recursive: true });
   const before = new Set(backupDirectories(options.backupRoot));
-  const result = await run("docker", composeArguments(options, "--profile", "maintenance", "run", "--rm", "stugu-backup"), {
+  const result = await run("docker", composeBackupArguments(options), {
     cwd: options.projectDirectory,
     stream: true,
   });
@@ -287,6 +287,12 @@ async function createComposeBackup(options) {
   const selected = match ? resolve(options.backupRoot, match[1]) : candidates.sort((left, right) => statSync(right).mtimeMs - statSync(left).mtimeMs)[0];
   if (!selected || !existsSync(join(selected, "manifest.json"))) throw new Error("Compose backup completed but its verified output could not be located");
   return selected;
+}
+
+function composeBackupArguments(options) {
+  const quiesced = options.phase === "cutover" ? ["--env", "STUGU_BACKUP_QUIESCED_SQLITE=true"] : [];
+  const arguments_ = ["--profile", "maintenance", "run", "--rm", ...quiesced, "stugu-backup"];
+  return composeArguments(options, ...arguments_);
 }
 
 async function verifyBackupSidecar(backup) {
@@ -586,6 +592,7 @@ export {
   safeSshTarget,
   assertTargetCapacity,
   assertRunningSourceVersion,
+  composeBackupArguments,
   stopSourceWriters,
   uploadMissingChunks,
 };

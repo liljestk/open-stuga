@@ -105,8 +105,7 @@ export function timescaleDumpArguments(destination) {
 export function timescaleOwnershipValidationSql(schema, applicationRole) {
   const schemaLiteral = postgresLiteral(schema);
   const roleLiteral = postgresLiteral(applicationRole);
-  return `\\set ON_ERROR_STOP on
--- Run as the restore administrator after timescaledb_post_restore(). This is
+  return `-- Run as the restore administrator after timescaledb_post_restore(). This is
 -- validation only: role-preserving pg_dump/pg_restore is the ownership mechanism.
 DO $stuga_ownership$
 DECLARE
