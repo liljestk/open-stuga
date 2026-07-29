@@ -151,6 +151,7 @@ public struct TodayRecommendation: Equatable, Sendable {
         case weatherWarning
         case ventilation
         case electricity
+        case monitoring
     }
 
     public let kind: Kind
@@ -174,120 +175,5 @@ public struct TodayRecommendation: Equatable, Sendable {
         self.evidence = evidence
         self.startsAt = startsAt
         self.endsAt = endsAt
-    }
-
-    public static func evaluate(
-        conditions: [SensorCondition],
-        context: TodayContext?,
-        now: Date = Date()
-    ) -> TodayRecommendation? {
-        if let warning = context?.weather?.warnings.first(where: {
-            ["severe", "extreme"].contains($0.severity.lowercased())
-                && ($0.expiresAt.flatMap { StuguDateParser.date(from: $0) } ?? .distantFuture) > now
-        }) {
-            return TodayRecommendation(
-                kind: .weatherWarning,
-                title: warning.headline,
-                detail: "Review the official warning before planning outdoor work.",
-                evidence: context?.weather?.attribution ?? "Official weather warning"
-            )
-        }
-
-        if let weather = context?.weather,
-           !weather.stale,
-           let outdoor = weather.current,
-           let outdoorDewPoint = outdoor.dewPointC
-                ?? dewPoint(temperature: outdoor.temperatureC, humidity: outdoor.relativeHumidityPercent),
-           let indoor = highestMoistureCondition(conditions, now: now),
-           indoor.humidity >= 60,
-           indoor.dewPoint - outdoorDewPoint >= 2 {
-            return TodayRecommendation(
-                kind: .ventilation,
-                title: "Outdoor air is drier",
-                detail: "A short ventilation period may help reduce indoor moisture.",
-                evidence: String(
-                    format: "Highest indoor humidity %.0f%%; indoor dew point %.1f°C and outdoor %.1f°C. %@.",
-                    indoor.humidity,
-                    indoor.dewPoint,
-                    outdoorDewPoint,
-                    weather.attribution
-                )
-            )
-        }
-
-        if let energy = context?.energy,
-           let window = energy.suggestedWindows
-                .filter({
-                    $0.rank == "best"
-                        && (StuguDateParser.date(from: $0.endAt) ?? .distantPast) > now
-                        && $0.relativeToAveragePercent <= -5
-                })
-                .min(by: { $0.startAt < $1.startAt }),
-           let startsAt = StuguDateParser.date(from: window.startAt),
-           let endsAt = StuguDateParser.date(from: window.endAt) {
-            return TodayRecommendation(
-                kind: .electricity,
-                title: startsAt <= now ? "A cheaper electricity window is active" : "A cheaper electricity window is coming",
-                detail: "Consider moving flexible electricity use into this period.",
-                evidence: String(
-                    format: "%.2f c/kWh, %.0f%% below the available-period average. Read-only advice; Stugu controls nothing.",
-                    window.averagePriceCentsPerKwh,
-                    abs(window.relativeToAveragePercent)
-                ),
-                startsAt: startsAt,
-                endsAt: endsAt
-            )
-        }
-
-        return nil
-    }
-
-    private static func highestMoistureCondition(
-        _ conditions: [SensorCondition],
-        now: Date
-    ) -> (humidity: Double, dewPoint: Double)? {
-        conditions.compactMap { condition in
-            guard let temperatureSample = condition.measurements["temperature"],
-                  let humiditySample = condition.measurements["humidity"],
-                  temperatureSample.quality == "good",
-                  humiditySample.quality == "good",
-                  [.live, .aging].contains(
-                      ReadingFreshness.evaluate(
-                          sampleDate: temperatureSample.observedAt,
-                          now: now
-                      )
-                  ),
-                  [.live, .aging].contains(
-                      ReadingFreshness.evaluate(
-                          sampleDate: humiditySample.observedAt,
-                          now: now
-                      )
-                  ) else {
-                return nil
-            }
-            let temperature = temperatureSample.value
-            let humidity = humiditySample.value
-            guard let dewPoint = dewPoint(temperature: temperature, humidity: humidity),
-                  humidity >= 0,
-                  humidity <= 100 else {
-                return nil
-            }
-            return (humidity, dewPoint)
-        }.max(by: { $0.humidity < $1.humidity })
-    }
-
-    private static func dewPoint(temperature: Double?, humidity: Double?) -> Double? {
-        guard let temperature,
-              let humidity,
-              temperature.isFinite,
-              humidity.isFinite,
-              humidity > 0,
-              humidity <= 100 else {
-            return nil
-        }
-        let a = 17.62
-        let b = 243.12
-        let gamma = log(humidity / 100) + (a * temperature) / (b + temperature)
-        return (b * gamma) / (a - gamma)
     }
 }

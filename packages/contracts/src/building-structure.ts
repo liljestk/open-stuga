@@ -213,6 +213,65 @@ export function configuredPlanElementOpeningState(element: AirflowPlanElement): 
   };
 }
 
+const DEFAULT_OPENING_PROVIDER_STALE_SECONDS = 900;
+
+export function openingObservationMatchesElement(
+  element: AirflowPlanElement,
+  observation: OpeningStateObservation,
+): boolean {
+  if (observation.elementId !== element.id) return false;
+  if (observation.source !== "home-assistant" && observation.source !== "tapo") return true;
+  const binding = element.stateBinding;
+  return Boolean(
+    binding
+    && binding.provider === observation.source
+    && observation.externalId === binding.externalId
+    && (!binding.connectionId || observation.connectionId === binding.connectionId),
+  );
+}
+
+export function openingObservationEffectiveUntil(
+  observation: OpeningStateObservation,
+  binding: OpeningStateBinding | undefined,
+  nextObservationAt = Number.POSITIVE_INFINITY,
+): number {
+  const observedAt = Date.parse(observation.observedAt);
+  if (!Number.isFinite(observedAt)) return Number.NaN;
+  const declared = observation.validUntil === undefined
+    ? Number.POSITIVE_INFINITY
+    : Date.parse(observation.validUntil);
+  if (observation.validUntil !== undefined && !Number.isFinite(declared)) return observedAt;
+  const providerExpiry = observation.source === "home-assistant" || observation.source === "tapo"
+    ? observedAt + Math.max(
+        1,
+        binding?.staleAfterSeconds ?? DEFAULT_OPENING_PROVIDER_STALE_SECONDS,
+      ) * 1_000
+    : Number.POSITIVE_INFINITY;
+  return Math.min(declared, providerExpiry, nextObservationAt);
+}
+
+export function openingObservationState(
+  observation: OpeningStateObservation,
+  binding: OpeningStateBinding | undefined,
+): OpeningState {
+  if (!binding?.invert || observation.state === "unknown") return observation.state;
+  return observation.state === "open" ? "closed" : "open";
+}
+
+export function isOpeningObservationEffectiveAt(
+  observation: OpeningStateObservation,
+  binding: OpeningStateBinding | undefined,
+  at: string | number | Date,
+): boolean {
+  const atMs = at instanceof Date ? at.getTime() : typeof at === "number" ? at : Date.parse(at);
+  const observedAt = Date.parse(observation.observedAt);
+  const effectiveUntil = openingObservationEffectiveUntil(observation, binding);
+  return Number.isFinite(atMs)
+    && Number.isFinite(observedAt)
+    && observedAt <= atMs
+    && atMs < effectiveUntil;
+}
+
 /** Resolves the latest valid observation, then falls back to the configured/manual state. */
 export function resolvePlanElementOpeningState(
   element: AirflowPlanElement,
@@ -223,28 +282,13 @@ export function resolvePlanElementOpeningState(
   const fallback = configuredPlanElementOpeningState(element);
   if (!Number.isFinite(atMs) || fixedPlanElementOpeningState(element) !== null) return fallback;
   const candidate = observations
-    .filter((observation) => observation.elementId === element.id)
-    .filter((observation) => {
-      const observedAt = Date.parse(observation.observedAt);
-      if (!Number.isFinite(observedAt) || observedAt > atMs) return false;
-      if (observation.validUntil) {
-        const validUntil = Date.parse(observation.validUntil);
-        if (!Number.isFinite(validUntil) || validUntil <= atMs) return false;
-      }
-      if (observation.source === "home-assistant" || observation.source === "tapo") {
-        if (!element.stateBinding || element.stateBinding.provider !== observation.source) return false;
-        if (!observation.externalId || observation.externalId !== element.stateBinding.externalId) return false;
-        if (element.stateBinding.connectionId && observation.connectionId !== element.stateBinding.connectionId) return false;
-        if (atMs - observedAt > (element.stateBinding.staleAfterSeconds ?? 900) * 1_000) return false;
-      }
-      return true;
-    })
+    .filter((observation) => openingObservationMatchesElement(element, observation))
+    .filter((observation) => isOpeningObservationEffectiveAt(observation, element.stateBinding, atMs))
     .sort((left, right) => Date.parse(right.observedAt) - Date.parse(left.observedAt) || right.id.localeCompare(left.id))[0];
   // Unknown is an explicit loss-of-confidence event. It masks older readings
   // instead of allowing a previous open state to remain effective.
   if (!candidate || candidate.state === "unknown") return fallback;
-  const invert = (candidate.source === "home-assistant" || candidate.source === "tapo") && element.stateBinding?.invert;
-  const observedState = invert ? (candidate.state === "open" ? "closed" : "open") : candidate.state;
+  const observedState = openingObservationState(candidate, element.stateBinding);
   const state = observedState as ConfiguredOpeningState;
   return {
     state,

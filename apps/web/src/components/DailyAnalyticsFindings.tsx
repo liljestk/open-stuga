@@ -65,12 +65,13 @@ export function DailyAnalyticsFindings(props: Readonly<DailyAnalyticsFindingsPro
   }, [props.house.id, props.refreshRevision, retryRevision, t]);
 
   useEffect(() => {
-    if (response?.status.state !== "pending") return;
+    if (!["pending", "stale-algorithm"].includes(response?.status.state ?? "")) return;
     const timer = setTimeout(() => setRetryRevision((value) => value + 1), 15_000);
     return () => clearTimeout(timer);
   }, [response?.status.state, retryRevision]);
 
-  const snapshot = response?.snapshot ?? null;
+  const staleAlgorithm = response?.status.state === "stale-algorithm";
+  const snapshot = staleAlgorithm ? null : response?.snapshot ?? null;
   const primaryFindings = snapshot?.findings.slice(0, PRIMARY_FINDING_COUNT) ?? [];
   const remainingFindings = snapshot?.findings.slice(PRIMARY_FINDING_COUNT) ?? [];
   const periodName = useMemo(() => snapshot
@@ -184,6 +185,10 @@ export function DailyAnalyticsFindings(props: Readonly<DailyAnalyticsFindingsPro
     </div>}
     {response?.status.state === "failed" && <div className="inline-warning" role="status">
       <strong>{t("analytics.findingsRunFailed")}</strong><span>{t("analytics.findingsRunFailedHelp")}</span>
+    </div>}
+    {staleAlgorithm && <div className="inline-warning" role="status" aria-live="polite">
+      <strong>{t("analytics.findingsUpdatingTitle")}</strong>
+      <span>{t("analytics.findingsUpdatingBody")}</span>
     </div>}
 
     {snapshot && <>

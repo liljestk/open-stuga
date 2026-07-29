@@ -105,7 +105,10 @@ import { SystemUpdateError, SystemUpdateService } from "../system-updates.js";
 import { LocationDiscoveryService } from "../location-discovery.js";
 import { AutomaticWeatherProvider, OpenMeteoWeatherProvider, prefersFmi } from "../open-meteo.js";
 import { WeatherMonitor } from "../weather-monitor.js";
-import { DailyAnalyticsFindingsWorker } from "../daily-analytics-findings.js";
+import {
+  DAILY_ANALYTICS_ALGORITHM_VERSION,
+  DailyAnalyticsFindingsWorker,
+} from "../daily-analytics-findings.js";
 import { WeatherRecoveryCoordinator } from "../weather-recovery.js";
 import { SensorGapRecoveryCoordinator } from "../sensor-gap-recovery.js";
 import {
@@ -170,6 +173,7 @@ import {
   parseAnalyticsQueryRequest,
 } from "../analytics.js";
 import { buildAnalyticsResponseFromRollup, planAnalyticsRollup } from "../analytics-rollup.js";
+import { executeAnalyticsQuery } from "../analytics/query/execute.js";
 import { loadOrCreateStugubyNodeKeys } from "../stuguby/identity.js";
 import { registerStugubyLocalRoutes, registerStugubyProtocolRoutes } from "../stuguby/routes.js";
 import { StugubyError, StugubyService } from "../stuguby/service.js";
@@ -201,13 +205,29 @@ export function configureApiPart10(context: ReturnType<typeof configureApiPart09
       }
       const dataMode = context.database.isRealDataMode() ? "live" : "demo";
       const stored = context.database.dailyAnalyticsFindings(house.id, dataMode);
+      const staleAlgorithm = Boolean(
+        stored?.snapshot
+        && stored.snapshot.algorithmVersion !== DAILY_ANALYTICS_ALGORITHM_VERSION,
+      );
       response.setHeader("cache-control", "no-store");
       response.json({
         snapshot: stored?.snapshot ?? null,
         status: {
-          state: stored?.lastError ? "failed" : stored?.snapshot ? "ready" : "pending",
+          state: stored?.lastError
+            ? "failed"
+            : staleAlgorithm
+              ? "stale-algorithm"
+              : stored?.snapshot
+                ? "ready"
+                : "pending",
           lastAttemptAt: stored?.lastAttemptAt ?? null,
           lastError: stored?.lastError ?? null,
+          ...(staleAlgorithm && stored?.snapshot
+            ? {
+                expectedAlgorithmVersion: DAILY_ANALYTICS_ALGORITHM_VERSION,
+                actualAlgorithmVersion: stored.snapshot.algorithmVersion,
+              }
+            : {}),
         },
       });
     });
@@ -305,50 +325,15 @@ export function configureApiPart10(context: ReturnType<typeof configureApiPart09
           if (!definition) throw new AnalyticsQueryError(404, "UNKNOWN_ANALYTICS_MEASUREMENT", `Unknown measurement: ${metric}`);
           return definition;
         });
-        const entities = sensors.map((sensor) => ({ id: sensor.id, label: sensor.name }));
-        const rollupPlan = planAnalyticsRollup({
+        const result = await executeAnalyticsQuery({
           request: analyticsRequest,
+          sensors,
           definitions,
-          entities,
+          telemetryReader: context.telemetryReader,
+          generatedAt: new Date().toISOString(),
         });
-        if (rollupPlan) {
-          const rollup = await context.telemetryReader.measurementAnalyticsRollup(rollupPlan);
-          if (rollup) {
-            response.setHeader("cache-control", "no-store");
-            response.json(buildAnalyticsResponseFromRollup({
-              request: analyticsRequest,
-              definitions,
-              entities,
-              rollup: rollup.result,
-              archiveState: rollup.archiveState,
-            }));
-            return;
-          }
-        }
-        const read = await context.telemetryReader.measurementWindow({
-          sensorIds: sensors.map((sensor) => sensor.id),
-          metrics: definitions.map((definition) => definition.id),
-          from: analyticsRequest.range.start,
-          // The shared telemetry readers use inclusive upper bounds, while an
-          // analytics range is [start, end) so adjacent requests never overlap.
-          to: new Date(Date.parse(analyticsRequest.range.end) - 1).toISOString(),
-          limit: 250_000,
-        });
-        if (read.records.length >= 250_000) {
-          throw new AnalyticsQueryError(
-            422,
-            "ANALYTICS_SOURCE_POINT_LIMIT_EXCEEDED",
-            "The source window reached the 250000-point interactive limit; choose a shorter range or fewer series",
-          );
-        }
         response.setHeader("cache-control", "no-store");
-        response.json(buildAnalyticsResponse({
-          request: analyticsRequest,
-          samples: read.records,
-          definitions,
-          entities,
-          archiveState: read.provenance.archiveState,
-        }));
+        response.json(result);
       } catch (error) {
         if (error instanceof AnalyticsQueryError) throw new HttpError(error.status, error.code, error.message);
         if (error instanceof IncompleteTelemetryHistoryError) {

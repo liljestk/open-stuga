@@ -390,8 +390,8 @@ describe("EnergyPage", () => {
     const secondPower = powerHistory(second.id, 180, 200);
     state.sensors = [first, second];
     state.latestMeasurements = {
-      [first.id]: { power: firstPower.at(-1)!, energy: firstEnergy.at(-1)! },
-      [second.id]: { power: secondPower.at(-1)!, energy: secondEnergy.at(-1)! },
+      [first.id]: { energy: firstEnergy.at(-1)! },
+      [second.id]: { energy: secondEnergy.at(-1)! },
     };
     state.measurementHistory = {
       [first.id]: { power: firstPower, energy: firstEnergy },
@@ -416,6 +416,12 @@ describe("EnergyPage", () => {
     expect(within(energyCard).getByText("2 of 2 sensors combined")).not.toBeNull();
     expect(await screen.findByText("3.50 €")).not.toBeNull();
     await waitFor(() => expect(costRequest).toHaveBeenCalledTimes(2));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Running cost interval" }), "1h");
+    await waitFor(() => expect(costRequest).toHaveBeenCalledTimes(4));
+    const hourlyCalls = costRequest.mock.calls.slice(-2);
+    expect(new Set(hourlyCalls.map((call) => call[1]))).toEqual(new Set([first.id, second.id]));
+    hourlyCalls.forEach((call) => expect(Date.parse(call[3]) - Date.parse(call[2])).toBe(3_600_000));
+    expect(await screen.findByText("3.50 €")).not.toBeNull();
     expect(screen.getByRole("button", { name: "Combined" }).getAttribute("aria-pressed")).toBe("true");
     expect(view.container.querySelectorAll(".sensor-aggregate-line")).toHaveLength(1);
 

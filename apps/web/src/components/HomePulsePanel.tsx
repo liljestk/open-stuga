@@ -1,12 +1,26 @@
 import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, Eye, EyeOff, Gauge, RadioTower, Sparkles } from "lucide-react";
-import type { AlertEvent, AlertRule, House, HouseWeather, Sensor } from "@climate-twin/contracts";
+import type {
+  AlertEvent,
+  AlertRule,
+  HomeInsight,
+  HomeMonitoringDetailResponse,
+  HomePulseStatus,
+  House,
+  HouseWeather,
+  Sensor,
+} from "@climate-twin/contracts";
 import { useEffect, useMemo, useRef, useState, type Ref } from "react";
-import { deriveHomePulse, type HomeInsight, type HomePulseStatus } from "../homeInsights";
+import { useHomeMonitoringQuery } from "../data/analytics/homeMonitoringQuery";
 import { useI18n, type Locale, type TranslationKey } from "../i18n";
 import type { LatestMeasurements, MeasurementHistory } from "../measurements";
 
 type Translate = (key: TranslationKey, values?: Record<string, string | number>) => string;
-type DisplayInsight = Pick<HomeInsight, "title" | "summary" | "action" | "evidence">;
+interface DisplayInsight {
+  title: string;
+  summary: string;
+  action: string;
+  evidence: HomeInsight["evidence"];
+}
 
 interface HomePulsePanelProps {
   house: House;
@@ -17,6 +31,8 @@ interface HomePulsePanelProps {
   alertRules: AlertRule[];
   weather: HouseWeather | null;
   referenceTime: number;
+  dataMode?: "demo" | "real" | "unknown";
+  monitoring?: HomeMonitoringDetailResponse;
   onOpenTarget: (floorId: string, sensorId: string) => void;
   onOpenSetup?: () => void;
   setupDestination?: "connections" | "sensors";
@@ -99,7 +115,6 @@ function localizedEvidenceLabel(label: string, t: Translate): string {
 }
 
 export function displayHomeInsight(insight: HomeInsight, locale: Locale, t: Translate): DisplayInsight {
-  if (locale !== "fi") return insight;
   const room = insight.target.room || insight.target.sensorName || t("decision.thisHome");
   const evidence = insight.evidence.map((item) => ({
     ...item,
@@ -111,7 +126,7 @@ export function displayHomeInsight(insight: HomeInsight, locale: Locale, t: Tran
   if (insight.kind === "active-alert") {
     return translated(
       t("decision.insight.alert.title", { severity: t(`decision.severity.${insight.severity}`), room }),
-      t(insight.summary.includes("acknowledged") ? "decision.insight.alert.summaryAcknowledged" : "decision.insight.alert.summaryOpen"),
+      t(insight.parameters.acknowledged ? "decision.insight.alert.summaryAcknowledged" : "decision.insight.alert.summaryOpen"),
       t("decision.insight.alert.action", { room }),
     );
   }
@@ -211,21 +226,19 @@ function InsightCard({ insight, onOpen, onHide, summaryRef, allowOpen = true }: 
 
 export function HomePulsePanel(props: HomePulsePanelProps) {
   const { locale, t } = useI18n();
-  const pulse = useMemo(() => deriveHomePulse({
-    house: props.house,
-    sensors: props.sensors,
-    latestMeasurements: props.latestMeasurements,
-    measurementHistory: props.measurementHistory,
-    alerts: props.alerts,
-    alertRules: props.alertRules,
-    outdoor: props.weather ? {
-      current: props.weather.current,
-      stale: props.weather.stale,
-      warnings: props.weather.warnings,
-    } : null,
-    referenceTime: props.referenceTime,
-    maxInsights: 8,
-  }), [props.house, props.sensors, props.latestMeasurements, props.measurementHistory, props.alerts, props.alertRules, props.weather, props.referenceTime]);
+  const monitoring = props.monitoring;
+  const pulse = useMemo(() => ({
+    status: monitoring?.house.pulseStatus ?? "unknown" as HomePulseStatus,
+    coverage: monitoring?.house.coverage ?? {
+      enabledSensors: props.sensors.filter((sensor) => sensor.enabled).length,
+      freshSensors: 0,
+      estimatedSensors: 0,
+      agingSensors: 0,
+      staleSensors: 0,
+      sensorsWithoutData: props.sensors.filter((sensor) => sensor.enabled).length,
+    },
+    insights: monitoring?.insights ?? [],
+  }), [monitoring, props.sensors]);
   const [hiddenInsightFingerprints, setHiddenInsightFingerprints] = useState(() => readHiddenInsights(props.house.id));
   const [focusTarget, setFocusTarget] = useState<{ kind: "hidden" } | { kind: "insight"; fingerprint: string } | null>(null);
   const hiddenSummaryRef = useRef<HTMLElement>(null);
@@ -326,4 +339,17 @@ export function HomePulsePanel(props: HomePulsePanelProps) {
       </details>
     </section>
   );
+}
+
+export function HomePulsePanelData(props: HomePulsePanelProps) {
+  const mode = props.dataMode === "real" ? "live" as const : "demo" as const;
+  const monitoringQuery = useHomeMonitoringQuery(
+    props.house.id,
+    mode,
+    props.dataMode !== "unknown",
+  );
+  return <HomePulsePanel
+    {...props}
+    {...(monitoringQuery.data ? { monitoring: monitoringQuery.data } : {})}
+  />;
 }

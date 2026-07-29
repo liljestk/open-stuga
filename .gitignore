@@ -23,6 +23,8 @@ pnpm-debug.log*
 
 # Runtime data and temporary files
 data/
+!apps/web/src/data/
+!apps/web/src/data/**
 backups/
 .tmp-runtime/
 tmp/

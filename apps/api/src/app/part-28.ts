@@ -249,6 +249,7 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
       context.removeSnapshotMeasurementWake();
       context.removeNotificationWake();
       context.removeSpatialLayerWake();
+      context.removeAnalyticsCacheWake?.();
       context.removeWeatherTelemetryBridge();
       context.removeWeatherProjector();
       context.closePromise = beginShutdown().then(() => { context.database.close(); });

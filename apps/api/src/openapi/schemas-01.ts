@@ -168,10 +168,128 @@ export const schemasPart01 = {
           properties: {
             snapshot: { oneOf: [{ $ref: "#/components/schemas/DailyAnalyticsFindingsSnapshot" }, { type: "null" }] },
             status: { type: "object", additionalProperties: false, required: ["state", "lastAttemptAt", "lastError"], properties: {
-              state: { enum: ["pending", "ready", "failed"] },
+              state: { enum: ["pending", "ready", "failed", "stale-algorithm"] },
               lastAttemptAt: { type: ["string", "null"], format: "date-time" },
               lastError: { type: ["string", "null"] },
+              expectedAlgorithmVersion: { type: "string" },
+              actualAlgorithmVersion: { type: "string" },
             } },
+          },
+        },
+  DerivedAnalyticsWarning: {
+          type: "object", additionalProperties: false, required: ["code", "message"],
+          properties: {
+            code: { type: "string" },
+            message: { type: "string" },
+            details: { type: "object", additionalProperties: true },
+          },
+        },
+  DerivedAnalyticsProvenance: {
+          type: "object", additionalProperties: false,
+          required: ["algorithmKey", "algorithmVersion", "evaluatedAt", "sourceIds", "archiveState"],
+          properties: {
+            algorithmKey: { type: "string" },
+            algorithmVersion: { type: "string" },
+            evaluatedAt: { type: "string", format: "date-time" },
+            sourceIds: { type: "array", uniqueItems: true, items: { type: "string" } },
+            archiveState: { enum: ["not-configured", "not-ready", "merged", "failed"] },
+          },
+        },
+  OpeningActivityRequest: {
+          type: "object", additionalProperties: false,
+          required: ["apiVersion", "requestId", "houseId", "dataMode", "range"],
+          properties: {
+            apiVersion: { const: "1.0" },
+            requestId: { type: "string", minLength: 1, maxLength: 200 },
+            houseId: { type: "string", minLength: 1, maxLength: 200 },
+            dataMode: { enum: ["live", "demo"] },
+            range: {
+              type: "object", additionalProperties: false, required: ["start", "end"],
+              properties: {
+                start: { type: "string", format: "date-time" },
+                end: { type: "string", format: "date-time" },
+              },
+            },
+            elementIds: {
+              type: "array", maxItems: 500, uniqueItems: true,
+              items: { type: "string", minLength: 1, maxLength: 200 },
+            },
+          },
+        },
+  OpeningActivityTarget: {
+          type: "object", additionalProperties: false,
+          required: ["key", "floorId", "floorName", "elementId", "kind", "label", "ordinal"],
+          properties: {
+            key: { type: "string" },
+            floorId: { type: "string" },
+            floorName: { type: "string" },
+            elementId: { type: "string" },
+            kind: { enum: ["door", "window"] },
+            label: { type: ["string", "null"] },
+            ordinal: { type: "integer", minimum: 1 },
+          },
+        },
+  OpeningActivitySeries: {
+          type: "object", additionalProperties: false,
+          required: ["target", "segments", "records", "observationCount", "openedCount", "closedCount", "confirmedOpenMs", "longestOpenMs", "currentState", "currentSince", "lastObservedAt"],
+          properties: {
+            target: { $ref: "#/components/schemas/OpeningActivityTarget" },
+            segments: {
+              type: "array",
+              items: {
+                type: "object", additionalProperties: false, required: ["state", "startedAt", "endedAt"],
+                properties: {
+                  state: { enum: ["open", "closed"] },
+                  startedAt: { type: "string", format: "date-time" },
+                  endedAt: { type: "string", format: "date-time" },
+                },
+              },
+            },
+            records: {
+              type: "array",
+              items: {
+                type: "object", additionalProperties: false, required: ["id", "observedAt", "state", "source", "transition"],
+                properties: {
+                  id: { type: "string" },
+                  observedAt: { type: "string", format: "date-time" },
+                  state: { enum: ["open", "closed", "unknown"] },
+                  source: { enum: ["manual", "home-assistant", "tapo", "api"] },
+                  transition: { enum: ["opened", "closed", "unknown", "initial"] },
+                },
+              },
+            },
+            observationCount: { type: "integer", minimum: 0 },
+            openedCount: { type: "integer", minimum: 0 },
+            closedCount: { type: "integer", minimum: 0 },
+            confirmedOpenMs: { type: "number", minimum: 0 },
+            longestOpenMs: { type: "number", minimum: 0 },
+            currentState: { enum: ["open", "closed", "unknown"] },
+            currentSince: { type: ["string", "null"], format: "date-time" },
+            lastObservedAt: { type: ["string", "null"], format: "date-time" },
+          },
+        },
+  OpeningActivityResponse: {
+          type: "object", additionalProperties: false,
+          required: ["apiVersion", "requestId", "houseId", "dataMode", "range", "generatedAt", "complete", "truncated", "archiveState", "series", "warnings", "provenance"],
+          properties: {
+            apiVersion: { const: "1.0" },
+            requestId: { type: "string" },
+            houseId: { type: "string" },
+            dataMode: { enum: ["live", "demo"] },
+            range: {
+              type: "object", additionalProperties: false, required: ["start", "end"],
+              properties: {
+                start: { type: "string", format: "date-time" },
+                end: { type: "string", format: "date-time" },
+              },
+            },
+            generatedAt: { type: "string", format: "date-time" },
+            complete: { type: "boolean" },
+            truncated: { type: "boolean" },
+            archiveState: { enum: ["not-configured", "not-ready", "merged", "failed"] },
+            series: { type: "array", items: { $ref: "#/components/schemas/OpeningActivitySeries" } },
+            warnings: { type: "array", items: { $ref: "#/components/schemas/DerivedAnalyticsWarning" } },
+            provenance: { $ref: "#/components/schemas/DerivedAnalyticsProvenance" },
           },
         },
   AnalyticsProvenance: {

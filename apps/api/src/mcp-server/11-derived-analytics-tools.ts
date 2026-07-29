@@ -1,0 +1,251 @@
+import type {
+  AnalyticsAggregation,
+  AnalyticsSampleQuality,
+  CalendarComparisonRequest,
+} from "@climate-twin/contracts";
+import { compareCalendarPeriods } from "../analytics/calendar-comparison/service.js";
+import { getHomePerformance } from "../analytics/home-performance/service.js";
+import {
+  getHomeMonitoringCollection,
+  getHomeMonitoringDetail,
+} from "../analytics/home-monitoring/service.js";
+import { requireMcpHouse, requireMcpHouseSensor } from "../mcp-validation.js";
+import {
+  dataMode,
+  database,
+  objectArguments,
+  optionalString,
+  requiredString,
+  status,
+  telemetryReader,
+} from "./01-config-to-get-house-weather.js";
+
+const aggregations = new Set<AnalyticsAggregation>([
+  "default",
+  "mean",
+  "sum",
+  "delta",
+  "last",
+  "time_weighted_mean",
+  "min",
+  "max",
+]);
+const units = new Set(["day", "week", "month", "year", "decade"]);
+const qualities = new Set<AnalyticsSampleQuality>(["good", "estimated", "stale"]);
+
+function stringList(
+  value: unknown,
+  field: string,
+  maximum: number,
+  fallback?: string[],
+): string[] {
+  if (value === undefined && fallback) return fallback;
+  if (!Array.isArray(value)
+    || value.length === 0
+    || value.length > maximum
+    || value.some((item) => typeof item !== "string"
+      || item.trim().length === 0
+      || item.length > 200)) {
+    throw new Error(`${field} must contain between 1 and ${maximum} identifiers`);
+  }
+  const result = [...new Set(value.map((item) => (item as string).trim()))];
+  if (result.length !== value.length) throw new Error(`${field} must not contain duplicates`);
+  return result;
+}
+
+function boundedInteger(
+  value: unknown,
+  field: string,
+  minimum: number,
+  maximum: number,
+): number {
+  if (!Number.isInteger(value) || (value as number) < minimum || (value as number) > maximum) {
+    throw new Error(`${field} must be an integer between ${minimum} and ${maximum}`);
+  }
+  return value as number;
+}
+
+function monitoringContext(evaluatedAt: string) {
+  dataMode.synchronize();
+  status.refreshDataMode();
+  return {
+    database,
+    latestMeasurements: (houseId: string) => database.latestMeasurementSamples(houseId),
+    integrationStatus: () => structuredClone(status.value),
+    latestWeather: () => null,
+    dataMode: database.isRealDataMode() ? "live" as const : "demo" as const,
+    evaluatedAt,
+  };
+}
+
+export async function homePerformance(args: Record<string, unknown>) {
+  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const evaluatedAt = new Date().toISOString();
+  return getHomePerformance({
+    house,
+    sensors: database.listSensors(house.id).filter((sensor) => sensor.enabled),
+    definitions: database.listMeasurementDefinitions(false),
+    dataMode: database.isRealDataMode() ? "live" : "demo",
+    database,
+    telemetryReader,
+    evaluatedAt,
+  });
+}
+
+export function homeMonitoring(args: Record<string, unknown>) {
+  const evaluatedAt = new Date().toISOString();
+  const context = monitoringContext(evaluatedAt);
+  const houseId = optionalString(args, "houseId");
+  if (houseId) {
+    const house = requireMcpHouse(database, houseId);
+    return getHomeMonitoringDetail(context, {
+      house,
+      sensors: database.listSensors(house.id).filter((sensor) => sensor.enabled),
+    });
+  }
+  return getHomeMonitoringCollection(
+    context,
+    database.listHouses().map((house) => ({
+      house,
+      sensors: database.listSensors(house.id).filter((sensor) => sensor.enabled),
+    })),
+  );
+}
+
+export async function calendarComparison(args: Record<string, unknown>) {
+  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const sensorIds = stringList(args.sensorIds, "sensorIds", 50);
+  const sensors = sensorIds.map((sensorId) => (
+    requireMcpHouseSensor(database, house.id, sensorId)
+  ));
+  const measurementId = requiredString(args, "measurementId");
+  const definition = database.getMeasurementDefinition(measurementId);
+  if (!definition || !definition.enabled) {
+    throw new Error(`Unknown or disabled measurement: ${measurementId}`);
+  }
+  const unit = requiredString(args, "unit");
+  if (!units.has(unit)) throw new Error("unit must be day, week, month, year, or decade");
+  const anchor = objectArguments(args.anchor);
+  const aggregation = args.aggregation ?? "default";
+  if (!aggregations.has(aggregation as AnalyticsAggregation)) {
+    throw new Error("aggregation is not supported");
+  }
+  const includedQualities = stringList(
+    args.qualities,
+    "qualities",
+    3,
+    ["good", "estimated"],
+  );
+  if (includedQualities.some((quality) => !qualities.has(quality as AnalyticsSampleQuality))) {
+    throw new Error("qualities contains an invalid sample quality");
+  }
+  const selectedPeriodKeys = args.selectedPeriodKeys === undefined
+    ? undefined
+    : stringList(args.selectedPeriodKeys, "selectedPeriodKeys", 2);
+  const request: CalendarComparisonRequest = {
+    apiVersion: "1.0",
+    requestId: `mcp-calendar-${Date.now().toString(36)}`,
+    houseId: house.id,
+    dataMode: database.isRealDataMode() ? "live" : "demo",
+    sensorIds,
+    measurementId,
+    unit: unit as CalendarComparisonRequest["unit"],
+    anchor: {
+      month: boundedInteger(anchor.month, "anchor.month", 1, 12),
+      day: boundedInteger(anchor.day, "anchor.day", 1, 31),
+      week: boundedInteger(anchor.week, "anchor.week", 1, 53),
+    },
+    ...(selectedPeriodKeys ? { selectedPeriodKeys } : {}),
+    aggregation: aggregation as AnalyticsAggregation,
+    qualityFilter: {
+      include: includedQualities as AnalyticsSampleQuality[],
+    },
+  };
+  return compareCalendarPeriods({
+    request,
+    house,
+    sensors,
+    definition,
+    telemetryReader,
+    evaluatedAt: new Date().toISOString(),
+  });
+}
+
+export const derivedAnalyticsToolDefinitions = [
+  {
+    name: "get_home_performance",
+    description: "Derive the authoritative versioned 30-day Home Performance result using the complete enabled sensor scope.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        houseId: { type: "string", minLength: 1, maxLength: 200 },
+      },
+      required: ["houseId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_home_monitoring",
+    description: "Inspect authoritative monitoring status for every Home or detailed freshness and insights for one Home.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        houseId: { type: "string", minLength: 1, maxLength: 200 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "compare_calendar_periods",
+    description: "Compare Home-local calendar periods with server-owned timezone boundaries, aggregation, alignment, and summaries.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        houseId: { type: "string", minLength: 1, maxLength: 200 },
+        sensorIds: {
+          type: "array",
+          minItems: 1,
+          maxItems: 50,
+          uniqueItems: true,
+          items: { type: "string", minLength: 1, maxLength: 200 },
+        },
+        measurementId: { type: "string", minLength: 1, maxLength: 200 },
+        unit: { enum: ["day", "week", "month", "year", "decade"] },
+        anchor: {
+          type: "object",
+          properties: {
+            month: { type: "integer", minimum: 1, maximum: 12 },
+            day: { type: "integer", minimum: 1, maximum: 31 },
+            week: { type: "integer", minimum: 1, maximum: 53 },
+          },
+          required: ["month", "day", "week"],
+          additionalProperties: false,
+        },
+        selectedPeriodKeys: {
+          type: "array",
+          minItems: 1,
+          maxItems: 2,
+          uniqueItems: true,
+          items: { type: "string", minLength: 1, maxLength: 200 },
+        },
+        aggregation: {
+          enum: [
+            "default", "mean", "sum", "delta", "last",
+            "time_weighted_mean", "min", "max",
+          ],
+          default: "default",
+        },
+        qualities: {
+          type: "array",
+          minItems: 1,
+          maxItems: 3,
+          uniqueItems: true,
+          items: { enum: ["good", "estimated", "stale"] },
+          default: ["good", "estimated"],
+        },
+      },
+      required: ["houseId", "sensorIds", "measurementId", "unit", "anchor"],
+      additionalProperties: false,
+    },
+  },
+] as const;

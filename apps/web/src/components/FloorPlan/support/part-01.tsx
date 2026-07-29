@@ -8,7 +8,7 @@ import { energyDeviceMapStats, isEnergyDeviceSensor } from "../../../energyDevic
 import { createCloudLobes, estimateFieldFlows, heatColor, interpolateHeat } from "../../../spatialField";
 import { simulateFloorAirflow, type AirflowPoint2D, type ClimateSampleMatrix, type FloorAirflowEstimate } from "../../../airflowSimulation";
 import { configuredSpatialMaxSampleAgeMs, isSpatialSampleFresh } from "../../../spatialFreshness";
-import { cardinalDirection, normalizeDegrees, type PlanEdge } from "../../../outdoorContext";
+import { cardinalDirection, normalizeDegrees, windPathOnRectangle, type PlanEdge } from "../../../outdoorContext";
 import {
   formatOutdoorHumidity,
   formatOutdoorTemperature,
@@ -145,6 +145,19 @@ export function outdoorWindwardEdgePath(edge: PlanEdge, width: number, height: n
   }
   const x = edge === "left" ? -OUTDOOR_SHELL_OFFSET : width + OUTDOOR_SHELL_OFFSET;
   return `M${x} ${endInset}V${height / 2 - compassGap}M${x} ${height / 2 + compassGap}V${height - endInset}`;
+}
+
+export function outdoorWindBearingPath(planWindFromDegrees: number, width: number, height: number): string {
+  const shellWidth = width + OUTDOOR_SHELL_OFFSET * 2;
+  const shellHeight = height + OUTDOOR_SHELL_OFFSET * 2;
+  const path = windPathOnRectangle(planWindFromDegrees, shellWidth, shellHeight, .035, .035);
+  const translate = (point: Point) => ({
+    x: point.x - OUTDOOR_SHELL_OFFSET,
+    y: point.y - OUTDOOR_SHELL_OFFSET,
+  });
+  const source = translate(path.sourcePoint);
+  const target = translate(path.inwardTarget);
+  return `M${source.x.toFixed(2)} ${source.y.toFixed(2)}L${target.x.toFixed(2)} ${target.y.toFixed(2)}`;
 }
 
 /** Returns a scale-aware 1/2/2.5/5 grid step with roughly 32 cells across a floor. */

@@ -1077,3 +1077,35 @@ authority, complete MCP registration gates, response-size enforcement, and a
 larger implementation estimate. Findings that contradicted the checked
 worktree—such as claims that the plan ended at Milestone 2 or that existing
 version/check scripts were absent—were rejected after local verification.
+
+### Post-implementation Claude review (2026-07-29)
+
+The completed 0.20.0 implementation and this stored plan received separate
+Claude reviews before release. The following release amendments are binding:
+
+1. Deploy API and web atomically before relying on the iPhone 0.20.0 monitoring
+   feature gate. A server rollback to 0.19.x must visibly return the iPhone to
+   `serverUpgradeRequired`; it must never run a local semantic fallback.
+2. After deployment, verify the daily-findings worker replaces every
+   `stale-algorithm` v1 snapshot with v2 output. A recorded worker error takes
+   precedence over stale status so clients do not poll indefinitely.
+3. Verify shutdown removes the analytics cache wake handle even in partial
+   startup/teardown paths, and verify the process closes cleanly.
+4. Treat calendar DST, leap-day, ISO week 53, and decade fixtures as permanent
+   server regression coverage after deleting the browser implementation.
+5. Keep OpenAPI operation-set equality, MCP handler/visibility checks, the
+   architecture boundary check, version consistency, full web/API tests, and
+   macOS Swift tests as release gates. Numeric operation counts are secondary
+   guards, not the parity proof.
+6. Label demo-derived iPhone monitoring/recommendations explicitly and verify
+   the label in the macOS Swift test gate.
+7. On the Raspberry Pi, validate current version, health, monitoring endpoints,
+   daily-findings recomputation, SSE reconnect, and retained telemetry after the
+   OTA update. Roll back the complete application release if any gate fails.
+
+The review's claimed missing thermal API tests was rejected because the
+assertions were moved intact to `api.thermal-simulation.test.ts`. Its proposed
+opening double-count issue was also rejected: canonical normalization
+deduplicates identical provider/external-id/connection/timestamp observations
+before transition derivation. OpenAPI already compares the complete documented
+and runtime operation sets, so replacing count-only parity was unnecessary.

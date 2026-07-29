@@ -337,7 +337,7 @@ describe("TwinDashboard progressive disclosure", () => {
     const state: ClimateState = { ...demo, latestMeasurements: {}, measurementHistory: {}, alerts: [] };
     const view = renderDashboard(state);
 
-    expect(screen.getByRole("region", { name: "A few things need attention" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Waiting for a reliable pulse" })).toBeTruthy();
     expect(view.container.querySelector(".moisture-coach")).toBeNull();
     expect(view.container.querySelector(".home-status-zone")).toBeNull();
     expect(view.container.querySelector(".room-comfort-section")).toBeNull();

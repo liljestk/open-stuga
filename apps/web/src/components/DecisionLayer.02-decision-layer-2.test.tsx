@@ -21,6 +21,11 @@ import { buildHomeActivityEvents, HomeActivityTimeline } from "./HomeActivityTim
 import { HomePulsePanel } from "./HomePulsePanel";
 
 import { observationInstantTimestamp } from "./RoomComparisonChart";
+import {
+  monitoringDetail,
+  monitoringInsight,
+  monitoringSummary,
+} from "../monitoringTestSupport";
 
 import { integration, now, openHomePulseMore, sample, sensor } from "./DecisionLayerTestSupport";
 
@@ -59,6 +64,73 @@ describe("decision layer", () => {
     expect(supportedCard.getAttribute("aria-label")).toMatch(/Carbon dioxide: —/);
   });
 
+  it("uses fresh retained T310 history when the latest room snapshot is temporarily absent", () => {
+    const kitchenSensor = { ...sensor, id: "kitchen-t310", room: "Kitchen", name: "Kitchen T310", model: "T310" };
+    const temperature = { ...sample("temperature", 21.4, "2026-07-14T11:58:00.000Z"), sensorId: kitchenSensor.id };
+    const humidity = { ...sample("humidity", 43, "2026-07-14T11:58:00.000Z"), sensorId: kitchenSensor.id };
+
+    const [room] = buildRoomComforts({
+      sensors: [kitchenSensor],
+      latestMeasurements: {},
+      measurementHistory: { [kitchenSensor.id]: { temperature: [temperature], humidity: [humidity] } },
+      alerts: [],
+      now,
+    });
+
+    expect(room).toMatchObject({
+      room: "Kitchen",
+      state: "comfortable",
+      temperature: 21.4,
+      humidity: 43,
+      updatedAt: "2026-07-14T11:58:00.000Z",
+    });
+  });
+
+  it("sums fresh electricity sensors in a room and identifies a power-only room as live", () => {
+    const meter = { ...sensor, id: "kitchen-meter", room: "Kitchen", name: "Kitchen meter", model: "P110" };
+    const plug = { ...sensor, id: "kitchen-plug", room: "Kitchen", name: "Kitchen plug", model: "P110" };
+    const latestMeasurements = {
+      [meter.id]: { power: { ...sample("power", 125), sensorId: meter.id, canonicalUnit: "W" } },
+      [plug.id]: { power: { ...sample("power", 75), sensorId: plug.id, canonicalUnit: "W" } },
+    };
+
+    const [room] = buildRoomComforts({
+      sensors: [meter, plug],
+      latestMeasurements,
+      measurementHistory: {},
+      alerts: [],
+      now,
+    });
+    expect(room).toMatchObject({ state: "live", power: 200 });
+
+    render(<I18nProvider><RoomComfortBoard
+      sensors={[meter, plug]}
+      latestMeasurements={latestMeasurements}
+      measurementHistory={{}}
+      definitions={BUILTIN_MEASUREMENTS}
+      alerts={[]}
+      units="metric"
+      now={now}
+      onOpenRoom={vi.fn()}
+    /></I18nProvider>);
+    const card = screen.getByRole("button", { name: /^Open Kitchen\./ });
+    expect(within(card).getByText("200 W")).not.toBeNull();
+    expect(within(card).getByText("Live")).not.toBeNull();
+  });
+
+  it("does not revive a room from stale retained history", () => {
+    const staleTemperature = { ...sample("temperature", 21), quality: "stale" as const };
+    const [room] = buildRoomComforts({
+      sensors: [sensor],
+      latestMeasurements: {},
+      measurementHistory: { [sensor.id]: { temperature: [staleTemperature] } },
+      alerts: [],
+      now,
+    });
+    expect(room?.state).toBe("offline");
+    expect(room?.temperature).toBeNull();
+  });
+
   it("resurfaces a hidden insight when its severity changes", () => {
     const state = createDemoState();
     const house = state.houses[0]!;
@@ -90,12 +162,29 @@ describe("decision layer", () => {
       referenceTime: now,
       onOpenTarget: vi.fn(),
     };
-    const view = render(<I18nProvider><HomePulsePanel {...baseProps} alerts={[warningAlert]} /></I18nProvider>);
+    const responseFor = (severity: "warning" | "critical") => monitoringDetail(
+      monitoringSummary({
+        houseId: house.id,
+        status: "action-required",
+        pulseStatus: severity === "critical" ? "critical" : "attention",
+        coverage: { enabledSensors: 1, freshSensors: 1 },
+        activeAlertCount: 1,
+      }),
+      [monitoringInsight({
+        id: `active-alert:${warningAlert.id}`,
+        kind: "active-alert",
+        severity,
+        title: "Temperature alert - Living room",
+        house,
+        sensor: roomSensor,
+      })],
+    );
+    const view = render(<I18nProvider><HomePulsePanel {...baseProps} alerts={[warningAlert]} monitoring={responseFor("warning")} /></I18nProvider>);
     openHomePulseMore(view.container);
     fireEvent.click(screen.getByRole("button", { name: /^Hide / }));
     expect(view.container.querySelector(".pulse-insight")).toBeNull();
 
-    view.rerender(<I18nProvider><HomePulsePanel {...baseProps} alerts={[{ ...warningAlert, severity: "critical", value: 40 }]} /></I18nProvider>);
+    view.rerender(<I18nProvider><HomePulsePanel {...baseProps} alerts={[{ ...warningAlert, severity: "critical", value: 40 }]} monitoring={responseFor("critical")} /></I18nProvider>);
     expect(view.container.querySelector(".pulse-insight.critical")).not.toBeNull();
   });
 
@@ -128,6 +217,27 @@ describe("decision layer", () => {
       alertRules={[]}
       weather={null}
       referenceTime={now}
+      monitoring={monitoringDetail(
+        monitoringSummary({
+          houseId: house.id,
+          pulseStatus: "attention",
+          coverage: { enabledSensors: 1, freshSensors: 1 },
+        }),
+        [monitoringInsight({
+          id: `humidity:${roomSensor.id}`,
+          kind: "humidity",
+          severity: "notice",
+          title: `Humidity is elevated in ${roomSensor.room}`,
+          summary: "Humidity is elevated.",
+          action: "Ventilate.",
+          house,
+          sensor: roomSensor,
+          evidence: [
+            { label: "Latest humidity", value: 70.5, unit: "%", metric: "humidity", sensorId: roomSensor.id },
+            { label: "Elevated readings", value: "3 of 3", metric: "humidity", sensorId: roomSensor.id },
+          ],
+        })],
+      )}
       onOpenTarget={vi.fn()}
     /></I18nProvider>);
 

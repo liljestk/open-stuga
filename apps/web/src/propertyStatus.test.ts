@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AreaEquipment, PropertyArea } from "@climate-twin/contracts";
+import type { AreaEquipment, HomeMonitoringSummary, PropertyArea } from "@climate-twin/contracts";
 import { createDemoState, DEMO_PROPERTY_ID } from "./domain";
 import { derivePropertyTrafficLights } from "./propertyStatus";
 
@@ -33,6 +33,25 @@ function byId(lights: ReturnType<typeof derivePropertyTrafficLights>) {
   return Object.fromEntries(lights.map((light) => [light.id, light]));
 }
 
+function monitoredOk(houseId: string, enabledSensors: number): HomeMonitoringSummary {
+  return {
+    houseId,
+    generatedAt: "2026-07-17T08:00:00.000Z",
+    status: "monitoring-ok",
+    pulseStatus: "steady",
+    coverage: {
+      enabledSensors,
+      freshSensors: enabledSensors,
+      estimatedSensors: 0,
+      agingSensors: 0,
+      staleSensors: 0,
+      sensorsWithoutData: 0,
+    },
+    activeAlertCount: 0,
+    blockers: [],
+  };
+}
+
 describe("derivePropertyTrafficLights", () => {
   it("does not infer asset health or failure from an unbound Home connection", () => {
     const state = createDemoState();
@@ -40,7 +59,7 @@ describe("derivePropertyTrafficLights", () => {
     state.propertyAreas = [well];
     state.areaEquipment = [connector];
     state.integration.tpLink = { ...state.integration.tpLink, configured: true, connected: false };
-    const lights = byId(derivePropertyTrafficLights(state, DEMO_PROPERTY_ID, Date.now()));
+    const lights = byId(derivePropertyTrafficLights(state, DEMO_PROPERTY_ID, []));
 
     expect(lights.equipment).toMatchObject({ level: "caution", reason: "not-monitored" });
     expect(lights.well).toMatchObject({ level: "caution", reason: "not-monitored" });
@@ -56,7 +75,11 @@ describe("derivePropertyTrafficLights", () => {
     const referenceTime = Math.max(...Object.values(state.latestMeasurements)
       .flatMap((samples) => Object.values(samples))
       .map((sample) => Date.parse(sample.timestamp)));
-    const lights = byId(derivePropertyTrafficLights(state, DEMO_PROPERTY_ID, referenceTime));
+    const lights = byId(derivePropertyTrafficLights(
+      state,
+      DEMO_PROPERTY_ID,
+      [monitoredOk(state.houses[0]!.id, state.sensors.length)],
+    ));
 
     expect(lights.house?.level).toBe("ok");
     expect(lights.equipment).toMatchObject({ level: "caution", reason: "not-monitored" });
@@ -69,7 +92,7 @@ describe("derivePropertyTrafficLights", () => {
     state.sensors = [];
     state.propertyAreas = [];
     state.areaEquipment = [];
-    const lights = byId(derivePropertyTrafficLights(state, DEMO_PROPERTY_ID, Date.now()));
+    const lights = byId(derivePropertyTrafficLights(state, DEMO_PROPERTY_ID, []));
 
     expect(lights).toEqual({});
   });
@@ -79,7 +102,7 @@ describe("derivePropertyTrafficLights", () => {
     state.alerts = [];
     state.propertyAreas = [well];
     state.areaEquipment = [{ ...connector, manufacturer: null, name: "Well pump", status: "out-of-service" }];
-    const lights = byId(derivePropertyTrafficLights(state, DEMO_PROPERTY_ID, Date.now()));
+    const lights = byId(derivePropertyTrafficLights(state, DEMO_PROPERTY_ID, []));
 
     expect(lights.equipment).toMatchObject({ level: "critical", reason: "asset-failure" });
     expect(lights.well).toMatchObject({ level: "critical", reason: "asset-failure" });

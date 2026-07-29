@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import {
   Activity,
   ChartNoAxesCombined,
@@ -13,38 +13,20 @@ import {
   Wrench,
 } from "lucide-react";
 import type {
-  AnalyticsQueryRequest,
-  AnalyticsQueryResponse,
   House,
-  MaintenanceTask,
-  ManualObservation,
+  HomePerformanceEvidenceState,
+  HomePerformanceSensorIssue,
   MeasurementDefinition,
-  Sensor,
 } from "@climate-twin/contracts";
-import { api } from "../api";
-import {
-  deriveHomePerformance,
-  type HomePerformanceEvidenceState,
-  type HomePerformanceResult,
-  type HomePerformanceSensorIssue,
-} from "../homePerformance";
+import { useHomePerformanceQuery } from "../data/analytics/homePerformanceQuery";
 import { useI18n } from "../i18n";
 import { measurementLabel } from "../measurements";
 
-const DAY_MS = 86_400_000;
 const PERFORMANCE_DAYS = 30;
-const RECOVERY_DAYS = 7;
-const MAX_PERFORMANCE_SENSORS = 40;
-const OUTDOOR_HISTORY_LIMIT = 10_000;
-const OPENING_HISTORY_LIMIT = 10_000;
-const ACTION_RUN_LIMIT = 500;
 
 interface HomePerformancePanelProps {
   house: House;
-  sensors: Sensor[];
   definitions: MeasurementDefinition[];
-  maintenanceTasks: MaintenanceTask[];
-  observations: ManualObservation[];
   dataMode: "demo" | "real" | "unknown";
   refreshRevision: number;
 }
@@ -56,10 +38,6 @@ interface PerformanceRowProps {
   context: string;
   state: HomePerformanceEvidenceState;
   children?: ReactNode;
-}
-
-function resultValue<T>(result: PromiseSettledResult<T>): T | null {
-  return result.status === "fulfilled" ? result.value : null;
 }
 
 function stateIcon(state: HomePerformanceEvidenceState): ReactNode {
@@ -86,31 +64,6 @@ function PerformanceRow(props: Readonly<PerformanceRowProps>) {
       {props.children}
     </div>
   </article>;
-}
-
-function queryInput(
-  house: House,
-  sensorIds: string[],
-  measurementIds: string[],
-  dataMode: "live" | "demo",
-  start: string,
-  end: string,
-  resolution: "15m" | "1h",
-  requestId: string,
-): AnalyticsQueryRequest {
-  return {
-    apiVersion: "1.0" as const,
-    dataMode,
-    scope: { kind: "house" as const, id: house.id, entityIds: sensorIds },
-    measurementIds,
-    range: { start, end, timezone: house.timezone },
-    resolution,
-    aggregation: "default" as const,
-    qualityFilter: { include: ["good", "estimated"] },
-    include: ["series", "summary", "quality", "provenance"],
-    maxPointsPerSeries: 1_000,
-    requestId,
-  };
 }
 
 function issueText(
@@ -142,131 +95,27 @@ function issueText(
 
 export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>) {
   const { locale, t } = useI18n();
-  const [performance, setPerformance] = useState<HomePerformanceResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [partialFailures, setPartialFailures] = useState<string[]>([]);
+  const dataMode = props.dataMode === "real" ? "live" as const : "demo" as const;
+  const query = useHomePerformanceQuery(
+    props.house.id,
+    dataMode,
+    props.dataMode !== "unknown",
+  );
+  const firstRefresh = useRef(true);
 
   useEffect(() => {
-    if (props.dataMode === "unknown") {
-      setPerformance(null);
-      setLoading(false);
-      setPartialFailures([]);
+    if (firstRefresh.current) {
+      firstRefresh.current = false;
       return;
     }
-    const controller = new AbortController();
-    const end = new Date();
-    const from = new Date(end.getTime() - PERFORMANCE_DAYS * DAY_MS);
-    const recoveryFrom = new Date(end.getTime() - RECOVERY_DAYS * DAY_MS);
-    const enabledSensors = props.sensors.filter((sensor) => sensor.enabled)
-      .sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
-    const scopedSensors = enabledSensors.slice(0, MAX_PERFORMANCE_SENSORS);
-    const sensorIds = scopedSensors.map((sensor) => sensor.id);
-    const availableMetrics = new Set(props.definitions.filter((definition) => definition.enabled).map((definition) => definition.id));
-    const climateMetrics = ["temperature", "humidity", "co2"].filter((metric) => availableMetrics.has(metric));
-    const energyMetrics = ["energy", "power"].filter((metric) => availableMetrics.has(metric));
-    const dataMode = props.dataMode === "real" ? "live" as const : "demo" as const;
-    const endIso = end.toISOString();
-    const fromIso = from.toISOString();
-    const recoveryFromIso = recoveryFrom.toISOString();
-    const emptyAnalytics = Promise.resolve<AnalyticsQueryResponse | null>(null);
-    const evidenceSources = [
-      t("performance.exposure.title"),
-      t("performance.recovery.title"),
-      t("performance.energy.title"),
-      t("analytics.findingsOutdoorWeather"),
-      t("performance.opening.title"),
-      t("performance.maintenance.title"),
-    ];
-
-    setPerformance(null);
-    setLoading(true);
-    setPartialFailures([]);
-    void Promise.allSettled([
-      sensorIds.length > 0 && climateMetrics.length > 0
-        ? api.analyticsQuery(queryInput(
-            props.house,
-            sensorIds,
-            climateMetrics,
-            dataMode,
-            fromIso,
-            endIso,
-            "1h",
-            `home-performance-climate-${props.house.id}-${props.refreshRevision}`,
-          ), controller.signal)
-        : emptyAnalytics,
-      sensorIds.length > 0 && climateMetrics.length > 0
-        ? api.analyticsQuery(queryInput(
-            props.house,
-            sensorIds,
-            climateMetrics,
-            dataMode,
-            recoveryFromIso,
-            endIso,
-            "15m",
-            `home-performance-recovery-${props.house.id}-${props.refreshRevision}`,
-          ), controller.signal)
-        : emptyAnalytics,
-      sensorIds.length > 0 && energyMetrics.length > 0
-        ? api.analyticsQuery(queryInput(
-            props.house,
-            sensorIds,
-            energyMetrics,
-            dataMode,
-            fromIso,
-            endIso,
-            "1h",
-            `home-performance-energy-${props.house.id}-${props.refreshRevision}`,
-          ), controller.signal)
-        : emptyAnalytics,
-      api.outdoorTemperatureHistory(props.house.id, fromIso, endIso, OUTDOOR_HISTORY_LIMIT, controller.signal),
-      api.openingStateHistory(props.house.id, recoveryFromIso, endIso, OPENING_HISTORY_LIMIT, controller.signal),
-      api.actionRuns({ houseId: props.house.id, limit: ACTION_RUN_LIMIT }, controller.signal),
-    ]).then((results) => {
-      if (controller.signal.aborted) return;
-      const [climateResult, recoveryResult, energyResult, outdoorResult, openingResult, actionResult] = results;
-      const failures = results.flatMap((result, index) => (
-        result.status === "rejected" ? [evidenceSources[index]!] : []
-      ));
-      const outdoor = resultValue(outdoorResult);
-      const openings = resultValue(openingResult);
-      const actionRuns = resultValue(actionResult);
-      setPartialFailures(failures);
-      setPerformance(deriveHomePerformance({
-        house: props.house,
-        sensors: scopedSensors,
-        definitions: props.definitions,
-        climate: resultValue(climateResult),
-        recoveryClimate: resultValue(recoveryResult),
-        energy: resultValue(energyResult),
-        outdoor: outdoor?.samples ?? [],
-        openings: openings ?? [],
-        actionRuns: actionRuns ?? [],
-        maintenanceTasks: props.maintenanceTasks,
-        observations: props.observations,
-        from: fromIso,
-        to: endIso,
-        generatedAt: endIso,
-        sensorScopeTruncated: enabledSensors.length > scopedSensors.length,
-        evidenceScopeTruncated: Boolean(
-          outdoor?.truncated
-          || (openings?.length ?? 0) >= OPENING_HISTORY_LIMIT
-          || (actionRuns?.length ?? 0) >= ACTION_RUN_LIMIT
-        ),
-      }));
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false);
-    });
-    return () => controller.abort();
-  }, [
-    props.dataMode,
-    props.definitions,
-    props.house,
-    props.maintenanceTasks,
-    props.observations,
-    props.refreshRevision,
-    props.sensors,
-    t,
-  ]);
+    if (props.dataMode !== "unknown") void query.refetch();
+  }, [props.refreshRevision]);
+  const performance = query.data ?? null;
+  const loading = query.isLoading || query.isFetching && !query.data;
+  const partialFailures = performance?.warnings.map((warning) => warning.message)
+    ?? (query.error
+      ? [query.error instanceof Error ? query.error.message : t("performance.partial", { sources: "" })]
+      : []);
 
   const number = (value: number, maximumFractionDigits = 1) => new Intl.NumberFormat(locale, {
     maximumFractionDigits,

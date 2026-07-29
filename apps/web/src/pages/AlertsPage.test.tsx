@@ -5,6 +5,11 @@ import { api } from "../api";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import { AlertsPage, countActionableAlertGroups } from "./AlertsPage";
+import {
+  monitoringBlocker,
+  monitoringCollection,
+  monitoringSummary,
+} from "../monitoringTestSupport";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -23,6 +28,19 @@ describe("AlertsPage monitoring coverage", () => {
             history: {},
           }}
           units="metric"
+          monitoring={monitoringCollection(state.houses.map((house) => monitoringSummary({
+            houseId: house.id,
+            status: "unknown",
+            pulseStatus: "unknown",
+            coverage: {
+              enabledSensors: state.sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled).length,
+              sensorsWithoutData: state.sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled).length,
+            },
+            blockers: [monitoringBlocker(
+              "missing-data",
+              state.sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled).length,
+            )],
+          })))}
           onCreateRule={vi.fn().mockResolvedValue(undefined)}
           onUpdateRule={vi.fn()}
           onAcknowledge={vi.fn().mockResolvedValue(undefined)}

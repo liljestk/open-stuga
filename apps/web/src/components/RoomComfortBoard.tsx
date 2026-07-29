@@ -1,5 +1,5 @@
-import { Activity, AlertTriangle, ChevronDown, CloudOff, Droplets, Wind } from "lucide-react";
-import type { AlertEvent, MeasurementDefinition, Sensor, UnitSystem } from "@climate-twin/contracts";
+import { Activity, AlertTriangle, Bolt, ChevronDown, CloudOff, Droplets, Wind } from "lucide-react";
+import type { AlertEvent, MeasurementDefinition, MeasurementSample, Metric, Sensor, UnitSystem } from "@climate-twin/contracts";
 import { useMemo, type ReactNode } from "react";
 import { useI18n } from "../i18n";
 import {
@@ -12,7 +12,7 @@ import {
 
 const FRESH_FOR_MS = 30 * 60_000;
 
-type RoomState = "comfortable" | "watch" | "attention" | "offline";
+type RoomState = "comfortable" | "watch" | "attention" | "live" | "offline";
 
 export interface RoomComfort {
   key: string;
@@ -24,6 +24,7 @@ export interface RoomComfort {
   temperature: number | null;
   humidity: number | null;
   co2: number | null;
+  power: number | null;
   supportsCo2: boolean;
   updatedAt: string | null;
   temperatureTrend: number[];
@@ -55,7 +56,29 @@ function latestTimestamp(samples: Array<{ timestamp: string } | undefined>, now:
     .sort((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null;
 }
 
-function severityFor(temperature: number | null, humidity: number | null, co2: number | null): Exclude<RoomState, "offline"> {
+function freshestSample(
+  sensorId: string,
+  metric: Metric,
+  latestMeasurements: LatestMeasurements,
+  measurementHistory: MeasurementHistory,
+  now: number,
+): MeasurementSample | undefined {
+  const candidates = [
+    latestMeasurements[sensorId]?.[metric],
+    ...(measurementHistory[sensorId]?.[metric] ?? []),
+  ];
+  return candidates.reduce<MeasurementSample | undefined>((freshest, sample) => {
+    if (
+      !sample
+      || sample.quality === "stale"
+      || measurementValue(sample, metric) === undefined
+      || !isFreshTimestamp(Date.parse(sample.timestamp), now)
+    ) return freshest;
+    return !freshest || Date.parse(sample.timestamp) > Date.parse(freshest.timestamp) ? sample : freshest;
+  }, undefined);
+}
+
+function severityFor(temperature: number | null, humidity: number | null, co2: number | null): Exclude<RoomState, "offline" | "live"> {
   if (
     (temperature !== null && (temperature < 16 || temperature > 28))
     || (humidity !== null && (humidity < 20 || humidity > 70))
@@ -69,8 +92,8 @@ function severityFor(temperature: number | null, humidity: number | null, co2: n
   return "comfortable";
 }
 
-function roomState(hasReading: boolean, hasAlert: boolean, temperature: number | null, humidity: number | null, co2: number | null): RoomState {
-  if (!hasReading) return "offline";
+function roomState(hasClimateReading: boolean, hasPowerReading: boolean, hasAlert: boolean, temperature: number | null, humidity: number | null, co2: number | null): RoomState {
+  if (!hasClimateReading) return hasPowerReading ? "live" : "offline";
   if (hasAlert) return "attention";
   return severityFor(temperature, humidity, co2);
 }
@@ -90,26 +113,30 @@ export function buildRoomComforts({
   const openAlertSensors = new Set(alerts.filter((alert) => !alert.resolvedAt).map((alert) => alert.sensorId));
 
   return [...groups.entries()].map(([key, roomSensors]) => {
-    const fresh = (metric: string) => roomSensors.flatMap((sensor) => {
-      const sample = latestMeasurements[sensor.id]?.[metric];
-      const timestamp = sample ? Date.parse(sample.timestamp) : Number.NaN;
+    const fresh = (metric: Metric) => roomSensors.flatMap((sensor) => {
+      const sample = freshestSample(sensor.id, metric, latestMeasurements, measurementHistory, now);
       const value = measurementValue(sample, metric);
-      return value !== undefined && isFreshTimestamp(timestamp, now) ? [value] : [];
+      return sample && value !== undefined ? [{ sensor, sample, value }] : [];
     });
-    const temperature = mean(fresh("temperature"));
-    const humidity = mean(fresh("humidity"));
-    const co2 = mean(fresh("co2"));
+    const temperatureSamples = fresh("temperature");
+    const humiditySamples = fresh("humidity");
+    const co2Samples = fresh("co2");
+    const powerSamples = fresh("power");
+    const temperature = mean(temperatureSamples.map(({ value }) => value));
+    const humidity = mean(humiditySamples.map(({ value }) => value));
+    const co2 = mean(co2Samples.map(({ value }) => value));
+    const power = powerSamples.length ? powerSamples.reduce((sum, { value }) => sum + value, 0) : null;
     const supportsCo2 = roomSensors.some((sensor) => (
       Boolean(sensor.measurementEntityIds?.co2)
       || Boolean(latestMeasurements[sensor.id]?.co2)
       || (measurementHistory[sensor.id]?.co2?.length ?? 0) > 0
     ));
-    const samples = roomSensors.flatMap((sensor) => Object.values(latestMeasurements[sensor.id] ?? {}));
+    const currentSamples = [...temperatureSamples, ...humiditySamples, ...co2Samples, ...powerSamples];
+    const samples = currentSamples.map(({ sample }) => sample);
     const updatedAt = latestTimestamp(samples, now);
     const roomHasAlert = roomSensors.some((sensor) => openAlertSensors.has(sensor.id));
-    const representative = roomSensors
-      .map((sensor) => ({ sensor, timestamp: Date.parse(latestMeasurements[sensor.id]?.temperature?.timestamp ?? "") }))
-      .sort((left, right) => (Number.isFinite(right.timestamp) ? right.timestamp : -Infinity) - (Number.isFinite(left.timestamp) ? left.timestamp : -Infinity))[0]?.sensor
+    const representative = currentSamples
+      .sort((left, right) => Date.parse(right.sample.timestamp) - Date.parse(left.sample.timestamp))[0]?.sensor
       ?? roomSensors[0]!;
     const temperatureTrend = (measurementHistory[representative.id]?.temperature ?? [])
       .filter((sample) => {
@@ -121,8 +148,8 @@ export function buildRoomComforts({
         return value === undefined ? [] : [value];
       })
       .slice(-24);
-    const hasReading = temperature !== null || humidity !== null || co2 !== null;
-    const state = roomState(hasReading, roomHasAlert, temperature, humidity, co2);
+    const hasClimateReading = temperature !== null || humidity !== null || co2 !== null;
+    const state = roomState(hasClimateReading, power !== null, roomHasAlert, temperature, humidity, co2);
     return {
       key,
       room: representative.room.trim() || representative.name,
@@ -133,12 +160,13 @@ export function buildRoomComforts({
       temperature,
       humidity,
       co2,
+      power,
       supportsCo2,
       updatedAt,
       temperatureTrend,
     };
   }).sort((left, right) => {
-    const priority: Record<RoomState, number> = { attention: 0, watch: 1, offline: 2, comfortable: 3 };
+    const priority: Record<RoomState, number> = { attention: 0, watch: 1, offline: 2, live: 3, comfortable: 4 };
     return priority[left.state] - priority[right.state] || left.room.localeCompare(right.room);
   });
 }
@@ -162,6 +190,7 @@ function formattedReading(value: number | null, definition: MeasurementDefinitio
 
 function ComfortStateIcon({ state }: Readonly<{ state: RoomState }>) {
   if (state === "attention") return <AlertTriangle size={12} aria-hidden="true" />;
+  if (state === "live") return <Bolt size={12} aria-hidden="true" />;
   return <Activity size={12} aria-hidden="true" />;
 }
 
@@ -172,6 +201,7 @@ export function RoomComfortBoard(props: Readonly<RoomComfortBoardProps>) {
   const temperatureDefinition = definitionFor(props.definitions, "temperature");
   const humidityDefinition = definitionFor(props.definitions, "humidity");
   const co2Definition = definitionFor(props.definitions, "co2");
+  const powerDefinition = definitionFor(props.definitions, "power");
   const relativeTime = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
 
   const roomCard = (room: RoomComfort) => {
@@ -182,7 +212,10 @@ export function RoomComfortBoard(props: Readonly<RoomComfortBoardProps>) {
       `${t("common.temperature")}: ${formattedReading(room.temperature, temperatureDefinition, props.units)}`,
       `${t("common.humidity")}: ${formattedReading(room.humidity, humidityDefinition, props.units)}`,
       ...(room.supportsCo2 ? [`${t("common.co2")}: ${formattedReading(room.co2, co2Definition, props.units)}`] : []),
+      ...(room.power !== null ? [`${t("common.power")}: ${formattedReading(room.power, powerDefinition, props.units)}`] : []),
     ].join(". ");
+    const readingCount = 2 + Number(room.supportsCo2) + Number(room.power !== null);
+    const readingClass = readingCount === 2 ? " two-metrics" : readingCount === 4 ? " four-metrics" : "";
     return (
       <button
         type="button"
@@ -192,10 +225,11 @@ export function RoomComfortBoard(props: Readonly<RoomComfortBoardProps>) {
         aria-label={`${t("decision.openRoom", { room: room.room, status: t(`decision.state.${room.state}`) })}. ${readingLabels}. ${updated}.`}
       >
         <span className="room-card-topline"><strong>{room.room}</strong><span className={`comfort-state ${room.state}`}><ComfortStateIcon state={room.state} />{t(`decision.state.${room.state}`)}</span></span>
-        <span className={`room-card-readings${room.supportsCo2 ? "" : " two-metrics"}`}>
+        <span className={`room-card-readings${readingClass}`}>
           <span><b>{formattedReading(room.temperature, temperatureDefinition, props.units)}</b><small>{t("common.temperature")}</small></span>
           <span><b>{formattedReading(room.humidity, humidityDefinition, props.units)}</b><small><Droplets size={11} aria-hidden="true" />{t("common.humidity")}</small></span>
           {room.supportsCo2 && <span><b>{formattedReading(room.co2, co2Definition, props.units)}</b><small><Wind size={11} aria-hidden="true" />{t("common.co2")}</small></span>}
+          {room.power !== null && <span><b>{formattedReading(room.power, powerDefinition, props.units)}</b><small><Bolt size={11} aria-hidden="true" />{t("common.power")}</small></span>}
         </span>
         <span className="room-card-footer">
           <span>{updated}</span>
@@ -209,8 +243,8 @@ export function RoomComfortBoard(props: Readonly<RoomComfortBoardProps>) {
   if (rooms.length === 0) {
     roomContent = <div className="panel decision-empty"><CloudOff size={22} aria-hidden="true" />{t("decision.roomsEmpty")}</div>;
   } else {
-    const exceptionRooms = rooms.filter((room) => room.state !== "comfortable");
-    const comfortableRooms = rooms.filter((room) => room.state === "comfortable");
+    const exceptionRooms = rooms.filter((room) => !["comfortable", "live"].includes(room.state));
+    const comfortableRooms = rooms.filter((room) => ["comfortable", "live"].includes(room.state));
     // Exceptions are never hidden behind a disclosure. Comfortable rooms fill
     // the remaining glanceable slots and routine overflow stays on demand.
     const visibleComfortableCount = Math.max(0, 4 - exceptionRooms.length);

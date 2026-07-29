@@ -108,7 +108,8 @@ describe("outdoor boundary visualization", () => {
     const windwardEdge = shell?.querySelector<SVGPathElement>(".outdoor-shell-windward-edge");
     expect(shell?.getAttribute("aria-label")).toMatch(/FMI outdoor shell.*Temperature 3 °C.*Relative humidity 82%.*Wind speed 4 m\/s.*Windward edge left/i);
     expect(windwardEdge?.dataset.windwardEdge).toBe("left");
-    expect(windwardEdge?.getAttribute("d")).toMatch(/^M-64 30V/);
+    expect(windwardEdge?.getAttribute("d")).toMatch(/^M-.*L/);
+    expect(windwardEdge?.dataset.windFromDegrees).toBe("270");
     expect(shell?.querySelector(".outdoor-shell-border")?.getAttribute("x")).toBe("-64");
     expect(shell?.querySelector(".outdoor-temperature-chip")?.textContent).toContain("3 °C");
     expect(shell?.querySelector(".outdoor-humidity-chip")?.textContent).toContain("82%");
@@ -157,7 +158,8 @@ describe("outdoor boundary visualization", () => {
     const indicator = view.container.querySelector<SVGPathElement>(".outdoor-shell-windward-edge")!;
 
     expect(indicator.dataset.windwardEdge).toBe("top");
-    expect(indicator.getAttribute("d")).toMatch(/^M30 -64H/);
+    expect(indicator.getAttribute("d")).toMatch(/^M.*L/);
+    expect(indicator.dataset.planWindFromDegrees).toBe("331");
     expect(view.container.querySelector(".floor-outdoor-wind")).toBeNull();
   });
 
@@ -276,8 +278,25 @@ describe("outdoor boundary visualization", () => {
     const view = floorView(house, outdoorState(house, response));
     const indicator = view.container.querySelector<SVGPathElement>(".outdoor-shell-windward-edge")!;
     expect(indicator.dataset.windwardEdge).toBe("right");
-    expect(indicator.getAttribute("d")).toMatch(/^M1064 30V/);
+    expect(indicator.getAttribute("d")).toMatch(/^M.*L/);
+    expect(indicator.dataset.planWindFromDegrees).toBe("60");
     expect(view.container.querySelector(".floor-outdoor-wind")).toBeNull();
+  });
+
+  it("draws a 250-degree wind bearing independently of the west 280-degree facade label", () => {
+    localStorage.setItem("climate-twin-locale", "en");
+    const demo = createDemoState();
+    const house: House = {
+      ...demo.houses[0]!, location: { latitude: 60.17, longitude: 24.94 }, orientationDegrees: 10,
+    };
+    const view = floorView(house, outdoorState(house, weather(house, 250)));
+    const indicator = view.container.querySelector<SVGPathElement>(".outdoor-shell-windward-edge")!;
+
+    expect(indicator.dataset.windFromDegrees).toBe("250");
+    expect(indicator.dataset.planWindFromDegrees).toBe("240");
+    expect(indicator.dataset.windwardEdge).toBe("left");
+    expect(view.container.querySelector('[data-plan-edge="left"]')?.textContent).toContain("280°");
+    expect(indicator.getAttribute("d")).toMatch(/^M.*L/);
   });
 
   it("announces a retained observation when a refresh fails", () => {

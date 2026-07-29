@@ -146,6 +146,7 @@ export function renderBuildingScene(context: ReturnType<typeof useBuildingSceneP
                     y2={outdoorWindwardProjected.end.y}
                     className="building-outdoor-windward-edge"
                     data-windward-edge={outdoorWindwardProjected.edge}
+                    data-plan-wind-from-degrees={outdoorWindwardProjected.bearing}
                     aria-hidden="true"
                   />
                 )}

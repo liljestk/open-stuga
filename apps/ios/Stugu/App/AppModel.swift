@@ -48,6 +48,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var rules: [AlertRule] = []
     @Published private(set) var propertyInventory: PropertyInventorySnapshot?
     @Published private(set) var todayContext: TodayContext?
+    @Published private(set) var homeMonitoring: HomeMonitoringDetailResponse?
+    @Published private(set) var homeMonitoringAvailability: HomeMonitoringAvailability = .unavailable
     @Published private(set) var systemUpdateStatus: SystemUpdateStatus?
     @Published private(set) var systemUpdateError: String?
     @Published private(set) var pendingActions: [PendingCompanionAction] = []
@@ -384,15 +386,126 @@ final class AppModel: ObservableObject {
     }
 
     var monitorSummary: HomeMonitorSummary {
-        HomeMonitorSummary.evaluate(conditions: selectedConditions, alerts: selectedHomeAlerts)
+        switch homeMonitoringAvailability {
+        case .available:
+            guard let homeMonitoring else { return .serverUnavailable }
+            let mapped = HomeMonitorSummary.from(server: homeMonitoring)
+            if let insight = homeMonitoring.insights.first {
+                return HomeMonitorSummary(
+                    state: mapped.state,
+                    title: demoMonitoringText(monitoringText(
+                        code: insight.titleCode,
+                        fallback: insight.fallbackTitle,
+                        target: insight.target
+                    )),
+                    detail: monitoringText(
+                        code: insight.summaryCode,
+                        fallback: insight.fallbackSummary,
+                        target: insight.target
+                    )
+                )
+            }
+            let statusCode = "monitoring.status.\(homeMonitoring.house.pulseStatus)"
+            return HomeMonitorSummary(
+                state: mapped.state,
+                title: demoMonitoringText(monitoringText(
+                    code: "\(statusCode).title",
+                    fallback: mapped.title,
+                    target: nil
+                )),
+                detail: monitoringText(
+                    code: "\(statusCode).detail",
+                    fallback: mapped.detail,
+                    target: nil
+                )
+            )
+        case .serverUpgradeRequired:
+            return HomeMonitorSummary(
+                state: .limited,
+                title: monitoringText(
+                    code: "monitoring.availability.server-upgrade-required.title",
+                    fallback: HomeMonitorSummary.serverUpgradeRequired.title,
+                    target: nil
+                ),
+                detail: monitoringText(
+                    code: "monitoring.availability.server-upgrade-required.detail",
+                    fallback: HomeMonitorSummary.serverUpgradeRequired.detail,
+                    target: nil
+                )
+            )
+        case .unavailable:
+            return HomeMonitorSummary(
+                state: .limited,
+                title: monitoringText(
+                    code: "monitoring.availability.unavailable.title",
+                    fallback: HomeMonitorSummary.serverUnavailable.title,
+                    target: nil
+                ),
+                detail: monitoringText(
+                    code: "monitoring.availability.unavailable.detail",
+                    fallback: HomeMonitorSummary.serverUnavailable.detail,
+                    target: nil
+                )
+            )
+        }
     }
 
     var todayRecommendation: TodayRecommendation? {
-        guard !usingCachedData else { return nil }
-        return TodayRecommendation.evaluate(
-            conditions: selectedConditions,
-            context: todayContext
+        guard !usingCachedData,
+              homeMonitoringAvailability == .available,
+              let homeMonitoring,
+              let insight = homeMonitoring.insights.first else {
+            return nil
+        }
+        return TodayRecommendation(
+            kind: .monitoring,
+            title: demoMonitoringText(monitoringText(
+                code: insight.titleCode,
+                fallback: insight.fallbackTitle,
+                target: insight.target
+            )),
+            detail: monitoringText(
+                code: insight.summaryCode,
+                fallback: insight.fallbackSummary,
+                target: insight.target
+            ),
+            evidence: monitoringText(
+                code: insight.actionCode,
+                fallback: insight.fallbackAction,
+                target: insight.target
+            )
         )
+    }
+
+    private func monitoringText(
+        code: String,
+        fallback: String,
+        target: HomeMonitoringInsightTarget?
+    ) -> String {
+        let template = NSLocalizedString(
+            code,
+            tableName: "Monitoring",
+            bundle: .main,
+            value: fallback,
+            comment: "Server-authoritative Home monitoring copy"
+        )
+        guard let placeholder = template.range(of: "%@") else { return template }
+        let location = target?.room?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sensor = target?.sensorName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let replacement = location?.isEmpty == false ? location! : sensor?.isEmpty == false ? sensor! : "Home"
+        return template.replacingCharacters(in: placeholder, with: replacement)
+    }
+
+    private func demoMonitoringText(_ text: String) -> String {
+        guard homeMonitoring?.dataMode == "demo" else { return text }
+        let label = NSLocalizedString(
+            "monitoring.data-mode.demo",
+            tableName: "Monitoring",
+            bundle: .main,
+            value: "Demo data",
+            comment: "Label for server-authoritative monitoring derived from demo data"
+        )
+        return "\(label): \(text)"
     }
 
     var pendingActionCount: Int { pendingActions.count }
@@ -655,6 +768,10 @@ final class AppModel: ObservableObject {
             operation: event.operation
         )
         serverVersion = event.currentVersion
+        if !ServerFeatureSupport.homeMonitoring(systemVersion: event.currentVersion) {
+            homeMonitoring = nil
+            homeMonitoringAvailability = .serverUpgradeRequired
+        }
         systemUpdateError = nil
     }
 
@@ -671,15 +788,19 @@ final class AppModel: ObservableObject {
         snapshot = []
         tpLinkDevices = []
         latestOpeningStateObservation = nil
+        homeMonitoring = nil
+        homeMonitoringAvailability = ServerFeatureSupport.homeMonitoring(systemVersion: serverVersion)
+            ? .unavailable
+            : .serverUpgradeRequired
         do {
             let next = try await client.measurementSnapshot(houseID: id)
             let devices = await loadTpLinkDevices(homeID: id)
             guard generation == requestGeneration, selectedHomeID == id else { return }
             snapshot = next
             tpLinkDevices = devices
-            try await loadInventoryWorkspace()
+            try await loadHomeMonitoring()
             guard generation == requestGeneration, selectedHomeID == id else { return }
-            await loadTodayContext()
+            try await loadInventoryWorkspace()
             guard generation == requestGeneration, selectedHomeID == id else { return }
             try await loadTrackingWorkspace()
             guard generation == requestGeneration, selectedHomeID == id else { return }
@@ -714,14 +835,16 @@ final class AppModel: ObservableObject {
                 snapshot = []
                 tpLinkDevices = []
                 latestOpeningStateObservation = nil
+                homeMonitoring = nil
+                homeMonitoringAvailability = .unavailable
             }
         }
 
         guard generation == requestGeneration, selectedPropertyID == id else { return }
         do {
-            try await loadInventoryWorkspace()
+            try await loadHomeMonitoring()
             guard generation == requestGeneration, selectedPropertyID == id else { return }
-            await loadTodayContext()
+            try await loadInventoryWorkspace()
             guard generation == requestGeneration, selectedPropertyID == id else { return }
             try await loadTrackingWorkspace()
             guard generation == requestGeneration, selectedPropertyID == id else { return }
@@ -1572,6 +1695,9 @@ final class AppModel: ObservableObject {
         self.client = client
         serverAddress = address
         serverVersion = health.systemVersion
+        homeMonitoringAvailability = ServerFeatureSupport.homeMonitoring(
+            systemVersion: health.systemVersion
+        ) ? .unavailable : .serverUpgradeRequired
         if persist {
             UserDefaults.standard.set(address.origin.absoluteString, forKey: DefaultsKey.server)
         }
@@ -1664,19 +1790,21 @@ final class AppModel: ObservableObject {
             guard generation == requestGeneration else { return }
             snapshot = nextSnapshot
             tpLinkDevices = nextTpLinkDevices
+            try await loadHomeMonitoring()
+            guard generation == requestGeneration else { return }
             UserDefaults.standard.set(selectedHomeID, forKey: DefaultsKey.selectedHome)
         } else {
             snapshot = []
             tpLinkDevices = []
             latestOpeningStateObservation = nil
+            homeMonitoring = nil
+            homeMonitoringAvailability = .unavailable
             UserDefaults.standard.removeObject(forKey: DefaultsKey.selectedHome)
         }
         if let selectedPropertyID {
             UserDefaults.standard.set(selectedPropertyID, forKey: DefaultsKey.selectedProperty)
         }
         try await loadInventoryWorkspace()
-        guard generation == requestGeneration else { return }
-        await loadTodayContext()
         guard generation == requestGeneration else { return }
         do {
             try await loadTrackingWorkspace()
@@ -1765,22 +1893,29 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func loadTodayContext() async {
-        guard let client else { return }
-        let weather: HouseWeatherSummary?
-        if let homeID = selectedHomeID {
-            weather = try? await client.houseWeather(houseID: homeID)
-        } else {
-            weather = nil
+    private func loadHomeMonitoring() async throws {
+        guard let client, let homeID = selectedHomeID else {
+            homeMonitoring = nil
+            homeMonitoringAvailability = .unavailable
+            return
         }
-        let energy: EnergyOptimizationSummary?
-        if let propertyID = selectedPropertyID {
-            energy = try? await client.energyOptimization(propertyID: propertyID)
-        } else {
-            energy = nil
+        guard ServerFeatureSupport.homeMonitoring(systemVersion: serverVersion) else {
+            homeMonitoring = nil
+            homeMonitoringAvailability = .serverUpgradeRequired
+            return
         }
-        let next = TodayContext(weather: weather, energy: energy)
-        todayContext = next.weather != nil || next.energy != nil ? next : nil
+        do {
+            homeMonitoring = try await client.homeMonitoring(houseID: homeID)
+            homeMonitoringAvailability = .available
+        } catch let error as StuguAPIError where error.status == 401 {
+            throw error
+        } catch let error as StuguAPIError where error.status == 404 {
+            homeMonitoring = nil
+            homeMonitoringAvailability = .serverUpgradeRequired
+        } catch {
+            homeMonitoring = nil
+            homeMonitoringAvailability = .unavailable
+        }
     }
 
     private func finishOnlineRefresh() async {
@@ -1830,6 +1965,8 @@ final class AppModel: ObservableObject {
         )
         cachedAccountIdentity = accountIdentity(for: cache.session)
         todayContext = cache.todayContext
+        homeMonitoring = nil
+        homeMonitoringAvailability = .unavailable
         pendingActions = cache.pendingActions
         lastUpdated = StuguDateParser.date(from: cache.savedAt)
         usingCachedData = true
@@ -1916,6 +2053,8 @@ final class AppModel: ObservableObject {
         pendingActions = []
         historyCache = [:]
         todayContext = nil
+        homeMonitoring = nil
+        homeMonitoringAvailability = .unavailable
         UIApplication.shared.unregisterForRemoteNotifications()
         notificationsEnabled = false
         UserDefaults.standard.set(false, forKey: DefaultsKey.notificationsEnabled)
@@ -2397,6 +2536,8 @@ final class AppModel: ObservableObject {
         rules = []
         propertyInventory = nil
         todayContext = nil
+        homeMonitoring = nil
+        homeMonitoringAvailability = .unavailable
         systemUpdateStatus = nil
         systemUpdateError = nil
         pendingActions = []

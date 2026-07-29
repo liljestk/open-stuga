@@ -1,0 +1,193 @@
+const evidenceState = { enum: ["ready", "limited", "unavailable"] } as const;
+
+export const schemasPart09 = {
+  DerivedAnalyticsCache: {
+    type: "object",
+    additionalProperties: false,
+    required: ["hit", "coalesced", "keyVersion", "ttlSeconds"],
+    properties: {
+      hit: { type: "boolean" },
+      coalesced: { type: "boolean" },
+      keyVersion: { type: "string" },
+      ttlSeconds: { type: "number", minimum: 0 },
+    },
+  },
+  HomePerformanceRoomExposure: {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "id", "label", "sensorIds", "guideRangePercent", "observedHours",
+      "temperatureDegreeHours", "humidityOutsideGuideHours", "co2AboveGuideHours",
+    ],
+    properties: {
+      id: { type: "string" },
+      label: { type: "string" },
+      sensorIds: { type: "array", items: { type: "string" } },
+      guideRangePercent: { type: "number", minimum: 0, maximum: 100 },
+      observedHours: { type: "number", minimum: 0 },
+      temperatureDegreeHours: { type: "number", minimum: 0 },
+      humidityOutsideGuideHours: { type: "number", minimum: 0 },
+      co2AboveGuideHours: { type: "number", minimum: 0 },
+    },
+  },
+  HomePerformanceExposure: {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "state", "guideRangePercent", "observedHours", "temperatureDegreeHours",
+      "humidityOutsideGuideHours", "co2AboveGuideHours", "worstRoom", "rooms",
+    ],
+    properties: {
+      state: evidenceState,
+      guideRangePercent: { type: ["number", "null"], minimum: 0, maximum: 100 },
+      observedHours: { type: "number", minimum: 0 },
+      temperatureDegreeHours: { type: "number", minimum: 0 },
+      humidityOutsideGuideHours: { type: "number", minimum: 0 },
+      co2AboveGuideHours: { type: "number", minimum: 0 },
+      worstRoom: {
+        oneOf: [
+          { $ref: "#/components/schemas/HomePerformanceRoomExposure" },
+          { type: "null" },
+        ],
+      },
+      rooms: {
+        type: "array",
+        items: { $ref: "#/components/schemas/HomePerformanceRoomExposure" },
+      },
+    },
+  },
+  HomePerformanceSensorIssue: {
+    type: "object",
+    additionalProperties: false,
+    required: ["code", "sensorId", "sensorName", "metric", "value", "unit"],
+    properties: {
+      code: { enum: ["low-coverage", "flatline", "changed-baseline"] },
+      sensorId: { type: "string" },
+      sensorName: { type: "string" },
+      metric: { type: "string" },
+      value: { type: "number" },
+      unit: { type: "string" },
+    },
+  },
+  HomePerformanceResponse: {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "apiVersion", "houseId", "dataMode", "status", "generatedAt", "evaluatedAt",
+      "from", "to", "recoveryFrom", "complete", "exposure", "recovery",
+      "openingEffectiveness", "energy", "maintenance", "sensorHealth",
+      "limitations", "warnings", "provenance", "cache",
+    ],
+    properties: {
+      apiVersion: { const: "1.0" },
+      houseId: { type: "string" },
+      dataMode: { enum: ["live", "demo"] },
+      status: evidenceState,
+      generatedAt: { type: "string", format: "date-time" },
+      evaluatedAt: { type: "string", format: "date-time" },
+      from: { type: "string", format: "date-time" },
+      to: { type: "string", format: "date-time" },
+      recoveryFrom: { type: "string", format: "date-time" },
+      complete: { type: "boolean" },
+      exposure: { $ref: "#/components/schemas/HomePerformanceExposure" },
+      recovery: {
+        type: "object", additionalProperties: false,
+        required: ["state", "episodeCount", "medianHalfLifeMinutes"],
+        properties: {
+          state: evidenceState,
+          episodeCount: { type: "integer", minimum: 0 },
+          medianHalfLifeMinutes: { type: ["number", "null"], minimum: 0 },
+        },
+      },
+      openingEffectiveness: {
+        type: "object", additionalProperties: false,
+        required: [
+          "state", "evaluatedEvents", "effectiveEvents",
+          "medianClearanceMinutes", "bestOpeningLabel",
+        ],
+        properties: {
+          state: evidenceState,
+          evaluatedEvents: { type: "integer", minimum: 0 },
+          effectiveEvents: { type: "integer", minimum: 0 },
+          medianClearanceMinutes: { type: ["number", "null"], minimum: 0 },
+          bestOpeningLabel: { type: ["string", "null"] },
+        },
+      },
+      energy: {
+        type: "object", additionalProperties: false,
+        required: [
+          "state", "energyKwh", "heatingDegreeHours", "energyPerHeatingDegreeHour",
+          "comparisonChangePercent", "source",
+        ],
+        properties: {
+          state: evidenceState,
+          energyKwh: { type: ["number", "null"], minimum: 0 },
+          heatingDegreeHours: { type: "number", minimum: 0 },
+          energyPerHeatingDegreeHour: { type: ["number", "null"], minimum: 0 },
+          comparisonChangePercent: { type: ["number", "null"] },
+          source: { enum: ["heating-meter", "unclassified-electricity", null] },
+        },
+      },
+      maintenance: {
+        type: "object", additionalProperties: false,
+        required: [
+          "state", "evaluatedActions", "improvedActions", "improvementPercent",
+          "linkedEvaluatedActions", "completedWithoutMeasurement", "recurringObservations",
+        ],
+        properties: {
+          state: evidenceState,
+          evaluatedActions: { type: "integer", minimum: 0 },
+          improvedActions: { type: "integer", minimum: 0 },
+          improvementPercent: { type: ["number", "null"], minimum: 0, maximum: 100 },
+          linkedEvaluatedActions: { type: "integer", minimum: 0 },
+          completedWithoutMeasurement: { type: "integer", minimum: 0 },
+          recurringObservations: { type: "integer", minimum: 0 },
+        },
+      },
+      sensorHealth: {
+        type: "object", additionalProperties: false,
+        required: [
+          "state", "monitoredSensors", "healthySensors", "coveragePercent", "issues",
+        ],
+        properties: {
+          state: evidenceState,
+          monitoredSensors: { type: "integer", minimum: 0 },
+          healthySensors: { type: "integer", minimum: 0 },
+          coveragePercent: { type: ["number", "null"], minimum: 0, maximum: 100 },
+          issues: {
+            type: "array",
+            items: { $ref: "#/components/schemas/HomePerformanceSensorIssue" },
+          },
+        },
+      },
+      limitations: {
+        type: "array",
+        uniqueItems: true,
+        items: {
+          enum: [
+            "archive-incomplete", "opening-history-missing", "unclassified-energy",
+            "maintenance-evidence-missing", "coverage-limited",
+          ],
+        },
+      },
+      warnings: {
+        type: "array",
+        items: { $ref: "#/components/schemas/DerivedAnalyticsWarning" },
+      },
+      provenance: {
+        allOf: [
+          { $ref: "#/components/schemas/DerivedAnalyticsProvenance" },
+          {
+            type: "object",
+            required: ["truthClass", "archiveStates"],
+            properties: {
+              truthClass: { const: "derived" },
+              archiveStates: { type: "array", items: { type: "string" } },
+            },
+          },
+        ],
+      },
+      cache: { $ref: "#/components/schemas/DerivedAnalyticsCache" },
+    },
+  },
+} as const;

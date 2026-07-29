@@ -1,0 +1,223 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "monitoring.data-mode.demo" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Demo data" } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Demodata" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Demodata" } }
+      }
+    },
+    "monitoring.advisory" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Monitoring insights support household checks; they do not replace safety alarms, physical inspection, or professional advice." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Seurantahavainnot tukevat kodin tarkastamista, mutta eivät korvaa turvahälyttimiä, fyysistä tarkastusta tai ammattilaisen arviota." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Övervakningsinsikter stöder kontroller av hemmet men ersätter inte säkerhetslarm, fysisk inspektion eller professionell rådgivning." } }
+      }
+    },
+    "monitoring.availability.server-upgrade-required.detail" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Update Stugu Server to use server-authoritative Home monitoring." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Päivitä Stugu-palvelin, jotta palvelimen tuottama kodin seuranta voidaan ottaa käyttöön." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Uppdatera Stugu-servern för att använda serverbaserad övervakning av hemmet." } }
+      }
+    },
+    "monitoring.availability.server-upgrade-required.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Server upgrade required" } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Palvelin on päivitettävä" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Servern måste uppdateras" } }
+      }
+    },
+    "monitoring.availability.unavailable.detail" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reconnect or refresh to retrieve the server monitoring result." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Yhdistä uudelleen tai päivitä näkymä hakeaksesi palvelimen seurantatuloksen." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Anslut igen eller uppdatera för att hämta serverns övervakningsresultat." } }
+      }
+    },
+    "monitoring.availability.unavailable.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Current monitoring is unavailable" } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Ajantasainen seuranta ei ole saatavilla" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Aktuell övervakning är inte tillgänglig" } }
+      }
+    },
+    "monitoring.insight.active-alert.action" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open the alert and inspect %@ before relying on routine readings." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Avaa hälytys ja tarkasta %@ ennen kuin luotat tavanomaisiin mittauksiin." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Öppna larmet och kontrollera %@ innan du förlitar dig på rutinavläsningar." } }
+      }
+    },
+    "monitoring.insight.active-alert.summary" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "An active server alert remains open for %@." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Palvelimen aktiivinen hälytys on edelleen avoinna kohteessa %@." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Ett aktivt serverlarm är fortfarande öppet för %@." } }
+      }
+    },
+    "monitoring.insight.active-alert.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Active alert in %@" } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Aktiivinen hälytys: %@" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Aktivt larm i %@" } }
+      }
+    },
+    "monitoring.insight.humidity.action" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Inspect %@ and ventilate when outdoor conditions make that appropriate." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Tarkasta %@ ja tuuleta, kun ulko-olosuhteet sopivat siihen." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Kontrollera %@ och vädra när utomhusförhållandena gör det lämpligt." } }
+      }
+    },
+    "monitoring.insight.humidity.summary" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The server found elevated humidity in %@." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Palvelin havaitsi kohonneen ilmankosteuden kohteessa %@." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Servern upptäckte förhöjd luftfuktighet i %@." } }
+      }
+    },
+    "monitoring.insight.humidity.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Humidity needs attention in %@" } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Ilmankosteus vaatii huomiota: %@" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Luftfuktigheten behöver uppmärksammas i %@" } }
+      }
+    },
+    "monitoring.insight.indoor-air.action" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Check ventilation and occupancy in %@." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Tarkasta ilmanvaihto ja tilan käyttö kohteessa %@." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Kontrollera ventilation och beläggning i %@." } }
+      }
+    },
+    "monitoring.insight.indoor-air.summary" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The server found an indoor-air condition in %@." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Palvelin havaitsi sisäilmaolosuhteen kohteessa %@." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Servern upptäckte ett inomhuslufttillstånd i %@." } }
+      }
+    },
+    "monitoring.insight.indoor-air.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Indoor air needs attention in %@" } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Sisäilma vaatii huomiota: %@" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Inomhusluften behöver uppmärksammas i %@" } }
+      }
+    },
+    "monitoring.insight.sensor-coverage.action" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Check sensor connectivity and recent readings for %@." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Tarkasta anturiyhteys ja viimeisimmät mittaukset kohteessa %@." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Kontrollera sensoranslutning och senaste avläsningar för %@." } }
+      }
+    },
+    "monitoring.insight.sensor-coverage.summary" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The server could not establish complete sensor coverage for %@." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Palvelin ei voinut varmistaa täydellistä anturikattavuutta kohteelle %@." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Servern kunde inte fastställa fullständig sensortäckning för %@." } }
+      }
+    },
+    "monitoring.insight.sensor-coverage.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sensor coverage needs attention in %@" } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Anturikattavuus vaatii huomiota: %@" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Sensortäckningen behöver uppmärksammas i %@" } }
+      }
+    },
+    "monitoring.insight.setup.action" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Review the monitoring setup for %@." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Tarkasta kohteen %@ seuranta-asetukset." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Granska övervakningsinställningen för %@." } }
+      }
+    },
+    "monitoring.insight.setup.summary" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The server needs more monitoring information for %@." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Palvelin tarvitsee lisää seurantatietoja kohteesta %@." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Servern behöver mer övervakningsinformation för %@." } }
+      }
+    },
+    "monitoring.insight.setup.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Monitoring setup needs attention in %@" } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Seuranta-asetukset vaativat huomiota: %@" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Övervakningsinställningen behöver uppmärksammas i %@" } }
+      }
+    },
+    "monitoring.insight.temperature-balance.action" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Compare rooms and inspect heating or airflow around %@." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Vertaa huoneita ja tarkasta lämmitys tai ilmankierto kohteen %@ ympärillä." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Jämför rum och kontrollera värme eller luftflöde kring %@." } }
+      }
+    },
+    "monitoring.insight.temperature-balance.summary" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The server found a temperature difference involving %@." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Palvelin havaitsi lämpötilaeron, joka koskee kohdetta %@." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Servern upptäckte en temperaturskillnad som berör %@." } }
+      }
+    },
+    "monitoring.insight.temperature-balance.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Temperature balance needs attention near %@" } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Lämpötilatasapaino vaatii huomiota kohteen %@ lähellä" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Temperaturbalansen behöver uppmärksammas nära %@" } }
+      }
+    },
+    "monitoring.insight.temperature.action" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Confirm the reading and inspect heating or cooling in %@." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Vahvista mittaus ja tarkasta lämmitys tai jäähdytys kohteessa %@." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Bekräfta avläsningen och kontrollera värme eller kyla i %@." } }
+      }
+    },
+    "monitoring.insight.temperature.summary" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The server found an unusual temperature in %@." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Palvelin havaitsi poikkeavan lämpötilan kohteessa %@." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Servern upptäckte en ovanlig temperatur i %@." } }
+      }
+    },
+    "monitoring.insight.temperature.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Temperature needs attention in %@" } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Lämpötila vaatii huomiota: %@" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Temperaturen behöver uppmärksammas i %@" } }
+      }
+    },
+    "monitoring.status.steady.detail" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The server found no current monitoring issue." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Palvelin ei havainnut ajankohtaista seurantaongelmaa." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Servern hittade inget aktuellt övervakningsproblem." } }
+      }
+    },
+    "monitoring.status.steady.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Your Home looks balanced" } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Kodin tilanne näyttää tasapainoiselta" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Ditt hem ser balanserat ut" } }
+      }
+    },
+    "monitoring.status.unknown.detail" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The server could not establish a current monitoring state." } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Palvelin ei voinut määrittää ajankohtaista seurantatilaa." } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Servern kunde inte fastställa ett aktuellt övervakningsläge." } }
+      }
+    },
+    "monitoring.status.unknown.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Current conditions are unavailable" } },
+        "fi" : { "stringUnit" : { "state" : "translated", "value" : "Ajantasaiset olosuhteet eivät ole saatavilla" } },
+        "sv" : { "stringUnit" : { "state" : "translated", "value" : "Aktuella förhållanden är inte tillgängliga" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

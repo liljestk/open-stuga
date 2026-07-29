@@ -27,6 +27,7 @@ export const fiBasePart1 = {
   "common.showDataTable": "Näytä tarkat tiedot",
   "common.temperature": "Lämpötila",
   "common.humidity": "Ilmankosteus",
+  "common.power": "Teho",
   "common.house": "Koti",
   "common.floor": "Kerros",
   "common.metric": "Mittari",

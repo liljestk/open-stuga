@@ -21,6 +21,11 @@ import { buildHomeActivityEvents, HomeActivityTimeline } from "./HomeActivityTim
 import { HomePulsePanel } from "./HomePulsePanel";
 
 import { observationInstantTimestamp } from "./RoomComparisonChart";
+import {
+  monitoringDetail,
+  monitoringInsight,
+  monitoringSummary,
+} from "../monitoringTestSupport";
 
 import { integration, now, openHomePulseMore, sample, sensor } from "./DecisionLayerTestSupport";
 
@@ -429,6 +434,25 @@ describe("decision layer", () => {
       alertRules={[]}
       weather={null}
       referenceTime={now}
+      monitoring={monitoringDetail(
+        monitoringSummary({
+          houseId: house.id,
+          status: "action-required",
+          pulseStatus: "critical",
+          coverage: { enabledSensors: 1, freshSensors: 1 },
+          activeAlertCount: 1,
+        }),
+        [monitoringInsight({
+          id: `active-alert:${alert.id}`,
+          kind: "active-alert",
+          severity: "critical",
+          title: "Temperature alert - Living room",
+          summary: "This critical alert remains open and should be checked.",
+          house,
+          sensor: roomSensor,
+          evidence: [{ label: "Alert value", value: 40, unit: "Â°C" }],
+        })],
+      )}
       onOpenTarget={vi.fn()}
     /></I18nProvider>);
 
@@ -436,7 +460,7 @@ describe("decision layer", () => {
     expect(more.open).toBe(false);
     const criticalGlance = view.container.querySelector<HTMLElement>(".pulse-glance-list .critical")!;
     expect(within(criticalGlance).getByText("Critical")).not.toBeNull();
-    expect(within(criticalGlance).getByText("Temperature alert - Living room")).not.toBeNull();
+    expect(within(criticalGlance).getByText("Critical alert in Living room")).not.toBeNull();
     openHomePulseMore(view.container);
     const criticalInsight = view.container.querySelector<HTMLDetailsElement>(".pulse-insight.critical")!;
     expect(criticalInsight.open).toBe(true);
@@ -470,6 +494,24 @@ describe("decision layer", () => {
       alertRules={[]}
       weather={null}
       referenceTime={now}
+      monitoring={monitoringDetail(
+        monitoringSummary({
+          houseId: house.id,
+          status: "action-required",
+          pulseStatus: "critical",
+          coverage: { enabledSensors: 1, freshSensors: 1 },
+          activeAlertCount: 1,
+        }),
+        [monitoringInsight({
+          id: `active-alert:${alert.id}`,
+          kind: "active-alert",
+          severity: "critical",
+          title: "Temperature alert - Living room",
+          summary: "This critical alert remains open and should be checked.",
+          house,
+          sensor: roomSensor,
+        })],
+      )}
       onOpenTarget={vi.fn()}
     /></I18nProvider>;
     const view = render(panel);
@@ -526,6 +568,24 @@ describe("decision layer", () => {
       alertRules={[]}
       weather={null}
       referenceTime={now}
+      monitoring={monitoringDetail(
+        monitoringSummary({
+          houseId: house.id,
+          status: "action-required",
+          pulseStatus: "attention",
+          coverage: { enabledSensors: sensors.length, freshSensors: sensors.length },
+          activeAlertCount: alerts.length,
+        }),
+        alerts.map((alert, index) => monitoringInsight({
+          id: `active-alert:${alert.id}`,
+          kind: "active-alert",
+          severity: "warning",
+          title: `Temperature alert - ${sensors[index]!.room}`,
+          house,
+          sensor: sensors[index]!,
+          rank: index + 1,
+        })),
+      )}
       onOpenTarget={vi.fn()}
     /></I18nProvider>);
 

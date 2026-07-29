@@ -7,6 +7,8 @@ import type {
   AnalyticsCoverageResponse,
   AnalyticsQueryRequest,
   AnalyticsQueryResponse,
+  CalendarComparisonRequest,
+  CalendarComparisonResponse,
   AreaEquipment,
   AreaEquipmentInput,
   AreaEquipmentPatch,
@@ -19,6 +21,8 @@ import type {
   DataExportPreview,
   DataExportPrivacyLevel,
   DailyAnalyticsFindingsResponse,
+  OpeningActivityRequest,
+  OpeningActivityResponse,
   EnergyOptimizationReport,
   AlertRulePatch,
   AppleNotesGrantCreated,
@@ -32,6 +36,9 @@ import type {
   HouseMapPlacement,
   HouseWeather,
   HomeElectricityPricePoint,
+  HomePerformanceResponse,
+  HomeMonitoringCollectionResponse,
+  HomeMonitoringDetailResponse,
   HomeEnergyCost,
   IntegrationStatus,
   IntegrationTestResult,
@@ -338,6 +345,45 @@ export const apiPart03 = {
       `/analytics/findings?houseId=${encodeURIComponent(houseId)}`,
       signal ? { signal } : undefined,
     ),
+  openingActivity: (input: OpeningActivityRequest, signal?: AbortSignal) => requestV2<OpeningActivityResponse>(
+      "/analytics/opening-activity",
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+        ...(signal ? { signal } : {}),
+      },
+    ),
+  calendarComparison: (
+    input: CalendarComparisonRequest,
+    signal?: AbortSignal,
+  ) => requestV2<CalendarComparisonResponse>("/analytics/calendar-comparison", {
+    method: "POST",
+    body: JSON.stringify(input),
+    ...(signal ? { signal } : {}),
+  }),
+  homePerformance: (
+    houseId: string,
+    dataMode: "live" | "demo",
+    signal?: AbortSignal,
+  ) => requestV2<HomePerformanceResponse>(
+      `/analytics/home-performance?houseId=${encodeURIComponent(houseId)}&dataMode=${dataMode}`,
+      signal ? { signal } : undefined,
+    ),
+  homeMonitoringCollection: (
+    dataMode: "live" | "demo",
+    signal?: AbortSignal,
+  ) => requestV2<HomeMonitoringCollectionResponse>(
+    `/monitoring/houses?dataMode=${dataMode}`,
+    signal ? { signal } : undefined,
+  ),
+  homeMonitoring: (
+    houseId: string,
+    dataMode: "live" | "demo",
+    signal?: AbortSignal,
+  ) => requestV2<HomeMonitoringDetailResponse>(
+    `/monitoring/houses/${encodeURIComponent(houseId)}?dataMode=${dataMode}&include=insights`,
+    signal ? { signal } : undefined,
+  ),
   analyticsCoverage: (input: AnalyticsCoverageRequest, signal?: AbortSignal) => requestV2<AnalyticsCoverageResponse>("/analytics/coverage", {
       method: "POST",
       body: JSON.stringify(input),

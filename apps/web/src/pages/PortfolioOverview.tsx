@@ -1,12 +1,22 @@
 import { AlertTriangle, ArrowRight, Building2, CheckCircle2, ChevronDown, Clock3, CloudSun, HelpCircle, MapPin, RadioTower } from "lucide-react";
-import type { AlertEvent, AlertRule, House, IntegrationStatus, Property, PropertyArea, Sensor } from "@climate-twin/contracts";
+import type {
+  AlertEvent,
+  AlertRule,
+  HomeMonitoringBlocker,
+  HomeMonitoringCollectionResponse,
+  HomeMonitoringSummary,
+  House,
+  IntegrationStatus,
+  Property,
+  PropertyArea,
+  Sensor,
+} from "@climate-twin/contracts";
 import { useI18n, type TranslationKey } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 import { useNow } from "../useNow";
-import { deriveHouseMonitoring, monitoringPrimaryBlocker, type HouseMonitoringBlocker, type HouseMonitoringResult } from "../houseMonitoring";
 import type { LatestMeasurements, MeasurementHistory } from "../measurements";
-import { integrationForHouse } from "../integrationScope";
 import { HomeOriginIndicator, isRemoteHome } from "../components/HomeOriginIndicator";
+import { useHomeMonitoringCollectionQuery } from "../data/analytics/homeMonitoringQuery";
 
 interface PortfolioOverviewProps {
   properties: Property[];
@@ -23,6 +33,8 @@ interface PortfolioOverviewProps {
   onOpenOutdoor: (houseId: string) => void;
   onOpenSetup: (houseId: string) => void;
   readOnly?: boolean;
+  dataMode?: "demo" | "real" | "unknown";
+  monitoring?: HomeMonitoringCollectionResponse;
 }
 
 function localTime(timezone: string, locale: string, now: number): string {
@@ -34,7 +46,7 @@ function localTime(timezone: string, locale: string, now: number): string {
   });
 }
 
-function blockerText(blocker: HouseMonitoringBlocker, t: ReturnType<typeof useI18n>["t"]): string {
+function blockerText(blocker: HomeMonitoringBlocker, t: ReturnType<typeof useI18n>["t"]): string {
   if (blocker.kind === "critical-alert") return t("overview.blocker.criticalAlert");
   if (blocker.kind === "warning-alert") return t("overview.blocker.warningAlert");
   if (blocker.kind === "information-alert") return t("overview.blocker.informationAlert");
@@ -46,13 +58,13 @@ function blockerText(blocker: HouseMonitoringBlocker, t: ReturnType<typeof useI1
   return t("overview.blocker.agingData", { count: blocker.count });
 }
 
-function MonitoringIcon({ result }: { result: HouseMonitoringResult }) {
+function MonitoringIcon({ result }: { result: HomeMonitoringSummary }) {
   if (result.status === "monitoring-ok") return <CheckCircle2 size={16} aria-hidden="true" />;
   if (result.status === "unknown") return <HelpCircle size={16} aria-hidden="true" />;
   return <AlertTriangle size={16} aria-hidden="true" />;
 }
 
-export function PortfolioOverview({
+function PortfolioOverviewView({
   properties,
   propertyAreas,
   houses,
@@ -67,21 +79,34 @@ export function PortfolioOverview({
   onOpenOutdoor,
   onOpenSetup,
   readOnly = false,
+  monitoring: monitoringResponse,
 }: PortfolioOverviewProps) {
   const { locale, t } = useI18n();
   const now = useNow();
   const propertySummary = (homeCount: number, areaCount: number) => `${t(homeCount === 1 ? "properties.homeCountOne" : "properties.homeCountMany", { count: homeCount })} · ${t(areaCount === 1 ? "properties.areaCountOne" : "properties.areaCountMany", { count: areaCount })}`;
-  const monitoring = new Map(houses.map((house) => [house.id, deriveHouseMonitoring({
+  const monitoring = new Map(
+    (monitoringResponse?.houses ?? []).map((result) => [result.houseId, result]),
+  );
+  const unknownResult = (house: House): HomeMonitoringSummary => ({
+    houseId: house.id,
+    generatedAt: new Date(now).toISOString(),
+    status: "unknown",
+    pulseStatus: "unknown",
+    coverage: {
+      enabledSensors: sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled).length,
+      freshSensors: 0,
+      estimatedSensors: 0,
+      agingSensors: 0,
+      staleSensors: 0,
+      sensorsWithoutData: sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled).length,
+    },
+    activeAlertCount: 0,
+    blockers: [],
+  });
+  const monitoredHouses = houses.map((house) => ({
     house,
-    sensors,
-    latestMeasurements,
-    measurementHistory,
-    alerts,
-    alertRules,
-    integration: integrationForHouse(integration, house.id, Boolean(house.location)),
-    referenceTime: now,
-  })]));
-  const monitoredHouses = houses.map((house) => ({ house, result: monitoring.get(house.id)! }));
+    result: monitoring.get(house.id) ?? unknownResult(house),
+  }));
   const propertyGroups = properties.map((property) => {
     const homes = monitoredHouses.filter(({ house }) => house.propertyId === property.id);
     return {
@@ -101,7 +126,7 @@ export function PortfolioOverview({
 
   const renderHouseCard = ({ house, result }: (typeof monitoredHouses)[number], Heading: "h3" | "h4" = "h3") => {
     const houseSensors = sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled);
-    const primaryBlocker = monitoringPrimaryBlocker(result);
+    const primaryBlocker = result.blockers[0] ?? null;
     const reportingCount = result.coverage.freshSensors;
     const alertCount = result.activeAlertCount;
     const locationReady = Boolean(house.location);
@@ -207,4 +232,22 @@ export function PortfolioOverview({
       </details>
     </div>
   );
+}
+
+function PortfolioOverviewQuery(props: PortfolioOverviewProps) {
+  const mode = props.dataMode === "real" ? "live" as const : "demo" as const;
+  const query = useHomeMonitoringCollectionQuery(
+    mode,
+    props.dataMode !== "unknown",
+  );
+  return <PortfolioOverviewView
+    {...props}
+    {...(query.data ? { monitoring: query.data } : {})}
+  />;
+}
+
+export function PortfolioOverview(props: PortfolioOverviewProps) {
+  return props.monitoring || props.dataMode === undefined
+    ? <PortfolioOverviewView {...props} />
+    : <PortfolioOverviewQuery {...props} />;
 }

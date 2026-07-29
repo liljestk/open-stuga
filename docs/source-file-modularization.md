@@ -54,6 +54,14 @@ TypeScript, Python, CSS, HTML, SQL, shell, or PowerShell source file exceeds 600
 quality gate. Build outputs, dependencies, caches, and coverage are excluded;
 there are no source-file exceptions.
 
+`npm run check:architecture` additionally protects the analytics/data rewrite:
+it rejects numbered modules in new API analytics and web data domains,
+reintroduction of deleted browser derivations, direct live-stream ownership
+outside the coordinator, pure analytics imports of API I/O, and query-client
+resources that import the legacy bootstrap chain. `useClimateData.ts` is now a
+compatibility facade over named ownership modules; the former `part-01` through
+`part-10` ReturnType chain is deleted.
+
 ## Ongoing refactoring plan
 
 1. Treat 450 lines as the review threshold and 600 as the hard failure.

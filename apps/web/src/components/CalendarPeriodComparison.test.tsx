@@ -1,147 +1,201 @@
 import axe from "axe-core";
-import type { AnalyticsQueryResponse, AnalyticsSeries } from "@climate-twin/contracts";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import type {
+  CalendarComparisonPeriod,
+  CalendarComparisonResponse,
+  CalendarComparisonSeries,
+} from "@climate-twin/contracts";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
+import { ServerStateProvider, queryClient } from "../data/queryClient";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import { CalendarPeriodComparison } from "./CalendarPeriodComparison";
 
-function analyticsSeries(entityId: string, entityLabel: string, timestamp: string, value: number): AnalyticsSeries {
+function period(year: number): CalendarComparisonPeriod {
   return {
-    entityId,
-    entityLabel,
-    measurementId: "temperature",
-    canonicalUnit: "°C",
-    truthClass: "derived",
-    aggregation: "mean",
-    resolution: "15m",
-    points: [{ timestamp, value, minimum: value - 1, maximum: value + 1, sampleCount: 24, coverage: 1, qualityFlags: [] }],
-    summary: {
-      entityId, measurementId: "temperature", canonicalUnit: "°C", count: 24, coverage: 1,
-      minimum: value - 1, maximum: value + 1, mean: value, median: value,
-      standardDeviation: 0, medianAbsoluteDeviation: 0, p05: value, p95: value,
+    key: `${year}-10`,
+    unit: "month",
+    start: `${year}-09-30T21:00:00.000Z`,
+    end: `${year}-10-31T22:00:00.000Z`,
+    naturalEnd: `${year}-10-31T22:00:00.000Z`,
+    year,
+    month: 10,
+    day: null,
+    week: null,
+    decade: null,
+    partial: false,
+  };
+}
+
+function series(
+  selected: CalendarComparisonPeriod,
+  sourceId: string,
+  sourceLabel: string,
+  offset: number,
+): CalendarComparisonSeries {
+  const points = Array.from({ length: 5 }, (_, index) => ({
+    bucket: {
+      key: `${selected.key}:week-${index + 1}`,
+      slot: `week-${index + 1}`,
+      order: index,
+      index,
+      start: new Date(Date.parse(selected.start) + index * 7 * 86_400_000).toISOString(),
+      end: new Date(Math.min(
+        Date.parse(selected.end),
+        Date.parse(selected.start) + (index + 1) * 7 * 86_400_000,
+      )).toISOString(),
+      partial: false,
     },
-    provenance: {
-      algorithmKey: "analytics-bucket-rollup", algorithmVersion: "1.0.0", generatedAt: timestamp,
-      inputStart: timestamp, inputEnd: timestamp, sourceIds: [entityId], archiveState: "not-configured",
+    value: offset + index,
+    minimum: offset + index - 1,
+    maximum: offset + index + 1,
+    sampleCount: 24,
+    coverage: 1,
+  }));
+  return {
+    id: `${selected.key}:${sourceId}`,
+    sourceId,
+    sourceLabel,
+    combination: sourceId === "combined" ? "mean" : "single",
+    period: selected,
+    aggregation: "mean",
+    points,
+    summary: {
+      value: offset + 2,
+      minimum: offset - 1,
+      maximum: offset + 5,
+      sampleCount: 120,
+      coverage: 1,
+      bucketCount: 5,
     },
   };
 }
 
-afterEach(() => vi.restoreAllMocks());
+function response(sensorIds: string[], sensorNames: string[]): CalendarComparisonResponse {
+  const current = period(2024);
+  const baseline = period(2023);
+  const combinedCurrent = series(current, "combined", "Combined sensors", 20);
+  const combinedBaseline = series(baseline, "combined", "Combined sensors", 18);
+  const singles = sensorIds.flatMap((sensorId, index) => [
+    series(current, sensorId, sensorNames[index]!, 20 + index),
+    series(baseline, sensorId, sensorNames[index]!, 18 + index),
+  ]);
+  return {
+    apiVersion: "1.0",
+    requestId: "calendar-response",
+    houseId: "house-main",
+    dataMode: "demo",
+    measurementId: "temperature",
+    unit: "month",
+    anchor: { month: 10, day: 15, week: 42 },
+    aggregation: "default",
+    qualityFilter: { include: ["good", "estimated"] },
+    candidates: [baseline, current],
+    selectedPeriods: [current, baseline],
+    series: [combinedCurrent, combinedBaseline, ...singles],
+    comparisons: [{
+      sourceId: "combined",
+      currentSeriesId: combinedCurrent.id,
+      baselineSeriesId: combinedBaseline.id,
+      commonCompletedBucketCount: 5,
+      difference: 2,
+    }, ...sensorIds.map((sensorId) => ({
+      sourceId: sensorId,
+      currentSeriesId: `${current.key}:${sensorId}`,
+      baselineSeriesId: `${baseline.key}:${sensorId}`,
+      commonCompletedBucketCount: 5,
+      difference: 2,
+    }))],
+    archiveState: "not-configured",
+    generatedAt: "2026-07-29T00:00:00.000Z",
+    evaluatedAt: "2026-07-29T00:00:00.000Z",
+    completeness: "complete",
+    warnings: [],
+    provenance: {
+      algorithmKey: "calendar-comparison",
+      algorithmVersion: "calendar-comparison-v1.0.0",
+      evaluatedAt: "2026-07-29T00:00:00.000Z",
+      sourceIds: sensorIds,
+      archiveState: "not-configured",
+    },
+  };
+}
+
+beforeEach(() => queryClient.clear());
+afterEach(() => {
+  queryClient.clear();
+  vi.restoreAllMocks();
+});
 
 describe("CalendarPeriodComparison", () => {
-  it("compares two explicit Octobers as aligned weekly buckets and can isolate one sensor", async () => {
+  it("renders the authoritative response with one request and does not refetch for source display", async () => {
     const user = userEvent.setup();
     const state = createDemoState();
     const house = state.houses[0]!;
-    const sensors = state.sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled).slice(0, 2);
-    const definition = state.measurementDefinitions.find((item) => item.id === "temperature")!;
-    const coverage = vi.spyOn(api, "analyticsCoverage").mockResolvedValue({
-      apiVersion: "1.0",
-      requestId: "coverage",
-      dataMode: "demo",
-      range: { start: "2022-09-01T00:00:00.000Z", end: "2024-11-02T00:00:00.000Z" },
-      series: sensors.map((sensor) => ({
-        entityId: sensor.id,
-        entityLabel: sensor.name,
-        measurementId: "temperature",
-        start: "2022-09-01T00:00:00.000Z",
-        end: "2024-11-02T00:00:00.000Z",
-      })),
-      complete: true,
-      archiveState: "not-configured",
-      generatedAt: "2026-07-21T00:00:00.000Z",
-    });
-    const query = vi.spyOn(api, "analyticsQuery").mockImplementation(async (request): Promise<AnalyticsQueryResponse> => {
-      const year = Number(request.requestId.match(/calendar-month-(\d{4})-10/)?.[1] ?? 0);
-      const bucket = Number(request.requestId.match(/week-(\d)/)?.[1] ?? 0);
-      const responseSeries = (request.scope.entityIds ?? []).map((sensorId, index) => {
-        const sensor = sensors.find((candidate) => candidate.id === sensorId)!;
-        return analyticsSeries(sensorId, sensor.name, request.range.start, (year === 2024 ? 20 : 18) + bucket + index);
-      });
-      return {
-        apiVersion: "1.0",
-        requestId: request.requestId,
-        dataMode: "demo",
-        resolvedRange: request.range,
-        resolution: "15m",
-        series: responseSeries,
-        summaries: responseSeries.map((item) => item.summary),
-        quality: {
-          coverage: 1, seriesCount: responseSeries.length, sampleCount: responseSeries.length * 24,
-          excludedSampleCount: 0, includedQualities: ["good", "estimated"], lowCoverageSeries: 0,
-        },
-        provenance: responseSeries.map((item) => item.provenance),
-        warnings: [],
-        generatedAt: "2026-07-21T00:00:00.000Z",
-        cache: { hit: false, keyVersion: "analytics-query-v1" },
-      };
-    });
+    const sensors = state.sensors
+      .filter((sensor) => sensor.houseId === house.id && sensor.enabled)
+      .slice(0, 2);
+    const definition = state.measurementDefinitions
+      .find((item) => item.id === "temperature")!;
+    const calendarComparison = vi.spyOn(api, "calendarComparison")
+      .mockResolvedValue(response(
+        sensors.map((sensor) => sensor.id),
+        sensors.map((sensor) => sensor.name),
+      ));
+    const analyticsCoverage = vi.spyOn(api, "analyticsCoverage");
+    const analyticsQuery = vi.spyOn(api, "analyticsQuery");
 
-    const view = render(<I18nProvider><CalendarPeriodComparison
-      houseId={house.id}
-      timeZone="Europe/Helsinki"
-      dataMode="demo"
-      sensors={sensors}
-      metric="temperature"
-      definition={definition}
-      units="metric"
-    /></I18nProvider>);
+    const view = render(
+      <ServerStateProvider>
+        <I18nProvider>
+          <CalendarPeriodComparison
+            houseId={house.id}
+            timeZone="Europe/Helsinki"
+            dataMode="demo"
+            sensors={sensors}
+            metric="temperature"
+            definition={definition}
+            units="metric"
+          />
+        </I18nProvider>
+      </ServerStateProvider>,
+    );
 
     await user.click(screen.getByText("Compare calendar periods"));
-    await waitFor(() => expect(query).toHaveBeenCalled());
-    query.mockClear();
-    await user.selectOptions(screen.getByRole("combobox", { name: "Month of year" }), "10");
-
     const chartName = "Temperature for Selected sensors average across 2 selected calendar periods.";
     const chart = await screen.findByRole("img", { name: chartName });
-    expect(screen.getByRole("region", { name: chartName }).getAttribute("tabindex")).toBe("0");
-    expect(screen.getAllByText("Selected sensors average").length).toBeGreaterThan(0);
-    expect((screen.getByRole("combobox", { name: "Period A" }) as HTMLSelectElement).value).toBe("2024-10");
-    expect((screen.getByRole("combobox", { name: "Period B" }) as HTMLSelectElement).value).toBe("2023-10");
-    await waitFor(() => expect(query).toHaveBeenCalledTimes(10));
-    expect(query.mock.calls.every(([request]) => request.scope.entityIds?.length === 2)).toBe(true);
-    expect(query.mock.calls.map(([request]) => request.range)).toContainEqual({
-      start: "2024-09-30T21:00:00.000Z",
-      end: "2024-10-07T21:00:00.000Z",
-      timezone: "Europe/Helsinki",
-    });
-    expect(query.mock.calls.map(([request]) => request.range)).toContainEqual({
-      start: "2023-10-28T21:00:00.000Z",
-      end: "2023-10-31T22:00:00.000Z",
-      timezone: "Europe/Helsinki",
-    });
+
+    expect(calendarComparison).toHaveBeenCalledTimes(1);
+    expect(calendarComparison).toHaveBeenCalledWith(
+      expect.objectContaining({
+        houseId: house.id,
+        sensorIds: sensors.map((sensor) => sensor.id),
+        measurementId: "temperature",
+      }),
+      expect.any(AbortSignal),
+    );
+    expect(analyticsCoverage).not.toHaveBeenCalled();
+    expect(analyticsQuery).not.toHaveBeenCalled();
+    expect((screen.getByRole("combobox", { name: "Period A" }) as HTMLSelectElement).value)
+      .toBe("2024-10");
+    expect((screen.getByRole("combobox", { name: "Period B" }) as HTMLSelectElement).value)
+      .toBe("2023-10");
     expect(chart.querySelectorAll(".calendar-comparison-series > path")).toHaveLength(2);
     expect(screen.getAllByText("+2.0°C").length).toBeGreaterThan(0);
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Sensor scope" }),
+      sensors[0]!.id,
+    );
+    await waitFor(() => expect(screen.getAllByText("+2.0°C").length).toBeGreaterThan(0));
+    expect(calendarComparison).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/Every bucket uses the same/)).toBeNull();
+
     const accessibility = await axe.run(view.container, {
       rules: { "color-contrast": { enabled: false } },
     });
     expect(accessibility.violations).toEqual([]);
-
-    await user.click(screen.getByText("Show accessible comparison table (5 buckets)"));
-    const table = within(screen.getByRole("region", { name: "Calendar period comparison data" })).getByRole("table");
-    expect(within(table).getAllByRole("row")).toHaveLength(6);
-    expect(within(table).getByText("1–7")).not.toBeNull();
-
-    query.mockClear();
-    await user.selectOptions(screen.getByRole("combobox", { name: "Sensor scope" }), sensors[0]!.id);
-    await waitFor(() => expect(query).toHaveBeenCalledTimes(10));
-    expect(query.mock.calls.every(([request]) => request.scope.entityIds?.length === 1)).toBe(true);
-    expect(screen.queryByText(/Every bucket uses the same/)).toBeNull();
-
-    const coverageCalls = coverage.mock.calls.length;
-    view.rerender(<I18nProvider><CalendarPeriodComparison
-      houseId={house.id}
-      timeZone="Europe/Helsinki"
-      dataMode="demo"
-      sensors={sensors.map((sensor) => ({ ...sensor }))}
-      metric="temperature"
-      definition={definition}
-      units="metric"
-    /></I18nProvider>);
-    expect(coverage).toHaveBeenCalledTimes(coverageCalls);
   });
 });

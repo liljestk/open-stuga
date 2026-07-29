@@ -74,6 +74,7 @@ export const svPart3 = {
   "decision.state.comfortable": "Bekväm",
   "decision.state.watch": "Titta",
   "decision.state.attention": "Behöver uppmärksamhet",
+  "decision.state.live": "Live",
   "decision.state.offline": "Väntar på data",
   "decision.openRoom": "Öppna {room}. Status: {status}",
   "decision.noRecentReading": "Ingen ny läsning",

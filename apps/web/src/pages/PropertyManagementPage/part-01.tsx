@@ -117,7 +117,14 @@ export function usePropertyManagementPagePart01(context: { props: Readonly<Prope
   const areas = useMemo(() => state.propertyAreas.filter((area) => area.propertyId === property?.id), [property?.id, state.propertyAreas]);
   const fixedAssets = useMemo(() => areas.filter((area) => area.location || area.polygon.length === 0 || fixedAssetKinds.has(area.kind)), [areas]);
   const equipment = useMemo(() => state.areaEquipment.filter((item) => item.propertyId === property?.id), [property?.id, state.areaEquipment]);
-  const propertyTrafficLights = useMemo(() => derivePropertyTrafficLights(state, property?.id ?? "", now), [now, property?.id, state]);
+  const propertyTrafficLights = useMemo(
+    () => derivePropertyTrafficLights(
+      state,
+      property?.id ?? "",
+      props.monitoring?.houses ?? [],
+    ),
+    [property?.id, props.monitoring?.houses, state],
+  );
   const notes = useMemo(() => state.propertyNotes.filter((note) => note.propertyId === property?.id), [property?.id, state.propertyNotes]);
   const [selectedAreaId, setSelectedAreaId] = useState<string | null>(null);
   const selectedArea = areas.find((area) => area.id === selectedAreaId);
