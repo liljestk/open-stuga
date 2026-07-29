@@ -141,6 +141,15 @@ mmdebstrap:
       # overrides produced repeatable seven-flash failures on the target SSD.
       grep -qx 'auto_initramfs=1' "$1/boot/firmware/config.txt"
 
+      # initramfs-tools 0.148.4+rpt2 emits compressed modules as a leading,
+      # uncompressed CPIO followed by zstd. The target Pi 4/USB-SATA bridge
+      # reaches the firmware's seven-flash failure with that layout, while the
+      # same files in one zstd stream boot reliably. Patch the immutable build
+      # root before rpi-image-gen's final update-initramfs pass. The helper
+      # fails closed if the upstream implementation changes.
+      python3 "${IGconf_stugu_assetdir}/patch-initramfs-tools-monolithic.py" \
+        "$1/usr/sbin/mkinitramfs"
+
       cat > "$1/etc/systemd/system/systemd-networkd-wait-online.service.d/stugu-any-uplink.conf" <<-'EOF'
       [Service]
       ExecStart=

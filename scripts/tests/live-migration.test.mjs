@@ -93,6 +93,13 @@ test("portable settings exclude target-specific networking and storage", () => {
   );
 });
 
+test("cloudflared reads migrated mode-0600 secrets as the host bind user", () => {
+  const compose = readFileSync(new URL("../../docker-compose.yml", import.meta.url), "utf8");
+  const service = compose.match(/^  cloudflared:\r?\n(?<body>[\s\S]*?)(?=^networks:)/mu)?.groups?.body ?? "";
+  assert.match(service, /user: \$\{STUGA_HOST_BIND_USER:-1000:1000\}/u);
+  assert.match(service, /\/run\/secrets\/cloudflare\/tunnel-token/u);
+});
+
 test("version comparison rejects a newer source and permits patch differences", () => {
   assert.equal(compareReleaseVersions("0.5.0", "0.5.1"), -1);
   assert.equal(compareReleaseVersions("0.5.1", "0.5.0"), 1);

@@ -563,6 +563,10 @@ services:
     image: ${CLOUDFLARED_IMAGE:-cloudflare/cloudflared:2026.7.2}
     init: true
     restart: unless-stopped
+    # Provisioning and live migration create host-bound secrets as this user
+    # with mode 0600. Keep the tunnel unprivileged while allowing it to read
+    # the token without weakening the file permissions.
+    user: ${STUGA_HOST_BIND_USER:-1000:1000}
     depends_on:
       web:
         condition: service_started

@@ -103,10 +103,13 @@ export function readExistingDeployment(deploymentPath, options) {
   try { previous = JSON.parse(readFileSync(deploymentPath, "utf8")); } catch {
     throw new UsageError(`Refusing to overwrite invalid deployment metadata at ${deploymentPath}`);
   }
+  const mode = previous?.mode === "stugby-coordinator"
+    ? "stuguby-coordinator"
+    : previous?.mode;
   const validVersion = previous?.version === 1 || previous?.version === 2;
   const validMode = previous?.version === 1
-    ? previous.mode === undefined
-    : ["remote-ui", "stuguby-coordinator"].includes(previous?.mode);
+    ? mode === undefined
+    : ["remote-ui", "stuguby-coordinator"].includes(mode);
   const hostname = typeof previous?.hostname === "string" ? previous.hostname.trim().toLowerCase() : "";
   if (!validVersion || !validMode || !hostname) {
     throw new UsageError(`Refusing to overwrite unsupported deployment metadata at ${deploymentPath}`);
@@ -114,10 +117,10 @@ export function readExistingDeployment(deploymentPath, options) {
   if (hostname !== options.hostname) {
     throw new UsageError(`The existing deployment in ${deploymentPath} belongs to ${hostname}, not ${options.hostname}`);
   }
-  if (options.command === "provision" && previous.mode === "stuguby-coordinator") {
+  if (options.command === "provision" && mode === "stuguby-coordinator") {
     throw new UsageError(
       "Refusing to downgrade a Stuguby coordinator with provision; rerun provision-coordinator or stop cloudflared",
     );
   }
-  return previous;
+  return { ...previous, mode };
 }

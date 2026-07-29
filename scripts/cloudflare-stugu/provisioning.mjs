@@ -152,10 +152,13 @@ export function readDeployment(secretDirectory) {
   } catch {
     throw new UsageError(`Could not read a valid deployment.json from ${secretDirectory}`);
   }
+  const storedMode = deployment?.mode === "stugby-coordinator"
+    ? "stuguby-coordinator"
+    : deployment?.mode;
   const mode = deployment?.version === 1
     ? "remote-ui"
-    : deployment?.version === 2 && ["remote-ui", "stuguby-coordinator"].includes(deployment?.mode)
-      ? deployment.mode
+    : deployment?.version === 2 && ["remote-ui", "stuguby-coordinator"].includes(storedMode)
+      ? storedMode
       : null;
   if (!mode || typeof deployment.hostname !== "string") {
     throw new UsageError("deployment.json is not a supported Cloudflare deployment");

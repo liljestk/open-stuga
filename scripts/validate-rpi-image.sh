@@ -28,7 +28,7 @@ if [[ ! -r "$image" ]]; then
   exit 1
 fi
 
-for command_name in python3 sfdisk mdir mtype; do
+for command_name in python3 sfdisk mdir mtype zstd; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     echo "Required image-validation command is unavailable: $command_name" >&2
     exit 1
@@ -191,6 +191,7 @@ with image_path.open("rb", buffering=0) as handle:
     if read_at(handle, persistent_offset, 2) != b"\x53\xef":
         fail("persistent does not contain an ext4 superblock")
 
+boot_payload_hashes = None
 for partition, slot in zip(
     partitions[:3], ("bootconfig rescue", "boot_a", "boot_b")
 ):
@@ -212,10 +213,9 @@ for partition, slot in zip(
     for required in ("config.txt", "start4.elf", "fixup4.dat"):
         if required not in names:
             fail(f"{slot} is missing {required}")
-    if not any(name.startswith("kernel") and name.endswith(".img") for name in names):
-        fail(f"{slot} is missing a Raspberry Pi kernel image")
-    if not any(name.startswith("initramfs") for name in names):
-        fail(f"{slot} is missing an initramfs")
+    for required in ("kernel8.img", "initramfs8", "bcm2711-rpi-4-b.dtb"):
+        if required not in names:
+            fail(f"{slot} is missing {required}")
     config = mtools(
         "mtype", "-i", f"{image_path}@@{offset}", "::config.txt"
     ).replace("\r\n", "\n")
@@ -233,6 +233,38 @@ for partition, slot in zip(
     ).replace("\r\n", "\n")
     if "root=/dev/disk/by-slot/active/system" not in cmdline.split():
         fail(f"{slot} cmdline.txt does not select the active A/B system")
+    initramfs = mtools_binary(
+        "mtype", "-i", f"{image_path}@@{offset}", "::initramfs8"
+    )
+    if not initramfs.startswith(b"\x28\xb5\x2f\xfd"):
+        fail(f"{slot} initramfs8 is not a single zstd stream")
+    zstd_test = subprocess.run(
+        ["zstd", "-t", "-q", "-"],
+        input=initramfs,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if zstd_test.returncode != 0:
+        fail(f"{slot} initramfs8 contains data outside its zstd stream")
+    payload_hashes = {
+        name: hashlib.sha256(
+            mtools_binary("mtype", "-i", f"{image_path}@@{offset}", f"::{name}")
+        ).hexdigest()
+        for name in (
+            "bcm2711-rpi-4-b.dtb",
+            "cmdline.txt",
+            "config.txt",
+            "fixup4.dat",
+            "initramfs8",
+            "kernel8.img",
+            "start4.elf",
+        )
+    }
+    if boot_payload_hashes is None:
+        boot_payload_hashes = payload_hashes
+    elif payload_hashes != boot_payload_hashes:
+        fail(f"{slot} direct-boot payload differs from bootconfig rescue")
 
 firmware = mtools_binary(
     "mtype",
@@ -271,6 +303,7 @@ if hash_partition(
 print(
     "Validated GPT, protective MBR, six aligned partitions, FAT/EROFS/ext4 "
     f"filesystems, Pi firmware dated {firmware_date.isoformat()}, USB rescue "
-    "direct-boot files without autoboot.txt, and identical A/B slots."
+    "direct-boot files without autoboot.txt, monolithic zstd initramfs files, "
+    "and identical rescue/A/B boot payloads and system slots."
 )
 PY

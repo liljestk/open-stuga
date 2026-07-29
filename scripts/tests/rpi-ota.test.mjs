@@ -106,6 +106,7 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
     udevImporter,
     udevRules,
     initramfsHook,
+    initramfsCompat,
     tryboot,
     rescuePatch,
     buildScript,
@@ -125,6 +126,13 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
     ),
     readFile(
       new URL("../../deploy/rpi/assets/stugu-usb-initramfs-hook", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../../deploy/rpi/assets/patch-initramfs-tools-monolithic.py",
+        import.meta.url,
+      ),
       "utf8",
     ),
     readFile(new URL("../../deploy/rpi/assets/rpi-slot-tryboot", import.meta.url), "utf8"),
@@ -205,7 +213,11 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
   assert.doesNotMatch(rescuePatch, /\+.*autoboot\.txt.*>|\+boot_partition=/);
   assert.doesNotMatch(layer, /rpi-connect-ota/);
   assert.match(layer, /grep -qx 'auto_initramfs=1'/);
+  assert.match(layer, /patch-initramfs-tools-monolithic\.py/);
   assert.doesNotMatch(layer, /kernel=kernel8\.img|initramfs initramfs8 followkernel/);
+  assert.match(initramfsCompat, /source\.count\(old\) != 1/);
+  assert.match(initramfsCompat, /find \. -false/);
+  assert.match(initramfsCompat, /one compressed initramfs stream/);
   assert.match(buildScript, /config core\.autocrlf false/);
   assert.match(buildScript, /config core\.filemode false/);
   assert.match(
@@ -298,6 +310,9 @@ test("factory builds fail closed unless Linux validates the complete SSD layout"
   assert.match(validator, /bootconfig rescue/);
   assert.match(validator, /does not enable automatic initramfs loading/);
   assert.match(validator, /unsafe explicit kernel\/initramfs override/);
+  assert.match(validator, /initramfs8 is not a single zstd stream/);
+  assert.match(validator, /initramfs8 contains data outside its zstd stream/);
+  assert.match(validator, /direct-boot payload differs from bootconfig rescue/);
   assert.match(validator, /2025-01-22 GPT autoboot partition-number fix/);
   assert.match(validator, /boot_a and boot_b differ/);
   assert.match(validator, /system_a and system_b differ/);

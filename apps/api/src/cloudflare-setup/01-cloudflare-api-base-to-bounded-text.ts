@@ -295,10 +295,13 @@ export function deploymentFromJson(value: unknown): CloudflareDeployment | null 
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const deployment = value as CloudflareDeployment;
   const version = deployment.version;
+  const storedMode = deployment.mode === "stugby-coordinator"
+    ? "stuguby-coordinator"
+    : deployment.mode;
   const mode = version === 1
     ? "remote-ui"
-    : version === 2 && (deployment.mode === "remote-ui" || deployment.mode === "stuguby-coordinator")
-      ? deployment.mode
+    : version === 2 && (storedMode === "remote-ui" || storedMode === "stuguby-coordinator")
+      ? storedMode
       : null;
   const hostname = typeof deployment.hostname === "string" ? deployment.hostname.trim().toLowerCase() : "";
   if (!mode || !validHostname(hostname)) return null;

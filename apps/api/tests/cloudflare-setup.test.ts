@@ -73,6 +73,27 @@ describe("UI-managed Cloudflare setup", () => {
     });
   });
 
+  it("normalizes legacy coordinator deployment metadata", () => {
+    const { operations, deployment } = fixture();
+    writeFileSync(deployment, JSON.stringify({
+      version: 2,
+      mode: "stugby-coordinator",
+      hostname: "stugu.example.com",
+      accountId,
+      zoneId,
+    }));
+    const service = new CloudflareSetupService({
+      operationsDirectory: operations,
+      deploymentFile: deployment,
+    });
+
+    expect(service.status().configuration).toMatchObject({
+      configured: true,
+      mode: "stuguby-coordinator",
+      hostname: "stugu.example.com",
+    });
+  });
+
   it("registers a private client, queues no provider tokens, and exposes the grant once", async () => {
     const { operations, deployment } = fixture();
     writeFileSync(deployment, JSON.stringify({

@@ -4,6 +4,15 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.19.10 - 2026-07-29
+
+- Emit Raspberry Pi initramfs files as one zstd stream to match the
+  known-working Pi 4 USB-SATA path and reject divergent rescue/A/B payloads.
+- Keep migrated Cloudflare tunnel tokens readable only by the bound host user
+  and normalize legacy Stuguby coordinator metadata during upgrades.
+- Record the failed v0.19.9 factory-image evidence and require a physical SSD
+  hardware gate before publishing compatibility claims.
+
 ## 0.19.9 - 2026-07-29
 
 - Restore Raspberry Pi firmware-managed kernel/initramfs pairing to prevent

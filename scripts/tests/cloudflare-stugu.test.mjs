@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   parseArguments,
   provision,
+  readCoordinatorDeployment,
   readExistingDeployment,
   renderRuntimeEnvironment,
   stugubyProtocolApplicationSpec,
@@ -126,6 +127,21 @@ test("coordinator upgrades accept legacy metadata but refuse another deployment 
       mode: "stuguby-coordinator",
       hostname: "stugu.example.test",
     }));
+    assert.throws(() => readExistingDeployment(deploymentPath, {
+      command: "provision",
+      hostname: "stugu.example.test",
+    }), /Refusing to downgrade/u);
+
+    writeFileSync(deploymentPath, JSON.stringify({
+      version: 2,
+      mode: "stugby-coordinator",
+      hostname: "stugu.example.test",
+    }));
+    assert.equal(readExistingDeployment(deploymentPath, {
+      command: "provision-coordinator",
+      hostname: "stugu.example.test",
+    }).mode, "stuguby-coordinator");
+    assert.equal(readCoordinatorDeployment(directory).mode, "stuguby-coordinator");
     assert.throws(() => readExistingDeployment(deploymentPath, {
       command: "provision",
       hostname: "stugu.example.test",

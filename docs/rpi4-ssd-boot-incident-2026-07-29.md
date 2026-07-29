@@ -20,7 +20,8 @@ The SSD data partition retains pre-upgrade images under
 | `current-v0182-sda4.raw.gz` | `579ca72238dc36c1453dfc4dbfe008873e8b435380ee317d4808e4d9f38802f8` |
 | `pre-diagnostic-sda5.raw.gz` | `579ca72238dc36c1453dfc4dbfe008873e8b435380ee317d4808e4d9f38802f8` |
 
-Partition 6 expanded to 217 GiB and remains intact. It has about 192 GiB free.
+Partition 6 fills the remaining SSD, remains intact, and reports 214 GiB total
+with about 175 GiB free after the migration and preserved backups.
 
 ## Artifact verification
 
@@ -64,17 +65,76 @@ was installed in both initramfs stages, `stugu-active-slot` contained `b`, and
 SSD-only reboot logged `active slot b`, mounted `/dev/sda5`, restored LAN and
 Tailscale access, and returned every application container to health.
 
-## Root cause and permanent design
+## v0.19.9 factory-image regression
+
+Release `v0.19.9` is commit
+`64466619fa8f103bec55c012b1fcd839d696ce4e`. Its application containers run
+successfully on the Pi, but its exact factory boot artifacts did not pass the
+SSD hardware gate.
+
+The inactive A partitions and first FAT partition were written and read back
+byte-for-byte:
+
+| Partition | SHA-256 |
+| --- | --- |
+| `bootconfig` (`/dev/sda1`) | `02442f2f6796d0651bff93d7565a1e59b6a57f2382ed3952e795db839caaa28c` |
+| `boot_a` (`/dev/sda2`) | `bbcdc3cf16ba4a55141a540f8cf85baea3964574d7bc0007f07ffce4bb367631` |
+| `system_a` (`/dev/sda4`) | `0c084c26171f7ee79ce172cc6cc2e333c94080b06fb014bcd9a99ff55a0e77cf` |
+
+With `stugu-active-slot` set to A and the SD card removed, the Pi did not reach
+DHCP, SSH, Tailscale, or netconsole and repeatedly reset or showed seven short
+green flashes. This rules out a Windows raw-write or partition checksum error.
+
+Restoring the preserved known-working first partition immediately restored
+SSD-only boot into B (`/dev/sda5`) with the same bridge and disk. Its raw
+SHA-256 is
+`a13d57768eae66661a153f151e0501b1b24898870c07531c8c1a8e43d608c2b0`;
+the known-working initramfs SHA-256 is
+`f1f545956c11d34f3d7fa1af479af4e35f5f4475a3eba008ec93256ade75a13c`.
+
+The operational state after migration is therefore immutable OS `0.19.8` on
+slot B with application release `0.19.9`. The public `v0.19.9` factory image is
+not hardware-approved for this USB-SATA bridge.
+
+## Isolated boot-artifact difference
+
+The complete FAT inventories were then extracted from the failed factory
+partition and the known-working partition. The firmware, Pi 4 DTB,
+`kernel8.img`, and `config.txt` are byte-identical. FAT geometry is also
+identical, and the factory kernel occupies one contiguous cluster chain.
+
+The strongest isolated difference is the initramfs archive layout:
+
+| Artifact | Size | Layout |
+| --- | ---: | --- |
+| v0.19.9 factory `initramfs8` | 15,002,507 bytes | 4,467,200-byte uncompressed CPIO followed by zstd |
+| known-working `initramfs8` | 15,737,584 bytes | one zstd stream |
+
+Both unpack to the same 414-file payload. Only the intended active-slot mapper
+and its ordering files differ. The exact mapper was previously installed in a
+single-stream initramfs and booted this SSD successfully.
+
+The split CPIO plus compressed-stream format is valid according to the Linux
+initramfs buffer specification. Treating it as a compatibility regression on
+this Pi 4 firmware/USB-SATA path is therefore an evidence-based hardware
+workaround, not a claim that the upstream format is generally invalid.
+
+The next factory build patches `initramfs-tools` before its final build pass so
+all files are emitted in one zstd stream. The image validator rejects a leading
+uncompressed archive and rejects any difference between the rescue, A, and B
+direct-boot payloads. This candidate remains unapproved until it passes the
+physical SSD gate below.
+
+## Required design
 
 Two independent Pi 4 USB behaviors caused misleading recovery cycles:
 
 - The target bridge cannot reliably follow Raspberry Pi firmware GPT
   `autoboot.txt` handoffs to later FAT partitions. The first FAT partition must
   directly load the kernel and initramfs.
-- The source image replaced `auto_initramfs=1` with a late explicit Pi 4
-  `kernel=kernel8.img` / `initramfs ... followkernel` block. The exact
-  previously working first partition used automatic kernel/initramfs pairing;
-  the explicit build repeatedly produced the pre-kernel seven-flash symptom.
+- Explicit Pi 4 `kernel=kernel8.img` / `initramfs ... followkernel` overrides
+  produced the pre-kernel seven-flash symptom in earlier tests. Automatic
+  pairing is still required.
 
 Direct boot must also know which immutable system slot to mount without relying
 on firmware partition selection. The corrected design stores a one-line
@@ -86,7 +146,12 @@ on firmware partition selection. The corrected design stores a one-line
 - `autoboot.txt` remains forbidden on the rescue partition.
 
 Application releases continue to update automatically from trusted GitHub
-releases. They do not need to rewrite the immutable OS slots.
+releases. They do not rewrite the immutable OS slots. An OS updater must retain
+the last-known-good first partition, arm a bounded boot attempt, and roll the
+slot marker back unless userspace records health. A failure before the kernel
+starts cannot be repaired by userspace, so the updater must not replace the
+working first partition until the candidate boot files have passed this exact
+SSD hardware gate.
 
 ## Release gate
 
@@ -97,7 +162,13 @@ A Pi 4 SSD release is accepted only after:
    and rejects `autoboot.txt`;
 2. the complete factory image passes GPT, filesystem, firmware, slot equality,
    and payload checks;
-3. the target Pi boots the release from SSD with the SD card removed;
-4. root device, OS version, LAN, Tailscale, persistent capacity, containers,
-   and automatic GitHub update settings are verified; and
-5. two consecutive SSD-only reboots complete before migration.
+3. the candidate first partition is byte-compared with its release artifact;
+4. the target Pi boots the release from SSD with the SD card removed;
+5. root device, OS version, LAN, Tailscale, persistent capacity, containers,
+   and automatic GitHub update settings are verified;
+6. two consecutive SSD-only reboots complete; and
+7. a deliberately unhealthy, kernel-reachable system slot proves automatic
+   rollback to the last-known-good slot.
+
+No release note may call an RPi 4 factory image SSD-compatible until all seven
+checks pass on the target bridge.
