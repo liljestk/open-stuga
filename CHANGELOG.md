@@ -4,6 +4,11 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.19.4 - 2026-07-29
+
+- Stage quiesced SQLite sources in private writable storage before snapshotting,
+  preserving read-only source mounts on every supported Node.js 22 runtime.
+
 ## 0.19.3 - 2026-07-29
 
 - Read quiesced WAL-mode SQLite databases safely from read-only backup mounts
