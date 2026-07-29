@@ -208,6 +208,10 @@ function composeBindSource(configuration, serviceName, target) {
   return typeof volume?.source === "string" && volume.source ? resolve(volume.source) : undefined;
 }
 
+export function existingDiscoveredSecretDirectories(directories) {
+  return Object.fromEntries(Object.entries(directories).filter(([, directory]) => existsSync(directory)));
+}
+
 async function resolveComposeDeploymentInputs(options) {
   const result = await run("docker", composeArguments(options, "config", "--format", "json"), {
     cwd: options.projectDirectory,
@@ -232,14 +236,14 @@ async function resolveComposeDeploymentInputs(options) {
       ["tapo-history-runner", join(options.secretsDirectory, "tapo-history-runner")],
     ]);
   } else {
-    options.secretDirectories = {
+    options.secretDirectories = existingDiscoveredSecretDirectories({
       cloudflare: composeBindSource(configuration, "api", "/run/secrets/cloudflare")
         ?? join(options.secretsDirectory, "cloudflare"),
       "tapo-history-api": composeBindSource(configuration, "api", "/run/secrets/tapo-history")
         ?? join(options.secretsDirectory, "tapo-history-api"),
       "tapo-history-runner": composeBindSource(configuration, "tapo-export-runner", "/run/secrets/tapo-history")
         ?? join(options.secretsDirectory, "tapo-history-runner"),
-    };
+    });
   }
   return configuration;
 }

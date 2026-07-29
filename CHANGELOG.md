@@ -4,6 +4,13 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.19.2 - 2026-07-29
+
+- Run appliance maintenance and migration jobs with the active last-known-good
+  application release, including after updating an older immutable factory OS.
+- Treat absent auto-discovered optional secret roots as empty while retaining
+  strict validation for explicitly configured migration inputs.
+
 ## 0.19.1 - 2026-07-29
 
 - Include the split live-migration target modules in the maintenance image and

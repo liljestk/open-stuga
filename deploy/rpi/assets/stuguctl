@@ -4,7 +4,8 @@ set -Eeuo pipefail
 readonly project_dir=/opt/stugu
 readonly state_dir=/persistent/stugu
 readonly local_env="$state_dir/stugu.env"
-readonly release_env="$project_dir/release.env"
+readonly factory_release_env="$project_dir/release.env"
+readonly known_good_release_env="$state_dir/last-known-good.env"
 readonly docker_config="$state_dir/docker-config"
 readonly migration_dir="$state_dir/migrations"
 readonly compose_lock=/run/lock/stugu-compose.lock
@@ -13,6 +14,44 @@ readonly -a migration_application_services=(
   cloudflared web api stugu-backup-scheduler tapo-export-runner
   telemetry-migrate timeseries-credential-reconcile
 )
+
+release_image_matches() {
+  local candidate="$1"
+  local key="$2"
+  local expected="$3"
+  [[ "$(grep -c "^${key}=" "$candidate")" -eq 1 ]] || return 1
+  local value digest
+  value="$(sed -n "s/^${key}=//p" "$candidate")"
+  [[ "$value" == "$expected" ]] && return 0
+  digest="${value#"$expected@sha256:"}"
+  [[ "$value" == "$expected@sha256:$digest" && "$digest" =~ ^[0-9a-f]{64}$ ]]
+}
+
+valid_release_env() {
+  local candidate="$1"
+  [[ -f "$candidate" && ! -L "$candidate" ]] || return 1
+  [[ "$(wc -l < "$candidate")" -eq 6 ]] || return 1
+  local version
+  version="$(sed -n 's/^STUGA_VERSION=//p' "$candidate")"
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] \
+    && [[ "$(grep -c '^STUGA_VERSION=' "$candidate")" -eq 1 ]] \
+    && release_image_matches "$candidate" STUGA_API_IMAGE \
+      "ghcr.io/liljestk/open-stuga-api:v$version" \
+    && release_image_matches "$candidate" STUGA_WEB_IMAGE \
+      "ghcr.io/liljestk/open-stuga-web:v$version" \
+    && release_image_matches "$candidate" STUGA_BACKUP_IMAGE \
+      "ghcr.io/liljestk/open-stuga-backup:v$version" \
+    && release_image_matches "$candidate" STUGA_TAPO_RUNNER_IMAGE \
+      "ghcr.io/liljestk/open-stuga-tapo-export-runner:v$version" \
+    && release_image_matches "$candidate" STUGA_UPDATE_AGENT_IMAGE \
+      "ghcr.io/liljestk/open-stuga-update-agent:v$version"
+}
+
+release_env="$factory_release_env"
+if valid_release_env "$known_good_release_env"; then
+  release_env="$known_good_release_env"
+fi
+readonly release_env
 
 compose() {
   DOCKER_CONFIG="$docker_config" docker compose \
@@ -38,7 +77,7 @@ Commands:
   restart     Pull the pinned images and restart the appliance
   backup      Create a complete Stugu backup
   migration   Receive, verify, apply, or roll back a live system migration
-  images      Show the immutable container references for this OS release
+  images      Show the active known-good container references
 EOF
 }
 

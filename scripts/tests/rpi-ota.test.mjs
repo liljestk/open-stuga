@@ -248,6 +248,11 @@ test("the appliance exposes secure LAN access and persistent Tailscale by defaul
   assert.match(composeStart, /dd if=\/dev\/urandom bs=32 count=1[\s\S]*LOCAL_AUTH_BOOTSTRAP_SECRET/);
   assert.match(control, /#bootstrap=%s/);
   assert.match(control, /tailscale up --operator=stugu/);
+  assert.match(control, /known_good_release_env="\$state_dir\/last-known-good\.env"/);
+  assert.match(
+    control,
+    /if valid_release_env "\$known_good_release_env"; then[\s\S]*release_env="\$known_good_release_env"/,
+  );
   assert.match(layer, /systemd-networkd-wait-online --any --interface=eth0 --interface=wlan0 --timeout=30/);
   assert.match(layer, /BOOTFS="\/bootfs"/);
   assert.match(layer, /enable-units "\$1" tailscaled stugu-data-grow stugu-eeprom-compat stugu/);

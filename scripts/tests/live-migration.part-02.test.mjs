@@ -37,6 +37,7 @@ import {
   assertRunningSourceVersion,
   assertTargetCapacity,
   effectiveSettingsFile,
+  existingDiscoveredSecretDirectories,
   parseLiveMigrationArgs,
   safeSshTarget,
   stopSourceWriters,
@@ -54,6 +55,16 @@ import {
 } from "../stugu-migration-target.mjs";
 
 import { backupFixture, sha256, temporaryDirectory } from "./live-migration-test-support.mjs";
+
+test("auto-discovery omits optional secret roots that do not exist", (t) => {
+  const root = temporaryDirectory(t);
+  const cloudflare = join(root, "cloudflare");
+  mkdirSync(cloudflare);
+  assert.deepEqual(existingDiscoveredSecretDirectories({
+    cloudflare,
+    "tapo-history-runner": join(root, "missing-runner"),
+  }), { cloudflare });
+});
 
 test("apply intent is durable, idempotent, and bound to a fully verified cutover plan", async (t) => {
   const root = temporaryDirectory(t);
