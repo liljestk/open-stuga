@@ -4,6 +4,11 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.19.8 - 2026-07-29
+
+- Pin the Raspberry Pi update agent to the appliance's actual `stugu` Compose
+  project so unattended releases inspect and update the running services.
+
 ## 0.19.7 - 2026-07-29
 
 - Preserve the appliance deployment environment inside the privileged update

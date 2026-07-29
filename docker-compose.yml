@@ -274,7 +274,7 @@ services:
       SYSTEM_UPDATE_REPOSITORY: ${SYSTEM_UPDATE_REPOSITORY:-liljestk/open-stuga}
       SYSTEM_UPDATE_IMAGE_PREFIX: ${SYSTEM_UPDATE_IMAGE_PREFIX:-ghcr.io/liljestk/open-stuga}
       SYSTEM_UPDATE_RUNTIME: ${SYSTEM_UPDATE_RUNTIME:-docker}
-      STUGA_COMPOSE_PROJECT_NAME: stuga
+      STUGA_COMPOSE_PROJECT_NAME: ${STUGA_COMPOSE_PROJECT_NAME:-stuga}
       STUGA_CLOUDFLARE_SECRET_DIR: /persistent/stugu/cloudflare
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

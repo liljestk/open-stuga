@@ -445,6 +445,9 @@ test("the appliance exposes a health-gated migration receiver with rollback", as
   );
   assert.match(environment, /STUGA_UPDATE_COMPOSE_ENV_FILE=\/persistent\/stugu\/stugu\.env/);
   assert.match(composeStart, /STUGA_UPDATE_COMPOSE_ENV_FILE=\/persistent\/stugu\/stugu\.env/);
+  assert.match(compose, /STUGA_COMPOSE_PROJECT_NAME: \$\{STUGA_COMPOSE_PROJECT_NAME:-stuga\}/);
+  assert.match(environment, /STUGA_COMPOSE_PROJECT_NAME=stugu/);
+  assert.match(composeStart, /STUGA_COMPOSE_PROJECT_NAME=stugu/);
   assert.match(layer, /STUGA_VERSION=\$\{IGconf_artefact_version\}/);
   assert.match(layer, /stugu-lock\.conf/);
 });

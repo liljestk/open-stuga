@@ -80,7 +80,8 @@ missing_appliance_settings=()
 for setting in \
   "STUGA_MIGRATION_SETTINGS_DIRECTORY=/persistent/stugu" \
   "STUGA_MIGRATION_ENV_FILENAME=stugu.env" \
-  "STUGA_UPDATE_COMPOSE_ENV_FILE=/persistent/stugu/stugu.env"; do
+  "STUGA_UPDATE_COMPOSE_ENV_FILE=/persistent/stugu/stugu.env" \
+  "STUGA_COMPOSE_PROJECT_NAME=stugu"; do
   setting_name="${setting%%=*}"
   if ! grep -q "^${setting_name}=" "$local_env"; then
     missing_appliance_settings+=("$setting")

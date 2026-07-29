@@ -107,7 +107,8 @@ on Sunday at 03:00 UTC; an Owner can change or disable that schedule.
 The appliance passes its persistent deployment environment to the update
 agent's nested Compose client. Configuration, secrets, update state, and
 migration state therefore remain on the shared persistent partition when
-containers are recreated.
+containers are recreated. It also pins that nested client to the appliance's
+`stugu` Compose project so unattended updates inspect the running services.
 
 The UI-managed path updates Stugu's release containers. Full operating-system,
 kernel, and firmware changes require a newly validated factory image and a
