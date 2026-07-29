@@ -40,9 +40,12 @@ system described in the roadmap.
   analytics request, response, and export require an explicit mode and reject a
   mismatch, but a future coordinated storage migration is still needed to meet
   the full per-record isolation design.
-- Rollups are computed in memory from a bounded SQLite/Timescale read. Requests
-  fail at the source or output budget instead of truncating silently. There are
-  no persisted rollups, semantic cache, or late-data invalidation jobs yet.
+- Bucketed measurement analytics and sensor-based daily findings are computed
+  inside PostgreSQL over the complete archived range, so high-frequency source
+  rows no longer hit the API's raw-history cap. Output budgets still fail
+  explicitly instead of truncating. Standalone SQLite and raw queries remain
+  bounded, and there are no specialized persisted semantic rollups, semantic
+  cache, or late-data invalidation jobs yet.
 - Calendar comparison discovers the selected series' range on demand and splits
   large periods into bounded queries. When a configured archive is unavailable,
   the UI warns that older matching periods may be absent instead of claiming the
@@ -402,7 +405,7 @@ system described in the roadmap.
 - Raw Home telemetry is not deleted from TimescaleDB. With TimeDB enabled,
   `RETENTION_DAYS=0` keeps only acknowledged current projections in SQLite;
   values of 30 or more keep a guarded local cache. Compaction occurs only after
-  all five telemetry families are caught up and clean. A full raw JSON export
+  all six telemetry families are caught up and clean. A full raw JSON export
   is still not archive-streaming; use the verified dual-database backup for a
   complete recovery set.
 - Observation revisions are append-only while an observation exists, but

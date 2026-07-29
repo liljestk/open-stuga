@@ -12,6 +12,7 @@ function newest(values: Array<string | null>): string | null {
 export function integrationForHouse(value: IntegrationStatus, houseId: string, weatherConfigured?: boolean): IntegrationStatus {
   const homeAssistantConnections = value.homeAssistant.connections?.filter((connection) => connection.houseId === houseId);
   const tpLinkConnections = value.tpLink.connections?.filter((connection) => connection.houseId === houseId);
+  const greeConnections = value.gree?.connections.filter((connection) => connection.houseId === houseId);
   const weatherConnections = value.weather.connections?.filter((connection) => connection.houseId === houseId);
 
   const homeAssistant = homeAssistantConnections === undefined
@@ -66,5 +67,16 @@ export function integrationForHouse(value: IntegrationStatus, houseId: string, w
         connections: weatherConnections,
       };
 
-  return { ...value, homeAssistant, tpLink, weather };
+  const gree = value.gree === undefined
+    ? undefined
+    : {
+        ...value.gree,
+        configured: (greeConnections ?? []).some((connection) => connection.configured),
+        connected: (greeConnections ?? []).some((connection) => connection.connected),
+        lastPollAt: newest((greeConnections ?? []).map((connection) => connection.lastPollAt)),
+        error: (greeConnections ?? []).map((connection) => connection.error).filter(Boolean).join("; ") || null,
+        connections: greeConnections ?? [],
+      };
+
+  return { ...value, homeAssistant, tpLink, weather, ...(gree ? { gree } : {}) };
 }

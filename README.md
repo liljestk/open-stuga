@@ -15,7 +15,7 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
   and CO2 (ppm), plus independently timestamped custom numeric samples
 - A transactional SQLite control plane with a crash-safe telemetry outbox and
   current projections, plus TimescaleDB as the permanent store for sensor,
-  weather, electricity-price, and opening-event history
+  weather, electricity-price, opening-event, and direct heat-pump history
 - Resumable live system-to-system migration over authenticated SSH, with an
   online seed, content-addressed chunk reuse, verified final snapshot, isolated
   TimescaleDB candidate restore, portable settings transfer, health-gated
@@ -196,6 +196,12 @@ that sensor. Stugu uses the healthy direct path for faster live updates and
 fails over to Home Assistant without duplicating live history or alert
 evaluation. The Sensors flow can attach a newly discovered direct device to an
 existing Home Assistant sensor; aliases are never guessed as identity.
+
+Compatible Gree-protocol Wilfa heat pumps can also be found from the selected
+Home's **Set up** page and monitored directly on the LAN. The section stays
+hidden until a unit is discovered or configured, adding always requires an
+explicit action, and this first phase is read-only. See
+[Direct Gree/Wilfa heat pumps](docs/gree-direct.md).
 Credentials saved in the web flow are write-only to the browser and live in a
 server-side protected secrets file outside SQLite. Safe integration ownership,
 endpoint identity, lifecycle state, and revisions live in SQLite; environment

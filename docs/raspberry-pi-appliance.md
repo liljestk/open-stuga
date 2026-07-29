@@ -1,16 +1,16 @@
 # Raspberry Pi 4 appliance
 
 This installation turns a Raspberry Pi 4 and USB SSD/HDD into a Stugu
-appliance. You write the disk once. Later releases are installed into the
-inactive operating-system slot and Raspberry Pi Connect switches slots on
-reboot. Stugu's databases, generated secrets, Docker state, configuration, and
-backups remain on the shared persistent partition. Tailscale is installed and
-enabled, and its device identity also remains shared across A/B slots.
+appliance. Stugu's databases, generated secrets, Docker state, configuration,
+and backups remain on the shared persistent partition. Application releases
+update automatically from signed GitHub/GHCR releases with health checks and
+container rollback. Tailscale is installed and enabled, and its device identity
+remains persistent.
 
-The release is immutable: do not use `apt upgrade` on the appliance. Package,
-kernel, firmware, configuration, and application updates are built together as
-a new A/B artifact. This avoids an unrepeatable mix of image and in-place
-package updates.
+The operating-system release is immutable: do not use `apt upgrade` on the
+appliance. Install kernel, firmware, and base-system changes through a newly
+validated factory image. Pi 4 USB firmware partition handoff is intentionally
+not used because it boot-looped on supported USB-SATA bridges.
 
 ## What is automated
 
@@ -18,26 +18,25 @@ package updates.
   system slots.
 - The first boot relocates the backup GPT and expands the final persistent
   partition and ext4 filesystem to fill the complete external disk.
-- A complete first-partition rescue payload boots slot A directly before any
-  A/B partition handoff has been proven on that Pi/USB bridge combination.
+- A complete first-partition rescue payload always boots slot A directly,
+  avoiding Pi 4 USB partition handoff.
 - Docker and containerd state are shared across both OS slots.
 - Stugu listens on the trusted LAN and Tailscale interfaces by default, while
   first-owner creation requires a device-generated setup link.
 - Tailscale is enabled and ready for a one-time interactive Tailnet login; no
   reusable Tailnet credential is embedded in the image.
-- Locally built factory and OTA images pull release-tagged, digest-pinned ARM64
-  containers and wait for their health checks.
+- Factory images pull release-tagged, digest-pinned ARM64 containers and wait
+  for their health checks.
 - If new application containers fail, the startup service restores the last
   known-good image set.
+- Stable GitHub application releases are checked daily and installed during a
+  weekly maintenance window by default. Owners can change this policy.
 - One guarded local command builds and publishes the multi-architecture
-  containers, creates the Pi artifacts, publishes the GitHub Release, and can
-  optionally deploy it through Raspberry Pi Connect.
+  containers, creates the Pi artifacts, and publishes the GitHub Release.
 - GitHub's hosted release workflow is manual fallback only. Publishing a
   release does not start an expensive hosted image build.
 
-Raspberry Pi's A/B mechanism protects against an unbootable OS update. The
-application fallback is an additional safeguard; it does not replace an
-off-device backup.
+The application fallback does not replace an off-device backup.
 
 ## Requirements
 
@@ -47,8 +46,7 @@ For the appliance:
 - A 16 GB or larger USB SSD. A spinning HDD should use its own powered
   enclosure or a powered USB hub.
 - Ethernet for the easiest first boot, or an iwd Wi-Fi profile.
-- A Raspberry Pi Connect account. Fully automatic API deployment requires a
-  Connect for Organisations account.
+- Optionally, a Raspberry Pi Connect account for remote shell access.
 
 For image builds:
 
@@ -82,15 +80,11 @@ In `raspi-config`, choose **Advanced Options → Boot Order → NVMe/USB Boot**.
 Early Pi 4 boards may update their EEPROM during the package upgrade. Power the
 Pi off cleanly after any requested reboot.
 
-Do not skip this step. The A/B layout selects later boot slots through
-`autoboot.txt` on a GPT partition table. Raspberry Pi boot firmware older than
-2025-01-22 resolves that combination incorrectly on Pi 4 and older boards: it
-loads `start4.elf` but then looks for the kernel in the wrong partition. Every
-Stugu factory build parses the included `start4.elf` build date and rejects
-firmware older than that fix. The factory's normal path nevertheless starts
-from its complete first partition; an alternate slot is made normal only after
-a real tryboot succeeds. See
-[rpi-eeprom#654](https://github.com/raspberrypi/rpi-eeprom/issues/654).
+Do not skip this step. Every Stugu factory image boots its complete first FAT
+partition directly and rejects any `autoboot.txt` there. This is a release
+gate: redirecting that partition to itself loops, while redirecting to a later
+GPT FAT partition proved unreliable on the tested Pi 4 USB bridge. The build
+also validates current firmware and explicit kernel/initramfs filenames.
 
 USB discovery and boot order are handled separately by the Pi 4 EEPROM. Update
 it to the current release and confirm that its boot order contains USB mode
@@ -186,7 +180,8 @@ Substitute your ISO 3166-1 two-letter country code for `FI`.
 The outputs are written to `dist/rpi/`:
 
 - `stugu-rpi4-<version>.img.zst` — factory disk image.
-- `stugu-rpi4-<version>-ota.tar.zst` — remote A/B update.
+- `stugu-rpi4-<version>-ota.tar.zst` — generated A/B build byproduct; do not
+  deploy it to the Pi 4 USB appliance.
 - `stugu-rpi4-<version>.sha256` — checksums for both.
 
 Before compression, the build validates the raw image with Linux `sfdisk` and
@@ -197,9 +192,9 @@ slots are all valid.
 
 If supplied, the factory image contains the single-use Connect key, so it is
 mode `0600`. Do not upload such an image to a public release. Delete it after
-the disk is installed and verified. OTA artifacts do not contain the
-persistent Connect identity. The local publisher and hosted fallback embed only
-the recovery SSH public key, never its private key or a Connect auth key.
+the disk is installed and verified. The local publisher and hosted fallback
+embed only the recovery SSH public key, never its private key or a Connect auth
+key.
 
 ## 4. Publish the release locally
 
@@ -235,9 +230,9 @@ npm run release:local -- \
 
 The command requires a clean checkout at the pushed tag on `origin/main`. It
 runs the release checks, builds and pushes all AMD64/ARM64 containers, resolves
-their registry digests, builds the Pi OTA and factory images in a pinned
-privileged ARM64 Debian container, creates a draft GitHub Release, uploads the
-OTA and checksum, and then publishes the release.
+their registry digests, builds the Pi artifacts in a pinned privileged ARM64
+Debian container, creates a draft GitHub Release, uploads the artifacts and
+checksums, and then publishes the release.
 
 The factory image remains under `dist/rpi/` by default. Add
 `--upload-factory` only when it contains no Connect auth key, Wi-Fi profile, or
@@ -262,14 +257,13 @@ DOCKER_CONFIG=/persistent/stugu/docker-config docker login ghcr.io
 stuguctl restart
 ```
 
-The GitHub Release URL must be anonymously downloadable by the Pi.
-For a private repository, upload the OTA artifact to a private HTTPS object
-store that the device can access and adjust `RPI_OTA_URI`.
+The GitHub Release and GHCR packages must be anonymously readable by the Pi,
+or its persistent Docker configuration must contain a read-only package login.
 
 If local Docker is temporarily unavailable, manually dispatch
 **Raspberry Pi release (manual fallback)** with the existing tag and enable
-**Confirm use of hosted runners**. It performs the former hosted build and
-upload path. Deployment is a separate, default-off input.
+**Confirm use of hosted runners**. It performs the hosted build and upload
+path.
 
 ## 5. Write the external disk once
 
@@ -339,42 +333,19 @@ Open the URL printed by Tailscale, authorize the device, then run
 but direct LAN access is plain HTTP and should remain on a trusted private
 network. Use Cloudflare Access or another TLS reverse proxy for public access.
 
-## 7. Enable completely automatic OTA deployment
+## 7. Automatic GitHub application releases
 
-In Raspberry Pi Connect for Organisations:
+The appliance enables its isolated update-agent container by default. A clean
+installation checks stable GitHub releases every 24 hours and installs during
+the Sunday 03:00 UTC maintenance window. Owners can change the days, time,
+timezone, release channel, or manual/automatic mode under **Advanced →
+System updates**.
 
-1. Confirm the device appears and has **Remote update** enabled.
-2. Create a management API access token.
-3. Obtain the device UUID from the organisation device list/API.
-
-For local deployment, export these values from a trusted secret store:
-
-| Variable | Value |
-| --- | --- |
-| `RPI_CONNECT_API_TOKEN` | Organisation management API token |
-| `RPI_CONNECT_DEVICE_ID` | The appliance's Connect device UUID |
-
-The management token is administrator-equivalent. Never put it in an image,
-repository file, `.env`, or appliance filesystem. The same names may remain as
-GitHub Actions secrets for the manual fallback.
-
-For every later release:
-
-1. Update and test the code.
-2. Bump `package.json`, `package-lock.json`, and the changelog consistently.
-3. Commit and push `main`, then tag and push that exact commit.
-4. Run the local publisher with `--publish`.
-
-To register and deploy the uploaded OTA in the same command, also pass
-`--deploy` with `RPI_CONNECT_API_TOKEN` and `RPI_CONNECT_DEVICE_ID` present in
-the process environment. The publisher registers the HTTPS URL and SHA-256
-checksum with Connect, deploys it, and waits up to 30 minutes for success.
-Connect keeps an offline device's deployment pending so it can receive it when
-it reconnects. If that takes more than 30 minutes, the local command reports a
-polling timeout; the Connect deployment itself remains available to the device.
-
-Without Connect for Organisations, omit `--deploy`, then select the artifact
-and press **Deploy** in your personal Raspberry Pi Connect dashboard.
+Each installation creates a verified backup before pulling the exact release
+images. It replaces only the application containers, waits for health checks,
+and restores the previous image set on failure. Operating-system, kernel, and
+firmware changes require a new validated factory image and an off-device backup
+or migration; Raspberry Pi Connect OS deployment remains disabled on Pi 4 USB.
 
 ## Routine commands
 
@@ -406,12 +377,11 @@ source after an ambiguous network failure until the target receipt is known.
 - If a new container set is unhealthy, `stugu.service` attempts the previous
   known-good image set and records the outcome in
   `/persistent/stugu/release-status`.
-- If the new OS cannot boot, Raspberry Pi's try-boot A/B mechanism returns to
-  the previous slot.
 - Seven green ACT flashes means the firmware did not find a kernel. Release
-  0.18.0 and newer include a complete first-partition rescue boot and explicit
-  Pi 4 kernel/initramfs filenames, so repeated seven-flash failures first point
-  to an incomplete write, old EEPROM boot order, cable, bridge, or power issue.
+  0.18.3 and newer reject `autoboot.txt` on the complete first-partition rescue
+  boot and use explicit Pi 4 kernel/initramfs filenames. Repeated seven-flash
+  failures first point to an incomplete write, old EEPROM boot order, cable,
+  bridge, or power issue.
   Some USB-SATA adapters work in bootloader mass-storage mode but fail when
   Linux selects UAS.
   `enable_uart=1` and `uart_2ndstage=1` are already set, so a 115200-baud
@@ -419,14 +389,12 @@ source after an ambiguous network failure until the target receipt is known.
 - Do not run `docker compose down -v`; it deletes the named data and credential
   volumes.
 - Do not run `apt upgrade`; the root filesystem is intentionally read-only.
-- View Raspberry Pi update diagnostics with `journalctl -t rpi-ota-connector`
-  and Stugu startup diagnostics with `stuguctl system-log`.
+- View Stugu startup and update diagnostics with `stuguctl system-log`.
 - Keep the recovery SSH private key and a recent off-device Stugu backup.
 
 Upstream references:
 
-- [Raspberry Pi Connect remote updates](https://www.raspberrypi.com/documentation/services/connect.html#remotely-update-your-raspberry-pi-devices)
-- [Raspberry Pi Connect for Organisations API](https://www.raspberrypi.com/documentation/services/connect-for-organisations.html#management-api)
+- [Raspberry Pi Connect](https://www.raspberrypi.com/documentation/services/connect.html)
 - [rpi-image-gen](https://github.com/raspberrypi/rpi-image-gen)
 - [Raspberry Pi USB mass-storage boot](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#usb-mass-storage-boot)
 - [Pi 4 GPT/autoboot firmware report](https://github.com/raspberrypi/rpi-eeprom/issues/654)

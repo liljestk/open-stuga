@@ -336,6 +336,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     tpLinkPollIntervalMs: positiveInteger(env.TP_LINK_POLL_INTERVAL_MS, 2_000),
     tpLinkPython: optional(env.TP_LINK_PYTHON) ?? (process.platform === "win32" ? "python" : "python3"),
     tpLinkBridgeScript: resolve(env.TP_LINK_BRIDGE_SCRIPT ?? "./apps/api/python/tp_link_bridge.py"),
+    greeConnections: (stored.greeConnections ?? []).map((connection) => ({ ...connection })),
+    greePollIntervalMs: boundedInteger(
+      env.GREE_POLL_INTERVAL_MS,
+      60_000,
+      10_000,
+      15 * 60_000,
+      "GREE_POLL_INTERVAL_MS",
+    ),
+    greePython: optional(env.GREE_PYTHON)
+      ?? optional(env.TP_LINK_PYTHON)
+      ?? (process.platform === "win32" ? "python" : "python3"),
+    greeBridgeScript: resolve(env.GREE_BRIDGE_SCRIPT ?? "./apps/api/python/gree_bridge.py"),
+    greeDiscoveryTargets: [...new Set((optional(env.GREE_DISCOVERY_TARGETS) ?? "")
+      .split(",").map((target) => target.trim()).filter(Boolean))],
     tapoHistoryEnabled,
     tapoHistoryWorkerToken,
     tapoHistoryExportEmail,

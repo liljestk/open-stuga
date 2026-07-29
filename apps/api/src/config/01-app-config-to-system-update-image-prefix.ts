@@ -5,6 +5,7 @@ import {
   readIntegrationSecrets,
   normalizedWebhookDestinations,
   type AppleNotesGrantSecret,
+  type GreeConnectionSecret,
   type HomeAssistantConnectionSecret,
   type TpLinkConnectionSecret,
   type WebhookDestinationSecret,
@@ -93,6 +94,13 @@ export interface AppConfig {
   tpLinkPollIntervalMs: number;
   tpLinkPython: string;
   tpLinkBridgeScript: string;
+  /** House-scoped local Gree/Wilfa bindings saved after LAN discovery. */
+  greeConnections?: GreeConnectionSecret[];
+  greePollIntervalMs?: number;
+  greePython?: string;
+  greeBridgeScript?: string;
+  /** Directed broadcast targets required by some bridged/container networks. */
+  greeDiscoveryTargets?: string[];
   /** Enables asynchronous Tapo app/private-history fallback after local retention is exhausted. */
   tapoHistoryEnabled?: boolean;
   /** Route-scoped bearer secret shared only with the isolated Appium worker. */

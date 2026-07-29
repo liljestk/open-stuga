@@ -68,6 +68,25 @@ if [[ ! -e "$local_env" ]]; then
     "$project_dir/stugu.env.example" "$local_env"
 fi
 
+# Appliance releases check GitHub daily and install stable releases during a
+# quiet weekly window. An administrator's saved policy always wins.
+if [[ ! -e "$state_dir/update-operations/settings.json" ]]; then
+  temporary_settings="$(mktemp "$state_dir/update-operations/.settings.XXXXXX")"
+  cat > "$temporary_settings" <<'EOF'
+{
+  "mode": "automatic",
+  "includePrereleases": false,
+  "checkIntervalHours": 24,
+  "updateTime": "03:00",
+  "updateDays": ["sun"],
+  "timezone": "UTC"
+}
+EOF
+  chown "$appliance_user:$appliance_user" "$temporary_settings"
+  chmod 0640 "$temporary_settings"
+  mv -f "$temporary_settings" "$state_dir/update-operations/settings.json"
+fi
+
 bootstrap_secret="$(sed -n 's/^LOCAL_AUTH_BOOTSTRAP_SECRET=//p' "$local_env" | tail -n 1)"
 if [[ -z "$bootstrap_secret" ]]; then
   bootstrap_secret="$(

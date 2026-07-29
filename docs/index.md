@@ -6,55 +6,57 @@ Start here:
    Raspberry Pi paths, mock data, configuration, backup, and uninstall.
 2. [Direct TP-Link H100/H200](tp-link-direct.md) — poll T310/T315 child sensors
    over the local LAN without requiring Home Assistant.
-3. [Electricity prices and contracts](electricity-prices.md) — Property-owned
+3. [Direct Gree/Wilfa heat pumps](gree-direct.md) — discover and monitor
+   compatible air-source heat pumps locally without requiring Home Assistant.
+4. [Electricity prices and contracts](electricity-prices.md) — Property-owned
    price sources and contracts with Home-scoped Tapo meters.
-4. [TP-Link H100/H200 and Home Assistant](home-assistant.md) — use the official
+5. [TP-Link H100/H200 and Home Assistant](home-assistant.md) — use the official
    local integration as an alternative ingestion path.
-5. [Outdoor weather and home location](weather.md) — map/manual WGS84 location,
+6. [Outdoor weather and home location](weather.md) — map/manual WGS84 location,
    observations, forecasts, CAP warnings, provenance, cache/failure semantics,
    event middle layer, service limits, attribution, and map privacy.
-6. [Properties and Guest access](property-management.md) — property grouping,
+7. [Properties and Guest access](property-management.md) — property grouping,
    drawn areas, equipment, contextual work/notes, and local read-only Guest
    grants.
-7. [Architecture](architecture.md) — measurement registry, sparse per-metric
+8. [Architecture](architecture.md) — measurement registry, sparse per-metric
    storage, module boundaries, data flow, live/history/replay semantics,
    reliability, and accessibility.
-8. [Manual observations](observations.md) — observed versus recorded time,
+9. [Manual observations](observations.md) — observed versus recorded time,
    precision, provenance, confidence, revisions, and conflict handling.
-9. [Activity and maintenance work](maintenance.md) — Home Activity, quick
+10. [Activity and maintenance work](maintenance.md) — Home Activity, quick
    evidence capture, and a Property-owned work plan with verification history.
-10. [API, MCP, and integrations](integrations.md) — v1 compatibility and v2
+11. [API, MCP, and integrations](integrations.md) — v1 compatibility and v2
    measurement REST/SSE examples, MCP tools, Home Assistant alert webhook, and
    DayOps/OpenWearable adapter guidance.
-11. [Apple Notes bridge and Telegram alerts](apple-notes-telegram.md) — guided
+12. [Apple Notes bridge and Telegram alerts](apple-notes-telegram.md) — guided
    bot/chat pairing, per-rule Telegram delivery, revocable Home-scoped iOS
    Shortcut grants, maintenance capture, and dated Notes snapshots.
-12. [Predictive maintenance](predictive-maintenance.md) — supported hypotheses,
+13. [Predictive maintenance](predictive-maintenance.md) — supported hypotheses,
    uncertainty, validation, replay, and safety limitations.
-13. [Effective room thermal simulation](thermal-simulation.md) — persisted
+14. [Effective room thermal simulation](thermal-simulation.md) — persisted
    outdoor boundaries, calibration, residuals, scenarios, and interpretation limits.
-14. [Experimental spatial-layer engine](spatial-layer-engine.md) — local-only,
+15. [Experimental spatial-layer engine](spatial-layer-engine.md) — local-only,
    failure-isolated backend inference, versioned house/property snapshots, and
    shared 2D/3D rendering contracts.
-15. [Sensor-constrained indoor flow](airflow-simulation.md) — shared 2D/3D
+16. [Sensor-constrained indoor flow](airflow-simulation.md) — shared 2D/3D
    buoyancy and pressure-projection model, data roles, geometry, and limits.
-16. [Security, privacy, and retention](security-privacy.md) — deployment boundary,
+17. [Security, privacy, and retention](security-privacy.md) — deployment boundary,
    secrets, network/data controls, retention, backups, and incident response.
-17. [Versioning](versioning.md) — pre-1.0 compatibility and pull-request release rules.
-18. [Modular roadmap](roadmap.md) — hardening, digital-twin authoring, richer
+18. [Versioning](versioning.md) — pre-1.0 compatibility and pull-request release rules.
+19. [Modular roadmap](roadmap.md) — hardening, digital-twin authoring, richer
    models, integrations, testing, and versioning.
-19. [Backend storage and operations](backend-storage.md) — SQLite control-plane
+20. [Backend storage and operations](backend-storage.md) — SQLite control-plane
    durability, TimescaleDB telemetry, caching, migration, backup, and recovery.
-20. [Analytics foundation and Explorer](analytics-foundation.md) — the bounded
+21. [Analytics foundation and Explorer](analytics-foundation.md) — the bounded
    query contract, measurement-aware rollups, evidence UI, decisions, and gap matrix.
-21. [Known MVP limitations](known-limitations.md) — correctness and operational
+22. [Known MVP limitations](known-limitations.md) — correctness and operational
    constraints to review before using physical data or notifications.
 
-22. [Raspberry Pi 4 appliance](raspberry-pi-appliance.md) — one-time USB disk
-   installation, immutable A/B system images, persistent Docker data, and
-   automatic Raspberry Pi Connect OTA releases.
+23. [Raspberry Pi 4 appliance](raspberry-pi-appliance.md) — one-time USB disk
+   installation, immutable system images, persistent Docker data, and automatic
+   health-gated GitHub container releases.
 
-23. [System updates](system-updates.md) — GitHub release discovery, UI-managed
+24. [System updates](system-updates.md) — GitHub release discovery, UI-managed
    maintenance windows, Docker/Desktop installation, health checks, and rollback.
 
 Reference configuration:

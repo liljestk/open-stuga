@@ -1,19 +1,11 @@
 import assert from "node:assert/strict";
-
 import { execFileSync } from "node:child_process";
-
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-
 import { tmpdir } from "node:os";
-
 import { join } from "node:path";
-
 import { fileURLToPath } from "node:url";
-
 import { DatabaseSync } from "node:sqlite";
-
 import test from "node:test";
-
 import {
   MIGRATION_AGGREGATES,
   MIGRATION_HYPERTABLES,
@@ -29,7 +21,6 @@ import {
   validateExpectedHypertables,
   verifyBatch,
 } from "../migrate-telemetry-to-timescale.mjs";
-
 import {
   createBackup,
   parseBackupArgs,
@@ -74,6 +65,7 @@ test("dry-run inventories all telemetry without changing the SQLite source", asy
     assert.equal(inventory.outdoor_temperature_samples.optionalJsonColumns.conditions_json.populatedRows, 0);
     assert.equal(inventory.electricity_price_points.rows, 1);
     assert.equal(inventory.opening_state_observations.rows, 1);
+    assert.equal(inventory.heat_pump_state_history.rows, 1);
     assert.equal(await sha256File(source), before);
     assert.equal(existsSync(options.snapshot), false);
     assert.equal(existsSync(options.checkpoint), false);
@@ -82,7 +74,7 @@ test("dry-run inventories all telemetry without changing the SQLite source", asy
   }
 });
 
-test("migration maps electricity margin and opening-state event history", (t) => {
+test("migration maps electricity margin, opening events, and typed heat-pump observations", (t) => {
   const directory = temporaryDirectory(t);
   const source = join(directory, "event-history.sqlite");
   const writer = createTelemetryFixture(source);
@@ -110,6 +102,34 @@ test("migration maps electricity margin and opening-state event history", (t) =>
       connection_id: "ha-1",
       recorded_at: "2026-07-18T10:00:01.000Z",
       metadata: {},
+    });
+    const heatPump = mapRows("heat_pump_state_history", [
+      database.prepare("SELECT * FROM heat_pump_state_history").get(),
+    ])[0];
+    assert.deepEqual(heatPump, {
+      connection_id: "gree-aabbccddeeff",
+      house_id: "house-1",
+      equipment_id: null,
+      device_id: "AABBCCDDEEFF",
+      name: "Nordkapp",
+      brand: "Wilfa",
+      model: "Nordkapp 30",
+      observed_at: "2026-07-18T10:00:00.000Z",
+      received_at: "2026-07-18T10:00:01.000Z",
+      available: true,
+      power: true,
+      selected_mode: "cool",
+      target_temperature_c: 22,
+      current_temperature_c: 25.5,
+      current_temperature_source: "reported",
+      fan_speed: "Auto",
+      horizontal_swing: null,
+      vertical_swing: "FullSwing",
+      quiet: false,
+      turbo: false,
+      xfan: true,
+      activity: "unknown",
+      activity_evidence: "unavailable",
     });
   } finally {
     database.close();
@@ -228,6 +248,25 @@ test("preflight rejects malformed optional outdoor condition JSON", async (t) =>
   await assert.rejects(
     runDryMigration(parseMigrationArgs(["--source", source, "--dry-run"], {})),
     /outdoor_temperature_samples has 1 invalid optional JSON value/u,
+  );
+});
+
+test("preflight rejects malformed required heat-pump state JSON", async (t) => {
+  const directory = temporaryDirectory(t);
+  const source = join(directory, "invalid-heat-pump-state.sqlite");
+  const writer = createTelemetryFixture(source);
+  writer.prepare("UPDATE heat_pump_state_history SET state_json = ?").run("{not-json");
+  writer.close();
+  const database = openReadOnlySqlite(source);
+  try {
+    const inventory = inventoryTelemetrySource(database);
+    assert.equal(inventory.heat_pump_state_history.invalidJsonValues, 1);
+  } finally {
+    database.close();
+  }
+  await assert.rejects(
+    runDryMigration(parseMigrationArgs(["--source", source, "--dry-run"], {})),
+    /heat_pump_state_history has 1 invalid JSON value/u,
   );
 });
 
@@ -382,11 +421,12 @@ test("migration requires and validates canonical hypertables under a dedicated m
   assert.ok(queries.some(({ text, values }) => (
     text.includes("set_config('statement_timeout'") && values[0] === "123456ms"
   )));
-  assert.equal(queries.filter(({ text }) => text.includes("create_hypertable(")).length, 5);
-  assert.equal(queries.filter(({ text }) => text.includes("set_chunk_time_interval(")).length, 5);
+  assert.equal(queries.filter(({ text }) => text.includes("create_hypertable(")).length, 6);
+  assert.equal(queries.filter(({ text }) => text.includes("set_chunk_time_interval(")).length, 6);
   const schemaSql = queries.find(({ text }) => text.includes("CREATE TABLE IF NOT EXISTS \"telemetry\".measurement_samples"))?.text;
   assert.match(schemaSql, /archive_source_state/u);
   assert.match(schemaSql, /opening_state_samples/u);
+  assert.match(schemaSql, /heat_pump_state_samples/u);
   assert.match(schemaSql, /margin_cents_per_kwh/u);
   assert.match(schemaSql, /VALUES \(2, 'Checkpointed SQLite archive reconciliation/u);
 });

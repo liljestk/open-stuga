@@ -273,7 +273,7 @@ export function subscribeToEvents(
     onState("reconnecting");
   };
   source.onmessage = (message) => consume(message);
-  (["reading", "alert", "integration", "weather", "opening", "mutation", "heartbeat"] as const).forEach((type) => {
+  (["reading", "alert", "integration", "weather", "opening", "heat-pump", "mutation", "heartbeat"] as const).forEach((type) => {
     source.addEventListener(type, (message) => consume(message as MessageEvent<string>, type));
   });
   source.addEventListener("authorization", (message) => {

@@ -23,6 +23,7 @@ export interface IntegrationSecrets {
   tpLink?: { host: string; username: string; password: string };
   tpLinkLegacyDisabled?: true;
   tpLinkConnections?: TpLinkConnectionSecret[];
+  greeConnections?: GreeConnectionSecret[];
   webhook?: { url: string; bearerToken?: string; signingSecret?: string };
   webhookDestinations?: WebhookDestinationSecret[];
   telegram?: { botToken: string; chatId: string };
@@ -55,6 +56,23 @@ export interface TpLinkConnectionSecret {
   sourceType?: "hub" | "energy-device";
   sourceModel?: string;
   sourceAlias?: string;
+}
+
+export interface GreeConnectionSecret {
+  id: string;
+  houseId: string;
+  equipmentId?: string;
+  host: string;
+  port: number;
+  /** Normalized uppercase hexadecimal MAC without separators. */
+  mac: string;
+  /** Device-local binding key. Never expose through API responses or logs. */
+  key: string;
+  cipherVersion: 1 | 2;
+  name?: string;
+  brand?: string;
+  model?: string;
+  version?: string;
 }
 
 export interface AppleNotesGrantSecret {
@@ -152,6 +170,65 @@ function normalizedTpLinkConnections(value: unknown): TpLinkConnectionSecret[] {
   return connections;
 }
 
+function normalizedGreeMac(value: unknown): string | null {
+  if (!isNonEmptyString(value)) return null;
+  const normalized = value.replace(/[:-]/g, "").trim().toUpperCase();
+  return /^[0-9A-F]{12}$/u.test(normalized) ? normalized : null;
+}
+
+function normalizedOptionalGreeString(
+  value: unknown,
+  maximumLength: number,
+): string | undefined | null {
+  if (value === undefined) return undefined;
+  if (!isNonEmptyString(value) || value.length > maximumLength) return null;
+  return value.trim();
+}
+
+function normalizedGreeConnections(value: unknown): GreeConnectionSecret[] {
+  if (!Array.isArray(value)) throw new Error("The Gree connections in the integration secrets file are invalid");
+  const ids = new Set<string>();
+  const macs = new Set<string>();
+  return value.map((candidate) => {
+    const item = candidate as Record<string, unknown>;
+    const mac = normalizedGreeMac(item?.mac);
+    const equipmentId = normalizedOptionalGreeString(item?.equipmentId, 200);
+    const name = normalizedOptionalGreeString(item?.name, 200);
+    const brand = normalizedOptionalGreeString(item?.brand, 200);
+    const model = normalizedOptionalGreeString(item?.model, 200);
+    const version = normalizedOptionalGreeString(item?.version, 200);
+    if (!item || !isNonEmptyString(item.id) || item.id.length > 200
+      || !isNonEmptyString(item.houseId) || item.houseId.length > 200
+      || !isNonEmptyString(item.host) || item.host.length > 253
+      || typeof item.port !== "number" || !Number.isInteger(item.port) || item.port < 1 || item.port > 65_535
+      || !mac || !isNonEmptyString(item.key) || item.key.length > 256
+      || (item.cipherVersion !== 1 && item.cipherVersion !== 2)
+      || equipmentId === null || name === null || brand === null || model === null || version === null) {
+      throw new Error("The Gree connections in the integration secrets file are invalid");
+    }
+    const id = item.id.trim();
+    if (ids.has(id) || macs.has(mac)) {
+      throw new Error("The Gree connections in the integration secrets file contain conflicting identities");
+    }
+    ids.add(id);
+    macs.add(mac);
+    return {
+      id,
+      houseId: item.houseId.trim(),
+      ...(equipmentId ? { equipmentId } : {}),
+      host: item.host.trim(),
+      port: Number(item.port),
+      mac,
+      key: item.key,
+      cipherVersion: item.cipherVersion,
+      ...(name ? { name } : {}),
+      ...(brand ? { brand } : {}),
+      ...(model ? { model } : {}),
+      ...(version ? { version } : {}),
+    };
+  });
+}
+
 export function readIntegrationSecrets(path: string): IntegrationSecrets {
   if (!existsSync(path)) return { version: 1 };
   const parsed = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
@@ -202,6 +279,9 @@ export function readIntegrationSecrets(path: string): IntegrationSecrets {
   }
   if (parsed.tpLinkConnections !== undefined) {
     result.tpLinkConnections = normalizedTpLinkConnections(parsed.tpLinkConnections);
+  }
+  if (parsed.greeConnections !== undefined) {
+    result.greeConnections = normalizedGreeConnections(parsed.greeConnections);
   }
   if (parsed.webhook !== undefined) {
     const value = parsed.webhook as Record<string, unknown>;
@@ -272,6 +352,9 @@ export function writeIntegrationSecrets(path: string, secrets: IntegrationSecret
     ...(secrets.tpLinkConnections === undefined
       ? {}
       : { tpLinkConnections: normalizedTpLinkConnections(secrets.tpLinkConnections) }),
+    ...(secrets.greeConnections === undefined
+      ? {}
+      : { greeConnections: normalizedGreeConnections(secrets.greeConnections) }),
     ...(secrets.webhookDestinations === undefined
       ? {}
       : { webhookDestinations: normalizedWebhookDestinations(secrets.webhookDestinations, "Webhook destinations") }),
@@ -311,6 +394,7 @@ export function updateIntegrationSecrets(
     tpLink?: IntegrationSecrets["tpLink"] | null;
     tpLinkLegacyDisabled?: boolean;
     tpLinkConnections?: TpLinkConnectionSecret[];
+    greeConnections?: GreeConnectionSecret[];
     webhook?: IntegrationSecrets["webhook"] | null;
     webhookDestinations?: WebhookDestinationSecret[] | null;
     telegram?: IntegrationSecrets["telegram"] | null;
@@ -335,6 +419,7 @@ export function updateIntegrationSecrets(
     if (patch.tpLinkLegacyDisabled === true) next.tpLinkLegacyDisabled = true;
     else if (patch.tpLinkLegacyDisabled === false) delete next.tpLinkLegacyDisabled;
     if (patch.tpLinkConnections !== undefined) next.tpLinkConnections = normalizedTpLinkConnections(patch.tpLinkConnections);
+    if (patch.greeConnections !== undefined) next.greeConnections = normalizedGreeConnections(patch.greeConnections);
     if (patch.webhook === null) delete next.webhook;
     else if (patch.webhook !== undefined) {
       next.webhook = { ...patch.webhook };

@@ -67,11 +67,14 @@ import {
 import { TelemetryBus } from "../events.js";
 import { HomeAssistantBridge, testHomeAssistantCredentials } from "../home-assistant.js";
 import { mergeTpLinkHistoryRecovery, TpLinkBridge } from "../tp-link.js";
+import { GreeBridge } from "../gree.js";
+import { HeatPumpStateStore } from "../heat-pump-state.js";
 import { discoverHomeAssistant } from "../discovery.js";
 import {
   readIntegrationSecrets,
   updateIntegrationSecrets,
   type AppleNotesGrantSecret,
+  type GreeConnectionSecret,
   type IntegrationSecrets,
   type TpLinkConnectionSecret,
 } from "../integration-secrets.js";
@@ -211,11 +214,13 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
       statementTimeoutMs: config.timeseriesStatementTimeoutMs,
       batchSize: config.timeseriesBatchSize,
     }) : null;
+  const heatPumpStates = new HeatPumpStateStore(context.database);
   const telemetryArchive = timeseries
       ? new TelemetryArchiveWorker(context.database, context.bus, timeseries, {
         batchSize: config.timeseriesBatchSize,
         requireTimescale: config.timeseriesRequired,
         localHistoryRetentionDays: config.retentionDays,
+        heatPumpStatePage: (cursor, limit) => heatPumpStates.archivePage(cursor, limit),
       })
       : null;
   const telemetryRetention = telemetryArchive && config.retentionDays > 0
@@ -362,6 +367,31 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         });
       },
     });
+  const gree = new GreeBridge(config, status, heatPumpStates, context.bus, {
+      onStateRecorded: () => {
+        void telemetryArchive?.reconcileNow().catch(() => undefined);
+      },
+      onConnectionUpdate: (update) => {
+        const existing = config.greeConnections ?? [];
+        const current = existing.find((connection) => connection.id === update.id);
+        if (!current || current.houseId !== update.houseId || current.mac !== update.mac
+          || current.key !== update.key || current.cipherVersion !== update.cipherVersion) return;
+        const nextConnection: GreeConnectionSecret = {
+          ...current,
+          host: update.host,
+          ...(update.name ? { name: update.name } : {}),
+          ...(update.brand ? { brand: update.brand } : {}),
+          ...(update.model ? { model: update.model } : {}),
+          ...(update.version ? { version: update.version } : {}),
+        };
+        if (JSON.stringify(current) === JSON.stringify(nextConnection)) return;
+        const connections = existing.map((connection) => (
+          connection.id === current.id ? nextConnection : connection
+        ));
+        updateIntegrationSecrets(config.integrationSecretsFile, { greeConnections: connections });
+        config.greeConnections = connections;
+      },
+    });
   deferred.sensorGapRecovery = new SensorGapRecoveryCoordinator(context.database, measurements, [homeAssistant, deferred.tpLink], {
       telemetryReader,
       onRecovered: () => {
@@ -369,7 +399,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         return telemetryArchive?.reconcileNow();
       },
     });
-  const extended = Object.assign(context, { timeseries, telemetryArchive, telemetryRetention, telemetryReader, dailyAnalyticsFindings, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, storedTelegramIdentity, telegram, alertEngine, telemetry, measurements, notificationOutbox, mock, replay, wakeSensorGapRecovery, tapoHistory, tapoHistoryFallbackKeys, historyFallbackKey, homeAssistant });
+  const extended = Object.assign(context, { timeseries, telemetryArchive, telemetryRetention, telemetryReader, dailyAnalyticsFindings, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, storedTelegramIdentity, telegram, alertEngine, telemetry, measurements, notificationOutbox, mock, replay, wakeSensorGapRecovery, tapoHistory, tapoHistoryFallbackKeys, historyFallbackKey, homeAssistant, heatPumpStates, gree });
   return extended as typeof extended & DeferredContext & {
     sensorGapRecovery: SensorGapRecoveryCoordinator;
     tpLink: TpLinkBridge;

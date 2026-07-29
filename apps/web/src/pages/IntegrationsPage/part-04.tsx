@@ -91,8 +91,18 @@ export function useIntegrationsPagePart04(context: ReturnType<typeof useIntegrat
         const addableHomeAssistant = options.resumeJobId && integration.homeAssistant.configured
           ? []
           : result.homeAssistant;
-        setDiscovery({ ...result, homeAssistant: addableHomeAssistant, tpLink: addableTpLinkSources });
-        const count = addableTpLinkSources.length + addableHomeAssistant.length;
+        const configuredGreeMacs = new Set((aggregateIntegration.gree?.connections ?? [])
+          .map((connection) => connection.mac));
+        const addableGreeDevices = (result.gree ?? []).filter((device) => (
+          !device.configuredConnectionId && !configuredGreeMacs.has(device.mac)
+        ));
+        setDiscovery({
+          ...result,
+          homeAssistant: addableHomeAssistant,
+          tpLink: addableTpLinkSources,
+          gree: addableGreeDevices,
+        });
+        const count = addableTpLinkSources.length + addableHomeAssistant.length + addableGreeDevices.length;
         setDiscoveryOutcome(count > 0 ? "found" : result.warnings.length > 0 ? "error" : "empty");
         if (addableTpLinkSources.length > 0) {
           context.tpLinkEditingConnectionId.current = null;
@@ -108,7 +118,8 @@ export function useIntegrationsPagePart04(context: ReturnType<typeof useIntegrat
           context.setConnectionSetupOpen(true);
           setTpLinkSettingsOpen(true);
         }
-        if (addableTpLinkSources.length === 0 && !integration.tpLink.configured && !integration.homeAssistant.configured) setTpLinkSettingsOpen(true);
+        if (addableTpLinkSources.length === 0 && addableGreeDevices.length === 0
+          && !integration.tpLink.configured && !integration.homeAssistant.configured) setTpLinkSettingsOpen(true);
       } catch {
         if (subscription.signal.aborted) return;
         if (startedJobId) {

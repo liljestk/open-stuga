@@ -300,7 +300,7 @@ export const svPart8 = {
   "performance.title": "Så har hemmet fungerat",
   "performance.description": "En lugn aktuell bild av klimatbelastning, återhämtning, öppningar, energi, utförda åtgärder och övervakningens tillförlitlighet.",
   "performance.loading": "Beräknar hemmets prestanda",
-  "performance.partial": "Underlagskällor som inte kunde läsas: {count}. Tillgängliga kontroller visas fortfarande med sina begränsningar.",
+  "performance.partial": "Underlag kunde inte läsas för: {sources}. Tillgängliga kontroller visas fortfarande med sina begränsningar.",
   "performance.noData": "Det finns ännu inte tillräckligt med registrerat underlag för att beräkna hemmets prestanda.",
   "performance.state.ready": "Underlag klart",
   "performance.state.limited": "Begränsat underlag",

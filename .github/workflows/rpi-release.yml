@@ -12,11 +12,6 @@ on:
         required: true
         default: false
         type: boolean
-      deploy:
-        description: Deploy to the configured Raspberry Pi after publishing
-        required: true
-        default: false
-        type: boolean
 
 permissions:
   contents: write
@@ -137,9 +132,6 @@ jobs:
     needs: resolve_images
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 240
-    env:
-      RPI_CONNECT_API_TOKEN: ${{ secrets.RPI_CONNECT_API_TOKEN }}
-      RPI_CONNECT_DEVICE_ID: ${{ secrets.RPI_CONNECT_DEVICE_ID }}
     steps:
       - name: Check out the released source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -257,26 +249,12 @@ jobs:
           retention-days: 3
           compression-level: 0
 
-      - name: Attach OTA artifact to GitHub release
+      - name: Attach validated factory image to GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           files: |
-            ${{ steps.ota.outputs.path }}
-            ${{ steps.ota.outputs.checksum_path }}
+            ${{ steps.ota.outputs.factory_path }}
+            ${{ steps.ota.outputs.factory_checksum_path }}
           fail_on_unmatched_files: true
           overwrite_files: true
-
-      - name: Register and deploy through Raspberry Pi Connect
-        if: >-
-          github.event_name == 'workflow_dispatch' &&
-          inputs.deploy &&
-          env.RPI_CONNECT_API_TOKEN != '' &&
-          env.RPI_CONNECT_DEVICE_ID != ''
-        env:
-          RPI_OTA_VERSION: ${{ steps.ota.outputs.version }}
-          RPI_OTA_URI: ${{ steps.ota.outputs.uri }}
-          RPI_OTA_CHECKSUM: ${{ steps.ota.outputs.checksum }}
-          RPI_OTA_DEPLOY: "true"
-          RPI_OTA_WAIT_MINUTES: "30"
-        run: node scripts/deploy-rpi-ota.mjs

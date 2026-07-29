@@ -289,7 +289,8 @@ export function configureApiPart02(context: ReturnType<typeof configureApiPart01
   if ((config.homeAssistantConnections?.length ?? 0) > 0
       || (!config.homeAssistantLegacyDisabled && config.haUrl && config.haToken)
       || (config.tpLinkConnections?.length ?? 0) > 0
-      || (!config.tpLinkLegacyDisabled && config.tpLinkHost && config.tpLinkUsername && config.tpLinkPassword)) {
+      || (!config.tpLinkLegacyDisabled && config.tpLinkHost && config.tpLinkUsername && config.tpLinkPassword)
+      || (config.greeConnections?.length ?? 0) > 0) {
       dataMode.activate();
     }
   const bus = new TelemetryBus();

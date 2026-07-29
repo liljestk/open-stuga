@@ -43,7 +43,6 @@ Options:
   --builder NAME           Buildx builder (default: stugu-release-local)
   --reuse-containers       Reuse and resolve already-published image tags
   --upload-factory         Also attach the factory image to the public release
-  --deploy                 Deploy the uploaded OTA through Raspberry Pi Connect
   --skip-checks            Skip local typecheck, tests, build, and API smoke test
   --help                   Show this help
 
@@ -61,7 +60,6 @@ function optionValue(argv, index, name) {
 export function parseArguments(argv) {
   const options = {
     builder: "stugu-release-local",
-    deploy: false,
     help: false,
     publish: false,
     reuseContainers: false,
@@ -75,9 +73,6 @@ export function parseArguments(argv) {
       case "--builder":
         options.builder = optionValue(argv, index, argument);
         index += 1;
-        break;
-      case "--deploy":
-        options.deploy = true;
         break;
       case "--help":
       case "-h":
@@ -419,12 +414,6 @@ function buildRaspberryPi({
 
 async function prepareReleaseChecksums(artifacts, uploadFactory) {
   mkdirSync(artifacts.releaseDirectory, { recursive: true });
-  const otaHash = await sha256(artifacts.ota);
-  writeFileSync(
-    artifacts.releaseChecksum,
-    `${otaHash}  ${artifacts.ota.split(/[\\/]/u).at(-1)}\n`,
-    "utf8",
-  );
   if (uploadFactory) {
     const factoryHash = await sha256(artifacts.factory);
     writeFileSync(
@@ -433,7 +422,6 @@ async function prepareReleaseChecksums(artifacts, uploadFactory) {
       "utf8",
     );
   }
-  return otaHash;
 }
 
 function ensureRelease(tag, version, repository, notesFile) {
@@ -465,8 +453,8 @@ function ensureRelease(tag, version, repository, notesFile) {
 }
 
 function uploadReleaseAssets(tag, repository, artifacts, uploadFactory) {
-  const paths = [artifacts.ota, artifacts.releaseChecksum];
-  if (uploadFactory) paths.push(artifacts.factory, artifacts.factoryChecksum);
+  const paths = uploadFactory ? [artifacts.factory, artifacts.factoryChecksum] : [];
+  if (paths.length === 0) return;
   invoke("gh", [
     "release",
     "upload",
@@ -513,8 +501,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   Repository:      ${repository}
   Image platforms: linux/amd64, linux/arm64
   Raspberry Pi:    OTA + factory image
-  Factory upload:  ${options.uploadFactory ? "yes" : "no; retained locally"}
-  Deploy OTA:      ${options.deploy ? "yes" : "no"}`);
+  Factory upload:  ${options.uploadFactory ? "yes" : "no; retained locally"}`);
   if (!options.publish) {
     console.log("\nPreview only. Add --publish to build, push, and upload this release.");
     return;
@@ -549,25 +536,12 @@ async function main(argv = process.argv.slice(2), env = process.env) {
     sshPublicKey,
     tag,
   });
-  const otaHash = await prepareReleaseChecksums(artifacts, options.uploadFactory);
+  await prepareReleaseChecksums(artifacts, options.uploadFactory);
 
   const release = ensureRelease(tag, version, repository, notesFile);
   uploadReleaseAssets(tag, repository, artifacts, options.uploadFactory);
   if (release.isDraft) {
     invoke("gh", ["release", "edit", tag, "--repo", repository, "--draft=false"]);
-  }
-
-  if (options.deploy) {
-    const otaName = artifacts.ota.split(/[\\/]/u).at(-1);
-    invoke("node", ["scripts/deploy-rpi-ota.mjs"], {
-      env: {
-        ...env,
-        RPI_OTA_VERSION: version,
-        RPI_OTA_URI: `https://github.com/${repository}/releases/download/${tag}/${otaName}`,
-        RPI_OTA_CHECKSUM: otaHash,
-        RPI_OTA_DEPLOY: "true",
-      },
-    });
   }
 
   const url = capture(

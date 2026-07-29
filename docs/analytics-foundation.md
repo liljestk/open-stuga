@@ -10,8 +10,9 @@ psychrometrics, causal inference, or new forecast models.
 - A registry-backed measurement model with physical dimension, allowed units,
   measurement kind, default aggregation, and generic history/statistics gates.
 - A side-effect-free `POST /api/v2/analytics/query` endpoint with an explicit
-  `dataMode`, strict request validation, house and sensor authorization, bounded
-  source reads, automatic resolution, and machine-readable failures.
+  `dataMode`, strict request validation, house and sensor authorization,
+  database-side archived rollups, bounded output, automatic resolution, and
+  machine-readable failures.
 - Measurement-aware UTC rollups at 1 minute, 5 minutes, 15 minutes, 1 hour, or
   1 day. Missing buckets remain `null`; they are never zero-filled.
 - Coverage, sample count, minimum/maximum envelopes, mean, median, sample
@@ -78,7 +79,7 @@ The implementation reuses the existing architecture:
 | Canonical measurements | `packages/contracts`, v2 measurement definitions and samples | Extend the registry without changing package names or the ingest contract. |
 | Primary telemetry history | TimescaleDB measurement samples | Permanent temperature, humidity, CO2, electricity, and custom-metric history with bounded queries and rollups. |
 | Ingestion/current tail | SQLite outbox and projections | Merge unacknowledged/current samples through the read facade; never treat it as complete long-term history. |
-| Historical read boundary | Hybrid SQLite/Timescale reader | Merge samples and per-series coverage, exposing incomplete archive state instead of silently shortening comparisons. |
+| Historical read boundary | Hybrid SQLite/Timescale reader | Merge raw samples and per-series coverage; for non-mergeable derived rollups, catch up and query the archive alone. Expose incomplete archive state instead of silently shortening comparisons. |
 | Data-mode isolation | One-way database-wide demo-to-real transition | Require `demo` or `live` in every analytics request and reject the mode not active in the local database. |
 | API conventions | Express v1/v2 routes, local authorization, OpenAPI parity tests | Put registry analytics in v2 and treat the complex POST as read-only for guest/CSRF/mutation-event rules. |
 | UI | Existing Data & analytics route and SVG sensor chart | Add evidence below the chart; do not replace the chart renderer in this slice. |
@@ -231,7 +232,9 @@ The current interactive bounds are:
 - a historical range no longer than ten years and no future end time;
 - 100-5,000 points per series;
 - at most 100,000 projected output points;
-- fewer than 250,000 source samples in the merged interactive window.
+- bucketed queries scan the permanent archive inside PostgreSQL without a
+  source-row count cap and return only the bounded buckets;
+- raw/local-fallback queries retain the 250,000-row shared-window safety bound.
 
 Explicit resolutions that exceed the per-series budget fail instead of being
 silently truncated. `auto` chooses the finest supported UTC resolution that
@@ -256,9 +259,13 @@ cadence so a lone old value cannot silently fill a long gap.
 
 ## Architecture decisions
 
-1. **On-demand rollups first.** The query performs deterministic rollups over
-   the hybrid reader. Persisted rollup tables are deferred until measured query
-   volume justifies their migration and invalidation complexity.
+1. **Database-side rollups for archived history.** Bucketed queries aggregate
+   the complete half-open range inside PostgreSQL and transfer only requested
+   buckets to the API. The query preserves explicit quality filtering, inferred
+   cadence, time-weighted rate means, and reset-aware counter deltas. A
+   standalone SQLite installation keeps the bounded raw fallback. Specialized
+   persisted semantic rollups are deferred until measured query volume
+   justifies their migration and late-data invalidation complexity.
 2. **No cache in the first slice.** Responses use `Cache-Control: no-store` and
    report `cache.hit: false`. This avoids stale results while late-data
    invalidation and semantic cache keys are not implemented.
@@ -286,7 +293,7 @@ cadence so a lone old value cannot silently fill a long gap.
 | Registry and units | Core semantics persisted and exposed; canonical ingest validation already exists | Add dimension-checked transformations and explicit conversion registry. |
 | Explorer | Multi-sensor/single-measurement rolling chart, explicit or auto rollup evidence controls, 6h-1y ranges, explicit two-period calendar comparisons with aligned breakdowns, accessible tables, CSV/JSON | Add brush selection and saved views. |
 | Quality | Missing, stale, source-estimated, low-coverage, and counter-reset flags; source-quality inclusion is explicit and exportable | Preserve richer source timestamps/flags and add declared interpolation policies. |
-| Rollups | Correct bounded on-demand UTC buckets; calendar comparison composes exact house-local subranges and covers 23/24/25-hour days | Add persisted rollups, source watermarks, late-data invalidation, and reusable server-side local-calendar buckets if other analytics surfaces need them. |
+| Rollups | Correct bounded UTC buckets computed inside PostgreSQL over complete archived ranges; calendar comparison composes exact house-local subranges and covers 23/24/25-hour days | Add specialized persisted semantic rollups, source watermarks, late-data invalidation, and reusable server-side local-calendar buckets if query volume requires them. |
 | Descriptive statistics | Core robust summaries | Add histogram/distribution and duration statistics where registry semantics allow them. |
 | Psychrometrics | A pinned Magnus calculation supports bounded within-event absolute-humidity recovery comparisons; no dew point, mould, or diagnostic claim is exposed | Add independent reference vectors and a reviewed library before broader psychrometric outputs. |
 | Statistics/findings | Daily practical-effect peer-period findings with persisted evidence; no causal or inferential claims | Add source-declared cadence, robust seasonal models, autocorrelation-aware uncertainty, multiple-testing control, user confirmation, and longer detector validation before calling results statistical anomalies. |
@@ -310,8 +317,9 @@ derived findings snapshot would become unused.
 ## Verification
 
 Focused coverage includes strict/mismatched data modes, archive-aware coverage
-discovery, invalid aggregation, source-quality inclusion and rejection, raw
-labelling, output budgets, reset-aware deltas across bucket boundaries,
+discovery, database-side high-frequency rollups without raw-window reads,
+invalid aggregation, source-quality inclusion and rejection, raw labelling,
+output budgets, reset-aware deltas across bucket boundaries,
 registry migration compatibility, OpenAPI parity, house-timezone calendar
 boundaries, DST, leap days, ISO week 53, decade segmentation, fair partial-month
 windows, persisted daily idempotency, weather/electricity/opening detection,
@@ -327,9 +335,10 @@ npm run typecheck --workspace @climate-twin/api
 npm run typecheck --workspace @climate-twin/web
 ```
 
-A local deterministic smoke run rolled up 50,000 one-minute inputs across ten
-series into 10,000 five-minute output points in 88.7 ms on the development
-machine. This is a directional implementation result, not a CI performance
-gate. Formal overview/30-day/multi-year benchmarks, archive-I/O measurements,
-and persisted-rollup comparisons are still required before raising the
-interactive limits.
+A live archive equivalence check rolled up 32,808 high-frequency power samples
+into 25 hourly points inside PostgreSQL. Values matched the former in-process
+time-weighted implementation to floating-point precision, and sample counts and
+coverage matched exactly. This is a directional implementation check, not a CI
+performance gate. Formal overview/30-day/multi-year benchmarks, archive-I/O
+measurements, and persisted-rollup comparisons are still required before
+raising the interactive output limits.

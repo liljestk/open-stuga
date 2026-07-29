@@ -94,7 +94,8 @@ ENV NODE_ENV=production \
     INTEGRATION_SECRETS_FILE=/app/data/integration-secrets.json \
     HA_ENTITY_MAP_FILE=/app/config/home-assistant.entities.json \
     TP_LINK_DEVICE_MAP_FILE=/app/config/tp-link.devices.json \
-    TP_LINK_PYTHON=/opt/tp-link-python/bin/python
+    TP_LINK_PYTHON=/opt/tp-link-python/bin/python \
+    GREE_PYTHON=/opt/tp-link-python/bin/python
 
 WORKDIR /app
 
@@ -103,9 +104,10 @@ WORKDIR /app
 COPY apps/api/python/requirements.txt /tmp/tp-link-requirements.txt
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 python3-venv \
+  && apt-get install -y --no-install-recommends python3 python3-venv python3-dev gcc \
   && python3 -m venv /opt/tp-link-python \
   && /opt/tp-link-python/bin/pip install --no-cache-dir -r /tmp/tp-link-requirements.txt \
+  && apt-get purge -y --auto-remove python3-dev gcc \
   && rm -f /tmp/tp-link-requirements.txt \
   && rm -rf /var/lib/apt/lists/*
 

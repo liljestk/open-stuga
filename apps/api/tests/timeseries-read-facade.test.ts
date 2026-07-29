@@ -311,6 +311,33 @@ describe("HybridTelemetryReader", () => {
     expect(result.provenance.duplicateRecordCount).toBe(1);
   });
 
+  it("catches up the archive before serving a non-mergeable analytics rollup", async () => {
+    let phase = "syncing";
+    const reconcile = vi.fn(async () => { phase = "ready"; });
+    const measurementAnalyticsRollup = vi.fn(async () => ({ series: [] }));
+    const reader = new HybridTelemetryReader({
+      local: localReader({ isRealDataMode: vi.fn(() => true) }),
+      archive: { ...archiveReader(), measurementAnalyticsRollup },
+      archivePhase: () => phase,
+      reconcile,
+      localHistoryComplete: false,
+    });
+
+    const result = await reader.measurementAnalyticsRollup({
+      series: [{ sensorId: "sensor-a", metric: "power", aggregation: "time_weighted_mean" }],
+      from: FROM,
+      to: TO,
+      resolution: "1h",
+      qualities: ["good", "estimated"],
+    });
+
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect(measurementAnalyticsRollup).toHaveBeenCalledWith(expect.objectContaining({
+      excludeSynthetic: true,
+    }));
+    expect(result).toEqual({ result: { series: [] }, archiveState: "merged" });
+  });
+
   it("supports legacy and outdoor families with the same conflict policy and restores archived conditions", async () => {
     const overlapAt = "2026-07-18T00:20:00.000Z";
     const local = localReader({

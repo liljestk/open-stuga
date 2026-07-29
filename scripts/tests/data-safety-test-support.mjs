@@ -113,6 +113,15 @@ export function createTelemetryFixture(path, {
       connection_id TEXT,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE heat_pump_state_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      connection_id TEXT NOT NULL,
+      house_id TEXT NOT NULL,
+      observed_at TEXT NOT NULL,
+      received_at TEXT NOT NULL,
+      state_json TEXT NOT NULL,
+      UNIQUE (connection_id, observed_at)
+    );
     INSERT INTO measurement_samples
       (sensor_id, metric, value, canonical_unit, timestamp, source, quality)
       VALUES ('sensor-1', 'temperature', 19.5, 'degC', '2026-07-18T10:00:00.000Z', 'api', 'good');
@@ -133,6 +142,21 @@ export function createTelemetryFixture(path, {
       VALUES ('opening-1', 'house-1', 'floor-1', 'door-1', 'open', 1, 'api',
         '2026-07-18T10:00:00.000Z', NULL, 'binary_sensor.door', 'ha-1',
         '2026-07-18T10:00:01.000Z');
+    INSERT INTO heat_pump_state_history
+      (connection_id, house_id, observed_at, received_at, state_json)
+      VALUES (
+        'gree-aabbccddeeff',
+        'house-1',
+        '2026-07-18T10:00:00.000Z',
+        '2026-07-18T10:00:01.000Z',
+        '{"connectionId":"gree-aabbccddeeff","houseId":"house-1","equipmentId":null,
+          "deviceId":"AABBCCDDEEFF","name":"Nordkapp","brand":"Wilfa","model":"Nordkapp 30",
+          "observedAt":"2026-07-18T10:00:00.000Z","receivedAt":"2026-07-18T10:00:01.000Z",
+          "available":true,"power":true,"selectedMode":"cool","targetTemperatureC":22,
+          "currentTemperatureC":25.5,"currentTemperatureSource":"reported","fanSpeed":"Auto",
+          "horizontalSwing":null,"verticalSwing":"FullSwing","quiet":false,"turbo":false,
+          "xfan":true,"activity":"unknown","activityEvidence":"unavailable"}'
+      );
   `);
   if (duplicateReading) {
     database.exec(`INSERT INTO readings

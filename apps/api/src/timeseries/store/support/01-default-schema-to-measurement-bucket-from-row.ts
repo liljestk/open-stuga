@@ -23,6 +23,7 @@ import type {
   EnergyCostAggregateRecord,
   ElectricityPriceHistoryQuery,
   ElectricityPriceRecord,
+  HeatPumpStateRecord,
   LegacyReadingHistoryQuery,
   LegacyReadingRecord,
   MeasurementBucketQuery,
@@ -142,6 +143,32 @@ export interface OpeningStateRow extends QueryResultRow {
   connection_id: string | null;
   recorded_at: string | Date;
   metadata: Readonly<Record<string, unknown>>;
+}
+
+export interface HeatPumpStateRow extends QueryResultRow {
+  connection_id: string;
+  house_id: string;
+  equipment_id: string | null;
+  device_id: string;
+  name: string | null;
+  brand: string | null;
+  model: string | null;
+  observed_at: string | Date;
+  received_at: string | Date;
+  available: boolean;
+  power: boolean | null;
+  selected_mode: HeatPumpStateRecord["selectedMode"];
+  target_temperature_c: number | null;
+  current_temperature_c: number | null;
+  current_temperature_source: HeatPumpStateRecord["currentTemperatureSource"];
+  fan_speed: string | null;
+  horizontal_swing: string | null;
+  vertical_swing: string | null;
+  quiet: boolean | null;
+  turbo: boolean | null;
+  xfan: boolean | null;
+  activity: HeatPumpStateRecord["activity"];
+  activity_evidence: HeatPumpStateRecord["activityEvidence"];
 }
 
 export interface EnergyCostAggregateRow extends QueryResultRow {
@@ -304,6 +331,34 @@ export function openingStateFromRow(row: OpeningStateRow): OpeningStateRecord {
     connectionId: row.connection_id,
     recordedAt: timestamp(row.recorded_at),
     metadata: row.metadata,
+  };
+}
+
+export function heatPumpStateFromRow(row: HeatPumpStateRow): HeatPumpStateRecord {
+  return {
+    connectionId: row.connection_id,
+    houseId: row.house_id,
+    equipmentId: row.equipment_id,
+    deviceId: row.device_id,
+    name: row.name,
+    brand: row.brand,
+    model: row.model,
+    observedAt: timestamp(row.observed_at),
+    receivedAt: timestamp(row.received_at),
+    available: row.available,
+    power: row.power,
+    selectedMode: row.selected_mode,
+    targetTemperatureC: row.target_temperature_c === null ? null : Number(row.target_temperature_c),
+    currentTemperatureC: row.current_temperature_c === null ? null : Number(row.current_temperature_c),
+    currentTemperatureSource: row.current_temperature_source,
+    fanSpeed: row.fan_speed,
+    horizontalSwing: row.horizontal_swing,
+    verticalSwing: row.vertical_swing,
+    quiet: row.quiet,
+    turbo: row.turbo,
+    xfan: row.xfan,
+    activity: row.activity,
+    activityEvidence: row.activity_evidence,
   };
 }
 

@@ -169,6 +169,7 @@ import {
   parseAnalyticsCoverageRequest,
   parseAnalyticsQueryRequest,
 } from "../analytics.js";
+import { buildAnalyticsResponseFromRollup, planAnalyticsRollup } from "../analytics-rollup.js";
 import { loadOrCreateStugubyNodeKeys } from "../stuguby/identity.js";
 import { registerStugubyLocalRoutes, registerStugubyProtocolRoutes } from "../stuguby/routes.js";
 import { StugubyError, StugubyService } from "../stuguby/service.js";
@@ -304,6 +305,26 @@ export function configureApiPart10(context: ReturnType<typeof configureApiPart09
           if (!definition) throw new AnalyticsQueryError(404, "UNKNOWN_ANALYTICS_MEASUREMENT", `Unknown measurement: ${metric}`);
           return definition;
         });
+        const entities = sensors.map((sensor) => ({ id: sensor.id, label: sensor.name }));
+        const rollupPlan = planAnalyticsRollup({
+          request: analyticsRequest,
+          definitions,
+          entities,
+        });
+        if (rollupPlan) {
+          const rollup = await context.telemetryReader.measurementAnalyticsRollup(rollupPlan);
+          if (rollup) {
+            response.setHeader("cache-control", "no-store");
+            response.json(buildAnalyticsResponseFromRollup({
+              request: analyticsRequest,
+              definitions,
+              entities,
+              rollup: rollup.result,
+              archiveState: rollup.archiveState,
+            }));
+            return;
+          }
+        }
         const read = await context.telemetryReader.measurementWindow({
           sensorIds: sensors.map((sensor) => sensor.id),
           metrics: definitions.map((definition) => definition.id),
@@ -325,11 +346,18 @@ export function configureApiPart10(context: ReturnType<typeof configureApiPart09
           request: analyticsRequest,
           samples: read.records,
           definitions,
-          entities: sensors.map((sensor) => ({ id: sensor.id, label: sensor.name })),
+          entities,
           archiveState: read.provenance.archiveState,
         }));
       } catch (error) {
         if (error instanceof AnalyticsQueryError) throw new HttpError(error.status, error.code, error.message);
+        if (error instanceof IncompleteTelemetryHistoryError) {
+          throw new HttpError(
+            503,
+            "TELEMETRY_ARCHIVE_REQUIRED",
+            "Complete telemetry history is temporarily unavailable",
+          );
+        }
         throw error;
       }
     });

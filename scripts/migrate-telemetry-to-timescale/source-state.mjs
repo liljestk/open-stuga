@@ -68,7 +68,11 @@ export function inventoryTelemetrySource(database) {
     });
     const optionalJsonColumns = specification.optionalJsonColumns ?? [];
     const presentJsonColumns = optionalJsonColumns.filter((column) => columns.includes(column));
-    const invalidJsonTerms = presentJsonColumns.map((column) => {
+    const validatedJsonColumns = [
+      ...(specification.requiredJsonColumns ?? []),
+      ...presentJsonColumns,
+    ];
+    const invalidJsonTerms = validatedJsonColumns.map((column) => {
       const field = quoteSqliteIdentifier(column);
       return `CASE WHEN ${field} IS NOT NULL
         AND (typeof(${field}) <> 'text' OR json_valid(${field}) <> 1) THEN 1 ELSE 0 END`;
@@ -86,7 +90,7 @@ export function inventoryTelemetrySource(database) {
              MAX(${normalizedTimestampExpression(specification.timeColumn)}) AS maximum_time,
              SUM(${invalidDateTerms.join(" + ")}) AS invalid_date_values,
              SUM(${invalidTextTerms.join(" + ")}) AS invalid_text_values,
-             SUM(${invalidNumericTerms.join(" + ")}) AS invalid_numeric_values,
+             ${invalidNumericTerms.length === 0 ? "0" : `SUM(${invalidNumericTerms.join(" + ")})`} AS invalid_numeric_values,
              ${invalidJsonTerms.length === 0 ? "0" : `SUM(${invalidJsonTerms.join(" + ")})`} AS invalid_json_values,
              ${populatedJsonTerms.length === 0 ? "0" : `SUM(${populatedJsonTerms.join(" + ")})`} AS populated_json_values,
              ${invalidInterval} AS invalid_intervals
@@ -137,7 +141,8 @@ export function sourceBlockers(inventory) {
       blockers.push(`${table} has ${details.invalidNumericValues} non-finite required numeric value(s)`);
     }
     if ((details.invalidJsonValues ?? 0) > 0) {
-      blockers.push(`${table} has ${details.invalidJsonValues} invalid optional JSON value(s)`);
+      const label = details.optionalJsonColumns ? "invalid optional JSON" : "invalid JSON";
+      blockers.push(`${table} has ${details.invalidJsonValues} ${label} value(s)`);
     }
     if ((details.invalidIntervals ?? 0) > 0) {
       blockers.push(`${table} has ${details.invalidIntervals} interval(s) whose end is not after its start`);

@@ -93,7 +93,7 @@ export const svPart2 = {
   "analytics.findingsThrough": "Jämfört till och med {date}",
   "analytics.findingsCount": "{count} noterbara resultat",
   "analytics.findingsArchiveWarning": "Äldre arkivdata var inte tillgängliga, så vissa jämförelseår kan saknas.",
-  "analytics.findingsTruncatedWarning": "Minst en sensor- eller väderhistorik nådde gränsen på 100 000 mätvärden för en enskild jämförelseperiod. Stugu utelämnade den berörda perioden så att ofullständiga data inte skulle påverka resultatet.",
+  "analytics.findingsTruncatedWarning": "En väderhistorik eller tillfällig lokal sensorreserv nådde gränsen på 100 000 mätvärden för en jämförelseperiod. Stugu utelämnade perioden så att ofullständiga data inte skulle påverka resultatet.",
   "analytics.findingsScopeWarning": "Hemmet har fler än 80 registrerade sensor- och mätserier. Elserier prioriterades och resten av kontrollen begränsades.",
   "analytics.findingsNoneTitle": "Inga noterbara skillnader mot jämförelseperioderna",
   "analytics.findingsNoneBody": "Tillgängliga likvärdiga perioder låg under rapporteringströsklarna, eller så behövs mer historik.",

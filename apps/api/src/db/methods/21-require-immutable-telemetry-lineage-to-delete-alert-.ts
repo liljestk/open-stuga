@@ -254,8 +254,23 @@ registerDatabaseMethods({
         openingDeleted += changes;
         if (changes < batchSize) break;
       }
+      const heatPumpStatement = this.db.prepare(`DELETE FROM heat_pump_state_history
+        WHERE id IN (
+          SELECT id FROM heat_pump_state_history
+          WHERE observed_at < ? ${archivedThrough ? "AND id <= ?" : ""}
+          ORDER BY observed_at, id LIMIT ?
+        )`);
+      let heatPumpDeleted = 0;
+      while (!archivedThrough || archivedThrough.heat_pump_state_samples !== undefined) {
+        const parameters = archivedThrough
+          ? [timestamp, archivedThrough.heat_pump_state_samples, batchSize]
+          : [timestamp, batchSize];
+        const changes = Number(heatPumpStatement.run(...parameters).changes);
+        heatPumpDeleted += changes;
+        if (changes < batchSize) break;
+      }
       return deleteBatches("measurement_samples") + deleteBatches("readings")
-        + outdoorDeleted + electricityDeleted + openingDeleted;
+        + outdoorDeleted + electricityDeleted + openingDeleted + heatPumpDeleted;
     },
   saveIOSNotificationRegistration(
       userId: string,

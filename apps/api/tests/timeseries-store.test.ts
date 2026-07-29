@@ -1,4 +1,3 @@
-import type { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from "pg";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildBaseSchemaSql,
@@ -6,73 +5,7 @@ import {
   buildFallbackAggregateSql,
   validateSchemaName,
 } from "../src/timeseries/schema.js";
-import { TimeseriesStore } from "../src/timeseries/store.js";
-
-const FROM = "2026-07-18T00:00:00.000Z";
-const TO = "2026-07-18T01:00:00.000Z";
-
-interface CapturedQuery {
-  text: string;
-  values: unknown[];
-  direct: boolean;
-}
-
-type QueryHandler = (query: CapturedQuery) => Promise<QueryResult<QueryResultRow>> | QueryResult<QueryResultRow>;
-
-function queryResult(rows: QueryResultRow[] = [], rowCount = rows.length): QueryResult<QueryResultRow> {
-  return {
-    command: "SELECT",
-    rowCount,
-    oid: 0,
-    fields: [],
-    rows,
-  };
-}
-
-class FakePool {
-  readonly queries: CapturedQuery[] = [];
-  readonly releases: ReturnType<typeof vi.fn> = vi.fn();
-  readonly end = vi.fn(async () => undefined);
-  readonly on = vi.fn(() => this);
-  readonly off = vi.fn(() => this);
-  totalCount = 1;
-  idleCount = 1;
-  waitingCount = 0;
-  handler: QueryHandler;
-
-  readonly client = {
-    processID: 4_242,
-    query: async (config: QueryConfig) => this.dispatch(config, false),
-    release: this.releases,
-  } as unknown as PoolClient;
-
-  readonly connect = vi.fn(async () => this.client);
-  readonly query = vi.fn(async (config: QueryConfig) => this.dispatch(config, true));
-
-  constructor(handler: QueryHandler = ({ text }) => {
-    if (text.includes("AS timescale_version")) return queryResult([{ timescale_version: null }]);
-    return queryResult();
-  }) {
-    this.handler = handler;
-  }
-
-  private dispatch(config: QueryConfig, direct: boolean): Promise<QueryResult<QueryResultRow>> {
-    const query = {
-      text: config.text,
-      values: config.values ?? [],
-      direct,
-    };
-    this.queries.push(query);
-    return Promise.resolve(this.handler(query));
-  }
-}
-
-function storeFor(pool: FakePool): TimeseriesStore {
-  return new TimeseriesStore({
-    pool: pool as unknown as Pool,
-    statementTimeoutMs: 0,
-  });
-}
+import { FakePool, FROM, TO, queryResult, storeFor } from "./timeseries-store-test-support.js";
 
 describe("time-series schema", () => {
   it("creates append-only raw tables with time-inclusive idempotency keys and no data expiry", () => {
@@ -171,13 +104,14 @@ describe("TimeseriesStore", () => {
         "outdoor_temperature_samples",
         "electricity_price_samples",
         "opening_state_samples",
+        "heat_pump_state_samples",
       ],
       aggregateMode: "continuous",
       coldStorageMode: "columnstore",
       warnings: [],
     });
-    expect(pool.queries.filter(({ text }) => text.includes("create_hypertable("))).toHaveLength(5);
-    expect(pool.queries.filter(({ text }) => text.includes("CALL add_columnstore_policy"))).toHaveLength(5);
+    expect(pool.queries.filter(({ text }) => text.includes("create_hypertable("))).toHaveLength(6);
+    expect(pool.queries.filter(({ text }) => text.includes("CALL add_columnstore_policy"))).toHaveLength(6);
     expect(pool.queries.filter(({ text }) => text.includes("CREATE MATERIALIZED VIEW"))).toHaveLength(3);
     expect(pool.queries.filter(({ text }) => text.includes("SELECT add_continuous_aggregate_policy("))).toHaveLength(3);
     expect(pool.queries.some(({ text }) => text.includes("add_retention_policy"))).toBe(false);
@@ -466,6 +400,87 @@ describe("TimeseriesStore", () => {
     const snapshot = pool.queries.find(({ text }) => text.includes("SELECT DISTINCT ON"))!;
     expect(snapshot.text).toContain("observed_at DESC, ingested_at DESC, observation_id DESC");
     expect(snapshot.values).toEqual(["house-1", TO, 10_000]);
+  });
+
+  it("upserts and reads complete timestamped heat-pump states", async () => {
+    const record = {
+      connectionId: "gree-aabbccddeeff",
+      houseId: "house-1",
+      equipmentId: "heat-pump-aabbccddeeff",
+      deviceId: "AABBCCDDEEFF",
+      name: "Nordkapp",
+      brand: "Wilfa",
+      model: "Nordkapp 30",
+      observedAt: "2026-07-18T00:30:00.000Z",
+      receivedAt: "2026-07-18T00:30:01.000Z",
+      available: true,
+      power: true,
+      selectedMode: "cool" as const,
+      targetTemperatureC: 22,
+      currentTemperatureC: 25.5,
+      currentTemperatureSource: "reported" as const,
+      fanSpeed: "Auto",
+      horizontalSwing: "Default",
+      verticalSwing: "FullSwing",
+      quiet: false,
+      turbo: false,
+      xfan: true,
+      activity: "unknown" as const,
+      activityEvidence: "unavailable" as const,
+    };
+    const row = {
+      connection_id: record.connectionId,
+      house_id: record.houseId,
+      equipment_id: record.equipmentId,
+      device_id: record.deviceId,
+      name: record.name,
+      brand: record.brand,
+      model: record.model,
+      observed_at: new Date(record.observedAt),
+      received_at: new Date(record.receivedAt),
+      available: record.available,
+      power: record.power,
+      selected_mode: record.selectedMode,
+      target_temperature_c: record.targetTemperatureC,
+      current_temperature_c: record.currentTemperatureC,
+      current_temperature_source: record.currentTemperatureSource,
+      fan_speed: record.fanSpeed,
+      horizontal_swing: record.horizontalSwing,
+      vertical_swing: record.verticalSwing,
+      quiet: record.quiet,
+      turbo: record.turbo,
+      xfan: record.xfan,
+      activity: record.activity,
+      activity_evidence: record.activityEvidence,
+    };
+    const pool = new FakePool(({ text }) => {
+      if (text.includes("INSERT INTO") && text.includes("heat_pump_state_samples")) {
+        return queryResult([], 1);
+      }
+      if (text.includes("FROM \"telemetry\".\"heat_pump_state_samples\"")) {
+        return queryResult([row]);
+      }
+      return queryResult();
+    });
+    const store = storeFor(pool);
+
+    await expect(store.upsertHeatPumpStateSamples([record]))
+      .resolves.toEqual({ attempted: 1, affected: 1 });
+    await expect(store.heatPumpStateHistory({
+      connectionId: record.connectionId,
+      from: FROM,
+      to: TO,
+    })).resolves.toEqual([record]);
+
+    const insert = pool.queries.find(({ text }) => text.includes("INSERT INTO")
+      && text.includes("heat_pump_state_samples"))!;
+    expect(insert.text).toContain('ON CONFLICT ("connection_id", "observed_at") DO UPDATE');
+    expect(insert.values).toEqual([
+      record.connectionId, record.houseId, record.equipmentId, record.deviceId,
+      record.name, record.brand, record.model, record.observedAt, record.receivedAt,
+      true, true, "cool", 22, 25.5, "reported", "Auto", "Default", "FullSwing",
+      false, false, true, "unknown", "unavailable",
+    ]);
   });
 
   it("short-circuits empty measurement window filters without acquiring a connection", async () => {

@@ -1,4 +1,4 @@
-import type { MeasurementSample } from "@climate-twin/contracts";
+import type { HeatPumpState, MeasurementSample } from "@climate-twin/contracts";
 import type {
   ClimateDatabase,
   TelemetryArchiveDirtyRow,
@@ -44,6 +44,8 @@ export interface TelemetryArchiveWorkerOptions {
   requireTimescale?: boolean;
   /** Days retained as a SQLite current/history cache after Timescale acknowledgement. Zero keeps only current projections. */
   localHistoryRetentionDays?: number;
+  /** Crash-safe local heat-pump journal. Supplied by the direct integration state store. */
+  heatPumpStatePage?: (afterRowId: number, limit: number) => TelemetryArchiveRow<HeatPumpState>[];
 }
 
 type CheckpointStore = TimeseriesStore & {
@@ -82,6 +84,8 @@ export class TelemetryArchiveWorker {
   readonly #retryIntervalMs: number;
   readonly #requireTimescale: boolean;
   readonly #localHistoryRetentionDays: number | null;
+  readonly #heatPumpStatePage:
+    ((afterRowId: number, limit: number) => TelemetryArchiveRow<HeatPumpState>[]) | null;
   readonly #queue: MeasurementSample[] = [];
   #status: TelemetryArchiveStatus = {
     phase: "idle",
@@ -133,6 +137,7 @@ export class TelemetryArchiveWorker {
       throw new RangeError("Local telemetry retention must be a non-negative number of days");
     }
     this.#localHistoryRetentionDays = options.localHistoryRetentionDays ?? null;
+    this.#heatPumpStatePage = options.heatPumpStatePage ?? null;
   }
 
   get store(): TimeseriesStore {
@@ -216,6 +221,7 @@ export class TelemetryArchiveWorker {
         await this.#reconcileOutdoorTemperatures();
         await this.#reconcileElectricityPrices();
         await this.#reconcileOpeningStates();
+        await this.#reconcileHeatPumpStates();
         await this.#flushDirtyRows();
         const realDataActivatedAt = this.#database.realDataModeActivatedAt();
         if (realDataActivatedAt && !this.#realDataBoundaryEnforced) {
@@ -347,6 +353,15 @@ export class TelemetryArchiveWorker {
       "opening_state_samples",
       (cursor) => this.#database.openingStateArchivePage(cursor, this.#batchSize),
       (rows) => this.#store.upsertOpeningStateSamples(rows.map(({ record }) => ({ ...record }))),
+    );
+  }
+
+  async #reconcileHeatPumpStates(): Promise<void> {
+    if (!this.#heatPumpStatePage) return;
+    await this.#reconcileTable(
+      "heat_pump_state_samples",
+      (cursor) => this.#heatPumpStatePage!(cursor, this.#batchSize),
+      (rows) => this.#store.upsertHeatPumpStateSamples(rows.map(({ record }) => ({ ...record }))),
     );
   }
 

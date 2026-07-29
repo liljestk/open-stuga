@@ -1,0 +1,68 @@
+#!/bin/sh
+# Preserve the firmware-qualified USB A/B aliases across switch_root. The
+# initramfs creates the aliases before mounting the immutable EROFS root, then
+# this script turns that trusted mapping into direct udev DEVLINK rules for the
+# real-root coldplug pass.
+
+set -u
+
+case "${1:-}" in
+  prereqs)
+    echo ""
+    exit 0
+    ;;
+esac
+
+slot_root="${STUGU_SLOT_ROOT:-/dev/disk/by-slot}"
+rule_source="${STUGU_UDEV_RULE_SOURCE:-/run/stugu-usb-slot.rules}"
+rule_target="${STUGU_UDEV_RULE_TARGET:-${rootmnt:-/root}/etc/udev/rules.d/99-rpi-00-stugu-usb.rules}"
+
+report() {
+  echo "$1" >&2
+  [ ! -w /dev/kmsg ] || echo "$1" > /dev/kmsg 2>/dev/null || :
+}
+
+[ -e /run/stugu-usb-ab-ready ] || exit 0
+[ -e "$rule_target" ] || {
+  report "Stugu: USB udev rule target is missing"
+  exit 1
+}
+
+umask 022
+: > "$rule_source" || {
+  report "Stugu: cannot create USB udev rule"
+  exit 1
+}
+
+emit_rule() {
+  alias_path="$1"
+  devlink="$2"
+  partition="$(readlink "${slot_root}/${alias_path}" 2>/dev/null)" || return 1
+
+  case "$partition" in
+    /dev/sd*[0-9]) ;;
+    *) return 1 ;;
+  esac
+
+  partition="${partition#/dev/}"
+  printf '%s\n' \
+    "SUBSYSTEM==\"block\", KERNEL==\"${partition}\", ACTION==\"add|change\", SYMLINK+=\"${devlink}\"" \
+    >> "$rule_source"
+}
+
+emit_rule bootconfig disk/by-slot/bootconfig &&
+  emit_rule active/boot disk/by-slot/active/boot &&
+  emit_rule active/system disk/by-slot/active/system &&
+  emit_rule other/boot disk/by-slot/other/boot &&
+  emit_rule other/system disk/by-slot/other/system &&
+  emit_rule persistent disk/by-slot/persistent || {
+    report "Stugu: cannot translate USB slot aliases into udev rules"
+    exit 1
+  }
+
+if ! mount -o bind "$rule_source" "$rule_target"; then
+  report "Stugu: failed to bind USB udev rules into real root"
+  exit 1
+fi
+
+report "Stugu: USB udev rules bound into real root"

@@ -8,6 +8,12 @@ import type { MeasurementSample } from "./measurement-analytics.js";
 
 import type { OpeningStateObservation } from "./building-structure.js";
 
+import type {
+  GreeDiscoveredDevice,
+  GreeIntegrationStatus,
+  HeatPumpState,
+} from "./heat-pumps.js";
+
 export type TpLinkConnectionSourceType = "hub" | "energy-device";
 
 export interface TpLinkConnectionStatus {
@@ -118,6 +124,11 @@ export interface IntegrationStatus {
       error: string | null;
     }>;
   };
+  /**
+   * Absent on older servers and while no Gree/Wilfa heat pump has been added.
+   * This keeps the integration entirely out of clients that do not use it.
+   */
+  gree?: GreeIntegrationStatus;
 }
 
 export interface HomeAssistantDiscoveredInstance {
@@ -142,6 +153,8 @@ export interface TpLinkDiscoveredSource {
 export interface IntegrationDiscoveryResult {
   homeAssistant: HomeAssistantDiscoveredInstance[];
   tpLink: TpLinkDiscoveredSource[];
+  /** Optional for wire compatibility with servers without direct Gree support. */
+  gree?: GreeDiscoveredDevice[];
   warnings: string[];
 }
 
@@ -262,6 +275,7 @@ export type TelemetryEvent =
   | { type: "integration"; data: IntegrationStatus }
   | { type: "weather"; data: WeatherUpdateEvent }
   | { type: "opening"; data: OpeningStateObservation }
+  | { type: "heat-pump"; data: HeatPumpState }
   | { type: "mutation"; data: { method: string; resource: string; occurredAt: string } }
   | { type: "heartbeat"; data: { timestamp: string } };
 

@@ -226,7 +226,13 @@ export function configureApiPart20(context: ReturnType<typeof configureApiPart19
         return;
       }
       if (!await write(`${head.slice(0, -1)},"telemetry":{`)) return;
-      const telemetryTables = ["measurement_samples", "readings", "outdoor_temperature_samples", "electricity_price_points"] as const;
+      const telemetryTables = [
+        "measurement_samples",
+        "readings",
+        "outdoor_temperature_samples",
+        "electricity_price_points",
+        "heat_pump_state_history",
+      ] as const;
       for (let tableIndex = 0; tableIndex < telemetryTables.length; tableIndex += 1) {
         const table = telemetryTables[tableIndex]!;
         if (!await write(`${tableIndex === 0 ? "" : ","}${JSON.stringify(table)}:[`)) return;

@@ -26,6 +26,7 @@ import type {
   AlertEvent,
   AlertRule,
   ForecastPoint,
+  GreeDiscoveredDevice,
   House,
   HouseLocation,
   HouseMapPlacement,
@@ -203,6 +204,7 @@ export interface TpLinkDiscoveredSource {
 export interface IntegrationDiscoveryResult {
   homeAssistant: HomeAssistantDiscoveredInstance[];
   tpLink: TpLinkDiscoveredSource[];
+  gree?: GreeDiscoveredDevice[];
   warnings: string[];
 }
 

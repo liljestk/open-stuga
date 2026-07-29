@@ -57,8 +57,9 @@ fi
 
 for path in $paths; do
   echo "persistent-shared-init: seeding $path for release $release"
-  [ -d "$path" ] &&
+  if [ -d "$path" ]; then
     rsync -aHAXS --numeric-ids --checksum "$path/" "${shared_base}${path}/"
+  fi
 done
 
 temporary_marker="${marker}.tmp.$$"

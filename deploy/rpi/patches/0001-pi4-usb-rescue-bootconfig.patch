@@ -27,12 +27,14 @@ index cd6aa59..981fd94 100644
 +   exec-pre = "<SLOTP> BOOT"
  }
 diff --git a/image/gpt/ab_userdata/pre-image.sh b/image/gpt/ab_userdata/pre-image.sh
-index 557761a..4b6c315 100755
+index 557761a..9e910ed 100755
 --- a/image/gpt/ab_userdata/pre-image.sh
 +++ b/image/gpt/ab_userdata/pre-image.sh
-@@ -30,2 +30,9 @@ VERITY_ARGS_SYSTEM="\
-+# Keep the complete first-partition rescue payload as the normal factory boot.
-+# Raspberry Pi Connect replaces this after an alternate slot passes tryboot.
+@@ -30,2 +30,11 @@ VERITY_ARGS_SYSTEM="\
++# Keep a complete first-partition payload as the normal Pi 4 USB boot.
++# Do not place autoboot.txt beside it: redirecting partition 1 back to itself
++# loops in firmware, while redirects to later GPT FAT partitions are not
++# reliable across the USB-SATA bridges supported by the appliance.
 +rescue_boot_dir="${fs}/boot/rescue-firmware"
 +rm -rf -- "${rescue_boot_dir}"
 +install -d -m 0755 "${rescue_boot_dir}"
@@ -40,13 +42,3 @@ index 557761a..4b6c315 100755
 +
  # Set up the partition layout for tryboot support. Partition numbering
  # relates directly to the layout in genimage.cfg.in
-@@ -33,7 +40,7 @@ VERITY_ARGS_SYSTEM="\
--cat << EOF > "${genimg_in}/autoboot.txt"
-+cat << EOF > "${rescue_boot_dir}/autoboot.txt"
- [all]
- tryboot_a_b=1
--boot_partition=2
-+boot_partition=1
- [tryboot]
- boot_partition=3
- EOF

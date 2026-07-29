@@ -1,7 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
+import { ClimateDatabase } from "../src/db.js";
+import {
+  HybridTelemetryReader,
+  type ArchiveTelemetryReader,
+} from "../src/timeseries/read-facade.js";
 
 const config: AppConfig = {
   port: 0, apiHost: "127.0.0.1", databasePath: ":memory:", integrationSecretsFile: "integration-secrets.test.json", assetDirectory: ".",
@@ -181,5 +186,75 @@ describe("analytics query API", () => {
       measurementIds: ["co2"], resolution: "raw", maxPointsPerSeries: 100,
       range: { start: "2026-07-19T10:00:00.000Z", end: "2026-07-19T10:02:00.000Z", timezone: "UTC" },
     })).expect(422).expect(({ body }) => expect(body.error.code).toBe("RAW_POINT_LIMIT_EXCEEDED"));
+  });
+
+  it("uses bounded archive rollups instead of loading a high-frequency source window", async () => {
+    await runtime.close();
+    const database = new ClimateDatabase(":memory:", true);
+    database.activateRealDataMode();
+    const measurementWindow = vi.spyOn(database, "measurementWindow").mockImplementation(() => {
+      throw new Error("raw source window must not be read");
+    });
+    const measurementAnalyticsRollup = vi.fn(async () => ({
+      series: [{
+        sensorId: "sensor-01",
+        metric: "temperature",
+        canonicalUnit: "Â°C",
+        sampleCount: 1_166_400,
+        excludedSampleCount: 0,
+        cadenceSeconds: 2,
+        buckets: [{
+          bucketStart: "2026-07-01T00:00:00.000Z",
+          value: 20,
+          minimum: 19,
+          maximum: 21,
+          sampleCount: 1_800,
+          estimatedSampleCount: 0,
+          staleSampleCount: 0,
+          counterResetCount: 0,
+        }],
+      }],
+    }));
+    const archive: ArchiveTelemetryReader = {
+      measurementHistory: vi.fn(async () => []),
+      measurementAnalyticsRollup,
+      legacyReadingHistory: vi.fn(async () => []),
+      outdoorTemperatureHistory: vi.fn(async () => []),
+    };
+    const telemetryReader = new HybridTelemetryReader({
+      local: database,
+      archive,
+      archivePhase: () => "ready",
+      localHistoryComplete: false,
+    });
+    runtime = createApi({ config, database, telemetryReader, startBackground: false });
+
+    const response = await request(runtime.app).post("/api/v2/analytics/query").send(query({
+      range: {
+        start: "2026-07-01T00:00:00.000Z",
+        end: "2026-07-28T00:00:00.000Z",
+        timezone: "UTC",
+      },
+      resolution: "1h",
+      maxPointsPerSeries: 1_000,
+    })).expect(200);
+
+    expect(measurementAnalyticsRollup).toHaveBeenCalledWith(expect.objectContaining({
+      from: "2026-07-01T00:00:00.000Z",
+      to: "2026-07-28T00:00:00.000Z",
+      resolution: "1h",
+      excludeSynthetic: true,
+      series: [{ sensorId: "sensor-01", metric: "temperature", aggregation: "mean" }],
+    }));
+    expect(measurementWindow).not.toHaveBeenCalled();
+    expect(response.body).toMatchObject({
+      resolution: "1h",
+      quality: { sampleCount: 1_166_400 },
+      series: [{
+        aggregation: "mean",
+        provenance: { archiveState: "merged" },
+      }],
+    });
+    expect(response.body.series[0].points[0]).toMatchObject({ value: 20, sampleCount: 1_800, coverage: 1 });
   });
 });

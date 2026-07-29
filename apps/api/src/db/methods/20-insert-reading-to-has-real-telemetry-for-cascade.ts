@@ -429,6 +429,7 @@ registerDatabaseMethods({
             WHERE table_name = 'electricity_price_samples'), 0) AS electricity_max,
           COALESCE((SELECT MAX(archive_id) FROM telemetry_archive_row_ids
             WHERE table_name = 'opening_state_samples'), 0) AS opening_max,
+          COALESCE((SELECT MAX(id) FROM heat_pump_state_history), 0) AS heat_pump_max,
           COALESCE((SELECT COUNT(*) FROM telemetry_archive_dirty_rows), 0) AS dirty_count,
           COALESCE((SELECT MAX(dirty_id) FROM telemetry_archive_dirty_rows), 0) AS dirty_max,
           COALESCE((SELECT SUM(version) FROM telemetry_archive_dirty_rows), 0) AS dirty_versions`)
@@ -439,6 +440,7 @@ registerDatabaseMethods({
         row.outdoor_max,
         row.electricity_max,
         row.opening_max,
+        row.heat_pump_max,
         row.dirty_count,
         row.dirty_max,
         row.dirty_versions,
@@ -463,8 +465,9 @@ registerDatabaseMethods({
                   WHERE sensor.house_id = ? AND reading.source NOT IN ('mock', 'replay'))
                 OR EXISTS(SELECT 1 FROM outdoor_temperature_samples
                   WHERE house_id = ? AND source <> 'mock')
-                OR EXISTS(SELECT 1 FROM opening_state_observations WHERE house_id = ?) AS found`)
-              .get(resourceId, resourceId, resourceId, resourceId)
+                OR EXISTS(SELECT 1 FROM opening_state_observations WHERE house_id = ?)
+                OR EXISTS(SELECT 1 FROM heat_pump_state_history WHERE house_id = ?) AS found`)
+              .get(resourceId, resourceId, resourceId, resourceId, resourceId)
             : this.db.prepare(`SELECT
                 EXISTS(SELECT 1 FROM measurement_samples sample
                   JOIN sensors sensor ON sensor.id = sample.sensor_id
@@ -480,8 +483,11 @@ registerDatabaseMethods({
                 OR EXISTS(SELECT 1 FROM electricity_price_points WHERE property_id = ?)
                 OR EXISTS(SELECT 1 FROM opening_state_observations observation
                   JOIN houses house ON house.id = observation.house_id
+                  WHERE house.property_id = ?)
+                OR EXISTS(SELECT 1 FROM heat_pump_state_history state
+                  JOIN houses house ON house.id = state.house_id
                   WHERE house.property_id = ?) AS found`)
-              .get(resourceId, resourceId, resourceId, resourceId, resourceId);
+              .get(resourceId, resourceId, resourceId, resourceId, resourceId, resourceId);
       return Number((selected as { found: number } | undefined)?.found ?? 0) === 1;
     },
 });
