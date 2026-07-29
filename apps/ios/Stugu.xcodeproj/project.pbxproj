@@ -51,6 +51,8 @@
 		C60000000000000000000007 /* StuguWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C50000000000000000000007 /* StuguWidget.swift */; };
 		C60000000000000000000008 /* StuguWidget.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C30000000000000000000001 /* StuguWidget.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		C60000000000000000000009 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C5000000000000000000000B /* PrivacyInfo.xcprivacy */; };
+		C6000000000000000000000A /* MonitoringModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5000000000000000000000C /* MonitoringModels.swift */; };
+		A60000000000000000000015 /* Monitoring.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000016 /* Monitoring.xcstrings */; };
 		D60000000000000000000001 /* FloorPlanModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50000000000000000000001 /* FloorPlanModels.swift */; };
 		D60000000000000000000002 /* WatchModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50000000000000000000002 /* WatchModels.swift */; };
 		D60000000000000000000003 /* RoomPlanImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50000000000000000000003 /* RoomPlanImportView.swift */; };
@@ -128,6 +130,7 @@
 		A50000000000000000000013 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		A50000000000000000000014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A50000000000000000000015 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A50000000000000000000016 /* Monitoring.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Monitoring.xcstrings; sourceTree = "<group>"; };
 		B50000000000000000000001 /* TrackingModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingModels.swift; sourceTree = "<group>"; };
 		B50000000000000000000002 /* TrackingProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingProtocol.swift; sourceTree = "<group>"; };
 		B50000000000000000000003 /* TrackingSignal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingSignal.swift; sourceTree = "<group>"; };
@@ -154,6 +157,7 @@
 		C50000000000000000000009 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		C5000000000000000000000A /* StuguWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = StuguWidget.entitlements; sourceTree = "<group>"; };
 		C5000000000000000000000B /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		C5000000000000000000000C /* MonitoringModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitoringModels.swift; sourceTree = "<group>"; };
 		D30000000000000000000001 /* StuguWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StuguWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D50000000000000000000001 /* FloorPlanModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloorPlanModels.swift; sourceTree = "<group>"; };
 		D50000000000000000000002 /* WatchModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchModels.swift; sourceTree = "<group>"; };
@@ -292,6 +296,7 @@
 				A50000000000000000000012 /* Assets.xcassets */,
 				A50000000000000000000013 /* Localizable.xcstrings */,
 				A50000000000000000000015 /* PrivacyInfo.xcprivacy */,
+				A50000000000000000000016 /* Monitoring.xcstrings */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -312,6 +317,7 @@
 				C50000000000000000000001 /* CompanionPersistence.swift */,
 				C50000000000000000000002 /* TodayModels.swift */,
 				C50000000000000000000003 /* PushModels.swift */,
+				C5000000000000000000000C /* MonitoringModels.swift */,
 				D50000000000000000000001 /* FloorPlanModels.swift */,
 				D50000000000000000000002 /* WatchModels.swift */,
 				E50000000000000000000001 /* EdgeCredential.swift */,
@@ -507,6 +513,7 @@
 				A60000000000000000000012 /* Assets.xcassets in Resources */,
 				A60000000000000000000013 /* Localizable.xcstrings in Resources */,
 				A60000000000000000000014 /* PrivacyInfo.xcprivacy in Resources */,
+				A60000000000000000000015 /* Monitoring.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -569,6 +576,7 @@
 				C60000000000000000000001 /* CompanionPersistence.swift in Sources */,
 				C60000000000000000000002 /* TodayModels.swift in Sources */,
 				C60000000000000000000003 /* PushModels.swift in Sources */,
+				C6000000000000000000000A /* MonitoringModels.swift in Sources */,
 				C60000000000000000000004 /* QuickCaptureView.swift in Sources */,
 				C60000000000000000000005 /* NotificationAppDelegate.swift in Sources */,
 				C60000000000000000000006 /* StuguAppIntents.swift in Sources */,
