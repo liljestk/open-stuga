@@ -1,10 +1,55 @@
-import type { HomeEnergyCost } from "@climate-twin/contracts";
-import type { HybridTelemetryReader } from "./timeseries/read-facade.js";
+import {
+  HOME_ENERGY_SUMMARY_ALGORITHM_VERSION,
+  type HomeEnergyConsumptionBasis,
+  type HomeEnergyCost,
+  type HomeEnergySummary,
+} from "@climate-twin/contracts";
+import {
+  HybridTelemetryReader,
+  IncompleteTelemetryHistoryError,
+} from "./timeseries/read-facade.js";
+import type { EnergyCostAggregateRecord } from "./timeseries/types.js";
 
 const MEASUREMENT_EDGE_TOLERANCE_MS = 5 * 60_000;
+const MINIMUM_MEASUREMENT_DURATION_COVERAGE = 0.999;
+const POWER_HOLD_MS = 15 * 60_000;
+const SUMMARY_CONCURRENCY = 4;
 
 function rounded(value: number, decimals: number): number {
   return Number(value.toFixed(decimals));
+}
+
+function sumNullable(values: Array<number | null>): number | null {
+  const present = values.filter((value): value is number => value !== null);
+  return present.length ? present.reduce((sum, value) => sum + value, 0) : null;
+}
+
+async function mapSettledWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  operation: (value: T) => Promise<R>,
+): Promise<Array<PromiseSettledResult<R>>> {
+  const results = new Array<PromiseSettledResult<R>>(values.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < values.length) {
+      const index = next;
+      next += 1;
+      try {
+        results[index] = { status: "fulfilled", value: await operation(values[index]!) };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, worker));
+  return results;
+}
+
+interface BasisCalculation {
+  aggregate: EnergyCostAggregateRecord;
+  cost: HomeEnergyCost;
+  measurementComplete: boolean;
 }
 
 export class EnergyCostService {
@@ -21,13 +66,108 @@ export class EnergyCostService {
     to: string;
     signal?: AbortSignal;
   }): Promise<HomeEnergyCost> {
-    const aggregate = await this.telemetryReader.energyCostAggregate({
+    const energy = await this.calculateBasis(input, "energy_counter");
+    if (energy.measurementComplete) return energy.cost;
+
+    const power = await this.calculateBasis(input, "integrated_power");
+    if (power.measurementComplete) return power.cost;
+    if (energy.aggregate.deltaCount === 0) return power.cost;
+    if (power.aggregate.deltaCount === 0) return energy.cost;
+    return power.aggregate.totalDurationMs > energy.aggregate.totalDurationMs ? power.cost : energy.cost;
+  }
+
+  async summarize(input: {
+    houseId: string;
+    propertyId: string;
+    sensorIds: readonly string[];
+    from: string;
+    to: string;
+    signal?: AbortSignal;
+  }): Promise<HomeEnergySummary> {
+    const coverage = await this.telemetryReader.measurementCoverage({
+      sensorIds: input.sensorIds,
+      metrics: ["energy", "power"],
+      ...(input.signal ? { signal: input.signal } : {}),
+    });
+    if (!coverage.complete) {
+      throw new IncompleteTelemetryHistoryError(
+        coverage.archiveState === "merged" ? "not-ready" : coverage.archiveState,
+      );
+    }
+
+    const fromMs = Date.parse(input.from);
+    const toMs = Date.parse(input.to);
+    const candidates = [...new Set(coverage.records.filter((record) => {
+      const start = Date.parse(record.start);
+      const end = Date.parse(record.end);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || start > toMs) return false;
+      return record.metric === "energy"
+        ? end >= fromMs
+        : record.metric === "power" && end >= fromMs - POWER_HOLD_MS;
+    }).map((record) => record.sensorId))].sort();
+
+    const settled = await mapSettledWithConcurrency(candidates, SUMMARY_CONCURRENCY, (sensorId) => (
+      this.calculate({ ...input, sensorId })
+    ));
+    const contributions = settled.flatMap((result) => (
+      result.status === "fulfilled" ? [result.value] : []
+    ));
+    const failedSourceCount = settled.length - contributions.length;
+    const reporting = contributions.filter((cost) => cost.consumptionKwh !== null);
+    const consumptionKwh = sumNullable(reporting.map((cost) => cost.consumptionKwh));
+    const pricedConsumptionKwh = sumNullable(reporting.map((cost) => cost.pricedConsumptionKwh));
+    const costEur = sumNullable(reporting.map((cost) => cost.costEur));
+    const priceCoveragePercent = consumptionKwh !== null && consumptionKwh > 0
+      ? Math.min(100, (pricedConsumptionKwh ?? 0) / consumptionKwh * 100)
+      : reporting.length
+        ? Math.min(...reporting.map((cost) => cost.priceCoveragePercent))
+        : 0;
+    const calculatedAt = this.now().toISOString();
+
+    return {
+      schemaVersion: 1,
+      algorithmVersion: HOME_ENERGY_SUMMARY_ALGORITHM_VERSION,
+      houseId: input.houseId,
+      from: input.from,
+      to: input.to,
+      consumptionKwh: consumptionKwh === null ? null : rounded(consumptionKwh, 6),
+      pricedConsumptionKwh: pricedConsumptionKwh === null ? null : rounded(pricedConsumptionKwh, 6),
+      costEur: costEur === null ? null : rounded(costEur, 6),
+      priceCoveragePercent: rounded(priceCoveragePercent, 1),
+      complete: candidates.length > 0
+        && failedSourceCount === 0
+        && reporting.length === candidates.length
+        && contributions.every((cost) => cost.complete),
+      sourceCount: reporting.length,
+      totalSources: candidates.length,
+      failedSourceCount,
+      contributions,
+      calculatedAt,
+    };
+  }
+
+  private async calculateBasis(
+    input: {
+      houseId: string;
+      propertyId: string;
+      sensorId: string;
+      from: string;
+      to: string;
+      signal?: AbortSignal;
+    },
+    measurementBasis: HomeEnergyConsumptionBasis,
+  ): Promise<BasisCalculation> {
+    const query = {
       sensorId: input.sensorId,
       propertyId: input.propertyId,
       from: input.from,
       to: input.to,
       ...(input.signal ? { signal: input.signal } : {}),
-    });
+    };
+    const aggregate = measurementBasis === "energy_counter"
+      ? await this.telemetryReader.energyCostAggregate(query)
+      : await this.telemetryReader.powerCostAggregate(query);
+    const requestedDurationMs = Date.parse(input.to) - Date.parse(input.from);
     const priceCoveragePercent = aggregate.totalDurationMs <= 0
       ? 0
       : Math.min(100, aggregate.pricedDurationMs / aggregate.totalDurationMs * 100);
@@ -35,23 +175,32 @@ export class EnergyCostService {
     const toMs = Date.parse(input.to);
     const coverageFromMs = aggregate.coverageFrom ? Date.parse(aggregate.coverageFrom) : NaN;
     const coverageUntilMs = aggregate.coverageUntil ? Date.parse(aggregate.coverageUntil) : NaN;
+    const durationComplete = measurementBasis === "energy_counter"
+      || aggregate.totalDurationMs >= requestedDurationMs * MINIMUM_MEASUREMENT_DURATION_COVERAGE;
     const measurementComplete = aggregate.deltaCount > 0
+      && durationComplete
       && Number.isFinite(coverageFromMs) && coverageFromMs <= fromMs + MEASUREMENT_EDGE_TOLERANCE_MS
       && Number.isFinite(coverageUntilMs) && coverageUntilMs >= toMs - MEASUREMENT_EDGE_TOLERANCE_MS;
-    const hasPricedUsage = aggregate.deltaCount > 0 && aggregate.pricedDurationMs > 0;
+    const hasUsage = aggregate.deltaCount > 0;
+    const hasPricedUsage = hasUsage && aggregate.pricedDurationMs > 0;
     return {
-      houseId: input.houseId,
-      sensorId: input.sensorId,
-      from: input.from,
-      to: input.to,
-      consumptionKwh: aggregate.deltaCount > 0 ? rounded(aggregate.consumptionKwh, 6) : null,
-      pricedConsumptionKwh: hasPricedUsage ? rounded(aggregate.pricedConsumptionKwh, 6) : null,
-      costEur: hasPricedUsage ? rounded(aggregate.costEur, 6) : null,
-      priceCoveragePercent: rounded(priceCoveragePercent, 1),
-      measurementCoverageFrom: aggregate.coverageFrom,
-      measurementCoverageUntil: aggregate.coverageUntil,
-      complete: measurementComplete && priceCoveragePercent >= 99.9,
-      calculatedAt: this.now().toISOString(),
+      aggregate,
+      measurementComplete,
+      cost: {
+        houseId: input.houseId,
+        sensorId: input.sensorId,
+        from: input.from,
+        to: input.to,
+        measurementBasis,
+        consumptionKwh: hasUsage ? rounded(aggregate.consumptionKwh, 6) : null,
+        pricedConsumptionKwh: hasPricedUsage ? rounded(aggregate.pricedConsumptionKwh, 6) : null,
+        costEur: hasPricedUsage ? rounded(aggregate.costEur, 6) : null,
+        priceCoveragePercent: rounded(priceCoveragePercent, 1),
+        measurementCoverageFrom: aggregate.coverageFrom,
+        measurementCoverageUntil: aggregate.coverageUntil,
+        complete: measurementComplete && priceCoveragePercent >= 99.9,
+        calculatedAt: this.now().toISOString(),
+      },
     };
   }
 }

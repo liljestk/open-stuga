@@ -97,7 +97,7 @@ export const pathsPart02 = {
   "/houses/{id}/energy-cost": {
         get: {
           tags: ["Energy"], operationId: "getHouseEnergyCost",
-          description: "Calculates cumulative metered energy cost by aligning cumulative energy-counter deltas with every overlapping stored electricity-price interval.",
+          description: "Calculates one source's energy cost. A cumulative energy counter is preferred; power samples are integrated with a bounded hold when no complete counter interval is available.",
           parameters: [
             { $ref: "#/components/parameters/Id" },
             { name: "sensorId", in: "query", required: true, schema: { type: "string" } },
@@ -107,6 +107,23 @@ export const pathsPart02 = {
           responses: {
             "200": { description: "Time-aligned cumulative Home energy cost", content: { "application/json": { schema: { type: "object", additionalProperties: false, required: ["cost"], properties: { cost: { $ref: "#/components/schemas/HomeEnergyCost" } } } } } },
             "400": { description: "Missing sensor or invalid range" },
+            "404": { $ref: "#/components/responses/NotFound" },
+            "503": { description: "Complete archived telemetry is temporarily unavailable" },
+          },
+        },
+      },
+  "/houses/{id}/energy-summary": {
+        get: {
+          tags: ["Energy"], operationId: "getHouseEnergySummary",
+          description: "Calculates a server-authoritative Home total across every visible electricity source. Each source prefers cumulative energy and falls back to bounded power integration, so power-only plugs are included without double counting.",
+          parameters: [
+            { $ref: "#/components/parameters/Id" },
+            { $ref: "#/components/parameters/FromQuery" },
+            { $ref: "#/components/parameters/ToQuery" },
+          ],
+          responses: {
+            "200": { description: "Versioned, auditable Home energy and cost summary", content: { "application/json": { schema: { type: "object", additionalProperties: false, required: ["summary"], properties: { summary: { $ref: "#/components/schemas/HomeEnergySummary" } } } } } },
+            "400": { description: "Invalid range" },
             "404": { $ref: "#/components/responses/NotFound" },
             "503": { description: "Complete archived telemetry is temporarily unavailable" },
           },

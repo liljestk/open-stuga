@@ -356,6 +356,23 @@ export async function houseEnergyCost(args: Record<string, unknown>): Promise<un
   });
 }
 
+export async function houseEnergySummary(args: Record<string, unknown>): Promise<unknown> {
+  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const to = mcpDateTime(args, "to", new Date());
+  const from = mcpDateTime(args, "from", new Date(Date.parse(to) - 30 * 86_400_000));
+  const durationMs = Date.parse(to) - Date.parse(from);
+  if (durationMs <= 0 || durationMs > 366 * 86_400_000) {
+    throw new Error("Energy summary range must be greater than zero and at most 366 days");
+  }
+  return energyCost.summarize({
+    houseId: house.id,
+    propertyId: house.propertyId,
+    sensorIds: database.listSensors(house.id).filter((sensor) => sensor.enabled).map((sensor) => sensor.id),
+    from,
+    to,
+  });
+}
+
 export async function outdoorTemperatureHistory(args: Record<string, unknown>): Promise<object> {
   const house = requireMcpHouse(database, requiredString(args, "houseId"));
   const to = mcpDateTime(args, "to", new Date());

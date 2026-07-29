@@ -232,6 +232,20 @@ export const mcpToolDefinitionsPart02 = [
         },
       },
   {
+        name: "get_house_energy_summary",
+        description: "Calculate a versioned Home total across every electricity source, preferring cumulative counters and safely integrating power-only plugs.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            houseId: { type: "string", minLength: 1, maxLength: 200 },
+            from: { type: "string", format: "date-time" },
+            to: { type: "string", format: "date-time" },
+          },
+          required: ["houseId"],
+          additionalProperties: false,
+        },
+      },
+  {
         name: "query_outdoor_temperature_history",
         description: "Query locally retained outdoor-temperature history for a located Home.",
         inputSchema: {

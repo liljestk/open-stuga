@@ -34,6 +34,7 @@ import type {
   MeasurementWindowQuery,
   OutdoorTemperatureHistoryQuery,
   OutdoorTemperatureRecord,
+  PowerCostAggregateQuery,
   QueryControl,
   TelemetryHealth,
   TelemetrySchemaInitResult,

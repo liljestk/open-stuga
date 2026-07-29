@@ -6,7 +6,6 @@ import {
   type EnergyOptimizationReport,
   type House,
   type HomeElectricityPricePoint,
-  type MeasurementSample,
   type Metric,
   type PropertyElectricityConfig,
   type PropertyElectricityPricePoint,
@@ -18,11 +17,11 @@ import { definitionFor, formatMeasurement, measurementLabel } from "../measureme
 import { useI18n } from "../i18n";
 import { formatInTimeZone } from "../dateTime";
 import { api } from "../api";
+import { useHomeEnergySummaryQuery } from "../data/energy/homeEnergySummaryQuery";
 import { useNow } from "../useNow";
 import type { SeriesLoadState } from "../useClimateData";
 import { ElectricityHistory, ELECTRICITY_METRICS, type ElectricityMetric } from "./ElectricityHistory";
 import {
-  counterConsumption,
   freshElectricitySample,
   freshSourcesForMetric,
   metricSources,
@@ -32,7 +31,6 @@ import {
 import "./EnergyPage.css";
 
 export { ELECTRICITY_METRICS, type ElectricityMetric } from "./ElectricityHistory";
-export { counterConsumption } from "./energyTelemetry";
 
 const COST_INTERVALS = [
   { id: "1h", durationMs: 3_600_000, refreshMs: 60_000, labelKey: "energy.costInterval.1h" },
@@ -81,14 +79,6 @@ function emptyPriceDraft(): ElectricityPriceDraft {
   };
 }
 
-interface CombinedEnergyCost {
-  costEur: number | null;
-  priceCoveragePercent: number;
-  complete: boolean;
-  sourceCount: number;
-  totalSources: number;
-}
-
 function formatCost(value: number): string {
   const decimals = Math.abs(value) > 0 && Math.abs(value) < 0.01 ? 4 : 2;
   return `${value.toFixed(decimals)} €`;
@@ -102,10 +92,6 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
   const [metric, setMetric] = useState<ElectricityMetric>("power");
   const [range, setRange] = useState<TimeRange>("24h");
   const [costInterval, setCostInterval] = useState<CostInterval>("month");
-  const [energyCost, setEnergyCost] = useState<CombinedEnergyCost | null>(null);
-  const [energyCostBusy, setEnergyCostBusy] = useState(false);
-  const [energyCostError, setEnergyCostError] = useState(false);
-  const [consumptionWindows, setConsumptionWindows] = useState<Record<string, MeasurementSample[]>>({});
   const [propertyPrice, setPropertyPrice] = useState<{ config: PropertyElectricityConfig; current: PropertyElectricityPricePoint | null } | null>(null);
   const [homePrice, setHomePrice] = useState<HomeElectricityPricePoint | null>(null);
   const [priceHistory, setPriceHistory] = useState<HomeElectricityPricePoint[]>([]);
@@ -119,7 +105,6 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
   const priceContextGeneration = useRef(0);
   const now = useNow();
   const selectedCostInterval = COST_INTERVALS.find((candidate) => candidate.id === costInterval) ?? COST_INTERVALS[3];
-  const costRefreshBucket = Math.floor(now / selectedCostInterval.refreshMs);
   const houseSensors = useMemo(
     () => house ? state.sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled) : [],
     [house?.id, state.sensors],
@@ -136,7 +121,17 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
     () => sensorsForMetric(state, electricitySensors, "energy"),
     [electricitySensors, state.latestMeasurements, state.measurementHistory],
   );
-  const energySensorIds = energySensors.map((sensor) => sensor.id).join("\u0000");
+  const summariesEnabled = Boolean(house && electricitySensors.length);
+  const dailySummaryQuery = useHomeEnergySummaryQuery(
+    house?.id ?? "", "24h", 24 * 3_600_000, summariesEnabled, 60_000,
+  );
+  const energyCostQuery = useHomeEnergySummaryQuery(
+    house?.id ?? "", costInterval, selectedCostInterval.durationMs, summariesEnabled, selectedCostInterval.refreshMs,
+  );
+  const dailySummary = dailySummaryQuery.data ?? null;
+  const energyCost = energyCostQuery.data ?? null;
+  const energyCostBusy = energyCostQuery.isPending && summariesEnabled;
+  const energyCostError = energyCostQuery.isError;
 
   useEffect(() => {
     const generation = ++priceContextGeneration.current;
@@ -219,95 +214,7 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
     return () => { active = false; };
   }, [propertyId]);
 
-  useEffect(() => {
-    if (!energySensors.length) {
-      setConsumptionWindows({});
-      return;
-    }
-    let active = true;
-    const controller = new AbortController();
-    const to = new Date();
-    const from = new Date(to.getTime() - 24 * 3_600_000);
-    setConsumptionWindows({});
-    energySensors.forEach((sensor) => {
-      void api.measurementHistory(sensor.id, "energy", from.toISOString(), to.toISOString(), 50_000, controller.signal)
-        .then((samples) => {
-          if (!active) return;
-          setConsumptionWindows((current) => {
-            const existing = current[sensor.id] ?? [];
-            const unique = new Map([...samples, ...existing].map((sample) => [sample.timestamp, sample]));
-            return {
-              ...current,
-              [sensor.id]: [...unique.values()].filter((sample) => Date.parse(sample.timestamp) >= from.getTime()),
-            };
-          });
-        })
-        .catch(() => undefined);
-    });
-    return () => { active = false; controller.abort(); };
-  }, [energySensorIds]);
-
-  useEffect(() => {
-    const cutoff = now - 24 * 3_600_000;
-    setConsumptionWindows((current) => {
-      const next = { ...current };
-      energySensors.forEach((sensor) => {
-        const latest = state.latestMeasurements[sensor.id]?.energy;
-        const existing = current[sensor.id] ?? [];
-        const unique = new Map((latest ? [...existing, latest] : existing).map((sample) => [sample.timestamp, sample]));
-        next[sensor.id] = [...unique.values()].filter((sample) => Date.parse(sample.timestamp) >= cutoff);
-      });
-      return next;
-    });
-  }, [energySensorIds, now, state.latestMeasurements]);
-
-  useEffect(() => {
-    setEnergyCost(null);
-    setEnergyCostError(false);
-    if (!house || !energySensors.length) {
-      setEnergyCostBusy(false);
-      return;
-    }
-    let active = true;
-    const controller = new AbortController();
-    const to = new Date().toISOString();
-    const from = new Date(Date.parse(to) - selectedCostInterval.durationMs).toISOString();
-    setEnergyCostBusy(true);
-    void Promise.allSettled(energySensors.map((sensor) => (
-      api.houseEnergyCost(house.id, sensor.id, from, to, controller.signal)
-    ))).then((results) => {
-      if (!active) return;
-      const fulfilled = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
-      const contributors = fulfilled.filter((cost) => cost.costEur !== null);
-      const consumption = fulfilled.reduce((sum, cost) => sum + (cost.consumptionKwh ?? 0), 0);
-      const pricedConsumption = fulfilled.reduce((sum, cost) => sum + (cost.pricedConsumptionKwh ?? 0), 0);
-      const coverage = consumption > 0
-        ? Math.min(100, pricedConsumption / consumption * 100)
-        : fulfilled.length ? Math.min(...fulfilled.map((cost) => cost.priceCoveragePercent)) : 0;
-      setEnergyCost({
-        costEur: contributors.length
-          ? contributors.reduce((sum, cost) => sum + (cost.costEur ?? 0), 0)
-          : null,
-        priceCoveragePercent: coverage,
-        complete: fulfilled.length === energySensors.length
-          && fulfilled.every((cost) => cost.complete && cost.costEur !== null),
-        sourceCount: contributors.length,
-        totalSources: energySensors.length,
-      });
-      setEnergyCostError(fulfilled.length === 0 && results.some((result) => result.status === "rejected"));
-    }).finally(() => {
-      if (active) setEnergyCostBusy(false);
-    });
-    return () => { active = false; controller.abort(); };
-  }, [costInterval, costRefreshBucket, energySensorIds, house?.id]);
-
-  const consumptionTotals = energySensors.flatMap((sensor) => {
-    const value = counterConsumption(consumptionWindows[sensor.id] ?? []);
-    return value === null ? [] : [{ sensor, value }];
-  });
-  const used24Hours = consumptionTotals.length
-    ? consumptionTotals.reduce((sum, item) => sum + item.value, 0)
-    : null;
+  const used24Hours = dailySummary?.consumptionKwh ?? null;
   const powerSources = freshSourcesForMetric(state, powerSensors, "power", now);
   const energySources = freshSourcesForMetric(state, energySensors, "energy", now);
   const combinedPower = powerSources.length
@@ -328,15 +235,15 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
       : t("energy.combinedSources", { count: reporting, total: sensors.length });
   const powerSourceLabel = combinedSourceLabel(powerSensors, powerSources.length);
   const energySourceLabel = combinedSourceLabel(
-    energySensors,
-    used24Hours === null ? energySources.length : consumptionTotals.length,
+    used24Hours === null ? energySensors : electricitySensors,
+    used24Hours === null ? energySources.length : dailySummary?.sourceCount ?? 0,
   );
   const priceSourceLabel = homePrice?.effectivePriceEurPerKwh !== undefined && homePrice?.effectivePriceEurPerKwh !== null
     ? t("energy.propertyPriceForHome")
     : sources.electricity_price?.sensor.name ?? t("energy.waitingForSource");
   const energyCostBasis = energyCostBusy
     ? t("energy.costLoading")
-    : energyCostError || !energyCost
+    : energyCostError || !energyCost || energyCost.totalSources === 0
       ? t("energy.costUnavailable")
       : energyCost.totalSources <= 1
         ? energyCost.complete

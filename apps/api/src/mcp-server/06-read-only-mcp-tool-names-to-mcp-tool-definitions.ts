@@ -117,6 +117,7 @@ export const READ_ONLY_MCP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "compare_calendar_periods",
   "get_house_electricity_price",
   "get_house_energy_cost",
+  "get_house_energy_summary",
   "query_outdoor_temperature_history",
   "run_thermal_simulation",
   "get_house_thermal_isolation",

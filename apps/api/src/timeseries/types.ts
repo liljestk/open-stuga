@@ -95,7 +95,11 @@ export interface EnergyCostAggregateQuery extends QueryControl {
   propertyId: string;
   from: string;
   to: string;
+  /** Real-data mode excludes archived demo/replay measurements. */
+  excludeSynthetic?: boolean;
 }
+
+export type PowerCostAggregateQuery = EnergyCostAggregateQuery;
 
 export interface EnergyCostAggregateRecord {
   deltaCount: number;

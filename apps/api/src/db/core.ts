@@ -93,7 +93,7 @@ import {
   policyFromJson,
   policyJson,
 } from "../notification-policy.js";
-import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord } from "../timeseries/types.js";
+import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord, PowerCostAggregateQuery } from "../timeseries/types.js";
 import { CORE_SCHEMA_SQL } from "./migrations/core-schema.js";
 
 export interface DatabaseInternals {

@@ -228,6 +228,7 @@ describe("property electricity prices", () => {
     expect(result.body.cost).toMatchObject({
       houseId: "house-main",
       sensorId: "sensor-01",
+      measurementBasis: "energy_counter",
       consumptionKwh: 3,
       pricedConsumptionKwh: 3,
       costEur: 0.53,
@@ -245,6 +246,201 @@ describe("property electricity prices", () => {
     expect(runtime.database.listPropertyElectricityPrices(
       "property-main", "2026-07-17T00:00:00.000Z", "2026-07-17T01:00:00.000Z",
     ).map((price) => price.effectivePriceCentsPerKwh)).toEqual([11, 21]);
+  });
+
+  it("keeps sparse cumulative counters complete within the five-minute edge tolerance", async () => {
+    runtime = createApi({
+      config: loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" }),
+      startBackground: false,
+    });
+    runtime.database.storePropertyElectricityPrices("property-main", [{
+      startAt: "2026-07-17T00:00:00.000Z",
+      endAt: "2026-07-17T01:00:00.000Z",
+      rawPriceCentsPerKwh: 10,
+    }], "2026-07-16T12:00:00.000Z");
+    runtime.measurements.ingestBatch([
+      { sensorId: "sensor-01", metric: "energy", value: 10, canonicalUnit: "kWh", timestamp: "2026-07-17T00:04:00.000Z", source: "api", quality: "good" },
+      { sensorId: "sensor-01", metric: "energy", value: 11, canonicalUnit: "kWh", timestamp: "2026-07-17T01:00:00.000Z", source: "api", quality: "good" },
+    ]);
+
+    const result = await request(runtime.app).get("/api/v1/houses/house-main/energy-cost").query({
+      sensorId: "sensor-01",
+      from: "2026-07-17T00:00:00.000Z",
+      to: "2026-07-17T01:00:00.000Z",
+    }).expect(200);
+
+    expect(result.body.cost).toMatchObject({
+      measurementBasis: "energy_counter",
+      consumptionKwh: 1,
+      complete: true,
+      measurementCoverageFrom: "2026-07-17T00:04:00.000Z",
+    });
+  });
+
+  it("aggregates power-only sensors into one Home consumption and cost summary", async () => {
+    runtime = createApi({
+      config: loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" }),
+      startBackground: false,
+    });
+    const first = runtime.database.getSensor("sensor-01")!;
+    const second = runtime.database.createSensor({
+      ...first,
+      id: "power-meter-02",
+      name: "Second power-only plug",
+      measurementEntityIds: { power: "sensor.second_power" },
+    });
+    runtime.database.storePropertyElectricityPrices("property-main", [
+      { startAt: "2026-07-17T00:00:00.000Z", endAt: "2026-07-17T00:30:00.000Z", rawPriceCentsPerKwh: 10 },
+      { startAt: "2026-07-17T00:30:00.000Z", endAt: "2026-07-17T01:00:00.000Z", rawPriceCentsPerKwh: 20 },
+    ], "2026-07-16T12:00:00.000Z");
+    const timestamps = [
+      "2026-07-17T00:00:00.000Z",
+      "2026-07-17T00:15:00.000Z",
+      "2026-07-17T00:30:00.000Z",
+      "2026-07-17T00:45:00.000Z",
+      "2026-07-17T01:00:00.000Z",
+    ];
+    runtime.measurements.ingestBatch(timestamps.flatMap((timestamp, index) => [
+      {
+        sensorId: first.id,
+        metric: "power",
+        value: index < 2 ? 1_000 : 2_000,
+        canonicalUnit: "W",
+        timestamp,
+        source: "api" as const,
+        quality: "good" as const,
+      },
+      {
+        sensorId: second.id,
+        metric: "power",
+        value: 500,
+        canonicalUnit: "W",
+        timestamp,
+        source: "api" as const,
+        quality: "good" as const,
+      },
+    ]));
+
+    const result = await request(runtime.app).get("/api/v1/houses/house-main/energy-summary").query({
+      from: "2026-07-17T00:00:00.000Z",
+      to: "2026-07-17T01:00:00.000Z",
+    }).expect(200);
+
+    expect(result.body.summary).toMatchObject({
+      schemaVersion: 1,
+      algorithmVersion: "home-energy-summary/v1",
+      houseId: "house-main",
+      consumptionKwh: 2,
+      pricedConsumptionKwh: 2,
+      costEur: 0.325,
+      priceCoveragePercent: 100,
+      complete: true,
+      sourceCount: 2,
+      totalSources: 2,
+      failedSourceCount: 0,
+    });
+    expect(result.body.summary.contributions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sensorId: first.id,
+        measurementBasis: "integrated_power",
+        consumptionKwh: 1.5,
+        costEur: 0.25,
+      }),
+      expect.objectContaining({
+        sensorId: second.id,
+        measurementBasis: "integrated_power",
+        consumptionKwh: 0.5,
+        costEur: 0.075,
+      }),
+    ]));
+  });
+
+  it("prefers a cumulative counter without double counting its power alongside a power-only plug", async () => {
+    runtime = createApi({
+      config: loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" }),
+      startBackground: false,
+    });
+    const first = runtime.database.getSensor("sensor-01")!;
+    const second = runtime.database.createSensor({
+      ...first,
+      id: "mixed-power-only",
+      name: "Power-only plug",
+    });
+    runtime.database.storePropertyElectricityPrices("property-main", [{
+      startAt: "2026-07-17T00:00:00.000Z",
+      endAt: "2026-07-17T01:00:00.000Z",
+      rawPriceCentsPerKwh: 10,
+    }], "2026-07-16T12:00:00.000Z");
+    const timestamps = [
+      "2026-07-17T00:00:00.000Z",
+      "2026-07-17T00:15:00.000Z",
+      "2026-07-17T00:30:00.000Z",
+      "2026-07-17T00:45:00.000Z",
+      "2026-07-17T01:00:00.000Z",
+    ];
+    runtime.measurements.ingestBatch([
+      { sensorId: first.id, metric: "energy", value: 10, canonicalUnit: "kWh", timestamp: timestamps[0]!, source: "api", quality: "good" },
+      { sensorId: first.id, metric: "energy", value: 11, canonicalUnit: "kWh", timestamp: timestamps[4]!, source: "api", quality: "good" },
+      ...timestamps.flatMap((timestamp) => [
+        { sensorId: first.id, metric: "power", value: 1_000, canonicalUnit: "W", timestamp, source: "api" as const, quality: "good" as const },
+        { sensorId: second.id, metric: "power", value: 500, canonicalUnit: "W", timestamp, source: "api" as const, quality: "good" as const },
+      ]),
+    ]);
+
+    const result = await request(runtime.app).get("/api/v1/houses/house-main/energy-summary").query({
+      from: timestamps[0],
+      to: timestamps[4],
+    }).expect(200);
+
+    expect(result.body.summary).toMatchObject({
+      consumptionKwh: 1.5,
+      costEur: 0.15,
+      complete: true,
+      sourceCount: 2,
+      totalSources: 2,
+    });
+    expect(result.body.summary.contributions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sensorId: first.id, measurementBasis: "energy_counter", consumptionKwh: 1 }),
+      expect.objectContaining({ sensorId: second.id, measurementBasis: "integrated_power", consumptionKwh: 0.5 }),
+    ]));
+  });
+
+  it("caps a held power sample at fifteen minutes when telemetry stops", async () => {
+    runtime = createApi({
+      config: loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" }),
+      startBackground: false,
+    });
+    runtime.database.storePropertyElectricityPrices("property-main", [{
+      startAt: "2026-07-17T00:00:00.000Z",
+      endAt: "2026-07-17T01:00:00.000Z",
+      rawPriceCentsPerKwh: 10,
+    }], "2026-07-16T12:00:00.000Z");
+    runtime.measurements.ingestBatch([{
+      sensorId: "sensor-01",
+      metric: "power",
+      value: 1_000,
+      canonicalUnit: "W",
+      timestamp: "2026-07-17T00:00:00.000Z",
+      source: "api",
+      quality: "good",
+    }]);
+    runtime.database.db.prepare(`INSERT INTO measurement_samples
+      (sensor_id, metric, value, canonical_unit, timestamp, source, quality)
+      VALUES ('sensor-01', 'power', 9e999, 'W', '2026-07-17T00:30:00.000Z', 'api', 'good')`).run();
+
+    const result = await request(runtime.app).get("/api/v1/houses/house-main/energy-cost").query({
+      sensorId: "sensor-01",
+      from: "2026-07-17T00:00:00.000Z",
+      to: "2026-07-17T01:00:00.000Z",
+    }).expect(200);
+
+    expect(result.body.cost).toMatchObject({
+      measurementBasis: "integrated_power",
+      consumptionKwh: 0.25,
+      costEur: 0.025,
+      complete: false,
+      measurementCoverageUntil: "2026-07-17T00:15:00.000Z",
+    });
   });
 
   it("blocks private custom targets unless private access is explicitly opted in", async () => {

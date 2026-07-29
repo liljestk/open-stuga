@@ -97,7 +97,7 @@ describe("read-only MCP server", () => {
 
       const listed = await client.listTools();
       const names = listed.tools.map((tool) => tool.name);
-      expect(listed.tools).toHaveLength(58);
+      expect(listed.tools).toHaveLength(59);
       expect(new Set(names).size).toBe(names.length);
       expect(names).toEqual(expect.arrayContaining([
         "list_properties",
@@ -113,6 +113,7 @@ describe("read-only MCP server", () => {
         "get_home_monitoring",
         "compare_calendar_periods",
         "get_house_energy_cost",
+        "get_house_energy_summary",
         "query_outdoor_temperature_history",
         "get_house_thermal_isolation",
         "list_notification_deliveries",
@@ -186,6 +187,7 @@ describe("read-only MCP server", () => {
       await call("get_house_opening_states", { houseId: "house-main" });
       await call("get_house_electricity_price", { houseId: "house-main" });
       await call("get_house_energy_cost", { houseId: "house-main", sensorId: "sensor-01" });
+      await call("get_house_energy_summary", { houseId: "house-main" });
       await call("query_outdoor_temperature_history", { houseId: "house-main" });
       await call("get_house_thermal_isolation", { houseId: "house-main" });
       await call("list_notification_deliveries");

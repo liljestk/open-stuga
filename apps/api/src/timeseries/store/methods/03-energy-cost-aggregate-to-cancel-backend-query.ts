@@ -34,6 +34,7 @@ import type {
   MeasurementWindowQuery,
   OutdoorTemperatureHistoryQuery,
   OutdoorTemperatureRecord,
+  PowerCostAggregateQuery,
   QueryControl,
   TelemetryHealth,
   TelemetrySchemaInitResult,
@@ -52,11 +53,13 @@ registerTimeseriesStoreMethods({
           SELECT observed_at, value, ingested_at, source FROM ${measurements}
           WHERE sensor_id = $1 AND metric = 'energy' AND quality <> 'stale'
             AND observed_at < $2::TIMESTAMPTZ
+            AND (NOT $5::BOOLEAN OR source NOT IN ('mock', 'replay'))
           ORDER BY observed_at DESC, ingested_at DESC, source DESC LIMIT 1
         ), window_samples AS (
           SELECT observed_at, value, ingested_at, source FROM ${measurements}
           WHERE sensor_id = $1 AND metric = 'energy' AND quality <> 'stale'
             AND observed_at >= $2::TIMESTAMPTZ AND observed_at <= $3::TIMESTAMPTZ
+            AND (NOT $5::BOOLEAN OR source NOT IN ('mock', 'replay'))
         ), deduplicated AS (
           SELECT DISTINCT ON (observed_at) observed_at, value
           FROM (SELECT * FROM boundary_sample UNION ALL SELECT * FROM window_samples) samples
@@ -80,13 +83,19 @@ registerTimeseriesStoreMethods({
               / full_duration_ms AS window_delta_kwh,
             EXTRACT(EPOCH FROM (current_at - window_start)) * 1000.0 AS window_duration_ms
           FROM deltas
+        ), price_intervals AS (
+          SELECT DISTINCT ON (starts_at)
+            starts_at, ends_at, raw_price_cents_per_kwh, margin_cents_per_kwh
+          FROM ${prices}
+          WHERE property_id = $4
+            AND (NOT $5::BOOLEAN OR source NOT IN ('mock', 'replay'))
+          ORDER BY starts_at, ingested_at DESC, source DESC
         ), priced AS (
           SELECT normalized.*, price.raw_price_cents_per_kwh, price.margin_cents_per_kwh,
             EXTRACT(EPOCH FROM (LEAST(normalized.current_at, price.ends_at)
               - GREATEST(normalized.window_start, price.starts_at))) * 1000.0 AS overlap_ms
-          FROM normalized JOIN ${prices} AS price
-            ON price.property_id = $4
-            AND price.starts_at < normalized.current_at
+          FROM normalized JOIN price_intervals AS price
+            ON price.starts_at < normalized.current_at
             AND price.ends_at > normalized.window_start
         ), allocations AS (
           SELECT overlap_ms, base_delta_kwh * overlap_ms / full_duration_ms AS allocated_kwh,
@@ -102,7 +111,89 @@ registerTimeseriesStoreMethods({
           (SELECT COALESCE(sum(overlap_ms), 0) FROM allocations) AS priced_duration_ms,
           (SELECT min(window_start) FROM normalized) AS coverage_from,
           (SELECT max(current_at) FROM normalized) AS coverage_until`,
-      [query.sensorId, query.from, query.to, query.propertyId], query);
+      [query.sensorId, query.from, query.to, query.propertyId, Boolean(query.excludeSynthetic)], query);
+      const row = result.rows[0]!;
+      return {
+        deltaCount: Number(row.delta_count ?? 0),
+        consumptionKwh: Number(row.consumption_kwh ?? 0),
+        pricedConsumptionKwh: Number(row.priced_consumption_kwh ?? 0),
+        costEur: Number(row.cost_eur ?? 0),
+        totalDurationMs: Number(row.total_duration_ms ?? 0),
+        pricedDurationMs: Number(row.priced_duration_ms ?? 0),
+        coverageFrom: row.coverage_from === null ? null : timestamp(row.coverage_from),
+        coverageUntil: row.coverage_until === null ? null : timestamp(row.coverage_until),
+      };
+    },
+  async powerCostAggregate(this: TimeseriesStoreInternals, query: PowerCostAggregateQuery): Promise<EnergyCostAggregateRecord> {
+      const measurements = qualifiedName(this.schema, "measurement_samples");
+      const prices = qualifiedName(this.schema, "electricity_price_samples");
+      const result = await this.__query<EnergyCostAggregateRow>(`WITH boundary_sample AS (
+          SELECT observed_at, value, ingested_at, source FROM ${measurements}
+          WHERE sensor_id = $1 AND metric = 'power' AND quality <> 'stale'
+            AND observed_at <= $2::TIMESTAMPTZ
+            AND (NOT $5::BOOLEAN OR source NOT IN ('mock', 'replay'))
+          ORDER BY observed_at DESC, ingested_at DESC, source DESC LIMIT 1
+        ), window_samples AS (
+          SELECT observed_at, value, ingested_at, source FROM ${measurements}
+          WHERE sensor_id = $1 AND metric = 'power' AND quality <> 'stale'
+            AND observed_at > $2::TIMESTAMPTZ AND observed_at <= $3::TIMESTAMPTZ
+            AND (NOT $5::BOOLEAN OR source NOT IN ('mock', 'replay'))
+        ), deduplicated AS (
+          SELECT DISTINCT ON (observed_at) observed_at, value
+          FROM (SELECT * FROM boundary_sample UNION ALL SELECT * FROM window_samples) samples
+          ORDER BY observed_at, ingested_at DESC, source DESC
+        ), ordered AS (
+          SELECT observed_at AS sample_at, value AS power_watts,
+            lead(observed_at) OVER (ORDER BY observed_at) AS next_at
+          FROM deduplicated
+        ), candidates AS (
+          SELECT power_watts,
+            GREATEST(sample_at, $2::TIMESTAMPTZ) AS window_start,
+            LEAST(
+              COALESCE(next_at, $3::TIMESTAMPTZ),
+              $3::TIMESTAMPTZ,
+              sample_at + INTERVAL '15 minutes'
+            ) AS window_end
+          FROM ordered
+          WHERE power_watts >= 0 AND power_watts < 'Infinity'::DOUBLE PRECISION
+        ), normalized AS (
+          SELECT *,
+            EXTRACT(EPOCH FROM (window_end - window_start)) * 1000.0 AS window_duration_ms,
+            power_watts * EXTRACT(EPOCH FROM (window_end - window_start)) / 3600000.0
+              AS window_energy_kwh
+          FROM candidates
+          WHERE window_end > window_start
+        ), price_intervals AS (
+          SELECT DISTINCT ON (starts_at)
+            starts_at, ends_at, raw_price_cents_per_kwh, margin_cents_per_kwh
+          FROM ${prices}
+          WHERE property_id = $4
+            AND (NOT $5::BOOLEAN OR source NOT IN ('mock', 'replay'))
+          ORDER BY starts_at, ingested_at DESC, source DESC
+        ), priced AS (
+          SELECT normalized.*, price.raw_price_cents_per_kwh, price.margin_cents_per_kwh,
+            EXTRACT(EPOCH FROM (
+              LEAST(normalized.window_end, price.ends_at)
+              - GREATEST(normalized.window_start, price.starts_at)
+            )) * 1000.0 AS overlap_ms
+          FROM normalized JOIN price_intervals AS price
+            ON price.starts_at < normalized.window_end
+            AND price.ends_at > normalized.window_start
+        ), allocations AS (
+          SELECT overlap_ms, window_energy_kwh * overlap_ms / window_duration_ms AS allocated_kwh,
+            raw_price_cents_per_kwh + margin_cents_per_kwh AS effective_price_cents_per_kwh
+          FROM priced WHERE overlap_ms > 0
+        )
+        SELECT
+          (SELECT count(*) FROM normalized) AS delta_count,
+          (SELECT COALESCE(sum(window_energy_kwh), 0) FROM normalized) AS consumption_kwh,
+          (SELECT COALESCE(sum(allocated_kwh), 0) FROM allocations) AS priced_consumption_kwh,
+          (SELECT COALESCE(sum(allocated_kwh * effective_price_cents_per_kwh / 100.0), 0) FROM allocations) AS cost_eur,
+          (SELECT COALESCE(sum(window_duration_ms), 0) FROM normalized) AS total_duration_ms,
+          (SELECT COALESCE(sum(overlap_ms), 0) FROM allocations) AS priced_duration_ms,
+          (SELECT min(window_start) FROM normalized) AS coverage_from,
+          (SELECT max(window_end) FROM normalized) AS coverage_until`,
+      [query.sensorId, query.from, query.to, query.propertyId, Boolean(query.excludeSynthetic)], query);
       const row = result.rows[0]!;
       return {
         deltaCount: Number(row.delta_count ?? 0),

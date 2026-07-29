@@ -23,6 +23,9 @@ export const queryKeys = {
   homeMonitoring: (houseId: string, dataMode: DataMode) => (
     ["house", houseId, "monitoring", dataMode] as const
   ),
+  homeEnergySummary: (houseId: string, intervalId: string, durationMs: number) => (
+    ["house", houseId, "energy-summary", intervalId, durationMs] as const
+  ),
   openingActivity: (request: OpeningActivityRequest) => (
     ["analytics", "opening-activity", fingerprint(request)] as const
   ),
