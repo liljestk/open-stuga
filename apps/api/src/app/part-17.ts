@@ -209,18 +209,25 @@ export function configureApiPart17(context: ReturnType<typeof configureApiPart16
         .filter((connection) => connection.houseId !== houseId);
       const remainingTpLinkConnections = (config.tpLinkConnections ?? [])
         .filter((connection) => connection.houseId !== houseId);
+      const remainingGreeConnections = (config.greeConnections ?? [])
+        .filter((connection) => connection.houseId !== houseId);
+      const greeChanged = remainingGreeConnections.length !== (config.greeConnections ?? []).length;
       if (remainingHomeAssistantConnections.length !== (config.homeAssistantConnections ?? []).length
-        || remainingTpLinkConnections.length !== (config.tpLinkConnections ?? []).length) {
+        || remainingTpLinkConnections.length !== (config.tpLinkConnections ?? []).length
+        || greeChanged) {
         updateIntegrationSecrets(config.integrationSecretsFile, {
           homeAssistantConnections: remainingHomeAssistantConnections,
           tpLinkConnections: remainingTpLinkConnections,
+          greeConnections: remainingGreeConnections,
         });
         config.homeAssistantConnections = remainingHomeAssistantConnections;
         config.tpLinkConnections = remainingTpLinkConnections;
+        config.greeConnections = remainingGreeConnections;
         if (context.options.startBackground) {
           context.homeAssistant.restart();
           context.tpLink.restart();
         }
+        if (greeChanged) context.gree.refreshConfiguration();
       }
       context.weather.invalidate(houseId);
       context.weatherEvents.invalidate(houseId);

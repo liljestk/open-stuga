@@ -6,6 +6,7 @@ export const TELEMETRY_TABLES = [
   "outdoor_temperature_samples",
   "electricity_price_samples",
   "opening_state_samples",
+  "heat_pump_state_samples",
 ] as const;
 
 export type TelemetryTableName = (typeof TELEMETRY_TABLES)[number];
@@ -60,6 +61,14 @@ export const HYPERTABLE_DEFINITIONS: readonly HypertableDefinition[] = [
     orderBy: "observed_at DESC",
     coldAfter: "90 days",
   },
+  {
+    table: "heat_pump_state_samples",
+    timeColumn: "observed_at",
+    chunkInterval: "30 days",
+    segmentBy: "connection_id",
+    orderBy: "observed_at DESC",
+    coldAfter: "90 days",
+  },
 ] as const;
 
 export const MEASUREMENT_BUCKETS: Readonly<Record<MeasurementBucket, { interval: string; suffix: string }>> = {
@@ -101,7 +110,7 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
       source_id TEXT NOT NULL CHECK (length(source_id) > 0),
       table_name TEXT NOT NULL CHECK (table_name IN (
         'measurement_samples', 'legacy_readings', 'outdoor_temperature_samples', 'electricity_price_samples',
-        'opening_state_samples'
+        'opening_state_samples', 'heat_pump_state_samples'
       )),
       last_row_id BIGINT NOT NULL CHECK (last_row_id >= 0),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
@@ -109,22 +118,14 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
     )`,
     `ALTER TABLE ${relation("archive_checkpoints")}
       DROP CONSTRAINT IF EXISTS ${quoteIdentifier("archive_checkpoints_table_name_check")}`,
-    `DO $migration$
-      BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_constraint
-          WHERE conrelid = '${relation("archive_checkpoints")}'::REGCLASS
-            AND conname = 'telemetry_archive_table_name_check'
-        ) THEN
-          ALTER TABLE ${relation("archive_checkpoints")}
-            ADD CONSTRAINT ${quoteIdentifier("telemetry_archive_table_name_check")}
-            CHECK (table_name IN (
-              'measurement_samples', 'legacy_readings', 'outdoor_temperature_samples', 'electricity_price_samples',
-              'opening_state_samples'
-            ));
-        END IF;
-      END
-    $migration$`,
+    `ALTER TABLE ${relation("archive_checkpoints")}
+      DROP CONSTRAINT IF EXISTS ${quoteIdentifier("telemetry_archive_table_name_check")}`,
+    `ALTER TABLE ${relation("archive_checkpoints")}
+      ADD CONSTRAINT ${quoteIdentifier("telemetry_archive_table_name_check")}
+      CHECK (table_name IN (
+        'measurement_samples', 'legacy_readings', 'outdoor_temperature_samples', 'electricity_price_samples',
+        'opening_state_samples', 'heat_pump_state_samples'
+      ))`,
     `CREATE TABLE IF NOT EXISTS ${relation("archive_source_state")} (
       source_id TEXT PRIMARY KEY CHECK (length(source_id) > 0),
       real_data_activated_at TIMESTAMPTZ NOT NULL,
@@ -252,6 +253,52 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
       ON ${relation("opening_state_samples")} (
         house_id, floor_id, element_id, source, external_id, connection_id, observed_at DESC
       )`,
+    `CREATE TABLE IF NOT EXISTS ${relation("heat_pump_state_samples")} (
+      connection_id TEXT NOT NULL CHECK (length(connection_id) > 0),
+      house_id TEXT NOT NULL CHECK (length(house_id) > 0),
+      equipment_id TEXT,
+      device_id TEXT NOT NULL CHECK (length(device_id) > 0),
+      name TEXT,
+      brand TEXT,
+      model TEXT,
+      observed_at TIMESTAMPTZ NOT NULL CHECK (isfinite(observed_at)),
+      received_at TIMESTAMPTZ NOT NULL CHECK (isfinite(received_at)),
+      available BOOLEAN NOT NULL,
+      power BOOLEAN,
+      selected_mode TEXT CHECK (
+        selected_mode IS NULL OR selected_mode IN ('auto', 'cool', 'dry', 'fan', 'heat')
+      ),
+      target_temperature_c DOUBLE PRECISION CHECK (
+        target_temperature_c IS NULL OR (
+          target_temperature_c > '-Infinity'::DOUBLE PRECISION
+          AND target_temperature_c < 'Infinity'::DOUBLE PRECISION
+        )
+      ),
+      current_temperature_c DOUBLE PRECISION CHECK (
+        current_temperature_c IS NULL OR (
+          current_temperature_c > '-Infinity'::DOUBLE PRECISION
+          AND current_temperature_c < 'Infinity'::DOUBLE PRECISION
+        )
+      ),
+      current_temperature_source TEXT NOT NULL CHECK (
+        current_temperature_source IN ('reported', 'unavailable')
+      ),
+      fan_speed TEXT,
+      horizontal_swing TEXT,
+      vertical_swing TEXT,
+      quiet BOOLEAN,
+      turbo BOOLEAN,
+      xfan BOOLEAN,
+      activity TEXT NOT NULL CHECK (activity IN ('off', 'unknown')),
+      activity_evidence TEXT NOT NULL CHECK (activity_evidence IN ('protocol', 'unavailable')),
+      ingested_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+      PRIMARY KEY (connection_id, observed_at)
+    )`,
+    `CREATE INDEX IF NOT EXISTS ${quoteIdentifier("heat_pump_state_observed_at_brin")}
+      ON ${relation("heat_pump_state_samples")} USING BRIN (observed_at)`,
+    `CREATE INDEX IF NOT EXISTS ${quoteIdentifier("heat_pump_state_history_idx")}
+      ON ${relation("heat_pump_state_samples")} (house_id, connection_id, observed_at DESC)
+      INCLUDE (available, power, selected_mode, target_temperature_c, current_temperature_c)`,
     `INSERT INTO ${relation("schema_migrations")} (version, description)
       VALUES (1, 'Initial append-only telemetry schema')
       ON CONFLICT (version) DO NOTHING`,
@@ -265,6 +312,9 @@ export function buildBaseSchemaSql(schemaName: string): string[] {
       ON CONFLICT (version) DO NOTHING`,
     `INSERT INTO ${relation("schema_migrations")} (version, description)
       VALUES (4, 'Archive door, window, and vent state observations')
+      ON CONFLICT (version) DO NOTHING`,
+    `INSERT INTO ${relation("schema_migrations")} (version, description)
+      VALUES (5, 'Archive every direct heat-pump state observation')
       ON CONFLICT (version) DO NOTHING`,
   ];
 }

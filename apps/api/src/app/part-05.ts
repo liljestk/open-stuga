@@ -265,6 +265,15 @@ export function configureApiPart05(context: ReturnType<typeof configureApiPart04
       value.tpLink.sourceModel = tpLinkConnections.length === 1 ? tpLinkConnections[0]!.sourceModel ?? null : null;
       value.tpLink.sourceAlias = tpLinkConnections.length === 1 ? tpLinkConnections[0]!.sourceAlias ?? null : null;
       value.tpLink.error = tpLinkConnections.map((connection) => connection.error).filter(Boolean).join("; ") || null;
+      if (value.gree) {
+        const greeConnections = value.gree.connections.filter((connection) => connection.houseId === houseId);
+        value.gree.connections = greeConnections;
+        value.gree.configured = greeConnections.some((connection) => connection.configured);
+        value.gree.connected = greeConnections.some((connection) => connection.connected);
+        value.gree.lastPollAt = greeConnections.map((connection) => connection.lastPollAt)
+          .filter((timestamp): timestamp is string => Boolean(timestamp)).sort().at(-1) ?? null;
+        value.gree.error = greeConnections.map((connection) => connection.error).filter(Boolean).join("; ") || null;
+      }
       const weatherConnections = (value.weather.connections ?? []).filter((connection) => connection.houseId === houseId);
       value.weather.connections = weatherConnections;
       value.weather.configuredHouses = weatherConnections.filter((connection) => connection.configured).length;

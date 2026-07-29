@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type {
   AnalyticsFinding,
   AnalyticsFindingPeriodEvidence,
+  AnalyticsQueryRequest,
   AnalyticsFindingStatistic,
   AnalyticsSeries,
   DailyAnalyticsFindingsSnapshot,
@@ -13,7 +14,11 @@ import type {
   PlanElement,
   Sensor,
 } from "@climate-twin/contracts";
-import { analyticsDefinitionSemantics, buildAnalyticsResponse } from "../analytics.js";
+import {
+  analyticsDefinitionSemantics,
+  buildAnalyticsResponse,
+} from "../analytics.js";
+import { buildAnalyticsResponseFromRollup, planAnalyticsRollup } from "../analytics-rollup.js";
 import {
   ClimateDatabase,
   outdoorLocationKey,
@@ -239,6 +244,22 @@ export class DailyAnalyticsFindingsWorker {
     warnings: Set<DailyAnalyticsFindingsSnapshot["warnings"][number]>,
   ): Promise<PeriodValue | null> {
     try {
+      const request = this.#measurementRequest(sensor, definition, dataMode, period);
+      const entities = [{ id: sensor.id, label: sensor.name }];
+      const rollupPlan = planAnalyticsRollup({ request, definitions: [definition], entities });
+      if (rollupPlan) {
+        const rollup = await this.#telemetryReader.measurementAnalyticsRollup(rollupPlan);
+        if (rollup) {
+          const response = buildAnalyticsResponseFromRollup({
+            request,
+            definitions: [definition],
+            entities,
+            rollup: rollup.result,
+            archiveState: rollup.archiveState,
+          });
+          return aggregateAnalyticsSeries(response.series[0]!);
+        }
+      }
       const read = await this.#telemetryReader.measurementHistory({
         sensorId: sensor.id,
         metric: definition.id,
@@ -262,6 +283,27 @@ export class DailyAnalyticsFindingsWorker {
     }
   }
 
+  #measurementRequest(
+    sensor: Pick<Sensor, "id">,
+    definition: MeasurementDefinition,
+    dataMode: DataMode,
+    period: PeerPeriod,
+  ): AnalyticsQueryRequest {
+    return {
+      apiVersion: "1.0",
+      dataMode,
+      scope: { kind: "house", id: "daily-findings", entityIds: [sensor.id] },
+      measurementIds: [definition.id],
+      range: { start: period.start, end: period.end, timezone: "UTC" },
+      resolution: "1d",
+      aggregation: "default",
+      qualityFilter: { include: ["good", "estimated"] },
+      include: ["series", "summary", "quality", "provenance"],
+      maxPointsPerSeries: 5_000,
+      requestId: `daily-${sensor.id}-${definition.id}-${period.key}`,
+    };
+  }
+
   #aggregateSamples(
     samples: MeasurementSample[],
     sensor: Pick<Sensor, "id" | "name">,
@@ -271,19 +313,7 @@ export class DailyAnalyticsFindingsWorker {
     archiveState: HybridArchiveReadState,
   ): PeriodValue | null {
     const response = buildAnalyticsResponse({
-      request: {
-        apiVersion: "1.0",
-        dataMode,
-        scope: { kind: "house", id: "daily-findings", entityIds: [sensor.id] },
-        measurementIds: [definition.id],
-        range: { start: period.start, end: period.end, timezone: "UTC" },
-        resolution: "1d",
-        aggregation: "default",
-        qualityFilter: { include: ["good", "estimated"] },
-        include: ["series", "summary", "quality", "provenance"],
-        maxPointsPerSeries: 5_000,
-        requestId: `daily-${sensor.id}-${definition.id}-${period.key}`,
-      },
+      request: this.#measurementRequest(sensor, definition, dataMode, period),
       samples,
       definitions: [definition],
       entities: [{ id: sensor.id, label: sensor.name }],

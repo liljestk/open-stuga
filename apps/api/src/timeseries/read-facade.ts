@@ -12,16 +12,18 @@ import type {
   ElectricityPriceRecord,
   LegacyReadingHistoryQuery,
   LegacyReadingRecord,
+  MeasurementAnalyticsRollupQuery,
+  MeasurementAnalyticsRollupResult,
   MeasurementCoverageQuery,
   MeasurementCoverageRecord,
   MeasurementHistoryQuery,
   MeasurementSampleRecord,
+  MeasurementWindowQuery,
   OpeningStateHistoryQuery,
   OpeningStateRecord,
   OpeningStateSnapshotQuery,
   OutdoorTemperatureHistoryQuery,
   OutdoorTemperatureRecord,
-  QueryControl,
   ThermalMeasurementHistoryQuery,
 } from "./types.js";
 import { bucketLegacyReadings, bucketMeasurementSamples } from "./read-buckets.js";
@@ -63,6 +65,7 @@ import {
   type HybridTelemetryReadResult,
   type LocalCompletenessQuery,
 } from "./read-support.js";
+import { readMeasurementAnalyticsRollup, type HybridMeasurementAnalyticsRollupResult } from "./read-analytics-rollup.js";
 
 export { bucketLegacyReadings, bucketMeasurementSamples };
 export { IncompleteTelemetryHistoryError } from "./read-support.js";
@@ -74,14 +77,8 @@ export type {
   HybridTelemetryReadResult,
   LocalCompletenessQuery,
 } from "./read-support.js";
-
-export interface MeasurementWindowQuery extends QueryControl {
-  sensorIds: readonly string[];
-  metrics: readonly string[];
-  from: string;
-  to: string;
-  limit?: number;
-}
+export type { HybridMeasurementAnalyticsRollupResult } from "./read-analytics-rollup.js";
+export type { MeasurementWindowQuery } from "./types.js";
 
 /** The synchronous, crash-safe SQLite reads needed by the facade. */
 export interface LocalTelemetryReader {
@@ -113,16 +110,13 @@ export interface LocalTelemetryReader {
   energyCostAggregate?(query: EnergyCostAggregateQuery): EnergyCostAggregateRecord;
 }
 
-/**
- * Structural archive contract. `measurementWindow` is optional so the facade
- * can use today's single-series store and transparently adopt a batch query
- * when one is available.
- */
+/** Structural archive methods used by the hybrid reader. */
 export interface ArchiveTelemetryReader {
   measurementCoverage?(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]>;
   measurementHistory(query: MeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
   thermalMeasurementHistory?(query: ThermalMeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
   measurementWindow?(query: MeasurementWindowQuery): Promise<MeasurementSampleRecord[]>;
+  measurementAnalyticsRollup?(query: MeasurementAnalyticsRollupQuery): Promise<MeasurementAnalyticsRollupResult>;
   legacyReadingHistory(query: LegacyReadingHistoryQuery): Promise<LegacyReadingRecord[]>;
   outdoorTemperatureHistory(query: OutdoorTemperatureHistoryQuery): Promise<OutdoorTemperatureRecord[]>;
   electricityPriceHistory?(query: ElectricityPriceHistoryQuery): Promise<ElectricityPriceRecord[]>;
@@ -278,6 +272,21 @@ export class HybridTelemetryReader {
       key: measurementKey,
       compare: compareMeasurements,
     });
+  }
+
+  async measurementAnalyticsRollup(
+    query: Omit<MeasurementAnalyticsRollupQuery, "excludeSynthetic">,
+  ): Promise<HybridMeasurementAnalyticsRollupResult | null> {
+    const localHistoryComplete = this.#isLocalHistoryComplete({
+      family: "measurement", from: query.from, to: query.to,
+    });
+    return readMeasurementAnalyticsRollup({
+      archive: this.#archive,
+      archivePhase: this.#archivePhase,
+      reconcile: this.#reconcile,
+      localHistoryComplete,
+      realDataMode: this.#local.isRealDataMode(),
+    }, query);
   }
 
   async measurementCoverage(query: MeasurementCoverageQuery): Promise<HybridMeasurementCoverageResult> {

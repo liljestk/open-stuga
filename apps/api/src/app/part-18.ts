@@ -264,6 +264,7 @@ export function configureApiPart18(context: ReturnType<typeof configureApiPart17
           && !access.sensor(event.data.sensorId)) return;
         if (event.type === "weather" && !access.house(event.data.houseId)) return;
         if (event.type === "opening" && !access.house(event.data.houseId)) return;
+        if (event.type === "heat-pump" && !access.house(event.data.houseId)) return;
         if (filter.size > 0 && (event.type === "reading" || event.type === "alert")) {
           const data = event.data as Reading | { sensorId: string };
           if (!filter.has(data.sensorId)) return;

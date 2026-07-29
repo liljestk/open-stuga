@@ -328,6 +328,7 @@ registerDatabaseMethods({
         outdoor_temperature_samples: this.telemetryArchiveCheckpoint("outdoor_temperature_samples"),
         electricity_price_samples: this.telemetryArchiveCheckpoint("electricity_price_samples"),
         opening_state_samples: this.telemetryArchiveCheckpoint("opening_state_samples"),
+        heat_pump_state_samples: this.telemetryArchiveCheckpoint("heat_pump_state_samples"),
       };
     },
   /**

@@ -99,16 +99,17 @@ that was started with an explicit `--project-name`.
 New appliance images enable the `self-update` Compose profile. Its dedicated
 agent image has Docker access and shares only the bounded request directory
 with the API. The selected application release is stored on the persistent
-partition, survives A/B slot changes, and is health-checked with the same
-last-known-good container fallback used at boot.
+partition and is health-checked with the same last-known-good container
+fallback used at boot. Clean appliances default to stable automatic releases
+on Sunday at 03:00 UTC; an Owner can change or disable that schedule.
 
 The UI-managed path updates Stugu's release containers. Full operating-system,
-kernel, and firmware updates remain signed A/B artifacts delivered through
-Raspberry Pi Connect as described in
-[Raspberry Pi 4 appliance](raspberry-pi-appliance.md). This separation lets the
-same UI and GitHub release policy work on Docker Desktop, ordinary Docker
-Engine, and the appliance without giving the application container root or
-Docker access.
+kernel, and firmware changes require a newly validated factory image and a
+backup or migration. Raspberry Pi Connect OS deployment is disabled for Pi 4
+USB because partition handoff was not reliable on the supported USB bridge.
+This separation lets the same UI and GitHub release policy work on Docker
+Desktop, ordinary Docker Engine, and the appliance without giving the
+application container root or Docker access.
 
 ## Recovery
 

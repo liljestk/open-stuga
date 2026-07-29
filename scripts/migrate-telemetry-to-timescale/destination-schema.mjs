@@ -30,6 +30,10 @@ import {
 import { MIGRATION_AGGREGATES, MIGRATION_HYPERTABLES, TARGET_PRIMARY_KEYS, TARGET_TABLES, q } from "./configuration.mjs";
 
 import { requireTimescaleExtension } from "./source-state.mjs";
+import {
+  HEAT_PUMP_DESTINATION_COLUMNS,
+  heatPumpDestinationSql,
+} from "./heat-pump-destination-schema.mjs";
 
 export async function validateExpectedHypertables(client, schema) {
   const configured = [];
@@ -227,7 +231,7 @@ export async function provisionDestination(client, schema, maintenanceTimeoutMs)
         source_id text NOT NULL CHECK (length(source_id) > 0),
         table_name text NOT NULL CHECK (table_name IN (
           'measurement_samples', 'legacy_readings', 'outdoor_temperature_samples', 'electricity_price_samples',
-          'opening_state_samples'
+          'opening_state_samples', 'heat_pump_state_samples'
         )),
         last_row_id bigint NOT NULL CHECK (last_row_id >= 0),
         updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
@@ -322,26 +326,19 @@ export async function provisionDestination(client, schema, maintenanceTimeoutMs)
         ingested_at timestamptz NOT NULL DEFAULT clock_timestamp(),
         PRIMARY KEY (observation_id, observed_at)
       );
+      ${heatPumpDestinationSql(s, q)}
       ALTER TABLE ${s}.electricity_price_samples
         ADD COLUMN IF NOT EXISTS margin_cents_per_kwh double precision NOT NULL DEFAULT 0;
       ALTER TABLE ${s}.archive_checkpoints
         DROP CONSTRAINT IF EXISTS archive_checkpoints_table_name_check;
-      DO $migration$
-      BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_constraint
-          WHERE conrelid = '${s}.archive_checkpoints'::regclass
-            AND conname = 'telemetry_archive_table_name_check'
-        ) THEN
-          ALTER TABLE ${s}.archive_checkpoints
-            ADD CONSTRAINT telemetry_archive_table_name_check
-            CHECK (table_name IN (
-              'measurement_samples', 'legacy_readings', 'outdoor_temperature_samples',
-              'electricity_price_samples', 'opening_state_samples'
-            ));
-        END IF;
-      END
-      $migration$;
+      ALTER TABLE ${s}.archive_checkpoints
+        DROP CONSTRAINT IF EXISTS telemetry_archive_table_name_check;
+      ALTER TABLE ${s}.archive_checkpoints
+        ADD CONSTRAINT telemetry_archive_table_name_check
+        CHECK (table_name IN (
+          'measurement_samples', 'legacy_readings', 'outdoor_temperature_samples',
+          'electricity_price_samples', 'opening_state_samples', 'heat_pump_state_samples'
+        ));
       CREATE INDEX IF NOT EXISTS ${q("measurement_samples_observed_at_brin")}
         ON ${s}.measurement_samples USING BRIN (observed_at);
       CREATE INDEX IF NOT EXISTS ${q("measurement_samples_latest_idx")}
@@ -391,6 +388,9 @@ export async function provisionDestination(client, schema, maintenanceTimeoutMs)
         ON CONFLICT (version) DO NOTHING;
       INSERT INTO ${s}.schema_migrations (version, description)
         VALUES (4, 'Opening-state event telemetry')
+        ON CONFLICT (version) DO NOTHING;
+      INSERT INTO ${s}.schema_migrations (version, description)
+        VALUES (5, 'Direct heat-pump state telemetry')
         ON CONFLICT (version) DO NOTHING;
     `);
     for (const definition of MIGRATION_HYPERTABLES) {
@@ -447,6 +447,7 @@ export async function validateDestinationSchema(client, schema) {
         "observation_id", "house_id", "floor_id", "element_id", "observed_at", "source", "state",
         "open_fraction", "valid_until", "external_id", "connection_id", "recorded_at", "metadata", "ingested_at",
       ],
+      heat_pump_state_history: HEAT_PUMP_DESTINATION_COLUMNS,
     }[sourceTable];
     const missing = expectedColumns.filter((column) => !columnNames.has(column));
     if (missing.length > 0) throw new Error(`Destination ${schema}.${table} is missing columns: ${missing.join(", ")}`);

@@ -79,7 +79,9 @@ test("the appliance grows storage before local shared mounts without an ordering
   assert.match(growScript, /resize2fs/);
   assert.match(sharedInit, /\.stugu-seeded/);
   assert.match(sharedInit, /release .* already seeded/);
-  assert.match(layer, /rpi-persistent-shared-init/);
+  assert.match(sharedInit, /if \[ -d "\$path" \]; then[\s\S]*rsync/);
+  assert.match(layer, /rpi-persistent-shared-init"[\s\S]*\/usr\/local\/sbin\/stugu-persistent-shared-init/);
+  assert.match(layer, /persistent-shared-init\.service\.d\/stugu\.conf[\s\S]*ExecStart=[\s\S]*ExecStart=\/usr\/local\/sbin\/stugu-persistent-shared-init/);
 });
 
 test("the appliance layer and build overrides use the declared Stugu variable prefix", async () => {
@@ -100,6 +102,7 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
     layer,
     resolver,
     rootBinder,
+    rootUdevBinder,
     udevImporter,
     udevRules,
     initramfsHook,
@@ -111,6 +114,10 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
     readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
     readFile(new URL("../../deploy/rpi/assets/stugu-usb-bootdev", import.meta.url), "utf8"),
     readFile(new URL("../../deploy/rpi/assets/stugu-usb-ab-root", import.meta.url), "utf8"),
+    readFile(
+      new URL("../../deploy/rpi/assets/stugu-usb-udev-root", import.meta.url),
+      "utf8",
+    ),
     readFile(new URL("../../deploy/rpi/assets/stugu-usb-udev-slot", import.meta.url), "utf8"),
     readFile(
       new URL("../../deploy/rpi/assets/99-rpi-00-stugu-usb.rules", import.meta.url),
@@ -158,6 +165,13 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
   assert.match(rootBinder, /ln -sf "\$active_system_device"/);
   assert.match(rootBinder, /readlink "\$link_path"/);
 
+  assert.match(rootUdevBinder, /\/run\/stugu-usb-ab-ready/);
+  assert.match(rootUdevBinder, /readlink "\$\{slot_root\}\/\$\{alias_path\}"/);
+  assert.match(rootUdevBinder, /KERNEL==\\?"\$\{partition\}\\?"/);
+  assert.match(rootUdevBinder, /SYMLINK\+=\\?"\$\{devlink\}\\?"/);
+  assert.match(rootUdevBinder, /mount -o bind "\$rule_source" "\$rule_target"/);
+  assert.match(rootUdevBinder, /USB udev rules bound into real root/);
+
   assert.match(initramfsHook, /copy_exec \/usr\/bin\/stugu-usb-bootdev/);
   assert.match(initramfsHook, /copy_exec \/usr\/bin\/stugu-usb-udev-slot/);
   assert.match(initramfsHook, /99-rpi-00-stugu-usb\.rules/);
@@ -168,16 +182,19 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
   assert.match(udevRules, /SYMLINK\+="\$env\{STUGU_SLOT\}"/);
   assert.match(layer, /stugu-usb-bootdev/);
   assert.match(layer, /scripts\/local-block\/20-stugu-usb-ab-root/);
+  assert.match(layer, /scripts\/local-bottom\/20-stugu-usb-udev-root/);
   assert.match(layer, /scripts\/local-premount\/20-stugu-usb-ab-root/);
   assert.match(tryboot, /boot_label" = "bootconfig"/);
+  assert.match(tryboot, /Pi 4 USB partition tryboot is disabled/);
+  assert.match(tryboot, /exit 1/);
   assert.match(tryboot, /sed 's\/\^\[\^0-9\]\*\/\//);
   assert.match(rescuePatch, /size = 96M/);
   assert.match(rescuePatch, /extraargs = "-s 4 -S <SECTOR_SIZE>"/);
   assert.match(rescuePatch, /mountpoint = "\/boot\/rescue-firmware"/);
   assert.match(rescuePatch, /cp -a "\$\{fs\}\/boot\/firmware\/\." "\$\{rescue_boot_dir\}\/"/);
   assert.match(rescuePatch, /-      file "autoboot\.txt"/);
-  assert.match(rescuePatch, /cat << EOF > "\$\{rescue_boot_dir\}\/autoboot\.txt"/);
-  assert.match(rescuePatch, /boot_partition=1/);
+  assert.doesNotMatch(rescuePatch, /\+.*autoboot\.txt.*>|\+boot_partition=/);
+  assert.doesNotMatch(layer, /rpi-connect-ota/);
   assert.match(buildScript, /apply --check "\$usb_rescue_patch"/);
   assert.match(buildScript, /IGconf_image_idp_schema=\$usb_idp_schema/);
   assert.match(buildScript, /"nvme", "usb"/);
@@ -249,12 +266,25 @@ test("factory builds fail closed unless Linux validates the complete SSD layout"
   }
   assert.match(validator, /protective MBR does not contain a GPT 0xEE entry/);
   assert.match(validator, /96 \* 1024 \* 1024/);
-  assert.match(validator, /autoboot\.txt does not map rescue\/tryboot to GPT partitions 1 and 3/);
+  assert.match(validator, /bootconfig rescue contains autoboot\.txt and can firmware-loop/);
   assert.match(validator, /bootconfig rescue/);
   assert.match(validator, /initramfs initramfs8 followkernel/);
   assert.match(validator, /2025-01-22 GPT autoboot partition-number fix/);
   assert.match(validator, /boot_a and boot_b differ/);
   assert.match(validator, /system_a and system_b differ/);
+});
+
+test("clean appliances default to guarded automatic GitHub container updates", async () => {
+  const composeStart = await readFile(
+    new URL("../../deploy/rpi/assets/stugu-compose-start", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(composeStart, /update-operations\/settings\.json/);
+  assert.match(composeStart, /"mode": "automatic"/);
+  assert.match(composeStart, /"includePrereleases": false/);
+  assert.match(composeStart, /"updateDays": \["sun"\]/);
+  assert.match(composeStart, /if \[\[ ! -e "\$state_dir\/update-operations\/settings\.json" \]\]/);
 });
 
 test("local publishing owns expensive builds and hosted release work is an explicit fallback", async () => {
@@ -269,6 +299,7 @@ test("local publishing owns expensive builds and hosted release work is an expli
   assert.match(workflow, /runs-on: ubuntu-24\.04-arm/);
   assert.doesNotMatch(workflow, /^\s{2}release:\s*$/mu);
   assert.doesNotMatch(workflow, /github\.event\.release/);
+  assert.doesNotMatch(workflow, /deploy-rpi-ota|RPI_CONNECT_API_TOKEN/);
 
   assert.match(publisher, /linux\/amd64,linux\/arm64/);
   assert.match(publisher, /"buildx",\s*\n\s*"build"/);
@@ -280,6 +311,9 @@ test("local publishing owns expensive builds and hosted release work is an expli
   assert.match(publisher, /scripts\/build-rpi-image\.sh/);
   assert.match(publisher, /"release",\s*\n\s*"upload"/);
   assert.match(publisher, /--publish/);
+  assert.doesNotMatch(publisher, /deploy-rpi-ota|Deploy OTA/);
+  assert.doesNotMatch(publisher, /const paths = \[artifacts\.ota/);
+  assert.match(workflow, /Attach validated factory image to GitHub release/);
 });
 
 test("local release options and output names are deterministic", () => {

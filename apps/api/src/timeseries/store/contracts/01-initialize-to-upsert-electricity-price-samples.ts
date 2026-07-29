@@ -23,6 +23,7 @@ import type {
   EnergyCostAggregateRecord,
   ElectricityPriceHistoryQuery,
   ElectricityPriceRecord,
+  HeatPumpStateRecord,
   LegacyReadingHistoryQuery,
   LegacyReadingRecord,
   MeasurementBucketQuery,
@@ -74,6 +75,7 @@ declare module "../core.js" {
     upsertOutdoorTemperatureSamples(samples: readonly OutdoorTemperatureRecord[], control?: QueryControl): Promise<BatchWriteResult>;
     upsertElectricityPriceSamples(samples: readonly ElectricityPriceRecord[], control?: QueryControl): Promise<BatchWriteResult>;
     upsertOpeningStateSamples(samples: readonly OpeningStateRecord[], control?: QueryControl): Promise<BatchWriteResult>;
+    upsertHeatPumpStateSamples(samples: readonly HeatPumpStateRecord[], control?: QueryControl): Promise<BatchWriteResult>;
   }
 
   interface TimeseriesStoreCore {
@@ -84,5 +86,6 @@ declare module "../core.js" {
     upsertOutdoorTemperatureSamples(samples: readonly OutdoorTemperatureRecord[], control?: QueryControl): Promise<BatchWriteResult>;
     upsertElectricityPriceSamples(samples: readonly ElectricityPriceRecord[], control?: QueryControl): Promise<BatchWriteResult>;
     upsertOpeningStateSamples(samples: readonly OpeningStateRecord[], control?: QueryControl): Promise<BatchWriteResult>;
+    upsertHeatPumpStateSamples(samples: readonly HeatPumpStateRecord[], control?: QueryControl): Promise<BatchWriteResult>;
   }
 }

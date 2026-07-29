@@ -218,7 +218,7 @@ export const fiSupplementPart5 = {
   "performance.title": "Miten koti on toiminut",
   "performance.description": "Rauhallinen tuore näkymä olosuhteisiin, palautumiseen, aukkoihin, energiaan, tehtyihin toimiin ja seurannan luotettavuuteen.",
   "performance.loading": "Lasketaan kodin suorituskykyä",
-  "performance.partial": "Tietolähteitä ei voitu lukea: {count}. Käytettävissä olevat tarkistukset näytetään rajoituksineen.",
+  "performance.partial": "Näyttöä ei voitu lukea näistä lähteistä: {sources}. Käytettävissä olevat tarkistukset näytetään rajoituksineen.",
   "performance.noData": "Tallennettua näyttöä ei vielä ole riittävästi kodin suorituskyvyn laskemiseen.",
   "performance.state.ready": "Näyttö valmis",
   "performance.state.limited": "Rajallinen näyttö",

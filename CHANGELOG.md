@@ -4,6 +4,26 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.19.0 - 2026-07-29
+
+- Add read-only direct Gree/Wilfa heat-pump discovery, Home-scoped setup,
+  polling, durable observations, Timescale history, protected connection
+  settings, migration support, and localized web guidance.
+- Move bucketed measurement analytics into complete database-side archive
+  rollups, preserve quality, counter, rate, and coverage semantics, and name
+  partial Home-performance evidence sources instead of reporting only a count.
+- Make Pi 4 USB factory images boot their complete first FAT partition directly,
+  preserve firmware-qualified slot aliases across `switch_root`, repair clean
+  shared-state initialization, and reject self-redirecting `autoboot.txt`
+  layouts that caused seven-flash and reboot-loop failures.
+- Keep LAN, persistent Tailscale, full-disk growth, EEPROM USB compatibility,
+  and health-gated GitHub container updates enabled in clean appliance builds.
+  Stable application releases install automatically in a weekly window;
+  unsafe Raspberry Pi Connect OS partition deployment is disabled for Pi 4 USB.
+- Existing SQLite and Timescale databases migrate automatically. Tailnet login
+  remains a one-time operator authorization, and immutable OS/kernel changes
+  require a newly validated factory image plus backup or migration.
+
 ## 0.18.2 - 2026-07-29
 
 - Fixed clean Raspberry Pi factory builds so the first-partition USB rescue

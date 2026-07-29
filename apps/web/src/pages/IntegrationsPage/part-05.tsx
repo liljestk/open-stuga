@@ -195,8 +195,10 @@ export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrat
       }
     };
   const addableTpLinkSources = (discovery?.tpLink ?? []).filter((source) => !source.configuredConnectionId);
-  const discoveredCount = addableTpLinkSources.length + (discovery?.homeAssistant.length ?? 0);
-  const sensorHardwareDetected = discoveredCount > 0
+  const addableGreeDevices = (discovery?.gree ?? []).filter((device) => !device.configuredConnectionId);
+  const discoveredCount = addableTpLinkSources.length + addableGreeDevices.length
+      + (discovery?.homeAssistant.length ?? 0);
+  const sensorHardwareDetected = addableTpLinkSources.length + (discovery?.homeAssistant.length ?? 0) > 0
       || integration.tpLink.discoveredDevices > 0
       || integration.tpLink.mappedDevices > 0
       || integration.homeAssistant.mappedEntities > 0;
@@ -209,7 +211,10 @@ export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrat
   const connectedTpLinkSourceCount = integration.tpLink.connections
     ? integration.tpLink.connections.filter((connection) => connection.connected).length
     : Number(integration.tpLink.connected);
-  const connectedSourceCount = Number(integration.tpLink.connected) + Number(integration.homeAssistant.connected);
+  const greeConnected = integration.gree?.connected ?? false;
+  const connectedSourceCount = Number(integration.tpLink.connected)
+      + Number(integration.homeAssistant.connected)
+      + Number(greeConnected);
   const assignmentCount = homeAssistantAssignments.length + tpLinkAssignments.length;
   const connectedSourceLabel = connectedSourceCount > 1
       ? t("setup.sourcesConnected", { count: connectedSourceCount })
@@ -217,7 +222,9 @@ export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrat
         ? t("setup.tpLinkConnectedShort")
         : integration.homeAssistant.connected
           ? t("setup.homeAssistantConnectedShort")
-          : t("common.notConnected");
+          : greeConnected
+            ? t("setup.greeConnectedShort")
+            : t("common.notConnected");
   const streamStatusLabel = t(`setup.stream.${streamConnection}`);
   const tpLinkHealthState = integration.tpLink.error
       ? integration.tpLink.connected ? "warning" : "error"
@@ -231,7 +238,8 @@ export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrat
       connected: connectedTpLinkSourceCount,
       count: tpLinkSourceCount,
     });
-  const connectionWorkspaceActive = activeSection === "connections" && sensorSourceConfigured;
+  const connectionWorkspaceActive = activeSection === "connections"
+      && (sensorSourceConfigured || Boolean(integration.gree?.configured));
   const steps = [
       { icon: Router, title: t("setup.step1"), body: t("setup.step1body"), complete: sensorHardwareDetected },
       { icon: Home, title: t("setup.step2"), body: t("setup.step2body"), complete: sensorSourceConfigured },
@@ -264,5 +272,5 @@ export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrat
       setActiveSection(section);
       writeSetupSection(section);
     };
-  return Object.assign(context, { resetPlacementDraft, savePlacement, removePlacement, clearOrientation, updateFromMap, usePlacementForWeather, savePlacementForWeather, applyDiscoveredDefaults, addableTpLinkSources, discoveredCount, sensorHardwareDetected, sensorSourceConfigured, sensorSourceConnected, mappedSensorSources, tpLinkReadyDevices, tpLinkHubName, connectedSourceCount, assignmentCount, connectedSourceLabel, streamStatusLabel, tpLinkHealthState, tpLinkHealthLabel, tpLinkStatusTitle, connectionWorkspaceActive, steps, completeCount, nextStepIndex, nextStep, weatherHomes, notesGrantCount, selectedDiscoveredTpLink, selectedDiscoveredHomeAssistant, setupSections, activeSectionLabel, sectionHeading, sectionDescription, activateSection });
+  return Object.assign(context, { resetPlacementDraft, savePlacement, removePlacement, clearOrientation, updateFromMap, usePlacementForWeather, savePlacementForWeather, applyDiscoveredDefaults, addableTpLinkSources, addableGreeDevices, discoveredCount, sensorHardwareDetected, sensorSourceConfigured, sensorSourceConnected, mappedSensorSources, tpLinkReadyDevices, tpLinkHubName, connectedSourceCount, assignmentCount, connectedSourceLabel, streamStatusLabel, tpLinkHealthState, tpLinkHealthLabel, tpLinkStatusTitle, connectionWorkspaceActive, steps, completeCount, nextStepIndex, nextStep, weatherHomes, notesGrantCount, selectedDiscoveredTpLink, selectedDiscoveredHomeAssistant, setupSections, activeSectionLabel, sectionHeading, sectionDescription, activateSection });
 }

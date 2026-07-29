@@ -26,6 +26,7 @@ import type {
   AlertEvent,
   AlertRule,
   ForecastPoint,
+  GreeDiscoveredDevice,
   House,
   HouseLocation,
   HouseMapPlacement,
@@ -62,6 +63,7 @@ import type {
   SetupDoctorReport,
   StaticParameter,
   GuestAccessGrant,
+  HeatPumpState,
   Property,
   PropertyArea,
   PropertyAreaInput,
@@ -241,12 +243,51 @@ export const apiPart03 = {
       method: "PUT",
       body: JSON.stringify(configuration),
     }),
+  discoverGree: async (houseId: string) => list<GreeDiscoveredDevice>(
+      await request<unknown>("/integrations/gree/discover", {
+        method: "POST",
+        body: JSON.stringify({ houseId }),
+      }),
+      ["devices", "data"],
+    ),
+  configureGree: (configuration: { houseId: string; mac: string }) => request<{
+    ok: boolean;
+    configured: boolean;
+    connectionId: string;
+    houseId: string;
+    state: HeatPumpState;
+    integration: IntegrationStatus;
+  }>("/integrations/gree/config", {
+    method: "PUT",
+    body: JSON.stringify(configuration),
+  }),
   disconnectHomeAssistant: (houseId: string) => request<{ ok: boolean; integration: IntegrationStatus }>(`/integrations/home-assistant/config/${encodeURIComponent(houseId)}`, {
       method: "DELETE",
     }),
   disconnectTpLink: (connectionId: string) => request<{ ok: boolean; detachedSensorIds: string[]; integration: IntegrationStatus }>(`/integrations/tp-link/config/${encodeURIComponent(connectionId)}`, {
       method: "DELETE",
     }),
+  disconnectGree: (connectionId: string) => request<{ ok: boolean; integration: IntegrationStatus }>(`/integrations/gree/config/${encodeURIComponent(connectionId)}`, {
+      method: "DELETE",
+    }),
+  heatPumpStates: async (houseId?: string) => list<HeatPumpState>(
+      await request<unknown>(`/heat-pumps${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`),
+      ["states", "data"],
+    ),
+  heatPumpHistory: async (
+    connectionId: string,
+    options: { from?: string; to?: string; limit?: number } = {},
+  ) => {
+    const query = new URLSearchParams();
+    if (options.from) query.set("from", options.from);
+    if (options.to) query.set("to", options.to);
+    if (options.limit) query.set("limit", String(options.limit));
+    const suffix = query.size ? `?${query.toString()}` : "";
+    return list<HeatPumpState>(
+      await request<unknown>(`/heat-pumps/${encodeURIComponent(connectionId)}/history${suffix}`),
+      ["states", "data"],
+    );
+  },
   moveHomeAssistant: (fromHouseId: string, houseId: string) => request<{ ok: boolean; fromHouseId: string; houseId: string; integration: IntegrationStatus }>(`/integrations/home-assistant/config/${encodeURIComponent(fromHouseId)}`, {
       method: "PATCH",
       body: JSON.stringify({ houseId }),

@@ -24,7 +24,7 @@ const RESOLUTION_SECONDS = {
   "1d": 86_400,
 } as const;
 
-const MAX_INTERACTIVE_OUTPUT_POINTS = 100_000;
+export const MAX_INTERACTIVE_OUTPUT_POINTS = 100_000;
 
 type BucketResolution = keyof typeof RESOLUTION_SECONDS;
 
@@ -215,7 +215,10 @@ export function analyticsDefinitionSemantics(definition: MeasurementDefinition):
   return { kind: "gauge", aggregation: "mean" };
 }
 
-function resolvedAggregation(definition: MeasurementDefinition, requested: AnalyticsAggregation): Exclude<AnalyticsAggregation, "default"> {
+export function resolveAnalyticsAggregation(
+  definition: MeasurementDefinition,
+  requested: AnalyticsAggregation,
+): Exclude<AnalyticsAggregation, "default"> {
   const semantics = analyticsDefinitionSemantics(definition);
   const aggregation = requested === "default" ? semantics.aggregation : requested;
   if (aggregation === "duration" || aggregation === "custom") {
@@ -328,7 +331,7 @@ function aggregateBucket(
   return { value: values.reduce((sum, value) => sum + value, 0) / values.length, flags: [...flags] };
 }
 
-function summary(
+export function buildAnalyticsSummary(
   entityId: string,
   measurementId: string,
   canonicalUnit: string,
@@ -422,6 +425,63 @@ function bucketPoints(
   return points;
 }
 
+export function finalizeAnalyticsResponse(input: {
+  request: AnalyticsQueryRequest;
+  resolution: Exclude<AnalyticsResolution, "auto">;
+  series: AnalyticsSeries[];
+  archiveState: HybridArchiveReadState;
+  excludedSampleCount: number;
+  includedQualities: AnalyticsSampleQuality[];
+  generatedAt: string;
+}): AnalyticsQueryResponse {
+  const summaries = input.series.map((item) => item.summary);
+  const totalPoints = input.series.reduce((sum, item) => sum + item.points.length, 0);
+  const coverage = totalPoints === 0
+    ? 0
+    : input.series.reduce(
+      (sum, item) => sum + item.points.reduce((pointSum, point) => pointSum + point.coverage, 0),
+      0,
+    ) / totalPoints;
+  const provenance = [
+    ...new Map(input.series.map((item) => [JSON.stringify(item.provenance), item.provenance])).values(),
+  ];
+  const warnings = [
+    ...(coverage < 0.75
+      ? [{ code: "LOW_COVERAGE", message: "One or more series has limited coverage in the selected range." }]
+      : []),
+    ...(input.archiveState === "failed" || input.archiveState === "not-ready"
+      ? [{ code: "ARCHIVE_DEGRADED", message: "The response may rely only on locally retained telemetry." }]
+      : []),
+    ...(input.excludedSampleCount > 0
+      ? [{
+        code: "QUALITY_FILTER_EXCLUDED",
+        message: `${input.excludedSampleCount} source samples were excluded by the selected quality filter.`,
+      }]
+      : []),
+  ];
+  return {
+    apiVersion: "1.0",
+    requestId: input.request.requestId,
+    dataMode: input.request.dataMode,
+    resolvedRange: input.request.range,
+    resolution: input.resolution,
+    series: input.series,
+    summaries,
+    quality: {
+      coverage,
+      seriesCount: input.series.length,
+      sampleCount: summaries.reduce((sum, item) => sum + item.count, 0),
+      excludedSampleCount: input.excludedSampleCount,
+      includedQualities: input.includedQualities,
+      lowCoverageSeries: summaries.filter((item) => item.coverage < 0.75).length,
+    },
+    provenance,
+    warnings,
+    generatedAt: input.generatedAt,
+    cache: { hit: false, keyVersion: "analytics-query-v1" },
+  };
+}
+
 export interface BuildAnalyticsResponseInput {
   request: AnalyticsQueryRequest;
   samples: MeasurementSample[];
@@ -482,7 +542,9 @@ export function buildAnalyticsResponse(input: BuildAnalyticsResponseInput): Anal
       if (definition.genericStatsEnabled === false || definition.genericHistoryEnabled === false) {
         throw new AnalyticsQueryError(422, "ANALYTICS_MEASUREMENT_DISABLED", `Analytics is disabled for measurement: ${measurementId}`);
       }
-      const aggregation = resolution === "raw" ? "last" : resolvedAggregation(definition, input.request.aggregation);
+      const aggregation = resolution === "raw"
+        ? "last"
+        : resolveAnalyticsAggregation(definition, input.request.aggregation);
       const samples = includedSamples.filter((sample) => sample.sensorId === entity.id && sample.metric === measurementId);
       if (resolution === "raw" && samples.length > maxPoints) {
         throw new AnalyticsQueryError(
@@ -512,46 +574,19 @@ export function buildAnalyticsResponse(input: BuildAnalyticsResponseInput): Anal
         aggregation: resolution === "raw" ? "raw" : aggregation,
         resolution,
         points,
-        summary: summary(entity.id, measurementId, definition.unit, points, samples.length),
+        summary: buildAnalyticsSummary(entity.id, measurementId, definition.unit, points, samples.length),
         provenance,
       });
     }
   }
 
-  const summaries = series.map((item) => item.summary);
-  const totalPoints = series.reduce((sum, item) => sum + item.points.length, 0);
-  const coverage = totalPoints === 0
-    ? 0
-    : series.reduce((sum, item) => sum + item.points.reduce((pointSum, point) => pointSum + point.coverage, 0), 0) / totalPoints;
-  const provenance = [...new Map(series.map((item) => [JSON.stringify(item.provenance), item.provenance])).values()];
-  const warnings = [
-    ...(coverage < 0.75 ? [{ code: "LOW_COVERAGE", message: "One or more series has limited coverage in the selected range." }] : []),
-    ...(input.archiveState === "failed" || input.archiveState === "not-ready"
-      ? [{ code: "ARCHIVE_DEGRADED", message: "The response may rely only on locally retained telemetry." }]
-      : []),
-    ...(excludedSampleCount > 0
-      ? [{ code: "QUALITY_FILTER_EXCLUDED", message: `${excludedSampleCount} source samples were excluded by the selected quality filter.` }]
-      : []),
-  ];
-  return {
-    apiVersion: "1.0",
-    requestId: input.request.requestId,
-    dataMode: input.request.dataMode,
-    resolvedRange: input.request.range,
+  return finalizeAnalyticsResponse({
+    request: input.request,
     resolution,
     series,
-    summaries,
-    quality: {
-      coverage,
-      seriesCount: series.length,
-      sampleCount: summaries.reduce((sum, item) => sum + item.count, 0),
-      excludedSampleCount,
-      includedQualities,
-      lowCoverageSeries: summaries.filter((item) => item.coverage < 0.75).length,
-    },
-    provenance,
-    warnings,
+    archiveState: input.archiveState,
+    excludedSampleCount,
+    includedQualities: [...includedQualities],
     generatedAt,
-    cache: { hit: false, keyVersion: "analytics-query-v1" },
-  };
+  });
 }

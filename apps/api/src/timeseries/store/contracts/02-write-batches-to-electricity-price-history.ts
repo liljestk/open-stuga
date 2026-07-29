@@ -23,6 +23,8 @@ import type {
   EnergyCostAggregateRecord,
   ElectricityPriceHistoryQuery,
   ElectricityPriceRecord,
+  HeatPumpStateHistoryQuery,
+  HeatPumpStateRecord,
   LegacyReadingHistoryQuery,
   LegacyReadingRecord,
   MeasurementBucketQuery,
@@ -78,6 +80,7 @@ declare module "../core.js" {
     electricityPriceHistory(query: ElectricityPriceHistoryQuery): Promise<ElectricityPriceRecord[]>;
     openingStateHistory(query: OpeningStateHistoryQuery): Promise<OpeningStateRecord[]>;
     openingStateSnapshot(query: OpeningStateSnapshotQuery): Promise<OpeningStateRecord[]>;
+    heatPumpStateHistory(query: HeatPumpStateHistoryQuery): Promise<HeatPumpStateRecord[]>;
   }
 
   interface TimeseriesStoreCore {
@@ -100,5 +103,6 @@ declare module "../core.js" {
     electricityPriceHistory(query: ElectricityPriceHistoryQuery): Promise<ElectricityPriceRecord[]>;
     openingStateHistory(query: OpeningStateHistoryQuery): Promise<OpeningStateRecord[]>;
     openingStateSnapshot(query: OpeningStateSnapshotQuery): Promise<OpeningStateRecord[]>;
+    heatPumpStateHistory(query: HeatPumpStateHistoryQuery): Promise<HeatPumpStateRecord[]>;
   }
 }

@@ -306,7 +306,7 @@ export const fiOverridesPart1 = {
   "analytics.findingsThrough": "Vertailtu päivään {date} asti",
   "analytics.findingsCount": "{count} huomionarvoista havaintoa",
   "analytics.findingsArchiveWarning": "Vanhempaa arkistodataa ei ollut saatavilla, joten joitakin vertailuvuosia voi puuttua.",
-  "analytics.findingsTruncatedWarning": "Ainakin yksi anturi- tai säähistoria saavutti yksittäisen vertailujakson 100 000 mittauksen rajan. Stugu jätti kyseisen jakson pois, jotta osittaiset tiedot eivät vääristäisi tulosta.",
+  "analytics.findingsTruncatedWarning": "Säähistoria tai tilapäinen vain paikalliseen tietoon perustuva anturihaku saavutti yhden vertailujakson 100 000 mittauksen rajan. Stugu jätti jakson pois, jotta osittaiset tiedot eivät vääristäisi tulosta.",
   "analytics.findingsScopeWarning": "Kodissa on yli 80 tallennettua anturi- ja mittaussarjaa. Sähkösarjat asetettiin etusijalle ja muu tarkistus rajattiin.",
   "analytics.findingsNoneTitle": "Ei huomionarvoisia eroja vertailujaksoihin",
   "analytics.findingsNoneBody": "Saatavilla olevat vertailukelpoiset jaksot jäivät raportointikynnysten alle, tai historiaa tarvitaan lisää.",

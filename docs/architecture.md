@@ -282,8 +282,9 @@ telemetry commit. Metric samples use an entity-attribute-value outbox keyed by s
 timestamp, and source; temperature and humidity rows written through the
 compatibility API are also projected into it. A checkpointed, idempotent worker
 then writes indoor measurements, compatibility readings, complete outdoor
-observations, electricity-price intervals, and opening-state events into
-PostgreSQL with TimescaleDB. Once all five families are durably acknowledged,
+observations, electricity-price intervals, opening-state events, and every
+timestamped direct heat-pump observation into PostgreSQL with TimescaleDB. Once
+all six families are durably acknowledged,
 SQLite compacts history and keeps current projections.
 The shared `HybridTelemetryReader` presents SQLite's unacknowledged/current tail
 and Timescale's permanent history as one logical source to APIs, MCP, analytics,
@@ -292,6 +293,12 @@ natural-key overlaps, applies the active demo/real boundary, and fails closed
 when an unavailable TimeDB could make a range incomplete. Existing
 legacy rows are idempotently unpivoted into temperature/humidity samples during
 migration, so reopening the database does not duplicate them.
+
+Bucketed measurement analytics take a dedicated archive path because derived
+aggregates cannot safely merge an overlapping SQLite tail. The reader waits for
+archive reconciliation, then PostgreSQL computes bounded UTC buckets over the
+complete raw range. Raw rows remain permanent but do not cross the API process
+boundary for these queries.
 
 SQLite WAL mode remains a good fit for the single local writer and keeps an
 archive outage from blocking ingestion. TimescaleDB supplies time partitioning,
@@ -330,7 +337,7 @@ bounded delivery ledger is not a general message broker.
 
 Raw archive retention is unlimited in TimescaleDB. With TimeDB enabled,
 `RETENTION_DAYS=0` compacts acknowledged SQLite history immediately; a value of
-30 or more keeps a bounded local cache. The worker reconciles all five telemetry
+30 or more keeps a bounded local cache. The worker reconciles all six telemetry
 families before compaction, requires a healthy and caught-up archive, rejects
 mutable dirty rows, and preserves current projections. It pauses without
 deleting anything whenever those proofs are unavailable. Historical, bucketed,

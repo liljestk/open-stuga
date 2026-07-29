@@ -1,3 +1,4 @@
+import type { HeatPumpState } from "@climate-twin/contracts";
 import type { Pool, PoolConfig } from "pg";
 
 export type TelemetryQuality = "good" | "estimated" | "stale" | (string & {});
@@ -9,6 +10,15 @@ export interface QueryControl {
   signal?: AbortSignal;
   /** Per-operation timeout. Set to 0 to use only the store's server-side default. */
   timeoutMs?: number;
+}
+
+export type HeatPumpStateRecord = HeatPumpState;
+
+export interface HeatPumpStateHistoryQuery extends QueryControl {
+  connectionId: string;
+  from: string;
+  to: string;
+  limit?: number;
 }
 
 export interface MeasurementSampleRecord {
@@ -108,7 +118,8 @@ export type ArchiveTableName =
   | "legacy_readings"
   | "outdoor_temperature_samples"
   | "electricity_price_samples"
-  | "opening_state_samples";
+  | "opening_state_samples"
+  | "heat_pump_state_samples";
 
 export interface ArchiveCheckpoint {
   sourceId: string;
@@ -128,6 +139,64 @@ export interface MeasurementBucketRecord {
   minimum: number;
   maximum: number;
   canonicalUnit: string;
+}
+
+export type MeasurementAnalyticsResolution = "1m" | "5m" | "15m" | "1h" | "1d";
+
+export type MeasurementAnalyticsAggregation =
+  | "mean"
+  | "sum"
+  | "delta"
+  | "last"
+  | "time_weighted_mean"
+  | "min"
+  | "max";
+
+export interface MeasurementAnalyticsSeriesQuery {
+  sensorId: string;
+  metric: string;
+  aggregation: MeasurementAnalyticsAggregation;
+}
+
+/**
+ * A bounded, database-side analytics query. The source window itself is not
+ * point-limited; only the requested series and returned bucket count are.
+ */
+export interface MeasurementAnalyticsRollupQuery extends QueryControl {
+  series: readonly MeasurementAnalyticsSeriesQuery[];
+  from: string;
+  to: string;
+  resolution: MeasurementAnalyticsResolution;
+  qualities: readonly TelemetryQuality[];
+  /** Real-data mode excludes archived demo/replay rows before all calculations. */
+  excludeSynthetic?: boolean;
+}
+
+export interface MeasurementAnalyticsBucketRecord {
+  bucketStart: string;
+  value: number | null;
+  minimum: number;
+  maximum: number;
+  sampleCount: number;
+  estimatedSampleCount: number;
+  staleSampleCount: number;
+  counterResetCount: number;
+}
+
+export interface MeasurementAnalyticsSeriesRecord {
+  sensorId: string;
+  metric: string;
+  canonicalUnit: string;
+  /** Included source samples across the complete requested range. */
+  sampleCount: number;
+  /** In-range source samples rejected by the explicit quality filter. */
+  excludedSampleCount: number;
+  cadenceSeconds: number;
+  buckets: MeasurementAnalyticsBucketRecord[];
+}
+
+export interface MeasurementAnalyticsRollupResult {
+  series: MeasurementAnalyticsSeriesRecord[];
 }
 
 export interface MeasurementHistoryQuery extends QueryControl {

@@ -144,13 +144,13 @@ export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>)
   const { locale, t } = useI18n();
   const [performance, setPerformance] = useState<HomePerformanceResult | null>(null);
   const [loading, setLoading] = useState(false);
-  const [partialFailures, setPartialFailures] = useState(0);
+  const [partialFailures, setPartialFailures] = useState<string[]>([]);
 
   useEffect(() => {
     if (props.dataMode === "unknown") {
       setPerformance(null);
       setLoading(false);
-      setPartialFailures(0);
+      setPartialFailures([]);
       return;
     }
     const controller = new AbortController();
@@ -169,10 +169,18 @@ export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>)
     const fromIso = from.toISOString();
     const recoveryFromIso = recoveryFrom.toISOString();
     const emptyAnalytics = Promise.resolve<AnalyticsQueryResponse | null>(null);
+    const evidenceSources = [
+      t("performance.exposure.title"),
+      t("performance.recovery.title"),
+      t("performance.energy.title"),
+      t("analytics.findingsOutdoorWeather"),
+      t("performance.opening.title"),
+      t("performance.maintenance.title"),
+    ];
 
     setPerformance(null);
     setLoading(true);
-    setPartialFailures(0);
+    setPartialFailures([]);
     void Promise.allSettled([
       sensorIds.length > 0 && climateMetrics.length > 0
         ? api.analyticsQuery(queryInput(
@@ -216,7 +224,9 @@ export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>)
     ]).then((results) => {
       if (controller.signal.aborted) return;
       const [climateResult, recoveryResult, energyResult, outdoorResult, openingResult, actionResult] = results;
-      const failures = results.filter((result) => result.status === "rejected").length;
+      const failures = results.flatMap((result, index) => (
+        result.status === "rejected" ? [evidenceSources[index]!] : []
+      ));
       const outdoor = resultValue(outdoorResult);
       const openings = resultValue(openingResult);
       const actionRuns = resultValue(actionResult);
@@ -255,6 +265,7 @@ export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>)
     props.observations,
     props.refreshRevision,
     props.sensors,
+    t,
   ]);
 
   const number = (value: number, maximumFractionDigits = 1) => new Intl.NumberFormat(locale, {
@@ -297,8 +308,8 @@ export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>)
     {loading && <output className="home-performance-loading" aria-live="polite">
       <CircleDashed size={16} aria-hidden="true" />{t("performance.loading")}
     </output>}
-    {!loading && partialFailures > 0 && <p className="home-performance-notice" role="status">
-      <Info size={15} aria-hidden="true" />{t("performance.partial", { count: partialFailures })}
+    {!loading && partialFailures.length > 0 && <p className="home-performance-notice" role="status">
+      <Info size={15} aria-hidden="true" />{t("performance.partial", { sources: partialFailures.join(", ") })}
     </p>}
 
     {performance && <div className="home-performance-content">

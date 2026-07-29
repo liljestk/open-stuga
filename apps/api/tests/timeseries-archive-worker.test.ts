@@ -48,6 +48,7 @@ function store(overrides: Partial<Record<string, unknown>> = {}) {
     upsertOutdoorTemperatureSamples: vi.fn(async (rows: unknown[]) => ({ attempted: rows.length, affected: rows.length })),
     upsertElectricityPriceSamples: vi.fn(async (rows: unknown[]) => ({ attempted: rows.length, affected: rows.length })),
     upsertOpeningStateSamples: vi.fn(async (rows: unknown[]) => ({ attempted: rows.length, affected: rows.length })),
+    upsertHeatPumpStateSamples: vi.fn(async (rows: unknown[]) => ({ attempted: rows.length, affected: rows.length })),
     enforceRealDataBoundary: vi.fn(async () => 0),
     invalidateInitialization: vi.fn(() => undefined),
     close: vi.fn(async () => undefined),
@@ -208,6 +209,60 @@ describe("TelemetryArchiveWorker", () => {
       "sqlite-source",
       "electricity_price_samples",
       7,
+    );
+    await worker.stop();
+  });
+
+  it("archives every direct heat-pump poll through a durable checkpoint", async () => {
+    const observedAt = "2026-07-18T00:10:00.000Z";
+    const archiveStore = store();
+    const heatPumpStatePage = (cursor: number) => cursor === 0 ? [{
+      rowId: 4,
+      record: {
+        connectionId: "gree-aabbccddeeff",
+        houseId: "house-main",
+        equipmentId: "heat-pump-aabbccddeeff",
+        deviceId: "AABBCCDDEEFF",
+        name: "Nordkapp",
+        brand: "Wilfa",
+        model: "Nordkapp 30",
+        observedAt,
+        receivedAt: "2026-07-18T00:10:01.000Z",
+        available: true,
+        power: true,
+        selectedMode: "cool" as const,
+        targetTemperatureC: 22,
+        currentTemperatureC: 25.5,
+        currentTemperatureSource: "reported" as const,
+        fanSpeed: "Auto",
+        horizontalSwing: "Default",
+        verticalSwing: "FullSwing",
+        quiet: false,
+        turbo: false,
+        xfan: true,
+        activity: "unknown" as const,
+        activityEvidence: "unavailable" as const,
+      },
+    }] : [];
+    const worker = new TelemetryArchiveWorker(fixtures(), new TelemetryBus(), archiveStore, {
+      batchSize: 10,
+      heatPumpStatePage,
+    });
+
+    await worker.start();
+    await worker.reconcileNow();
+
+    expect(archiveStore.upsertHeatPumpStateSamples).toHaveBeenCalledWith([
+      expect.objectContaining({
+        connectionId: "gree-aabbccddeeff",
+        observedAt,
+        currentTemperatureC: 25.5,
+      }),
+    ]);
+    expect(archiveStore.saveArchiveCheckpoint).toHaveBeenCalledWith(
+      "sqlite-source",
+      "heat_pump_state_samples",
+      4,
     );
     await worker.stop();
   });

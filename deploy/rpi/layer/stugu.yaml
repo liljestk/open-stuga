@@ -3,8 +3,8 @@
 # X-Env-Layer-Version: 1.0.0
 # X-Env-Layer-Category: application
 # X-Env-Layer-Desc: Stugu appliance services, persistent Docker state, and
-#  pinned release containers for Raspberry Pi 4 A/B updates.
-# X-Env-Layer-Requires: docker-debian-trixie,rpi-connect-lite,rpi-connect-ota
+#  pinned release containers for Raspberry Pi 4 USB appliances.
+# X-Env-Layer-Requires: docker-debian-trixie,rpi-connect-lite
 #
 # X-Env-VarRequires: IGconf_sys_apt_keydir
 # X-Env-VarRequires-Valid: string
@@ -75,10 +75,12 @@ mmdebstrap:
       install -d -m 0755 "$1/etc/systemd/system"
       install -d -m 0755 "$1/etc/systemd/system/containerd.service.d"
       install -d -m 0755 "$1/etc/systemd/system/docker.service.d"
+      install -d -m 0755 "$1/etc/systemd/system/persistent-shared-init.service.d"
       install -d -m 0755 "$1/etc/systemd/system/systemd-networkd-wait-online.service.d"
       install -d -m 0755 "$1/etc/systemd/system/tailscaled.service.d"
       install -d -m 0755 "$1/etc/initramfs-tools/hooks"
       install -d -m 0755 "$1/etc/initramfs-tools/scripts/local-block"
+      install -d -m 0755 "$1/etc/initramfs-tools/scripts/local-bottom"
       install -d -m 0755 "$1/etc/initramfs-tools/scripts/local-premount"
       install -d -m 0755 "$1/etc/udev/rules.d"
       install -d -m 0755 "$1/etc/rpi-image-gen/slot-shared.d"
@@ -112,12 +114,14 @@ mmdebstrap:
         "$1/etc/initramfs-tools/hooks/stugu-usb-bootdev"
       install -m 0755 "${IGconf_stugu_assetdir}/stugu-usb-ab-root" \
         "$1/etc/initramfs-tools/scripts/local-block/20-stugu-usb-ab-root"
+      install -m 0755 "${IGconf_stugu_assetdir}/stugu-usb-udev-root" \
+        "$1/etc/initramfs-tools/scripts/local-bottom/20-stugu-usb-udev-root"
       install -m 0755 "${IGconf_stugu_assetdir}/stugu-usb-ab-root" \
         "$1/etc/initramfs-tools/scripts/local-premount/20-stugu-usb-ab-root"
       install -m 0755 "${IGconf_stugu_assetdir}/rpi-slot-tryboot" \
         "$1/usr/bin/rpi-slot-tryboot"
       install -m 0755 "${IGconf_stugu_assetdir}/rpi-persistent-shared-init" \
-        "$1/usr/sbin/rpi-persistent-shared-init"
+        "$1/usr/local/sbin/stugu-persistent-shared-init"
       install -m 0755 "${IGconf_stugu_assetdir}/stugu-eeprom-compat" \
         "$1/usr/local/sbin/stugu-eeprom-compat"
       install -m 0755 "${IGconf_stugu_assetdir}/stuguctl" \
@@ -129,8 +133,8 @@ mmdebstrap:
       install -m 0644 "${IGconf_stugu_assetdir}/stugu-eeprom-compat.service" \
         "$1/etc/systemd/system/stugu-eeprom-compat.service"
 
-      # Pi 4 firmware can lose its implicit kernel filename after a GPT
-      # autoboot partition handoff. Pin both files explicitly in every slot.
+      # Pin the Pi 4 kernel and initramfs filenames in the direct rescue payload
+      # and both retained system slots.
       sed -i 's/^auto_initramfs=1$/# auto_initramfs is replaced by the explicit Pi 4 entry below/' \
         "$1/boot/firmware/config.txt"
       cat >> "$1/boot/firmware/config.txt" <<-'EOF'
@@ -198,6 +202,15 @@ mmdebstrap:
       After=stugu-data-grow.service var-lib-tailscale.mount
       EOF
       chmod 0644 "$1/etc/systemd/system/tailscaled.service.d/stugu-shared-storage.conf"
+
+      # image-rota installs its stock initializer after layer customization.
+      # Override its command with Stugu's release-aware, idempotent seeder.
+      cat > "$1/etc/systemd/system/persistent-shared-init.service.d/stugu.conf" <<-'EOF'
+      [Service]
+      ExecStart=
+      ExecStart=/usr/local/sbin/stugu-persistent-shared-init
+      EOF
+      chmod 0644 "$1/etc/systemd/system/persistent-shared-init.service.d/stugu.conf"
 
       cat > "$1/etc/sudoers.d/020_stuguctl" <<-EOF
       ${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/systemctl start stugu.service

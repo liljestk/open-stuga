@@ -23,6 +23,7 @@ import type {
   EnergyCostAggregateRecord,
   ElectricityPriceHistoryQuery,
   ElectricityPriceRecord,
+  HeatPumpStateRecord,
   LegacyReadingHistoryQuery,
   LegacyReadingRecord,
   MeasurementBucketQuery,
@@ -397,6 +398,38 @@ registerTimeseriesStoreMethods({
           sample.observationId, sample.houseId, sample.floorId, sample.elementId, sample.observedAt,
           sample.source, sample.state, sample.openFraction, sample.validUntil, sample.externalId,
           sample.connectionId, sample.recordedAt, sample.metadata ?? {},
+        ],
+        control,
+      );
+    },
+  async upsertHeatPumpStateSamples(this: TimeseriesStoreInternals,
+      samples: readonly HeatPumpStateRecord[],
+      control: QueryControl = {},
+    ): Promise<BatchWriteResult> {
+      return this.__writeBatches(
+        "heat_pump_state_samples",
+        [
+          "connection_id", "house_id", "equipment_id", "device_id", "name", "brand", "model",
+          "observed_at", "received_at", "available", "power", "selected_mode",
+          "target_temperature_c", "current_temperature_c", "current_temperature_source",
+          "fan_speed", "horizontal_swing", "vertical_swing", "quiet", "turbo", "xfan",
+          "activity", "activity_evidence",
+        ],
+        ["connection_id", "observed_at"],
+        [
+          "house_id", "equipment_id", "device_id", "name", "brand", "model", "received_at",
+          "available", "power", "selected_mode", "target_temperature_c", "current_temperature_c",
+          "current_temperature_source", "fan_speed", "horizontal_swing", "vertical_swing",
+          "quiet", "turbo", "xfan", "activity", "activity_evidence",
+        ],
+        samples,
+        (sample) => [
+          sample.connectionId, sample.houseId, sample.equipmentId, sample.deviceId,
+          sample.name, sample.brand, sample.model, sample.observedAt, sample.receivedAt,
+          sample.available, sample.power, sample.selectedMode, sample.targetTemperatureC,
+          sample.currentTemperatureC, sample.currentTemperatureSource, sample.fanSpeed,
+          sample.horizontalSwing, sample.verticalSwing, sample.quiet, sample.turbo,
+          sample.xfan, sample.activity, sample.activityEvidence,
         ],
         control,
       );

@@ -23,6 +23,8 @@ import type {
   EnergyCostAggregateRecord,
   ElectricityPriceHistoryQuery,
   ElectricityPriceRecord,
+  HeatPumpStateHistoryQuery,
+  HeatPumpStateRecord,
   LegacyReadingHistoryQuery,
   LegacyReadingRecord,
   MeasurementBucketQuery,
@@ -45,7 +47,7 @@ import type {
   TelemetryStoreOptions,
   TelemetryTableStorage,
 } from "../../types.js";
-import { ArchiveCheckpointRow, ElectricityPriceRow, LatestLegacyReadingFilter, LatestMeasurementFilter, LegacyReadingRow, MAX_HISTORY_LIMIT, MAX_MEASUREMENT_WINDOW_LIMIT, MeasurementBucketRow, MeasurementCoverageRow, MeasurementRow, OpeningStateRow, OutdoorTemperatureRow, SqlValue, electricityPriceFromRow, legacyReadingFromRow, measurementBucketFromRow, measurementFromRow, openingStateFromRow, outdoorTemperatureFromRow, positiveInteger, timestamp } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
+import { ArchiveCheckpointRow, ElectricityPriceRow, HeatPumpStateRow, LatestLegacyReadingFilter, LatestMeasurementFilter, LegacyReadingRow, MAX_HISTORY_LIMIT, MAX_MEASUREMENT_WINDOW_LIMIT, MeasurementBucketRow, MeasurementCoverageRow, MeasurementRow, OpeningStateRow, OutdoorTemperatureRow, SqlValue, electricityPriceFromRow, heatPumpStateFromRow, legacyReadingFromRow, measurementBucketFromRow, measurementFromRow, openingStateFromRow, outdoorTemperatureFromRow, positiveInteger, timestamp } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
 import { registerTimeseriesStoreMethods, timeseriesStoreState, type TimeseriesStoreInternals } from "../core.js";
 
 registerTimeseriesStoreMethods({
@@ -418,5 +420,27 @@ registerTimeseriesStoreMethods({
         ORDER BY observed_at DESC, observation_id DESC
         LIMIT $3`, [query.houseId, query.at, limit], query);
       return result.rows.map(openingStateFromRow);
+    },
+  async heatPumpStateHistory(this: TimeseriesStoreInternals,
+      query: HeatPumpStateHistoryQuery,
+    ): Promise<HeatPumpStateRecord[]> {
+      const limit = positiveInteger(query.limit, 20_000, MAX_HISTORY_LIMIT);
+      const result = await this.__query<HeatPumpStateRow>(`SELECT connection_id, house_id, equipment_id,
+          device_id, name, brand, model, observed_at, received_at, available, power, selected_mode,
+          target_temperature_c, current_temperature_c, current_temperature_source, fan_speed,
+          horizontal_swing, vertical_swing, quiet, turbo, xfan, activity, activity_evidence
+        FROM (
+          SELECT connection_id, house_id, equipment_id, device_id, name, brand, model, observed_at,
+            received_at, available, power, selected_mode, target_temperature_c, current_temperature_c,
+            current_temperature_source, fan_speed, horizontal_swing, vertical_swing, quiet, turbo,
+            xfan, activity, activity_evidence, ingested_at
+          FROM ${qualifiedName(this.schema, "heat_pump_state_samples")}
+          WHERE connection_id = $1
+            AND observed_at >= $2::TIMESTAMPTZ AND observed_at <= $3::TIMESTAMPTZ
+          ORDER BY observed_at DESC, ingested_at DESC
+          LIMIT $4
+        ) recent
+        ORDER BY observed_at ASC`, [query.connectionId, query.from, query.to, limit], query);
+      return result.rows.map(heatPumpStateFromRow);
     },
 });

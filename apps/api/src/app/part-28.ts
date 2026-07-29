@@ -200,6 +200,7 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
       context.mock.start();
       context.homeAssistant.start();
       context.tpLink.start();
+      context.gree.start();
       context.tapoHistory.start();
       sensorGapRecovery.start();
       context.electricityPrices.start();
@@ -220,6 +221,7 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
       const stoppingTapoHistory = context.tapoHistory.stop();
       context.homeAssistant.stop();
       context.tpLink.stop();
+      context.gree.stop();
       context.integrationDiscoveryJobs.stop();
       context.electricityPrices.stop();
       context.weatherMonitor.stop();

@@ -52,6 +52,37 @@ export function nullableTimestampValue(value, label) {
   return value === null ? null : timestampValue(value, label);
 }
 
+function booleanValue(value, label, nullable = false) {
+  if (nullable && value === null) return null;
+  if (typeof value !== "boolean") throw new Error(`Source row contains an invalid ${label}`);
+  return value;
+}
+
+function choiceValue(value, label, choices, nullable = false) {
+  if (nullable && value === null) return null;
+  if (typeof value !== "string" || !choices.includes(value)) {
+    throw new Error(`Source row contains an invalid ${label}`);
+  }
+  return value;
+}
+
+function heatPumpState(row) {
+  let state;
+  try {
+    state = JSON.parse(textValue(row.state_json, "state_json"));
+  } catch {
+    throw new Error("Source row contains invalid heat-pump state JSON");
+  }
+  if (!state || typeof state !== "object"
+    || state.connectionId !== row.connection_id
+    || state.houseId !== row.house_id
+    || destinationTimestampKey(state.observedAt) !== destinationTimestampKey(row.observed_at)
+    || destinationTimestampKey(state.receivedAt) !== destinationTimestampKey(row.received_at)) {
+    throw new Error("Source heat-pump state does not match its journal identity");
+  }
+  return state;
+}
+
 export function mapRows(table, rows) {
   if (table === "measurement_samples") return rows.map((row) => ({
     sensor_id: textValue(row.sensor_id, "sensor_id"),
@@ -111,11 +142,45 @@ export function mapRows(table, rows) {
     recorded_at: timestampValue(row.created_at, "created_at"),
     metadata: {},
   }));
+  if (table === "heat_pump_state_history") return rows.map((row) => {
+    const state = heatPumpState(row);
+    return {
+      connection_id: textValue(state.connectionId, "connectionId"),
+      house_id: textValue(state.houseId, "houseId"),
+      equipment_id: textValue(state.equipmentId, "equipmentId", true),
+      device_id: textValue(state.deviceId, "deviceId"),
+      name: textValue(state.name, "name", true),
+      brand: textValue(state.brand, "brand", true),
+      model: textValue(state.model, "model", true),
+      observed_at: timestampValue(state.observedAt, "observedAt"),
+      received_at: timestampValue(state.receivedAt, "receivedAt"),
+      available: booleanValue(state.available, "available"),
+      power: booleanValue(state.power, "power", true),
+      selected_mode: choiceValue(
+        state.selectedMode, "selectedMode", ["auto", "cool", "dry", "fan", "heat"], true,
+      ),
+      target_temperature_c: finiteNumber(state.targetTemperatureC, "targetTemperatureC", true),
+      current_temperature_c: finiteNumber(state.currentTemperatureC, "currentTemperatureC", true),
+      current_temperature_source: choiceValue(
+        state.currentTemperatureSource, "currentTemperatureSource", ["reported", "unavailable"],
+      ),
+      fan_speed: textValue(state.fanSpeed, "fanSpeed", true),
+      horizontal_swing: textValue(state.horizontalSwing, "horizontalSwing", true),
+      vertical_swing: textValue(state.verticalSwing, "verticalSwing", true),
+      quiet: booleanValue(state.quiet, "quiet", true),
+      turbo: booleanValue(state.turbo, "turbo", true),
+      xfan: booleanValue(state.xfan, "xfan", true),
+      activity: choiceValue(state.activity, "activity", ["off", "unknown"]),
+      activity_evidence: choiceValue(
+        state.activityEvidence, "activityEvidence", ["protocol", "unavailable"],
+      ),
+    };
+  });
   throw new Error(`Unsupported source table: ${table}`);
 }
 
 export function fetchSourceBatch(database, table, cursor, batchSize) {
-  if (table === "measurement_samples" || table === "readings") {
+  if (table === "measurement_samples" || table === "readings" || table === "heat_pump_state_history") {
     const where = cursor === null ? "" : "WHERE id > ?";
     const statement = database.prepare(`SELECT * FROM ${quoteSqliteIdentifier(table)} ${where} ORDER BY id LIMIT ?`);
     const rows = cursor === null ? statement.all(batchSize) : statement.all(cursor, batchSize);
@@ -184,6 +249,12 @@ export function recordDefinition(table) {
     opening_state_observations: `observation_id text, house_id text, floor_id text, element_id text,
       observed_at timestamptz, source text, state text, open_fraction double precision,
       valid_until timestamptz, external_id text, connection_id text, recorded_at timestamptz, metadata jsonb`,
+    heat_pump_state_history: `connection_id text, house_id text, equipment_id text, device_id text,
+      name text, brand text, model text, observed_at timestamptz, received_at timestamptz,
+      available boolean, power boolean, selected_mode text, target_temperature_c double precision,
+      current_temperature_c double precision, current_temperature_source text, fan_speed text,
+      horizontal_swing text, vertical_swing text, quiet boolean, turbo boolean, xfan boolean,
+      activity text, activity_evidence text`,
   }[table];
 }
 
@@ -203,6 +274,12 @@ export function targetColumns(table) {
     opening_state_observations: [
       "observation_id", "house_id", "floor_id", "element_id", "observed_at", "source", "state",
       "open_fraction", "valid_until", "external_id", "connection_id", "recorded_at", "metadata",
+    ],
+    heat_pump_state_history: [
+      "connection_id", "house_id", "equipment_id", "device_id", "name", "brand", "model",
+      "observed_at", "received_at", "available", "power", "selected_mode", "target_temperature_c",
+      "current_temperature_c", "current_temperature_source", "fan_speed", "horizontal_swing",
+      "vertical_swing", "quiet", "turbo", "xfan", "activity", "activity_evidence",
     ],
   }[table];
 }

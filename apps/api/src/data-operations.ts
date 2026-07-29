@@ -21,7 +21,12 @@ const EXPORT_TABLES = [
   "properties", "houses", "property_areas", "area_equipment", "property_notes", "sensors",
   "measurement_definitions", "alert_rules", "alert_events", "observations", "maintenance_tasks",
   "action_playbooks", "action_runs", "property_electricity_configs", "electricity_price_points",
+  "measurement_samples", "readings", "outdoor_temperature_samples", "heat_pump_state_history",
+] as const;
+
+const TELEMETRY_EXPORT_TABLES = [
   "measurement_samples", "readings", "outdoor_temperature_samples",
+  "electricity_price_points", "heat_pump_state_history",
 ] as const;
 
 interface BackupWorkerState extends BackupOperationStatus {
@@ -72,15 +77,15 @@ export class DataOperationsService {
   preview(privacyLevel: DataExportPrivacyLevel, includesTelemetry: boolean): DataExportPreview {
     const counts: Record<string, number> = {};
     for (const table of EXPORT_TABLES) {
-      if (!includesTelemetry && ["measurement_samples", "readings", "outdoor_temperature_samples", "electricity_price_points"].includes(table)) continue;
+      if (!includesTelemetry && TELEMETRY_EXPORT_TABLES.includes(table as (typeof TELEMETRY_EXPORT_TABLES)[number])) continue;
       if (privacyLevel === "structure" && ["property_notes", "alert_events", "observations", "maintenance_tasks", "action_runs"].includes(table)) continue;
       counts[table] = tableCount(this.database, table);
     }
-    const estimatedTelemetryRows = ["measurement_samples", "readings", "outdoor_temperature_samples", "electricity_price_points"]
+    const estimatedTelemetryRows = TELEMETRY_EXPORT_TABLES
       .reduce((total, table) => total + tableCount(this.database, table), 0);
     const sensitiveCategories = ["property and building layout", "sensor names and placement"];
     if (privacyLevel !== "structure") sensitiveCategories.push("maintenance, observations, and alert history");
-    if (includesTelemetry) sensitiveCategories.push("timestamped environmental and energy telemetry");
+    if (includesTelemetry) sensitiveCategories.push("timestamped environmental, energy, and equipment-state telemetry");
     return {
       schemaVersion: "stugu.export/v1",
       generatedAt: new Date().toISOString(),

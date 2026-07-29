@@ -191,22 +191,6 @@ with image_path.open("rb", buffering=0) as handle:
     if read_at(handle, persistent_offset, 2) != b"\x53\xef":
         fail("persistent does not contain an ext4 superblock")
 
-bootconfig_offset = int(partitions[0]["start"]) * SECTOR_SIZE
-autoboot = mtools(
-    "mtype", "-i", f"{image_path}@@{bootconfig_offset}", "::autoboot.txt"
-).replace("\r\n", "\n").strip()
-expected_autoboot = "\n".join(
-    (
-        "[all]",
-        "tryboot_a_b=1",
-        "boot_partition=1",
-        "[tryboot]",
-        "boot_partition=3",
-    )
-)
-if autoboot != expected_autoboot:
-    fail("autoboot.txt does not map rescue/tryboot to GPT partitions 1 and 3")
-
 for partition, slot in zip(
     partitions[:3], ("bootconfig rescue", "boot_a", "boot_b")
 ):
@@ -217,6 +201,8 @@ for partition, slot in zip(
         for entry in listing.splitlines()
         if entry.strip()
     }
+    if slot == "bootconfig rescue" and "autoboot.txt" in names:
+        fail("bootconfig rescue contains autoboot.txt and can firmware-loop")
     for required in ("config.txt", "start4.elf", "fixup4.dat"):
         if required not in names:
             fail(f"{slot} is missing {required}")
@@ -277,6 +263,6 @@ if hash_partition(
 print(
     "Validated GPT, protective MBR, six aligned partitions, FAT/EROFS/ext4 "
     f"filesystems, Pi firmware dated {firmware_date.isoformat()}, USB rescue "
-    "boot files, and identical A/B slots."
+    "direct-boot files without autoboot.txt, and identical A/B slots."
 )
 PY

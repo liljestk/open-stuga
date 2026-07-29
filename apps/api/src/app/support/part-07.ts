@@ -67,6 +67,8 @@ import {
 import { TelemetryBus } from "../../events.js";
 import { HomeAssistantBridge, testHomeAssistantCredentials } from "../../home-assistant.js";
 import { mergeTpLinkHistoryRecovery, TpLinkBridge } from "../../tp-link.js";
+import { GreeBridge } from "../../gree.js";
+import { HeatPumpStateStore } from "../../heat-pump-state.js";
 import { discoverHomeAssistant } from "../../discovery.js";
 import {
   readIntegrationSecrets,
@@ -392,6 +394,8 @@ export interface ApiRuntime {
   status: RuntimeStatus;
   homeAssistant: HomeAssistantBridge;
   tpLink: TpLinkBridge;
+  gree: GreeBridge;
+  heatPumpStates: HeatPumpStateStore;
   tapoHistory: TapoHistoryExportService;
   electricityPrices: ElectricityPriceService;
   telegram: TelegramService;

@@ -287,11 +287,12 @@ export type TelemetryArchiveTable =
   | "legacy_readings"
   | "outdoor_temperature_samples"
   | "electricity_price_samples"
-  | "opening_state_samples";
+  | "opening_state_samples"
+  | "heat_pump_state_samples";
 
 export type TelemetryArchiveMutableTable = Exclude<
   TelemetryArchiveTable,
-  "measurement_samples" | "opening_state_samples"
+  "measurement_samples" | "opening_state_samples" | "heat_pump_state_samples"
 >;
 
 export type TelemetryArchiveWatermarks = Readonly<Record<

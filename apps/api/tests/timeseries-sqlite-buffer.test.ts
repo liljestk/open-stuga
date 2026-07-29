@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ClimateDatabase } from "../src/db.js";
+import { HeatPumpStateStore } from "../src/heat-pump-state.js";
 
 function addArchiveDoor(database: ClimateDatabase, houseId: string): void {
   database.createHouse({
@@ -354,6 +355,7 @@ describe("SQLite telemetry archive buffer", () => {
 
   it("never prunes rows newer than the durable archive watermarks", () => {
     addArchiveDoor(database, "retention-opening-house");
+    const heatPumpStates = new HeatPumpStateStore(database);
     const timestamps = ["2024-03-01T00:00:00.000Z", "2024-03-01T01:00:00.000Z"];
     for (const [index, timestamp] of timestamps.entries()) {
       database.insertReadings([{
@@ -374,6 +376,31 @@ describe("SQLite telemetry archive buffer", () => {
         fetchedAt: timestamp,
         stationId: null,
         stationName: null,
+      });
+      heatPumpStates.record({
+        connectionId: "gree-retention",
+        houseId: "house-main",
+        equipmentId: null,
+        deviceId: "AABBCCDDEEFF",
+        name: "Nordkapp",
+        brand: "Wilfa",
+        model: "Nordkapp 30",
+        observedAt: timestamp,
+        receivedAt: timestamp,
+        available: true,
+        power: true,
+        selectedMode: "heat",
+        targetTemperatureC: 21,
+        currentTemperatureC: 20 + index,
+        currentTemperatureSource: "reported",
+        fanSpeed: "Auto",
+        horizontalSwing: null,
+        verticalSwing: null,
+        quiet: false,
+        turbo: false,
+        xfan: false,
+        activity: "unknown",
+        activityEvidence: "unavailable",
       });
     }
     database.storePropertyElectricityPrices("property-main", timestamps.map((startAt, index) => ({
@@ -400,6 +427,8 @@ describe("SQLite telemetry archive buffer", () => {
       .find(({ record }) => record.startAt === timestamps[0])!;
     const openingRow = database.openingStateArchivePage(0, 10_000)
       .find(({ record }) => record.observationId === openingObservations[0]!.id)!;
+    const heatPumpRow = heatPumpStates.archivePage(0, 10_000)
+      .find(({ record }) => record.observedAt === timestamps[0])!;
 
     database.purgeReadingsBefore("2025-01-01T00:00:00.000Z", 100, {
       measurement_samples: Math.max(...measurementRows.map(({ rowId }) => rowId)),
@@ -407,6 +436,7 @@ describe("SQLite telemetry archive buffer", () => {
       outdoor_temperature_samples: outdoorRow.rowId,
       electricity_price_samples: electricityRow.rowId,
       opening_state_samples: openingRow.rowId,
+      heat_pump_state_samples: heatPumpRow.rowId,
     });
 
     expect(database.history([sensorId], "2024-03-01T00:00:00.000Z", "2024-03-01T00:00:00.000Z")).toEqual([]);
@@ -429,5 +459,13 @@ describe("SQLite telemetry archive buffer", () => {
     expect(database.listOpeningStateObservationHistory(
       "retention-opening-house", timestamps[1], timestamps[1],
     )).toHaveLength(1);
+    expect(heatPumpStates.history("gree-retention", {
+      from: timestamps[0],
+      to: timestamps[0],
+    })).toEqual([]);
+    expect(heatPumpStates.history("gree-retention", {
+      from: timestamps[1],
+      to: timestamps[1],
+    })).toHaveLength(1);
   });
 });
