@@ -455,7 +455,7 @@ services:
       STUGA_MIGRATION_HOST_ROOT: ${STUGA_MIGRATION_DIRECTORY:-./data/migrations}
       STUGA_TARGET_DATA_DIRECTORY: /app/data
       STUGA_TARGET_TIMESERIES_DIRECTORY: /app/timeseries-data
-      STUGA_TARGET_ENV_FILE: /app/target-settings/stugu.env
+      STUGA_TARGET_ENV_FILE: /app/target-settings/${STUGA_MIGRATION_ENV_FILENAME:-.env}
       STUGA_TARGET_CONFIG_DIRECTORY: /app/target-settings/config
       STUGA_TARGET_SECRETS_DIRECTORY: /app/target-settings/secrets
       STUGA_MIGRATION_SEED_RETENTION_DAYS: ${STUGA_MIGRATION_SEED_RETENTION_DAYS:-14}
@@ -471,9 +471,7 @@ services:
       - stuga-timeseries-data:/app/timeseries-data:ro
       - stuga-timeseries-admin-secret:/app/runtime/admin:ro
       - ${STUGA_MIGRATION_DIRECTORY:-./data/migrations}:/app/migrations:z
-      - ${STUGA_MIGRATION_ENV_FILE:-./.env}:/app/target-settings/stugu.env:z
-      - ${STUGA_CONFIG_DIRECTORY:-./config}:/app/target-settings/config:z
-      - ${STUGA_MIGRATION_SECRETS_DIRECTORY:-./secrets}:/app/target-settings/secrets:z
+      - ${STUGA_MIGRATION_SETTINGS_DIRECTORY:-.}:/app/target-settings:z
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777

@@ -45,10 +45,12 @@ import {
 } from "../stugu-live-migrate.mjs";
 
 import {
+  MAX_IN_PLACE_REPLACEMENT_BYTES,
   applyDeploymentSettings,
   commitMigration,
   completeBackupManifest,
   createApplyIntent,
+  replaceFileContents,
   rollbackMigration,
   swapData,
   targetForDeploymentPath,
@@ -251,6 +253,25 @@ test("target deployment overlay preserves target networking and limits secret ro
   assert.equal(readFileSync(join(target, "secrets", "cloudflare", "tunnel-token"), "utf8"), "secret-test-value\n");
   assert.equal(existsSync(join(target, "secrets", "cloudflare", "stale-token")), false);
   assert.throws(() => targetForDeploymentPath("deployment/secrets/cloudflare-bootstrap/token"), /Unsupported/u);
+});
+
+test("settings replacement supports an existing immutable-parent bind mount", (t) => {
+  const root = temporaryDirectory(t);
+  const destination = join(root, "stugu.env");
+  writeFileSync(destination, "old=true\n");
+  const readOnlyParentError = Object.assign(new Error("simulated read-only parent"), { code: "EROFS" });
+  replaceFileContents(destination, "new=true\n", 0o600, {
+    atomicInstaller: () => { throw readOnlyParentError; },
+  });
+  assert.equal(readFileSync(destination, "utf8"), "new=true\n");
+
+  assert.throws(
+    () => replaceFileContents(destination, Buffer.alloc(MAX_IN_PLACE_REPLACEMENT_BYTES + 1), 0o600, {
+      atomicInstaller: () => { throw readOnlyParentError; },
+    }),
+    /Refusing non-atomic replacement/u,
+  );
+  assert.equal(readFileSync(destination, "utf8"), "new=true\n");
 });
 
 test("backup validation requires a declared Stuguby identity artifact", (t) => {

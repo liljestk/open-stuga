@@ -4,6 +4,13 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.19.5 - 2026-07-29
+
+- Mount the complete migration settings root so clean appliances can replace
+  environment, configuration, and secret files atomically.
+- Recover safely on older immutable appliances by verifying bounded in-place
+  writes when an exact bind-mounted settings file cannot be renamed.
+
 ## 0.19.4 - 2026-07-29
 
 - Stage quiesced SQLite sources in private writable storage before snapshotting,

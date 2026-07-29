@@ -56,6 +56,10 @@ import { main } from "./stugu-migration-target/commands.mjs";
 
 export { applyDeploymentSettings } from "./stugu-migration-target/data-deployment.mjs";
 
+export { MAX_IN_PLACE_REPLACEMENT_BYTES } from "./stugu-migration-target/data-deployment.mjs";
+
+export { replaceFileContents } from "./stugu-migration-target/data-deployment.mjs";
+
 export { completeBackupManifest } from "./stugu-migration-target/storage-preflight.mjs";
 
 export { commitMigration } from "./stugu-migration-target/migration-lifecycle.mjs";

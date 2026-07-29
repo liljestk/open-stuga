@@ -7,6 +7,8 @@ import {
   closeSync,
   copyFileSync,
   existsSync,
+  fstatSync,
+  ftruncateSync,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -48,23 +50,103 @@ import {
   verifyBackup,
 } from ".././stugu-backup.mjs";
 
-import { hardenPrivateDirectory, hardenPrivateFile } from ".././sqlite-snapshot-utils.mjs";
-
 import { atomicJson, durableRemove, durableRename, environmentPath, psql, safeIdentifier, sqlIdentifier, sqlLiteral } from "./storage-preflight.mjs";
+
+export const MAX_IN_PLACE_REPLACEMENT_BYTES = 16 * 1024 * 1024;
 
 export function fsyncFile(path) {
   const descriptor = openSync(path, "r+");
   try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
 }
 
-export function copyVerified(source, destination, mode = 0o600) {
+function installAtomically(destination, mode, writeTemporary) {
   mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
   const temporary = `${destination}.${process.pid}.${Date.now()}.copying`;
-  copyFileSync(source, temporary);
-  chmodSync(temporary, mode);
-  fsyncFile(temporary);
-  if (existsSync(destination)) durableRemove(destination, { recursive: true, force: true });
-  durableRename(temporary, destination);
+  try {
+    writeTemporary(temporary);
+    chmodSync(temporary, mode);
+    fsyncFile(temporary);
+    if (existsSync(destination)) {
+      const details = lstatSync(destination);
+      if (!details.isFile() || details.isSymbolicLink()) {
+        throw new Error(`Migration target is not a regular file: ${destination}`);
+      }
+    }
+    durableRename(temporary, destination);
+  } catch (error) {
+    if (existsSync(temporary)) {
+      try { rmSync(temporary, { force: true }); } catch {}
+    }
+    throw error;
+  }
+}
+
+function installInPlace(destination, contents, mode, atomicError) {
+  if (!["EBUSY", "EROFS"].includes(atomicError?.code)) throw atomicError;
+  if (contents.byteLength > MAX_IN_PLACE_REPLACEMENT_BYTES) {
+    throw new Error(
+      `Refusing non-atomic replacement larger than ${MAX_IN_PLACE_REPLACEMENT_BYTES} bytes: ${destination}`,
+      { cause: atomicError },
+    );
+  }
+  if (!existsSync(destination)) {
+    throw new Error(`Read-only migration target does not already exist: ${destination}`, { cause: atomicError });
+  }
+  const before = lstatSync(destination);
+  if (!before.isFile() || before.isSymbolicLink()) {
+    throw new Error(`Read-only migration target is not a regular file: ${destination}`, { cause: atomicError });
+  }
+  const descriptor = openSync(destination, "r+");
+  try {
+    const opened = fstatSync(descriptor);
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
+      throw new Error(`Migration target changed before compatibility replacement: ${destination}`);
+    }
+    ftruncateSync(descriptor, 0);
+    writeFileSync(descriptor, contents);
+    chmodSync(destination, mode);
+    fsyncSync(descriptor);
+  } finally {
+    closeSync(descriptor);
+  }
+  if (!readFileSync(destination).equals(contents)) {
+    throw new Error(`Compatibility replacement verification failed: ${destination}`);
+  }
+}
+
+export function replaceFileContents(
+  destination,
+  contents,
+  mode = 0o600,
+  { atomicInstaller = installAtomically } = {},
+) {
+  const payload = Buffer.isBuffer(contents) ? contents : Buffer.from(contents);
+  try {
+    atomicInstaller(destination, mode, (temporary) => {
+      writeFileSync(temporary, payload, { flag: "wx", mode });
+    });
+  } catch (error) {
+    installInPlace(destination, payload, mode, error);
+  }
+}
+
+export function copyVerified(source, destination, mode = 0o600) {
+  try {
+    installAtomically(destination, mode, (temporary) => copyFileSync(source, temporary));
+  } catch (error) {
+    if (!["EBUSY", "EROFS"].includes(error?.code)) throw error;
+    const sourceDetails = lstatSync(source);
+    if (!sourceDetails.isFile() || sourceDetails.isSymbolicLink()) {
+      throw new Error(`Migration source is not a regular file: ${source}`, { cause: error });
+    }
+    if (sourceDetails.size > MAX_IN_PLACE_REPLACEMENT_BYTES) {
+      throw new Error(
+        `Refusing non-atomic replacement larger than ${MAX_IN_PLACE_REPLACEMENT_BYTES} bytes: ${destination}`,
+        { cause: error },
+      );
+    }
+    installInPlace(destination, readFileSync(source), mode, error);
+  }
 }
 
 export function ensureNoSymlinkParents(root, candidate) {
@@ -223,12 +305,7 @@ export function applyDeploymentFile(paths, receipt, target, source, { authoritat
       undefined,
       { authoritative: authoritativeEnvironment },
     );
-    mkdirSync(dirname(target.path), { recursive: true, mode: 0o700 });
-    const temporary = `${target.path}.${process.pid}.${Date.now()}.settings`;
-    writeFileSync(temporary, merged, { encoding: "utf8", flag: "wx", flush: true, mode: 0o600 });
-    hardenPrivateFile(temporary);
-    if (existsSync(target.path)) durableRemove(target.path, { force: true });
-    durableRename(temporary, target.path);
+    replaceFileContents(target.path, merged);
   } else {
     copyVerified(source, target.path);
   }

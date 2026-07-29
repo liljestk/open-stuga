@@ -423,7 +423,14 @@ test("the appliance exposes a health-gated migration receiver with rollback", as
   assert.match(compose, /--include-secrets-if-present/);
   assert.match(compose, /STUGA_MIGRATION_DIRECTORY[^\n]*:\/app\/migrations/);
   assert.match(compose, /stuga-timeseries-data:\/app\/timeseries-data:ro/);
+  assert.match(compose, /STUGA_MIGRATION_SETTINGS_DIRECTORY[^\n]*:\/app\/target-settings:z/);
+  assert.match(compose, /STUGA_MIGRATION_ENV_FILENAME:-\.env/);
+  assert.doesNotMatch(compose, /STUGA_MIGRATION_ENV_FILE[^\n]*:\/app\/target-settings/);
+  assert.doesNotMatch(compose, /STUGA_CONFIG_DIRECTORY[^\n]*:\/app\/target-settings/);
   assert.match(environment, /STUGA_MIGRATION_DIRECTORY=\/persistent\/stugu\/migrations/);
+  assert.match(environment, /STUGA_MIGRATION_SETTINGS_DIRECTORY=\/persistent\/stugu/);
+  assert.match(environment, /STUGA_MIGRATION_ENV_FILENAME=stugu\.env/);
+  assert.match(composeStart, /STUGA_MIGRATION_SETTINGS_DIRECTORY=\/persistent\/stugu/);
   assert.match(layer, /STUGA_VERSION=\$\{IGconf_artefact_version\}/);
   assert.match(layer, /stugu-lock\.conf/);
 });

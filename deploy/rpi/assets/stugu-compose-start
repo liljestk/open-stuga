@@ -74,6 +74,27 @@ if [[ ! -e "$local_env" ]]; then
     "$project_dir/stugu.env.example" "$local_env"
 fi
 
+# Existing appliances keep their persistent environment across OS releases.
+# Add target-only migration mount defaults without changing operator values.
+missing_migration_settings=()
+for setting in \
+  "STUGA_MIGRATION_SETTINGS_DIRECTORY=/persistent/stugu" \
+  "STUGA_MIGRATION_ENV_FILENAME=stugu.env"; do
+  setting_name="${setting%%=*}"
+  if ! grep -q "^${setting_name}=" "$local_env"; then
+    missing_migration_settings+=("$setting")
+  fi
+done
+if (( ${#missing_migration_settings[@]} > 0 )); then
+  temporary_env="$(mktemp "$state_dir/.stugu.env.XXXXXX")"
+  cat "$local_env" > "$temporary_env"
+  printf '\n# Target settings root added by an appliance upgrade.\n' >> "$temporary_env"
+  printf '%s\n' "${missing_migration_settings[@]}" >> "$temporary_env"
+  chown "$appliance_user:$appliance_user" "$temporary_env"
+  chmod 0640 "$temporary_env"
+  mv -f "$temporary_env" "$local_env"
+fi
+
 # Appliance releases check GitHub daily and install stable releases during a
 # quiet weekly window. An administrator's saved policy always wins.
 if [[ ! -e "$state_dir/update-operations/settings.json" ]]; then
