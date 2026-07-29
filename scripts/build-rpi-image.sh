@@ -110,6 +110,20 @@ git -C "$rpi_image_gen_dir" fetch --depth 1 origin "$rpi_image_gen_ref"
 git -C "$rpi_image_gen_dir" checkout --detach "$rpi_image_gen_ref"
 
 readonly usb_rescue_patch="$repo_root/deploy/rpi/patches/0001-pi4-usb-rescue-bootconfig.patch"
+readonly -a usb_rescue_patch_targets=(
+  image/gpt/ab_userdata/genimage.cfg.in.erofs
+  image/gpt/ab_userdata/genimage.cfg.in.ext4
+  image/gpt/ab_userdata/pre-image.sh
+)
+# A cached checkout can retain a prior revision of this patch. Windows bind
+# mounts can also report every file as executable or convert its line endings,
+# which prevents git apply --reverse from recognizing that stale patch. Restore
+# only the patch-owned files from the pinned commit before applying it.
+git -C "$rpi_image_gen_dir" config core.autocrlf false
+git -C "$rpi_image_gen_dir" config core.filemode false
+git -C "$rpi_image_gen_dir" restore \
+  --source="$rpi_image_gen_ref" --staged --worktree -- \
+  "${usb_rescue_patch_targets[@]}"
 if git -C "$rpi_image_gen_dir" apply --reverse --check "$usb_rescue_patch" 2>/dev/null; then
   echo "Stugu Pi 4 USB rescue patch is already applied"
 else

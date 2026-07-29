@@ -195,6 +195,13 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
   assert.match(rescuePatch, /-      file "autoboot\.txt"/);
   assert.doesNotMatch(rescuePatch, /\+.*autoboot\.txt.*>|\+boot_partition=/);
   assert.doesNotMatch(layer, /rpi-connect-ota/);
+  assert.match(buildScript, /config core\.autocrlf false/);
+  assert.match(buildScript, /config core\.filemode false/);
+  assert.match(
+    buildScript,
+    /restore \\\n  --source="\$rpi_image_gen_ref" --staged --worktree/,
+  );
+  assert.match(buildScript, /usb_rescue_patch_targets/);
   assert.match(buildScript, /apply --check "\$usb_rescue_patch"/);
   assert.match(buildScript, /IGconf_image_idp_schema=\$usb_idp_schema/);
   assert.match(buildScript, /"nvme", "usb"/);
