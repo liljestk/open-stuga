@@ -192,7 +192,9 @@ describe("StugubyPage", () => {
     const label = screen.getByLabelText("Private name or email");
     expect((label as HTMLInputElement).value).toBe("anna@example.test");
     await user.clear(label);
+    await waitFor(() => expect((label as HTMLInputElement).value).toBe(""));
     await user.type(label, "Anna's cottage");
+    expect((label as HTMLInputElement).value).toBe("Anna's cottage");
     await user.tab();
 
     await waitFor(() => expect(updateLabel).toHaveBeenCalledWith(stuguby.id, "node-remote", "Anna's cottage"));
