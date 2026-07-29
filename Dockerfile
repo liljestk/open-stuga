@@ -174,6 +174,7 @@ COPY package.json ./package.json
 COPY scripts/sqlite-snapshot-utils.mjs scripts/stugu-backup.mjs scripts/stugu-backup-scheduler.mjs scripts/stugu-restore-drill.mjs \
   scripts/stugu-migration-common.mjs scripts/stugu-migration-bundle.mjs scripts/stugu-migration-target.mjs ./scripts/
 COPY scripts/stugu-backup ./scripts/stugu-backup
+COPY scripts/stugu-migration-target ./scripts/stugu-migration-target
 COPY --chmod=755 scripts/export-scheduled-backups.sh ./scripts/export-scheduled-backups.sh
 
 RUN install -d -o 1000 -g 1000 -m 0700 /app/backups

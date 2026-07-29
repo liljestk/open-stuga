@@ -216,6 +216,10 @@ test("clean appliance startup includes every runtime path and repairs interrupte
 
   assert.match(dockerfile, /COPY scripts\/stugu-update-agent\/ \.\/stugu-update-agent\//);
   assert.match(dockerfile, /COPY scripts\/cloudflare-stugu\/ \.\/cloudflare-stugu\//);
+  assert.match(
+    dockerfile,
+    /COPY scripts\/stugu-migration-target \.\/scripts\/stugu-migration-target/,
+  );
   assert.match(environment, /STUGA_APNS_SECRET_DIR=\/persistent\/stugu\/secrets\/apns/);
   assert.match(composeStart, /"\$state_dir\/secrets\/apns"/);
   assert.match(

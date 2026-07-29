@@ -4,6 +4,11 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.19.1 - 2026-07-29
+
+- Include the split live-migration target modules in the maintenance image and
+  guard their packaging so appliance seed and cutover commands work in releases.
+
 ## 0.19.0 - 2026-07-29
 
 - Add read-only direct Gree/Wilfa heat-pump discovery, Home-scoped setup,
