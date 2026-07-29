@@ -58,7 +58,9 @@ def safe_close(protocol: Any) -> None:
 
 def normalized_mac(value: str) -> str:
     normalized = value.replace(":", "").replace("-", "").strip().upper()
-    if len(normalized) != 12 or any(character not in "0123456789ABCDEF" for character in normalized):
+    if len(normalized) != 12 or any(
+        character not in "0123456789ABCDEF" for character in normalized
+    ):
         raise ValueError("GREE_MAC is invalid")
     return normalized
 
@@ -158,16 +160,24 @@ def state_json(device: Any) -> dict[str, Any]:
     current_temperature = reported_temperature_c(device)
     power = device.power
     selected_mode = enum_label(Mode, device.mode)
-    mode = selected_mode.lower() if selected_mode and not selected_mode.startswith("unknown-") else None
+    mode = (
+        selected_mode.lower()
+        if selected_mode and not selected_mode.startswith("unknown-")
+        else None
+    )
     activity = "off" if power is False else "unknown"
     return {
         "observedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "available": True,
         "power": power,
         "selectedMode": mode,
-        "targetTemperatureC": celsius(device.target_temperature, device.temperature_units),
+        "targetTemperatureC": celsius(
+            device.target_temperature, device.temperature_units
+        ),
         "currentTemperatureC": current_temperature,
-        "currentTemperatureSource": "reported" if current_temperature is not None else "unavailable",
+        "currentTemperatureSource": "reported"
+        if current_temperature is not None
+        else "unavailable",
         "fanSpeed": enum_label(FanSpeed, device.fan_speed),
         "horizontalSwing": enum_label(HorizontalSwing, device.horizontal_swing),
         "verticalSwing": enum_label(VerticalSwing, device.vertical_swing),
@@ -211,7 +221,9 @@ async def connect_with_key(device: Any, key: str, cipher: Any) -> None:
 async def bind_device(mac: str) -> None:
     target = normalized_mac(mac)
     infos = await scan_devices()
-    info = next((item for item in infos if normalized_mac(str(item.mac)) == target), None)
+    info = next(
+        (item for item in infos if normalized_mac(str(item.mac)) == target), None
+    )
     if info is None:
         raise RuntimeError("The selected heat pump was not found")
     device = Device(info, timeout=15, bind_timeout=10)
@@ -219,13 +231,15 @@ async def bind_device(mac: str) -> None:
         await device.bind()
         await refresh(device)
         cipher_version = 2 if isinstance(device.device_cipher, CipherV2) else 1
-        emit({
-            "type": "bound",
-            "device": device_info_json(info),
-            "key": device.device_key,
-            "cipherVersion": cipher_version,
-            "state": state_json(device),
-        })
+        emit(
+            {
+                "type": "bound",
+                "device": device_info_json(info),
+                "key": device.device_key,
+                "cipherVersion": cipher_version,
+                "state": state_json(device),
+            }
+        )
     finally:
         safe_close(device)
 
@@ -269,7 +283,13 @@ async def poll() -> None:
         try:
             await connect_with_key(device, key, cipher_for(cipher_version))
             await refresh(device)
-            emit({"type": "snapshot", "device": device_info_json(info), "state": state_json(device)})
+            emit(
+                {
+                    "type": "snapshot",
+                    "device": device_info_json(info),
+                    "state": state_json(device),
+                }
+            )
             failures = 0
             successful = True
         except TimeoutError:
@@ -297,11 +317,13 @@ async def poll() -> None:
                     previous_host = str(info.ip)
                     info = recovered
                     if str(info.ip) != previous_host:
-                        emit({
-                            "type": "host-change",
-                            "previousHost": previous_host,
-                            "host": str(info.ip),
-                        })
+                        emit(
+                            {
+                                "type": "host-change",
+                                "previousHost": previous_host,
+                                "host": str(info.ip),
+                            }
+                        )
                     failures = 0
             except Exception:
                 pass

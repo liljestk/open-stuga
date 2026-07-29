@@ -62,8 +62,12 @@ class FakeDevice:
 
 @pytest.fixture(autouse=True)
 def enums(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(bridge, "Props", SimpleNamespace(TEMP_SENSOR=object(), TEMP_BIT=object()))
-    monkeypatch.setattr(bridge, "TemperatureUnits", SimpleNamespace(F=SimpleNamespace(value=1)))
+    monkeypatch.setattr(
+        bridge, "Props", SimpleNamespace(TEMP_SENSOR=object(), TEMP_BIT=object())
+    )
+    monkeypatch.setattr(
+        bridge, "TemperatureUnits", SimpleNamespace(F=SimpleNamespace(value=1))
+    )
     monkeypatch.setattr(bridge, "Mode", Mode)
     monkeypatch.setattr(bridge, "FanSpeed", FanSpeed)
     monkeypatch.setattr(bridge, "HorizontalSwing", Swing)
