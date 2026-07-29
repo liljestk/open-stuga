@@ -1,2 +1,2 @@
-export * from "./useClimateData/support";
-export { useClimateData } from "./useClimateData/main";
+export * from "./data/bootstrap/support";
+export { useClimateData } from "./data/bootstrap/useAppBootstrap";

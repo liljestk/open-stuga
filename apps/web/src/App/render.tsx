@@ -131,6 +131,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             alerts={state.alerts}
             alertRules={state.alertRules}
             integration={state.integration}
+            dataMode={climate.dataMode}
             onOpenProperty={(id) => {
               const firstPropertyHouse = state.houses.find((candidate) => candidate.propertyId === id);
               if (firstPropertyHouse) applyHouse(firstPropertyHouse.id);
@@ -148,6 +149,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
           {page === "alerts" && <AlertsPage
             state={state}
             units={units}
+            dataMode={climate.dataMode}
             onCreateRule={climate.createRule}
             onUpdateRule={climate.updateRule}
             onAcknowledge={climate.acknowledgeAlert}
@@ -289,6 +291,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         onRetryConnection={climate.retryBootstrap}
       ><Suspense fallback={routeLoading}><PropertyManagementPage
         state={state}
+        dataMode={climate.dataMode}
         initialTab="overview"
         indexMode={propertyIndex}
         propertyId={propertyIndex ? undefined : propertyId}

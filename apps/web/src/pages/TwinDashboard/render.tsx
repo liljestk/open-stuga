@@ -4,7 +4,7 @@ import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectionState
 import { ReplayControls } from "../../components/ReplayControls";
 import { RoomComfortBoard } from "../../components/RoomComfortBoard";
 import { MoistureCoach } from "../../components/MoistureCoach";
-import { HomePulsePanel } from "../../components/HomePulsePanel";
+import { HomePulsePanelData } from "../../components/HomePulsePanel";
 import { HomeOperationsPreview } from "../../components/HomeOperationsPreview";
 import "../../components/decisionLayer.css";
 import "../OperationsPages.css";
@@ -57,7 +57,7 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
 
         {!editing && !replayActive && <>
           <div className="decision-layer">
-            <HomePulsePanel
+            <HomePulsePanelData
               key={house.id}
               house={house}
               sensors={houseSensors}
@@ -67,6 +67,7 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
               alertRules={state.alertRules}
               weather={houseWeather.weather}
               referenceTime={spatialReferenceTimeMs}
+              dataMode={dataMode}
               onOpenTarget={openDecisionSensor}
               {...(!readOnly && (localAuthority ? (sensorSourceHealthy ? props.onOpenSensors : props.onOpenConnections) : props.onOpenSensors) ? {
                 onOpenSetup: localAuthority && !sensorSourceHealthy

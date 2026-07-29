@@ -186,6 +186,7 @@ import { AREA_EQUIPMENT_STATUSES, AuthAbuseLimiter, HttpError, LOCAL_CSRF_COOKIE
 import type { ApiRuntime, AuthAttemptBucket, AuthAttemptLimit, BoundedSseWriter, CreateApiOptions, IntegrationDraftTestResult, LocalRequestPrincipal } from "./support/index.js";
 import { configureApiPart20 } from "./part-20.js";
 import { registerGreeRoutes } from "../gree-routes.js";
+import { registerAnalyticsRoutes } from "../analytics/routes.js";
 
 
 type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key], undefined> };
@@ -195,6 +196,7 @@ export function configureApiPart21(context: ReturnType<typeof configureApiPart20
   const sensorGapRecovery = context.sensorGapRecovery!;
   const integrationDiscoveryJobs = new IntegrationDiscoveryJobs();
   registerGreeRoutes(context);
+  const removeAnalyticsCacheWake = registerAnalyticsRoutes(context);
   context.app.delete(`${context.prefix}/maintenance-tasks/:id`, (request, response) => {
       const taskId = request.params.id as string;
       const previous = context.database.getMaintenanceTask(taskId);
@@ -463,6 +465,6 @@ export function configureApiPart21(context: ReturnType<typeof configureApiPart20
       });
       response.json({ ok: true, configured: true, integration: structuredClone(context.status.value) });
     });
-  const extended = Object.assign(context, { integrationDiscoveryJobs });
+  const extended = Object.assign(context, { integrationDiscoveryJobs, removeAnalyticsCacheWake });
   return extended;
 }

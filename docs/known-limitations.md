@@ -46,10 +46,14 @@ system described in the roadmap.
   explicitly instead of truncating. Standalone SQLite and raw queries remain
   bounded, and there are no specialized persisted semantic rollups, semantic
   cache, or late-data invalidation jobs yet.
-- Calendar comparison discovers the selected series' range on demand and splits
-  large periods into bounded queries. When a configured archive is unavailable,
-  the UI warns that older matching periods may be absent instead of claiming the
-  locally visible range is complete.
+- Calendar comparison discovers the selected series' range on demand and uses
+  bounded internal queries. If complete retained history cannot be proven, the
+  server rejects the whole comparison with a typed unavailable-history result;
+  it does not compare only the locally visible tail.
+- Home Performance and monitoring are deterministic decision support, not a
+  safety system or diagnosis. Scope, missing evidence, source freshness, and
+  algorithm versions remain visible, and experimental browser airflow/spatial
+  simulation never feeds these results.
 - Generic analytics-query buckets remain aligned to UTC. Calendar comparison
   composes bounded queries over exact house-local hour/day/week/month/year
   windows, including 23/24/25-hour days, but that local-calendar alignment is

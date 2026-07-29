@@ -1,22 +1,23 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Activity, Clock, DoorOpen, Download, RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
-import type { House, OpeningState, OpeningStateObservation, OpeningStateSource } from "@climate-twin/contracts";
-import { api } from "../api";
+import type {
+  House,
+  OpeningActivitySeries,
+  OpeningActivityTarget,
+  OpeningState,
+  OpeningStateSource,
+} from "@climate-twin/contracts";
+import { useOpeningActivityQuery } from "../data/analytics/openingActivityQuery";
 import { ANALYTICS_TIME_RANGES, timeRangeHours, type TimeRange } from "../domain";
 import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
-import {
-  deriveOpeningAnalytics,
-  type OpeningAnalyticsSeries,
-  type OpeningAnalyticsTarget,
-} from "../openingAnalytics";
 import { useNow } from "../useNow";
 
-const HISTORY_LIMIT = 10_000;
 const TABLE_LIMIT = 500;
 
 interface OpeningAnalyticsPanelProps {
   house: House;
+  dataMode: "demo" | "real" | "unknown";
   range: TimeRange;
   refreshRevision: number;
   liveObservationId?: string;
@@ -29,27 +30,72 @@ interface Insight {
   text: string;
 }
 
-function analyticsTargets(house: House, t: ReturnType<typeof useI18n>["t"]): OpeningAnalyticsTarget[] {
-  return house.floors.flatMap((floor) => {
-    let doorIndex = 0;
-    let windowIndex = 0;
-    return (floor.planElements ?? []).flatMap((element) => {
+interface OpeningAnalyticsViewSeries extends Omit<
+  OpeningActivitySeries,
+  "target" | "segments" | "records" | "currentSince" | "lastObservedAt"
+> {
+  target: Omit<OpeningActivityTarget, "label"> & { label: string };
+  segments: Array<Omit<OpeningActivitySeries["segments"][number], "startedAt" | "endedAt"> & {
+    startedAt: number;
+    endedAt: number;
+  }>;
+  records: Array<Omit<OpeningActivitySeries["records"][number], "observedAt"> & {
+    observedAt: number;
+  }>;
+  currentSince: number | null;
+  lastObservedAt: number | null;
+}
+
+function targetSummary(house: House): { count: number; boundCount: number; signature: string } {
+  const targets = house.floors.flatMap((floor) => (
+    (floor.planElements ?? []).flatMap((element) => {
       if (element.kind !== "door" && element.kind !== "window") return [];
-      const ordinal = element.kind === "door" ? ++doorIndex : ++windowIndex;
       if ((element.kind === "door" && element.variant === "open-passage")
         || (element.kind === "window" && element.variant === "fixed")) return [];
-      const fallback = `${t(element.kind === "door" ? "planElement.door" : "planElement.window")} ${ordinal}`;
       return [{
         key: `${floor.id}:${element.id}`,
-        floorId: floor.id,
-        floorName: floor.name,
-        elementId: element.id,
-        kind: element.kind,
-        label: element.label?.trim() || fallback,
-        binding: element.stateBinding,
+        binding: element.stateBinding
+          ? [
+              element.stateBinding.provider,
+              element.stateBinding.externalId,
+              element.stateBinding.connectionId ?? "",
+              element.stateBinding.invert ? "1" : "0",
+              element.stateBinding.staleAfterSeconds ?? "",
+            ].join(":")
+          : "",
       }];
-    });
-  });
+    })
+  ));
+  return {
+    count: targets.length,
+    boundCount: targets.filter((target) => target.binding.length > 0).length,
+    signature: targets.map((target) => `${target.key}:${target.binding}`).join("|"),
+  };
+}
+
+function viewSeries(
+  series: readonly OpeningActivitySeries[],
+  t: ReturnType<typeof useI18n>["t"],
+): OpeningAnalyticsViewSeries[] {
+  return series.map((item) => ({
+    ...item,
+    target: {
+      ...item.target,
+      label: item.target.label?.trim()
+        || `${t(item.target.kind === "door" ? "planElement.door" : "planElement.window")} ${item.target.ordinal}`,
+    },
+    segments: item.segments.map((segment) => ({
+      ...segment,
+      startedAt: Date.parse(segment.startedAt),
+      endedAt: Date.parse(segment.endedAt),
+    })),
+    records: item.records.map((record) => ({
+      ...record,
+      observedAt: Date.parse(record.observedAt),
+    })),
+    currentSince: item.currentSince === null ? null : Date.parse(item.currentSince),
+    lastObservedAt: item.lastObservedAt === null ? null : Date.parse(item.lastObservedAt),
+  }));
 }
 
 function durationLabel(milliseconds: number, locale: string): string {
@@ -100,7 +146,7 @@ function csvCell(value: string | number): string {
   return /[",\r\n]/u.test(formulaSafe) ? `"${formulaSafe.replaceAll('"', '""')}"` : formulaSafe;
 }
 
-function activityCsv(series: readonly OpeningAnalyticsSeries[]): string {
+function activityCsv(series: readonly OpeningAnalyticsViewSeries[]): string {
   const rows: Array<Array<string | number>> = [["opening", "floor", "kind", "timestamp", "state", "source"]];
   for (const item of series) {
     for (const record of item.records) {
@@ -120,65 +166,49 @@ function activityCsv(series: readonly OpeningAnalyticsSeries[]): string {
 export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps>) {
   const { locale, t } = useI18n();
   const now = useNow();
-  const [observations, setObservations] = useState<OpeningStateObservation[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [retryRevision, setRetryRevision] = useState(0);
   const [selectedKey, setSelectedKey] = useState("all");
-  const targets = useMemo(() => analyticsTargets(props.house, t), [props.house, t]);
-  const targetSignature = useMemo(() => targets.map((target) => [
-    target.key,
-    target.binding?.provider ?? "",
-    target.binding?.externalId ?? "",
-    target.binding?.connectionId ?? "",
-    target.binding?.invert ? "1" : "0",
-    target.binding?.staleAfterSeconds ?? "",
-  ].join(":")).join("|"), [targets]);
+  const targets = useMemo(() => targetSummary(props.house), [props.house]);
   const from = now - timeRangeHours(props.range) * 3_600_000;
-
-  useEffect(() => {
-    if (targets.length === 0) {
-      setObservations([]);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-    const controller = new AbortController();
-    const to = new Date();
-    const start = new Date(to.getTime() - timeRangeHours(props.range) * 3_600_000);
-    setObservations([]);
-    setError(null);
-    setLoading(true);
-    void api.openingStateHistory(
+  const request = useMemo(() => targets.count === 0 ? null : ({
+      apiVersion: "1.0",
+      requestId: [
+        "opening",
+        props.house.id,
+        props.range,
+        props.refreshRevision,
+        retryRevision,
+        props.liveObservationId ?? "",
+        targets.signature,
+      ].join("-"),
+      houseId: props.house.id,
+      dataMode: props.dataMode === "real" ? "live" : "demo",
+      range: {
+        start: new Date(from).toISOString(),
+        end: new Date(now).toISOString(),
+      },
+    } as const), [
+      from,
+      now,
+      props.dataMode,
       props.house.id,
-      start.toISOString(),
-      to.toISOString(),
-      HISTORY_LIMIT,
-      controller.signal,
-    ).then((history) => {
-      if (!controller.signal.aborted) setObservations(history);
-    }).catch((reason: unknown) => {
-      if (!controller.signal.aborted) {
-        setError(reason instanceof Error ? reason.message : t("analytics.openingLoadFailed"));
-      }
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false);
-    });
-    return () => controller.abort();
-  }, [
-    props.house.id,
-    props.liveObservationId,
-    props.range,
-    props.refreshRevision,
-    retryRevision,
-    t,
-    targetSignature,
-  ]);
+      props.liveObservationId,
+      props.range,
+      props.refreshRevision,
+      retryRevision,
+      targets.count,
+      targets.signature,
+    ]);
+  const query = useOpeningActivityQuery(request, props.dataMode !== "unknown");
+  const response = query.data ?? null;
+  const loading = query.isLoading || query.isFetching && !query.data;
+  const error = query.error instanceof Error
+    ? query.error.message
+    : query.error
+      ? t("analytics.openingLoadFailed")
+      : null;
 
-  const series = useMemo(
-    () => deriveOpeningAnalytics(targets, observations, from, now),
-    [from, now, observations, targets],
-  );
+  const series = useMemo(() => viewSeries(response?.series ?? [], t), [response?.series, t]);
   const visibleSeries = selectedKey === "all"
     ? series
     : series.filter((item) => item.target.key === selectedKey);
@@ -187,7 +217,7 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
     if (selectedKey !== "all" && !series.some((item) => item.target.key === selectedKey)) setSelectedKey("all");
   }, [selectedKey, series]);
 
-  if (targets.length === 0 || (series.length === 0 && !targets.some((target) => target.binding))) return null;
+  if (targets.count === 0 || (series.length === 0 && targets.boundCount === 0)) return null;
 
   const observedSeries = visibleSeries.filter((item) => item.observationCount > 0);
   const knownCurrent = visibleSeries.filter((item) => item.currentState !== "unknown");
@@ -202,7 +232,7 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
   ))[0];
   const records = visibleSeries.flatMap((item) => item.records.map((record) => ({ item, record })))
     .sort((left, right) => right.record.observedAt - left.record.observedAt);
-  const truncated = observations.length >= HISTORY_LIMIT - 1;
+  const truncated = response?.truncated === true;
   const stateNames = new Intl.ListFormat(locale, { style: "long", type: "conjunction" })
     .format(openNow.map((item) => item.target.label));
   const insights: Insight[] = [];
@@ -227,7 +257,12 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
   if (insights.length === 0 && observedSeries.length > 0) {
     insights.push({ id: "quiet", icon: <Sparkles size={18} />, text: t("analytics.openingInsightQuiet") });
   }
-  const ticks = Array.from({ length: 5 }, (_, index) => from + (now - from) * index / 4);
+  const timelineFrom = response ? Date.parse(response.range.start) : from;
+  const timelineTo = response ? Date.parse(response.range.end) : now;
+  const timelineDuration = Math.max(1, timelineTo - timelineFrom);
+  const ticks = Array.from({ length: 5 }, (_, index) => (
+    timelineFrom + timelineDuration * index / 4
+  ));
   const csv = activityCsv(visibleSeries);
 
   return <section className="panel opening-analytics-panel" aria-labelledby="opening-analytics-title">
@@ -296,7 +331,7 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
           <div className="opening-timeline">
             <div className="opening-timeline-axis" aria-hidden="true">
               <span />
-              <div>{ticks.map((tick) => <time key={tick} style={{ left: `${(tick - from) / (now - from) * 100}%` }}>{formatInTimeZone(tick, locale, props.house.timezone, tickOptions(props.range))}</time>)}</div>
+              <div>{ticks.map((tick) => <time key={tick} style={{ left: `${(tick - timelineFrom) / timelineDuration * 100}%` }}>{formatInTimeZone(tick, locale, props.house.timezone, tickOptions(props.range))}</time>)}</div>
               <span />
             </div>
             {visibleSeries.map((item) => <div className="opening-timeline-row" key={item.target.key}>
@@ -311,8 +346,8 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
                   key={`${segment.startedAt}-${index}`}
                   className={`opening-timeline-segment ${segment.state}`}
                   style={{
-                    left: `${Math.max(0, (segment.startedAt - from) / (now - from) * 100)}%`,
-                    width: `${Math.max(.12, (segment.endedAt - segment.startedAt) / (now - from) * 100)}%`,
+                    left: `${Math.max(0, (segment.startedAt - timelineFrom) / timelineDuration * 100)}%`,
+                    width: `${Math.max(.12, (segment.endedAt - segment.startedAt) / timelineDuration * 100)}%`,
                   }}
                   title={t("analytics.openingInterval", {
                     state: stateLabel(segment.state, t),
@@ -323,7 +358,7 @@ export function OpeningAnalyticsPanel(props: Readonly<OpeningAnalyticsPanelProps
                 {item.records.map((record) => <i
                   key={record.id}
                   className="opening-timeline-change"
-                  style={{ left: `${Math.max(0, Math.min(100, (record.observedAt - from) / (now - from) * 100))}%` }}
+                  style={{ left: `${Math.max(0, Math.min(100, (record.observedAt - timelineFrom) / timelineDuration * 100))}%` }}
                 />)}
               </div>
               <span className={`opening-current-state ${item.currentState}`}>

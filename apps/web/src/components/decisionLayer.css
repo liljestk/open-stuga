@@ -223,6 +223,7 @@ button.pulse-insight:hover { border-color: var(--action); background: var(--acti
 .comfort-state.offline { color: var(--muted); background: var(--panel-soft); }
 .room-card-readings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .room-card-readings.two-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.room-card-readings.four-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .room-card-readings > span { min-width: 0; display: grid; gap: 3px; }
 .room-card-readings b { overflow: hidden; font: 700 15px/1.2 "Manrope", sans-serif; text-overflow: ellipsis; white-space: nowrap; }
 .room-card-readings small { display: flex; align-items: center; gap: 3px; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }

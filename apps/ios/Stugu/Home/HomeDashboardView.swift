@@ -307,6 +307,7 @@ struct HomeDashboardView: View {
         case .weatherWarning: "exclamationmark.triangle.fill"
         case .ventilation: "wind"
         case .electricity: "bolt.fill"
+        case .monitoring: "waveform.path.ecg"
         }
     }
 

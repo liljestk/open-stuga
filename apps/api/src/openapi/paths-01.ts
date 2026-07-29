@@ -80,6 +80,41 @@ export const pathsPart01 = {
           },
         },
       },
+  "/analytics/opening-activity": {
+        post: {
+          servers: [{ url: "/api/v2" }],
+          tags: ["Measurements"],
+          operationId: "openingActivity",
+          description: "Derives door and window activity with canonical half-open observation validity, transition counting, and provenance.",
+          requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/OpeningActivityRequest" } } } },
+          responses: {
+            "200": { description: "Server-owned opening timelines and transition summaries", content: { "application/json": { schema: { $ref: "#/components/schemas/OpeningActivityResponse" } } } },
+            "400": { description: "Malformed request, unsupported version, or invalid range" },
+            "404": { description: "The Home is absent or outside the caller's visibility" },
+            "409": { description: "Requested dataMode does not match the isolated local database mode" },
+            "503": { description: "Required historical telemetry is temporarily incomplete" },
+          },
+        },
+      },
+  "/analytics/home-performance": {
+        get: {
+          servers: [{ url: "/api/v2" }],
+          tags: ["Measurements"],
+          operationId: "homePerformance",
+          description: "Returns the server-owned, whole-Home 30-day performance derivation. Evidence windows, metrics, quality policy, and scope limits are fixed by the algorithm version.",
+          parameters: [
+            { name: "houseId", in: "query", required: true, schema: { type: "string", minLength: 1, maxLength: 200 } },
+            { name: "dataMode", in: "query", required: true, schema: { enum: ["live", "demo"] } },
+          ],
+          responses: {
+            "200": { description: "Six versioned performance sections with evidence limitations, provenance, and cache metadata", content: { "application/json": { schema: { $ref: "#/components/schemas/HomePerformanceResponse" } } } },
+            "400": { description: "houseId or dataMode is missing or invalid" },
+            "404": { description: "The Home is absent or outside the caller's visibility" },
+            "409": { description: "Requested dataMode does not match the isolated local database mode" },
+            "422": { description: "The complete visible Home scope exceeds a deterministic sensor, evidence-point, or response-byte limit" },
+          },
+        },
+      },
   "/analytics/coverage": {
         post: {
           servers: [{ url: "/api/v2" }],

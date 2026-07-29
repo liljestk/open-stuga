@@ -1,20 +1,16 @@
 import { useId, useMemo } from "react";
 import type {
+  CalendarComparisonBucket,
+  CalendarComparisonPeriod,
+  CalendarComparisonResponse,
   MeasurementDefinition,
   Sensor,
   UnitSystem,
 } from "@climate-twin/contracts";
-import type {
-  CalendarComparisonBucket,
-  CalendarComparisonPeriod,
-} from "../calendarComparison";
 import {
   calendarPeriodSeries,
-  commonCompletedCalendarSlots,
-  summarizeCalendarSeries,
   type CalendarComparisonSource,
   type CalendarPeriodSeries,
-  type LoadedCalendarComparison,
 } from "../calendarComparisonView";
 import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
@@ -27,7 +23,7 @@ import {
 } from "../measurements";
 
 interface CalendarComparisonResultProps {
-  loaded: LoadedCalendarComparison;
+  loaded: CalendarComparisonResponse;
   sensors: Sensor[];
   source: CalendarComparisonSource;
   sourceLabel: string;
@@ -127,13 +123,13 @@ export function CalendarComparisonResult(props: Readonly<CalendarComparisonResul
   const { locale, t } = useI18n();
   const summaryId = useId();
   const series = useMemo(
-    () => calendarPeriodSeries(props.loaded, props.sensors, props.source, props.definition),
-    [props.definition, props.loaded, props.sensors, props.source],
+    () => calendarPeriodSeries(props.loaded, props.source),
+    [props.loaded, props.source],
   );
   const slots = useMemo(() => {
     const bySlot = new Map<string, Slot>();
     for (const item of series) {
-      for (const bucket of props.loaded.buckets.get(item.period.key) ?? []) {
+      for (const { bucket } of item.points) {
         if (!bySlot.has(bucket.slot)) bySlot.set(bucket.slot, {
           id: bucket.slot,
           order: bucket.order,
@@ -143,18 +139,20 @@ export function CalendarComparisonResult(props: Readonly<CalendarComparisonResul
       }
     }
     return [...bySlot.values()].sort((left, right) => left.order - right.order);
-  }, [props.loaded.buckets, series]);
+  }, [series]);
   const indexBySlot = new Map(slots.map((slot, index) => [slot.id, index]));
   const values = series.flatMap((item) => item.points.map((point) => point.value));
   const domain = measurementDomain(props.definition, values);
-  const completedSlots = commonCompletedCalendarSlots(series);
   const summaries = series.map((item) => ({
     series: item,
-    summary: summarizeCalendarSeries(item, completedSlots),
+    summary: item.summary,
   }));
-  const delta = summaries.length === 2 && summaries[0]!.summary && summaries[1]!.summary
-    ? summaries[0]!.summary.value - summaries[1]!.summary.value
-    : null;
+  const serverComparison = props.loaded.comparisons.find((item) => (
+    item.sourceId === props.source
+    && item.currentSeriesId === series[0]?.id
+    && item.baselineSeriesId === series[1]?.id
+  ));
+  const delta = serverComparison?.difference ?? null;
 
   if (!domain || slots.length === 0 || values.length === 0) return null;
   const plotWidth = width - margin.left - margin.right;
@@ -193,7 +191,7 @@ export function CalendarComparisonResult(props: Readonly<CalendarComparisonResul
         <small>{t("analytics.comparisonDifferenceContext", {
           current: props.periodLabel(series[0]!.period, true),
           baseline: props.periodLabel(series[1]!.period, true),
-          count: completedSlots.size,
+          count: serverComparison?.commonCompletedBucketCount ?? 0,
         })}</small>
       </article>}
     </div>

@@ -4,6 +4,20 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.20.0 - 2026-07-29
+
+- Move Home Performance, Home monitoring/insights, opening activity, and
+  calendar comparison to versioned server-authoritative analytics shared by
+  REST, MCP, web, and iPhone clients.
+- Replace the mechanically numbered `useClimateData` chain with named,
+  ownership-based modules, one live-event coordinator, React Query analytics
+  resources, and automated architecture boundaries.
+- Correct expired opening-transition counting, room freshness and live power,
+  exact wind bearings, and whole-home electricity aggregation.
+- Require complete calendar evidence, invalidate bounded analytics caches on
+  relevant writes, and make stale daily-finding versions visible while they
+  recompute.
+
 ## 0.19.10 - 2026-07-29
 
 - Emit Raspberry Pi initramfs files as one zstd stream to match the

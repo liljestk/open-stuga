@@ -1,7 +1,9 @@
-import type { AreaEquipment, PropertyArea } from "@climate-twin/contracts";
+import type {
+  AreaEquipment,
+  HomeMonitoringSummary,
+  PropertyArea,
+} from "@climate-twin/contracts";
 import type { ClimateState } from "./domain";
-import { deriveHouseMonitoring } from "./houseMonitoring";
-import { integrationForHouse } from "./integrationScope";
 
 export type PropertyTrafficLightId = "house" | "equipment" | "well" | "infrastructure";
 export type PropertyTrafficLightLevel = "ok" | "caution" | "critical";
@@ -15,12 +17,6 @@ export interface PropertyTrafficLight {
 
 type PropertyStatusState = Pick<ClimateState,
   | "houses"
-  | "sensors"
-  | "latestMeasurements"
-  | "measurementHistory"
-  | "alerts"
-  | "alertRules"
-  | "integration"
   | "propertyAreas"
   | "areaEquipment"
 >;
@@ -39,25 +35,22 @@ function equipmentFailure(items: readonly AreaEquipment[]): boolean {
 export function derivePropertyTrafficLights(
   state: PropertyStatusState,
   propertyId: string,
-  referenceTime: string | number,
+  monitoring: readonly HomeMonitoringSummary[],
 ): PropertyTrafficLight[] {
   const houses = state.houses.filter((house) => house.propertyId === propertyId);
   const areas = state.propertyAreas.filter((area) => area.propertyId === propertyId);
   const equipment = state.areaEquipment.filter((item) => item.propertyId === propertyId && item.status !== "retired");
-  const monitoring = houses.map((house) => deriveHouseMonitoring({
-    house,
-    sensors: state.sensors,
-    latestMeasurements: state.latestMeasurements,
-    measurementHistory: state.measurementHistory,
-    alerts: state.alerts,
-    alertRules: state.alertRules,
-    integration: integrationForHouse(state.integration, house.id, Boolean(house.location)),
-    referenceTime,
-  }));
+  const byHouse = new Map(monitoring.map((result) => [result.houseId, result]));
+  const houseMonitoring = houses.flatMap((house) => {
+    const result = byHouse.get(house.id);
+    return result ? [result] : [];
+  });
 
-  const houseConnectionDown = monitoring.some((result) => result.blockers.some((blocker) => blocker.kind === "source-disconnected"));
-  const houseFailure = monitoring.some((result) => result.status === "action-required");
-  const houseGap = houses.length === 0 || monitoring.some((result) => result.status !== "monitoring-ok");
+  const houseConnectionDown = houseMonitoring.some((result) => result.blockers.some((blocker) => blocker.kind === "source-disconnected"));
+  const houseFailure = houseMonitoring.some((result) => result.status === "action-required");
+  const houseGap = houses.length === 0
+    || houseMonitoring.length !== houses.length
+    || houseMonitoring.some((result) => result.status !== "monitoring-ok");
   const house: PropertyTrafficLight = houseConnectionDown
     ? { id: "house", level: "critical", reason: "connection-down" }
     : houseFailure

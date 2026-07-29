@@ -102,4 +102,38 @@ describe("DailyAnalyticsFindings", () => {
     expect(await screen.findByText("Compared through July 21, 2026")).not.toBeNull();
     expect(screen.queryByText("Compared through July 22, 2026")).toBeNull();
   });
+
+  it("withholds a stale algorithm snapshot while the server recomputes it", async () => {
+    const state = createDemoState();
+    const house = { ...state.houses[0]!, timezone: "UTC" };
+    vi.spyOn(api, "analyticsFindings").mockResolvedValue({
+      status: {
+        state: "stale-algorithm",
+        lastAttemptAt: "2026-07-22T01:00:00.000Z",
+        lastError: null,
+        expectedAlgorithmVersion: "calendar-peer-findings-v2.0.0",
+        actualAlgorithmVersion: "calendar-peer-findings-v1.0.0",
+      },
+      snapshot: {
+        apiVersion: "1.0",
+        houseId: house.id,
+        dataMode: "demo",
+        periodKind: "month-to-date",
+        evaluatedThrough: "2026-07-21",
+        algorithmVersion: "calendar-peer-findings-v1.0.0",
+        generatedAt: "2026-07-22T01:00:00.000Z",
+        warnings: [],
+        findings: [],
+      },
+    });
+
+    render(<I18nProvider><DailyAnalyticsFindings
+      house={house}
+      definitions={state.measurementDefinitions}
+      units="metric"
+    /></I18nProvider>);
+
+    expect(await screen.findByText("Daily comparisons are being updated")).not.toBeNull();
+    expect(screen.queryByText("Compared through July 21, 2026")).toBeNull();
+  });
 });

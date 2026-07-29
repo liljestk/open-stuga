@@ -546,6 +546,8 @@ export const enPart5 = {
   "analytics.findingsPendingBody": "Stugu will check sensor history, observed outdoor weather, electricity measurements, and linked door or window activity.",
   "analytics.findingsRunFailed": "The latest daily check did not complete",
   "analytics.findingsRunFailedHelp": "The last successful findings remain visible. Stored source data was not changed.",
+  "analytics.findingsUpdatingTitle": "Daily comparisons are being updated",
+  "analytics.findingsUpdatingBody": "A stored result uses an older calculation method. Stugu is recomputing it and will not present the outdated result.",
   "analytics.findingsThrough": "Compared through {date}",
   "analytics.findingsCount": "{count} notable findings",
   "analytics.findingsArchiveWarning": "Older archive data was unavailable, so some peer years may be missing.",

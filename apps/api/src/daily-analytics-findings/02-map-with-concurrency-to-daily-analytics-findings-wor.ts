@@ -10,8 +10,6 @@ import type {
   House,
   MeasurementDefinition,
   MeasurementSample,
-  OpeningStateBinding,
-  PlanElement,
   Sensor,
 } from "@climate-twin/contracts";
 import {
@@ -22,14 +20,14 @@ import { buildAnalyticsResponseFromRollup, planAnalyticsRollup } from "../analyt
 import {
   ClimateDatabase,
   outdoorLocationKey,
-  type OpeningStateActivityRecord,
 } from "../db.js";
+import { deriveOpeningActivity } from "../analytics/temporal/opening-intervals.js";
 import {
   HybridTelemetryReader,
   IncompleteTelemetryHistoryError,
   type HybridArchiveReadState,
 } from "../timeseries/read-facade.js";
-import { DAILY_ANALYTICS_ALGORITHM_VERSION, DEFAULT_INTERVAL_MS, DEFAULT_STARTUP_JITTER_MS, DailyAnalyticsFindingsRunSummary, DailyAnalyticsFindingsWorkerOptions, DailyAnalyticsFindingsWorkerStatus, FindingPeriods, HISTORY_LIMIT, MAX_FINDINGS, MAX_MEASUREMENT_SERIES, OUTDOOR_TEMPERATURE_DEFINITION, PeerPeriod, PeriodValue, RankedFinding, aggregateAnalyticsSeries, comparisonFinding, dailyFindingPeriods, electricityDefinition, errorMessage, openingActivityFromObservations, openingPeriodValue, usable } from "./01-daily-analytics-algorithm-version-to-error-message.js";
+import { DAILY_ANALYTICS_ALGORITHM_VERSION, DEFAULT_INTERVAL_MS, DEFAULT_STARTUP_JITTER_MS, DailyAnalyticsFindingsRunSummary, DailyAnalyticsFindingsWorkerOptions, DailyAnalyticsFindingsWorkerStatus, FindingPeriods, HISTORY_LIMIT, MAX_FINDINGS, MAX_MEASUREMENT_SERIES, OUTDOOR_TEMPERATURE_DEFINITION, PeerPeriod, PeriodValue, RankedFinding, aggregateAnalyticsSeries, comparisonFinding, dailyFindingPeriods, electricityDefinition, errorMessage, usable } from "./01-daily-analytics-algorithm-version-to-error-message.js";
 
 export async function mapWithConcurrency<T, R>(
   values: readonly T[],
@@ -388,9 +386,12 @@ export class DailyAnalyticsFindingsWorker {
   ): Promise<RankedFinding[]> {
     const activity = await Promise.all([periods.current, ...periods.baseline].map(async (period) => {
       try {
-        const leadingAt = new Date(Date.parse(period.start) - 1).toISOString();
         const [leading, history] = await Promise.all([
-          this.#telemetryReader.openingStateSnapshot({ houseId: house.id, at: leadingAt, limit: 10_000 }),
+          this.#telemetryReader.openingStateSnapshot({
+            houseId: house.id,
+            at: period.start,
+            limit: 10_000,
+          }),
           this.#telemetryReader.openingStateHistory({
             houseId: house.id,
             from: period.start,
@@ -400,7 +401,8 @@ export class DailyAnalyticsFindingsWorker {
         ]);
         return {
           period,
-          rows: openingActivityFromObservations(
+          series: deriveOpeningActivity(
+            house,
             [...leading.records, ...history.records],
             period.start,
             period.end,
@@ -409,7 +411,7 @@ export class DailyAnalyticsFindingsWorker {
       } catch (error) {
         if (error instanceof IncompleteTelemetryHistoryError) {
           warnings.add("archive-incomplete");
-          return { period, rows: [] as OpeningStateActivityRecord[] };
+          return { period, series: [] as ReturnType<typeof deriveOpeningActivity> };
         }
         throw error;
       }
@@ -420,10 +422,22 @@ export class DailyAnalyticsFindingsWorker {
         if ((element.kind !== "door" && element.kind !== "window")
           || (element.kind === "door" && element.variant === "open-passage")
           || (element.kind === "window" && element.variant === "fixed")) continue;
-        const current = openingPeriodValue(activity[0]!.rows, floor.id, element);
+        const key = `${floor.id}:${element.id}`;
+        const periodValue = (series: ReturnType<typeof deriveOpeningActivity>): PeriodValue | null => {
+          const opening = series.find((item) => item.target.key === key);
+          return opening && opening.observationCount > 0
+            ? {
+                value: opening.openedCount,
+                sampleCount: opening.observationCount,
+                coverage: null,
+                statistic: "open-count",
+              }
+            : null;
+        };
+        const current = periodValue(activity[0]!.series);
         if (!current) continue;
-        const peers = activity.slice(1).flatMap(({ period, rows }) => {
-          const value = openingPeriodValue(rows, floor.id, element);
+        const peers = activity.slice(1).flatMap(({ period, series }) => {
+          const value = periodValue(series);
           return value ? [{ period, value }] : [];
         });
         if (peers.length === 0) continue;

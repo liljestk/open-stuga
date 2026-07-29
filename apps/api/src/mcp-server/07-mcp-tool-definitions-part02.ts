@@ -183,6 +183,26 @@ export const mcpToolDefinitionsPart02 = [
         },
       },
   {
+        name: "get_opening_activity",
+        description: "Derive canonical door and window timelines, open durations, and transition counts for one Home.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            houseId: { type: "string", minLength: 1, maxLength: 200 },
+            from: { type: "string", format: "date-time" },
+            to: { type: "string", format: "date-time" },
+            elementIds: {
+              type: "array",
+              maxItems: 500,
+              uniqueItems: true,
+              items: { type: "string", minLength: 1, maxLength: 200 },
+            },
+          },
+          required: ["houseId"],
+          additionalProperties: false,
+        },
+      },
+  {
         name: "get_house_electricity_price",
         description: "Inspect the current effective electricity price for one Home and optional bounded price history inherited from its Property.",
         inputSchema: {

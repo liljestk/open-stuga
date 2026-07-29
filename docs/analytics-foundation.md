@@ -62,6 +62,13 @@ psychrometrics, causal inference, or new forecast models.
   from existing climate, opening, outdoor, electricity, maintenance, and
   observation evidence. It keeps missing evidence unavailable, marks limited
   confidence explicitly, and exposes the algorithm version and source scope.
+- Server-authoritative Home monitoring, recommendations, opening activity, and
+  calendar comparison endpoints. REST, MCP, web, and iPhone share the same
+  versioned derivations; the server owns evidence windows, quality gates, source
+  scope, and incomplete-history behavior.
+- Calendar comparison is one bounded server request over house-local periods.
+  It refuses the whole request when complete historical coverage cannot be
+  proven and never silently compares a shortened local tail.
 - Optional bounded history on the existing
   `GET /api/v1/houses/:id/opening-states` endpoint. The response preserves the
   current snapshot contract while adding ordered observations for a requested
@@ -83,7 +90,7 @@ The implementation reuses the existing architecture:
 | Data-mode isolation | One-way database-wide demo-to-real transition | Require `demo` or `live` in every analytics request and reject the mode not active in the local database. |
 | API conventions | Express v1/v2 routes, local authorization, OpenAPI parity tests | Put registry analytics in v2 and treat the complex POST as read-only for guest/CSRF/mutation-event rules. |
 | UI | Existing Data & analytics route and SVG sensor chart | Add evidence below the chart; do not replace the chart renderer in this slice. |
-| State and requests | Existing React state and API client | Use an abortable query tied to house, metric, entities, range, mode, and refresh revision. |
+| State and requests | React Query plus one live-event coordinator | Derived resources have stable keys and targeted invalidation; the named bootstrap pipeline retains non-migrated current-state resources. |
 | Jobs | Existing background-worker patterns | A six-hourly idempotent worker guarantees at most one successful snapshot per house-local completed date; interactive rollups remain on demand. |
 | LLM use | None required | All values are deterministic; no raw series is sent to an LLM. |
 

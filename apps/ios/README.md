@@ -16,6 +16,9 @@ user-selected Stugu server; there is no intermediary app service.
 - Property-aware Home selection with clear owned/remote Stuguby origin, sync,
   and edit-policy cues across the app, widgets, and Watch
 - Exception-first Home summary with live measurement freshness
+- Version-gated server-authoritative Home monitoring and recommendations using
+  the same provenance-bearing result as web; older servers show an upgrade
+  requirement instead of running a divergent Swift fallback
 - Sensor list and native Swift Charts history
 - Live TP-Link door/window contact state, bounded opening history, transition
   summaries, and direct handoff to the full management surface

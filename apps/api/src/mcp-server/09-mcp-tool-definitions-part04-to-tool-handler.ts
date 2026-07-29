@@ -97,6 +97,7 @@ import { resultOutputSchema, server } from "./05-get-mcp-stuguby-to-result-outpu
 import { READ_ONLY_MCP_TOOL_NAMES, mcpToolDefinitionsPart01 } from "./06-read-only-mcp-tool-names-to-mcp-tool-definitions.js";
 import { mcpToolDefinitionsPart02 } from "./07-mcp-tool-definitions-part02.js";
 import { mcpToolDefinitionsPart03 } from "./08-mcp-tool-definitions-part03.js";
+import { derivedAnalyticsToolDefinitions } from "./11-derived-analytics-tools.js";
 
 export const mcpToolDefinitionsPart04 = [
   {
@@ -370,6 +371,7 @@ export const mcpToolDefinitions = [
   ...mcpToolDefinitionsPart03,
   ...mcpToolDefinitionsPart04,
   ...mcpToolDefinitionsPart05,
+  ...derivedAnalyticsToolDefinitions,
 ] as const;
 
 export const mcpTools = mcpToolDefinitions.filter((tool) => READ_ONLY_MCP_TOOL_NAMES.has(tool.name)).map((tool) => ({

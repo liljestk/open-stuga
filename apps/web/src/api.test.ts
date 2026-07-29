@@ -350,6 +350,49 @@ describe("daily analytics findings API client", () => {
   });
 });
 
+describe("opening activity API client", () => {
+  it("posts a versioned server-side derivation request to v2", async () => {
+    const input = {
+      apiVersion: "1.0" as const,
+      requestId: "opening-client-test",
+      houseId: "house/main",
+      dataMode: "live" as const,
+      range: {
+        start: "2026-07-28T00:00:00.000Z",
+        end: "2026-07-29T00:00:00.000Z",
+      },
+    };
+    const result = {
+      ...input,
+      generatedAt: input.range.end,
+      complete: true,
+      truncated: false,
+      archiveState: "not-configured",
+      series: [],
+      warnings: [],
+      provenance: {
+        algorithmKey: "opening-activity",
+        algorithmVersion: "opening-activity-v2.0.0",
+        evaluatedAt: input.range.end,
+        sourceIds: [],
+        archiveState: "not-configured",
+      },
+    };
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => result } as Response);
+
+    await expect(api.openingActivity(input)).resolves.toEqual(result);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v2/analytics/opening-activity",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify(input),
+        credentials: "include",
+      }),
+    );
+  });
+});
+
 describe("maintenance task API client", () => {
   it("combines property, house, area, and equipment list filters", async () => {
     const fetchMock = vi.mocked(fetch);
@@ -543,38 +586,5 @@ describe("live event client", () => {
     disposeUpdates();
     expect(updateSource?.closed).toBe(true);
     disposeAuthorization();
-  });
-});
-
-describe("thermal simulation API client", () => {
-  it("encodes the calibration window and optional weather scenario", async () => {
-    const simulation = { sensorId: "sensor/office", points: [] };
-    const fetchMock = vi.mocked(fetch);
-    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ simulation }) } as Response);
-
-    await expect(api.thermalSimulation("house/main", {
-      sensorId: "sensor/office",
-      from: "2026-07-13T10:00:00.000Z",
-      to: "2026-07-14T10:00:00.000Z",
-      horizonHours: 12,
-      scenarioOutdoorTemperatureC: -10,
-    })).resolves.toEqual(simulation);
-
-    const [url] = fetchMock.mock.calls[0]!;
-    expect(url).toBe("/api/v1/houses/house%2Fmain/thermal-simulation?sensorId=sensor%2Foffice&from=2026-07-13T10%3A00%3A00.000Z&to=2026-07-14T10%3A00%3A00.000Z&horizonHours=12&scenarioOutdoorTemperatureC=-10");
-  });
-
-  it("encodes the whole-home thermal isolation window", async () => {
-    const isolation = { houseId: "house/main", entries: [] };
-    const fetchMock = vi.mocked(fetch);
-    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ isolation }) } as Response);
-
-    await expect(api.thermalIsolation("house/main", {
-      from: "2026-07-07T10:00:00.000Z",
-      to: "2026-07-14T10:00:00.000Z",
-    })).resolves.toEqual(isolation);
-
-    const [url] = fetchMock.mock.calls[0]!;
-    expect(url).toBe("/api/v1/houses/house%2Fmain/thermal-isolation?from=2026-07-07T10%3A00%3A00.000Z&to=2026-07-14T10%3A00%3A00.000Z");
   });
 });

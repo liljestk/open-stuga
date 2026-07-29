@@ -9,16 +9,12 @@ import type {
   House,
   MeasurementDefinition,
   MeasurementSample,
-  OpeningStateBinding,
-  OpeningStateObservation,
-  PlanElement,
   Sensor,
 } from "@climate-twin/contracts";
 import { analyticsDefinitionSemantics, buildAnalyticsResponse } from "../analytics.js";
 import {
   ClimateDatabase,
   outdoorLocationKey,
-  type OpeningStateActivityRecord,
 } from "../db.js";
 import {
   HybridTelemetryReader,
@@ -26,7 +22,7 @@ import {
   type HybridArchiveReadState,
 } from "../timeseries/read-facade.js";
 
-export const DAILY_ANALYTICS_ALGORITHM_VERSION = "calendar-peer-findings-v1.0.0";
+export const DAILY_ANALYTICS_ALGORITHM_VERSION = "calendar-peer-findings-v2.0.0";
 
 export const HISTORY_LIMIT = 100_000;
 
@@ -370,88 +366,6 @@ export const OUTDOOR_TEMPERATURE_DEFINITION: MeasurementDefinition = {
   spatialInterpolation: false,
   forecastSupported: false,
 };
-
-export function matchingOpeningActivity(
-  rows: readonly OpeningStateActivityRecord[],
-  floorId: string,
-  elementId: string,
-  binding: OpeningStateBinding | undefined,
-): OpeningStateActivityRecord[] {
-  const matchingElement = rows.filter((row) => row.floorId === floorId && row.elementId === elementId);
-  if (binding) {
-    return matchingElement.filter((row) => row.source === binding.provider
-      && row.externalId === binding.externalId
-      && (binding.connectionId === undefined || row.connectionId === binding.connectionId));
-  }
-  const api = matchingElement.filter((row) => row.source === "api");
-  return api.length > 0 ? api : matchingElement.filter((row) => row.source === "manual");
-}
-
-export function openingActivityFromObservations(
-  observations: readonly OpeningStateObservation[],
-  from: string,
-  to: string,
-): OpeningStateActivityRecord[] {
-  const fromMs = Date.parse(from);
-  const toMs = Date.parse(to);
-  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs) return [];
-  const ordered = [...new Map(observations.map((observation) => [observation.id, observation])).values()]
-    .sort((left, right) => left.observedAt.localeCompare(right.observedAt) || left.id.localeCompare(right.id));
-  const groups = new Map<string, {
-    row: OpeningStateActivityRecord;
-    previous: OpeningStateObservation | null;
-  }>();
-  for (const observation of ordered) {
-    const key = JSON.stringify([
-      observation.floorId,
-      observation.elementId,
-      observation.source,
-      observation.externalId ?? null,
-      observation.connectionId ?? null,
-    ]);
-    const entry = groups.get(key) ?? {
-      row: {
-        floorId: observation.floorId,
-        elementId: observation.elementId,
-        source: observation.source,
-        externalId: observation.externalId ?? null,
-        connectionId: observation.connectionId ?? null,
-        observationCount: 0,
-        openedCount: 0,
-        closedCount: 0,
-      },
-      previous: null,
-    };
-    const observedAtMs = Date.parse(observation.observedAt);
-    if (Number.isFinite(observedAtMs) && observedAtMs >= fromMs && observedAtMs < toMs) {
-      entry.row.observationCount += 1;
-      const previousExpired = entry.previous?.validUntil
-        ? Date.parse(entry.previous.validUntil) < observedAtMs
-        : false;
-      if (!previousExpired && entry.previous?.state === "closed" && observation.state === "open") {
-        entry.row.openedCount += 1;
-      } else if (!previousExpired && entry.previous?.state === "open" && observation.state === "closed") {
-        entry.row.closedCount += 1;
-      }
-    }
-    entry.previous = observation;
-    groups.set(key, entry);
-  }
-  return [...groups.values()].map(({ row }) => row).filter((row) => row.observationCount > 0);
-}
-
-export function openingPeriodValue(
-  rows: readonly OpeningStateActivityRecord[],
-  floorId: string,
-  element: PlanElement,
-): PeriodValue | null {
-  if (element.kind !== "door" && element.kind !== "window") return null;
-  const matching = matchingOpeningActivity(rows, floorId, element.id, element.stateBinding);
-  const observations = matching.reduce((total, row) => total + row.observationCount, 0);
-  if (observations < 1) return null;
-  const value = matching.reduce((total, row) => total + (element.stateBinding?.invert ? row.closedCount : row.openedCount), 0);
-  return { value, sampleCount: observations, coverage: null, statistic: "open-count" };
-}
 
 export function errorMessage(error: unknown): string {
   if (error instanceof IncompleteTelemetryHistoryError) return "Historical telemetry is temporarily unavailable";

@@ -97,7 +97,7 @@ describe("read-only MCP server", () => {
 
       const listed = await client.listTools();
       const names = listed.tools.map((tool) => tool.name);
-      expect(listed.tools).toHaveLength(54);
+      expect(listed.tools).toHaveLength(58);
       expect(new Set(names).size).toBe(names.length);
       expect(names).toEqual(expect.arrayContaining([
         "list_properties",
@@ -108,6 +108,10 @@ describe("read-only MCP server", () => {
         "get_property_energy_optimization",
         "list_property_notes",
         "get_house_opening_states",
+        "get_opening_activity",
+        "get_home_performance",
+        "get_home_monitoring",
+        "compare_calendar_periods",
         "get_house_energy_cost",
         "query_outdoor_temperature_history",
         "get_house_thermal_isolation",

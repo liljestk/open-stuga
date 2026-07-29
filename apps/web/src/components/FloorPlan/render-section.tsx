@@ -42,6 +42,7 @@ import { chimneyPenetrationsForFloor, fireplaceChimneyDimensions } from "../../a
 import { MapInformationToggle, useMapInformationVisibility } from "../MapInformationToggle";
 import { effectiveOpeningState, openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../openingState";
 import { GEOMETRY_EPSILON, GRID_DENSITY_MULTIPLIER, OUTDOOR_SHELL_CHIP_GAP, OUTDOOR_SHELL_CHIP_HEIGHT, OUTDOOR_SHELL_CHIP_RIGHT_INSET, OUTDOOR_SHELL_CHIP_WIDTH, OUTDOOR_SHELL_OFFSET, PLAN_ELEMENT_KINDS, PLAN_VIEWPORT_MARGIN, PlanElementGlyph, ROOM_KINDS, defaultFloorGridSize, floorGridSize, floorRenderScale, insertRoomVertex, isValidRoomPolygon, nearestWallOpeningPlacement, nearestWallPlacement, orientation, outdoorWindwardEdgePath, pointOnSegment, pointsEqual, roomRectanglePoints, segmentsIntersect, smoothAirflowPath, snapPointToGrid, wallLengthInputValue } from "./support";
+import { outdoorWindBearingPath } from "./support";
 import type { DeletedWallUndo, EditorTool, FloorGridDensity, FloorPlanProps, PlanElementPatch, WallOpeningPlacementResult, WallPlacement } from "./support";
 import { useFloorPlanPart05 } from "./part-05";
 
@@ -109,11 +110,13 @@ export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloor
                     rx="32"
                     className="outdoor-shell-border"
                   />
-                  {outdoorContext.windwardEdge && (
+                  {outdoorContext.windwardEdge && outdoorContext.planWindFromDegrees !== null && (
                     <path
-                      d={outdoorWindwardEdgePath(outdoorContext.windwardEdge, renderWidth, renderHeight)}
+                      d={outdoorWindBearingPath(outdoorContext.planWindFromDegrees, renderWidth, renderHeight)}
                       className="outdoor-shell-windward-edge"
                       data-windward-edge={outdoorContext.windwardEdge}
+                      data-wind-from-degrees={outdoorContext.windFromDegrees ?? undefined}
+                      data-plan-wind-from-degrees={outdoorContext.planWindFromDegrees}
                       aria-hidden="true"
                     />
                   )}

@@ -87,6 +87,15 @@ flowchart LR
     IOS --> NOTES[Apple Notes]
 ```
 
+The API is the sole authority for scientific and operational derivations: Home
+Performance, Home monitoring/insights, opening activity, calendar comparison,
+and daily findings. Results carry algorithm versions, provenance, scope,
+completeness, and warnings through shared contracts. Web and iPhone select user
+intent and render results; they do not independently choose evidence windows,
+truncate sensor scope, or reproduce decision rules. The web owns one pair of
+telemetry transports through `LiveEventCoordinator`, which updates the live
+snapshot and invalidates only affected query resources.
+
 The browser does not talk to Home Assistant, TP-Link, FMI, or Open-Meteo
 directly. The API owns credentials, normalisation, retention, alert evaluation,
 provider selection, weather/location-service retrieval, caching, and reconnect

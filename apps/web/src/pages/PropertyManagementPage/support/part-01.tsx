@@ -63,6 +63,7 @@ import type {
   TrackingEndpoint,
   TrackingMapSnapshot,
   TrackedEquipmentState,
+  HomeMonitoringCollectionResponse,
 } from "@climate-twin/contracts";
 import { api, ApiRequestError, subscribeToTrackingEvents, type HouseGeoreferencePatch } from "../../../api";
 import { EquipmentQrLabel } from "../../../components/EquipmentQrLabel";
@@ -228,6 +229,8 @@ export interface PropertyManagementPageProps {
   onCreateMaintenanceTask: (input: MaintenanceTaskInput) => Promise<MaintenanceTask>;
   onOpenMaintenance?: () => void;
   onSetHouseGeoreference?: (houseId: string, patch: HouseGeoreferencePatch) => Promise<void>;
+  dataMode?: "demo" | "real" | "unknown";
+  monitoring?: HomeMonitoringCollectionResponse;
 }
 
 export interface AreaDraft {

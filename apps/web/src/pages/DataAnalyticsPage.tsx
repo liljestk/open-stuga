@@ -345,16 +345,14 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
 
       <HomePerformancePanel
         house={props.house}
-        sensors={sensors}
         definitions={props.state.measurementDefinitions}
-        maintenanceTasks={props.state.maintenanceTasks}
-        observations={props.state.observations}
         dataMode={props.dataMode}
         refreshRevision={refreshRevision}
       />
 
       <OpeningAnalyticsPanel
         house={props.house}
+        dataMode={props.dataMode}
         range={range}
         refreshRevision={refreshRevision}
         {...(props.state.latestOpeningStateObservation?.houseId === props.house.id

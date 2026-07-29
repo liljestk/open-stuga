@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDemoState } from "./domain";
-import { advanceMockTelemetry, isRemoteSharedDemoTelemetry } from "./useClimateData/support";
+import { advanceMockTelemetry, isRemoteSharedDemoTelemetry } from "./data/bootstrap/support";
 
 describe("shared Home demo telemetry isolation", () => {
   it("keeps shared sensor labels but removes and never advances their local demo telemetry", () => {

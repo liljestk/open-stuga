@@ -47,6 +47,7 @@ import {
 import { fireplaceChimneyDimensions, fireplaceChimneyTop, isRoofSpanningFireplace, roofEavesZ, roofPeakZ, roofSurfaces } from "../../architecturalGeometry";
 import { MapInformationToggle, useMapInformationVisibility } from "../MapInformationToggle";
 import { effectiveOpeningState, openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../openingState";
+import { windPathOnRectangle } from "../../outdoorContext";
 import { DEFAULT_CAMERA, VIEW_HEIGHT, VIEW_WIDTH, buildingBounds, elementAxis, elementWorldGeometry, inferReferenceTime, points, projectedCloud, relativeSensorHeight, smoothProjectedAirflowPath, svgToken, visualLabel } from "./support";
 import type { AddableOpeningKind, BuildingSceneProps, DragState, ElementWorldGeometry, ProjectedCloud, SelectedElementPatch } from "./support";
 export function useBuildingScenePart01(context: { house: BuildingSceneProps["house"]; sensors: BuildingSceneProps["sensors"]; samples: BuildingSceneProps["samples"]; climateSamples: BuildingSceneProps["climateSamples"]; observations: BuildingSceneProps["observations"]; definition: BuildingSceneProps["definition"]; colorDomain: BuildingSceneProps["colorDomain"]; units: BuildingSceneProps["units"]; activeFloorId: BuildingSceneProps["activeFloorId"]; selectedSensorId: BuildingSceneProps["selectedSensorId"]; referenceTimeMs: BuildingSceneProps["referenceTimeMs"]; maxSampleAgeMs: BuildingSceneProps["maxSampleAgeMs"]; outdoor: BuildingSceneProps["outdoor"]; editing: Exclude<BuildingSceneProps["editing"], undefined>; spatialLayerSnapshots: Exclude<BuildingSceneProps["spatialLayerSnapshots"], undefined>; spatialLayerTopology: Exclude<BuildingSceneProps["spatialLayerTopology"], undefined>; experimentalAirflowEnabled: Exclude<BuildingSceneProps["experimentalAirflowEnabled"], undefined>; experimentalAirflow: Exclude<BuildingSceneProps["experimentalAirflow"], undefined>; experimentalSensorCoverage: Exclude<BuildingSceneProps["experimentalSensorCoverage"], undefined>; experimentalOutdoorInfluence: Exclude<BuildingSceneProps["experimentalOutdoorInfluence"], undefined>; openingStateObservations: Exclude<BuildingSceneProps["openingStateObservations"], undefined>; pendingOpeningStateKeys: Exclude<BuildingSceneProps["pendingOpeningStateKeys"], undefined>; onOpeningStateChange: BuildingSceneProps["onOpeningStateChange"]; sensorMeasurements: Exclude<BuildingSceneProps["sensorMeasurements"], undefined>; climateSensorMarkersVisible: Exclude<BuildingSceneProps["climateSensorMarkersVisible"], undefined>; energyDevicesVisible: Exclude<BuildingSceneProps["energyDevicesVisible"], undefined>; onFloorSelect: BuildingSceneProps["onFloorSelect"]; onSensorSelect: BuildingSceneProps["onSensorSelect"]; onFloorChange: BuildingSceneProps["onFloorChange"] }) {
@@ -206,18 +207,22 @@ export function useBuildingScenePart01(context: { house: BuildingSceneProps["hou
       bottom: outdoorShellWorld.bottom.map(project),
       top: outdoorShellWorld.top.map(project),
     } : null;
-  const outdoorWindwardProjected = outdoorShellProjected && outdoorContext?.windwardEdge ? (() => {
-      const startIndex = outdoorContext.windwardEdge === "top"
-        ? 0
-        : outdoorContext.windwardEdge === "right"
-          ? 1
-          : outdoorContext.windwardEdge === "bottom"
-            ? 2
-            : 3;
+  const outdoorWindwardProjected = outdoorShellProjected && outdoorContext?.windwardEdge
+    && outdoorContext.planWindFromDegrees !== null ? (() => {
+      const path = windPathOnRectangle(
+        outdoorContext.planWindFromDegrees,
+        bounds.width + Math.min(bounds.width, bounds.depth) * .28,
+        bounds.depth + Math.min(bounds.width, bounds.depth) * .28,
+        .035,
+        .035,
+      );
+      const padding = Math.min(bounds.width, bounds.depth) * .14;
+      const z = bounds.maxZ + .4;
       return {
         edge: outdoorContext.windwardEdge,
-        start: outdoorShellProjected.top[startIndex]!,
-        end: outdoorShellProjected.top[(startIndex + 1) % outdoorShellProjected.top.length]!,
+        bearing: outdoorContext.planWindFromDegrees,
+        start: project({ x: path.sourcePoint.x - padding, y: path.sourcePoint.y - padding, z }),
+        end: project({ x: path.inwardTarget.x - padding, y: path.inwardTarget.y - padding, z }),
       };
     })() : null;
   const outdoorShellRail = outdoorShellProjected ? (() => {

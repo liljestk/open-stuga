@@ -1,13 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { AlertCircle, Bell, BellRing, Check, ChevronDown, Clock3, HelpCircle, LoaderCircle, MessageCircle, Plus, ShieldCheck } from "lucide-react";
-import type { AlertDeliveryPolicy, AlertEvent, AlertOperator, AlertRule, AlertRulePatch, AlertSeverity, IntegrationStatus, MeasurementDefinition, Metric, Sensor, UnitSystem } from "@climate-twin/contracts";
+import type { AlertDeliveryPolicy, AlertEvent, AlertOperator, AlertRule, AlertRulePatch, AlertSeverity, HomeMonitoringBlocker, HomeMonitoringCollectionResponse, IntegrationStatus, MeasurementDefinition, Metric, Sensor, UnitSystem } from "@climate-twin/contracts";
 import { type ClimateState } from "../domain";
 import { useI18n } from "../i18n";
 import { defaultAlertThreshold, definitionFor, displayUnit, enabledDefinitions, formatMeasurement, fromDisplayValue, measurementLabel, toDisplayValue } from "../measurements";
 import { formatInTimeZone, twentyFourHourInputLocale } from "../dateTime";
-import { deriveHouseMonitoring, type HouseMonitoringBlocker } from "../houseMonitoring";
-import { integrationForHouse } from "../integrationScope";
-import { useNow } from "../useNow";
+import { useHomeMonitoringCollectionQuery } from "../data/analytics/homeMonitoringQuery";
 import { alertGroupKey } from "../alertGrouping";
 import { TelegramSetupPanel } from "./TelegramSetupPanel";
 import { ActionPlaybookLauncher, AlertOrchestrationPanel } from "./AlertOrchestrationPanel";
@@ -23,11 +21,12 @@ interface AlertsPageProps {
   onInspectAlert?: (alert: AlertEvent) => void;
   onIntegrationChange?: (integration: IntegrationStatus) => void;
   readOnly?: boolean;
+  dataMode?: "demo" | "real" | "unknown";
+  monitoring?: HomeMonitoringCollectionResponse;
 }
 
-export function AlertsPage({ state, units, onCreateRule, onUpdateRule, onAcknowledge, onInspectAlert, onIntegrationChange, readOnly = false }: AlertsPageProps) {
+function AlertsPageView({ state, units, onCreateRule, onUpdateRule, onAcknowledge, onInspectAlert, onIntegrationChange, readOnly = false, monitoring }: AlertsPageProps) {
   const { locale, t } = useI18n();
-  const now = useNow();
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [sensorId, setSensorId] = useState("");
@@ -49,17 +48,12 @@ export function AlertsPage({ state, units, onCreateRule, onUpdateRule, onAcknowl
   const definition = definitionFor(definitions, metric);
   const telegramReady = Boolean(state.integration.telegram?.available && state.integration.telegram.configured && state.integration.telegram.connected);
   const inventoryUnavailable = readOnly && state.houses.length === 0;
+  const monitoringByHouse = new Map(
+    (monitoring?.houses ?? []).map((result) => [result.houseId, result]),
+  );
   const coverageExceptions = state.houses.flatMap((house) => {
-    const result = deriveHouseMonitoring({
-      house,
-      sensors: state.sensors,
-      latestMeasurements: state.latestMeasurements,
-      measurementHistory: state.measurementHistory,
-      alerts: state.alerts,
-      alertRules: state.alertRules,
-      integration: integrationForHouse(state.integration, house.id, Boolean(house.location)),
-      referenceTime: now,
-    });
+    const result = monitoringByHouse.get(house.id);
+    if (!result) return [];
     const blocker = result.blockers.find((item) => ["no-sensors", "missing-data", "stale-data", "source-disconnected", "estimated-data", "aging-data"].includes(item.kind));
     return blocker ? [{ house, blocker }] : [];
   });
@@ -177,6 +171,24 @@ export function AlertsPage({ state, units, onCreateRule, onUpdateRule, onAcknowl
   );
 }
 
+function AlertsPageQuery(props: AlertsPageProps) {
+  const mode = props.dataMode === "real" ? "live" as const : "demo" as const;
+  const query = useHomeMonitoringCollectionQuery(
+    mode,
+    props.dataMode !== "unknown",
+  );
+  return <AlertsPageView
+    {...props}
+    {...(query.data ? { monitoring: query.data } : {})}
+  />;
+}
+
+export function AlertsPage(props: AlertsPageProps) {
+  return props.monitoring || props.dataMode === undefined
+    ? <AlertsPageView {...props} />
+    : <AlertsPageQuery {...props} />;
+}
+
 function RuleDelivery({ rule, telegramReady, onUpdateRule, onOpenTelegramSetup }: { rule: AlertRule; telegramReady: boolean; onUpdateRule: (id: string, patch: AlertRulePatch) => Promise<AlertRule>; onOpenTelegramSetup: (() => void) | undefined }) {
   const { t } = useI18n();
   const [pending, setPending] = useState(false);
@@ -256,7 +268,7 @@ function DeliveryPolicyEditor({ value, onChange, compact = false }: Readonly<{ v
   </fieldset>;
 }
 
-function coverageBlockerText(blocker: HouseMonitoringBlocker, t: ReturnType<typeof useI18n>["t"]): string {
+function coverageBlockerText(blocker: HomeMonitoringBlocker, t: ReturnType<typeof useI18n>["t"]): string {
   if (blocker.kind === "no-sensors") return t("alerts.coverage.noSensors");
   if (blocker.kind === "missing-data") return t("alerts.coverage.missing", { count: blocker.count });
   if (blocker.kind === "stale-data") return t("alerts.coverage.stale", { count: blocker.count });

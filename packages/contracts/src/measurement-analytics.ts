@@ -55,7 +55,7 @@ export type AggregationSemantic =
   | "custom";
 
 /** Product release version. Pre-1.0 minor releases may contain breaking changes. */
-export const SYSTEM_VERSION = "0.19.10" as const;
+export const SYSTEM_VERSION = "0.20.0" as const;
 
 export interface MeasurementDefinition {
   id: Metric;
@@ -315,9 +315,11 @@ export interface DailyAnalyticsFindingsSnapshot {
 }
 
 export interface DailyAnalyticsFindingsStatus {
-  state: "pending" | "ready" | "failed";
+  state: "pending" | "ready" | "failed" | "stale-algorithm";
   lastAttemptAt: string | null;
   lastError: string | null;
+  expectedAlgorithmVersion?: string;
+  actualAlgorithmVersion?: string;
 }
 
 export interface DailyAnalyticsFindingsResponse {

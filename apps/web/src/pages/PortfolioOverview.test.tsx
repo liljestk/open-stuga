@@ -4,6 +4,11 @@ import type { AlertEvent, House, IntegrationStatus, MeasurementSample, Property,
 import { describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../i18n";
 import { PortfolioOverview } from "./PortfolioOverview";
+import {
+  monitoringBlocker,
+  monitoringCollection,
+  monitoringSummary,
+} from "../monitoringTestSupport";
 
 const property: Property = {
   id: "property-main",
@@ -115,6 +120,20 @@ describe("PortfolioOverview", () => {
           alerts={[]}
           alertRules={[]}
           integration={integration}
+          monitoring={monitoringCollection([
+            monitoringSummary({
+              houseId: setupHouse.id,
+              status: "unknown",
+              pulseStatus: "unknown",
+              blockers: [monitoringBlocker("no-sensors", 0)],
+            }),
+            monitoringSummary({
+              houseId: remoteHouse.id,
+              status: "unknown",
+              pulseStatus: "unknown",
+              blockers: [monitoringBlocker("no-sensors", 0)],
+            }),
+          ])}
           onOpenProperty={vi.fn()}
           onOpenTwin={vi.fn()}
           onOpenOutdoor={vi.fn()}
@@ -157,6 +176,26 @@ describe("PortfolioOverview", () => {
           alerts={[openAlert]}
           alertRules={[]}
           integration={integration}
+          monitoring={monitoringCollection([
+            monitoringSummary({
+              houseId: healthyHouse.id,
+              coverage: { enabledSensors: 1, freshSensors: 1 },
+            }),
+            monitoringSummary({
+              houseId: setupHouse.id,
+              status: "unknown",
+              pulseStatus: "unknown",
+              blockers: [monitoringBlocker("no-sensors", 0)],
+            }),
+            monitoringSummary({
+              houseId: readyHouse.id,
+              status: "action-required",
+              pulseStatus: "attention",
+              coverage: { enabledSensors: 1, freshSensors: 1 },
+              activeAlertCount: 1,
+              blockers: [monitoringBlocker("warning-alert", 1, [sensor.id])],
+            }),
+          ])}
           onOpenProperty={vi.fn()}
           onOpenTwin={onOpenTwin}
           onOpenOutdoor={onOpenOutdoor}
@@ -222,6 +261,7 @@ describe("PortfolioOverview", () => {
           alerts={[]}
           alertRules={[]}
           integration={integration}
+          monitoring={monitoringCollection([])}
           onOpenProperty={onOpenProperty}
           onOpenTwin={vi.fn()}
           onOpenOutdoor={vi.fn()}
@@ -251,6 +291,7 @@ describe("PortfolioOverview", () => {
           alerts={[]}
           alertRules={[]}
           integration={integration}
+          monitoring={monitoringCollection([])}
           readOnly
           onOpenProperty={vi.fn()}
           onOpenTwin={vi.fn()}

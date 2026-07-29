@@ -363,7 +363,7 @@ export const svPart4 = {
   "sensors.demoCleanupPartial": "{count} demosensorer kunde inte tas bort. De övriga togs bort.",
   "sensors.overview": "Sensoröversikt",
   "sensors.total": "Sensorer totalt",
-  "sensors.live": "Aktiva",
+  "sensors.live": "Live",
   "sensors.waiting": "Väntar på data",
   "sensors.unplaced": "Ej placerade",
   "sensors.advancedEdit": "Avancerad placering och anslutning",

@@ -90,6 +90,8 @@ import {
   runThermalIsolationAsync,
 } from "../thermal-isolation.js";
 import { runThermalSimulation } from "../thermal-simulation.js";
+import { getOpeningActivity } from "../analytics/opening-activity/service.js";
+import { DAILY_ANALYTICS_ALGORITHM_VERSION } from "../daily-analytics-findings.js";
 import { TpLinkBridge } from "../tp-link.js";
 import { SYSTEM_VERSION } from "../version.js";
 import { FmiWeatherProvider, WeatherRequestSupersededError, WeatherService } from "../weather.js";
@@ -176,12 +178,28 @@ export function dailyAnalyticsFindings(args: Record<string, unknown>): object {
   const house = requireMcpHouse(database, requiredString(args, "houseId"));
   const dataMode = database.isRealDataMode() ? "live" : "demo";
   const stored = database.dailyAnalyticsFindings(house.id, dataMode);
+  const staleAlgorithm = Boolean(
+    stored?.snapshot
+    && stored.snapshot.algorithmVersion !== DAILY_ANALYTICS_ALGORITHM_VERSION,
+  );
   return {
     snapshot: stored?.snapshot ?? null,
     status: {
-      state: stored?.lastError ? "failed" : stored?.snapshot ? "ready" : "pending",
+      state: stored?.lastError
+        ? "failed"
+        : staleAlgorithm
+          ? "stale-algorithm"
+          : stored?.snapshot
+            ? "ready"
+            : "pending",
       lastAttemptAt: stored?.lastAttemptAt ?? null,
       lastError: stored?.lastError ?? null,
+      ...(staleAlgorithm && stored?.snapshot
+        ? {
+            expectedAlgorithmVersion: DAILY_ANALYTICS_ALGORITHM_VERSION,
+            actualAlgorithmVersion: stored.snapshot.algorithmVersion,
+          }
+        : {}),
     },
   };
 }
@@ -257,6 +275,41 @@ export async function houseOpeningStates(args: Record<string, unknown>): Promise
     .sort((left, right) => Date.parse(left.observedAt) - Date.parse(right.observedAt) || left.id.localeCompare(right.id))
     .slice(-limit);
   return { snapshot: { houseId: house.id, at, states }, observations, history: merged, from, to };
+}
+
+export async function openingActivity(args: Record<string, unknown>): Promise<object> {
+  const house = requireMcpHouse(database, requiredString(args, "houseId"));
+  const to = mcpDateTime(args, "to", new Date());
+  const from = mcpDateTime(args, "from", new Date(Date.parse(to) - 24 * 3_600_000));
+  const durationMs = Date.parse(to) - Date.parse(from);
+  if (durationMs <= 0 || durationMs > 366 * 86_400_000) {
+    throw new Error("Opening activity must cover more than zero and at most 366 days");
+  }
+  let elementIds: string[] | undefined;
+  if (args.elementIds !== undefined) {
+    if (!Array.isArray(args.elementIds)) throw new Error("elementIds must be an array");
+    if (args.elementIds.length > 500) throw new Error("elementIds must contain at most 500 identifiers");
+    if (!args.elementIds.every((item) => typeof item === "string" && item.length > 0 && item.length <= 200)) {
+      throw new Error("Each elementId must be a non-empty string of at most 200 characters");
+    }
+    if (new Set(args.elementIds).size !== args.elementIds.length) {
+      throw new Error("elementIds must contain unique identifiers");
+    }
+    elementIds = args.elementIds;
+  }
+  return getOpeningActivity({
+    house,
+    request: {
+      apiVersion: "1.0",
+      requestId: `mcp-opening-${Date.now().toString(36)}`,
+      houseId: house.id,
+      dataMode: database.isRealDataMode() ? "live" : "demo",
+      range: { start: from, end: to },
+      ...(elementIds ? { elementIds } : {}),
+    },
+    telemetryReader,
+    generatedAt: new Date().toISOString(),
+  });
 }
 
 export async function houseElectricityPrice(args: Record<string, unknown>): Promise<object> {

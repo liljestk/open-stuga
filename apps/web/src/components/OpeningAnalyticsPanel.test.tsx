@@ -2,7 +2,11 @@ import axe from "axe-core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DoorPlanElement, OpeningStateObservation } from "@climate-twin/contracts";
+import type {
+  DoorPlanElement,
+  OpeningActivityResponse,
+  OpeningStateObservation,
+} from "@climate-twin/contracts";
 import { api } from "../api";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
@@ -58,11 +62,71 @@ describe("OpeningAnalyticsPanel", () => {
         externalId: "t110-entry",
       },
     ];
-    vi.spyOn(api, "openingStateHistory").mockResolvedValue(observations);
+    vi.spyOn(api, "openingActivity").mockResolvedValue({
+      apiVersion: "1.0",
+      requestId: "opening-test",
+      houseId: house.id,
+      dataMode: "demo",
+      range: {
+        start: new Date(now - 24 * 3_600_000).toISOString(),
+        end: new Date(now).toISOString(),
+      },
+      generatedAt: new Date(now).toISOString(),
+      complete: true,
+      truncated: false,
+      archiveState: "not-configured",
+      warnings: [],
+      provenance: {
+        algorithmKey: "opening-activity",
+        algorithmVersion: "opening-activity-v2.0.0",
+        evaluatedAt: new Date(now).toISOString(),
+        sourceIds: ["tapo"],
+        archiveState: "not-configured",
+      },
+      series: [{
+        target: {
+          key: `${firstFloor.id}:${door.id}`,
+          floorId: firstFloor.id,
+          floorName: firstFloor.name,
+          elementId: door.id,
+          kind: "door",
+          label: "Front door",
+          ordinal: 1,
+        },
+        segments: [
+          {
+            state: "closed",
+            startedAt: observations[0]!.observedAt,
+            endedAt: observations[1]!.observedAt,
+          },
+          {
+            state: "open",
+            startedAt: observations[1]!.observedAt,
+            endedAt: new Date(now).toISOString(),
+          },
+        ],
+        records: observations.map((observation, index) => ({
+          id: observation.id,
+          observedAt: observation.observedAt,
+          state: observation.state,
+          source: observation.source,
+          transition: index === 0 ? "initial" : "opened",
+        })),
+        observationCount: 2,
+        openedCount: 1,
+        closedCount: 0,
+        confirmedOpenMs: 5 * 60_000,
+        longestOpenMs: 5 * 60_000,
+        currentState: "open",
+        currentSince: observations[1]!.observedAt,
+        lastObservedAt: observations[1]!.observedAt,
+      }],
+    } satisfies OpeningActivityResponse);
     const onRange = vi.fn();
     const user = userEvent.setup();
     const { container } = render(<I18nProvider><OpeningAnalyticsPanel
       house={house}
+      dataMode="demo"
       range="24h"
       refreshRevision={0}
       onRange={onRange}
@@ -84,11 +148,15 @@ describe("OpeningAnalyticsPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "7 days" }));
     expect(onRange).toHaveBeenCalledWith("7d");
-    expect(api.openingStateHistory).toHaveBeenCalledWith(
-      house.id,
-      expect.any(String),
-      expect.any(String),
-      10_000,
+    expect(api.openingActivity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        houseId: house.id,
+        dataMode: "demo",
+        range: expect.objectContaining({
+          start: expect.any(String),
+          end: expect.any(String),
+        }),
+      }),
       expect.any(AbortSignal),
     );
 
@@ -118,10 +186,54 @@ describe("OpeningAnalyticsPanel", () => {
         index === 0 ? { ...candidate, planElements: [...(candidate.planElements ?? []), door] } : candidate
       )),
     };
-    vi.spyOn(api, "openingStateHistory").mockResolvedValue([]);
+    const now = Date.now();
+    vi.spyOn(api, "openingActivity").mockResolvedValue({
+      apiVersion: "1.0",
+      requestId: "opening-empty",
+      houseId: house.id,
+      dataMode: "demo",
+      range: {
+        start: new Date(now - 24 * 3_600_000).toISOString(),
+        end: new Date(now).toISOString(),
+      },
+      generatedAt: new Date(now).toISOString(),
+      complete: true,
+      truncated: false,
+      archiveState: "not-configured",
+      warnings: [],
+      provenance: {
+        algorithmKey: "opening-activity",
+        algorithmVersion: "opening-activity-v2.0.0",
+        evaluatedAt: new Date(now).toISOString(),
+        sourceIds: [],
+        archiveState: "not-configured",
+      },
+      series: [{
+        target: {
+          key: `${floor.id}:${door.id}`,
+          floorId: floor.id,
+          floorName: floor.name,
+          elementId: door.id,
+          kind: "door",
+          label: "Side door",
+          ordinal: 1,
+        },
+        segments: [],
+        records: [],
+        observationCount: 0,
+        openedCount: 0,
+        closedCount: 0,
+        confirmedOpenMs: 0,
+        longestOpenMs: 0,
+        currentState: "unknown",
+        currentSince: null,
+        lastObservedAt: null,
+      }],
+    } satisfies OpeningActivityResponse);
 
     render(<I18nProvider><OpeningAnalyticsPanel
       house={house}
+      dataMode="demo"
       range="24h"
       refreshRevision={0}
       onRange={vi.fn()}

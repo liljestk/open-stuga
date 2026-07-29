@@ -350,6 +350,16 @@ public actor StuguAPIClient {
         return value.snapshot
     }
 
+    public func homeMonitoring(houseID: String) async throws -> HomeMonitoringDetailResponse {
+        let basePath = "/monitoring/houses/\(escaped(houseID))?include=insights&dataMode="
+        do {
+            return try await request(version: 2, path: "\(basePath)live")
+        } catch let error as StuguAPIError
+            where error.status == 409 && error.code == "ANALYTICS_DATA_MODE_MISMATCH" {
+            return try await request(version: 2, path: "\(basePath)demo")
+        }
+    }
+
     public func tpLinkDevices(houseID: String) async throws -> [TpLinkDiscoveredDevice] {
         let query = queryString([URLQueryItem(name: "houseId", value: houseID)])
         let value: TpLinkDevicesEnvelope = try await request(

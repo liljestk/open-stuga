@@ -53,23 +53,10 @@ export function windwardPlanEdge(planWindFromDegrees: number): PlanEdge {
   return edges[Math.floor((normalizeDegrees(planWindFromDegrees) + 45) / 90) % edges.length]!;
 }
 
-function edgeBoundaryPoint(edge: PlanEdge, width: number, height: number): Point {
-  switch (edge) {
-    case "top":
-      return { x: width / 2, y: 0 };
-    case "right":
-      return { x: width, y: height / 2 };
-    case "bottom":
-      return { x: width / 2, y: height };
-    case "left":
-      return { x: 0, y: height / 2 };
-  }
-}
-
 /**
- * Build an incoming arrow against the facade side that most directly faces
- * the wind. Distances are fractions of the rectangle's shorter dimension, so
- * the vector keeps its angle on non-square floor plans.
+ * Build an incoming ray at the exact bearing. The source is the intersection
+ * between the centre ray and the perimeter, rather than the midpoint of the
+ * nearest cardinal facade.
  */
 export function windPathOnRectangle(
   planWindFromDegrees: number,
@@ -92,7 +79,19 @@ export function windPathOnRectangle(
 
   const sourceVector = windSourceVector(planWindFromDegrees);
   const windwardEdge = windwardPlanEdge(planWindFromDegrees);
-  const boundaryPoint = edgeBoundaryPoint(windwardEdge, width, height);
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
+  const xScale = Math.abs(sourceVector.x) > Number.EPSILON
+    ? halfWidth / Math.abs(sourceVector.x)
+    : Number.POSITIVE_INFINITY;
+  const yScale = Math.abs(sourceVector.y) > Number.EPSILON
+    ? halfHeight / Math.abs(sourceVector.y)
+    : Number.POSITIVE_INFINITY;
+  const boundaryScale = Math.min(xScale, yScale);
+  const boundaryPoint = {
+    x: halfWidth + sourceVector.x * boundaryScale,
+    y: halfHeight + sourceVector.y * boundaryScale,
+  };
   const scale = Math.min(width, height);
   return {
     sourcePoint: {

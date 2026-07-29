@@ -8,12 +8,15 @@ import "@fontsource/manrope/600.css";
 import "@fontsource/manrope/700.css";
 import { App } from "./App";
 import { I18nProvider } from "./i18n";
+import { ServerStateProvider } from "./data/queryClient";
 import "./styles.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <I18nProvider>
-      <App />
+      <ServerStateProvider>
+        <App />
+      </ServerStateProvider>
     </I18nProvider>
   </React.StrictMode>,
 );

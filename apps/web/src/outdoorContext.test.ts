@@ -80,12 +80,24 @@ describe("outdoor plan geometry", () => {
   it("preserves an oblique bearing on a non-square plan", () => {
     const path = windPathOnRectangle(60, 200, 100);
     expect(path.windwardEdge).toBe("right");
-    expect(path.sourcePoint).toEqual({ x: 200, y: 50 });
+    expect(path.sourcePoint.x).toBeCloseTo(100 + 50 * Math.sqrt(3));
+    expect(path.sourcePoint.y).toBeCloseTo(0);
     const dx = path.inwardTarget.x - path.sourcePoint.x;
     const dy = path.inwardTarget.y - path.sourcePoint.y;
     expect(dx).toBeLessThan(0);
     expect(dy).toBeGreaterThan(0);
     expect(Math.abs(dx / dy)).toBeCloseTo(Math.tan(Math.PI / 3), 10);
+  });
+
+  it("keeps a 250-degree source ray exact instead of snapping it to west", () => {
+    const path = windPathOnRectangle(250, 200, 100, .08, .08);
+    const dx = path.inwardTarget.x - path.sourcePoint.x;
+    const dy = path.inwardTarget.y - path.sourcePoint.y;
+    const recoveredBearing = normalizeDegrees(Math.atan2(-dx, dy) * 180 / Math.PI);
+
+    expect(path.windwardEdge).toBe("left");
+    expect(recoveredBearing).toBeCloseTo(250, 10);
+    expect(path.sourcePoint.y).toBeGreaterThan(50);
   });
 });
 
