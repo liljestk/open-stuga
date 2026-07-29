@@ -171,7 +171,10 @@ authorize_pending_health_check() {
 
 expected_release_is_healthy() {
   local expected_version
-  expected_version="$(cat /etc/stugu-version)"
+  # The immutable factory OS can be older than the application containers
+  # selected by an OTA update. Validate the release this controller actually
+  # uses, not the version baked into the read-only root filesystem.
+  expected_version="$(sed -n 's/^STUGA_VERSION=//p' "$release_env" | tail -n 1)"
   [[ -r "$state_dir/release-status" ]] \
     && grep -Fxq "version=$expected_version" "$state_dir/release-status" \
     && grep -Eq '^healthy_at=' "$state_dir/release-status" \

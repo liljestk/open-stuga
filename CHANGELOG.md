@@ -4,6 +4,11 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.19.6 - 2026-07-29
+
+- Validate migration health against the active OTA application release rather
+  than the older version baked into an immutable Raspberry Pi factory OS.
+
 ## 0.19.5 - 2026-07-29
 
 - Mount the complete migration settings root so clean appliances can replace

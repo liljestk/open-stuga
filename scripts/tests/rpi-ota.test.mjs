@@ -411,6 +411,14 @@ test("the appliance exposes a health-gated migration receiver with rollback", as
   assert.match(control, /migration_tool commit "\$migration_id" "\$version" "\$healthy_at"/);
   assert.match(control, /resume\)[\s\S]*commit_healthy_migration[\s\S]*systemctl restart stugu\.service/);
   assert.match(control, /grep -Fxq "version=\$expected_version"/);
+  assert.match(
+    control,
+    /expected_release_is_healthy\(\)[\s\S]*expected_version="\$\(sed -n 's\/\^STUGA_VERSION=\/\/p' "\$release_env" \| tail -n 1\)"/,
+  );
+  assert.doesNotMatch(
+    control,
+    /expected_release_is_healthy\(\)[\s\S]*expected_version="\$\(cat \/etc\/stugu-version\)"/,
+  );
   assert.match(control, /Target health check failed; rolling back[\s\S]*quiesce_for_migration_rollback[\s\S]*migration_tool rollback/);
   assert.match(control, /current committed data was preserved/);
   assert.match(composeStart, /apply-intent\|applying\|rolling-back/);
