@@ -4,6 +4,11 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.20.1 - 2026-07-29
+
+- Include the server-authoritative monitoring model and localization catalog in
+  the checked-in native Xcode application target.
+
 ## 0.20.0 - 2026-07-29
 
 - Move Home Performance, Home monitoring/insights, opening activity, and
