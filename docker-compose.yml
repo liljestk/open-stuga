@@ -260,6 +260,11 @@ services:
     build:
       context: .
       target: update-agent
+    # Its nested Compose client must inherit the same deployment interpolation
+    # values, or updates can resolve persistent mounts under the project root.
+    env_file:
+      - path: ${STUGA_UPDATE_COMPOSE_ENV_FILE:-.env}
+        required: false
     init: true
     restart: unless-stopped
     environment:

@@ -4,6 +4,11 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.19.7 - 2026-07-29
+
+- Preserve the appliance deployment environment inside the privileged update
+  agent so unattended releases keep every bind mount on persistent storage.
+
 ## 0.19.6 - 2026-07-29
 
 - Validate migration health against the active OTA application release rather

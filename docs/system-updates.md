@@ -82,6 +82,7 @@ SYSTEM_UPDATE_REPOSITORY=liljestk/open-stuga
 SYSTEM_UPDATE_IMAGE_PREFIX=ghcr.io/liljestk/open-stuga
 STUGA_UPDATE_OPERATIONS_DIRECTORY=/srv/stugu/update-operations
 STUGA_UPDATE_OPERATIONS_GID=1001
+STUGA_UPDATE_COMPOSE_ENV_FILE=/srv/stugu/.env
 STUGA_PROJECT_DIRECTORY=/srv/stugu
 STUGA_RELEASE_ENV_FILE=/srv/stugu/.stugu-release.env
 # Only if the stack was started with `docker compose --project-name stuga`:
@@ -102,6 +103,11 @@ with the API. The selected application release is stored on the persistent
 partition and is health-checked with the same last-known-good container
 fallback used at boot. Clean appliances default to stable automatic releases
 on Sunday at 03:00 UTC; an Owner can change or disable that schedule.
+
+The appliance passes its persistent deployment environment to the update
+agent's nested Compose client. Configuration, secrets, update state, and
+migration state therefore remain on the shared persistent partition when
+containers are recreated.
 
 The UI-managed path updates Stugu's release containers. Full operating-system,
 kernel, and firmware changes require a newly validated factory image and a
