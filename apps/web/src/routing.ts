@@ -94,7 +94,8 @@ export function routeFromLocation(location: Pick<Location, "pathname" | "search"
   if (path === "/stugbys") return { page: "stugubys", propertyId: null, houseId: null };
   if (path === "/alerts") return { page: "alerts", propertyId: null, houseId: null };
   if (path === "/developer") return { page: "developer", propertyId: null, houseId: null };
-  if (path === "/system/updates") return { page: "updates", propertyId: null, houseId: null };
+  if (path === "/system") return { page: "updates", propertyId: null, houseId: null };
+  if (path === "/system/updates") return { page: "updates", propertyId: null, houseId: null, legacy: true };
 
   if (path === "/") return { page: "twin", propertyId: null, houseId: queryHouse, legacy: true };
   if (["/twin", "/outdoor", "/energy", "/activity", "/maintenance", "/sensors", "/analytics"].includes(path)) {
@@ -143,6 +144,6 @@ export function locationForRoute(
       return homeBase ? `${homeBase}${suffix}` : propertyBase;
     }
     case "developer": return "/developer";
-    case "updates": return "/system/updates";
+    case "updates": return "/system";
   }
 }

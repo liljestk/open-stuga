@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { HostSystemHealth } from "@climate-twin/contracts";
 import { api, type SystemUpdateStatus } from "../api";
 import { I18nProvider } from "../i18n";
 import { SystemUpdatesPage } from "./SystemUpdatesPage";
@@ -38,6 +39,56 @@ const status: SystemUpdateStatus = {
   operation: null,
 };
 
+const thresholds = {
+  warningPercent: 85,
+  criticalPercent: 95,
+  warningAfterSeconds: 300,
+  criticalAfterSeconds: 120,
+};
+const hostHealth: HostSystemHealth = {
+  state: "healthy",
+  sampledAt: "2026-07-30T12:00:00.000Z",
+  hostname: "stugu",
+  platform: "linux",
+  architecture: "arm64",
+  release: "6.12",
+  hostUptimeSeconds: 172_800,
+  serviceUptimeSeconds: 7_200,
+  cpu: {
+    state: "healthy",
+    usagePercent: 24.5,
+    logicalCores: 4,
+    loadAverage: [0.42, 0.35, 0.3],
+    temperatureCelsius: 51.2,
+    usageThresholds: thresholds,
+    temperatureThresholds: { ...thresholds, warningPercent: 75, criticalPercent: 85 },
+  },
+  memory: {
+    state: "healthy",
+    scope: "container",
+    totalBytes: 4_294_967_296,
+    usedBytes: 2_147_483_648,
+    availableBytes: 2_147_483_648,
+    usedPercent: 50,
+    processResidentBytes: 134_217_728,
+    thresholds,
+  },
+  storage: {
+    state: "healthy",
+    totalBytes: 68_719_476_736,
+    usedBytes: 25_769_803_776,
+    availableBytes: 42_949_672_960,
+    usedPercent: 37.5,
+    thresholds,
+    warningAvailableBytes: 5_368_709_120,
+    criticalAvailableBytes: 1_073_741_824,
+  },
+  alerts: [],
+};
+
+beforeEach(() => {
+  vi.spyOn(api, "hostSystemHealth").mockResolvedValue(hostHealth);
+});
 afterEach(() => vi.restoreAllMocks());
 
 describe("system updates page", () => {
@@ -52,6 +103,41 @@ describe("system updates page", () => {
     expect(
       (screen.getByRole("button", { name: "Update now" }) as HTMLButtonElement).disabled
     ).toBe(false);
+    expect(screen.getByRole("heading", { name: "System", level: 1 })).toBeTruthy();
+    expect(screen.getByText("24.5%")).toBeTruthy();
+    fireEvent.click(screen.getByText("Metrics and alert thresholds"));
+    expect(screen.getByRole("link", { name: "/api/v1/system/metrics" }).getAttribute("href")).toBe("/api/v1/system/metrics");
+  });
+
+  it("presents low storage as an actionable host alert", async () => {
+    vi.mocked(api.hostSystemHealth).mockResolvedValue({
+      ...hostHealth,
+      state: "critical",
+      storage: {
+        ...hostHealth.storage,
+        state: "critical",
+        availableBytes: 536_870_912,
+        usedBytes: 68_182_605_824,
+        usedPercent: 99.2,
+      },
+      alerts: [{
+        id: "host-system-storage-critical",
+        metric: "storage",
+        severity: "critical",
+        value: 99.2,
+        unit: "%",
+        threshold: 95,
+        startedAt: "2026-07-30T11:59:00.000Z",
+        message: "Storage is low.",
+        recommendation: "Free space.",
+      }],
+    });
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(status);
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    expect(await screen.findByRole("heading", { name: /data volume is running low/i })).toBeTruthy();
+    expect(screen.getByText(/Only 512 MiB remains/)).toBeTruthy();
+    expect(screen.getByText(/Free space or expand the data volume/)).toBeTruthy();
   });
 
   it("saves an automatic local-time maintenance window", async () => {

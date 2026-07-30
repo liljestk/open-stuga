@@ -498,7 +498,7 @@ take precedence after restart.
 | `MOCK_ENABLED` | `false` | opt in to sample inventory and synthetic telemetry before a database's first start |
 | `MOCK_INTERVAL_MS` | `2000` | synthetic event interval |
 | `RETENTION_DAYS` | `0` | SQLite history cache after TimeDB acknowledgement; `0` keeps current projections only, or use at least `30` for a bounded cache |
-| `INGEST_API_KEY` | empty | optional secret for external ingestion routes |
+| `INGEST_API_KEY` | empty | optional machine secret for external ingestion and Prometheus host-metrics scraping |
 | `HA_URL` | `http://homeassistant.local:8123` | Home Assistant base URL |
 | `HA_TOKEN` | empty | private Home Assistant access token |
 | `HA_ENTITY_MAP_FILE` | `./config/home-assistant.entities.json` | mapping file path |

@@ -9,6 +9,7 @@ import { useHomeMonitoringCollectionQuery } from "../data/analytics/homeMonitori
 import { alertGroupKey } from "../alertGrouping";
 import { TelegramSetupPanel } from "./TelegramSetupPanel";
 import { ActionPlaybookLauncher, AlertOrchestrationPanel } from "./AlertOrchestrationPanel";
+import { HostSystemAlertsPanel } from "./HostSystemAlertsPanel";
 
 export { countActionableAlertGroups } from "../alertGrouping";
 
@@ -23,9 +24,11 @@ interface AlertsPageProps {
   readOnly?: boolean;
   dataMode?: "demo" | "real" | "unknown";
   monitoring?: HomeMonitoringCollectionResponse;
+  canManageSystem?: boolean;
+  onOpenSystem?: () => void;
 }
 
-function AlertsPageView({ state, units, onCreateRule, onUpdateRule, onAcknowledge, onInspectAlert, onIntegrationChange, readOnly = false, monitoring }: AlertsPageProps) {
+function AlertsPageView({ state, units, onCreateRule, onUpdateRule, onAcknowledge, onInspectAlert, onIntegrationChange, readOnly = false, monitoring, canManageSystem = false, onOpenSystem }: AlertsPageProps) {
   const { locale, t } = useI18n();
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
@@ -96,6 +99,7 @@ function AlertsPageView({ state, units, onCreateRule, onUpdateRule, onAcknowledg
       <header className="page-heading">
         <div><span className="eyebrow"><BellRing size={14} aria-hidden="true" />{t("alerts.open")}</span><h1>{t("alerts.title")}</h1><p>{t("alerts.description")}</p></div>
       </header>
+      {canManageSystem && <HostSystemAlertsPanel {...(onOpenSystem ? { onOpenSystem } : {})} />}
       <section className="panel alerts-open-panel" aria-labelledby="open-alerts-heading">
         <div className="panel-header alerts-open-heading"><div><span className="eyebrow">{t("alerts.open")}</span><h2 id="open-alerts-heading">{t("alerts.needsAttention")}</h2></div><span className="alerts-open-count" aria-label={`${actionableGroups.length} ${t("alerts.open")}`}>{actionableGroups.length}</span></div>
         {actionableGroups.length === 0 ? inventoryUnavailable

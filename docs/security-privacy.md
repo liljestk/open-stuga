@@ -32,8 +32,9 @@ audit-history endpoints fail closed because a current grant cannot establish
 the visibility of every historical snapshot. See [Properties and Guest
 access](property-management.md).
 
-The optional `INGEST_API_KEY` is a separate machine-ingestion credential. It
-does not create a browser session or grant interactive account access.
+The optional `INGEST_API_KEY` is a separate machine credential for ingestion
+and read-only Prometheus host-metrics scraping. It does not create a browser
+session or grant interactive account access.
 
 ## Secrets
 

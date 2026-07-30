@@ -1,0 +1,6 @@
+.alerts-host-system { display: block; margin-bottom: 16px; padding: 18px; border-left: 4px solid var(--yellow); }
+.alerts-host-system .panel-header { align-items: flex-start; }
+.alerts-host-system .panel-header p { max-width: 68ch; margin: 4px 0 0; color: var(--muted); font-size: 10.5px; line-height: 1.45; }
+.alerts-host-system-list { display: grid; gap: 8px; margin: 14px 0 12px; }
+.alerts-host-system > .secondary-button { margin-left: 43px; }
+@media (max-width: 600px) { .alerts-host-system > .secondary-button { margin-left: 0; } }

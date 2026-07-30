@@ -104,6 +104,7 @@ import { runThermalSimulation } from "../../thermal-simulation.js";
 import { runThermalIsolation } from "../../thermal-isolation.js";
 import { SYSTEM_VERSION } from "../../version.js";
 import { SystemUpdateError, SystemUpdateService } from "../../system-updates.js";
+import { HostSystemMonitor } from "../../host-system.js";
 import { LocationDiscoveryService } from "../../location-discovery.js";
 import { AutomaticWeatherProvider, OpenMeteoWeatherProvider, prefersFmi } from "../../open-meteo.js";
 import { WeatherMonitor } from "../../weather-monitor.js";
@@ -427,6 +428,7 @@ export interface ApiRuntime {
   stuguby: StugubyService;
   tracking: TrackingService;
   systemUpdates: SystemUpdateService;
+  hostSystem: HostSystemMonitor;
   ready: () => Promise<void>;
   beginShutdown: () => Promise<void>;
   close: () => Promise<void>;

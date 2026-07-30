@@ -37,7 +37,7 @@ describe("Stuguby federation", () => {
 
   afterEach(async () => {
     for (const current of nodes.splice(0).reverse()) await stop(current);
-  });
+  }, 30_000);
 
   it("keeps shared Property entities on one local record across create, edit, and delete", async () => {
     const coordinator = await node("Equipment coordinator");

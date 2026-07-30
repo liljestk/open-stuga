@@ -155,6 +155,8 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             onAcknowledge={climate.acknowledgeAlert}
             onIntegrationChange={climate.applyIntegrationStatus}
             readOnly={readOnly}
+            canManageSystem={canManagePeople}
+            onOpenSystem={() => navigate("updates", null, false, window.location.pathname, null)}
             onInspectAlert={(alert) => {
               const sensor = state.sensors.find((candidate) => candidate.id === alert.sensorId);
               if (!sensor) return;

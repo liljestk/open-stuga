@@ -5,6 +5,7 @@ import { api } from "../api";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import { AlertsPage, countActionableAlertGroups } from "./AlertsPage";
+import type { HostSystemHealth } from "@climate-twin/contracts";
 import {
   monitoringBlocker,
   monitoringCollection,
@@ -14,6 +15,61 @@ import {
 afterEach(() => vi.restoreAllMocks());
 
 describe("AlertsPage monitoring coverage", () => {
+  it("includes active host strain for workspace administrators", async () => {
+    const user = userEvent.setup();
+    const hostHealth = {
+      state: "critical",
+      sampledAt: "2026-07-30T12:00:00.000Z",
+      hostname: "stugu",
+      platform: "linux",
+      architecture: "arm64",
+      release: "6.12",
+      hostUptimeSeconds: 86_400,
+      serviceUptimeSeconds: 3_600,
+      cpu: {
+        state: "healthy", usagePercent: 20, logicalCores: 4, loadAverage: [0.2, 0.2, 0.2],
+        temperatureCelsius: null,
+        usageThresholds: { warningPercent: 85, criticalPercent: 95, warningAfterSeconds: 300, criticalAfterSeconds: 120 },
+        temperatureThresholds: { warningPercent: 75, criticalPercent: 85, warningAfterSeconds: 120, criticalAfterSeconds: 30 },
+      },
+      memory: {
+        state: "healthy", scope: "host", totalBytes: 4_294_967_296, usedBytes: 2_147_483_648,
+        availableBytes: 2_147_483_648, usedPercent: 50, processResidentBytes: 134_217_728,
+        thresholds: { warningPercent: 85, criticalPercent: 95, warningAfterSeconds: 300, criticalAfterSeconds: 120 },
+      },
+      storage: {
+        state: "critical", totalBytes: 68_719_476_736, usedBytes: 68_182_605_824,
+        availableBytes: 536_870_912, usedPercent: 99.2,
+        thresholds: { warningPercent: 85, criticalPercent: 95, warningAfterSeconds: 0, criticalAfterSeconds: 0 },
+        warningAvailableBytes: 5_368_709_120, criticalAvailableBytes: 1_073_741_824,
+      },
+      alerts: [{
+        id: "host-system-storage-critical", metric: "storage", severity: "critical", value: 99.2,
+        unit: "%", threshold: 95, startedAt: "2026-07-30T11:59:00.000Z",
+        message: "Storage is low.", recommendation: "Free space.",
+      }],
+    } satisfies HostSystemHealth;
+    vi.spyOn(api, "hostSystemHealth").mockResolvedValue(hostHealth);
+    const onOpenSystem = vi.fn();
+    const state = createDemoState();
+    render(
+      <I18nProvider><AlertsPage
+        state={state}
+        units="metric"
+        canManageSystem
+        onOpenSystem={onOpenSystem}
+        onCreateRule={vi.fn()}
+        onUpdateRule={vi.fn()}
+        onAcknowledge={vi.fn()}
+      /></I18nProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "The Stugu host needs attention" })).toBeTruthy();
+    expect(screen.getByText(/Only 512 MiB remains/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Open system health" }));
+    expect(onOpenSystem).toHaveBeenCalledOnce();
+  });
+
   it("does not present missing sensor data as an all-clear", () => {
     const state = createDemoState();
     render(

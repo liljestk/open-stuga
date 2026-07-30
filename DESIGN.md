@@ -1,6 +1,6 @@
 # Stugu brand and interface system
 
-Version 1.2 · 17 July 2026
+Version 1.3 · 30 July 2026
 
 ## 1. Brand idea
 
@@ -71,7 +71,11 @@ Primary navigation is scoped and deliberately short:
 - Selected Property: **Property**, **Maintenance**, **Electricity**.
 - Selected Home: **Home**, **Activity**, **Outdoor**, **Electricity use**,
   **Data & analytics**, **Sensors**, **Set up**.
-- Advanced: **API & MCP**.
+- Advanced: **System**, **API & MCP**.
+
+**System** describes the Stugu installation and its host, not a Workspace,
+Property, or Home. Keep it outside the selected Property and Home scope. Only
+Owners and Admins see it.
 
 Map & assets, Inventory, Notes, and Access are sections inside Property. Inventory
 is the Property-wide catalogue for maintainable equipment; a saved Home, area,
@@ -143,6 +147,9 @@ Progressive disclosure applies throughout the product:
 - **Sensors:** health and setup gaps first; discovery, import, and editing open on request.
 - **Inventory:** attention and service state first; search and location filters stay visible, while creation and editing open on request.
 - **Alerts:** active actionable groups first; rule creation and acknowledged history are secondary disclosures.
+- **System:** active host strain first; current CPU, memory, storage, and uptime
+  second; thresholds, platform detail, metrics access, and software updates
+  follow.
 - **Outdoor:** current conditions and immediate implications first; forecast detail and model provenance follow.
 - **Set up:** show setup progress and the recommended next incomplete step; keep completed and advanced configuration compact.
 - **API & MCP:** lead with readiness and the shortest working path; reference detail and raw payloads remain expandable.
@@ -308,6 +315,7 @@ Preferred user-facing labels:
 - Sensors
 - Alerts
 - Set up
+- System
 - API & MCP
 
 Do not place Workspace-, Property-, and Home-owned destinations into one

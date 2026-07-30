@@ -1,8 +1,8 @@
 # System updates
 
 Stugu discovers versions and change notes from the configured GitHub Releases
-feed. Owners and administrators manage updates at **Advanced → System
-updates**.
+feed. Owners and administrators manage updates in **Advanced → System**, under
+**Software updates**.
 
 The web/API process never replaces itself. It writes a bounded update request
 to a shared operations directory. A separate update agent, with access to the

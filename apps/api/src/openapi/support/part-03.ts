@@ -72,6 +72,49 @@ export const localAuthPaths = {
       },
     },
   },
+  "/system/health": {
+    get: {
+      tags: ["Context"], operationId: "getHostSystemHealth",
+      description: "Owner/Admin-only host CPU, memory, data-volume storage, uptime, temperature, and sustained strain alerts.",
+      security: [{ localSession: [] }],
+      responses: {
+        "200": spatialJsonResponse("Current Stugu host health.", {
+          type: "object",
+          additionalProperties: false,
+          required: ["state", "sampledAt", "hostname", "platform", "architecture", "release", "hostUptimeSeconds", "serviceUptimeSeconds", "cpu", "memory", "storage", "alerts"],
+          properties: {
+            state: { enum: ["healthy", "warning", "critical", "unknown"] },
+            sampledAt: { type: "string", format: "date-time" },
+            hostname: { type: "string" },
+            platform: { type: "string" },
+            architecture: { type: "string" },
+            release: { type: "string" },
+            hostUptimeSeconds: { type: "integer", minimum: 0 },
+            serviceUptimeSeconds: { type: "integer", minimum: 0 },
+            cpu: { type: "object", additionalProperties: true },
+            memory: { type: "object", additionalProperties: true },
+            storage: { type: "object", additionalProperties: true },
+            alerts: { type: "array", items: { type: "object", additionalProperties: true } },
+          },
+        }),
+        "403": { description: "Owner or Admin role required" },
+      },
+    },
+  },
+  "/system/metrics": {
+    get: {
+      tags: ["Context"], operationId: "getHostSystemPrometheusMetrics",
+      description: "Prometheus exposition of the same host-health signals and active alert gauges. Accepts an Owner/Admin session or the optional machine INGEST_API_KEY.",
+      security: [{ localSession: [] }, { ingestKey: [] }],
+      responses: {
+        "200": {
+          description: "Prometheus text exposition format.",
+          content: { "text/plain": { schema: { type: "string" } } },
+        },
+        "403": { description: "Owner or Admin role required" },
+      },
+    },
+  },
   "/system/updates": {
     get: {
       tags: ["Context"], operationId: "getSystemUpdateStatus",

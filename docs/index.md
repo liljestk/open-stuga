@@ -63,6 +63,8 @@ Start here:
 
 25. [System updates](system-updates.md) — GitHub release discovery, UI-managed
    maintenance windows, Docker/Desktop installation, health checks, and rollback.
+26. [Host system monitoring](host-system-monitoring.md) — CPU, memory, storage,
+   temperature, uptime, built-in strain alerts, and Prometheus scraping.
 
 Reference configuration:
 

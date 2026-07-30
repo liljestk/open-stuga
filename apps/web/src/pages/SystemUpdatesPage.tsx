@@ -8,6 +8,7 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  ServerCog,
   ShieldCheck,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -22,6 +23,7 @@ import {
 } from "../api";
 import { formatInTimeZone, twentyFourHourInputLocale } from "../dateTime";
 import { useI18n } from "../i18n";
+import { HostSystemPanel } from "./HostSystemPanel";
 import "./SystemUpdatesPage.css";
 
 const days: SystemUpdateDay[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
@@ -248,12 +250,34 @@ export function SystemUpdatesPage() {
     });
   };
 
+  const systemHeading = <>
+    <header className="page-heading updates-heading">
+      <div>
+        <span className="eyebrow"><ServerCog size={14} aria-hidden="true" />{t("system.eyebrow")}</span>
+        <h1>{t("system.title")}</h1>
+        <p>{t("system.description")}</p>
+      </div>
+    </header>
+    <HostSystemPanel />
+  </>;
+  const updatesHeading = <header className="updates-section-heading">
+    <div>
+      <span className="eyebrow"><CloudDownload size={14} aria-hidden="true" />{t("updates.eyebrow")}</span>
+      <h2>{t("updates.title")}</h2>
+      <p>{t("updates.description")}</p>
+    </div>
+    <button type="button" className="secondary-button" disabled={busy !== null} onClick={() => void check()}>
+      <RefreshCw className={busy === "check" ? "spin" : ""} size={15} aria-hidden="true" />
+      {t("updates.checkNow")}
+    </button>
+  </header>;
+
   if (!status || !draft) {
-    return <section className="route-recovery" aria-live="polite">
+    return <>{systemHeading}{updatesHeading}<section className="route-recovery" aria-live="polite">
       {busy === "load"
-        ? <><LoaderCircle className="spin" size={22} aria-hidden="true" /><div><h1>{t("updates.loading")}</h1></div></>
-        : <><CircleAlert size={22} aria-hidden="true" /><div><h1>{t("updates.loadFailed")}</h1><p>{error}</p></div><button type="button" className="secondary-button" onClick={() => void load()}><RotateCcw size={15} />{t("route.reload")}</button></>}
-    </section>;
+        ? <><LoaderCircle className="spin" size={22} aria-hidden="true" /><div><h2>{t("updates.loading")}</h2></div></>
+        : <><CircleAlert size={22} aria-hidden="true" /><div><h2>{t("updates.loadFailed")}</h2><p>{error}</p></div><button type="button" className="secondary-button" onClick={() => void load()}><RotateCcw size={15} />{t("route.reload")}</button></>}
+    </section></>;
   }
 
   const operationActive = Boolean(status.operation && activePhases.has(status.operation.phase));
@@ -297,17 +321,8 @@ export function SystemUpdatesPage() {
       : t("updates.agentHelp");
 
   return <>
-    <header className="page-heading updates-heading">
-      <div>
-        <span className="eyebrow"><CloudDownload size={14} aria-hidden="true" />{t("updates.eyebrow")}</span>
-        <h1>{t("updates.title")}</h1>
-        <p>{t("updates.description")}</p>
-      </div>
-      <button type="button" className="secondary-button" disabled={busy !== null} onClick={() => void check()}>
-        <RefreshCw className={busy === "check" ? "spin" : ""} size={15} aria-hidden="true" />
-        {t("updates.checkNow")}
-      </button>
-    </header>
+    {systemHeading}
+    {updatesHeading}
 
     {error && <div className="exception-banner" role="alert"><CircleAlert size={17} aria-hidden="true" /><span>{error}</span></div>}
 

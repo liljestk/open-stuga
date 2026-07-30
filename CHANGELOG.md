@@ -4,6 +4,12 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.22.0 - 2026-07-30
+
+- Add an Owner/Admin **System** view for host CPU, memory, data-volume storage,
+  temperature, and uptime, with sustained built-in alerts in the System and
+  Alerts views plus authenticated Prometheus metrics for external alerting.
+
 ## 0.21.0 - 2026-07-30
 
 - Calculate Home electricity cost from time-aligned consumption and historical

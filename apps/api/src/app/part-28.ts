@@ -194,6 +194,7 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
   if (context.options.startBackground) {
       context.tracking.start();
       context.systemUpdates.start();
+      context.hostSystem.start();
       context.stuguby?.start();
       context.cloudflareAccess?.start();
       context.alertEngine.start();
@@ -214,6 +215,7 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
       context.tracking.stop();
       context.alertEngine.stop();
       context.systemUpdates.stop();
+      context.hostSystem.stop();
       context.mock.stop();
       context.replay.stop();
       const stoppingStuguby = context.stuguby?.stop() ?? Promise.resolve();

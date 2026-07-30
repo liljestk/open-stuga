@@ -351,10 +351,20 @@ export function configureApiPart06(context: ReturnType<typeof configureApiPart05
       const validIngestService = ingestServicePath && Boolean(
         config.ingestApiKey && providedIngestKey && keyMatches(providedIngestKey, config.ingestApiKey),
       );
+      const hostMetricsServicePath = request.method === "GET"
+        && request.path === `${context.prefix}/system/metrics`;
+      const validHostMetricsService = hostMetricsServicePath && Boolean(
+        config.ingestApiKey && providedIngestKey && keyMatches(providedIngestKey, config.ingestApiKey),
+      );
       const appleNotesService = (request.method === "POST"
         && request.path === `${context.prefix}/integrations/apple-notes/capture`)
         || (request.method === "GET" && request.path === `${context.prefix}/integrations/apple-notes/snapshot`);
       if (validIngestService) { next(); return; }
+      if (validHostMetricsService) {
+        response.locals.hostMetricsAuthorized = true;
+        next();
+        return;
+      }
       if (appleNotesService) {
         // Validate the route-scoped machine credential before the large parser.
         response.setHeader("cache-control", "no-store");

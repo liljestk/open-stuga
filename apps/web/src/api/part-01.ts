@@ -33,6 +33,7 @@ import type {
   HomeElectricityPricePoint,
   HomeEnergyCost,
   HomeEnergySummary,
+  HostSystemHealth,
   IntegrationStatus,
   IntegrationTestResult,
   LocalInvitationRegistrationInput,
@@ -138,6 +139,7 @@ import type { ApiAuthorizationChange, AppleNotesSetupMetadata, CloudflareSetupOp
 
 export const apiPart01 = {
   session: async () => rememberSession(await request<AppSession>("/session")),
+  hostSystemHealth: () => request<HostSystemHealth>("/system/health"),
   systemUpdateStatus: () => request<SystemUpdateStatus>("/system/updates"),
   checkSystemUpdates: () => request<SystemUpdateStatus>("/system/updates/check", { method: "POST" }),
   updateSystemUpdateSettings: (settings: SystemUpdateSettings) => request<SystemUpdateStatus>("/system/updates/settings", {

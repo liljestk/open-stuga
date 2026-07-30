@@ -102,6 +102,7 @@ import { runThermalSimulation } from "../thermal-simulation.js";
 import { runThermalIsolation } from "../thermal-isolation.js";
 import { SYSTEM_VERSION } from "../version.js";
 import { SystemUpdateError, SystemUpdateService } from "../system-updates.js";
+import { HostSystemMonitor } from "../host-system.js";
 import { LocationDiscoveryService } from "../location-discovery.js";
 import { AutomaticWeatherProvider, OpenMeteoWeatherProvider, prefersFmi } from "../open-meteo.js";
 import { WeatherMonitor } from "../weather-monitor.js";
@@ -234,6 +235,7 @@ export function configureApiPart02(context: ReturnType<typeof configureApiPart01
       imagePrefix: config.systemUpdateImagePrefix,
       operationsDirectory: config.systemUpdateOperationsDirectory,
     });
+  const hostSystem = new HostSystemMonitor({ storagePath: config.databasePath });
   const cloudflareSetup = context.options.cloudflareSetup ?? new CloudflareSetupService({
       operationsDirectory: config.systemUpdateOperationsDirectory,
       deploymentFile: config.cloudflareSetupDeploymentFile,
@@ -341,6 +343,6 @@ export function configureApiPart02(context: ReturnType<typeof configureApiPart01
             ...(config.timeseriesSslCa ? { ca: config.timeseriesSslCa } : {}),
             ...(isIP(config.timeseriesHost) === 0 ? { servername: config.timeseriesHost } : {}),
           };
-  const extended = Object.assign(context, { database, trackingFlags, trackingStore, tracking, systemUpdates, cloudflareSetup, dataOperations, energyOptimizer, integrationMetadata, localAuth, recordSecurityAudit, cloudflareAccess, authAbuseLimiter, trackingObserverAbuseLimiter, dataMode, bus, stuguby, assertSensorHouseMoveAllowed, timeseriesSsl });
+  const extended = Object.assign(context, { database, trackingFlags, trackingStore, tracking, systemUpdates, hostSystem, cloudflareSetup, dataOperations, energyOptimizer, integrationMetadata, localAuth, recordSecurityAudit, cloudflareAccess, authAbuseLimiter, trackingObserverAbuseLimiter, dataMode, bus, stuguby, assertSensorHouseMoveAllowed, timeseriesSsl });
   return extended;
 }

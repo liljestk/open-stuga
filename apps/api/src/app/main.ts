@@ -9,6 +9,7 @@ import { configureApiPart07 } from "./part-07.js";
 import { registerLocalAuthRoutes } from "./local-auth-routes.js";
 import { registerTenantAdministrationRoutes } from "./tenant-administration-routes.js";
 import { registerSystemUpdateRoutes } from "./system-update-routes.js";
+import { registerHostSystemRoutes } from "./host-system-routes.js";
 import { registerCloudflareSetupRoutes } from "./cloudflare-setup-routes.js";
 import { registerLocationDiscoveryRoutes } from "./location-discovery-routes.js";
 import { registerMeasurementDefinitionRoutes } from "./measurement-definition-routes.js";
@@ -44,6 +45,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   const context7 = configureApiPart07(context6);
   registerLocalAuthRoutes(context7);
   registerTenantAdministrationRoutes(context7);
+  registerHostSystemRoutes(context7);
   registerSystemUpdateRoutes(context7);
   registerCloudflareSetupRoutes(context7);
   registerLocationDiscoveryRoutes(context7);

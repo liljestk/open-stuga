@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Activity, Bell, Bolt, Braces, ChartLine, ChevronDown, ChevronLeft, CloudDownload, CloudSun, House, Languages, LayoutDashboard, ListChecks, LogOut, MapPinned, Menu, Network, PanelLeftClose, PanelLeftOpen, RadioTower, RotateCcw, Settings2, ShieldCheck, Users, Wrench, X } from "lucide-react";
+import { Activity, Bell, Bolt, Braces, ChartLine, ChevronDown, ChevronLeft, CloudSun, House, Languages, LayoutDashboard, ListChecks, LogOut, MapPinned, Menu, Network, PanelLeftClose, PanelLeftOpen, RadioTower, RotateCcw, ServerCog, Settings2, ShieldCheck, Users, Wrench, X } from "lucide-react";
 import type { AppPage } from "../domain";
 import { useI18n, type Locale } from "../i18n";
 import type { ConnectionState, House as Home, Property, UnitSystem } from "@climate-twin/contracts";
@@ -71,7 +71,7 @@ const pageIcons = {
   alerts: Bell,
   integrations: Settings2,
   developer: Braces,
-  updates: CloudDownload,
+  updates: ServerCog,
 };
 
 const navigationPreferenceKey = "climate-twin-navigation";
