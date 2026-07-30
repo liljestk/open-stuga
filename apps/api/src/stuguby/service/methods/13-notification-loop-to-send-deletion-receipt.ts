@@ -94,17 +94,58 @@ import {
 import { StugubyError, asJson, enabledDataset, eventBlobReferences, grantAudienceIncludes, grantExpired, recordValue, validateGrantTransition, validatedMember } from "../support/01-stuguby-error-to-without-local-grant-identity.js";
 import { registerStugubyServiceMethods, stugubyServiceState, type StugubyServiceInternals } from "../core.js";
 
+const STREAM_RETRY_BASE_MS = 5_000;
+const STREAM_RETRY_MAX_MS = 300_000;
+const STREAM_AUTH_RETRY_MIN_MS = 300_000;
+const STREAM_STABLE_MS = 60_000;
+const SLOW_STREAM_STATUS = new Set([401, 403, 404, 426]);
+
+function streamRetryDelay(failures: number, status?: number): number {
+  const exponential = Math.min(
+    STREAM_RETRY_MAX_MS,
+    STREAM_RETRY_BASE_MS * 2 ** Math.min(Math.max(0, failures - 1), 8),
+  );
+  return status !== undefined && SLOW_STREAM_STATUS.has(status)
+    ? Math.max(STREAM_AUTH_RETRY_MIN_MS, exponential)
+    : exponential;
+}
+
+async function waitForStreamRetry(signal: AbortSignal, delayMs: number): Promise<void> {
+  if (signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }, delayMs);
+    timer.unref();
+    const abort = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal.addEventListener("abort", abort, { once: true });
+  });
+}
+
 registerStugubyServiceMethods({
   async notificationLoop(this: StugubyServiceInternals, stugubyId: string, controller: AbortController): Promise<void> {
+      let failures = 0;
       try {
         while (!controller.signal.aborted && this[stugubyServiceState].started) {
+          let connectedAt: number | null = null;
+          let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+          let failure: unknown;
           try {
             const stuguby = this.requireStuguby(stugubyId);
             const cursor = this.store.pullCursor(stugubyId);
             const path = `/api/v1/stugby-protocol/stugbys/${encodeURIComponent(stugubyId)}/events/stream?cursor=${cursor}`;
-            const response = await this.signedFetch(stuguby, path, { method: "GET", signal: controller.signal });
+            const response = await this.signedFetch(stuguby, path, {
+              method: "GET",
+              signal: controller.signal,
+              stream: true,
+            });
             if (!response.ok || !response.body) throw await this.remoteError(response, "Stuguby notification stream failed");
-            const reader = response.body.getReader();
+            connectedAt = Date.now();
+            reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffered = "";
             while (!controller.signal.aborted) {
@@ -122,22 +163,24 @@ registerStugubyServiceMethods({
                 const data = frame.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
                 if (eventName === "available" && data) {
                   const next = JSON.parse(data) as { cursor?: unknown };
-                  if (typeof next.cursor === "number" && next.cursor > this.store.pullCursor(stugubyId)) await this.syncAll();
+                  if (typeof next.cursor === "number" && next.cursor > this.store.pullCursor(stugubyId)) {
+                    await this.syncFederation(stugubyId, false);
+                  }
                 }
                 boundary = buffered.indexOf("\n\n");
               }
             }
-          } catch {
-            if (controller.signal.aborted) break;
+            if (!controller.signal.aborted) throw new Error("Stuguby notification stream ended");
+          } catch (error) {
+            failure = error;
+          } finally {
+            await reader?.cancel().catch(() => undefined);
           }
-          if (!controller.signal.aborted) await new Promise<void>((resolve) => {
-            const timer = setTimeout(() => {
-              controller.signal.removeEventListener("abort", abort);
-              resolve();
-            }, 5_000);
-            const abort = (): void => { clearTimeout(timer); resolve(); };
-            controller.signal.addEventListener("abort", abort, { once: true });
-          });
+          if (controller.signal.aborted || !this[stugubyServiceState].started) break;
+          if (connectedAt !== null && Date.now() - connectedAt >= STREAM_STABLE_MS) failures = 0;
+          failures += 1;
+          const status = failure instanceof StugubyError ? failure.status : undefined;
+          await waitForStreamRetry(controller.signal, streamRetryDelay(failures, status));
         }
       } finally {
         if (this[stugubyServiceState].streamControllers.get(stugubyId) === controller) this[stugubyServiceState].streamControllers.delete(stugubyId);

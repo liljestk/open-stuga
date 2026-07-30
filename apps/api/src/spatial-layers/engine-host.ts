@@ -439,7 +439,7 @@ export class EngineHost {
   health(scope: SpatialScope): SpatialEngineHealth[] {
     const defaults = this.ensureScopeDefaults(scope);
     const assignments = defaults.assignments;
-    const latestSnapshots = this.dependencies.state.currentSnapshots(this.#partition, scope)
+    const latestSnapshots = this.dependencies.state.currentSnapshots(this.#partition, scope, assignments.flatMap((assignment) => assignment.layerIds))
       .filter((snapshot) => snapshot.configVersion === String(defaults.configuration.version));
     return assignments.map((assignment) => {
       const latestRun = this.dependencies.state.latestRun(this.#partition, scope, assignment.engineId);

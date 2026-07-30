@@ -220,7 +220,7 @@ export class SensorGapRecoveryCoordinator {
     const to = now.toISOString();
     const thresholdMs = historicalGapThresholdMs(item.source);
     const gaps = this.#telemetryReader
-      ? (() => [] as Array<{ startedAt: string; endedAt: string }>)()
+      ? await this.#unrecordedArchiveGaps(item, from, to, thresholdMs)
       : this.database.measurementSampleGaps(
         item.sensorId,
         item.metric,
@@ -230,23 +230,6 @@ export class SensorGapRecoveryCoordinator {
         thresholdMs,
         this.#historicalGapLimit,
       );
-    if (this.#telemetryReader) {
-      const samples = (await this.#telemetryReader.measurementHistory({
-        sensorId: item.sensorId,
-        metric: item.metric,
-        from,
-        to,
-        limit: 100_000,
-      })).records
-        .filter((sample) => sample.source === item.source)
-        .sort((left, right) => left.timestamp.localeCompare(right.timestamp));
-      for (let index = 1; index < samples.length && gaps.length < this.#historicalGapLimit; index += 1) {
-        const previous = samples[index - 1]!;
-        const current = samples[index]!;
-        if (Date.parse(current.timestamp) - Date.parse(previous.timestamp) < thresholdMs) continue;
-        gaps.push({ startedAt: previous.timestamp, endedAt: current.timestamp });
-      }
-    }
     for (const gap of gaps) {
       this.database.noteHistoricalSensorDataGap(
         item.sensorId,
@@ -257,6 +240,41 @@ export class SensorGapRecoveryCoordinator {
         to,
       );
     }
+  }
+
+  async #unrecordedArchiveGaps(
+    item: SensorMetricAvailability,
+    from: string,
+    to: string,
+    thresholdMs: number,
+  ) {
+    const selected: Awaited<ReturnType<HybridTelemetryReader["measurementSampleGaps"]>> = [];
+    const pageLimit = 1_000;
+    let cursor = from;
+    while (selected.length < this.#historicalGapLimit && Date.parse(cursor) < Date.parse(to)) {
+      const page = await this.#telemetryReader!.measurementSampleGaps({
+        sensorId: item.sensorId,
+        metric: item.metric,
+        source: item.source,
+        from: cursor,
+        to,
+        minimumGapMs: thresholdMs,
+        limit: pageLimit,
+      });
+      if (page.length === 0) break;
+      selected.push(...this.database.unrecordedMeasurementSampleGaps(
+        item.sensorId,
+        item.metric,
+        item.source,
+        page,
+        this.#historicalGapLimit - selected.length,
+      ));
+      if (page.length < pageLimit) break;
+      const nextCursor = page.at(-1)!.endedAt;
+      if (Date.parse(nextCursor) <= Date.parse(cursor)) break;
+      cursor = nextCursor;
+    }
+    return selected;
   }
 
   async #recoverQueued(now: Date): Promise<void> {

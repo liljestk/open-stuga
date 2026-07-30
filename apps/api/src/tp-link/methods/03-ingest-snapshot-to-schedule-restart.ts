@@ -12,7 +12,7 @@ import type {
   SensorMetricAvailability,
 } from "../../sensor-gap-recovery.js";
 import { MeasurementService, RuntimeStatus, TelemetryService } from "../../services.js";
-import { CLIMATE_UNCHANGED_HEARTBEAT_MS, CachedTpLinkDevice, REDUNDANT_SOURCE_HANDOVER_MIN_MS, STATE_UNCHANGED_HEARTBEAT_MS, TpLinkContactEventsMessage, TpLinkSnapshotMessage, finiteNumber, nonEmptyString, normalizeTpLinkTemperature } from "../support/01-tp-link-local-climate-history-capability-revision-to.js";
+import { CLIMATE_UNCHANGED_HEARTBEAT_MS, CachedTpLinkDevice, REDUNDANT_SOURCE_HANDOVER_MIN_MS, STATE_UNCHANGED_HEARTBEAT_MS, STATUS_UNCHANGED_HEARTBEAT_MS, TpLinkContactEventsMessage, TpLinkSnapshotMessage, finiteNumber, nonEmptyString, normalizeTpLinkTemperature } from "../support/01-tp-link-local-climate-history-capability-revision-to.js";
 import { registerTpLinkConnectionBridgeMethods, tpLinkConnectionBridgeState, type TpLinkConnectionBridgeInternals } from "../core.js";
 
 registerTpLinkConnectionBridgeMethods({
@@ -75,7 +75,7 @@ registerTpLinkConnectionBridgeMethods({
             && error.code === "OPENING_OBSERVATION_ID_CONFLICT") continue;
           const reason = error instanceof Error ? error.message : "ingestion failed";
           this[tpLinkConnectionBridgeState].status.value.tpLink.error = `Could not ingest Tapo contact ${event.deviceId}: ${reason}`;
-          this[tpLinkConnectionBridgeState].status.changed();
+          this.publishStatusIfNeeded();
         }
       }
     },
@@ -89,7 +89,8 @@ registerTpLinkConnectionBridgeMethods({
       if (!supportedHub && sourceType !== "energy-device") {
         this[tpLinkConnectionBridgeState].status.value.tpLink.connected = false;
         this[tpLinkConnectionBridgeState].status.value.tpLink.error = `Unsupported TP-Link source model ${message.hubModel || "unknown"}`;
-        this[tpLinkConnectionBridgeState].status.changed();
+        this.publishStatusIfNeeded();
+        this.notifyAvailabilityChangeIfNeeded();
         return;
       }
 
@@ -97,16 +98,16 @@ registerTpLinkConnectionBridgeMethods({
       if (sourceDeviceId && sourceDeviceId.length > 1_024) {
         this[tpLinkConnectionBridgeState].status.value.tpLink.connected = false;
         this[tpLinkConnectionBridgeState].status.value.tpLink.error = "TP-Link helper returned an invalid source identity";
-        this[tpLinkConnectionBridgeState].status.changed();
-        this[tpLinkConnectionBridgeState].managedConnection?.onAvailabilityChange?.();
+        this.publishStatusIfNeeded();
+        this.notifyAvailabilityChangeIfNeeded();
         return;
       }
       if (this[tpLinkConnectionBridgeState].managedConnection?.deviceId && (!sourceDeviceId
         || this[tpLinkConnectionBridgeState].managedConnection.deviceId.trim().toUpperCase() !== sourceDeviceId.trim().toUpperCase())) {
         this[tpLinkConnectionBridgeState].status.value.tpLink.connected = false;
         this[tpLinkConnectionBridgeState].status.value.tpLink.error = "TP-Link helper returned a missing or different source identity at the saved address; polling was stopped to protect device bindings";
-        this[tpLinkConnectionBridgeState].status.changed();
-        this[tpLinkConnectionBridgeState].managedConnection.onAvailabilityChange?.();
+        this.publishStatusIfNeeded();
+        this.notifyAvailabilityChangeIfNeeded();
         return;
       }
       const managedConnection = this[tpLinkConnectionBridgeState].managedConnection;
@@ -266,7 +267,41 @@ registerTpLinkConnectionBridgeMethods({
       }
 
       this[tpLinkConnectionBridgeState].status.value.tpLink.error = [this[tpLinkConnectionBridgeState].mappingWarning, ...issues].filter(Boolean).join("; ") || null;
+      this.publishStatusIfNeeded();
+      this.notifyAvailabilityChangeIfNeeded();
+      const contactEventsEnabled = this[tpLinkConnectionBridgeState].contactEventsEnabled;
+      if (contactEventsEnabled !== null
+        && contactEventsEnabled !== (this.configuredOpeningTargets().length > 0)) this.restart();
+    },
+  publishStatusIfNeeded(this: TpLinkConnectionBridgeInternals, nowMs = Date.now()): void {
+      const status = this[tpLinkConnectionBridgeState].status.value.tpLink;
+      const signature = JSON.stringify([
+        status.configured,
+        status.connected,
+        status.mappedDevices,
+        status.discoveredDevices,
+        status.hubModel,
+        status.host ?? null,
+        status.sourceType ?? null,
+        status.sourceModel ?? null,
+        status.sourceAlias ?? null,
+        status.error,
+      ]);
+      if (signature === this[tpLinkConnectionBridgeState].lastStatusSignature
+        && nowMs - this[tpLinkConnectionBridgeState].lastStatusPublishedAt < STATUS_UNCHANGED_HEARTBEAT_MS) {
+        this[tpLinkConnectionBridgeState].status.synchronized?.();
+        return;
+      }
+      this[tpLinkConnectionBridgeState].lastStatusSignature = signature;
+      this[tpLinkConnectionBridgeState].lastStatusPublishedAt = nowMs;
       this[tpLinkConnectionBridgeState].status.changed();
+    },
+  notifyAvailabilityChangeIfNeeded(this: TpLinkConnectionBridgeInternals, now = new Date()): void {
+      const signature = JSON.stringify(this.availability(now)
+        .map(({ sensorId, metric, source, available }) => JSON.stringify([sensorId, metric, source, available]))
+        .sort());
+      if (signature === this[tpLinkConnectionBridgeState].lastAvailabilitySignature) return;
+      this[tpLinkConnectionBridgeState].lastAvailabilitySignature = signature;
       this[tpLinkConnectionBridgeState].managedConnection?.onAvailabilityChange?.();
     },
   availability(this: TpLinkConnectionBridgeInternals, now = new Date()): SensorMetricAvailability[] {

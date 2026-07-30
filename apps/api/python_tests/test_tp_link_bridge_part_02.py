@@ -511,10 +511,12 @@ async def test_main_uses_safe_interval_fallback(
 ) -> None:
     calls: list[tuple[Any, ...]] = []
     contact_intervals: list[float] = []
+    contact_event_settings: list[bool] = []
 
     async def connect_and_poll(*args: Any, **kwargs: Any) -> None:
         calls.append((*args, kwargs.get("on_success")))
         contact_intervals.append(kwargs["contact_interval_seconds"])
+        contact_event_settings.append(kwargs["contact_events_enabled"])
         kwargs["on_success"]()
 
     monkeypatch.setattr(bridge, "connect_and_poll", connect_and_poll)
@@ -529,3 +531,25 @@ async def test_main_uses_safe_interval_fallback(
     assert calls[0][:-1] == ("192.0.2.10", "user", "password", 2.0, True)
     assert callable(calls[0][-1])
     assert contact_intervals == [0.5]
+    assert contact_event_settings == [True]
+
+
+@pytest.mark.asyncio
+async def test_main_can_disable_the_contact_event_poll_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    contact_event_settings: list[bool] = []
+
+    async def connect_and_poll(*_args: Any, **kwargs: Any) -> None:
+        contact_event_settings.append(kwargs["contact_events_enabled"])
+
+    monkeypatch.setattr(bridge, "connect_and_poll", connect_and_poll)
+    monkeypatch.setattr(sys, "argv", ["tp_link_bridge.py", "--list"])
+    monkeypatch.setenv("TP_LINK_HOST", "192.0.2.10")
+    monkeypatch.setenv("TP_LINK_USERNAME", "user")
+    monkeypatch.setenv("TP_LINK_PASSWORD", "password")
+    monkeypatch.setenv("TP_LINK_CONTACT_EVENTS_ENABLED", "false")
+
+    await bridge.main()
+
+    assert contact_event_settings == [False]

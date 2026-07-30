@@ -4,6 +4,16 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.23.0 - 2026-07-30
+
+- Show Stugu API CPU use and event-loop responsiveness in System health, with
+  sustained alerts and Prometheus gauges that expose single-core strain.
+- Replace raw 30-day gap scans and full spatial payload ranking with bounded,
+  indexed database queries, while keeping explicit TP-Link outage recovery.
+- Coalesce live Timescale writes, browser monitoring refreshes, and TP-Link
+  status work; disable unused contact polling and back off broken Stuguby links
+  while preserving immediate state transitions and manual synchronization.
+
 ## 0.22.0 - 2026-07-30
 
 - Add an Owner/Admin **System** view for host CPU, memory, data-volume storage,

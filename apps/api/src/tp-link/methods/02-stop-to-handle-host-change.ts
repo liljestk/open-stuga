@@ -34,6 +34,9 @@ registerTpLinkConnectionBridgeMethods({
       this[tpLinkConnectionBridgeState].lastIngested.clear();
       this[tpLinkConnectionBridgeState].lastIngestedMeasurements.clear();
       this[tpLinkConnectionBridgeState].lastIngestedOpeningStates.clear();
+      this[tpLinkConnectionBridgeState].lastStatusSignature = null;
+      this[tpLinkConnectionBridgeState].lastStatusPublishedAt = 0;
+      this[tpLinkConnectionBridgeState].lastAvailabilitySignature = null;
       this[tpLinkConnectionBridgeState].mappingWarning = null;
       this[tpLinkConnectionBridgeState].status.value.tpLink.discoveredDevices = 0;
       this[tpLinkConnectionBridgeState].status.value.tpLink.mappedDevices = 0;
@@ -199,6 +202,8 @@ registerTpLinkConnectionBridgeMethods({
       const configuredTargets = process.env.TP_LINK_DISCOVERY_TARGETS?.trim();
       const discoveryTargets = configuredTargets
         || tpLinkDiscoveryTargets([this[tpLinkConnectionBridgeState].config.tpLinkHost]).join(",");
+      const contactEventsEnabled = this.configuredOpeningTargets().length > 0;
+      this[tpLinkConnectionBridgeState].contactEventsEnabled = contactEventsEnabled;
       const child = spawn(this[tpLinkConnectionBridgeState].config.tpLinkPython, [this[tpLinkConnectionBridgeState].config.tpLinkBridgeScript], {
         env: {
           ...process.env,
@@ -206,6 +211,7 @@ registerTpLinkConnectionBridgeMethods({
           TP_LINK_USERNAME: this[tpLinkConnectionBridgeState].config.tpLinkUsername,
           TP_LINK_PASSWORD: this[tpLinkConnectionBridgeState].config.tpLinkPassword,
           TP_LINK_POLL_INTERVAL_MS: String(this[tpLinkConnectionBridgeState].config.tpLinkPollIntervalMs),
+          TP_LINK_CONTACT_EVENTS_ENABLED: contactEventsEnabled ? "1" : "0",
           ...(this[tpLinkConnectionBridgeState].managedConnection?.deviceId ? { TP_LINK_DEVICE_ID: this[tpLinkConnectionBridgeState].managedConnection.deviceId } : {}),
           ...(discoveryTargets ? { TP_LINK_DISCOVERY_TARGETS: discoveryTargets } : {}),
         },
@@ -230,8 +236,8 @@ registerTpLinkConnectionBridgeMethods({
         if (this[tpLinkConnectionBridgeState].child !== child) return;
         this[tpLinkConnectionBridgeState].status.value.tpLink.connected = false;
         this[tpLinkConnectionBridgeState].status.value.tpLink.error = `Could not start TP-Link helper: ${error.message}`;
-        this[tpLinkConnectionBridgeState].status.changed();
-        this[tpLinkConnectionBridgeState].managedConnection?.onAvailabilityChange?.();
+        this.publishStatusIfNeeded();
+        this.notifyAvailabilityChangeIfNeeded();
       });
       child.once("close", (code) => {
         lines?.close();
@@ -241,8 +247,8 @@ registerTpLinkConnectionBridgeMethods({
         this[tpLinkConnectionBridgeState].status.value.tpLink.connected = false;
         const stderr = this[tpLinkConnectionBridgeState].stderr.trim().split(/\r?\n/).at(-1);
         this[tpLinkConnectionBridgeState].status.value.tpLink.error = stderr || `TP-Link helper stopped${code === null ? "" : ` with exit code ${code}`}`;
-        this[tpLinkConnectionBridgeState].status.changed();
-        this[tpLinkConnectionBridgeState].managedConnection?.onAvailabilityChange?.();
+        this.publishStatusIfNeeded();
+        this.notifyAvailabilityChangeIfNeeded();
         this.scheduleRestart();
       });
     },
@@ -256,7 +262,7 @@ registerTpLinkConnectionBridgeMethods({
         message = JSON.parse(line) as TpLinkHelperMessage;
       } catch {
         this[tpLinkConnectionBridgeState].status.value.tpLink.error = "TP-Link helper returned malformed data";
-        this[tpLinkConnectionBridgeState].status.changed();
+        this.publishStatusIfNeeded();
         return;
       }
       if (message.type === "error") {
@@ -273,8 +279,8 @@ registerTpLinkConnectionBridgeMethods({
         }
         this[tpLinkConnectionBridgeState].status.value.tpLink.connected = false;
         this[tpLinkConnectionBridgeState].status.value.tpLink.error = nonEmptyString(message.message) ?? "TP-Link connection failed";
-        this[tpLinkConnectionBridgeState].status.changed();
-        this[tpLinkConnectionBridgeState].managedConnection?.onAvailabilityChange?.();
+        this.publishStatusIfNeeded();
+        this.notifyAvailabilityChangeIfNeeded();
         return;
       }
       if (message.type === "history-result") {
@@ -321,15 +327,15 @@ registerTpLinkConnectionBridgeMethods({
         || knownDeviceId.trim().toUpperCase() !== reportedDeviceId.trim().toUpperCase())) {
         this[tpLinkConnectionBridgeState].status.value.tpLink.connected = false;
         this[tpLinkConnectionBridgeState].status.value.tpLink.error = "TP-Link address recovery reported a different source identity; the saved connection was not changed";
-        this[tpLinkConnectionBridgeState].status.changed();
-        this[tpLinkConnectionBridgeState].managedConnection?.onAvailabilityChange?.();
+        this.publishStatusIfNeeded();
+        this.notifyAvailabilityChangeIfNeeded();
         return;
       }
       if (reportedDeviceId && reportedDeviceId.length > 1_024) {
         this[tpLinkConnectionBridgeState].status.value.tpLink.connected = false;
         this[tpLinkConnectionBridgeState].status.value.tpLink.error = "TP-Link address recovery returned an invalid source identity";
-        this[tpLinkConnectionBridgeState].status.changed();
-        this[tpLinkConnectionBridgeState].managedConnection?.onAvailabilityChange?.();
+        this.publishStatusIfNeeded();
+        this.notifyAvailabilityChangeIfNeeded();
         return;
       }
       const deviceId = reportedDeviceId ?? knownDeviceId;
@@ -347,6 +353,6 @@ registerTpLinkConnectionBridgeMethods({
         });
       }
       this[tpLinkConnectionBridgeState].status.value.tpLink.error = `TP-Link source moved from ${previousHost} to ${host}; connection recovery is in progress`;
-      this[tpLinkConnectionBridgeState].status.changed();
+      this.publishStatusIfNeeded();
     },
 });

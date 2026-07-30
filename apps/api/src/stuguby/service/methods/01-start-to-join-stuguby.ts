@@ -252,6 +252,7 @@ registerStugubyServiceMethods({
       const outgoingStream = this[stugubyServiceState].streamControllers.get(id);
       outgoingStream?.abort();
       this[stugubyServiceState].streamControllers.delete(id);
+      this[stugubyServiceState].pullRetries.delete(id);
       for (const [key, close] of this[stugubyServiceState].incomingNotificationStreams) {
         if (!key.startsWith(`${id}\n`)) continue;
         this[stugubyServiceState].incomingNotificationStreams.delete(key);

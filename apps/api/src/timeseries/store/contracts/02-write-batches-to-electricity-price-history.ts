@@ -31,6 +31,8 @@ import type {
   MeasurementBucketRecord,
   MeasurementCoverageQuery,
   MeasurementCoverageRecord,
+  MeasurementGapQuery,
+  MeasurementGapRecord,
   MeasurementHistoryQuery,
   MeasurementSampleRecord,
   MeasurementWindowQuery,
@@ -70,6 +72,7 @@ declare module "../core.js" {
     latestMeasurementSample(sensorId: string, metric: string, control?: QueryControl): Promise<MeasurementSampleRecord | null>;
     latestMeasurementSamples(filter?: LatestMeasurementFilter): Promise<MeasurementSampleRecord[]>;
     measurementHistory(query: MeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
+    measurementSampleGaps(query: MeasurementGapQuery): Promise<MeasurementGapRecord[]>;
     thermalMeasurementHistory(query: ThermalMeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
     measurementWindow(query: MeasurementWindowQuery): Promise<MeasurementSampleRecord[]>;
     measurementCoverage(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]>;
@@ -93,6 +96,7 @@ declare module "../core.js" {
     latestMeasurementSample(sensorId: string, metric: string, control?: QueryControl): Promise<MeasurementSampleRecord | null>;
     latestMeasurementSamples(filter?: LatestMeasurementFilter): Promise<MeasurementSampleRecord[]>;
     measurementHistory(query: MeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
+    measurementSampleGaps(query: MeasurementGapQuery): Promise<MeasurementGapRecord[]>;
     thermalMeasurementHistory(query: ThermalMeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
     measurementWindow(query: MeasurementWindowQuery): Promise<MeasurementSampleRecord[]>;
     measurementCoverage(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]>;

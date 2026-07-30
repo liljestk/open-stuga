@@ -16,6 +16,8 @@ import type {
   MeasurementAnalyticsRollupResult,
   MeasurementCoverageQuery,
   MeasurementCoverageRecord,
+  MeasurementGapQuery,
+  MeasurementGapRecord,
   MeasurementHistoryQuery,
   MeasurementSampleRecord,
   MeasurementWindowQuery,
@@ -86,6 +88,15 @@ export type { MeasurementWindowQuery } from "./types.js";
 export interface LocalTelemetryReader {
   isRealDataMode(): boolean;
   measurementCoverage?(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[];
+  measurementSampleGaps?(
+    sensorId: string,
+    metric: string,
+    source: string,
+    from: string,
+    to: string,
+    minimumGapMs: number,
+    limit?: number,
+  ): MeasurementGapRecord[];
   measurementHistory(sensorId: string, metric: string, from: string, to: string, limit?: number): MeasurementSample[];
   thermalTemperatureHistory?(
     sensorId: string, from: string, to: string, bucketMinutes?: number, limit?: number,
@@ -116,6 +127,7 @@ export interface LocalTelemetryReader {
 /** Structural archive methods used by the hybrid reader. */
 export interface ArchiveTelemetryReader {
   measurementCoverage?(query: MeasurementCoverageQuery): Promise<MeasurementCoverageRecord[]>;
+  measurementSampleGaps?(query: MeasurementGapQuery): Promise<MeasurementGapRecord[]>;
   measurementHistory(query: MeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
   thermalMeasurementHistory?(query: ThermalMeasurementHistoryQuery): Promise<MeasurementSampleRecord[]>;
   measurementWindow?(query: MeasurementWindowQuery): Promise<MeasurementSampleRecord[]>;
@@ -173,6 +185,56 @@ export class HybridTelemetryReader {
       key: measurementKey,
       compare: compareMeasurements,
     });
+  }
+
+  /**
+   * Finds bounded timestamp pairs without materializing and sorting a complete
+   * raw series in Node. Once available, the archive is authoritative for this
+   * historical scan so adjacency is never split across two databases.
+   */
+  async measurementSampleGaps(query: MeasurementGapQuery): Promise<MeasurementGapRecord[]> {
+    const limit = positiveLimit(query.limit, 100, 1_000);
+    const complete = this.#isLocalHistoryComplete({
+      family: "measurement",
+      from: query.from,
+      to: query.to,
+    });
+    const bounded = (records: MeasurementGapRecord[]) => {
+      const merged = new Map<string, MeasurementGapRecord>();
+      for (const record of records) merged.set(`${record.startedAt}\u0000${record.endedAt}`, record);
+      return [...merged.values()]
+        .sort((left, right) => left.startedAt.localeCompare(right.startedAt)
+          || left.endedAt.localeCompare(right.endedAt))
+        .slice(0, limit);
+    };
+    const readLocal = () => bounded(this.#local.measurementSampleGaps?.(
+      query.sensorId,
+      query.metric,
+      query.source,
+      query.from,
+      query.to,
+      query.minimumGapMs,
+      limit,
+    ) ?? []);
+    if (!this.#archive) {
+      if (!complete) throw new IncompleteTelemetryHistoryError("not-configured");
+      return readLocal();
+    }
+    const phase = this.#archivePhase ? this.#safeArchivePhase() : "ready";
+    if ((phase !== "ready" && phase !== "syncing") || !this.#archive.measurementSampleGaps) {
+      if (!complete) throw new IncompleteTelemetryHistoryError("not-ready");
+      return readLocal();
+    }
+    try {
+      const archived = await this.#archive.measurementSampleGaps({ ...query, limit });
+      return bounded(archived);
+    } catch {
+      const cancellation = aborted(query.signal);
+      if (cancellation) throw cancellation;
+      this.#requestReconciliation();
+      if (!complete) throw new IncompleteTelemetryHistoryError("failed");
+      return readLocal();
+    }
   }
 
   async thermalMeasurementHistory(

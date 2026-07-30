@@ -183,4 +183,97 @@ describe("LiveEventCoordinator", () => {
       vi.useRealTimers();
     }
   });
+
+  it("throttles monitoring invalidation during sustained measurement traffic", async () => {
+    vi.useFakeTimers();
+    try {
+      let onMeasurement: ((sample: MeasurementSample) => void) | undefined;
+      const client = clientWithQueries();
+      const invalidate = vi.spyOn(client, "invalidateQueries");
+      const coordinator = new LiveEventCoordinator(client, {
+        legacy: vi.fn(() => vi.fn()),
+        measurements: vi.fn((next) => {
+          onMeasurement = next;
+          return vi.fn();
+        }),
+      });
+      const stop = coordinator.start({
+        onTelemetry: vi.fn(),
+        onMeasurement: vi.fn(),
+        onConnection: vi.fn(),
+        onOpen: vi.fn(),
+        houseIdForSensor: () => "home-1",
+      });
+      const sample: MeasurementSample = {
+        sensorId: "sensor-1",
+        metric: "temperature",
+        value: 20,
+        canonicalUnit: "°C",
+        timestamp: "2027-01-15T08:00:00Z",
+        source: "api",
+        quality: "good",
+      };
+
+      onMeasurement?.(sample);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(invalidate).toHaveBeenCalledOnce();
+
+      onMeasurement?.({ ...sample, timestamp: "2027-01-15T08:00:02Z" });
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(invalidate).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(invalidate).toHaveBeenCalledTimes(2);
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("defers monitoring invalidation while the tab is hidden", async () => {
+    vi.useFakeTimers();
+    const originalHidden = Object.getOwnPropertyDescriptor(document, "hidden");
+    let stop: (() => void) | undefined;
+    try {
+      Object.defineProperty(document, "hidden", { configurable: true, value: true });
+      let onMeasurement: ((sample: MeasurementSample) => void) | undefined;
+      const client = clientWithQueries();
+      const invalidate = vi.spyOn(client, "invalidateQueries");
+      const coordinator = new LiveEventCoordinator(client, {
+        legacy: vi.fn(() => vi.fn()),
+        measurements: vi.fn((next) => {
+          onMeasurement = next;
+          return vi.fn();
+        }),
+      });
+      stop = coordinator.start({
+        onTelemetry: vi.fn(),
+        onMeasurement: vi.fn(),
+        onConnection: vi.fn(),
+        onOpen: vi.fn(),
+        houseIdForSensor: () => "home-1",
+      });
+
+      onMeasurement?.({
+        sensorId: "sensor-1",
+        metric: "temperature",
+        value: 20,
+        canonicalUnit: "°C",
+        timestamp: "2027-01-15T08:00:00Z",
+        source: "api",
+        quality: "good",
+      });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(invalidate).not.toHaveBeenCalled();
+
+      Object.defineProperty(document, "hidden", { configurable: true, value: false });
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(invalidate).toHaveBeenCalledOnce();
+    } finally {
+      stop?.();
+      if (originalHidden) Object.defineProperty(document, "hidden", originalHidden);
+      else Reflect.deleteProperty(document, "hidden");
+      vi.useRealTimers();
+    }
+  });
 });

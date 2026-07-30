@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { TelemetryBus } from "../src/events.js";
 import { TelemetryArchiveWorker } from "../src/timeseries/archive-worker.js";
+import { TelemetryRetentionWorker } from "../src/timeseries/retention-worker.js";
 import type { ClimateDatabase } from "../src/db.js";
 import { TELEMETRY_TABLES, type TelemetryTableName } from "../src/timeseries/schema.js";
 import type { TimeseriesStore } from "../src/timeseries/store.js";
@@ -132,6 +133,198 @@ describe("TelemetryArchiveWorker", () => {
       expect.objectContaining({ metric: "humidity", value: 45 }),
     ]);
     await worker.stop();
+  });
+
+  it("coalesces live samples into a measurement-only flush instead of scanning every archive table", async () => {
+    vi.useFakeTimers();
+    try {
+      const archiveStore = store();
+      const bus = new TelemetryBus();
+      const watermarks = {};
+      const database = fixtures({
+        measurementArchivePage: () => [],
+        telemetryArchiveDirtyCount: vi.fn(() => 0),
+        telemetryArchiveWatermarks: vi.fn(() => watermarks),
+        purgeReadingsBefore: vi.fn(() => 2),
+      });
+      const worker = new TelemetryArchiveWorker(database, bus, archiveStore, {
+        batchSize: 10,
+        liveFlushIntervalMs: 1_000,
+      });
+      await worker.start();
+      await worker.reconcileNow();
+      vi.mocked(archiveStore.archiveCheckpoint).mockClear();
+      vi.mocked(archiveStore.upsertMeasurementSamples).mockClear();
+
+      bus.publishMeasurement({
+        sensorId: "sensor-1", metric: "temperature", value: 20, canonicalUnit: "C",
+        timestamp: "2026-07-18T00:01:00.000Z", source: "api", quality: "good",
+      });
+      bus.publishMeasurement({
+        sensorId: "sensor-1", metric: "humidity", value: 45, canonicalUnit: "%",
+        timestamp: "2026-07-18T00:01:00.000Z", source: "api", quality: "good",
+      });
+
+      await vi.advanceTimersByTimeAsync(999);
+      expect(archiveStore.upsertMeasurementSamples).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(archiveStore.upsertMeasurementSamples).toHaveBeenCalledOnce();
+      expect(archiveStore.upsertMeasurementSamples).toHaveBeenCalledWith([
+        expect.objectContaining({ metric: "temperature", value: 20 }),
+        expect.objectContaining({ metric: "humidity", value: 45 }),
+      ]);
+      expect(archiveStore.archiveCheckpoint).not.toHaveBeenCalled();
+      expect(worker.status()).toMatchObject({ phase: "ready", caughtUp: true, queuedSamples: 0 });
+
+      const retention = new TelemetryRetentionWorker(database, worker, 30);
+      await expect(retention.runOnce()).resolves.toBe(2);
+      expect(database.purgeReadingsBefore).toHaveBeenCalledWith(expect.any(String), 5_000, watermarks);
+      await retention.stop();
+      await worker.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a failed live batch queued for the next authoritative reconciliation", async () => {
+    vi.useFakeTimers();
+    try {
+      const upsertMeasurementSamples = vi.fn()
+        .mockRejectedValueOnce(new Error("offline"))
+        .mockResolvedValue({ attempted: 1, affected: 1 });
+      const archiveStore = store({ upsertMeasurementSamples });
+      const bus = new TelemetryBus();
+      const worker = new TelemetryArchiveWorker(fixtures({
+        measurementArchivePage: () => [],
+      }), bus, archiveStore, {
+        batchSize: 10,
+        liveFlushIntervalMs: 1_000,
+        retryIntervalMs: 60_000,
+      });
+      await worker.start();
+      await worker.reconcileNow();
+
+      bus.publishMeasurement({
+        sensorId: "sensor-1", metric: "temperature", value: 20, canonicalUnit: "C",
+        timestamp: "2026-07-18T00:01:00.000Z", source: "api", quality: "good",
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(worker.status()).toMatchObject({
+        phase: "degraded",
+        caughtUp: false,
+        queuedSamples: 1,
+        lastError: "reconciliation-failed",
+      });
+      bus.publishMeasurement({
+        sensorId: "sensor-1", metric: "humidity", value: 45, canonicalUnit: "%",
+        timestamp: "2026-07-18T00:01:00.000Z", source: "api", quality: "good",
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(upsertMeasurementSamples).toHaveBeenCalledOnce();
+
+      await worker.reconcileNow();
+
+      expect(upsertMeasurementSamples).toHaveBeenCalledTimes(2);
+      expect(worker.status()).toMatchObject({ phase: "ready", caughtUp: true, queuedSamples: 0 });
+      await worker.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("protects a blocked live batch from queue-overflow eviction until it can retry", async () => {
+    vi.useFakeTimers();
+    try {
+      let rejectWrite: ((error: Error) => void) | undefined;
+      const blockedWrite = new Promise<{ attempted: number; affected: number }>((_resolve, reject) => {
+        rejectWrite = reject;
+      });
+      const upsertMeasurementSamples = vi.fn()
+        .mockImplementationOnce(() => blockedWrite)
+        .mockImplementation(async (rows: unknown[]) => ({ attempted: rows.length, affected: rows.length }));
+      const archiveStore = store({ upsertMeasurementSamples });
+      const bus = new TelemetryBus();
+      const worker = new TelemetryArchiveWorker(fixtures({
+        measurementArchivePage: () => [],
+      }), bus, archiveStore, {
+        batchSize: 100,
+        liveFlushIntervalMs: 1_000,
+        retryIntervalMs: 60_000,
+      });
+      await worker.start();
+      await worker.reconcileNow();
+
+      bus.publishMeasurement({
+        sensorId: "sensor-1", metric: "temperature", value: 1, canonicalUnit: "C",
+        timestamp: "2026-07-18T00:01:00.000Z", source: "api", quality: "good",
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(upsertMeasurementSamples).toHaveBeenCalledOnce();
+
+      for (let value = 2; value <= 1_001; value += 1) {
+        bus.publishMeasurement({
+          sensorId: "sensor-1", metric: "temperature", value, canonicalUnit: "C",
+          timestamp: new Date(Date.parse("2026-07-18T00:01:00.000Z") + value).toISOString(),
+          source: "api", quality: "good",
+        });
+      }
+      expect(worker.status()).toMatchObject({ queuedSamples: 1_000, droppedQueueSamples: 1 });
+
+      rejectWrite?.(new Error("offline"));
+      await vi.waitFor(() => expect(worker.status().phase).toBe("degraded"));
+      await worker.reconcileNow();
+
+      expect(upsertMeasurementSamples.mock.calls[1]?.[0]).toEqual([
+        expect.objectContaining({ value: 1 }),
+        ...Array.from({ length: 99 }, () => expect.any(Object)),
+      ]);
+      expect(worker.status()).toMatchObject({ phase: "ready", caughtUp: true, queuedSamples: 0 });
+      await worker.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for an active live flush before closing the archive store", async () => {
+    vi.useFakeTimers();
+    try {
+      let releaseWrite: (() => void) | undefined;
+      const writeBlocked = new Promise<void>((resolve) => {
+        releaseWrite = resolve;
+      });
+      const archiveStore = store({
+        upsertMeasurementSamples: vi.fn(async (rows: unknown[]) => {
+          await writeBlocked;
+          return { attempted: rows.length, affected: rows.length };
+        }),
+      });
+      const bus = new TelemetryBus();
+      const worker = new TelemetryArchiveWorker(fixtures({
+        measurementArchivePage: () => [],
+      }), bus, archiveStore, {
+        batchSize: 10,
+        liveFlushIntervalMs: 1_000,
+      });
+      await worker.start();
+      await worker.reconcileNow();
+
+      bus.publishMeasurement({
+        sensorId: "sensor-1", metric: "temperature", value: 20, canonicalUnit: "C",
+        timestamp: "2026-07-18T00:01:00.000Z", source: "api", quality: "good",
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      const stop = worker.stop();
+
+      expect(archiveStore.close).not.toHaveBeenCalled();
+      releaseWrite?.();
+      await stop;
+      expect(archiveStore.close).toHaveBeenCalledOnce();
+      expect(worker.status()).toMatchObject({ phase: "stopped", caughtUp: false });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("archives raw TP-Link climate samples and readings to TimescaleDB", async () => {

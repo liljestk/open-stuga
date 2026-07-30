@@ -103,7 +103,7 @@ declare module "../core.js" {
         event: StugubySignedEvent,
         references: StugubyBlobReference[],
       ): Promise<void>;
-    signedFetch(stuguby: StugubySummary, path: string, input: { method: string; body?: string | Uint8Array; contentType?: string; signal?: AbortSignal }): Promise<Response>;
+    signedFetch(stuguby: StugubySummary, path: string, input: { method: string; body?: string | Uint8Array; contentType?: string; signal?: AbortSignal; stream?: boolean }): Promise<Response>;
     readBoundedResponse(response: Response, maximumBytes: number, code: string, message: string): Promise<Uint8Array>;
     remoteError(response: Response, fallback: string): Promise<StugubyError>;
     readJsonResponse(response: Response, maximumBytes: number, label: string): Promise<unknown>;

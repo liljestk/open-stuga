@@ -13,6 +13,7 @@ import {
   uptime,
 } from "node:os";
 import { dirname, parse, resolve } from "node:path";
+import { monitorEventLoopDelay, type IntervalHistogram } from "node:perf_hooks";
 import type {
   HostSystemAlert,
   HostSystemAlertMetric,
@@ -20,6 +21,7 @@ import type {
   HostSystemState,
   HostSystemThresholds,
 } from "@climate-twin/contracts";
+import { hostSystemPrometheusMetrics } from "./host-system-prometheus.js";
 
 const GIBIBYTE = 1_073_741_824;
 const CPU_THRESHOLDS: HostSystemThresholds = {
@@ -46,12 +48,23 @@ const TEMPERATURE_THRESHOLDS: HostSystemThresholds = {
   warningAfterSeconds: 120,
   criticalAfterSeconds: 30,
 };
+const EVENT_LOOP_THRESHOLDS = {
+  warningMilliseconds: 250,
+  criticalMilliseconds: 1_000,
+  warningAfterSeconds: 120,
+  criticalAfterSeconds: 30,
+} as const;
 const STORAGE_WARNING_AVAILABLE_BYTES = 5 * GIBIBYTE;
 const STORAGE_CRITICAL_AVAILABLE_BYTES = GIBIBYTE;
 
 export interface HostCpuTimes {
   idle: number;
   total: number;
+}
+
+export interface HostProcessCpuTimes {
+  userMicroseconds: number;
+  systemMicroseconds: number;
 }
 
 export interface HostStorageSpace {
@@ -64,6 +77,11 @@ export interface HostCgroupMemory {
   usedBytes: number;
 }
 
+export interface HostEventLoopDelaySample {
+  p95Milliseconds: number;
+  maxMilliseconds: number;
+}
+
 export interface HostSystemDataSource {
   nowMs(): number;
   hostname(): string;
@@ -74,6 +92,7 @@ export interface HostSystemDataSource {
   serviceUptimeSeconds(): number;
   logicalCores(): number;
   cpuTimes(): HostCpuTimes;
+  processCpuTimes?(): HostProcessCpuTimes;
   loadAverage(): [number, number, number];
   hostTotalMemoryBytes(): number;
   hostFreeMemoryBytes(): number;
@@ -81,6 +100,7 @@ export interface HostSystemDataSource {
   cgroupMemory(): Promise<HostCgroupMemory | null>;
   storage(path: string): Promise<HostStorageSpace>;
   cpuTemperatureCelsius(): Promise<number | null>;
+  eventLoopDelayMilliseconds?(): HostEventLoopDelaySample | null;
 }
 
 export interface HostSystemMonitorOptions {
@@ -115,6 +135,13 @@ function thresholdState(value: number | null, thresholds: HostSystemThresholds):
   if (value === null) return "unknown";
   if (value >= thresholds.criticalPercent) return "critical";
   if (value >= thresholds.warningPercent) return "warning";
+  return "healthy";
+}
+
+function latencyState(value: number | null): HostSystemState {
+  if (value === null) return "unknown";
+  if (value >= EVENT_LOOP_THRESHOLDS.criticalMilliseconds) return "critical";
+  if (value >= EVENT_LOOP_THRESHOLDS.warningMilliseconds) return "warning";
   return "healthy";
 }
 
@@ -192,6 +219,10 @@ const defaultSource: HostSystemDataSource = {
   serviceUptimeSeconds: () => process.uptime(),
   logicalCores: () => availableParallelism(),
   cpuTimes: currentCpuTimes,
+  processCpuTimes: () => {
+    const value = process.cpuUsage();
+    return { userMicroseconds: value.user, systemMicroseconds: value.system };
+  },
   loadAverage: () => loadavg() as [number, number, number],
   hostTotalMemoryBytes: totalmem,
   hostFreeMemoryBytes: freemem,
@@ -230,26 +261,38 @@ function temperatureRecommendation(): string {
   return "Check airflow around the host, its fan or heatsink, and the room temperature.";
 }
 
+function eventLoopRecommendation(): string {
+  return "Check integrations, history recovery, analytics, and other API work that may be blocking Stugu responses.";
+}
+
 export class HostSystemMonitor {
   readonly #source: HostSystemDataSource;
   readonly #storagePath: string;
   readonly #sampleIntervalMs: number;
   readonly #cpuSampleWindowMs: number;
+  readonly #eventLoopHistogram: IntervalHistogram | null;
   readonly #crossedAt = new Map<string, number>();
   #previousCpu: HostCpuTimes | null = null;
+  #previousProcessCpu: (HostProcessCpuTimes & { sampledAtMs: number }) | null = null;
   #current: HostSystemHealth | null = null;
   #refreshing: Promise<HostSystemHealth> | null = null;
   #timer: NodeJS.Timeout | null = null;
+  #eventLoopHistogramEnabled = false;
 
   constructor(options: HostSystemMonitorOptions) {
     this.#source = options.source ?? defaultSource;
     this.#storagePath = storageProbePath(options.storagePath);
     this.#sampleIntervalMs = Math.max(1_000, options.sampleIntervalMs ?? 30_000);
     this.#cpuSampleWindowMs = Math.max(0, options.cpuSampleWindowMs ?? 100);
+    this.#eventLoopHistogram = options.source ? null : monitorEventLoopDelay({ resolution: 20 });
   }
 
   start(): void {
     if (this.#timer) return;
+    if (this.#eventLoopHistogram && !this.#eventLoopHistogramEnabled) {
+      this.#eventLoopHistogram.enable();
+      this.#eventLoopHistogramEnabled = true;
+    }
     void this.refresh().catch(() => undefined);
     this.#timer = setInterval(() => void this.refresh().catch(() => undefined), this.#sampleIntervalMs);
     this.#timer.unref();
@@ -258,6 +301,11 @@ export class HostSystemMonitor {
   stop(): void {
     if (this.#timer) clearInterval(this.#timer);
     this.#timer = null;
+    if (this.#eventLoopHistogramEnabled) {
+      this.#eventLoopHistogram?.disable();
+      this.#eventLoopHistogram?.reset();
+      this.#eventLoopHistogramEnabled = false;
+    }
   }
 
   async snapshot(): Promise<HostSystemHealth> {
@@ -289,6 +337,39 @@ export class HostSystemMonitor {
     const total = second.total - first.total;
     const idle = second.idle - first.idle;
     return total > 0 ? rounded(Math.max(0, Math.min(100, (1 - idle / total) * 100))) : null;
+  }
+
+  #processCpuUsagePercent(nowMs: number): number | null {
+    const current = this.#source.processCpuTimes?.();
+    if (!current) return null;
+    const previous = this.#previousProcessCpu;
+    this.#previousProcessCpu = { ...current, sampledAtMs: nowMs };
+    if (!previous || nowMs <= previous.sampledAtMs) return null;
+    const cpuMilliseconds = (
+      current.userMicroseconds - previous.userMicroseconds
+      + current.systemMicroseconds - previous.systemMicroseconds
+    ) / 1_000;
+    const elapsedMilliseconds = nowMs - previous.sampledAtMs;
+    const maximum = Math.max(1, this.#source.logicalCores()) * 100;
+    return rounded(Math.max(0, Math.min(maximum, cpuMilliseconds / elapsedMilliseconds * 100)));
+  }
+
+  #eventLoopDelayMilliseconds(): HostEventLoopDelaySample | null {
+    const supplied = this.#source.eventLoopDelayMilliseconds?.();
+    if (supplied) {
+      return {
+        p95Milliseconds: rounded(Math.max(0, supplied.p95Milliseconds), 2),
+        maxMilliseconds: rounded(Math.max(0, supplied.maxMilliseconds), 2),
+      };
+    }
+    const histogram = this.#eventLoopHistogram;
+    if (!histogram || histogram.count === 0) return null;
+    const sample = {
+      p95Milliseconds: rounded(histogram.percentile(95) / 1_000_000, 2),
+      maxMilliseconds: rounded(histogram.max / 1_000_000, 2),
+    };
+    histogram.reset();
+    return sample;
   }
 
   #alerts(now: number, conditions: AlertCondition[]): HostSystemAlert[] {
@@ -336,6 +417,8 @@ export class HostSystemMonitor {
         () => ({ value: null, error: true as const }),
       ),
     ]);
+    const eventLoopDelay = this.#eventLoopDelayMilliseconds();
+    const processUsagePercent = this.#processCpuUsagePercent(this.#source.nowMs());
     const hostMemoryTotal = this.#source.hostTotalMemoryBytes();
     const useCgroup = Boolean(cgroup && cgroup.limitBytes < hostMemoryTotal * 0.99);
     const memoryTotal = useCgroup ? cgroup!.limitBytes : hostMemoryTotal;
@@ -352,7 +435,14 @@ export class HostSystemMonitor {
     const storageUsedPercent = storageUsed === null || storageTotal === null
       ? null
       : percent(storageUsed, storageTotal);
-    const cpuUsageState = thresholdState(usagePercent, CPU_THRESHOLDS);
+    const cpuStrainPercent = usagePercent === null
+      ? processUsagePercent
+      : processUsagePercent === null
+        ? usagePercent
+        : Math.max(usagePercent, processUsagePercent);
+    const cpuUsageState = thresholdState(cpuStrainPercent, CPU_THRESHOLDS);
+    const eventLoopState = latencyState(eventLoopDelay?.p95Milliseconds ?? null);
+    const measuredEventLoopState = eventLoopDelay === null ? "healthy" : eventLoopState;
     const temperatureState = temperatureCelsius === null
       ? "healthy"
       : thresholdState(temperatureCelsius, TEMPERATURE_THRESHOLDS);
@@ -369,19 +459,41 @@ export class HostSystemMonitor {
     const conditions: AlertCondition[] = [
       {
         metric: "cpu", severity: "warning",
-        active: usagePercent !== null && usagePercent >= CPU_THRESHOLDS.warningPercent,
-        value: usagePercent, unit: "%", threshold: CPU_THRESHOLDS.warningPercent,
+        active: cpuStrainPercent !== null && cpuStrainPercent >= CPU_THRESHOLDS.warningPercent,
+        value: cpuStrainPercent, unit: "%", threshold: CPU_THRESHOLDS.warningPercent,
         afterSeconds: CPU_THRESHOLDS.warningAfterSeconds,
         message: `CPU use has stayed above ${CPU_THRESHOLDS.warningPercent}%.`,
         recommendation: cpuRecommendation(),
       },
       {
         metric: "cpu", severity: "critical",
-        active: usagePercent !== null && usagePercent >= CPU_THRESHOLDS.criticalPercent,
-        value: usagePercent, unit: "%", threshold: CPU_THRESHOLDS.criticalPercent,
+        active: cpuStrainPercent !== null && cpuStrainPercent >= CPU_THRESHOLDS.criticalPercent,
+        value: cpuStrainPercent, unit: "%", threshold: CPU_THRESHOLDS.criticalPercent,
         afterSeconds: CPU_THRESHOLDS.criticalAfterSeconds,
         message: `CPU use has stayed above ${CPU_THRESHOLDS.criticalPercent}%.`,
         recommendation: cpuRecommendation(),
+      },
+      {
+        metric: "event-loop", severity: "warning",
+        active: eventLoopDelay !== null
+          && eventLoopDelay.p95Milliseconds >= EVENT_LOOP_THRESHOLDS.warningMilliseconds,
+        value: eventLoopDelay?.p95Milliseconds ?? null,
+        unit: "ms",
+        threshold: EVENT_LOOP_THRESHOLDS.warningMilliseconds,
+        afterSeconds: EVENT_LOOP_THRESHOLDS.warningAfterSeconds,
+        message: `API response scheduling has stayed above ${EVENT_LOOP_THRESHOLDS.warningMilliseconds} ms (p95).`,
+        recommendation: eventLoopRecommendation(),
+      },
+      {
+        metric: "event-loop", severity: "critical",
+        active: eventLoopDelay !== null
+          && eventLoopDelay.p95Milliseconds >= EVENT_LOOP_THRESHOLDS.criticalMilliseconds,
+        value: eventLoopDelay?.p95Milliseconds ?? null,
+        unit: "ms",
+        threshold: EVENT_LOOP_THRESHOLDS.criticalMilliseconds,
+        afterSeconds: EVENT_LOOP_THRESHOLDS.criticalAfterSeconds,
+        message: `API response scheduling has stayed above ${EVENT_LOOP_THRESHOLDS.criticalMilliseconds} ms (p95).`,
+        recommendation: eventLoopRecommendation(),
       },
       {
         metric: "memory", severity: "warning",
@@ -461,7 +573,7 @@ export class HostSystemMonitor {
       : alerts.length ? "warning" : "healthy";
     const health: HostSystemHealth = {
       state: worstState(
-        worstState(cpuUsageState, temperatureState),
+        worstState(cpuUsageState, temperatureState, measuredEventLoopState),
         memoryState,
         storageState,
         alertState,
@@ -476,11 +588,18 @@ export class HostSystemMonitor {
       cpu: {
         state: worstState(cpuUsageState, temperatureState),
         usagePercent,
+        processUsagePercent,
         logicalCores: Math.max(1, this.#source.logicalCores()),
         loadAverage: this.#source.loadAverage().map((value) => rounded(value, 2)) as [number, number, number],
         temperatureCelsius,
         usageThresholds: CPU_THRESHOLDS,
         temperatureThresholds: TEMPERATURE_THRESHOLDS,
+        eventLoop: {
+          state: eventLoopState,
+          p95Milliseconds: eventLoopDelay?.p95Milliseconds ?? null,
+          maxMilliseconds: eventLoopDelay?.maxMilliseconds ?? null,
+          thresholds: EVENT_LOOP_THRESHOLDS,
+        },
       },
       memory: {
         state: memoryState,
@@ -507,71 +626,4 @@ export class HostSystemMonitor {
     this.#current = health;
     return health;
   }
-}
-
-function metricLine(name: string, value: number | null): string[] {
-  return value === null || !Number.isFinite(value) ? [] : [`${name} ${value}`];
-}
-
-function escapedLabel(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll("\n", "\\n").replaceAll('"', '\\"');
-}
-
-export function hostSystemPrometheusMetrics(health: HostSystemHealth): string {
-  const lines = [
-    "# HELP stugu_host_info Static information about the Stugu host.",
-    "# TYPE stugu_host_info gauge",
-    `stugu_host_info{platform="${escapedLabel(health.platform)}",architecture="${escapedLabel(health.architecture)}",release="${escapedLabel(health.release)}"} 1`,
-    "# HELP stugu_host_cpu_usage_percent Host CPU time spent outside the idle state.",
-    "# TYPE stugu_host_cpu_usage_percent gauge",
-    ...metricLine("stugu_host_cpu_usage_percent", health.cpu.usagePercent),
-    "# HELP stugu_host_load_average Host load average over one, five, and fifteen minutes.",
-    "# TYPE stugu_host_load_average gauge",
-    `stugu_host_load_average{window="1m"} ${health.cpu.loadAverage[0]}`,
-    `stugu_host_load_average{window="5m"} ${health.cpu.loadAverage[1]}`,
-    `stugu_host_load_average{window="15m"} ${health.cpu.loadAverage[2]}`,
-    "# HELP stugu_host_cpu_temperature_celsius Host CPU thermal-zone temperature when available.",
-    "# TYPE stugu_host_cpu_temperature_celsius gauge",
-    ...metricLine("stugu_host_cpu_temperature_celsius", health.cpu.temperatureCelsius),
-    "# HELP stugu_host_memory_bytes Host or container memory by state.",
-    "# TYPE stugu_host_memory_bytes gauge",
-    `stugu_host_memory_bytes{state="total",scope="${health.memory.scope}"} ${health.memory.totalBytes}`,
-    `stugu_host_memory_bytes{state="used",scope="${health.memory.scope}"} ${health.memory.usedBytes}`,
-    `stugu_host_memory_bytes{state="available",scope="${health.memory.scope}"} ${health.memory.availableBytes}`,
-    "# HELP stugu_process_resident_memory_bytes Resident memory used by the Stugu API process.",
-    "# TYPE stugu_process_resident_memory_bytes gauge",
-    `stugu_process_resident_memory_bytes ${health.memory.processResidentBytes}`,
-    "# HELP stugu_host_storage_bytes Stugu data-volume storage by state.",
-    "# TYPE stugu_host_storage_bytes gauge",
-    ...metricLine('stugu_host_storage_bytes{state="total"}', health.storage.totalBytes),
-    ...metricLine('stugu_host_storage_bytes{state="used"}', health.storage.usedBytes),
-    ...metricLine('stugu_host_storage_bytes{state="available"}', health.storage.availableBytes),
-    "# HELP stugu_host_uptime_seconds Host uptime.",
-    "# TYPE stugu_host_uptime_seconds gauge",
-    `stugu_host_uptime_seconds ${health.hostUptimeSeconds}`,
-    "# HELP stugu_service_uptime_seconds Stugu API process uptime.",
-    "# TYPE stugu_service_uptime_seconds gauge",
-    `stugu_service_uptime_seconds ${health.serviceUptimeSeconds}`,
-    "# HELP stugu_host_alert_active Whether a sustained built-in host alert is active.",
-    "# TYPE stugu_host_alert_active gauge",
-  ];
-  for (const metric of ["cpu", "memory", "storage", "temperature"] as const) {
-    for (const severity of ["warning", "critical"] as const) {
-      const active = health.alerts.some((alert) => alert.metric === metric && alert.severity === severity);
-      lines.push(`stugu_host_alert_active{metric="${metric}",severity="${severity}"} ${active ? 1 : 0}`);
-    }
-  }
-  lines.push(
-    "# HELP stugu_host_health_state Current combined host-health state.",
-    "# TYPE stugu_host_health_state gauge",
-  );
-  for (const state of ["healthy", "warning", "critical", "unknown"] as const) {
-    lines.push(`stugu_host_health_state{state="${state}"} ${health.state === state ? 1 : 0}`);
-  }
-  lines.push(
-    "# HELP stugu_host_sample_timestamp_seconds Unix timestamp of the sample.",
-    "# TYPE stugu_host_sample_timestamp_seconds gauge",
-    `stugu_host_sample_timestamp_seconds ${Date.parse(health.sampledAt) / 1_000}`,
-  );
-  return `${lines.join("\n")}\n`;
 }

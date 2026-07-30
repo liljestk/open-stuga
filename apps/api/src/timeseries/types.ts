@@ -213,6 +213,23 @@ export interface MeasurementHistoryQuery extends QueryControl {
   limit?: number;
 }
 
+/** A bounded database-side search for adjacent good samples separated by a real hole. */
+export interface MeasurementGapQuery extends QueryControl {
+  sensorId: string;
+  metric: string;
+  source: TelemetrySource;
+  from: string;
+  to: string;
+  minimumGapMs: number;
+  limit?: number;
+}
+
+export interface MeasurementGapRecord {
+  startedAt: string;
+  endedAt: string;
+  durationMs: number;
+}
+
 /** Quality-weighted, bounded buckets used by thermal and moisture models. */
 export interface ThermalMeasurementHistoryQuery extends QueryControl {
   sensorId: string;

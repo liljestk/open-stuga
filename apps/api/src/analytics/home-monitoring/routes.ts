@@ -95,7 +95,11 @@ export function registerHomeMonitoringRoutes(context: HomeMonitoringRouteContext
     () => historyCache.stats(),
   );
   const removeCacheWake = context.bus.subscribe((event) => {
-    if (event.type === "heartbeat" || event.type === "reading") return;
+    if (
+      event.type === "heartbeat"
+      || event.type === "reading"
+      || event.type === "measurement"
+    ) return;
     collectionCache.clear();
     detailCache.clear();
     historyCache.clear();

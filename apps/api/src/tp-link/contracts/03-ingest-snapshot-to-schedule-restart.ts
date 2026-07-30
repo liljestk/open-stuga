@@ -19,6 +19,8 @@ declare module "../core.js" {
   interface TpLinkConnectionBridgeInternals {
     ingestContactEvents(message: TpLinkContactEventsMessage): void;
     ingestSnapshot(message: TpLinkSnapshotMessage): void;
+    publishStatusIfNeeded(nowMs?: number): void;
+    notifyAvailabilityChangeIfNeeded(now?: Date): void;
     availability(now?: Date): SensorMetricAvailability[];
     ingestElectricityMeasurement(
         deviceId: string,

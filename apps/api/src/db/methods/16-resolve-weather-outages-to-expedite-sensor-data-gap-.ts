@@ -198,6 +198,47 @@ registerDatabaseMethods({
         durationMs: Math.max(0, Math.round(row.duration_ms)),
       }));
     },
+  unrecordedMeasurementSampleGaps(
+      sensorId: string,
+      metric: string,
+      source: SensorDataGapSource,
+      candidates: HistoricalTelemetryGap[],
+      limit = 100,
+    ): HistoricalTelemetryGap[] {
+      if (candidates.length === 0) return [];
+      if (candidates.length > 1_000) throw new RangeError("At most 1000 candidate gaps may be filtered");
+      const safeLimit = Math.max(1, Math.min(1_000, Math.trunc(limit)));
+      const normalized = candidates.map((candidate) => {
+        const started = Date.parse(candidate.startedAt);
+        const ended = Date.parse(candidate.endedAt);
+        if (!Number.isFinite(started) || !Number.isFinite(ended) || ended <= started) {
+          throw new RangeError("Candidate gap end must be after its start");
+        }
+        return {
+          ...candidate,
+          startedAt: new Date(started).toISOString(),
+          endedAt: new Date(ended).toISOString(),
+        };
+      });
+      const rows = this.db.prepare(`WITH candidate_gaps AS (
+          SELECT CAST(key AS INTEGER) AS candidate_index,
+            json_extract(value, '$.startedAt') AS started_at,
+            json_extract(value, '$.endedAt') AS ended_at
+          FROM json_each(?)
+        )
+        SELECT candidate_index FROM candidate_gaps AS candidate
+        WHERE NOT EXISTS (
+          SELECT 1 FROM sensor_data_gaps AS known
+          WHERE known.sensor_id = ? AND known.metric = ? AND known.source = ?
+            AND known.started_at <= candidate.started_at
+            AND COALESCE(known.ended_at, candidate.ended_at) >= candidate.ended_at
+        )
+        ORDER BY candidate_index LIMIT ?`)
+        .all(JSON.stringify(normalized), sensorId, metric, source, safeLimit) as unknown as Array<{
+          candidate_index: number;
+        }>;
+      return rows.map((row) => normalized[Number(row.candidate_index)]!);
+    },
   noteHistoricalSensorDataGap(
       sensorId: string,
       metric: string,

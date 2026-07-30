@@ -7,6 +7,7 @@ import request from "supertest";
 import { WebSocketServer, type WebSocket } from "ws";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import { SensorGapRecoveryCoordinator, type SensorGapRecoveryAdapter } from "../src/sensor-gap-recovery.js";
+import { HybridTelemetryReader } from "../src/timeseries/read-facade.js";
 import { sensorGapRecoveryConfig as config } from "./sensor-gap-recoveryTestSupport.js";
 
 async function waitFor(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
@@ -81,7 +82,8 @@ describe("sensor data-gap recovery", () => {
 
   it("durably detects an unavailable metric and backfills it after recovery", async () => {
     runtime = createApi({ config: config(), startBackground: false });
-    const base = Date.now() - 120_000;
+    const outageDurationMs = 40 * 60_000;
+    const base = Date.now() - outageDurationMs;
     const initialTimestamp = new Date(base).toISOString();
     runtime.measurements.ingest({
       sensorId: "sensor-01",
@@ -104,7 +106,7 @@ describe("sensor data-gap recovery", () => {
 
     let available = false;
     let recoveryCalls = 0;
-    const recoveredTimestamp = new Date(base + 60_000).toISOString();
+    const recoveredTimestamp = new Date(base + 20 * 60_000).toISOString();
     const adapter: SensorGapRecoveryAdapter = {
       source: "home-assistant",
       availability: (now = new Date()) => [{
@@ -135,14 +137,14 @@ describe("sensor data-gap recovery", () => {
       retryBaseMs: 1_000,
     });
 
-    await recovery.runOnce(new Date(base + 90_000));
+    await recovery.runOnce(new Date(base + 35 * 60_000));
     expect(runtime.database.openSensorDataGap("sensor-01", "temperature", "home-assistant")).toMatchObject({
       startedAt: initialTimestamp,
       recoveryState: "open",
     });
 
     available = true;
-    await recovery.runOnce(new Date(base + 120_000));
+    await recovery.runOnce(new Date(base + outageDurationMs));
     const [gap] = runtime.database.listSensorDataGaps("sensor-01");
     expect(gap).toMatchObject({ recoveryState: "complete", recoveredPoints: 1, attemptCount: 1 });
     expect(recoveryCalls).toBe(1);
@@ -164,8 +166,82 @@ describe("sensor data-gap recovery", () => {
         expect.objectContaining({ sensorId: "sensor-01", metric: "temperature", recoveryState: "complete" }),
       ]));
 
-    await recovery.runOnce(new Date(base + 121_000));
+    await recovery.runOnce(new Date(base + outageDurationMs + 1_000));
     expect(recoveryCalls).toBe(1);
+  });
+
+  it("offers even a short explicit outage to its recovery adapter once", async () => {
+    runtime = createApi({ config: config(), startBackground: false });
+    const from = "2026-07-19T06:00:00.000Z";
+    const to = "2026-07-19T06:02:00.000Z";
+    runtime.database.noteHistoricalSensorDataGap(
+      "sensor-01",
+      "temperature",
+      "tp-link",
+      from,
+      to,
+      from,
+    );
+    const recoverHistory = vi.fn(async () => ({
+      state: "complete" as const,
+      samples: [],
+      error: null,
+    }));
+    const recovery = new SensorGapRecoveryCoordinator(runtime.database, runtime.measurements, [{
+      source: "tp-link",
+      availability: () => [],
+      recoverHistory,
+    }]);
+
+    await recovery.runOnce(new Date("2026-07-19T07:00:00.000Z"));
+
+    expect(recoverHistory).toHaveBeenCalledOnce();
+    expect(recoverHistory).toHaveBeenCalledWith("sensor-01", "temperature", from, to);
+    expect(runtime.database.listSensorDataGaps("sensor-01")[0]).toMatchObject({
+      recoveryState: "complete",
+      recoveredPoints: 0,
+      attemptCount: 1,
+      lastAttemptAt: "2026-07-19T07:00:00.000Z",
+      nextAttemptAt: null,
+      recoveryError: null,
+    });
+  });
+
+  it("does not classify exact-threshold TP-Link samples as a historical gap", async () => {
+    runtime = createApi({ config: config(), startBackground: false });
+    const base = Date.parse("2026-07-19T06:00:00.000Z");
+    for (const [offset, value] of [[0, 20], [15 * 60_000, 21]] as const) {
+      runtime.measurements.ingest({
+        sensorId: "sensor-01",
+        metric: "temperature",
+        value,
+        canonicalUnit: "\u00b0C",
+        timestamp: new Date(base + offset).toISOString(),
+        source: "tp-link",
+        quality: "good",
+      });
+    }
+    const recoverHistory = vi.fn(async () => ({
+      state: "complete" as const,
+      samples: [],
+      error: null,
+    }));
+    const recovery = new SensorGapRecoveryCoordinator(runtime.database, runtime.measurements, [{
+      source: "tp-link",
+      availability: (now = new Date()) => [{
+        sensorId: "sensor-01",
+        metric: "temperature",
+        source: "tp-link",
+        available: true,
+        observedAt: now.toISOString(),
+      }],
+      recoverHistory,
+    }]);
+
+    await recovery.runOnce(new Date(base + 16 * 60_000));
+
+    expect(runtime.database.listSensorDataGaps("sensor-01")).toEqual([]);
+    expect(recoverHistory).not.toHaveBeenCalled();
   });
 
   it("discovers a historical hole that happened while the process was not observing availability", async () => {
@@ -291,6 +367,58 @@ describe("sensor data-gap recovery", () => {
     ]));
   });
 
+  it("advances an archive page past a known gap before applying the discovery limit", async () => {
+    runtime = createApi({ config: config(), startBackground: false });
+    const base = Date.parse("2026-07-19T02:00:00Z");
+    const known = {
+      startedAt: new Date(base).toISOString(),
+      endedAt: new Date(base + 60 * 60_000).toISOString(),
+      durationMs: 60 * 60_000,
+    };
+    const unseen = {
+      startedAt: known.endedAt,
+      endedAt: new Date(base + 2 * 60 * 60_000).toISOString(),
+      durationMs: 60 * 60_000,
+    };
+    runtime.database.noteHistoricalSensorDataGap(
+      "sensor-01", "temperature", "tp-link", known.startedAt, known.endedAt, unseen.endedAt,
+    );
+    const archiveGaps = vi.fn(async () => [known, unseen]);
+    const telemetryReader = new HybridTelemetryReader({
+      local: runtime.database,
+      archive: {
+        measurementSampleGaps: archiveGaps,
+        measurementHistory: async () => [],
+        legacyReadingHistory: async () => [],
+        outdoorTemperatureHistory: async () => [],
+        electricityPriceHistory: async () => [],
+        openingStateHistory: async () => [],
+        openingStateSnapshot: async () => [],
+      },
+      archivePhase: () => "ready",
+      localHistoryComplete: false,
+    });
+    const adapter: SensorGapRecoveryAdapter = {
+      source: "tp-link",
+      availability: (now = new Date()) => [{
+        sensorId: "sensor-01", metric: "temperature", source: "tp-link", available: true,
+        observedAt: now.toISOString(),
+      }],
+      recoverHistory: async () => ({ state: "not-supported", samples: [], error: "fixture" }),
+    };
+    const recovery = new SensorGapRecoveryCoordinator(runtime.database, runtime.measurements, [adapter], {
+      telemetryReader,
+      historicalGapLimit: 1,
+    });
+
+    await recovery.runOnce(new Date(base + 3 * 60 * 60_000));
+
+    expect(archiveGaps).toHaveBeenCalledWith(expect.objectContaining({ limit: 1_000 }));
+    expect(runtime.database.listSensorDataGaps("sensor-01")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ startedAt: unseen.startedAt, endedAt: unseen.endedAt }),
+    ]));
+  });
+
   it("retrieves and normalizes the missing interval from Home Assistant recorder history", async () => {
     temporaryDirectory = mkdtempSync(join(tmpdir(), "stugu-sensor-gap-ha-"));
     const mappingPath = join(temporaryDirectory, "entities.json");
@@ -329,13 +457,13 @@ describe("sensor data-gap recovery", () => {
       {
         entity_id: "sensor.room_temperature",
         state: "69.8",
-        last_updated: "2026-07-19T09:05:00Z",
+        last_updated: "2026-07-19T09:10:00Z",
         attributes: { unit_of_measurement: "°F" },
       },
       {
         entity_id: "sensor.room_temperature",
         state: "71.6",
-        last_updated: "2026-07-19T09:10:00Z",
+        last_updated: "2026-07-19T09:20:00Z",
         attributes: { unit_of_measurement: "°F" },
       },
     ]]), { status: 200, headers: { "content-type": "application/json" } }));
@@ -355,20 +483,20 @@ describe("sensor data-gap recovery", () => {
     await runtime.sensorGapRecovery.runOnce(new Date("2026-07-19T09:01:00Z"));
     client?.terminate();
     await waitFor(() => runtime?.status.value.homeAssistant.connected === false);
-    await runtime.sensorGapRecovery.runOnce(new Date("2026-07-19T09:15:00Z"));
+    await runtime.sensorGapRecovery.runOnce(new Date("2026-07-19T09:35:00Z"));
     expect(runtime.database.openSensorDataGap("sensor-01", "temperature", "home-assistant")).not.toBeNull();
 
     await waitFor(() => runtime?.status.value.homeAssistant.connected === true, 4_000);
-    await runtime.sensorGapRecovery.runOnce(new Date("2026-07-19T09:16:00Z"));
+    await runtime.sensorGapRecovery.runOnce(new Date("2026-07-19T09:36:00Z"));
 
     const [gap] = runtime.database.listSensorDataGaps("sensor-01");
     expect(gap).toMatchObject({ metric: "temperature", recoveryState: "complete", recoveredPoints: 2 });
     const recovered = runtime.database.measurementHistory(
-      "sensor-01", "temperature", "2026-07-19T09:00:01Z", "2026-07-19T09:15:00Z",
+      "sensor-01", "temperature", "2026-07-19T09:00:01Z", "2026-07-19T09:35:00Z",
     );
     expect(recovered.map((sample) => sample.timestamp)).toEqual([
-      "2026-07-19T09:05:00.000Z",
       "2026-07-19T09:10:00.000Z",
+      "2026-07-19T09:20:00.000Z",
     ]);
     expect(recovered[0]!.value).toBeCloseTo(21);
     expect(recovered[1]!.value).toBeCloseTo(22);

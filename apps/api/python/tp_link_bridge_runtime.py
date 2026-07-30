@@ -245,6 +245,7 @@ async def connect_and_poll(
     expected_device_id: str | None = None,
     on_identity: Callable[[str], None] | None = None,
     contact_interval_seconds: float = 0.5,
+    contact_events_enabled: bool = True,
 ) -> None:
     device: Any | None = None
     history_task: asyncio.Task[None] | None = None
@@ -281,7 +282,7 @@ async def connect_and_poll(
 
         query_lock = asyncio.Lock()
         if not list_once:
-            if is_hub:
+            if is_hub and contact_events_enabled:
                 contact_task = asyncio.create_task(
                     serve_contact_events(
                         device,

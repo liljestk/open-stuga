@@ -238,6 +238,8 @@ export const CLIMATE_UNCHANGED_HEARTBEAT_MS = 60_000;
 
 export const STATE_UNCHANGED_HEARTBEAT_MS = 5 * 60_000;
 
+export const STATUS_UNCHANGED_HEARTBEAT_MS = 60_000;
+
 export const REDUNDANT_SOURCE_HANDOVER_MIN_MS = 15_000;
 
 export function nonEmptyString(value: unknown): string | null {
@@ -314,4 +316,5 @@ export function normalizeTpLinkTemperature(value: number, unit: string | null): 
 export interface TpLinkStatusHost {
   value: RuntimeStatus["value"];
   changed(): void;
+  synchronized?(): void;
 }

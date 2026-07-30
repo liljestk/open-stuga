@@ -110,6 +110,7 @@ declare module "../core.js" {
     latestMeasurementTimestamp(sensorId: string, metric: string, source: SensorDataGapSource): string | null;
     sensorSourceMetrics(sensorId: string, source: SensorDataGapSource): string[];
     measurementSampleGaps(sensorId: string, metric: string, source: SensorDataGapSource, from: string, to: string, minimumGapMs: number, limit?: number): HistoricalTelemetryGap[];
+    unrecordedMeasurementSampleGaps(sensorId: string, metric: string, source: SensorDataGapSource, candidates: HistoricalTelemetryGap[], limit?: number): HistoricalTelemetryGap[];
     noteHistoricalSensorDataGap(sensorId: string, metric: string, source: SensorDataGapSource, startedAt: string, endedAt: string, detectedAt?: string): SensorDataGapRecord;
     rearmSensorDataGapRecovery(id: number, availableAt?: string, resetAttempts?: boolean): SensorDataGapRecord | null;
     rearmNotSupportedSensorDataGaps(source: SensorDataGapSource, capabilityRevision: string, availableAt?: string): number;
@@ -133,6 +134,7 @@ declare module "../core.js" {
     latestMeasurementTimestamp(sensorId: string, metric: string, source: SensorDataGapSource): string | null;
     sensorSourceMetrics(sensorId: string, source: SensorDataGapSource): string[];
     measurementSampleGaps(sensorId: string, metric: string, source: SensorDataGapSource, from: string, to: string, minimumGapMs: number, limit?: number): HistoricalTelemetryGap[];
+    unrecordedMeasurementSampleGaps(sensorId: string, metric: string, source: SensorDataGapSource, candidates: HistoricalTelemetryGap[], limit?: number): HistoricalTelemetryGap[];
     noteHistoricalSensorDataGap(sensorId: string, metric: string, source: SensorDataGapSource, startedAt: string, endedAt: string, detectedAt?: string): SensorDataGapRecord;
     rearmSensorDataGapRecovery(id: number, availableAt?: string, resetAttempts?: boolean): SensorDataGapRecord | null;
     rearmNotSupportedSensorDataGaps(source: SensorDataGapSource, capabilityRevision: string, availableAt?: string): number;

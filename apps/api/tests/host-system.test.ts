@@ -3,6 +3,7 @@ import request from "supertest";
 import {
   HostSystemMonitor,
   type HostCpuTimes,
+  type HostProcessCpuTimes,
   type HostSystemDataSource,
 } from "../src/host-system.js";
 import { createApi } from "../src/app.js";
@@ -16,8 +17,12 @@ function source(options: {
   memoryUsedPercent?: number;
   storageAvailableGiB?: number;
   temperatureCelsius?: number | null;
+  eventLoopP95Milliseconds?: number | null;
+  eventLoopMaxMilliseconds?: number | null;
+  processCpu?: HostProcessCpuTimes[];
 }): HostSystemDataSource {
   let cpuIndex = 0;
+  let processCpuIndex = 0;
   const memoryLimit = 2 * GIBIBYTE;
   return {
     nowMs: options.now,
@@ -29,6 +34,9 @@ function source(options: {
     serviceUptimeSeconds: () => 600,
     logicalCores: () => 4,
     cpuTimes: () => options.cpu[Math.min(cpuIndex++, options.cpu.length - 1)]!,
+    ...(options.processCpu ? {
+      processCpuTimes: () => options.processCpu![Math.min(processCpuIndex++, options.processCpu!.length - 1)]!,
+    } : {}),
     loadAverage: () => [0.4, 0.3, 0.2],
     hostTotalMemoryBytes: () => 8 * GIBIBYTE,
     hostFreeMemoryBytes: () => 4 * GIBIBYTE,
@@ -42,6 +50,13 @@ function source(options: {
       availableBytes: (options.storageAvailableGiB ?? 60) * GIBIBYTE,
     }),
     cpuTemperatureCelsius: async () => options.temperatureCelsius ?? null,
+    eventLoopDelayMilliseconds: () => options.eventLoopP95Milliseconds === undefined
+      || options.eventLoopP95Milliseconds === null
+      ? null
+      : {
+        p95Milliseconds: options.eventLoopP95Milliseconds,
+        maxMilliseconds: options.eventLoopMaxMilliseconds ?? options.eventLoopP95Milliseconds,
+      },
   };
 }
 
@@ -54,6 +69,8 @@ describe("host system monitoring", () => {
       source: source({
         now: () => now,
         cpu: [{ idle: 0, total: 0 }, { idle: 80, total: 100 }],
+        eventLoopP95Milliseconds: 24.25,
+        eventLoopMaxMilliseconds: 63.5,
       }),
     });
 
@@ -62,7 +79,11 @@ describe("host system monitoring", () => {
     expect(health).toMatchObject({
       state: "healthy",
       sampledAt: "2026-07-30T12:00:00.000Z",
-      cpu: { usagePercent: 20, logicalCores: 4 },
+      cpu: {
+        usagePercent: 20,
+        logicalCores: 4,
+        eventLoop: { state: "healthy", p95Milliseconds: 24.25, maxMilliseconds: 63.5 },
+      },
       memory: {
         scope: "container",
         totalBytes: 2 * GIBIBYTE,
@@ -78,6 +99,7 @@ describe("host system monitoring", () => {
     });
     const metrics = await monitor.prometheusMetrics();
     expect(metrics).toContain("stugu_host_cpu_usage_percent 20");
+    expect(metrics).toContain('stugu_process_event_loop_delay_seconds{statistic="p95"} 0.02425');
     expect(metrics).toContain('stugu_host_memory_bytes{state="total",scope="container"} 2147483648');
     expect(metrics).toContain('stugu_host_alert_active{metric="storage",severity="critical"} 0');
   });
@@ -99,6 +121,7 @@ describe("host system monitoring", () => {
         memoryUsedPercent: 90,
         storageAvailableGiB: 0.5,
         temperatureCelsius: 80,
+        eventLoopP95Milliseconds: 300,
       }),
     });
 
@@ -111,6 +134,7 @@ describe("host system monitoring", () => {
     const sustained = await monitor.refresh();
     expect(sustained.alerts).toEqual(expect.arrayContaining([
       expect.objectContaining({ metric: "cpu", severity: "warning" }),
+      expect.objectContaining({ metric: "event-loop", severity: "warning" }),
       expect.objectContaining({ metric: "memory", severity: "warning" }),
       expect.objectContaining({ metric: "storage", severity: "critical" }),
       expect.objectContaining({ metric: "temperature", severity: "warning" }),
@@ -128,6 +152,62 @@ describe("host system monitoring", () => {
     expect(escalated.alerts).toEqual(expect.arrayContaining([
       expect.objectContaining({ metric: "cpu", severity: "critical" }),
     ]));
+  });
+
+  it("detects one saturated API core even when aggregate host CPU is modest", async () => {
+    let now = Date.parse("2026-07-30T12:00:00.000Z");
+    const monitor = new HostSystemMonitor({
+      storagePath: ":memory:",
+      cpuSampleWindowMs: 0,
+      source: source({
+        now: () => now,
+        cpu: [
+          { idle: 0, total: 0 },
+          { idle: 80, total: 100 },
+          { idle: 160, total: 200 },
+          { idle: 240, total: 300 },
+        ],
+        processCpu: [
+          { userMicroseconds: 0, systemMicroseconds: 0 },
+          { userMicroseconds: 121_000_000, systemMicroseconds: 0 },
+          { userMicroseconds: 242_000_000, systemMicroseconds: 0 },
+        ],
+      }),
+    });
+
+    await monitor.refresh();
+    now += 121_000;
+    const saturated = await monitor.refresh();
+    expect(saturated.cpu).toMatchObject({ usagePercent: 20, processUsagePercent: 100, state: "critical" });
+    expect(saturated.alerts).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ metric: "cpu" }),
+    ]));
+
+    now += 121_000;
+    const sustained = await monitor.refresh();
+    expect(sustained.alerts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ metric: "cpu", severity: "critical", value: 100 }),
+    ]));
+    expect(await monitor.prometheusMetrics()).toContain("stugu_process_cpu_usage_percent 100");
+  });
+
+  it("reports an event-loop-only stall without mislabeling CPU as strained", async () => {
+    const now = Date.parse("2026-07-30T12:00:00.000Z");
+    const monitor = new HostSystemMonitor({
+      storagePath: ":memory:",
+      cpuSampleWindowMs: 0,
+      source: source({
+        now: () => now,
+        cpu: [{ idle: 0, total: 0 }, { idle: 80, total: 100 }],
+        eventLoopP95Milliseconds: 1_500,
+      }),
+    });
+
+    const health = await monitor.refresh();
+
+    expect(health.state).toBe("critical");
+    expect(health.cpu.state).toBe("healthy");
+    expect(health.cpu.eventLoop.state).toBe("critical");
   });
 
   it("serves owner-only JSON health and Prometheus representations", async () => {

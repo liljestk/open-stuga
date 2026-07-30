@@ -101,7 +101,11 @@ export class TpLinkBridge implements SensorGapRecoveryAdapter {
         sourceModel: connection.sourceModel ?? null,
         sourceAlias: connection.sourceAlias ?? null,
       };
-      const localStatus: TpLinkStatusHost = { value: localValue, changed: () => this.aggregateStatus() };
+      const localStatus: TpLinkStatusHost = {
+        value: localValue,
+        changed: () => this.aggregateStatus(true),
+        synchronized: () => this.aggregateStatus(false),
+      };
       const localConfig: AppConfig = {
         ...this.config,
         tpLinkHost: connection.host,
@@ -272,7 +276,7 @@ export class TpLinkBridge implements SensorGapRecoveryAdapter {
     return this.#tester.testCredentials(host, username, password, timeoutMs);
   }
 
-  private aggregateStatus(): void {
+  private aggregateStatus(publish = true): void {
     const connections = [...this.#workers.entries()].map(([id, worker]) => ({
       id,
       houseId: worker.houseId,
@@ -303,6 +307,6 @@ export class TpLinkBridge implements SensorGapRecoveryAdapter {
     aggregate.error = connections.length > 0 && connections.every((connection) => connection.error)
       ? connections.map((connection) => connection.error).filter(Boolean).join("; ")
       : null;
-    this.status.changed();
+    if (publish) this.status.changed();
   }
 }

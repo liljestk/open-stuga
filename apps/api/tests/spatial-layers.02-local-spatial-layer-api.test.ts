@@ -97,6 +97,20 @@ describe("local spatial layer API", () => {
     expectOpenApiConformance(houseHistory.body, documentedResponseSchema("/houses/{id}/layers/history", "get", 200));
   });
 
+  it("bounds requested layer IDs before synchronous snapshot lookups", async () => {
+    const { runtime, core } = seededRuntime();
+    const house = core.listHouses()[0]!;
+    const app = express();
+    app.use(express.json());
+    registerSpatialLayerRoutes(app, { runtime });
+
+    await request(app)
+      .get(`/api/v1/houses/${house.id}/layers/current`)
+      .query({ layers: Array.from({ length: 101 }, (_, index) => `layer-${index}`).join(",") })
+      .expect(400)
+      .expect(({ body }) => expect(body.error.code).toBe("TOO_MANY_LAYERS"));
+  });
+
   it("returns inference reports that conform to the documented flattened snapshot schema", async () => {
     const { runtime, core } = seededRuntime();
     const house = core.listHouses()[0]!;
@@ -334,6 +348,32 @@ describe("local spatial layer API", () => {
     expect(store.currentSnapshots(realA, scope).map((item) => item.inputDigest)).toEqual(["real-a"]);
     expect(store.currentSnapshots(demoB, scope).map((item) => item.inputDigest)).toEqual(["demo-b"]);
     expect(sourceDatabaseId(":memory:", "one")).not.toBe(sourceDatabaseId(":memory:", "two"));
+    store.close();
+  });
+
+  it("selects the latest current revision with bounded per-layer lookups", () => {
+    const store = new SpatialLayerStateStore(":memory:");
+    store.persistSnapshot(partition, snapshot("temperature-old", 19, "2026-07-16T11:00:00.000Z"));
+    store.persistSnapshot(partition, snapshot("temperature-current", 21), "2026-07-16T12:00:01.000Z");
+    store.persistSnapshot(partition, snapshot("temperature-revised", 22), "2026-07-16T12:00:02.000Z");
+    store.persistSnapshot(partition, {
+      ...snapshot("humidity-current", 55),
+      layerId: "climate.relative-humidity",
+    });
+
+    expect(store.currentSnapshots(partition, scope).map((item) => [item.layerId, item.inputDigest])).toEqual([
+      ["climate.relative-humidity", "humidity-current"],
+      ["climate.temperature", "temperature-revised"],
+    ]);
+    expect(store.currentSnapshots(partition, scope, [
+      "missing.layer",
+      "climate.temperature",
+      "climate.relative-humidity",
+      "climate.temperature",
+    ]).map((item) => item.layerId)).toEqual([
+      "climate.relative-humidity",
+      "climate.temperature",
+    ]);
     store.close();
   });
 

@@ -25,13 +25,27 @@ registerSpatialLayerStateStoreMethods({
       return this.transaction(() => drafts.map((draft) => this.persistSnapshot(partition, draft, createdAt)));
     },
   currentSnapshots(this: SpatialLayerStateStoreInternals, partition: SpatialDataPartition, scope: SpatialScope, layerIds: string[] = []): PersistedSpatialLayerSnapshot[] {
-      const layerClause = layerIds.length > 0 ? `AND layer_id IN (${layerIds.map(() => "?").join(",")})` : "";
-      const rows = this.db.prepare(`WITH ranked AS (
-          SELECT *, ROW_NUMBER() OVER (PARTITION BY layer_id ORDER BY bucket_at DESC, revision DESC, created_at DESC) AS position
-          FROM spatial_layer_snapshots WHERE source_db_id = ? AND data_mode = ? AND scope_kind = ? AND scope_id = ?
-            AND is_current = 1 ${layerClause}
-        ) SELECT * FROM ranked WHERE position = 1 ORDER BY layer_id`)
-        .all(...partitionParams(partition), ...scopeParams(scope), ...layerIds) as SqlRow[];
+      const candidates = layerIds.length > 0
+        ? [...new Set(layerIds)].sort()
+        : (this.db.prepare(`SELECT DISTINCT layer_id FROM spatial_layer_snapshots
+            WHERE source_db_id = ? AND data_mode = ? AND scope_kind = ? AND scope_id = ?
+            ORDER BY layer_id`)
+          .all(...partitionParams(partition), ...scopeParams(scope)) as unknown as Array<{ layer_id: string }>)
+          .map((row) => row.layer_id);
+      // Rank only rowids so large payload JSON never enters SQLite's bounded
+      // container temp store; fetch the single winning payload afterwards.
+      const latest = this.db.prepare(`SELECT snapshot.* FROM spatial_layer_snapshots AS snapshot
+        WHERE snapshot.rowid = (
+          SELECT candidate.rowid FROM spatial_layer_snapshots AS candidate
+          WHERE candidate.source_db_id = ? AND candidate.data_mode = ? AND candidate.scope_kind = ? AND candidate.scope_id = ?
+            AND candidate.layer_id = ? AND candidate.is_current = 1
+          ORDER BY candidate.bucket_at DESC, candidate.revision DESC, candidate.created_at DESC
+          LIMIT 1
+        )`);
+      const rows = candidates.flatMap((layerId) => {
+        const row = latest.get(...partitionParams(partition), ...scopeParams(scope), layerId) as SqlRow | undefined;
+        return row ? [row] : [];
+      });
       return rows.map(snapshotFromRow);
     },
   snapshotHistory(this: SpatialLayerStateStoreInternals, input: {

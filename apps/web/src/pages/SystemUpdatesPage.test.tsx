@@ -57,11 +57,23 @@ const hostHealth: HostSystemHealth = {
   cpu: {
     state: "healthy",
     usagePercent: 24.5,
+    processUsagePercent: 17.8,
     logicalCores: 4,
     loadAverage: [0.42, 0.35, 0.3],
     temperatureCelsius: 51.2,
     usageThresholds: thresholds,
     temperatureThresholds: { ...thresholds, warningPercent: 75, criticalPercent: 85 },
+    eventLoop: {
+      state: "healthy",
+      p95Milliseconds: 22.4,
+      maxMilliseconds: 48.1,
+      thresholds: {
+        warningMilliseconds: 250,
+        criticalMilliseconds: 1_000,
+        warningAfterSeconds: 120,
+        criticalAfterSeconds: 30,
+      },
+    },
   },
   memory: {
     state: "healthy",
@@ -105,8 +117,43 @@ describe("system updates page", () => {
     ).toBe(false);
     expect(screen.getByRole("heading", { name: "System", level: 1 })).toBeTruthy();
     expect(screen.getByText("24.5%")).toBeTruthy();
+    expect(screen.getByText("22.4 ms")).toBeTruthy();
     fireEvent.click(screen.getByText("Metrics and alert thresholds"));
     expect(screen.getByRole("link", { name: "/api/v1/system/metrics" }).getAttribute("href")).toBe("/api/v1/system/metrics");
+  });
+
+  it("presents sustained API scheduling delay as host strain", async () => {
+    vi.mocked(api.hostSystemHealth).mockResolvedValue({
+      ...hostHealth,
+      state: "warning",
+      cpu: {
+        ...hostHealth.cpu,
+        state: "warning",
+        eventLoop: {
+          ...hostHealth.cpu.eventLoop,
+          state: "warning",
+          p95Milliseconds: 300,
+          maxMilliseconds: 840,
+        },
+      },
+      alerts: [{
+        id: "host-system-event-loop-warning",
+        metric: "event-loop",
+        severity: "warning",
+        value: 300,
+        unit: "ms",
+        threshold: 250,
+        startedAt: "2026-07-30T11:58:00.000Z",
+        message: "API scheduling is delayed.",
+        recommendation: "Check API work.",
+      }],
+    });
+    vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(status);
+    render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
+
+    expect(await screen.findByRole("heading", { name: "The Stugu API is struggling to respond" })).toBeTruthy();
+    expect(screen.getByText(/300 ms p95/)).toBeTruthy();
+    expect(screen.getByText(/history recovery/)).toBeTruthy();
   });
 
   it("presents low storage as an actionable host alert", async () => {

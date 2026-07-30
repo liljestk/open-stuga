@@ -221,6 +221,44 @@ describe("TimeseriesStore", () => {
     expect(select.text).not.toContain("sensor-1");
   });
 
+  it("finds only bounded archive gap pairs without returning the raw series", async () => {
+    const pool = new FakePool(({ text }) => text.includes("LAG(observed_at)")
+      ? queryResult([{
+        started_at: new Date("2026-07-18T08:00:00.000Z"),
+        ended_at: new Date("2026-07-18T08:30:00.000Z"),
+        duration_ms: "1800000",
+      }])
+      : queryResult());
+    const store = storeFor(pool);
+
+    await expect(store.measurementSampleGaps({
+      sensorId: "sensor-1",
+      metric: "temperature",
+      source: "tp-link",
+      from: "2026-07-18T07:00:00.000Z",
+      to: "2026-07-18T09:00:00.000Z",
+      minimumGapMs: 15 * 60_000,
+      limit: 25,
+    })).resolves.toEqual([{
+      startedAt: "2026-07-18T08:00:00.000Z",
+      endedAt: "2026-07-18T08:30:00.000Z",
+      durationMs: 1_800_000,
+    }]);
+    const select = pool.queries.find(({ text }) => text.includes("LAG(observed_at)"))!;
+    expect(select.text).toContain("quality = 'good'");
+    expect(select.text).toContain("> $6::DOUBLE PRECISION * INTERVAL '1 millisecond'");
+    expect(select.text).toContain("LIMIT $7");
+    expect(select.values).toEqual([
+      "sensor-1",
+      "temperature",
+      "tp-link",
+      "2026-07-18T07:00:00.000Z",
+      "2026-07-18T09:00:00.000Z",
+      15 * 60_000,
+      25,
+    ]);
+  });
+
   it("reads one deterministic bounded window across sensor and metric sets", async () => {
     const pool = new FakePool(({ text }) => text.includes("sensor_id = ANY($1::TEXT[])")
       ? queryResult([

@@ -4,6 +4,7 @@ import {
   Clock3,
   Cpu,
   Database,
+  Gauge,
   HardDrive,
   HelpCircle,
   MemoryStick,
@@ -53,6 +54,12 @@ function percent(value: number | null, locale: string): string {
   return value === null ? "—" : `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value)}%`;
 }
 
+function milliseconds(value: number | null, locale: string): string {
+  return value === null
+    ? "—"
+    : `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value)} ms`;
+}
+
 function StateIcon({ state }: { state: HostSystemState }) {
   if (state === "healthy") return <CheckCircle2 size={16} aria-hidden="true" />;
   if (state === "critical") return <CircleAlert size={16} aria-hidden="true" />;
@@ -100,6 +107,8 @@ function AlertCard({ alert, health }: { alert: HostSystemAlert; health: HostSyst
   const { t, locale } = useI18n();
   const title = alert.metric === "cpu"
     ? t("systemHealth.alert.cpu")
+    : alert.metric === "event-loop"
+      ? t("systemHealth.alert.eventLoop")
     : alert.metric === "memory"
       ? t("systemHealth.alert.memory")
       : alert.metric === "storage"
@@ -108,6 +117,8 @@ function AlertCard({ alert, health }: { alert: HostSystemAlert; health: HostSyst
   const elapsed = duration(Math.max(0, (Date.parse(health.sampledAt) - Date.parse(alert.startedAt)) / 1_000), locale);
   const body = alert.metric === "cpu"
     ? t("systemHealth.alertBody.cpu", { value: percent(alert.value, locale), duration: elapsed })
+    : alert.metric === "event-loop"
+      ? t("systemHealth.alertBody.eventLoop", { value: milliseconds(alert.value, locale), duration: elapsed })
     : alert.metric === "memory"
       ? t("systemHealth.alertBody.memory", { value: percent(alert.value, locale), duration: elapsed })
       : alert.metric === "temperature"
@@ -120,6 +131,8 @@ function AlertCard({ alert, health }: { alert: HostSystemAlert; health: HostSyst
           : t("systemHealth.alertBody.storage", { available: bytes(health.storage.availableBytes, locale) });
   const action = alert.metric === "cpu"
     ? t("systemHealth.action.cpu")
+    : alert.metric === "event-loop"
+      ? t("systemHealth.action.eventLoop")
     : alert.metric === "memory"
       ? t("systemHealth.action.memory")
       : alert.metric === "storage"
@@ -192,6 +205,7 @@ export function HostSystemPanel() {
   const temperatureText = health.cpu.temperatureCelsius === null
     ? ""
     : ` · ${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(health.cpu.temperatureCelsius)} °C`;
+  const eventLoop = health.cpu.eventLoop;
   const metricsPath = `${API_BASE}/system/metrics`;
   return <section className={`panel host-system-panel ${health.state}`} aria-labelledby="host-system-title">
     <div className="panel-header host-system-header">
@@ -220,7 +234,15 @@ export function HostSystemPanel() {
         icon={Cpu}
         label={t("systemHealth.cpu")}
         value={health.cpu.usagePercent === null ? t("systemHealth.measuring") : percent(health.cpu.usagePercent, locale)}
-        context={t("systemHealth.cpuContext", { cores: health.cpu.logicalCores, load: loadText, temperature: temperatureText })}
+        context={`${t("systemHealth.cpuContext", {
+          cores: health.cpu.logicalCores,
+          load: loadText,
+          temperature: temperatureText,
+        })}${health.cpu.processUsagePercent === null || health.cpu.processUsagePercent === undefined
+          ? ""
+          : ` · ${t("systemHealth.processCpuContext", {
+            value: percent(health.cpu.processUsagePercent, locale),
+          })}`}`}
         state={health.cpu.state}
         progress={health.cpu.usagePercent}
       />
@@ -235,6 +257,15 @@ export function HostSystemPanel() {
         })}
         state={health.memory.state}
         progress={health.memory.usedPercent}
+      />
+      <MetricCard
+        icon={Gauge}
+        label={t("systemHealth.eventLoop")}
+        value={milliseconds(eventLoop?.p95Milliseconds ?? null, locale)}
+        context={eventLoop?.maxMilliseconds === null || eventLoop?.maxMilliseconds === undefined
+          ? t("systemHealth.eventLoopMeasuring")
+          : t("systemHealth.eventLoopContext", { max: milliseconds(eventLoop.maxMilliseconds, locale) })}
+        state={eventLoop?.state ?? "unknown"}
       />
       <MetricCard
         icon={HardDrive}
@@ -261,7 +292,8 @@ export function HostSystemPanel() {
         <p>{t("systemHealth.metricsBody")}</p>
         <a href={metricsPath} target="_blank" rel="noreferrer"><code>{metricsPath}</code></a>
         <dl>
-          <div><dt><Cpu size={14} aria-hidden="true" />{t("systemHealth.cpu")}</dt><dd>{t("systemHealth.thresholdPercent", { warning: health.cpu.usageThresholds.warningPercent, critical: health.cpu.usageThresholds.criticalPercent })}</dd></div>
+          <div><dt><Cpu size={14} aria-hidden="true" />{t("systemHealth.cpu")}</dt><dd>{t("systemHealth.thresholdCpu", { warning: health.cpu.usageThresholds.warningPercent, critical: health.cpu.usageThresholds.criticalPercent })}</dd></div>
+          {eventLoop && <div><dt><Gauge size={14} aria-hidden="true" />{t("systemHealth.eventLoop")}</dt><dd>{t("systemHealth.thresholdMilliseconds", { warning: eventLoop.thresholds.warningMilliseconds, critical: eventLoop.thresholds.criticalMilliseconds })}</dd></div>}
           <div><dt><MemoryStick size={14} aria-hidden="true" />{t("systemHealth.memory")}</dt><dd>{t("systemHealth.thresholdPercent", { warning: health.memory.thresholds.warningPercent, critical: health.memory.thresholds.criticalPercent })}</dd></div>
           <div><dt><HardDrive size={14} aria-hidden="true" />{t("systemHealth.storage")}</dt><dd>{t("systemHealth.thresholdStorage", { warning: bytes(health.storage.warningAvailableBytes, locale), critical: bytes(health.storage.criticalAvailableBytes, locale) })}</dd></div>
           <div><dt><Thermometer size={14} aria-hidden="true" />{t("systemHealth.temperature")}</dt><dd>{t("systemHealth.thresholdTemperature", { warning: health.cpu.temperatureThresholds.warningPercent, critical: health.cpu.temperatureThresholds.criticalPercent })}</dd></div>

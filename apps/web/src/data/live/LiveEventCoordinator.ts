@@ -12,6 +12,7 @@ import { queryClient } from "../queryClient";
 
 type StreamName = "legacy" | "measurements";
 const MONITORING_INVALIDATION_DEBOUNCE_MS = 2_000;
+const MONITORING_INVALIDATION_THROTTLE_MS = 15_000;
 
 export interface LiveEventHandlers {
   onTelemetry: (event: TelemetryEvent) => void;
@@ -146,35 +147,71 @@ export class LiveEventCoordinator {
   start(handlers: LiveEventHandlers): () => void {
     this.stop();
     let monitoringInvalidationTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastMonitoringInvalidationAt = Number.NEGATIVE_INFINITY;
     const pendingMonitoringHouseIds = new Set<string>();
     let invalidateEveryMonitoringHouse = false;
+    const hasPendingMonitoringInvalidation = () => (
+      invalidateEveryMonitoringHouse || pendingMonitoringHouseIds.size > 0
+    );
+    const flushMonitoringInvalidation = () => {
+      monitoringInvalidationTimer = null;
+      if (typeof document !== "undefined" && document.hidden) return;
+      if (!hasPendingMonitoringInvalidation()) return;
+      if (invalidateEveryMonitoringHouse) {
+        invalidateForMeasurement(this.client);
+      } else {
+        const selected = new Set(pendingMonitoringHouseIds);
+        invalidate(this.client, (query) => (
+          isMonitoringCollectionQuery(query)
+          || (query.queryKey[0] === "house"
+            && query.queryKey[2] === "monitoring"
+            && typeof query.queryKey[1] === "string"
+            && selected.has(query.queryKey[1]))
+        ));
+      }
+      lastMonitoringInvalidationAt = Date.now();
+      pendingMonitoringHouseIds.clear();
+      invalidateEveryMonitoringHouse = false;
+    };
+    const scheduleMonitoringTimer = () => {
+      if (
+        monitoringInvalidationTimer !== null
+        || !hasPendingMonitoringInvalidation()
+        || (typeof document !== "undefined" && document.hidden)
+      ) return;
+      const throttleDelay = lastMonitoringInvalidationAt
+        + MONITORING_INVALIDATION_THROTTLE_MS
+        - Date.now();
+      monitoringInvalidationTimer = setTimeout(
+        flushMonitoringInvalidation,
+        Math.max(MONITORING_INVALIDATION_DEBOUNCE_MS, throttleDelay),
+      );
+    };
     const scheduleMonitoringInvalidation = (sensorId: string) => {
       const houseId = handlers.houseIdForSensor?.(sensorId) ?? null;
       if (houseId) pendingMonitoringHouseIds.add(houseId);
       else invalidateEveryMonitoringHouse = true;
-      if (monitoringInvalidationTimer !== null) return;
-      monitoringInvalidationTimer = setTimeout(() => {
-        monitoringInvalidationTimer = null;
-        if (invalidateEveryMonitoringHouse || pendingMonitoringHouseIds.size === 0) {
-          invalidateForMeasurement(this.client);
-        } else {
-          const selected = new Set(pendingMonitoringHouseIds);
-          invalidate(this.client, (query) => (
-            isMonitoringCollectionQuery(query)
-            || (query.queryKey[0] === "house"
-              && query.queryKey[2] === "monitoring"
-              && typeof query.queryKey[1] === "string"
-              && selected.has(query.queryKey[1]))
-          ));
-        }
-        pendingMonitoringHouseIds.clear();
-        invalidateEveryMonitoringHouse = false;
-      }, MONITORING_INVALIDATION_DEBOUNCE_MS);
+      scheduleMonitoringTimer();
     };
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        if (monitoringInvalidationTimer !== null) {
+          clearTimeout(monitoringInvalidationTimer);
+          monitoringInvalidationTimer = null;
+        }
+        return;
+      }
+      scheduleMonitoringTimer();
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
     const stopLegacy = this.transports.legacy(
       (event) => {
         handlers.onTelemetry(event);
-        if (event.type === "reading") scheduleMonitoringInvalidation(event.data.sensorId);
+        if (event.type === "reading" || event.type === "measurement") {
+          scheduleMonitoringInvalidation(event.data.sensorId);
+        }
         else invalidateForTelemetry(
           this.client,
           event,
@@ -201,6 +238,9 @@ export class LiveEventCoordinator {
         monitoringInvalidationTimer = null;
       }
       pendingMonitoringHouseIds.clear();
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
       stopLegacy();
       stopMeasurements();
       if (this.stopCurrent === stop) this.stopCurrent = null;

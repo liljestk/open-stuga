@@ -95,6 +95,14 @@ import {
 import { DATASET_SCHEMAS, ISO_DATE_TIME, MachineRequestProof, Notification, StugubyError, UUID, asJson, enabledDataset, eventBlobReferences, grantAudienceIncludes, grantExpired, sha256, validateGrantTransition } from "../support/01-stuguby-error-to-without-local-grant-identity.js";
 import { registerStugubyServiceMethods, stugubyServiceState, type StugubyServiceInternals } from "../core.js";
 
+const PULL_RETRY_MIN_MS = 5_000;
+const PULL_RETRY_MAX_MS = 300_000;
+
+function pullRetryDelay(syncIntervalMs: number, failures: number): number {
+  const base = Math.max(PULL_RETRY_MIN_MS, syncIntervalMs);
+  return Math.min(PULL_RETRY_MAX_MS, base * 2 ** Math.min(Math.max(0, failures - 1), 8));
+}
+
 registerStugubyServiceMethods({
   distribute(this: StugubyServiceInternals, event: StugubySignedEvent, explicitGrant?: StugubyShareGrant): void {
       const stuguby = this.requireStuguby(event.stugubyId);
@@ -348,8 +356,44 @@ registerStugubyServiceMethods({
   async syncNow(this: StugubyServiceInternals, stugubyId: string): Promise<StugubySummary> {
       this.requireStuguby(stugubyId);
       this.backfillRecommendedHomeOverviews(stugubyId);
-      await this.trackSync(this.syncOne(stugubyId, true));
+      await this.syncFederation(stugubyId, true, true);
       return this.requireStuguby(stugubyId);
+    },
+  async syncFederation(this: StugubyServiceInternals, stugubyId: string, throwOnError: boolean, bypassCooldown = false): Promise<void> {
+      const existing = this[stugubyServiceState].federationSyncs.get(stugubyId);
+      if (existing) {
+        try {
+          await existing;
+        } catch (error) {
+          if (throwOnError) throw error;
+        }
+        return;
+      }
+      const retry = this[stugubyServiceState].pullRetries.get(stugubyId);
+      if (!bypassCooldown && retry && retry.retryAt > Date.now()) return;
+      const operation = this.trackSync((async () => {
+        try {
+          await this.syncOne(stugubyId, true);
+          this[stugubyServiceState].pullRetries.delete(stugubyId);
+        } catch (error) {
+          const failures = (this[stugubyServiceState].pullRetries.get(stugubyId)?.failures ?? 0) + 1;
+          this[stugubyServiceState].pullRetries.set(stugubyId, {
+            failures,
+            retryAt: Date.now() + pullRetryDelay(this[stugubyServiceState].syncIntervalMs, failures),
+          });
+          throw error;
+        }
+      })());
+      this[stugubyServiceState].federationSyncs.set(stugubyId, operation);
+      try {
+        await operation;
+      } catch (error) {
+        if (throwOnError) throw error;
+      } finally {
+        if (this[stugubyServiceState].federationSyncs.get(stugubyId) === operation) {
+          this[stugubyServiceState].federationSyncs.delete(stugubyId);
+        }
+      }
     },
   async syncAll(this: StugubyServiceInternals): Promise<void> {
       if (this[stugubyServiceState].syncing) return this[stugubyServiceState].syncing;
@@ -360,7 +404,7 @@ registerStugubyServiceMethods({
           this.backfillRecommendedHomeOverviews(stuguby.id);
           this.expireLocalGrants(stuguby.id);
           if (this.store.isCoordinator(stuguby.id) || !["active", "suspended"].includes(stuguby.localMemberState)) continue;
-          await this.syncOne(stuguby.id, false);
+          await this.syncFederation(stuguby.id, false);
         }
       })();
       this[stugubyServiceState].syncing = this.trackSync(operation).finally(() => { this[stugubyServiceState].syncing = null; });

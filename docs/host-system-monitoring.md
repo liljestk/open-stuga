@@ -1,9 +1,10 @@
 # Host system monitoring
 
 Owners and administrators can open **Advanced → System** to see whether the
-Stugu host needs attention. The page summarizes CPU use and load, memory,
-storage on the Stugu database volume, service and host uptime, and CPU
-temperature when the operating system exposes a thermal sensor.
+Stugu host needs attention. The page summarizes host and Stugu API CPU use,
+API event-loop responsiveness, load, memory, storage on the Stugu database
+volume, service and host uptime, and CPU temperature when the operating system
+exposes a thermal sensor.
 
 The monitor is container-aware. When Linux cgroup limits are present, memory
 use reflects the Stugu container's limit instead of the whole machine.
@@ -15,15 +16,18 @@ Stugu presents only active conditions and removes them after recovery:
 
 | Resource | Warning | Critical |
 | --- | --- | --- |
-| CPU | at least 85% for 5 minutes | at least 95% for 2 minutes |
+| Host or Stugu API CPU | at least 85% for 5 minutes | at least 95% for 2 minutes |
+| API event-loop p95 delay | at least 250 ms for 2 minutes | at least 1,000 ms for 30 seconds |
 | Memory | at least 85% for 5 minutes | at least 95% for 2 minutes |
 | Storage | at least 85% used or 5 GiB available | at least 95% used or 1 GiB available |
 | Temperature | at least 75 °C for 2 minutes | at least 85 °C for 30 seconds |
 
 Storage alerts are immediate because a full data volume can stop writes.
-Sustained windows prevent brief CPU, memory, or temperature spikes from
-becoming alerts. Active host alerts also appear on the workspace **Alerts**
-page for Owners and Admins.
+Sustained windows prevent brief CPU, API scheduling, memory, or temperature
+spikes from becoming alerts. API process CPU is expressed as a percentage of
+one logical core, so a saturated Node.js core remains visible on a multi-core
+host. Active host alerts also appear on the workspace **Alerts** page for
+Owners and Admins.
 
 ## Prometheus metrics
 
@@ -54,10 +58,11 @@ scrape_configs:
           - stugu.example.com
 ```
 
-The endpoint exposes CPU use and load, temperature when available, host or
-container memory, API process memory, database-volume storage, uptime, sample
-freshness, combined health state, and active built-in alert gauges. External
-alerting can use the interpreted gauge directly:
+The endpoint exposes host and API process CPU use, load, event-loop p95 and
+maximum delay, temperature when available, host or container memory, API
+process memory, database-volume storage, uptime, sample freshness, combined
+health state, and active built-in alert gauges. External alerting can use the
+interpreted gauge directly:
 
 ```yaml
 groups:

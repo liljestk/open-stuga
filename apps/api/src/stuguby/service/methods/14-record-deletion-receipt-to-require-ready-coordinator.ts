@@ -148,7 +148,7 @@ registerStugubyServiceMethods({
         this.store.registerBlobReference(stuguby.id, reference.digest, event.grantId, event.grantEpoch, "replica");
       }
     },
-  async signedFetch(this: StugubyServiceInternals, stuguby: StugubySummary, path: string, input: { method: string; body?: string | Uint8Array; contentType?: string; signal?: AbortSignal }): Promise<Response> {
+  async signedFetch(this: StugubyServiceInternals, stuguby: StugubySummary, path: string, input: { method: string; body?: string | Uint8Array; contentType?: string; signal?: AbortSignal; stream?: boolean }): Promise<Response> {
       const body = typeof input.body === "string" ? new TextEncoder().encode(input.body) : input.body ?? new Uint8Array();
       const timestamp = new Date().toISOString();
       const requestId = randomUUID();
@@ -160,23 +160,35 @@ registerStugubyServiceMethods({
         requestId,
         nodeId: this.identity.nodeId,
       }));
-      const signals = [this[stugubyServiceState].lifecycleController.signal, AbortSignal.timeout(input.signal ? 60_000 : 30_000)];
+      const connectController = input.stream ? new AbortController() : null;
+      const connectTimer = connectController ? setTimeout(() => {
+        connectController.abort(new Error("Stuguby notification stream connection timed out"));
+      }, 30_000) : null;
+      connectTimer?.unref();
+      const signals = [
+        this[stugubyServiceState].lifecycleController.signal,
+        connectController?.signal ?? AbortSignal.timeout(input.signal ? 60_000 : 30_000),
+      ];
       if (input.signal) signals.push(input.signal);
-      return this[stugubyServiceState].fetcher(`${stuguby.coordinatorUrl}${path}`, {
-        method: input.method,
-        headers: {
-          "accept": STUGBY_MEDIA_TYPE,
-          "content-type": input.contentType ?? STUGBY_MEDIA_TYPE,
-          "x-stugby-protocol": STUGBY_PROTOCOL_VERSION,
-          "x-stugby-node-id": this.identity.nodeId,
-          "x-stugby-timestamp": timestamp,
-          "x-stugby-request-id": requestId,
-          "x-stugby-signature": signature,
-        },
-        ...(body.byteLength ? { body: Buffer.from(body) } : {}),
-        signal: AbortSignal.any(signals),
-        redirect: "error",
-      });
+      try {
+        return await this[stugubyServiceState].fetcher(`${stuguby.coordinatorUrl}${path}`, {
+          method: input.method,
+          headers: {
+            "accept": STUGBY_MEDIA_TYPE,
+            "content-type": input.contentType ?? STUGBY_MEDIA_TYPE,
+            "x-stugby-protocol": STUGBY_PROTOCOL_VERSION,
+            "x-stugby-node-id": this.identity.nodeId,
+            "x-stugby-timestamp": timestamp,
+            "x-stugby-request-id": requestId,
+            "x-stugby-signature": signature,
+          },
+          ...(body.byteLength ? { body: Buffer.from(body) } : {}),
+          signal: AbortSignal.any(signals),
+          redirect: "error",
+        });
+      } finally {
+        if (connectTimer) clearTimeout(connectTimer);
+      }
     },
   async readBoundedResponse(this: StugubyServiceInternals, response: Response, maximumBytes: number, code: string, message: string): Promise<Uint8Array> {
       const declaredLength = response.headers.get("content-length");

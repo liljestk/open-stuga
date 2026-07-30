@@ -147,6 +147,18 @@ describe("Home monitoring API", () => {
     expect(cachedDetail.headers["x-stugu-cache"]).toBe("hit");
     expect(groupedRead).toHaveBeenCalledOnce();
 
+    runtime.bus.publish({
+      type: "measurement",
+      data: {
+        sensorId: "kitchen-t310",
+        metric: "temperature",
+        value: 22,
+        canonicalUnit: "\u00b0C",
+        timestamp: "2026-07-30T09:00:11.000Z",
+        source: "tp-link",
+        quality: "good",
+      },
+    });
     cacheClock.mockReturnValue(Date.parse("2026-07-30T09:00:12.100Z"));
     const refreshedDetail = await request(runtime.app)
       .get("/api/v2/monitoring/houses/home-one?dataMode=live&include=insights")

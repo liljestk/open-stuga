@@ -36,6 +36,10 @@ export interface TpLinkConnectionBridgeState {
   lastIngested: Map<string, LastIngestedDevice>;
   lastIngestedMeasurements: Map<string, LastIngestedMeasurement>;
   lastIngestedOpeningStates: Map<string, LastIngestedOpeningState>;
+  lastStatusSignature: string | null;
+  lastStatusPublishedAt: number;
+  lastAvailabilitySignature: string | null;
+  contactEventsEnabled: boolean | null;
   pendingHistory: Map<string, PendingTpLinkHistoryRequest>;
   config: AppConfig;
   telemetry: TelemetryService;
@@ -72,6 +76,10 @@ export function createTpLinkConnectionBridgeState(): TpLinkConnectionBridgeState
     lastIngested: new Map<string, LastIngestedDevice>(),
     lastIngestedMeasurements: new Map<string, LastIngestedMeasurement>(),
     lastIngestedOpeningStates: new Map<string, LastIngestedOpeningState>(),
+    lastStatusSignature: null,
+    lastStatusPublishedAt: 0,
+    lastAvailabilitySignature: null,
+    contactEventsEnabled: null,
     pendingHistory: new Map<string, PendingTpLinkHistoryRequest>(),
     config: undefined as unknown as AppConfig,
     telemetry: undefined as unknown as TelemetryService,

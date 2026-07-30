@@ -31,6 +31,8 @@ import type {
   MeasurementBucketRecord,
   MeasurementCoverageQuery,
   MeasurementCoverageRecord,
+  MeasurementGapQuery,
+  MeasurementGapRecord,
   MeasurementHistoryQuery,
   MeasurementSampleRecord,
   MeasurementWindowQuery,
@@ -49,6 +51,12 @@ import type {
 } from "../../types.js";
 import { ArchiveCheckpointRow, ElectricityPriceRow, HeatPumpStateRow, LatestLegacyReadingFilter, LatestMeasurementFilter, LegacyReadingRow, MAX_HISTORY_LIMIT, MAX_MEASUREMENT_WINDOW_LIMIT, MeasurementBucketRow, MeasurementCoverageRow, MeasurementRow, OpeningStateRow, OutdoorTemperatureRow, SqlValue, electricityPriceFromRow, heatPumpStateFromRow, legacyReadingFromRow, measurementBucketFromRow, measurementFromRow, openingStateFromRow, outdoorTemperatureFromRow, positiveInteger, timestamp } from "../support/01-default-schema-to-measurement-bucket-from-row.js";
 import { registerTimeseriesStoreMethods, timeseriesStoreState, type TimeseriesStoreInternals } from "../core.js";
+
+interface MeasurementGapRow {
+  started_at: string | Date;
+  ended_at: string | Date;
+  duration_ms: string | number;
+}
 
 registerTimeseriesStoreMethods({
   async __writeBatches<T>(this: TimeseriesStoreInternals,
@@ -234,6 +242,38 @@ registerTimeseriesStoreMethods({
         ) recent
         ORDER BY observed_at ASC, source ASC`, [query.sensorId, query.metric, query.from, query.to, limit], query);
       return result.rows.map(measurementFromRow);
+    },
+  async measurementSampleGaps(this: TimeseriesStoreInternals, query: MeasurementGapQuery): Promise<MeasurementGapRecord[]> {
+      const limit = positiveInteger(query.limit, 100, 1_000);
+      if (!Number.isFinite(query.minimumGapMs) || query.minimumGapMs <= 0) {
+        throw new RangeError("minimumGapMs must be a positive finite number");
+      }
+      const result = await this.__query<MeasurementGapRow>(`WITH ordered AS (
+          SELECT observed_at, LAG(observed_at) OVER (ORDER BY observed_at) AS previous_observed_at
+          FROM ${qualifiedName(this.schema, "measurement_samples")}
+          WHERE sensor_id = $1 AND metric = $2 AND source = $3 AND quality = 'good'
+            AND observed_at >= $4::TIMESTAMPTZ AND observed_at <= $5::TIMESTAMPTZ
+        )
+        SELECT previous_observed_at AS started_at, observed_at AS ended_at,
+          EXTRACT(EPOCH FROM observed_at - previous_observed_at) * 1000.0 AS duration_ms
+        FROM ordered
+        WHERE previous_observed_at IS NOT NULL
+          AND observed_at - previous_observed_at > $6::DOUBLE PRECISION * INTERVAL '1 millisecond'
+        ORDER BY previous_observed_at ASC
+        LIMIT $7`, [
+        query.sensorId,
+        query.metric,
+        query.source,
+        query.from,
+        query.to,
+        query.minimumGapMs,
+        limit,
+      ], query);
+      return result.rows.map((row) => ({
+        startedAt: timestamp(row.started_at),
+        endedAt: timestamp(row.ended_at),
+        durationMs: Math.max(0, Math.round(Number(row.duration_ms))),
+      }));
     },
   async thermalMeasurementHistory(
     this: TimeseriesStoreInternals,

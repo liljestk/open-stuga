@@ -75,7 +75,7 @@ export const localAuthPaths = {
   "/system/health": {
     get: {
       tags: ["Context"], operationId: "getHostSystemHealth",
-      description: "Owner/Admin-only host CPU, memory, data-volume storage, uptime, temperature, and sustained strain alerts.",
+      description: "Owner/Admin-only host CPU, API event-loop responsiveness, memory, data-volume storage, uptime, temperature, and sustained strain alerts.",
       security: [{ localSession: [] }],
       responses: {
         "200": spatialJsonResponse("Current Stugu host health.", {

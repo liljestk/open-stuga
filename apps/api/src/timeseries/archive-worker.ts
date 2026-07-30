@@ -14,6 +14,7 @@ import type {
 
 const DEFAULT_RECONCILE_INTERVAL_MS = 60_000;
 const DEFAULT_RETRY_INTERVAL_MS = 15_000;
+const DEFAULT_LIVE_FLUSH_INTERVAL_MS = 1_000;
 
 export type TelemetryArchivePhase = "idle" | "starting" | "syncing" | "ready" | "degraded" | "stopped";
 
@@ -40,6 +41,8 @@ export interface TelemetryArchiveWorkerOptions {
   batchSize?: number;
   reconcileIntervalMs?: number;
   retryIntervalMs?: number;
+  /** Maximum batching delay for the measurement-only live path. */
+  liveFlushIntervalMs?: number;
   /** Fail initialization unless Timescale and every expected hypertable are available. */
   requireTimescale?: boolean;
   /** Days retained as a SQLite current/history cache after Timescale acknowledgement. Zero keeps only current projections. */
@@ -54,6 +57,11 @@ type CheckpointStore = TimeseriesStore & {
   enforceRealDataBoundary(sourceId: string, activatedAt: string): Promise<number>;
   invalidateInitialization(): void;
 };
+
+interface QueuedMeasurement {
+  id: number;
+  sample: MeasurementSample;
+}
 
 function isSyntheticSample(sample: MeasurementSample): boolean {
   return sample.source === "mock" || sample.source === "replay";
@@ -82,11 +90,13 @@ export class TelemetryArchiveWorker {
   readonly #maxQueuedSamples: number;
   readonly #reconcileIntervalMs: number;
   readonly #retryIntervalMs: number;
+  readonly #liveFlushIntervalMs: number;
   readonly #requireTimescale: boolean;
   readonly #localHistoryRetentionDays: number | null;
   readonly #heatPumpStatePage:
     ((afterRowId: number, limit: number) => TelemetryArchiveRow<HeatPumpState>[]) | null;
-  readonly #queue: MeasurementSample[] = [];
+  readonly #queue: QueuedMeasurement[] = [];
+  readonly #inFlightQueueIds = new Set<number>();
   #status: TelemetryArchiveStatus = {
     phase: "idle",
     caughtUp: false,
@@ -109,6 +119,8 @@ export class TelemetryArchiveWorker {
   #wakeTimer: NodeJS.Timeout | null = null;
   #startPromise: Promise<void> | null = null;
   #cyclePromise: Promise<void> | null = null;
+  #liveFlushPromise: Promise<void> | null = null;
+  #nextQueueId = 0;
   #reconcileGeneration = 0;
   #stopping = false;
   #realDataBoundaryEnforced = false;
@@ -131,6 +143,11 @@ export class TelemetryArchiveWorker {
       24 * 60 * 60 * 1_000,
     );
     this.#retryIntervalMs = positiveInteger(options.retryIntervalMs, DEFAULT_RETRY_INTERVAL_MS, 60 * 60 * 1_000);
+    this.#liveFlushIntervalMs = positiveInteger(
+      options.liveFlushIntervalMs,
+      DEFAULT_LIVE_FLUSH_INTERVAL_MS,
+      60_000,
+    );
     this.#requireTimescale = options.requireTimescale ?? false;
     if (options.localHistoryRetentionDays !== undefined
       && (!Number.isSafeInteger(options.localHistoryRetentionDays) || options.localHistoryRetentionDays < 0)) {
@@ -190,14 +207,21 @@ export class TelemetryArchiveWorker {
     this.#reconcileGeneration += 1;
     if (this.#cyclePromise) return this.#cyclePromise;
     if (this.#stopping) return Promise.resolve();
+    if (this.#wakeTimer) clearTimeout(this.#wakeTimer);
+    this.#wakeTimer = null;
     this.#status.caughtUp = false;
     if (this.#status.phase === "ready") this.#status.phase = "syncing";
-    const cycle = this.#reconcile();
+    const cycle = this.#reconcileAfterLiveFlush();
     this.#cyclePromise = cycle;
     void cycle.finally(() => {
       if (this.#cyclePromise === cycle) this.#cyclePromise = null;
     }).catch(() => undefined);
     return cycle;
+  }
+
+  async #reconcileAfterLiveFlush(): Promise<void> {
+    await this.#liveFlushPromise;
+    await this.#reconcile();
   }
 
   enforceRealDataBoundary(): void {
@@ -282,40 +306,102 @@ export class TelemetryArchiveWorker {
 
   #enqueue(sample: MeasurementSample): void {
     if (this.#stopping) return;
-    this.#reconcileGeneration += 1;
     if (this.#database.isRealDataMode() && isSyntheticSample(sample)) {
       this.#status.droppedQueueSamples += 1;
       return;
     }
     this.#status.caughtUp = false;
     if (this.#status.phase === "ready") this.#status.phase = "syncing";
-    this.#queue.push(sample);
+    this.#queue.push({ id: ++this.#nextQueueId, sample });
     if (this.#queue.length > this.#maxQueuedSamples) {
-      const dropped = this.#queue.length - this.#maxQueuedSamples;
-      this.#queue.splice(0, dropped);
-      this.#status.droppedQueueSamples += dropped;
+      let remaining = this.#queue.length - this.#maxQueuedSamples;
+      const retained = this.#queue.filter((queued) => {
+        if (remaining === 0 || this.#inFlightQueueIds.has(queued.id)) return true;
+        remaining -= 1;
+        this.#status.droppedQueueSamples += 1;
+        return false;
+      });
+      this.#queue.splice(0, this.#queue.length, ...retained);
     }
+    if (this.#status.phase === "degraded") return;
     if (this.#wakeTimer) return;
     this.#wakeTimer = setTimeout(() => {
       this.#wakeTimer = null;
-      void this.reconcileNow().catch(() => undefined);
-    }, 100);
+      this.#startLiveFlush();
+    }, this.#liveFlushIntervalMs);
     this.#wakeTimer.unref();
+  }
+
+  #startLiveFlush(): void {
+    if (this.#stopping || this.#status.phase === "degraded"
+      || this.#queue.length === 0 || this.#cyclePromise || this.#liveFlushPromise) return;
+    // Bound this operation to the samples present at wake time. New arrivals
+    // receive their own coalesced wake instead of keeping one write loop alive.
+    const flush = this.#flushLiveQueue(this.#queue.length);
+    this.#liveFlushPromise = flush;
+    void flush.then(
+      () => {
+        if (this.#liveFlushPromise === flush) this.#liveFlushPromise = null;
+        if (!this.#stopping && this.#queue.length > 0 && !this.#wakeTimer && !this.#cyclePromise) {
+          this.#wakeTimer = setTimeout(() => {
+            this.#wakeTimer = null;
+            this.#startLiveFlush();
+          }, this.#liveFlushIntervalMs);
+          this.#wakeTimer.unref();
+        }
+      },
+      () => {
+        if (this.#liveFlushPromise === flush) this.#liveFlushPromise = null;
+      },
+    );
+  }
+
+  async #flushLiveQueue(maximumSamples: number): Promise<void> {
+    if (!this.#startPromise) await this.start();
+    else await this.#startPromise;
+    if (this.#stopping) return;
+    try {
+      await this.#flushQueuedSamples(maximumSamples);
+      if (this.#stopping) return;
+      if (this.#queue.length === 0 && !this.#cyclePromise) {
+        this.#status.phase = "ready";
+        this.#status.caughtUp = true;
+        this.#status.lastSuccessAt = new Date().toISOString();
+        this.#status.lastError = null;
+      }
+    } catch (error) {
+      if (!this.#stopping) {
+        this.#recordFailure("reconciliation-failed");
+        this.#schedule(this.#retryIntervalMs);
+      }
+      throw error;
+    }
   }
 
   #discardSyntheticQueueInRealMode(): void {
     if (!this.#database.isRealDataMode() || this.#queue.length === 0) return;
-    const retained = this.#queue.filter((sample) => !isSyntheticSample(sample));
+    const retained = this.#queue.filter(({ sample }) => !isSyntheticSample(sample));
     this.#status.droppedQueueSamples += this.#queue.length - retained.length;
     this.#queue.splice(0, this.#queue.length, ...retained);
   }
 
-  async #flushQueuedSamples(): Promise<void> {
-    while (this.#queue.length > 0) {
-      const samples = this.#queue.slice(0, this.#batchSize);
-      const result = await this.#store.upsertMeasurementSamples(samples.map((sample) => ({ ...sample })));
-      this.#queue.splice(0, samples.length);
-      this.#status.archivedRows += result.affected;
+  async #flushQueuedSamples(maximumSamples = Number.POSITIVE_INFINITY): Promise<void> {
+    let remaining = maximumSamples;
+    while (this.#queue.length > 0 && remaining > 0) {
+      const queuedSamples = this.#queue.slice(0, Math.min(this.#batchSize, remaining));
+      for (const queued of queuedSamples) this.#inFlightQueueIds.add(queued.id);
+      try {
+        const result = await this.#store.upsertMeasurementSamples(
+          queuedSamples.map(({ sample }) => ({ ...sample })),
+        );
+        const writtenIds = new Set(queuedSamples.map(({ id }) => id));
+        const retained = this.#queue.filter(({ id }) => !writtenIds.has(id));
+        this.#queue.splice(0, this.#queue.length, ...retained);
+        remaining -= queuedSamples.length;
+        this.#status.archivedRows += result.affected;
+      } finally {
+        for (const queued of queuedSamples) this.#inFlightQueueIds.delete(queued.id);
+      }
     }
   }
 
@@ -437,6 +523,7 @@ export class TelemetryArchiveWorker {
     this.#timer = null;
     this.#wakeTimer = null;
     await this.#cyclePromise?.catch(() => undefined);
+    await this.#liveFlushPromise?.catch(() => undefined);
     await this.#store.close();
   }
 }

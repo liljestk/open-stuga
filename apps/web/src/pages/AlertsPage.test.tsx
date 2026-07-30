@@ -27,10 +27,14 @@ describe("AlertsPage monitoring coverage", () => {
       hostUptimeSeconds: 86_400,
       serviceUptimeSeconds: 3_600,
       cpu: {
-        state: "healthy", usagePercent: 20, logicalCores: 4, loadAverage: [0.2, 0.2, 0.2],
+        state: "healthy", usagePercent: 20, processUsagePercent: 12, logicalCores: 4, loadAverage: [0.2, 0.2, 0.2],
         temperatureCelsius: null,
         usageThresholds: { warningPercent: 85, criticalPercent: 95, warningAfterSeconds: 300, criticalAfterSeconds: 120 },
         temperatureThresholds: { warningPercent: 75, criticalPercent: 85, warningAfterSeconds: 120, criticalAfterSeconds: 30 },
+        eventLoop: {
+          state: "healthy", p95Milliseconds: 20.5, maxMilliseconds: 42,
+          thresholds: { warningMilliseconds: 250, criticalMilliseconds: 1_000, warningAfterSeconds: 120, criticalAfterSeconds: 30 },
+        },
       },
       memory: {
         state: "healthy", scope: "host", totalBytes: 4_294_967_296, usedBytes: 2_147_483_648,

@@ -129,6 +129,9 @@ async def main() -> None:
         )
     except ValueError:
         contact_interval_ms = 500
+    contact_events_enabled = os.environ.get(
+        "TP_LINK_CONTACT_EVENTS_ENABLED", "1"
+    ).strip().lower() not in {"0", "false", "no", "off"}
     if not host or not username or not password:
         emit(
             {
@@ -165,6 +168,7 @@ async def main() -> None:
                 expected_device_id=expected_device_id,
                 on_identity=remember_identity,
                 contact_interval_seconds=contact_interval_ms / 1000,
+                contact_events_enabled=contact_events_enabled,
             )
             if list_once:
                 return

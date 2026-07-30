@@ -40,11 +40,11 @@ registerTpLinkConnectionBridgeMethods({
         }
         this[tpLinkConnectionBridgeState].status.value.tpLink.mappedDevices = new Set([...this.resolvedMappings().keys(), ...this.configuredOpeningTargets().map((target) => target.deviceId)]).size;
         this[tpLinkConnectionBridgeState].status.value.tpLink.error = this[tpLinkConnectionBridgeState].mappingWarning;
-        this[tpLinkConnectionBridgeState].status.changed();
+        this.publishStatusIfNeeded();
         this.spawnHelper();
       } catch (error) {
         this[tpLinkConnectionBridgeState].status.value.tpLink.error = error instanceof Error ? error.message : "Could not load TP-Link device mappings";
-        this[tpLinkConnectionBridgeState].status.changed();
+        this.publishStatusIfNeeded();
       }
     },
   listDiscoveredDevices(this: TpLinkConnectionBridgeInternals): TpLinkDiscoveredDevice[] {

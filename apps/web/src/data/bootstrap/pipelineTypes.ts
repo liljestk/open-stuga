@@ -49,7 +49,10 @@ import type { useClimateDataStore } from "./useClimateDataStore";
 export type ClimateDataStoreContext = ReturnType<typeof useClimateDataStore>;
 
 export interface IntegrationActions {
-  refreshTpLinkDevices: (houseId?: string) => Promise<TpLinkDiscoveredDevice[]>;
+  refreshTpLinkDevices: (
+    houseId?: string,
+    options?: { force?: boolean },
+  ) => Promise<TpLinkDiscoveredDevice[]>;
   disconnectHomeAssistant: typeof api.disconnectHomeAssistant;
   applyDetachedTpLinkSensors: (sensorIds: string[]) => void;
   disconnectTpLink: typeof api.disconnectTpLink;

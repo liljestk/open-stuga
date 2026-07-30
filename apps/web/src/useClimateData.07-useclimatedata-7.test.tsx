@@ -317,73 +317,83 @@ describe("useClimateData", () => {
     expect(detached.houseId).toBe(sensor.houseId);
   });
 
-  it("keeps only the newest TP-Link refresh result, error, and loading state", async () => {
+  it("coalesces concurrent TP-Link inventory refreshes for the same Home", async () => {
     const currentDevice: TpLinkDiscoveredDevice = {
-      deviceId: "child-current", model: "T315", alias: "Current", status: "online",
+      houseId: "house-main", deviceId: "child-current", model: "T315", alias: "Current", status: "online",
       temperature: 21, humidity: 42, battery: 96, lastSeenAt: "2026-07-14T12:00:00.000Z", mappedSensorId: null,
     };
-    const staleDevice: TpLinkDiscoveredDevice = { ...currentDevice, deviceId: "child-stale", alias: "Stale" };
+    const refreshedDevice = { ...currentDevice, alias: "Refreshed" };
     const { result } = renderHook(() => useClimateData());
     await waitFor(() => expect(result.current.loading).toBe(false));
     await waitFor(() => expect(result.current.tpLinkDevicesLoading).toBe(false));
 
-    const staleErrorRequest = deferred<TpLinkDiscoveredDevice[]>();
-    const latestSuccessRequest = deferred<TpLinkDiscoveredDevice[]>();
-    mocks.tpLinkDevices
-      .mockReturnValueOnce(staleErrorRequest.promise)
-      .mockReturnValueOnce(latestSuccessRequest.promise);
-    let staleErrorPromise!: Promise<TpLinkDiscoveredDevice[]>;
-    let latestSuccessPromise!: Promise<TpLinkDiscoveredDevice[]>;
+    const callsBeforeRefresh = mocks.tpLinkDevices.mock.calls.length;
+    const refreshRequest = deferred<TpLinkDiscoveredDevice[]>();
+    mocks.tpLinkDevices.mockReturnValueOnce(refreshRequest.promise);
+    let firstRefresh!: Promise<TpLinkDiscoveredDevice[]>;
+    let secondRefresh!: Promise<TpLinkDiscoveredDevice[]>;
     act(() => {
-      staleErrorPromise = result.current.refreshTpLinkDevices();
-      staleErrorPromise.catch(() => undefined);
-      latestSuccessPromise = result.current.refreshTpLinkDevices();
+      firstRefresh = result.current.refreshTpLinkDevices("house-main");
+      secondRefresh = result.current.refreshTpLinkDevices("house-main");
     });
+    expect(mocks.tpLinkDevices).toHaveBeenCalledTimes(callsBeforeRefresh + 1);
     expect(result.current.tpLinkDevicesLoading).toBe(true);
-    await act(async () => {
-      latestSuccessRequest.resolve([currentDevice]);
-      await latestSuccessPromise;
-    });
-    expect(result.current.tpLinkDevices).toEqual([currentDevice]);
-    expect(result.current.tpLinkDevicesLoading).toBe(false);
-    let staleErrorResult: TpLinkDiscoveredDevice[] | undefined;
-    await act(async () => {
-      staleErrorRequest.reject(new Error("Stale failure"));
-      staleErrorResult = await staleErrorPromise;
-    });
-    expect(staleErrorResult).toEqual([currentDevice]);
-    expect(result.current.tpLinkDevices).toEqual([currentDevice]);
-    expect(result.current.tpLinkDevicesError).toBeNull();
 
-    const staleSuccessRequest = deferred<TpLinkDiscoveredDevice[]>();
-    const latestErrorRequest = deferred<TpLinkDiscoveredDevice[]>();
-    mocks.tpLinkDevices
-      .mockReturnValueOnce(staleSuccessRequest.promise)
-      .mockReturnValueOnce(latestErrorRequest.promise);
-    let staleSuccessPromise!: Promise<TpLinkDiscoveredDevice[]>;
-    let latestErrorPromise!: Promise<TpLinkDiscoveredDevice[]>;
-    act(() => {
-      staleSuccessPromise = result.current.refreshTpLinkDevices();
-      latestErrorPromise = result.current.refreshTpLinkDevices();
-      latestErrorPromise.catch(() => undefined);
-    });
     await act(async () => {
-      latestErrorRequest.reject(new Error("Newest failure"));
-      await latestErrorPromise.catch(() => undefined);
+      refreshRequest.resolve([currentDevice]);
+      await Promise.all([firstRefresh, secondRefresh]);
     });
-    expect(result.current.tpLinkDevicesLoading).toBe(false);
-    expect(result.current.tpLinkDevicesError).toBe("Newest failure");
-    let staleSuccessResult: TpLinkDiscoveredDevice[] | undefined;
-    await act(async () => {
-      staleSuccessRequest.resolve([staleDevice]);
-      staleSuccessResult = await staleSuccessPromise;
-    });
-    expect(staleSuccessResult).toEqual([currentDevice]);
     expect(result.current.tpLinkDevices).toEqual([currentDevice]);
-    expect(result.current.tpLinkDevicesError).toBe("Newest failure");
+    expect(result.current.tpLinkDevicesLoading).toBe(false);
+
+    mocks.tpLinkDevices.mockResolvedValueOnce([refreshedDevice]);
+    await act(async () => { await result.current.refreshTpLinkDevices("house-main"); });
+    expect(mocks.tpLinkDevices).toHaveBeenCalledTimes(callsBeforeRefresh + 2);
+    expect(result.current.tpLinkDevices).toEqual([refreshedDevice]);
   });
 
-  it("refreshes discovered TP-Link children once when polling status advances", async () => {
+  it("runs one trailing forced TP-Link refresh after an older request", async () => {
+    const staleDevice: TpLinkDiscoveredDevice = {
+      houseId: "house-main", deviceId: "child-current", model: "T315", alias: "Stale", status: "online",
+      temperature: 21, humidity: 42, battery: 96, lastSeenAt: "2026-07-14T12:00:00.000Z", mappedSensorId: null,
+    };
+    const freshDevice = { ...staleDevice, alias: "Fresh" };
+    const { result } = renderHook(() => useClimateData());
+    await waitFor(() => expect(result.current.tpLinkDevicesLoading).toBe(false));
+
+    const callsBeforeRefresh = mocks.tpLinkDevices.mock.calls.length;
+    const staleRequest = deferred<TpLinkDiscoveredDevice[]>();
+    const freshRequest = deferred<TpLinkDiscoveredDevice[]>();
+    mocks.tpLinkDevices
+      .mockReturnValueOnce(staleRequest.promise)
+      .mockReturnValueOnce(freshRequest.promise);
+
+    let olderRefresh!: Promise<TpLinkDiscoveredDevice[]>;
+    let firstForcedRefresh!: Promise<TpLinkDiscoveredDevice[]>;
+    let secondForcedRefresh!: Promise<TpLinkDiscoveredDevice[]>;
+    act(() => {
+      olderRefresh = result.current.refreshTpLinkDevices("house-main");
+      firstForcedRefresh = result.current.refreshTpLinkDevices("house-main", { force: true });
+      secondForcedRefresh = result.current.refreshTpLinkDevices("house-main", { force: true });
+    });
+    expect(firstForcedRefresh).toBe(secondForcedRefresh);
+    expect(mocks.tpLinkDevices).toHaveBeenCalledTimes(callsBeforeRefresh + 1);
+
+    await act(async () => {
+      staleRequest.resolve([staleDevice]);
+      await olderRefresh;
+    });
+    await waitFor(() => expect(mocks.tpLinkDevices).toHaveBeenCalledTimes(callsBeforeRefresh + 2));
+
+    await act(async () => {
+      freshRequest.resolve([freshDevice]);
+      await Promise.all([firstForcedRefresh, secondForcedRefresh]);
+    });
+    expect(result.current.tpLinkDevices).toEqual([freshDevice]);
+    expect(mocks.tpLinkDevices).toHaveBeenCalledTimes(callsBeforeRefresh + 2);
+  });
+
+  it("refreshes discovered TP-Link children when polling or inventory changes", async () => {
     const device: TpLinkDiscoveredDevice = {
       deviceId: "child-later", model: "T315", alias: "Utility room", status: "online",
       temperature: 19.4, humidity: 51, battery: 93, lastSeenAt: "2026-07-14T12:01:00.000Z", mappedSensorId: null,
@@ -391,25 +401,41 @@ describe("useClimateData", () => {
     const { result } = renderHook(() => useClimateData());
     await waitFor(() => expect(mocks.tpLinkDevices).toHaveBeenCalledTimes(1));
     const [[handleEvent]] = mocks.subscribeToEvents.mock.calls as unknown as [[(event: TelemetryEvent) => void]];
-    const integration = {
+    const pollOnlyIntegration = {
       ...result.current.state.integration,
       tpLink: {
         ...result.current.state.integration.tpLink,
         connected: true,
         lastPollAt: "2026-07-14T12:01:00.000Z",
-        discoveredDevices: 1,
+      },
+    };
+    mocks.tpLinkDevices.mockResolvedValueOnce([]);
+
+    act(() => handleEvent({ type: "integration", data: pollOnlyIntegration }));
+    await waitFor(() => expect(result.current.state.integration).toEqual(pollOnlyIntegration));
+    await waitFor(() => expect(mocks.tpLinkDevices).toHaveBeenCalledTimes(2));
+
+    act(() => handleEvent({ type: "integration", data: pollOnlyIntegration }));
+    await waitFor(() => expect(result.current.state.integration).toEqual(pollOnlyIntegration));
+    expect(mocks.tpLinkDevices).toHaveBeenCalledTimes(2);
+
+    const inventoryChangedIntegration = {
+      ...pollOnlyIntegration,
+      tpLink: {
+        ...pollOnlyIntegration.tpLink,
+        discoveredDevices: pollOnlyIntegration.tpLink.discoveredDevices + 1,
       },
     };
     mocks.tpLinkDevices.mockResolvedValueOnce([device]);
 
-    act(() => handleEvent({ type: "integration", data: integration }));
+    act(() => handleEvent({ type: "integration", data: inventoryChangedIntegration }));
 
     await waitFor(() => expect(result.current.tpLinkDevices).toEqual([device]));
-    expect(mocks.tpLinkDevices).toHaveBeenCalledTimes(2);
+    expect(mocks.tpLinkDevices).toHaveBeenCalledTimes(3);
 
-    act(() => handleEvent({ type: "integration", data: integration }));
-    await waitFor(() => expect(result.current.state.integration).toEqual(integration));
-    expect(mocks.tpLinkDevices).toHaveBeenCalledTimes(2);
+    act(() => handleEvent({ type: "integration", data: inventoryChangedIntegration }));
+    await waitFor(() => expect(result.current.state.integration).toEqual(inventoryChangedIntegration));
+    expect(mocks.tpLinkDevices).toHaveBeenCalledTimes(3);
   });
 
   it("serializes rapid map moves so an older request cannot become the final persisted position", async () => {

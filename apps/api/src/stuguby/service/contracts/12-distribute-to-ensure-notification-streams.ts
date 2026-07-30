@@ -113,6 +113,7 @@ declare module "../core.js" {
     verifyEvent(event: StugubySignedEvent, publicKey: string): void;
     syncNow(stugubyId: string): Promise<StugubySummary>;
     syncAll(): Promise<void>;
+    syncFederation(stugubyId: string, throwOnError: boolean, bypassCooldown?: boolean): Promise<void>;
     ensureNotificationStreams(): void;
   }
 

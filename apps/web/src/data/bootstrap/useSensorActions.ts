@@ -183,7 +183,7 @@ export function useSensorActions(
         ...current,
         sensors: [...current.sensors.filter((sensor) => sensor.id !== saved.id), saved],
       }));
-      if (saved.tpLinkDeviceId) settleInBackground(refreshTpLinkDevices());
+      if (saved.tpLinkDeviceId) settleInBackground(refreshTpLinkDevices(undefined, { force: true }));
       return saved;
     }, [recordHouseMutation, refreshTpLinkDevices, sensorMutations.createSensor]);
   const updateSensor = useCallback(async (sensorId: string, patch: SensorPatch): Promise<Sensor> => {
@@ -200,7 +200,9 @@ export function useSensorActions(
         ...current,
         sensors: [...current.sensors.filter((sensor) => sensor.id !== sensorId), saved],
       }));
-      if (Object.hasOwn(patch, "tpLinkDeviceId")) settleInBackground(refreshTpLinkDevices());
+      if (Object.hasOwn(patch, "tpLinkDeviceId")) {
+        settleInBackground(refreshTpLinkDevices(undefined, { force: true }));
+      }
       return saved;
     }, [recordHouseMutation, refreshTpLinkDevices, sensorMutations.updateSensor]);
   const deleteSensor = useCallback(async (sensorId: string): Promise<void> => {
@@ -258,7 +260,7 @@ export function useSensorActions(
           )),
         };
       });
-      settleInBackground(refreshTpLinkDevices());
+      settleInBackground(refreshTpLinkDevices(undefined, { force: true }));
     }, [recordHouseMutation, refreshTpLinkDevices, sensorMutations.deleteSensor]);
   const moveSensor = useCallback((sensorId: string, point: Point) => {
       if (!apiAvailable.current) return;

@@ -187,6 +187,62 @@ describe("HybridTelemetryReader", () => {
     });
   });
 
+  it("uses the bounded archive gap search as the historical source of truth", async () => {
+    const localHistory = vi.fn(() => []);
+    const archiveHistory = vi.fn(async () => []);
+    const localGaps = vi.fn(() => [{
+      startedAt: "2026-07-18T00:20:00.000Z",
+      endedAt: "2026-07-18T00:35:00.000Z",
+      durationMs: 900_000,
+    }]);
+    const archiveGaps = vi.fn(async () => [{
+      startedAt: "2026-07-18T00:10:00.000Z",
+      endedAt: "2026-07-18T00:40:00.000Z",
+      durationMs: 1_800_000,
+    }, {
+      startedAt: "2026-07-18T00:45:00.000Z",
+      endedAt: TO,
+      durationMs: 900_000,
+    }]);
+    const reader = new HybridTelemetryReader({
+      local: localReader({
+        measurementHistory: localHistory,
+        measurementSampleGaps: localGaps,
+      }),
+      archive: archiveReader({
+        measurementHistory: archiveHistory,
+        measurementSampleGaps: archiveGaps,
+      }),
+      archivePhase: () => "ready",
+      localHistoryComplete: false,
+    });
+
+    await expect(reader.measurementSampleGaps({
+      sensorId: "sensor-a",
+      metric: "temperature",
+      source: "tp-link",
+      from: FROM,
+      to: TO,
+      minimumGapMs: 15 * 60_000,
+      limit: 25,
+    })).resolves.toEqual([
+      {
+        startedAt: "2026-07-18T00:10:00.000Z",
+        endedAt: "2026-07-18T00:40:00.000Z",
+        durationMs: 1_800_000,
+      },
+      {
+        startedAt: "2026-07-18T00:45:00.000Z",
+        endedAt: TO,
+        durationMs: 900_000,
+      },
+    ]);
+    expect(localGaps).not.toHaveBeenCalled();
+    expect(archiveGaps).toHaveBeenCalledWith(expect.objectContaining({ limit: 25 }));
+    expect(localHistory).not.toHaveBeenCalled();
+    expect(archiveHistory).not.toHaveBeenCalled();
+  });
+
   it("always reads SQLite, skips an archive that is not ready, and reports local provenance", async () => {
     const local = localReader({ measurementHistory: vi.fn(() => [measurement(FROM, 10)]) });
     const archive = archiveReader({ measurementHistory: vi.fn(async () => [measurement(TO, 99)]) });

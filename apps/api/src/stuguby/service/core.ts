@@ -112,6 +112,8 @@ export interface StugubyServiceState {
   syncIntervalMs: number;
   timer: NodeJS.Timeout | null;
   syncing: Promise<void> | null;
+  federationSyncs: Map<string, Promise<void>>;
+  pullRetries: Map<string, { failures: number; retryAt: number }>;
   lifecycleController: AbortController;
   activeSyncs: Set<Promise<unknown>>;
   removeMeasurementListener: (() => void) | null;
@@ -134,6 +136,8 @@ export function createStugubyServiceState(): StugubyServiceState {
     syncIntervalMs: undefined as unknown as number,
     timer: null,
     syncing: null,
+    federationSyncs: new Map<string, Promise<void>>(),
+    pullRetries: new Map<string, { failures: number; retryAt: number }>(),
     lifecycleController: new AbortController(),
     activeSyncs: new Set<Promise<unknown>>(),
     removeMeasurementListener: null,

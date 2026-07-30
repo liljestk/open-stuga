@@ -24,6 +24,7 @@ const GROUND_TRUTH_SOURCES: SpatialGroundTruth["source"][] = ["user", "optional_
 const PLACEMENT_RISKS: NonNullable<StoredSpatialSensorBinding["placementRisks"]>[number][] = [
   "near-window", "near-exterior-wall", "near-radiator", "near-heat-pump", "direct-sunlight", "unknown",
 ];
+const MAX_LAYER_QUERY_IDS = 100;
 
 class SpatialRouteError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) {
@@ -140,7 +141,11 @@ function authorizedScope(
 function layerQuery(request: Request): string[] {
   const values = request.query.layers ?? request.query.layer;
   const flattened = Array.isArray(values) ? values : values === undefined ? [] : [values];
-  return [...new Set(flattened.flatMap((value) => typeof value === "string" ? value.split(",") : []).map((value) => value.trim()).filter(Boolean))];
+  const layerIds = [...new Set(flattened.flatMap((value) => typeof value === "string" ? value.split(",") : []).map((value) => value.trim()).filter(Boolean))];
+  if (layerIds.length > MAX_LAYER_QUERY_IDS) {
+    throw new SpatialRouteError(400, "TOO_MANY_LAYERS", `At most ${MAX_LAYER_QUERY_IDS} layers may be requested`);
+  }
+  return layerIds;
 }
 
 function requireRuntime(runtime: LocalSpatialLayerRuntime | null): LocalSpatialLayerRuntime {
@@ -168,7 +173,9 @@ function asyncRoute(handler: (request: Request, response: Response) => Promise<v
 async function current(runtime: LocalSpatialLayerRuntime, value: SpatialScope, request: Request): Promise<Record<string, unknown>> {
   requireScope(runtime, value);
   const overview = await runtime.host.describeScope(value);
-  const layers = runtime.state.currentSnapshots(runtime.host.partition, value, layerQuery(request))
+  const requestedLayers = layerQuery(request);
+  const currentLayerIds = requestedLayers.length > 0 ? requestedLayers : overview.assignments.flatMap((assignment) => assignment.layerIds);
+  const layers = runtime.state.currentSnapshots(runtime.host.partition, value, currentLayerIds)
     .filter((layer) => layer.configVersion === String(overview.configuration.version));
   return {
     partition: runtime.host.partition,
