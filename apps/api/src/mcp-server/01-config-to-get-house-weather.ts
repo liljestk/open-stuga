@@ -141,6 +141,7 @@ export const timeseries = config.timeseriesEnabled ? new TimeseriesStore({
     database: config.timeseriesDatabase ?? "stuga",
     user: config.timeseriesUser ?? "stuga_app",
     password: config.timeseriesPassword ?? "",
+    options: "-c max_parallel_workers_per_gather=0",
     ...(timeseriesSsl ? { ssl: timeseriesSsl } : {}),
   },
   maxConnections: config.timeseriesPoolMax ?? 6,
@@ -157,7 +158,11 @@ export const telemetryReader = new HybridTelemetryReader({
       && Date.parse(query.from) >= Date.now() - (config.retentionDays ?? 0) * 86_400_000,
 });
 
-export const energyCost = new EnergyCostService(telemetryReader);
+export const energyCost = new EnergyCostService(
+  telemetryReader,
+  undefined,
+  (sensorId) => database.getSensor(sensorId)?.energyMeterRole ?? "standalone",
+);
 
 export const energyOptimizer = new EnergyOptimizer(database, telemetryReader);
 

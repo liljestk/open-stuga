@@ -3,9 +3,9 @@
 This installation turns a Raspberry Pi 4 and USB SSD/HDD into a Stugu
 appliance. Stugu's databases, generated secrets, Docker state, configuration,
 and backups remain on the shared persistent partition. Application releases
-update automatically from signed GitHub/GHCR releases with health checks and
-container rollback. Tailscale is installed and enabled, and its device identity
-remains persistent.
+update automatically from repository-bound, digest-pinned GitHub/GHCR releases
+with health checks and container rollback. Tailscale is installed and enabled,
+and its device identity remains persistent.
 
 The operating-system release is immutable: do not use `apt upgrade` on the
 appliance. Install kernel, firmware, and base-system changes through a newly
@@ -217,21 +217,34 @@ git push origin main v0.15.0
 Preview the resolved local release plan:
 
 ```sh
-npm run release:local -- --ssh-public-key "$HOME/.ssh/stuga_appliance.pub"
+npm run release:local -- \
+  --repository OWNER/stugu-releases \
+  --image-prefix ghcr.io/OWNER/open-stuga \
+  --notes-file release-notes.md \
+  --ssh-public-key "$HOME/.ssh/stuga_appliance.pub"
 ```
 
 Add `--publish` to execute it:
 
 ```sh
 npm run release:local -- \
+  --repository OWNER/stugu-releases \
+  --image-prefix ghcr.io/OWNER/open-stuga \
+  --notes-file release-notes.md \
   --ssh-public-key "$HOME/.ssh/stuga_appliance.pub" \
   --publish
 ```
 
-The command requires a clean checkout at the pushed tag on `origin/main`. It
-runs the release checks, builds and pushes all AMD64/ARM64 containers, resolves
-their registry digests, builds the Pi artifacts in a pinned privileged ARM64
-Debian container, creates a draft GitHub Release, uploads the artifacts and
+Replace `OWNER` with the GitHub account that owns the public artifact
+repository and image packages. First create the same tag name on a harmless
+commit in a separate checkout of the public artifact repository. Never push the
+private source repository's tag or commit to that public repository. The
+publisher verifies both tag locations and refuses a private or untagged
+artifact repository before starting CI or builds. It also requires a clean
+checkout at the pushed source tag on `origin/main`, runs local CI, builds and
+pushes all AMD64/ARM64 containers, resolves their registry digests, builds the
+Pi artifacts in a pinned privileged ARM64 Debian container, creates a draft
+GitHub Release, uploads the immutable image manifest, local CI receipt, and
 checksums, and then publishes the release.
 
 The factory image remains under `dist/rpi/` by default. Add
@@ -257,13 +270,25 @@ DOCKER_CONFIG=/persistent/stugu/docker-config docker login ghcr.io
 stuguctl restart
 ```
 
-The GitHub Release and GHCR packages must be anonymously readable by the Pi,
-or its persistent Docker configuration must contain a read-only package login.
+The credential directory is mounted read-only into the appliance update agent,
+so automatic and UI-triggered pulls use the same login as boot and `stuguctl`.
+The GitHub Release feed and manifest must be anonymously readable by the Pi.
+A persistent Docker login only grants GHCR access; it does not grant access to
+a private GitHub Release. Private GitHub Releases are not currently supported
+by the appliance updater. When source code is private, point
+`SYSTEM_UPDATE_REPOSITORY` at a separate readable release repository and keep
+`SYSTEM_UPDATE_IMAGE_PREFIX` pointed at the published image namespace.
+Create the matching release tag in that repository first, then pass
+`--repository OWNER/RELEASE-REPO --image-prefix ghcr.io/OWNER/IMAGE-PREFIX` to
+the local publisher. Those values are embedded into the factory/OTA appliance
+settings, while the source tag is still checked against `origin/main`.
 
 If local Docker is temporarily unavailable, manually dispatch
 **Raspberry Pi release (manual fallback)** with the existing tag and enable
-**Confirm use of hosted runners**. It performs the hosted build and upload
-path.
+**Confirm use of hosted runners**. It is an explicit paid build fallback for
+the source repository; it does not publish the cross-repository immutable
+manifest required by appliance self-updates. Use the local publisher for an
+installable appliance release.
 
 ## 5. Write the external disk once
 
@@ -346,6 +371,27 @@ images. It replaces only the application containers, waits for health checks,
 and restores the previous image set on failure. Operating-system, kernel, and
 firmware changes require a new validated factory image and an off-device backup
 or migration; Raspberry Pi Connect OS deployment remains disabled on Pi 4 USB.
+
+### One-time updater contract transition
+
+A contract-1 appliance can install the first contract-2 application release
+with its existing updater. Reboot after that install so the selected release's
+new agent starts. It will report **Factory upgrade required** and refuse another
+container update because the old immutable boot service understands only the
+six-line mutable-tag release format.
+
+Before continuing, run `stuguctl backup` and copy the verified backup from
+`/persistent/stugu/backups` to another machine or encrypted storage. Then write
+a validated contract-2 factory image and restore the backup, or migrate into a
+separate freshly imaged target by following the
+[live migration runbook](live-migration.md). Writing the factory image to the
+same disk destroys its existing data. Do not manually place a nine-line
+contract-2 release file on a contract-1 OS.
+
+On first contract-2 boot, an old candidate file is retained as
+`/persistent/stugu/update-release/release.env.legacy-v1` for diagnosis, while
+the old `/persistent/stugu/last-known-good.env` remains untouched for old-OS
+rollback. Neither mutable-tag file is executed by the new boot service.
 
 ## Routine commands
 

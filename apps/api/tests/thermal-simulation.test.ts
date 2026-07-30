@@ -219,6 +219,12 @@ describe("thermal simulation API and outdoor persistence", () => {
   it("exposes the product release independently from the API contract version", async () => {
     const response = await request(runtime.app).get("/api/v1/health").expect(200);
     expect(response.body).toMatchObject({ status: "ok", systemVersion: SYSTEM_VERSION, apiVersion: "v1" });
+    expect(response.body.analytics).toMatchObject({
+      active: 0,
+      queued: 0,
+      maxConcurrent: 2,
+    });
+    expect(response.body.eventLoopLagMs).toEqual(expect.any(Number));
   });
 
   it("stores boundary samples idempotently and isolates changed locations", () => {

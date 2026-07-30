@@ -99,6 +99,7 @@ import type { StugubyService } from "../stuguby/service.js";
 import { StugubyStore } from "../stuguby/store.js";
 import { config, dataMode, dataOperations, database, energyCost, optionalString, requiredString, status, stuguby, stugubyStore, telemetry, telemetryReader } from "./01-config-to-get-house-weather.js";
 import { activeStugubyGrant, recommendedOverviewGrant, stugubySide, summarizeMcpStuguby } from "./04-point-schema-to-summarize-mcp-stuguby.js";
+import { chatgptMcpServerInstructions, isChatgptMcpProfile } from "./chatgpt-profile.js";
 
 export function getMcpStuguby(args: Record<string, unknown>): object {
   const stugubyId = requiredString(args, "stugubyId");
@@ -452,14 +453,16 @@ export function sensorDataGaps(args: Record<string, unknown>): unknown {
 }
 
 export const server = new Server(
-  { name: "stugu-local", version: SYSTEM_VERSION },
+  { name: isChatgptMcpProfile ? "stugu-chatgpt" : "stugu-local", version: SYSTEM_VERSION },
   {
     capabilities: { tools: {} },
-    instructions: [
-      "This Stugu stdio MCP is a read-only inspection surface over its configured local SQLite workspace.",
-      "It cannot inspect a separately running API process's in-memory connections or event bus.",
-      "Create, update, delete, import, migration, sharing, synchronization, control, raw credentials, SSE streams, and binary asset downloads are intentionally excluded.",
-    ].join(" "),
+    instructions: isChatgptMcpProfile
+      ? chatgptMcpServerInstructions
+      : [
+          "This Stugu stdio MCP is a read-only inspection surface over its configured local SQLite workspace.",
+          "It cannot inspect a separately running API process's in-memory connections or event bus.",
+          "Create, update, delete, import, migration, sharing, synchronization, control, raw credentials, SSE streams, and binary asset downloads are intentionally excluded.",
+        ].join(" "),
   },
 );
 

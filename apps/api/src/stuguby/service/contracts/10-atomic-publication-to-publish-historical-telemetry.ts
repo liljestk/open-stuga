@@ -100,7 +100,7 @@ declare module "../core.js" {
     publishGrantSnapshots(
         grant: StugubyShareGrant,
         house: House,
-        revision?: unknown ,
+        revision?: number,
       ): void;
     projectDataset(grant: StugubyShareGrant, house: House, dataset: StugubyDatasetGrant): JsonValue | null;
     projectStructure(grant: StugubyShareGrant, house: House, local: boolean): StugubyHomeStructurePayload;

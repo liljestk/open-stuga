@@ -96,8 +96,8 @@ import {
 import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord } from "../../timeseries/types.js";
 import { CORE_SCHEMA_SQL } from "../migrations/core-schema.js";
 import { AlertTransition, DueAlertCondition, NotificationChannel, NotificationOutboxItem, boundedCollectionLimit } from "../support/01-json-value-to-area-equipment-row.js";
-import { AlertEventRow, AlertRuleRow } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
-import { eventFromRow, ruleFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
+import { AlertEventRow, AlertRuleRow, MeasurementSampleRow } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
+import { eventFromRow, measurementSampleFromRow, ruleFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
 import { registerDatabaseMethods } from "../core.js";
 
 registerDatabaseMethods({
@@ -211,6 +211,29 @@ registerDatabaseMethods({
         }
         return { ignoredAsStale: false, created, resolved: null };
       });
+    },
+  listPendingAlertEvaluationSamples(limit = 500): Array<{
+      queueId: number;
+      sample: MeasurementSample;
+    }> {
+      const rows = this.db.prepare(`SELECT queue.measurement_sample_id AS queue_id,
+          sample.sensor_id, sample.metric, sample.value, sample.canonical_unit,
+          sample.timestamp, sample.source, sample.quality
+        FROM alert_evaluation_queue queue
+        JOIN measurement_samples sample ON sample.id = queue.measurement_sample_id
+        ORDER BY queue.measurement_sample_id
+        LIMIT ?`).all(boundedCollectionLimit(limit)) as unknown as Array<MeasurementSampleRow & {
+          queue_id: number;
+        }>;
+      return rows.map((row) => ({
+        queueId: row.queue_id,
+        sample: measurementSampleFromRow(row),
+      }));
+    },
+  completeAlertEvaluationSample(queueId: number): boolean {
+      if (!Number.isSafeInteger(queueId) || queueId < 1) return false;
+      return Number(this.db.prepare("DELETE FROM alert_evaluation_queue WHERE measurement_sample_id = ?")
+        .run(queueId).changes) > 0;
     },
   listDueAlertConditions(now = new Date(), limit = 500): DueAlertCondition[] {
       const rows = this.db.prepare(`SELECT rule.*, state.sensor_id AS pending_sensor_id,

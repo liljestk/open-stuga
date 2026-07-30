@@ -94,6 +94,12 @@ import {
   policyJson,
 } from "../notification-policy.js";
 import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord, PowerCostAggregateQuery } from "../timeseries/types.js";
+import {
+  installRegisteredMethods,
+  type AssertNoMethodKeys,
+  type IncompatibleMethodKeys,
+  type RegisteredMethodSet,
+} from "../method-registry.js";
 import { CORE_SCHEMA_SQL } from "./migrations/core-schema.js";
 
 export interface DatabaseInternals {
@@ -102,7 +108,7 @@ export interface DatabaseInternals {
   immediateTransaction<T>(operation: () => T): T;
 }
 
-export type DatabaseMethodSet = Record<string, unknown> & ThisType<DatabaseInternals>;
+export type DatabaseMethodSet = RegisteredMethodSet<DatabaseInternals>;
 
 export interface ClimateDatabaseCore {
   migrateEquipmentPlacementTable(): void;
@@ -159,10 +165,10 @@ export class ClimateDatabaseCore {
     }
 }
 
+type DatabasePublicMethodMismatch = AssertNoMethodKeys<
+  IncompatibleMethodKeys<ClimateDatabaseCore, DatabaseInternals>
+>;
+
 export function registerDatabaseMethods(methods: DatabaseMethodSet): void {
-  for (const [name, method] of Object.entries(methods)) {
-    Object.defineProperty(ClimateDatabaseCore.prototype, name, {
-      value: method, configurable: true, writable: true, enumerable: false,
-    });
-  }
+  installRegisteredMethods("ClimateDatabase", ClimateDatabaseCore.prototype, methods);
 }

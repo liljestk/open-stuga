@@ -178,6 +178,7 @@ export interface EnergyCostAggregateRow extends QueryResultRow {
   cost_eur: number | null;
   total_duration_ms: number | null;
   priced_duration_ms: number | null;
+  maximum_interval_duration_ms: number | null;
   coverage_from: string | Date | null;
   coverage_until: string | Date | null;
 }

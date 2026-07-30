@@ -25,7 +25,7 @@ declare module "../core.js" {
     updateEntityAvailability(state: HaState): boolean;
     ingestOpeningState(state: HaState, fallbackTimestamp?: string, observedAtOverride?: string): string | null;
     recordOpeningState(target: OpeningTarget, state: OpeningState, timestamp: string): string | null;
-    refreshOpeningStateHeartbeats(now?: unknown ): void;
+    refreshOpeningStateHeartbeats(now?: number): void;
     applyState(state: HaState, fallbackTimestamp?: string): (EntityTarget & { timestamp: string; value: number }) | null;
     ingestMeasurementUpdate(update: EntityTarget & { timestamp: string; value: number }): void;
     ingestCachedClimate(sensorId: string, timestamp: string): void;

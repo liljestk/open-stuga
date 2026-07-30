@@ -212,13 +212,14 @@ The Vite app runs on <http://localhost:5173> and proxies `/api` to the API at
 `127.0.0.1:8787`. Keep `VITE_API_BASE_URL` empty for this same-origin/proxy
 setup.
 
-Useful checks:
+Run the complete local CI gate before pushing:
 
 ```sh
-npm run typecheck
-npm test
-npm run build
+npm run ci:local
 ```
+
+See [local CI and release publishing](local-ci.md) for prerequisites, outputs,
+and the manually confirmed hosted fallback.
 
 Run only one workspace when iterating:
 
@@ -651,6 +652,11 @@ docker compose --profile maintenance run --rm stugu-backup-export
 
 Replace `docker` with `podman` when using Podman. The export destination remains
 `./backups` or `STUGA_BACKUP_DIRECTORY`.
+
+To keep encrypted off-host copies for pennies or within R2's Standard free
+tier, use the opt-in [Cloudflare R2 backup flow](cloudflare-r2-backups.md). It
+keeps the age decryption identity offline and does not give the existing
+database backup worker internet access.
 
 ## Uninstall
 

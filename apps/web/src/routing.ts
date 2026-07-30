@@ -43,10 +43,11 @@ export function routeFromLocation(location: Pick<Location, "pathname" | "search"
     if (!propertyId || !houseId) return { page: "overview", propertyId: null, houseId: null, notFound: true };
     const suffix = homeRoute[3] ?? "";
     if (suffix === "setup/homes") return { page: "properties", propertyId, houseId: null, legacy: true };
+    if (suffix === "maintenance") {
+      return { page: "maintenance", propertyId, houseId, legacy: true };
+    }
     const page: AppPage = suffix === "activity"
       ? "activity"
-      : suffix === "maintenance"
-        ? "maintenance"
       : suffix === "outdoor"
         ? "outdoor"
         : suffix === "electricity"
@@ -70,7 +71,11 @@ export function routeFromLocation(location: Pick<Location, "pathname" | "search"
       : propertyRoute[2] === "electricity"
         ? "energy"
         : "properties";
-    return { page, propertyId, houseId: null };
+    return {
+      page,
+      propertyId,
+      houseId: page === "maintenance" ? queryHouse : null,
+    };
   }
 
   const legacySiteRoute = /^\/sites\/([^/]+)\/(twin|activity|maintenance|outdoor|energy)$/.exec(path);
@@ -120,7 +125,10 @@ export function locationForRoute(
     case "stugubys": return "/stugbys";
     case "twin": return homeBase || propertyBase;
     case "activity": return homeBase ? `${homeBase}/activity` : propertyBase;
-    case "maintenance": return homeBase ? `${homeBase}/maintenance` : property ? `${propertyBase}/maintenance` : "/properties";
+    case "maintenance":
+      return property
+        ? `${propertyBase}/maintenance${home ? `?home=${home}` : ""}`
+        : "/properties";
     case "outdoor": return homeBase ? `${homeBase}/outdoor` : propertyBase;
     case "energy": return homeBase ? `${homeBase}/electricity` : property ? `${propertyBase}/electricity` : "/properties";
     case "sensors": return homeBase ? `${homeBase}/sensors` : propertyBase;

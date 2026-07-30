@@ -1,6 +1,6 @@
 # Source file modularization
 
-Status: implemented on 2026-07-26.
+Status: implemented on 2026-07-26; policy revised on 2026-07-30.
 
 ## Baseline
 
@@ -48,14 +48,17 @@ were made explicit where staged modules previously relied on placeholder state.
 
 ## Enforced rule
 
-`npm run check:file-size` scans the audited roots and fails when a JavaScript,
-TypeScript, Python, CSS, HTML, SQL, shell, or PowerShell source file exceeds 600 physical lines.
-`npm run typecheck` runs this check first, making the ceiling part of the normal
-quality gate. Build outputs, dependencies, caches, and coverage are excluded;
-there are no source-file exceptions.
+`npm run check:file-size` scans the audited roots. At 600 physical lines it
+prints an advisory cohesion review; at 1,200 lines it fails. The review
+threshold is deliberately not a mechanical split point: modules must be split
+at ownership boundaries, not at line offsets. `npm run typecheck` runs this
+check first. Build outputs, dependencies, caches, and coverage are excluded.
 
-`npm run check:architecture` additionally protects the analytics/data rewrite:
-it rejects numbered modules in new API analytics and web data domains,
+`npm run check:architecture` additionally protects the analytics/data rewrite.
+It rejects numbered modules in new API analytics and web data domains and
+ratchets the repository-wide TypeScript/JavaScript legacy count (currently 305)
+so mechanical splits
+cannot increase,
 reintroduction of deleted browser derivations, direct live-stream ownership
 outside the coordinator, pure analytics imports of API I/O, and query-client
 resources that import the legacy bootstrap chain. `useClimateData.ts` is now a
@@ -64,7 +67,8 @@ compatibility facade over named ownership modules; the former `part-01` through
 
 ## Ongoing refactoring plan
 
-1. Treat 450 lines as the review threshold and 600 as the hard failure.
+1. Treat 600 lines as the cohesion-review threshold and 1,200 as the emergency
+   hard ceiling.
 2. Split by ownership or domain, not merely by line range. Sequential staged
    modules are acceptable only when the workflow itself is sequential.
 3. Keep facades limited to exports, dependency construction, and orchestration.

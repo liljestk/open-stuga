@@ -37,6 +37,23 @@ services:
       - no-new-privileges:true
     network_mode: none
 
+  r2-backup-operations-init:
+    profiles: ["r2-backup"]
+    image: ${STUGA_BACKUP_IMAGE:-stugu-backup:local}
+    build:
+      context: .
+      target: backup
+    restart: "no"
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["chown -R ${STUGA_HOST_BIND_USER:-1000:1000} /app/runtime/r2-backup-operations && chmod 0700 /app/runtime/r2-backup-operations"]
+    volumes:
+      - stuga-r2-backup-operations:/app/runtime/r2-backup-operations
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+
   update-operations-init:
     image: ${STUGA_API_IMAGE:-stugu-api:local}
     build:
@@ -270,7 +287,10 @@ services:
     environment:
       STUGA_PROJECT_DIRECTORY: /opt/stugu
       SYSTEM_UPDATE_OPERATIONS_DIRECTORY: /persistent/stugu/update-operations
+      STUGA_FACTORY_RELEASE_ENV_FILE: /opt/stugu/release.env
+      STUGA_KNOWN_GOOD_RELEASE_ENV_FILE: /persistent/stugu/update-release/known-good.env
       STUGA_RELEASE_ENV_FILE: /persistent/stugu/update-release/release.env
+      DOCKER_CONFIG: /persistent/stugu/docker-config
       SYSTEM_UPDATE_REPOSITORY: ${SYSTEM_UPDATE_REPOSITORY:-liljestk/open-stuga}
       SYSTEM_UPDATE_IMAGE_PREFIX: ${SYSTEM_UPDATE_IMAGE_PREFIX:-ghcr.io/liljestk/open-stuga}
       SYSTEM_UPDATE_RUNTIME: ${SYSTEM_UPDATE_RUNTIME:-docker}
@@ -281,6 +301,7 @@ services:
       - .:/opt/stugu:ro,z
       - ${STUGA_UPDATE_OPERATIONS_DIRECTORY:-./data/update-operations}:/persistent/stugu/update-operations:${STUGA_UPDATE_OPERATIONS_MOUNT_OPTIONS:-z}
       - ${STUGA_UPDATE_RELEASE_DIRECTORY:-./data/update-release}:/persistent/stugu/update-release:z
+      - ${STUGA_DOCKER_CONFIG_DIRECTORY:-./data/docker-config}:/persistent/stugu/docker-config:ro,z
       - ${STUGA_CLOUDFLARE_SECRET_DIR:-./secrets/cloudflare}:/persistent/stugu/cloudflare:z
     read_only: true
     tmpfs:
@@ -530,6 +551,52 @@ services:
     networks:
       - backend
 
+  stugu-r2-backup:
+    profiles: ["r2-backup"]
+    image: ${STUGA_BACKUP_IMAGE:-stugu-backup:local}
+    build:
+      context: .
+      target: backup
+    init: true
+    restart: unless-stopped
+    user: ${STUGA_HOST_BIND_USER:-1000:1000}
+    depends_on:
+      r2-backup-operations-init:
+        condition: service_completed_successfully
+      stugu-backup-scheduler:
+        condition: service_started
+    entrypoint: ["node", "/app/scripts/stugu-r2-backup-scheduler.mjs"]
+    environment:
+      BACKUP_DIRECTORY: /app/backups
+      R2_BACKUP_OPERATIONS_DIRECTORY: /app/runtime/r2-backup-operations
+      STUGU_R2_ENDPOINT: ${STUGU_R2_ENDPOINT:-}
+      STUGU_R2_BUCKET: ${STUGU_R2_BUCKET:-}
+      STUGU_R2_PREFIX: ${STUGU_R2_PREFIX:-stugu}
+      STUGU_R2_ACCESS_KEY_ID_FILE: /run/secrets/r2/access-key-id
+      STUGU_R2_SECRET_ACCESS_KEY_FILE: /run/secrets/r2/secret-access-key
+      STUGU_R2_AGE_RECIPIENT_FILE: /run/secrets/r2/age-recipient
+      STUGU_R2_POLL_INTERVAL_SECONDS: ${STUGU_R2_POLL_INTERVAL_SECONDS:-60}
+      STUGU_R2_RETRY_INTERVAL_MINUTES: ${STUGU_R2_RETRY_INTERVAL_MINUTES:-15}
+    volumes:
+      - stuga-scheduled-backups:/app/backups:ro
+      - stuga-r2-backup-operations:/app/runtime/r2-backup-operations
+      - ${STUGA_R2_SECRET_DIR:-./secrets/r2}:/run/secrets/r2:ro,z
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "const s=JSON.parse(require('fs').readFileSync('/app/runtime/r2-backup-operations/status.json','utf8'));const age=Date.now()-Date.parse(s.checkedAt);if(!s.schedulerHealthy||!Number.isFinite(age)||age>(s.state==='uploading'?21600000:300000))process.exit(1)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - backup-egress
+
   web:
     image: ${STUGA_WEB_IMAGE:-stugu-web:local}
     build:
@@ -595,6 +662,7 @@ networks:
   backend:
     internal: true
   automation:
+  backup-egress:
 
 volumes:
   climate-twin-data:
@@ -603,6 +671,7 @@ volumes:
   stuga-proxy-secret:
   stuga-tapo-worker-secret:
   stuga-backup-operations:
+  stuga-r2-backup-operations:
   stuga-scheduled-backups:
   stuga-update-operations:
   stuga-timeseries-data:

@@ -108,8 +108,10 @@ export interface EnergyCostAggregateRecord {
   costEur: number;
   totalDurationMs: number;
   pricedDurationMs: number;
+  maximumIntervalDurationMs: number;
   coverageFrom: string | null;
   coverageUntil: string | null;
+  archiveState?: "local-only" | "pending" | "archived";
 }
 
 export interface BatchWriteResult {
@@ -315,6 +317,17 @@ export interface PoolHealth {
   total: number;
   idle: number;
   waiting: number;
+}
+
+export interface TimeseriesQueryDiagnostics {
+  active: number;
+  started: number;
+  succeeded: number;
+  failed: number;
+  averageDurationMs: number;
+  maxDurationMs: number;
+  averagePoolWaitMs: number;
+  maxPoolWaitMs: number;
 }
 
 export interface TelemetryHealth {

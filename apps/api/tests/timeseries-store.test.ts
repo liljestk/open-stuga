@@ -526,6 +526,7 @@ describe("TimeseriesStore", () => {
       costEur: 0.91,
       totalDurationMs: 3_600_000,
       pricedDurationMs: 3_300_000,
+      maximumIntervalDurationMs: 0,
       coverageFrom: FROM,
       coverageUntil: TO,
     });

@@ -172,6 +172,7 @@ import {
   parseAnalyticsCoverageRequest,
   parseAnalyticsQueryRequest,
 } from "../analytics.js";
+import { AnalyticsWorkLimiter } from "../analytics/work-limiter.js";
 import { loadOrCreateStugubyNodeKeys } from "../stuguby/identity.js";
 import { registerStugubyLocalRoutes, registerStugubyProtocolRoutes } from "../stuguby/routes.js";
 import { StugubyError, StugubyService } from "../stuguby/service.js";
@@ -207,6 +208,10 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         database: config.timeseriesDatabase,
         user: config.timeseriesUser,
         password: config.timeseriesPassword,
+        // Heavy analytics are already admitted in-process. Disabling backend
+        // query parallelism prevents two admitted reads from consuming every
+        // Raspberry Pi core through PostgreSQL worker fan-out.
+        options: "-c max_parallel_workers_per_gather=0",
         ...(context.timeseriesSsl ? { ssl: context.timeseriesSsl } : {}),
       },
       maxConnections: config.timeseriesPoolMax,
@@ -229,12 +234,19 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
   const telemetryReader = context.options.telemetryReader ?? new HybridTelemetryReader({
       local: context.database,
       archive: timeseries,
-      archivePhase: () => telemetryArchive?.status().phase,
+      archivePhase: () => {
+        const archive = telemetryArchive?.status();
+        return archive?.caughtUp ? "ready" : archive?.phase;
+      },
       reconcile: () => telemetryArchive?.reconcileNow(),
       localHistoryComplete: !telemetryArchive
         ? true
         : (query) => config.retentionDays > 0
           && Date.parse(query.from) >= Date.now() - config.retentionDays * 86_400_000,
+    });
+  const analyticsWorkLimiter = new AnalyticsWorkLimiter({
+      maxConcurrent: Math.max(1, Math.min(2, config.timeseriesPoolMax)),
+      maxQueued: 32,
     });
   context.energyOptimizer.setTelemetryReader(telemetryReader);
   const dailyAnalyticsFindings = new DailyAnalyticsFindingsWorker({
@@ -254,7 +266,11 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
     });
   const status = new RuntimeStatus(config, context.bus, context.database);
   const setupDoctor = new SetupDoctor(context.database, config, status, context.dataOperations, telemetryArchive);
-  const energyCost = new EnergyCostService(telemetryReader);
+  const energyCost = new EnergyCostService(
+      telemetryReader,
+      undefined,
+      (sensorId) => context.database.getSensor(sensorId)?.energyMeterRole ?? "standalone",
+    );
   const storedTelegramIdentity = context.integrationMetadata.get("telegram", "singleton");
   if (status.value.telegram?.configured && storedTelegramIdentity?.active) {
       status.value.telegram.botUsername = storedTelegramIdentity.label;
@@ -399,7 +415,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         return telemetryArchive?.reconcileNow();
       },
     });
-  const extended = Object.assign(context, { timeseries, telemetryArchive, telemetryRetention, telemetryReader, dailyAnalyticsFindings, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, storedTelegramIdentity, telegram, alertEngine, telemetry, measurements, notificationOutbox, mock, replay, wakeSensorGapRecovery, tapoHistory, tapoHistoryFallbackKeys, historyFallbackKey, homeAssistant, heatPumpStates, gree });
+  const extended = Object.assign(context, { timeseries, telemetryArchive, telemetryRetention, telemetryReader, analyticsWorkLimiter, dailyAnalyticsFindings, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, storedTelegramIdentity, telegram, alertEngine, telemetry, measurements, notificationOutbox, mock, replay, wakeSensorGapRecovery, tapoHistory, tapoHistoryFallbackKeys, historyFallbackKey, homeAssistant, heatPumpStates, gree });
   return extended as typeof extended & DeferredContext & {
     sensorGapRecovery: SensorGapRecoveryCoordinator;
     tpLink: TpLinkBridge;

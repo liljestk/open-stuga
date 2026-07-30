@@ -97,7 +97,8 @@ import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCo
 import { CORE_SCHEMA_SQL } from "../migrations/core-schema.js";
 import { JsonValue } from "./01-json-value-to-area-equipment-row.js";
 import { OutdoorTemperatureRow, StaticParameterRow, StoredObservation, WeatherOutageRecord, WeatherOutageRow } from "./02-equipment-attachment-row-to-sensor-data-gap-state.js";
-import { ClimateDataValidationError, SensorDataGapRecord, SensorDataGapRow, TapoHistoryExportJob, TapoHistoryExportJobRow, TapoHistoryExportJobStatus, TapoHistoryExportStagedSample, TapoHistoryExportStagedSampleRow, parseJson } from "./03-sensor-data-gap-row-to-canonical-json-value.js";
+import type { TapoHistoryExportJob, TapoHistoryExportJobRow, TapoHistoryExportJobStatus, TapoHistoryExportStagedSample, TapoHistoryExportStagedSampleRow } from "../tapo-history-export-types.js";
+import { ClimateDataValidationError, SensorDataGapRecord, SensorDataGapRow, parseJson } from "./03-sensor-data-gap-row-to-canonical-json-value.js";
 import { CanonicalObservationTime, observationDate, observationInstant, rejectObservationRange } from "./05-action-run-from-row-to-canonical-observation-create-.js";
 
 export function canonicalObservationPatchTime(

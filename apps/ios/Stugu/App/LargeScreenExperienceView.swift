@@ -287,10 +287,13 @@ struct LargeScreenExperienceView: View {
     }
 
     private var webRequest: LargeScreenWebRequest? {
-        guard let origin = model.serverAddress?.webURL(),
-              let url = requestedURL ?? defaultWebURL else {
+        guard let origin = model.serverAddress?.webURL() else {
             return nil
         }
+        let url = requestedURL.flatMap {
+            HTTPOrigin($0) == HTTPOrigin(origin) ? $0 : nil
+        } ?? defaultWebURL
+        guard let url else { return nil }
         return LargeScreenWebRequest(id: requestID, url: url, origin: origin)
     }
 
@@ -391,8 +394,10 @@ private struct LargeScreenWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate,
         WKDownloadDelegate, WKHTTPCookieStoreObserver {
         private let state: LargeScreenWebState
-        private var loadedRequestID: UUID?
+        private var loadedRequest: LargeScreenWebRequest?
         private var loadGeneration = 0
+        private var trustedOrigin: HTTPOrigin?
+        private var trustedOriginURL: URL?
         private var observedCookieStore: WKHTTPCookieStore?
         private var downloadURLs: [ObjectIdentifier: URL] = [:]
         private var backObservation: NSKeyValueObservation?
@@ -423,16 +428,33 @@ private struct LargeScreenWebView: UIViewRepresentable {
         }
 
         func load(_ request: LargeScreenWebRequest, in webView: WKWebView) {
-            guard loadedRequestID != request.id else { return }
-            loadedRequestID = request.id
+            guard loadedRequest != request else { return }
+            guard let origin = HTTPOrigin(request.origin),
+                  HTTPOrigin(request.url) == origin else {
+                state.failed(NSError(
+                    domain: "net.nysta.stugu.web",
+                    code: 2,
+                    userInfo: [
+                        NSLocalizedDescriptionKey:
+                            "Stugu refused to open a page outside the configured server.",
+                    ]
+                ))
+                return
+            }
+            loadedRequest = request
             loadGeneration += 1
             let generation = loadGeneration
+            if let observedCookieStore {
+                observedCookieStore.remove(self)
+                self.observedCookieStore = nil
+            }
+            trustedOrigin = origin
+            trustedOriginURL = request.origin
             state.started()
 
             let cookies = Self.cookies(matching: request.origin)
-            install(
+            synchronize(
                 cookies,
-                at: 0,
                 generation: generation,
                 request: request,
                 in: webView
@@ -441,6 +463,9 @@ private struct LargeScreenWebView: UIViewRepresentable {
 
         func detach(from webView: WKWebView) {
             loadGeneration += 1
+            loadedRequest = nil
+            trustedOrigin = nil
+            trustedOriginURL = nil
             if let observedCookieStore {
                 observedCookieStore.remove(self)
             }
@@ -452,6 +477,65 @@ private struct LargeScreenWebView: UIViewRepresentable {
             webView.navigationDelegate = nil
             webView.uiDelegate = nil
             state.attach(nil)
+        }
+
+        private func synchronize(
+            _ cookies: [HTTPCookie],
+            generation: Int,
+            request: LargeScreenWebRequest,
+            in webView: WKWebView
+        ) {
+            let store = webView.configuration.websiteDataStore.httpCookieStore
+            store.getAllCookies { [weak self] webCookies in
+                guard let self,
+                      generation == self.loadGeneration,
+                      self.trustedOriginURL == request.origin else { return }
+                let nativeKeys = Set(cookies.map(Self.cookieKey))
+                let stale = webCookies.filter {
+                    Self.cookie($0, matches: request.origin)
+                        && !nativeKeys.contains(Self.cookieKey($0))
+                }
+                self.remove(
+                    stale,
+                    at: 0,
+                    thenInstall: cookies,
+                    generation: generation,
+                    request: request,
+                    in: webView
+                )
+            }
+        }
+
+        private func remove(
+            _ cookies: [HTTPCookie],
+            at index: Int,
+            thenInstall nativeCookies: [HTTPCookie],
+            generation: Int,
+            request: LargeScreenWebRequest,
+            in webView: WKWebView
+        ) {
+            guard generation == loadGeneration else { return }
+            guard index < cookies.count else {
+                install(
+                    nativeCookies,
+                    at: 0,
+                    generation: generation,
+                    request: request,
+                    in: webView
+                )
+                return
+            }
+            webView.configuration.websiteDataStore.httpCookieStore
+                .delete(cookies[index]) {
+                    self.remove(
+                        cookies,
+                        at: index + 1,
+                        thenInstall: nativeCookies,
+                        generation: generation,
+                        request: request,
+                        in: webView
+                    )
+                }
         }
 
         private func install(
@@ -488,8 +572,12 @@ private struct LargeScreenWebView: UIViewRepresentable {
         }
 
         func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
-            guard let origin = state.webView?.url else { return }
-            cookieStore.getAllCookies { cookies in
+            guard let origin = trustedOriginURL else { return }
+            let generation = loadGeneration
+            cookieStore.getAllCookies { [weak self] cookies in
+                guard let self,
+                      generation == self.loadGeneration,
+                      self.trustedOriginURL == origin else { return }
                 let webCookies = cookies.filter { Self.cookie($0, matches: origin) }
                 let webKeys = Set(webCookies.map(Self.cookieKey))
                 let shared = HTTPCookieStorage.shared
@@ -566,20 +654,53 @@ private struct LargeScreenWebView: UIViewRepresentable {
             )
         }
 
+        private func isTrusted(_ url: URL?) -> Bool {
+            guard let trustedOrigin else { return false }
+            return HTTPOrigin(url) == trustedOrigin
+        }
+
+        private func openOutsideTrustedWebView(_ url: URL) {
+            UIApplication.shared.open(url)
+        }
+
         func webView(
             _ webView: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
-            if navigationAction.shouldPerformDownload {
-                decisionHandler(.download)
+            guard let url = navigationAction.request.url,
+                  let scheme = url.scheme?.lowercased() else {
+                decisionHandler(.cancel)
                 return
             }
-            if let url = navigationAction.request.url,
-               let scheme = url.scheme?.lowercased(),
-               !["http", "https", "data", "blob"].contains(scheme) {
-                UIApplication.shared.open(url)
+            let isMainFrame = navigationAction.targetFrame?.isMainFrame == true
+                || navigationAction.targetFrame == nil
+            if isMainFrame {
+                if scheme == "http" || scheme == "https" {
+                    guard isTrusted(url) else {
+                        openOutsideTrustedWebView(url)
+                        decisionHandler(.cancel)
+                        return
+                    }
+                } else {
+                    if navigationAction.shouldPerformDownload,
+                       ["data", "blob"].contains(scheme) {
+                        decisionHandler(.download)
+                        return
+                    }
+                    if scheme != "data", scheme != "blob" {
+                        openOutsideTrustedWebView(url)
+                    }
+                    decisionHandler(.cancel)
+                    return
+                }
+            } else if !["http", "https", "data", "blob"].contains(scheme) {
+                openOutsideTrustedWebView(url)
                 decisionHandler(.cancel)
+                return
+            }
+            if navigationAction.shouldPerformDownload {
+                decisionHandler(.download)
                 return
             }
             if navigationAction.targetFrame == nil {
@@ -595,6 +716,20 @@ private struct LargeScreenWebView: UIViewRepresentable {
             decidePolicyFor navigationResponse: WKNavigationResponse,
             decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
         ) {
+            if navigationResponse.isForMainFrame,
+               let url = navigationResponse.response.url,
+               !isTrusted(url) {
+                let scheme = url.scheme?.lowercased() ?? ""
+                if scheme == "data" || scheme == "blob" {
+                    decisionHandler(.download)
+                    return
+                }
+                if ["http", "https"].contains(scheme) {
+                    openOutsideTrustedWebView(url)
+                }
+                decisionHandler(.cancel)
+                return
+            }
             decisionHandler(navigationResponse.canShowMIMEType ? .allow : .download)
         }
 

@@ -93,6 +93,7 @@ import { FmiWeatherProvider, WeatherRequestSupersededError, WeatherService } fro
 import type { StugubyService } from "../stuguby/service.js";
 import { StugubyStore } from "../stuguby/store.js";
 import { areaEquipmentMutableProperties, floorSchema, houseLocationSchema, houseMapPlacementSchema, propertyAreaMutableProperties } from "./04-point-schema-to-summarize-mcp-stuguby.js";
+import { CHATGPT_MCP_TOOL_NAMES, isChatgptMcpProfile } from "./chatgpt-profile.js";
 
 export const READ_ONLY_MCP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "list_properties",
@@ -119,12 +120,14 @@ export const READ_ONLY_MCP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "get_house_energy_cost",
   "get_house_energy_summary",
   "query_outdoor_temperature_history",
+  "get_home_moisture_response",
   "run_thermal_simulation",
   "get_house_thermal_isolation",
   "list_sensors",
   "list_measurement_definitions",
   "get_measurement_snapshot",
   "query_measurement_history",
+  "summarize_home_measurements",
   "forecast_measurement",
   "get_sensor_snapshot",
   "query_history",
@@ -155,6 +158,10 @@ export const READ_ONLY_MCP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "get_backup_status",
   "get_setup_doctor",
 ]);
+
+export const ACTIVE_MCP_TOOL_NAMES = isChatgptMcpProfile
+  ? CHATGPT_MCP_TOOL_NAMES
+  : READ_ONLY_MCP_TOOL_NAMES;
 
 export const mcpToolDefinitionsPart01 = [
   {

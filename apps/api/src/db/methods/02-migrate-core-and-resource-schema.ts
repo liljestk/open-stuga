@@ -313,6 +313,10 @@ registerDatabaseMethods({
       if (!sensorColumns.some((column) => column.name === "room_id")) {
             this.db.exec("ALTER TABLE sensors ADD COLUMN room_id TEXT");
           }
+      if (!sensorColumns.some((column) => column.name === "energy_meter_role")) {
+            this.db.exec(`ALTER TABLE sensors ADD COLUMN energy_meter_role TEXT NOT NULL DEFAULT 'standalone'
+              CHECK (energy_meter_role IN ('whole_home', 'submeter', 'standalone'))`);
+          }
       const tapoExportColumns = this.db.prepare("PRAGMA table_info(tapo_history_export_jobs)")
             .all() as unknown as Array<{ name: string }>;
       if (!tapoExportColumns.some((column) => column.name === "time_zone")) {

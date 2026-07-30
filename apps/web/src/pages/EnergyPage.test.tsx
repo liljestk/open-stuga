@@ -33,6 +33,8 @@ function cumulativeCost(houseId: string, sensorId: string, from: string, to: str
     priceCoveragePercent: 100,
     measurementCoverageFrom: from,
     measurementCoverageUntil: to,
+    quality: "measured",
+    archiveState: "local-only",
     complete: true,
     calculatedAt: to,
   };
@@ -53,8 +55,8 @@ function combinedSummary(
     pricedConsumptionKwh: 5 / sensorIds.length,
   }));
   return {
-    schemaVersion: 1,
-    algorithmVersion: "home-energy-summary/v1",
+    schemaVersion: 2,
+    algorithmVersion: "home-energy-summary/v2",
     houseId,
     from,
     to,
@@ -62,9 +64,13 @@ function combinedSummary(
     pricedConsumptionKwh: 5,
     costEur,
     priceCoveragePercent: 100,
+    quality: "measured",
+    archiveState: "local-only",
+    aggregationMode: "independent_sources",
     complete: true,
     sourceCount: sensorIds.length,
     totalSources: sensorIds.length,
+    excludedSourceCount: 0,
     failedSourceCount: 0,
     contributions,
     calculatedAt: to,
@@ -311,6 +317,51 @@ describe("EnergyPage", () => {
     expect(onOpenAlerts).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole("button", { name: "Edit sources" }));
     expect(onOpenSensors).toHaveBeenCalledTimes(1);
+  });
+
+  it("labels an unarchived cost as priced so far", async () => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const meter: Sensor = {
+      ...state.sensors[0]!,
+      id: "pending-meter",
+      houseId: house.id,
+      measurementEntityIds: { power: "sensor.pending_power" },
+    };
+    state.sensors = [meter];
+    state.latestMeasurements = {
+      [meter.id]: {
+        power: {
+          ...sample(500, "2026-07-16T11:59:00.000Z"),
+          sensorId: meter.id,
+          metric: "power",
+          canonicalUnit: "W",
+        },
+      },
+    };
+    state.measurementHistory = { [meter.id]: { power: [] } };
+    state.measurementForecasts = { [meter.id]: {} };
+    vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({ current: null });
+    vi.spyOn(api, "houseEnergySummary").mockImplementation(async (houseId, from, to) => {
+      const summary = combinedSummary(houseId, from, to, 2.5, [meter.id]);
+      return {
+        ...summary,
+        quality: "partial",
+        archiveState: "pending",
+        complete: false,
+        contributions: summary.contributions.map((cost) => ({
+          ...cost,
+          quality: "partial",
+          archiveState: "pending",
+          complete: false,
+        })),
+      };
+    });
+
+    render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={vi.fn()} onOpenAlerts={vi.fn()} /></I18nProvider>);
+
+    expect(await screen.findByText(/priced so far/i)).not.toBeNull();
+    expect(screen.getByText(/Pending time-database confirmation/i)).not.toBeNull();
   });
 
   it("uses the Home-safe effective Property price without exposing contract controls", async () => {

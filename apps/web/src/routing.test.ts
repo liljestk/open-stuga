@@ -21,6 +21,17 @@ describe("application routes", () => {
       propertyId: "lake estate",
       houseId: null,
     });
+    expect(routeFromUrl("/properties/lake%20estate/maintenance?home=lake%20house")).toEqual({
+      page: "maintenance",
+      propertyId: "lake estate",
+      houseId: "lake house",
+    });
+    expect(routeFromUrl("/properties/lake%20estate/homes/lake%20house/maintenance")).toEqual({
+      page: "maintenance",
+      propertyId: "lake estate",
+      houseId: "lake house",
+      legacy: true,
+    });
     expect(routeFromUrl("/properties/lake%20estate/electricity")).toEqual({
       page: "energy",
       propertyId: "lake estate",
@@ -92,7 +103,7 @@ describe("application routes", () => {
     expect(locationForRoute("twin", scope)).toBe("/properties/property-main/homes/home-1");
     expect(locationForRoute("outdoor", scope)).toBe("/properties/property-main/homes/home-1/outdoor");
     expect(locationForRoute("activity", scope)).toBe("/properties/property-main/homes/home-1/activity");
-    expect(locationForRoute("maintenance", scope)).toBe("/properties/property-main/homes/home-1/maintenance");
+    expect(locationForRoute("maintenance", scope)).toBe("/properties/property-main/maintenance?home=home-1");
     expect(locationForRoute("energy", { propertyId: scope.propertyId, houseId: null })).toBe("/properties/property-main/electricity");
     expect(locationForRoute("energy", scope)).toBe("/properties/property-main/homes/home-1/electricity");
     expect(locationForRoute("sensors", scope)).toBe("/properties/property-main/homes/home-1/sensors");
@@ -129,7 +140,7 @@ describe("application routes", () => {
     ["twin", "/properties/property%20%2F%20one/homes/home%20%2F%20one", "property / one", "home / one"],
     ["outdoor", "/properties/property%20%2F%20one/homes/home%20%2F%20one/outdoor", "property / one", "home / one"],
     ["activity", "/properties/property%20%2F%20one/homes/home%20%2F%20one/activity", "property / one", "home / one"],
-    ["maintenance", "/properties/property%20%2F%20one/homes/home%20%2F%20one/maintenance", "property / one", "home / one"],
+    ["maintenance", "/properties/property%20%2F%20one/maintenance?home=home%20%2F%20one", "property / one", "home / one"],
     ["energy", "/properties/property%20%2F%20one/homes/home%20%2F%20one/electricity", "property / one", "home / one"],
     ["sensors", "/properties/property%20%2F%20one/homes/home%20%2F%20one/sensors", "property / one", "home / one"],
     ["analytics", "/properties/property%20%2F%20one/homes/home%20%2F%20one/analytics", "property / one", "home / one"],

@@ -287,6 +287,8 @@ export const CORE_SCHEMA_01 = `
         tp_link_device_id TEXT,
         tp_link_connection_id TEXT,
         measurement_entity_ids_json TEXT,
+        energy_meter_role TEXT NOT NULL DEFAULT 'standalone'
+          CHECK (energy_meter_role IN ('whole_home', 'submeter', 'standalone')),
         tags_json TEXT NOT NULL,
         enabled INTEGER NOT NULL CHECK (enabled IN (0, 1))
       );
@@ -384,6 +386,10 @@ export const CORE_SCHEMA_01 = `
         latest_timestamp TEXT NOT NULL,
         condition_since TEXT,
         PRIMARY KEY(rule_id, sensor_id)
+      );
+      CREATE TABLE IF NOT EXISTS alert_evaluation_queue (
+        measurement_sample_id INTEGER PRIMARY KEY
+          REFERENCES measurement_samples(id) ON DELETE CASCADE
       );
       CREATE TABLE IF NOT EXISTS notification_outbox (
         id TEXT PRIMARY KEY,

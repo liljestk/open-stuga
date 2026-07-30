@@ -169,6 +169,7 @@ import {
   bucketMeasurementSamples,
   IncompleteTelemetryHistoryError,
 } from "../timeseries/read-facade.js";
+import { mapWithConcurrency } from "../timeseries/read-support.js";
 import { TelemetryRetentionWorker } from "../timeseries/retention-worker.js";
 import {
   AnalyticsQueryError,
@@ -271,35 +272,52 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
       const horizonHours = safeInteger(request.query.horizonHours, 12, 0, 72);
       const scenarioOutdoorTemperatureC = optionalQueryNumber(request.query.scenarioOutdoorTemperatureC, "scenarioOutdoorTemperatureC");
       const boundaryPaddingMs = 2 * 3_600_000;
-      const [indoorRead, outdoorRead] = await Promise.all([
-        context.telemetryReader.thermalMeasurementHistory({
-          sensorId: sensor.id,
-          metrics: ["temperature"],
-          from,
-          to,
-          bucketMinutes: 5,
-          limitPerMetric: 5_000,
-        }),
-        context.telemetryReader.outdoorTemperatureHistory({
-          houseId: house.id,
-          locationKey: outdoorLocationKey(house.location),
-          from: new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
-          to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
-          limit: 50_000,
-        }),
-      ]);
-      const simulation = runThermalSimulation({
-        houseId: house.id,
-        sensorId: sensor.id,
-        roomLabel: sensor.room,
-        from,
-        to,
-        indoorSamples: indoorRead.records,
-        outdoorSamples: outdoorRead.records,
-        horizonHours,
-        scenarioOutdoorTemperatureC,
-      });
-      response.json({ simulation });
+      const abortController = new AbortController();
+      const abortOnClose = () => abortController.abort();
+      response.once("close", abortOnClose);
+      const startedAt = performance.now();
+      try {
+        const simulation = await context.analyticsWorkLimiter.run("thermal-simulation", async () => {
+          const [indoorRead, outdoorRead] = await Promise.all([
+            context.telemetryReader.thermalMeasurementHistory({
+              sensorId: sensor.id,
+              metrics: ["temperature"],
+              from,
+              to,
+              bucketMinutes: 5,
+              limitPerMetric: 5_000,
+              signal: abortController.signal,
+            }),
+            context.telemetryReader.outdoorTemperatureHistory({
+              houseId: house.id,
+              locationKey: outdoorLocationKey(house.location),
+              from: new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
+              to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
+              limit: 50_000,
+              signal: abortController.signal,
+            }),
+          ]);
+          return runThermalSimulation({
+            houseId: house.id,
+            sensorId: sensor.id,
+            roomLabel: sensor.room,
+            from,
+            to,
+            indoorSamples: indoorRead.records,
+            outdoorSamples: outdoorRead.records,
+            horizonHours,
+            scenarioOutdoorTemperatureC,
+          });
+        }, abortController.signal);
+        if (abortController.signal.aborted) return;
+        response.setHeader(
+          "server-timing",
+          `thermal-simulation;dur=${(performance.now() - startedAt).toFixed(1)}`,
+        );
+        response.json({ simulation });
+      } finally {
+        response.off("close", abortOnClose);
+      }
     });
   context.app.get(`${context.prefix}/houses/:id/thermal-isolation`, async (request, response) => {
       const house = context.database.getHouse(request.params.id as string);
@@ -325,41 +343,52 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
         throw new HttpError(422, "THERMAL_SCOPE_TOO_LARGE", "thermal isolation comparison supports at most 64 temperature sensors per request");
       }
       const boundaryPaddingMs = 2 * 3_600_000;
-      const [outdoorRead, ...indoorReads] = await Promise.all([
-        context.telemetryReader.outdoorTemperatureHistory({
-          houseId: house.id,
-          locationKey: outdoorLocationKey(house.location),
-          from: new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
-          to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
-          limit: 50_000,
-        }),
-        ...sensors.map((sensor) => context.telemetryReader.thermalMeasurementHistory({
-          sensorId: sensor.id,
-          metrics: ["temperature"],
-          from,
-          to,
-          bucketMinutes: 5,
-          limitPerMetric: 5_000,
-        })),
-      ]);
-      const indoorSamplesBySensor = new Map(sensors.map((sensor, index) => [
-        sensor.id,
-        indoorReads[index]!.records,
-      ]));
       const abortController = new AbortController();
       const abortOnClose = () => abortController.abort();
       response.once("close", abortOnClose);
+      const startedAt = performance.now();
       try {
-        const isolation = await runThermalIsolationAsync({
-          house,
-          sensors,
-          indoorSamplesBySensor,
-          outdoorSamples: outdoorRead.records,
-          from,
-          to,
-        }, { signal: abortController.signal });
+        const isolation = await context.analyticsWorkLimiter.run("thermal-isolation", async () => {
+          const [outdoorRead, indoorReads] = await Promise.all([
+            context.telemetryReader.outdoorTemperatureHistory({
+              houseId: house.id,
+              locationKey: outdoorLocationKey(house.location),
+              from: new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
+              to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
+              limit: 50_000,
+              signal: abortController.signal,
+            }),
+            mapWithConcurrency(sensors, 2, (sensor) => (
+              context.telemetryReader.thermalMeasurementHistory({
+                sensorId: sensor.id,
+                metrics: ["temperature"],
+                from,
+                to,
+                bucketMinutes: 5,
+                limitPerMetric: 5_000,
+                signal: abortController.signal,
+              })
+            )),
+          ]);
+          const indoorSamplesBySensor = new Map(sensors.map((sensor, index) => [
+            sensor.id,
+            indoorReads[index]!.records,
+          ]));
+          return runThermalIsolationAsync({
+            house,
+            sensors,
+            indoorSamplesBySensor,
+            outdoorSamples: outdoorRead.records,
+            from,
+            to,
+          }, { signal: abortController.signal });
+        }, abortController.signal);
         if (abortController.signal.aborted) return;
         response.setHeader("cache-control", "no-store");
+        response.setHeader(
+          "server-timing",
+          `thermal-isolation;dur=${(performance.now() - startedAt).toFixed(1)}`,
+        );
         response.json({ isolation });
       } catch (error) {
         if (abortController.signal.aborted) return;
@@ -398,41 +427,52 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
         throw new HttpError(422, "MOISTURE_SCOPE_TOO_LARGE", "moisture response comparison supports at most 64 paired climate sensors per request");
       }
       const boundaryPaddingMs = 2 * 3_600_000;
-      const [outdoorRead, ...indoorReads] = await Promise.all([
-        context.telemetryReader.outdoorTemperatureHistory({
-          houseId: house.id,
-          locationKey: outdoorLocationKey(house.location),
-          from: new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
-          to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
-          limit: 50_000,
-        }),
-        ...sensors.map((sensor) => context.telemetryReader.thermalMeasurementHistory({
-          sensorId: sensor.id,
-          metrics: ["temperature", "humidity"],
-          from,
-          to,
-          bucketMinutes: 5,
-          limitPerMetric: 5_000,
-        })),
-      ]);
-      const indoorSamplesBySensor = new Map(sensors.map((sensor, index) => [
-        sensor.id,
-        indoorReads[index]!.records,
-      ]));
       const abortController = new AbortController();
       const abortOnClose = () => abortController.abort();
       response.once("close", abortOnClose);
+      const startedAt = performance.now();
       try {
-        const moistureResponse = await runMoistureResponseAsync({
-          house,
-          sensors,
-          indoorSamplesBySensor,
-          outdoorSamples: outdoorRead.records,
-          from,
-          to,
-        }, { signal: abortController.signal });
+        const moistureResponse = await context.analyticsWorkLimiter.run("moisture-response", async () => {
+          const [outdoorRead, indoorReads] = await Promise.all([
+            context.telemetryReader.outdoorTemperatureHistory({
+              houseId: house.id,
+              locationKey: outdoorLocationKey(house.location),
+              from: new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
+              to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
+              limit: 50_000,
+              signal: abortController.signal,
+            }),
+            mapWithConcurrency(sensors, 2, (sensor) => (
+              context.telemetryReader.thermalMeasurementHistory({
+                sensorId: sensor.id,
+                metrics: ["temperature", "humidity"],
+                from,
+                to,
+                bucketMinutes: 5,
+                limitPerMetric: 5_000,
+                signal: abortController.signal,
+              })
+            )),
+          ]);
+          const indoorSamplesBySensor = new Map(sensors.map((sensor, index) => [
+            sensor.id,
+            indoorReads[index]!.records,
+          ]));
+          return runMoistureResponseAsync({
+            house,
+            sensors,
+            indoorSamplesBySensor,
+            outdoorSamples: outdoorRead.records,
+            from,
+            to,
+          }, { signal: abortController.signal });
+        }, abortController.signal);
         if (abortController.signal.aborted) return;
         response.setHeader("cache-control", "no-store");
+        response.setHeader(
+          "server-timing",
+          `moisture-response;dur=${(performance.now() - startedAt).toFixed(1)}`,
+        );
         response.json({ moistureResponse });
       } catch (error) {
         if (abortController.signal.aborted) return;

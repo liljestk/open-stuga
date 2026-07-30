@@ -76,6 +76,18 @@ describe("Stugu app", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/properties/property-pine/homes/house-pine"));
   });
 
+  it("does not rewrite an invalid explicit legacy Home to the selected Home", async () => {
+    window.history.replaceState(null, "", "/properties/property-pine/homes/house-pine");
+    renderApp();
+    await findPageHeading("Your home, at a glance");
+
+    window.history.replaceState(null, "", "/sites/deleted-home/maintenance");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+
+    expect(await findPageHeading("This page is not part of Stugu")).toBeTruthy();
+    expect(window.location.pathname).toBe("/sites/deleted-home/maintenance");
+  });
+
   it("opens Property-owned Maintenance for a land-only Property", async () => {
     const climate = mockClimateData();
     const landOnly = { ...climate.state.properties[0]!, id: "property-forest", name: "Forest parcel" };

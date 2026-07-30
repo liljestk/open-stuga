@@ -188,12 +188,12 @@ import {
 } from "../tracking/store.js";
 import { AREA_EQUIPMENT_STATUSES, AuthAbuseLimiter, HttpError, LOCAL_CSRF_COOKIE, LOCAL_SESSION_COOKIE, LOCAL_SESSION_MAX_AGE_MS, LocalVisibility, MAINTENANCE_BASES, MAINTENANCE_CREATE_FIELDS, MAINTENANCE_PATCH_FIELDS, MAINTENANCE_PRIORITIES, MAINTENANCE_STATUSES, MAX_EQUIPMENT_ATTACHMENT_BYTES, MAX_EVENT_STREAMS_GLOBAL, MAX_EVENT_STREAMS_PER_USER, MAX_SSE_QUEUE_BYTES, MAX_SSE_QUEUE_MESSAGES, MEASUREMENT_ID_PATTERN, OBSERVATION_CONFIDENCES, OBSERVATION_CREATE_FIELDS, OBSERVATION_KINDS, OBSERVATION_PATCH_FIELDS, OBSERVATION_SEVERITIES, OBSERVATION_SOURCES, OBSERVATION_STATUSES, OBSERVATION_TIME_PRECISIONS, PROPERTY_AREA_KINDS, PROPERTY_NOTE_KINDS, RESERVED_MEASUREMENT_IDS, SAFE_ASSET_MIME_TYPES, SAFE_EQUIPMENT_DOCUMENT_MIME_TYPES, SAFE_EQUIPMENT_PHOTO_MIME_TYPES, SAFE_HTTP_METHODS, UUID_PATTERN, alertDurationSeconds, appleNotesCaptureInput, appleNotesCaptureMatches, appleNotesGrant, appleNotesGrantSummary, appleNotesSnapshot, assertEquipmentAttachmentMediaType, auditAccountSubject, authAttemptKeys, bodyObject, boundedQueryInteger, boundedSseWriter, browserOriginAllowed, clearLocalSessionCookies, cloudflareUiRedirectUri, collectionPage, completeVisibleCollection, cookieValue, credentialString, dateValue, enumValue, equipmentAttachmentData, equipmentAttachmentDisposition, homeAssistantUrl, houseLocationValue, houseMapPlacementValue, initializeIntegrationMetadata, isIOSNotificationRegistrationPath, isLoopbackSocket, isPrivateProxySocket, isTrackingObserverHeartbeatPath, keyMatches, localAuthorizationFingerprint, localCloudflareUiRequestAllowed, localSetupRequestAllowed, maintenanceDateValue, maintenanceObservationIds, maintenanceText, maintenanceTitle, measurementId, measurementNumberMap, measurementStringMap, measurementUnits, mirrorEnvironmentWebhook, networkHost, normalizedHostname, normalizedOrigin, notePlainLine, noteTaskBlock, nullableFinite, nullablePropertyTarget, optionalBoolean, optionalNullableNumber, optionalNullableString, optionalObservationDate, optionalQueryNumber, optionalResourceQuery, optionalString, parseActionPlaybookInput, parseActionRunStart, parseAlertDeliveryPolicy, parseAlertRule, parseAreaEquipmentInput, parseAreaEquipmentPatch, parseEquipmentAttachmentUpload, parseEquipmentLinkInput, parseEquipmentLinkPatch, parseMaintenanceTaskInput, parseMaintenanceTaskPatch, parseMeasurementDefinition, parseMeasurementSample, parseObservationInput, parseObservationPatch, parsePropertyAreaInput, parsePropertyAreaPatch, parsePropertyInput, parsePropertyNoteInput, parsePropertyNotePatch, parsePropertyPatch, parseReading, parseSensorPatch, persistWeatherObservation, propertyCoordinate, propertyPolygon, propertyText, publicTapoHistoryExportJob, queryList, refreshAppleNotesStatus, rejectUnknownFields, requestOrigin, requestPrincipal, requireJsonContentType, requireNonGuest, requireWorkspaceAdmin, requiredNumber, requiredString, safeInteger, sameHomeAssistantCredential, sameTelegramCredential, sameTpLinkCredential, secureRequest, sessionDocument, setLocalSessionCookies, stringMap, trackingObserverAttemptKeys, trustedProxyClientAddress, trustedProxyRequest, trustedSelfHostname, validateMeasurementDefinition, visibleCollectionPage, workerTapoHistoryExportJob } from "./support/index.js";
 import type { ApiRuntime, AuthAttemptBucket, AuthAttemptLimit, BoundedSseWriter, CreateApiOptions, IntegrationDraftTestResult, LocalRequestPrincipal } from "./support/index.js";
-import { configureApiPart09 } from "./part-09.js";
+import type { ApiRouteRegistrationContext } from "./route-registration-context.js";
 
 
 type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key], undefined> };
 
-export function configureApiPart10(context: ReturnType<typeof configureApiPart09>) {
+export function configureApiPart10(context: ApiRouteRegistrationContext) {
   const config = context.config as NormalizedApiConfig;
   const sensorGapRecovery = context.sensorGapRecovery!;
   context.app.get(`${context.v2Prefix}/analytics/findings`, (request, response) => {
@@ -264,10 +264,19 @@ export function configureApiPart10(context: ReturnType<typeof configureApiPart09
             throw new AnalyticsQueryError(422, "ANALYTICS_MEASUREMENT_DISABLED", `Analytics is disabled for measurement: ${metric}`);
           }
         }
-        const coverage = await context.telemetryReader.measurementCoverage({
-          sensorIds: sensors.map((sensor) => sensor.id),
-          metrics: coverageRequest.measurementIds,
-        });
+        const startedAt = performance.now();
+        const abortController = new AbortController();
+        const abortOnClose = () => abortController.abort();
+        response.once("close", abortOnClose);
+        const coverage = await context.analyticsWorkLimiter.run(
+          "analytics-coverage",
+          () => context.telemetryReader.measurementCoverage({
+            sensorIds: sensors.map((sensor) => sensor.id),
+            metrics: coverageRequest.measurementIds,
+            signal: abortController.signal,
+          }),
+          abortController.signal,
+        ).finally(() => response.off("close", abortOnClose));
         const labels = new Map(sensors.map((sensor) => [sensor.id, sensor.name]));
         const series = coverage.records.map((record) => ({
           entityId: record.sensorId,
@@ -279,6 +288,10 @@ export function configureApiPart10(context: ReturnType<typeof configureApiPart09
         const starts = series.map((item) => item.start).sort();
         const ends = series.map((item) => item.end).sort();
         response.setHeader("cache-control", "no-store");
+        response.setHeader(
+          "server-timing",
+          `analytics-coverage;dur=${(performance.now() - startedAt).toFixed(1)}`,
+        );
         response.json({
           apiVersion: "1.0",
           requestId: coverageRequest.requestId,
@@ -325,14 +338,27 @@ export function configureApiPart10(context: ReturnType<typeof configureApiPart09
           if (!definition) throw new AnalyticsQueryError(404, "UNKNOWN_ANALYTICS_MEASUREMENT", `Unknown measurement: ${metric}`);
           return definition;
         });
-        const result = await executeAnalyticsQuery({
-          request: analyticsRequest,
-          sensors,
-          definitions,
-          telemetryReader: context.telemetryReader,
-          generatedAt: new Date().toISOString(),
-        });
+        const startedAt = performance.now();
+        const abortController = new AbortController();
+        const abortOnClose = () => abortController.abort();
+        response.once("close", abortOnClose);
+        const result = await context.analyticsWorkLimiter.run(
+          "analytics-query",
+          () => executeAnalyticsQuery({
+            request: analyticsRequest,
+            sensors,
+            definitions,
+            telemetryReader: context.telemetryReader,
+            generatedAt: new Date().toISOString(),
+            signal: abortController.signal,
+          }),
+          abortController.signal,
+        ).finally(() => response.off("close", abortOnClose));
         response.setHeader("cache-control", "no-store");
+        response.setHeader(
+          "server-timing",
+          `analytics-query;dur=${(performance.now() - startedAt).toFixed(1)}`,
+        );
         response.json(result);
       } catch (error) {
         if (error instanceof AnalyticsQueryError) throw new HttpError(error.status, error.code, error.message);

@@ -40,6 +40,8 @@ export { runCommand } from "./stugu-update-agent/configuration-request.mjs";
 
 export { validatedRequest } from "./stugu-update-agent/configuration-request.mjs";
 
+export { validatedReleaseEnvironment } from "./stugu-update-agent/configuration-request.mjs";
+
 export { validatedCloudflareSetupRequest } from "./stugu-update-agent/configuration-request.mjs";
 
 export { composeArguments } from "./stugu-update-agent/configuration-request.mjs";

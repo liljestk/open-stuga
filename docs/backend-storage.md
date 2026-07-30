@@ -21,7 +21,7 @@ All authoritative non-time-series application state is durable in SQLite. The co
 
 - local accounts, password and session hashes, workspace membership, invitations, and scoped Guest grants;
 - Properties, Homes, complete floor-plan aggregates, map placement and orientation, areas, fixed assets, equipment, equipment attachments and links, notes, electricity contracts, and binary floor-plan assets;
-- sensors, measurement definitions, Home Assistant entity bindings, TP-Link device bindings, alert rules, alert history, alert evaluation state, and the notification outbox;
+- sensors, measurement definitions, Home Assistant entity bindings, TP-Link device bindings, alert rules, alert history, the durable alert-evaluation queue, alert evaluation state, and the notification outbox;
 - observations and revision history, maintenance tasks and revision/evidence links, static parameters, weather-outage recovery state, operational latches, and selected demo state;
 - non-secret integration identity, ownership, endpoint metadata, lifecycle state, and revision history.
 - Stuguby rosters, invitation hashes, Home publication/grant metadata, Property
@@ -236,6 +236,20 @@ with no integration-secrets file can still produce a scheduled recovery set;
 the manifest records the protected source as excluded until credentials exist.
 The explicit `stugu-backup` command continues to require the secrets file
 because it promises a complete operator-requested recovery set.
+
+Each automated drill re-verifies the manifest, stages the canonical SQLite,
+asset, identity, and secret paths in an isolated directory, restores the full
+Timescale database, reruns the recorded ownership validator, and reads every
+relation plus all six telemetry families as the least-privilege application
+role. It removes both candidate database and staging directory afterward and
+never writes over the live stores.
+
+For an automated off-host copy, enable the isolated `r2-backup` profile. It
+streams the newest verified set through zstd and age into a private Cloudflare
+R2 Standard bucket without installing the decryption identity on the node.
+Follow [Encrypted Cloudflare R2 backups](cloudflare-r2-backups.md) to create the
+bucket-scoped token, offline recovery identity, bucket lock, lifecycle rules,
+and restore test. R2 replication does not replace the local restore drill.
 
 Create and verify a complete recovery set before a risky migration or upgrade:
 

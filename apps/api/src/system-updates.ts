@@ -9,6 +9,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import {
+  COMPOSE_CONTRACT,
+  fetchReleaseManifest,
+  type ReleaseManifest,
+  UPDATE_AGENT_CONTRACT,
+  UPDATE_REQUEST_SCHEMA,
+} from "./system-update-release-manifest.js";
 
 const MAX_JSON_BYTES = 256 * 1024;
 const AGENT_MAX_AGE_MS = 2 * 60_000;
@@ -83,7 +90,11 @@ interface UpdateAgentHeartbeat {
   runtime: "docker" | "raspberry-pi";
   updatedAt: string;
   agentVersion: string;
+  updateAgentContract: number | null;
+  composeContract: number | null;
   ready: boolean;
+  systemUpdateReason: "appliance-upgrade-required" | null;
+  compatible: boolean;
 }
 
 interface ReleaseCache {
@@ -116,7 +127,12 @@ export interface SystemUpdateStatus {
     available: boolean;
     runtime: "docker" | "raspberry-pi" | null;
     agentLastSeenAt: string | null;
-    reason: "ready" | "agent-not-connected" | "not-configured";
+    reason:
+      | "ready"
+      | "agent-not-connected"
+      | "agent-upgrade-required"
+      | "appliance-upgrade-required"
+      | "not-configured";
   };
   operation: SystemUpdateOperation | null;
 }
@@ -389,6 +405,13 @@ export class SystemUpdateService {
     const latestRelease = releases[0] ?? null;
     const heartbeat = this.#heartbeat();
     const operation = this.#operation();
+    const capabilityReason = !this.#directory
+      ? "not-configured"
+      : !heartbeat
+        ? "agent-not-connected"
+        : !heartbeat.compatible
+          ? "agent-upgrade-required"
+          : heartbeat.systemUpdateReason ?? "ready";
     return {
       currentVersion: this.#currentVersion,
       latestVersion: latestRelease?.version ?? null,
@@ -400,10 +423,10 @@ export class SystemUpdateService {
       settings: { ...this.#settings, updateDays: [...this.#settings.updateDays] },
       nextUpdateWindowAt: this.#settings.mode === "automatic" ? nextWindow(this.#settings, this.#now()) : null,
       capability: {
-        available: Boolean(heartbeat),
+        available: capabilityReason === "ready",
         runtime: heartbeat?.runtime ?? null,
         agentLastSeenAt: heartbeat?.updatedAt ?? null,
-        reason: !this.#directory ? "not-configured" : heartbeat ? "ready" : "agent-not-connected",
+        reason: capabilityReason,
       },
       operation,
     };
@@ -432,12 +455,27 @@ export class SystemUpdateService {
     const release = status.latestRelease;
     if (!release || !status.updateAvailable) throw new SystemUpdateError(409, "NO_UPDATE_AVAILABLE", "The current version is already up to date");
     if (!status.capability.available || !this.#directory) {
+      if (status.capability.reason === "agent-upgrade-required") {
+        throw new SystemUpdateError(
+          503,
+          "UPDATE_AGENT_UPGRADE_REQUIRED",
+          "The connected update agent uses the legacy request contract and must be upgraded first",
+        );
+      }
+      if (status.capability.reason === "appliance-upgrade-required") {
+        throw new SystemUpdateError(
+          503,
+          "APPLIANCE_UPGRADE_REQUIRED",
+          "This Raspberry Pi requires a verified factory-image transition before another container update",
+        );
+      }
       throw new SystemUpdateError(503, "UPDATE_AGENT_UNAVAILABLE", "The external update agent is not connected");
     }
     if (status.operation && ACTIVE_PHASES.has(status.operation.phase)) {
       if (status.operation.version === release.version) return status;
       throw new SystemUpdateError(409, "UPDATE_IN_PROGRESS", "Another system update is already in progress");
     }
+    const manifest = await this.#releaseManifest(release);
 
     const requestedAt = this.#now().toISOString();
     const id = randomUUID();
@@ -461,18 +499,33 @@ export class SystemUpdateService {
     };
     writeJson(join(this.#directory, "status.json"), operation);
     writeJson(join(this.#directory, `request-${requestedAt.replaceAll(":", "-")}-${id}.json`), {
-      schema: "stugu-system-update-request/v1",
+      schema: UPDATE_REQUEST_SCHEMA,
       ...operation,
       repository: this.#repository,
-      images: {
-        api: `${this.#imagePrefix}-api:${release.tagName}`,
-        web: `${this.#imagePrefix}-web:${release.tagName}`,
-        backup: `${this.#imagePrefix}-backup:${release.tagName}`,
-        tapo: `${this.#imagePrefix}-tapo-export-runner:${release.tagName}`,
-        updateAgent: `${this.#imagePrefix}-update-agent:${release.tagName}`,
-      },
+      releaseManifestSchema: manifest.schema,
+      compatibility: manifest.compatibility,
+      images: manifest.images,
     });
     return this.status();
+  }
+
+  async #releaseManifest(release: SystemRelease): Promise<ReleaseManifest> {
+    try {
+      return await fetchReleaseManifest({
+        fetchImpl: this.#fetch,
+        currentVersion: this.#currentVersion,
+        repository: this.#repository,
+        imagePrefix: this.#imagePrefix,
+        release,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "release manifest validation failed";
+      throw new SystemUpdateError(
+        502,
+        "RELEASE_MANIFEST_INVALID",
+        `The release has no compatible immutable update manifest: ${detail}`,
+      );
+    }
   }
 
   async #performCheck(): Promise<SystemUpdateStatus> {
@@ -512,7 +565,7 @@ export class SystemUpdateService {
     if (!this.#directory) return null;
     const value = readJson(join(this.#directory, "agent-status.json"));
     if (!value || typeof value !== "object") return null;
-    const heartbeat = value as Partial<UpdateAgentHeartbeat>;
+    const heartbeat = value as Record<string, unknown>;
     if (
       heartbeat.schema !== "stugu-update-agent/v1"
       || (heartbeat.runtime !== "docker" && heartbeat.runtime !== "raspberry-pi")
@@ -523,7 +576,26 @@ export class SystemUpdateService {
     const timestamp = Date.parse(heartbeat.updatedAt);
     const age = this.#now().getTime() - timestamp;
     if (!Number.isFinite(timestamp) || age > AGENT_MAX_AGE_MS || age < -AGENT_MAX_AGE_MS) return null;
-    return heartbeat as UpdateAgentHeartbeat;
+    const compatible = heartbeat.updateAgentContract === UPDATE_AGENT_CONTRACT
+      && heartbeat.composeContract === COMPOSE_CONTRACT;
+    return {
+      schema: "stugu-update-agent/v1",
+      runtime: heartbeat.runtime,
+      updatedAt: heartbeat.updatedAt,
+      agentVersion: heartbeat.agentVersion,
+      updateAgentContract: typeof heartbeat.updateAgentContract === "number"
+        ? heartbeat.updateAgentContract
+        : null,
+      composeContract: typeof heartbeat.composeContract === "number"
+        ? heartbeat.composeContract
+        : null,
+      ready: true,
+      systemUpdateReason: compatible
+        && heartbeat.systemUpdateReason === "appliance-upgrade-required"
+        ? heartbeat.systemUpdateReason
+        : null,
+      compatible,
+    };
   }
 
   #operation(): SystemUpdateOperation | null {

@@ -20,12 +20,12 @@ import "../core.js";
 declare module "../core.js" {
   interface HomeAssistantConnectionBridgeInternals {
     start(): void;
-    availability(now?: unknown ): SensorMetricAvailability[];
+    availability(now?: Date): SensorMetricAvailability[];
     recoverHistory(sensorId: string, metric: string, from: string, to: string): Promise<SensorHistoryRecoveryResult>;
     normalizeHistoryValue(target: EntityTarget, state: HaState): number | null;
     configuredMappings(): HomeAssistantEntityMapping[];
     configuredOpeningTargets(): OpeningTarget[];
-    combinedMappingFingerprint(mappings: HomeAssistantEntityMapping[], openings?: unknown ): string;
+    combinedMappingFingerprint(mappings: HomeAssistantEntityMapping[], openings?: OpeningTarget[]): string;
     registerMapping(mapping: HomeAssistantEntityMapping): void;
     registerEntity(entityId: string, target: EntityTarget): void;
     registerOpening(target: OpeningTarget): void;
@@ -39,7 +39,7 @@ declare module "../core.js" {
 
   interface HomeAssistantConnectionBridgeCore {
     start(): void;
-    availability(now?: unknown ): SensorMetricAvailability[];
+    availability(now?: Date): SensorMetricAvailability[];
     recoverHistory(sensorId: string, metric: string, from: string, to: string): Promise<SensorHistoryRecoveryResult>;
     stop(): void;
     restart(): void;

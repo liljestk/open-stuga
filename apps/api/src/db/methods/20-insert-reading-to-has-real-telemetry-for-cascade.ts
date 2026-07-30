@@ -102,7 +102,7 @@ import { outdoorTemperatureFromRow } from "../support/06-canonical-observation-p
 import { registerDatabaseMethods } from "../core.js";
 
 registerDatabaseMethods({
-  insertReading(reading: Reading): boolean {
+  insertReading(reading: Reading, enqueueAlertEvaluation = false): boolean {
       const inserted = this.insertLegacyReadingUnchecked(reading);
       if (inserted) {
         const values: Record<string, number> = {
@@ -121,7 +121,7 @@ registerDatabaseMethods({
             timestamp: reading.timestamp,
             source: reading.source,
             quality: reading.quality,
-          });
+          }, false, enqueueAlertEvaluation);
         }
       }
       return inserted;
@@ -152,12 +152,12 @@ registerDatabaseMethods({
         .run(reading.sensorId, reading.timestamp, reading.temperature, reading.humidity, reading.battery, reading.source, reading.quality);
       return Number(result.changes) > 0;
     },
-  insertReadings(readings: Reading[]): Reading[] {
+  insertReadings(readings: Reading[], options: { enqueueAlertEvaluation?: boolean } = {}): Reading[] {
       return this.immediateTransaction(() => {
         this.prepareTelemetrySources(readings.map((reading) => reading.source));
         const inserted: Reading[] = [];
         for (const reading of readings) {
-          if (this.insertReading(reading)) inserted.push(reading);
+          if (this.insertReading(reading, options.enqueueAlertEvaluation)) inserted.push(reading);
         }
         return inserted;
       });

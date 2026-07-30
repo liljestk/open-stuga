@@ -591,7 +591,7 @@ An MCP client's executable can similarly be `docker` with arguments `compose`,
 `exec`, `-T`, `api`, `node`, `apps/api/dist/mcp-server.js` and the repository as
 its working directory.
 
-The local stdio server exposes 54 inspection tools. It opens the existing
+The local stdio server exposes 61 inspection tools. It opens the existing
 SQLite database in read-only/query-only mode and uses the configured TimeDB for
 telemetry history. Its fail-closed allowlist has no create, update, delete, import, migration, sharing,
 synchronization, or control tools. Start the API once after an upgrade so the
@@ -624,9 +624,15 @@ account/session administration are also excluded.
 | <code>resolve_coordinate_defaults</code> | Resolve an IANA timezone for explicit WGS84 coordinates |
 | <code>get_house_weather</code> | Fetch provider-neutral conditions, forecasts, and warning coverage without storing them |
 | <code>get_house_opening_states</code> | Effective door, window, and vent state with optional bounded history |
+| <code>get_opening_activity</code> | Bounded opening activity, duration, and coverage for one Home |
+| <code>get_home_performance</code> | Authoritative 30-day climate and energy performance for one Home |
+| <code>get_home_monitoring</code> | Monitoring freshness, coverage, integration state, and insights |
+| <code>compare_calendar_periods</code> | Home-local period comparison with server-owned timezone boundaries |
 | <code>get_house_electricity_price</code> | Current effective Home electricity price and optional Property price history |
 | <code>get_house_energy_cost</code> | Energy consumption, price coverage, and cost for one energy sensor |
+| <code>get_house_energy_summary</code> | Whole-Home electricity consumption and coverage for a selected range |
 | <code>query_outdoor_temperature_history</code> | Bounded permanent observed outdoor-temperature history |
+| <code>get_home_moisture_response</code> | Temperature-corrected indoor/outdoor moisture response and confidence; association, not causation |
 | <code>run_thermal_simulation</code> | Fit and run the experimental first-order room thermal model |
 | <code>get_house_thermal_isolation</code> | Experimental cross-sensor Home thermal-isolation comparison |
 
@@ -638,6 +644,7 @@ account/session administration are also excluded.
 | <code>list_measurement_definitions</code> | List built-in and custom metric definitions and capabilities |
 | <code>get_measurement_snapshot</code> | Latest independently timestamped sample for every metric and sensor |
 | <code>query_measurement_history</code> | Bounded history for any registered sensor metric |
+| <code>summarize_home_measurements</code> | Coverage-aware sensor and equal-weight whole-Home means over an exact range |
 | <code>forecast_measurement</code> | Forecast a metric whose definition enables forecasting |
 | <code>get_sensor_snapshot</code> | One sensor, its placement, and latest v1 reading |
 | <code>query_history</code> | Bounded durable v1 sensor history |
@@ -705,6 +712,11 @@ should launch it. Browser sessions and Guest grants do not constrain its
 inspection results. Credentials cannot be configured through MCP, and
 connection and replay status are process-local: the MCP process cannot inspect
 a separately running API process's WebSocket, TP-Link poller, or event bus.
+
+The `chatgpt-mcp-server` entry point selects a focused 20-tool subset with
+user-facing titles, voice-friendly instructions, Home-timezone guidance, and
+explicit moisture-causality limits. See [ChatGPT and voice](chatgpt.md) for the
+private Secure MCP Tunnel and Developer mode setup.
 
 ## Send alerts to Home Assistant
 

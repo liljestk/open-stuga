@@ -223,6 +223,11 @@ export class LruTtlCache<V> {
     return entry !== undefined && (now < entry.freshUntil || options.allowStale === true);
   }
 
+  /** Checks whether callers are already sharing a loader for this exact key. */
+  isLoading(key: string): boolean {
+    return this.#flights.has(key);
+  }
+
   /**
    * Stores a defensive copy. Returns false only when the entry has no lifetime
    * or cannot fit inside the configured byte bound; an existing value is kept

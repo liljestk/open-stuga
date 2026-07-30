@@ -7,19 +7,24 @@ Thanks for helping improve Stugu.
 1. Install Node.js 22.13 or newer.
 2. Run `npm run setup -- --mode local --real`; it creates a missing `.env`
    without replacing local settings and installs dependencies with `npm ci`.
-3. Run `npm run typecheck`, `npm test`, `npm run build`, and
-   `npm run smoke:built-api` before opening a pull request.
+3. Install the Python development dependencies, start Docker, and run
+   `npm run ci:local` before pushing or opening a pull request.
 
 ## Continuous quality
 
-GitHub Actions sends trusted pull requests and pushes to `main` to the `liljestk_open-stuga` SonarQube Cloud project. The repository needs a `SONAR_TOKEN` Actions secret, and SonarQube Cloud automatic analysis must be disabled so that CI-based analysis is authoritative.
+Automatic GitHub-hosted CI is paused while the repository is private.
+`npm run ci:local` is the authoritative gate and writes a checksummed receipt
+under `dist/ci`. See [local CI and release publishing](docs/local-ci.md).
 
-The SonarQube quality gate must pass, including an A maintainability rating on new code.
+Use `npm run ci:local -- --with-sonar` when Sonar analysis is required. Changes
+to the native Apple companion also need the macOS checks described in that
+guide.
 
 ## Security and privacy
 
 - Never commit credentials, tokens, real Home Assistant entity IDs, floor plans, telemetry, or SQLite databases.
-- Put credentials needed by GitHub Actions in GitHub repository or environment secrets.
+- Keep local CI credentials out of the repository. GitHub secrets are only for
+  explicitly invoked hosted fallbacks.
 - Use fake or empty values in examples and tests.
 - Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 

@@ -6,7 +6,8 @@ readonly state_dir=/persistent/stugu
 readonly local_env="$state_dir/stugu.env"
 readonly release_env="$project_dir/release.env"
 readonly update_release_env="$state_dir/update-release/release.env"
-readonly known_good_env="$state_dir/last-known-good.env"
+readonly known_good_env="$state_dir/update-release/known-good.env"
+readonly legacy_known_good_env="$state_dir/last-known-good.env"
 readonly docker_config="$state_dir/docker-config"
 readonly status_file="$state_dir/release-status"
 readonly migration_health_authorization="$state_dir/migrations/.health-check-authorization"
@@ -26,8 +27,13 @@ install -d -m 0750 -o "$appliance_user" -g "$appliance_user" \
   "$state_dir/secrets" \
   "$state_dir/secrets/apns" \
   "$state_dir/secrets/cloudflare" \
+  "$state_dir/secrets/r2" \
   "$state_dir/secrets/tapo-history-api" \
   "$state_dir/secrets/tapo-history-runner"
+
+# Contract-1 boot assets still use this file during an OS-slot rollback. Leave
+# it in place; a contract-2 release must never reinterpret mutable tags as its
+# digest-pinned known-good state.
 
 # The service starts as root, while migration commands run as stugu. Keep one
 # shared inode so both callers coordinate through the same flock after boot.
@@ -81,10 +87,23 @@ for setting in \
   "STUGA_MIGRATION_SETTINGS_DIRECTORY=/persistent/stugu" \
   "STUGA_MIGRATION_ENV_FILENAME=stugu.env" \
   "STUGA_UPDATE_COMPOSE_ENV_FILE=/persistent/stugu/stugu.env" \
-  "STUGA_COMPOSE_PROJECT_NAME=stugu"; do
+  "STUGA_DOCKER_CONFIG_DIRECTORY=/persistent/stugu/docker-config" \
+  "STUGA_COMPOSE_PROJECT_NAME=stugu" \
+  "STUGA_R2_SECRET_DIR=/persistent/stugu/secrets/r2"; do
   setting_name="${setting%%=*}"
   if ! grep -q "^${setting_name}=" "$local_env"; then
     missing_appliance_settings+=("$setting")
+  fi
+done
+for setting_name in SYSTEM_UPDATE_REPOSITORY SYSTEM_UPDATE_IMAGE_PREFIX; do
+  if [[ "$(grep -c "^${setting_name}=" "$project_dir/stugu.env.example")" -ne 1 ]]; then
+    echo "Factory appliance settings contain an invalid $setting_name" >&2
+    exit 1
+  fi
+  if ! grep -q "^${setting_name}=" "$local_env"; then
+    missing_appliance_settings+=(
+      "$(sed -n "/^${setting_name}=/p" "$project_dir/stugu.env.example")"
+    )
   fi
 done
 if (( ${#missing_appliance_settings[@]} > 0 )); then
@@ -96,6 +115,20 @@ if (( ${#missing_appliance_settings[@]} > 0 )); then
   chmod 0640 "$temporary_env"
   mv -f "$temporary_env" "$local_env"
 fi
+
+if [[ "$(grep -c '^SYSTEM_UPDATE_REPOSITORY=' "$local_env")" -ne 1
+  || "$(grep -c '^SYSTEM_UPDATE_IMAGE_PREFIX=' "$local_env")" -ne 1 ]]; then
+  echo "Appliance update repository and image prefix must each be configured once" >&2
+  exit 1
+fi
+release_repository="$(sed -n 's/^SYSTEM_UPDATE_REPOSITORY=//p' "$local_env")"
+image_prefix="$(sed -n 's/^SYSTEM_UPDATE_IMAGE_PREFIX=//p' "$local_env")"
+if [[ ! "$release_repository" =~ ^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$
+  || ! "$image_prefix" =~ ^ghcr\.io/[a-z0-9_.-]{1,100}/[a-z0-9_.-]{1,100}$ ]]; then
+  echo "Appliance update repository or GHCR image prefix is invalid" >&2
+  exit 1
+fi
+readonly release_repository image_prefix
 
 # Appliance releases check GitHub daily and install stable releases during a
 # quiet weekly window. An administrator's saved policy always wins.
@@ -178,19 +211,75 @@ compose() {
     "$@"
 }
 
+release_image_matches() {
+  local candidate="$1"
+  local key="$2"
+  local expected="$3"
+  [[ "$(grep -c "^${key}=" "$candidate")" -eq 1 ]] || return 1
+  local value digest
+  value="$(sed -n "s/^${key}=//p" "$candidate")"
+  digest="${value#"$expected@sha256:"}"
+  [[ "$value" == "$expected@sha256:$digest" && "$digest" =~ ^[0-9a-f]{64}$ ]]
+}
+
 valid_ui_release() {
   local candidate="$1"
   [[ -f "$candidate" && ! -L "$candidate" ]] || return 1
-  [[ "$(wc -l < "$candidate")" -eq 6 ]] || return 1
+  [[ "$(wc -l < "$candidate")" -eq 9 ]] || return 1
   local version
   version="$(sed -n 's/^STUGA_VERSION=//p' "$candidate")"
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] \
+    && grep -Fxq "STUGA_RELEASE_ENV_SCHEMA=2" "$candidate" \
+    && grep -Fxq "STUGA_UPDATE_AGENT_CONTRACT=2" "$candidate" \
+    && grep -Fxq "STUGA_COMPOSE_CONTRACT=1" "$candidate" \
     && [[ "$(grep -c '^STUGA_VERSION=' "$candidate")" -eq 1 ]] \
-    && grep -Fxq "STUGA_API_IMAGE=ghcr.io/liljestk/open-stuga-api:v$version" "$candidate" \
-    && grep -Fxq "STUGA_WEB_IMAGE=ghcr.io/liljestk/open-stuga-web:v$version" "$candidate" \
-    && grep -Fxq "STUGA_BACKUP_IMAGE=ghcr.io/liljestk/open-stuga-backup:v$version" "$candidate" \
-    && grep -Fxq "STUGA_TAPO_RUNNER_IMAGE=ghcr.io/liljestk/open-stuga-tapo-export-runner:v$version" "$candidate" \
-    && grep -Fxq "STUGA_UPDATE_AGENT_IMAGE=ghcr.io/liljestk/open-stuga-update-agent:v$version" "$candidate"
+    && release_image_matches "$candidate" STUGA_API_IMAGE \
+      "${image_prefix}-api:v$version" \
+    && release_image_matches "$candidate" STUGA_WEB_IMAGE \
+      "${image_prefix}-web:v$version" \
+    && release_image_matches "$candidate" STUGA_BACKUP_IMAGE \
+      "${image_prefix}-backup:v$version" \
+    && release_image_matches "$candidate" STUGA_TAPO_RUNNER_IMAGE \
+      "${image_prefix}-tapo-export-runner:v$version" \
+    && release_image_matches "$candidate" STUGA_UPDATE_AGENT_IMAGE \
+      "${image_prefix}-update-agent:v$version"
+}
+
+valid_legacy_release() {
+  local candidate="$1"
+  [[ -f "$candidate" && ! -L "$candidate" ]] || return 1
+  [[ "$(wc -l < "$candidate")" -eq 6 ]] || return 1
+  local version api_image legacy_prefix
+  version="$(sed -n 's/^STUGA_VERSION=//p' "$candidate")"
+  api_image="$(sed -n 's/^STUGA_API_IMAGE=//p' "$candidate")"
+  legacy_prefix="${api_image%"-api:v$version"}"
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] \
+    && [[ "$legacy_prefix" =~ ^ghcr\.io/[a-z0-9_.-]{1,100}/[a-z0-9_.-]{1,100}$ ]] \
+    && [[ "$(grep -c '^STUGA_VERSION=' "$candidate")" -eq 1 ]] \
+    && [[ "$(grep -c '^STUGA_API_IMAGE=' "$candidate")" -eq 1 ]] \
+    && [[ "$(grep -c '^STUGA_WEB_IMAGE=' "$candidate")" -eq 1 ]] \
+    && [[ "$(grep -c '^STUGA_BACKUP_IMAGE=' "$candidate")" -eq 1 ]] \
+    && [[ "$(grep -c '^STUGA_TAPO_RUNNER_IMAGE=' "$candidate")" -eq 1 ]] \
+    && [[ "$(grep -c '^STUGA_UPDATE_AGENT_IMAGE=' "$candidate")" -eq 1 ]] \
+    && grep -Fxq "STUGA_API_IMAGE=${legacy_prefix}-api:v$version" "$candidate" \
+    && grep -Fxq "STUGA_WEB_IMAGE=${legacy_prefix}-web:v$version" "$candidate" \
+    && grep -Fxq "STUGA_BACKUP_IMAGE=${legacy_prefix}-backup:v$version" "$candidate" \
+    && grep -Fxq "STUGA_TAPO_RUNNER_IMAGE=${legacy_prefix}-tapo-export-runner:v$version" "$candidate" \
+    && grep -Fxq "STUGA_UPDATE_AGENT_IMAGE=${legacy_prefix}-update-agent:v$version" "$candidate"
+}
+
+archive_legacy_release() {
+  local candidate="$1"
+  local label="$2"
+  local archive="${candidate}.legacy-v1"
+  if [[ -e "$archive" ]]; then
+    echo "Refusing to replace existing legacy $label archive: $archive" >&2
+    exit 1
+  fi
+  mv -- "$candidate" "$archive"
+  chown "$appliance_user:$appliance_user" "$archive"
+  chmod 0640 "$archive"
+  echo "Preserved legacy $label at $archive"
 }
 
 release_version() {
@@ -226,9 +315,28 @@ start_release() {
     --wait-timeout 600
 }
 
+if ! valid_ui_release "$release_env"; then
+  echo "Factory release environment is incompatible or does not pin image digests" >&2
+  exit 1
+fi
+if [[ -e "$known_good_env" ]] && ! valid_ui_release "$known_good_env"; then
+  if valid_legacy_release "$known_good_env"; then
+    archive_legacy_release "$known_good_env" "known-good release"
+  else
+    echo "Known-good release environment is invalid" >&2
+    exit 1
+  fi
+fi
 selected_release_env="$release_env"
-if valid_ui_release "$update_release_env"; then
-  selected_release_env="$update_release_env"
+if [[ -e "$update_release_env" ]]; then
+  if valid_ui_release "$update_release_env"; then
+    selected_release_env="$update_release_env"
+  elif valid_legacy_release "$update_release_env"; then
+    archive_legacy_release "$update_release_env" "candidate release"
+  else
+    echo "Candidate release environment is incompatible or does not pin image digests" >&2
+    exit 1
+  fi
 fi
 
 echo "Pulling the pinned Stugu release"
@@ -250,7 +358,8 @@ if start_release "$selected_release_env"; then
 fi
 
 echo "The new release did not become healthy" >&2
-if [[ -s "$known_good_env" ]] && ! cmp --silent "$selected_release_env" "$known_good_env"; then
+if valid_ui_release "$known_good_env" \
+    && ! cmp --silent "$selected_release_env" "$known_good_env"; then
   echo "Restoring the last known-good application containers" >&2
   if start_release "$known_good_env"; then
     printf 'failed_version=%s\nrolled_back_at=%s\n' \

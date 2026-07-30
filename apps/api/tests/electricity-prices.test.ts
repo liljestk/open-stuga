@@ -325,10 +325,11 @@ describe("property electricity prices", () => {
       from: "2026-07-17T00:00:00.000Z",
       to: "2026-07-17T01:00:00.000Z",
     }).expect(200);
+    expect(result.headers["x-stugu-cache"]).toBe("miss");
 
     expect(result.body.summary).toMatchObject({
-      schemaVersion: 1,
-      algorithmVersion: "home-energy-summary/v1",
+      schemaVersion: 2,
+      algorithmVersion: "home-energy-summary/v2",
       houseId: "house-main",
       consumptionKwh: 2,
       pricedConsumptionKwh: 2,
@@ -353,6 +354,12 @@ describe("property electricity prices", () => {
         costEur: 0.075,
       }),
     ]));
+    const cached = await request(runtime.app).get("/api/v1/houses/house-main/energy-summary").query({
+      from: "2026-07-17T00:00:00.000Z",
+      to: "2026-07-17T01:00:00.000Z",
+    }).expect(200);
+    expect(cached.headers["x-stugu-cache"]).toBe("hit");
+    expect(cached.body.summary.calculatedAt).toBe(result.body.summary.calculatedAt);
   });
 
   it("prefers a cumulative counter without double counting its power alongside a power-only plug", async () => {
@@ -400,7 +407,7 @@ describe("property electricity prices", () => {
       totalSources: 2,
     });
     expect(result.body.summary.contributions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ sensorId: first.id, measurementBasis: "energy_counter", consumptionKwh: 1 }),
+      expect.objectContaining({ sensorId: first.id, measurementBasis: "integrated_power", consumptionKwh: 1 }),
       expect.objectContaining({ sensorId: second.id, measurementBasis: "integrated_power", consumptionKwh: 0.5 }),
     ]));
   });

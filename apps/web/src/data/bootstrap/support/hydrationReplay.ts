@@ -287,19 +287,18 @@ export function replayMaintenanceTaskMutation(
   return task;
 }
 
+/** Keeps explicitly queried series across snapshot refreshes, including in-flight commits. */
 export function preserveSeriesCommittedDuringLoad(
   loaded: LoadedTelemetryState,
   current: ClimateState,
   loadedSensorIds: Set<string>,
   commits: Map<string, SeriesCommit>,
-  loadStartVersion: number,
 ): LoadedTelemetryState {
   let measurementHistory = loaded.measurementHistory;
   let measurementForecasts = loaded.measurementForecasts;
   let history = loaded.history;
   let forecasts = loaded.forecasts;
   for (const [seriesKey, commit] of commits) {
-    if (commit.version <= loadStartVersion) continue;
     const separator = seriesKey.indexOf("\u0000");
     if (separator < 0) continue;
     const sensorId = seriesKey.slice(0, separator);

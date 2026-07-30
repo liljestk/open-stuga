@@ -321,6 +321,9 @@ export function sensorFromRow(row: SensorRow): Sensor {
     ...(row.battery_entity_id ? { batteryEntityId: row.battery_entity_id } : {}),
     ...(row.tp_link_device_id ? { tpLinkDeviceId: row.tp_link_device_id } : {}),
     ...(row.tp_link_connection_id ? { tpLinkConnectionId: row.tp_link_connection_id } : {}),
+    energyMeterRole: row.energy_meter_role === "whole_home" || row.energy_meter_role === "submeter"
+      ? row.energy_meter_role
+      : "standalone",
     tags: parseJson<string[]>(row.tags_json),
     enabled: row.enabled === 1,
   };

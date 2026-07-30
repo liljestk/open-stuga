@@ -13,7 +13,9 @@ export function useHomeEnergySummaryQuery(
   return useQuery({
     queryKey: queryKeys.homeEnergySummary(houseId, intervalId, durationMs),
     queryFn: ({ signal }) => {
-      const to = new Date().toISOString();
+      // Align rolling snapshots so tabs and household clients share the same
+      // exact server cache key without changing the requested calculation.
+      const to = new Date(Math.floor(Date.now() / 60_000) * 60_000).toISOString();
       const from = new Date(Date.parse(to) - durationMs).toISOString();
       return api.houseEnergySummary(houseId, from, to, signal);
     },

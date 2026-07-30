@@ -113,13 +113,19 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
   const electricitySensors = useMemo(() => houseSensors.filter((sensor) => ELECTRICITY_METRICS.some((candidate) => (
     supportsMetric(state, sensor, candidate)
   ))), [houseSensors, state.latestMeasurements, state.measurementHistory]);
+  const totalElectricitySensors = useMemo(() => {
+    const wholeHome = electricitySensors.filter((sensor) => sensor.energyMeterRole === "whole_home");
+    if (wholeHome.length > 0) return wholeHome.slice(0, 1);
+    const independent = electricitySensors.filter((sensor) => (sensor.energyMeterRole ?? "standalone") === "standalone");
+    return independent.length > 0 ? independent : electricitySensors;
+  }, [electricitySensors]);
   const powerSensors = useMemo(
-    () => sensorsForMetric(state, electricitySensors, "power"),
-    [electricitySensors, state.latestMeasurements, state.measurementHistory],
+    () => sensorsForMetric(state, totalElectricitySensors, "power"),
+    [totalElectricitySensors, state.latestMeasurements, state.measurementHistory],
   );
   const energySensors = useMemo(
-    () => sensorsForMetric(state, electricitySensors, "energy"),
-    [electricitySensors, state.latestMeasurements, state.measurementHistory],
+    () => sensorsForMetric(state, totalElectricitySensors, "energy"),
+    [totalElectricitySensors, state.latestMeasurements, state.measurementHistory],
   );
   const summariesEnabled = Boolean(house && electricitySensors.length);
   const dailySummaryQuery = useHomeEnergySummaryQuery(
@@ -235,27 +241,41 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
       : t("energy.combinedSources", { count: reporting, total: sensors.length });
   const powerSourceLabel = combinedSourceLabel(powerSensors, powerSources.length);
   const energySourceLabel = combinedSourceLabel(
-    used24Hours === null ? energySensors : electricitySensors,
+    used24Hours === null ? energySensors : totalElectricitySensors,
     used24Hours === null ? energySources.length : dailySummary?.sourceCount ?? 0,
   );
   const priceSourceLabel = homePrice?.effectivePriceEurPerKwh !== undefined && homePrice?.effectivePriceEurPerKwh !== null
     ? t("energy.propertyPriceForHome")
     : sources.electricity_price?.sensor.name ?? t("energy.waitingForSource");
-  const energyCostBasis = energyCostBusy
-    ? t("energy.costLoading")
-    : energyCostError || !energyCost || energyCost.totalSources === 0
-      ? t("energy.costUnavailable")
-      : energyCost.totalSources <= 1
-        ? energyCost.complete
-          ? t("energy.costBasis")
-          : t("energy.costPartial", { coverage: energyCost.priceCoveragePercent.toFixed(0) })
-        : energyCost.complete
-          ? t("energy.costCombinedBasis", { count: energyCost.sourceCount })
-          : t("energy.costCombinedPartial", {
-            count: energyCost.sourceCount,
-            total: energyCost.totalSources,
-            coverage: energyCost.priceCoveragePercent.toFixed(0),
-          });
+  const energyCostBasis = (() => {
+    if (energyCostBusy) return t("energy.costLoading");
+    if (energyCostError || !energyCost || energyCost.totalSources === 0) return t("energy.costUnavailable");
+    if (energyCost.archiveState === "pending") {
+      return t("energy.costArchivePending", { coverage: energyCost.priceCoveragePercent.toFixed(0) });
+    }
+    if (energyCost.aggregationMode === "submeters_only") return t("energy.costSubmetersOnly");
+    if (energyCost.complete && energyCost.excludedSourceCount > 0) {
+      return t("energy.costWholeHomeBasis", { count: energyCost.excludedSourceCount });
+    }
+    if (energyCost.complete && energyCost.quality === "estimated") return t("energy.costEstimated");
+    if (energyCost.complete) {
+      return energyCost.sourceCount <= 1
+        ? t("energy.costBasis")
+        : t("energy.costCombinedBasis", { count: energyCost.sourceCount });
+    }
+    return energyCost.sourceCount <= 1
+      ? t("energy.costPartial", { coverage: energyCost.priceCoveragePercent.toFixed(0) })
+      : t("energy.costCombinedPartial", {
+        count: energyCost.sourceCount,
+        total: energyCost.totalSources - energyCost.excludedSourceCount,
+        coverage: energyCost.priceCoveragePercent.toFixed(0),
+      });
+  })();
+  const formattedEnergyCost = energyCost?.costEur === null || energyCost?.costEur === undefined
+    ? "—"
+    : energyCost.complete
+      ? formatCost(energyCost.costEur)
+      : t("energy.costPricedSoFar", { amount: formatCost(energyCost.costEur) });
 
   const savePriceConfiguration = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -365,7 +385,7 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
         {card("electricity_price", t("energy.spotPrice"), effectivePrice !== null ? formatMeasurement(effectivePrice, definitionFor(state.measurementDefinitions, "electricity_price"), units) : "—", priceSourceLabel, Euro)}
         <article className="energy-summary-card running_cost">
           <span className="energy-summary-icon" aria-hidden="true"><Euro size={20} /></span>
-          <span><small>{t("energy.runningCost", { interval: t(selectedCostInterval.labelKey) })}</small><strong>{energyCost?.costEur === null || energyCost?.costEur === undefined ? "—" : formatCost(energyCost.costEur)}</strong></span>
+          <span><small>{t("energy.runningCost", { interval: t(selectedCostInterval.labelKey) })}</small><strong>{formattedEnergyCost}</strong></span>
           <label className="energy-cost-interval">
             <span>{t("energy.costInterval")}</span>
             <select value={costInterval} onChange={(event) => setCostInterval(event.target.value as CostInterval)}>
@@ -396,10 +416,15 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
 
       <section className="panel energy-source-list" aria-labelledby="energy-sources-heading">
         <div className="panel-header"><div><span className="eyebrow">{electricitySensors.length}</span><h2 id="energy-sources-heading">{t("energy.sourcesTitle")}</h2></div>{canConfigureSources && onOpenSensors && <button type="button" className="secondary-button" onClick={onOpenSensors}>{t("energy.editSources")}</button>}</div>
-        <div className="energy-table-scroll" role="region" aria-labelledby="energy-sources-heading" tabIndex={0}><table><thead><tr><th scope="col">{t("sensors.name")}</th><th scope="col">{measurementLabel(definitionFor(state.measurementDefinitions, "power"), locale)}</th><th scope="col">{measurementLabel(definitionFor(state.measurementDefinitions, "energy"), locale)}</th><th scope="col">{measurementLabel(definitionFor(state.measurementDefinitions, "electricity_price"), locale)}</th><th scope="col">{t("energy.updated")}</th></tr></thead><tbody>{electricitySensors.map((sensor) => {
+        <div className="energy-table-scroll" role="region" aria-labelledby="energy-sources-heading" tabIndex={0}><table><thead><tr><th scope="col">{t("sensors.name")}</th><th scope="col">{t("sensors.energyMeterRole")}</th><th scope="col">{measurementLabel(definitionFor(state.measurementDefinitions, "power"), locale)}</th><th scope="col">{measurementLabel(definitionFor(state.measurementDefinitions, "energy"), locale)}</th><th scope="col">{measurementLabel(definitionFor(state.measurementDefinitions, "electricity_price"), locale)}</th><th scope="col">{t("energy.updated")}</th></tr></thead><tbody>{electricitySensors.map((sensor) => {
           const latest = state.latestMeasurements[sensor.id] ?? {};
           const newest = ELECTRICITY_METRICS.flatMap((candidate) => latest[candidate] ? [latest[candidate]!] : []).sort((left, right) => right.timestamp.localeCompare(left.timestamp))[0];
-          return <tr key={sensor.id}><th scope="row">{sensor.name}<small>{sensor.room}</small></th>{ELECTRICITY_METRICS.map((candidate) => <td key={candidate}>{latest[candidate] ? formatMeasurement(latest[candidate]!.value, definitionFor(state.measurementDefinitions, candidate), units) : "—"}</td>)}<td>{newest ? formatInTimeZone(newest.timestamp, locale, house.timezone, { dateStyle: "medium", timeStyle: "short" }) : t("common.noData")}</td></tr>;
+          const roleLabel = sensor.energyMeterRole === "whole_home"
+            ? t("sensors.energyMeterRole.whole_home")
+            : sensor.energyMeterRole === "submeter"
+              ? t("sensors.energyMeterRole.submeter")
+              : t("sensors.energyMeterRole.standalone");
+          return <tr key={sensor.id}><th scope="row">{sensor.name}<small>{sensor.room}</small></th><td>{roleLabel}</td>{ELECTRICITY_METRICS.map((candidate) => <td key={candidate}>{latest[candidate] ? formatMeasurement(latest[candidate]!.value, definitionFor(state.measurementDefinitions, candidate), units) : "—"}</td>)}<td>{newest ? formatInTimeZone(newest.timestamp, locale, house.timezone, { dateStyle: "medium", timeStyle: "short" }) : t("common.noData")}</td></tr>;
         })}</tbody></table></div>
       </section>
       </>}

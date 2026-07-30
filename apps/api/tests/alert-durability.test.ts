@@ -68,6 +68,67 @@ function telegramSuccessFetch() {
 }
 
 describe("durable alert history and notification snapshots", () => {
+  it("reconciles accepted samples after restart and retries the queue atomically", () => {
+    const directory = mkdtempSync(join(tmpdir(), "stugu-alert-evaluation-queue-"));
+    const databasePath = join(directory, "climate.sqlite");
+    let database: ClimateDatabase | null = new ClimateDatabase(databasePath, true);
+    try {
+      const rule = database.saveAlertRule({
+        name: "Crash-safe sustained humidity",
+        sensorId: "sensor-01",
+        metric: "humidity",
+        operator: "gte",
+        threshold: 60,
+        durationSeconds: 1,
+        severity: "warning",
+        enabled: true,
+        webhookEnabled: false,
+        telegramEnabled: false,
+      });
+      const startedAt = new Date("2026-07-21T09:00:00.000Z");
+      const samples = [0, 2_000].map((offset) => ({
+        sensorId: "sensor-01",
+        metric: "humidity",
+        value: 70,
+        canonicalUnit: "%",
+        timestamp: new Date(startedAt.getTime() + offset).toISOString(),
+        source: "api" as const,
+        quality: "good" as const,
+      }));
+      database.insertMeasurementSamples(samples, { enqueueAlertEvaluation: true });
+      expect((database.db.prepare("SELECT COUNT(*) AS count FROM alert_evaluation_queue")
+        .get() as { count: number }).count).toBe(2);
+      expect(database.listDueAlertConditions(new Date(startedAt.getTime() + 5_000))).toEqual([]);
+
+      database.close();
+      database = new ClimateDatabase(databasePath, false);
+      const restarted = new AlertEngine(database, new TelemetryBus());
+      database.db.exec(`CREATE TRIGGER simulate_alert_evaluation_termination
+        BEFORE DELETE ON alert_evaluation_queue
+        BEGIN SELECT RAISE(ABORT, 'simulated process termination'); END`);
+      expect(() => restarted.evaluatePendingSamples()).toThrow("simulated process termination");
+      database.db.exec("DROP TRIGGER simulate_alert_evaluation_termination");
+
+      expect(database.listAlertEvents()).toEqual([]);
+      expect(database.listDueAlertConditions(new Date(startedAt.getTime() + 5_000))).toEqual([]);
+      expect((database.db.prepare("SELECT COUNT(*) AS count FROM alert_evaluation_queue")
+        .get() as { count: number }).count).toBe(2);
+
+      expect(restarted.evaluatePendingSamples()).toHaveLength(1);
+      expect(database.activeAlert(rule.id, "sensor-01")).toMatchObject({
+        startedAt: startedAt.toISOString(),
+        value: 70,
+      });
+      expect((database.db.prepare("SELECT COUNT(*) AS count FROM alert_evaluation_queue")
+        .get() as { count: number }).count).toBe(0);
+      expect(restarted.evaluatePendingSamples()).toEqual([]);
+      expect(database.listAlertEvents()).toHaveLength(1);
+    } finally {
+      database?.close();
+      rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  });
+
   it("restores a pending sustained condition and opens it from wall-clock time after restart", () => {
     const directory = mkdtempSync(join(tmpdir(), "stugu-alert-deadline-"));
     const databasePath = join(directory, "climate.sqlite");

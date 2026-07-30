@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -16,26 +18,80 @@ import {
   composeArguments,
   readAgentConfig,
   validatedCloudflareSetupRequest,
+  validatedReleaseEnvironment,
   validatedRequest,
 } from "../stugu-update-agent.mjs";
+import { activeServices } from "../stugu-update-agent/services-cloudflare.mjs";
+import { applianceUpdateTransition } from "../stugu-update-agent/update-loop.mjs";
 
 function updateRequest() {
+  const version = "0.6.0";
   return {
-    schema: "stugu-system-update-request/v1",
+    schema: "stugu-system-update-request/v2",
     id: "27974c49-f62e-4365-9ee7-802c7488557e",
-    version: "0.6.0",
-    tagName: "v0.6.0",
+    version,
+    tagName: `v${version}`,
     repository: "liljestk/open-stuga",
     requestedAt: "2026-07-23T18:00:00.000Z",
     previousVersion: "0.5.0",
+    releaseManifestSchema: "stugu-release-manifest/v1",
+    compatibility: {
+      updateAgent: 2,
+      compose: 1,
+    },
     images: {
-      api: "ghcr.io/liljestk/open-stuga-api:v0.6.0",
-      web: "ghcr.io/liljestk/open-stuga-web:v0.6.0",
-      backup: "ghcr.io/liljestk/open-stuga-backup:v0.6.0",
-      tapo: "ghcr.io/liljestk/open-stuga-tapo-export-runner:v0.6.0",
-      updateAgent: "ghcr.io/liljestk/open-stuga-update-agent:v0.6.0",
+      api: `ghcr.io/liljestk/open-stuga-api:v${version}@sha256:${"a".repeat(64)}`,
+      web: `ghcr.io/liljestk/open-stuga-web:v${version}@sha256:${"b".repeat(64)}`,
+      backup: `ghcr.io/liljestk/open-stuga-backup:v${version}@sha256:${"c".repeat(64)}`,
+      tapo: `ghcr.io/liljestk/open-stuga-tapo-export-runner:v${version}@sha256:${"d".repeat(64)}`,
+      updateAgent: `ghcr.io/liljestk/open-stuga-update-agent:v${version}@sha256:${"e".repeat(64)}`,
     },
   };
+}
+
+function releaseEnvironment(version) {
+  return [
+    "STUGA_RELEASE_ENV_SCHEMA=2",
+    "STUGA_UPDATE_AGENT_CONTRACT=2",
+    "STUGA_COMPOSE_CONTRACT=1",
+    `STUGA_VERSION=${version}`,
+    `STUGA_API_IMAGE=ghcr.io/liljestk/open-stuga-api:v${version}@sha256:${"1".repeat(64)}`,
+    `STUGA_WEB_IMAGE=ghcr.io/liljestk/open-stuga-web:v${version}@sha256:${"2".repeat(64)}`,
+    `STUGA_BACKUP_IMAGE=ghcr.io/liljestk/open-stuga-backup:v${version}@sha256:${"3".repeat(64)}`,
+    `STUGA_TAPO_RUNNER_IMAGE=ghcr.io/liljestk/open-stuga-tapo-export-runner:v${version}@sha256:${"4".repeat(64)}`,
+    `STUGA_UPDATE_AGENT_IMAGE=ghcr.io/liljestk/open-stuga-update-agent:v${version}@sha256:${"5".repeat(64)}`,
+    "",
+  ].join("\n");
+}
+
+function legacyReleaseEnvironment(version) {
+  return [
+    `STUGA_VERSION=${version}`,
+    `STUGA_API_IMAGE=ghcr.io/liljestk/open-stuga-api:v${version}`,
+    `STUGA_WEB_IMAGE=ghcr.io/liljestk/open-stuga-web:v${version}`,
+    `STUGA_BACKUP_IMAGE=ghcr.io/liljestk/open-stuga-backup:v${version}`,
+    `STUGA_TAPO_RUNNER_IMAGE=ghcr.io/liljestk/open-stuga-tapo-export-runner:v${version}`,
+    `STUGA_UPDATE_AGENT_IMAGE=ghcr.io/liljestk/open-stuga-update-agent:v${version}`,
+    "",
+  ].join("\n");
+}
+
+function composeImages(config) {
+  const result = spawnSync(
+    "docker",
+    [...composeArguments(config), "--profile", "maintenance", "config", "--images"],
+    {
+      cwd: config.projectDirectory,
+      encoding: "utf8",
+      windowsHide: true,
+    },
+  );
+  assert.equal(
+    result.status,
+    0,
+    `docker compose config failed: ${result.error?.message ?? result.stderr}`,
+  );
+  return result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
 function cloudflareSetupRequest() {
@@ -66,6 +122,8 @@ test("agent configuration is portable and pins one trusted release namespace", (
     }, directory);
     assert.equal(config.projectDirectory, directory);
     assert.equal(config.operationsDirectory, join(directory, "data", "update-operations"));
+    assert.equal(config.factoryReleaseEnvFile, join(directory, "release.env"));
+    assert.equal(config.knownGoodReleaseEnvFile, join(directory, ".stugu-known-good.env"));
     assert.equal(config.releaseEnvFile, join(directory, ".stugu-release.env"));
     assert.equal(config.runtime, "docker");
     assert.equal(config.composeProjectName, null);
@@ -81,16 +139,28 @@ test("agent configuration is portable and pins one trusted release namespace", (
   }
 });
 
+test("system updates keep the optional R2 replicator on the backup image release", async () => {
+  const services = await activeServices({}, async (_config, args) => {
+    assert.deepEqual(args, ["ps", "--services", "--filter", "status=running"]);
+    return "api\nweb\nstugu-backup-scheduler\nstugu-r2-backup\n";
+  });
+  assert.deepEqual(services, ["api", "web", "stugu-backup-scheduler", "stugu-r2-backup"]);
+});
+
 test("agent resolves service arguments and relative paths from the project directory", () => {
   const directory = mkdtempSync(join(tmpdir(), "stugu-update-agent-service-"));
   try {
     const config = readAgentConfig({
       STUGA_RELEASE_ENV_FILE: "./runtime/release.env",
+      STUGA_FACTORY_RELEASE_ENV_FILE: "./runtime/factory.env",
+      STUGA_KNOWN_GOOD_RELEASE_ENV_FILE: "./runtime/known-good.env",
       SYSTEM_UPDATE_OPERATIONS_DIRECTORY: "./runtime/operations",
     }, tmpdir(), [`--project-directory=${directory}`, "--once"]);
 
     assert.equal(config.projectDirectory, directory);
     assert.equal(config.operationsDirectory, join(directory, "runtime", "operations"));
+    assert.equal(config.factoryReleaseEnvFile, join(directory, "runtime", "factory.env"));
+    assert.equal(config.knownGoodReleaseEnvFile, join(directory, "runtime", "known-good.env"));
     assert.equal(config.releaseEnvFile, join(directory, "runtime", "release.env"));
     assert.equal(config.once, true);
   } finally {
@@ -108,9 +178,59 @@ test("agent accepts only API-issued image names for the exact release tag", () =
   assert.throws(
     () => validatedRequest({
       ...request,
-      images: { ...request.images, api: "ghcr.io/attacker/replacement:v0.6.0" },
+      images: {
+        ...request.images,
+        api: `ghcr.io/attacker/replacement:v0.6.0@sha256:${"a".repeat(64)}`,
+      },
     }, config),
     /trusted image namespace/,
+  );
+  assert.throws(
+    () => validatedRequest({
+      ...request,
+      images: {
+        ...request.images,
+        api: "ghcr.io/liljestk/open-stuga-api:v0.6.0",
+      },
+    }, config),
+    /immutable digest/,
+  );
+});
+
+test("agent accepts only an exact trusted legacy release environment as rollback input", () => {
+  const config = readAgentConfig({
+    SYSTEM_UPDATE_REPOSITORY: "liljestk/open-stuga",
+    SYSTEM_UPDATE_IMAGE_PREFIX: "ghcr.io/liljestk/open-stuga",
+  });
+  const legacy = legacyReleaseEnvironment("0.5.0");
+  assert.deepEqual(
+    validatedReleaseEnvironment(legacy, config),
+    {
+      format: "legacy-v1",
+      version: "0.5.0",
+      compatibility: null,
+      images: {
+        api: "ghcr.io/liljestk/open-stuga-api:v0.5.0",
+        web: "ghcr.io/liljestk/open-stuga-web:v0.5.0",
+        backup: "ghcr.io/liljestk/open-stuga-backup:v0.5.0",
+        tapo: "ghcr.io/liljestk/open-stuga-tapo-export-runner:v0.5.0",
+        updateAgent: "ghcr.io/liljestk/open-stuga-update-agent:v0.5.0",
+      },
+    },
+  );
+  assert.throws(
+    () => validatedReleaseEnvironment(`${legacy}UNEXPECTED=value\n`, config),
+    /supported release environment schema/,
+  );
+  assert.throws(
+    () => validatedReleaseEnvironment(
+      legacy.replace(
+        "ghcr.io/liljestk/open-stuga-api:v0.5.0",
+        "ghcr.io/attacker/open-stuga-api:v0.5.0",
+      ),
+      config,
+    ),
+    /untrusted legacy image reference/,
   );
 });
 
@@ -225,6 +345,7 @@ test("pre-update failures do not attempt rollback before any release state chang
     SYSTEM_UPDATE_REPOSITORY: "liljestk/open-stuga",
   }, directory, []);
   const requestPath = join(operationsDirectory, "request-test.json");
+  writeFileSync(config.factoryReleaseEnvFile, releaseEnvironment("0.5.0"), "utf8");
   writeFileSync(requestPath, JSON.stringify(updateRequest()), "utf8");
   const calls = [];
 
@@ -247,6 +368,83 @@ test("pre-update failures do not attempt rollback before any release state chang
   assert.equal(existsSync(requestPath), false);
 });
 
+test("Docker transition restores the exact legacy six-line release after candidate failure", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "stugu-update-agent-legacy-rollback-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const operationsDirectory = join(directory, "operations");
+  mkdirSync(operationsDirectory);
+  const config = readAgentConfig({
+    STUGA_PROJECT_DIRECTORY: directory,
+    SYSTEM_UPDATE_IMAGE_PREFIX: "ghcr.io/liljestk/open-stuga",
+    SYSTEM_UPDATE_OPERATIONS_DIRECTORY: operationsDirectory,
+    SYSTEM_UPDATE_REPOSITORY: "liljestk/open-stuga",
+  }, directory, []);
+  const legacyRelease = legacyReleaseEnvironment("0.5.0");
+  writeFileSync(config.factoryReleaseEnvFile, legacyRelease, "utf8");
+  const requestPath = join(operationsDirectory, "request-legacy-transition.json");
+  writeFileSync(requestPath, JSON.stringify(updateRequest()), "utf8");
+  let starts = 0;
+  let rollbackRelease = null;
+
+  await applyRequest(config, requestPath, {
+    compose: async (_config, args) => {
+      if (args[0] === "ps") return "api\nweb\nstugu-backup-scheduler";
+      if (args[0] === "exec") return "0.5.0";
+      if (args.includes("stugu-backup") || args[0] === "pull") return "";
+      if (args[0] === "up") {
+        starts += 1;
+        if (starts === 1) throw new Error("simulated candidate health failure");
+        rollbackRelease = readFileSync(config.releaseEnvFile, "utf8");
+        return "";
+      }
+      throw new Error(`Unexpected Compose call: ${args.join(" ")}`);
+    },
+  });
+
+  assert.equal(starts, 2);
+  assert.equal(rollbackRelease, legacyRelease);
+  assert.equal(readFileSync(config.releaseEnvFile, "utf8"), legacyRelease);
+  const status = JSON.parse(readFileSync(join(operationsDirectory, "status.json"), "utf8"));
+  assert.equal(status.phase, "failed");
+  assert.match(status.detail, /Previous release restored/);
+});
+
+test("legacy Raspberry Pi state requires a factory transition before any update mutation", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "stugu-update-agent-legacy-pi-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const operationsDirectory = join(directory, "operations");
+  mkdirSync(operationsDirectory);
+  const config = readAgentConfig({
+    STUGA_PROJECT_DIRECTORY: directory,
+    SYSTEM_UPDATE_IMAGE_PREFIX: "ghcr.io/liljestk/open-stuga",
+    SYSTEM_UPDATE_OPERATIONS_DIRECTORY: operationsDirectory,
+    SYSTEM_UPDATE_REPOSITORY: "liljestk/open-stuga",
+    SYSTEM_UPDATE_RUNTIME: "raspberry-pi",
+  }, directory, []);
+  writeFileSync(config.factoryReleaseEnvFile, legacyReleaseEnvironment("0.5.0"), "utf8");
+  const requestPath = join(operationsDirectory, "request-legacy-pi.json");
+  writeFileSync(requestPath, JSON.stringify(updateRequest()), "utf8");
+
+  const transition = applianceUpdateTransition(config);
+  assert.equal(transition?.reason, "appliance-upgrade-required");
+  assert.match(transition?.detail ?? "", /factory image with updater contract 2/);
+  let composeCalled = false;
+  await applyRequest(config, requestPath, {
+    compose: async () => {
+      composeCalled = true;
+      throw new Error("Compose must not run for a legacy appliance");
+    },
+  });
+
+  assert.equal(composeCalled, false);
+  assert.equal(existsSync(config.releaseEnvFile), false);
+  assert.equal(existsSync(requestPath), false);
+  const status = JSON.parse(readFileSync(join(operationsDirectory, "status.json"), "utf8"));
+  assert.equal(status.phase, "failed");
+  assert.match(status.detail, /factory image with updater contract 2/);
+  assert.deepEqual(status.activity.map((entry) => entry.phase), ["queued", "preparing", "failed"]);
+});
+
 test("agent publishes a durable step-by-step activity trail", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "stugu-update-agent-progress-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -259,6 +457,7 @@ test("agent publishes a durable step-by-step activity trail", async (t) => {
     SYSTEM_UPDATE_REPOSITORY: "liljestk/open-stuga",
   }, directory, []);
   const requestPath = join(operationsDirectory, "request-test.json");
+  writeFileSync(config.factoryReleaseEnvFile, releaseEnvironment("0.5.0"), "utf8");
   writeFileSync(requestPath, JSON.stringify(updateRequest()), "utf8");
   let versionChecks = 0;
 
@@ -280,7 +479,87 @@ test("agent publishes a durable step-by-step activity trail", async (t) => {
     status.activity.map((entry) => entry.phase),
     ["queued", "preparing", "backup", "pulling", "applying", "verifying", "complete"],
   );
+  assert.equal(
+    readFileSync(config.knownGoodReleaseEnvFile, "utf8").includes(updateRequest().images.api),
+    true,
+  );
   assert.equal(existsSync(requestPath), false);
+});
+
+test("first update backup and rollback interpolate the immutable factory release", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "stugu-update-agent-compose-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  copyFileSync(new URL("../../docker-compose.yml", import.meta.url), join(directory, "docker-compose.yml"));
+  const operationsDirectory = join(directory, "operations");
+  mkdirSync(operationsDirectory);
+  const config = readAgentConfig({
+    STUGA_PROJECT_DIRECTORY: directory,
+    SYSTEM_UPDATE_IMAGE_PREFIX: "ghcr.io/liljestk/open-stuga",
+    SYSTEM_UPDATE_OPERATIONS_DIRECTORY: operationsDirectory,
+    SYSTEM_UPDATE_REPOSITORY: "liljestk/open-stuga",
+  }, directory, []);
+  const factoryRelease = releaseEnvironment("0.5.0");
+  writeFileSync(config.factoryReleaseEnvFile, factoryRelease, "utf8");
+  const requestPath = join(operationsDirectory, "request-first-update.json");
+  writeFileSync(requestPath, JSON.stringify(updateRequest()), "utf8");
+  const snapshots = {
+    backup: [],
+    candidate: [],
+    starts: [],
+  };
+
+  await applyRequest(config, requestPath, {
+    compose: async (_config, args) => {
+      if (args[0] === "ps") return "api\nweb\nstugu-backup-scheduler";
+      if (args[0] === "exec") return "0.5.0";
+      if (args.includes("stugu-backup")) {
+        snapshots.backup = composeImages(config);
+        return "";
+      }
+      if (args[0] === "pull") {
+        snapshots.candidate = composeImages(config);
+        return "";
+      }
+      if (args[0] === "up") {
+        snapshots.starts.push(composeImages(config));
+        if (snapshots.starts.length === 1) throw new Error("simulated candidate health failure");
+        return "";
+      }
+      throw new Error(`Unexpected Compose call: ${args.join(" ")}`);
+    },
+  });
+
+  assert.ok(snapshots.backup.includes(
+    `ghcr.io/liljestk/open-stuga-backup:v0.5.0@sha256:${"3".repeat(64)}`,
+  ));
+  assert.ok(snapshots.candidate.includes(updateRequest().images.api));
+  assert.ok(snapshots.starts[0].includes(updateRequest().images.web));
+  assert.ok(snapshots.starts[1].includes(
+    `ghcr.io/liljestk/open-stuga-api:v0.5.0@sha256:${"1".repeat(64)}`,
+  ));
+  assert.equal(readFileSync(config.releaseEnvFile, "utf8"), factoryRelease);
+  const status = JSON.parse(readFileSync(join(operationsDirectory, "status.json"), "utf8"));
+  assert.equal(status.phase, "failed");
+  assert.match(status.detail, /Previous release restored/);
+});
+
+test("real Compose interpolation layers known-good refs over factory refs", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "stugu-update-agent-known-good-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  copyFileSync(new URL("../../docker-compose.yml", import.meta.url), join(directory, "docker-compose.yml"));
+  const config = readAgentConfig({
+    STUGA_PROJECT_DIRECTORY: directory,
+    SYSTEM_UPDATE_IMAGE_PREFIX: "ghcr.io/liljestk/open-stuga",
+    SYSTEM_UPDATE_REPOSITORY: "liljestk/open-stuga",
+  }, directory, []);
+  writeFileSync(config.factoryReleaseEnvFile, releaseEnvironment("0.4.0"), "utf8");
+  writeFileSync(config.knownGoodReleaseEnvFile, releaseEnvironment("0.5.0"), "utf8");
+
+  const images = composeImages(config);
+  assert.ok(images.includes(
+    `ghcr.io/liljestk/open-stuga-api:v0.5.0@sha256:${"1".repeat(64)}`,
+  ));
+  assert.equal(images.some((image) => image.includes(":v0.4.0@sha256:")), false);
 });
 
 test("agent rejects malformed repository and registry configuration", () => {

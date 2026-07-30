@@ -7,7 +7,7 @@ export const queryOwnership = {
   workspaceInventory: "legacy",
   homeSnapshot: "legacy",
   historicalSeries: "legacy",
-  sensorMutations: "legacy",
+  sensorMutations: "query-client",
   propertyMutations: "legacy",
   alerts: "legacy",
   observations: "legacy",

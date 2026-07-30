@@ -13,6 +13,12 @@ import type {
   SensorMetricAvailability,
 } from "../sensor-gap-recovery.js";
 import type { MeasurementService, RuntimeStatus, TelemetryService } from "../services.js";
+import {
+  installRegisteredMethods,
+  type AssertNoMethodKeys,
+  type IncompatibleMethodKeys,
+  type RegisteredMethodSet,
+} from "../method-registry.js";
 import { CachedSensorState, EntityTarget, HaState, HomeAssistantBridgeOptions, OpeningTarget } from "./support/01-home-assistant-measurement-binding-to-validate-entit.js";
 import { HomeAssistantStatusHost } from "./support/02-validate-entity-mappings-to-home-assistant-bridge.js";
 
@@ -90,7 +96,7 @@ export interface HomeAssistantConnectionBridgeInternals {
   readonly [homeAssistantConnectionBridgeState]: HomeAssistantConnectionBridgeState;
 }
 
-export type HomeAssistantConnectionBridgeMethodSet = Record<string, unknown> & ThisType<HomeAssistantConnectionBridgeInternals>;
+export type HomeAssistantConnectionBridgeMethodSet = RegisteredMethodSet<HomeAssistantConnectionBridgeInternals>;
 
 export class HomeAssistantConnectionBridgeCore {
   readonly [homeAssistantConnectionBridgeState]: HomeAssistantConnectionBridgeState;
@@ -116,10 +122,14 @@ export class HomeAssistantConnectionBridgeCore {
     }
 }
 
+type HomeAssistantPublicMethodMismatch = AssertNoMethodKeys<
+  IncompatibleMethodKeys<HomeAssistantConnectionBridgeCore, HomeAssistantConnectionBridgeInternals>
+>;
+
 export function registerHomeAssistantConnectionBridgeMethods(methods: HomeAssistantConnectionBridgeMethodSet): void {
-  for (const [name, method] of Object.entries(methods)) {
-    Object.defineProperty(HomeAssistantConnectionBridgeCore.prototype, name, {
-      value: method, configurable: true, writable: true, enumerable: false,
-    });
-  }
+  installRegisteredMethods(
+    "HomeAssistantConnectionBridge",
+    HomeAssistantConnectionBridgeCore.prototype,
+    methods,
+  );
 }

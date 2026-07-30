@@ -499,7 +499,7 @@ describe("HybridTelemetryReader", () => {
     expect(snapshot.provenance.duplicateRecordCount).toBe(1);
   });
 
-  it("uses exactly one complete source for cumulative energy-cost aggregates", async () => {
+  it("uses the acknowledged archive as the sole source for cumulative energy-cost aggregates", async () => {
     const localAggregate = vi.fn(() => ({
       deltaCount: 1, consumptionKwh: 1, pricedConsumptionKwh: 1, costEur: 0.1,
       totalDurationMs: 1_000, pricedDurationMs: 1_000, coverageFrom: FROM, coverageUntil: TO,
@@ -529,19 +529,22 @@ describe("HybridTelemetryReader", () => {
       localHistoryComplete: ({ from }) => from >= FROM,
     });
     const query = { sensorId: "meter-1", propertyId: "property-1", from: FROM, to: TO };
-    await expect(reader.energyCostAggregate(query)).resolves.toMatchObject({ costEur: 0.1 });
-    expect(localAggregate).toHaveBeenCalledOnce();
-    expect(archiveAggregate).not.toHaveBeenCalled();
+    await expect(reader.energyCostAggregate(query)).resolves.toMatchObject({
+      costEur: 0.2,
+      archiveState: "archived",
+    });
+    expect(localAggregate).not.toHaveBeenCalled();
+    expect(archiveAggregate).toHaveBeenCalledOnce();
 
     await expect(reader.energyCostAggregate({ ...query, from: "2026-07-17T23:00:00.000Z" }))
       .resolves.toMatchObject({ costEur: 0.2 });
-    expect(archiveAggregate).toHaveBeenCalledOnce();
-    expect(localAggregate).toHaveBeenCalledOnce();
+    expect(archiveAggregate).toHaveBeenCalledTimes(2);
+    expect(localAggregate).not.toHaveBeenCalled();
 
-    await expect(reader.powerCostAggregate(query)).resolves.toMatchObject({ costEur: 0.3 });
+    await expect(reader.powerCostAggregate(query)).resolves.toMatchObject({ costEur: 0.4 });
     await expect(reader.powerCostAggregate({ ...query, from: "2026-07-17T23:00:00.000Z" }))
       .resolves.toMatchObject({ costEur: 0.4 });
-    expect(localPowerAggregate).toHaveBeenCalledOnce();
-    expect(archivePowerAggregate).toHaveBeenCalledOnce();
+    expect(localPowerAggregate).not.toHaveBeenCalled();
+    expect(archivePowerAggregate).toHaveBeenCalledTimes(2);
   });
 });

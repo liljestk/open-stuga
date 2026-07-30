@@ -38,7 +38,7 @@ import {
 
 const MAX_DEPLOYMENT_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_DEPLOYMENT_TOTAL_BYTES = 256 * 1024 * 1024;
-const SECRET_DIRECTORIES = ["cloudflare", "tapo-history-api", "tapo-history-runner"];
+const SECRET_DIRECTORIES = ["cloudflare", "r2", "tapo-history-api", "tapo-history-runner"];
 const FILE_CATEGORIES = new Set(["backup", "settings", "config", "secret"]);
 
 function portable(path) {

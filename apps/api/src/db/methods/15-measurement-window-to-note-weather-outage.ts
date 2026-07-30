@@ -96,7 +96,8 @@ import {
 import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord } from "../../timeseries/types.js";
 import { CORE_SCHEMA_SQL } from "../migrations/core-schema.js";
 import { MeasurementSampleRow, OutdoorTemperatureRow, WeatherOutageRecord, WeatherOutageRow } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
-import { ClimateDataValidationError, HistoricalTelemetryGap } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
+import type { HistoricalTelemetryGap } from "../telemetry-gap-types.js";
+import { ClimateDataValidationError } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
 import { measurementSampleFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
 import { outdoorLocationKey, outdoorTemperatureFromRow, weatherOutageFromRow } from "../support/06-canonical-observation-patch-time-to-outdoor-location.js";
 import { registerDatabaseMethods } from "../core.js";
@@ -196,6 +197,81 @@ registerDatabaseMethods({
       return rows.map((row) => ({
         sensorId,
         metric,
+        value: row.value,
+        canonicalUnit: row.canonical_unit,
+        timestamp: new Date(row.bucket_epoch * 1_000).toISOString(),
+        source: row.source,
+        quality: row.sample_count > 1 || row.source_count > 1 ? "estimated" : row.quality,
+      }));
+    },
+  measurementHistoryBucketedMulti(
+      sensorIds: string[], metrics: string[], from: string, to: string,
+      bucketSeconds: number, limitPerSeries = 20_000,
+    ): MeasurementSample[] {
+      const uniqueSensorIds = [...new Set(sensorIds)];
+      const uniqueMetrics = [...new Set(metrics)];
+      if (uniqueSensorIds.length === 0 || uniqueMetrics.length === 0) return [];
+      if (!Number.isInteger(bucketSeconds) || bucketSeconds < 1 || bucketSeconds > 86_400) {
+        throw new ClimateDataValidationError(400, "INVALID_BUCKET", "Bucket size must be an integer from 1 to 86400 seconds");
+      }
+      if (!Number.isInteger(limitPerSeries) || limitPerSeries < 1 || limitPerSeries > 20_000) {
+        throw new ClimateDataValidationError(400, "INVALID_LIMIT", "Per-series bucket limit must be an integer from 1 to 20000");
+      }
+      const sensorPlaceholders = uniqueSensorIds.map(() => "?").join(",");
+      const metricPlaceholders = uniqueMetrics.map(() => "?").join(",");
+      const rows = this.db.prepare(`WITH source_rows AS (
+          SELECT id, sensor_id, metric, value, canonical_unit, timestamp, source, quality,
+            CAST(CAST(strftime('%s', timestamp) AS INTEGER) / ? AS INTEGER) * ? AS bucket_epoch
+          FROM measurement_samples
+          WHERE sensor_id IN (${sensorPlaceholders}) AND metric IN (${metricPlaceholders})
+            AND timestamp >= ? AND timestamp <= ?
+        ), bucket_stats AS (
+          SELECT sensor_id, metric, bucket_epoch, AVG(value) AS value,
+            COUNT(*) AS sample_count, COUNT(DISTINCT source) AS source_count
+          FROM source_rows WHERE bucket_epoch IS NOT NULL
+          GROUP BY sensor_id, metric, bucket_epoch
+        ), ranked_buckets AS (
+          SELECT *,
+            ROW_NUMBER() OVER (
+              PARTITION BY sensor_id, metric ORDER BY bucket_epoch DESC
+            ) AS bucket_position
+          FROM bucket_stats
+        ), latest_rows AS (
+          SELECT *,
+            ROW_NUMBER() OVER (
+              PARTITION BY sensor_id, metric, bucket_epoch
+              ORDER BY timestamp DESC, id DESC
+            ) AS latest_position
+          FROM source_rows WHERE bucket_epoch IS NOT NULL
+        )
+        SELECT bucket.sensor_id, bucket.metric, bucket.bucket_epoch, bucket.value,
+          bucket.sample_count, bucket.source_count,
+          latest.canonical_unit, latest.source, latest.quality
+        FROM ranked_buckets AS bucket
+        JOIN latest_rows AS latest
+          ON latest.sensor_id = bucket.sensor_id
+          AND latest.metric = bucket.metric
+          AND latest.bucket_epoch = bucket.bucket_epoch
+          AND latest.latest_position = 1
+        WHERE bucket.bucket_position <= ?
+        ORDER BY bucket.bucket_epoch ASC, bucket.sensor_id ASC, bucket.metric ASC`)
+        .all(
+          bucketSeconds,
+          bucketSeconds,
+          ...uniqueSensorIds,
+          ...uniqueMetrics,
+          from,
+          to,
+          limitPerSeries,
+        ) as Array<{
+          sensor_id: string; metric: string; bucket_epoch: number; value: number;
+          sample_count: number; source_count: number; canonical_unit: string;
+          source: MeasurementSample["source"];
+          quality: MeasurementSample["quality"];
+        }>;
+      return rows.map((row) => ({
+        sensorId: row.sensor_id,
+        metric: row.metric,
         value: row.value,
         canonicalUnit: row.canonical_unit,
         timestamp: new Date(row.bucket_epoch * 1_000).toISOString(),

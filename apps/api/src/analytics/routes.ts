@@ -15,6 +15,7 @@ import {
 } from "@climate-twin/contracts";
 import { AnalyticsQueryError } from "../analytics.js";
 import { LruTtlCache } from "../cache.js";
+import type { AnalyticsWorkLimiter } from "./work-limiter.js";
 import type { ClimateDatabase } from "../db.js";
 import type { TelemetryBus } from "../events.js";
 import type { WeatherEventBroker } from "../weather-events.js";
@@ -33,10 +34,7 @@ import {
   getHomePerformance,
   HomePerformanceScopeError,
 } from "./home-performance/service.js";
-import {
-  getHomeMonitoringCollection,
-  getHomeMonitoringDetail,
-} from "./home-monitoring/service.js";
+import { registerHomeMonitoringRoutes } from "./home-monitoring/routes.js";
 import {
   CalendarComparisonSelectionError,
   compareCalendarPeriods,
@@ -51,6 +49,7 @@ interface AnalyticsRouteContext {
   cachedLatestMeasurements(houseId?: string): MeasurementSample[];
   integrationStatusForHouse(houseId?: string): IntegrationStatus;
   weatherEvents: WeatherEventBroker;
+  analyticsWorkLimiter: AnalyticsWorkLimiter;
   visibility(response: express.Response): {
     house(houseId: string): boolean;
     sensor(sensorId: string): boolean;
@@ -228,13 +227,31 @@ function cacheKey(parts: readonly unknown[]): string {
   return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 }
 
+function abortOnResponseClose(response: express.Response): {
+  signal: AbortSignal;
+  dispose: () => void;
+} {
+  const controller = new AbortController();
+  const abort = () => controller.abort(new DOMException("Client disconnected", "AbortError"));
+  response.once("close", abort);
+  return {
+    signal: controller.signal,
+    dispose: () => response.off("close", abort),
+  };
+}
+
 export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => void {
+  const removeHomeMonitoringRoutes = registerHomeMonitoringRoutes(context);
   const homePerformanceCache = new LruTtlCache<HomePerformanceResponse>({
     maxEntries: 128,
     maxBytes: 32 * 1024 * 1024,
     defaultTtlMs: 60_000,
     defaultStaleWhileRevalidateMs: 0,
   });
+  const removeHomePerformanceCacheStats = context.analyticsWorkLimiter.registerCache(
+    "home-performance",
+    () => homePerformanceCache.stats(),
+  );
   const invalidateHouse = (houseId: string | null | undefined) => {
     if (houseId) homePerformanceCache.invalidatePrefix(`home:${houseId}:`);
     else homePerformanceCache.clear();
@@ -244,7 +261,8 @@ export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => v
   };
   const removeLegacyCacheWake = context.bus.subscribe((event) => {
     if (event.type === "heartbeat") return;
-    if (event.type === "reading" || event.type === "alert") {
+    if (event.type === "reading") return;
+    if (event.type === "alert") {
       invalidateSensorHouse(event.data.sensorId);
       return;
     }
@@ -253,9 +271,6 @@ export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => v
       return;
     }
     homePerformanceCache.clear();
-  });
-  const removeMeasurementCacheWake = context.bus.subscribeMeasurements((sample) => {
-    invalidateSensorHouse(sample.sensorId);
   });
 
   context.app.post(`${context.v2Prefix}/analytics/opening-activity`, async (request, response) => {
@@ -277,13 +292,21 @@ export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => v
       );
     }
     try {
-      const result = await getOpeningActivity({
-        house,
-        request: input,
-        telemetryReader: context.telemetryReader,
-        generatedAt: new Date().toISOString(),
-      });
+      const startedAt = performance.now();
+      const result = await context.analyticsWorkLimiter.run(
+        "opening-activity",
+        () => getOpeningActivity({
+          house,
+          request: input,
+          telemetryReader: context.telemetryReader,
+          generatedAt: new Date().toISOString(),
+        }),
+      );
       response.setHeader("cache-control", "no-store");
+      response.setHeader(
+        "server-timing",
+        `opening-activity;dur=${(performance.now() - startedAt).toFixed(1)}`,
+      );
       response.json(result);
     } catch (error) {
       if (error instanceof IncompleteTelemetryHistoryError) {
@@ -344,15 +367,23 @@ export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => v
       );
     }
     try {
-      const result = await compareCalendarPeriods({
-        request: input,
-        house,
-        sensors,
-        definition,
-        telemetryReader: context.telemetryReader,
-        evaluatedAt: new Date().toISOString(),
-      });
+      const startedAt = performance.now();
+      const result = await context.analyticsWorkLimiter.run(
+        "calendar-comparison",
+        () => compareCalendarPeriods({
+          request: input,
+          house,
+          sensors,
+          definition,
+          telemetryReader: context.telemetryReader,
+          evaluatedAt: new Date().toISOString(),
+        }),
+      );
       response.setHeader("cache-control", "no-store");
+      response.setHeader(
+        "server-timing",
+        `calendar-comparison;dur=${(performance.now() - startedAt).toFixed(1)}`,
+      );
       response.json(result);
     } catch (error) {
       if (error instanceof CalendarComparisonSelectionError) {
@@ -411,97 +442,50 @@ export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => v
       definitions.map((definition) => [definition.id, definition.enabled, definition.unit]),
     ])}`;
     const hit = homePerformanceCache.has(key);
+    const coalesced = !hit && homePerformanceCache.isLoading(key);
+    const startedAt = performance.now();
+    const cancellation = abortOnResponseClose(response);
     try {
       const result = await homePerformanceCache.getOrLoad(
         key,
-        (signal) => getHomePerformance({
-          house,
-          sensors,
-          definitions,
-          dataMode: requestedDataMode,
-          database: context.database,
-          telemetryReader: context.telemetryReader,
-          evaluatedAt: new Date().toISOString(),
+        (signal) => context.analyticsWorkLimiter.run(
+          "home-performance",
+          () => getHomePerformance({
+            house,
+            sensors,
+            definitions,
+            dataMode: requestedDataMode,
+            database: context.database,
+            telemetryReader: context.telemetryReader,
+            evaluatedAt: new Date().toISOString(),
+            signal,
+          }),
           signal,
-        }),
-        { serveStale: false, ttlMs: 60_000 },
+        ),
+        { serveStale: false, ttlMs: 60_000, signal: cancellation.signal },
       );
       response.setHeader("cache-control", "private, no-store");
+      response.setHeader("x-stugu-cache", hit ? "hit" : coalesced ? "coalesced" : "miss");
+      response.setHeader(
+        "server-timing",
+        `home-performance;dur=${(performance.now() - startedAt).toFixed(1)}`,
+      );
       response.json({
         ...result,
-        cache: { ...result.cache, hit },
+        cache: { ...result.cache, hit, coalesced },
       });
     } catch (error) {
       if (error instanceof HomePerformanceScopeError) {
         throw new HttpError(422, error.code, error.message);
       }
       throw error;
+    } finally {
+      cancellation.dispose();
     }
-  });
-  context.app.get(`${context.v2Prefix}/monitoring/houses`, (request, response) => {
-    const requestedDataMode = dataMode(request.query.dataMode);
-    const activeDataMode = context.database.isRealDataMode() ? "live" : "demo";
-    if (requestedDataMode !== activeDataMode) {
-      throw new HttpError(
-        409,
-        "ANALYTICS_DATA_MODE_MISMATCH",
-        `This local database is in ${activeDataMode} mode; cross-mode monitoring queries are not allowed`,
-      );
-    }
-    const access = context.visibility(response);
-    const scopes = context.database.listHouses()
-      .filter((house) => access.house(house.id))
-      .map((house) => ({
-        house,
-        sensors: context.database.listSensors(house.id)
-          .filter((sensor) => access.sensor(sensor.id)),
-      }));
-    const evaluatedAt = new Date().toISOString();
-    response.setHeader("cache-control", "private, no-store");
-    response.json(getHomeMonitoringCollection({
-      database: context.database,
-      latestMeasurements: (houseId) => context.cachedLatestMeasurements(houseId),
-      integrationStatus: (houseId) => context.integrationStatusForHouse(houseId),
-      latestWeather: (houseId) => context.weatherEvents.latest(houseId)?.weather ?? null,
-      dataMode: requestedDataMode,
-      evaluatedAt,
-    }, scopes));
-  });
-  context.app.get(`${context.v2Prefix}/monitoring/houses/:houseId`, (request, response) => {
-    const requestedDataMode = dataMode(request.query.dataMode);
-    const include = request.query.include;
-    if (include !== undefined && include !== "insights") {
-      throw new HttpError(400, "INVALID_FIELD", "include must be insights");
-    }
-    const activeDataMode = context.database.isRealDataMode() ? "live" : "demo";
-    if (requestedDataMode !== activeDataMode) {
-      throw new HttpError(
-        409,
-        "ANALYTICS_DATA_MODE_MISMATCH",
-        `This local database is in ${activeDataMode} mode; cross-mode monitoring queries are not allowed`,
-      );
-    }
-    const houseId = request.params.houseId as string;
-    const house = context.database.getHouse(houseId);
-    const access = context.visibility(response);
-    if (!house || !access.house(house.id)) {
-      throw new HttpError(404, "ANALYTICS_SCOPE_NOT_FOUND", "Monitoring Home scope was not found");
-    }
-    const sensors = context.database.listSensors(house.id)
-      .filter((sensor) => access.sensor(sensor.id));
-    const evaluatedAt = new Date().toISOString();
-    response.setHeader("cache-control", "private, no-store");
-    response.json(getHomeMonitoringDetail({
-      database: context.database,
-      latestMeasurements: (id) => context.cachedLatestMeasurements(id),
-      integrationStatus: (id) => context.integrationStatusForHouse(id),
-      latestWeather: (id) => context.weatherEvents.latest(id)?.weather ?? null,
-      dataMode: requestedDataMode,
-      evaluatedAt,
-    }, { house, sensors }));
   });
   return () => {
     removeLegacyCacheWake();
-    removeMeasurementCacheWake();
+    removeHomePerformanceCacheStats();
+    removeHomeMonitoringRoutes();
   };
 }

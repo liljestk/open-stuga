@@ -11,11 +11,31 @@ public struct StuguAPIError: LocalizedError, Equatable, Sendable {
     public var errorDescription: String? { message }
 }
 
-/// Stops a redirect from carrying the Access service token to another host.
+/// Stops a redirect from carrying the Access service token to another origin.
 /// Cloudflare answers an unauthenticated request with a redirect to its own
 /// login domain, and following it would both hand over the secret and hide the
 /// challenge behind an HTML page the caller cannot read.
-final class SameHostRedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
+final class SameOriginRedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
+    static func allowsRedirect(
+        originalRequest: URLRequest?,
+        destination: URL?
+    ) -> Bool {
+        guard let originalRequest,
+              let origin = HTTPOrigin(originalRequest.url),
+              let destinationOrigin = HTTPOrigin(destination),
+              origin == destinationOrigin else {
+            return false
+        }
+        let carriesServiceToken =
+            originalRequest.value(
+                forHTTPHeaderField: EdgeCredential.clientIDHeader
+            ) != nil
+            || originalRequest.value(
+                forHTTPHeaderField: EdgeCredential.clientSecretHeader
+            ) != nil
+        return !carriesServiceToken || origin.isHTTPS
+    }
+
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
@@ -23,9 +43,10 @@ final class SameHostRedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
         newRequest request: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
-        let origin = task.originalRequest?.url?.host?.lowercased()
-        let destination = request.url?.host?.lowercased()
-        completionHandler(origin == destination ? request : nil)
+        completionHandler(Self.allowsRedirect(
+            originalRequest: task.originalRequest,
+            destination: request.url
+        ) ? request : nil)
     }
 }
 
@@ -121,7 +142,7 @@ public actor StuguAPIClient {
     public let address: ServerAddress
     private let session: URLSession
     private let edgeCredential: EdgeCredential?
-    private let redirectGuard = SameHostRedirectGuard()
+    private let redirectGuard = SameOriginRedirectGuard()
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
     private var csrfToken: String?

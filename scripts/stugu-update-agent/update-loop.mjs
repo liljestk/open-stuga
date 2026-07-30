@@ -30,9 +30,29 @@ import {
 
 import { revokeAccessToken } from ".././cloudflare-oauth.mjs";
 
-import { AGENT_VERSION, HEARTBEAT_MS, POLL_MS, bounded, compose, operation, readAgentConfig, readJson, releaseEnvironment, runCommand, validatedRequest, writeJson, writeTextAtomic } from "./configuration-request.mjs";
+import { AGENT_VERSION, COMPOSE_CONTRACT, HEARTBEAT_MS, POLL_MS, UPDATE_AGENT_CONTRACT, bounded, compose, currentReleaseEnvironment, operation, readAgentConfig, readJson, readReleaseEnvironment, releaseEnvironment, runCommand, validatedRequest, writeJson, writeTextAtomic } from "./configuration-request.mjs";
 
 import { activeServices, applyCloudflareSetupRequest, exactApiVersion, restoreReleaseEnvironment } from "./services-cloudflare.mjs";
+
+export const APPLIANCE_UPGRADE_REQUIRED = "appliance-upgrade-required";
+
+export const APPLIANCE_UPGRADE_DETAIL = "This Raspberry Pi still uses the legacy updater boot contract. Create a verified backup, install a factory image with updater contract 2, and restore the backup before installing another container release.";
+
+export function applianceUpdateTransition(config) {
+  if (config.runtime !== "raspberry-pi") return null;
+  try {
+    const factoryRelease = readReleaseEnvironment(
+      config.factoryReleaseEnvFile,
+      config,
+      "factory release environment",
+    );
+    return factoryRelease.format === "legacy-v1"
+      ? { reason: APPLIANCE_UPGRADE_REQUIRED, detail: APPLIANCE_UPGRADE_DETAIL }
+      : null;
+  } catch {
+    return { reason: APPLIANCE_UPGRADE_REQUIRED, detail: APPLIANCE_UPGRADE_DETAIL };
+  }
+}
 
 export async function applyRequest(config, requestPath, dependencies = {}) {
   const composeCommand = dependencies.compose ?? compose;
@@ -63,7 +83,7 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
     return;
   }
 
-  const previousRelease = existsSync(config.releaseEnvFile) ? readFileSync(config.releaseEnvFile, "utf8") : null;
+  let previousRelease = null;
   let services = [];
   let releaseChanged = false;
   const activity = [{
@@ -82,6 +102,15 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
 
   try {
     setStatus("preparing", "Checking the running Stugu services and installed version");
+    const applianceTransition = applianceUpdateTransition(config);
+    if (applianceTransition) throw new Error(applianceTransition.detail);
+    const currentRelease = currentReleaseEnvironment(config);
+    previousRelease = currentRelease.text;
+    if (currentRelease.version !== request.previousVersion) {
+      throw new Error(
+        `Current release manifest reports ${currentRelease.version} instead of ${request.previousVersion}`,
+      );
+    }
     services = await activeServices(config, composeCommand);
     const previousVersion = (await exactApiVersion(config, composeCommand)).trim();
     if (previousVersion !== request.previousVersion) {
@@ -107,6 +136,7 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
     if (runningVersion !== request.version) {
       throw new Error(`Updated API reported version ${runningVersion || "unknown"} instead of ${request.version}`);
     }
+    writeTextAtomic(config.knownGoodReleaseEnvFile, releaseEnvironment(request));
 
     const completedAt = new Date().toISOString();
     setStatus("complete", `Stugu ${request.version} is healthy`, completedAt);
@@ -120,6 +150,7 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
     }
     setStatus("rolling-back", "The new release was unhealthy; restoring the previous image set");
     try {
+      if (previousRelease === null) throw new Error("Immutable rollback state was lost");
       await restoreReleaseEnvironment(config.releaseEnvFile, previousRelease);
       await composeCommand(config, ["up", "--detach", "--no-deps", "--wait", "--wait-timeout", "600", ...services]);
       setStatus("failed", `${failure} Previous release restored.`, new Date().toISOString());
@@ -166,14 +197,17 @@ export function releaseLock(lock) {
   rmSync(lock.path, { force: true });
 }
 
-export function heartbeat(config, ready, detail = null) {
+export function heartbeat(config, ready, detail = null, systemUpdateReason = null) {
   writeJson(join(config.operationsDirectory, "agent-status.json"), {
     schema: "stugu-update-agent/v1",
     runtime: config.runtime,
     agentVersion: AGENT_VERSION,
+    updateAgentContract: UPDATE_AGENT_CONTRACT,
+    composeContract: COMPOSE_CONTRACT,
     capabilities: ["system-update", "cloudflare-setup"],
     ready,
     detail,
+    systemUpdateReason,
     updatedAt: new Date().toISOString(),
   });
 }
@@ -181,6 +215,11 @@ export function heartbeat(config, ready, detail = null) {
 export async function publishDockerHeartbeat(config) {
   try {
     await runCommand("docker", ["version", "--format", "{{.Server.Version}}"], { timeoutMs: 30_000 });
+    const transition = applianceUpdateTransition(config);
+    if (transition) {
+      heartbeat(config, true, transition.detail, transition.reason);
+      return { ready: true, detail: transition.detail };
+    }
     heartbeat(config, true);
     return { ready: true, detail: null };
   } catch (error) {

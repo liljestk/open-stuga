@@ -339,9 +339,13 @@ describe("Stuguby federation", () => {
         },
       }],
     }).expect(201);
-    const published = participant.runtime.stuguby.store.dueOutbox(250)
+    const telemetryPayloads = participant.runtime.stuguby.store.dueOutbox(250)
       .filter((item) => item.event.schema === "home.telemetry.v1")
-      .flatMap((item) => (item.event.payload as unknown as { samples: Array<{ timestamp: string }> }).samples);
+      .map((item) => item.event.payload as unknown as {
+        complete: boolean;
+        samples: Array<{ timestamp: string }>;
+      });
+    const published = telemetryPayloads.flatMap((payload) => payload.samples);
     const counts = new Map<string, number>();
     for (const sample of published) {
       const hour = new Date(sample.timestamp).toISOString().slice(0, 13);
@@ -351,6 +355,79 @@ describe("Stuguby federation", () => {
     expect(counts.get(new Date(sparseHour).toISOString().slice(0, 13))).toBe(2);
     expect(counts.has(new Date(currentHour).toISOString().slice(0, 13))).toBe(false);
     expect([...counts.values()].every((count) => count <= 3)).toBe(true);
+    expect(telemetryPayloads.filter((payload) => payload.complete)).toEqual([expect.objectContaining({ samples: [] })]);
+    expect(telemetryPayloads.filter((payload) => payload.samples.length > 0)
+      .every((payload) => !payload.complete)).toBe(true);
+  });
+
+  it("pages historical telemetry beyond 100000 samples and completes an empty replacement", async () => {
+    const coordinator = await node("Large history coordinator");
+    const participant = await node("Large history publisher");
+    nodes.push(coordinator, participant);
+    const created = await request(coordinator.url).post("/api/v1/stugbys").send({ name: "Large history" }).expect(201);
+    const stugubyId = created.body.id as string;
+    const invitation = await request(coordinator.runtime.app).post(`/api/v1/stugbys/${stugubyId}/invitations`)
+      .send({ role: "participant" }).expect(201);
+    await request(participant.runtime.app).post("/api/v1/stugbys/join").send({
+      coordinatorUrl: coordinator.url,
+      invitationId: invitation.body.id,
+      joinSecret: invitation.body.joinSecret,
+    }).expect(201);
+
+    participant.runtime.database.db.prepare("DELETE FROM measurement_samples").run();
+    const currentHour = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+    const historyStart = currentHour - 30 * 3_600_000;
+    const insert = participant.runtime.database.db.prepare(`INSERT INTO measurement_samples
+      (sensor_id,metric,value,canonical_unit,timestamp,source,quality)
+      VALUES ('sensor-01','temperature',20,'Â°C',?,'api','good')`);
+    participant.runtime.database.transaction(() => {
+      for (let index = 0; index < 100_001; index += 1) {
+        insert.run(new Date(historyStart + index * 1_000).toISOString());
+      }
+    });
+    const telemetryDataset = (metricIds: string[]): StugubyDatasetGrant => ({
+      dataset: "home.telemetry.v1",
+      enabled: true,
+      includeLocalIds: false,
+      allowReplicaCache: true,
+      retentionDays: 30,
+      telemetry: {
+        sensorPublicationIds: [],
+        metricIds,
+        historyFrom: new Date(historyStart).toISOString(),
+        live: true,
+        maxSamplesPerHour: 1_000_000,
+      },
+    });
+    const grant = await request(participant.runtime.app).post(`/api/v1/stugbys/${stugubyId}/grants`).send({
+      localHouseId: "house-main",
+      audience: { kind: "all-members", nodeIds: [] },
+      datasets: [telemetryDataset(["temperature"])],
+    }).expect(201);
+    const payloads = participant.runtime.stuguby.store.dueOutbox(250)
+      .filter((item) => item.event.schema === "home.telemetry.v1" && item.event.grantId === grant.body.id)
+      .map((item) => item.event.payload as unknown as {
+        complete: boolean;
+        samples: Array<{ timestamp: string }>;
+      });
+    expect(payloads.flatMap((payload) => payload.samples)).toHaveLength(100_001);
+    expect(payloads.filter((payload) => payload.complete)).toEqual([expect.objectContaining({ samples: [] })]);
+
+    const updated = await request(participant.runtime.app)
+      .put(`/api/v1/stugbys/${stugubyId}/grants/${grant.body.id as string}`)
+      .send({
+        baseRevision: grant.body.revision,
+        audience: grant.body.audience,
+        datasets: [telemetryDataset(["co2"])],
+        housePolicy: grant.body.housePolicy,
+        expiresAt: null,
+      }).expect(200);
+    const emptyPayloads = participant.runtime.stuguby.store.dueOutbox(250)
+      .filter((item) => item.event.schema === "home.telemetry.v1"
+        && item.event.grantId === grant.body.id
+        && item.event.grantEpoch === updated.body.epoch)
+      .map((item) => item.event.payload as unknown as { complete: boolean; samples: unknown[] });
+    expect(emptyPayloads).toEqual([expect.objectContaining({ complete: true, samples: [] })]);
   });
 
   it("keeps the live per-grant UTC-hour cap after recreating the service", async () => {
@@ -385,6 +462,10 @@ describe("Stuguby federation", () => {
       }],
     }).expect(201);
     const originalStore = participant.runtime.stuguby.store;
+    const initialTelemetry = originalStore.dueOutbox(250)
+      .filter((item) => item.event.schema === "home.telemetry.v1" && item.event.grantId === grant.body.id)
+      .map((item) => item.event.payload as unknown as { complete: boolean; samples: unknown[] });
+    expect(initialTelemetry).toEqual([expect.objectContaining({ complete: true, samples: [] })]);
     originalStore.acknowledgeOutbox(originalStore.dueOutbox(250).map((item) => item.id));
     const previousHour = Math.floor(Date.now() / 3_600_000) * 3_600_000 - 3_600_000;
     const liveSample = (offset: number): MeasurementSample => ({

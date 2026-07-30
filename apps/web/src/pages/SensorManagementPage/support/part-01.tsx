@@ -124,6 +124,7 @@ export interface SensorDraft {
   y: string;
   height: string;
   enabled: boolean;
+  energyMeterRole: NonNullable<Sensor["energyMeterRole"]>;
   measurementEntityIds: Record<string, string>;
 }
 
@@ -192,6 +193,7 @@ export function initialDraft(house: House): SensorDraft {
     y: String(rounded(center.y)),
     height: "1.4",
     enabled: true,
+    energyMeterRole: "standalone",
     measurementEntityIds: {},
   };
 }
@@ -270,6 +272,7 @@ export function draftForSensor(sensor: Sensor, houses: House[]): SensorDraft {
     y: String(rounded(sensor.y)),
     height: String(rounded(sensor.z - (floor?.elevation ?? 0))),
     enabled: sensor.enabled,
+    energyMeterRole: sensor.energyMeterRole ?? "standalone",
     measurementEntityIds: sensorMeasurementEntityIds(sensor),
   };
 }

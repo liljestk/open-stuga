@@ -249,7 +249,7 @@ export function targetForDeploymentPath(logicalPath) {
   }
   if (logicalPath.startsWith("deployment/secrets/")) {
     const child = assertSafeRelativePath(logicalPath.slice("deployment/secrets/".length));
-    const allowed = ["cloudflare/", "tapo-history-api/", "tapo-history-runner/"];
+    const allowed = ["cloudflare/", "r2/", "tapo-history-api/", "tapo-history-runner/"];
     if (!allowed.some((prefix) => child.startsWith(prefix))) throw new Error(`Unsupported deployment secret path: ${logicalPath}`);
     const root = environmentPath("STUGA_TARGET_SECRETS_DIRECTORY", "/app/target-settings/secrets");
     return { kind: "secret", relativePath: child, root, path: resolve(root, child) };

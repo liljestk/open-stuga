@@ -91,9 +91,12 @@ final class EdgeCredentialTests: XCTestCase {
 
     func testRedirectToAnotherHostIsRefusedSoTheTokenStaysOnTheOrigin() async throws {
         let session = URLSession(configuration: .ephemeral)
-        let task = session.dataTask(
-            with: URL(string: "https://stugu.example.com/api/v1/health")!
+        var original = URLRequest(
+            url: URL(string: "https://stugu.example.com/api/v1/health")!
         )
+        original.setValue("0123abc.access", forHTTPHeaderField: EdgeCredential.clientIDHeader)
+        original.setValue("s3cret", forHTTPHeaderField: EdgeCredential.clientSecretHeader)
+        let task = session.dataTask(with: original)
         let response = try XCTUnwrap(HTTPURLResponse(
             url: URL(string: "https://stugu.example.com/api/v1/health")!,
             statusCode: 302,
@@ -106,7 +109,7 @@ final class EdgeCredentialTests: XCTestCase {
         let sameOrigin = URLRequest(url: URL(string: "https://stugu.example.com/api/v1/health/")!)
 
         let refused = await withCheckedContinuation { continuation in
-            SameHostRedirectGuard().urlSession(
+            SameOriginRedirectGuard().urlSession(
                 session,
                 task: task,
                 willPerformHTTPRedirection: response,
@@ -116,7 +119,7 @@ final class EdgeCredentialTests: XCTestCase {
         XCTAssertNil(refused)
 
         let allowed = await withCheckedContinuation { continuation in
-            SameHostRedirectGuard().urlSession(
+            SameOriginRedirectGuard().urlSession(
                 session,
                 task: task,
                 willPerformHTTPRedirection: response,

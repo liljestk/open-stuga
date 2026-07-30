@@ -429,6 +429,34 @@ describe("useClimateData", () => {
     expect(result.current.state.measurementForecasts[sensor.id]?.temperature).toEqual([loadedForecast]);
   });
 
+  it("preserves a loaded series across a later foreground house refresh", async () => {
+    const demo = createDemoState();
+    const house = demo.houses[0]!;
+    const sensor = demo.sensors[0]!;
+    const loadedSample: MeasurementSample = {
+      ...demo.latestMeasurements[sensor.id]!.temperature!,
+      timestamp: "2026-07-16T10:00:00.000Z",
+      value: 24.7,
+    };
+    const loadedForecast: MeasurementForecastPoint = {
+      ...demo.measurementForecasts[sensor.id]!.temperature![0]!,
+      timestamp: "2026-07-16T11:00:00.000Z",
+      value: 24.9,
+    };
+    mocks.measurementHistoryPage.mockResolvedValueOnce({
+      samples: [loadedSample], from: loadedSample.timestamp, to: loadedSample.timestamp, bucketSeconds: null, truncated: false,
+    });
+    mocks.measurementForecast.mockResolvedValueOnce([loadedForecast]);
+    const { result } = renderHook(() => useClimateData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => { await result.current.loadSeries(sensor.id, "temperature", "24h"); });
+    await act(async () => { await result.current.selectHouse(house.id); });
+
+    expect(result.current.state.measurementHistory[sensor.id]?.temperature).toEqual([loadedSample]);
+    expect(result.current.state.measurementForecasts[sensor.id]?.temperature).toEqual([loadedForecast]);
+  });
+
   it("loads an arbitrary recorded window at the requested server resolution", async () => {
     const demo = createDemoState();
     const sensor = demo.sensors[0]!;

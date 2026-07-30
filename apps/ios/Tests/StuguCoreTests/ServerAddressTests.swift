@@ -38,4 +38,23 @@ final class ServerAddressTests: XCTestCase {
             XCTAssertEqual($0 as? ServerAddress.ValidationError, .unsupportedPath)
         }
     }
+
+    func testHTTPOriginNormalizesDefaultPortsWithoutWeakeningOriginChecks() throws {
+        XCTAssertEqual(
+            HTTPOrigin(try XCTUnwrap(URL(string: "https://stugu.example.com/home"))),
+            HTTPOrigin(try XCTUnwrap(URL(string: "https://stugu.example.com:443/api")))
+        )
+        XCTAssertNotEqual(
+            HTTPOrigin(try XCTUnwrap(URL(string: "https://stugu.example.com"))),
+            HTTPOrigin(try XCTUnwrap(URL(string: "http://stugu.example.com")))
+        )
+        XCTAssertNotEqual(
+            HTTPOrigin(try XCTUnwrap(URL(string: "https://stugu.example.com"))),
+            HTTPOrigin(try XCTUnwrap(URL(string: "https://stugu.example.com:8443")))
+        )
+        XCTAssertNotEqual(
+            HTTPOrigin(try XCTUnwrap(URL(string: "https://stugu.example.com"))),
+            HTTPOrigin(try XCTUnwrap(URL(string: "https://login.example.com")))
+        )
+    }
 }

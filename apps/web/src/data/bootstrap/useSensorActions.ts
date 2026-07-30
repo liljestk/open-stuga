@@ -51,12 +51,14 @@ import { createDemoState, nextMockReading, snapshotToReadings, timeRangeHours, t
 import { appendHistory, enabledDefinitions, legacyForecastSamples, readingSamples, upsertLatest } from "../../measurements";
 import { routeFromLocation } from "../../routing";
 import { publishHouseWeatherUpdate } from "../../useHouseWeather";
+import { useSensorMutations } from "../sensors/sensorMutations";
 import { HEARTBEAT_POLL_MIN_INTERVAL_MS, LIVE_TELEMETRY_BUFFER_LIMIT, MAX_SERIES_SAMPLES, PORTFOLIO_LOAD_CONCURRENCY, STREAM_BOOTSTRAP_WAIT_MS, advanceMockTelemetry, aggregateConnection, apiStatus, blankState, bufferLiveTelemetry, bufferSeriesValue, canonicalSeries, errorMessage, houseMutationKey, isDemoSource, isPollingCompatibilityHeartbeat, legacySeries, loadPortfolioInBackground, mergeLegacySeries, mergeMeasurementSeries, metricForecastSamples, metricHistorySamples, optionalForecast, preserveMutatedSensorTelemetry, preserveSeriesCommittedDuringLoad, replaceFloor, replaceHouseSensors, replaceLoadedHouseTelemetry, replayBufferedLiveTelemetry, replayHouseInventory, replayHouseMutations, replayMaintenanceTaskMutation, sensorsFromSnapshots, seriesBucketSeconds, seriesLimit, seriesStateKey, settleInBackground, synchronizeSensorRoomLabels, unauthenticatedSession, withoutDemoTelemetry, withoutSensorIds } from "./support";
 import type { BootstrapStatus, BufferedHouseMutation, BufferedLiveTelemetry, BufferedSeriesTelemetry, DataMode, HistoricalSeriesWindow, HouseInventoryMutation, HouseMutationBuffer, LoadedTelemetryState, SeriesCommit, SeriesLoadState, SeriesLoadStatus, StreamConnections } from "./support";
 import type { SensorActions, SeriesContext } from "./pipelineTypes";
 export function useSensorActions(
   context: SeriesContext,
 ): SeriesContext & SensorActions {
+  const sensorMutations = useSensorMutations();
   const { initialHouseId, sessionLockedRef, sessionLocked, setSessionLocked, state, setStateInternal, setState, loading, setLoading, bootstrapStatus, setBootstrapStatus, bootstrapError, setBootstrapError, bootstrapAttempt, setBootstrapAttempt, dataMode, setDataMode, streamConnections, setStreamConnections, connection, pollingFallback, setPollingFallback, resourceErrors, setResourceErrors, seriesStates, setSeriesStates, scenario, setScenario, saveState, setSaveState, tpLinkDevices, setTpLinkDevices, tpLinkDevicesRef, tpLinkDevicesLoading, setTpLinkDevicesLoading, tpLinkDevicesError, setTpLinkDevicesError, tick, apiAvailable, dataModeRef, stateRef, streamConnectionsRef, hasReachedLiveConnection, hasHydratedActiveHouse, heartbeatPollAt, reconnectResyncTimer, heartbeatFallbackTimer, mutationRefreshTimer, sensorMoveQueues, sensorMoveVersions, persistedSensorPoints, activeHouseId, activeHouseLoadVersion, houseTelemetryVersions, seriesLoadVersions, seriesCommitVersions, seriesCommitSequence, tpLinkPollStatus, tpLinkRefreshVersion, pendingMeasurementSamples, measurementFlushTimer, saveStateTimer, activeTelemetryLoadBuffers, activeHouseMutationBuffers, activeSeriesTelemetryBuffers, activeInventoryMutationBuffers, activeStreamUnsubscribers, activeStreamGateReleases, sessionLifecycleEpoch, globalFieldVersions, recordResourceError, recordHouseMutation, recordInventoryMutation, applyIntegrationStatus, refreshTpLinkDevices, disconnectHomeAssistant, applyDetachedTpLinkSensors, disconnectTpLink, moveHomeAssistant, moveTpLink, loadHouseData, loadPortfolioHouseData, scheduleActiveHouseResync, updateStreamConnection, resetStreamConnections, handleHeartbeat, purgeSessionState, retryBootstrap, revalidateSession, endSession, handleTelemetry, flushMeasurements, handleMeasurement, selectHouse, importHistoricalMeasurements, loadSeries } = context;
   const loadHistoricalSeries = useCallback(async (
       sensorId: string,
@@ -175,7 +177,7 @@ export function useSensorActions(
     }, []);
   const createSensor = useCallback(async (input: CreateSensorInput): Promise<Sensor> => {
       if (!apiAvailable.current) throw new Error("The local API is unavailable. The sensor was not saved.");
-      const saved = await api.createSensor(input);
+      const saved = await sensorMutations.createSensor(input);
       recordHouseMutation({ resource: "sensor", action: "upsert", houseId: saved.houseId, value: saved });
       setState((current) => ({
         ...current,
@@ -183,12 +185,12 @@ export function useSensorActions(
       }));
       if (saved.tpLinkDeviceId) settleInBackground(refreshTpLinkDevices());
       return saved;
-    }, [recordHouseMutation, refreshTpLinkDevices]);
+    }, [recordHouseMutation, refreshTpLinkDevices, sensorMutations.createSensor]);
   const updateSensor = useCallback(async (sensorId: string, patch: SensorPatch): Promise<Sensor> => {
       await sensorMoveQueues.current.get(sensorId)?.catch(() => undefined);
       if (!apiAvailable.current) throw new Error("The local API is unavailable. The sensor was not updated.");
       const previousHouseId = stateRef.current.sensors.find((sensor) => sensor.id === sensorId)?.houseId;
-      const saved = await api.updateSensor(sensorId, patch);
+      const saved = await sensorMutations.updateSensor({ sensorId, patch, previousHouseId });
       if (previousHouseId && previousHouseId !== saved.houseId) {
         recordHouseMutation({ resource: "sensor", action: "delete", houseId: previousHouseId, id: sensorId });
       }
@@ -200,7 +202,7 @@ export function useSensorActions(
       }));
       if (Object.hasOwn(patch, "tpLinkDeviceId")) settleInBackground(refreshTpLinkDevices());
       return saved;
-    }, [recordHouseMutation, refreshTpLinkDevices]);
+    }, [recordHouseMutation, refreshTpLinkDevices, sensorMutations.updateSensor]);
   const deleteSensor = useCallback(async (sensorId: string): Promise<void> => {
       await sensorMoveQueues.current.get(sensorId)?.catch(() => undefined);
       if (!apiAvailable.current) throw new Error("The local API is unavailable. The sensor was not deleted.");
@@ -211,7 +213,7 @@ export function useSensorActions(
       const removedStaticParameters = stateRef.current.staticParameters.filter((parameter) => (
         parameter.scopeType === "sensor" && parameter.scopeId === sensorId
       ));
-      await api.deleteSensor(sensorId);
+      await sensorMutations.deleteSensor({ sensorId, houseId });
       if (houseId) recordHouseMutation({ resource: "sensor", action: "delete", houseId, id: sensorId });
       for (const observation of detachedObservations) {
         recordHouseMutation({ resource: "observation", action: "upsert", houseId: observation.houseId, value: observation });
@@ -257,7 +259,7 @@ export function useSensorActions(
         };
       });
       settleInBackground(refreshTpLinkDevices());
-    }, [recordHouseMutation, refreshTpLinkDevices]);
+    }, [recordHouseMutation, refreshTpLinkDevices, sensorMutations.deleteSensor]);
   const moveSensor = useCallback((sensorId: string, point: Point) => {
       if (!apiAvailable.current) return;
       const currentSensor = stateRef.current.sensors.find((sensor) => sensor.id === sensorId);
@@ -274,7 +276,11 @@ export function useSensorActions(
       const previous = sensorMoveQueues.current.get(sensorId) ?? Promise.resolve();
       const queued = previous.catch(() => undefined).then(async () => {
         try {
-          const saved = await api.updateSensor(sensorId, point);
+          const saved = await sensorMutations.moveSensor({
+            sensorId,
+            point,
+            previousHouseId: currentSensor.houseId,
+          });
           if (currentSensor.houseId !== saved.houseId) {
             recordHouseMutation({ resource: "sensor", action: "delete", houseId: currentSensor.houseId, id: sensorId });
           }
@@ -302,7 +308,7 @@ export function useSensorActions(
       settleInBackground(queued.catch(() => undefined).finally(() => {
         if (sensorMoveQueues.current.get(sensorId) === queued) sensorMoveQueues.current.delete(sensorId);
       }));
-    }, [recordHouseMutation]);
+    }, [recordHouseMutation, sensorMutations.moveSensor]);
   const ensurePropertyWrite = useCallback(() => {
       if (stateRef.current.session.readOnly) throw new Error("This guest account is read-only.");
       if (!apiAvailable.current) throw new Error("The local API is unavailable. The property was not saved.");

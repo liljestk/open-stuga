@@ -2,6 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import {
+  installRegisteredMethods,
+  type AssertNoMethodKeys,
+  type IncompatibleMethodKeys,
+  type RegisteredMethodSet,
+} from "../../method-registry.js";
 import type {
   PersistedSpatialLayerSnapshot,
   SpatialConfigurationVersion,
@@ -35,7 +41,7 @@ export interface SpatialLayerStateStoreInternals {
   readonly db: DatabaseSync;
 }
 
-export type SpatialLayerStateStoreMethodSet = Record<string, unknown> & ThisType<SpatialLayerStateStoreInternals>;
+export type SpatialLayerStateStoreMethodSet = RegisteredMethodSet<SpatialLayerStateStoreInternals>;
 
 export class SpatialLayerStateStoreCore {
   readonly db: DatabaseSync;
@@ -63,10 +69,14 @@ export class SpatialLayerStateStoreCore {
     }
 }
 
+type SpatialLayerStateStorePublicMethodMismatch = AssertNoMethodKeys<
+  IncompatibleMethodKeys<SpatialLayerStateStoreCore, SpatialLayerStateStoreInternals>
+>;
+
 export function registerSpatialLayerStateStoreMethods(methods: SpatialLayerStateStoreMethodSet): void {
-  for (const [name, method] of Object.entries(methods)) {
-    Object.defineProperty(SpatialLayerStateStoreCore.prototype, name, {
-      value: method, configurable: true, writable: true, enumerable: false,
-    });
-  }
+  installRegisteredMethods(
+    "SpatialLayerStateStore",
+    SpatialLayerStateStoreCore.prototype,
+    methods,
+  );
 }

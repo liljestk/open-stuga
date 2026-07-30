@@ -97,7 +97,7 @@ describe("read-only MCP server", () => {
 
       const listed = await client.listTools();
       const names = listed.tools.map((tool) => tool.name);
-      expect(listed.tools).toHaveLength(59);
+      expect(listed.tools).toHaveLength(61);
       expect(new Set(names).size).toBe(names.length);
       expect(names).toEqual(expect.arrayContaining([
         "list_properties",
@@ -115,6 +115,8 @@ describe("read-only MCP server", () => {
         "get_house_energy_cost",
         "get_house_energy_summary",
         "query_outdoor_temperature_history",
+        "get_home_moisture_response",
+        "summarize_home_measurements",
         "get_house_thermal_isolation",
         "list_notification_deliveries",
         "list_action_playbooks",
@@ -189,6 +191,7 @@ describe("read-only MCP server", () => {
       await call("get_house_energy_cost", { houseId: "house-main", sensorId: "sensor-01" });
       await call("get_house_energy_summary", { houseId: "house-main" });
       await call("query_outdoor_temperature_history", { houseId: "house-main" });
+      await call("get_home_moisture_response", { houseId: "house-main" });
       await call("get_house_thermal_isolation", { houseId: "house-main" });
       await call("list_notification_deliveries");
       await call("list_action_playbooks");
@@ -204,5 +207,108 @@ describe("read-only MCP server", () => {
     }
 
     expect(fileHash(fixture.path)).toBe(before);
+  }, 15_000);
+
+  it("offers a focused, voice-friendly ChatGPT profile", async () => {
+    const fixture = preparedDatabase();
+    const writableDatabase = new ClimateDatabase(fixture.path, false);
+    writableDatabase.activateRealDataMode();
+    writableDatabase.insertMeasurementSamples([
+      {
+        sensorId: "sensor-01",
+        metric: "temperature",
+        value: 20,
+        canonicalUnit: "°C",
+        timestamp: "2026-07-29T19:00:00.000Z",
+        source: "api",
+        quality: "good",
+      },
+      {
+        sensorId: "sensor-01",
+        metric: "temperature",
+        value: 22,
+        canonicalUnit: "°C",
+        timestamp: "2026-07-30T03:00:00.000Z",
+        source: "api",
+        quality: "good",
+      },
+    ]);
+    writableDatabase.close();
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ["--import", "tsx", "apps/api/src/chatgpt-mcp-server.ts"],
+      cwd: process.cwd().replace(/[\\/]apps[\\/]api$/, ""),
+      env: {
+        ...getDefaultEnvironment(),
+        NODE_ENV: "test",
+        DATABASE_PATH: fixture.path,
+        MOCK_ENABLED: "true",
+      },
+      stderr: "pipe",
+    });
+    const client = new Client({ name: "stugu-chatgpt-test", version: "1.0.0" });
+    await client.connect(transport);
+    try {
+      expect(client.getServerVersion()).toEqual({
+        name: "stugu-chatgpt",
+        version: SYSTEM_VERSION,
+      });
+      expect(client.getInstructions()).toContain("voice conversations");
+      expect(client.getInstructions()).toContain("Never infer that wind caused");
+
+      const listed = await client.listTools();
+      const names = listed.tools.map((tool) => tool.name);
+      expect(listed.tools).toHaveLength(20);
+      expect(new Set(names).size).toBe(names.length);
+      expect(names).toEqual(expect.arrayContaining([
+        "get_measurement_snapshot",
+        "query_measurement_history",
+        "summarize_home_measurements",
+        "get_house_opening_states",
+        "get_house_energy_summary",
+        "get_house_weather",
+        "get_home_moisture_response",
+      ]));
+      expect(names).not.toEqual(expect.arrayContaining([
+        "get_setup_doctor",
+        "get_stuguby",
+        "create_house",
+        "update_house",
+      ]));
+      expect(listed.tools.every((tool) => (
+        Boolean(tool.title)
+        && tool.annotations?.readOnlyHint === true
+        && tool.annotations.destructiveHint === false
+        && tool.annotations.idempotentHint === true
+      ))).toBe(true);
+      expect(listed.tools.find((tool) => tool.name === "get_measurement_snapshot"))
+        .toMatchObject({
+          title: "Get current Home readings",
+          description: expect.stringContaining("timestamped"),
+        });
+      expect(listed.tools.find((tool) => tool.name === "get_home_moisture_response")?.description)
+        .toContain("not whether wind caused");
+
+      const summaryResponse = await client.callTool({
+        name: "summarize_home_measurements",
+        arguments: {
+          houseId: "house-main",
+          measurementId: "temperature",
+          sensorIds: ["sensor-01"],
+          from: "2026-07-29T19:00:00.000Z",
+          to: "2026-07-30T04:00:00.000Z",
+        },
+      });
+      expect(summaryResponse.structuredContent).toMatchObject({
+        result: {
+          timezone: "Europe/Helsinki",
+          measurementId: "temperature",
+          homeMean: 21,
+          quality: { sensorsWithData: 1, sampleCount: 2 },
+        },
+      });
+    } finally {
+      await client.close();
+    }
   }, 15_000);
 });

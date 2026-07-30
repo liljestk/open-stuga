@@ -37,6 +37,7 @@ import type {
   PowerCostAggregateQuery,
   QueryControl,
   TelemetryHealth,
+  TimeseriesQueryDiagnostics,
   TelemetrySchemaInitResult,
   TelemetryStorageStats,
   TelemetryStoreOptions,
@@ -53,6 +54,7 @@ declare module "../core.js" {
     health(control?: QueryControl): Promise<TelemetryHealth>;
     storageStats(control?: QueryControl): Promise<TelemetryStorageStats>;
     __poolHealth(): { total: number; idle: number; waiting: number };
+    diagnostics(): TimeseriesQueryDiagnostics;
     close(): Promise<void>;
     __query<Row extends QueryResultRow = QueryResultRow>(
         sql: string,
@@ -74,6 +76,7 @@ declare module "../core.js" {
     refreshMeasurementAggregates(query?: AggregateRefreshQuery): Promise<number>;
     health(control?: QueryControl): Promise<TelemetryHealth>;
     storageStats(control?: QueryControl): Promise<TelemetryStorageStats>;
+    diagnostics(): TimeseriesQueryDiagnostics;
     close(): Promise<void>;
   }
 }

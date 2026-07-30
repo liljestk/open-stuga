@@ -32,23 +32,30 @@ export async function readCostAggregate(input: {
   const localRead = input.metric === "energy"
     ? input.local.energyCostAggregate
     : input.local.powerCostAggregate;
-  if (input.localHistoryComplete) {
-    if (!localRead) throw new Error(`Local ${input.metric}-cost aggregation is unavailable`);
-    return localRead.call(input.local, input.query);
-  }
   const archiveRead = input.metric === "energy"
     ? input.archive?.energyCostAggregate
     : input.archive?.powerCostAggregate;
-  if (!input.archive || !archiveRead) throw new IncompleteTelemetryHistoryError("not-configured");
-  if (input.archivePhase !== "ready" && input.archivePhase !== "syncing") {
-    throw new IncompleteTelemetryHistoryError("not-ready");
+  if (!input.archive || !archiveRead) {
+    if (!input.localHistoryComplete) throw new IncompleteTelemetryHistoryError("not-configured");
+    if (!localRead) throw new Error(`Local ${input.metric}-cost aggregation is unavailable`);
+    return { ...localRead.call(input.local, input.query), archiveState: "local-only" };
+  }
+  if (input.archivePhase !== "ready") {
+    input.requestReconciliation();
+    if (!input.localHistoryComplete || !localRead) {
+      throw new IncompleteTelemetryHistoryError("not-ready");
+    }
+    return { ...localRead.call(input.local, input.query), archiveState: "pending" };
   }
   try {
-    return await archiveRead.call(input.archive, input.query);
+    return { ...await archiveRead.call(input.archive, input.query), archiveState: "archived" };
   } catch {
     const afterFailureCancellation = aborted(input.query.signal);
     if (afterFailureCancellation) throw afterFailureCancellation;
     input.requestReconciliation();
+    if (input.localHistoryComplete && localRead) {
+      return { ...localRead.call(input.local, input.query), archiveState: "pending" };
+    }
     throw new IncompleteTelemetryHistoryError("failed");
   }
 }

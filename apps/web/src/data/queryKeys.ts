@@ -27,9 +27,9 @@ export const queryKeys = {
     ["house", houseId, "energy-summary", intervalId, durationMs] as const
   ),
   openingActivity: (request: OpeningActivityRequest) => (
-    ["analytics", "opening-activity", fingerprint(request)] as const
+    ["analytics", "opening-activity", request.houseId, fingerprint(request)] as const
   ),
   calendarComparison: (request: CalendarComparisonRequest) => (
-    ["analytics", "calendar-comparison", fingerprint(request)] as const
+    ["analytics", "calendar-comparison", request.houseId, fingerprint(request)] as const
   ),
 };

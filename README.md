@@ -118,13 +118,15 @@ Open <http://localhost:5173>. The API exposes the v1 compatibility contract at
 <http://localhost:8787/api/v1> and registered measurements at
 <http://localhost:8787/api/v2>.
 
-Run all checks with:
+Run the complete local CI gate before pushing:
 
 ```powershell
-npm run typecheck
-npm test
-npm run build
+npm run ci:local
 ```
+
+It runs validation, coverage, builds, Compose checks, production container
+builds, and an API smoke test on this computer. See
+[local CI and release publishing](docs/local-ci.md).
 
 Non-interactive container examples:
 
@@ -230,7 +232,7 @@ persistent banner and visually distinct shell while navigating the product.
 Use a separate database or deployment for later demonstrations; setting
 `MOCK_ENABLED=true` cannot undo the real-data latch.
 
-See [direct TP-Link setup](docs/tp-link-direct.md), [automated Tapo history recovery](docs/tapo-history-automation.md), [electricity prices and contracts](docs/electricity-prices.md), [Home Assistant setup](docs/home-assistant.md), [property management and Guest access](docs/property-management.md), [Stuguby federation](docs/stuguby.md), [Cloudflare Tunnel and Access](docs/cloudflare-access.md), [system updates](docs/system-updates.md), [live system migration](docs/live-migration.md), [manual observation semantics](docs/observations.md), [activity and maintenance work](docs/maintenance.md), [Apple Notes and Telegram setup](docs/apple-notes-telegram.md), [architecture](docs/architecture.md), and [API/MCP integration](docs/integrations.md) for details.
+See [direct TP-Link setup](docs/tp-link-direct.md), [automated Tapo history recovery](docs/tapo-history-automation.md), [electricity prices and contracts](docs/electricity-prices.md), [Home Assistant setup](docs/home-assistant.md), [property management and Guest access](docs/property-management.md), [Stuguby federation](docs/stuguby.md), [ChatGPT and voice](docs/chatgpt.md), [Cloudflare Tunnel and Access](docs/cloudflare-access.md), [system updates](docs/system-updates.md), [live system migration](docs/live-migration.md), [manual observation semantics](docs/observations.md), [activity and maintenance work](docs/maintenance.md), [Apple Notes and Telegram setup](docs/apple-notes-telegram.md), [architecture](docs/architecture.md), and [API/MCP integration](docs/integrations.md) for details.
 
 The thermal model is documented in [effective room thermal
 simulation](docs/thermal-simulation.md), and the 2D/3D dynamics layer in
@@ -325,6 +327,12 @@ history; it exposes no create, update, delete, import, sharing, synchronization,
 or control tools.
 Start the API once after an upgrade so migrations are current, and run
 `npm run build` before launching the compiled server.
+
+For a smaller tool set tuned for ChatGPT selection and voice answers, run
+`npm run mcp:chatgpt` or
+`node --env-file-if-exists=.env apps/api/dist/chatgpt-mcp-server.js`. The
+private tunnel and ChatGPT setup is documented in
+[ChatGPT and voice](docs/chatgpt.md).
 
 ## Project layout
 

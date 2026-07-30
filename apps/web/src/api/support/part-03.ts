@@ -204,15 +204,23 @@ export const request = <T,>(path: string, options?: RequestInit, timeoutMs?: num
 
 export const requestV2 = <T,>(path: string, options?: RequestInit, timeoutMs?: number) => requestFrom<T>(API_V2_BASE, path, options, timeoutMs);
 
-export function list<T>(value: unknown, keys: string[]): T[] {
-  if (Array.isArray(value)) return value as T[];
+function objectList<T extends object>(value: unknown, label: string): T[] {
+  if (!Array.isArray(value)) throw new Error(`Invalid API response: ${label} must be an array`);
+  if (value.some((item) => item === null || typeof item !== "object" || Array.isArray(item))) {
+    throw new Error(`Invalid API response: ${label} contains a non-object item`);
+  }
+  return value as T[];
+}
+
+export function list<T extends object>(value: unknown, keys: string[]): T[] {
+  if (Array.isArray(value)) return objectList<T>(value, "collection");
   if (value && typeof value === "object") {
     for (const key of keys) {
       const candidate = (value as Record<string, unknown>)[key];
-      if (Array.isArray(candidate)) return candidate as T[];
+      if (candidate !== undefined) return objectList<T>(candidate, key);
     }
   }
-  return [];
+  throw new Error(`Invalid API response: expected an array in ${keys.join(", ")}`);
 }
 
 export function collectionPagePath(path: string, offset: number): string {
@@ -228,6 +236,9 @@ export async function completeCollection<T extends { id: string }>(path: string,
     const page = list<T>(await request<unknown>(collectionPagePath(path, offset)), keys);
     let added = 0;
     for (const item of page) {
+      if (typeof item.id !== "string" || !item.id) {
+        throw new Error(`Invalid API response: collection item for ${path} has no id`);
+      }
       if (seenIds.has(item.id)) continue;
       seenIds.add(item.id);
       result.push(item);

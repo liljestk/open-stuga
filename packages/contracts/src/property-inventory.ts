@@ -95,6 +95,12 @@ export type HomeElectricityPricePoint = Pick<PropertyElectricityPricePoint,
 /** The telemetry model used to derive one source's consumption. */
 export type HomeEnergyConsumptionBasis = "energy_counter" | "integrated_power";
 
+/** Confidence in the time allocation used for a displayed cost. */
+export type HomeEnergyCostQuality = "measured" | "estimated" | "partial";
+
+/** Whether the calculation source has been acknowledged by the time-series archive. */
+export type HomeEnergyArchiveState = "local-only" | "pending" | "archived";
+
 /** Time-aligned energy cost for one Home electricity source. */
 export interface HomeEnergyCost {
   houseId: string;
@@ -108,11 +114,13 @@ export interface HomeEnergyCost {
   priceCoveragePercent: number;
   measurementCoverageFrom: string | null;
   measurementCoverageUntil: string | null;
+  quality: HomeEnergyCostQuality;
+  archiveState: HomeEnergyArchiveState;
   complete: boolean;
   calculatedAt: string;
 }
 
-export const HOME_ENERGY_SUMMARY_ALGORITHM_VERSION = "home-energy-summary/v1" as const;
+export const HOME_ENERGY_SUMMARY_ALGORITHM_VERSION = "home-energy-summary/v2" as const;
 
 /**
  * Server-authoritative aggregation across every electricity source visible in
@@ -120,7 +128,7 @@ export const HOME_ENERGY_SUMMARY_ALGORITHM_VERSION = "home-energy-summary/v1" as
  * to audit the combined values.
  */
 export interface HomeEnergySummary {
-  schemaVersion: 1;
+  schemaVersion: 2;
   algorithmVersion: typeof HOME_ENERGY_SUMMARY_ALGORITHM_VERSION;
   houseId: string;
   from: string;
@@ -129,9 +137,13 @@ export interface HomeEnergySummary {
   pricedConsumptionKwh: number | null;
   costEur: number | null;
   priceCoveragePercent: number;
+  quality: HomeEnergyCostQuality;
+  archiveState: HomeEnergyArchiveState;
+  aggregationMode: "whole_home" | "independent_sources" | "submeters_only";
   complete: boolean;
   sourceCount: number;
   totalSources: number;
+  excludedSourceCount: number;
   failedSourceCount: number;
   contributions: HomeEnergyCost[];
   calculatedAt: string;

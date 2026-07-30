@@ -7,6 +7,7 @@ import {
   SystemUpdateError,
   SystemUpdateService,
 } from "../src/system-updates.js";
+import { fetchReleaseManifest } from "../src/system-update-release-manifest.js";
 
 const releasePayload = [
   {
@@ -48,6 +49,27 @@ function githubResponse(payload: unknown = releasePayload): Response {
     status: 200,
     headers: { "content-type": "application/json" },
   });
+}
+
+function releaseManifest(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    schema: "stugu-release-manifest/v1",
+    repository: "liljestk/open-stuga",
+    version: "0.6.0",
+    tagName: "v0.6.0",
+    compatibility: {
+      updateAgent: 2,
+      compose: 1,
+    },
+    images: {
+      api: `ghcr.io/liljestk/open-stuga-api:v0.6.0@sha256:${"a".repeat(64)}`,
+      web: `ghcr.io/liljestk/open-stuga-web:v0.6.0@sha256:${"b".repeat(64)}`,
+      backup: `ghcr.io/liljestk/open-stuga-backup:v0.6.0@sha256:${"c".repeat(64)}`,
+      tapo: `ghcr.io/liljestk/open-stuga-tapo-export-runner:v0.6.0@sha256:${"d".repeat(64)}`,
+      updateAgent: `ghcr.io/liljestk/open-stuga-update-agent:v0.6.0@sha256:${"e".repeat(64)}`,
+    },
+    ...overrides,
+  };
 }
 
 describe("system update service", () => {
@@ -113,7 +135,11 @@ describe("system update service", () => {
       repository: "liljestk/open-stuga",
       imagePrefix: "ghcr.io/liljestk/open-stuga",
       operationsDirectory,
-      fetchImpl: vi.fn().mockResolvedValue(githubResponse()),
+      fetchImpl: vi.fn().mockImplementation(async (input: string | URL | Request) => (
+        String(input).endsWith("/stugu-release-manifest-v1.json")
+          ? githubResponse(releaseManifest())
+          : githubResponse()
+      )),
       now: () => now,
     });
     await service.check();
@@ -126,7 +152,9 @@ describe("system update service", () => {
     writeFileSync(join(operationsDirectory, "agent-status.json"), JSON.stringify({
       schema: "stugu-update-agent/v1",
       runtime: "docker",
-      agentVersion: "0.1.0",
+      agentVersion: "2.0.0",
+      updateAgentContract: 2,
+      composeContract: 1,
       ready: true,
       updatedAt: now.toISOString(),
     }));
@@ -138,12 +166,106 @@ describe("system update service", () => {
     });
     const requestFile = readdirSync(operationsDirectory).find((name) => name.startsWith("request-"));
     const request = JSON.parse(readFileSync(join(operationsDirectory, requestFile!), "utf8")) as {
+      schema: string;
+      compatibility: { updateAgent: number; compose: number };
       images: { api: string; web: string };
     };
+    expect(request.schema).toBe("stugu-system-update-request/v2");
+    expect(request.compatibility).toEqual({ updateAgent: 2, compose: 1 });
     expect(request.images).toEqual(expect.objectContaining({
-      api: "ghcr.io/liljestk/open-stuga-api:v0.6.0",
-      web: "ghcr.io/liljestk/open-stuga-web:v0.6.0",
+      api: `ghcr.io/liljestk/open-stuga-api:v0.6.0@sha256:${"a".repeat(64)}`,
+      web: `ghcr.io/liljestk/open-stuga-web:v0.6.0@sha256:${"b".repeat(64)}`,
     }));
+  });
+
+  it("reports legacy agent and appliance contracts without queuing an incompatible request", async () => {
+    const operationsDirectory = directory();
+    const now = new Date("2026-07-23T20:30:00Z");
+    const service = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      operationsDirectory,
+      fetchImpl: vi.fn().mockResolvedValue(githubResponse()),
+      now: () => now,
+    });
+    await service.check();
+
+    writeFileSync(join(operationsDirectory, "agent-status.json"), JSON.stringify({
+      schema: "stugu-update-agent/v1",
+      runtime: "docker",
+      agentVersion: "1.2.0",
+      ready: true,
+      updatedAt: now.toISOString(),
+    }));
+    expect(service.status().capability).toEqual({
+      available: false,
+      runtime: "docker",
+      agentLastSeenAt: now.toISOString(),
+      reason: "agent-upgrade-required",
+    });
+    await expect(service.queueLatest()).rejects.toMatchObject<SystemUpdateError>({
+      code: "UPDATE_AGENT_UPGRADE_REQUIRED",
+      status: 503,
+    });
+
+    writeFileSync(join(operationsDirectory, "agent-status.json"), JSON.stringify({
+      schema: "stugu-update-agent/v1",
+      runtime: "raspberry-pi",
+      agentVersion: "2.0.0",
+      updateAgentContract: 2,
+      composeContract: 1,
+      ready: true,
+      systemUpdateReason: "appliance-upgrade-required",
+      updatedAt: now.toISOString(),
+    }));
+    expect(service.status().capability).toEqual({
+      available: false,
+      runtime: "raspberry-pi",
+      agentLastSeenAt: now.toISOString(),
+      reason: "appliance-upgrade-required",
+    });
+    await expect(service.queueLatest()).rejects.toMatchObject<SystemUpdateError>({
+      code: "APPLIANCE_UPGRADE_REQUIRED",
+      status: 503,
+    });
+    expect(readdirSync(operationsDirectory).some((name) => name.startsWith("request-"))).toBe(false);
+  });
+
+  it("fails closed when a release has no compatible immutable manifest", async () => {
+    const operationsDirectory = directory();
+    const now = new Date("2026-07-23T20:30:00Z");
+    const fetchImpl = vi.fn().mockImplementation(async (input: string | URL | Request) => (
+      String(input).endsWith("/stugu-release-manifest-v1.json")
+        ? githubResponse(releaseManifest({
+          compatibility: { updateAgent: 3, compose: 1 },
+        }))
+        : githubResponse()
+    ));
+    const service = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      operationsDirectory,
+      fetchImpl,
+      now: () => now,
+    });
+    await service.check();
+    writeFileSync(join(operationsDirectory, "agent-status.json"), JSON.stringify({
+      schema: "stugu-update-agent/v1",
+      runtime: "docker",
+      agentVersion: "2.0.0",
+      updateAgentContract: 2,
+      composeContract: 1,
+      ready: true,
+      updatedAt: now.toISOString(),
+    }));
+
+    await expect(service.queueLatest()).rejects.toMatchObject<SystemUpdateError>({
+      code: "RELEASE_MANIFEST_INVALID",
+      status: 502,
+    });
+    expect(readdirSync(operationsDirectory).some((name) => name.startsWith("request-"))).toBe(false);
   });
 
   it("normalizes legacy agent status for the live progress UI", () => {
@@ -206,5 +328,47 @@ describe("system version comparison", () => {
     expect(compareSystemVersions("1.2.3", "1.2.3-beta.2")).toBeGreaterThan(0);
     expect(compareSystemVersions("1.2.4", "1.2.3")).toBeGreaterThan(0);
     expect(compareSystemVersions("1.2.3-beta.10", "1.2.3-beta.2")).toBeGreaterThan(0);
+  });
+});
+
+describe("release manifest transport bounds", () => {
+  const options = {
+    currentVersion: "0.5.0",
+    repository: "liljestk/open-stuga",
+    imagePrefix: "ghcr.io/liljestk/open-stuga",
+    release: { version: "0.6.0", tagName: "v0.6.0" },
+  };
+
+  it("rejects an oversized declared body before reading it", async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      cancel: () => { cancelled = true; },
+      start: (controller) => controller.enqueue(new Uint8Array([123])),
+    });
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(body, {
+      headers: { "content-length": String(32 * 1024 + 1) },
+    }));
+
+    await expect(fetchReleaseManifest({ ...options, fetchImpl }))
+      .rejects.toThrow("exceeded the size limit");
+    expect(cancelled).toBe(true);
+  });
+
+  it("cancels a streamed body when the decoded payload limit is crossed", async () => {
+    let pulls = 0;
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      cancel: () => { cancelled = true; },
+      pull: (controller) => {
+        pulls += 1;
+        controller.enqueue(new Uint8Array(20 * 1024));
+      },
+    });
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(body));
+
+    await expect(fetchReleaseManifest({ ...options, fetchImpl }))
+      .rejects.toThrow("exceeded the size limit");
+    expect(pulls).toBeLessThanOrEqual(3);
+    expect(cancelled).toBe(true);
   });
 });

@@ -13,6 +13,9 @@ import {
   imageDefinitions,
   parseArguments,
   platformInvocation,
+  releaseManifest,
+  requirePublicReleaseRepository,
+  requireReleaseRepositoryTag,
   repositoryFromRemote,
 } from "../publish-local-release.mjs";
 
@@ -244,7 +247,13 @@ test("clean appliance startup includes every runtime path and repairs interrupte
     /COPY scripts\/stugu-migration-target \.\/scripts\/stugu-migration-target/,
   );
   assert.match(environment, /STUGA_APNS_SECRET_DIR=\/persistent\/stugu\/secrets\/apns/);
+  assert.match(environment, /STUGA_R2_SECRET_DIR=\/persistent\/stugu\/secrets\/r2/);
   assert.match(composeStart, /"\$state_dir\/secrets\/apns"/);
+  assert.match(composeStart, /"\$state_dir\/secrets\/r2"/);
+  assert.match(
+    composeStart,
+    /STUGA_R2_SECRET_DIR=\/persistent\/stugu\/secrets\/r2/,
+  );
   assert.match(
     composeStart,
     /start_release\(\)[\s\S]*runtime-secrets[\s\S]*timescaledb[\s\S]*--profile maintenance run[\s\S]*timeseries-credential-reconcile[\s\S]*--remove-orphans/,
@@ -271,10 +280,10 @@ test("the appliance exposes secure LAN access and persistent Tailscale by defaul
   assert.match(composeStart, /dd if=\/dev\/urandom bs=32 count=1[\s\S]*LOCAL_AUTH_BOOTSTRAP_SECRET/);
   assert.match(control, /#bootstrap=%s/);
   assert.match(control, /tailscale up --operator=stugu/);
-  assert.match(control, /known_good_release_env="\$state_dir\/last-known-good\.env"/);
+  assert.match(control, /known_good_release_env="\$state_dir\/update-release\/known-good\.env"/);
   assert.match(
     control,
-    /if valid_release_env "\$known_good_release_env"; then[\s\S]*release_env="\$known_good_release_env"/,
+    /if \[\[ -e "\$known_good_release_env" \]\]; then[\s\S]*valid_release_env "\$known_good_release_env"[\s\S]*release_env="\$known_good_release_env"/,
   );
   assert.match(layer, /systemd-networkd-wait-online --any --interface=eth0 --interface=wlan0 --timeout=30/);
   assert.match(layer, /BOOTFS="\/bootfs"/);
@@ -331,6 +340,67 @@ test("clean appliances default to guarded automatic GitHub container updates", a
   assert.match(composeStart, /if \[\[ ! -e "\$state_dir\/update-operations\/settings\.json" \]\]/);
 });
 
+test("contract-2 boot preserves legacy rollback state without executing mutable tags", async () => {
+  const composeStart = await readFile(
+    new URL("../../deploy/rpi/assets/stugu-compose-start", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(composeStart, /legacy_known_good_env="\$state_dir\/last-known-good\.env"/);
+  assert.doesNotMatch(
+    composeStart,
+    /install[\s\S]{0,180}"\$legacy_known_good_env" "\$known_good_env"/,
+  );
+  assert.match(
+    composeStart,
+    /valid_legacy_release\(\)[\s\S]*wc -l[\s\S]*STUGA_UPDATE_AGENT_IMAGE=/,
+  );
+  assert.match(
+    composeStart,
+    /archive_legacy_release\(\)[\s\S]*\.legacy-v1[\s\S]*mv -- "\$candidate" "\$archive"/,
+  );
+  assert.match(
+    composeStart,
+    /elif valid_legacy_release "\$update_release_env"; then[\s\S]*archive_legacy_release "\$update_release_env" "candidate release"/,
+  );
+});
+
+test("appliance updates preserve the published release repository and GHCR credentials", async () => {
+  const [buildScript, publisher, environment, composeStart, control, compose] =
+    await Promise.all([
+      readFile(new URL("../build-rpi-image.sh", import.meta.url), "utf8"),
+      readFile(new URL("../publish-local-release.mjs", import.meta.url), "utf8"),
+      readFile(new URL("../../deploy/rpi/assets/stugu.env.example", import.meta.url), "utf8"),
+      readFile(new URL("../../deploy/rpi/assets/stugu-compose-start", import.meta.url), "utf8"),
+      readFile(new URL("../../deploy/rpi/assets/stuguctl", import.meta.url), "utf8"),
+      readFile(new URL("../../docker-compose.yml", import.meta.url), "utf8"),
+    ]);
+
+  assert.match(environment, /^SYSTEM_UPDATE_REPOSITORY=liljestk\/open-stuga$/mu);
+  assert.match(environment, /^SYSTEM_UPDATE_IMAGE_PREFIX=ghcr\.io\/liljestk\/open-stuga$/mu);
+  assert.match(environment, /^STUGA_DOCKER_CONFIG_DIRECTORY=\/persistent\/stugu\/docker-config$/mu);
+  assert.match(buildScript, /STUGA_RELEASE_REPOSITORY/);
+  assert.match(
+    buildScript,
+    /stugu\.env\.example" "\$release_repository" "\$image_prefix"[\s\S]*SYSTEM_UPDATE_REPOSITORY[\s\S]*SYSTEM_UPDATE_IMAGE_PREFIX/,
+  );
+  assert.match(publisher, /STUGA_RELEASE_REPOSITORY: repository/);
+  assert.match(publisher, /Release \$\{tag\} is already published and immutable/);
+  assert.match(publisher, /Release repository \$\{repository\} must be public/);
+  assert.doesNotMatch(publisher, /--skip-checks|skipChecks/);
+  assert.match(composeStart, /SYSTEM_UPDATE_REPOSITORY SYSTEM_UPDATE_IMAGE_PREFIX/);
+  assert.match(composeStart, /"\$\{image_prefix\}-api:v\$version"/);
+  assert.match(control, /"\$\{image_prefix\}-api:v\$version"/);
+  assert.doesNotMatch(
+    `${composeStart}\n${control}`,
+    /"ghcr\.io\/liljestk\/open-stuga-api:v\$version"/,
+  );
+  assert.match(
+    compose,
+    /DOCKER_CONFIG: \/persistent\/stugu\/docker-config[\s\S]*STUGA_DOCKER_CONFIG_DIRECTORY:-\.\/data\/docker-config/,
+  );
+});
+
 test("local publishing owns expensive builds and hosted release work is an explicit fallback", async () => {
   const [workflow, publisher] = await Promise.all([
     readFile(new URL("../../.github/workflows/rpi-release.yml", import.meta.url), "utf8"),
@@ -353,6 +423,9 @@ test("local publishing owns expensive builds and hosted release work is an expli
   assert.match(publisher, /"--volume",\s*\n\s*"\/rpi-build"/);
   assert.match(publisher, /RPI_BUILD_ROOT: "\/rpi-build"/);
   assert.match(publisher, /scripts\/build-rpi-image\.sh/);
+  assert.match(publisher, /ci:local/);
+  assert.match(publisher, /--skip-container-builds/);
+  assert.match(publisher, /localCiReport/);
   assert.match(publisher, /"release",\s*\n\s*"upload"/);
   assert.match(publisher, /--publish/);
   assert.doesNotMatch(publisher, /deploy-rpi-ota|Deploy OTA/);
@@ -375,6 +448,17 @@ test("local release options and output names are deterministic", () => {
   assert.equal(options.publish, true);
   assert.equal(options.reuseContainers, true);
   assert.equal(options.uploadFactory, true);
+  assert.throws(() => parseArguments(["--skip-checks"]), /Unknown argument/);
+  assert.doesNotThrow(() => requirePublicReleaseRepository("owner/releases", "PUBLIC"));
+  assert.throws(
+    () => requirePublicReleaseRepository("owner/private-source", "PRIVATE"),
+    /must be public/,
+  );
+  assert.doesNotThrow(() => requireReleaseRepositoryTag("owner/releases", "v1.2.3", 0));
+  assert.throws(
+    () => requireReleaseRepositoryTag("owner/releases", "v1.2.3", 1),
+    /must already contain its own v1\.2\.3 tag/,
+  );
 
   assert.equal(
     repositoryFromRemote("git@github.com:liljestk/open-stuga.git"),
@@ -390,7 +474,32 @@ test("local release options and output names are deterministic", () => {
   const artifacts = artifactDefinitions("/workspace", "1.2.3");
   assert.match(artifacts.ota, /stugu-rpi4-1\.2\.3-ota\.tar\.zst$/);
   assert.match(artifacts.factory, /stugu-rpi4-1\.2\.3\.img\.zst$/);
+  assert.match(artifacts.localCiReport, /stugu-1\.2\.3-local-ci\.json$/);
+  assert.equal(artifacts.localCiChecksum, `${artifacts.localCiReport}.sha256`);
+  assert.match(artifacts.releaseManifest, /stugu-release-manifest-v1\.json$/);
   assert.notEqual(artifacts.combinedChecksum, artifacts.releaseChecksum);
+
+  const digests = Object.fromEntries(images.map(({ target, ref }) => [
+    target,
+    `${ref}@sha256:${"a".repeat(64)}`,
+  ]));
+  assert.deepEqual(
+    releaseManifest("liljestk/open-stuga", "1.2.3", "v1.2.3", digests),
+    {
+      schema: "stugu-release-manifest/v1",
+      repository: "liljestk/open-stuga",
+      version: "1.2.3",
+      tagName: "v1.2.3",
+      compatibility: { updateAgent: 2, compose: 1 },
+      images: {
+        api: digests.api,
+        web: digests.web,
+        backup: digests.backup,
+        tapo: digests["tapo-export-runner"],
+        updateAgent: digests["update-agent"],
+      },
+    },
+  );
 });
 
 test("the local publisher invokes npm through Node on Windows", () => {
@@ -476,6 +585,16 @@ test("the appliance exposes a health-gated migration receiver with rollback", as
   assert.match(compose, /STUGA_COMPOSE_PROJECT_NAME: \$\{STUGA_COMPOSE_PROJECT_NAME:-stuga\}/);
   assert.match(environment, /STUGA_COMPOSE_PROJECT_NAME=stugu/);
   assert.match(composeStart, /STUGA_COMPOSE_PROJECT_NAME=stugu/);
+  assert.match(compose, /STUGA_FACTORY_RELEASE_ENV_FILE: \/opt\/stugu\/release\.env/);
+  assert.match(
+    compose,
+    /STUGA_KNOWN_GOOD_RELEASE_ENV_FILE: \/persistent\/stugu\/update-release\/known-good\.env/,
+  );
+  assert.match(layer, /STUGA_RELEASE_ENV_SCHEMA=2/);
+  assert.match(layer, /STUGA_UPDATE_AGENT_CONTRACT=2/);
+  assert.match(layer, /STUGA_COMPOSE_CONTRACT=1/);
+  assert.match(composeStart, /@sha256:\$digest/);
+  assert.doesNotMatch(composeStart, /STUGA_API_IMAGE=ghcr[^"\n]*:v\$version"/);
   assert.match(layer, /STUGA_VERSION=\$\{IGconf_artefact_version\}/);
   assert.match(layer, /stugu-lock\.conf/);
 });

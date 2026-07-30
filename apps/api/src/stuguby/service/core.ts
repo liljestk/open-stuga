@@ -2,6 +2,12 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import {
+  installRegisteredMethods,
+  type AssertNoMethodKeys,
+  type IncompatibleMethodKeys,
+  type RegisteredMethodSet,
+} from "../../method-registry.js";
 import type {
   AreaEquipment,
   Floor,
@@ -151,7 +157,7 @@ export interface StugubyServiceInternals {
   get identity(): StugubyNodeIdentity;
 }
 
-export type StugubyServiceMethodSet = Record<string, unknown> & ThisType<StugubyServiceInternals>;
+export type StugubyServiceMethodSet = RegisteredMethodSet<StugubyServiceInternals>;
 
 export class StugubyServiceCore {
   readonly database: ClimateDatabase;
@@ -195,10 +201,10 @@ export class StugubyServiceCore {
     }
 }
 
+type StugubyServicePublicMethodMismatch = AssertNoMethodKeys<
+  IncompatibleMethodKeys<StugubyServiceCore, StugubyServiceInternals>
+>;
+
 export function registerStugubyServiceMethods(methods: StugubyServiceMethodSet): void {
-  for (const [name, method] of Object.entries(methods)) {
-    Object.defineProperty(StugubyServiceCore.prototype, name, {
-      value: method, configurable: true, writable: true, enumerable: false,
-    });
-  }
+  installRegisteredMethods("StugubyService", StugubyServiceCore.prototype, methods);
 }

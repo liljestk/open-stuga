@@ -135,7 +135,7 @@ available room-climate measurement-hours inside their guide, median moisture
 half-recovery time, weather-normalized energy, and monitoring coverage. Opening
 all checks reveals the six derivations, typed limitations, room/sensor evidence,
 and provenance. The implementation is deterministic and versioned as
-`home-performance-v1.0.0`.
+`home-performance-v2.0.0`.
 
 The current derivations are:
 
@@ -186,9 +186,9 @@ The current derivations are:
    phrased as placement/calibration checks to review, not confirmed sensor
    failures.
 
-The interactive panel is limited to the first 40 enabled sensors in stable
-identifier order so each query stays within the existing 100,000-point analytics
-budget. Action evidence is requested for the selected Home rather than from the
+The server accepts at most 80 visible enabled sensors and rejects a request
+whose planned evidence exceeds 500,000 bucket points. It batches archive reads
+without truncating the Home scope. Action evidence is requested for the selected Home rather than from the
 cross-Home ledger. A history that reaches its fixed request cap is also marked
 limited rather than silently treated as complete. Truncation, incomplete archive
 state, missing opening history, unclassified electricity evidence, incomplete
@@ -199,6 +199,19 @@ panel presents the remaining results with a partial-evidence notice.
 The evidence query and thermal-isolation calculation are lazy: opening their
 disclosures starts the request, and closing an in-flight thermal calculation
 cancels it.
+
+Home Performance is a minute-aligned, 60-second process-local snapshot.
+Identical misses coalesce and routine measurement events deliberately retain the
+warm entry; topology, weather, opening, action, maintenance, and other mutation
+events invalidate the affected snapshot. Home-monitoring current state refreshes
+on a two-second snapshot while its trend evidence reuses one minute-aligned
+hybrid five-minute rollup over Timescale history, with one grouped SQLite
+fallback only when local history is known complete.
+
+Run `npm run benchmark:home-performance -- --house <id>` against an active node
+to record cold/warm latency, response size, and cache outcomes. Add
+`--exercise-ingest` (and `STUGU_BENCH_INGEST_API_KEY` when configured) to verify
+that a routine measurement still produces a warm cache hit.
 
 ## Query contract
 

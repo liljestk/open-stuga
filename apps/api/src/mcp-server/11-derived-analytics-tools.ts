@@ -8,6 +8,7 @@ import { getHomePerformance } from "../analytics/home-performance/service.js";
 import {
   getHomeMonitoringCollection,
   getHomeMonitoringDetail,
+  loadHomeMonitoringHistory,
 } from "../analytics/home-monitoring/service.js";
 import { requireMcpHouse, requireMcpHouseSensor } from "../mcp-validation.js";
 import {
@@ -92,16 +93,23 @@ export async function homePerformance(args: Record<string, unknown>) {
   });
 }
 
-export function homeMonitoring(args: Record<string, unknown>) {
+export async function homeMonitoring(args: Record<string, unknown>) {
   const evaluatedAt = new Date().toISOString();
   const context = monitoringContext(evaluatedAt);
   const houseId = optionalString(args, "houseId");
   if (houseId) {
     const house = requireMcpHouse(database, houseId);
-    return getHomeMonitoringDetail(context, {
+    const scope = {
       house,
       sensors: database.listSensors(house.id).filter((sensor) => sensor.enabled),
+    };
+    const measurementHistory = await loadHomeMonitoringHistory({
+      database,
+      telemetryReader,
+      scope,
+      evaluatedAt,
     });
+    return getHomeMonitoringDetail({ ...context, measurementHistory }, scope);
   }
   return getHomeMonitoringCollection(
     context,
@@ -245,6 +253,50 @@ export const derivedAnalyticsToolDefinitions = [
         },
       },
       required: ["houseId", "sensorIds", "measurementId", "unit", "anchor"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_home_moisture_response",
+    description: "Compare temperature-corrected indoor and outdoor moisture over up to 14 days. This measures association and response, not whether wind caused a humidity change.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        houseId: { type: "string", minLength: 1, maxLength: 200 },
+        from: { type: "string", format: "date-time" },
+        to: { type: "string", format: "date-time" },
+      },
+      required: ["houseId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "summarize_home_measurements",
+    description: "Compute coverage-aware per-sensor and equal-weight whole-Home means for one measured quantity over an exact, half-open time range.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        houseId: { type: "string", minLength: 1, maxLength: 200 },
+        measurementId: { type: "string", minLength: 1, maxLength: 200 },
+        sensorIds: {
+          type: "array",
+          minItems: 1,
+          maxItems: 50,
+          uniqueItems: true,
+          items: { type: "string", minLength: 1, maxLength: 200 },
+        },
+        from: { type: "string", format: "date-time" },
+        to: { type: "string", format: "date-time" },
+        qualities: {
+          type: "array",
+          minItems: 1,
+          maxItems: 3,
+          uniqueItems: true,
+          items: { enum: ["good", "estimated", "stale"] },
+          default: ["good", "estimated"],
+        },
+      },
+      required: ["houseId", "measurementId", "from", "to"],
       additionalProperties: false,
     },
   },

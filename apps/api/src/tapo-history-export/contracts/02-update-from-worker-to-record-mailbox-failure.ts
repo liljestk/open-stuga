@@ -63,8 +63,8 @@ declare module "../core.js" {
     boundDeviceId(sensorId: string): string | null;
     acceptanceRevision(): string;
     targetAliasMatches(job: TapoHistoryExportJob): boolean;
-    recordMailboxSuccess(at?: unknown ): void;
-    recordMailboxFailure(error: unknown, at?: unknown ): void;
+    recordMailboxSuccess(at?: string): void;
+    recordMailboxFailure(error: unknown, at?: string): void;
   }
 
   interface TapoHistoryExportServiceCore {

@@ -174,7 +174,10 @@ export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
   useEffect(() => {
       const route = routeFromLocation(window.location);
       if (!route.legacy || route.notFound || !property) return;
-      const legacyHouse = state.houses.find((candidate) => candidate.id === route.houseId) ?? house;
+      const legacyHouse = route.houseId
+        ? state.houses.find((candidate) => candidate.id === route.houseId)
+        : house;
+      if (route.houseId && !legacyHouse) return;
       const canonicalPage = !legacyHouse && ["twin", "activity", "outdoor", "sensors", "analytics", "integrations"].includes(page)
         ? "properties"
         : page;

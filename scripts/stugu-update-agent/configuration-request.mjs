@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   closeSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -30,7 +31,17 @@ import {
 
 import { revokeAccessToken } from ".././cloudflare-oauth.mjs";
 
-export const AGENT_VERSION = "1.2.0";
+export const AGENT_VERSION = "2.0.0";
+
+export const RELEASE_ENV_SCHEMA = "2";
+
+export const RELEASE_MANIFEST_SCHEMA = "stugu-release-manifest/v1";
+
+export const UPDATE_REQUEST_SCHEMA = "stugu-system-update-request/v2";
+
+export const UPDATE_AGENT_CONTRACT = 2;
+
+export const COMPOSE_CONTRACT = 1;
 
 export const MAX_FILE_BYTES = 256 * 1024;
 
@@ -91,12 +102,20 @@ export function readAgentConfig(env = process.env, cwd = process.cwd(), args = p
     optional(env.SYSTEM_UPDATE_OPERATIONS_DIRECTORY) ?? join("data", "update-operations"),
   );
   const repository = trustedRepository(env.SYSTEM_UPDATE_REPOSITORY);
-  return {
+  const config = {
     projectDirectory,
     operationsDirectory,
     repository,
     imagePrefix: trustedImagePrefix(env.SYSTEM_UPDATE_IMAGE_PREFIX, repository),
     runtime: updateRuntime(env.SYSTEM_UPDATE_RUNTIME),
+    factoryReleaseEnvFile: resolve(
+      projectDirectory,
+      optional(env.STUGA_FACTORY_RELEASE_ENV_FILE) ?? "release.env",
+    ),
+    knownGoodReleaseEnvFile: resolve(
+      projectDirectory,
+      optional(env.STUGA_KNOWN_GOOD_RELEASE_ENV_FILE) ?? ".stugu-known-good.env",
+    ),
     releaseEnvFile: resolve(
       projectDirectory,
       optional(env.STUGA_RELEASE_ENV_FILE) ?? ".stugu-release.env",
@@ -108,6 +127,15 @@ export function readAgentConfig(env = process.env, cwd = process.cwd(), args = p
     ),
     once: args.includes("--once"),
   };
+  const releasePaths = [
+    config.factoryReleaseEnvFile,
+    config.knownGoodReleaseEnvFile,
+    config.releaseEnvFile,
+  ];
+  if (new Set(releasePaths).size !== releasePaths.length) {
+    throw new Error("Factory, known-good, and candidate release environment files must be distinct");
+  }
+  return config;
 }
 
 export function readJson(path) {
@@ -163,18 +191,24 @@ export async function runCommand(command, args, options = {}) {
   });
 }
 
-export function expectedImages(config, tagName) {
-  return {
-    api: `${config.imagePrefix}-api:${tagName}`,
-    web: `${config.imagePrefix}-web:${tagName}`,
-    backup: `${config.imagePrefix}-backup:${tagName}`,
-    tapo: `${config.imagePrefix}-tapo-export-runner:${tagName}`,
-    updateAgent: `${config.imagePrefix}-update-agent:${tagName}`,
-  };
+const releaseImageSuffixes = {
+  api: "api",
+  web: "web",
+  backup: "backup",
+  tapo: "tapo-export-runner",
+  updateAgent: "update-agent",
+};
+
+export function isExpectedDigestImage(config, name, version, value) {
+  if (typeof value !== "string" || !(name in releaseImageSuffixes)) return false;
+  const prefix = `${config.imagePrefix}-${releaseImageSuffixes[name]}:v${version}@sha256:`;
+  return value.startsWith(prefix)
+    && value.length === prefix.length + 64
+    && /^[0-9a-f]{64}$/.test(value.slice(prefix.length));
 }
 
 export function validatedRequest(value, config) {
-  if (!value || typeof value !== "object" || value.schema !== "stugu-system-update-request/v1") {
+  if (!value || typeof value !== "object" || value.schema !== UPDATE_REQUEST_SCHEMA) {
     throw new Error("Unsupported update request");
   }
   if (
@@ -188,10 +222,24 @@ export function validatedRequest(value, config) {
     || typeof value.requestedAt !== "string"
     || !Number.isFinite(Date.parse(value.requestedAt))
     || typeof value.previousVersion !== "string"
+    || value.releaseManifestSchema !== RELEASE_MANIFEST_SCHEMA
+    || value.compatibility?.updateAgent !== UPDATE_AGENT_CONTRACT
+    || value.compatibility?.compose !== COMPOSE_CONTRACT
   ) throw new Error("Update request contains invalid release identity");
-  const images = expectedImages(config, value.tagName);
-  if (!value.images || Object.entries(images).some(([name, expected]) => value.images[name] !== expected)) {
-    throw new Error("Update request attempted to override the trusted image namespace");
+  const images = {};
+  if (
+    !value.images
+    || typeof value.images !== "object"
+    || Object.keys(value.images).length !== Object.keys(releaseImageSuffixes).length
+  ) {
+    throw new Error("Update request does not contain immutable release images");
+  }
+  for (const name of Object.keys(releaseImageSuffixes)) {
+    const image = value.images[name];
+    if (!isExpectedDigestImage(config, name, value.version, image)) {
+      throw new Error("Update request attempted to override the trusted image namespace or omit an immutable digest");
+    }
+    images[name] = image;
   }
   return {
     id: value.id,
@@ -199,6 +247,10 @@ export function validatedRequest(value, config) {
     tagName: value.tagName,
     requestedAt: new Date(value.requestedAt).toISOString(),
     previousVersion: value.previousVersion,
+    compatibility: {
+      updateAgent: UPDATE_AGENT_CONTRACT,
+      compose: COMPOSE_CONTRACT,
+    },
     images,
   };
 }
@@ -276,6 +328,9 @@ export function validatedCloudflareSetupRequest(value) {
 
 export function releaseEnvironment(request) {
   return [
+    `STUGA_RELEASE_ENV_SCHEMA=${RELEASE_ENV_SCHEMA}`,
+    `STUGA_UPDATE_AGENT_CONTRACT=${request.compatibility.updateAgent}`,
+    `STUGA_COMPOSE_CONTRACT=${request.compatibility.compose}`,
     `STUGA_VERSION=${request.version}`,
     `STUGA_API_IMAGE=${request.images.api}`,
     `STUGA_WEB_IMAGE=${request.images.web}`,
@@ -286,12 +341,152 @@ export function releaseEnvironment(request) {
   ].join("\n");
 }
 
+const releaseEnvironmentKeys = new Set([
+  "STUGA_RELEASE_ENV_SCHEMA",
+  "STUGA_UPDATE_AGENT_CONTRACT",
+  "STUGA_COMPOSE_CONTRACT",
+  "STUGA_VERSION",
+  "STUGA_API_IMAGE",
+  "STUGA_WEB_IMAGE",
+  "STUGA_BACKUP_IMAGE",
+  "STUGA_TAPO_RUNNER_IMAGE",
+  "STUGA_UPDATE_AGENT_IMAGE",
+]);
+
+const legacyReleaseEnvironmentKeys = new Set([
+  "STUGA_VERSION",
+  "STUGA_API_IMAGE",
+  "STUGA_WEB_IMAGE",
+  "STUGA_BACKUP_IMAGE",
+  "STUGA_TAPO_RUNNER_IMAGE",
+  "STUGA_UPDATE_AGENT_IMAGE",
+]);
+
+function releaseEnvironmentValues(lines, keys, label) {
+  const values = {};
+  if (lines.length !== keys.size) return null;
+  for (const line of lines) {
+    const separator = line.indexOf("=");
+    const key = separator > 0 ? line.slice(0, separator) : "";
+    if (!keys.has(key) || key in values) {
+      throw new Error(`${label} contains an unsupported or duplicate setting`);
+    }
+    values[key] = line.slice(separator + 1);
+  }
+  return values;
+}
+
+function releaseImages(values) {
+  return {
+    api: values.STUGA_API_IMAGE,
+    web: values.STUGA_WEB_IMAGE,
+    backup: values.STUGA_BACKUP_IMAGE,
+    tapo: values.STUGA_TAPO_RUNNER_IMAGE,
+    updateAgent: values.STUGA_UPDATE_AGENT_IMAGE,
+  };
+}
+
+function isExpectedLegacyTagImage(config, name, version, value) {
+  if (typeof value !== "string" || !(name in releaseImageSuffixes)) return false;
+  return value === `${config.imagePrefix}-${releaseImageSuffixes[name]}:v${version}`;
+}
+
+export function validatedReleaseEnvironment(text, config, label = "release environment") {
+  if (typeof text !== "string" || Buffer.byteLength(text, "utf8") > 8 * 1024) {
+    throw new Error(`${label} is missing or too large`);
+  }
+  const lines = text.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
+  const v2Values = releaseEnvironmentValues(lines, releaseEnvironmentKeys, label);
+  const legacyValues = v2Values
+    ? null
+    : releaseEnvironmentValues(lines, legacyReleaseEnvironmentKeys, label);
+  const values = v2Values ?? legacyValues;
+  if (!values) throw new Error(`${label} does not use a supported release environment schema`);
+  const version = values.STUGA_VERSION;
+  if (
+    typeof version !== "string"
+    || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)
+  ) throw new Error(`${label} contains an invalid release version`);
+  const images = releaseImages(values);
+
+  if (legacyValues) {
+    if (Object.entries(images).some(
+      ([name, image]) => !isExpectedLegacyTagImage(config, name, version, image),
+    )) {
+      throw new Error(`${label} contains an untrusted legacy image reference`);
+    }
+    return {
+      format: "legacy-v1",
+      version,
+      compatibility: null,
+      images,
+    };
+  }
+
+  if (
+    values.STUGA_RELEASE_ENV_SCHEMA !== RELEASE_ENV_SCHEMA
+    || values.STUGA_UPDATE_AGENT_CONTRACT !== String(UPDATE_AGENT_CONTRACT)
+    || values.STUGA_COMPOSE_CONTRACT !== String(COMPOSE_CONTRACT)
+  ) {
+    throw new Error(`${label} is incompatible with this updater or Compose contract`);
+  }
+  if (Object.entries(images).some(([name, image]) => !isExpectedDigestImage(config, name, version, image))) {
+    throw new Error(`${label} contains an untrusted or mutable image reference`);
+  }
+  return {
+    format: "v2",
+    version,
+    compatibility: {
+      updateAgent: UPDATE_AGENT_CONTRACT,
+      compose: COMPOSE_CONTRACT,
+    },
+    images,
+  };
+}
+
+export function readReleaseEnvironment(path, config, label) {
+  if (!existsSync(path)) throw new Error(`${label} is missing`);
+  if (!lstatSync(path).isFile()) throw new Error(`${label} must be a regular file`);
+  const text = readFileSync(path, "utf8");
+  return {
+    path,
+    text,
+    ...validatedReleaseEnvironment(text, config, label),
+  };
+}
+
+export function currentReleaseEnvironment(config) {
+  for (const [path, label] of [
+    [config.releaseEnvFile, "candidate release environment"],
+    [config.knownGoodReleaseEnvFile, "known-good release environment"],
+    [config.factoryReleaseEnvFile, "factory release environment"],
+  ]) {
+    if (existsSync(path)) return readReleaseEnvironment(path, config, label);
+  }
+  throw new Error("No immutable current release environment is available; refusing an update without rollback state");
+}
+
+export function releaseEnvironmentFiles(config) {
+  const paths = [
+    [config.factoryReleaseEnvFile, "factory release environment"],
+    [config.knownGoodReleaseEnvFile, "known-good release environment"],
+    [config.releaseEnvFile, "candidate release environment"],
+  ];
+  return paths.flatMap(([path, label]) => {
+    if (!existsSync(path)) return [];
+    readReleaseEnvironment(path, config, label);
+    return [path];
+  });
+}
+
 export function composeArguments(config) {
   const args = ["compose"];
   if (config.composeProjectName) args.push("--project-name", config.composeProjectName);
   const localEnv = join(config.projectDirectory, ".env");
   if (existsSync(localEnv)) args.push("--env-file", localEnv);
-  if (existsSync(config.releaseEnvFile)) args.push("--env-file", config.releaseEnvFile);
+  for (const releaseEnv of releaseEnvironmentFiles(config)) {
+    args.push("--env-file", releaseEnv);
+  }
   args.push("--file", join(config.projectDirectory, "docker-compose.yml"));
   return args;
 }

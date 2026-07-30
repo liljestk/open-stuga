@@ -26,6 +26,7 @@ import {
 } from "@climate-twin/stuguby-protocol";
 import { GrantRow, InvitationRow, JoinAdmissionRow, ProjectionResourceType, PublicationResourceType, SharedPropertyRow, StugubyInvitationAdmission, StugubyPropertyAdoption, StugubyStoredPropertyCommand, invitationFromRow } from "../support/01-stuguby-row-to-event-blob-digests.js";
 import { registerStugubyStoreMethods, stugubyStoreState, type StugubyStoreInternals } from "../core.js";
+import { withStugubySavepoint } from "../savepoint.js";
 
 registerStugubyStoreMethods({
   admitInvitation(this: StugubyStoreInternals, id: string, secretHash: string, identity: StugubyNodeIdentity,
@@ -115,20 +116,37 @@ registerStugubyStoreMethods({
       this.audit(stugubyId, "invitation.revoked", this.localNodeId, invitationId, {}, now);
     },
   upsertGrant(this: StugubyStoreInternals, grant: StugubyShareGrant): void {
-      this[stugubyStoreState].db.prepare(`INSERT INTO stugby_share_grants
-        (id,stugby_id,authority_node_id,publication_id,epoch,revision,expires_at,revoked_at,grant_json,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?)
-        ON CONFLICT(id) DO UPDATE SET publication_id=excluded.publication_id,epoch=excluded.epoch,
-          revision=excluded.revision,expires_at=excluded.expires_at,revoked_at=excluded.revoked_at,
-          grant_json=excluded.grant_json,updated_at=excluded.updated_at
-        WHERE excluded.revision > stugby_share_grants.revision OR excluded.epoch > stugby_share_grants.epoch`)
-        .run(grant.id, grant.stugubyId, grant.authorityNodeId, grant.publicationId, grant.epoch, grant.revision,
-          grant.expiresAt, grant.revokedAt, JSON.stringify(grant), grant.updatedAt);
-      this[stugubyStoreState].db.prepare(`INSERT INTO stugby_publications
-        (stugby_id,publication_id,authority_node_id,local_house_id,display_name,updated_at)
-        VALUES (?,?,?,?,?,?) ON CONFLICT(stugby_id,publication_id) DO UPDATE SET
-          local_house_id=excluded.local_house_id,display_name=excluded.display_name,updated_at=excluded.updated_at`)
-        .run(grant.stugubyId, grant.publicationId, grant.authorityNodeId, grant.localHouseId ?? null, grant.publicationId, grant.updatedAt);
+      const db = this[stugubyStoreState].db;
+      const operation = (): void => {
+        const previous = db.prepare("SELECT epoch FROM stugby_share_grants WHERE id=?")
+          .get(grant.id) as { epoch: number } | undefined;
+        db.prepare(`INSERT INTO stugby_share_grants
+          (id,stugby_id,authority_node_id,publication_id,epoch,revision,expires_at,revoked_at,grant_json,updated_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?)
+          ON CONFLICT(id) DO UPDATE SET publication_id=excluded.publication_id,epoch=excluded.epoch,
+            revision=excluded.revision,expires_at=excluded.expires_at,revoked_at=excluded.revoked_at,
+            grant_json=excluded.grant_json,updated_at=excluded.updated_at
+          WHERE excluded.revision > stugby_share_grants.revision OR excluded.epoch > stugby_share_grants.epoch`)
+          .run(grant.id, grant.stugubyId, grant.authorityNodeId, grant.publicationId, grant.epoch, grant.revision,
+            grant.expiresAt, grant.revokedAt, JSON.stringify(grant), grant.updatedAt);
+        db.prepare(`INSERT INTO stugby_publications
+          (stugby_id,publication_id,authority_node_id,local_house_id,display_name,updated_at)
+          VALUES (?,?,?,?,?,?) ON CONFLICT(stugby_id,publication_id) DO UPDATE SET
+            local_house_id=excluded.local_house_id,display_name=excluded.display_name,updated_at=excluded.updated_at`)
+          .run(grant.stugubyId, grant.publicationId, grant.authorityNodeId, grant.localHouseId ?? null,
+            grant.publicationId, grant.updatedAt);
+        if (previous && grant.epoch > previous.epoch) {
+          db.prepare(`DELETE FROM stugby_remote_resources
+            WHERE stugby_id=? AND grant_id=? AND grant_epoch<?`).run(grant.stugubyId, grant.id, grant.epoch);
+          db.prepare(`DELETE FROM stugby_remote_telemetry
+            WHERE stugby_id=? AND grant_id=? AND grant_epoch<?`).run(grant.stugubyId, grant.id, grant.epoch);
+          db.prepare(`DELETE FROM stugby_remote_telemetry_staging
+            WHERE stugby_id=? AND grant_id=? AND grant_epoch<?`).run(grant.stugubyId, grant.id, grant.epoch);
+          db.prepare(`DELETE FROM stugby_remote_telemetry_epochs
+            WHERE stugby_id=? AND grant_id=? AND grant_epoch<?`).run(grant.stugubyId, grant.id, grant.epoch);
+        }
+      };
+      withStugubySavepoint(db, "stuguby_grant_epoch", operation);
     },
   publicationId(this: StugubyStoreInternals, stugubyId: string, resourceType: PublicationResourceType, localId: string): string {
       const existing = this[stugubyStoreState].db.prepare(`SELECT publication_id FROM stugby_publication_ids
@@ -181,6 +199,8 @@ registerStugubyStoreMethods({
         for (const table of [
           "stugby_remote_resources",
           "stugby_remote_telemetry",
+          "stugby_remote_telemetry_staging",
+          "stugby_remote_telemetry_epochs",
           "stugby_live_telemetry_usage",
           "stugby_blob_access",
           "stugby_blob_references",

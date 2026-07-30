@@ -1,5 +1,27 @@
 import Foundation
 
+struct HTTPOrigin: Equatable, Sendable {
+    let scheme: String
+    let host: String
+    let port: Int
+
+    init?(_ url: URL?) {
+        guard let url,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme?.lowercased(),
+              let host = components.host?.lowercased(),
+              !host.isEmpty,
+              scheme == "https" || scheme == "http" else {
+            return nil
+        }
+        self.scheme = scheme
+        self.host = host
+        port = components.port ?? (scheme == "https" ? 443 : 80)
+    }
+
+    var isHTTPS: Bool { scheme == "https" }
+}
+
 public struct ServerAddress: Equatable, Hashable, Sendable {
     public enum ValidationError: LocalizedError, Equatable {
         case empty

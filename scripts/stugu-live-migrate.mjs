@@ -232,17 +232,16 @@ async function resolveComposeDeploymentInputs(options) {
   if (options.explicit.has("secretsDirectory")) {
     options.secretDirectories = Object.fromEntries([
       ["cloudflare", join(options.secretsDirectory, "cloudflare")],
+      ["r2", join(options.secretsDirectory, "r2")],
       ["tapo-history-api", join(options.secretsDirectory, "tapo-history-api")],
       ["tapo-history-runner", join(options.secretsDirectory, "tapo-history-runner")],
     ]);
   } else {
     options.secretDirectories = existingDiscoveredSecretDirectories({
-      cloudflare: composeBindSource(configuration, "api", "/run/secrets/cloudflare")
-        ?? join(options.secretsDirectory, "cloudflare"),
-      "tapo-history-api": composeBindSource(configuration, "api", "/run/secrets/tapo-history")
-        ?? join(options.secretsDirectory, "tapo-history-api"),
-      "tapo-history-runner": composeBindSource(configuration, "tapo-export-runner", "/run/secrets/tapo-history")
-        ?? join(options.secretsDirectory, "tapo-history-runner"),
+      cloudflare: composeBindSource(configuration, "api", "/run/secrets/cloudflare") ?? join(options.secretsDirectory, "cloudflare"),
+      r2: composeBindSource(configuration, "stugu-r2-backup", "/run/secrets/r2") ?? join(options.secretsDirectory, "r2"),
+      "tapo-history-api": composeBindSource(configuration, "api", "/run/secrets/tapo-history") ?? join(options.secretsDirectory, "tapo-history-api"),
+      "tapo-history-runner": composeBindSource(configuration, "tapo-export-runner", "/run/secrets/tapo-history") ?? join(options.secretsDirectory, "tapo-history-runner"),
     });
   }
   return configuration;
@@ -321,6 +320,7 @@ async function stopSourceWriters(options, {
   const mutators = [
     "api",
     "stugu-backup-scheduler",
+    "stugu-r2-backup",
     "tapo-export-runner",
     "telemetry-migrate",
     "timeseries-credential-reconcile",
@@ -385,6 +385,7 @@ function effectiveSettingsFile(options, runningServices) {
   const configured = unquotedEnvironmentValue(parseEnvironmentAssignments(original).get("COMPOSE_PROFILES"));
   const profiles = new Set(configured.split(/[\s,]+/u).filter(Boolean));
   if (runningServices.includes("cloudflared")) profiles.add("cloudflare");
+  if (runningServices.includes("stugu-r2-backup")) profiles.add("r2-backup");
   if (runningServices.includes("tapo-export-runner")) profiles.add("tapo-history");
   const generated = join(options.workspace, "generated", `source-settings-${Date.now()}-${process.pid}.env`);
   hardenPrivateDirectory(dirname(generated));

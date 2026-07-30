@@ -99,6 +99,7 @@ export function useSensorManagementPagePart03(context: ReturnType<typeof useSens
           z: placement.z,
           tags: [],
           enabled: true,
+          ...(draft.energyMeterRole !== "standalone" ? { energyMeterRole: draft.energyMeterRole } : {}),
           ...(draft.source === "tp-link" && draft.deviceId ? {
             tpLinkDeviceId: draft.deviceId,
             ...(draft.connectionId ? { tpLinkConnectionId: draft.connectionId } : {}),
@@ -158,6 +159,9 @@ export function useSensorManagementPagePart03(context: ReturnType<typeof useSens
           y: placement.y,
           z: placement.z,
           enabled: draft.enabled,
+          ...(draft.energyMeterRole !== (editingSensor.energyMeterRole ?? "standalone")
+            ? { energyMeterRole: draft.energyMeterRole }
+            : {}),
           tags: editingSensor.tags.filter((tag) => tag !== UNPLACED_TAG),
           ...(localAuthority ? {
             tpLinkDeviceId: draft.deviceId || null,
@@ -273,6 +277,21 @@ export function useSensorManagementPagePart03(context: ReturnType<typeof useSens
             {...fieldA11y("model")}
           />
           {renderFieldError("model")}
+        </label>
+        <label className="field">
+          <span>{t("sensors.energyMeterRole")}</span>
+          <select
+            value={draft.energyMeterRole}
+            onChange={(event) => setDraft((current) => ({
+              ...current,
+              energyMeterRole: event.target.value as SensorDraft["energyMeterRole"],
+            }))}
+          >
+            <option value="standalone">{t("sensors.energyMeterRole.standalone")}</option>
+            <option value="whole_home">{t("sensors.energyMeterRole.whole_home")}</option>
+            <option value="submeter">{t("sensors.energyMeterRole.submeter")}</option>
+          </select>
+          <small>{t("sensors.energyMeterRoleHelp")}</small>
         </label>
         <label className="field">
           <span>{t("common.house")}</span>

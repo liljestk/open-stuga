@@ -288,7 +288,10 @@ export function configureApiPart07(context: ReturnType<typeof configureApiPart06
       }
       return null;
     };
-  context.app.get(`${context.prefix}/health`, (_request, response) => {
+  context.app.get(`${context.prefix}/health`, async (_request, response) => {
+      const eventLoopProbeStartedAt = performance.now();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const eventLoopLagMs = Number((performance.now() - eventLoopProbeStartedAt).toFixed(3));
       const archive = context.telemetryArchive?.status();
       const requiredArchiveUnavailable = config.timeseriesRequired === true && (
         !archive || archive.phase === "degraded" || archive.phase === "stopped" || !archive.timescaleAvailable
@@ -320,6 +323,14 @@ export function configureApiPart07(context: ReturnType<typeof configureApiPart06
           hits: measurementCache.hits + readingCache.hits,
           misses: measurementCache.misses + readingCache.misses,
         },
+        analytics: context.analyticsWorkLimiter.snapshot(),
+        timeseriesPool: context.timeseries ? {
+          total: context.timeseries.pool.totalCount,
+          idle: context.timeseries.pool.idleCount,
+          waiting: context.timeseries.pool.waitingCount,
+        } : null,
+        timeseriesQueries: context.timeseries?.diagnostics() ?? null,
+        eventLoopLagMs,
         uptimeSeconds: Math.round(process.uptime()),
       });
     });

@@ -149,7 +149,7 @@ export const schemasPart05 = {
         },
   Sensor: {
           type: "object",
-          required: ["id", "houseId", "floorId", "name", "roomId", "room", "model", "x", "y", "z", "tags", "enabled"],
+          required: ["id", "houseId", "floorId", "name", "roomId", "room", "model", "x", "y", "z", "energyMeterRole", "tags", "enabled"],
           properties: {
             id: { type: "string" }, houseId: { type: "string" }, floorId: { type: "string" },
             name: { type: "string" },
@@ -159,6 +159,7 @@ export const schemasPart05 = {
             x: { type: "number" }, y: { type: "number" }, z: { type: "number" },
             temperatureEntityId: { type: "string" }, humidityEntityId: { type: "string" }, batteryEntityId: { type: "string" },
             tpLinkDeviceId: { type: "string" }, tpLinkConnectionId: { type: "string" }, measurementEntityIds: { type: "object", additionalProperties: { type: "string" } },
+            energyMeterRole: { enum: ["whole_home", "submeter", "standalone"], description: "Controls whether this source represents the whole Home, a submeter, or an independent meter in Home totals." },
             tags: { type: "array", items: { type: "string" } }, enabled: { type: "boolean" },
           },
         },
@@ -180,6 +181,7 @@ export const schemasPart05 = {
             y: { type: "number", minimum: 0, description: "Floor-local position; must be less than or equal to the selected floor height." },
             z: { type: "number", description: "Unbounded absolute sensor height in metres using the same vertical origin as Floor.elevation; it may be below or above the floor plane." },
             tags: { type: "array", items: { type: "string" } }, enabled: { type: "boolean", default: true },
+            energyMeterRole: { enum: ["whole_home", "submeter", "standalone"], default: "standalone" },
             temperatureEntityId: { type: "string" }, humidityEntityId: { type: "string" }, batteryEntityId: { type: "string" },
             tpLinkDeviceId: { oneOf: [{ type: "string" }, { type: "null" }], description: "Stable direct-hub child-device identifier. It is unique within its house-scoped connection." },
             tpLinkConnectionId: { oneOf: [{ type: "string" }, { type: "null" }], description: "House-scoped TP-Link connection that owns the device." },
@@ -198,6 +200,7 @@ export const schemasPart05 = {
             y: { type: "number", minimum: 0, description: "Floor-local position; must be less than or equal to the resulting floor height." },
             z: { type: "number", description: "Unbounded absolute height in metres; negative and above-floor values are valid." },
             tags: { type: "array", items: { type: "string" } }, enabled: { type: "boolean" },
+            energyMeterRole: { enum: ["whole_home", "submeter", "standalone"] },
             temperatureEntityId: { type: "string" }, humidityEntityId: { type: "string" }, batteryEntityId: { type: "string" },
             tpLinkDeviceId: { oneOf: [{ type: "string" }, { type: "null" }], description: "Assign a direct TP-Link child device, or set null to clear the binding." },
             tpLinkConnectionId: { oneOf: [{ type: "string" }, { type: "null" }], description: "Assign the owning house-scoped TP-Link connection, or set null to clear it." },

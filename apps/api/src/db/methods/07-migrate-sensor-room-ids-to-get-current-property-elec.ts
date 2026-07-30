@@ -379,6 +379,23 @@ registerDatabaseMethods({
         for (const price of prices) {
           statement.run(propertyId, price.startAt, price.endAt, price.rawPriceCentsPerKwh, margin, fetchedAt);
         }
+        const overlap = this.db.prepare(`SELECT earlier.start_at, later.start_at AS overlapping_start
+          FROM electricity_price_points AS earlier
+          JOIN electricity_price_points AS later
+            ON later.property_id = earlier.property_id
+            AND later.start_at > earlier.start_at
+            AND later.start_at < earlier.end_at
+          WHERE earlier.property_id = ? LIMIT 1`).get(propertyId) as {
+          start_at: string;
+          overlapping_start: string;
+        } | undefined;
+        if (overlap) {
+          throw new ClimateDataValidationError(
+            422,
+            "OVERLAPPING_ELECTRICITY_PRICES",
+            `Electricity price intervals ${overlap.start_at} and ${overlap.overlapping_start} overlap`,
+          );
+        }
         this.db.prepare(`UPDATE property_electricity_configs
           SET last_fetched_at = ?, last_error = NULL, updated_at = ? WHERE property_id = ?`)
           .run(fetchedAt, fetchedAt, propertyId);

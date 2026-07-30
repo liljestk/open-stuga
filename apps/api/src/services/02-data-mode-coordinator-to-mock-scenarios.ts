@@ -117,14 +117,18 @@ export class MeasurementService {
       this.validateSample(sample, definition, nowMs);
     }
     this.dataMode.prepareSources(samples.map((sample) => sample.source));
-    const inserted = this.database.insertMeasurementSamples(samples, options.deduplicateAcrossSources !== undefined
-      ? { deduplicateAcrossSources: options.deduplicateAcrossSources }
-      : {});
+    const evaluateAlerts = options.evaluateAlerts !== false;
+    const inserted = this.database.insertMeasurementSamples(samples, {
+      ...(options.deduplicateAcrossSources !== undefined
+        ? { deduplicateAcrossSources: options.deduplicateAcrossSources }
+        : {}),
+      enqueueAlertEvaluation: evaluateAlerts,
+    });
     this.dataMode.synchronize();
     if (options.publish !== false) {
       for (const sample of inserted) this.bus.publishMeasurement(sample);
     }
-    if (options.evaluateAlerts !== false) this.alertEngine.evaluateSamples(inserted);
+    if (evaluateAlerts) this.alertEngine.evaluatePendingSamples();
     return inserted;
   }
 
@@ -196,7 +200,7 @@ export class TelemetryService {
       this.validateMeasurements(reading);
     }
     this.dataMode.prepareSources(readings.map((reading) => reading.source));
-    const inserted = this.database.insertReadings(readings);
+    const inserted = this.database.insertReadings(readings, { enqueueAlertEvaluation: true });
     this.dataMode.synchronize();
     const samples: MeasurementSample[] = [];
     for (const reading of inserted) {
@@ -206,7 +210,7 @@ export class TelemetryService {
         this.bus.publishMeasurement(sample);
       }
     }
-    this.alertEngine.evaluateSamples(samples);
+    this.alertEngine.evaluatePendingSamples();
     return inserted;
   }
 

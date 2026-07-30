@@ -153,8 +153,9 @@ async function analyticsEvidence(input: {
   for (let index = 0; index < input.sensors.length; index += batchSize) {
     batches.push(input.sensors.slice(index, index + batchSize));
   }
-  const responses = await Promise.all(batches.map((sensors, index) => (
-    executeAnalyticsQuery({
+  const responses: AnalyticsQueryResponse[] = [];
+  for (const [index, sensors] of batches.entries()) {
+    responses.push(await executeAnalyticsQuery({
       request: queryRequest({
         house: input.service.house,
         sensors,
@@ -170,9 +171,17 @@ async function analyticsEvidence(input: {
       telemetryReader: input.service.telemetryReader,
       generatedAt: input.service.evaluatedAt,
       ...(input.service.signal ? { signal: input.service.signal } : {}),
-    })
-  )));
+    }));
+  }
   return combineAnalytics(responses, input.key);
+}
+
+async function settled<T>(task: () => Promise<T>): Promise<PromiseSettledResult<T>> {
+  try {
+    return { status: "fulfilled", value: await task() };
+  } catch (reason) {
+    return { status: "rejected", reason };
+  }
 }
 
 function warningFor(error: unknown, source: string) {
@@ -230,8 +239,8 @@ export async function getHomePerformance(
     );
   }
 
-  const evidence = await Promise.allSettled([
-    analyticsEvidence({
+  const [climateEvidence, recoveryEvidence] = await Promise.all([
+    settled(() => analyticsEvidence({
       service: input,
       sensors,
       definitions: climateDefinitions,
@@ -239,8 +248,8 @@ export async function getHomePerformance(
       end: to,
       resolution: "1h",
       key: `home-performance-climate-${input.house.id}`,
-    }),
-    analyticsEvidence({
+    })),
+    settled(() => analyticsEvidence({
       service: input,
       sensors,
       definitions: climateDefinitions,
@@ -248,8 +257,10 @@ export async function getHomePerformance(
       end: to,
       resolution: "15m",
       key: `home-performance-recovery-${input.house.id}`,
-    }),
-    analyticsEvidence({
+    })),
+  ]);
+  const [energyEvidence, outdoorEvidence] = await Promise.all([
+    settled(() => analyticsEvidence({
       service: input,
       sensors,
       definitions: energyDefinitions,
@@ -257,8 +268,8 @@ export async function getHomePerformance(
       end: to,
       resolution: "1h",
       key: `home-performance-energy-${input.house.id}`,
-    }),
-    input.house.location
+    })),
+    settled(() => input.house.location
       ? input.telemetryReader.outdoorTemperatureHistory({
           houseId: input.house.id,
           locationKey: outdoorLocationKey(input.house.location),
@@ -267,8 +278,9 @@ export async function getHomePerformance(
           limit: OUTDOOR_LIMIT,
           ...(input.signal ? { signal: input.signal } : {}),
         })
-      : Promise.resolve(null),
-    Promise.all([
+      : Promise.resolve(null)),
+  ]);
+  const openingsEvidence = await settled(() => Promise.all([
       input.telemetryReader.openingStateSnapshot({
         houseId: input.house.id,
         at: recoveryFrom,
@@ -282,8 +294,14 @@ export async function getHomePerformance(
         limit: OPENING_LIMIT,
         ...(input.signal ? { signal: input.signal } : {}),
       }),
-    ]),
-  ]);
+    ]));
+  const evidence = [
+    climateEvidence,
+    recoveryEvidence,
+    energyEvidence,
+    outdoorEvidence,
+    openingsEvidence,
+  ] as const;
   const warnings: HomePerformanceResponse["warnings"] = evidence.flatMap((result, index) => (
     result.status === "rejected"
       ? [warningFor(result.reason, ["climate", "recovery", "energy", "outdoor", "openings"][index]!)]

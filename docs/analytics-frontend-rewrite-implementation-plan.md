@@ -608,9 +608,9 @@ Exit gate:
 - Golden outputs are committed and reviewed.
 - The boundary checker rejects API I/O imports from pure analytics modules and
   rejects new numbered modules under API analytics or web data.
-- The existing `check:file-size` script continues to enforce 600 physical lines;
-  450 lines remains the documented review threshold and is checked during review,
-  not silently redefined by the new boundary script.
+- The repository-wide size check warns at 600 physical lines and fails at
+  1,200; domain ownership and the numbered-module ratchet prevent mechanical
+  line-offset splits.
 - Existing tests remain green.
 
 ### Milestone 1 — decompose the existing analytics foundation

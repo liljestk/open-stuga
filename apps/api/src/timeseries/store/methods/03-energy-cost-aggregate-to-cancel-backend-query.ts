@@ -83,13 +83,18 @@ registerTimeseriesStoreMethods({
               / full_duration_ms AS window_delta_kwh,
             EXTRACT(EPOCH FROM (current_at - window_start)) * 1000.0 AS window_duration_ms
           FROM deltas
-        ), price_intervals AS (
+        ), latest_prices AS (
           SELECT DISTINCT ON (starts_at)
             starts_at, ends_at, raw_price_cents_per_kwh, margin_cents_per_kwh
           FROM ${prices}
           WHERE property_id = $4
             AND (NOT $5::BOOLEAN OR source NOT IN ('mock', 'replay'))
           ORDER BY starts_at, ingested_at DESC, source DESC
+        ), price_intervals AS (
+          SELECT starts_at,
+            LEAST(ends_at, COALESCE(lead(starts_at) OVER (ORDER BY starts_at), ends_at)) AS ends_at,
+            raw_price_cents_per_kwh, margin_cents_per_kwh
+          FROM latest_prices
         ), priced AS (
           SELECT normalized.*, price.raw_price_cents_per_kwh, price.margin_cents_per_kwh,
             EXTRACT(EPOCH FROM (LEAST(normalized.current_at, price.ends_at)
@@ -109,6 +114,7 @@ registerTimeseriesStoreMethods({
           (SELECT COALESCE(sum(allocated_kwh * effective_price_cents_per_kwh / 100.0), 0) FROM allocations) AS cost_eur,
           (SELECT COALESCE(sum(window_duration_ms), 0) FROM normalized) AS total_duration_ms,
           (SELECT COALESCE(sum(overlap_ms), 0) FROM allocations) AS priced_duration_ms,
+          (SELECT COALESCE(max(full_duration_ms), 0) FROM normalized) AS maximum_interval_duration_ms,
           (SELECT min(window_start) FROM normalized) AS coverage_from,
           (SELECT max(current_at) FROM normalized) AS coverage_until`,
       [query.sensorId, query.from, query.to, query.propertyId, Boolean(query.excludeSynthetic)], query);
@@ -120,6 +126,7 @@ registerTimeseriesStoreMethods({
         costEur: Number(row.cost_eur ?? 0),
         totalDurationMs: Number(row.total_duration_ms ?? 0),
         pricedDurationMs: Number(row.priced_duration_ms ?? 0),
+        maximumIntervalDurationMs: Number(row.maximum_interval_duration_ms ?? 0),
         coverageFrom: row.coverage_from === null ? null : timestamp(row.coverage_from),
         coverageUntil: row.coverage_until === null ? null : timestamp(row.coverage_until),
       };
@@ -163,13 +170,18 @@ registerTimeseriesStoreMethods({
               AS window_energy_kwh
           FROM candidates
           WHERE window_end > window_start
-        ), price_intervals AS (
+        ), latest_prices AS (
           SELECT DISTINCT ON (starts_at)
             starts_at, ends_at, raw_price_cents_per_kwh, margin_cents_per_kwh
           FROM ${prices}
           WHERE property_id = $4
             AND (NOT $5::BOOLEAN OR source NOT IN ('mock', 'replay'))
           ORDER BY starts_at, ingested_at DESC, source DESC
+        ), price_intervals AS (
+          SELECT starts_at,
+            LEAST(ends_at, COALESCE(lead(starts_at) OVER (ORDER BY starts_at), ends_at)) AS ends_at,
+            raw_price_cents_per_kwh, margin_cents_per_kwh
+          FROM latest_prices
         ), priced AS (
           SELECT normalized.*, price.raw_price_cents_per_kwh, price.margin_cents_per_kwh,
             EXTRACT(EPOCH FROM (
@@ -191,6 +203,7 @@ registerTimeseriesStoreMethods({
           (SELECT COALESCE(sum(allocated_kwh * effective_price_cents_per_kwh / 100.0), 0) FROM allocations) AS cost_eur,
           (SELECT COALESCE(sum(window_duration_ms), 0) FROM normalized) AS total_duration_ms,
           (SELECT COALESCE(sum(overlap_ms), 0) FROM allocations) AS priced_duration_ms,
+          (SELECT COALESCE(max(window_duration_ms), 0) FROM normalized) AS maximum_interval_duration_ms,
           (SELECT min(window_start) FROM normalized) AS coverage_from,
           (SELECT max(window_end) FROM normalized) AS coverage_until`,
       [query.sensorId, query.from, query.to, query.propertyId, Boolean(query.excludeSynthetic)], query);
@@ -202,6 +215,7 @@ registerTimeseriesStoreMethods({
         costEur: Number(row.cost_eur ?? 0),
         totalDurationMs: Number(row.total_duration_ms ?? 0),
         pricedDurationMs: Number(row.priced_duration_ms ?? 0),
+        maximumIntervalDurationMs: Number(row.maximum_interval_duration_ms ?? 0),
         coverageFrom: row.coverage_from === null ? null : timestamp(row.coverage_from),
         coverageUntil: row.coverage_until === null ? null : timestamp(row.coverage_until),
       };
@@ -332,6 +346,22 @@ registerTimeseriesStoreMethods({
         waiting: this.pool.waitingCount,
       };
     },
+  diagnostics(this: TimeseriesStoreInternals) {
+      const metrics = this[timeseriesStoreState].queryMetrics;
+      const completed = metrics.succeeded + metrics.failed;
+      return {
+        active: metrics.active,
+        started: metrics.started,
+        succeeded: metrics.succeeded,
+        failed: metrics.failed,
+        averageDurationMs: completed === 0 ? 0 : metrics.totalDurationMs / completed,
+        maxDurationMs: metrics.maxDurationMs,
+        averagePoolWaitMs: metrics.poolAcquisitions === 0
+          ? 0
+          : metrics.totalPoolWaitMs / metrics.poolAcquisitions,
+        maxPoolWaitMs: metrics.maxPoolWaitMs,
+      };
+    },
   async close(this: TimeseriesStoreInternals): Promise<void> {
       if (this[timeseriesStoreState].closed) return;
       this[timeseriesStoreState].closed = true;
@@ -357,9 +387,22 @@ registerTimeseriesStoreMethods({
         ? AbortSignal.any([control.signal, timeoutController.signal])
         : control.signal ?? timeoutController?.signal;
 
+      const metrics = this[timeseriesStoreState].queryMetrics;
+      const startedAt = performance.now();
+      metrics.active += 1;
+      metrics.started += 1;
       try {
-        return await this.__runQuery<Row>(sql, values, signal);
+        const result = await this.__runQuery<Row>(sql, values, signal);
+        metrics.succeeded += 1;
+        return result;
+      } catch (error) {
+        metrics.failed += 1;
+        throw error;
       } finally {
+        const durationMs = Math.max(0, performance.now() - startedAt);
+        metrics.active -= 1;
+        metrics.totalDurationMs += durationMs;
+        metrics.maxDurationMs = Math.max(metrics.maxDurationMs, durationMs);
         if (timeout) clearTimeout(timeout);
       }
     },
@@ -423,40 +466,49 @@ registerTimeseriesStoreMethods({
       }
     },
   async __connect(this: TimeseriesStoreInternals, signal: AbortSignal | undefined): Promise<PoolClient> {
-      const connecting = this.pool.connect();
-      if (!signal) return connecting;
-      if (signal.aborted) {
-        void connecting.then((client) => client.release(), () => undefined);
-        throw abortError(signal);
-      }
+      const startedAt = performance.now();
+      try {
+        const connecting = this.pool.connect();
+        if (!signal) return await connecting;
+        if (signal.aborted) {
+          void connecting.then((client) => client.release(), () => undefined);
+          throw abortError(signal);
+        }
 
-      return new Promise<PoolClient>((resolve, reject) => {
-        let completed = false;
-        const onAbort = () => {
-          if (completed) return;
-          completed = true;
-          reject(abortError(signal));
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-        void connecting.then(
-          (client) => {
-            signal.removeEventListener("abort", onAbort);
-            if (completed || signal.aborted) {
-              client.release();
-              if (!completed) reject(abortError(signal));
-              return;
-            }
-            completed = true;
-            resolve(client);
-          },
-          (error: unknown) => {
-            signal.removeEventListener("abort", onAbort);
+        return await new Promise<PoolClient>((resolve, reject) => {
+          let completed = false;
+          const onAbort = () => {
             if (completed) return;
             completed = true;
-            reject(error);
-          },
-        );
-      });
+            reject(abortError(signal));
+          };
+          signal.addEventListener("abort", onAbort, { once: true });
+          void connecting.then(
+            (client) => {
+              signal.removeEventListener("abort", onAbort);
+              if (completed || signal.aborted) {
+                client.release();
+                if (!completed) reject(abortError(signal));
+                return;
+              }
+              completed = true;
+              resolve(client);
+            },
+            (error: unknown) => {
+              signal.removeEventListener("abort", onAbort);
+              if (completed) return;
+              completed = true;
+              reject(error);
+            },
+          );
+        });
+      } finally {
+        const waitMs = Math.max(0, performance.now() - startedAt);
+        const metrics = this[timeseriesStoreState].queryMetrics;
+        metrics.poolAcquisitions += 1;
+        metrics.totalPoolWaitMs += waitMs;
+        metrics.maxPoolWaitMs = Math.max(metrics.maxPoolWaitMs, waitMs);
+      }
     },
   async __cancelBackendQuery(this: TimeseriesStoreInternals, client: PoolClient, token: string): Promise<void> {
       const processId = (client as PoolClient & { processID?: number }).processID;

@@ -94,10 +94,11 @@ import type { StugubyService } from "../stuguby/service.js";
 import { StugubyStore } from "../stuguby/store.js";
 import { confirmationProperty, maintenanceTaskCreateProperties, maintenanceTaskPatchProperties, observationCreateProperties, observationPatchProperties } from "./04-point-schema-to-summarize-mcp-stuguby.js";
 import { resultOutputSchema, server } from "./05-get-mcp-stuguby-to-result-output-schema.js";
-import { READ_ONLY_MCP_TOOL_NAMES, mcpToolDefinitionsPart01 } from "./06-read-only-mcp-tool-names-to-mcp-tool-definitions.js";
+import { ACTIVE_MCP_TOOL_NAMES, mcpToolDefinitionsPart01 } from "./06-read-only-mcp-tool-names-to-mcp-tool-definitions.js";
 import { mcpToolDefinitionsPart02 } from "./07-mcp-tool-definitions-part02.js";
 import { mcpToolDefinitionsPart03 } from "./08-mcp-tool-definitions-part03.js";
 import { derivedAnalyticsToolDefinitions } from "./11-derived-analytics-tools.js";
+import { isChatgptMcpProfile, presentationForChatgptTool } from "./chatgpt-profile.js";
 
 export const mcpToolDefinitionsPart04 = [
   {
@@ -374,8 +375,9 @@ export const mcpToolDefinitions = [
   ...derivedAnalyticsToolDefinitions,
 ] as const;
 
-export const mcpTools = mcpToolDefinitions.filter((tool) => READ_ONLY_MCP_TOOL_NAMES.has(tool.name)).map((tool) => ({
+export const mcpTools = mcpToolDefinitions.filter((tool) => ACTIVE_MCP_TOOL_NAMES.has(tool.name)).map((tool) => ({
     ...tool,
+    ...(isChatgptMcpProfile ? presentationForChatgptTool(tool.name) : {}),
     outputSchema: resultOutputSchema,
     annotations: {
       ...mcpToolAnnotations(tool.name),

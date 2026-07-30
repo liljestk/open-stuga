@@ -104,6 +104,11 @@ declare module "../core.js" {
   interface DatabaseInternals {
     createAlertEvent(input: Omit<AlertEvent, "id" | "acknowledgedAt" | "resolvedAt">): AlertEvent;
     applyAlertSample(rule: AlertRule, sample: MeasurementSample, conditionMet: boolean, notificationBindings?: AlertNotificationBindings): AlertTransition;
+    listPendingAlertEvaluationSamples(limit?: number): Array<{
+            queueId: number;
+            sample: MeasurementSample;
+        }>;
+    completeAlertEvaluationSample(queueId: number): boolean;
     listDueAlertConditions(now?: Date, limit?: number): DueAlertCondition[];
     enqueueAlertFollowup(event: AlertEvent, rule: AlertRule, stage: Extract<NotificationDeliveryStage, "escalation" | "reminder">, sequence: number, bindings: AlertNotificationBindings, now?: Date): number;
     enqueueOperationalNotification(input: {
@@ -136,6 +141,11 @@ declare module "../core.js" {
   interface ClimateDatabaseCore {
     createAlertEvent(input: Omit<AlertEvent, "id" | "acknowledgedAt" | "resolvedAt">): AlertEvent;
     applyAlertSample(rule: AlertRule, sample: MeasurementSample, conditionMet: boolean, notificationBindings?: AlertNotificationBindings): AlertTransition;
+    listPendingAlertEvaluationSamples(limit?: number): Array<{
+            queueId: number;
+            sample: MeasurementSample;
+        }>;
+    completeAlertEvaluationSample(queueId: number): boolean;
     listDueAlertConditions(now?: Date, limit?: number): DueAlertCondition[];
     enqueueAlertFollowup(event: AlertEvent, rule: AlertRule, stage: Extract<NotificationDeliveryStage, "escalation" | "reminder">, sequence: number, bindings: AlertNotificationBindings, now?: Date): number;
     enqueueOperationalNotification(input: {

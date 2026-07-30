@@ -14,6 +14,8 @@ import { DatabaseSync } from "node:sqlite";
 
 import test from "node:test";
 
+import "./restore-drill.test.mjs";
+
 import {
   MIGRATION_AGGREGATES,
   MIGRATION_HYPERTABLES,

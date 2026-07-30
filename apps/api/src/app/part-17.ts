@@ -274,6 +274,9 @@ export function configureApiPart17(context: ReturnType<typeof configureApiPart16
         ...(body.roomId !== undefined ? { roomId: body.roomId === null ? null : requiredString(body, "roomId") } : {}),
         room: requiredString(body, "room"), model: requiredString(body, "model"), x: requiredNumber(body, "x"),
         y: requiredNumber(body, "y"), z: requiredNumber(body, "z"), tags: tags as string[],
+        energyMeterRole: body.energyMeterRole === undefined
+          ? "standalone"
+          : enumValue(body.energyMeterRole, ["whole_home", "submeter", "standalone"] as const, "energyMeterRole"),
         enabled: body.enabled === undefined ? true : optionalBoolean(body, "enabled") as boolean,
         ...(optionalString(body, "temperatureEntityId") !== undefined ? { temperatureEntityId: optionalString(body, "temperatureEntityId") as string } : {}),
         ...(optionalString(body, "humidityEntityId") !== undefined ? { humidityEntityId: optionalString(body, "humidityEntityId") as string } : {}),

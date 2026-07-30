@@ -23,7 +23,8 @@ Every cutover requires the complete verified Stugu backup set:
 - the persistent Stuguby node identity and private signing key;
 - portable application settings from the source environment file;
 - files under the configured Stugu config directory; and
-- the known runtime secret directories for Cloudflare and Tapo history.
+- the known runtime secret directories for Cloudflare Tunnel, encrypted R2
+  backups, and Tapo history.
 
 Target-specific bind addresses, browser ports, filesystem paths, and internal
 TimescaleDB credentials are not copied. The target keeps those values from its
@@ -90,8 +91,8 @@ The controller performs these guarded steps:
 
 1. proves target reachability, receiver version, and free space;
 2. records the source services that are running, stops ingress, then gracefully
-   stops the API, backup scheduler, telemetry migration, credential reconcile,
-   and optional Tapo writer;
+   stops the API, backup scheduler, R2 replicator, telemetry migration,
+   credential reconcile, and optional Tapo writer;
 3. creates and verifies a final complete backup with TimescaleDB still online;
 4. transfers only content hashes absent from the target and verifies the
    reassembled backup there;
@@ -154,8 +155,8 @@ After cutover, confirm:
 - `stuguctl status` reports healthy containers and the expected release;
 - recent and historical sensor queries cover representative dates;
 - Properties, Homes, floor plans, users, and local permissions are present;
-- Home Assistant/TP-Link, Cloudflare, alerts, and notification destinations
-  have the intended connection state; and
+- Home Assistant/TP-Link, Cloudflare, R2 replication, alerts, and notification
+  destinations have the intended connection state; and
 - a fresh `stuguctl backup` completes and is copied off the appliance.
 
 Only then retire the old system or its credentials. Keep it powered off until

@@ -7,6 +7,12 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { MeasurementSample } from "@climate-twin/contracts";
 import type { AppConfig } from "../config.js";
+import {
+  installRegisteredMethods,
+  type AssertNoMethodKeys,
+  type IncompatibleMethodKeys,
+  type RegisteredMethodSet,
+} from "../method-registry.js";
 import type {
   ClimateDatabase,
   SensorDataGapRecord,
@@ -69,7 +75,7 @@ export interface TapoHistoryExportServiceInternals {
   get mailboxHealth(): Readonly<TapoHistoryMailboxHealth>;
 }
 
-export type TapoHistoryExportServiceMethodSet = Record<string, unknown> & ThisType<TapoHistoryExportServiceInternals>;
+export type TapoHistoryExportServiceMethodSet = RegisteredMethodSet<TapoHistoryExportServiceInternals>;
 
 export class TapoHistoryExportServiceCore {
   readonly [tapoHistoryExportServiceState] = createTapoHistoryExportServiceState();
@@ -126,10 +132,14 @@ export class TapoHistoryExportServiceCore {
     }
 }
 
+type TapoHistoryExportPublicMethodMismatch = AssertNoMethodKeys<
+  IncompatibleMethodKeys<TapoHistoryExportServiceCore, TapoHistoryExportServiceInternals>
+>;
+
 export function registerTapoHistoryExportServiceMethods(methods: TapoHistoryExportServiceMethodSet): void {
-  for (const [name, method] of Object.entries(methods)) {
-    Object.defineProperty(TapoHistoryExportServiceCore.prototype, name, {
-      value: method, configurable: true, writable: true, enumerable: false,
-    });
-  }
+  installRegisteredMethods(
+    "TapoHistoryExportService",
+    TapoHistoryExportServiceCore.prototype,
+    methods,
+  );
 }

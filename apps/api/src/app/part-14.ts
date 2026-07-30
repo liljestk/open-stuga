@@ -191,6 +191,14 @@ type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key],
 export function configureApiPart14(context: ReturnType<typeof configureApiPart13>) {
   const config = context.config as NormalizedApiConfig;
   const sensorGapRecovery = context.sensorGapRecovery!;
+  const energySummaryCache = new LruTtlCache<
+    Awaited<ReturnType<EnergyCostService["summarize"]>>
+  >({
+    maxEntries: 128,
+    maxBytes: 16 * 1024 * 1024,
+    defaultTtlMs: 60_000,
+  });
+  context.analyticsWorkLimiter.registerCache("energy-summary", () => energySummaryCache.stats());
   context.app.patch(`${context.prefix}/property-notes/:id`, (request, response) => {
       const noteId = request.params.id as string;
       const previous = context.database.getPropertyNote(noteId);
@@ -393,36 +401,87 @@ export function configureApiPart14(context: ReturnType<typeof configureApiPart13
         throw new HttpError(400, "INVALID_ENERGY_COST_RANGE", "Energy cost range must be greater than zero and at most 366 days");
       }
       response.setHeader("cache-control", "no-store");
-      response.json({ cost: await context.energyCost.calculate({
-        houseId,
-        propertyId: house.propertyId,
-        sensorId,
-        from,
-        to,
-      }) });
+      const startedAt = performance.now();
+      const abortController = new AbortController();
+      const abortOnClose = () => abortController.abort();
+      response.once("close", abortOnClose);
+      try {
+        const cost = await context.analyticsWorkLimiter.run(
+          "energy-cost",
+          () => context.energyCost.calculate({
+            houseId,
+            propertyId: house.propertyId,
+            sensorId,
+            from,
+            to,
+            signal: abortController.signal,
+          }),
+          abortController.signal,
+        );
+        response.setHeader("server-timing", `energy-cost;dur=${(performance.now() - startedAt).toFixed(1)}`);
+        response.json({ cost });
+      } finally {
+        response.off("close", abortOnClose);
+      }
     });
   context.app.get(`${context.prefix}/houses/:id/energy-summary`, async (request, response) => {
       const houseId = request.params.id as string;
       const house = context.database.getHouse(houseId);
       if (!house || !context.visibility(response).house(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
       const access = context.visibility(response);
-      const sensorIds = context.database.listSensors(houseId)
-        .filter((sensor) => sensor.enabled && access.sensor(sensor.id))
-        .map((sensor) => sensor.id);
+      const energySensors = context.database.listSensors(houseId)
+        .filter((sensor) => sensor.enabled && access.sensor(sensor.id));
+      const sensorIds = energySensors.map((sensor) => sensor.id);
       const to = dateValue(request.query.to, new Date(), "to");
       const from = dateValue(request.query.from, new Date(Date.parse(to) - 30 * 86_400_000), "from");
       const durationMs = Date.parse(to) - Date.parse(from);
       if (durationMs <= 0 || durationMs > 366 * 86_400_000) {
         throw new HttpError(400, "INVALID_ENERGY_SUMMARY_RANGE", "Energy summary range must be greater than zero and at most 366 days");
       }
-      response.setHeader("cache-control", "no-store");
-      response.json({ summary: await context.energyCost.summarize({
+      const key = createHash("sha256").update(JSON.stringify([
+        "energy-summary-v2",
         houseId,
-        propertyId: house.propertyId,
-        sensorIds,
+        house.propertyId,
+        energySensors.map((sensor) => [sensor.id, sensor.energyMeterRole ?? "standalone"]),
         from,
         to,
-      }) });
+      ])).digest("hex");
+      const hit = energySummaryCache.has(key);
+      const coalesced = !hit && energySummaryCache.isLoading(key);
+      const startedAt = performance.now();
+      const abortController = new AbortController();
+      const abortOnClose = () => abortController.abort();
+      response.once("close", abortOnClose);
+      try {
+        const summary = await energySummaryCache.getOrLoad(key, (signal) => (
+          context.analyticsWorkLimiter.run(
+            "energy-summary",
+            () => context.energyCost.summarize({
+              houseId,
+              propertyId: house.propertyId,
+              sensorIds,
+              from,
+              to,
+              signal,
+            }),
+            signal,
+          )
+        ), {
+          serveStale: false,
+          ttlMs: 60_000,
+          signal: abortController.signal,
+        });
+        if (!summary.complete) energySummaryCache.invalidate(key);
+        response.setHeader("cache-control", "private, no-store");
+        response.setHeader("x-stugu-cache", hit ? "hit" : coalesced ? "coalesced" : "miss");
+        response.setHeader(
+          "server-timing",
+          `energy-summary;dur=${(performance.now() - startedAt).toFixed(1)}`,
+        );
+        response.json({ summary });
+      } finally {
+        response.off("close", abortOnClose);
+      }
     });
   const extended = Object.assign(context, {  });
   return extended;

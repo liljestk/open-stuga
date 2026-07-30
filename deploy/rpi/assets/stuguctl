@@ -5,7 +5,7 @@ readonly project_dir=/opt/stugu
 readonly state_dir=/persistent/stugu
 readonly local_env="$state_dir/stugu.env"
 readonly factory_release_env="$project_dir/release.env"
-readonly known_good_release_env="$state_dir/last-known-good.env"
+readonly known_good_release_env="$state_dir/update-release/known-good.env"
 readonly docker_config="$state_dir/docker-config"
 readonly migration_dir="$state_dir/migrations"
 readonly compose_lock=/run/lock/stugu-compose.lock
@@ -15,6 +15,17 @@ readonly -a migration_application_services=(
   telemetry-migrate timeseries-credential-reconcile
 )
 
+if [[ "$(grep -c '^SYSTEM_UPDATE_IMAGE_PREFIX=' "$local_env")" -ne 1 ]]; then
+  echo "SYSTEM_UPDATE_IMAGE_PREFIX must be configured once in $local_env" >&2
+  exit 1
+fi
+image_prefix="$(sed -n 's/^SYSTEM_UPDATE_IMAGE_PREFIX=//p' "$local_env")"
+if [[ ! "$image_prefix" =~ ^ghcr\.io/[a-z0-9_.-]{1,100}/[a-z0-9_.-]{1,100}$ ]]; then
+  echo "SYSTEM_UPDATE_IMAGE_PREFIX must be a lower-case GHCR image prefix" >&2
+  exit 1
+fi
+readonly image_prefix
+
 release_image_matches() {
   local candidate="$1"
   local key="$2"
@@ -22,7 +33,6 @@ release_image_matches() {
   [[ "$(grep -c "^${key}=" "$candidate")" -eq 1 ]] || return 1
   local value digest
   value="$(sed -n "s/^${key}=//p" "$candidate")"
-  [[ "$value" == "$expected" ]] && return 0
   digest="${value#"$expected@sha256:"}"
   [[ "$value" == "$expected@sha256:$digest" && "$digest" =~ ^[0-9a-f]{64}$ ]]
 }
@@ -30,25 +40,36 @@ release_image_matches() {
 valid_release_env() {
   local candidate="$1"
   [[ -f "$candidate" && ! -L "$candidate" ]] || return 1
-  [[ "$(wc -l < "$candidate")" -eq 6 ]] || return 1
+  [[ "$(wc -l < "$candidate")" -eq 9 ]] || return 1
   local version
   version="$(sed -n 's/^STUGA_VERSION=//p' "$candidate")"
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] \
+    && grep -Fxq "STUGA_RELEASE_ENV_SCHEMA=2" "$candidate" \
+    && grep -Fxq "STUGA_UPDATE_AGENT_CONTRACT=2" "$candidate" \
+    && grep -Fxq "STUGA_COMPOSE_CONTRACT=1" "$candidate" \
     && [[ "$(grep -c '^STUGA_VERSION=' "$candidate")" -eq 1 ]] \
     && release_image_matches "$candidate" STUGA_API_IMAGE \
-      "ghcr.io/liljestk/open-stuga-api:v$version" \
+      "${image_prefix}-api:v$version" \
     && release_image_matches "$candidate" STUGA_WEB_IMAGE \
-      "ghcr.io/liljestk/open-stuga-web:v$version" \
+      "${image_prefix}-web:v$version" \
     && release_image_matches "$candidate" STUGA_BACKUP_IMAGE \
-      "ghcr.io/liljestk/open-stuga-backup:v$version" \
+      "${image_prefix}-backup:v$version" \
     && release_image_matches "$candidate" STUGA_TAPO_RUNNER_IMAGE \
-      "ghcr.io/liljestk/open-stuga-tapo-export-runner:v$version" \
+      "${image_prefix}-tapo-export-runner:v$version" \
     && release_image_matches "$candidate" STUGA_UPDATE_AGENT_IMAGE \
-      "ghcr.io/liljestk/open-stuga-update-agent:v$version"
+      "${image_prefix}-update-agent:v$version"
 }
 
+if ! valid_release_env "$factory_release_env"; then
+  echo "Factory release environment is incompatible or does not pin image digests" >&2
+  exit 1
+fi
 release_env="$factory_release_env"
-if valid_release_env "$known_good_release_env"; then
+if [[ -e "$known_good_release_env" ]]; then
+  if ! valid_release_env "$known_good_release_env"; then
+    echo "Known-good release environment is incompatible or does not pin image digests" >&2
+    exit 1
+  fi
   release_env="$known_good_release_env"
 fi
 readonly release_env

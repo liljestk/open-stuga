@@ -1,5 +1,8 @@
 # Stugu documentation
 
+For private conversations about the Home, including ChatGPT Voice, see
+[ChatGPT and voice](chatgpt.md).
+
 Start here:
 
 1. [Install and run](getting-started.md) — guided local, Docker, Podman, and
@@ -43,20 +46,22 @@ Start here:
 17. [Security, privacy, and retention](security-privacy.md) — deployment boundary,
    secrets, network/data controls, retention, backups, and incident response.
 18. [Versioning](versioning.md) — pre-1.0 compatibility and pull-request release rules.
-19. [Modular roadmap](roadmap.md) — hardening, digital-twin authoring, richer
+19. [Local CI and release publishing](local-ci.md) — validate and build on the
+   development computer while GitHub stores code and release artifacts.
+20. [Modular roadmap](roadmap.md) — hardening, digital-twin authoring, richer
    models, integrations, testing, and versioning.
-20. [Backend storage and operations](backend-storage.md) — SQLite control-plane
+21. [Backend storage and operations](backend-storage.md) — SQLite control-plane
    durability, TimescaleDB telemetry, caching, migration, backup, and recovery.
-21. [Analytics foundation and Explorer](analytics-foundation.md) — the bounded
+22. [Analytics foundation and Explorer](analytics-foundation.md) — the bounded
    query contract, measurement-aware rollups, evidence UI, decisions, and gap matrix.
-22. [Known MVP limitations](known-limitations.md) — correctness and operational
+23. [Known MVP limitations](known-limitations.md) — correctness and operational
    constraints to review before using physical data or notifications.
 
-23. [Raspberry Pi 4 appliance](raspberry-pi-appliance.md) — one-time USB disk
+24. [Raspberry Pi 4 appliance](raspberry-pi-appliance.md) — one-time USB disk
    installation, immutable system images, persistent Docker data, and automatic
    health-gated GitHub container releases.
 
-24. [System updates](system-updates.md) — GitHub release discovery, UI-managed
+25. [System updates](system-updates.md) — GitHub release discovery, UI-managed
    maintenance windows, Docker/Desktop installation, health checks, and rollback.
 
 Reference configuration:

@@ -135,6 +135,8 @@ registerStugubyStoreMethods({
         this[stugubyStoreState].db.prepare("DELETE FROM stugby_publication_ids WHERE stugby_id=?").run(stugubyId);
         this[stugubyStoreState].db.prepare("DELETE FROM stugby_remote_resources WHERE stugby_id=?").run(stugubyId);
         this[stugubyStoreState].db.prepare("DELETE FROM stugby_remote_telemetry WHERE stugby_id=?").run(stugubyId);
+        this[stugubyStoreState].db.prepare("DELETE FROM stugby_remote_telemetry_staging WHERE stugby_id=?").run(stugubyId);
+        this[stugubyStoreState].db.prepare("DELETE FROM stugby_remote_telemetry_epochs WHERE stugby_id=?").run(stugubyId);
         this[stugubyStoreState].db.prepare("DELETE FROM stugby_stream_sequences WHERE stugby_id=?").run(stugubyId);
         this[stugubyStoreState].db.prepare("DELETE FROM stugby_live_telemetry_usage WHERE stugby_id=?").run(stugubyId);
         this[stugubyStoreState].db.prepare("DELETE FROM stugby_outbox WHERE stugby_id=?").run(stugubyId);

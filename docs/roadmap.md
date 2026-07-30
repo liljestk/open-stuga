@@ -140,8 +140,8 @@ pair coverage with mutation/property tests for risky logic.
 ## Versioning principles
 
 Product releases follow the dedicated [pre-1.0 versioning policy](versioning.md).
-Every feature pull request carries a release bump and changelog entry; CI checks
-that runtime, workspace, and lockfile versions agree.
+Every feature pull request carries a release bump and changelog entry; local CI
+checks that runtime, workspace, and lockfile versions agree.
 
 - `/api/v1` remains the flat temperature/humidity compatibility contract;
   changes are additive unless correcting a security flaw. `/api/v2` owns sparse

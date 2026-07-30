@@ -106,6 +106,7 @@ describe("LruTtlCache", () => {
     const abort = new AbortController();
 
     const first = cache.getOrLoad("latest:house-1", firstLoader, { signal: abort.signal });
+    expect(cache.isLoading("latest:house-1")).toBe(true);
     const second = cache.getOrLoad("latest:house-1", unusedLoader);
     abort.abort();
 
@@ -114,6 +115,7 @@ describe("LruTtlCache", () => {
     expect(unusedLoader).not.toHaveBeenCalled();
     result.resolve({ value: 7 });
     await expect(second).resolves.toEqual({ value: 7 });
+    expect(cache.isLoading("latest:house-1")).toBe(false);
     expect(cache.get("latest:house-1")).toEqual({ value: 7 });
     expect(cache.stats()).toMatchObject({ loadsStarted: 1, loadsSucceeded: 1, deduplicatedLoads: 1 });
   });

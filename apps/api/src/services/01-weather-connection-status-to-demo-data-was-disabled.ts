@@ -11,7 +11,7 @@ import {
   Sensor,
 } from "@climate-twin/contracts";
 import { configuredAlertWebhookDestinations, type AppConfig } from "../config.js";
-import { ClimateDatabase } from "../db.js";
+import { ClimateDatabase, type AlertTransition } from "../db.js";
 import { TelemetryBus } from "../events.js";
 import { alertNotificationBindings } from "../notification-snapshot.js";
 import { DEFAULT_ALERT_DELIVERY_POLICY } from "../notification-policy.js";
@@ -224,6 +224,7 @@ export class AlertEngine {
     if (this.#tickActive) return;
     this.#tickActive = true;
     try {
+      this.evaluatePendingSamples();
       this.evaluateWallClock(now);
       this.enqueueFollowups(now);
       this.enqueueMaintenanceReminders(now);
@@ -272,7 +273,7 @@ export class AlertEngine {
       if (!latest || latest.quality === "stale") continue;
       const latestMs = Date.parse(latest.timestamp);
       if (!Number.isFinite(latestMs) || now.getTime() - latestMs > maximumSampleAgeMs || latestMs > now.getTime()) continue;
-      this.evaluateRule(pending.rule, { ...latest, timestamp: now.toISOString() }, now.getTime());
+      this.evaluateRule(pending.rule, { ...latest, timestamp: now.toISOString() });
     }
   }
 
@@ -364,6 +365,49 @@ export class AlertEngine {
 
   evaluateSamples(samples: readonly MeasurementSample[]): AlertEvent[] {
     if (samples.length === 0) return [];
+    const rulesByMetric = this.rulesByMetric();
+    const created: AlertEvent[] = [];
+    for (const sample of samples) {
+      if (sample.quality === "stale") continue;
+      for (const rule of rulesByMetric.get(sample.metric) ?? []) {
+        const transition = this.applyRule(rule, sample);
+        this.publishTransition(transition);
+        if (transition.created) created.push(transition.created);
+      }
+    }
+    return created;
+  }
+
+  evaluatePendingSamples(): AlertEvent[] {
+    const created: AlertEvent[] = [];
+    while (true) {
+      const result = this.database.transaction(() => {
+        const pending = this.database.listPendingAlertEvaluationSamples();
+        if (pending.length === 0) return { processed: 0, transitions: [] as AlertTransition[] };
+        const rulesByMetric = this.rulesByMetric();
+        const transitions: AlertTransition[] = [];
+        for (const { queueId, sample } of pending) {
+          if (sample.quality !== "stale") {
+            for (const rule of rulesByMetric.get(sample.metric) ?? []) {
+              const transition = this.applyRule(rule, sample);
+              if (transition.created || transition.resolved) transitions.push(transition);
+            }
+          }
+          if (!this.database.completeAlertEvaluationSample(queueId)) {
+            throw new Error(`Alert evaluation queue item ${queueId} disappeared before completion`);
+          }
+        }
+        return { processed: pending.length, transitions };
+      });
+      for (const transition of result.transitions) {
+        this.publishTransition(transition);
+        if (transition.created) created.push(transition.created);
+      }
+      if (result.processed === 0) return created;
+    }
+  }
+
+  private rulesByMetric(): Map<string, AlertRule[]> {
     const rulesByMetric = new Map<string, AlertRule[]>();
     for (const rule of this.database.listAlertRules()) {
       if (!rule.enabled) continue;
@@ -371,21 +415,13 @@ export class AlertEngine {
       rules.push(rule);
       rulesByMetric.set(rule.metric, rules);
     }
-    const created: AlertEvent[] = [];
-    for (const sample of samples) {
-      if (sample.quality === "stale") continue;
-      const timestampMs = Date.parse(sample.timestamp);
-      const nowMs = Number.isFinite(timestampMs) ? timestampMs : Date.now();
-      for (const rule of rulesByMetric.get(sample.metric) ?? []) {
-        const event = this.evaluateRule(rule, sample, nowMs);
-        if (event) created.push(event);
-      }
-    }
-    return created;
+    return rulesByMetric;
   }
 
-  private evaluateRule(rule: AlertRule, sample: MeasurementSample, nowMs: number): AlertEvent | null {
-    if (!ruleApplies(rule, sample)) return null;
+  private applyRule(rule: AlertRule, sample: MeasurementSample): AlertTransition {
+    if (!ruleApplies(rule, sample)) {
+      return { ignoredAsStale: false, created: null, resolved: null };
+    }
     const nativePushEnabled = Boolean(
       this.config?.apnsTeamId
         && this.config.apnsKeyId
@@ -408,8 +444,17 @@ export class AlertEngine {
       compare(sample.value, rule.operator, rule.threshold),
       bindings,
     );
+    return transition;
+  }
+
+  private publishTransition(transition: AlertTransition): void {
     if (transition.resolved) this.bus.publish({ type: "alert", data: transition.resolved });
     if (transition.created) this.bus.publish({ type: "alert", data: transition.created });
+  }
+
+  private evaluateRule(rule: AlertRule, sample: MeasurementSample): AlertEvent | null {
+    const transition = this.applyRule(rule, sample);
+    this.publishTransition(transition);
     return transition.created;
   }
 

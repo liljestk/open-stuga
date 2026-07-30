@@ -141,7 +141,7 @@ export function parseElectricityPricePayload(payload: unknown): Array<{
     throw new Error("Electricity price feed must contain between 1 and 500 prices");
   }
   const seen = new Set<string>();
-  return candidates.map((candidate, index) => {
+  const prices = candidates.map((candidate, index) => {
     if (!candidate || typeof candidate !== "object") throw new Error(`Invalid electricity price at index ${index}`);
     const value = candidate as Record<string, unknown>;
     const rawPriceCentsPerKwh = finitePrice(value.price);
@@ -155,6 +155,14 @@ export function parseElectricityPricePayload(payload: unknown): Array<{
     seen.add(startAt);
     return { startAt, endAt: new Date(endMs).toISOString(), rawPriceCentsPerKwh };
   }).sort((left, right) => left.startAt.localeCompare(right.startAt));
+  for (let index = 1; index < prices.length; index += 1) {
+    const previous = prices[index - 1]!;
+    const current = prices[index]!;
+    if (Date.parse(previous.endAt) > Date.parse(current.startAt)) {
+      throw new Error(`Electricity price intervals overlap at ${current.startAt}`);
+    }
+  }
+  return prices;
 }
 
 export class ElectricityPriceService {

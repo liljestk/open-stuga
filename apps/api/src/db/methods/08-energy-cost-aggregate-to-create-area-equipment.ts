@@ -145,15 +145,22 @@ registerDatabaseMethods({
               / full_duration_ms AS window_delta_kwh,
             (julianday(current_at) - julianday(window_start)) * 86400000.0 AS window_duration_ms
           FROM deltas
+        ), price_intervals AS (
+          SELECT price.*,
+            MIN(price.end_at, COALESCE(
+              LEAD(price.start_at) OVER (ORDER BY price.start_at),
+              price.end_at
+            )) AS effective_end_at
+          FROM electricity_price_points AS price
+          WHERE price.property_id = ?
         ), priced AS (
           SELECT normalized.*,
             price.raw_price_cents_per_kwh, price.margin_cents_per_kwh,
-            (julianday(MIN(normalized.current_at, price.end_at))
+            (julianday(MIN(normalized.current_at, price.effective_end_at))
               - julianday(MAX(normalized.window_start, price.start_at))) * 86400000.0 AS overlap_ms
-          FROM normalized JOIN electricity_price_points AS price
-            ON price.property_id = ?
-            AND price.start_at < normalized.current_at
-            AND price.end_at > normalized.window_start
+          FROM normalized JOIN price_intervals AS price
+            ON price.start_at < normalized.current_at
+            AND price.effective_end_at > normalized.window_start
         ), allocations AS (
           SELECT overlap_ms,
             base_delta_kwh * overlap_ms / full_duration_ms AS allocated_kwh,
@@ -167,6 +174,7 @@ registerDatabaseMethods({
           (SELECT COALESCE(SUM(allocated_kwh * effective_price_cents_per_kwh / 100.0), 0) FROM allocations) AS cost_eur,
           (SELECT COALESCE(SUM(window_duration_ms), 0) FROM normalized) AS total_duration_ms,
           (SELECT COALESCE(SUM(overlap_ms), 0) FROM allocations) AS priced_duration_ms,
+          (SELECT COALESCE(MAX(full_duration_ms), 0) FROM normalized) AS maximum_interval_duration_ms,
           (SELECT MIN(window_start) FROM normalized) AS coverage_from,
           (SELECT MAX(current_at) FROM normalized) AS coverage_until`)
         .get(query.sensorId, query.from, query.excludeSynthetic ? 1 : 0,
@@ -179,6 +187,7 @@ registerDatabaseMethods({
         costEur: Number(row.cost_eur ?? 0),
         totalDurationMs: Number(row.total_duration_ms ?? 0),
         pricedDurationMs: Number(row.priced_duration_ms ?? 0),
+        maximumIntervalDurationMs: Number(row.maximum_interval_duration_ms ?? 0),
         coverageFrom: row.coverage_from,
         coverageUntil: row.coverage_until,
       };
@@ -226,17 +235,24 @@ registerDatabaseMethods({
               AS window_energy_kwh
           FROM candidates
           WHERE window_end_jd > window_start_jd
+        ), price_intervals AS (
+          SELECT price.*,
+            MIN(price.end_at, COALESCE(
+              LEAD(price.start_at) OVER (ORDER BY price.start_at),
+              price.end_at
+            )) AS effective_end_at
+          FROM electricity_price_points AS price
+          WHERE price.property_id = ?
         ), priced AS (
           SELECT normalized.*,
             price.raw_price_cents_per_kwh, price.margin_cents_per_kwh,
             (
-              MIN(normalized.window_end_jd, julianday(price.end_at))
+              MIN(normalized.window_end_jd, julianday(price.effective_end_at))
               - MAX(normalized.window_start_jd, julianday(price.start_at))
             ) * 86400000.0 AS overlap_ms
-          FROM normalized JOIN electricity_price_points AS price
-            ON price.property_id = ?
-            AND julianday(price.start_at) < normalized.window_end_jd
-            AND julianday(price.end_at) > normalized.window_start_jd
+          FROM normalized JOIN price_intervals AS price
+            ON julianday(price.start_at) < normalized.window_end_jd
+            AND julianday(price.effective_end_at) > normalized.window_start_jd
         ), allocations AS (
           SELECT overlap_ms,
             window_energy_kwh * overlap_ms / window_duration_ms AS allocated_kwh,
@@ -250,6 +266,7 @@ registerDatabaseMethods({
           (SELECT COALESCE(SUM(allocated_kwh * effective_price_cents_per_kwh / 100.0), 0) FROM allocations) AS cost_eur,
           (SELECT COALESCE(SUM(window_duration_ms), 0) FROM normalized) AS total_duration_ms,
           (SELECT COALESCE(SUM(overlap_ms), 0) FROM allocations) AS priced_duration_ms,
+          (SELECT COALESCE(MAX(window_duration_ms), 0) FROM normalized) AS maximum_interval_duration_ms,
           (SELECT strftime('%Y-%m-%dT%H:%M:%fZ', MIN(window_start_jd)) FROM normalized) AS coverage_from,
           (SELECT strftime('%Y-%m-%dT%H:%M:%fZ', MAX(window_end_jd)) FROM normalized) AS coverage_until`)
         .get(
@@ -265,6 +282,7 @@ registerDatabaseMethods({
         costEur: Number(row.cost_eur ?? 0),
         totalDurationMs: Number(row.total_duration_ms ?? 0),
         pricedDurationMs: Number(row.priced_duration_ms ?? 0),
+        maximumIntervalDurationMs: Number(row.maximum_interval_duration_ms ?? 0),
         coverageFrom: row.coverage_from,
         coverageUntil: row.coverage_until,
       };

@@ -32,6 +32,23 @@ final class AppModel: ObservableObject {
         case queued
     }
 
+    private struct TrackingWorkspaceData {
+        let capabilities: TrackingCapabilities?
+        let settings: TrackingPropertySettings?
+        let snapshot: TrackingMapSnapshot?
+    }
+
+    private struct RequestGeneration: Equatable, Sendable {
+        let account: Int
+        let scope: Int
+    }
+
+    private struct ScopeRequest: Sendable {
+        let generation: RequestGeneration
+        let propertyID: String?
+        let homeID: String?
+    }
+
     @Published private(set) var phase: Phase = .starting
     @Published private(set) var serverAddress: ServerAddress?
     @Published private(set) var serverVersion: String?
@@ -113,6 +130,7 @@ final class AppModel: ObservableObject {
     private var trackingEventTask: Task<Void, Never>?
     private var trackingEventRefreshTask: Task<Void, Never>?
     private var requestGeneration = 0
+    private var scopeGeneration = 0
     private let cacheStore = CompanionCacheStore(
         fileURL: CompanionCacheStore.defaultFileURL()
     )
@@ -665,11 +683,13 @@ final class AppModel: ObservableObject {
 
     func refresh() async {
         guard phase == .ready, !isRefreshing else { return }
+        let generation = currentRequestGeneration
         isRefreshing = true
         defer { isRefreshing = false }
         do {
             if usingCachedData, let client {
                 let refreshedSession = try await client.currentSession()
+                guard isCurrent(generation) else { return }
                 guard refreshedSession.authenticated else {
                     throw StuguAPIError(
                         status: 401,
@@ -681,9 +701,11 @@ final class AppModel: ObservableObject {
                 session = refreshedSession
             }
             try await loadWorkspace()
+            guard isCurrent(generation) else { return }
             await finishOnlineRefresh()
             errorMessage = nil
         } catch {
+            guard isCurrent(generation) else { return }
             if isTransient(error), !properties.isEmpty {
                 usingCachedData = true
                 liveConnected = false
@@ -777,83 +799,51 @@ final class AppModel: ObservableObject {
 
     func selectHome(_ id: String) async {
         guard let home = houses.first(where: { $0.id == id }), let client else { return }
-        let generation = requestGeneration
-        if selectedPropertyID != home.propertyId {
+        let propertyChanged = selectedPropertyID != home.propertyId
+        let generation = beginScopeChange(propertyChanged: propertyChanged)
+        if propertyChanged {
             await memberLocationSharing.stopSharing()
         }
-        selectedHomeID = id
-        selectedPropertyID = home.propertyId
-        UserDefaults.standard.set(id, forKey: DefaultsKey.selectedHome)
-        UserDefaults.standard.set(home.propertyId, forKey: DefaultsKey.selectedProperty)
-        snapshot = []
-        tpLinkDevices = []
-        latestOpeningStateObservation = nil
-        homeMonitoring = nil
-        homeMonitoringAvailability = ServerFeatureSupport.homeMonitoring(systemVersion: serverVersion)
-            ? .unavailable
-            : .serverUpgradeRequired
+        guard isCurrent(generation) else { return }
+        let scope = ScopeRequest(
+            generation: generation,
+            propertyID: home.propertyId,
+            homeID: id
+        )
+        adoptScopeSelection(propertyID: home.propertyId, homeID: id)
         do {
-            let next = try await client.measurementSnapshot(houseID: id)
-            let devices = await loadTpLinkDevices(homeID: id)
-            guard generation == requestGeneration, selectedHomeID == id else { return }
-            snapshot = next
-            tpLinkDevices = devices
-            try await loadHomeMonitoring()
-            guard generation == requestGeneration, selectedHomeID == id else { return }
-            try await loadInventoryWorkspace()
-            guard generation == requestGeneration, selectedHomeID == id else { return }
-            try await loadTrackingWorkspace()
-            guard generation == requestGeneration, selectedHomeID == id else { return }
-            startTrackingEventLoop()
-            lastUpdated = Date()
-            usingCachedData = false
-            await persistCompanionState()
+            try await reloadSelectedScope(client: client, request: scope)
+            guard isCurrent(scope) else { return }
             errorMessage = nil
         } catch {
+            guard isCurrent(scope) else { return }
             handleAuthenticatedError(error)
         }
     }
 
     func selectProperty(_ id: String) async {
         guard properties.contains(where: { $0.id == id }), let client else { return }
-        let generation = requestGeneration
-        if selectedPropertyID != id {
+        let propertyChanged = selectedPropertyID != id
+        let generation = beginScopeChange(propertyChanged: propertyChanged)
+        if propertyChanged {
             await memberLocationSharing.stopSharing()
         }
-        selectedPropertyID = id
-        UserDefaults.standard.set(id, forKey: DefaultsKey.selectedProperty)
-
-        if selectedHome?.propertyId != id {
-            selectedHomeID = houses.first(where: { $0.propertyId == id })?.id
-            if let selectedHomeID {
-                UserDefaults.standard.set(selectedHomeID, forKey: DefaultsKey.selectedHome)
-                snapshot = (try? await client.measurementSnapshot(houseID: selectedHomeID)) ?? []
-                tpLinkDevices = await loadTpLinkDevices(homeID: selectedHomeID)
-                latestOpeningStateObservation = nil
-            } else {
-                UserDefaults.standard.removeObject(forKey: DefaultsKey.selectedHome)
-                snapshot = []
-                tpLinkDevices = []
-                latestOpeningStateObservation = nil
-                homeMonitoring = nil
-                homeMonitoringAvailability = .unavailable
-            }
-        }
-
-        guard generation == requestGeneration, selectedPropertyID == id else { return }
+        guard isCurrent(generation) else { return }
+        let nextHomeID = selectedHome?.propertyId == id
+            ? selectedHomeID
+            : houses.first(where: { $0.propertyId == id })?.id
+        let scope = ScopeRequest(
+            generation: generation,
+            propertyID: id,
+            homeID: nextHomeID
+        )
+        adoptScopeSelection(propertyID: id, homeID: nextHomeID)
         do {
-            try await loadHomeMonitoring()
-            guard generation == requestGeneration, selectedPropertyID == id else { return }
-            try await loadInventoryWorkspace()
-            guard generation == requestGeneration, selectedPropertyID == id else { return }
-            try await loadTrackingWorkspace()
-            guard generation == requestGeneration, selectedPropertyID == id else { return }
-            startTrackingEventLoop()
-            lastUpdated = Date()
-            usingCachedData = false
-            await persistCompanionState()
+            try await reloadSelectedScope(client: client, request: scope)
+            guard isCurrent(scope) else { return }
             errorMessage = nil
         } catch {
+            guard isCurrent(scope) else { return }
             handleAuthenticatedError(error)
         }
     }
@@ -978,6 +968,7 @@ final class AppModel: ObservableObject {
             errorMessage = "Equipment observation is not available for this Property."
             return
         }
+        let scope = currentScopeRequest
         do {
             let settings: TrackingPropertySettings
             if let trackingSettings {
@@ -985,6 +976,7 @@ final class AppModel: ObservableObject {
             } else {
                 settings = try await client.trackingPropertySettings(propertyID: property.id)
             }
+            guard isCurrent(scope) else { return }
             self.trackingSettings = settings
             try await mobileTracking.enable(
                 client: client,
@@ -993,10 +985,14 @@ final class AppModel: ObservableObject {
                 capabilities: capabilities,
                 settings: settings
             )
+            guard isCurrent(scope) else { return }
             equipmentObservationEnabled = true
             UserDefaults.standard.set(true, forKey: DefaultsKey.equipmentObservation)
             errorMessage = nil
+        } catch is CancellationError {
+            return
         } catch {
+            guard isCurrent(scope) else { return }
             equipmentObservationEnabled = false
             UserDefaults.standard.set(false, forKey: DefaultsKey.equipmentObservation)
             errorMessage = friendlyMessage(for: error)
@@ -1004,12 +1000,15 @@ final class AppModel: ObservableObject {
     }
 
     func removeMobileTrackingObserver() async {
+        let scope = currentScopeRequest
         do {
             try await mobileTracking.removeObserverRegistration()
+            guard isCurrent(scope) else { return }
             equipmentObservationEnabled = false
             UserDefaults.standard.set(false, forKey: DefaultsKey.equipmentObservation)
             errorMessage = nil
         } catch {
+            guard isCurrent(scope) else { return }
             errorMessage = friendlyMessage(for: error)
         }
     }
@@ -1020,11 +1019,14 @@ final class AppModel: ObservableObject {
             errorMessage = "Turn on equipment observation before starting Find nearby."
             return
         }
+        let scope = currentScopeRequest
         do {
             let descriptor = try await client.trackingFindDescriptor(equipmentID: equipment.id)
+            guard isCurrent(scope) else { return }
             mobileTracking.beginFind(descriptor)
             errorMessage = nil
         } catch {
+            guard isCurrent(scope) else { return }
             errorMessage = friendlyMessage(for: error)
         }
     }
@@ -1730,7 +1732,7 @@ final class AppModel: ObservableObject {
 
     private func loadWorkspace() async throws {
         guard let client else { return }
-        let generation = requestGeneration
+        let generation = currentRequestGeneration
         async let propertiesRequest = client.properties()
         async let housesRequest = client.houses()
         async let sensorsRequest = client.sensors()
@@ -1746,7 +1748,7 @@ final class AppModel: ObservableObject {
             alertsRequest,
             rulesRequest
         )
-        guard generation == requestGeneration else { return }
+        guard isCurrent(generation) else { return }
         self.properties = properties.sorted {
             $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
@@ -1784,15 +1786,24 @@ final class AppModel: ObservableObject {
             selectedHomeID = houses.first(where: { $0.propertyId == selectedPropertyID })?.id
         }
 
-        if let selectedHomeID {
-            let nextSnapshot = try await client.measurementSnapshot(houseID: selectedHomeID)
-            let nextTpLinkDevices = await loadTpLinkDevices(homeID: selectedHomeID)
-            guard generation == requestGeneration else { return }
+        let scopePropertyID = selectedPropertyID
+        let scopeHomeID = selectedHomeID
+        let scope = ScopeRequest(
+            generation: generation,
+            propertyID: scopePropertyID,
+            homeID: scopeHomeID
+        )
+        if let scopeHomeID {
+            let (nextSnapshot, nextTpLinkDevices) = try await fetchHomeSelection(
+                client: client,
+                homeID: scopeHomeID
+            )
+            guard isCurrent(scope) else { return }
             snapshot = nextSnapshot
             tpLinkDevices = nextTpLinkDevices
             try await loadHomeMonitoring()
-            guard generation == requestGeneration else { return }
-            UserDefaults.standard.set(selectedHomeID, forKey: DefaultsKey.selectedHome)
+            guard isCurrent(scope) else { return }
+            UserDefaults.standard.set(scopeHomeID, forKey: DefaultsKey.selectedHome)
         } else {
             snapshot = []
             tpLinkDevices = []
@@ -1801,35 +1812,102 @@ final class AppModel: ObservableObject {
             homeMonitoringAvailability = .unavailable
             UserDefaults.standard.removeObject(forKey: DefaultsKey.selectedHome)
         }
-        if let selectedPropertyID {
-            UserDefaults.standard.set(selectedPropertyID, forKey: DefaultsKey.selectedProperty)
+        if let scopePropertyID {
+            UserDefaults.standard.set(scopePropertyID, forKey: DefaultsKey.selectedProperty)
         }
         try await loadInventoryWorkspace()
-        guard generation == requestGeneration else { return }
+        guard isCurrent(scope) else { return }
         do {
             try await loadTrackingWorkspace()
         } catch let error as StuguAPIError where error.status == 401 {
             throw error
         } catch {
+            guard isCurrent(scope) else { return }
             trackingCapabilities = nil
             trackingSettings = nil
             trackingSnapshot = nil
             trackingLiveConnected = false
         }
+        guard isCurrent(scope) else { return }
         lastUpdated = Date()
         usingCachedData = false
     }
 
-    private func loadTpLinkDevices(homeID: String) async -> [TpLinkDiscoveredDevice] {
-        guard !isReadOnly, let client else { return [] }
+    private func adoptScopeSelection(propertyID: String, homeID: String?) {
+        selectedPropertyID = propertyID
+        selectedHomeID = homeID
+        UserDefaults.standard.set(propertyID, forKey: DefaultsKey.selectedProperty)
+        if let homeID {
+            UserDefaults.standard.set(homeID, forKey: DefaultsKey.selectedHome)
+        } else {
+            UserDefaults.standard.removeObject(forKey: DefaultsKey.selectedHome)
+        }
+        snapshot = []
+        tpLinkDevices = []
+        latestOpeningStateObservation = nil
+        homeMonitoring = nil
+        if homeID == nil || ServerFeatureSupport.homeMonitoring(systemVersion: serverVersion) {
+            homeMonitoringAvailability = .unavailable
+        } else {
+            homeMonitoringAvailability = .serverUpgradeRequired
+        }
+    }
+
+    private func reloadSelectedScope(
+        client: StuguAPIClient,
+        request: ScopeRequest
+    ) async throws {
+        let homeData: (
+            snapshot: [MeasurementSnapshotEntry],
+            devices: [TpLinkDiscoveredDevice]
+        )
+        if let homeID = request.homeID {
+            homeData = try await fetchHomeSelection(client: client, homeID: homeID)
+        } else {
+            homeData = ([], [])
+        }
+        guard isCurrent(request) else { return }
+        snapshot = homeData.snapshot
+        tpLinkDevices = homeData.devices
+        try await loadHomeMonitoring()
+        guard isCurrent(request) else { return }
+        try await loadInventoryWorkspace()
+        guard isCurrent(request) else { return }
+        try await loadTrackingWorkspace()
+        guard isCurrent(request) else { return }
+        startTrackingEventLoop()
+        lastUpdated = Date()
+        usingCachedData = false
+        await persistCompanionState()
+        guard isCurrent(request) else { return }
+    }
+
+    private func fetchHomeSelection(
+        client: StuguAPIClient,
+        homeID: String
+    ) async throws -> (
+        snapshot: [MeasurementSnapshotEntry],
+        devices: [TpLinkDiscoveredDevice]
+    ) {
+        let snapshot = try await client.measurementSnapshot(houseID: homeID)
+        let devices = await loadTpLinkDevices(client: client, homeID: homeID)
+        return (snapshot, devices)
+    }
+
+    private func loadTpLinkDevices(
+        client: StuguAPIClient,
+        homeID: String
+    ) async -> [TpLinkDiscoveredDevice] {
+        guard !isReadOnly else { return [] }
+        let fallback = tpLinkDevices.filter {
+            $0.houseId == homeID || ($0.houseId == nil && selectedHomeID == homeID)
+        }
         do {
             return try await client.tpLinkDevices(houseID: homeID)
         } catch {
             // Device inventory is an administrative, additive companion resource.
             // Keep the rest of the Home usable when it is unavailable.
-            return tpLinkDevices.filter {
-                $0.houseId == homeID || ($0.houseId == nil && selectedHomeID == homeID)
-            }
+            return fallback
         }
     }
 
@@ -1838,53 +1916,102 @@ final class AppModel: ObservableObject {
             propertyInventory = nil
             return
         }
-        let inventory = try await client.propertyInventory(propertyID: propertyID)
-        guard selectedProperty?.id == propertyID else { return }
+        let scope = currentScopeRequest
+        let inventory: PropertyInventorySnapshot
+        do {
+            inventory = try await client.propertyInventory(propertyID: propertyID)
+        } catch {
+            guard isCurrent(scope) else { return }
+            throw error
+        }
+        guard isCurrent(scope) else { return }
         propertyInventory = inventory
     }
 
-    private func loadTrackingWorkspace() async throws {
-        guard let client else { return }
+    private func fetchTrackingWorkspace(
+        client: StuguAPIClient,
+        propertyID: String
+    ) async throws -> TrackingWorkspaceData {
         let capabilities = try await client.trackingCapabilities()
-        trackingCapabilities = capabilities
+        guard capabilities.featureEnabled("tracking.enabled") else {
+            return TrackingWorkspaceData(
+                capabilities: capabilities,
+                settings: nil,
+                snapshot: nil
+            )
+        }
+        let settings: TrackingPropertySettings
+        do {
+            settings = try await client.trackingPropertySettings(propertyID: propertyID)
+        } catch let error as StuguAPIError where error.status == 404 {
+            return TrackingWorkspaceData(
+                capabilities: capabilities,
+                settings: nil,
+                snapshot: nil
+            )
+        }
+        let snapshot: TrackingMapSnapshot?
+        if capabilities.featureEnabled("tracking.liveMap.enabled") {
+            snapshot = try await client.trackingMapSnapshot(propertyID: propertyID)
+        } else {
+            snapshot = nil
+        }
+        return TrackingWorkspaceData(
+            capabilities: capabilities,
+            settings: settings,
+            snapshot: snapshot
+        )
+    }
+
+    private func loadTrackingWorkspace() async throws {
+        guard let client, let propertyID = selectedProperty?.id else {
+            trackingCapabilities = nil
+            trackingSettings = nil
+            trackingSnapshot = nil
+            mobileTracking.disable()
+            return
+        }
+        let scope = currentScopeRequest
+        let data: TrackingWorkspaceData
+        do {
+            data = try await fetchTrackingWorkspace(
+                client: client,
+                propertyID: propertyID
+            )
+        } catch {
+            guard isCurrent(scope) else { return }
+            throw error
+        }
+        guard isCurrent(scope) else { return }
+        trackingCapabilities = data.capabilities
+        trackingSettings = data.settings
+        trackingSnapshot = data.snapshot
+
         if !memberLocationSharingAvailable {
             await memberLocationSharing.stopSharing()
-        }
-        guard capabilities.featureEnabled("tracking.enabled"),
-              let property = selectedProperty else {
-            trackingSettings = nil
-            trackingSnapshot = nil
-            mobileTracking.disable()
-            return
-        }
-        do {
-            trackingSettings = try await client.trackingPropertySettings(propertyID: property.id)
-        } catch let error as StuguAPIError where error.status == 404 {
-            trackingSettings = nil
-            trackingSnapshot = nil
-            mobileTracking.disable()
-            return
-        }
-        if capabilities.featureEnabled("tracking.liveMap.enabled") {
-            trackingSnapshot = try await client.trackingMapSnapshot(propertyID: property.id)
-        } else {
-            trackingSnapshot = nil
+            guard isCurrent(scope) else { return }
         }
         if equipmentObservationEnabled,
            mobileTrackingAvailable,
            let serverAddress,
-           let trackingSettings {
+           let capabilities = data.capabilities,
+           let settings = data.settings {
             do {
                 try await mobileTracking.enable(
                     client: client,
                     serverOrigin: serverAddress.origin.absoluteString,
-                    propertyID: property.id,
+                    propertyID: propertyID,
                     capabilities: capabilities,
-                    settings: trackingSettings
+                    settings: settings
                 )
+                guard isCurrent(scope) else { return }
+            } catch is CancellationError {
+                return
             } catch let error as StuguAPIError where error.status == 401 {
+                guard isCurrent(scope) else { return }
                 throw error
             } catch {
+                guard isCurrent(scope) else { return }
                 mobileTracking.disable()
                 errorMessage = friendlyMessage(for: error)
             }
@@ -1899,23 +2026,30 @@ final class AppModel: ObservableObject {
             homeMonitoringAvailability = .unavailable
             return
         }
+        let scope = currentScopeRequest
         guard ServerFeatureSupport.homeMonitoring(systemVersion: serverVersion) else {
             homeMonitoring = nil
             homeMonitoringAvailability = .serverUpgradeRequired
             return
         }
+        let nextMonitoring: HomeMonitoringDetailResponse?
+        let nextAvailability: HomeMonitoringAvailability
         do {
-            homeMonitoring = try await client.homeMonitoring(houseID: homeID)
-            homeMonitoringAvailability = .available
+            nextMonitoring = try await client.homeMonitoring(houseID: homeID)
+            nextAvailability = .available
         } catch let error as StuguAPIError where error.status == 401 {
+            guard isCurrent(scope) else { return }
             throw error
         } catch let error as StuguAPIError where error.status == 404 {
-            homeMonitoring = nil
-            homeMonitoringAvailability = .serverUpgradeRequired
+            nextMonitoring = nil
+            nextAvailability = .serverUpgradeRequired
         } catch {
-            homeMonitoring = nil
-            homeMonitoringAvailability = .unavailable
+            nextMonitoring = nil
+            nextAvailability = .unavailable
         }
+        guard isCurrent(scope) else { return }
+        homeMonitoring = nextMonitoring
+        homeMonitoringAvailability = nextAvailability
     }
 
     private func finishOnlineRefresh() async {
@@ -2494,17 +2628,22 @@ final class AppModel: ObservableObject {
 
     private func scheduleTrackingRefresh() {
         trackingEventRefreshTask?.cancel()
+        let scope = currentScopeRequest
+        let propertyID = selectedProperty?.id
         trackingEventRefreshTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled,
                   let self,
                   let client = self.client,
-                  let propertyID = self.selectedProperty?.id else { return }
+                  let propertyID else { return }
             do {
-                self.trackingSnapshot = try await client.trackingMapSnapshot(
+                let snapshot = try await client.trackingMapSnapshot(
                     propertyID: propertyID
                 )
+                guard self.isCurrent(scope) else { return }
+                self.trackingSnapshot = snapshot
             } catch {
+                guard self.isCurrent(scope) else { return }
                 self.handleAuthenticatedError(error)
             }
         }
@@ -2523,7 +2662,49 @@ final class AppModel: ObservableObject {
         trackingLiveConnected = false
     }
 
+    @discardableResult
+    private func beginScopeChange(propertyChanged: Bool) -> RequestGeneration {
+        scopeGeneration &+= 1
+        eventRefreshTask?.cancel()
+        eventRefreshTask = nil
+        trackingEventTask?.cancel()
+        trackingEventTask = nil
+        trackingEventRefreshTask?.cancel()
+        trackingEventRefreshTask = nil
+        trackingLiveConnected = false
+        if propertyChanged {
+            propertyInventory = nil
+            trackingSettings = nil
+            trackingSnapshot = nil
+            mobileTracking.disable()
+        }
+        return RequestGeneration(account: requestGeneration, scope: scopeGeneration)
+    }
+
+    private var currentRequestGeneration: RequestGeneration {
+        RequestGeneration(account: requestGeneration, scope: scopeGeneration)
+    }
+
+    private var currentScopeRequest: ScopeRequest {
+        ScopeRequest(
+            generation: currentRequestGeneration,
+            propertyID: selectedPropertyID,
+            homeID: selectedHomeID
+        )
+    }
+
+    private func isCurrent(_ generation: RequestGeneration) -> Bool {
+        generation == currentRequestGeneration
+    }
+
+    private func isCurrent(_ request: ScopeRequest) -> Bool {
+        isCurrent(request.generation)
+            && selectedPropertyID == request.propertyID
+            && selectedHomeID == request.homeID
+    }
+
     private func clearWorkspace() {
+        beginScopeChange(propertyChanged: true)
         session = nil
         properties = []
         houses = []

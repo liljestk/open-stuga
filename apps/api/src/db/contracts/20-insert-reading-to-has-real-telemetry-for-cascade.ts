@@ -103,11 +103,11 @@ import "../core.js";
 
 declare module "../core.js" {
   interface DatabaseInternals {
-    insertReading(reading: Reading): boolean;
+    insertReading(reading: Reading, enqueueAlertEvaluation?: boolean): boolean;
     insertLegacyReading(reading: Reading): boolean;
     upsertLegacyReading(reading: Reading): boolean;
     insertLegacyReadingUnchecked(reading: Reading): boolean;
-    insertReadings(readings: Reading[]): Reading[];
+    insertReadings(readings: Reading[], options?: { enqueueAlertEvaluation?: boolean }): Reading[];
     latestReadings(sensorIds?: string[]): Reading[];
     getLatestReading(sensorId: string): Reading | null;
     history(sensorIds: string[], from: string, to: string, limit?: number): Reading[];
@@ -131,7 +131,7 @@ declare module "../core.js" {
   interface ClimateDatabaseCore {
     insertLegacyReading(reading: Reading): boolean;
     upsertLegacyReading(reading: Reading): boolean;
-    insertReadings(readings: Reading[]): Reading[];
+    insertReadings(readings: Reading[], options?: { enqueueAlertEvaluation?: boolean }): Reading[];
     latestReadings(sensorIds?: string[]): Reading[];
     getLatestReading(sensorId: string): Reading | null;
     history(sensorIds: string[], from: string, to: string, limit?: number): Reading[];

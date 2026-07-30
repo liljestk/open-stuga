@@ -1,0 +1,7 @@
+interface:
+  display_name: "Chat about Stugu"
+  short_description: "Ask about your Home through Stugu"
+  brand_color: "#B54122"
+  default_prompt: "Use $chat-about-stugu to tell me what is happening at Home."
+policy:
+  allow_implicit_invocation: true

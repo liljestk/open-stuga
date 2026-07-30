@@ -44,6 +44,7 @@ export async function activeServices(config, composeCommand = compose) {
   }
   const services = ["api", "web"];
   if (active.has("stugu-backup-scheduler")) services.push("stugu-backup-scheduler");
+  if (active.has("stugu-r2-backup")) services.push("stugu-r2-backup");
   if (active.has("tapo-export-runner")) services.push("tapo-export-runner");
   return services;
 }
@@ -221,9 +222,6 @@ export async function applyCloudflareSetupRequest(config, requestPath, dependenc
 }
 
 export async function restoreReleaseEnvironment(path, previous) {
-  if (previous === null) {
-    if (existsSync(path)) rmSync(path);
-    return;
-  }
+  if (previous === null) throw new Error("Immutable rollback state is unavailable");
   writeTextAtomic(path, previous);
 }

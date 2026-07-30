@@ -64,12 +64,16 @@ test("portable settings exclude target-specific networking and storage", () => {
     "APP_PORT=9000",
     "DATABASE_PATH=C:/private/source.sqlite",
     "MOCK_ENABLED=false",
+    "STUGU_R2_BUCKET=stugu-backups",
+    "STUGU_R2_ENDPOINT=https://0123456789abcdef0123456789abcdef.eu.r2.cloudflarestorage.com",
     "TP_LINK_HOST=192.0.2.5",
     "TP_LINK_PASSWORD='value with spaces'",
     "",
   ].join("\n"));
   assert.doesNotMatch(migrated, /BIND_ADDRESS|APP_PORT|DATABASE_PATH/u);
   assert.match(migrated, /^MOCK_ENABLED=false$/mu);
+  assert.match(migrated, /^STUGU_R2_BUCKET=stugu-backups$/mu);
+  assert.match(migrated, /^STUGU_R2_ENDPOINT=https:\/\/0123456789abcdef0123456789abcdef\.eu\.r2\.cloudflarestorage\.com$/mu);
   assert.match(migrated, /^TP_LINK_HOST=192\.0\.2\.5$/mu);
   assert.match(migrated, /^TP_LINK_PASSWORD='value with spaces'$/mu);
 
@@ -160,8 +164,11 @@ test("source runtime profiles migrate even when they were enabled outside .env",
   const settingsFile = join(root, ".env");
   mkdirSync(workspace);
   writeFileSync(settingsFile, "MOCK_ENABLED=false\nCOMPOSE_PROFILES=tapo-history\n");
-  const generated = effectiveSettingsFile({ deploymentSettings: true, settingsFile, workspace }, ["cloudflared"]);
-  assert.match(readFileSync(generated, "utf8"), /^COMPOSE_PROFILES=cloudflare,tapo-history$/mu);
+  const generated = effectiveSettingsFile(
+    { deploymentSettings: true, settingsFile, workspace },
+    ["cloudflared", "stugu-r2-backup"],
+  );
+  assert.match(readFileSync(generated, "utf8"), /^COMPOSE_PROFILES=cloudflare,r2-backup,tapo-history$/mu);
   assert.throws(
     () => effectiveSettingsFile({
       deploymentSettings: true,
@@ -259,6 +266,10 @@ test("target deployment overlay preserves target networking and limits secret ro
   assert.equal(existsSync(join(target, "config", "stale.json")), false);
   assert.equal(readFileSync(join(target, "secrets", "cloudflare", "tunnel-token"), "utf8"), "secret-test-value\n");
   assert.equal(existsSync(join(target, "secrets", "cloudflare", "stale-token")), false);
+  assert.equal(
+    targetForDeploymentPath("deployment/secrets/r2/access-key-id").relativePath,
+    "r2/access-key-id",
+  );
   assert.throws(() => targetForDeploymentPath("deployment/secrets/cloudflare-bootstrap/token"), /Unsupported/u);
 });
 
@@ -433,11 +444,13 @@ test("migration bundles are chunked, resumable, reassembled, and verified", asyn
   mkdirSync(config);
   mkdirSync(join(secrets, "cloudflare"), { recursive: true });
   mkdirSync(join(secrets, "cloudflare-bootstrap"), { recursive: true });
+  mkdirSync(join(secrets, "r2"), { recursive: true });
   mkdirSync(join(secrets, "tapo-history-api"), { recursive: true });
   mkdirSync(join(secrets, "tapo-history-runner"), { recursive: true });
   writeFileSync(settings, "BIND_ADDRESS=0.0.0.0\nMOCK_ENABLED=false\n");
   writeFileSync(join(config, "sensor-map.json"), "{\"sensor\":1}\n");
   writeFileSync(join(secrets, "cloudflare", "tunnel-token"), "test-only-token\n");
+  writeFileSync(join(secrets, "r2", "age-recipient"), `age1${"q".repeat(58)}\n`);
   writeFileSync(join(secrets, "cloudflare-bootstrap", "provision-token.txt"), "must-not-migrate\n");
 
   const bundle = await createMigrationBundle({
@@ -456,6 +469,7 @@ test("migration bundles are chunked, resumable, reassembled, and verified", asyn
   assert.ok(bundle.plan.files.some((file) => file.path === "deployment/settings.env"));
   assert.ok(bundle.plan.files.some((file) => file.path === "deployment/config/sensor-map.json"));
   assert.ok(bundle.plan.files.some((file) => file.path === "deployment/secrets/cloudflare/tunnel-token"));
+  assert.ok(bundle.plan.files.some((file) => file.path === "deployment/secrets/r2/age-recipient"));
   assert.ok(bundle.plan.files.every((file) => !file.path.includes("cloudflare-bootstrap")));
   assert.equal(bundle.plan.files.find((file) => file.path.endsWith("climate-twin.sqlite")).chunks.length, 3);
 

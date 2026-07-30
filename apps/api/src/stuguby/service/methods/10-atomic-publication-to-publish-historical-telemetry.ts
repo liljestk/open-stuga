@@ -315,88 +315,127 @@ registerStugubyServiceMethods({
     },
   publishHistoricalTelemetry(this: StugubyServiceInternals, grant: StugubyShareGrant, house: House, dataset: StugubyDatasetGrant): void {
       const policy = dataset.telemetry;
-      if (!policy || !policy.historyFrom) return;
+      if (!policy) return;
+      if (!policy.historyFrom) {
+        const boundary = new Date().toISOString();
+        const completionId = sha256(`${grant.id}\n${grant.epoch}\nhistory-complete\nlive-only`);
+        this.publishDataset(grant, "home.telemetry.v1", {
+          publicationId: grant.publicationId,
+          chunkId: completionId,
+          from: boundary,
+          to: boundary,
+          complete: true,
+          samples: [],
+        } satisfies StugubyTelemetryPayload, `${grant.publicationId}:telemetry:${completionId}`, 1);
+        return;
+      }
       const from = parseIso(policy.historyFrom, "Telemetry history start");
       const now = Date.now();
       // When live publication is enabled, the current UTC hour belongs solely
       // to the durable live bucket. This prevents the initial history snapshot
       // and live stream from each consuming a full allowance for that hour.
       const to = new Date(policy.live ? Math.floor(now / 3_600_000) * 3_600_000 - 1 : now).toISOString();
-      if (Date.parse(from) > Date.parse(to)) return;
-      if (!this.localTelemetryHistoryComplete(from)) {
+      const hasHistoricalRange = Date.parse(from) <= Date.parse(to);
+      if (hasHistoricalRange && !this.localTelemetryHistoryComplete(from)) {
         throw new StugubyError(
           409,
           "ARCHIVED_TELEMETRY_EXPORT_UNAVAILABLE",
-          "Stuguby cannot publish a complete history snapshot from the bounded SQLite cache; an archive-aware federation export is required",
+          "Stuguby cannot synchronously page a complete history snapshot from the bounded SQLite cache; archive-backed federation export is unavailable",
         );
       }
       const sensors = this.selectedSensors(grant, house, policy.sensorPublicationIds);
-      if (sensors.length === 0) return;
       const sensorIds = sensors.map((sensor) => sensor.id);
       const sensorPlaceholders = sensorIds.map(() => "?").join(",");
       const metricPlaceholders = policy.metricIds.map(() => "?").join(",");
       const metricClause = metricPlaceholders ? `AND metric IN (${metricPlaceholders})` : "";
-      const rows = this.database.db.prepare(`WITH candidates AS (
-          SELECT id,sensor_id,metric,timestamp,value,quality,
-            strftime('%Y-%m-%dT%H',timestamp) AS utc_hour
-          FROM measurement_samples
-          WHERE timestamp>=? AND timestamp<=? AND sensor_id IN (${sensorPlaceholders}) ${metricClause}
-        ), bucketed AS (
-          SELECT *,ntile(?) OVER (
-            PARTITION BY utc_hour ORDER BY julianday(timestamp),timestamp,sensor_id,metric,id
-          ) AS sample_bucket
-          FROM candidates WHERE utc_hour IS NOT NULL
-        ), sampled AS (
-          SELECT *,row_number() OVER (
-            PARTITION BY utc_hour,sample_bucket ORDER BY julianday(timestamp),timestamp,sensor_id,metric,id
-          ) AS selected_rank
-          FROM bucketed
-        )
-        SELECT sensor_id,metric,timestamp,value,quality
-        FROM sampled WHERE selected_rank=1
-        ORDER BY julianday(timestamp),timestamp,sensor_id,metric,id LIMIT ?`)
-        .all(from, to, ...sensorIds, ...policy.metricIds, policy.maxSamplesPerHour, 100_000) as unknown as Array<{
-          sensor_id: string;
-          metric: string;
-          timestamp: string;
-          value: number;
-          quality: "good" | "estimated" | "stale";
-        }>;
       const publications = new Map(sensors.map((sensor) => [
         sensor.id,
         this.store.publicationId(grant.stugubyId, "sensor", sensor.id),
       ]));
-      const samples: StugubyTelemetryPayload["samples"] = rows.map((sample) => ({
-        sensorPublicationId: publications.get(sample.sensor_id)!,
-        metricId: sample.metric,
-        timestamp: sample.timestamp,
-        value: sample.value,
-        quality: sample.quality,
-      }));
-      const byHour = new Map<string, StugubyTelemetryPayload["samples"]>();
-      for (const sample of samples) {
-        const hour = new Date(Date.parse(sample.timestamp)).toISOString().slice(0, 13);
-        const bucket = byHour.get(hour) ?? [];
-        bucket.push(sample);
-        byHour.set(hour, bucket);
-      }
-      const hours = [...byHour.entries()].sort(([left], [right]) => left.localeCompare(right));
       const chunkSize = 2_000;
-      for (const [hourIndex, [hour, hourlySamples]] of hours.entries()) {
-        for (let offset = 0; offset < hourlySamples.length; offset += chunkSize) {
-          const selected = hourlySamples.slice(offset, offset + chunkSize);
-          const chunkIndex = Math.floor(offset / chunkSize);
-          const chunkId = sha256(`${grant.id}\n${grant.epoch}\n${hour}\n${chunkIndex}`);
-          const payload: StugubyTelemetryPayload = {
-            publicationId: grant.publicationId,
-            chunkId,
-            from: selected[0]!.timestamp,
-            to: selected.at(-1)!.timestamp,
-            complete: hourIndex === hours.length - 1 && offset + chunkSize >= hourlySamples.length,
-            samples: selected,
-          };
-          this.publishDataset(grant, "home.telemetry.v1", payload, `${grant.publicationId}:telemetry:${chunkId}`, 1);
+      if (hasHistoricalRange && sensorIds.length > 0) {
+        const listHours = this.database.db.prepare(`SELECT
+            strftime('%Y-%m-%dT%H:00:00.000Z', timestamp) AS hour_start
+          FROM measurement_samples
+          WHERE timestamp>=? AND timestamp<=? AND sensor_id IN (${sensorPlaceholders}) ${metricClause}
+            AND strftime('%Y-%m-%dT%H', timestamp) IS NOT NULL
+          GROUP BY hour_start ORDER BY hour_start LIMIT ?`);
+        const selectHour = this.database.db.prepare(`WITH candidates AS (
+            SELECT id,sensor_id,metric,timestamp,value,quality
+            FROM measurement_samples
+            WHERE timestamp>=? AND timestamp<=? AND sensor_id IN (${sensorPlaceholders}) ${metricClause}
+          ), bucketed AS (
+            SELECT *,ntile(?) OVER (
+              ORDER BY julianday(timestamp),timestamp,sensor_id,metric,id
+            ) AS sample_bucket
+            FROM candidates
+          ), sampled AS (
+            SELECT *,row_number() OVER (
+              PARTITION BY sample_bucket ORDER BY julianday(timestamp),timestamp,sensor_id,metric,id
+            ) AS selected_rank
+            FROM bucketed
+          )
+          SELECT sensor_id,metric,timestamp,value,quality
+          FROM sampled WHERE selected_rank=1
+          ORDER BY julianday(timestamp),timestamp,sensor_id,metric,id`);
+        let hourCursor = from;
+        while (Date.parse(hourCursor) <= Date.parse(to)) {
+          const hours = listHours.all(
+            hourCursor,
+            to,
+            ...sensorIds,
+            ...policy.metricIds,
+            500,
+          ) as Array<{ hour_start: string }>;
+          if (hours.length === 0) break;
+          for (const { hour_start: hourStart } of hours) {
+            const hourEnd = new Date(Date.parse(hourStart) + 3_600_000 - 1).toISOString();
+            const rows = selectHour.all(
+              hourStart < from ? from : hourStart,
+              hourEnd > to ? to : hourEnd,
+              ...sensorIds,
+              ...policy.metricIds,
+              policy.maxSamplesPerHour,
+            ) as Array<{
+              sensor_id: string;
+              metric: string;
+              timestamp: string;
+              value: number;
+              quality: "good" | "estimated" | "stale";
+            }>;
+            const hourlySamples: StugubyTelemetryPayload["samples"] = rows.map((sample) => ({
+              sensorPublicationId: publications.get(sample.sensor_id)!,
+              metricId: sample.metric,
+              timestamp: sample.timestamp,
+              value: sample.value,
+              quality: sample.quality,
+            }));
+            for (let offset = 0; offset < hourlySamples.length; offset += chunkSize) {
+              const selected = hourlySamples.slice(offset, offset + chunkSize);
+              const chunkIndex = Math.floor(offset / chunkSize);
+              const chunkId = sha256(`${grant.id}\n${grant.epoch}\n${hourStart}\n${chunkIndex}`);
+              this.publishDataset(grant, "home.telemetry.v1", {
+                publicationId: grant.publicationId,
+                chunkId,
+                from: selected[0]!.timestamp,
+                to: selected.at(-1)!.timestamp,
+                complete: false,
+                samples: selected,
+              } satisfies StugubyTelemetryPayload, `${grant.publicationId}:telemetry:${chunkId}`, 1);
+            }
+          }
+          hourCursor = new Date(Date.parse(hours.at(-1)!.hour_start) + 3_600_000).toISOString();
         }
       }
+      const completionTo = hasHistoricalRange ? to : from;
+      const completionId = sha256(`${grant.id}\n${grant.epoch}\nhistory-complete\n${from}\n${completionTo}`);
+      this.publishDataset(grant, "home.telemetry.v1", {
+        publicationId: grant.publicationId,
+        chunkId: completionId,
+        from,
+        to: completionTo,
+        complete: true,
+        samples: [],
+      } satisfies StugubyTelemetryPayload, `${grant.publicationId}:telemetry:${completionId}`, 1);
     },
 });

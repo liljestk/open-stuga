@@ -13,6 +13,7 @@ import type {
 } from "@climate-twin/contracts";
 import { HOME_MONITORING_ALGORITHM_VERSION } from "@climate-twin/contracts";
 import type { ClimateDatabase } from "../../db.js";
+import type { HybridTelemetryReader } from "../../timeseries/read-facade.js";
 import {
   deriveHouseMonitoring,
   type HouseMonitoringBlocker as DerivedBlocker,
@@ -37,11 +38,17 @@ export interface HomeMonitoringServiceContext {
   latestWeather(houseId: string): HouseWeather | null;
   dataMode: DataMode;
   evaluatedAt: string;
+  measurementHistory?: MeasurementHistory;
 }
 
 export interface HomeMonitoringScope {
   house: House;
   sensors: readonly Sensor[];
+}
+
+interface SharedAlertEvidence {
+  rules: ReturnType<ClimateDatabase["listAlertRules"]>;
+  alerts: ReturnType<ClimateDatabase["listAlertEvents"]>;
 }
 
 function latestMap(samples: readonly MeasurementSample[]): LatestMeasurements {
@@ -54,42 +61,98 @@ function latestMap(samples: readonly MeasurementSample[]): LatestMeasurements {
   return result;
 }
 
-function recentHistory(
-  context: HomeMonitoringServiceContext,
-  scope: HomeMonitoringScope,
-): MeasurementHistory {
-  const to = Date.parse(context.evaluatedAt);
-  const from = new Date(
-    to - HOME_INSIGHT_THRESHOLDS.trendWindowMinutes * 60_000,
-  ).toISOString();
+function historyFromSamples(samples: readonly MeasurementSample[]): MeasurementHistory {
   const history: MeasurementHistory = {};
-  for (const sensor of scope.sensors) {
-    if (!sensor.enabled) continue;
-    for (const metric of HISTORY_METRICS) {
-      const samples = context.database.measurementHistoryBucketed(
-        sensor.id,
-        metric,
-        from,
-        context.evaluatedAt,
-        HISTORY_BUCKET_MINUTES * 60,
-        HISTORY_LIMIT_PER_METRIC,
-      );
-      if (samples.length === 0) continue;
-      history[sensor.id] = { ...(history[sensor.id] ?? {}), [metric]: samples };
+  for (const sample of samples) {
+    const current = history[sample.sensorId]?.[sample.metric] ?? [];
+    history[sample.sensorId] = {
+      ...(history[sample.sensorId] ?? {}),
+      [sample.metric]: [...current, sample],
+    };
+  }
+  for (const metrics of Object.values(history)) {
+    for (const [metric, samples] of Object.entries(metrics)) {
+      metrics[metric] = samples
+        .sort((left, right) => left.timestamp.localeCompare(right.timestamp))
+        .slice(-HISTORY_LIMIT_PER_METRIC);
     }
   }
   return history;
+}
+
+export async function loadHomeMonitoringHistory(input: {
+  database: ClimateDatabase;
+  telemetryReader: HybridTelemetryReader;
+  scope: HomeMonitoringScope;
+  evaluatedAt: string;
+  signal?: AbortSignal;
+}): Promise<MeasurementHistory> {
+  const sensors = input.scope.sensors.filter((sensor) => sensor.enabled);
+  if (sensors.length === 0) return {};
+  const from = new Date(
+    Date.parse(input.evaluatedAt) - HOME_INSIGHT_THRESHOLDS.trendWindowMinutes * 60_000,
+  ).toISOString();
+  const rollup = await input.telemetryReader.measurementAnalyticsRollup({
+    series: sensors.flatMap((sensor) => HISTORY_METRICS.map((metric) => ({
+      sensorId: sensor.id,
+      metric,
+      aggregation: "mean" as const,
+    }))),
+    from,
+    to: input.evaluatedAt,
+    resolution: "5m",
+    qualities: ["good", "estimated", "stale"],
+    ...(input.signal ? { signal: input.signal } : {}),
+  });
+  if (rollup) {
+    const history: MeasurementHistory = {};
+    for (const series of rollup.result.series) {
+      const samples = series.buckets.slice(-HISTORY_LIMIT_PER_METRIC).flatMap((bucket) => (
+        bucket.value === null ? [] : [{
+          sensorId: series.sensorId,
+          metric: series.metric,
+          value: bucket.value,
+          canonicalUnit: series.canonicalUnit,
+          timestamp: bucket.bucketStart,
+          source: "api" as const,
+          quality: bucket.sampleCount > 1
+            ? "estimated" as const
+            : bucket.staleSampleCount > 0
+              ? "stale" as const
+              : bucket.estimatedSampleCount > 0
+                ? "estimated" as const
+                : "good" as const,
+        }]
+      ));
+      if (samples.length === 0) continue;
+      history[series.sensorId] = {
+        ...(history[series.sensorId] ?? {}),
+        [series.metric]: samples,
+      };
+    }
+    return history;
+  }
+
+  return historyFromSamples(input.database.measurementHistoryBucketedMulti(
+    sensors.map((sensor) => sensor.id),
+    [...HISTORY_METRICS],
+    from,
+    input.evaluatedAt,
+    HISTORY_BUCKET_MINUTES * 60,
+    HISTORY_LIMIT_PER_METRIC,
+  ));
 }
 
 function evidence(
   context: HomeMonitoringServiceContext,
   scope: HomeMonitoringScope,
   includeHistory: boolean,
+  sharedAlerts?: SharedAlertEvidence,
 ) {
   const sensorIds = new Set(scope.sensors.map((sensor) => sensor.id));
-  const rules = context.database.listAlertRules()
+  const rules = (sharedAlerts?.rules ?? context.database.listAlertRules())
     .filter((rule) => rule.sensorId === null || sensorIds.has(rule.sensorId));
-  const alerts = context.database.listAlertEvents(2_000, true)
+  const alerts = (sharedAlerts?.alerts ?? context.database.listAlertEvents(2_000, true))
     .filter((alert) => sensorIds.has(alert.sensorId));
   const weather = context.latestWeather(scope.house.id);
   return {
@@ -99,7 +162,7 @@ function evidence(
       context.latestMeasurements(scope.house.id)
         .filter((sample) => sensorIds.has(sample.sensorId)),
     ),
-    ...(includeHistory ? { measurementHistory: recentHistory(context, scope) } : {}),
+    ...(includeHistory ? { measurementHistory: context.measurementHistory ?? {} } : {}),
     alerts,
     alertRules: rules,
     integration: context.integrationStatus(scope.house.id),
@@ -201,9 +264,13 @@ export function getHomeMonitoringCollection(
   scopes: readonly HomeMonitoringScope[],
 ): HomeMonitoringCollectionResponse {
   const ordered = [...scopes].sort((left, right) => left.house.id.localeCompare(right.house.id));
+  const sharedAlerts: SharedAlertEvidence = {
+    rules: context.database.listAlertRules(),
+    alerts: context.database.listAlertEvents(2_000, true),
+  };
   return {
     ...envelope(context, ordered.flatMap((scope) => scope.sensors.map((sensor) => sensor.id))),
-    houses: ordered.map((scope) => summaryFrom(evidence(context, scope, false))),
+    houses: ordered.map((scope) => summaryFrom(evidence(context, scope, false, sharedAlerts))),
   };
 }
 

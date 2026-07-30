@@ -68,7 +68,6 @@ export function useWorkspaceHydration(
       const bufferedHouseMutations: HouseMutationBuffer = new Map();
       activeTelemetryLoadBuffers.current.add(bufferedLiveTelemetry);
       activeHouseMutationBuffers.current.add(bufferedHouseMutations);
-      const seriesVersionAtLoadStart = seriesCommitSequence.current;
       const globalVersionsAtLoadStart = { ...globalFieldVersions.current };
       activeHouseId.current = houseId;
       const activeVersion = ++activeHouseLoadVersion.current;
@@ -152,7 +151,6 @@ export function useWorkspaceHydration(
             current,
             new Set(loadedSensorIds),
             seriesCommitVersions.current,
-            seriesVersionAtLoadStart,
           );
           const telemetry = preserveMutatedSensorTelemetry(
             telemetryWithSeries, current, houseId, bufferedHouseMutations,
@@ -279,7 +277,6 @@ export function useWorkspaceHydration(
       const bufferedHouseMutations: HouseMutationBuffer = new Map();
       activeTelemetryLoadBuffers.current.add(bufferedLiveTelemetry);
       activeHouseMutationBuffers.current.add(bufferedHouseMutations);
-      const seriesVersionAtLoadStart = seriesCommitSequence.current;
       const telemetryVersion = (houseTelemetryVersions.current.get(houseId) ?? 0) + 1;
       houseTelemetryVersions.current.set(houseId, telemetryVersion);
       try {
@@ -318,7 +315,6 @@ export function useWorkspaceHydration(
             current,
             new Set(loadedSensorIds),
             seriesCommitVersions.current,
-            seriesVersionAtLoadStart,
           );
           const telemetry = preserveMutatedSensorTelemetry(
             telemetryWithSeries, current, houseId, bufferedHouseMutations,

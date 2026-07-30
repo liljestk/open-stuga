@@ -20,14 +20,14 @@ declare module "../core.js" {
     stop(): void;
     restart(): void;
     discoverSources(
-        timeoutMs?: unknown ,
+        timeoutMs?: number,
         preferredConnection?: { username: string; password: string },
       ): Promise<TpLinkSourceDiscoveryResult>;
     testCredentials(
         host: string,
         username: string,
         password: string,
-        timeoutMs?: unknown ,
+        timeoutMs?: number,
       ): Promise<TpLinkCredentialTestResult>;
     spawnHelper(): void;
     handleLine(line: string): void;
@@ -38,14 +38,14 @@ declare module "../core.js" {
     stop(): void;
     restart(): void;
     discoverSources(
-        timeoutMs?: unknown ,
+        timeoutMs?: number,
         preferredConnection?: { username: string; password: string },
       ): Promise<TpLinkSourceDiscoveryResult>;
     testCredentials(
         host: string,
         username: string,
         password: string,
-        timeoutMs?: unknown ,
+        timeoutMs?: number,
       ): Promise<TpLinkCredentialTestResult>;
   }
 }

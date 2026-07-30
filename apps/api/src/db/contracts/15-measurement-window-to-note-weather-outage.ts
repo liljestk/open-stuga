@@ -96,7 +96,8 @@ import {
 import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord } from "../../timeseries/types.js";
 import { CORE_SCHEMA_SQL } from "../migrations/core-schema.js";
 import { MeasurementSampleRow, OutdoorTemperatureRow, WeatherOutageRecord, WeatherOutageRow } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
-import { ClimateDataValidationError, HistoricalTelemetryGap } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
+import type { HistoricalTelemetryGap } from "../telemetry-gap-types.js";
+import { ClimateDataValidationError } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
 import { measurementSampleFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
 import { outdoorLocationKey, outdoorTemperatureFromRow, weatherOutageFromRow } from "../support/06-canonical-observation-patch-time-to-outdoor-location.js";
 import "../core.js";
@@ -106,6 +107,7 @@ declare module "../core.js" {
     measurementWindow(sensorIds: string[], metrics: string[], from: string, to: string, limit?: number): MeasurementSample[];
     measurementCoverage(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[];
     measurementHistoryBucketed(sensorId: string, metric: string, from: string, to: string, bucketSeconds: number, limit?: number): MeasurementSample[];
+    measurementHistoryBucketedMulti(sensorIds: string[], metrics: string[], from: string, to: string, bucketSeconds: number, limitPerSeries?: number): MeasurementSample[];
     sensorMeasurementPage(sensorId: string, before: {
             timestamp: string;
             id: number;
@@ -128,6 +130,7 @@ declare module "../core.js" {
     measurementWindow(sensorIds: string[], metrics: string[], from: string, to: string, limit?: number): MeasurementSample[];
     measurementCoverage(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[];
     measurementHistoryBucketed(sensorId: string, metric: string, from: string, to: string, bucketSeconds: number, limit?: number): MeasurementSample[];
+    measurementHistoryBucketedMulti(sensorIds: string[], metrics: string[], from: string, to: string, bucketSeconds: number, limitPerSeries?: number): MeasurementSample[];
     sensorMeasurementPage(sensorId: string, before: {
             timestamp: string;
             id: number;

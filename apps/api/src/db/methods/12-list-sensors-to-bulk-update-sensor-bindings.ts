@@ -190,7 +190,11 @@ registerDatabaseMethods({
         : sensor;
     },
   createSensor(input: Omit<Sensor, "id"> & { id?: string }): Sensor {
-      let sensor: Sensor = { ...input, id: input.id ?? randomUUID() };
+      let sensor: Sensor = {
+        ...input,
+        id: input.id ?? randomUUID(),
+        energyMeterRole: input.energyMeterRole ?? "standalone",
+      };
       return this.immediateTransaction(() => {
         this.assertTelemetryResourceIdAvailable("sensor", sensor.id);
         this.validateSensorPlacement(sensor);

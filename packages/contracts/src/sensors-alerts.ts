@@ -1,5 +1,8 @@
 import type { Metric } from "./measurement-analytics.js";
 
+/** How an electricity-capable sensor contributes to a Home total. */
+export type EnergyMeterRole = "whole_home" | "submeter" | "standalone";
+
 export interface Sensor {
   id: string;
   houseId: string;
@@ -29,6 +32,12 @@ export interface Sensor {
   tpLinkConnectionId?: string;
   /** Home Assistant entity bindings keyed by a registered measurement id. */
   measurementEntityIds?: Record<Metric, string>;
+  /**
+   * `whole_home` supersedes submeters in Home totals, while `standalone`
+   * sources are summed when no whole-Home meter exists. Omitted legacy values
+   * are treated as `standalone`.
+   */
+  energyMeterRole?: EnergyMeterRole;
   tags: string[];
   enabled: boolean;
 }

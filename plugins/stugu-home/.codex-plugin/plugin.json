@@ -1,0 +1,33 @@
+{
+  "name": "stugu-home",
+  "version": "0.20.2",
+  "description": "Ask ChatGPT about current and historical Home conditions through Stugu.",
+  "author": {
+    "name": "open-stuga contributors",
+    "url": "https://github.com/liljestk/open-stuga"
+  },
+  "homepage": "https://github.com/liljestk/open-stuga",
+  "repository": "https://github.com/liljestk/open-stuga",
+  "license": "MIT",
+  "keywords": ["stugu", "smart-home", "climate", "energy", "mcp"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Stugu",
+    "shortDescription": "Chat with your Home through Stugu.",
+    "longDescription": "A calm, read-only view of current readings, history, doors and windows, electricity, weather, alerts, and indoor-outdoor moisture response.",
+    "developerName": "open-stuga contributors",
+    "category": "Lifestyle",
+    "capabilities": ["Read"],
+    "websiteURL": "https://github.com/liljestk/open-stuga",
+    "brandColor": "#B54122",
+    "composerIcon": "./assets/stugu-mark.svg",
+    "logo": "./assets/stugu-mark.svg",
+    "defaultPrompt": [
+      "What is the temperature in Köket right now?",
+      "What was the average temperature in the Home last night?",
+      "Is the front door open?",
+      "How much electricity did we use yesterday?",
+      "Is the current wind consistent with the humidity change inside?"
+    ]
+  }
+}

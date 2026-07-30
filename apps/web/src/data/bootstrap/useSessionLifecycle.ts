@@ -239,6 +239,9 @@ export function useSessionLifecycle(
               if (!invalidated()) updateStreamConnection(stream, nextConnection);
             },
             onOpen: markStreamOpen,
+            houseIdForSensor: (sensorId) => (
+              stateRef.current.sensors.find((sensor) => sensor.id === sensorId)?.houseId ?? null
+            ),
           });
           activeStreamUnsubscribers.current.add(unsubscribeStreams);
           await activeHouseLoad;

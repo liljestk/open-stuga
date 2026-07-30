@@ -12,6 +12,12 @@ import type {
   SensorMetricAvailability,
 } from "../sensor-gap-recovery.js";
 import { MeasurementService, RuntimeStatus, TelemetryService } from "../services.js";
+import {
+  installRegisteredMethods,
+  type AssertNoMethodKeys,
+  type IncompatibleMethodKeys,
+  type RegisteredMethodSet,
+} from "../method-registry.js";
 import { CachedTpLinkDevice, LastIngestedDevice, LastIngestedMeasurement, LastIngestedOpeningState, PendingTpLinkHistoryRequest, TpLinkConnectionUpdate, TpLinkStatusHost } from "./support/01-tp-link-local-climate-history-capability-revision-to.js";
 
 export const tpLinkConnectionBridgeState = Symbol("TpLinkConnectionBridge.state");
@@ -92,7 +98,7 @@ export interface TpLinkConnectionBridgeInternals {
   readonly [tpLinkConnectionBridgeState]: TpLinkConnectionBridgeState;
 }
 
-export type TpLinkConnectionBridgeMethodSet = Record<string, unknown> & ThisType<TpLinkConnectionBridgeInternals>;
+export type TpLinkConnectionBridgeMethodSet = RegisteredMethodSet<TpLinkConnectionBridgeInternals>;
 
 export class TpLinkConnectionBridgeCore {
   readonly [tpLinkConnectionBridgeState] = createTpLinkConnectionBridgeState();
@@ -126,10 +132,10 @@ export class TpLinkConnectionBridgeCore {
       this[tpLinkConnectionBridgeState].managedConnection = managedConnection;}
 }
 
+type TpLinkPublicMethodMismatch = AssertNoMethodKeys<
+  IncompatibleMethodKeys<TpLinkConnectionBridgeCore, TpLinkConnectionBridgeInternals>
+>;
+
 export function registerTpLinkConnectionBridgeMethods(methods: TpLinkConnectionBridgeMethodSet): void {
-  for (const [name, method] of Object.entries(methods)) {
-    Object.defineProperty(TpLinkConnectionBridgeCore.prototype, name, {
-      value: method, configurable: true, writable: true, enumerable: false,
-    });
-  }
+  installRegisteredMethods("TpLinkConnectionBridge", TpLinkConnectionBridgeCore.prototype, methods);
 }

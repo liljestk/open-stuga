@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
+  installRegisteredMethods,
+  type AssertNoMethodKeys,
+  type IncompatibleMethodKeys,
+  type RegisteredMethodSet,
+} from "../../method-registry.js";
+import {
   STUGBY_PROTOCOL_VERSION,
   STUGBY_MAX_EVENT_PAGE_BYTES,
   type JsonValue,
@@ -42,7 +48,7 @@ export interface StugubyStoreInternals {
   readonly localNodeId: string;
 }
 
-export type StugubyStoreMethodSet = Record<string, unknown> & ThisType<StugubyStoreInternals>;
+export type StugubyStoreMethodSet = RegisteredMethodSet<StugubyStoreInternals>;
 
 export class StugubyStoreCore {
   readonly [stugubyStoreState] = createStugubyStoreState();
@@ -57,10 +63,10 @@ export class StugubyStoreCore {
     }
 }
 
+type StugubyStorePublicMethodMismatch = AssertNoMethodKeys<
+  IncompatibleMethodKeys<StugubyStoreCore, StugubyStoreInternals>
+>;
+
 export function registerStugubyStoreMethods(methods: StugubyStoreMethodSet): void {
-  for (const [name, method] of Object.entries(methods)) {
-    Object.defineProperty(StugubyStoreCore.prototype, name, {
-      value: method, configurable: true, writable: true, enumerable: false,
-    });
-  }
+  installRegisteredMethods("StugubyStore", StugubyStoreCore.prototype, methods);
 }

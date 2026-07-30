@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Activity,
   ChartNoAxesCombined,
@@ -96,12 +96,14 @@ function issueText(
 export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>) {
   const { locale, t } = useI18n();
   const dataMode = props.dataMode === "real" ? "live" as const : "demo" as const;
+  const queryIdentity = `${props.house.id}:${dataMode}`;
   const query = useHomePerformanceQuery(
     props.house.id,
     dataMode,
     props.dataMode !== "unknown",
   );
   const firstRefresh = useRef(true);
+  const [settledFailure, setSettledFailure] = useState<{ identity: string; error: unknown } | null>(null);
 
   useEffect(() => {
     if (firstRefresh.current) {
@@ -110,11 +112,22 @@ export function HomePerformancePanel(props: Readonly<HomePerformancePanelProps>)
     }
     if (props.dataMode !== "unknown") void query.refetch();
   }, [props.refreshRevision]);
+
+  useEffect(() => {
+    setSettledFailure((current) => {
+      if (query.error) return { identity: queryIdentity, error: query.error };
+      if (query.data || current?.identity !== queryIdentity) return null;
+      return current;
+    });
+  }, [query.data, query.error, queryIdentity]);
+
   const performance = query.data ?? null;
-  const loading = query.isLoading || query.isFetching && !query.data;
+  const visibleFailure = query.error
+    ?? (settledFailure?.identity === queryIdentity ? settledFailure.error : null);
+  const loading = query.isLoading && !visibleFailure;
   const partialFailures = performance?.warnings.map((warning) => warning.message)
-    ?? (query.error
-      ? [query.error instanceof Error ? query.error.message : t("performance.partial", { sources: "" })]
+    ?? (visibleFailure
+      ? [visibleFailure instanceof Error ? visibleFailure.message : t("performance.partial", { sources: "" })]
       : []);
 
   const number = (value: number, maximumFractionDigits = 1) => new Intl.NumberFormat(locale, {

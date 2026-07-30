@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
@@ -112,9 +112,17 @@ describe("Home monitoring API", () => {
         },
     });
 
+    const groupedRead = vi.spyOn(runtime.database, "measurementHistoryBucketedMulti");
+    const legacyPerSeriesRead = vi.spyOn(runtime.database, "measurementHistoryBucketed");
+    const cacheClock = vi.spyOn(Date, "now").mockReturnValue(
+      Date.parse("2026-07-30T09:00:10.000Z"),
+    );
     const detail = await request(runtime.app)
       .get("/api/v2/monitoring/houses/home-one?dataMode=live&include=insights")
       .expect(200);
+    expect(detail.headers["x-stugu-cache"]).toBe("miss");
+    expect(groupedRead).toHaveBeenCalledOnce();
+    expect(legacyPerSeriesRead).not.toHaveBeenCalled();
     expect(detail.body.house).toMatchObject({
       houseId: collectionHome.houseId,
       pulseStatus: collectionHome.pulseStatus,
@@ -132,6 +140,20 @@ describe("Home monitoring API", () => {
       titleCode: "monitoring.insight.humidity.title",
       freshness: { state: "fresh" },
     });
+
+    const cachedDetail = await request(runtime.app)
+      .get("/api/v2/monitoring/houses/home-one?dataMode=live&include=insights")
+      .expect(200);
+    expect(cachedDetail.headers["x-stugu-cache"]).toBe("hit");
+    expect(groupedRead).toHaveBeenCalledOnce();
+
+    cacheClock.mockReturnValue(Date.parse("2026-07-30T09:00:12.100Z"));
+    const refreshedDetail = await request(runtime.app)
+      .get("/api/v2/monitoring/houses/home-one?dataMode=live&include=insights")
+      .expect(200);
+    expect(refreshedDetail.headers["x-stugu-cache"]).toBe("miss");
+    expect(groupedRead).toHaveBeenCalledOnce();
+    cacheClock.mockRestore();
   });
 
   it("rejects cross-mode, invalid includes, and unknown Homes", async () => {

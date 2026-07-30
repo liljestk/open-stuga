@@ -14,9 +14,11 @@ Run this on 64-bit Raspberry Pi OS Trixie (or supported Debian arm64):
 Optional environment variables:
   STUGA_VERSION                  Package/release version (default: package.json)
   STUGA_IMAGE_TAG                Container tag (default: v<version>)
+  STUGA_RELEASE_REPOSITORY       Readable GitHub release repository
+                                 (default: liljestk/open-stuga)
   STUGA_IMAGE_REGISTRY_PREFIX    Image prefix (default: ghcr.io/liljestk/open-stuga)
   STUGA_{API,WEB,BACKUP,TAPO_RUNNER,UPDATE_AGENT}_IMAGE
-                                 Exact image refs (CI supplies tag + digest)
+                                 Required tag + sha256 digest image refs
   RPI_HOSTNAME                   Device hostname (default: stugu)
   RPI_WIFI_PROFILE               iwd .psk profile to embed
   RPI_WIFI_COUNTRY               Two-letter country code; required with Wi-Fi
@@ -57,12 +59,13 @@ for command_name in git sha256sum zstd; do
 done
 
 readonly image_tag="${STUGA_IMAGE_TAG:-v$version}"
+readonly release_repository="${STUGA_RELEASE_REPOSITORY:-liljestk/open-stuga}"
 readonly image_prefix="${STUGA_IMAGE_REGISTRY_PREFIX:-ghcr.io/liljestk/open-stuga}"
-readonly api_image="${STUGA_API_IMAGE:-${image_prefix}-api:${image_tag}}"
-readonly web_image="${STUGA_WEB_IMAGE:-${image_prefix}-web:${image_tag}}"
-readonly backup_image="${STUGA_BACKUP_IMAGE:-${image_prefix}-backup:${image_tag}}"
-readonly tapo_image="${STUGA_TAPO_RUNNER_IMAGE:-${image_prefix}-tapo-export-runner:${image_tag}}"
-readonly update_agent_image="${STUGA_UPDATE_AGENT_IMAGE:-${image_prefix}-update-agent:${image_tag}}"
+readonly api_image="${STUGA_API_IMAGE:-}"
+readonly web_image="${STUGA_WEB_IMAGE:-}"
+readonly backup_image="${STUGA_BACKUP_IMAGE:-}"
+readonly tapo_image="${STUGA_TAPO_RUNNER_IMAGE:-}"
+readonly update_agent_image="${STUGA_UPDATE_AGENT_IMAGE:-}"
 readonly hostname="${RPI_HOSTNAME:-stugu}"
 readonly rpi_image_gen_ref="${RPI_IMAGE_GEN_REF:-17e53bca56c8d6bed273a6faa7412b296e4c0937}"
 readonly rpi_image_gen_dir="${RPI_IMAGE_GEN_DIR:-$repo_root/.rpi-image-gen}"
@@ -71,12 +74,30 @@ readonly dist_dir="${RPI_DIST_DIR:-$repo_root/dist/rpi}"
 readonly factory_build="${RPI_FACTORY_BUILD:-1}"
 readonly export_factory_image="${RPI_EXPORT_FACTORY_IMAGE:-1}"
 
-for image_ref in "$api_image" "$web_image" "$backup_image" "$tapo_image" "$update_agent_image"; do
-  if [[ "$image_ref" =~ [[:space:]] ]]; then
-    echo "Container references cannot contain whitespace: $image_ref" >&2
+if [[ ! "$release_repository" =~ ^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$ ]]; then
+  echo "STUGA_RELEASE_REPOSITORY must use owner/repository form" >&2
+  exit 1
+fi
+if [[ ! "$image_prefix" =~ ^ghcr\.io/[a-z0-9_.-]{1,100}/[a-z0-9_.-]{1,100}$ ]]; then
+  echo "STUGA_IMAGE_REGISTRY_PREFIX must be a lower-case GHCR image prefix" >&2
+  exit 1
+fi
+
+validate_release_image() {
+  local image_ref="$1"
+  local suffix="$2"
+  local expected="${image_prefix}-${suffix}:${image_tag}@sha256:"
+  local digest="${image_ref#"$expected"}"
+  if [[ "$image_ref" != "$expected$digest" || ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "STUGA ${suffix} image must pin ${image_prefix}-${suffix}:${image_tag} by sha256 digest" >&2
     exit 1
   fi
-done
+}
+validate_release_image "$api_image" api
+validate_release_image "$web_image" web
+validate_release_image "$backup_image" backup
+validate_release_image "$tapo_image" tapo-export-runner
+validate_release_image "$update_agent_image" update-agent
 if [[ ! "$hostname" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
   echo "RPI_HOSTNAME must be a valid lowercase hostname" >&2
   exit 1
@@ -146,6 +167,24 @@ cleanup() {
 trap cleanup EXIT
 
 cp -a "$repo_root/deploy/rpi/." "$stage_dir/"
+python3 - "$stage_dir/assets/stugu.env.example" "$release_repository" "$image_prefix" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+settings = {
+    "SYSTEM_UPDATE_REPOSITORY": sys.argv[2],
+    "SYSTEM_UPDATE_IMAGE_PREFIX": sys.argv[3],
+}
+lines = source.splitlines()
+for name, value in settings.items():
+    matching = [index for index, line in enumerate(lines) if line.startswith(f"{name}=")]
+    if len(matching) != 1:
+        raise SystemExit(f"expected exactly one {name} appliance setting")
+    lines[matching[0]] = f"{name}={value}"
+path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
 install -d -m 0755 "$stage_dir/assets/config"
 install -d -m 0755 "$stage_dir/assets/apps/tapo-export-runner"
 install -d -m 0755 "$stage_dir/assets/scripts"

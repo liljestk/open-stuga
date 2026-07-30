@@ -285,6 +285,42 @@ registerStugubyStoreMethods({
         );
         CREATE INDEX IF NOT EXISTS idx_stugby_remote_telemetry_query
           ON stugby_remote_telemetry(stugby_id, publication_id, sensor_publication_id, metric_id, timestamp);
+        CREATE TABLE IF NOT EXISTS stugby_remote_telemetry_staging (
+          stugby_id TEXT NOT NULL,
+          authority_node_id TEXT NOT NULL,
+          publication_id TEXT NOT NULL,
+          grant_id TEXT NOT NULL,
+          grant_epoch INTEGER NOT NULL,
+          chunk_id TEXT NOT NULL,
+          sensor_publication_id TEXT NOT NULL,
+          metric_id TEXT NOT NULL,
+          timestamp TEXT NOT NULL,
+          value REAL NOT NULL,
+          quality TEXT NOT NULL CHECK (quality IN ('good','estimated','stale')),
+          correction_of TEXT,
+          received_at TEXT NOT NULL,
+          stream_kind TEXT NOT NULL CHECK (stream_kind IN ('snapshot','live')),
+          PRIMARY KEY (
+            stugby_id, authority_node_id, publication_id, grant_id, grant_epoch,
+            chunk_id, sensor_publication_id, metric_id, timestamp
+          )
+        );
+        CREATE INDEX IF NOT EXISTS idx_stugby_remote_telemetry_staging_scope
+          ON stugby_remote_telemetry_staging(
+            stugby_id, authority_node_id, publication_id, grant_id, grant_epoch, chunk_id
+          );
+        CREATE TABLE IF NOT EXISTS stugby_remote_telemetry_epochs (
+          stugby_id TEXT NOT NULL,
+          authority_node_id TEXT NOT NULL,
+          publication_id TEXT NOT NULL,
+          grant_id TEXT NOT NULL,
+          grant_epoch INTEGER NOT NULL,
+          state TEXT NOT NULL CHECK (state IN ('awaiting-terminal','complete','refreshing')),
+          started_at TEXT NOT NULL,
+          completed_at TEXT,
+          terminal_event_id TEXT,
+          PRIMARY KEY (stugby_id, authority_node_id, publication_id, grant_id, grant_epoch)
+        );
         CREATE TABLE IF NOT EXISTS stugby_stream_sequences (
           stugby_id TEXT NOT NULL,
           authority_node_id TEXT NOT NULL,

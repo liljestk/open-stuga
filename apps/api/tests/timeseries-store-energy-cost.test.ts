@@ -11,6 +11,7 @@ describe("TimeseriesStore power-cost aggregation", () => {
         cost_eur: 0.25,
         total_duration_ms: 3_600_000,
         priced_duration_ms: 3_600_000,
+        maximum_interval_duration_ms: 900_000,
         coverage_from: new Date(FROM),
         coverage_until: new Date(TO),
       }])
@@ -30,6 +31,7 @@ describe("TimeseriesStore power-cost aggregation", () => {
       costEur: 0.25,
       totalDurationMs: 3_600_000,
       pricedDurationMs: 3_600_000,
+      maximumIntervalDurationMs: 900_000,
       coverageFrom: FROM,
       coverageUntil: TO,
     });
@@ -39,5 +41,6 @@ describe("TimeseriesStore power-cost aggregation", () => {
     expect(query.text).toContain("SELECT DISTINCT ON (starts_at)");
     expect(query.text).toContain("sample_at + INTERVAL '15 minutes'");
     expect(query.text).toContain("window_energy_kwh * overlap_ms / window_duration_ms");
+    expect(query.text).toContain("max(window_duration_ms)");
   });
 });

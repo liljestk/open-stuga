@@ -164,6 +164,9 @@ mmdebstrap:
       chmod 0644 "$1/etc/default/rpi-eeprom-update"
 
       cat > "$1/opt/stugu/release.env" <<-EOF
+      STUGA_RELEASE_ENV_SCHEMA=2
+      STUGA_UPDATE_AGENT_CONTRACT=2
+      STUGA_COMPOSE_CONTRACT=1
       STUGA_VERSION=${IGconf_artefact_version}
       STUGA_API_IMAGE=${IGconf_stugu_api_image}
       STUGA_WEB_IMAGE=${IGconf_stugu_web_image}

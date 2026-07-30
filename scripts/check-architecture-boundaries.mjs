@@ -1,20 +1,48 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
+import { prototypeRegistryViolations } from "./check-prototype-registries.mjs";
+import { workspaceDependencyViolations } from "./check-workspace-dependencies.mjs";
 
 const root = process.cwd();
 const webDataRoot = join(root, "apps", "web", "src", "data");
 const apiAnalyticsRoot = join(root, "apps", "api", "src", "analytics");
+const legacyNumberedModuleMaximum = 305;
+const ignoredDirectories = new Set([
+  "build",
+  "coverage",
+  "dist",
+  "node_modules",
+  ".tmp-runtime",
+]);
 const violations = [];
+violations.push(...await prototypeRegistryViolations(root));
+violations.push(...await workspaceDependencyViolations(root));
 
 async function filesBelow(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
+    if (entry.name.startsWith(".") || ignoredDirectories.has(entry.name)) continue;
     const path = join(directory, entry.name);
     if (entry.isDirectory()) files.push(...await filesBelow(path));
     else if (entry.isFile() && /\.(?:ts|tsx|js|mjs)$/.test(entry.name)) files.push(path);
   }
   return files;
+}
+
+const numberedModules = [];
+for (const sourceRoot of ["apps", "packages", "scripts", "config", "deploy"]) {
+  for (const path of await filesBelow(join(root, sourceRoot))) {
+    if (/^(?:part-\d+|\d{2}-)/.test(projectPath(path).split("/").at(-1))) {
+      numberedModules.push(projectPath(path));
+    }
+  }
+}
+if (numberedModules.length > legacyNumberedModuleMaximum) {
+  violations.push(
+    `numbered-module debt increased from ${legacyNumberedModuleMaximum} to ${numberedModules.length}; `
+      + "new mechanically named modules are forbidden repository-wide",
+  );
 }
 
 function projectPath(path) {
@@ -96,10 +124,24 @@ for (const family of [
   "homeMonitoring",
   "openingActivity",
   "calendarComparison",
+  "sensorMutations",
 ]) {
   if (!new RegExp(`\\b${family}:\\s*"query-client"`).test(ownership)) {
     report(ownershipPath, `${family} must have an explicit query-client owner`);
   }
+}
+
+const sensorMutationOwnerPath = join(webDataRoot, "sensors", "sensorMutations.ts");
+const sensorMutationOwner = await readFile(sensorMutationOwnerPath, "utf8");
+for (const operation of ["create", "update", "move", "delete"]) {
+  if (!new RegExp(`mutationKey:\\s*sensorMutationKeys\\.${operation}\\b`).test(sensorMutationOwner)) {
+    report(sensorMutationOwnerPath, `${operation} sensor writes must be owned by TanStack MutationCache`);
+  }
+}
+const legacySensorActionsPath = join(webDataRoot, "bootstrap", "useSensorActions.ts");
+const legacySensorActions = await readFile(legacySensorActionsPath, "utf8");
+if (/\bapi\.(?:createSensor|updateSensor|deleteSensor)\s*\(/.test(legacySensorActions)) {
+  report(legacySensorActionsPath, "sensor API writes may only be executed by the sensor mutation owner");
 }
 
 for (const path of await filesBelow(join(webDataRoot, "analytics"))) {

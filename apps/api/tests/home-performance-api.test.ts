@@ -99,6 +99,7 @@ describe("home performance API", () => {
       .expect(200);
 
     expect(first.headers["cache-control"]).toBe("private, no-store");
+    expect(first.headers["x-stugu-cache"]).toBe("miss");
     expect(first.body).toMatchObject({
       apiVersion: "1.0",
       houseId: "performance-house",
@@ -131,7 +132,8 @@ describe("home performance API", () => {
     const afterMeasurement = await request(runtime.app)
       .get("/api/v2/analytics/home-performance?houseId=performance-house&dataMode=live")
       .expect(200);
-    expect(afterMeasurement.body.cache.hit).toBe(false);
+    expect(afterMeasurement.body.cache).toMatchObject({ hit: true, coalesced: false });
+    expect(afterMeasurement.headers["x-stugu-cache"]).toBe("hit");
   });
 
   it("rejects cross-mode requests and whole-Home scopes over the deterministic limit", async () => {

@@ -97,13 +97,15 @@ import { createAlertRule, createHouse, createMeasurementDefinition, createSensor
 import { acknowledgeAlert, assetMetadata, createMaintenanceTask, createObservation, deleteAlertRule, deleteAsset, deleteMaintenanceTask, deleteObservation, deleteStaticParameter, discoverIntegrations, homeAssistantConnectionTest, homeAssistantSetup, listMaintenanceTaskRevisions, listMaintenanceTasks, listObservationRevisions, selectMockScenario, startReplay, tpLinkConnectionTest, tpLinkSetup, updateAlertRule, updateMaintenanceTask, updateObservation, uploadAsset, upsertStaticParameter } from "./03-update-alert-rule-to-start-replay.js";
 import { summarizeMcpStuguby } from "./04-point-schema-to-summarize-mcp-stuguby.js";
 import { backupStatus, dailyAnalyticsFindings, getMcpStuguby, houseElectricityPrice, houseEnergyCost, houseEnergySummary, houseOpeningStates, listPropertyNotes, openingActivity, operations, outdoorTemperatureHistory, propertyElectricity, sensorDataGaps, server, thermalIsolation } from "./05-get-mcp-stuguby-to-result-output-schema.js";
-import { READ_ONLY_MCP_TOOL_NAMES } from "./06-read-only-mcp-tool-names-to-mcp-tool-definitions.js";
+import { ACTIVE_MCP_TOOL_NAMES } from "./06-read-only-mcp-tool-names-to-mcp-tool-definitions.js";
 import { ToolHandler, mcpTools } from "./09-mcp-tool-definitions-part04-to-tool-handler.js";
 import {
   calendarComparison,
   homeMonitoring,
   homePerformance,
 } from "./11-derived-analytics-tools.js";
+import { homeMoistureResponse } from "./home-moisture-response.js";
+import { homeMeasurementSummary } from "./home-measurement-summary.js";
 
 export const allToolHandlers: Record<string, ToolHandler> = {
   list_properties: () => database.listProperties().map(summarizeMcpProperty),
@@ -162,6 +164,7 @@ export const allToolHandlers: Record<string, ToolHandler> = {
   get_house_energy_cost: houseEnergyCost,
   get_house_energy_summary: houseEnergySummary,
   query_outdoor_temperature_history: outdoorTemperatureHistory,
+  get_home_moisture_response: homeMoistureResponse,
   run_thermal_simulation: thermalSimulation,
   get_house_thermal_isolation: thermalIsolation,
   list_sensors: (args) => database.listSensors(optionalString(args, "houseId")),
@@ -179,6 +182,7 @@ export const allToolHandlers: Record<string, ToolHandler> = {
   ingest_readings: ingestReadings,
   get_measurement_snapshot: (args) => measurementSnapshot(optionalString(args, "houseId")),
   query_measurement_history: queryMeasurementHistory,
+  summarize_home_measurements: homeMeasurementSummary,
   forecast_measurement: (args) => {
     const sensorId = requiredString(args, "sensorId");
     const metric = requiredString(args, "metric");
@@ -289,7 +293,7 @@ export const allToolHandlers: Record<string, ToolHandler> = {
 };
 
 export const toolHandlers = Object.fromEntries(
-  Object.entries(allToolHandlers).filter(([name]) => READ_ONLY_MCP_TOOL_NAMES.has(name)),
+  Object.entries(allToolHandlers).filter(([name]) => ACTIVE_MCP_TOOL_NAMES.has(name)),
 ) as Record<string, ToolHandler>;
 
 validateMcpToolRegistry(mcpTools.map((tool) => tool.name), Object.keys(toolHandlers));

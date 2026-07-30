@@ -263,7 +263,12 @@ export interface SystemUpdateStatus {
     available: boolean;
     runtime: "docker" | "raspberry-pi" | null;
     agentLastSeenAt: string | null;
-    reason: "ready" | "agent-not-connected" | "not-configured";
+    reason:
+      | "ready"
+      | "agent-not-connected"
+      | "agent-upgrade-required"
+      | "appliance-upgrade-required"
+      | "not-configured";
   };
   operation: SystemUpdateOperation | null;
 }

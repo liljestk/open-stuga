@@ -95,7 +95,8 @@ import {
 } from "../../notification-policy.js";
 import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord } from "../../timeseries/types.js";
 import { CORE_SCHEMA_SQL } from "../migrations/core-schema.js";
-import { ClimateDataValidationError, TapoHistoryExportCompletionOptions, TapoHistoryExportJobRow, TapoHistoryExportStageResult, TapoHistoryExportStagedSample, TapoHistoryExportStagedSampleFilter, TapoHistoryExportStagedSampleInput, TapoHistoryExportStagedSampleRow } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
+import type { TapoHistoryExportCompletionOptions, TapoHistoryExportJobRow, TapoHistoryExportStageResult, TapoHistoryExportStagedSample, TapoHistoryExportStagedSampleFilter, TapoHistoryExportStagedSampleInput, TapoHistoryExportStagedSampleRow } from "../tapo-history-export-types.js";
+import { ClimateDataValidationError } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
 import { normalizedSha256, normalizedTapoHistoryText, normalizedTapoHistoryTimestamp, tapoHistoryExportJobFromRow, tapoHistoryExportStagedSampleFromRow } from "../support/06-canonical-observation-patch-time-to-outdoor-location.js";
 import { registerDatabaseMethods } from "../core.js";
 

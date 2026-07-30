@@ -283,6 +283,18 @@ export function SystemUpdatesPage() {
         detail: operation.detail ?? t(`updates.phase.${operation.phase}`, { version: operation.version }),
       }]
     : [];
+  const capabilityLabel = status.capability.reason === "agent-upgrade-required"
+    ? t("updates.agentUpgradeRequired")
+    : status.capability.reason === "appliance-upgrade-required"
+      ? t("updates.applianceUpgradeRequired")
+      : status.capability.available
+        ? t("updates.connected")
+        : t("updates.notConnected");
+  const capabilityHelp = status.capability.reason === "agent-upgrade-required"
+    ? t("updates.agentUpgradeHelp")
+    : status.capability.reason === "appliance-upgrade-required"
+      ? t("updates.applianceUpgradeHelp")
+      : t("updates.agentHelp");
 
   return <>
     <header className="page-heading updates-heading">
@@ -312,7 +324,7 @@ export function SystemUpdatesPage() {
       </div>
       <div className="panel updates-version-card">
         <span>{t("updates.agent")}</span>
-        <strong>{status.capability.available ? t("updates.connected") : t("updates.notConnected")}</strong>
+        <strong>{capabilityLabel}</strong>
         <small>{status.capability.runtime ? t(`updates.runtime.${status.capability.runtime}`) : t("updates.agentNeeded")}</small>
       </div>
     </section>
@@ -414,7 +426,7 @@ export function SystemUpdatesPage() {
             <CloudDownload size={16} aria-hidden="true" />
             {busy === "install" ? t("updates.requesting") : t("updates.installNow")}
           </button>
-          {!status.capability.available && <small>{t("updates.agentHelp")}</small>}
+          {!status.capability.available && <small>{capabilityHelp}</small>}
           {status.lastCheckedAt && <small>{t("updates.lastChecked", { date: dateTime(status.lastCheckedAt, locale) })}</small>}
           {status.checkError && <small className="field-error">{status.checkError}</small>}
         </div>

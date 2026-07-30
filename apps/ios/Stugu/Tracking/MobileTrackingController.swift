@@ -62,6 +62,7 @@ final class MobileTrackingController: NSObject, ObservableObject {
     private var uploadInProgress = false
     private var sceneIsActive = true
     private var lastHapticAt = Date.distantPast
+    private var configurationGeneration = 0
 
     override init() {
         super.init()
@@ -83,6 +84,8 @@ final class MobileTrackingController: NSObject, ObservableObject {
         capabilities: TrackingCapabilities,
         settings: TrackingPropertySettings
     ) async throws {
+        configurationGeneration &+= 1
+        let generation = configurationGeneration
         guard capabilities.schemaVersion == TrackingSchema.version,
               capabilities.profileSchemaVersion == TrackingSchema.profileVersion,
               capabilities.featureEnabled("tracking.enabled"),
@@ -128,6 +131,10 @@ final class MobileTrackingController: NSObject, ObservableObject {
             )
             try credentialStore.save(observerIdentity)
         }
+        try Task.checkCancellation()
+        guard generation == configurationGeneration else {
+            throw CancellationError()
+        }
 
         async let profilesRequest = client.trackingProfiles()
         async let resolutionRequest = client.trackingResolutionManifest(
@@ -135,6 +142,10 @@ final class MobileTrackingController: NSObject, ObservableObject {
             observerCredential: observerIdentity.credential
         )
         let (profiles, resolutions) = try await (profilesRequest, resolutionRequest)
+        try Task.checkCancellation()
+        guard generation == configurationGeneration else {
+            throw CancellationError()
+        }
         guard profiles.schemaVersion == TrackingSchema.profileVersion,
               resolutions.propertyId == propertyID,
               resolutions.observerId == observerIdentity.observerId,
@@ -175,6 +186,7 @@ final class MobileTrackingController: NSObject, ObservableObject {
     }
 
     func disable() {
+        configurationGeneration &+= 1
         uploadTask?.cancel()
         uploadTask = nil
         resolutionRefreshTask?.cancel()
@@ -193,11 +205,14 @@ final class MobileTrackingController: NSObject, ObservableObject {
 
     func removeObserverRegistration() async throws {
         guard let client, let identity else { return }
+        configurationGeneration &+= 1
+        let generation = configurationGeneration
         _ = try await client.disableTrackingObserver(id: identity.observerId)
         try credentialStore.remove(
             serverOrigin: identity.serverOrigin,
             propertyID: identity.propertyId
         )
+        guard generation == configurationGeneration else { return }
         suspend()
     }
 

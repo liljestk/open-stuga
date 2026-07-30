@@ -374,6 +374,13 @@ export function parseSensorPatch(value: unknown): SensorUpdate {
     patch.tpLinkConnectionId = body.tpLinkConnectionId === null ? null : requiredString(body, "tpLinkConnectionId");
   }
   if (body.measurementEntityIds !== undefined) patch.measurementEntityIds = measurementStringMap(body.measurementEntityIds, "measurementEntityIds");
+  if (body.energyMeterRole !== undefined) {
+    patch.energyMeterRole = enumValue(
+      body.energyMeterRole,
+      ["whole_home", "submeter", "standalone"] as const,
+      "energyMeterRole",
+    );
+  }
   if (body.tags !== undefined) {
     if (!Array.isArray(body.tags) || body.tags.some((tag) => typeof tag !== "string")) throw new HttpError(400, "INVALID_FIELD", "tags must be a string array");
     patch.tags = body.tags as string[];

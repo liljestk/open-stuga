@@ -39,7 +39,8 @@ flowchart LR
         AR --> TS[(TimescaleDB raw telemetry\nand continuous rollups)]
         DB --> HR[Hybrid raw-telemetry reader]
         TS --> HR
-        N --> A[Alert evaluator]
+        N --> AQ[(Durable alert evaluation queue)]
+        AQ --> A[Alert evaluator]
         HR --> P[Forecast service]
         DB --> Q[Query service]
         HR --> Q
@@ -95,6 +96,16 @@ intent and render results; they do not independently choose evidence windows,
 truncate sensor scope, or reproduce decision rules. The web owns one pair of
 telemetry transports through `LiveEventCoordinator`, which updates the live
 snapshot and invalidates only affected query resources.
+
+Heavy request-time analytics pass through one bounded process coordinator. At
+most two Home-performance, historical analytics, energy, or thermal operations
+run concurrently and at most 32 wait; overflow receives a retryable
+`ANALYTICS_BUSY` response. Identical Home Performance, Home monitoring, and
+whole-Home energy requests single-flight through bounded LRU caches. Monitoring
+separates a two-second current-state snapshot from minute-cached trend evidence.
+Routine measurement ingestion does not evict Home Performance's minute
+snapshot, and the browser coalesces duplicate legacy/measurement refresh
+signals before invalidating monitoring.
 
 The browser does not talk to Home Assistant, TP-Link, FMI, or Open-Meteo
 directly. The API owns credentials, normalisation, retention, alert evaluation,
@@ -307,7 +318,11 @@ Bucketed measurement analytics take a dedicated archive path because derived
 aggregates cannot safely merge an overlapping SQLite tail. The reader waits for
 archive reconciliation, then PostgreSQL computes bounded UTC buckets over the
 complete raw range. Raw rows remain permanent but do not cross the API process
-boundary for these queries.
+boundary for these queries. Exact quality, counter-reset, cadence, and
+time-weighted semantics continue to use raw archive rows where the existing
+continuous aggregates cannot reproduce them. Request admission, single-flight
+caches, a bounded connection pool, and disabled PostgreSQL per-query worker
+fan-out prevent those exact reads from multiplying into CPU spikes.
 
 SQLite WAL mode remains a good fit for the single local writer and keeps an
 archive outage from blocking ingestion. TimescaleDB supplies time partitioning,

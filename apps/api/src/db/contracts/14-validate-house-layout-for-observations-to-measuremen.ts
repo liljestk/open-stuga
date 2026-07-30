@@ -116,9 +116,14 @@ declare module "../core.js" {
     createMeasurementDefinition(definition: MeasurementDefinition): MeasurementDefinition;
     updateMeasurementDefinition(id: string, patch: Partial<Omit<MeasurementDefinition, "id" | "builtin">>): MeasurementDefinition | null;
     disableMeasurementDefinition(id: string): MeasurementDefinition | null;
-    insertMeasurementSample(sample: MeasurementSample, deduplicateAcrossSources?: boolean): boolean;
+    insertMeasurementSample(
+        sample: MeasurementSample,
+        deduplicateAcrossSources?: boolean,
+        enqueueAlertEvaluation?: boolean,
+      ): boolean;
     insertMeasurementSamples(samples: MeasurementSample[], options?: {
             deduplicateAcrossSources?: boolean;
+            enqueueAlertEvaluation?: boolean;
         }): MeasurementSample[];
     latestMeasurementSamples(houseId?: string): MeasurementSample[];
     getLatestMeasurementSample(sensorId: string, metric: string): MeasurementSample | null;
@@ -135,6 +140,7 @@ declare module "../core.js" {
     disableMeasurementDefinition(id: string): MeasurementDefinition | null;
     insertMeasurementSamples(samples: MeasurementSample[], options?: {
             deduplicateAcrossSources?: boolean;
+            enqueueAlertEvaluation?: boolean;
         }): MeasurementSample[];
     latestMeasurementSamples(houseId?: string): MeasurementSample[];
     getLatestMeasurementSample(sensorId: string, metric: string): MeasurementSample | null;

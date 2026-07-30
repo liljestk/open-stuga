@@ -163,6 +163,15 @@ inventory, supported operational records, assets, and recorded history.
 While that grant remains active, the designated recovery replica is not
 age-pruned; its configured retention value does not discard older transfer
 material before decommission.
+Available SQLite history is emitted in bounded UTC-hour chunks without a
+whole-range row cap. Data chunks are nonterminal; a separate terminal marker is
+published only after the entire requested range has been enumerated, including
+an empty range. Recipients durably stage those chunks by Home publication and
+grant epoch. Queries and recovery promotion continue to use the former complete
+same-epoch snapshot, or no snapshot for a new epoch, until the terminal marker
+atomically replaces it. Early live chunks wait behind the same boundary.
+Advancing a grant epoch atomically purges the former visible, staged, and
+completion state, so a narrowed grant cannot retain an old metric.
 The publishing Stugu must still have a complete local SQLite cache for the
 requested initial history. Once TimeDB compaction owns older rows, creation or
 republication of a historical/full-recovery grant fails closed with

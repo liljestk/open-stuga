@@ -148,6 +148,7 @@ export interface SensorRow {
   tp_link_device_id: string | null;
   tp_link_connection_id: string | null;
   measurement_entity_ids_json?: string | null;
+  energy_meter_role?: "whole_home" | "submeter" | "standalone";
   tags_json: string;
   enabled: number;
 }

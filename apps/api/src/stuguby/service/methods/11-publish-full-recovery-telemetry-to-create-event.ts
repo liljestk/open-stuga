@@ -103,14 +103,15 @@ registerStugubyServiceMethods({
       const policy = dataset.telemetry;
       if (!policy?.historyFrom) throw new StugubyError(400, "RECOVERY_HISTORY_REQUIRED", "Full recovery requires a telemetry history start");
       const from = parseIso(policy.historyFrom, "Telemetry history start");
-      if (!this.localTelemetryHistoryComplete()) {
+      if (!this.localTelemetryHistoryComplete(from)) {
         throw new StugubyError(
           409,
           "ARCHIVED_TELEMETRY_EXPORT_UNAVAILABLE",
-          "Full recovery cannot be assembled completely from the bounded SQLite cache; an archive-aware federation export is required",
+          "Full recovery cannot be synchronously paged from the bounded SQLite cache; archive-backed federation export is unavailable",
         );
       }
-      const to = new Date().toISOString();
+      const now = new Date().toISOString();
+      const to = Date.parse(from) <= Date.parse(now) ? now : from;
       const sensors = this.database.listSensors(house.id);
       const publications = new Map(sensors.map((sensor) => [
         sensor.id,
@@ -388,6 +389,7 @@ registerStugubyServiceMethods({
           const sensorPublicationId = this.store.publicationId(grant.stugubyId, "sensor", sample.sensorId);
           if (policy.sensorPublicationIds.length && !policy.sensorPublicationIds.includes(sensorPublicationId)) continue;
           if (policy.metricIds.length && !policy.metricIds.includes(sample.metric)) continue;
+          if (policy.historyFrom && sample.timestamp < policy.historyFrom) continue;
           const utcHour = new Date(Date.parse(sample.timestamp)).toISOString().slice(0, 13);
           this.atomicPublication(() => {
             if (!this.store.reserveLiveTelemetrySample(grant.stugubyId, grant.id, utcHour, policy.maxSamplesPerHour)) return;

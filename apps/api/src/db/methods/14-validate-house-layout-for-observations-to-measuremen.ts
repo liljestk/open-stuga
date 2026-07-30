@@ -230,6 +230,22 @@ registerDatabaseMethods({
       }
     },
   writeSensor(sensor: Sensor, insert: boolean): void {
+      const energyMeterRole = sensor.energyMeterRole ?? "standalone";
+      if (!["whole_home", "submeter", "standalone"].includes(energyMeterRole)) {
+        throw new ClimateDataValidationError(400, "INVALID_ENERGY_METER_ROLE", "Unsupported electricity meter role");
+      }
+      if (energyMeterRole === "whole_home") {
+        const existingWholeHome = this.db.prepare(`SELECT id FROM sensors
+          WHERE house_id = ? AND energy_meter_role = 'whole_home' AND id <> ? LIMIT 1`)
+          .get(sensor.houseId, sensor.id) as { id: string } | undefined;
+        if (existingWholeHome) {
+          throw new ClimateDataValidationError(
+            409,
+            "WHOLE_HOME_METER_ALREADY_EXISTS",
+            `Sensor ${existingWholeHome.id} is already the whole-Home electricity meter`,
+          );
+        }
+      }
       const bindings: Record<string, string> = { ...(sensor.measurementEntityIds ?? {}) };
       if (sensor.temperatureEntityId) bindings.temperature ??= sensor.temperatureEntityId;
       if (sensor.humidityEntityId) bindings.humidity ??= sensor.humidityEntityId;
@@ -277,17 +293,17 @@ registerDatabaseMethods({
         sensor.temperatureEntityId ?? null, sensor.humidityEntityId ?? null, sensor.batteryEntityId ?? null,
         sensor.tpLinkDeviceId ?? null, sensor.tpLinkConnectionId ?? null,
         null,
-        JSON.stringify(sensor.tags), sensor.enabled ? 1 : 0, sensor.id];
+        energyMeterRole, JSON.stringify(sensor.tags), sensor.enabled ? 1 : 0, sensor.id];
       if (insert) {
         this.db.prepare(`INSERT INTO sensors
           (house_id, floor_id, name, room_id, room, model, x, y, z, temperature_entity_id, humidity_entity_id, battery_entity_id, tp_link_device_id, tp_link_connection_id,
-           measurement_entity_ids_json, tags_json, enabled, id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+           measurement_entity_ids_json, energy_meter_role, tags_json, enabled, id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(...values);
       } else {
         this.db.prepare(`UPDATE sensors SET house_id = ?, floor_id = ?, name = ?, room_id = ?, room = ?, model = ?, x = ?, y = ?, z = ?,
           temperature_entity_id = ?, humidity_entity_id = ?, battery_entity_id = ?, tp_link_device_id = ?, tp_link_connection_id = ?, measurement_entity_ids_json = ?,
-          tags_json = ?, enabled = ? WHERE id = ?`)
+          energy_meter_role = ?, tags_json = ?, enabled = ? WHERE id = ?`)
           .run(...values);
       }
       this.db.prepare("DELETE FROM sensor_measurement_bindings WHERE sensor_id = ?").run(sensor.id);
@@ -375,24 +391,37 @@ registerDatabaseMethods({
       this.db.prepare("UPDATE measurement_definitions SET enabled = 0 WHERE id = ?").run(id);
       return { ...current, enabled: false };
     },
-  insertMeasurementSample(sample: MeasurementSample, deduplicateAcrossSources = false): boolean {
+  insertMeasurementSample(
+      sample: MeasurementSample,
+      deduplicateAcrossSources = false,
+      enqueueAlertEvaluation = false,
+    ): boolean {
       if (deduplicateAcrossSources && this.db.prepare(`SELECT 1 FROM measurement_samples
         WHERE sensor_id = ? AND metric = ? AND timestamp = ? LIMIT 1`)
         .get(sample.sensorId, sample.metric, sample.timestamp)) return false;
       const result = this.db.prepare(`INSERT OR IGNORE INTO measurement_samples
         (sensor_id, metric, value, canonical_unit, timestamp, source, quality) VALUES (?, ?, ?, ?, ?, ?, ?)`)
         .run(sample.sensorId, sample.metric, sample.value, sample.canonicalUnit, sample.timestamp, sample.source, sample.quality);
-      return Number(result.changes) > 0;
+      if (Number(result.changes) === 0) return false;
+      if (enqueueAlertEvaluation) {
+        this.db.prepare("INSERT INTO alert_evaluation_queue(measurement_sample_id) VALUES (?)")
+          .run(result.lastInsertRowid);
+      }
+      return true;
     },
   insertMeasurementSamples(
       samples: MeasurementSample[],
-      options: { deduplicateAcrossSources?: boolean } = {},
+      options: { deduplicateAcrossSources?: boolean; enqueueAlertEvaluation?: boolean } = {},
     ): MeasurementSample[] {
       return this.immediateTransaction(() => {
         this.prepareTelemetrySources(samples.map((sample) => sample.source));
         const inserted: MeasurementSample[] = [];
         for (const sample of samples) {
-          if (this.insertMeasurementSample(sample, options.deduplicateAcrossSources)) inserted.push(sample);
+          if (this.insertMeasurementSample(
+            sample,
+            options.deduplicateAcrossSources,
+            options.enqueueAlertEvaluation,
+          )) inserted.push(sample);
         }
         return inserted;
       });

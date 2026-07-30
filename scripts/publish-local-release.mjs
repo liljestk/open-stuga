@@ -14,6 +14,14 @@ import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { reportPaths as localCiReportPaths } from "./local-ci.mjs";
+import {
+  releaseManifest,
+  releaseManifestAsset,
+} from "./local-release-manifest.mjs";
+
+export { releaseManifest } from "./local-release-manifest.mjs";
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const rpiBuilderImage =
   "debian:trixie-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd";
@@ -37,13 +45,12 @@ Required for publishing:
 
 Options:
   --tag TAG                Release tag (default: v<package.json version>)
-  --notes-file PATH        Release notes; otherwise GitHub generates notes
-  --repository OWNER/REPO  GitHub repository (default: origin)
+  --notes-file PATH        Release notes; required for a separate artifact repo
+  --repository OWNER/REPO  Public artifact repository (default: origin)
   --image-prefix PREFIX    GHCR prefix (default: ghcr.io/<owner>/<repo>)
   --builder NAME           Buildx builder (default: stugu-release-local)
   --reuse-containers       Reuse and resolve already-published image tags
   --upload-factory         Also attach the factory image to the public release
-  --skip-checks            Skip local typecheck, tests, build, and API smoke test
   --help                   Show this help
 
 The factory image stays under dist/rpi by default. Never upload a factory image
@@ -63,7 +70,6 @@ export function parseArguments(argv) {
     help: false,
     publish: false,
     reuseContainers: false,
-    skipChecks: false,
     uploadFactory: false,
   };
 
@@ -96,9 +102,6 @@ export function parseArguments(argv) {
       case "--reuse-containers":
         options.reuseContainers = true;
         break;
-      case "--skip-checks":
-        options.skipChecks = true;
-        break;
       case "--ssh-public-key":
         options.sshPublicKey = optionValue(argv, index, argument);
         index += 1;
@@ -125,6 +128,22 @@ export function repositoryFromRemote(remote) {
   return match[1];
 }
 
+export function requirePublicReleaseRepository(repository, visibility) {
+  if (visibility !== "PUBLIC") {
+    throw new Error(
+      `Release repository ${repository} must be public; pass --repository OWNER/PUBLIC-REPO`,
+    );
+  }
+}
+
+export function requireReleaseRepositoryTag(repository, tag, status) {
+  if (status !== 0) {
+    throw new Error(
+      `Public release repository ${repository} must already contain its own ${tag} tag`,
+    );
+  }
+}
+
 export function imageDefinitions(prefix, tag) {
   return containerTargets.map(([target, suffix]) => ({
     target,
@@ -135,6 +154,7 @@ export function imageDefinitions(prefix, tag) {
 export function artifactDefinitions(repositoryRoot, version) {
   const directory = resolve(repositoryRoot, "dist", "rpi");
   const releaseDirectory = resolve(directory, "release");
+  const localCi = localCiReportPaths(repositoryRoot, version);
   return {
     directory,
     releaseDirectory,
@@ -146,6 +166,9 @@ export function artifactDefinitions(repositoryRoot, version) {
       releaseDirectory,
       `stugu-rpi4-${version}-factory.sha256`,
     ),
+    releaseManifest: resolve(releaseDirectory, releaseManifestAsset),
+    localCiReport: localCi.report,
+    localCiChecksum: localCi.checksum,
   };
 }
 
@@ -339,6 +362,7 @@ function buildRaspberryPi({
   artifacts,
   imagePrefix,
   imageRefs,
+  repository,
   sshPublicKey,
   tag,
 }) {
@@ -372,6 +396,7 @@ function buildRaspberryPi({
   const variables = {
     STUGA_VERSION: tag,
     STUGA_IMAGE_TAG: tag,
+    STUGA_RELEASE_REPOSITORY: repository,
     STUGA_IMAGE_REGISTRY_PREFIX: imagePrefix,
     STUGA_API_IMAGE: imageRefs.api,
     STUGA_WEB_IMAGE: imageRefs.web,
@@ -424,7 +449,17 @@ async function prepareReleaseChecksums(artifacts, uploadFactory) {
   }
 }
 
-function ensureRelease(tag, version, repository, notesFile) {
+function writeReleaseManifest(artifacts, repository, version, tag, imageRefs) {
+  mkdirSync(artifacts.releaseDirectory, { recursive: true });
+  writeFileSync(
+    artifacts.releaseManifest,
+    `${JSON.stringify(releaseManifest(repository, version, tag, imageRefs), null, 2)}\n`,
+    "utf8",
+  );
+  requireFile(artifacts.releaseManifest, "immutable release manifest");
+}
+
+function inspectRelease(tag, repository) {
   const viewed = invoke(
     "gh",
     ["release", "view", tag, "--repo", repository, "--json", "isDraft,url"],
@@ -434,7 +469,15 @@ function ensureRelease(tag, version, repository, notesFile) {
   if (!/release not found|HTTP 404/iu.test(viewed.stderr ?? "")) {
     throw new Error(viewed.stderr?.trim() || `Could not inspect release ${tag}`);
   }
+  return null;
+}
 
+function ensureRelease(tag, version, repository, notesFile) {
+  const existing = inspectRelease(tag, repository);
+  if (existing && !existing.isDraft) {
+    throw new Error(`Release ${tag} is already published and immutable`);
+  }
+  if (existing) return existing;
   const arguments_ = [
     "release",
     "create",
@@ -452,8 +495,18 @@ function ensureRelease(tag, version, repository, notesFile) {
   return { isDraft: true };
 }
 
-function uploadReleaseAssets(tag, repository, artifacts, uploadFactory) {
-  const paths = uploadFactory ? [artifacts.factory, artifacts.factoryChecksum] : [];
+function uploadReleaseAssets(
+  tag,
+  repository,
+  artifacts,
+  { uploadFactory },
+) {
+  const paths = [
+    artifacts.releaseManifest,
+    artifacts.localCiReport,
+    artifacts.localCiChecksum,
+  ];
+  if (uploadFactory) paths.push(artifacts.factory, artifacts.factoryChecksum);
   if (paths.length === 0) return;
   invoke("gh", [
     "release",
@@ -479,20 +532,24 @@ async function main(argv = process.argv.slice(2), env = process.env) {
     throw new Error(`Release tag must be v${packageVersion}`);
   }
   const version = tag.slice(1);
-  const repository =
-    options.repository ??
-    repositoryFromRemote(capture("git", ["remote", "get-url", "origin"], { quiet: true }));
+  const sourceRepository = repositoryFromRemote(
+    capture("git", ["remote", "get-url", "origin"], { quiet: true }),
+  );
+  const repository = options.repository ?? sourceRepository;
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository)) {
     throw new Error(`Invalid GitHub repository: ${repository}`);
   }
   const imagePrefix = options.imagePrefix ?? `ghcr.io/${repository.toLowerCase()}`;
-  if (!imagePrefix || /\s/u.test(imagePrefix)) {
-    throw new Error(`Invalid image prefix: ${imagePrefix}`);
+  if (!/^ghcr\.io\/[a-z0-9_.-]{1,100}\/[a-z0-9_.-]{1,100}$/u.test(imagePrefix)) {
+    throw new Error(`Invalid lower-case GHCR image prefix: ${imagePrefix}`);
   }
   const sshPublicKey = resolve(
     options.sshPublicKey ?? env.RPI_FACTORY_SSH_PUBLIC_KEY_FILE ?? "",
   );
   const notesFile = options.notesFile ? resolve(options.notesFile) : undefined;
+  if (repository !== sourceRepository && !notesFile) {
+    throw new Error("--notes-file is required when publishing to a separate artifact repository");
+  }
   const images = imageDefinitions(imagePrefix, tag);
   const artifacts = artifactDefinitions(root, version);
 
@@ -515,31 +572,47 @@ async function main(argv = process.argv.slice(2), env = process.env) {
 
   const commit = verifyGitRelease(tag);
   invoke("gh", ["auth", "status"]);
+  const visibility = capture(
+    "gh",
+    ["repo", "view", repository, "--json", "visibility", "--jq", ".visibility"],
+    { quiet: true },
+  );
+  requirePublicReleaseRepository(repository, visibility);
+  const targetTag = invoke(
+    "gh",
+    ["api", `repos/${repository}/git/ref/tags/${tag}`, "--silent"],
+    { allowFailure: true, capture: true, quiet: true },
+  );
+  requireReleaseRepositoryTag(repository, tag, targetTag.status);
+  const existingRelease = inspectRelease(tag, repository);
+  if (existingRelease && !existingRelease.isDraft) {
+    throw new Error(`Release ${tag} is already published and immutable`);
+  }
   invoke("docker", ["version"]);
   invoke("docker", ["buildx", "version"]);
   ensureBuilder(options.builder);
   registryLogin(env);
 
-  if (!options.skipChecks) {
-    invoke("npm", ["run", "version:check"]);
-    invoke("npm", ["run", "typecheck"]);
-    invoke("npm", ["test"]);
-    invoke("npm", ["run", "build"]);
-    invoke("npm", ["run", "smoke:built-api"]);
-  }
+  invoke("npm", ["run", "ci:local", "--", "--skip-container-builds"]);
+  requireFile(artifacts.localCiReport, "local CI receipt");
+  requireFile(artifacts.localCiChecksum, "local CI receipt checksum");
   if (!options.reuseContainers) buildContainers(images, options.builder);
   const imageRefs = resolveImages(images);
+  writeReleaseManifest(artifacts, repository, version, tag, imageRefs);
   buildRaspberryPi({
     artifacts,
     imagePrefix,
     imageRefs,
+    repository,
     sshPublicKey,
     tag,
   });
   await prepareReleaseChecksums(artifacts, options.uploadFactory);
 
   const release = ensureRelease(tag, version, repository, notesFile);
-  uploadReleaseAssets(tag, repository, artifacts, options.uploadFactory);
+  uploadReleaseAssets(tag, repository, artifacts, {
+    uploadFactory: options.uploadFactory,
+  });
   if (release.isDraft) {
     invoke("gh", ["release", "edit", tag, "--repo", repository, "--draft=false"]);
   }

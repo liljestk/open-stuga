@@ -4,6 +4,40 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.21.0 - 2026-07-30
+
+- Calculate Home electricity cost from time-aligned consumption and historical
+  raw price intervals plus their effective contract margin.
+- Reject overlapping tariff intervals, distinguish measured, estimated,
+  partial, and archive-pending results, and prefer acknowledged TimescaleDB
+  history for final costs.
+- Add whole-Home, submeter, and independent meter roles so Home totals and the
+  optimizer avoid double counting. Existing sensors migrate to independent
+  meter behavior until their role is configured.
+- Move automatic CI off paid GitHub-hosted runners and onto one local gate that
+  validates, tests, builds, checks containers, and emits a release receipt.
+- Add opt-in, client-side-encrypted Cloudflare R2 replication for verified
+  recovery sets, with isolated egress, immutable promotion, and portable
+  update/migration handling.
+- Bind appliance updates to digest-pinned release manifests with factory and
+  known-good rollback state, and make local release publishing attach the
+  validated manifest and CI receipt.
+- Support a private source repository through a separate public artifact
+  release feed and optional read-only GHCR credentials, with an explicit,
+  fail-closed updater contract transition for existing Docker and Pi installs.
+- Make alert evaluation crash-safe, remove Stuguby history truncation, and
+  expand restore drills across every control file and telemetry family.
+- Stage Stuguby telemetry by grant epoch and atomically expose only completed
+  snapshots, including crash-safe terminal replay and immediate narrowed-grant
+  purging.
+- Close runtime method-registration type holes, ratchet numbered-module debt,
+  replace the mechanical line cap with a cohesion review plus hard ceiling, and
+  begin extracting `createApi` into narrow domain route registrars.
+- Prevent stale iOS scope requests and cross-origin WebKit redirects or cookie
+  bridging from affecting the selected Property or Home.
+- Fail closed on malformed web API collections, scope live invalidation to
+  canonical query keys, and move sensor writes into the query-client owner.
+
 ## 0.20.2 - 2026-07-29
 
 - Make Home electricity consumption and running cost server-authoritative across

@@ -2,6 +2,12 @@ import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import {
+  installRegisteredMethods,
+  type AssertNoMethodKeys,
+  type IncompatibleMethodKeys,
+  type RegisteredMethodSet,
+} from "../../method-registry.js";
+import {
   HYPERTABLE_DEFINITIONS,
   MEASUREMENT_BUCKETS,
   TELEMETRY_TABLES,
@@ -55,6 +61,17 @@ export interface TimeseriesStoreState {
   closed: boolean;
   lastPoolError: Error | null;
   initializePromise: Promise<TelemetrySchemaInitResult> | null;
+  queryMetrics: {
+    active: number;
+    started: number;
+    succeeded: number;
+    failed: number;
+    totalDurationMs: number;
+    maxDurationMs: number;
+    poolAcquisitions: number;
+    totalPoolWaitMs: number;
+    maxPoolWaitMs: number;
+  };
 }
 
 export function createTimeseriesStoreState(): TimeseriesStoreState {
@@ -67,6 +84,17 @@ export function createTimeseriesStoreState(): TimeseriesStoreState {
     closed: false,
     lastPoolError: null,
     initializePromise: null,
+    queryMetrics: {
+      active: 0,
+      started: 0,
+      succeeded: 0,
+      failed: 0,
+      totalDurationMs: 0,
+      maxDurationMs: 0,
+      poolAcquisitions: 0,
+      totalPoolWaitMs: 0,
+      maxPoolWaitMs: 0,
+    },
   };
 }
 
@@ -76,7 +104,7 @@ export interface TimeseriesStoreInternals {
   readonly pool: Pool;
 }
 
-export type TimeseriesStoreMethodSet = Record<string, unknown> & ThisType<TimeseriesStoreInternals>;
+export type TimeseriesStoreMethodSet = RegisteredMethodSet<TimeseriesStoreInternals>;
 
 export class TimeseriesStoreCore {
   readonly schema: string;
@@ -137,10 +165,10 @@ export class TimeseriesStoreCore {
     }
 }
 
+type TimeseriesStorePublicMethodMismatch = AssertNoMethodKeys<
+  IncompatibleMethodKeys<TimeseriesStoreCore, TimeseriesStoreInternals>
+>;
+
 export function registerTimeseriesStoreMethods(methods: TimeseriesStoreMethodSet): void {
-  for (const [name, method] of Object.entries(methods)) {
-    Object.defineProperty(TimeseriesStoreCore.prototype, name, {
-      value: method, configurable: true, writable: true, enumerable: false,
-    });
-  }
+  installRegisteredMethods("TimeseriesStore", TimeseriesStoreCore.prototype, methods);
 }

@@ -456,8 +456,8 @@ export class HybridTelemetryReader {
 
   /**
    * Derived aggregates cannot be merged without double-counting the hot tail.
-   * Use SQLite only when its requested measurement window is complete;
-   * otherwise use the permanent Timescale archive as the sole source of truth.
+   * An acknowledged Timescale archive is the sole durable source. SQLite is
+   * used only for standalone deployments or a visibly pending hot-tail result.
    */
   async energyCostAggregate(query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord> {
     return this.#costAggregate("energy", query);

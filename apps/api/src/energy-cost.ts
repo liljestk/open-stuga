@@ -1,7 +1,10 @@
 import {
   HOME_ENERGY_SUMMARY_ALGORITHM_VERSION,
+  type EnergyMeterRole,
+  type HomeEnergyArchiveState,
   type HomeEnergyConsumptionBasis,
   type HomeEnergyCost,
+  type HomeEnergyCostQuality,
   type HomeEnergySummary,
 } from "@climate-twin/contracts";
 import {
@@ -13,7 +16,8 @@ import type { EnergyCostAggregateRecord } from "./timeseries/types.js";
 const MEASUREMENT_EDGE_TOLERANCE_MS = 5 * 60_000;
 const MINIMUM_MEASUREMENT_DURATION_COVERAGE = 0.999;
 const POWER_HOLD_MS = 15 * 60_000;
-const SUMMARY_CONCURRENCY = 4;
+const MAXIMUM_MEASURED_COUNTER_INTERVAL_MS = 15 * 60_000 + 1_000;
+const SUMMARY_CONCURRENCY = 2;
 
 function rounded(value: number, decimals: number): number {
   return Number(value.toFixed(decimals));
@@ -50,12 +54,14 @@ interface BasisCalculation {
   aggregate: EnergyCostAggregateRecord;
   cost: HomeEnergyCost;
   measurementComplete: boolean;
+  estimated: boolean;
 }
 
 export class EnergyCostService {
   constructor(
     private readonly telemetryReader: HybridTelemetryReader,
     private readonly now: () => Date = () => new Date(),
+    private readonly meterRole: (sensorId: string) => EnergyMeterRole = () => "standalone",
   ) {}
 
   async calculate(input: {
@@ -67,9 +73,11 @@ export class EnergyCostService {
     signal?: AbortSignal;
   }): Promise<HomeEnergyCost> {
     const energy = await this.calculateBasis(input, "energy_counter");
-    if (energy.measurementComplete) return energy.cost;
+    if (energy.measurementComplete && !energy.estimated) return energy.cost;
 
     const power = await this.calculateBasis(input, "integrated_power");
+    if (energy.measurementComplete && energy.estimated && power.measurementComplete) return power.cost;
+    if (energy.measurementComplete) return energy.cost;
     if (power.measurementComplete) return power.cost;
     if (energy.aggregate.deltaCount === 0) return power.cost;
     if (power.aggregate.deltaCount === 0) return energy.cost;
@@ -106,9 +114,35 @@ export class EnergyCostService {
         : record.metric === "power" && end >= fromMs - POWER_HOLD_MS;
     }).map((record) => record.sensorId))].sort();
 
-    const settled = await mapSettledWithConcurrency(candidates, SUMMARY_CONCURRENCY, (sensorId) => (
+    const roleFor = (sensorId: string): EnergyMeterRole => {
+      try {
+        return this.meterRole(sensorId);
+      } catch {
+        return "standalone";
+      }
+    };
+    const wholeHome = candidates.filter((sensorId) => roleFor(sensorId) === "whole_home");
+    const standalone = candidates.filter((sensorId) => roleFor(sensorId) === "standalone");
+    const aggregationMode = wholeHome.length > 0
+      ? "whole_home"
+      : standalone.length > 0
+        ? "independent_sources"
+        : "submeters_only";
+    const selected = aggregationMode === "whole_home"
+      ? wholeHome.slice(0, 1)
+      : aggregationMode === "independent_sources"
+        ? standalone
+        : candidates.filter((sensorId) => roleFor(sensorId) === "submeter");
+    const excludedSourceCount = candidates.length - selected.length;
+
+    const settled = await mapSettledWithConcurrency(selected, SUMMARY_CONCURRENCY, (sensorId) => (
       this.calculate({ ...input, sensorId })
     ));
+    if (input.signal?.aborted) {
+      throw input.signal.reason instanceof Error
+        ? input.signal.reason
+        : new DOMException("The operation was aborted", "AbortError");
+    }
     const contributions = settled.flatMap((result) => (
       result.status === "fulfilled" ? [result.value] : []
     ));
@@ -122,10 +156,25 @@ export class EnergyCostService {
       : reporting.length
         ? Math.min(...reporting.map((cost) => cost.priceCoveragePercent))
         : 0;
+    const archiveState: HomeEnergyArchiveState = contributions.some((cost) => cost.archiveState === "pending")
+      ? "pending"
+      : contributions.length > 0 && contributions.every((cost) => cost.archiveState === "archived")
+        ? "archived"
+        : "local-only";
+    const complete = selected.length > 0
+      && aggregationMode !== "submeters_only"
+      && failedSourceCount === 0
+      && reporting.length === selected.length
+      && contributions.every((cost) => cost.complete);
+    const quality: HomeEnergyCostQuality = !complete
+      ? "partial"
+      : contributions.some((cost) => cost.quality === "estimated")
+        ? "estimated"
+        : "measured";
     const calculatedAt = this.now().toISOString();
 
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       algorithmVersion: HOME_ENERGY_SUMMARY_ALGORITHM_VERSION,
       houseId: input.houseId,
       from: input.from,
@@ -134,12 +183,13 @@ export class EnergyCostService {
       pricedConsumptionKwh: pricedConsumptionKwh === null ? null : rounded(pricedConsumptionKwh, 6),
       costEur: costEur === null ? null : rounded(costEur, 6),
       priceCoveragePercent: rounded(priceCoveragePercent, 1),
-      complete: candidates.length > 0
-        && failedSourceCount === 0
-        && reporting.length === candidates.length
-        && contributions.every((cost) => cost.complete),
+      quality,
+      archiveState,
+      aggregationMode,
+      complete,
       sourceCount: reporting.length,
       totalSources: candidates.length,
+      excludedSourceCount,
       failedSourceCount,
       contributions,
       calculatedAt,
@@ -181,11 +231,18 @@ export class EnergyCostService {
       && durationComplete
       && Number.isFinite(coverageFromMs) && coverageFromMs <= fromMs + MEASUREMENT_EDGE_TOLERANCE_MS
       && Number.isFinite(coverageUntilMs) && coverageUntilMs >= toMs - MEASUREMENT_EDGE_TOLERANCE_MS;
+    const estimated = measurementBasis === "integrated_power"
+      || aggregate.maximumIntervalDurationMs > MAXIMUM_MEASURED_COUNTER_INTERVAL_MS;
     const hasUsage = aggregate.deltaCount > 0;
     const hasPricedUsage = hasUsage && aggregate.pricedDurationMs > 0;
+    const archiveState = aggregate.archiveState ?? "local-only";
+    const complete = measurementComplete
+      && priceCoveragePercent >= 99.9
+      && archiveState !== "pending";
     return {
       aggregate,
       measurementComplete,
+      estimated,
       cost: {
         houseId: input.houseId,
         sensorId: input.sensorId,
@@ -198,7 +255,9 @@ export class EnergyCostService {
         priceCoveragePercent: rounded(priceCoveragePercent, 1),
         measurementCoverageFrom: aggregate.coverageFrom,
         measurementCoverageUntil: aggregate.coverageUntil,
-        complete: measurementComplete && priceCoveragePercent >= 99.9,
+        quality: complete ? estimated ? "estimated" : "measured" : "partial",
+        archiveState,
+        complete,
         calculatedAt: this.now().toISOString(),
       },
     };
