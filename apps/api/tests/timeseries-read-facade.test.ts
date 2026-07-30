@@ -508,9 +508,23 @@ describe("HybridTelemetryReader", () => {
       deltaCount: 2, consumptionKwh: 2, pricedConsumptionKwh: 2, costEur: 0.2,
       totalDurationMs: 2_000, pricedDurationMs: 2_000, coverageFrom: FROM, coverageUntil: TO,
     }));
+    const localPowerAggregate = vi.fn(() => ({
+      deltaCount: 3, consumptionKwh: 3, pricedConsumptionKwh: 3, costEur: 0.3,
+      totalDurationMs: 3_000, pricedDurationMs: 3_000, coverageFrom: FROM, coverageUntil: TO,
+    }));
+    const archivePowerAggregate = vi.fn(async () => ({
+      deltaCount: 4, consumptionKwh: 4, pricedConsumptionKwh: 4, costEur: 0.4,
+      totalDurationMs: 4_000, pricedDurationMs: 4_000, coverageFrom: FROM, coverageUntil: TO,
+    }));
     const reader = new HybridTelemetryReader({
-      local: localReader({ energyCostAggregate: localAggregate }),
-      archive: archiveReader({ energyCostAggregate: archiveAggregate }),
+      local: localReader({
+        energyCostAggregate: localAggregate,
+        powerCostAggregate: localPowerAggregate,
+      }),
+      archive: archiveReader({
+        energyCostAggregate: archiveAggregate,
+        powerCostAggregate: archivePowerAggregate,
+      }),
       archivePhase: () => "ready",
       localHistoryComplete: ({ from }) => from >= FROM,
     });
@@ -523,5 +537,11 @@ describe("HybridTelemetryReader", () => {
       .resolves.toMatchObject({ costEur: 0.2 });
     expect(archiveAggregate).toHaveBeenCalledOnce();
     expect(localAggregate).toHaveBeenCalledOnce();
+
+    await expect(reader.powerCostAggregate(query)).resolves.toMatchObject({ costEur: 0.3 });
+    await expect(reader.powerCostAggregate({ ...query, from: "2026-07-17T23:00:00.000Z" }))
+      .resolves.toMatchObject({ costEur: 0.4 });
+    expect(localPowerAggregate).toHaveBeenCalledOnce();
+    expect(archivePowerAggregate).toHaveBeenCalledOnce();
   });
 });

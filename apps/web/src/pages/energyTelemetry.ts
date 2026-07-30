@@ -48,27 +48,6 @@ function sourceForMetric(
   })[0] ?? null;
 }
 
-/**
- * Computes usage from a cumulative counter and tolerates a daily/monthly reset.
- * A reset contributes the new counter value instead of a negative delta.
- */
-export function counterConsumption(samples: MeasurementSample[]): number | null {
-  const usable = samples.filter((sample) => sample.metric === "energy"
-    && sample.quality !== "stale"
-    && Number.isFinite(sample.value)
-    && Number.isFinite(Date.parse(sample.timestamp)));
-  const ordered = [...new Map(usable.map((sample) => [sample.timestamp, sample])).values()]
-    .sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
-  if (ordered.length < 2) return null;
-  let total = 0;
-  for (let index = 1; index < ordered.length; index += 1) {
-    const previous = ordered[index - 1]!.value;
-    const current = ordered[index]!.value;
-    total += current >= previous ? current - previous : Math.max(0, current);
-  }
-  return total;
-}
-
 export function metricSources(
   state: ClimateState,
   sensors: Sensor[],

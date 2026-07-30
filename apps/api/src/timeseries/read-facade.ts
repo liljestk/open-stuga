@@ -24,6 +24,7 @@ import type {
   OpeningStateSnapshotQuery,
   OutdoorTemperatureHistoryQuery,
   OutdoorTemperatureRecord,
+  PowerCostAggregateQuery,
   ThermalMeasurementHistoryQuery,
 } from "./types.js";
 import { bucketLegacyReadings, bucketMeasurementSamples } from "./read-buckets.js";
@@ -66,6 +67,7 @@ import {
   type LocalCompletenessQuery,
 } from "./read-support.js";
 import { readMeasurementAnalyticsRollup, type HybridMeasurementAnalyticsRollupResult } from "./read-analytics-rollup.js";
+import { readCostAggregate } from "./read-energy-cost.js";
 
 export { bucketLegacyReadings, bucketMeasurementSamples };
 export { IncompleteTelemetryHistoryError } from "./read-support.js";
@@ -108,6 +110,7 @@ export interface LocalTelemetryReader {
     houseId: string, from: string | number | Date, to: string | number | Date, limit?: number,
   ): OpeningStateObservation[];
   energyCostAggregate?(query: EnergyCostAggregateQuery): EnergyCostAggregateRecord;
+  powerCostAggregate?(query: PowerCostAggregateQuery): EnergyCostAggregateRecord;
 }
 
 /** Structural archive methods used by the hybrid reader. */
@@ -123,6 +126,7 @@ export interface ArchiveTelemetryReader {
   openingStateHistory?(query: OpeningStateHistoryQuery): Promise<OpeningStateRecord[]>;
   openingStateSnapshot?(query: OpeningStateSnapshotQuery): Promise<OpeningStateRecord[]>;
   energyCostAggregate?(query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
+  powerCostAggregate?(query: PowerCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
 }
 
 export interface HybridTelemetryReaderOptions {
@@ -456,28 +460,21 @@ export class HybridTelemetryReader {
    * otherwise use the permanent Timescale archive as the sole source of truth.
    */
   async energyCostAggregate(query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord> {
-    const cancellation = aborted(query.signal);
-    if (cancellation) throw cancellation;
-    const complete = this.#isLocalHistoryComplete({ family: "measurement", from: query.from, to: query.to });
-    if (complete) {
-      if (!this.#local.energyCostAggregate) throw new Error("Local energy-cost aggregation is unavailable");
-      return this.#local.energyCostAggregate(query);
-    }
-    if (!this.#archive || !this.#archive.energyCostAggregate) {
-      throw new IncompleteTelemetryHistoryError("not-configured");
-    }
-    const phase = this.#archivePhase ? this.#safeArchivePhase() : "ready";
-    if (phase !== "ready" && phase !== "syncing") {
-      throw new IncompleteTelemetryHistoryError("not-ready");
-    }
-    try {
-      return await this.#archive.energyCostAggregate(query);
-    } catch (error) {
-      const afterFailureCancellation = aborted(query.signal);
-      if (afterFailureCancellation) throw afterFailureCancellation;
-      this.#requestReconciliation();
-      throw new IncompleteTelemetryHistoryError("failed");
-    }
+    return this.#costAggregate("energy", query);
+  }
+
+  async powerCostAggregate(query: PowerCostAggregateQuery): Promise<EnergyCostAggregateRecord> {
+    return this.#costAggregate("power", query);
+  }
+
+  #costAggregate(metric: "energy" | "power", query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord> {
+    const scopedQuery = { ...query, excludeSynthetic: this.#local.isRealDataMode() };
+    return readCostAggregate({
+      query: scopedQuery, metric, local: this.#local, archive: this.#archive,
+      archivePhase: this.#archivePhase ? this.#safeArchivePhase() ?? "not-ready" : "ready",
+      localHistoryComplete: this.#isLocalHistoryComplete({ family: "measurement", from: query.from, to: query.to }),
+      requestReconciliation: () => this.#requestReconciliation(),
+    });
   }
 
   async #read<T extends { source: string }>(input: {

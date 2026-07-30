@@ -530,8 +530,9 @@ describe("TimeseriesStore", () => {
       coverageUntil: TO,
     });
     const query = pool.queries.find(({ text }) => text.includes("WITH boundary_sample AS"))!;
-    expect(query.values).toEqual(["meter-1", FROM, TO, "property-1"]);
+    expect(query.values).toEqual(["meter-1", FROM, TO, "property-1", false]);
     expect(query.text).toContain("price.raw_price_cents_per_kwh, price.margin_cents_per_kwh");
+    expect(query.text).toContain("SELECT DISTINCT ON (starts_at)");
     expect(query.text).toContain("LEAST(normalized.current_at, price.ends_at)");
   });
 

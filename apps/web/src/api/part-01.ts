@@ -32,6 +32,7 @@ import type {
   HouseWeather,
   HomeElectricityPricePoint,
   HomeEnergyCost,
+  HomeEnergySummary,
   IntegrationStatus,
   IntegrationTestResult,
   LocalInvitationRegistrationInput,
@@ -303,6 +304,10 @@ export const apiPart01 = {
       `/houses/${encodeURIComponent(houseId)}/energy-cost?${new URLSearchParams({ sensorId, from, to })}`,
       signal ? { signal } : {},
     ), "cost"),
+  houseEnergySummary: async (houseId: string, from: string, to: string, signal?: AbortSignal) => entity<HomeEnergySummary>(await request<HomeEnergySummary | { summary: HomeEnergySummary }>(
+      `/houses/${encodeURIComponent(houseId)}/energy-summary?${new URLSearchParams({ from, to })}`,
+      signal ? { signal } : {},
+    ), "summary"),
   configurePropertyElectricity: (propertyId: string, configuration: PropertyElectricityConfigInput) => request<{ config: PropertyElectricityConfig }>(
       `/properties/${encodeURIComponent(propertyId)}/electricity/config`,
       { method: "PUT", body: JSON.stringify(configuration) },

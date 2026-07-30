@@ -4,6 +4,14 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.20.2 - 2026-07-29
+
+- Make Home electricity consumption and running cost server-authoritative across
+  every meter, including power-only plugs through conservative bounded
+  integration.
+- Expose versioned per-source energy provenance through REST, OpenAPI, MCP, and
+  a thin React Query client while preserving cumulative counters as preferred.
+
 ## 0.20.1 - 2026-07-29
 
 - Include the server-authoritative monitoring model and localization catalog in

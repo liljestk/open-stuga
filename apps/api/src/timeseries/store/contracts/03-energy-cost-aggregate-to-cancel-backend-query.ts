@@ -34,6 +34,7 @@ import type {
   MeasurementWindowQuery,
   OutdoorTemperatureHistoryQuery,
   OutdoorTemperatureRecord,
+  PowerCostAggregateQuery,
   QueryControl,
   TelemetryHealth,
   TelemetrySchemaInitResult,
@@ -47,6 +48,7 @@ import "../core.js";
 declare module "../core.js" {
   interface TimeseriesStoreInternals {
     energyCostAggregate(query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
+    powerCostAggregate(query: PowerCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
     refreshMeasurementAggregates(query?: AggregateRefreshQuery): Promise<number>;
     health(control?: QueryControl): Promise<TelemetryHealth>;
     storageStats(control?: QueryControl): Promise<TelemetryStorageStats>;
@@ -68,6 +70,7 @@ declare module "../core.js" {
 
   interface TimeseriesStoreCore {
     energyCostAggregate(query: EnergyCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
+    powerCostAggregate(query: PowerCostAggregateQuery): Promise<EnergyCostAggregateRecord>;
     refreshMeasurementAggregates(query?: AggregateRefreshQuery): Promise<number>;
     health(control?: QueryControl): Promise<TelemetryHealth>;
     storageStats(control?: QueryControl): Promise<TelemetryStorageStats>;

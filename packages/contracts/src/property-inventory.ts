@@ -92,12 +92,16 @@ export type HomeElectricityPricePoint = Pick<PropertyElectricityPricePoint,
   "startAt" | "endAt" | "effectivePriceCentsPerKwh" | "effectivePriceEurPerKwh" | "fetchedAt"
 >;
 
-/** Time-aligned, cumulative energy cost for one Home energy meter. */
+/** The telemetry model used to derive one source's consumption. */
+export type HomeEnergyConsumptionBasis = "energy_counter" | "integrated_power";
+
+/** Time-aligned energy cost for one Home electricity source. */
 export interface HomeEnergyCost {
   houseId: string;
   sensorId: string;
   from: string;
   to: string;
+  measurementBasis: HomeEnergyConsumptionBasis;
   consumptionKwh: number | null;
   pricedConsumptionKwh: number | null;
   costEur: number | null;
@@ -105,6 +109,31 @@ export interface HomeEnergyCost {
   measurementCoverageFrom: string | null;
   measurementCoverageUntil: string | null;
   complete: boolean;
+  calculatedAt: string;
+}
+
+export const HOME_ENERGY_SUMMARY_ALGORITHM_VERSION = "home-energy-summary/v1" as const;
+
+/**
+ * Server-authoritative aggregation across every electricity source visible in
+ * one Home. Per-source contributions retain the model and completeness needed
+ * to audit the combined values.
+ */
+export interface HomeEnergySummary {
+  schemaVersion: 1;
+  algorithmVersion: typeof HOME_ENERGY_SUMMARY_ALGORITHM_VERSION;
+  houseId: string;
+  from: string;
+  to: string;
+  consumptionKwh: number | null;
+  pricedConsumptionKwh: number | null;
+  costEur: number | null;
+  priceCoveragePercent: number;
+  complete: boolean;
+  sourceCount: number;
+  totalSources: number;
+  failedSourceCount: number;
+  contributions: HomeEnergyCost[];
   calculatedAt: string;
 }
 

@@ -1109,3 +1109,49 @@ opening double-count issue was also rejected: canonical normalization
 deduplicates identical provider/external-id/connection/timestamp observations
 before transition derivation. OpenAPI already compares the complete documented
 and runtime operation sets, so replacing count-only parity was unnecessary.
+
+### 0.20.2 electricity aggregation addendum
+
+Post-release live verification found one remaining browser-owned analytics
+boundary: `EnergyPage` combined only cumulative `energy` meters, excluding
+power-only P110/P115 plugs from 24-hour consumption and running cost.
+
+The corrective implementation is:
+
+1. Add a versioned `HomeEnergySummary` contract with per-source basis,
+   completeness, price coverage, failures, and contributions.
+2. Discover all visible enabled Home sources on the API using complete hybrid
+   telemetry coverage. The client never supplies or truncates the source set.
+3. Prefer cumulative counter deltas for each source. If that counter interval is
+   absent or incomplete, integrate non-stale power as a step function.
+4. Hold each power observation for at most 15 minutes. Missing telemetry is
+   conservative missing coverage, never invented consumption.
+5. Allocate both counter deltas and power segments across every overlapping
+   persisted price interval. Deduplicate Timescale price revisions before
+   allocation and exclude mock/replay telemetry in real-data mode.
+6. Aggregate sources on the server with concurrency four and partial-failure
+   accounting. Expose the same semantics through REST, OpenAPI, and read-only
+   MCP.
+7. Replace `EnergyPage` history fan-out, counter derivation, and
+   `Promise.allSettled` reconciliation with a stable React Query adapter.
+
+Permanent regression gates cover cumulative-counter preference, power-only
+multi-source totals, 15-minute outage capping, proportional price allocation,
+SQLite/PostgreSQL routing, non-finite SQLite values, real-data filtering,
+OpenAPI parity, MCP registration, and the removal of dedicated browser history
+requests.
+
+Claude's corrective implementation review accepted the power integration and
+contract design. It prompted three amendments applied before release:
+
+- apply the 99.9% duration gate only to integrated power so sparse cumulative
+  counters retain the established five-minute edge tolerance;
+- use stable interval query keys with timed refetch instead of accumulating a
+  new cache entry every minute; and
+- add a SQLite non-finite power guard matching PostgreSQL.
+
+The review's missing-support-module concern was rejected after verifying
+`timeseries-store-test-support.ts` exists and running the new PostgreSQL test.
+Its merged-but-incomplete archive-state concern is unreachable in the current
+hybrid reader, but the defensive mapping now reports `not-ready` rather than
+mislabeling it as a read failure.

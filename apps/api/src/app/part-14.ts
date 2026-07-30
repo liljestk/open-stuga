@@ -401,6 +401,29 @@ export function configureApiPart14(context: ReturnType<typeof configureApiPart13
         to,
       }) });
     });
+  context.app.get(`${context.prefix}/houses/:id/energy-summary`, async (request, response) => {
+      const houseId = request.params.id as string;
+      const house = context.database.getHouse(houseId);
+      if (!house || !context.visibility(response).house(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
+      const access = context.visibility(response);
+      const sensorIds = context.database.listSensors(houseId)
+        .filter((sensor) => sensor.enabled && access.sensor(sensor.id))
+        .map((sensor) => sensor.id);
+      const to = dateValue(request.query.to, new Date(), "to");
+      const from = dateValue(request.query.from, new Date(Date.parse(to) - 30 * 86_400_000), "from");
+      const durationMs = Date.parse(to) - Date.parse(from);
+      if (durationMs <= 0 || durationMs > 366 * 86_400_000) {
+        throw new HttpError(400, "INVALID_ENERGY_SUMMARY_RANGE", "Energy summary range must be greater than zero and at most 366 days");
+      }
+      response.setHeader("cache-control", "no-store");
+      response.json({ summary: await context.energyCost.summarize({
+        houseId,
+        propertyId: house.propertyId,
+        sensorIds,
+        from,
+        to,
+      }) });
+    });
   const extended = Object.assign(context, {  });
   return extended;
 }

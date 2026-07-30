@@ -96,7 +96,7 @@ import { createAreaEquipment, createProperty, createPropertyArea, dataMode, data
 import { createAlertRule, createHouse, createMeasurementDefinition, createSensor, deleteHouse, deleteSensor, disableMeasurementDefinition, importMeasurements, ingestMeasurements, ingestReadings, queryMeasurementHistory, querySensorHistory, replaceHouseFloor, replaceHouseLayout, thermalSimulation, updateHouse, updateMeasurementDefinition, updateSensor } from "./02-thermal-simulation-to-create-alert-rule.js";
 import { acknowledgeAlert, assetMetadata, createMaintenanceTask, createObservation, deleteAlertRule, deleteAsset, deleteMaintenanceTask, deleteObservation, deleteStaticParameter, discoverIntegrations, homeAssistantConnectionTest, homeAssistantSetup, listMaintenanceTaskRevisions, listMaintenanceTasks, listObservationRevisions, selectMockScenario, startReplay, tpLinkConnectionTest, tpLinkSetup, updateAlertRule, updateMaintenanceTask, updateObservation, uploadAsset, upsertStaticParameter } from "./03-update-alert-rule-to-start-replay.js";
 import { summarizeMcpStuguby } from "./04-point-schema-to-summarize-mcp-stuguby.js";
-import { backupStatus, dailyAnalyticsFindings, getMcpStuguby, houseElectricityPrice, houseEnergyCost, houseOpeningStates, listPropertyNotes, openingActivity, operations, outdoorTemperatureHistory, propertyElectricity, sensorDataGaps, server, thermalIsolation } from "./05-get-mcp-stuguby-to-result-output-schema.js";
+import { backupStatus, dailyAnalyticsFindings, getMcpStuguby, houseElectricityPrice, houseEnergyCost, houseEnergySummary, houseOpeningStates, listPropertyNotes, openingActivity, operations, outdoorTemperatureHistory, propertyElectricity, sensorDataGaps, server, thermalIsolation } from "./05-get-mcp-stuguby-to-result-output-schema.js";
 import { READ_ONLY_MCP_TOOL_NAMES } from "./06-read-only-mcp-tool-names-to-mcp-tool-definitions.js";
 import { ToolHandler, mcpTools } from "./09-mcp-tool-definitions-part04-to-tool-handler.js";
 import {
@@ -160,6 +160,7 @@ export const allToolHandlers: Record<string, ToolHandler> = {
   compare_calendar_periods: calendarComparison,
   get_house_electricity_price: houseElectricityPrice,
   get_house_energy_cost: houseEnergyCost,
+  get_house_energy_summary: houseEnergySummary,
   query_outdoor_temperature_history: outdoorTemperatureHistory,
   run_thermal_simulation: thermalSimulation,
   get_house_thermal_isolation: thermalIsolation,

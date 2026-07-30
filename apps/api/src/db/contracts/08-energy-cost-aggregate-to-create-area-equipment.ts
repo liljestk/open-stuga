@@ -93,7 +93,7 @@ import {
   policyFromJson,
   policyJson,
 } from "../../notification-policy.js";
-import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord } from "../../timeseries/types.js";
+import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord, PowerCostAggregateQuery } from "../../timeseries/types.js";
 import { CORE_SCHEMA_SQL } from "../migrations/core-schema.js";
 import { AreaEquipmentRow, DEFAULT_COLLECTION_LIMIT, DEFAULT_PROPERTY_ID, EnergyCostAggregateRow, PropertyAreaRow, boundedCollectionLimit, boundedCollectionOffset } from "../support/01-json-value-to-area-equipment-row.js";
 import { LocalMaintenanceTaskRevisionActor } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
@@ -104,6 +104,7 @@ import "../core.js";
 declare module "../core.js" {
   interface DatabaseInternals {
     energyCostAggregate(query: EnergyCostAggregateQuery): EnergyCostAggregateRecord;
+    powerCostAggregate(query: PowerCostAggregateQuery): EnergyCostAggregateRecord;
     updateProperty(id: string, patch: PropertyPatch): Property | null;
     deleteProperty(id: string): boolean;
     listPropertyAreas(propertyId?: string, limit?: number, offset?: number): PropertyArea[];
@@ -124,6 +125,7 @@ declare module "../core.js" {
 
   interface ClimateDatabaseCore {
     energyCostAggregate(query: EnergyCostAggregateQuery): EnergyCostAggregateRecord;
+    powerCostAggregate(query: PowerCostAggregateQuery): EnergyCostAggregateRecord;
     updateProperty(id: string, patch: PropertyPatch): Property | null;
     deleteProperty(id: string): boolean;
     listPropertyAreas(propertyId?: string, limit?: number, offset?: number): PropertyArea[];
