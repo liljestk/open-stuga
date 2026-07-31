@@ -31,7 +31,7 @@ import {
 
 import { revokeAccessToken } from ".././cloudflare-oauth.mjs";
 
-import { bounded, compose, composeArguments, readJson, runCommand, validatedCloudflareSetupRequest, writeJson, writeTextAtomic } from "./configuration-request.mjs";
+import { bounded, compose, composeArguments, readJson, runCommand, validatedCloudflareSetupRequest, writeJson, writeReleaseEnvironmentAtomic, writeTextAtomic } from "./configuration-request.mjs";
 
 export async function activeServices(config, composeCommand = compose) {
   const output = await composeCommand(config, ["ps", "--services", "--filter", "status=running"], 30_000);
@@ -373,5 +373,5 @@ export async function applyCloudflareSetupRequest(config, requestPath, dependenc
 
 export async function restoreReleaseEnvironment(path, previous) {
   if (previous === null) throw new Error("Immutable rollback state is unavailable");
-  writeTextAtomic(path, previous);
+  writeReleaseEnvironmentAtomic(path, previous);
 }

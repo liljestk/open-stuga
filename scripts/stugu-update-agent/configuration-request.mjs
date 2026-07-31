@@ -164,6 +164,16 @@ export function writeTextAtomic(path, text, mode = 0o640, ownership = null) {
   renameSync(temporary, path);
 }
 
+export function writeReleaseEnvironmentAtomic(path, text) {
+  const directory = dirname(path);
+  mkdirSync(directory, { recursive: true });
+  const ownership = statSync(directory);
+  if (!ownership.isDirectory()) {
+    throw new Error("Release state parent must be a directory");
+  }
+  writeTextAtomic(path, text, 0o640, ownership);
+}
+
 export function writeJson(path, value) {
   writeTextAtomic(path, `${JSON.stringify(value, null, 2)}\n`, 0o644);
 }

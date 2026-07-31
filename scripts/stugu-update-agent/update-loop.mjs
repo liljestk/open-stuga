@@ -30,7 +30,7 @@ import {
 
 import { revokeAccessToken } from ".././cloudflare-oauth.mjs";
 
-import { AGENT_VERSION, COMPOSE_CONTRACT, HEARTBEAT_MS, POLL_MS, UPDATE_AGENT_CONTRACT, bounded, compose, currentReleaseEnvironment, operation, readAgentConfig, readJson, readReleaseEnvironment, releaseEnvironment, runCommand, validatedRequest, writeJson, writeTextAtomic } from "./configuration-request.mjs";
+import { AGENT_VERSION, COMPOSE_CONTRACT, HEARTBEAT_MS, POLL_MS, UPDATE_AGENT_CONTRACT, bounded, compose, currentReleaseEnvironment, operation, readAgentConfig, readJson, readReleaseEnvironment, releaseEnvironment, runCommand, validatedRequest, writeJson, writeReleaseEnvironmentAtomic } from "./configuration-request.mjs";
 
 import { activeServices, applyCloudflareSetupRequest, exactApiVersion, restoreReleaseEnvironment } from "./services-cloudflare.mjs";
 
@@ -122,7 +122,7 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
     setStatus("backup", "Creating a verified pre-update backup");
     await composeCommand(config, ["--profile", "maintenance", "run", "--rm", "stugu-backup"]);
 
-    writeTextAtomic(config.releaseEnvFile, releaseEnvironment(request));
+    writeReleaseEnvironmentAtomic(config.releaseEnvFile, releaseEnvironment(request));
     releaseChanged = true;
 
     setStatus("pulling", `Pulling Stugu ${request.version} images`);
@@ -136,7 +136,7 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
     if (runningVersion !== request.version) {
       throw new Error(`Updated API reported version ${runningVersion || "unknown"} instead of ${request.version}`);
     }
-    writeTextAtomic(config.knownGoodReleaseEnvFile, releaseEnvironment(request));
+    writeReleaseEnvironmentAtomic(config.knownGoodReleaseEnvFile, releaseEnvironment(request));
 
     const completedAt = new Date().toISOString();
     setStatus("complete", `Stugu ${request.version} is healthy`, completedAt);

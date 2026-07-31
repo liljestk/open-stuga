@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
+  chownSync,
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -74,6 +78,28 @@ function legacyReleaseEnvironment(version) {
     `STUGA_UPDATE_AGENT_IMAGE=ghcr.io/liljestk/open-stuga-update-agent:v${version}`,
     "",
   ].join("\n");
+}
+
+function assignDistinctDirectoryOwnership(directory) {
+  if (process.platform === "win32") return;
+  const uid = process.getuid();
+  const gid = process.getgid();
+  if (uid === 0) {
+    chownSync(directory, 12_345, 23_456);
+    return;
+  }
+  const alternateGroup = process.getgroups().find((candidate) => candidate !== gid);
+  if (alternateGroup !== undefined) chownSync(directory, uid, alternateGroup);
+}
+
+function assertReleaseStateMetadata(path, directory) {
+  const file = lstatSync(path);
+  const owner = statSync(directory);
+  assert.equal(file.isFile(), true);
+  if (process.platform === "win32") return;
+  assert.equal(file.uid, owner.uid);
+  assert.equal(file.gid, owner.gid);
+  assert.equal(file.mode & 0o777, 0o640);
 }
 
 function composeImages(config) {
@@ -581,8 +607,13 @@ test("Docker transition restores the exact legacy six-line release after candida
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const operationsDirectory = join(directory, "operations");
   mkdirSync(operationsDirectory);
+  const releaseDirectory = join(directory, "release-state");
+  mkdirSync(releaseDirectory);
+  assignDistinctDirectoryOwnership(releaseDirectory);
   const config = readAgentConfig({
     STUGA_PROJECT_DIRECTORY: directory,
+    STUGA_KNOWN_GOOD_RELEASE_ENV_FILE: join(releaseDirectory, "known-good.env"),
+    STUGA_RELEASE_ENV_FILE: join(releaseDirectory, "release.env"),
     SYSTEM_UPDATE_IMAGE_PREFIX: "ghcr.io/liljestk/open-stuga",
     SYSTEM_UPDATE_OPERATIONS_DIRECTORY: operationsDirectory,
     SYSTEM_UPDATE_REPOSITORY: "liljestk/open-stuga",
@@ -612,6 +643,8 @@ test("Docker transition restores the exact legacy six-line release after candida
   assert.equal(starts, 2);
   assert.equal(rollbackRelease, legacyRelease);
   assert.equal(readFileSync(config.releaseEnvFile, "utf8"), legacyRelease);
+  assertReleaseStateMetadata(config.releaseEnvFile, releaseDirectory);
+  assert.deepEqual(readdirSync(releaseDirectory), ["release.env"]);
   const status = JSON.parse(readFileSync(join(operationsDirectory, "status.json"), "utf8"));
   assert.equal(status.phase, "failed");
   assert.match(status.detail, /Previous release restored/);
@@ -658,8 +691,13 @@ test("agent publishes a durable step-by-step activity trail", async (t) => {
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const operationsDirectory = join(directory, "operations");
   mkdirSync(operationsDirectory);
+  const releaseDirectory = join(directory, "release-state");
+  mkdirSync(releaseDirectory);
+  assignDistinctDirectoryOwnership(releaseDirectory);
   const config = readAgentConfig({
     STUGA_PROJECT_DIRECTORY: directory,
+    STUGA_KNOWN_GOOD_RELEASE_ENV_FILE: join(releaseDirectory, "known-good.env"),
+    STUGA_RELEASE_ENV_FILE: join(releaseDirectory, "release.env"),
     SYSTEM_UPDATE_IMAGE_PREFIX: "ghcr.io/liljestk/open-stuga",
     SYSTEM_UPDATE_OPERATIONS_DIRECTORY: operationsDirectory,
     SYSTEM_UPDATE_REPOSITORY: "liljestk/open-stuga",
@@ -690,6 +728,12 @@ test("agent publishes a durable step-by-step activity trail", async (t) => {
   assert.equal(
     readFileSync(config.knownGoodReleaseEnvFile, "utf8").includes(updateRequest().images.api),
     true,
+  );
+  assertReleaseStateMetadata(config.releaseEnvFile, releaseDirectory);
+  assertReleaseStateMetadata(config.knownGoodReleaseEnvFile, releaseDirectory);
+  assert.deepEqual(
+    readdirSync(releaseDirectory).sort(),
+    ["known-good.env", "release.env"],
   );
   assert.equal(existsSync(requestPath), false);
 });
