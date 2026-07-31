@@ -4,6 +4,21 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.26.0 - 2026-07-31
+
+- Add disabled-by-default Nexus 433 MHz reception through isolated decoder and
+  private MQTT profiles, with no receiver process, socket, retry timer, GPIO
+  mount, or optional image pull on unsupported and disabled systems.
+- Discover and explicitly attach Nexus senders to stable Sensors, including a
+  revision-checked sender replacement flow that preserves history, placement,
+  and alerts after battery-induced radio ID changes.
+- Validate and bound untrusted radio input, deduplicate bursts, quarantine
+  anomalous jumps, commit paired telemetry atomically, and use Home Assistant
+  only as the stale or unavailable direct-source fallback.
+- Package canonical Nexus433 separately under GPL-3.0-only with embedded rebuild
+  inputs and a mandatory deterministic corresponding-source release artifact,
+  without including Stugu application source.
+
 ## 0.25.1 - 2026-07-31
 
 - Separate network discovery from provider-specific setup so Tuya, direct
