@@ -11,6 +11,7 @@
   "license": "MIT",
   "keywords": ["stugu", "smart-home", "climate", "energy", "mcp"],
   "skills": "./skills/",
+  "apps": "./.app.json",
   "interface": {
     "displayName": "Stugu",
     "shortDescription": "Chat with your Home through Stugu.",
@@ -24,10 +25,8 @@
     "logo": "./assets/stugu-mark.svg",
     "defaultPrompt": [
       "What is the temperature in Köket right now?",
-      "What was the average temperature in the Home last night?",
-      "Is the front door open?",
-      "How much electricity did we use yesterday?",
-      "Is the current wind consistent with the humidity change inside?"
+      "What was the average Home temperature last night, and how much electricity did we use yesterday?",
+      "Is the front door open, and is wind consistent with the indoor humidity change?"
     ]
   }
 }
