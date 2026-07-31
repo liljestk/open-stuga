@@ -176,6 +176,7 @@ import {
   parseAnalyticsQueryRequest,
 } from "../analytics.js";
 import { AnalyticsWorkLimiter } from "../analytics/work-limiter.js";
+import { Nexus433Service } from "../nexus433/index.js";
 import { loadOrCreateStugubyNodeKeys } from "../stuguby/identity.js";
 import { registerStugubyLocalRoutes, registerStugubyProtocolRoutes } from "../stuguby/routes.js";
 import { StugubyError, StugubyService } from "../stuguby/service.js";
@@ -285,6 +286,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
   Object.assign(context, { telegramDeliveryGeneration: initialTelegramDeliveryGeneration });
   const alertEngine = new AlertEngine(context.database, context.bus, config, status, telegram, telemetryReader);
   const telemetry = new TelemetryService(context.database, context.bus, alertEngine, context.dataMode);
+  const nexus433 = new Nexus433Service(config, context.database, telemetry);
   const measurements = new MeasurementService(context.database, context.bus, alertEngine, context.dataMode);
   const notificationOutbox = new NotificationOutboxWorker(
       context.database,
@@ -320,7 +322,10 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
       // Direct polling defaults to 2 s versus HA's current 5 s integration poll.
       // Prefer it only while this exact metric is healthy; HA then fails over
       // without requiring a configuration change or a second Sensor row.
-      shouldIngestLiveMeasurement: (sensorId, metric) => !deferred.tpLink?.isMetricAvailable(sensorId, metric),
+      shouldIngestLiveMeasurement: (sensorId, metric) => (
+        !deferred.tpLink?.isMetricAvailable(sensorId, metric)
+        && !nexus433.isMetricAvailable(sensorId, metric)
+      ),
     });
   deferred.tpLink = new TpLinkBridge(config, telemetry, measurements, context.database, status, {
       onAvailabilityChange: wakeSensorGapRecovery,
@@ -444,7 +449,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         return telemetryArchive?.reconcileNow();
       },
     });
-  const extended = Object.assign(context, { timeseries, telemetryArchive, telemetryRetention, telemetryReader, analyticsWorkLimiter, dailyAnalyticsFindings, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, storedTelegramIdentity, telegram, alertEngine, telemetry, measurements, notificationOutbox, mock, replay, wakeSensorGapRecovery, tapoHistory, tapoHistoryFallbackKeys, historyFallbackKey, homeAssistant, heatPumpStates, gree, connectedDevices, tuya });
+  const extended = Object.assign(context, { timeseries, telemetryArchive, telemetryRetention, telemetryReader, analyticsWorkLimiter, dailyAnalyticsFindings, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, storedTelegramIdentity, telegram, alertEngine, telemetry, nexus433, measurements, notificationOutbox, mock, replay, wakeSensorGapRecovery, tapoHistory, tapoHistoryFallbackKeys, historyFallbackKey, homeAssistant, heatPumpStates, gree, connectedDevices, tuya });
   return extended as typeof extended & DeferredContext & {
     sensorGapRecovery: SensorGapRecoveryCoordinator;
     tpLink: TpLinkBridge;

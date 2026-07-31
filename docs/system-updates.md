@@ -14,7 +14,7 @@ release environment and starts the prior images again.
 
 Every installable GitHub release must attach
 `stugu-release-manifest-v1.json`. The manifest binds the repository, version,
-tag, updater contract `2`, Compose contract `1`, and all five
+tag, updater contract `3`, Compose contract `2`, and all seven
 `tag@sha256:<digest>` image references. Both the API and external agent reject
 missing, mutable, cross-namespace, or incompatible manifests. A private source
 repository can use a separate anonymously readable GitHub release repository by
@@ -107,11 +107,11 @@ the Compose project derived from `STUGA_PROJECT_DIRECTORY`, matching a normal
 `docker compose up`; set `STUGA_COMPOSE_PROJECT_NAME` only for an installation
 that was started with an explicit `--project-name`.
 
-## Updater contract 1 to 2
+## Updater contract 3 transition
 
-The API recognizes a fresh contract-1 heartbeat but reports **Agent upgrade
-required** and refuses to queue a contract-2 request. This prevents an old
-agent from consuming a request format that it cannot validate.
+The API recognizes an older heartbeat but reports **Agent upgrade required**
+and refuses to queue a contract-3 request. This prevents an old agent from
+consuming a request format that it cannot validate.
 
 On a Docker host, check out the exact Stugu tag already running, install its
 dependencies, and reinstall the per-user service:
@@ -123,23 +123,20 @@ npm ci
 npm run update-agent:service:install
 ```
 
-The contract-2 host agent can validate an exact, trusted six-line contract-1
-release file as existing rollback state. It never accepts that mutable-tag
-format from the API. The first successful contract-2 update replaces it with a
-digest-pinned nine-line candidate and known-good file; a failed first update
-restores the original six-line text exactly.
+The contract-3 host agent can validate an exact, trusted six-line legacy
+release file as existing Docker-host rollback state. It never accepts that
+mutable-tag format from the API. A contract-3 release uses an eleven-line,
+seven-image, digest-pinned candidate and known-good file.
 
-An existing Raspberry Pi image needs a one-time factory transition. Its
-contract-1 boot service cannot safely consume the new nine-line release file,
-and a container cannot replace those immutable host boot assets. After the
-bridge release is installed by the old updater, reboot once to start its
-contract-2 agent. The UI then reports **Factory upgrade required** and no
-further container update is queued. Run `stuguctl backup`, copy the verified
-backup off the appliance, install a validated contract-2 factory image, and
-restore or migrate the data. Writing a factory image erases the target disk.
-The new boot service preserves old six-line candidate state as
-`release.env.legacy-v1` and leaves `/persistent/stugu/last-known-good.env`
-untouched for an old-OS rollback; it never executes those mutable tags.
+An existing Raspberry Pi image needs a one-time factory transition because its
+older boot service cannot safely consume the new seven-image release file, and
+a container cannot replace immutable host boot assets. A final five-image
+bridge release must report **Factory upgrade required** before the first
+contract-3 release. Run `stuguctl backup`, copy the verified backup off the
+appliance, install a validated contract-3 factory image, and restore or migrate
+the data. Writing a factory image erases the target disk. Contract 3 uses
+`release-v3.env` and `known-good-v3.env`; older OS slots retain and use their
+own unversioned state.
 
 ## Raspberry Pi appliance
 

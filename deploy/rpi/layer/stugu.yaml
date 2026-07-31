@@ -46,6 +46,18 @@
 # X-Env-Var-update_agent_image-Required: y
 # X-Env-Var-update_agent_image-Valid: string
 # X-Env-Var-update_agent_image-Set: y
+#
+# X-Env-Var-mqtt_image: ghcr.io/liljestk/open-stuga-mqtt:${IGconf_artefact_version}
+# X-Env-Var-mqtt_image-Desc: Immutable internal MQTT broker image reference.
+# X-Env-Var-mqtt_image-Required: y
+# X-Env-Var-mqtt_image-Valid: string
+# X-Env-Var-mqtt_image-Set: y
+#
+# X-Env-Var-nexus433_image: ghcr.io/liljestk/open-stuga-nexus433:${IGconf_artefact_version}
+# X-Env-Var-nexus433_image-Desc: Immutable optional Nexus433 decoder image reference.
+# X-Env-Var-nexus433_image-Required: y
+# X-Env-Var-nexus433_image-Valid: string
+# X-Env-Var-nexus433_image-Set: y
 # METAEND
 ---
 mmdebstrap:
@@ -178,15 +190,17 @@ mmdebstrap:
       chmod 0644 "$1/etc/default/rpi-eeprom-update"
 
       cat > "$1/opt/stugu/release.env" <<-EOF
-      STUGA_RELEASE_ENV_SCHEMA=2
-      STUGA_UPDATE_AGENT_CONTRACT=2
-      STUGA_COMPOSE_CONTRACT=1
+      STUGA_RELEASE_ENV_SCHEMA=3
+      STUGA_UPDATE_AGENT_CONTRACT=3
+      STUGA_COMPOSE_CONTRACT=2
       STUGA_VERSION=${IGconf_artefact_version}
       STUGA_API_IMAGE=${IGconf_stugu_api_image}
       STUGA_WEB_IMAGE=${IGconf_stugu_web_image}
       STUGA_BACKUP_IMAGE=${IGconf_stugu_backup_image}
       STUGA_TAPO_RUNNER_IMAGE=${IGconf_stugu_tapo_image}
       STUGA_UPDATE_AGENT_IMAGE=${IGconf_stugu_update_agent_image}
+      STUGA_MQTT_IMAGE=${IGconf_stugu_mqtt_image}
+      STUGA_NEXUS433_IMAGE=${IGconf_stugu_nexus433_image}
       EOF
       chmod 0444 "$1/opt/stugu/release.env"
 

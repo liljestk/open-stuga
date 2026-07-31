@@ -2,9 +2,9 @@ const MAX_RELEASE_MANIFEST_BYTES = 32 * 1024;
 const RELEASE_MANIFEST_ASSET = "stugu-release-manifest-v1.json";
 
 export const RELEASE_MANIFEST_SCHEMA = "stugu-release-manifest/v1";
-export const UPDATE_REQUEST_SCHEMA = "stugu-system-update-request/v2";
-export const UPDATE_AGENT_CONTRACT = 2;
-export const COMPOSE_CONTRACT = 1;
+export const UPDATE_REQUEST_SCHEMA = "stugu-system-update-request/v3";
+export const UPDATE_AGENT_CONTRACT = 3;
+export const COMPOSE_CONTRACT = 2;
 
 export interface ReleaseIdentity {
   version: string;
@@ -26,6 +26,8 @@ export interface ReleaseManifest {
     backup: string;
     tapo: string;
     updateAgent: string;
+    mqtt: string;
+    nexus433: string;
   };
 }
 
@@ -96,12 +98,14 @@ function releaseManifestFromJson(
     || input.compatibility?.updateAgent !== UPDATE_AGENT_CONTRACT
     || input.compatibility?.compose !== COMPOSE_CONTRACT
     || !images
-    || Object.keys(images).length !== 5
+    || Object.keys(images).length !== 7
     || !immutableReleaseImage(imagePrefix, "api", release.tagName, images.api)
     || !immutableReleaseImage(imagePrefix, "web", release.tagName, images.web)
     || !immutableReleaseImage(imagePrefix, "backup", release.tagName, images.backup)
     || !immutableReleaseImage(imagePrefix, "tapo-export-runner", release.tagName, images.tapo)
     || !immutableReleaseImage(imagePrefix, "update-agent", release.tagName, images.updateAgent)
+    || !immutableReleaseImage(imagePrefix, "mqtt", release.tagName, images.mqtt)
+    || !immutableReleaseImage(imagePrefix, "nexus433", release.tagName, images.nexus433)
   ) {
     throw new TypeError("Release manifest identity, compatibility, or image digests are invalid");
   }
@@ -120,6 +124,8 @@ function releaseManifestFromJson(
       backup: images.backup,
       tapo: images.tapo,
       updateAgent: images.updateAgent,
+      mqtt: images.mqtt,
+      nexus433: images.nexus433,
     },
   };
 }

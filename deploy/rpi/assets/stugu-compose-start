@@ -5,8 +5,8 @@ readonly project_dir=/opt/stugu
 readonly state_dir=/persistent/stugu
 readonly local_env="$state_dir/stugu.env"
 readonly release_env="$project_dir/release.env"
-readonly update_release_env="$state_dir/update-release/release.env"
-readonly known_good_env="$state_dir/update-release/known-good.env"
+readonly update_release_env="$state_dir/update-release/release-v3.env"
+readonly known_good_env="$state_dir/update-release/known-good-v3.env"
 readonly legacy_known_good_env="$state_dir/last-known-good.env"
 readonly docker_config="$state_dir/docker-config"
 readonly status_file="$state_dir/release-status"
@@ -31,9 +31,8 @@ install -d -m 0750 -o "$appliance_user" -g "$appliance_user" \
   "$state_dir/secrets/tapo-history-api" \
   "$state_dir/secrets/tapo-history-runner"
 
-# Contract-1 boot assets still use this file during an OS-slot rollback. Leave
-# it in place; a contract-2 release must never reinterpret mutable tags as its
-# digest-pinned known-good state.
+# Older OS slots keep using the unversioned candidate and known-good files.
+# Contract 3 uses distinct names so an A/B rollback boots its own contract.
 
 # The service starts as root, while migration commands run as stugu. Keep one
 # shared inode so both callers coordinate through the same flock after boot.
@@ -106,6 +105,14 @@ for setting_name in SYSTEM_UPDATE_REPOSITORY SYSTEM_UPDATE_IMAGE_PREFIX; do
     )
   fi
 done
+if ! grep -q '^STUGA_GPIO_GID=' "$local_env" && [[ -c /dev/gpiochip0 ]]; then
+  gpio_gid="$(stat --format=%g /dev/gpiochip0)"
+  if [[ ! "$gpio_gid" =~ ^[0-9]+$ ]]; then
+    echo "The gpiochip0 device has an invalid group id" >&2
+    exit 1
+  fi
+  missing_appliance_settings+=("STUGA_GPIO_GID=$gpio_gid")
+fi
 if (( ${#missing_appliance_settings[@]} > 0 )); then
   temporary_env="$(mktemp "$state_dir/.stugu.env.XXXXXX")"
   cat "$local_env" > "$temporary_env"
@@ -225,13 +232,13 @@ release_image_matches() {
 valid_ui_release() {
   local candidate="$1"
   [[ -f "$candidate" && ! -L "$candidate" ]] || return 1
-  [[ "$(wc -l < "$candidate")" -eq 9 ]] || return 1
+  [[ "$(wc -l < "$candidate")" -eq 11 ]] || return 1
   local version
   version="$(sed -n 's/^STUGA_VERSION=//p' "$candidate")"
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] \
-    && grep -Fxq "STUGA_RELEASE_ENV_SCHEMA=2" "$candidate" \
-    && grep -Fxq "STUGA_UPDATE_AGENT_CONTRACT=2" "$candidate" \
-    && grep -Fxq "STUGA_COMPOSE_CONTRACT=1" "$candidate" \
+    && grep -Fxq "STUGA_RELEASE_ENV_SCHEMA=3" "$candidate" \
+    && grep -Fxq "STUGA_UPDATE_AGENT_CONTRACT=3" "$candidate" \
+    && grep -Fxq "STUGA_COMPOSE_CONTRACT=2" "$candidate" \
     && [[ "$(grep -c '^STUGA_VERSION=' "$candidate")" -eq 1 ]] \
     && release_image_matches "$candidate" STUGA_API_IMAGE \
       "${image_prefix}-api:v$version" \
@@ -242,7 +249,11 @@ valid_ui_release() {
     && release_image_matches "$candidate" STUGA_TAPO_RUNNER_IMAGE \
       "${image_prefix}-tapo-export-runner:v$version" \
     && release_image_matches "$candidate" STUGA_UPDATE_AGENT_IMAGE \
-      "${image_prefix}-update-agent:v$version"
+      "${image_prefix}-update-agent:v$version" \
+    && release_image_matches "$candidate" STUGA_MQTT_IMAGE \
+      "${image_prefix}-mqtt:v$version" \
+    && release_image_matches "$candidate" STUGA_NEXUS433_IMAGE \
+      "${image_prefix}-nexus433:v$version"
 }
 
 valid_legacy_release() {

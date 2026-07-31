@@ -80,6 +80,7 @@ export function SensorManagementPage({
   requestedDeviceId = null,
   readOnly = false,
   localAuthority = true,
+  canManageIntegrations = false,
   units = "metric",
   onRequestedDeviceHandled,
   onLoadSeries,
@@ -91,7 +92,7 @@ export function SensorManagementPage({
   onDeleteSensor,
   onImportHistoricalData,
 }: SensorManagementPageProps) {
-  const context0 = { state, house, houses, integration, tpLinkDevices, tpLinkDevicesLoading, tpLinkDevicesError, requestedDevice, requestedDeviceId, readOnly, localAuthority, units, onRequestedDeviceHandled, onLoadSeries, onHouse, onUpdateHouse, onRefreshDevices, onCreateSensor, onUpdateSensor, onDeleteSensor, onImportHistoricalData };
+  const context0 = { state, house, houses, integration, tpLinkDevices, tpLinkDevicesLoading, tpLinkDevicesError, requestedDevice, requestedDeviceId, readOnly, localAuthority, canManageIntegrations, units, onRequestedDeviceHandled, onLoadSeries, onHouse, onUpdateHouse, onRefreshDevices, onCreateSensor, onUpdateSensor, onDeleteSensor, onImportHistoricalData };
   const context1 = useSensorManagementPagePart01(context0);
   const context2 = useSensorManagementPagePart02(context1);
   const context3 = useSensorManagementPagePart03(context2);

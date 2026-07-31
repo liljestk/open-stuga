@@ -23,7 +23,7 @@ export const schemasPart02 = {
           properties: {
             sensorId: { type: "string" }, timestamp: { type: "string", format: "date-time" },
             temperature: { type: "number" }, humidity: { type: "number" }, battery: { type: ["number", "null"] },
-            source: { enum: ["mock", "home-assistant", "tp-link", "api", "import", "replay"] },
+            source: { enum: ["mock", "home-assistant", "tp-link", "tuya", "nexus433", "api", "import", "replay"] },
             quality: { enum: ["good", "estimated", "stale"] },
             measurements: { type: "object", additionalProperties: { type: "number" } },
           },

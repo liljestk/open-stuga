@@ -203,6 +203,7 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
       context.tpLink.start();
       context.gree.start();
       context.tuya.start();
+      context.nexus433.start();
       context.tapoHistory.start();
       sensorGapRecovery.start();
       context.electricityPrices.start();
@@ -226,6 +227,7 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
       context.tpLink.stop();
       context.gree.stop();
       context.tuya.stop();
+      const stoppingNexus433 = context.nexus433.stop();
       context.integrationDiscoveryJobs.stop();
       context.electricityPrices.stop();
       context.weatherMonitor.stop();
@@ -238,6 +240,7 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
         context.cloudflareSetup.stop(),
         stoppingSensorGapRecovery,
         stoppingTapoHistory,
+        stoppingNexus433,
         context.weatherRecovery.stop(),
         stoppingDailyAnalyticsFindings,
         context.spatialLayers?.stop() ?? Promise.resolve(),

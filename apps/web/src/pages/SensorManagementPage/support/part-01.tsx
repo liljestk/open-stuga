@@ -86,6 +86,8 @@ export interface SensorManagementPageProps {
   readOnly?: boolean;
   /** Integration bindings and historical imports remain with the authoritative Home. */
   localAuthority?: boolean;
+  /** Owner/Admin permission for host-backed receiver configuration and sender identities. */
+  canManageIntegrations?: boolean;
   units?: UnitSystem;
   onRequestedDeviceHandled?: () => void;
   onLoadSeries?: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported: boolean) => void;

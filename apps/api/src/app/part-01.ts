@@ -255,6 +255,11 @@ export function configureApiPart01(context: { options: CreateApiOptions }) {
     }
   config.electricityAllowPrivateEndpoints ??= false;
   config.systemUpdateOperationsDirectory ??= null;
+  config.hostCapabilitiesFile ??= null;
+  config.sourceMqttHost ??= "127.0.0.1";
+  config.sourceMqttPort ??= 1_883;
+  config.sourceMqttUser ??= "stugu-api";
+  config.sourceMqttPasswordFile ??= null;
   config.systemUpdateRepository ??= "liljestk/open-stuga";
   config.systemUpdateImagePrefix ??= `ghcr.io/${config.systemUpdateRepository.toLowerCase()}`;
   config.stugubyIdentityFile ??= config.databasePath === ":memory:" ? null : join(dirname(config.databasePath), "stuguby-identity.json");

@@ -1,0 +1,138 @@
+.nexus433-setup,
+.nexus433-senders {
+  display: grid;
+  gap: 16px;
+  padding: 19px;
+}
+
+.nexus433-setup .panel-header,
+.nexus433-senders .panel-header {
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.nexus433-setup .panel-header p,
+.nexus433-senders .panel-header p {
+  max-width: 700px;
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.nexus433-setup .panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.nexus433-setup details,
+.nexus433-senders details {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.nexus433-setup summary,
+.nexus433-senders summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.nexus433-setup details p,
+.nexus433-senders details p {
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+.nexus433-binding-list,
+.nexus433-candidate-list {
+  display: grid;
+  gap: 10px;
+}
+
+.nexus433-binding-list h3,
+.nexus433-candidate-list h3 {
+  margin: 0;
+  font: 700 13px/1.3 "Manrope", sans-serif;
+}
+
+.nexus433-binding-list ul,
+.nexus433-candidate-list ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nexus433-binding-list li,
+.nexus433-candidate-list li {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel-soft);
+}
+
+.nexus433-binding-list li > span:first-child,
+.nexus433-candidate-list li > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.nexus433-binding-list small,
+.nexus433-candidate-list small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.nexus433-binding-list .configured-note,
+.nexus433-binding-list .muted-note {
+  padding: 7px 9px;
+  white-space: nowrap;
+}
+
+.nexus433-binding-list .muted-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.nexus433-candidate-action {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+}
+
+.nexus433-candidate-action label {
+  min-width: 180px;
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+@media (max-width: 680px) {
+  .nexus433-binding-list li,
+  .nexus433-candidate-list li,
+  .nexus433-candidate-action {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .nexus433-candidate-action label {
+    min-width: 0;
+  }
+}

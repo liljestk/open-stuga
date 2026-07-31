@@ -366,7 +366,7 @@ export const schemasPart01 = {
           required: ["sensorId", "metric", "value", "canonicalUnit", "timestamp", "source", "quality"],
           properties: {
             sensorId: { type: "string" }, metric: { type: "string" }, value: { type: "number" }, canonicalUnit: { type: "string" },
-            timestamp: { type: "string", format: "date-time" }, source: { enum: ["mock", "home-assistant", "tp-link", "api", "import", "replay"] },
+            timestamp: { type: "string", format: "date-time" }, source: { enum: ["mock", "home-assistant", "tp-link", "tuya", "nexus433", "api", "import", "replay"] },
             quality: { enum: ["good", "estimated", "stale"] },
           },
         },

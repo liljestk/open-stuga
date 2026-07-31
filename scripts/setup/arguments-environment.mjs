@@ -300,8 +300,8 @@ export function existingSetupDefaults(root) {
       const updatedAt = Date.parse(heartbeat?.updatedAt);
       updateAgentConnected = heartbeat?.schema === "stugu-update-agent/v1"
         && heartbeat?.ready === true
-        && heartbeat?.updateAgentContract === 2
-        && heartbeat?.composeContract === 1
+        && heartbeat?.updateAgentContract === 3
+        && heartbeat?.composeContract === 2
         && Number.isFinite(updatedAt)
         && Math.abs(Date.now() - updatedAt) <= 2 * 60_000;
     } catch {

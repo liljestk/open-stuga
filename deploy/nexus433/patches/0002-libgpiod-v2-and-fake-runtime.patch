@@ -1,0 +1,249 @@
+diff --git a/decoder.cpp b/decoder.cpp
+index f16acb3..adcd10c 100644
+--- a/decoder.cpp
++++ b/decoder.cpp
+@@ -116,8 +116,8 @@ void Decoder::PollingReader()
+ 
+     do
+     {
+-        value = gpiod_line_get_value(m_Line);
+-        if( -1 == value )
++        value = gpiod_line_request_get_value(m_Request, m_LineOffset);
++        if( GPIOD_LINE_VALUE_ERROR == value )
+         {
+             printf("Error reading line. errno: %d\n", errno);
+             m_ErrorStop = true;
+@@ -144,47 +144,55 @@ void Decoder::PollingReader()
+ void Decoder::EventReader()
+ {
+     DEBUG_PRINTF("DEBUG: Event Decoder thread started\n");
+-    timespec timeout = { .tv_sec = 0, .tv_nsec = 50000000 };
+-    std::chrono::time_point<std::chrono::high_resolution_clock> now;
+-    auto prev = std::chrono::high_resolution_clock::now();
+-    now = prev;
++    const int64_t timeout_ns = 50000000;
++    uint64_t previous_timestamp_ns = 0;
+     int wait_ok = 0;
+     int read_ok = 0;
+-    struct gpiod_line_event l_event;
++    struct gpiod_edge_event_buffer *event_buffer = gpiod_edge_event_buffer_new(1);
++    if (!event_buffer)
++    {
++        printf("Error allocating edge event buffer. errno: %d\n", errno);
++        m_ErrorStop = true;
++        return;
++    }
+ 
+     do
+     {
+-        wait_ok = gpiod_line_event_wait(m_Line, &timeout);
++        wait_ok = gpiod_line_request_wait_edge_events(m_Request, timeout_ns);
+ 
+         if (-1 == wait_ok)
+         {
+             printf("Error waiting for event. errno: %d\n", errno);
+             m_ErrorStop = true;
++            gpiod_edge_event_buffer_free(event_buffer);
+             return;
+         }
+ 
+         if (1 == wait_ok) {
+             // we have event
+-            read_ok = gpiod_line_event_read(m_Line, &l_event);
++            read_ok = gpiod_line_request_read_edge_events(m_Request, event_buffer, 1);
+ 
+-            if (-1 == read_ok)
++            if (read_ok < 1)
+             {
+                 printf("Error reading event. errno: %d\n", errno);
+                 m_ErrorStop = true;
++                gpiod_edge_event_buffer_free(event_buffer);
+                 return;
+             }
+ 
+-            auto d = std::chrono::seconds{l_event.ts.tv_sec} + std::chrono::nanoseconds{l_event.ts.tv_nsec};
+-            std::chrono::high_resolution_clock::time_point tp{d};
+-            now = tp;
+-            long delta = std::chrono::duration_cast<std::chrono::microseconds>(now-prev).count();
+-            prev = now;
+-
+-            Decode(l_event.event_type==1, delta);
++            struct gpiod_edge_event *event = gpiod_edge_event_buffer_get_event(event_buffer, 0);
++            const uint64_t timestamp_ns = gpiod_edge_event_get_timestamp_ns(event);
++            if (previous_timestamp_ns != 0 && timestamp_ns >= previous_timestamp_ns)
++            {
++                const long long delta_us = (timestamp_ns - previous_timestamp_ns) / 1000;
++                Decode(gpiod_edge_event_get_event_type(event) == GPIOD_EDGE_EVENT_RISING_EDGE, delta_us);
++            }
++            previous_timestamp_ns = timestamp_ns;
+         }
+ 
+     } while (std::future_status::timeout == m_Future.wait_for(std::chrono::microseconds(m_ResolutionUs)));
+ 
++    gpiod_edge_event_buffer_free(event_buffer);
+     DEBUG_PRINTF("DEBUG: Thread function finished\n");
+ }
+ 
+diff --git a/decoder.h b/decoder.h
+index bbeb8a9..97d6b9c 100644
+--- a/decoder.h
++++ b/decoder.h
+@@ -18,6 +18,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ 
+ #pragma once
+ 
++#include <cstdint>
+ #include <condition_variable>
+ #include <thread>
+ #include <future>
+@@ -37,9 +38,10 @@ public:
+ 		STATE_PULSE_END,
+ 	} STATES;
+ 
+-	Decoder(IStorage& s, gpiod_line *line, int tolerance, int precision, bool polling):
++	Decoder(IStorage& s, gpiod_line_request *request, unsigned int lineOffset, int tolerance, int precision, bool polling):
+ 	m_Storage(s),
+-    m_Line(line),
++	m_Request(request),
++	m_LineOffset(lineOffset),
+ 	m_ToleranceUs(tolerance),
+ 	m_ResolutionUs(precision),
+ 	m_Polling(polling)
+@@ -79,7 +81,8 @@ protected:
+ 	STATES m_State=STATE_UNKNOWN;
+ 	uint8_t m_BitCount=0;
+ 	uint64_t m_Bits=0;
+-	gpiod_line* m_Line;
++	gpiod_line_request* m_Request;
++	unsigned int m_LineOffset;
+ 	int m_ToleranceUs; // +/- tolerance in microseconds, default 150
+ 	int m_ResolutionUs; // how long go to sleep in microseconds. Lower number (0 best) better precision but higher system load
+ 	bool m_Polling; // true to use polling, false to use events
+diff --git a/main.cpp b/main.cpp
+index c93c0e9..01316f5 100644
+--- a/main.cpp
++++ b/main.cpp
+@@ -338,48 +338,58 @@ int main(int argc, char** argv)
+ 
+     DEBUG_PRINTF("MAC addess: %s\n", Config::receiver::mac.c_str() );
+ 
+-    struct gpiod_chip *chip;
+-    struct gpiod_line *line;
+-
+-    chip = gpiod_chip_open(Config::receiver::chip.c_str());
++    struct gpiod_chip *chip = NULL;
++    struct gpiod_line_request *line_request = NULL;
++    const unsigned int line_offset = Config::receiver::pin;
++
++#ifndef ENABLE_FAKE_TRANSMITTER
++    struct gpiod_line_settings *line_settings = NULL;
++    struct gpiod_line_config *line_config = NULL;
++    struct gpiod_request_config *request_config = NULL;
++    chip = gpiod_chip_open(Config::receiver::chip.c_str());
+     if (!chip)
+     {
+         std::cerr << "Cannot open GPIO device " << Config::receiver::chip << " Are you root?" << std::endl;
+         return -1;
+     }
+ 
+-    line = gpiod_chip_get_line(chip, Config::receiver::pin);
+-    if (!line)
++    line_settings = gpiod_line_settings_new();
++    line_config = gpiod_line_config_new();
++    request_config = gpiod_request_config_new();
++    if (!line_settings || !line_config || !request_config)
+     {
++        gpiod_request_config_free(request_config);
++        gpiod_line_config_free(line_config);
++        gpiod_line_settings_free(line_settings);
+         gpiod_chip_close(chip);
+-        std::cerr << "Cannot open line. Verify line exists and is not used." << std::endl;
++        std::cerr << "Cannot allocate GPIO request configuration." << std::endl;
+         return -2;
+     }
+ 
+-    if (Config::receiver::polling)
++    rv = gpiod_line_settings_set_direction(line_settings, GPIOD_LINE_DIRECTION_INPUT);
++    if (!Config::receiver::polling && rv == 0)
+     {
+-        std::cout << "Decoding mode: POLLING" << std::endl;
+-        rv = gpiod_line_request_input(line, NEXUS433);
+-        if (-1 == rv)
+-        {
+-            gpiod_line_release(line);
+-            gpiod_chip_close(chip);
+-            std::cerr << "Request for line input failed." << std::endl;
+-            return -3;
+-        }
++        rv = gpiod_line_settings_set_edge_detection(line_settings, GPIOD_LINE_EDGE_BOTH);
+     }
+-    else
++    if (rv == 0)
+     {
+-        std::cout << "Decoding mode: EVENTS" << std::endl;
+-        rv = gpiod_line_request_both_edges_events(line, NEXUS433);
+-        if (-1 == rv)
+-        {
+-            gpiod_line_release(line);
+-            gpiod_chip_close(chip);
+-            std::cerr << "Request for line events failed." << std::endl;
+-            return -3;
+-        }
++        rv = gpiod_line_config_add_line_settings(line_config, &line_offset, 1, line_settings);
++    }
++    gpiod_request_config_set_consumer(request_config, NEXUS433);
++    line_request = rv == 0 ? gpiod_chip_request_lines(chip, request_config, line_config) : NULL;
++    gpiod_request_config_free(request_config);
++    gpiod_line_config_free(line_config);
++    gpiod_line_settings_free(line_settings);
++    if (!line_request)
++    {
++        gpiod_chip_close(chip);
++        std::cerr << "Request for GPIO input failed. Verify the line exists and is not used." << std::endl;
++        return -3;
+     }
++    std::cout << "Decoding mode: " << (Config::receiver::polling ? "POLLING" : "EVENTS") << std::endl;
++#else
++    std::cout << "Decoding mode: FAKE TRANSMITTER" << std::endl;
++#endif
+ 
+     Led led;
+     if( Config::receiver::internal_led.size() > 0)
+@@ -387,8 +397,8 @@ int main(int argc, char** argv)
+       if( !led.Open(Config::receiver::internal_led) )
+       {
+         std::cerr << "Cannot open internal LED device " << Config::receiver::internal_led << std::endl;
+-        gpiod_line_release(line);
+-        gpiod_chip_close(chip);
++        if (line_request) gpiod_line_request_release(line_request);
++        if (chip) gpiod_chip_close(chip);
+         return -12;
+       }
+     }
+@@ -403,12 +413,12 @@ int main(int argc, char** argv)
+     {
+         std::cerr << "Unable to connect to MQTT server." << std::endl;
+         std::cerr << mosquitto_connack_string(rc) << std::endl;
+-        gpiod_line_release(line);
+-        gpiod_chip_close(chip);
++        if (line_request) gpiod_line_request_release(line_request);
++        if (chip) gpiod_chip_close(chip);
+         return -7;
+     }
+ 
+-    Decoder decoder(storage, line, Config::receiver::tolerance_us, Config::receiver::resolution_us, Config::receiver::polling);
++    Decoder decoder(storage, line_request, line_offset, Config::receiver::tolerance_us, Config::receiver::resolution_us, Config::receiver::polling);
+ 
+     g_pDecoder = &decoder;
+     std::signal(SIGINT, terminate_handler);
+@@ -420,8 +430,8 @@ int main(int argc, char** argv)
+ 
+     rv = ProcessLoop(mqtt, decoder, storage, led);
+ 
+-    gpiod_line_release(line);
+-    gpiod_chip_close(chip);
++    if (line_request) gpiod_line_request_release(line_request);
++    if (chip) gpiod_chip_close(chip);
+     mqtt.disconnect();
+     led.Close();
+ 

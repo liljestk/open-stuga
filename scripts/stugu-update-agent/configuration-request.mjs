@@ -33,17 +33,17 @@ import {
 
 import { revokeAccessToken } from ".././cloudflare-oauth.mjs";
 
-export const AGENT_VERSION = "2.0.0";
+export const AGENT_VERSION = "3.0.0";
 
-export const RELEASE_ENV_SCHEMA = "2";
+export const RELEASE_ENV_SCHEMA = "3";
 
 export const RELEASE_MANIFEST_SCHEMA = "stugu-release-manifest/v1";
 
-export const UPDATE_REQUEST_SCHEMA = "stugu-system-update-request/v2";
+export const UPDATE_REQUEST_SCHEMA = "stugu-system-update-request/v3";
 
-export const UPDATE_AGENT_CONTRACT = 2;
+export const UPDATE_AGENT_CONTRACT = 3;
 
-export const COMPOSE_CONTRACT = 1;
+export const COMPOSE_CONTRACT = 2;
 
 export const MAX_FILE_BYTES = 256 * 1024;
 
@@ -271,6 +271,8 @@ const releaseImageSuffixes = {
   backup: "backup",
   tapo: "tapo-export-runner",
   updateAgent: "update-agent",
+  mqtt: "mqtt",
+  nexus433: "nexus433",
 };
 
 export function isExpectedDigestImage(config, name, version, value) {
@@ -411,6 +413,8 @@ export function releaseEnvironment(request) {
     `STUGA_BACKUP_IMAGE=${request.images.backup}`,
     `STUGA_TAPO_RUNNER_IMAGE=${request.images.tapo}`,
     `STUGA_UPDATE_AGENT_IMAGE=${request.images.updateAgent}`,
+    `STUGA_MQTT_IMAGE=${request.images.mqtt}`,
+    `STUGA_NEXUS433_IMAGE=${request.images.nexus433}`,
     "",
   ].join("\n");
 }
@@ -425,6 +429,8 @@ const releaseEnvironmentKeys = new Set([
   "STUGA_BACKUP_IMAGE",
   "STUGA_TAPO_RUNNER_IMAGE",
   "STUGA_UPDATE_AGENT_IMAGE",
+  "STUGA_MQTT_IMAGE",
+  "STUGA_NEXUS433_IMAGE",
 ]);
 
 const legacyReleaseEnvironmentKeys = new Set([
@@ -457,6 +463,18 @@ function releaseImages(values) {
     backup: values.STUGA_BACKUP_IMAGE,
     tapo: values.STUGA_TAPO_RUNNER_IMAGE,
     updateAgent: values.STUGA_UPDATE_AGENT_IMAGE,
+    mqtt: values.STUGA_MQTT_IMAGE,
+    nexus433: values.STUGA_NEXUS433_IMAGE,
+  };
+}
+
+function legacyReleaseImages(values) {
+  return {
+    api: values.STUGA_API_IMAGE,
+    web: values.STUGA_WEB_IMAGE,
+    backup: values.STUGA_BACKUP_IMAGE,
+    tapo: values.STUGA_TAPO_RUNNER_IMAGE,
+    updateAgent: values.STUGA_UPDATE_AGENT_IMAGE,
   };
 }
 
@@ -470,18 +488,18 @@ export function validatedReleaseEnvironment(text, config, label = "release envir
     throw new Error(`${label} is missing or too large`);
   }
   const lines = text.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
-  const v2Values = releaseEnvironmentValues(lines, releaseEnvironmentKeys, label);
-  const legacyValues = v2Values
+  const currentValues = releaseEnvironmentValues(lines, releaseEnvironmentKeys, label);
+  const legacyValues = currentValues
     ? null
     : releaseEnvironmentValues(lines, legacyReleaseEnvironmentKeys, label);
-  const values = v2Values ?? legacyValues;
+  const values = currentValues ?? legacyValues;
   if (!values) throw new Error(`${label} does not use a supported release environment schema`);
   const version = values.STUGA_VERSION;
   if (
     typeof version !== "string"
     || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)
   ) throw new Error(`${label} contains an invalid release version`);
-  const images = releaseImages(values);
+  const images = legacyValues ? legacyReleaseImages(values) : releaseImages(values);
 
   if (legacyValues) {
     if (Object.entries(images).some(
@@ -508,7 +526,7 @@ export function validatedReleaseEnvironment(text, config, label = "release envir
     throw new Error(`${label} contains an untrusted or mutable image reference`);
   }
   return {
-    format: "v2",
+    format: "v3",
     version,
     compatibility: {
       updateAgent: UPDATE_AGENT_CONTRACT,

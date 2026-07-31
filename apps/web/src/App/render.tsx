@@ -494,6 +494,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             requestedDevice={requestedSensorDevice}
             readOnly={readOnly}
             localAuthority={houseLocalAuthority}
+            canManageIntegrations={canManagePeople}
             units={units}
             onLoadSeries={loadSeriesInBackground}
             onRequestedDeviceHandled={() => setRequestedSensorDevice(null)}

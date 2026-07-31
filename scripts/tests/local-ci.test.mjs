@@ -52,6 +52,8 @@ test("local CI covers validation and records platform-only Apple checks", () => 
   assert.match(windowsCommands.join("\n"), /docker compose/);
   assert.match(windowsCommands.join("\n"), /docker build --target api/);
   assert.match(windowsCommands.join("\n"), /docker build --target update-agent/);
+  assert.match(windowsCommands.join("\n"), /docker build --target runtime --file deploy\/mqtt\/Dockerfile/);
+  assert.match(windowsCommands.join("\n"), /docker build --target runtime --file deploy\/nexus433\/Dockerfile/);
   assert.match(windowsCommands.join("\n"), /npm run smoke:built-api/);
   assert.doesNotMatch(windowsCommands.join("\n"), /xcodebuild/);
 

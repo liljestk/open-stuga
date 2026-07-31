@@ -92,7 +92,7 @@ export interface MeasurementSample {
   value: number;
   canonicalUnit: string;
   timestamp: string;
-  source: "mock" | "home-assistant" | "tp-link" | "tuya" | "api" | "import" | "replay";
+  source: "mock" | "home-assistant" | "tp-link" | "tuya" | "nexus433" | "api" | "import" | "replay";
   quality: "good" | "estimated" | "stale";
 }
 

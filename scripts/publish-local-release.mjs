@@ -14,24 +14,20 @@ import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { reportPaths as localCiReportPaths } from "./local-ci.mjs";
+import { buildNexus433SourceBundle } from "./build-nexus433-source-bundle.mjs";
 import {
-  releaseManifest,
-  releaseManifestAsset,
-} from "./local-release-manifest.mjs";
+  artifactDefinitions,
+  containerTargets,
+  imageDefinitions,
+} from "./local-release-definition.mjs";
+import { releaseManifest } from "./local-release-manifest.mjs";
 
+export { artifactDefinitions, imageDefinitions } from "./local-release-definition.mjs";
 export { releaseManifest } from "./local-release-manifest.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const rpiBuilderImage =
   "debian:trixie-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd";
-const containerTargets = [
-  ["api", "api"],
-  ["web", "web"],
-  ["backup", "backup"],
-  ["tapo-export-runner", "tapo-export-runner"],
-  ["update-agent", "update-agent"],
-];
 
 function usage() {
   return `Build and publish a Stugu release from local Docker.
@@ -142,34 +138,6 @@ export function requireReleaseRepositoryTag(repository, tag, status) {
       `Public release repository ${repository} must already contain its own ${tag} tag`,
     );
   }
-}
-
-export function imageDefinitions(prefix, tag) {
-  return containerTargets.map(([target, suffix]) => ({
-    target,
-    ref: `${prefix}-${suffix}:${tag}`,
-  }));
-}
-
-export function artifactDefinitions(repositoryRoot, version) {
-  const directory = resolve(repositoryRoot, "dist", "rpi");
-  const releaseDirectory = resolve(directory, "release");
-  const localCi = localCiReportPaths(repositoryRoot, version);
-  return {
-    directory,
-    releaseDirectory,
-    ota: resolve(directory, `stugu-rpi4-${version}-ota.tar.zst`),
-    factory: resolve(directory, `stugu-rpi4-${version}.img.zst`),
-    combinedChecksum: resolve(directory, `stugu-rpi4-${version}.sha256`),
-    releaseChecksum: resolve(releaseDirectory, `stugu-rpi4-${version}.sha256`),
-    factoryChecksum: resolve(
-      releaseDirectory,
-      `stugu-rpi4-${version}-factory.sha256`,
-    ),
-    releaseManifest: resolve(releaseDirectory, releaseManifestAsset),
-    localCiReport: localCi.report,
-    localCiChecksum: localCi.checksum,
-  };
 }
 
 function printable(command, args) {
@@ -324,9 +292,9 @@ function buildContainers(images, builder) {
       "--builder",
       builder,
       "--file",
-      "Dockerfile",
+      image.dockerfile,
       "--target",
-      image.target,
+      image.buildTarget,
       "--platform",
       "linux/amd64,linux/arm64",
       "--tag",
@@ -403,6 +371,8 @@ function buildRaspberryPi({
     STUGA_BACKUP_IMAGE: imageRefs.backup,
     STUGA_TAPO_RUNNER_IMAGE: imageRefs["tapo-export-runner"],
     STUGA_UPDATE_AGENT_IMAGE: imageRefs["update-agent"],
+    STUGA_MQTT_IMAGE: imageRefs.mqtt,
+    STUGA_NEXUS433_IMAGE: imageRefs.nexus433,
     RPI_FACTORY_BUILD: "1",
     RPI_BUILD_ROOT: "/rpi-build",
     RPI_EXPORT_FACTORY_IMAGE: "1",
@@ -447,6 +417,22 @@ async function prepareReleaseChecksums(artifacts, uploadFactory) {
       "utf8",
     );
   }
+}
+
+async function prepareNexus433Source(artifacts, version) {
+  const generated = await buildNexus433SourceBundle({
+    repositoryRoot: root,
+    releaseVersion: version,
+    outputDirectory: artifacts.releaseDirectory,
+  });
+  if (
+    generated.bundlePath !== artifacts.nexus433Source
+    || generated.checksumPath !== artifacts.nexus433SourceChecksum
+  ) {
+    throw new Error("Nexus433 corresponding-source artifact path mismatch");
+  }
+  requireFile(artifacts.nexus433Source, "Nexus433 corresponding source");
+  requireFile(artifacts.nexus433SourceChecksum, "Nexus433 source checksum");
 }
 
 function writeReleaseManifest(artifacts, repository, version, tag, imageRefs) {
@@ -505,6 +491,8 @@ function uploadReleaseAssets(
     artifacts.releaseManifest,
     artifacts.localCiReport,
     artifacts.localCiChecksum,
+    artifacts.nexus433Source,
+    artifacts.nexus433SourceChecksum,
   ];
   if (uploadFactory) paths.push(artifacts.factory, artifacts.factoryChecksum);
   if (paths.length === 0) return;
@@ -596,6 +584,7 @@ async function main(argv = process.argv.slice(2), env = process.env) {
   invoke("npm", ["run", "ci:local", "--", "--skip-container-builds"]);
   requireFile(artifacts.localCiReport, "local CI receipt");
   requireFile(artifacts.localCiChecksum, "local CI receipt checksum");
+  await prepareNexus433Source(artifacts, version);
   if (!options.reuseContainers) buildContainers(images, options.builder);
   const imageRefs = resolveImages(images);
   writeReleaseManifest(artifacts, repository, version, tag, imageRefs);

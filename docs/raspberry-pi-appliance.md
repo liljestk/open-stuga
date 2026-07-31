@@ -239,6 +239,10 @@ npm run release:local -- \
   --publish
 ```
 
+The release path always builds and verifies the exact Nexus433 corresponding-
+source archive before publishing containers, then attaches that archive and its
+checksum to the public release. There is no manual compliance bypass.
+
 Replace `OWNER` with the GitHub account that owns the public artifact
 repository and image packages. First create the same tag name on a harmless
 commit in a separate checkout of the public artifact repository. Never push the
@@ -249,7 +253,8 @@ checkout at the pushed source tag on `origin/main`, runs local CI, builds and
 pushes all AMD64/ARM64 containers, resolves their registry digests, builds the
 Pi artifacts in a pinned privileged ARM64 Debian container, creates a draft
 GitHub Release, uploads the immutable image manifest, local CI receipt, and
-checksums, and then publishes the release.
+checksums, plus the Nexus433 corresponding-source bundle and its checksum, and
+then publishes the release.
 
 The factory image remains under `dist/rpi/` by default. Add
 `--upload-factory` only when it contains no Connect auth key, Wi-Fi profile, or
@@ -265,6 +270,8 @@ The local publisher creates these GHCR packages:
 - `ghcr.io/liljestk/open-stuga-backup:<tag>`
 - `ghcr.io/liljestk/open-stuga-tapo-export-runner:<tag>`
 - `ghcr.io/liljestk/open-stuga-update-agent:<tag>`
+- `ghcr.io/liljestk/open-stuga-mqtt:<tag>`
+- `ghcr.io/liljestk/open-stuga-nexus433:<tag>`
 
 Make the packages public so the appliance can pull anonymously. If they must
 remain private, sign in once on the appliance with a read-only package token:
@@ -289,10 +296,12 @@ settings, while the source tag is still checked against `origin/main`.
 
 If local Docker is temporarily unavailable, manually dispatch
 **Raspberry Pi release (manual fallback)** with the existing tag and enable
-**Confirm use of hosted runners**. It is an explicit paid build fallback for
-the source repository; it does not publish the cross-repository immutable
-manifest required by appliance self-updates. Use the local publisher for an
-installable appliance release.
+**Confirm use of hosted runners**. The workflow builds and preserves the
+verified Nexus433 corresponding-source archive before any container job can
+run; there is no source-publication bypass. It is an explicit paid build
+fallback for the source repository and does not publish the cross-repository
+immutable manifest required by appliance self-updates. Use the local publisher
+for an installable appliance release.
 
 ## 5. Write the external disk once
 
@@ -386,26 +395,24 @@ and restores the previous image set on failure. Operating-system, kernel, and
 firmware changes require a new validated factory image and an off-device backup
 or migration; Raspberry Pi Connect OS deployment remains disabled on Pi 4 USB.
 
-### One-time updater contract transition
+### One-time updater contract 3 transition
 
-A contract-1 appliance can install the first contract-2 application release
-with its existing updater. Reboot after that install so the selected release's
-new agent starts. It will report **Factory upgrade required** and refuse another
-container update because the old immutable boot service understands only the
-six-line mutable-tag release format.
+An appliance on the five-image contract used by v0.25.0 cannot install the
+seven-image contract as an application-only update. A final compatible bridge
+release must first report **Factory upgrade required**; without that bridge the
+older API fails closed on the incompatible release manifest.
 
 Before continuing, run `stuguctl backup` and copy the verified backup from
 `/persistent/stugu/backups` to another machine or encrypted storage. Then write
-a validated contract-2 factory image and restore the backup, or migrate into a
+a validated contract-3 factory image and restore the backup, or migrate into a
 separate freshly imaged target by following the
 [live migration runbook](live-migration.md). Writing the factory image to the
-same disk destroys its existing data. Do not manually place a nine-line
-contract-2 release file on a contract-1 OS.
+same disk destroys its existing data. Do not manually place an eleven-line
+contract-3 release file on an older OS.
 
-On first contract-2 boot, an old candidate file is retained as
-`/persistent/stugu/update-release/release.env.legacy-v1` for diagnosis, while
-the old `/persistent/stugu/last-known-good.env` remains untouched for old-OS
-rollback. Neither mutable-tag file is executed by the new boot service.
+Contract 3 uses `/persistent/stugu/update-release/release-v3.env` and
+`known-good-v3.env`. Older slots keep their unversioned release files, so an
+A/B rollback cannot reinterpret the seven-image state.
 
 ## Routine commands
 

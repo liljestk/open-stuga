@@ -204,22 +204,26 @@ export function createCheckPlan({
   );
 
   if (!skipContainerBuilds) {
-    for (const target of [
-      "api",
-      "backup",
-      "web",
-      "tapo-export-runner",
-      "update-agent",
+    for (const image of [
+      { name: "api", target: "api", dockerfile: "Dockerfile" },
+      { name: "backup", target: "backup", dockerfile: "Dockerfile" },
+      { name: "web", target: "web", dockerfile: "Dockerfile" },
+      { name: "tapo-export-runner", target: "tapo-export-runner", dockerfile: "Dockerfile" },
+      { name: "update-agent", target: "update-agent", dockerfile: "Dockerfile" },
+      { name: "mqtt", target: "runtime", dockerfile: "deploy/mqtt/Dockerfile" },
+      { name: "nexus433", target: "runtime", dockerfile: "deploy/nexus433/Dockerfile" },
     ]) {
       checks.push({
-        name: `Build ${target} production container`,
+        name: `Build ${image.name} production container`,
         command: "docker",
         args: [
           "build",
           "--target",
-          target,
+          image.target,
+          "--file",
+          image.dockerfile,
           "--tag",
-          `stugu-${target}-local-ci:${shortCommit}`,
+          `stugu-${image.name}-local-ci:${shortCommit}`,
           ".",
         ],
       });

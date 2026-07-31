@@ -1,0 +1,28 @@
+services:
+  nexus433:
+    devices: !reset []
+    group_add: !reset []
+
+  nexus433-smoke-subscriber:
+    profiles: ["nexus433-smoke"]
+    image: stugu-mqtt-client:smoke
+    depends_on:
+      mqtt:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        password="$$(cat /run/secrets/source-ingress/password)";
+        exec mosquitto_sub -h mqtt -p 1883 -u stugu-api -P "$${password}"
+        -t 'nexus433/sensor/+/state' -C 1 -W 30 -v
+    volumes:
+      - stuga-source-ingress-subscriber-secret:/run/secrets/source-ingress:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=1m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - source-ingress

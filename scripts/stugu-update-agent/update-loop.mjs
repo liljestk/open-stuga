@@ -33,10 +33,11 @@ import { revokeAccessToken } from ".././cloudflare-oauth.mjs";
 import { AGENT_VERSION, COMPOSE_CONTRACT, HEARTBEAT_MS, POLL_MS, UPDATE_AGENT_CONTRACT, bounded, compose, currentReleaseEnvironment, operation, readAgentConfig, readJson, readReleaseEnvironment, releaseEnvironment, runCommand, validatedRequest, writeJson, writeReleaseEnvironmentAtomic } from "./configuration-request.mjs";
 
 import { activeServices, applyCloudflareSetupRequest, exactApiVersion, restoreReleaseEnvironment } from "./services-cloudflare.mjs";
+import { applySourceProfileRequest } from "./services-source-profiles.mjs";
 
 export const APPLIANCE_UPGRADE_REQUIRED = "appliance-upgrade-required";
 
-export const APPLIANCE_UPGRADE_DETAIL = "This Raspberry Pi still uses the legacy updater boot contract. Create a verified backup, install a factory image with updater contract 2, and restore the backup before installing another container release.";
+export const APPLIANCE_UPGRADE_DETAIL = "This Raspberry Pi uses an older updater boot contract. Create a verified backup, install a factory image with updater contract 3, and restore the backup before installing another container release.";
 
 export function applianceUpdateTransition(config) {
   if (config.runtime !== "raspberry-pi") return null;
@@ -167,12 +168,14 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
 
 export function pendingWork(config) {
   const name = readdirSync(config.operationsDirectory)
-    .filter((candidate) => /^(?:request-|cloudflare-request-).*\.json$/.test(candidate))
+    .filter((candidate) => /^(?:request-|cloudflare-request-|source-profile-request-).*\.json$/.test(candidate))
     .sort()
     .find(Boolean);
   if (!name) return null;
   return {
-    kind: name.startsWith("cloudflare-request-") ? "cloudflare" : "update",
+    kind: name.startsWith("cloudflare-request-")
+      ? "cloudflare"
+      : name.startsWith("source-profile-request-") ? "source-profile" : "update",
     path: join(config.operationsDirectory, name),
   };
 }
@@ -207,7 +210,7 @@ export function heartbeat(config, ready, detail = null, systemUpdateReason = nul
     agentVersion: AGENT_VERSION,
     updateAgentContract: UPDATE_AGENT_CONTRACT,
     composeContract: COMPOSE_CONTRACT,
-    capabilities: ["system-update", "cloudflare-setup"],
+    capabilities: ["system-update", "cloudflare-setup", "source-profile"],
     ready,
     detail,
     systemUpdateReason,
@@ -254,6 +257,7 @@ export async function main() {
     if (!lock) return false;
     try {
       if (work.kind === "cloudflare") await applyCloudflareSetupRequest(config, work.path);
+      else if (work.kind === "source-profile") await applySourceProfileRequest(config, work.path);
       else await applyRequest(config, work.path);
     } finally {
       releaseLock(lock);

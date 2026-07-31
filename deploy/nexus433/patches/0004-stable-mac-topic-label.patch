@@ -1,0 +1,22 @@
+diff --git a/config.cpp b/config.cpp
+--- a/config.cpp
++++ b/config.cpp
+@@ -153,12 +153,12 @@ bool Config::Load(const char *filename)
+   //format MAC
+   char smac[6 * 3];
+   snprintf(smac, sizeof(smac), "%02X%02X%02X%02X%02X%02X", //use . instead of : as it is invalid for topic
+-           ifr.ifr_hwaddr.sa_data[0],
+-           ifr.ifr_hwaddr.sa_data[1],
+-           ifr.ifr_hwaddr.sa_data[2],
+-           ifr.ifr_hwaddr.sa_data[3],
+-           ifr.ifr_hwaddr.sa_data[4],
+-           ifr.ifr_hwaddr.sa_data[5]);
++           static_cast<unsigned char>(ifr.ifr_hwaddr.sa_data[0]),
++           static_cast<unsigned char>(ifr.ifr_hwaddr.sa_data[1]),
++           static_cast<unsigned char>(ifr.ifr_hwaddr.sa_data[2]),
++           static_cast<unsigned char>(ifr.ifr_hwaddr.sa_data[3]),
++           static_cast<unsigned char>(ifr.ifr_hwaddr.sa_data[4]),
++           static_cast<unsigned char>(ifr.ifr_hwaddr.sa_data[5]));
+ 
+   receiver::mac = smac;
+ 

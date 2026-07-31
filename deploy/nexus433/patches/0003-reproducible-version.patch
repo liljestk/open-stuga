@@ -1,0 +1,20 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index cb1f5c6..943e99c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -3,6 +3,7 @@ project (nexus433)
+ 
+ set(INSTALL_INI_DIR "${CMAKE_INSTALL_PREFIX}/etc" CACHE STRING "Directory where to look for default INI file" )
+ set(INSTALL_INI_FILENAME "nexus433.ini" CACHE STRING "Default INI file name" )
++set(NEXUS433_BUILD_VERSION "unknown" CACHE STRING "Version embedded in reproducible builds" )
+ set(INSTALL_INI_PATH "${INSTALL_INI_DIR}/${INSTALL_INI_FILENAME}" ) 
+ 
+ option(ENABLE_FAKE_TRANSMITTER "Enable fake transmitter for diagnostic purposes" OFF)
+@@ -57,6 +58,7 @@ add_custom_target(version
+                    -D PKG_SRC=${CMAKE_SOURCE_DIR}/build_debian_package.sh.in
+                    -D PKG_DST=${CMAKE_BINARY_DIR}/build_debian_package.sh
+                    -D BOARD=${BOARD}
++                   -D VERSION=${NEXUS433_BUILD_VERSION}
+                    -P ${CMAKE_SOURCE_DIR}/version.cmake
+   )
+ 

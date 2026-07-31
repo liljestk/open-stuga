@@ -1,0 +1,36 @@
+diff --git a/config.h b/config.h
+index 2a7a5b5..1d0665a 100644
+--- a/config.h
++++ b/config.h
+@@ -20,6 +20,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ 
+ #include <set>
+ #include <map>
++#include <cstdint>
+ #include <string>
+ 
+ #define NEXUS433 "nexus433"
+diff --git a/xini.cpp b/xini.cpp
+index 3db50d2..2844037 100644
+--- a/xini.cpp
++++ b/xini.cpp
+@@ -16,6 +16,7 @@ You should have received a copy of the GNU General Public License
+ along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+ 
++#include <cstdint>
+ #include "xini.h"
+ 
+ void XIni::GetIgnored(std::set<uint16_t>& ignored)
+diff --git a/xini.h b/xini.h
+index 32039e3..c5127c1 100644
+--- a/xini.h
++++ b/xini.h
+@@ -20,6 +20,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ 
+ #include <set>
+ #include <map>
++#include <cstdint>
+ #include <string>
+ #include "INIReader.h"
+ 

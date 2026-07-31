@@ -299,6 +299,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       ?? (databasePath === ":memory:" ? "./data/update-operations" : join(dirname(databasePath), "update-operations"))),
     systemUpdateRepository,
     systemUpdateImagePrefix: systemUpdateImagePrefix(env.SYSTEM_UPDATE_IMAGE_PREFIX, systemUpdateRepository),
+    hostCapabilitiesFile: resolve(env.STUGA_HOST_CAPABILITIES_FILE ?? "./config/host-capabilities.json"),
+    sourceMqttHost: optional(env.SOURCE_MQTT_HOST) ?? "127.0.0.1",
+    sourceMqttPort: boundedInteger(env.SOURCE_MQTT_PORT, 1_883, 1, 65_535, "SOURCE_MQTT_PORT"),
+    sourceMqttUser: optional(env.SOURCE_MQTT_USER) ?? "stugu-api",
+    sourceMqttPasswordFile: optional(env.SOURCE_MQTT_PASSWORD_FILE)
+      ? resolve(env.SOURCE_MQTT_PASSWORD_FILE!)
+      : null,
     mockEnabled: booleanValue(env.MOCK_ENABLED, false),
     mockIntervalMs: positiveInteger(env.MOCK_INTERVAL_MS, 2_000),
     // Zero keeps the complete redundant SQLite copy. A positive value bounds

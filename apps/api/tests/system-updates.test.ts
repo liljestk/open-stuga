@@ -58,8 +58,8 @@ function releaseManifest(overrides: Record<string, unknown> = {}): Record<string
     version: "0.6.0",
     tagName: "v0.6.0",
     compatibility: {
-      updateAgent: 2,
-      compose: 1,
+      updateAgent: 3,
+      compose: 2,
     },
     images: {
       api: `ghcr.io/liljestk/open-stuga-api:v0.6.0@sha256:${"a".repeat(64)}`,
@@ -67,6 +67,8 @@ function releaseManifest(overrides: Record<string, unknown> = {}): Record<string
       backup: `ghcr.io/liljestk/open-stuga-backup:v0.6.0@sha256:${"c".repeat(64)}`,
       tapo: `ghcr.io/liljestk/open-stuga-tapo-export-runner:v0.6.0@sha256:${"d".repeat(64)}`,
       updateAgent: `ghcr.io/liljestk/open-stuga-update-agent:v0.6.0@sha256:${"e".repeat(64)}`,
+      mqtt: `ghcr.io/liljestk/open-stuga-mqtt:v0.6.0@sha256:${"f".repeat(64)}`,
+      nexus433: `ghcr.io/liljestk/open-stuga-nexus433:v0.6.0@sha256:${"0".repeat(64)}`,
     },
     ...overrides,
   };
@@ -152,9 +154,9 @@ describe("system update service", () => {
     writeFileSync(join(operationsDirectory, "agent-status.json"), JSON.stringify({
       schema: "stugu-update-agent/v1",
       runtime: "docker",
-      agentVersion: "2.0.0",
-      updateAgentContract: 2,
-      composeContract: 1,
+      agentVersion: "3.0.0",
+      updateAgentContract: 3,
+      composeContract: 2,
       ready: true,
       updatedAt: now.toISOString(),
     }));
@@ -168,13 +170,15 @@ describe("system update service", () => {
     const request = JSON.parse(readFileSync(join(operationsDirectory, requestFile!), "utf8")) as {
       schema: string;
       compatibility: { updateAgent: number; compose: number };
-      images: { api: string; web: string };
+      images: { api: string; web: string; mqtt: string; nexus433: string };
     };
-    expect(request.schema).toBe("stugu-system-update-request/v2");
-    expect(request.compatibility).toEqual({ updateAgent: 2, compose: 1 });
+    expect(request.schema).toBe("stugu-system-update-request/v3");
+    expect(request.compatibility).toEqual({ updateAgent: 3, compose: 2 });
     expect(request.images).toEqual(expect.objectContaining({
       api: `ghcr.io/liljestk/open-stuga-api:v0.6.0@sha256:${"a".repeat(64)}`,
       web: `ghcr.io/liljestk/open-stuga-web:v0.6.0@sha256:${"b".repeat(64)}`,
+      mqtt: `ghcr.io/liljestk/open-stuga-mqtt:v0.6.0@sha256:${"f".repeat(64)}`,
+      nexus433: `ghcr.io/liljestk/open-stuga-nexus433:v0.6.0@sha256:${"0".repeat(64)}`,
     }));
   });
 
@@ -212,9 +216,9 @@ describe("system update service", () => {
     writeFileSync(join(operationsDirectory, "agent-status.json"), JSON.stringify({
       schema: "stugu-update-agent/v1",
       runtime: "raspberry-pi",
-      agentVersion: "2.0.0",
-      updateAgentContract: 2,
-      composeContract: 1,
+      agentVersion: "3.0.0",
+      updateAgentContract: 3,
+      composeContract: 2,
       ready: true,
       systemUpdateReason: "appliance-upgrade-required",
       updatedAt: now.toISOString(),
@@ -238,7 +242,7 @@ describe("system update service", () => {
     const fetchImpl = vi.fn().mockImplementation(async (input: string | URL | Request) => (
       String(input).endsWith("/stugu-release-manifest-v1.json")
         ? githubResponse(releaseManifest({
-          compatibility: { updateAgent: 3, compose: 1 },
+          compatibility: { updateAgent: 4, compose: 2 },
         }))
         : githubResponse()
     ));
@@ -254,9 +258,9 @@ describe("system update service", () => {
     writeFileSync(join(operationsDirectory, "agent-status.json"), JSON.stringify({
       schema: "stugu-update-agent/v1",
       runtime: "docker",
-      agentVersion: "2.0.0",
-      updateAgentContract: 2,
-      composeContract: 1,
+      agentVersion: "3.0.0",
+      updateAgentContract: 3,
+      composeContract: 2,
       ready: true,
       updatedAt: now.toISOString(),
     }));

@@ -26,8 +26,46 @@ env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository }}
 
 jobs:
+  source_bundle:
+    name: Publish Nexus433 corresponding source
+    if: ${{ inputs.confirm_hosted_build }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the released source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.13
+
+      - name: Build and verify corresponding source
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          test "$version" = "$(node -p "require('./package.json').version")"
+          node scripts/build-nexus433-source-bundle.mjs \
+            --version "$version" \
+            --output "$GITHUB_WORKSPACE/dist/source"
+
+      - name: Preserve source before publishing containers
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nexus433-corresponding-source-${{ env.RELEASE_TAG }}
+          path: |
+            dist/source/stugu-nexus433-corresponding-source-*.tar.gz
+            dist/source/stugu-nexus433-corresponding-source-*.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
   containers:
     name: Container (${{ matrix.target }})
+    needs: source_bundle
     if: ${{ inputs.confirm_hosted_build }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -37,14 +75,32 @@ jobs:
         include:
           - target: api
             suffix: api
+            dockerfile: Dockerfile
+            build_target: api
           - target: web
             suffix: web
+            dockerfile: Dockerfile
+            build_target: web
           - target: backup
             suffix: backup
+            dockerfile: Dockerfile
+            build_target: backup
           - target: tapo-export-runner
             suffix: tapo-export-runner
+            dockerfile: Dockerfile
+            build_target: tapo-export-runner
           - target: update-agent
             suffix: update-agent
+            dockerfile: Dockerfile
+            build_target: update-agent
+          - target: mqtt
+            suffix: mqtt
+            dockerfile: deploy/mqtt/Dockerfile
+            build_target: runtime
+          - target: nexus433
+            suffix: nexus433
+            dockerfile: deploy/nexus433/Dockerfile
+            build_target: runtime
     steps:
       - name: Check out the released source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -75,8 +131,8 @@ jobs:
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
-          file: ./Dockerfile
-          target: ${{ matrix.target }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.build_target }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ env.IMAGE_PREFIX }}-${{ matrix.suffix }}:${{ env.RELEASE_TAG }}
@@ -96,6 +152,8 @@ jobs:
       backup_ref: ${{ steps.images.outputs.backup_ref }}
       tapo_ref: ${{ steps.images.outputs.tapo_ref }}
       update_agent_ref: ${{ steps.images.outputs.update_agent_ref }}
+      mqtt_ref: ${{ steps.images.outputs.mqtt_ref }}
+      nexus433_ref: ${{ steps.images.outputs.nexus433_ref }}
     steps:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -125,11 +183,13 @@ jobs:
             echo "backup_ref=$(resolve "${IMAGE_PREFIX}-backup:${RELEASE_TAG}")"
             echo "tapo_ref=$(resolve "${IMAGE_PREFIX}-tapo-export-runner:${RELEASE_TAG}")"
             echo "update_agent_ref=$(resolve "${IMAGE_PREFIX}-update-agent:${RELEASE_TAG}")"
+            echo "mqtt_ref=$(resolve "${IMAGE_PREFIX}-mqtt:${RELEASE_TAG}")"
+            echo "nexus433_ref=$(resolve "${IMAGE_PREFIX}-nexus433:${RELEASE_TAG}")"
           } >> "$GITHUB_OUTPUT"
 
   ota:
     name: A/B and factory images
-    needs: resolve_images
+    needs: [resolve_images, source_bundle]
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 240
     steps:
@@ -162,6 +222,8 @@ jobs:
           STUGA_BACKUP_IMAGE: ${{ needs.resolve_images.outputs.backup_ref }}
           STUGA_TAPO_RUNNER_IMAGE: ${{ needs.resolve_images.outputs.tapo_ref }}
           STUGA_UPDATE_AGENT_IMAGE: ${{ needs.resolve_images.outputs.update_agent_ref }}
+          STUGA_MQTT_IMAGE: ${{ needs.resolve_images.outputs.mqtt_ref }}
+          STUGA_NEXUS433_IMAGE: ${{ needs.resolve_images.outputs.nexus433_ref }}
           RPI_FACTORY_SSH_PUBLIC_KEY: ${{ secrets.RPI_FACTORY_SSH_PUBLIC_KEY }}
           RPI_FACTORY_BUILD: "1"
           RPI_EXPORT_FACTORY_IMAGE: "1"
@@ -193,6 +255,8 @@ jobs:
             --env STUGA_BACKUP_IMAGE \
             --env STUGA_TAPO_RUNNER_IMAGE \
             --env STUGA_UPDATE_AGENT_IMAGE \
+            --env STUGA_MQTT_IMAGE \
+            --env STUGA_NEXUS433_IMAGE \
             --env RPI_FACTORY_BUILD \
             --env RPI_EXPORT_FACTORY_IMAGE \
             --env RPI_IMAGE_GEN_INSTALL_DEPS \
@@ -206,6 +270,12 @@ jobs:
               chown -R "$HOST_UID:$HOST_GID" dist/rpi
             '
 
+      - name: Download verified corresponding source
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: nexus433-corresponding-source-${{ env.RELEASE_TAG }}
+          path: dist/rpi
+
       - name: Locate and checksum release artifacts
         id: ota
         shell: bash
@@ -218,8 +288,13 @@ jobs:
           factory_name="stugu-rpi4-${version}.img.zst"
           factory_path="$GITHUB_WORKSPACE/dist/rpi/$factory_name"
           factory_checksum_path="$GITHUB_WORKSPACE/dist/rpi/stugu-rpi4-${version}-factory.sha256"
+          source_name="stugu-nexus433-corresponding-source-${version}.tar.gz"
+          source_path="$GITHUB_WORKSPACE/dist/rpi/$source_name"
+          source_checksum_path="$source_path.sha256"
           test -s "$path"
           test -s "$factory_path"
+          test -s "$source_path"
+          test -s "$source_checksum_path"
           (
             cd "$GITHUB_WORKSPACE/dist/rpi"
             sha256sum "$name" > "$(basename "$checksum_path")"
@@ -235,6 +310,8 @@ jobs:
             echo "factory_name=$factory_name"
             echo "factory_path=$factory_path"
             echo "factory_checksum_path=$factory_checksum_path"
+            echo "source_path=$source_path"
+            echo "source_checksum_path=$source_checksum_path"
             echo "uri=https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$name"
           } >> "$GITHUB_OUTPUT"
 
@@ -256,5 +333,7 @@ jobs:
           files: |
             ${{ steps.ota.outputs.factory_path }}
             ${{ steps.ota.outputs.factory_checksum_path }}
+            ${{ steps.ota.outputs.source_path }}
+            ${{ steps.ota.outputs.source_checksum_path }}
           fail_on_unmatched_files: true
           overwrite_files: true

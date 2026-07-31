@@ -47,6 +47,8 @@ export async function activeServices(config, composeCommand = compose) {
   if (active.has("stugu-backup-scheduler")) services.push("stugu-backup-scheduler");
   if (active.has("stugu-r2-backup")) services.push("stugu-r2-backup");
   if (active.has("tapo-export-runner")) services.push("tapo-export-runner");
+  if (active.has("mqtt")) services.push("mqtt");
+  if (active.has("nexus433")) services.push("nexus433");
   return services;
 }
 
@@ -55,7 +57,11 @@ export async function exactApiVersion(config, composeCommand = compose) {
   return composeCommand(config, ["exec", "-T", "api", "node", "-e", script], 30_000);
 }
 
-export function setCloudflareComposeProfile(config, enabled) {
+export function setComposeProfiles(config, requestedProfiles, enabled) {
+  if (!Array.isArray(requestedProfiles) || requestedProfiles.length === 0
+    || requestedProfiles.some((profile) => !/^[a-z0-9][a-z0-9_.-]*$/u.test(profile))) {
+    throw new Error("Optional Compose profiles are invalid");
+  }
   const path = config.composeProfileEnvironmentFile;
   if (!existsSync(path) || !lstatSync(path).isFile()) {
     throw new Error("The persistent Compose environment file is unavailable");
@@ -78,7 +84,7 @@ export function setCloudflareComposeProfile(config, enabled) {
   if (indexes.length === 0) {
     if (!enabled) return false;
     if (lines.length > 0 && lines.at(-1) !== "") lines.push("");
-    lines.push("COMPOSE_PROFILES=cloudflare");
+    lines.push(`COMPOSE_PROFILES=${requestedProfiles.join(",")}`);
   } else {
     const index = indexes[0];
     const configured = lines[index].slice("COMPOSE_PROFILES=".length).trim();
@@ -99,8 +105,10 @@ export function setCloudflareComposeProfile(config, enabled) {
     if (profiles.has("*")) {
       throw new Error("COMPOSE_PROFILES must list profiles explicitly for fail-closed Cloudflare setup");
     }
-    if (enabled) profiles.add("cloudflare");
-    else profiles.delete("cloudflare");
+    for (const profile of requestedProfiles) {
+      if (enabled) profiles.add(profile);
+      else profiles.delete(profile);
+    }
     lines[index] = `COMPOSE_PROFILES=${[...profiles].join(",")}`;
   }
 
@@ -108,6 +116,10 @@ export function setCloudflareComposeProfile(config, enabled) {
   if (next === source) return false;
   writeTextAtomic(path, next, metadata.mode & 0o777, metadata);
   return true;
+}
+
+export function setCloudflareComposeProfile(config, enabled) {
+  return setComposeProfiles(config, ["cloudflare"], enabled);
 }
 
 const provisionalCloudflareOverride = `services:

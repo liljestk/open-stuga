@@ -5,14 +5,14 @@ readonly project_dir=/opt/stugu
 readonly state_dir=/persistent/stugu
 readonly local_env="$state_dir/stugu.env"
 readonly factory_release_env="$project_dir/release.env"
-readonly known_good_release_env="$state_dir/update-release/known-good.env"
+readonly known_good_release_env="$state_dir/update-release/known-good-v3.env"
 readonly docker_config="$state_dir/docker-config"
 readonly migration_dir="$state_dir/migrations"
 readonly compose_lock=/run/lock/stugu-compose.lock
 readonly migration_health_authorization="$migration_dir/.health-check-authorization"
 readonly -a migration_application_services=(
   cloudflared web api stugu-backup-scheduler tapo-export-runner
-  telemetry-migrate timeseries-credential-reconcile
+  nexus433 mqtt telemetry-migrate timeseries-credential-reconcile
 )
 
 # Host power control must remain available when application configuration or a
@@ -54,13 +54,13 @@ release_image_matches() {
 valid_release_env() {
   local candidate="$1"
   [[ -f "$candidate" && ! -L "$candidate" ]] || return 1
-  [[ "$(wc -l < "$candidate")" -eq 9 ]] || return 1
+  [[ "$(wc -l < "$candidate")" -eq 11 ]] || return 1
   local version
   version="$(sed -n 's/^STUGA_VERSION=//p' "$candidate")"
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] \
-    && grep -Fxq "STUGA_RELEASE_ENV_SCHEMA=2" "$candidate" \
-    && grep -Fxq "STUGA_UPDATE_AGENT_CONTRACT=2" "$candidate" \
-    && grep -Fxq "STUGA_COMPOSE_CONTRACT=1" "$candidate" \
+    && grep -Fxq "STUGA_RELEASE_ENV_SCHEMA=3" "$candidate" \
+    && grep -Fxq "STUGA_UPDATE_AGENT_CONTRACT=3" "$candidate" \
+    && grep -Fxq "STUGA_COMPOSE_CONTRACT=2" "$candidate" \
     && [[ "$(grep -c '^STUGA_VERSION=' "$candidate")" -eq 1 ]] \
     && release_image_matches "$candidate" STUGA_API_IMAGE \
       "${image_prefix}-api:v$version" \
@@ -71,7 +71,11 @@ valid_release_env() {
     && release_image_matches "$candidate" STUGA_TAPO_RUNNER_IMAGE \
       "${image_prefix}-tapo-export-runner:v$version" \
     && release_image_matches "$candidate" STUGA_UPDATE_AGENT_IMAGE \
-      "${image_prefix}-update-agent:v$version"
+      "${image_prefix}-update-agent:v$version" \
+    && release_image_matches "$candidate" STUGA_MQTT_IMAGE \
+      "${image_prefix}-mqtt:v$version" \
+    && release_image_matches "$candidate" STUGA_NEXUS433_IMAGE \
+      "${image_prefix}-nexus433:v$version"
 }
 
 if ! valid_release_env "$factory_release_env"; then

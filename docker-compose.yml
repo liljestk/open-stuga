@@ -152,6 +152,93 @@ services:
       - no-new-privileges:true
     network_mode: none
 
+  source-ingress-secrets:
+    profiles: ["mqtt"]
+    image: ${STUGA_MQTT_IMAGE:-stugu-mqtt:local}
+    build:
+      context: .
+      dockerfile: deploy/mqtt/Dockerfile
+      target: runtime
+    restart: "no"
+    user: "0:0"
+    entrypoint: ["/usr/local/bin/stugu-mqtt-init-secrets"]
+    volumes:
+      - stuga-source-ingress-broker-secret:/run/source-ingress/broker
+      - stuga-source-ingress-publisher-secret:/run/source-ingress/publisher
+      - stuga-source-ingress-subscriber-secret:/run/source-ingress/subscriber
+    read_only: true
+    tmpfs:
+      - /tmp:size=1m,mode=0700
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+
+  mqtt:
+    profiles: ["mqtt"]
+    image: ${STUGA_MQTT_IMAGE:-stugu-mqtt:local}
+    build:
+      context: .
+      dockerfile: deploy/mqtt/Dockerfile
+      target: runtime
+    init: true
+    restart: unless-stopped
+    depends_on:
+      source-ingress-secrets:
+        condition: service_completed_successfully
+    volumes:
+      - stuga-source-ingress-broker-secret:/run/source-ingress/broker:ro
+    read_only: true
+    tmpfs:
+      - /run/mosquitto:size=1m,mode=0700,uid=100,gid=101
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - source-ingress
+
+  nexus433:
+    profiles: ["nexus433"]
+    image: ${STUGA_NEXUS433_IMAGE:-stugu-nexus433:local}
+    build:
+      context: .
+      dockerfile: deploy/nexus433/Dockerfile
+      target: runtime
+    init: true
+    restart: unless-stopped
+    depends_on:
+      mqtt:
+        condition: service_healthy
+    environment:
+      NEXUS433_MQTT_HOST: mqtt
+      NEXUS433_MQTT_PORT: "1883"
+      NEXUS433_MQTT_USER: nexus433
+      NEXUS433_MQTT_CLIENT_ID: ${NEXUS433_MQTT_CLIENT_ID:-nexus433}
+      NEXUS433_MQTT_PASSWORD_FILE: /run/secrets/source-ingress/password
+      NEXUS433_GPIO_CHIP: /dev/gpiochip0
+      NEXUS433_GPIO_LINE: ${NEXUS433_GPIO_LINE:-17}
+    devices:
+      - /dev/gpiochip0:/dev/gpiochip0:rwm
+    group_add:
+      - ${STUGA_GPIO_GID:-65534}
+    volumes:
+      - stuga-source-ingress-publisher-secret:/run/secrets/source-ingress:ro
+    read_only: true
+    tmpfs:
+      - /run/nexus433:size=1m,mode=0700,uid=10001,gid=10001
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - source-ingress
+
   api:
     image: ${STUGA_API_IMAGE:-stugu-api:local}
     build:
@@ -189,6 +276,11 @@ services:
       SYSTEM_UPDATE_OPERATIONS_DIRECTORY: /app/runtime/update-operations
       SYSTEM_UPDATE_REPOSITORY: ${SYSTEM_UPDATE_REPOSITORY:-liljestk/open-stuga}
       SYSTEM_UPDATE_IMAGE_PREFIX: ${SYSTEM_UPDATE_IMAGE_PREFIX:-ghcr.io/liljestk/open-stuga}
+      STUGA_HOST_CAPABILITIES_FILE: /app/config/host-capabilities.json
+      SOURCE_MQTT_HOST: mqtt
+      SOURCE_MQTT_PORT: "1883"
+      SOURCE_MQTT_USER: stugu-api
+      SOURCE_MQTT_PASSWORD_FILE: /run/secrets/source-ingress/password
       CLOUDFLARE_SETUP_DEPLOYMENT_FILE: /run/secrets/cloudflare/deployment.json
       STUGA_CLOUDFLARE_OAUTH_CLIENT_ID: ${STUGA_CLOUDFLARE_OAUTH_CLIENT_ID:-}
       STUGA_LOCAL_UI_PORT: ${APP_PORT:-8080}
@@ -259,6 +351,7 @@ services:
       - stuga-timeseries-app-secret:/app/runtime/db:ro
       - stuga-proxy-secret:/app/runtime/proxy:ro
       - stuga-tapo-worker-secret:/app/runtime/tapo:ro
+      - stuga-source-ingress-subscriber-secret:/run/secrets/source-ingress:ro
       - stuga-backup-operations:/app/runtime/backup-operations
       - stuga-scheduled-backups:/app/backups:ro
       - ${STUGA_UPDATE_OPERATIONS_DIRECTORY:-./data/update-operations}:/app/runtime/update-operations:${STUGA_UPDATE_OPERATIONS_MOUNT_OPTIONS:-z}
@@ -275,6 +368,7 @@ services:
       - frontend
       - backend
       - automation
+      - source-ingress
 
   # This privileged helper is opt-in because access to the Docker socket is
   # equivalent to host administration. On Windows/macOS Docker Desktop, run
@@ -296,8 +390,8 @@ services:
       STUGA_PROJECT_DIRECTORY: /opt/stugu
       SYSTEM_UPDATE_OPERATIONS_DIRECTORY: /persistent/stugu/update-operations
       STUGA_FACTORY_RELEASE_ENV_FILE: /opt/stugu/release.env
-      STUGA_KNOWN_GOOD_RELEASE_ENV_FILE: /persistent/stugu/update-release/known-good.env
-      STUGA_RELEASE_ENV_FILE: /persistent/stugu/update-release/release.env
+      STUGA_KNOWN_GOOD_RELEASE_ENV_FILE: /persistent/stugu/update-release/known-good-v3.env
+      STUGA_RELEASE_ENV_FILE: /persistent/stugu/update-release/release-v3.env
       DOCKER_CONFIG: /persistent/stugu/docker-config
       SYSTEM_UPDATE_REPOSITORY: ${SYSTEM_UPDATE_REPOSITORY:-liljestk/open-stuga}
       SYSTEM_UPDATE_IMAGE_PREFIX: ${SYSTEM_UPDATE_IMAGE_PREFIX:-ghcr.io/liljestk/open-stuga}
@@ -676,6 +770,8 @@ networks:
     internal: true
   automation:
   backup-egress:
+  source-ingress:
+    internal: true
 
 volumes:
   climate-twin-data:
@@ -690,3 +786,6 @@ volumes:
   stuga-timeseries-data:
   stuga-timeseries-socket:
   stuga-tapo-runner-data:
+  stuga-source-ingress-broker-secret:
+  stuga-source-ingress-publisher-secret:
+  stuga-source-ingress-subscriber-secret:

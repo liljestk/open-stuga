@@ -282,7 +282,7 @@ test("the appliance exposes secure LAN access and persistent Tailscale by defaul
   assert.match(composeStart, /dd if=\/dev\/urandom bs=32 count=1[\s\S]*LOCAL_AUTH_BOOTSTRAP_SECRET/);
   assert.match(control, /#bootstrap=%s/);
   assert.match(control, /tailscale up --operator=stugu/);
-  assert.match(control, /known_good_release_env="\$state_dir\/update-release\/known-good\.env"/);
+  assert.match(control, /known_good_release_env="\$state_dir\/update-release\/known-good-v3\.env"/);
   assert.match(
     control,
     /if \[\[ -e "\$known_good_release_env" \]\]; then[\s\S]*valid_release_env "\$known_good_release_env"[\s\S]*release_env="\$known_good_release_env"/,
@@ -385,7 +385,7 @@ test("clean appliances default to guarded automatic GitHub container updates", a
   assert.match(composeStart, /if \[\[ ! -e "\$state_dir\/update-operations\/settings\.json" \]\]/);
 });
 
-test("contract-2 boot preserves legacy rollback state without executing mutable tags", async () => {
+test("contract-3 boot preserves older rollback state without executing mutable tags", async () => {
   const composeStart = await readFile(
     new URL("../../deploy/rpi/assets/stugu-compose-start", import.meta.url),
     "utf8",
@@ -454,8 +454,20 @@ test("local publishing owns expensive builds and hosted release work is an expli
 
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /confirm_hosted_build:/);
-  assert.match(workflow, /if: \$\{\{ inputs\.confirm_hosted_build \}\}/);
+  assert.match(
+    workflow,
+    /if: \$\{\{ inputs\.confirm_hosted_build \}\}/,
+  );
+  assert.doesNotMatch(workflow, /confirm_nexus433_compliance/);
   assert.match(workflow, /runs-on: ubuntu-24\.04-arm/);
+  assert.match(
+    workflow,
+    /source_bundle:[\s\S]*Build and verify corresponding source[\s\S]*Preserve source before publishing containers[\s\S]*containers:[\s\S]*needs: source_bundle/,
+  );
+  assert.match(
+    workflow,
+    /Download verified corresponding source[\s\S]*stugu-nexus433-corresponding-source-[\s\S]*Attach validated factory image to GitHub release[\s\S]*files:[\s\S]*steps\.ota\.outputs\.source_path/,
+  );
   assert.doesNotMatch(workflow, /^\s{2}release:\s*$/mu);
   assert.doesNotMatch(workflow, /github\.event\.release/);
   assert.doesNotMatch(workflow, /deploy-rpi-ota|RPI_CONNECT_API_TOKEN/);
@@ -472,6 +484,8 @@ test("local publishing owns expensive builds and hosted release work is an expli
   assert.match(publisher, /--skip-container-builds/);
   assert.match(publisher, /localCiReport/);
   assert.match(publisher, /"release",\s*\n\s*"upload"/);
+  assert.doesNotMatch(publisher, /confirm-nexus433-compliance/);
+  assert.match(publisher, /artifacts\.nexus433SourceChecksum/);
   assert.match(publisher, /--publish/);
   assert.doesNotMatch(publisher, /deploy-rpi-ota|Deploy OTA/);
   assert.doesNotMatch(publisher, /const paths = \[artifacts\.ota/);
@@ -512,7 +526,7 @@ test("local release options and output names are deterministic", () => {
   const images = imageDefinitions("ghcr.io/liljestk/open-stuga", "v1.2.3");
   assert.deepEqual(
     images.map(({ target }) => target),
-    ["api", "web", "backup", "tapo-export-runner", "update-agent"],
+    ["api", "web", "backup", "tapo-export-runner", "update-agent", "mqtt", "nexus433"],
   );
   assert.equal(images[0].ref, "ghcr.io/liljestk/open-stuga-api:v1.2.3");
 
@@ -522,6 +536,11 @@ test("local release options and output names are deterministic", () => {
   assert.match(artifacts.localCiReport, /stugu-1\.2\.3-local-ci\.json$/);
   assert.equal(artifacts.localCiChecksum, `${artifacts.localCiReport}.sha256`);
   assert.match(artifacts.releaseManifest, /stugu-release-manifest-v1\.json$/);
+  assert.match(
+    artifacts.nexus433Source,
+    /stugu-nexus433-corresponding-source-1\.2\.3\.tar\.gz$/,
+  );
+  assert.equal(artifacts.nexus433SourceChecksum, `${artifacts.nexus433Source}.sha256`);
   assert.notEqual(artifacts.combinedChecksum, artifacts.releaseChecksum);
 
   const digests = Object.fromEntries(images.map(({ target, ref }) => [
@@ -535,13 +554,15 @@ test("local release options and output names are deterministic", () => {
       repository: "liljestk/open-stuga",
       version: "1.2.3",
       tagName: "v1.2.3",
-      compatibility: { updateAgent: 2, compose: 1 },
+      compatibility: { updateAgent: 3, compose: 2 },
       images: {
         api: digests.api,
         web: digests.web,
         backup: digests.backup,
         tapo: digests["tapo-export-runner"],
         updateAgent: digests["update-agent"],
+        mqtt: digests.mqtt,
+        nexus433: digests.nexus433,
       },
     },
   );
@@ -633,11 +654,11 @@ test("the appliance exposes a health-gated migration receiver with rollback", as
   assert.match(compose, /STUGA_FACTORY_RELEASE_ENV_FILE: \/opt\/stugu\/release\.env/);
   assert.match(
     compose,
-    /STUGA_KNOWN_GOOD_RELEASE_ENV_FILE: \/persistent\/stugu\/update-release\/known-good\.env/,
+    /STUGA_KNOWN_GOOD_RELEASE_ENV_FILE: \/persistent\/stugu\/update-release\/known-good-v3\.env/,
   );
-  assert.match(layer, /STUGA_RELEASE_ENV_SCHEMA=2/);
-  assert.match(layer, /STUGA_UPDATE_AGENT_CONTRACT=2/);
-  assert.match(layer, /STUGA_COMPOSE_CONTRACT=1/);
+  assert.match(layer, /STUGA_RELEASE_ENV_SCHEMA=3/);
+  assert.match(layer, /STUGA_UPDATE_AGENT_CONTRACT=3/);
+  assert.match(layer, /STUGA_COMPOSE_CONTRACT=2/);
   assert.match(composeStart, /@sha256:\$digest/);
   assert.doesNotMatch(composeStart, /STUGA_API_IMAGE=ghcr[^"\n]*:v\$version"/);
   assert.match(layer, /STUGA_VERSION=\$\{IGconf_artefact_version\}/);

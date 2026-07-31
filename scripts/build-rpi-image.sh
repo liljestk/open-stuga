@@ -17,7 +17,7 @@ Optional environment variables:
   STUGA_RELEASE_REPOSITORY       Readable GitHub release repository
                                  (default: liljestk/open-stuga)
   STUGA_IMAGE_REGISTRY_PREFIX    Image prefix (default: ghcr.io/liljestk/open-stuga)
-  STUGA_{API,WEB,BACKUP,TAPO_RUNNER,UPDATE_AGENT}_IMAGE
+  STUGA_{API,WEB,BACKUP,TAPO_RUNNER,UPDATE_AGENT,MQTT,NEXUS433}_IMAGE
                                  Required tag + sha256 digest image refs
   RPI_HOSTNAME                   Device hostname (default: stugu)
   RPI_WIFI_PROFILE               iwd .psk profile to embed
@@ -66,6 +66,8 @@ readonly web_image="${STUGA_WEB_IMAGE:-}"
 readonly backup_image="${STUGA_BACKUP_IMAGE:-}"
 readonly tapo_image="${STUGA_TAPO_RUNNER_IMAGE:-}"
 readonly update_agent_image="${STUGA_UPDATE_AGENT_IMAGE:-}"
+readonly mqtt_image="${STUGA_MQTT_IMAGE:-}"
+readonly nexus433_image="${STUGA_NEXUS433_IMAGE:-}"
 readonly hostname="${RPI_HOSTNAME:-stugu}"
 readonly rpi_image_gen_ref="${RPI_IMAGE_GEN_REF:-17e53bca56c8d6bed273a6faa7412b296e4c0937}"
 readonly rpi_image_gen_dir="${RPI_IMAGE_GEN_DIR:-$repo_root/.rpi-image-gen}"
@@ -98,6 +100,8 @@ validate_release_image "$web_image" web
 validate_release_image "$backup_image" backup
 validate_release_image "$tapo_image" tapo-export-runner
 validate_release_image "$update_agent_image" update-agent
+validate_release_image "$mqtt_image" mqtt
+validate_release_image "$nexus433_image" nexus433
 if [[ ! "$hostname" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
   echo "RPI_HOSTNAME must be a valid lowercase hostname" >&2
   exit 1
@@ -193,6 +197,8 @@ install -m 0644 "$repo_root/.env.example" "$stage_dir/assets/full.env.example"
 install -m 0644 "$repo_root/apps/tapo-export-runner/flow.example.json" \
   "$stage_dir/assets/tapo-flow.example.json"
 cp -a "$repo_root/config/." "$stage_dir/assets/config/"
+install -m 0644 "$repo_root/deploy/rpi/assets/host-capabilities.json" \
+  "$stage_dir/assets/config/host-capabilities.json"
 install -m 0755 "$repo_root/scripts/bootstrap-timescale.sh" \
   "$stage_dir/assets/bootstrap-timescale.sh"
 install -m 0755 "$repo_root/scripts/reconcile-timescale-credentials.sh" \
@@ -223,6 +229,8 @@ build_options=(
   "IGconf_stugu_backup_image=$backup_image"
   "IGconf_stugu_tapo_image=$tapo_image"
   "IGconf_stugu_update_agent_image=$update_agent_image"
+  "IGconf_stugu_mqtt_image=$mqtt_image"
+  "IGconf_stugu_nexus433_image=$nexus433_image"
   "IGconf_image_idp_schema=$usb_idp_schema"
   "IGconf_sys_workroot=$build_root"
 )

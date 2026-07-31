@@ -7,8 +7,8 @@ export function releaseManifest(repository, version, tagName, imageRefs) {
     version,
     tagName,
     compatibility: {
-      updateAgent: 2,
-      compose: 1,
+      updateAgent: 3,
+      compose: 2,
     },
     images: {
       api: imageRefs.api,
@@ -16,6 +16,8 @@ export function releaseManifest(repository, version, tagName, imageRefs) {
       backup: imageRefs.backup,
       tapo: imageRefs["tapo-export-runner"],
       updateAgent: imageRefs["update-agent"],
+      mqtt: imageRefs.mqtt,
+      nexus433: imageRefs.nexus433,
     },
   };
 }

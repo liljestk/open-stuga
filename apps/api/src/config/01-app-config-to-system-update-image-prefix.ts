@@ -55,6 +55,13 @@ export interface AppConfig {
   systemUpdateRepository?: string;
   /** Trusted GHCR image prefix; release data can never override this registry namespace. */
   systemUpdateImagePrefix?: string;
+  /** Read-only host declaration. Optional source adapters stay absent unless explicitly advertised. */
+  hostCapabilitiesFile?: string | null;
+  sourceMqttHost?: string;
+  sourceMqttPort?: number;
+  sourceMqttUser?: string;
+  /** Subscriber credential mounted only by deployments that offer source ingress. */
+  sourceMqttPasswordFile?: string | null;
   mockEnabled: boolean;
   mockIntervalMs: number;
   retentionDays: number;

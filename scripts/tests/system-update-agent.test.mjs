@@ -37,7 +37,7 @@ import { applianceUpdateTransition } from "../stugu-update-agent/update-loop.mjs
 function updateRequest() {
   const version = "0.6.0";
   return {
-    schema: "stugu-system-update-request/v2",
+    schema: "stugu-system-update-request/v3",
     id: "27974c49-f62e-4365-9ee7-802c7488557e",
     version,
     tagName: `v${version}`,
@@ -46,8 +46,8 @@ function updateRequest() {
     previousVersion: "0.5.0",
     releaseManifestSchema: "stugu-release-manifest/v1",
     compatibility: {
-      updateAgent: 2,
-      compose: 1,
+      updateAgent: 3,
+      compose: 2,
     },
     images: {
       api: `ghcr.io/liljestk/open-stuga-api:v${version}@sha256:${"a".repeat(64)}`,
@@ -55,21 +55,25 @@ function updateRequest() {
       backup: `ghcr.io/liljestk/open-stuga-backup:v${version}@sha256:${"c".repeat(64)}`,
       tapo: `ghcr.io/liljestk/open-stuga-tapo-export-runner:v${version}@sha256:${"d".repeat(64)}`,
       updateAgent: `ghcr.io/liljestk/open-stuga-update-agent:v${version}@sha256:${"e".repeat(64)}`,
+      mqtt: `ghcr.io/liljestk/open-stuga-mqtt:v${version}@sha256:${"f".repeat(64)}`,
+      nexus433: `ghcr.io/liljestk/open-stuga-nexus433:v${version}@sha256:${"0".repeat(64)}`,
     },
   };
 }
 
 function releaseEnvironment(version) {
   return [
-    "STUGA_RELEASE_ENV_SCHEMA=2",
-    "STUGA_UPDATE_AGENT_CONTRACT=2",
-    "STUGA_COMPOSE_CONTRACT=1",
+    "STUGA_RELEASE_ENV_SCHEMA=3",
+    "STUGA_UPDATE_AGENT_CONTRACT=3",
+    "STUGA_COMPOSE_CONTRACT=2",
     `STUGA_VERSION=${version}`,
     `STUGA_API_IMAGE=ghcr.io/liljestk/open-stuga-api:v${version}@sha256:${"1".repeat(64)}`,
     `STUGA_WEB_IMAGE=ghcr.io/liljestk/open-stuga-web:v${version}@sha256:${"2".repeat(64)}`,
     `STUGA_BACKUP_IMAGE=ghcr.io/liljestk/open-stuga-backup:v${version}@sha256:${"3".repeat(64)}`,
     `STUGA_TAPO_RUNNER_IMAGE=ghcr.io/liljestk/open-stuga-tapo-export-runner:v${version}@sha256:${"4".repeat(64)}`,
     `STUGA_UPDATE_AGENT_IMAGE=ghcr.io/liljestk/open-stuga-update-agent:v${version}@sha256:${"5".repeat(64)}`,
+    `STUGA_MQTT_IMAGE=ghcr.io/liljestk/open-stuga-mqtt:v${version}@sha256:${"6".repeat(64)}`,
+    `STUGA_NEXUS433_IMAGE=ghcr.io/liljestk/open-stuga-nexus433:v${version}@sha256:${"7".repeat(64)}`,
     "",
   ].join("\n");
 }
@@ -216,6 +220,65 @@ function composeImages(config) {
   return result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
+function standaloneComposeConfig(directory, args) {
+  const result = spawnSync(
+    "docker",
+    [
+      "compose",
+      "--project-name",
+      "stugu-nexus-isolation-test",
+      "--project-directory",
+      directory,
+      "--file",
+      join(directory, "docker-compose.yml"),
+      ...args,
+    ],
+    { cwd: directory, encoding: "utf8", windowsHide: true },
+  );
+  assert.equal(
+    result.status,
+    0,
+    `docker compose config failed: ${result.error?.message ?? result.stderr}`,
+  );
+  return result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+}
+
+test("disabled source capabilities create and pull no MQTT or Nexus services", (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "stugu-nexus-isolation-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  copyFileSync(new URL("../../docker-compose.yml", import.meta.url), join(directory, "docker-compose.yml"));
+
+  const services = standaloneComposeConfig(directory, ["config", "--services"]);
+  const images = standaloneComposeConfig(directory, ["config", "--images"]);
+  assert.equal(services.includes("source-ingress-secrets"), false);
+  assert.equal(services.includes("mqtt"), false);
+  assert.equal(services.includes("nexus433"), false);
+  assert.equal(images.some((image) => image.includes("stugu-mqtt")), false);
+  assert.equal(images.some((image) => image.includes("stugu-nexus433")), false);
+
+  const enabledServices = standaloneComposeConfig(directory, [
+    "--profile",
+    "mqtt",
+    "--profile",
+    "nexus433",
+    "config",
+    "--services",
+  ]);
+  const enabledImages = standaloneComposeConfig(directory, [
+    "--profile",
+    "mqtt",
+    "--profile",
+    "nexus433",
+    "config",
+    "--images",
+  ]);
+  assert.ok(enabledServices.includes("source-ingress-secrets"));
+  assert.ok(enabledServices.includes("mqtt"));
+  assert.ok(enabledServices.includes("nexus433"));
+  assert.ok(enabledImages.includes("stugu-mqtt:local"));
+  assert.ok(enabledImages.includes("stugu-nexus433:local"));
+});
+
 function cloudflareSetupRequest() {
   return {
     schema: "stugu-cloudflare-setup-request/v1",
@@ -290,12 +353,19 @@ test("containerized updater preserves host paths for nested Compose", () => {
   ));
 });
 
-test("system updates keep the optional R2 replicator on the backup image release", async () => {
+test("system updates include only optional release services that are already running", async () => {
   const services = await activeServices({}, async (_config, args) => {
     assert.deepEqual(args, ["ps", "--services", "--filter", "status=running"]);
-    return "api\nweb\nstugu-backup-scheduler\nstugu-r2-backup\n";
+    return "api\nweb\nstugu-backup-scheduler\nstugu-r2-backup\nmqtt\nnexus433\n";
   });
-  assert.deepEqual(services, ["api", "web", "stugu-backup-scheduler", "stugu-r2-backup"]);
+  assert.deepEqual(services, [
+    "api",
+    "web",
+    "stugu-backup-scheduler",
+    "stugu-r2-backup",
+    "mqtt",
+    "nexus433",
+  ]);
 });
 
 test("agent resolves service arguments and relative paths from the project directory", () => {
@@ -771,7 +841,7 @@ test("legacy Raspberry Pi state requires a factory transition before any update 
 
   const transition = applianceUpdateTransition(config);
   assert.equal(transition?.reason, "appliance-upgrade-required");
-  assert.match(transition?.detail ?? "", /factory image with updater contract 2/);
+  assert.match(transition?.detail ?? "", /factory image with updater contract 3/);
   let composeCalled = false;
   await applyRequest(config, requestPath, {
     compose: async () => {
@@ -785,7 +855,7 @@ test("legacy Raspberry Pi state requires a factory transition before any update 
   assert.equal(existsSync(requestPath), false);
   const status = JSON.parse(readFileSync(join(operationsDirectory, "status.json"), "utf8"));
   assert.equal(status.phase, "failed");
-  assert.match(status.detail, /factory image with updater contract 2/);
+  assert.match(status.detail, /factory image with updater contract 3/);
   assert.deepEqual(status.activity.map((entry) => entry.phase), ["queued", "preparing", "failed"]);
 });
 

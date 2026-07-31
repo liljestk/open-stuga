@@ -191,7 +191,13 @@ export class TelemetryService {
     return reading;
   }
 
-  ingestBatch(readings: Reading[]): Reading[] {
+  ingestBatch(
+    readings: Reading[],
+    options: {
+      beforePersist?: () => boolean;
+      afterPersist?: (inserted: Reading[]) => void;
+    } = {},
+  ): Reading[] {
     const nowMs = Date.now();
     const validated = new Map<string, Sensor>();
     for (const reading of readings) {
@@ -200,7 +206,12 @@ export class TelemetryService {
       this.validateMeasurements(reading);
     }
     this.dataMode.prepareSources(readings.map((reading) => reading.source));
-    const inserted = this.database.insertReadings(readings, { enqueueAlertEvaluation: true });
+    const inserted = this.database.transaction(() => {
+      if (options.beforePersist && !options.beforePersist()) return [];
+      const persisted = this.database.insertReadings(readings, { enqueueAlertEvaluation: true });
+      options.afterPersist?.(persisted);
+      return persisted;
+    });
     this.dataMode.synchronize();
     const samples: MeasurementSample[] = [];
     for (const reading of inserted) {

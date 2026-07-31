@@ -352,8 +352,8 @@ test("rerunning an installed Stugu preserves existing choices and asks only what
   writeFileSync(join(operationsDirectory, "agent-status.json"), JSON.stringify({
     schema: "stugu-update-agent/v1",
     ready: true,
-    updateAgentContract: 2,
-    composeContract: 1,
+    updateAgentContract: 3,
+    composeContract: 2,
     updatedAt: new Date().toISOString(),
   }));
   const answers = ["yes"];

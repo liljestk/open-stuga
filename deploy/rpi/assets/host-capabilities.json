@@ -1,0 +1,15 @@
+{
+  "schema": "stugu-host-capabilities/v1",
+  "capabilities": {
+    "mqtt": {
+      "state": "available",
+      "revision": "1"
+    },
+    "nexus433": {
+      "state": "available",
+      "revision": "1",
+      "gpioChip": "/dev/gpiochip0",
+      "gpioLine": 17
+    }
+  }
+}
