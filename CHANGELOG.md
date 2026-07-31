@@ -4,6 +4,14 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.26.1 - 2026-07-31
+
+- Keep Tuya discovery disabled during general network searches and require an
+  explicit Device ID plus local key before any targeted Tuya probing begins.
+- Discover the Tuya device address and LAN protocol automatically after opt-in,
+  verify credentials locally without retaining the key in the browser, and
+  retain manual address and protocol entry as a fallback.
+
 ## 0.26.0 - 2026-07-31
 
 - Add disabled-by-default Nexus 433 MHz reception through isolated decoder and
