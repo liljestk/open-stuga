@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  chmodSync,
-  chownSync,
   closeSync,
   existsSync,
+  fchmodSync,
+  fchownSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -155,18 +155,54 @@ export function readJson(path) {
   }
 }
 
-export function writeTextAtomic(path, text, mode = 0o640, ownership = null) {
+const atomicFileOperations = {
+  closeSync,
+  fchmodSync,
+  fchownSync,
+  openSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+};
+
+export function writeTextAtomic(
+  path,
+  text,
+  mode = 0o640,
+  ownership = null,
+  operationOverrides = {},
+) {
+  const operations = { ...atomicFileOperations, ...operationOverrides };
   mkdirSync(dirname(path), { recursive: true });
   const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  let descriptor = null;
+  let temporaryCreated = false;
   try {
-    writeFileSync(temporary, text, { encoding: "utf8", mode });
-    chmodSync(temporary, mode);
+    descriptor = operations.openSync(temporary, "wx", mode);
+    temporaryCreated = true;
+    operations.writeFileSync(descriptor, text, { encoding: "utf8" });
+    operations.fchmodSync(descriptor, mode);
     if (ownership && process.platform !== "win32") {
-      chownSync(temporary, ownership.uid, ownership.gid);
+      operations.fchownSync(descriptor, ownership.uid, ownership.gid);
     }
-    renameSync(temporary, path);
+    operations.closeSync(descriptor);
+    descriptor = null;
+    operations.renameSync(temporary, path);
   } catch (error) {
-    rmSync(temporary, { force: true });
+    if (descriptor !== null) {
+      try {
+        operations.closeSync(descriptor);
+      } catch {
+        // Preserve the first failure; cleanup below remains best effort.
+      }
+    }
+    if (temporaryCreated) {
+      try {
+        operations.rmSync(temporary, { force: true });
+      } catch {
+        // Preserve the first failure.
+      }
+    }
     throw error;
   }
 }

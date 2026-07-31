@@ -4,6 +4,7 @@ import {
   chownSync,
   copyFileSync,
   existsSync,
+  fchmodSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -11,6 +12,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -153,6 +155,47 @@ test("failed atomic writes preserve the target and remove temporary files", {
   );
   assert.equal(readFileSync(path, "utf8"), "known good\n");
   assert.deepEqual(readdirSync(directory), ["release.env"]);
+});
+
+test("atomic open failures do not remove a path the writer never created", () => {
+  let removed = false;
+  assert.throws(
+    () => writeTextAtomic("unused-release.env", "candidate\n", 0o640, null, {
+      openSync: () => {
+        throw new Error("simulated exclusive-create collision");
+      },
+      rmSync: () => {
+        removed = true;
+      },
+    }),
+    /exclusive-create collision/u,
+  );
+  assert.equal(removed, false);
+});
+
+test("atomic metadata updates stay on the open file during path substitution", {
+  skip: process.platform === "win32",
+}, (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "stugu-atomic-substitution-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const path = join(directory, "release.env");
+  const external = join(directory, "external");
+  writeFileSync(external, "external\n", { encoding: "utf8", mode: 0o600 });
+
+  writeTextAtomic(path, "candidate\n", 0o640, null, {
+    fchmodSync: (descriptor, mode) => {
+      const temporary = readdirSync(directory)
+        .map((name) => join(directory, name))
+        .find((candidate) => candidate !== external && candidate !== path);
+      assert.ok(temporary);
+      rmSync(temporary, { force: true });
+      symlinkSync(external, temporary);
+      fchmodSync(descriptor, mode);
+    },
+  });
+
+  assert.equal(statSync(external).mode & 0o777, 0o600);
+  assert.equal(lstatSync(path).isSymbolicLink(), true);
 });
 
 function composeImages(config) {
