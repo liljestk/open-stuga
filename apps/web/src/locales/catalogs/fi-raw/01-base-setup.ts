@@ -162,6 +162,8 @@ export const fiRawPart1 = {
   "setup.testFailure": "Yhteys epäonnistui. Tarkista tallennettu URL, tunnus ja verkkoyhteys ja yritä uudelleen.",
   "setup.security": "Selain ei käsittele tunnustasi. Paikallinen palvelin lukee salaisuudet ympäristöstään eikä tallenna niitä SQLiteen.",
   "measurement.source.tp-link": "Suora TP-Link",
+  "measurement.source.tuya": "Tuya",
+  "measurement.source.nexus433": "Nexus433",
   "setup.description": "Tuo TP-Link-anturit Climate Twiniin suoraan H100/H200-keskittimestä tai Home Assistantin kautta.",
   "setup.step1body": "Lisää H100- tai H200-keskitin ja kaikki T310- tai T315-anturit Tapo-sovelluksessa. Päivitä laiteohjelmisto ja nimeä anturit huoneittain.",
   "setup.step2": "Valitse yhteystapa",

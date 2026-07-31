@@ -317,6 +317,7 @@ export const fiSupplementPart2 = {
   "overview.outdoorReady": "Valmiina pyynnöstä",
   "overview.locationNeeded": "Lisää ensin sijainti",
   "overview.openHome": "Avaa koti",
+  "overview.openHomeNamed": "Avaa {name}",
   "overview.openOutdoor": "Ulkoilman tiedot",
   "overview.finishSetup": "Viimeistele määritys",
   "overview.connections": "Kotien yhteydet",

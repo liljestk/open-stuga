@@ -95,6 +95,7 @@ import {
 } from "../../notification-policy.js";
 import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord } from "../../timeseries/types.js";
 import { CORE_SCHEMA_SQL } from "../migrations/core-schema.js";
+import { TP_LINK_LOCAL_CLIMATE_HISTORY_RETENTION_MS } from "../support/01-json-value-to-area-equipment-row.js";
 import { AlertRuleRow } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
 import { ruleFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
 import { registerDatabaseMethods } from "../core.js";
@@ -171,6 +172,36 @@ registerDatabaseMethods({
       if (!alertRuleColumns.some((column) => column.name === "delivery_policy_json")) {
             this.db.exec("ALTER TABLE alert_rules ADD COLUMN delivery_policy_json TEXT NOT NULL DEFAULT '{}'");
           }
+      const sensorGapColumns = this.db.prepare("PRAGMA table_info(sensor_data_gaps)")
+            .all() as unknown as Array<{ name: string }>;
+      if (!sensorGapColumns.some((column) => column.name === "recoverable_until")) {
+            this.db.exec("ALTER TABLE sensor_data_gaps ADD COLUMN recoverable_until TEXT");
+          }
+      if (!sensorGapColumns.some((column) => column.name === "recovery_completeness")) {
+            this.db.exec(`ALTER TABLE sensor_data_gaps ADD COLUMN recovery_completeness TEXT NOT NULL DEFAULT 'unknown'
+              CHECK (recovery_completeness IN ('unknown', 'none', 'partial', 'complete'))`);
+          }
+      // Direct TP-Link climate history retains 95 fifteen-minute intervals.
+      // Other adapters/fallbacks own their retention, so NULL remains explicitly
+      // unknown rather than implying unlimited or six-month recovery.
+      const tpLinkRetentionMinutes = TP_LINK_LOCAL_CLIMATE_HISTORY_RETENTION_MS / 60_000;
+      this.db.prepare(`UPDATE sensor_data_gaps
+        SET recoverable_until = strftime('%Y-%m-%dT%H:%M:%fZ', started_at, ?)
+        WHERE source = 'tp-link' AND metric IN ('temperature', 'humidity')
+          AND EXISTS (
+            SELECT 1 FROM sensors AS sensor
+            WHERE sensor.id = sensor_data_gaps.sensor_id
+              AND (upper(sensor.model) LIKE '%T310%' OR upper(sensor.model) LIKE '%T315%')
+          )
+          AND recoverable_until IS NULL`)
+        .run(`+${tpLinkRetentionMinutes} minutes`);
+      this.db.exec(`UPDATE sensor_data_gaps SET recovery_completeness = CASE
+          WHEN recovery_state = 'complete' AND recovered_points > 0 THEN 'complete'
+          WHEN recovered_points > 0 THEN 'partial'
+          WHEN recovery_state IN ('complete', 'partial', 'failed', 'not-supported') THEN 'none'
+          ELSE 'unknown'
+        END
+        WHERE recovery_completeness = 'unknown';`);
       let notificationOutboxColumns = this.db.prepare("PRAGMA table_info(notification_outbox)")
             .all() as unknown as Array<{ name: string }>;
       if (!notificationOutboxColumns.some((column) => column.name === "payload_json")) {

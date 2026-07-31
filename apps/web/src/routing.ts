@@ -5,8 +5,11 @@ export interface RouteScope {
   houseId: string | null;
 }
 
+export type PropertySection = "overview" | "map" | "inventory" | "notes" | "access";
+
 export interface AppRoute extends RouteScope {
   page: AppPage;
+  propertySection?: PropertySection;
   /** The URL parsed successfully, but should be replaced by its canonical scoped URL. */
   legacy?: boolean;
   notFound?: boolean;
@@ -62,7 +65,7 @@ export function routeFromLocation(location: Pick<Location, "pathname" | "search"
     return { page, propertyId, houseId };
   }
 
-  const propertyRoute = /^\/properties\/([^/]+)(?:\/(maintenance|electricity))?$/.exec(path);
+  const propertyRoute = /^\/properties\/([^/]+)(?:\/(map|inventory|notes|access|maintenance|electricity))?$/.exec(path);
   if (propertyRoute) {
     const propertyId = decoded(propertyRoute[1]);
     if (!propertyId) return { page: "overview", propertyId: null, houseId: null, notFound: true };
@@ -71,10 +74,14 @@ export function routeFromLocation(location: Pick<Location, "pathname" | "search"
       : propertyRoute[2] === "electricity"
         ? "energy"
         : "properties";
+    const propertySection = page === "properties" && propertyRoute[2]
+      ? propertyRoute[2] as Exclude<PropertySection, "overview">
+      : undefined;
     return {
       page,
       propertyId,
       houseId: page === "maintenance" ? queryHouse : null,
+      ...(propertySection ? { propertySection } : {}),
     };
   }
 
@@ -107,6 +114,11 @@ export function routeFromLocation(location: Pick<Location, "pathname" | "search"
   }
 
   return { page: "overview", propertyId: null, houseId: null, notFound: true };
+}
+
+export function locationForPropertySection(propertyId: string, section: PropertySection): string {
+  const base = `/properties/${encodeURIComponent(propertyId)}`;
+  return section === "overview" ? base : `${base}/${section}`;
 }
 
 export function locationForRoute(

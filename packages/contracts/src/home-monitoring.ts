@@ -1,4 +1,4 @@
-import type { Metric } from "./measurement-analytics.js";
+import type { MeasurementSample, Metric } from "./measurement-analytics.js";
 import type {
   DerivedAnalyticsCompleteness,
   DerivedAnalyticsProvenance,
@@ -96,6 +96,22 @@ export interface HomeInsightEvidence {
   metric?: Metric;
   sensorId?: string;
   observedAt?: string;
+  /** Physical adapter that supplied this evidence, when it is a sensor measurement. */
+  source?: MeasurementSample["source"];
+  /** Source-level quality retained from the canonical measurement sample. */
+  quality?: MeasurementSample["quality"];
+  /** Freshness of this individual evidence item at evaluation time. */
+  freshness?: HomeInsightFreshness;
+}
+
+/** Reviewable lineage for every latest measurement considered by Home monitoring. */
+export interface HomeMonitoringEvidenceSource {
+  sensorId: string;
+  metric: Metric;
+  observedAt: string;
+  source: MeasurementSample["source"];
+  quality: MeasurementSample["quality"];
+  freshness: HomeInsightFreshness;
 }
 
 export interface HomeInsight {
@@ -135,6 +151,7 @@ interface HomeMonitoringEnvelope {
   completeness: DerivedAnalyticsCompleteness;
   warnings: DerivedAnalyticsWarning[];
   provenance: DerivedAnalyticsProvenance;
+  evidenceSources: HomeMonitoringEvidenceSource[];
 }
 
 export interface HomeMonitoringCollectionResponse extends HomeMonitoringEnvelope {

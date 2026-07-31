@@ -131,6 +131,20 @@ describe("Home monitoring API", () => {
       activeAlertCount: collectionHome.activeAlertCount,
       blockers: collectionHome.blockers,
     });
+    expect(detail.body).toMatchObject({
+      completeness: "complete",
+      warnings: [],
+      provenance: { sourceIds: ["kitchen-t310"] },
+    });
+    expect(detail.body.evidenceSources).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sensorId: "kitchen-t310",
+        metric: "humidity",
+        source: "tp-link",
+        quality: "good",
+        freshness: expect.objectContaining({ state: "fresh" }),
+      }),
+    ]));
     expect(detail.body.sensorCoverage[0]).toMatchObject({
       sensorId: "kitchen-t310",
       freshness: { state: "fresh" },
@@ -139,6 +153,15 @@ describe("Home monitoring API", () => {
       kind: "humidity",
       titleCode: "monitoring.insight.humidity.title",
       freshness: { state: "fresh" },
+      evidence: expect.arrayContaining([
+        expect.objectContaining({
+          metric: "humidity",
+          sensorId: "kitchen-t310",
+          source: "tp-link",
+          quality: "good",
+          freshness: expect.objectContaining({ state: "fresh" }),
+        }),
+      ]),
     });
 
     const cachedDetail = await request(runtime.app)
@@ -166,6 +189,82 @@ describe("Home monitoring API", () => {
     expect(refreshedDetail.headers["x-stugu-cache"]).toBe("miss");
     expect(groupedRead).toHaveBeenCalledOnce();
     cacheClock.mockRestore();
+  });
+
+  it("reports estimated and missing evidence as partial or unavailable", async () => {
+    const timestamp = new Date(Date.now() + 1_000).toISOString();
+    runtime.database.insertMeasurementSamples([{
+      sensorId: "kitchen-t310",
+      metric: "temperature",
+      value: 21.7,
+      canonicalUnit: "\u00b0C",
+      timestamp,
+      source: "home-assistant",
+      quality: "estimated",
+    }, {
+      sensorId: "kitchen-t310",
+      metric: "humidity",
+      value: 77,
+      canonicalUnit: "%",
+      timestamp,
+      source: "home-assistant",
+      quality: "estimated",
+    }]);
+
+    const partial = await request(runtime.app)
+      .get("/api/v2/monitoring/houses/home-one?dataMode=live&include=insights")
+      .expect(200);
+    expect(partial.body.completeness).toBe("partial");
+    expect(partial.body.warnings).toContainEqual(expect.objectContaining({
+      code: "monitoring.estimated-evidence",
+    }));
+    expect(partial.body.evidenceSources).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sensorId: "kitchen-t310",
+        source: "home-assistant",
+        quality: "estimated",
+        freshness: expect.objectContaining({ state: "estimated" }),
+      }),
+    ]));
+
+    runtime.database.createHouse({
+      id: "home-without-evidence",
+      name: "Home without evidence",
+      timezone: "UTC",
+      floors: [{
+        id: "ground-empty",
+        name: "Ground",
+        width: 10,
+        height: 10,
+        elevation: 0,
+        walls: [],
+        rooms: [],
+      }],
+    });
+    runtime.database.createSensor({
+      id: "empty-sensor",
+      houseId: "home-without-evidence",
+      floorId: "ground-empty",
+      room: "Utility",
+      name: "Empty sensor",
+      model: "Generic",
+      x: 1,
+      y: 1,
+      z: 1,
+      tags: [],
+      enabled: true,
+    });
+    const unavailable = await request(runtime.app)
+      .get("/api/v2/monitoring/houses/home-without-evidence?dataMode=live")
+      .expect(200);
+    expect(unavailable.body).toMatchObject({
+      completeness: "unavailable",
+      provenance: { sourceIds: [] },
+      evidenceSources: [],
+    });
+    expect(unavailable.body.warnings).toContainEqual(expect.objectContaining({
+      code: "monitoring.missing-evidence",
+    }));
   });
 
   it("rejects cross-mode, invalid includes, and unknown Homes", async () => {

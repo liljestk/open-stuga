@@ -26,6 +26,7 @@ final class PhoneWatchConnectivityBridge: NSObject, WCSessionDelegate {
     private let snapshotLock = NSLock()
     private var latestSnapshotData: Data?
     private var session: WCSession?
+    private var processingInbox = false
 
     private override init() {
         super.init()
@@ -58,6 +59,7 @@ final class PhoneWatchConnectivityBridge: NSObject, WCSessionDelegate {
             latestSnapshotData = data
         }
         deliverLatestSnapshot()
+        Task { await processInboxWhenReady() }
     }
 
     @MainActor
@@ -107,19 +109,55 @@ final class PhoneWatchConnectivityBridge: NSObject, WCSessionDelegate {
               let createdAt = ISO8601DateFormatter().date(from: action.createdAt) else {
             return false
         }
+        if let context = action.context {
+            guard context.isWellFormed,
+                  [
+                    context.serverBinding,
+                    context.accountBinding,
+                    context.homeId,
+                  ].allSatisfy({ value in
+                      value.unicodeScalars.allSatisfy({
+                          CharacterSet.alphanumerics.contains($0)
+                              || "-._:".unicodeScalars.contains($0)
+                      })
+                  }) else {
+                return false
+            }
+        }
         let age = Date().timeIntervalSince(createdAt)
         return age >= -300 && age <= 7 * 24 * 60 * 60
     }
 
     @MainActor
     private func processInboxWhenReady() async {
-        guard let model, model.phase == .ready else { return }
+        guard !processingInbox,
+              let model,
+              model.phase == .ready else { return }
+        processingInbox = true
+        defer { processingInbox = false }
         for action in await inbox.actions() {
+            guard valid(action) else {
+                await inbox.remove(id: action.id)
+                continue
+            }
+            guard let currentContext = model.currentWatchActionContext(),
+                  action.isBound(to: currentContext) else {
+                // Keep a valid mismatched action until it expires. It may belong
+                // to a temporarily inactive Home, account, or server, and must
+                // never be replayed into the current context.
+                continue
+            }
+            let accepted: Bool
             switch action.kind {
             case .acknowledgeAlert:
-                await model.acknowledgeAlert(id: action.alertId)
+                accepted = await model.acknowledgeAlert(
+                    id: action.alertId,
+                    expectedHomeID: currentContext.homeId
+                )
             }
-            await inbox.remove(id: action.id)
+            if accepted {
+                await inbox.remove(id: action.id)
+            }
         }
     }
 
@@ -189,7 +227,19 @@ private actor PhoneWatchActionInbox {
     }
 
     func actions() -> [WatchCompanionAction] {
-        load()
+        let now = Date()
+        let current = load()
+        let retained = current.filter { action in
+            guard let createdAt = ISO8601DateFormatter().date(from: action.createdAt) else {
+                return false
+            }
+            let age = now.timeIntervalSince(createdAt)
+            return age >= -300 && age <= 7 * 24 * 60 * 60
+        }
+        if retained.count != current.count {
+            save(retained)
+        }
+        return retained
     }
 
     func remove(id: String) {

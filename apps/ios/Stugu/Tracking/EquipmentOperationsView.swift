@@ -89,7 +89,7 @@ struct EquipmentOperationsView: View {
                     Label("Mark as returned", systemImage: "arrow.uturn.backward.circle")
                 }
                 .buttonStyle(SecondaryButtonStyle())
-                .disabled(model.selectedPropertyReadOnly)
+                .disabled(!model.inventoryMutationsAvailable)
             } else {
                 Text("Available to borrow")
                     .font(.subheadline.weight(.semibold))
@@ -102,7 +102,7 @@ struct EquipmentOperationsView: View {
                     Label("Borrow equipment", systemImage: "person.badge.plus")
                 }
                 .buttonStyle(SecondaryButtonStyle())
-                .disabled(model.selectedPropertyReadOnly)
+                .disabled(!model.inventoryMutationsAvailable)
             }
         }
     }
@@ -138,7 +138,7 @@ struct EquipmentOperationsView: View {
                 Label("Add note", systemImage: "square.and.pencil")
             }
             .buttonStyle(SecondaryButtonStyle())
-            .disabled(model.selectedPropertyReadOnly)
+            .disabled(!model.inventoryMutationsAvailable)
         }
     }
 
@@ -175,7 +175,7 @@ struct EquipmentOperationsView: View {
                 Label("Report an issue", systemImage: "exclamationmark.bubble")
             }
             .buttonStyle(SecondaryButtonStyle())
-            .disabled(model.selectedPropertyReadOnly)
+            .disabled(!model.inventoryMutationsAvailable)
         }
     }
 
@@ -425,6 +425,7 @@ private struct EquipmentReturnSheet: View {
 
 private struct EquipmentActionForm<Content: View>: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var model: AppModel
     let title: String
     let saveDisabled: Bool
     @Binding var saving: Bool
@@ -453,7 +454,24 @@ private struct EquipmentActionForm<Content: View>: View {
 
     var body: some View {
         NavigationStack {
-            Form { content }
+            Form {
+                if !model.inventoryMutationsAvailable {
+                    Section {
+                        Label {
+                            Text(LocalizedStringKey(
+                                model.selectedPropertyReadOnly
+                                    ? "This Property is read-only. Inventory can be viewed but not changed."
+                                    : "Reconnect to Stugu before changing inventory."
+                            ))
+                        } icon: {
+                            Image(systemName: model.selectedPropertyReadOnly ? "eye" : "wifi.slash")
+                        }
+                        .foregroundStyle(StuguTheme.warning)
+                    }
+                }
+                content
+                    .disabled(!model.inventoryMutationsAvailable)
+            }
                 .navigationTitle(title)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -474,7 +492,9 @@ private struct EquipmentActionForm<Content: View>: View {
                                 }
                             }
                         }
-                        .disabled(saveDisabled || saving)
+                        .disabled(
+                            saveDisabled || saving || !model.inventoryMutationsAvailable
+                        )
                     }
                 }
                 .alert("Could not save", isPresented: Binding(

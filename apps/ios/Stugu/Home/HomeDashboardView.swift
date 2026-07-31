@@ -27,7 +27,7 @@ struct HomeDashboardView: View {
                         Button(action: openRoomScan) {
                             Label("Scan a room", systemImage: "viewfinder")
                         }
-                        .disabled(model.selectedHomeReadOnly || model.usingCachedData)
+                        .disabled(!model.roomPlanCaptureAvailable)
                     } label: {
                         Label("Add", systemImage: "plus")
                     }

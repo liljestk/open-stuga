@@ -25,6 +25,10 @@ final class AppModel: ObservableObject {
         static let notificationDeviceToken = "stugu.notifications.deviceToken"
         static let notificationMinimumSeverity = "stugu.notifications.minimumSeverity"
         static let notificationIncludeDetails = "stugu.notifications.includeDetails"
+        static let watchServerIdentity = "stugu.watch.serverIdentity"
+        static let watchServerBinding = "stugu.watch.serverBinding"
+        static let watchAccountIdentity = "stugu.watch.accountIdentity"
+        static let watchAccountBinding = "stugu.watch.accountBinding"
     }
 
     enum QuickCaptureSaveState: Equatable {
@@ -540,6 +544,23 @@ final class AppModel: ObservableObject {
         isReadOnly || selectedHome?.stuguby?.isReadOnly == true
     }
 
+    var inventoryMutationsAvailable: Bool {
+        phase == .ready && !usingCachedData && !selectedPropertyReadOnly
+    }
+
+    var roomPlanCaptureAvailable: Bool {
+        phase == .ready && !usingCachedData && !selectedHomeReadOnly
+    }
+
+    func canAcknowledgeAlert(_ alert: AlertEvent) -> Bool {
+        guard phase == .ready,
+              !isReadOnly,
+              let alertHome = house(for: alert.sensorId) else {
+            return false
+        }
+        return alertHome.stuguby?.isReadOnly != true
+    }
+
     var selectedHomeIsForeignShared: Bool {
         selectedHome?.stuguby?.isForeignSharedHome == true
     }
@@ -848,39 +869,51 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func acknowledge(_ alert: AlertEvent) async {
-        guard !isReadOnly else { return }
+    @discardableResult
+    func acknowledge(_ alert: AlertEvent) async -> Bool {
+        guard canAcknowledgeAlert(alert) else {
+            errorMessage = "This Home is read-only and its alerts cannot be changed."
+            return false
+        }
         let generation = requestGeneration
         if usingCachedData || client == nil {
-            await queueAlertAcknowledgement(alert)
-            return
+            return await queueAlertAcknowledgement(alert)
         }
         do {
             let updated = try await client!.acknowledgeAlert(id: alert.id)
-            guard generation == requestGeneration else { return }
+            guard generation == requestGeneration else { return false }
             if let index = alerts.firstIndex(where: { $0.id == updated.id }) {
                 alerts[index] = updated
             }
             cancelLocalAlertReminder(alertID: updated.id)
             await persistCompanionState()
             errorMessage = nil
+            return true
         } catch {
             if isTransient(error) {
-                await queueAlertAcknowledgement(alert)
+                return await queueAlertAcknowledgement(alert)
             } else {
                 handleAuthenticatedError(error)
+                return false
             }
         }
     }
 
-    func acknowledgeAlert(id: String) async {
+    @discardableResult
+    func acknowledgeAlert(id: String, expectedHomeID: String? = nil) async -> Bool {
         if let alert = alerts.first(where: { $0.id == id }) {
-            await acknowledge(alert)
-            return
+            if let expectedHomeID,
+               house(for: alert.sensorId)?.id != expectedHomeID {
+                return false
+            }
+            return await acknowledge(alert)
         }
-        guard !isReadOnly else {
-            errorMessage = "This account cannot acknowledge alerts."
-            return
+        // A Watch action must never cross Home scope merely because its alert
+        // is absent from the current cache and cannot be verified locally.
+        guard expectedHomeID == nil else { return false }
+        guard phase == .ready, !isReadOnly else {
+            errorMessage = "This account cannot change alerts."
+            return false
         }
         guard let client, !usingCachedData else {
             if await enqueue(PendingCompanionAction(
@@ -889,13 +922,15 @@ final class AppModel: ObservableObject {
                 alertId: id
             )) {
                 cancelLocalAlertReminder(alertID: id)
+                return true
             }
-            return
+            return false
         }
         do {
             _ = try await client.acknowledgeAlert(id: id)
             cancelLocalAlertReminder(alertID: id)
             await refresh()
+            return true
         } catch {
             if isTransient(error) {
                 if await enqueue(PendingCompanionAction(
@@ -904,9 +939,12 @@ final class AppModel: ObservableObject {
                     alertId: id
                 )) {
                     cancelLocalAlertReminder(alertID: id)
+                    return true
                 }
+                return false
             } else {
                 handleAuthenticatedError(error)
+                return false
             }
         }
     }
@@ -923,7 +961,10 @@ final class AppModel: ObservableObject {
                 message: "This Home's floor plan is read-only."
             )
         }
-        guard !usingCachedData, let client, let home = selectedHome else {
+        guard phase == .ready,
+              !usingCachedData,
+              let client,
+              let home = selectedHome else {
             throw StuguAPIError(
                 status: 503,
                 code: "ONLINE_REQUIRED",
@@ -1035,15 +1076,27 @@ final class AppModel: ObservableObject {
         mobileTracking.endFind()
     }
 
-    @discardableResult
-    func createEquipment(_ input: AreaEquipmentCreateInput) async throws -> AreaEquipment {
-        guard !selectedPropertyReadOnly, let client else {
+    private func onlinePropertyMutationClient() throws -> StuguAPIClient {
+        guard !selectedPropertyReadOnly else {
             throw StuguAPIError(
                 status: 403,
                 code: "READ_ONLY",
-                message: "This account cannot change Property inventory."
+                message: "This Property is read-only and cannot be changed."
             )
         }
+        guard phase == .ready, !usingCachedData, let client else {
+            throw StuguAPIError(
+                status: 503,
+                code: "ONLINE_REQUIRED",
+                message: "Reconnect to Stugu before changing Property inventory."
+            )
+        }
+        return client
+    }
+
+    @discardableResult
+    func createEquipment(_ input: AreaEquipmentCreateInput) async throws -> AreaEquipment {
+        let client = try onlinePropertyMutationClient()
         guard input.propertyId == selectedProperty?.id,
               equipmentPlacementIsValid(areaID: input.areaId, houseID: input.houseId) else {
             throw StuguAPIError(
@@ -1063,13 +1116,7 @@ final class AppModel: ObservableObject {
         id: String,
         input: AreaEquipmentUpdateInput
     ) async throws -> AreaEquipment {
-        guard !selectedPropertyReadOnly, let client else {
-            throw StuguAPIError(
-                status: 403,
-                code: "READ_ONLY",
-                message: "This account cannot change Property inventory."
-            )
-        }
+        let client = try onlinePropertyMutationClient()
         guard selectedPropertyEquipment.contains(where: { $0.id == id }),
               !input.updatesPlacement
                 || equipmentPlacementIsValid(areaID: input.areaId, houseID: input.houseId) else {
@@ -1093,12 +1140,12 @@ final class AppModel: ObservableObject {
         mimeType: String,
         data: Data
     ) async throws -> EquipmentAttachment {
-        guard !selectedPropertyReadOnly, let client,
-              selectedPropertyEquipment.contains(where: { $0.id == equipmentID }) else {
+        let client = try onlinePropertyMutationClient()
+        guard selectedPropertyEquipment.contains(where: { $0.id == equipmentID }) else {
             throw StuguAPIError(
-                status: 403,
-                code: "READ_ONLY",
-                message: "This account cannot change Property inventory."
+                status: 404,
+                code: "NOT_FOUND",
+                message: "This inventory item is not available in the selected Property."
             )
         }
         let attachment = try await client.uploadEquipmentAttachment(
@@ -1134,13 +1181,7 @@ final class AppModel: ObservableObject {
         equipmentID: String,
         attachmentID: String
     ) async throws {
-        guard !selectedPropertyReadOnly, let client else {
-            throw StuguAPIError(
-                status: 403,
-                code: "READ_ONLY",
-                message: "This account cannot change Property inventory."
-            )
-        }
+        let client = try onlinePropertyMutationClient()
         try await client.deleteEquipmentAttachment(
             equipmentID: equipmentID,
             attachmentID: attachmentID
@@ -1154,12 +1195,12 @@ final class AppModel: ObservableObject {
         label: String,
         url: String
     ) async throws -> EquipmentLink {
-        guard !selectedPropertyReadOnly, let client,
-              selectedPropertyEquipment.contains(where: { $0.id == equipmentID }) else {
+        let client = try onlinePropertyMutationClient()
+        guard selectedPropertyEquipment.contains(where: { $0.id == equipmentID }) else {
             throw StuguAPIError(
-                status: 403,
-                code: "READ_ONLY",
-                message: "This account cannot change Property inventory."
+                status: 404,
+                code: "NOT_FOUND",
+                message: "This inventory item is not available in the selected Property."
             )
         }
         let link = try await client.createEquipmentLink(
@@ -1172,13 +1213,7 @@ final class AppModel: ObservableObject {
     }
 
     func deleteEquipmentLink(equipmentID: String, linkID: String) async throws {
-        guard !selectedPropertyReadOnly, let client else {
-            throw StuguAPIError(
-                status: 403,
-                code: "READ_ONLY",
-                message: "This account cannot change Property inventory."
-            )
-        }
+        let client = try onlinePropertyMutationClient()
         try await client.deleteEquipmentLink(equipmentID: equipmentID, linkID: linkID)
         try await loadInventoryWorkspace()
     }
@@ -1203,13 +1238,7 @@ final class AppModel: ObservableObject {
 
     @discardableResult
     func addEquipmentNote(equipment: AreaEquipment, text: String) async throws -> PropertyNote {
-        guard !selectedPropertyReadOnly, let client else {
-            throw StuguAPIError(
-                status: 403,
-                code: "READ_ONLY",
-                message: "This Property is read-only."
-            )
-        }
+        let client = try onlinePropertyMutationClient()
         return try await client.addEquipmentNote(
             propertyID: equipment.propertyId,
             equipmentID: equipment.id,
@@ -1224,13 +1253,7 @@ final class AppModel: ObservableObject {
         description: String?,
         priority: String
     ) async throws -> MaintenanceTask {
-        guard !selectedPropertyReadOnly, let client else {
-            throw StuguAPIError(
-                status: 403,
-                code: "READ_ONLY",
-                message: "This Property is read-only."
-            )
-        }
+        let client = try onlinePropertyMutationClient()
         return try await client.reportEquipmentIssue(
             equipment: equipment,
             title: title,
@@ -1245,13 +1268,7 @@ final class AppModel: ObservableObject {
         expectedReturnAt: String?,
         note: String?
     ) async throws -> EquipmentLoan {
-        guard !selectedPropertyReadOnly, let client else {
-            throw StuguAPIError(
-                status: 403,
-                code: "READ_ONLY",
-                message: "This Property is read-only."
-            )
-        }
+        let client = try onlinePropertyMutationClient()
         return try await client.borrowEquipment(
             equipmentID: equipment.id,
             expectedReturnAt: expectedReturnAt,
@@ -1261,13 +1278,7 @@ final class AppModel: ObservableObject {
 
     @discardableResult
     func returnEquipment(loan: EquipmentLoan, note: String?) async throws -> EquipmentLoan {
-        guard !selectedPropertyReadOnly, let client else {
-            throw StuguAPIError(
-                status: 403,
-                code: "READ_ONLY",
-                message: "This Property is read-only."
-            )
-        }
+        let client = try onlinePropertyMutationClient()
         return try await client.returnEquipment(loanID: loan.id, note: note)
     }
 
@@ -1593,6 +1604,7 @@ final class AppModel: ObservableObject {
             await client.clearCookies()
         }
         try? await cacheStore.remove()
+        resetWatchActionBindings()
         clearGlanceableState()
         guard generation == requestGeneration else { return }
         phase = .signIn
@@ -1630,6 +1642,7 @@ final class AppModel: ObservableObject {
         UserDefaults.standard.removeObject(forKey: DefaultsKey.notificationRegistration)
         UserDefaults.standard.removeObject(forKey: DefaultsKey.notificationAccountIdentity)
         try? await cacheStore.remove()
+        resetWatchActionBindings()
         clearGlanceableState()
         guard generation == requestGeneration else { return }
         phase = .serverSetup
@@ -2210,6 +2223,58 @@ final class AppModel: ObservableObject {
         ].joined(separator: "\u{1f}")
     }
 
+    func currentWatchActionContext() -> WatchActionContext? {
+        guard let serverAddress,
+              let session,
+              session.authenticated,
+              let homeID = selectedHomeID else {
+            return nil
+        }
+        let defaults = UserDefaults.standard
+        let serverBinding = stableWatchBinding(
+            identity: serverAddress.origin.absoluteString,
+            identityKey: DefaultsKey.watchServerIdentity,
+            bindingKey: DefaultsKey.watchServerBinding,
+            defaults: defaults
+        )
+        let accountBinding = stableWatchBinding(
+            identity: accountIdentity(for: session),
+            identityKey: DefaultsKey.watchAccountIdentity,
+            bindingKey: DefaultsKey.watchAccountBinding,
+            defaults: defaults
+        )
+        return WatchActionContext(
+            serverBinding: serverBinding,
+            accountBinding: accountBinding,
+            homeId: homeID
+        )
+    }
+
+    private func stableWatchBinding(
+        identity: String,
+        identityKey: String,
+        bindingKey: String,
+        defaults: UserDefaults
+    ) -> String {
+        if defaults.string(forKey: identityKey) == identity,
+           let binding = defaults.string(forKey: bindingKey),
+           !binding.isEmpty {
+            return binding
+        }
+        let binding = UUID().uuidString.lowercased()
+        defaults.set(identity, forKey: identityKey)
+        defaults.set(binding, forKey: bindingKey)
+        return binding
+    }
+
+    private func resetWatchActionBindings() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: DefaultsKey.watchServerIdentity)
+        defaults.removeObject(forKey: DefaultsKey.watchServerBinding)
+        defaults.removeObject(forKey: DefaultsKey.watchAccountIdentity)
+        defaults.removeObject(forKey: DefaultsKey.watchAccountBinding)
+    }
+
     private func persistWidgetSnapshot() {
         guard let home = selectedHome else {
             clearGlanceableState()
@@ -2263,8 +2328,9 @@ final class AppModel: ObservableObject {
             detail: usingCachedData ? "Saved status. \(summary.detail)" : summary.detail,
             updatedAt: updatedAt,
             cached: usingCachedData,
-            readOnly: isReadOnly,
-            alerts: Array(watchAlerts)
+            readOnly: selectedHomeReadOnly,
+            alerts: Array(watchAlerts),
+            actionContext: currentWatchActionContext()
         ))
     }
 
@@ -2275,12 +2341,13 @@ final class AppModel: ObservableObject {
         )
     }
 
-    private func queueAlertAcknowledgement(_ alert: AlertEvent) async {
+    @discardableResult
+    private func queueAlertAcknowledgement(_ alert: AlertEvent) async -> Bool {
         guard await enqueue(PendingCompanionAction(
             kind: .acknowledgeAlert,
             createdAt: iso8601(Date()),
             alertId: alert.id
-        )) else { return }
+        )) else { return false }
         if let index = alerts.firstIndex(where: { $0.id == alert.id }) {
             alerts[index] = AlertEvent(
                 id: alert.id,
@@ -2298,6 +2365,7 @@ final class AppModel: ObservableObject {
         errorMessage = "Marked as seen on this iPhone. Stugu will receive it after reconnection."
         cancelLocalAlertReminder(alertID: alert.id)
         await persistCompanionState()
+        return true
     }
 
     @discardableResult

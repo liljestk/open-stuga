@@ -12,6 +12,7 @@
 .property-house-group, .property-area-list { display: grid; gap: 9px; padding-top: 13px; border-top: 1px solid var(--line); }
 .property-house-group ul { max-height: min(32vh, 280px); display: grid; gap: 6px; margin: 0; padding: 0 3px 0 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; list-style: none; }
 .property-house-group li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 7px; align-items: center; padding: 8px; border-radius: 8px; background: var(--panel-soft); }
+.property-house-group .open-home-button { grid-column: 1 / -1; min-height: 40px; justify-content: center; margin-top: 2px; }
 .property-house-group li > span { min-width: 0; display: grid; gap: 2px; }
 .property-house-group li strong, .property-house-group li small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .property-house-group li strong { font-size: 11px; }
@@ -35,7 +36,7 @@
 .property-tabs button[aria-selected="true"] { border-color: var(--line-strong); color: var(--action); background: var(--panel); box-shadow: inset 0 -2px 0 var(--action); }
 .property-map-workspace { min-width: 0; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr); gap: 14px; align-items: start; }
 .property-map-panel, .area-editor, .property-assets-grid > .panel, .property-notes-grid > .panel, .property-access-grid > .panel { min-width: 0; padding: 18px; }
-.property-status-lights { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; margin: 12px 0; }
+.property-status-lights { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 7px; margin: 12px 0; }
 .property-status-lights article { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 7px; padding: 9px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-soft); }
 .property-status-lights article > span:last-child { min-width: 0; display: grid; gap: 1px; }
 .property-status-lights strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

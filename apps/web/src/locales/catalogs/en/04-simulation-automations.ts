@@ -192,6 +192,8 @@ export const enPart4 = {
   "measurement.source.mock": "Mock data",
   "measurement.source.home-assistant": "Home Assistant",
   "measurement.source.tp-link": "Direct TP-Link",
+  "measurement.source.tuya": "Tuya",
+  "measurement.source.nexus433": "Nexus433",
   "measurement.source.api": "API",
   "measurement.source.import": "Imported history",
   "measurement.source.replay": "Replay",

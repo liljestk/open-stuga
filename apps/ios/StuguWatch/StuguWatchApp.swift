@@ -83,7 +83,7 @@ private struct StuguWatchHomeView: View {
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(severityColor(alert.severity))
 
-                            if !snapshot.readOnly {
+                            if !snapshot.readOnly, snapshot.actionContext != nil {
                                 Button {
                                     model.markSeen(alert)
                                 } label: {
@@ -202,12 +202,14 @@ private final class StuguWatchModel: NSObject, ObservableObject, WCSessionDelega
 
     func markSeen(_ alert: WatchAlertSummary) {
         guard snapshot?.readOnly == false,
+              let context = snapshot?.actionContext,
               !pendingAlertIDs.contains(alert.id) else {
             return
         }
         let action = WatchCompanionAction(
             alertId: alert.id,
-            createdAt: ISO8601DateFormatter().string(from: Date())
+            createdAt: ISO8601DateFormatter().string(from: Date()),
+            context: context
         )
         actionStore.enqueue(action)
         pendingAlertIDs.insert(alert.id)

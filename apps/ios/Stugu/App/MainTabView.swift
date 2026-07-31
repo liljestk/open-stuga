@@ -19,7 +19,7 @@ struct MainTabView: View {
             HomeDashboardView(
                 openAlerts: { selection = .alerts },
                 openCapture: { showingCapture = true },
-                openRoomScan: { showingRoomScan = true }
+                openRoomScan: { openRoomScan() }
             )
                 .tabItem { Label("Home", systemImage: "house") }
                 .tag(Tab.home)
@@ -62,7 +62,7 @@ struct MainTabView: View {
             case .capture:
                 showingCapture = true
             case .roomScan:
-                showingRoomScan = true
+                openRoomScan()
             case let .equipment(code):
                 selection = .equipment
                 Task {
@@ -73,5 +73,15 @@ struct MainTabView: View {
             }
             model.pendingDeepLink = nil
         }
+    }
+
+    private func openRoomScan() {
+        guard model.roomPlanCaptureAvailable else {
+            model.errorMessage = model.selectedHomeReadOnly
+                ? "This Home is read-only. Room scanning cannot replace its floor plan."
+                : "Reconnect to Stugu before scanning a room."
+            return
+        }
+        showingRoomScan = true
     }
 }

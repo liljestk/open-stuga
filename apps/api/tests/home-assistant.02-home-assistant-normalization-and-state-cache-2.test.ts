@@ -348,10 +348,12 @@ describe("Home Assistant normalization and state cache", () => {
     await waitFor(() => runtime?.database.getLatestMeasurementSample("ha-ppm", "co2") !== null
       && runtime?.database.getLatestMeasurementSample("ha-ppb", "co2") !== null);
     expect(runtime.database.getLatestMeasurementSample("ha-ppm", "co2")).toMatchObject({
-      value: 850, canonicalUnit: "ppm", timestamp: "2026-07-14T09:01:00.000Z", source: "home-assistant",
+      value: 850, canonicalUnit: "ppm", timestamp: "2026-07-14T09:01:00.000Z",
+      source: "home-assistant", quality: "estimated",
     });
     expect(runtime.database.getLatestMeasurementSample("ha-ppb", "co2")).toMatchObject({
-      value: 900, canonicalUnit: "ppm", timestamp: "2026-07-14T09:02:00.000Z", source: "home-assistant",
+      value: 900, canonicalUnit: "ppm", timestamp: "2026-07-14T09:02:00.000Z",
+      source: "home-assistant", quality: "estimated",
     });
     expect(runtime.database.getLatestReading("ha-ppm")).toBeNull();
 

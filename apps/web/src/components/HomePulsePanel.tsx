@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, Eye, EyeOff, Gauge, RadioTower, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, ChevronDown, Eye, EyeOff, Gauge, LoaderCircle, RadioTower, Sparkles } from "lucide-react";
 import type {
   AlertEvent,
   AlertRule,
@@ -22,6 +22,8 @@ interface DisplayInsight {
   evidence: HomeInsight["evidence"];
 }
 
+type MonitoringRequestState = "pending" | "error" | "ready" | "unknown";
+
 interface HomePulsePanelProps {
   house: House;
   sensors: Sensor[];
@@ -33,8 +35,10 @@ interface HomePulsePanelProps {
   referenceTime: number;
   dataMode?: "demo" | "real" | "unknown";
   monitoring?: HomeMonitoringDetailResponse;
+  monitoringRequestState?: MonitoringRequestState;
   onOpenTarget: (floorId: string, sensorId: string) => void;
   onOpenSetup?: () => void;
+  onAcknowledge?: (alertId: string) => Promise<void>;
   setupDestination?: "connections" | "sensors";
 }
 
@@ -46,6 +50,15 @@ function hiddenPulseStorageKey(houseId: string): string {
 
 function insightHideFingerprint(insight: HomeInsight): string {
   return `${insight.id}:${insight.severity}`;
+}
+
+function canHideInsight(insight: HomeInsight): boolean {
+  return insight.severity !== "critical";
+}
+
+function alertForInsight(insight: HomeInsight, alerts: AlertEvent[]): AlertEvent | undefined {
+  if (insight.kind !== "active-alert") return undefined;
+  return alerts.find((alert) => insight.id === `active-alert:${alert.id}`);
 }
 
 function readHiddenInsights(houseId: string): string[] {
@@ -195,11 +208,22 @@ export function displayHomeInsight(insight: HomeInsight, locale: Locale, t: Tran
   );
 }
 
-function InsightCard({ insight, onOpen, onHide, summaryRef, allowOpen = true }: { insight: HomeInsight; onOpen: () => void; onHide: () => void; summaryRef?: Ref<HTMLElement>; allowOpen?: boolean }) {
+function InsightCard({ insight, onOpen, onHide, onAcknowledge, summaryRef, allowOpen = true }: { insight: HomeInsight; onOpen: () => void; onHide?: () => void; onAcknowledge?: () => Promise<void>; summaryRef?: Ref<HTMLElement>; allowOpen?: boolean }) {
   const { locale, t } = useI18n();
   const [expanded, setExpanded] = useState(insight.severity === "critical");
+  const [acknowledgeState, setAcknowledgeState] = useState<"idle" | "pending" | "done" | "error">("idle");
   const openable = allowOpen && Boolean(insight.target.floorId && insight.target.sensorId);
   const display = displayHomeInsight(insight, locale, t);
+  const acknowledge = async () => {
+    if (!onAcknowledge || acknowledgeState === "pending") return;
+    setAcknowledgeState("pending");
+    try {
+      await onAcknowledge();
+      setAcknowledgeState("done");
+    } catch {
+      setAcknowledgeState("error");
+    }
+  };
   return (
     <div className={`pulse-insight-shell ${insight.severity}`}>
       <details className={`pulse-insight ${insight.severity}`} open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
@@ -215,11 +239,14 @@ function InsightCard({ insight, onOpen, onHide, summaryRef, allowOpen = true }: 
           <span className="pulse-action"><Sparkles size={13} aria-hidden="true" /><span><b>{t("decision.suggestedAction")}</b>{display.action}</span></span>
           <span className="pulse-evidence">{display.evidence.slice(0, 3).map((item) => <span key={`${item.label}:${item.value}`}><small>{item.label}</small><b>{formatEvidenceValue(item.value, locale)}{item.unit ? ` ${item.unit}` : ""}</b></span>)}</span>
           {openable && <button type="button" className="text-button pulse-open" onClick={onOpen}>{t("decision.inspectRoom")}<ArrowRight size={13} aria-hidden="true" /></button>}
+          {onAcknowledge && acknowledgeState !== "done" && <button type="button" className="secondary-button" disabled={acknowledgeState === "pending"} onClick={() => void acknowledge()}>{acknowledgeState === "pending" && <LoaderCircle className="spin" size={15} aria-hidden="true" />}{t("alerts.acknowledge")}</button>}
+          {acknowledgeState === "done" && <span className="acknowledged"><CheckCircle2 size={15} aria-hidden="true" />{t("alerts.acknowledged")}</span>}
+          {acknowledgeState === "error" && <p className="event-action-error" role="alert">{t("alerts.acknowledgeFailed")}</p>}
         </div>
       </details>
-      <div className="pulse-insight-actions">
+      {onHide && <div className="pulse-insight-actions">
         <button type="button" className="text-button pulse-hide" aria-label={t("decision.hideInsightLabel", { title: display.title })} onClick={onHide}><EyeOff size={13} aria-hidden="true" />{t("decision.hideInsight")}</button>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -227,8 +254,23 @@ function InsightCard({ insight, onOpen, onHide, summaryRef, allowOpen = true }: 
 export function HomePulsePanel(props: HomePulsePanelProps) {
   const { locale, t } = useI18n();
   const monitoring = props.monitoring;
+  const effectiveMonitoringRequestState = props.monitoringRequestState ?? (monitoring ? "ready" : "unknown");
+  const monitoringEvidenceComplete = effectiveMonitoringRequestState === "ready"
+    && monitoring?.completeness === "complete"
+    && monitoring.house.houseId === props.house.id
+    && monitoring.house.coverage.enabledSensors > 0
+    && monitoring.house.coverage.freshSensors === monitoring.house.coverage.enabledSensors
+    && monitoring.house.coverage.estimatedSensors === 0
+    && monitoring.house.coverage.agingSensors === 0
+    && monitoring.house.coverage.staleSensors === 0
+    && monitoring.house.coverage.sensorsWithoutData === 0;
+  const monitoringSuccessful = monitoringEvidenceComplete
+    && monitoring.house.status === "monitoring-ok"
+    && monitoring.house.blockers.length === 0;
   const pulse = useMemo(() => ({
-    status: monitoring?.house.pulseStatus ?? "unknown" as HomePulseStatus,
+    status: monitoring?.house.pulseStatus === "steady" && !monitoringSuccessful
+      ? "unknown" as HomePulseStatus
+      : monitoring?.house.pulseStatus ?? "unknown" as HomePulseStatus,
     coverage: monitoring?.house.coverage ?? {
       enabledSensors: props.sensors.filter((sensor) => sensor.enabled).length,
       freshSensors: 0,
@@ -238,14 +280,14 @@ export function HomePulsePanel(props: HomePulsePanelProps) {
       sensorsWithoutData: props.sensors.filter((sensor) => sensor.enabled).length,
     },
     insights: monitoring?.insights ?? [],
-  }), [monitoring, props.sensors]);
+  }), [monitoring, monitoringSuccessful, props.sensors]);
   const [hiddenInsightFingerprints, setHiddenInsightFingerprints] = useState(() => readHiddenInsights(props.house.id));
   const [focusTarget, setFocusTarget] = useState<{ kind: "hidden" } | { kind: "insight"; fingerprint: string } | null>(null);
   const hiddenSummaryRef = useRef<HTMLElement>(null);
   const insightSummaryRefs = useRef(new Map<string, HTMLElement>());
-  const currentFingerprints = useMemo(() => new Set(pulse.insights.map(insightHideFingerprint)), [pulse.insights]);
-  const hiddenInsights = pulse.insights.filter((insight) => hiddenInsightFingerprints.includes(insightHideFingerprint(insight)));
-  const visibleInsights = pulse.insights.filter((insight) => !hiddenInsightFingerprints.includes(insightHideFingerprint(insight))).slice(0, 3);
+  const currentFingerprints = useMemo(() => new Set(pulse.insights.filter(canHideInsight).map(insightHideFingerprint)), [pulse.insights]);
+  const hiddenInsights = pulse.insights.filter((insight) => canHideInsight(insight) && hiddenInsightFingerprints.includes(insightHideFingerprint(insight)));
+  const visibleInsights = pulse.insights.filter((insight) => !canHideInsight(insight) || !hiddenInsightFingerprints.includes(insightHideFingerprint(insight))).slice(0, 3);
   const hiddenInsightCount = hiddenInsights.length;
 
   useEffect(() => {
@@ -269,6 +311,7 @@ export function HomePulsePanel(props: HomePulsePanelProps) {
   }, [focusTarget, hiddenInsightCount, visibleInsights.length]);
 
   const hideInsight = (insight: HomeInsight) => {
+    if (!canHideInsight(insight)) return;
     const fingerprint = insightHideFingerprint(insight);
     setHiddenInsightFingerprints((current) => current.includes(fingerprint) ? current : [...current, fingerprint]);
     setFocusTarget({ kind: "hidden" });
@@ -281,13 +324,14 @@ export function HomePulsePanel(props: HomePulsePanelProps) {
   };
 
   const restoreAllInsights = () => {
-    const fingerprint = pulse.insights[0] ? insightHideFingerprint(pulse.insights[0]) : "";
+    const fingerprint = hiddenInsights[0] ? insightHideFingerprint(hiddenInsights[0]) : "";
     setHiddenInsightFingerprints([]);
     if (fingerprint) setFocusTarget({ kind: "insight", fingerprint });
   };
 
   const hiddenInsightLabel = t(hiddenInsightCount === 1 ? "decision.hiddenInsightOne" : "decision.hiddenInsightMany", { count: hiddenInsightCount });
-  const monitoringUnavailable = pulse.coverage.enabledSensors === 0
+  const monitoringUnavailable = !monitoringEvidenceComplete
+    || pulse.coverage.enabledSensors === 0
     || pulse.coverage.freshSensors + pulse.coverage.estimatedSensors === 0;
   return (
     <section className={`panel home-pulse ${pulse.status}`} aria-labelledby="home-pulse-heading">
@@ -299,7 +343,7 @@ export function HomePulsePanel(props: HomePulsePanelProps) {
       {visibleInsights.length ? <ul className="pulse-glance-list">{visibleInsights.map((insight) => {
         const display = displayHomeInsight(insight, locale, t);
         return <li key={insight.id} className={insight.severity}><span>{t(`decision.severity.${insight.severity}`)}</span><strong>{display.title}</strong></li>;
-      })}</ul> : pulse.insights.length === 0 ? <div className="pulse-calm"><CheckCircle2 size={18} aria-hidden="true" /><span><strong>{t("decision.pulseCalmTitle")}</strong></span></div> : null}
+      })}</ul> : pulse.insights.length === 0 ? monitoringSuccessful && pulse.status === "steady" ? <div className="pulse-calm"><CheckCircle2 size={18} aria-hidden="true" /><span><strong>{t("decision.pulseCalmTitle")}</strong></span></div> : <p className="home-pulse-explanation" data-pulse-empty-state={pulse.status} role="status"><PulseIcon status={pulse.status} /> <span>{t(`decision.pulse.${pulse.status}.body`)}</span></p> : null}
       {monitoringUnavailable && props.onOpenSetup && <button type="button" className="secondary-button home-pulse-remediation" data-remediation={props.setupDestination ?? "sensors"} onClick={props.onOpenSetup}>{t("overview.finishSetup")}<ArrowRight size={15} aria-hidden="true" /></button>}
       <details className="home-pulse-more">
         <summary><span>{t("home.moreInformation")}</span>{visibleInsights.length > 0 && <small>{visibleInsights.length}</small>}<ChevronDown size={15} aria-hidden="true" /></summary>
@@ -307,7 +351,12 @@ export function HomePulsePanel(props: HomePulsePanelProps) {
           <p className="home-pulse-explanation">{t(`decision.pulse.${pulse.status}.body`)}</p>
           {visibleInsights.length > 0 && <div className="pulse-insights">{visibleInsights.map((insight) => {
             const fingerprint = insightHideFingerprint(insight);
-            return <InsightCard key={insight.id} insight={insight} summaryRef={(node) => { if (node) insightSummaryRefs.current.set(fingerprint, node); else insightSummaryRefs.current.delete(fingerprint); }} allowOpen={!monitoringUnavailable || !props.onOpenSetup} onHide={() => hideInsight(insight)} onOpen={() => {
+            const alert = alertForInsight(insight, props.alerts);
+            const onAcknowledge = props.onAcknowledge;
+            const acknowledge = insight.severity === "critical" && alert && !alert.acknowledgedAt && onAcknowledge
+              ? () => onAcknowledge(alert.id)
+              : undefined;
+            return <InsightCard key={insight.id} insight={insight} summaryRef={(node) => { if (node) insightSummaryRefs.current.set(fingerprint, node); else insightSummaryRefs.current.delete(fingerprint); }} allowOpen={!monitoringUnavailable || !props.onOpenSetup} {...(canHideInsight(insight) ? { onHide: () => hideInsight(insight) } : {})} {...(acknowledge ? { onAcknowledge: acknowledge } : {})} onOpen={() => {
               if (insight.target.floorId && insight.target.sensorId) props.onOpenTarget(insight.target.floorId, insight.target.sensorId);
             }} />;
           })}</div>}
@@ -351,5 +400,14 @@ export function HomePulsePanelData(props: HomePulsePanelProps) {
   return <HomePulsePanel
     {...props}
     {...(monitoringQuery.data ? { monitoring: monitoringQuery.data } : {})}
+    monitoringRequestState={props.dataMode === "unknown"
+      ? "unknown"
+      : monitoringQuery.isPending
+        ? "pending"
+        : monitoringQuery.isError
+          ? "error"
+          : monitoringQuery.data
+            ? "ready"
+            : "unknown"}
   />;
 }

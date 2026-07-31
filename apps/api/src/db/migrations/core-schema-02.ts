@@ -250,6 +250,10 @@ export const CORE_SCHEMA_02 = `          SELECT 1 FROM observations AS observati
         recovery_state TEXT NOT NULL CHECK (recovery_state IN (
           'open', 'pending', 'running', 'complete', 'partial', 'failed', 'not-supported'
         )),
+        recoverable_until TEXT,
+        recovery_completeness TEXT NOT NULL DEFAULT 'unknown' CHECK (recovery_completeness IN (
+          'unknown', 'none', 'partial', 'complete'
+        )),
         recovered_points INTEGER NOT NULL DEFAULT 0 CHECK (recovered_points >= 0),
         attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
         last_attempt_at TEXT,

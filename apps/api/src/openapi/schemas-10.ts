@@ -108,6 +108,19 @@ export const schemasPart10 = {
       requiredMetrics: { type: "array", uniqueItems: true, items: { type: "string" } },
     },
   },
+  HomeMonitoringEvidenceSource: {
+    type: "object",
+    additionalProperties: false,
+    required: ["sensorId", "metric", "observedAt", "source", "quality", "freshness"],
+    properties: {
+      sensorId: { type: "string" },
+      metric: { type: "string" },
+      observedAt: dateTime,
+      source: { enum: ["mock", "home-assistant", "tp-link", "tuya", "nexus433", "api", "import", "replay"] },
+      quality: { enum: ["good", "estimated", "stale"] },
+      freshness: { $ref: "#/components/schemas/HomeInsightFreshness" },
+    },
+  },
   HomeInsight: {
     type: "object",
     additionalProperties: false,
@@ -135,7 +148,25 @@ export const schemasPart10 = {
       fallbackSummary: { type: "string" },
       fallbackAction: { type: "string" },
       target: { type: "object", additionalProperties: true, required: ["houseId"] },
-      evidence: { type: "array", items: { type: "object", additionalProperties: true } },
+      evidence: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: true,
+          required: ["label", "value"],
+          properties: {
+            label: { type: "string" },
+            value: { oneOf: [{ type: "number" }, { type: "string" }] },
+            unit: { type: "string" },
+            metric: { type: "string" },
+            sensorId: { type: "string" },
+            observedAt: dateTime,
+            source: { enum: ["mock", "home-assistant", "tp-link", "tuya", "nexus433", "api", "import", "replay"] },
+            quality: { enum: ["good", "estimated", "stale"] },
+            freshness: { $ref: "#/components/schemas/HomeInsightFreshness" },
+          },
+        },
+      },
       freshness: { $ref: "#/components/schemas/HomeInsightFreshness" },
       confidence: {
         type: "object",
@@ -155,7 +186,7 @@ export const schemasPart10 = {
     type: "object",
     required: [
       "apiVersion", "dataMode", "algorithm", "generatedAt", "evaluatedAt",
-      "completeness", "warnings", "provenance",
+      "completeness", "warnings", "provenance", "evidenceSources",
     ],
     properties: {
       apiVersion: { const: "1.0" },
@@ -177,6 +208,10 @@ export const schemasPart10 = {
         items: { $ref: "#/components/schemas/DerivedAnalyticsWarning" },
       },
       provenance: { $ref: "#/components/schemas/DerivedAnalyticsProvenance" },
+      evidenceSources: {
+        type: "array",
+        items: { $ref: "#/components/schemas/HomeMonitoringEvidenceSource" },
+      },
     },
   },
   HomeMonitoringCollectionResponse: {

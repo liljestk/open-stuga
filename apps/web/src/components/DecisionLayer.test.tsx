@@ -383,11 +383,14 @@ describe("decision layer", () => {
     expect(screen.getAllByText("Observation details")).toHaveLength(12);
   });
 
-  it("opens the representative sensor from a room card", () => {
+  it("opens stable Room evidence without selecting a representative sensor", () => {
     const onOpenRoom = vi.fn();
     render(<I18nProvider><RoomComfortBoard sensors={[sensor]} latestMeasurements={{ [sensor.id]: { temperature: sample("temperature", 22), humidity: sample("humidity", 45), co2: sample("co2", 700) } }} measurementHistory={{}} definitions={BUILTIN_MEASUREMENTS} alerts={[]} units="metric" now={now} onOpenRoom={onOpenRoom} /></I18nProvider>);
     fireEvent.click(screen.getByRole("button", { name: /^Open Office\. Status: Comfortable\./ }));
-    expect(onOpenRoom).toHaveBeenCalledWith("floor", "sensor-room");
+    expect(onOpenRoom).toHaveBeenCalledWith("floor", "room-office");
+    expect(screen.getByRole("heading", { name: "Office" })).not.toBeNull();
+    expect(screen.getByText("Desk sensor")).not.toBeNull();
+    expect(screen.getByText("1 fresh of 1")).not.toBeNull();
   });
 
   it("never hides rooms needing attention behind the routine-room disclosure", () => {
@@ -396,6 +399,7 @@ describe("decision layer", () => {
       id: `sensor-attention-${index}`,
       name: `Sensor ${index + 1}`,
       room: `Room ${index + 1}`,
+      roomId: `room-attention-${index}`,
     }));
     const latestMeasurements = Object.fromEntries(sensors.map((item) => [item.id, {
       temperature: { ...sample("temperature", 29), sensorId: item.id },
@@ -406,6 +410,68 @@ describe("decision layer", () => {
 
     for (const item of sensors) expect(screen.getByRole("button", { name: new RegExp(`^Open ${item.room}\\. Status: Needs attention\\.`) })).not.toBeNull();
     expect(screen.queryByText(/Show .* more rooms/)).toBeNull();
+  });
+
+  it.each(["pending", "error", "partial", "unknown", "not-successful"] as const)("uses neutral unknown Home Pulse content for %s monitoring", (condition) => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const roomSensor = state.sensors.find((candidate) => candidate.houseId === house.id)!;
+    const response = monitoringDetail(
+      monitoringSummary({
+        houseId: house.id,
+        status: condition === "unknown" ? "unknown" : condition === "not-successful" ? "inspection-recommended" : "monitoring-ok",
+        pulseStatus: condition === "unknown" ? "unknown" : "steady",
+        coverage: { enabledSensors: 1, freshSensors: 1 },
+      }),
+      [],
+    );
+    const requestProps = condition === "pending" || condition === "error"
+      ? { monitoringRequestState: condition }
+      : { monitoring: condition === "partial" ? { ...response, completeness: "partial" as const } : response };
+    const view = render(<I18nProvider><HomePulsePanel
+      house={house}
+      sensors={[roomSensor]}
+      latestMeasurements={{}}
+      measurementHistory={{}}
+      alerts={[]}
+      alertRules={[]}
+      weather={null}
+      referenceTime={now}
+      {...requestProps}
+      onOpenTarget={vi.fn()}
+    /></I18nProvider>);
+
+    expect(screen.getByRole("heading", { name: "Waiting for a reliable pulse" })).not.toBeNull();
+    const unknownSummary = view.container.querySelector<HTMLElement>('[data-pulse-empty-state="unknown"]')!;
+    expect(unknownSummary).not.toBeNull();
+    expect(within(unknownSummary).getByText("More fresh sensor data is needed before drawing a conclusion.")).not.toBeNull();
+    expect(view.container.querySelector(".pulse-calm")).toBeNull();
+    expect(screen.queryByText("No action is being suggested right now.")).toBeNull();
+  });
+
+  it("uses calm success content only for complete steady monitoring", () => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const roomSensor = state.sensors.find((candidate) => candidate.houseId === house.id)!;
+    const view = render(<I18nProvider><HomePulsePanel
+      house={house}
+      sensors={[roomSensor]}
+      latestMeasurements={{}}
+      measurementHistory={{}}
+      alerts={[]}
+      alertRules={[]}
+      weather={null}
+      referenceTime={now}
+      monitoring={monitoringDetail(monitoringSummary({
+        houseId: house.id,
+        coverage: { enabledSensors: 1, freshSensors: 1 },
+      }), [])}
+      onOpenTarget={vi.fn()}
+    /></I18nProvider>);
+
+    expect(view.container.querySelector(".pulse-calm")).not.toBeNull();
+    expect(screen.getByText("No action is being suggested right now.")).not.toBeNull();
+    expect(view.container.querySelector("[data-pulse-empty-state]")).toBeNull();
   });
 
   it("auto-expands critical Home Pulse guidance with its visible advisory", () => {
@@ -468,7 +534,7 @@ describe("decision layer", () => {
     expect(view.container.querySelector(".home-pulse-more-content > .home-pulse-advisory")).not.toBeNull();
   });
 
-  it("hides, persists, and restores a Home Pulse insight without masking the real status", async () => {
+  it("keeps critical Home Pulse guidance visible and acknowledges it through the alert lifecycle", async () => {
     const state = createDemoState();
     const house = state.houses[0]!;
     const roomSensor = state.sensors.find((candidate) => candidate.houseId === house.id)!;
@@ -485,6 +551,8 @@ describe("decision layer", () => {
       acknowledgedAt: null,
       resolvedAt: null,
     };
+    const onAcknowledge = vi.fn().mockResolvedValue(undefined);
+    localStorage.setItem(`stugu-home-pulse-hidden:v1:${house.id}`, JSON.stringify([`active-alert:${alert.id}:critical`]));
     const panel = <I18nProvider><HomePulsePanel
       house={house}
       sensors={[roomSensor]}
@@ -513,33 +581,22 @@ describe("decision layer", () => {
         })],
       )}
       onOpenTarget={vi.fn()}
+      onAcknowledge={onAcknowledge}
     /></I18nProvider>;
     const view = render(panel);
 
     openHomePulseMore(view.container);
-    fireEvent.click(screen.getByRole("button", { name: /^Hide / }));
-    expect(view.container.querySelector(".pulse-insight")).toBeNull();
+    expect(view.container.querySelector(".pulse-insight.critical")).not.toBeNull();
     expect(screen.getByRole("heading", { name: "Check this home now" })).not.toBeNull();
     expect(view.container.querySelector(".home-pulse-more-content > .home-pulse-advisory")).not.toBeNull();
     expect(screen.queryByText("No action is being suggested right now.")).toBeNull();
-    const hiddenSummary = view.container.querySelector<HTMLElement>(".pulse-hidden-disclosure > summary")!;
-    expect(hiddenSummary.textContent).toContain("1 hidden Home Pulse item");
-    await waitFor(() => expect(document.activeElement).toBe(hiddenSummary));
-    await waitFor(() => expect(localStorage.getItem(`stugu-home-pulse-hidden:v1:${house.id}`)).not.toBeNull());
-
-    view.unmount();
-    const remounted = render(panel);
-    expect(remounted.container.querySelector(".pulse-insight")).toBeNull();
-    openHomePulseMore(remounted.container);
-    const remountedSummary = remounted.container.querySelector<HTMLElement>(".pulse-hidden-disclosure > summary")!;
-    expect(remountedSummary.textContent).toContain("1 hidden Home Pulse item");
-    fireEvent.click(remountedSummary);
-    fireEvent.click(screen.getByRole("button", { name: /^Restore / }));
-
-    await waitFor(() => expect(remounted.container.querySelector(".pulse-insight > summary")).not.toBeNull());
-    const restoredSummary = remounted.container.querySelector<HTMLElement>(".pulse-insight > summary")!;
-    await waitFor(() => expect(document.activeElement).toBe(restoredSummary));
+    expect(screen.queryByRole("button", { name: /^Hide / })).toBeNull();
+    expect(view.container.querySelector(".pulse-hidden-disclosure")).toBeNull();
     await waitFor(() => expect(localStorage.getItem(`stugu-home-pulse-hidden:v1:${house.id}`)).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Acknowledge" }));
+    await waitFor(() => expect(onAcknowledge).toHaveBeenCalledWith(alert.id));
+    expect(screen.getByText("Acknowledged")).not.toBeNull();
   });
 
   it("promotes the next ranked insight after one is hidden", () => {

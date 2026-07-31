@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import {
@@ -89,6 +91,15 @@ test("local CI invokes npm through Node on Windows", () => {
       args: ["C:\\node\\npm-cli.js", "run", "build"],
     },
   );
+});
+
+test("release metadata is aligned across repository and Apple projects", () => {
+  const output = execFileSync(
+    process.execPath,
+    [fileURLToPath(new URL("../check-version.mjs", import.meta.url))],
+    { encoding: "utf8" },
+  );
+  assert.match(output, /repository, package, Apple, and changelog metadata/);
 });
 
 test("GitHub-hosted CI cannot start automatically", async () => {

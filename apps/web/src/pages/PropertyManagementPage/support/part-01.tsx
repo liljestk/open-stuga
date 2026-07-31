@@ -212,11 +212,13 @@ export interface PropertyManagementPageProps {
   /** Standalone compatibility for embedders that do not control selection. */
   initialPropertyId?: string | undefined;
   initialTab?: WorkspaceTab;
+  onTab?: (tab: WorkspaceTab) => void;
   onCreateProperty: (input: PropertyCreateInput) => Promise<Property>;
   onUpdateProperty: (id: string, patch: PropertyPatch) => Promise<Property>;
   onDeleteProperty: (id: string) => Promise<void>;
   onCreateHouse: (input: HouseCreateInput) => Promise<unknown>;
   onUpdateHouse: (id: string, patch: { propertyId: string }) => Promise<unknown>;
+  onOpenHouse?: (houseId: string) => void;
   onCreateArea: (input: PropertyAreaInput) => Promise<PropertyArea>;
   onUpdateArea: (id: string, patch: PropertyAreaPatch) => Promise<PropertyArea>;
   onDeleteArea: (id: string) => Promise<void>;

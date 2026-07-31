@@ -227,11 +227,11 @@ export const schemasPart07 = {
         },
   NotificationDeliveryStatus: {
           type: "object", additionalProperties: false,
-          required: ["id", "subjectKind", "subjectId", "stage", "sequence", "channel", "destinationId", "attempts", "maxAttempts", "availableAt", "createdAt", "deliveredAt", "deadLetteredAt", "abandonedAt", "lastError"],
+          required: ["id", "subjectKind", "subjectId", "stage", "sequence", "channel", "destinationId", "attempts", "maxAttempts", "availableAt", "createdAt", "deliveredAt", "deadLetteredAt", "abandonedAt", "lastError", "canRetry"],
           properties: {
             id: { type: "string" }, subjectKind: { enum: ["alert", "maintenance", "action-run"] }, subjectId: { type: "string" },
             stage: { enum: ["initial", "escalation", "reminder", "due", "verification"] }, sequence: { type: "integer", minimum: 0 }, channel: { enum: ["webhook", "telegram", "apns"] }, destinationId: { type: "string" }, attempts: { type: "integer", minimum: 0 }, maxAttempts: { type: "integer", minimum: 1, maximum: 100 },
-            availableAt: { type: "string", format: "date-time" }, createdAt: { type: "string", format: "date-time" }, deliveredAt: { type: ["string", "null"], format: "date-time" }, deadLetteredAt: { type: ["string", "null"], format: "date-time" }, abandonedAt: { type: ["string", "null"], format: "date-time" }, lastError: { type: ["string", "null"] },
+            availableAt: { type: "string", format: "date-time" }, createdAt: { type: "string", format: "date-time" }, deliveredAt: { type: ["string", "null"], format: "date-time" }, deadLetteredAt: { type: ["string", "null"], format: "date-time" }, abandonedAt: { type: ["string", "null"], format: "date-time" }, lastError: { type: ["string", "null"] }, canRetry: { type: "boolean", readOnly: true, description: "True only when the current Owner/Admin session may requeue terminal work." },
           },
         },
   ActionPlaybook: {

@@ -79,7 +79,25 @@ struct RoomPlanImportView: View {
     private var setupView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                if !RoomCaptureSession.isSupported {
+                if !model.roomPlanCaptureAvailable {
+                    ContentUnavailableView {
+                        Label {
+                            Text(LocalizedStringKey(
+                                model.selectedHomeReadOnly
+                                    ? "Room plan is read-only"
+                                    : "Reconnect before scanning"
+                            ))
+                        } icon: {
+                            Image(systemName: model.selectedHomeReadOnly ? "eye" : "wifi.slash")
+                        }
+                    } description: {
+                        Text(LocalizedStringKey(
+                            model.selectedHomeReadOnly
+                                ? "This Home's owner controls floor-plan changes."
+                                : "Room scanning requires an online session so Stugu can verify the target floor before capture."
+                        ))
+                    }
+                } else if !RoomCaptureSession.isSupported {
                     ContentUnavailableView {
                         Label("LiDAR is required", systemImage: "viewfinder")
                     } description: {
@@ -142,23 +160,7 @@ struct RoomPlanImportView: View {
                         Label("Start room scan", systemImage: "viewfinder")
                     }
                     .buttonStyle(PrimaryButtonStyle())
-                    .disabled(model.selectedHomeReadOnly || model.usingCachedData)
-                }
-
-                if model.selectedHomeReadOnly {
-                    Label(
-                        "This Home's floor plan is read-only.",
-                        systemImage: "lock"
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(StuguTheme.muted)
-                } else if model.usingCachedData {
-                    Label(
-                        "Reconnect before scanning so the floor cannot change underneath the review.",
-                        systemImage: "wifi.slash"
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(StuguTheme.warning)
+                    .disabled(!model.roomPlanCaptureAvailable)
                 }
 
                 errorView
@@ -318,6 +320,20 @@ struct RoomPlanImportView: View {
 
             errorView
 
+            if !model.roomPlanCaptureAvailable {
+                Label {
+                    Text(LocalizedStringKey(
+                        model.selectedHomeReadOnly
+                            ? "This Home is now read-only. The scan can still be exported, but it cannot be imported."
+                            : "The connection was lost. Export the scan or reconnect before importing it."
+                    ))
+                } icon: {
+                    Image(systemName: model.selectedHomeReadOnly ? "eye" : "wifi.slash")
+                }
+                .font(.footnote)
+                .foregroundStyle(StuguTheme.warning)
+            }
+
             Button {
                 if selectedFloor?.walls.isEmpty == false
                     || selectedFloor?.rooms.isEmpty == false {
@@ -333,7 +349,7 @@ struct RoomPlanImportView: View {
                 }
             }
             .buttonStyle(PrimaryButtonStyle())
-            .disabled(isImporting)
+            .disabled(isImporting || !model.roomPlanCaptureAvailable)
 
             Button {
                 exportOriginalScan()
@@ -351,6 +367,7 @@ struct RoomPlanImportView: View {
                 startCapture()
             }
             .buttonStyle(SecondaryButtonStyle())
+            .disabled(!model.roomPlanCaptureAvailable)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -366,7 +383,8 @@ struct RoomPlanImportView: View {
     }
 
     private func startCapture() {
-        guard RoomCaptureSession.isSupported,
+        guard model.roomPlanCaptureAvailable,
+              RoomCaptureSession.isSupported,
               let home = model.selectedHome,
               let floor = selectedFloor else {
             return

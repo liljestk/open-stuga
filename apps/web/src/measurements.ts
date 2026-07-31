@@ -16,21 +16,21 @@ const clampValue = (value: number, min: number, max: number) => Math.min(max, Ma
 
 export const BUILTIN_MEASUREMENTS: MeasurementDefinition[] = [
   {
-    id: "temperature", labels: { en: "Temperature", fi: "Lämpötila" }, unit: "°C", precision: 1,
+    id: "temperature", labels: { en: "Temperature", fi: "Lämpötila", sv: "Temperatur" }, unit: "°C", precision: 1,
     validMin: -50, validMax: 60, displayMin: 12, displayMax: 30, interpolationDelta: .35,
     colorScale: "thermal", builtin: true, enabled: true, spatialInterpolation: true, forecastSupported: true,
     dimension: "temperature", allowedUnits: ["\u00b0C", "\u00b0F"], kind: "gauge", defaultAggregation: "mean",
     genericHistoryEnabled: true, genericStatsEnabled: true,
   },
   {
-    id: "humidity", labels: { en: "Humidity", fi: "Ilmankosteus" }, unit: "%", precision: 0,
+    id: "humidity", labels: { en: "Humidity", fi: "Ilmankosteus", sv: "Luftfuktighet" }, unit: "%", precision: 0,
     validMin: 0, validMax: 100, displayMin: 20, displayMax: 90, interpolationDelta: 3,
     colorScale: "humidity", builtin: true, enabled: true, spatialInterpolation: true, forecastSupported: true,
     dimension: "relative_humidity", allowedUnits: ["%"], kind: "gauge", defaultAggregation: "mean",
     genericHistoryEnabled: true, genericStatsEnabled: true,
   },
   {
-    id: "co2", labels: { en: "Carbon dioxide", fi: "Hiilidioksidi" }, unit: "ppm", precision: 0,
+    id: "co2", labels: { en: "Carbon dioxide", fi: "Hiilidioksidi", sv: "Koldioxid" }, unit: "ppm", precision: 0,
     validMin: 0, validMax: 10_000, displayMin: 400, displayMax: 2_000, interpolationDelta: 50,
     colorScale: "air-quality", builtin: true, enabled: true, spatialInterpolation: true, forecastSupported: true,
     dimension: "co2_concentration", allowedUnits: ["ppm"], kind: "gauge", defaultAggregation: "mean",

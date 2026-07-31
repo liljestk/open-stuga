@@ -29,6 +29,7 @@ export const sensor: Sensor = {
   houseId: "house",
   floorId: "floor",
   name: "Desk sensor",
+  roomId: "room-office",
   room: "Office",
   model: "T315",
   x: 1,

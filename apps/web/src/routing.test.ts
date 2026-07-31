@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppPage } from "./domain";
-import { locationForRoute, routeFromLocation, type RouteScope } from "./routing";
+import { locationForPropertySection, locationForRoute, routeFromLocation, type RouteScope } from "./routing";
 
 function routeFromUrl(url: string) {
   const location = new URL(url, "https://stugu.test");
@@ -109,6 +109,24 @@ describe("application routes", () => {
     expect(locationForRoute("sensors", scope)).toBe("/properties/property-main/homes/home-1/sensors");
     expect(locationForRoute("analytics", scope)).toBe("/properties/property-main/homes/home-1/analytics");
     expect(locationForRoute("integrations", scope)).toBe("/properties/property-main/homes/home-1/setup");
+  });
+
+  it("restores every Property workspace section without losing scope", () => {
+    expect(routeFromUrl("/properties/lake%20estate/map")).toEqual({
+      page: "properties",
+      propertyId: "lake estate",
+      houseId: null,
+      propertySection: "map",
+    });
+    expect(routeFromUrl("/properties/lake%20estate/inventory")).toEqual({
+      page: "properties",
+      propertyId: "lake estate",
+      houseId: null,
+      propertySection: "inventory",
+    });
+    expect(locationForPropertySection("lake estate", "overview")).toBe("/properties/lake%20estate");
+    expect(locationForPropertySection("lake estate", "notes")).toBe("/properties/lake%20estate/notes");
+    expect(locationForPropertySection("lake estate", "access")).toBe("/properties/lake%20estate/access");
   });
 
   it("keeps the active Setup section while changing scope", () => {

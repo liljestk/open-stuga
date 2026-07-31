@@ -106,8 +106,14 @@ match their registry definition unless the map contains an explicit linear
 conversion. Unsupported units and non-finite values are rejected. Still confirm
 each entity's device class and unit in **Developer tools -> States** so mapping
 mistakes are visible before enabling automations.
-Current mapped states are fetched at startup and after reconnect; historical
-events missed during an outage are not backfilled.
+Current mapped states are fetched at startup and after reconnect. When Stugu
+has observed a mapped entity become unavailable, it keeps a durable gap record
+and, after recovery, requests the missing interval from Home Assistant Recorder
+in bounded chunks. Recovery is limited to the history Recorder still retains;
+an unavailable Recorder or an expired interval remains visible with its
+attempts, completion class, status, and error. A startup snapshot by itself
+cannot discover events missed while Stugu was not running, and Stugu does not
+promise a six-month Home Assistant backfill.
 
 Binary contact entities can also drive a modelled door, window, or vent. Add or
 select the opening in either the 2D or 3D Home editor, expand **Advanced**, set
@@ -296,6 +302,13 @@ sample does not wait for or re-timestamp temperature/humidity. Legacy climate
 keys continue to provide paired v1 readings once both numeric temperature and
 humidity values are available. Battery-only changes update the cache but do not
 create duplicate climate readings.
+
+Generic numeric Home Assistant measurements are marked `estimated`: an entity
+state and unit can be normalized, but they do not prove the upstream sensor is
+a direct calibrated observation. Legacy paired climate readings are `good` only
+when their source timestamps match; otherwise they are `estimated`. Recorder
+recovery preserves the entity timestamps and source, but its available span is
+controlled by the Home Assistant installation's Recorder retention policy.
 
 ## Troubleshooting
 

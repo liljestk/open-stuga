@@ -185,6 +185,8 @@ export type SensorDataGapSource = "home-assistant" | "tp-link";
 
 export type SensorDataGapState = "open" | "pending" | "running" | "complete" | "partial" | "failed" | "not-supported";
 
+export type SensorDataGapCompleteness = "unknown" | "none" | "partial" | "complete";
+
 /** Durable record of a sensor interval that was missing and, when possible, recovered upstream. */
 export interface SensorDataGap {
   id: number;
@@ -195,6 +197,10 @@ export interface SensorDataGap {
   detectedAt: string;
   endedAt: string | null;
   recoveryState: SensorDataGapState;
+  /** Earliest known source-retention deadline; null means source-managed or unknown, never unlimited. */
+  recoverableUntil: string | null;
+  /** Durable result coverage, independent from the coordinator's workflow state. */
+  recoveryCompleteness: SensorDataGapCompleteness;
   recoveredPoints: number;
   attemptCount: number;
   lastAttemptAt: string | null;

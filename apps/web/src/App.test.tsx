@@ -37,10 +37,36 @@ describe("Stugu app", () => {
     await user.click(screen.getByRole("button", { name: "Open Pine Estate" }));
     await waitFor(() => expect(window.location.pathname).toBe("/properties/property-pine"));
     await findPageHeading("Pine Estate");
-    await user.click(screen.getByRole("link", { name: "Home" }));
+    await user.click(screen.getByRole("button", { name: "Open Pine House" }));
 
-    expect(await findPageHeading("Your home, at a glance")).toBeTruthy();
+    expect(await findPageHeading("Pine House")).toBeTruthy();
     expect(window.location.pathname).toBe("/properties/property-pine/homes/house-pine");
+  });
+
+  it("keeps Property workspace tabs in canonical deep links", async () => {
+    const climate = mockClimateData();
+    const lakeProperty = { ...climate.state.properties[0]!, id: "property-lake", name: "Lake estate" };
+    climate.state = { ...climate.state, properties: [...climate.state.properties, lakeProperty] };
+    vi.mocked(useClimateData).mockReturnValue(climate);
+    const user = userEvent.setup();
+    window.history.replaceState(null, "", "/properties/property-pine/map");
+    const view = renderApp();
+
+    await findPageHeading("Pine Estate");
+    expect(document.activeElement).not.toBe(view.container.querySelector("#main-content"));
+    expect(screen.getByRole("tab", { name: "Map" }).getAttribute("aria-selected")).toBe("true");
+    await user.click(screen.getByRole("tab", { name: "Notes" }));
+    expect(window.location.pathname).toBe("/properties/property-pine/notes");
+    expect(screen.getByRole("tab", { name: "Notes" }).getAttribute("aria-selected")).toBe("true");
+
+    await user.selectOptions(screen.getByLabelText("Active property"), lakeProperty.id);
+    await findPageHeading(lakeProperty.name);
+    expect(window.location.pathname).toBe("/properties/property-lake/notes");
+    expect(screen.getByRole("tab", { name: "Notes" }).getAttribute("aria-selected")).toBe("true");
+
+    window.history.replaceState(null, "", "/properties/property-pine/inventory");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Inventory" }).getAttribute("aria-selected")).toBe("true"));
   });
 
   it("restores Property and Home context from canonical URLs and browser navigation", async () => {
@@ -58,7 +84,7 @@ describe("Stugu app", () => {
     window.history.replaceState(null, "", "/properties/property-lake/homes/house-lake");
     renderApp();
 
-    await findPageHeading("Your home, at a glance");
+    await findPageHeading("Lake home");
     expect((screen.getByLabelText("Active property") as HTMLSelectElement).value).toBe(lakeProperty.id);
     expect((screen.getByLabelText("Home shown on this page") as HTMLSelectElement).value).toBe(lakeHouse.id);
 
@@ -72,14 +98,14 @@ describe("Stugu app", () => {
     window.history.replaceState(null, "", "/sites/house-pine/twin");
     renderApp();
 
-    await findPageHeading("Your home, at a glance");
+    await findPageHeading("Pine House");
     await waitFor(() => expect(window.location.pathname).toBe("/properties/property-pine/homes/house-pine"));
   });
 
   it("does not rewrite an invalid explicit legacy Home to the selected Home", async () => {
     window.history.replaceState(null, "", "/properties/property-pine/homes/house-pine");
     renderApp();
-    await findPageHeading("Your home, at a glance");
+    await findPageHeading("Pine House");
 
     window.history.replaceState(null, "", "/sites/deleted-home/maintenance");
     window.dispatchEvent(new PopStateEvent("popstate"));
@@ -475,16 +501,16 @@ describe("Stugu app", () => {
   it("updates the page title and moves focus only after SPA page changes", async () => {
     const user = userEvent.setup();
     const view = renderApp();
-    await findPageHeading("Your home, at a glance");
+    await findPageHeading("Pine House");
     const main = view.container.querySelector("#main-content")!;
 
-    expect(document.title).toBe("Home — Stugu");
+    expect(document.title).toBe("Home — Pine House — Pine Estate — Stugu");
     expect(document.activeElement).not.toBe(main);
 
     await user.click(screen.getByRole("link", { name: "Sensors" }));
     await findPageHeading("Sensors");
     await waitFor(() => expect(document.activeElement).toBe(main));
-    expect(document.title).toBe("Sensors — Stugu");
+    expect(document.title).toBe("Sensors — Pine House — Pine Estate — Stugu");
 
     const activeHome = screen.getByRole("combobox", { name: "Home shown on this page" });
     expect(activeHome.closest("main")).toBe(main);
@@ -492,13 +518,32 @@ describe("Stugu app", () => {
     activeHome.focus();
     fireEvent.change(activeHome, { target: { value: (activeHome as HTMLSelectElement).value } });
     await waitFor(() => expect(document.activeElement).toBe(activeHome));
-    expect(document.title).toBe("Sensors — Stugu");
+    expect(document.title).toBe("Sensors — Pine House — Pine Estate — Stugu");
+  });
+
+  it("moves focus and updates scope metadata after switching Home", async () => {
+    const climate = mockClimateData();
+    const mainHouse = climate.state.houses[0]!;
+    const lakeHouse = { ...mainHouse, id: "house-lake", name: "Lake home" };
+    climate.state = { ...climate.state, houses: [mainHouse, lakeHouse] };
+    vi.mocked(useClimateData).mockReturnValue(climate);
+    const user = userEvent.setup();
+    const view = renderApp();
+    await findPageHeading("Pine House");
+    const main = view.container.querySelector("#main-content")!;
+
+    await user.selectOptions(screen.getByLabelText("Home shown on this page"), lakeHouse.id);
+
+    await findPageHeading("Lake home");
+    await waitFor(() => expect(document.activeElement).toBe(main));
+    expect(window.location.pathname).toBe("/properties/property-pine/homes/house-lake");
+    expect(document.title).toBe("Home — Lake home — Pine Estate — Stugu");
   });
 
   it("renders an accessible mock-backed twin and switches metrics", async () => {
     const user = userEvent.setup();
     renderApp();
-    expect(await findPageHeading("Your home, at a glance")).not.toBeNull();
+    expect(await findPageHeading("Pine House")).not.toBeNull();
     await user.click(screen.getByRole("button", { name: "Open live home view" }));
     expect(await screen.findByRole(
       "group",
@@ -515,7 +560,7 @@ describe("Stugu app", () => {
   it("opens the progressive Home Assistant onboarding experience", async () => {
     const user = userEvent.setup();
     renderApp();
-    await findPageHeading("Your home, at a glance");
+    await findPageHeading("Pine House");
     await user.click(screen.getByRole("link", { name: "Set up" }));
     expect(await findPageHeading("Connect your home")).not.toBeNull();
     expect(screen.getByRole("tab", { name: /Overview/ }).getAttribute("aria-selected")).toBe("true");
@@ -531,7 +576,7 @@ describe("Stugu app", () => {
   it("opens the sensor inventory and guided onboarding workspace", async () => {
     const user = userEvent.setup();
     renderApp();
-    await findPageHeading("Your home, at a glance");
+    await findPageHeading("Pine House");
 
     await user.click(screen.getByRole("link", { name: "Sensors" }));
 

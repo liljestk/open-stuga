@@ -74,6 +74,7 @@ export function monitoringCollection(
       evaluatedAt: generatedAt,
       sourceIds: [],
     },
+    evidenceSources: [],
     houses,
   };
 }

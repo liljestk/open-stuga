@@ -396,9 +396,10 @@ describe("PropertyManagementPage", () => {
     state.houses = [];
     const handlers = callbacks();
 
-    render(<I18nProvider><PropertyManagementPage state={state} {...handlers} /></I18nProvider>);
+    render(<I18nProvider><PropertyManagementPage state={state} initialTab="access" {...handlers} /></I18nProvider>);
 
     expect(screen.getByText("Guest access")).not.toBeNull();
+    expect(screen.getByRole("tab", { name: "Overview" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.queryByRole("button", { name: "Draw area" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add area" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "Access" })).toBeNull();

@@ -58,6 +58,19 @@ struct EquipmentDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     identity
+                    if !model.inventoryMutationsAvailable {
+                        Label {
+                            Text(LocalizedStringKey(
+                                model.selectedPropertyReadOnly
+                                    ? "This Property is read-only. Inventory can be viewed but not changed."
+                                    : "Reconnect to Stugu before changing inventory."
+                            ))
+                        } icon: {
+                            Image(systemName: model.selectedPropertyReadOnly ? "eye" : "wifi.slash")
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(StuguTheme.warning)
+                    }
                     equipmentDetails
                     location
                     if let endpoint = currentState.endpoint { endpointStatus(endpoint) }
@@ -138,6 +151,7 @@ struct EquipmentDetailView: View {
                     Label("Edit inventory record", systemImage: "square.and.pencil")
                 }
                 .buttonStyle(SecondaryButtonStyle())
+                .disabled(!model.inventoryMutationsAvailable)
             }
         }
     }
@@ -485,7 +499,7 @@ private struct EquipmentResourcesView: View {
                         EquipmentPhotoTile(
                             equipmentID: equipment.id,
                             attachment: attachment,
-                            canDelete: !model.selectedPropertyReadOnly && !busy,
+                            canDelete: model.inventoryMutationsAvailable && !busy,
                             onDelete: { attachmentToDelete = attachment }
                         )
                     }
@@ -529,7 +543,7 @@ private struct EquipmentResourcesView: View {
                             } label: {
                                 Image(systemName: "trash")
                             }
-                            .disabled(busy)
+                            .disabled(busy || !model.inventoryMutationsAvailable)
                             .accessibilityLabel("Remove \(attachment.name)")
                         }
                     }
@@ -571,7 +585,7 @@ private struct EquipmentResourcesView: View {
                             } label: {
                                 Image(systemName: "trash")
                             }
-                            .disabled(busy)
+                            .disabled(busy || !model.inventoryMutationsAvailable)
                             .accessibilityLabel("Remove link \(link.label)")
                         }
                     }
@@ -596,7 +610,7 @@ private struct EquipmentResourcesView: View {
             Label("Add photos", systemImage: "photo.badge.plus")
         }
         .buttonStyle(SecondaryButtonStyle())
-        .disabled(busy)
+        .disabled(busy || !model.inventoryMutationsAvailable)
 
         Button {
             showingDocumentPicker = true
@@ -604,7 +618,7 @@ private struct EquipmentResourcesView: View {
             Label("Add documents", systemImage: "doc.badge.plus")
         }
         .buttonStyle(SecondaryButtonStyle())
-        .disabled(busy)
+        .disabled(busy || !model.inventoryMutationsAvailable)
 
         Button {
             showingLinkForm = true
@@ -612,7 +626,7 @@ private struct EquipmentResourcesView: View {
             Label("Add link", systemImage: "link.badge.plus")
         }
         .buttonStyle(SecondaryButtonStyle())
-        .disabled(busy)
+        .disabled(busy || !model.inventoryMutationsAvailable)
     }
 
     @MainActor
@@ -825,6 +839,15 @@ private struct EquipmentLinkForm: View {
     var body: some View {
         NavigationStack {
             Form {
+                if !model.inventoryMutationsAvailable {
+                    Section {
+                        Label(
+                            "Reconnect to Stugu before changing inventory.",
+                            systemImage: "wifi.slash"
+                        )
+                        .foregroundStyle(StuguTheme.warning)
+                    }
+                }
                 Section("Relevant information") {
                     TextField("Link name", text: $label)
                     TextField("Web address", text: $url)
@@ -844,7 +867,7 @@ private struct EquipmentLinkForm: View {
                     Button("Add") {
                         Task { await save() }
                     }
-                    .disabled(!canSave || saving)
+                    .disabled(!canSave || saving || !model.inventoryMutationsAvailable)
                 }
             }
             .interactiveDismissDisabled(saving)
@@ -976,6 +999,20 @@ struct EquipmentEditorView: View {
     var body: some View {
         NavigationStack {
             Form {
+                if !model.inventoryMutationsAvailable {
+                    Section {
+                        Label {
+                            Text(LocalizedStringKey(
+                                model.selectedPropertyReadOnly
+                                    ? "This Property is read-only. Inventory can be viewed but not changed."
+                                    : "Reconnect to Stugu before changing inventory."
+                            ))
+                        } icon: {
+                            Image(systemName: model.selectedPropertyReadOnly ? "eye" : "wifi.slash")
+                        }
+                        .foregroundStyle(StuguTheme.warning)
+                    }
+                }
                 Section {
                     TextField("Name", text: $name)
                     TextField("Equipment type", text: $kind)
@@ -1112,7 +1149,7 @@ struct EquipmentEditorView: View {
                             Text("Save")
                         }
                     }
-                    .disabled(!canSave || saving || model.selectedPropertyReadOnly)
+                    .disabled(!canSave || saving || !model.inventoryMutationsAvailable)
                 }
             }
             .task {
