@@ -261,7 +261,7 @@ describe("useClimateData", () => {
     expect(result.current.state.measurementHistory[sensor.id]?.temperature?.at(-1)?.value).toBe(27.3);
   });
 
-  it("renders a legacy reading immediately and still applies its live measurement only once", async () => {
+  it("batches a legacy reading with duplicate live measurements and applies it once", async () => {
     const demo = createDemoState();
     const sensor = demo.sensors[0]!;
     const priorSample = demo.latestMeasurements[sensor.id]!.temperature!;
@@ -273,17 +273,23 @@ describe("useClimateData", () => {
     const [[handleTelemetry]] = mocks.subscribeToEvents.mock.calls as unknown as [[(event: TelemetryEvent) => void]];
     const [[handleMeasurement]] = mocks.subscribeToMeasurementEvents.mock.calls as unknown as [[(sample: MeasurementSample) => void]];
 
-    act(() => handleTelemetry({ type: "reading", data: reading }));
-    expect(result.current.state.readings[sensor.id]?.temperature).toBe(26.5);
-    expect(result.current.state.latestMeasurements[sensor.id]?.temperature?.value).toBe(26.5);
-    expect(result.current.state.measurementHistory[sensor.id]?.temperature?.at(-1)?.value).toBe(26.5);
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        handleTelemetry({ type: "reading", data: reading });
+        handleMeasurement(sample);
+        handleMeasurement(sample);
+      });
+      expect(result.current.state.latestMeasurements[sensor.id]?.temperature?.value).not.toBe(26.5);
 
-    act(() => {
-      handleMeasurement(sample);
-      handleMeasurement(sample);
-    });
-    await waitFor(() => expect(result.current.state.latestMeasurements[sensor.id]?.temperature?.value).toBe(26.5));
-    expect(result.current.state.measurementHistory[sensor.id]?.temperature).toEqual([sample]);
+      await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+
+      expect(result.current.state.readings[sensor.id]?.temperature).toBe(26.5);
+      expect(result.current.state.latestMeasurements[sensor.id]?.temperature?.value).toBe(26.5);
+      expect(result.current.state.measurementHistory[sensor.id]?.temperature).toEqual([sample]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not recreate deleted sensor telemetry from a queued live measurement", async () => {

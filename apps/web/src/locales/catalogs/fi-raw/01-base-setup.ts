@@ -386,6 +386,7 @@ export const fiRawPart1 = {
   "common.co2": "Hiilidioksidi",
   "twin.averageMeasurement": "Mittauksen {metric} keskiarvo",
   "twin.reportingSensors": "Raportoivat anturit",
+  "twin.reportingMetricSensors": "{metric}: raportoivat anturit",
   "twin.reportingCount": "{count}/{total}",
   "twin.measurements": "Saatavilla olevat mittaukset",
   "twin.noActiveAlerts": "Ei aktiivisia hälytyksiä",

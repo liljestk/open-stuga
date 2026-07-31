@@ -100,6 +100,7 @@ import { StugubyStore } from "../stuguby/store.js";
 import { config, dataMode, dataOperations, database, energyCost, optionalString, requiredString, status, stuguby, stugubyStore, telemetry, telemetryReader } from "./01-config-to-get-house-weather.js";
 import { activeStugubyGrant, recommendedOverviewGrant, stugubySide, summarizeMcpStuguby } from "./04-point-schema-to-summarize-mcp-stuguby.js";
 import { chatgptMcpServerInstructions, isChatgptMcpProfile } from "./chatgpt-profile.js";
+import { runMcpThermalWork } from "./thermal-work.js";
 
 export function getMcpStuguby(args: Record<string, unknown>): object {
   const stugubyId = requiredString(args, "stugubyId");
@@ -392,7 +393,10 @@ export async function outdoorTemperatureHistory(args: Record<string, unknown>): 
   return { samples: truncated ? samples.slice(-limit) : samples, from, to, truncated };
 }
 
-export async function thermalIsolation(args: Record<string, unknown>): Promise<unknown> {
+export async function thermalIsolation(
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<unknown> {
   const house = requireMcpHouse(database, requiredString(args, "houseId"));
   const { from, to } = mcpThermalDateRange(optionalString(args, "from"), optionalString(args, "to"));
   const sensorCandidates = database.listSensors(house.id).filter((sensor) => sensor.enabled);
@@ -400,39 +404,45 @@ export async function thermalIsolation(args: Record<string, unknown>): Promise<u
     (await telemetryReader.measurementCoverage({
       sensorIds: sensorCandidates.map((sensor) => sensor.id),
       metrics: ["temperature"],
+      ...(signal ? { signal } : {}),
     })).records.map((coverage) => coverage.sensorId),
   );
+  signal?.throwIfAborted();
   const sensors = sensorCandidates.filter((sensor) =>
     isThermalIsolationTemperatureSensor(sensor, sensorsWithTemperatureHistory.has(sensor.id)));
   if (sensors.length > 64) throw new Error("Thermal isolation comparison supports at most 64 temperature sensors");
   const boundaryPaddingMs = 2 * 3_600_000;
-  const [outdoorRead, ...indoorReads] = await Promise.all([
-    telemetryReader.outdoorTemperatureHistory({
+  return runMcpThermalWork({
+    subjects: sensors,
+    ...(signal ? { signal } : {}),
+    readOutdoor: (readSignal) => telemetryReader.outdoorTemperatureHistory({
       houseId: house.id,
       locationKey: outdoorLocationKey(house.location),
       from: new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
       to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
       limit: 50_000,
+      ...(readSignal ? { signal: readSignal } : {}),
     }),
-    ...sensors.map((sensor) => telemetryReader.thermalMeasurementHistory({
-      sensorId: sensor.id,
+    readIndoor: (subject, readSignal) => telemetryReader.thermalMeasurementHistory({
+      sensorId: subject.id,
       metrics: ["temperature"],
       from,
       to,
       bucketMinutes: 5,
       limitPerMetric: 5_000,
-    })),
-  ]);
-  return runThermalIsolationAsync({
-    house,
-    sensors,
-    indoorSamplesBySensor: new Map(sensors.map((sensor, index) => [
-      sensor.id,
-      indoorReads[index]!.records,
-    ])),
-    outdoorSamples: outdoorRead.records,
-    from,
-    to,
+      ...(readSignal ? { signal: readSignal } : {}),
+    }),
+    complete: ({ indoor, outdoor }, completionSignal) => runThermalIsolationAsync({
+      house,
+      sensors,
+      indoorSamplesBySensor: new Map(sensors.map((sensor, index) => [
+        sensor.id,
+        indoor[index]!.records,
+      ])),
+      outdoorSamples: outdoor.records,
+      from,
+      to,
+    }, completionSignal ? { signal: completionSignal } : {}),
   });
 }
 

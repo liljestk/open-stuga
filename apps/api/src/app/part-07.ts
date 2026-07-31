@@ -314,6 +314,8 @@ export function configureApiPart07(context: ReturnType<typeof configureApiPart06
           aggregateMode: archive.aggregateMode,
           coldStorageMode: archive.coldStorageMode,
           schemaWarningCount: archive.schemaWarningCount,
+          queuedSamples: archive.queuedSamples,
+          dirtyRows: context.database.telemetryArchiveDirtyCount(),
           lastSuccessAt: archive.lastSuccessAt,
           lastFailureAt: archive.lastFailureAt,
         } : { enabled: false, required: false, phase: "disabled", caughtUp: false },

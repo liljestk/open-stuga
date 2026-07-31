@@ -177,6 +177,7 @@ export function prepareDataSwap(paths, manifest, receipt) {
   copyCategory("spatial-sqlite", "experimental-spatial-layers.sqlite");
   copyCategory("integration-secrets", "integration-secrets.json");
   copyCategory("stuguby-identity", "stuguby-identity.json");
+  copyCategory("tracking-secret-key", "tracking-secret.key");
   const stagedAssets = join(stage, "assets");
   mkdirSync(stagedAssets, { mode: 0o700 });
   for (const record of manifest.files.filter((file) => file.category === "asset")) {
@@ -195,6 +196,7 @@ export function prepareDataSwap(paths, manifest, receipt) {
       "climate-twin.sqlite-shm",
       "integration-secrets.json",
       "stuguby-identity.json",
+      "tracking-secret.key",
       "assets",
       "experimental-spatial-layers.sqlite",
       "experimental-spatial-layers.sqlite-wal",

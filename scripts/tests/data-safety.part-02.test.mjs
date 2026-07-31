@@ -48,6 +48,13 @@ import { openReadOnlySqlite, sha256File } from "../sqlite-snapshot-utils.mjs";
 
 import { createTelemetryFixture, temporaryDirectory } from "./data-safety-test-support.mjs";
 
+test("backup image retains the package version used as manifest provenance", () => {
+  const dockerfile = readFileSync(new URL("../../Dockerfile", import.meta.url), "utf8");
+  const backupTarget = dockerfile.slice(dockerfile.indexOf("FROM postgres:17-bookworm AS backup"));
+  assert.match(backupTarget, /^COPY package\.json \.\/package\.json$/mu);
+  assert.match(backupTarget, /scripts\/stugu-migration-common\.mjs/u);
+});
+
 test("backup creates and re-verifies snapshots, assets, manifest, and opt-in fake secrets", async (t) => {
   const directory = temporaryDirectory(t);
   const source = join(directory, "source.sqlite");
@@ -81,6 +88,14 @@ test("backup creates and re-verifies snapshots, assets, manifest, and opt-in fak
       "--secrets-file", secrets,
     ], {});
     const manifest = await createBackup(options);
+    const runningVersion = JSON.parse(
+      readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+    ).version;
+    assert.equal(manifest.sourceVersion, runningVersion);
+    assert.equal(
+      JSON.parse(readFileSync(join(output, "manifest.json"), "utf8")).sourceVersion,
+      runningVersion,
+    );
     assert.equal(manifest.verification.status, "passed");
     assert.equal(manifest.sources.integrationSecrets.status, "included");
     assert.equal(manifest.sources.timescale.status, "excluded");
@@ -92,6 +107,10 @@ test("backup creates and re-verifies snapshots, assets, manifest, and opt-in fak
     assert.ok(manifest.files.some(({ category }) => category === "tracking-secret-key"));
     assert.equal(manifest.sources.stugubyIdentity.status, "included");
     assert.equal(manifest.sources.trackingSecretKey.encryptedEndpointRecords, 1);
+    assert.equal(
+      readFileSync(join(output, "secrets", "tracking-secret.key"), "utf8"),
+      readFileSync(trackingSecretKey, "utf8"),
+    );
     assert.equal(manifest.files.every(({ sensitive }) => sensitive === true), true);
     assert.equal(existsSync(join(output, "manifest.sha256")), true);
     assert.equal(existsSync(join(output, "INCOMPLETE.json")), false);
@@ -105,6 +124,11 @@ test("backup creates and re-verifies snapshots, assets, manifest, and opt-in fak
       }
       assert.equal(statSync(join(output, "manifest.json")).mode & 0o777, 0o600);
     }
+    const manifestPath = join(output, "manifest.json");
+    const invalidVersion = { ...manifest, sourceVersion: "latest" };
+    writeFileSync(manifestPath, `${JSON.stringify(invalidVersion, null, 2)}\n`);
+    writeFileSync(join(output, "manifest.sha256"), `${await sha256File(manifestPath)}  manifest.json\n`);
+    await assert.rejects(verifyBackup(output), /invalid source version/u);
   } finally {
     writer.close();
   }

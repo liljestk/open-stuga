@@ -14,6 +14,7 @@ import type {
 import {
   prepareThermalOutdoorBoundary,
   runThermalSimulation,
+  runThermalSimulationAsync,
   type PreparedThermalOutdoorBoundary,
 } from "./thermal-simulation.js";
 import { SYSTEM_VERSION } from "./version.js";
@@ -150,6 +151,15 @@ function sensorEntry(
     horizonHours: 0,
     ...(input.generatedAt ? { generatedAt: input.generatedAt } : {}),
   }, preparedOutdoor).calibration;
+  return sensorEntryFromCalibration(input, sensor, parentId, calibration);
+}
+
+function sensorEntryFromCalibration(
+  input: ThermalIsolationInput,
+  sensor: Sensor,
+  parentId: string,
+  calibration: ThermalCalibrationResult,
+): ThermalIsolationEntry {
   const metrics = metricsForCalibration(calibration);
   const score = metrics.retainedAfter24HoursPct;
   const sensitivity = sensitivityScores(calibration);
@@ -184,10 +194,36 @@ function sensorEntry(
   };
 }
 
+async function sensorEntryAsync(
+  input: ThermalIsolationInput,
+  sensor: Sensor,
+  parentId: string,
+  preparedOutdoor: PreparedThermalOutdoorBoundary,
+  signal?: AbortSignal,
+): Promise<ThermalIsolationEntry> {
+  const calibration = (await runThermalSimulationAsync({
+    houseId: input.house.id,
+    sensorId: sensor.id,
+    roomLabel: sensor.room,
+    from: input.from,
+    to: input.to,
+    indoorSamples: input.indoorSamplesBySensor.get(sensor.id) ?? [],
+    outdoorSamples: input.outdoorSamples,
+    horizonHours: 0,
+    ...(input.generatedAt ? { generatedAt: input.generatedAt } : {}),
+  }, preparedOutdoor, signal ? { signal } : {})).calibration;
+  return sensorEntryFromCalibration(input, sensor, parentId, calibration);
+}
+
+type ThermalSpreadMetrics = Pick<
+  ThermalIsolationMetrics,
+  "typicalTemperatureSpreadC" | "p90TemperatureSpreadC"
+>;
+
 function synchronizedSpread(
   sensorIds: string[],
   indoorSamplesBySensor: ReadonlyMap<string, MeasurementSample[]>,
-): Pick<ThermalIsolationMetrics, "typicalTemperatureSpreadC" | "p90TemperatureSpreadC"> {
+): ThermalSpreadMetrics {
   if (sensorIds.length < 2) return { typicalTemperatureSpreadC: null, p90TemperatureSpreadC: null };
   const buckets = new Map<number, Map<string, { value: number; weight: number }>>();
   for (const sensorId of sensorIds) {
@@ -216,6 +252,94 @@ function synchronizedSpread(
   };
 }
 
+interface PreparedThermalSpread {
+  bySensor: Map<string, Map<number, { value: number; weight: number }>>;
+}
+
+interface CooperativeAggregationWork {
+  signal?: AbortSignal;
+  yieldEverySamples: number;
+  samplesSinceYield: number;
+}
+
+function positiveBatchSize(value: number | undefined, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value) || value < 1) return fallback;
+  return Math.max(1, Math.floor(value));
+}
+
+async function yieldAggregationWork(
+  work: CooperativeAggregationWork,
+  force = false,
+): Promise<void> {
+  work.signal?.throwIfAborted();
+  if (!force && work.samplesSinceYield < work.yieldEverySamples) return;
+  work.samplesSinceYield = 0;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  work.signal?.throwIfAborted();
+}
+
+async function prepareThermalSpreadAsync(
+  input: ThermalIsolationInput,
+  sensorIds: string[],
+  work: CooperativeAggregationWork,
+): Promise<PreparedThermalSpread> {
+  const bySensor = new Map<string, Map<number, { value: number; weight: number }>>();
+  for (const sensorId of unique(sensorIds)) {
+    const sensorBuckets = new Map<number, { value: number; weight: number }>();
+    for (const sample of input.indoorSamplesBySensor.get(sensorId) ?? []) {
+      const time = Date.parse(sample.timestamp);
+      if (sample.metric === "temperature" && sample.quality !== "stale" && sample.source !== "replay"
+        && Number.isFinite(time) && Number.isFinite(sample.value)) {
+        const bucketTime = Math.floor(time / CALIBRATION_BUCKET_MS) * CALIBRATION_BUCKET_MS;
+        const candidate = { value: sample.value, weight: sample.quality === "estimated" ? 0.25 : 1 };
+        const current = sensorBuckets.get(bucketTime);
+        if (!current || candidate.weight >= current.weight) sensorBuckets.set(bucketTime, candidate);
+      }
+      work.samplesSinceYield += 1;
+      if (work.samplesSinceYield >= work.yieldEverySamples) await yieldAggregationWork(work);
+    }
+    bySensor.set(sensorId, sensorBuckets);
+  }
+  return { bySensor };
+}
+
+function spreadCacheKey(sensorIds: string[]): string {
+  return JSON.stringify([...sensorIds].sort());
+}
+
+async function synchronizedPreparedSpreadAsync(
+  sensorIds: string[],
+  prepared: PreparedThermalSpread,
+  work: CooperativeAggregationWork,
+): Promise<ThermalSpreadMetrics> {
+  if (sensorIds.length < 2) {
+    return { typicalTemperatureSpreadC: null, p90TemperatureSpreadC: null };
+  }
+  const buckets = new Map<number, number[]>();
+  for (const sensorId of unique(sensorIds)) {
+    for (const [bucketTime, point] of prepared.bySensor.get(sensorId) ?? []) {
+      const values = buckets.get(bucketTime) ?? [];
+      values.push(point.value);
+      buckets.set(bucketTime, values);
+      work.samplesSinceYield += 1;
+      if (work.samplesSinceYield >= work.yieldEverySamples) await yieldAggregationWork(work);
+    }
+  }
+  const minimumSensors = Math.max(2, Math.ceil(sensorIds.length * 0.6));
+  const spreads: number[] = [];
+  for (const values of buckets.values()) {
+    if (values.length >= minimumSensors) spreads.push(Math.max(...values) - Math.min(...values));
+    work.samplesSinceYield += 1;
+    if (work.samplesSinceYield >= work.yieldEverySamples) await yieldAggregationWork(work);
+  }
+  const typical = median(spreads);
+  const p90 = percentile(spreads, 0.9);
+  return {
+    typicalTemperatureSpreadC: typical === null ? null : round(typical, 2),
+    p90TemperatureSpreadC: p90 === null ? null : round(p90, 2),
+  };
+}
+
 function aggregateConfidence(
   status: ThermalIsolationEntry["calibrationStatus"],
   childCoveragePct: number,
@@ -233,6 +357,7 @@ function aggregateEntry(
   children: ThermalIsolationEntry[],
   sensorIds: string[],
   indoorSamplesBySensor: ReadonlyMap<string, MeasurementSample[]>,
+  preparedSpread?: ThermalSpreadMetrics,
 ): ThermalIsolationEntry {
   const scoredChildren = children.filter((child) => child.score !== null);
   const score = median(scoredChildren.flatMap((child) => child.score === null ? [] : [child.score]));
@@ -262,7 +387,7 @@ function aggregateEntry(
     sensorIds.length,
     scoredChildren.reduce((sum, child) => sum + child.eligibleSensorCount, 0),
   );
-  const spread = synchronizedSpread(sensorIds, indoorSamplesBySensor);
+  const spread = preparedSpread ?? synchronizedSpread(sensorIds, indoorSamplesBySensor);
   const warnings = unique(children.flatMap((child) => child.warnings));
   if (childCoveragePct < 100) warnings.push(children.length ? "PARTIAL_SCOPE_COVERAGE" : "NO_TEMPERATURE_SENSOR");
   if (!sensorIds.length && !warnings.includes("NO_TEMPERATURE_SENSOR")) warnings.push("NO_TEMPERATURE_SENSOR");
@@ -430,10 +555,51 @@ function prepareThermalIsolationRun(input: ThermalIsolationInput): PreparedTherm
   };
 }
 
+async function prepareAsyncSpreadResolver(
+  input: ThermalIsolationInput,
+  prepared: PreparedThermalIsolationRun,
+  options: ThermalIsolationAsyncOptions,
+): Promise<(sensorIds: string[]) => ThermalSpreadMetrics> {
+  const work: CooperativeAggregationWork = {
+    ...(options.signal ? { signal: options.signal } : {}),
+    yieldEverySamples: positiveBatchSize(options.yieldEveryAggregationSamples, 1_024),
+    samplesSinceYield: 0,
+  };
+  await yieldAggregationWork(work, true);
+  const spreadInput = await prepareThermalSpreadAsync(
+    input,
+    prepared.enabledSensors.map((sensor) => sensor.id),
+    work,
+  );
+  const floorSensorIds = input.house.floors.map((floor) => unique(
+    prepared.groups
+      .filter((group) => group.floorId === floor.id)
+      .flatMap((group) => group.sensorIds),
+  ));
+  const scopeSensorIds = [
+    ...prepared.groups.map((group) => group.sensorIds),
+    ...floorSensorIds,
+    unique(floorSensorIds.flat()),
+  ];
+  const spreadCache = new Map<string, ThermalSpreadMetrics>();
+  for (const sensorIds of scopeSensorIds) {
+    const key = spreadCacheKey(sensorIds);
+    if (spreadCache.has(key)) continue;
+    spreadCache.set(key, await synchronizedPreparedSpreadAsync(sensorIds, spreadInput, work));
+  }
+  await yieldAggregationWork(work, true);
+  return (sensorIds) => {
+    const spread = spreadCache.get(spreadCacheKey(sensorIds));
+    if (!spread) throw new Error("Prepared thermal spread is missing for an isolation scope");
+    return spread;
+  };
+}
+
 function completeThermalIsolation(
   input: ThermalIsolationInput,
   groups: RoomGroup[],
   entriesForSensors: ThermalIsolationEntry[],
+  spreadForSensorIds?: (sensorIds: string[]) => ThermalSpreadMetrics,
 ): ThermalIsolationResult {
   const sensorEntries = ranked(entriesForSensors);
   const sensorEntryById = new Map(sensorEntries.map((entry) => [entry.scope.sensorIds[0]!, entry]));
@@ -453,6 +619,7 @@ function completeThermalIsolation(
     }),
     group.sensorIds,
     input.indoorSamplesBySensor,
+    spreadForSensorIds?.(group.sensorIds),
   ));
   roomEntries = ranked(roomEntries);
 
@@ -471,6 +638,7 @@ function completeThermalIsolation(
       children,
       sensorIds,
       input.indoorSamplesBySensor,
+      spreadForSensorIds?.(sensorIds),
     );
   });
   floorEntries = ranked(floorEntries);
@@ -486,6 +654,7 @@ function completeThermalIsolation(
     floorEntries,
     houseSensorIds,
     input.indoorSamplesBySensor,
+    spreadForSensorIds?.(houseSensorIds),
   );
   houseEntry.rank = houseEntry.score === null ? null : 1;
 
@@ -530,15 +699,19 @@ export function runThermalIsolation(input: ThermalIsolationInput): ThermalIsolat
 export interface ThermalIsolationAsyncOptions {
   signal?: AbortSignal;
   yieldEvery?: number;
+  yieldEveryAggregationSamples?: number;
 }
 
 export async function runThermalIsolationAsync(
   input: ThermalIsolationInput,
   options: ThermalIsolationAsyncOptions = {},
 ): Promise<ThermalIsolationResult> {
+  options.signal?.throwIfAborted();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  options.signal?.throwIfAborted();
   const prepared = prepareThermalIsolationRun(input);
   const sensorEntries: ThermalIsolationEntry[] = [];
-  const yieldEvery = Math.max(1, Math.floor(options.yieldEvery ?? 1));
+  const yieldEvery = positiveBatchSize(options.yieldEvery, 1);
   for (let index = 0; index < prepared.enabledSensors.length; index += 1) {
     if (index % yieldEvery === 0) {
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -546,13 +719,16 @@ export async function runThermalIsolationAsync(
     options.signal?.throwIfAborted();
     const sensor = prepared.enabledSensors[index];
     if (!sensor) continue;
-    sensorEntries.push(sensorEntry(
+    sensorEntries.push(await sensorEntryAsync(
       input,
       sensor,
       prepared.parentBySensor.get(sensor.id) ?? `floor:${sensor.floorId}`,
       prepared.outdoor,
+      options.signal,
     ));
   }
   options.signal?.throwIfAborted();
-  return completeThermalIsolation(input, prepared.groups, sensorEntries);
+  const spreadForSensorIds = await prepareAsyncSpreadResolver(input, prepared, options);
+  options.signal?.throwIfAborted();
+  return completeThermalIsolation(input, prepared.groups, sensorEntries, spreadForSensorIds);
 }

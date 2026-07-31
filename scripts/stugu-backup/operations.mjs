@@ -15,7 +15,7 @@ import {
 
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 import {
   assertSqliteCheck,
@@ -27,9 +27,17 @@ import {
   sha256File,
 } from ".././sqlite-snapshot-utils.mjs";
 
+import { assertReleaseVersion } from "../stugu-migration-common.mjs";
+
 import { BACKUP_VERSION, assetRecords, copyAssets, describedFileRecord, ensureSnapshotStugubyAssets, fileRecord, help, parseBackupArgs, redact, requiredStugubyBlobs, sqliteInventory, sqliteTableRowCount, verifySnapshotStugubyAssetInventory, within } from "./configuration-files.mjs";
 
 import { createTimescaleDump, runDirect } from "./commands-timescale.mjs";
+
+function installedSourceVersion() {
+  const packagePath = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "package.json");
+  const version = JSON.parse(readFileSync(packagePath, "utf8"))?.version;
+  return assertReleaseVersion(version, "Running Stugu package version");
+}
 
 export async function verifyBackup(path, pgRestore = "pg_restore", env = process.env, { allowPending = false } = {}) {
   const candidate = resolve(path);
@@ -43,6 +51,13 @@ export async function verifyBackup(path, pgRestore = "pg_restore", env = process
   }
   if (manifest?.format !== "stugu-backup" || ![1, BACKUP_VERSION].includes(manifest?.version)) {
     throw new Error(`Unsupported backup manifest: ${manifestPath}`);
+  }
+  if (manifest.sourceVersion !== undefined) {
+    try {
+      assertReleaseVersion(manifest.sourceVersion, "Backup manifest source version");
+    } catch {
+      throw new Error("Backup manifest has an invalid source version");
+    }
   }
   if (!Array.isArray(manifest.files)) throw new Error("Backup manifest has no file inventory");
   if (!allowPending && manifest.verification?.status !== "passed") {
@@ -95,7 +110,8 @@ export async function verifyBackup(path, pgRestore = "pg_restore", env = process
   };
 }
 
-export async function createBackup(options, { afterCoreSnapshot } = {}) {
+export async function createBackup(options, { afterCoreSnapshot, sourceVersion = installedSourceVersion() } = {}) {
+  assertReleaseVersion(sourceVersion, "Backup source version");
   if (existsSync(options.output)) throw new Error(`Refusing to overwrite existing backup output: ${options.output}`);
   if (!existsSync(options.database)) throw new Error(`Core SQLite database does not exist: ${options.database}`);
   hardenPrivateDirectory(options.output);
@@ -110,6 +126,7 @@ export async function createBackup(options, { afterCoreSnapshot } = {}) {
   const manifest = {
     format: "stugu-backup",
     version: BACKUP_VERSION,
+    sourceVersion,
     createdAt: new Date().toISOString(),
     sensitivity: "confidential-household-authentication-and-telemetry-data",
     includesSecrets: options.includeSecrets,

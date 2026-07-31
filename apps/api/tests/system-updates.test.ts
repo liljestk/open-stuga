@@ -321,6 +321,132 @@ describe("system update service", () => {
     expect(() => service.updateSettings({ ...status.settings, updateTime: "25:90" })).toThrow(/HH:mm/);
     expect(() => service.updateSettings({ ...status.settings, timezone: "Not/AZone" })).toThrow(/IANA/);
   });
+
+  it("skips nonexistent local times during a DST spring-forward gap", () => {
+    const service = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      now: () => new Date("2026-03-28T12:00:00Z"),
+    });
+
+    const status = service.updateSettings({
+      mode: "automatic",
+      includePrereleases: false,
+      checkIntervalHours: 24,
+      updateTime: "03:30",
+      updateDays: ["sun"],
+      timezone: "Europe/Helsinki",
+    });
+
+    expect(status.nextUpdateWindowAt).toBe("2026-04-05T00:30:00.000Z");
+  });
+
+  it("selects the next occurrence of an overlapping local time during DST fall-back", () => {
+    const settings = {
+      mode: "automatic" as const,
+      includePrereleases: false,
+      checkIntervalHours: 24 as const,
+      updateTime: "03:30",
+      updateDays: ["sun"] as const,
+      timezone: "Europe/Helsinki",
+    };
+    const beforeBoth = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      now: () => new Date("2026-10-25T00:00:00Z"),
+    });
+    const betweenOccurrences = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      now: () => new Date("2026-10-25T01:00:00Z"),
+    });
+
+    expect(beforeBoth.updateSettings(settings).nextUpdateWindowAt).toBe("2026-10-25T00:30:00.000Z");
+    expect(betweenOccurrences.updateSettings(settings).nextUpdateWindowAt).toBe("2026-10-25T01:30:00.000Z");
+  });
+
+  it("calculates update windows in a fractional-offset timezone", () => {
+    const service = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      now: () => new Date("2026-07-30T20:00:00Z"),
+    });
+
+    const status = service.updateSettings({
+      mode: "automatic",
+      includePrereleases: false,
+      checkIntervalHours: 24,
+      updateTime: "03:00",
+      updateDays: ["fri"],
+      timezone: "Asia/Kathmandu",
+    });
+
+    expect(status.nextUpdateWindowAt).toBe("2026-07-30T21:15:00.000Z");
+  });
+
+  it("bounds formatter work and caches, invalidates, and expires the next window", () => {
+    let now = new Date("2026-03-28T12:00:00Z");
+    let formatterCreations = 0;
+    let formatCalls = 0;
+    const service = new SystemUpdateService({
+      currentVersion: "0.5.0",
+      repository: "liljestk/open-stuga",
+      imagePrefix: "ghcr.io/liljestk/open-stuga",
+      now: () => now,
+      dateTimeFormatFactory: (timezone) => {
+        formatterCreations += 1;
+        const formatter = new Intl.DateTimeFormat("en-US-u-ca-gregory-nu-latn", {
+          timeZone: timezone,
+          weekday: "short",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hourCycle: "h23",
+        });
+        return {
+          formatToParts: (date) => {
+            formatCalls += 1;
+            return formatter.formatToParts(date);
+          },
+        };
+      },
+    });
+
+    const initial = service.updateSettings({
+      mode: "automatic",
+      includePrereleases: false,
+      checkIntervalHours: 24,
+      updateTime: "03:30",
+      updateDays: ["sun"],
+      timezone: "Europe/Helsinki",
+    });
+    expect(initial.nextUpdateWindowAt).toBe("2026-04-05T00:30:00.000Z");
+    expect(formatterCreations).toBe(1);
+    expect(formatCalls).toBeLessThanOrEqual(13);
+
+    const callsAfterInitialCalculation = formatCalls;
+    expect(service.status().nextUpdateWindowAt).toBe(initial.nextUpdateWindowAt);
+    expect(formatCalls).toBe(callsAfterInitialCalculation);
+
+    const changed = service.updateSettings({ ...initial.settings, updateTime: "04:30" });
+    expect(changed.nextUpdateWindowAt).toBe("2026-03-29T01:30:00.000Z");
+    expect(formatCalls).toBeGreaterThan(callsAfterInitialCalculation);
+    const callsAfterInvalidation = formatCalls;
+    expect(service.status().nextUpdateWindowAt).toBe(changed.nextUpdateWindowAt);
+    expect(formatCalls).toBe(callsAfterInvalidation);
+
+    now = new Date(now.getTime() + 60_001);
+    expect(service.status().nextUpdateWindowAt).toBe(changed.nextUpdateWindowAt);
+    expect(formatCalls).toBeGreaterThan(callsAfterInvalidation);
+    expect(formatterCreations).toBe(1);
+  });
 });
 
 describe("system version comparison", () => {

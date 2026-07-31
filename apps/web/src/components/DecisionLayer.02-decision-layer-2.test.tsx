@@ -86,6 +86,41 @@ describe("decision layer", () => {
     });
   });
 
+  it("uses the newest valid retained sample when a stale sample follows it", () => {
+    const good = sample("temperature", 21.4, "2026-07-14T11:58:00.000Z");
+    const stale = { ...sample("temperature", 99, "2026-07-14T11:59:00.000Z"), quality: "stale" as const };
+
+    const [room] = buildRoomComforts({
+      sensors: [sensor],
+      latestMeasurements: { [sensor.id]: { temperature: stale } },
+      measurementHistory: { [sensor.id]: { temperature: [good, stale] } },
+      alerts: [],
+      now,
+    });
+
+    expect(room?.temperature).toBe(21.4);
+  });
+
+  it("builds the sparkline from only the last 24 valid ordered values", () => {
+    const temperature = Array.from({ length: 30 }, (_, index) => (
+      sample(
+        "temperature",
+        index,
+        new Date(Date.parse("2026-07-14T11:30:00.000Z") + index * 60_000).toISOString(),
+      )
+    ));
+
+    const [room] = buildRoomComforts({
+      sensors: [sensor],
+      latestMeasurements: {},
+      measurementHistory: { [sensor.id]: { temperature } },
+      alerts: [],
+      now,
+    });
+
+    expect(room?.temperatureTrend).toEqual(Array.from({ length: 24 }, (_, index) => index + 6));
+  });
+
   it("sums fresh electricity sensors in a room and identifies a power-only room as live", () => {
     const meter = { ...sensor, id: "kitchen-meter", room: "Kitchen", name: "Kitchen meter", model: "P110" };
     const plug = { ...sensor, id: "kitchen-plug", room: "Kitchen", name: "Kitchen plug", model: "P110" };

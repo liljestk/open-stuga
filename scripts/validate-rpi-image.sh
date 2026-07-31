@@ -233,6 +233,14 @@ for partition, slot in zip(
     ).replace("\r\n", "\n")
     if "root=/dev/disk/by-slot/active/system" not in cmdline.split():
         fail(f"{slot} cmdline.txt does not select the active A/B system")
+    if "rootwait" not in cmdline.split():
+        fail(f"{slot} cmdline.txt does not wait for root storage")
+    if "rootdelay=6" not in cmdline.split():
+        fail(f"{slot} cmdline.txt does not include rootdelay=6")
+    if "cgroup_enable=memory" not in cmdline.split():
+        fail(f"{slot} cmdline.txt does not enable memory cgroups")
+    if any(token.startswith("netconsole=") for token in cmdline.split()):
+        fail(f"{slot} cmdline.txt contains diagnostic netconsole configuration")
     initramfs = mtools_binary(
         "mtype", "-i", f"{image_path}@@{offset}", "::initramfs8"
     )

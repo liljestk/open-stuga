@@ -237,6 +237,7 @@ export const enPart3 = {
   "twin.keyboardPlacement": "Use arrow keys to move the cursor, Enter to place, and Escape to cancel.",
   "twin.averageMeasurement": "Average {metric}",
   "twin.reportingSensors": "Reporting sensors",
+  "twin.reportingMetricSensors": "{metric} sensors reporting",
   "twin.reportingCount": "{count} of {total}",
   "twin.measurements": "Available measurements",
   "twin.avgTemperature": "Average temperature",

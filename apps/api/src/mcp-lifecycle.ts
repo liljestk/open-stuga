@@ -52,3 +52,23 @@ export class McpOperationTracker {
     }
   }
 }
+
+export type McpToolHandler = (
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+) => unknown | Promise<unknown>;
+
+export function runMcpToolRequest(
+  tracker: McpOperationTracker,
+  handlers: Readonly<Record<string, McpToolHandler>>,
+  name: string,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  const handler = handlers[name];
+  if (!handler) return Promise.reject(new Error(`Unknown tool: ${name}`));
+  return tracker.run(() => {
+    signal?.throwIfAborted();
+    return handler(args, signal);
+  });
+}

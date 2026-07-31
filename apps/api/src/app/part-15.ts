@@ -98,7 +98,7 @@ import {
   TelemetryValidationError,
   TelemetryService,
 } from "../services.js";
-import { runThermalSimulation } from "../thermal-simulation.js";
+import { runThermalSimulationAsync } from "../thermal-simulation.js";
 import {
   isThermalIsolationTemperatureSensor,
   runThermalIsolationAsync,
@@ -297,7 +297,7 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
               signal: abortController.signal,
             }),
           ]);
-          return runThermalSimulation({
+          return runThermalSimulationAsync({
             houseId: house.id,
             sensorId: sensor.id,
             roomLabel: sensor.room,
@@ -307,7 +307,7 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
             outdoorSamples: outdoorRead.records,
             horizonHours,
             scenarioOutdoorTemperatureC,
-          });
+          }, undefined, { signal: abortController.signal });
         }, abortController.signal);
         if (abortController.signal.aborted) return;
         response.setHeader(
@@ -315,6 +315,9 @@ export function configureApiPart15(context: ReturnType<typeof configureApiPart14
           `thermal-simulation;dur=${(performance.now() - startedAt).toFixed(1)}`,
         );
         response.json({ simulation });
+      } catch (error) {
+        if (abortController.signal.aborted) return;
+        throw error;
       } finally {
         response.off("close", abortOnClose);
       }

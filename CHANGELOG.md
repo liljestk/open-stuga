@@ -4,6 +4,28 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.24.0 - 2026-07-31
+
+- Add an explicit six-second Raspberry Pi USB root delay for the observed
+  bridge-enumeration race, and enable memory cgroups for Docker metrics and
+  limit-aware service tuning.
+- Keep thermal simulation and isolation responsive under load with cooperative,
+  cancellable fitting, including REST and MCP requests; batch live browser
+  telemetry, bound its retained tail, and replace the automatic-update
+  maintenance-window CPU hot loop with a bounded, cached calculation.
+- Recover a verified backup when the original Stugu source is unavailable,
+  while retaining the target appliance's host settings, pairing encrypted
+  tracking endpoints with their restore key, and preserving guarded rollback;
+  activate TimescaleDB after the final database swap and refuse commit until
+  due policies and the local archive have reconciled without a new failure.
+- Keep a verified Cloudflare connection enabled across appliance reboots, keep
+  failed setup disabled, and preserve the host secret bind path when the
+  containerized updater invokes Docker Compose.
+- Improve room-comfort evidence selection and move outdoor conditions beside
+  floor/building maps with responsive layouts instead of obscuring the map.
+- Let recovery-key operators gracefully reboot or power off a password-locked
+  Pi through exact sudoers commands without granting general sudo.
+
 ## 0.23.0 - 2026-07-30
 
 - Show Stugu API CPU use and event-loop responsiveness in System health, with

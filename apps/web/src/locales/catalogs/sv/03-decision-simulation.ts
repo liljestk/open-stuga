@@ -287,6 +287,7 @@ export const svPart3 = {
   "twin.keyboardPlacement": "Använd piltangenterna för att flytta markören, Enter för att placera och Escape för att avbryta.",
   "twin.averageMeasurement": "Genomsnittlig {metric}",
   "twin.reportingSensors": "Rapporterande sensorer",
+  "twin.reportingMetricSensors": "Sensorer som rapporterar {metric}",
   "twin.reportingCount": "{count} av {total}",
   "twin.measurements": "Tillgängliga mått",
   "twin.avgTemperature": "Medeltemperatur",

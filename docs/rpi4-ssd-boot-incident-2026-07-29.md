@@ -33,7 +33,10 @@ Release `v0.19.8` is commit
 - The OTA system payload and factory `system_a` are byte-identical.
 - The v0.19.8 image in `/dev/sda5` read back byte-for-byte correctly.
 - The v0.18.2 and v0.19.8 Pi kernel and firmware files are byte-identical.
-- GPT, FAT, EROFS, ext4, EEPROM USB boot, and the USB-SATA bridge are healthy.
+- GPT geometry, FAT, EROFS, and ext4 read back correctly. Windows reports the
+  SSD healthy; its offline state is the expected SAN policy, and the recorded
+  UASP resets belong to the separate card reader. This does not exclude a
+  boot-time USB enumeration race.
 
 ## Diagnostic correction
 
@@ -96,7 +99,88 @@ The operational state after migration is therefore immutable OS `0.19.8` on
 slot B with application release `0.19.9`. The public `v0.19.9` factory image is
 not hardware-approved for this USB-SATA bridge.
 
-## Isolated boot-artifact difference
+## 2026-07-30 timing diagnosis
+
+The later `v0.23.0` SSD had the intended factory GPT offsets byte-for-byte:
+`bootconfig` at 8 MiB, `boot_a` at 104 MiB, `boot_b` at 360 MiB, `system_a` at
+616 MiB, `system_b` at 3688 MiB, and `persistent` at 6760 MiB. Persistent was
+still 1 GiB on the 224 GiB disk, proving that this image had never completed
+its first boot.
+
+The preserved first partition and initramfs were then tested without changing
+the GPT or system slot. With the diagnostic netconsole command line:
+
+1. the StoreJet appeared as `/dev/sda` at 2.025 seconds;
+2. the mapper selected slot A at 5.895 seconds;
+3. the kernel switched root and reached systemd; and
+4. first-boot growth expanded persistent to about 214 GiB.
+
+The same initramfs and a normal Stugu command line plus netconsole subsequently
+booted `v0.23.0` completely, with no failed units and all application containers
+healthy. Removing netconsole left the Pi offline for more than four minutes;
+the same initramfs with its stock, non-netconsole command line had also failed
+to become reachable.
+
+The initramfs explicitly loads netconsole and waits roughly five seconds for
+Ethernet carrier. That incidental wait is the isolated difference: it gives
+the USB-SATA device time to appear before active-slot mapping. The production
+candidate therefore keeps `rootwait` and adds `rootdelay=6`, which sleeps after
+essential drivers load and before the mapper runs. This fix remains pending
+hardware approval until it completes the release gate below without netconsole.
+
+The same candidate appends `cgroup_enable=memory`. Raspberry Pi's downstream
+device-tree command line disables the memory controller by default; the later
+kernel argument enables Docker memory limits and metrics and makes
+limit-aware database tuning possible. It is independent of the boot failure
+and must be verified after the production boot.
+
+There is no watchdog or `panic=` reboot setting in the appliance. With EEPROM
+`BOOT_ORDER=0xf14`, the visible loop is firmware retrying USB, then SD, then
+restart after the USB handoff fails.
+
+## 2026-07-31 StoreJet repair result
+
+The timing candidate was written only after identifying the StoreJet by serial
+`36308586045G76223197` and rechecking the expected 240,057,409,536-byte GPT
+layout. The original 96 MiB first partition was preserved byte-for-byte:
+
+- original SHA-256:
+  `4fe0fd6ee0ac0799c0eff44962be2d7aae5e614cd0bf19e10e5fda3e0c4f299d`;
+- candidate/readback SHA-256:
+  `96e7daa14aac510a9b923d0fd152040d347dbfb0279daf3e7c0cadeef032e2b9`.
+
+The active payload changed only the command line by adding `rootdelay=6`; its
+known-working initramfs remained
+`f1f545956c11d34f3d7fa1af479af4e35f5f4475a3eba008ec93256ade75a13c`.
+The guarded raw write was read back and matched before the disk returned to the
+Pi.
+
+The Pi then completed repeated SSD-only cold boots without an SD card or
+netconsole. Boot IDs `d449c847-1d31-4fb8-8857-3d4ab6cc69cc` and
+`471eadfc-4ecb-465e-9bd0-09b9acf9d97a` were observed across consecutive
+power cycles. On the latter boot:
+
+- SSH returned in about 20 seconds and the API was healthy at 25 seconds;
+- `/proc/cmdline` contained `rootwait rootdelay=6 cgroup_enable=memory`;
+- `/` was the read-only EROFS
+  `/dev/disk/by-slot/active/system`;
+- `/persistent` was read/write ext4, 214 GiB total and 3% used;
+- the cgroup v2 controller list included `memory`;
+- systemd was running with no failed units;
+- every Stugu, TimescaleDB, update-agent, backup, web, API, and Cloudflare
+  container returned healthy;
+- the restored SQLite database passed `PRAGMA integrity_check` and retained
+  its homes, sensors, rules, and alert history; and
+- the Pi reported no throttling while the public Cloudflare boundary check
+  passed.
+
+This proves the six-second delay fixes the observed StoreJet enumeration race
+for the tested direct-boot payload. It does not yet approve the complete
+`v0.24.0` factory image: its exact generated first partition still needs the
+byte-comparison and SSD boot checks, and the automatic unhealthy-slot rollback
+gate remains outstanding.
+
+## Superseded boot-artifact hypothesis
 
 The complete FAT inventories were then extracted from the failed factory
 partition and the known-working partition. The firmware, Pi 4 DTB,
@@ -114,20 +198,18 @@ Both unpack to the same 414-file payload. Only the intended active-slot mapper
 and its ordering files differ. The exact mapper was previously installed in a
 single-stream initramfs and booted this SSD successfully.
 
-The split CPIO plus compressed-stream format is valid according to the Linux
-initramfs buffer specification. Treating it as a compatibility regression on
-this Pi 4 firmware/USB-SATA path is therefore an evidence-based hardware
-workaround, not a claim that the upstream format is generally invalid.
-
-The next factory build patches `initramfs-tools` before its final build pass so
-all files are emitted in one zstd stream. The image validator rejects a leading
-uncompressed archive and rejects any difference between the rescue, A, and B
-direct-boot payloads. This candidate remains unapproved until it passes the
-physical SSD gate below.
+This difference motivated a monolithic-zstd compatibility candidate, but the
+later timing test did not reproduce compression as the deciding variable. The
+split CPIO plus compressed stream is valid according to the Linux initramfs
+buffer specification, and the same known initramfs succeeded with netconsole
+but remained offline without it. Archive layout, zstd settings, GPT geometry,
+and the active-slot marker are therefore not established causes of this boot
+failure. The build may retain a monolithic archive for deterministic
+compatibility, but `rootdelay=6` is the hardware candidate under test.
 
 ## Required design
 
-Two independent Pi 4 USB behaviors caused misleading recovery cycles:
+Separate Pi 4 USB results still require the established direct-boot design:
 
 - The target bridge cannot reliably follow Raspberry Pi firmware GPT
   `autoboot.txt` handoffs to later FAT partitions. The first FAT partition must
@@ -145,6 +227,10 @@ on firmware partition selection. The corrected design stores a one-line
 - a missing, unreadable, or invalid marker fails closed to A; and
 - `autoboot.txt` remains forbidden on the rescue partition.
 
+The marker-aware A/B design is preserved. It is independent of the USB timing
+fix: the direct-boot command line uses `rootwait rootdelay=6`, then the
+initramfs reads the marker after the delay.
+
 Application releases continue to update automatically from trusted GitHub
 releases. They do not rewrite the immutable OS slots. An OS updater must retain
 the last-known-good first partition, arm a bounded boot attempt, and roll the
@@ -157,15 +243,18 @@ SSD hardware gate.
 
 A Pi 4 SSD release is accepted only after:
 
-1. the raw image validator requires `auto_initramfs=1`, rejects explicit
-   kernel/initramfs overrides, requires `stugu-active-slot` to default to A,
+1. the raw image validator requires `auto_initramfs=1`,
+   `rootwait rootdelay=6`, and `cgroup_enable=memory`; rejects explicit
+   kernel/initramfs overrides; requires `stugu-active-slot` to default to A;
    and rejects `autoboot.txt`;
 2. the complete factory image passes GPT, filesystem, firmware, slot equality,
    and payload checks;
 3. the candidate first partition is byte-compared with its release artifact;
-4. the target Pi boots the release from SSD with the SD card removed;
+4. the target Pi boots the production command line from SSD with the SD card
+   removed and without netconsole;
 5. root device, OS version, LAN, Tailscale, persistent capacity, containers,
-   and automatic GitHub update settings are verified;
+   automatic GitHub update settings, the cgroup v2 memory controller, and
+   Docker memory metrics are verified;
 6. two consecutive SSD-only reboots complete; and
 7. a deliberately unhealthy, kernel-reachable system slot proves automatic
    rollback to the last-known-good slot.

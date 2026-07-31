@@ -19,6 +19,8 @@ import {
 
 const MAX_JSON_BYTES = 256 * 1024;
 const AGENT_MAX_AGE_MS = 2 * 60_000;
+const NEXT_WINDOW_CACHE_MS = 60_000;
+const NEXT_WINDOW_SEARCH_MINUTES = 8 * 24 * 60;
 const SYSTEM_UPDATE_PHASES = [
   "queued",
   "preparing",
@@ -144,6 +146,26 @@ interface SystemUpdateServiceOptions {
   operationsDirectory?: string | null;
   fetchImpl?: typeof fetch;
   now?: () => Date;
+  dateTimeFormatFactory?: (timezone: string) => ZonedDateTimeFormatter;
+}
+
+type ZonedDateTimeFormatter = Pick<Intl.DateTimeFormat, "formatToParts">;
+
+interface ZonedDateParts {
+  day: SystemUpdateDay;
+  year: number;
+  month: number;
+  date: number;
+  hour: number;
+  minute: number;
+  second: number;
+}
+
+interface NextWindowCache {
+  computedAtMs: number;
+  expiresAtMs: number;
+  value: string | null;
+  valueMs: number | null;
 }
 
 const DEFAULT_SETTINGS: SystemUpdateSettings = {
@@ -244,36 +266,98 @@ function releaseFromGitHub(value: GitHubRelease): SystemRelease | null {
   };
 }
 
-function localDateParts(date: Date, timezone: string): {
-  day: SystemUpdateDay;
-  hour: number;
-  minute: number;
-} {
-  const parts = new Intl.DateTimeFormat("en-US", {
+function createZonedDateTimeFormatter(timezone: string): ZonedDateTimeFormatter {
+  return new Intl.DateTimeFormat("en-US-u-ca-gregory-nu-latn", {
     timeZone: timezone,
     weekday: "short",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
     hourCycle: "h23",
-  }).formatToParts(date);
+  });
+}
+
+function localDateParts(date: Date, formatter: ZonedDateTimeFormatter): ZonedDateParts {
+  const parts = formatter.formatToParts(date);
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((candidate) => candidate.type === type)?.value ?? "";
   return {
     day: part("weekday").toLowerCase().slice(0, 3) as SystemUpdateDay,
+    year: Number(part("year")),
+    month: Number(part("month")),
+    date: Number(part("day")),
     hour: Number(part("hour")),
     minute: Number(part("minute")),
+    second: Number(part("second")),
   };
 }
 
-function nextWindow(settings: SystemUpdateSettings, now: Date): string | null {
+function matchingInstants(
+  localYear: number,
+  localMonth: number,
+  localDate: number,
+  targetHour: number,
+  targetMinute: number,
+  formatter: ZonedDateTimeFormatter,
+): number[] {
+  const localWallTime = Date.UTC(localYear, localMonth - 1, localDate, targetHour, targetMinute);
+  const offsets = new Set<number>();
+  for (const delta of [-36 * 60 * 60_000, 0, 36 * 60 * 60_000]) {
+    const probe = localWallTime + delta;
+    const local = localDateParts(new Date(probe), formatter);
+    offsets.add(
+      Date.UTC(local.year, local.month - 1, local.date, local.hour, local.minute, local.second) - probe,
+    );
+  }
+
+  const matches: number[] = [];
+  for (const offset of offsets) {
+    const candidate = localWallTime - offset;
+    const local = localDateParts(new Date(candidate), formatter);
+    if (
+      local.year === localYear
+      && local.month === localMonth
+      && local.date === localDate
+      && local.hour === targetHour
+      && local.minute === targetMinute
+    ) {
+      matches.push(candidate);
+    }
+  }
+  return [...new Set(matches)].sort((left, right) => left - right);
+}
+
+function nextWindow(
+  settings: SystemUpdateSettings,
+  now: Date,
+  formatter: ZonedDateTimeFormatter,
+): string | null {
   const [targetHour, targetMinute] = settings.updateTime.split(":").map(Number);
-  const rounded = new Date(now);
-  rounded.setUTCSeconds(0, 0);
-  for (let offset = 0; offset <= 8 * 24 * 60; offset += 1) {
-    const candidate = new Date(rounded.getTime() + offset * 60_000);
-    if (candidate <= now) continue;
-    const local = localDateParts(candidate, settings.timezone);
-    if (settings.updateDays.includes(local.day) && local.hour === targetHour && local.minute === targetMinute) {
-      return candidate.toISOString();
+  const nowMs = now.getTime();
+  const roundedNowMs = nowMs - (nowMs % 60_000);
+  const horizonMs = roundedNowMs + NEXT_WINDOW_SEARCH_MINUTES * 60_000;
+  const localNow = localDateParts(now, formatter);
+
+  for (let dayOffset = 0; dayOffset <= 8; dayOffset += 1) {
+    const localCalendarDay = new Date(Date.UTC(
+      localNow.year,
+      localNow.month - 1,
+      localNow.date + dayOffset,
+    ));
+    const localDay = DAY_NAMES[localCalendarDay.getUTCDay()]!;
+    if (!settings.updateDays.includes(localDay)) continue;
+    const candidates = matchingInstants(
+      localCalendarDay.getUTCFullYear(),
+      localCalendarDay.getUTCMonth() + 1,
+      localCalendarDay.getUTCDate(),
+      targetHour!,
+      targetMinute!,
+      formatter,
+    );
+    for (const candidate of candidates) {
+      if (candidate > nowMs && candidate <= horizonMs) return new Date(candidate).toISOString();
     }
   }
   return null;
@@ -343,8 +427,11 @@ export class SystemUpdateService {
   readonly #directory: string | null;
   readonly #fetch: typeof fetch;
   readonly #now: () => Date;
+  readonly #dateTimeFormatFactory: (timezone: string) => ZonedDateTimeFormatter;
+  readonly #dateTimeFormats = new Map<string, ZonedDateTimeFormatter>();
   #settings: SystemUpdateSettings;
   #cache: ReleaseCache = { checkedAt: "", releases: [], error: null };
+  #nextWindowCache: NextWindowCache | null = null;
   #checkPromise: Promise<SystemUpdateStatus> | null = null;
   #timer: ReturnType<typeof setInterval> | null = null;
 
@@ -355,6 +442,7 @@ export class SystemUpdateService {
     this.#directory = options.operationsDirectory ?? null;
     this.#fetch = options.fetchImpl ?? fetch;
     this.#now = options.now ?? (() => new Date());
+    this.#dateTimeFormatFactory = options.dateTimeFormatFactory ?? createZonedDateTimeFormatter;
     if (this.#directory) {
       mkdirSync(this.#directory, { recursive: true });
       this.#settings = normalizedSettings(readJson(join(this.#directory, "settings.json")));
@@ -421,7 +509,7 @@ export class SystemUpdateService {
       lastCheckedAt: this.#cache.checkedAt || null,
       checkError: this.#cache.error,
       settings: { ...this.#settings, updateDays: [...this.#settings.updateDays] },
-      nextUpdateWindowAt: this.#settings.mode === "automatic" ? nextWindow(this.#settings, this.#now()) : null,
+      nextUpdateWindowAt: this.#settings.mode === "automatic" ? this.#nextUpdateWindow(this.#now()) : null,
       capability: {
         available: capabilityReason === "ready",
         runtime: heartbeat?.runtime ?? null,
@@ -445,6 +533,7 @@ export class SystemUpdateService {
     }
     if (candidate.timezone !== normalized.timezone) throw new TypeError("timezone must be a valid IANA time zone");
     this.#settings = normalized;
+    this.#nextWindowCache = null;
     if (this.#directory) writeJson(join(this.#directory, "settings.json"), this.#settings);
     return this.status();
   }
@@ -602,6 +691,35 @@ export class SystemUpdateService {
     return this.#directory ? operationFromJson(readJson(join(this.#directory, "status.json"))) : null;
   }
 
+  #formatter(timezone: string): ZonedDateTimeFormatter {
+    const cached = this.#dateTimeFormats.get(timezone);
+    if (cached) return cached;
+    const formatter = this.#dateTimeFormatFactory(timezone);
+    this.#dateTimeFormats.set(timezone, formatter);
+    return formatter;
+  }
+
+  #nextUpdateWindow(now: Date): string | null {
+    const nowMs = now.getTime();
+    const cached = this.#nextWindowCache;
+    if (
+      cached
+      && nowMs >= cached.computedAtMs
+      && nowMs < cached.expiresAtMs
+      && (cached.valueMs === null || cached.valueMs > nowMs)
+    ) {
+      return cached.value;
+    }
+    const value = nextWindow(this.#settings, now, this.#formatter(this.#settings.timezone));
+    this.#nextWindowCache = {
+      computedAtMs: nowMs,
+      expiresAtMs: nowMs + NEXT_WINDOW_CACHE_MS,
+      value,
+      valueMs: value === null ? null : Date.parse(value),
+    };
+    return value;
+  }
+
   async #tick(): Promise<void> {
     const now = this.#now();
     const checkedAt = Date.parse(this.#cache.checkedAt);
@@ -610,7 +728,7 @@ export class SystemUpdateService {
     }
     if (this.#settings.mode !== "automatic") return;
     const [hour, minute] = this.#settings.updateTime.split(":").map(Number);
-    const local = localDateParts(now, this.#settings.timezone);
+    const local = localDateParts(now, this.#formatter(this.#settings.timezone));
     if (!this.#settings.updateDays.includes(local.day) || local.hour !== hour || local.minute !== minute) return;
     try {
       await this.queueLatest();

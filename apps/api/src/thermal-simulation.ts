@@ -337,7 +337,30 @@ function insufficient(
   return { status: "insufficient-data", model: null, quality, warnings, assumptions: assumptions() };
 }
 
-function calibrate(
+interface CalibrationContext {
+  houseId: string;
+  sensorId: string;
+  indoor: IndoorPoint[];
+  outdoor: OutdoorPoint[];
+  aligned: AlignedPoint[];
+  transitions: Transition[];
+  sources: OutdoorTemperatureSample[];
+  initialQuality: ThermalCalibrationQuality;
+  training: Transition[];
+  tuning: Transition[];
+  prevalidation: Transition[];
+  validation: Transition[];
+}
+
+interface CalibrationSelection {
+  selected: Candidate;
+  validationLift: number;
+  finalLift: number;
+  validationRollout: ReturnType<typeof rolloutResiduals>;
+  profile: Candidate[];
+}
+
+function prepareCalibration(
   houseId: string,
   sensorId: string,
   indoor: IndoorPoint[],
@@ -345,7 +368,7 @@ function calibrate(
   aligned: AlignedPoint[],
   transitions: Transition[],
   sources: OutdoorTemperatureSample[],
-): ThermalCalibrationResult {
+): CalibrationContext | ThermalCalibrationResult {
   const initialQuality = emptyQuality(indoor, outdoor, aligned, transitions);
   if (transitions.length < MIN_TRANSITIONS) {
     return insufficient(initialQuality, ["INSUFFICIENT_OVERLAP", `REQUIRES_${MIN_TRANSITIONS}_TRANSITIONS`]);
@@ -361,36 +384,82 @@ function calibrate(
   const tuning = transitions.slice(trainingEnd, tuningEnd);
   const prevalidation = transitions.slice(0, tuningEnd);
   const validation = transitions.slice(tuningEnd);
-  const candidates: Candidate[] = [];
-  for (const tauHours of TAU_CANDIDATES) {
-    const liftC = fitLift(training, tauHours);
-    if (liftC === null) continue;
-    const selectionResiduals = rolloutResiduals(tuning, tauHours, liftC).residuals;
-    if (!selectionResiduals.length) continue;
-    candidates.push({
-      tauHours,
-      selectionMaeC: mean(selectionResiduals.map(Math.abs)),
-    });
-  }
+  return {
+    houseId,
+    sensorId,
+    indoor,
+    outdoor,
+    aligned,
+    transitions,
+    sources,
+    initialQuality,
+    training,
+    tuning,
+    prevalidation,
+    validation,
+  };
+}
+
+function isCalibrationResult(
+  value: CalibrationContext | ThermalCalibrationResult | CalibrationSelection,
+): value is ThermalCalibrationResult {
+  return "status" in value;
+}
+
+function calibrationCandidate(context: CalibrationContext, tauHours: number): Candidate | null {
+  const liftC = fitLift(context.training, tauHours);
+  if (liftC === null) return null;
+  const selectionResiduals = rolloutResiduals(context.tuning, tauHours, liftC).residuals;
+  if (!selectionResiduals.length) return null;
+  return {
+    tauHours,
+    selectionMaeC: mean(selectionResiduals.map(Math.abs)),
+  };
+}
+
+function selectCalibration(
+  context: CalibrationContext,
+  candidates: Candidate[],
+): CalibrationSelection | ThermalCalibrationResult {
   candidates.sort((first, second) => first.selectionMaeC - second.selectionMaeC || first.tauHours - second.tauHours);
   const selected = candidates[0];
-  if (!selected) return insufficient(initialQuality, ["MODEL_NOT_IDENTIFIABLE"]);
-  const validationLift = fitLift(prevalidation, selected.tauHours);
-  if (validationLift === null) return insufficient(initialQuality, ["MODEL_NOT_IDENTIFIABLE"]);
-  const finalLift = fitLift(transitions, selected.tauHours);
-  if (finalLift === null) return insufficient(initialQuality, ["MODEL_NOT_IDENTIFIABLE"]);
+  if (!selected) return insufficient(context.initialQuality, ["MODEL_NOT_IDENTIFIABLE"]);
+  const validationLift = fitLift(context.prevalidation, selected.tauHours);
+  if (validationLift === null) return insufficient(context.initialQuality, ["MODEL_NOT_IDENTIFIABLE"]);
+  const finalLift = fitLift(context.transitions, selected.tauHours);
+  if (finalLift === null) return insufficient(context.initialQuality, ["MODEL_NOT_IDENTIFIABLE"]);
+  const validationRollout = rolloutResiduals(context.validation, selected.tauHours, validationLift);
+  const tolerance = selected.selectionMaeC + Math.max(0.03, selected.selectionMaeC * 0.1);
+  const profile = candidates.filter((candidate) => candidate.selectionMaeC <= tolerance);
+  return { selected, validationLift, finalLift, validationRollout, profile };
+}
 
-  const validationRollout = rolloutResiduals(validation, selected.tauHours, validationLift);
+function completeCalibration(
+  context: CalibrationContext,
+  selection: CalibrationSelection,
+  liftValues: number[],
+): ThermalCalibrationResult {
+  const {
+    houseId,
+    sensorId,
+    aligned,
+    transitions,
+    sources,
+    initialQuality,
+  } = context;
+  const {
+    selected,
+    finalLift,
+    validationRollout,
+    profile,
+  } = selection;
   const residuals = validationRollout.residuals;
   const maeC = mean(residuals.map(Math.abs));
   const rmseC = Math.sqrt(mean(residuals.map((residual) => residual * residual)));
   const biasC = mean(residuals);
   const persistenceMaeC = mean(validationRollout.persistence.map(Math.abs));
-  const tolerance = selected.selectionMaeC + Math.max(0.03, selected.selectionMaeC * 0.1);
-  const profile = candidates.filter((candidate) => candidate.selectionMaeC <= tolerance);
   const lowCandidate = profile.reduce((best, candidate) => candidate.tauHours < best.tauHours ? candidate : best, profile[0] ?? selected);
   const highCandidate = profile.reduce((best, candidate) => candidate.tauHours > best.tauHours ? candidate : best, profile[0] ?? selected);
-  const liftValues = profile.map((candidate) => fitLift(transitions, candidate.tauHours)).filter((value): value is number => value !== null);
   const tauLow = lowCandidate.tauHours;
   const tauHigh = highCandidate.tauHours;
   const warnings: string[] = [];
@@ -441,6 +510,76 @@ function calibrate(
     warnings,
     assumptions: assumptions(),
   };
+}
+
+function calibrate(
+  houseId: string,
+  sensorId: string,
+  indoor: IndoorPoint[],
+  outdoor: OutdoorPoint[],
+  aligned: AlignedPoint[],
+  transitions: Transition[],
+  sources: OutdoorTemperatureSample[],
+): ThermalCalibrationResult {
+  const prepared = prepareCalibration(houseId, sensorId, indoor, outdoor, aligned, transitions, sources);
+  if (isCalibrationResult(prepared)) return prepared;
+  const candidates: Candidate[] = [];
+  for (const tauHours of TAU_CANDIDATES) {
+    const candidate = calibrationCandidate(prepared, tauHours);
+    if (candidate) candidates.push(candidate);
+  }
+  const selection = selectCalibration(prepared, candidates);
+  if (isCalibrationResult(selection)) return selection;
+  const liftValues = selection.profile
+    .map((candidate) => fitLift(prepared.transitions, candidate.tauHours))
+    .filter((value): value is number => value !== null);
+  return completeCalibration(prepared, selection, liftValues);
+}
+
+export interface ThermalSimulationAsyncOptions {
+  signal?: AbortSignal;
+  yieldEveryCandidates?: number;
+}
+
+async function yieldThermalWork(signal?: AbortSignal): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  signal?.throwIfAborted();
+}
+
+async function calibrateAsync(
+  houseId: string,
+  sensorId: string,
+  indoor: IndoorPoint[],
+  outdoor: OutdoorPoint[],
+  aligned: AlignedPoint[],
+  transitions: Transition[],
+  sources: OutdoorTemperatureSample[],
+  options: ThermalSimulationAsyncOptions,
+): Promise<ThermalCalibrationResult> {
+  options.signal?.throwIfAborted();
+  const prepared = prepareCalibration(houseId, sensorId, indoor, outdoor, aligned, transitions, sources);
+  if (isCalibrationResult(prepared)) return prepared;
+  const yieldEvery = Math.max(1, Math.floor(options.yieldEveryCandidates ?? 4));
+  const candidates: Candidate[] = [];
+  for (let index = 0; index < TAU_CANDIDATES.length; index += 1) {
+    if (index % yieldEvery === 0) await yieldThermalWork(options.signal);
+    const tauHours = TAU_CANDIDATES[index];
+    if (tauHours === undefined) continue;
+    const candidate = calibrationCandidate(prepared, tauHours);
+    if (candidate) candidates.push(candidate);
+  }
+  const selection = selectCalibration(prepared, candidates);
+  if (isCalibrationResult(selection)) return selection;
+  const liftValues: number[] = [];
+  for (let index = 0; index < selection.profile.length; index += 1) {
+    if (index % yieldEvery === 0) await yieldThermalWork(options.signal);
+    const candidate = selection.profile[index];
+    if (!candidate) continue;
+    const lift = fitLift(prepared.transitions, candidate.tauHours);
+    if (lift !== null) liftValues.push(lift);
+  }
+  options.signal?.throwIfAborted();
+  return completeCalibration(prepared, selection, liftValues);
 }
 
 function historicalPoints(
@@ -522,10 +661,18 @@ function scenarioPoints(
   return points;
 }
 
-export function runThermalSimulation(
+interface PreparedThermalSimulationRun {
+  indoor: IndoorPoint[];
+  outdoor: PreparedThermalOutdoorBoundary;
+  allAligned: AlignedPoint[];
+  transitions: Transition[];
+  aligned: AlignedPoint[];
+}
+
+function prepareThermalSimulationRun(
   input: ThermalSimulationInput,
   preparedOutdoor?: PreparedThermalOutdoorBoundary,
-): ThermalSimulationResult {
+): PreparedThermalSimulationRun {
   const indoor = indoorPoints(input.indoorSamples);
   const outdoor = preparedOutdoor ?? prepareThermalOutdoorBoundary(input.outdoorSamples);
   const allAligned = align(indoor, outdoor);
@@ -535,7 +682,14 @@ export function runThermalSimulation(
   const aligned = firstUsedTime === undefined || lastUsedTime === undefined
     ? allAligned
     : allAligned.filter((point) => point.time >= firstUsedTime && point.time <= lastUsedTime);
-  const calibration = calibrate(input.houseId, input.sensorId, indoor, outdoor.points, aligned, transitions, input.outdoorSamples);
+  return { indoor, outdoor, allAligned, transitions, aligned };
+}
+
+function completeThermalSimulation(
+  input: ThermalSimulationInput,
+  prepared: PreparedThermalSimulationRun,
+  calibration: ThermalCalibrationResult,
+): ThermalSimulationResult {
   const horizonHours = Math.max(0, Math.min(MAX_HORIZON_HOURS, Math.floor(input.horizonHours ?? 12)));
   const scenarioOutdoorTemperatureC = Number.isFinite(input.scenarioOutdoorTemperatureC)
     ? input.scenarioOutdoorTemperatureC as number
@@ -546,7 +700,7 @@ export function runThermalSimulation(
   }
   // Fit against the longest continuous span, but initialize a scenario from
   // the latest aligned observation even when it belongs to a newer short span.
-  const scenarioAnchor = calibration.model ? allAligned.at(-1) ?? null : null;
+  const scenarioAnchor = calibration.model ? prepared.allAligned.at(-1) ?? null : null;
   const scenarioAnchorTimestamp = scenarioAnchor?.timestamp ?? null;
   const effectiveScenarioOutdoorC = scenarioOutdoorTemperatureC ?? scenarioAnchor?.outdoorTemperatureC ?? null;
   if (calibration.model && horizonHours > 0 && effectiveScenarioOutdoorC !== null) {
@@ -569,7 +723,7 @@ export function runThermalSimulation(
   const empiricalBandC = Math.max(0.1, calibration.quality.residualP90C ?? calibration.quality.validationRmseC ?? 0.5);
   const points = calibration.model
     ? [
-      ...historicalPoints(aligned, calibration.model, empiricalBandC),
+      ...historicalPoints(prepared.aligned, calibration.model, empiricalBandC),
       ...scenarioPoints(
         scenarioAnchor,
         calibration.model,
@@ -594,4 +748,44 @@ export function runThermalSimulation(
     calibration,
     points,
   };
+}
+
+export function runThermalSimulation(
+  input: ThermalSimulationInput,
+  preparedOutdoor?: PreparedThermalOutdoorBoundary,
+): ThermalSimulationResult {
+  const prepared = prepareThermalSimulationRun(input, preparedOutdoor);
+  const calibration = calibrate(
+    input.houseId,
+    input.sensorId,
+    prepared.indoor,
+    prepared.outdoor.points,
+    prepared.aligned,
+    prepared.transitions,
+    input.outdoorSamples,
+  );
+  return completeThermalSimulation(input, prepared, calibration);
+}
+
+export async function runThermalSimulationAsync(
+  input: ThermalSimulationInput,
+  preparedOutdoor?: PreparedThermalOutdoorBoundary,
+  options: ThermalSimulationAsyncOptions = {},
+): Promise<ThermalSimulationResult> {
+  options.signal?.throwIfAborted();
+  await yieldThermalWork(options.signal);
+  const prepared = prepareThermalSimulationRun(input, preparedOutdoor);
+  await yieldThermalWork(options.signal);
+  const calibration = await calibrateAsync(
+    input.houseId,
+    input.sensorId,
+    prepared.indoor,
+    prepared.outdoor.points,
+    prepared.aligned,
+    prepared.transitions,
+    input.outdoorSamples,
+    options,
+  );
+  await yieldThermalWork(options.signal);
+  return completeThermalSimulation(input, prepared, calibration);
 }

@@ -40,6 +40,60 @@
 
 .outdoor-badge-provenance span { display: block; }
 
+.outdoor-map-layout {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.outdoor-map-layout > .outdoor-context-card {
+  position: relative;
+  z-index: 1;
+  inset: auto;
+  width: 286px;
+  max-width: 286px;
+  max-height: calc(100% - 24px);
+  flex: 0 0 286px;
+  align-self: flex-start;
+  margin: 12px 0 12px 12px;
+  overflow: auto;
+  box-shadow: none;
+  backdrop-filter: none;
+  pointer-events: auto;
+}
+
+.outdoor-map-layout > .outdoor-context-card.collapsed {
+  width: auto;
+  max-width: 286px;
+  flex-basis: auto;
+}
+
+.outdoor-map-layout > .plan-stage,
+.outdoor-map-layout > .building-viewport {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+
+@container floor-plan (max-width: 760px) {
+  .floor-plan-layout {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .floor-plan-layout > .outdoor-context-card {
+    width: auto;
+    max-width: none;
+    max-height: none;
+    flex-basis: auto;
+    margin: 10px;
+    overflow: visible;
+  }
+}
+
 
 .building-scene { min-width: 0; display: flex; flex-direction: column; overflow: hidden; container: building-scene / inline-size; background: #f4f2ec; }
 
@@ -107,6 +161,22 @@
 
 @container building-scene (max-width: 420px) {
   .building-element-editor .element-dimension-fields { grid-template-columns: 1fr; }
+}
+
+@container building-scene (max-width: 760px) {
+  .building-map-layout {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .building-map-layout > .outdoor-context-card {
+    width: auto;
+    max-width: none;
+    max-height: none;
+    flex-basis: auto;
+    margin: 10px;
+    overflow: visible;
+  }
 }
 
 .building-viewport { position: relative; min-width: 0; flex: 1; overflow: hidden; overscroll-behavior: contain; background-color: #f0eee8; background-image: radial-gradient(rgb(27 29 26 / .09) .7px, transparent .7px); background-size: 17px 17px; }

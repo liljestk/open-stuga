@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  chownSync,
   closeSync,
   existsSync,
   lstatSync,
@@ -123,7 +124,13 @@ export function readAgentConfig(env = process.env, cwd = process.cwd(), args = p
     composeProjectName: optional(env.STUGA_COMPOSE_PROJECT_NAME),
     cloudflareSecretDirectory: resolve(
       projectDirectory,
-      optional(env.STUGA_CLOUDFLARE_SECRET_DIR) ?? join("secrets", "cloudflare"),
+      optional(env.STUGA_UPDATE_CLOUDFLARE_SECRET_DIR)
+        ?? optional(env.STUGA_CLOUDFLARE_SECRET_DIR)
+        ?? join("secrets", "cloudflare"),
+    ),
+    composeProfileEnvironmentFile: resolve(
+      projectDirectory,
+      optional(env.STUGA_UPDATE_PROFILE_ENV_FILE) ?? ".env",
     ),
     once: args.includes("--once"),
   };
@@ -147,10 +154,13 @@ export function readJson(path) {
   }
 }
 
-export function writeTextAtomic(path, text, mode = 0o640) {
+export function writeTextAtomic(path, text, mode = 0o640, ownership = null) {
   mkdirSync(dirname(path), { recursive: true });
   const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
   writeFileSync(temporary, text, { encoding: "utf8", mode });
+  if (ownership && process.platform !== "win32") {
+    chownSync(temporary, ownership.uid, ownership.gid);
+  }
   renameSync(temporary, path);
 }
 

@@ -103,24 +103,39 @@ export function preserveMutatedSensorTelemetry(
   return result;
 }
 
+function mergeOrderedSeries<T extends { timestamp: string }>(
+  loaded: T[],
+  live: Iterable<T>,
+  limit: number,
+): T[] {
+  let merged = [...loaded];
+  for (const item of live) {
+    const last = merged.at(-1);
+    const itemTime = Date.parse(item.timestamp);
+    const lastTime = last ? Date.parse(last.timestamp) : Number.NEGATIVE_INFINITY;
+    if (!last || Number.isFinite(itemTime) && Number.isFinite(lastTime) && itemTime >= lastTime) {
+      if (last?.timestamp === item.timestamp) merged[merged.length - 1] = item;
+      else merged.push(item);
+      continue;
+    }
+    const byTimestamp = new Map(merged.map((current) => [current.timestamp, current]));
+    byTimestamp.set(item.timestamp, item);
+    merged = [...byTimestamp.values()]
+      .sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
+  }
+  return merged.slice(-limit);
+}
+
 export function mergeMeasurementSeries(
   loaded: MeasurementSample[],
   live: Iterable<MeasurementSample>,
   limit: number,
 ): MeasurementSample[] {
-  const byTimestamp = new Map(loaded.map((sample) => [sample.timestamp, sample]));
-  for (const sample of live) byTimestamp.set(sample.timestamp, sample);
-  return [...byTimestamp.values()]
-    .sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp))
-    .slice(-limit);
+  return mergeOrderedSeries(loaded, live, limit);
 }
 
 export function mergeLegacySeries(loaded: Reading[], live: Iterable<Reading>, limit: number): Reading[] {
-  const byTimestamp = new Map(loaded.map((reading) => [reading.timestamp, reading]));
-  for (const reading of live) byTimestamp.set(reading.timestamp, reading);
-  return [...byTimestamp.values()]
-    .sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp))
-    .slice(-limit);
+  return mergeOrderedSeries(loaded, live, limit);
 }
 
 export const unauthenticatedSession: AppSession = {

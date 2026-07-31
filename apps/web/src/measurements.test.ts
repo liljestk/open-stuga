@@ -1,6 +1,6 @@
 import type { MeasurementSample } from "@climate-twin/contracts";
 import { describe, expect, it } from "vitest";
-import { samplesAt, type MeasurementHistory } from "./measurements";
+import { appendLiveHistory, samplesAt, type MeasurementHistory } from "./measurements";
 
 function sample(sensorId: string, minute: number, value: number): MeasurementSample {
   return {
@@ -25,5 +25,31 @@ describe("samplesAt", () => {
       .toMatchObject({ value: 21, source: "replay" });
     expect(samplesAt(history, [sensorId], "temperature", Date.parse("2026-01-01T00:10:00.000Z"))[sensorId])
       .toMatchObject({ value: 22, source: "replay" });
+  });
+});
+
+describe("appendLiveHistory", () => {
+  it("keeps a compact live tail once the minimum retention is reached", () => {
+    const sensorId = "sensor-live";
+    const series = Array.from({ length: 500 }, (_, minute) => sample(sensorId, minute, minute));
+    const history: MeasurementHistory = { [sensorId]: { temperature: series } };
+
+    const next = appendLiveHistory(history, [sample(sensorId, 500, 500)], 500);
+
+    expect(next[sensorId]?.temperature).toHaveLength(500);
+    expect(next[sensorId]?.temperature?.[0]?.value).toBe(1);
+    expect(next[sensorId]?.temperature?.at(-1)?.value).toBe(500);
+  });
+
+  it("preserves the size of a larger explicitly loaded series", () => {
+    const sensorId = "sensor-loaded";
+    const series = Array.from({ length: 1_000 }, (_, minute) => sample(sensorId, minute, minute));
+    const history: MeasurementHistory = { [sensorId]: { temperature: series } };
+
+    const next = appendLiveHistory(history, [sample(sensorId, 1_000, 1_000)], 500);
+
+    expect(next[sensorId]?.temperature).toHaveLength(1_000);
+    expect(next[sensorId]?.temperature?.[0]?.value).toBe(1);
+    expect(next[sensorId]?.temperature?.at(-1)?.value).toBe(1_000);
   });
 });

@@ -316,9 +316,45 @@ export function validateStugubyIdentity(backupDirectory, record) {
   return identity;
 }
 
+export function validateTrackingSecretKey(backupDirectory, record) {
+  const keyPath = resolve(
+    backupDirectory,
+    assertSafeRelativePath(record?.path, "Tracking secret key path"),
+  );
+  if (!pathWithin(backupDirectory, keyPath) || !existsSync(keyPath)) {
+    throw new Error("Live migration tracking secret key artifact is missing");
+  }
+  const details = lstatSync(keyPath);
+  if (!details.isFile() || details.isSymbolicLink()) {
+    throw new Error("Live migration tracking secret key is not a private regular file");
+  }
+  if (process.platform !== "win32" && (details.mode & 0o077) !== 0) {
+    throw new Error("Live migration tracking secret key permissions are too broad");
+  }
+  const value = readFileSync(keyPath, "utf8").trim();
+  if (!/^[A-Za-z0-9_-]+$/u.test(value)) {
+    throw new Error("Live migration tracking secret key is invalid");
+  }
+  const bytes = Buffer.from(value, "base64url");
+  if (bytes.length !== 32 || bytes.toString("base64url") !== value) {
+    throw new Error("Live migration tracking secret key must contain exactly 32 base64url bytes");
+  }
+  return value;
+}
+
 export function completeBackupManifest(backupDirectory, sourceVersion = "0.5.0") {
   const manifest = readJson(join(backupDirectory, "manifest.json"), "staged backup manifest");
-  const category = (name) => manifest.files?.find((file) => file.category === name);
+  if (manifest.sourceVersion !== undefined
+    && assertReleaseVersion(manifest.sourceVersion, "Backup source version") !== sourceVersion) {
+    throw new Error(`Backup source Stugu ${manifest.sourceVersion} does not match migration source ${sourceVersion}`);
+  }
+  const category = (name) => {
+    const records = manifest.files?.filter((file) => file.category === name) ?? [];
+    if (records.length > 1) {
+      throw new Error(`Live migration backup has multiple ${name} artifacts`);
+    }
+    return records[0];
+  };
   if (!category("core-sqlite")) throw new Error("Live migration backup has no core SQLite snapshot");
   if (!category("integration-secrets")) throw new Error("Live migration backup has no integration secrets");
   if (!category("timescale-pgdump")) throw new Error("Live migration backup has no TimescaleDB dump");
@@ -327,6 +363,8 @@ export function completeBackupManifest(backupDirectory, sourceVersion = "0.5.0")
     throw new Error("Live migration backup has no Stuguby node identity");
   }
   if (identityRecord) validateStugubyIdentity(backupDirectory, identityRecord);
+  const trackingKeyRecord = category("tracking-secret-key");
+  if (trackingKeyRecord) validateTrackingSecretKey(backupDirectory, trackingKeyRecord);
   if (manifest.sources?.timescale?.scope !== "full-database") throw new Error("Live migration requires a full-database TimescaleDB dump");
   return manifest;
 }
@@ -366,9 +404,12 @@ export async function createCandidateDatabase(paths, plan, manifest, receipt) {
       "-h", configuration.host, "-p", configuration.port, "-U", configuration.adminUser,
       "--exit-on-error", "--no-privileges", "--no-tablespaces", "--dbname", candidate, dump,
     ], configuration.environment);
-    await psql(configuration, candidate, "SELECT timescaledb_post_restore(); ANALYZE;");
     await psql(configuration, candidate, timescaleOwnershipValidationSql(schema, applicationRole));
     receipt.candidateReady = true;
+    receipt.timescaleRecovery = {
+      status: "awaiting-database-swap",
+      database: candidate,
+    };
     atomicJson(paths.receipt, receipt);
   } catch (error) {
     await dropDatabase(configuration, candidate).catch(() => {});

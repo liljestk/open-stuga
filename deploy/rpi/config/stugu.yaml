@@ -11,7 +11,8 @@ device:
   hostname: stugu
   user1: stugu
   # Keep sudo installed, but the account remains password-locked. The Stugu
-  # layer grants passwordless access only to its own systemd unit.
+  # layer grants passwordless access only to exact appliance lifecycle and
+  # one-time Tailnet enrollment commands.
   user1sudo: passwd
 
 artefact:

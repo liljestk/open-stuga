@@ -64,6 +64,8 @@ export { completeBackupManifest } from "./stugu-migration-target/storage-preflig
 
 export { commitMigration } from "./stugu-migration-target/migration-lifecycle.mjs";
 
+export { assembleCommand } from "./stugu-migration-target/migration-lifecycle.mjs";
+
 export { createApplyIntent } from "./stugu-migration-target/migration-lifecycle.mjs";
 
 export { garbageCollectMigrations } from "./stugu-migration-target/migration-lifecycle.mjs";
@@ -78,7 +80,29 @@ export { safeIdentifier } from "./stugu-migration-target/storage-preflight.mjs";
 
 export { swapData } from "./stugu-migration-target/data-deployment.mjs";
 
+export { prepareDataSwap } from "./stugu-migration-target/data-deployment.mjs";
+
 export { targetForDeploymentPath } from "./stugu-migration-target/data-deployment.mjs";
+
+export {
+  activateRestoredTimescale,
+  assertTimescaleWorkerBudget,
+  createTimescaleActivationBaseline,
+  ensureTimescaleScheduler,
+  ensurePendingTimescaleRecovery,
+  evaluateTimescaleRecovery,
+  finishTimescaleRestore,
+  parseTimescaleRecoveryStatus,
+  readTimescaleRecoveryStatus,
+  readTelemetryArchiveRecoveryStatus,
+  restartTimescaleBackgroundWorkers,
+  telemetryArchiveRecoveryIsHealthy,
+  TIMESCALE_RECOVERY_STATUS_SQL,
+  timescaleRecoveryIsHealthy,
+  waitForTelemetryArchiveRecovery,
+  waitForTimescaleScheduler,
+  waitForTimescaleRecovery,
+} from "./stugu-migration-target/timescale-recovery.mjs";
 
 const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : undefined;
 

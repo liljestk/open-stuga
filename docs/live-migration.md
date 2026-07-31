@@ -1,4 +1,4 @@
-# Live system-to-system migration
+# Live system-to-system migration and backup recovery
 
 Stugu can move a running Compose installation to a Stugu appliance over
 authenticated SSH. The source remains available during the optional seed
@@ -55,8 +55,66 @@ period.
 4. Keep the source recovery set on a protected disk and ensure the target has
    generous free space. Preflight budgets three times the logical migration
    size plus 1 GiB for chunks, assembly, candidate data, and rollback.
-5. Run the controller from the source Compose project with Node.js 22.13+,
-   Docker Compose, OpenSSH `ssh`, and OpenSSH `sftp` available.
+5. For `seed` or `cutover`, run the controller from the source Compose project
+   with Node.js 22.13+, Docker Compose, OpenSSH `ssh`, and OpenSSH `sftp`
+   available. For `recover`, the source and local Docker Compose are not
+   required; run from a same-or-newer controller checkout with Node.js,
+   OpenSSH `ssh`, and OpenSSH `sftp`.
+
+## Recover when the source no longer runs
+
+Use `recover` only when the live source is unavailable but a complete verified
+Stugu backup remains. New backup manifests may supply the source version
+directly. Legacy manifests do not; recover them only after confirming the
+running version from independent release or system records. This is the source
+version, not the destination or controller version, and the explicit legacy
+acknowledgement prevents an unverified guess from silently weakening
+compatibility checks.
+
+```powershell
+npm run migrate -- recover `
+  --backup "C:\protected\stugu-backup-<timestamp>" `
+  --source-version 0.21.0 `
+  --allow-legacy-unverified-source-version `
+  --target stugu@stugu.local `
+  --identity-file "$HOME/.ssh/stuga_appliance"
+```
+
+Recovery requires the backup explicitly and requires either manifest-recorded
+source provenance or the legacy version plus acknowledgement shown above. It
+does not inspect or stop a local Compose source and always preserves the target
+appliance's environment, config, and host-bound runtime secret directories. It
+transfers the recovery set as a cutover bundle so the target still creates a
+safety backup, restores TimescaleDB into an isolated candidate, validates
+ownership, atomically swaps application data, and activates TimescaleDB only
+after the candidate has its final database name. Before commit it waits up to
+ten minutes for every policy that was due at activation to finish successfully,
+the scheduler to remain present, and the API archive to report `ready`,
+`caughtUp`, no dirty rows, and no queued samples. A post-activation policy
+failure fails closed even when TimescaleDB has moved its retry into the future.
+If the scheduler is absent, recovery gives it a separate startup grace period
+and cycles the documented pre/post-restore pair only after proving restore mode
+is off and no policy is running, so a slow healthy policy is not interrupted.
+The restored integration-secrets file and Stuguby identity come from the
+backup; host-specific Cloudflare, R2, Tapo-history, and network settings must
+already exist on the target or be provisioned afterward.
+
+An existing immutable appliance whose running Compose file still uses the
+PostgreSQL/TimescaleDB worker defaults needs this one-time persistent bridge
+before cutover:
+
+```sql
+ALTER SYSTEM SET max_worker_processes = '16';
+ALTER SYSTEM SET max_parallel_workers = '4';
+ALTER SYSTEM SET timescaledb.max_background_workers = '12';
+```
+
+Run the statements as `stuga_admin`, restart only the TimescaleDB container,
+then verify all three values with `SHOW`. Do not change or restart the database
+during an active migration. New and recreated containers receive the same
+values from Compose; the required invariant is
+`max_worker_processes >= max_parallel_workers +
+timescaledb.max_background_workers`.
 
 ## Seed while the source stays online
 
@@ -97,12 +155,17 @@ The controller performs these guarded steps:
 4. transfers only content hashes absent from the target and verifies the
    reassembled backup there;
 5. creates a target safety backup;
-6. restores the dump into a new candidate database, runs TimescaleDB post-
-   restore and ownership validation, and stages SQLite/settings files;
+6. restores the dump into a new candidate database, keeps it in TimescaleDB
+   restore mode while ownership is validated, and stages SQLite/settings files;
 7. atomically switches database names and application files while retaining
-   the prior target state;
-8. restarts the appliance and waits for Compose health checks; and
-9. commits the migration receipt only after the target is healthy.
+   the prior target state, then runs post-restore on a fresh connection to the
+   final database name;
+8. verifies the TimescaleDB worker budget and waits for the scheduler and every
+   policy due at activation to complete without a new failure;
+9. restarts the appliance and waits for the telemetry archive to reconcile
+   completely; and
+10. rechecks scheduler, policy, archive, and exact-release health immediately
+    before committing the migration receipt.
 
 If apply or target health checks fail, the receiver restores its prior database,
 files, and settings. The source controller restarts the original source writers
@@ -138,8 +201,10 @@ The appliance refuses ordinary startup while a receipt is
 `applied-pending-health-check`. If power is lost after the target passed its
 health check but before the receipt was committed, `resume` verifies that the
 persisted health timestamp is newer than the apply and belongs to the exact
-target release, commits the receipt, and restarts. If that evidence is absent,
-it leaves the target interlocked for inspection or rollback.
+target release. It also repeats the TimescaleDB scheduler/policy check and the
+bounded archive reconciliation check before committing and restarting. If that
+evidence is absent or reconciliation does not complete, it leaves the target
+interlocked for inspection or rollback.
 
 Rollback stops target writers, restores the pre-migration database/files and
 overwritten settings, and restarts the previous target. Rollback is refused

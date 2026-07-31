@@ -90,6 +90,23 @@ function syntheticSeries(
   return { indoor, outdoor };
 }
 
+function onSecondIteration(
+  samples: MeasurementSample[],
+  callback: () => void,
+): MeasurementSample[] {
+  const instrumented = [...samples];
+  let iterations = 0;
+  Object.defineProperty(instrumented, Symbol.iterator, {
+    configurable: true,
+    value: function iterator(this: MeasurementSample[]) {
+      iterations += 1;
+      if (iterations === 2) callback();
+      return Array.prototype[Symbol.iterator].call(this);
+    },
+  });
+  return instrumented;
+}
+
 describe("whole-home thermal isolation comparison", () => {
   it("turns the fitted time constant into an interpretable 24-hour retention score", () => {
     expect(thermalIsolationScore(24)).toBeCloseTo(36.8, 1);
@@ -224,6 +241,87 @@ describe("whole-home thermal isolation comparison", () => {
       from: series.indoor[0]!.timestamp,
       to: series.indoor.at(-1)!.timestamp,
     }, { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("honors cancellation while preparing aggregate spread evidence", async () => {
+    const first = syntheticSeries("first", 24).indoor.slice(0, 8);
+    const second = syntheticSeries("second", 48).indoor.slice(0, 8);
+    const controller = new AbortController();
+    let aggregationStarted = false;
+    const instrumentedFirst = onSecondIteration(first, () => {
+      aggregationStarted = true;
+      controller.abort();
+    });
+
+    await expect(runThermalIsolationAsync({
+      house,
+      sensors: [
+        sensor("first", "ground", "slow", "Buffered room"),
+        sensor("second", "ground", "slow", "Buffered room"),
+      ],
+      indoorSamplesBySensor: new Map([
+        ["first", instrumentedFirst],
+        ["second", second],
+      ]),
+      outdoorSamples: [],
+      from: first[0]!.timestamp,
+      to: first.at(-1)!.timestamp,
+    }, {
+      signal: controller.signal,
+      yieldEveryAggregationSamples: 1,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(aggregationStarted).toBe(true);
+  });
+
+  it("yields to unrelated event-loop work during aggregate spread preparation", async () => {
+    const first = syntheticSeries("first", 24).indoor.slice(0, 8);
+    const second = syntheticSeries("second", 48).indoor.slice(0, 8);
+    let aggregationStarted = false;
+    let observedAnotherTurn = false;
+    const instrumentedFirst = onSecondIteration(first, () => {
+      aggregationStarted = true;
+      setImmediate(() => { observedAnotherTurn = true; });
+    });
+
+    await runThermalIsolationAsync({
+      house,
+      sensors: [
+        sensor("first", "ground", "slow", "Buffered room"),
+        sensor("second", "ground", "slow", "Buffered room"),
+      ],
+      indoorSamplesBySensor: new Map([
+        ["first", instrumentedFirst],
+        ["second", second],
+      ]),
+      outdoorSamples: [],
+      from: first[0]!.timestamp,
+      to: first.at(-1)!.timestamp,
+    }, { yieldEveryAggregationSamples: 1 });
+
+    expect(aggregationStarted).toBe(true);
+    expect(observedAnotherTurn).toBe(true);
+  });
+
+  it("keeps cooperative isolation results identical to the synchronous model", async () => {
+    const first = syntheticSeries("first", 24);
+    const second = syntheticSeries("second", 48);
+    const input = {
+      house,
+      sensors: [
+        sensor("first", "ground", "slow", "Buffered room"),
+        sensor("second", "upper", "fast", "Responsive room"),
+      ],
+      indoorSamplesBySensor: new Map([
+        ["first", first.indoor],
+        ["second", second.indoor],
+      ]),
+      outdoorSamples: first.outdoor,
+      from: first.indoor[0]!.timestamp,
+      to: first.indoor.at(-1)!.timestamp,
+      generatedAt: "2026-02-01T00:00:00.000Z",
+    };
+
+    expect(await runThermalIsolationAsync(input)).toEqual(runThermalIsolation(input));
   });
 
   it("yields to the event loop between sensor fits", async () => {

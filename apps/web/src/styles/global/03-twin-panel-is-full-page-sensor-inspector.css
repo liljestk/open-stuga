@@ -193,7 +193,7 @@
 .structure-danger-zone.structure-disclosure > summary::after { margin-left: 6px; }
 
 
-.floor-plan-wrap { min-width: 0; display: flex; flex-direction: column; position: relative; background: #f4f2ec; }
+.floor-plan-wrap { min-width: 0; display: flex; flex-direction: column; position: relative; container: floor-plan / inline-size; background: #f4f2ec; }
 
 .editor-toolbar { min-height: 46px; padding: 7px 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 7px; border-bottom: 1px solid var(--line); background: var(--panel); }
 

@@ -47,7 +47,7 @@ import { EnergyOptimizer } from "../energy-optimizer.js";
 import { publicElectricityConfiguration } from "../electricity-prices.js";
 import { TelemetryBus } from "../events.js";
 import { HomeAssistantBridge } from "../home-assistant.js";
-import { McpOperationTracker } from "../mcp-lifecycle.js";
+import { runMcpToolRequest } from "../mcp-lifecycle.js";
 import {
   mcpToolAnnotations,
   mcpBoundedInteger,
@@ -298,10 +298,14 @@ export const toolHandlers = Object.fromEntries(
 
 validateMcpToolRegistry(mcpTools.map((tool) => tool.name), Object.keys(toolHandlers));
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const handler = toolHandlers[request.params.name];
-  if (!handler) throw new Error(`Unknown tool: ${request.params.name}`);
-  const result = await operations.run(() => handler(objectArguments(request.params.arguments)));
+server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+  const result = await runMcpToolRequest(
+    operations,
+    toolHandlers,
+    request.params.name,
+    objectArguments(request.params.arguments),
+    extra.signal,
+  );
   return {
     content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
     structuredContent: { result },

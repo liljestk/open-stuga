@@ -10,7 +10,9 @@ and its device identity remains persistent.
 The operating-system release is immutable: do not use `apt upgrade` on the
 appliance. Install kernel, firmware, and base-system changes through a newly
 validated factory image. Pi 4 USB firmware partition handoff is intentionally
-not used because it boot-looped on supported USB-SATA bridges.
+not used because it boot-looped on supported USB-SATA bridges. Direct boot
+waits six seconds after essential drivers load so slower bridges can enumerate
+before the immutable system slot is mapped.
 
 ## What is automated
 
@@ -20,6 +22,8 @@ not used because it boot-looped on supported USB-SATA bridges.
   partition and ext4 filesystem to fill the complete external disk.
 - A complete first-partition rescue payload boots directly and selects slot A
   by default from a validated marker, avoiding Pi 4 USB partition handoff.
+- The direct-boot command line keeps `rootwait`, adds `rootdelay=6`, and enables
+  the cgroup v2 memory controller for Docker limits and memory metrics.
 - Docker and containerd state are shared across both OS slots.
 - Stugu listens on the trusted LAN and Tailscale interfaces by default, while
   first-owner creation requires a device-generated setup link.
@@ -187,8 +191,8 @@ The outputs are written to `dist/rpi/`:
 Before compression, the build validates the raw image with Linux `sfdisk` and
 `mtools`. It fails unless the protective MBR, GPT, six aligned/named
 partitions, filesystem signatures, current Pi firmware, complete rescue
-payload, automatic kernel/initramfs pairing, and identical factory A/B
-slots are all valid.
+payload, automatic kernel/initramfs pairing, `rootwait rootdelay=6`,
+`cgroup_enable=memory`, and identical factory A/B slots are all valid.
 
 If supplied, the factory image contains the single-use Connect key, so it is
 mode `0600`. Do not upload such an image to a public release. Delete it after
@@ -327,10 +331,11 @@ Replace `/dev/sdX` with the external disk, not a partition. The command is
 read-only but hashes both A/B slots, so it can take a minute. Run it before the
 first boot, which expands the final persistent partition.
 
-On first boot the appliance expands the persistent partition, signs in to
-Connect when configured, pulls the pinned containers, creates runtime secrets
-and a first-owner setup secret, and starts Stugu. Large images and a slow HDD
-can make this take several minutes.
+On first boot the kernel waits six seconds before mapping the active system
+slot. The appliance then expands the persistent partition, signs in to Connect
+when configured, pulls the pinned containers, creates runtime secrets and a
+first-owner setup secret, and starts Stugu. Large images and a slow HDD can
+make this take several minutes.
 
 ## 6. Verify and open Stugu
 
@@ -340,7 +345,16 @@ Connect through SSH using the key from step 2:
 ssh stugu@stugu.local
 stuguctl status
 stuguctl access
+cat /proc/cmdline
+findmnt -no SOURCE /
+grep -w memory /sys/fs/cgroup/cgroup.controllers
+docker stats --no-stream
 ```
+
+The command line must contain `rootwait`, `rootdelay=6`, and
+`cgroup_enable=memory`; the root source must be the selected immutable system
+partition. The cgroup output and Docker memory columns confirm that host and
+container memory metrics are available.
 
 Open the displayed LAN URL. Before the first Owner exists, use the displayed
 `Setup:` URL; its secret is carried in the browser fragment and is removed
@@ -403,10 +417,19 @@ stuguctl logs         # live application logs
 stuguctl system-log   # image/container startup and fallback log
 stuguctl config       # persistent appliance settings
 stuguctl restart      # pull/reconcile the images pinned by this OS release
+stuguctl reboot       # gracefully reboot the appliance host
+stuguctl poweroff     # gracefully halt the host before disconnecting power
 stuguctl backup       # complete application backup
 stuguctl migration    # authenticated live-migration receiver and rollback tools
 stuguctl images       # exact immutable image references
 ```
+
+`restart` reconciles the Stugu application; it does not reboot the host.
+`reboot` and `poweroff` remain available when application configuration is
+broken. They reject extra arguments and use sudoers entries for only the exact
+`systemctl reboot` and `systemctl poweroff` command lines; they do not grant
+general sudo or arbitrary `systemctl` access. After `poweroff` disconnects SSH,
+wait for disk activity to stop before removing power.
 
 Backups under `/persistent/stugu/backups` survive A/B updates, but they are on
 the same physical disk. Copy verified backups to another machine or encrypted
@@ -433,6 +456,10 @@ source after an ambiguous network failure until the target receipt is known.
   Linux selects UAS.
   `enable_uart=1` and `uart_2ndstage=1` are already set, so a 115200-baud
   serial console on GPIO 14/15 shows exactly which file fails.
+- On the tested StoreJet bridge, netconsole accidentally hid an early USB
+  enumeration race by waiting about five seconds for Ethernet. A production
+  boot must succeed without netconsole and with `rootdelay=6`; diagnostic
+  netconsole success alone does not approve an image.
 - Do not run `docker compose down -v`; it deletes the named data and credential
   volumes.
 - Do not run `apt upgrade`; the root filesystem is intentionally read-only.

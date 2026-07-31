@@ -63,19 +63,42 @@ function freshestSample(
   measurementHistory: MeasurementHistory,
   now: number,
 ): MeasurementSample | undefined {
-  const candidates = [
-    latestMeasurements[sensorId]?.[metric],
-    ...(measurementHistory[sensorId]?.[metric] ?? []),
-  ];
-  return candidates.reduce<MeasurementSample | undefined>((freshest, sample) => {
-    if (
-      !sample
-      || sample.quality === "stale"
-      || measurementValue(sample, metric) === undefined
-      || !isFreshTimestamp(Date.parse(sample.timestamp), now)
-    ) return freshest;
-    return !freshest || Date.parse(sample.timestamp) > Date.parse(freshest.timestamp) ? sample : freshest;
-  }, undefined);
+  const usable = (sample: MeasurementSample | undefined): sample is MeasurementSample => Boolean(
+    sample
+    && sample.quality !== "stale"
+    && measurementValue(sample, metric) !== undefined
+    && isFreshTimestamp(Date.parse(sample.timestamp), now),
+  );
+  const latest = latestMeasurements[sensorId]?.[metric];
+  const latestUsable = usable(latest) ? latest : undefined;
+  const history = measurementHistory[sensorId]?.[metric] ?? [];
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const sample = history[index];
+    const timestamp = sample ? Date.parse(sample.timestamp) : Number.NaN;
+    if (Number.isFinite(timestamp) && timestamp < now - FRESH_FOR_MS) break;
+    if (!usable(sample)) continue;
+    if (!latestUsable) return sample;
+    return Date.parse(latestUsable.timestamp) >= timestamp
+      ? latestUsable
+      : sample;
+  }
+  return latestUsable;
+}
+
+function recentTemperatureTrend(samples: MeasurementSample[], now: number): number[] {
+  const earliest = now - 24 * 60 * 60_000;
+  const latest = now + 5 * 60_000;
+  const values: number[] = [];
+  for (let index = samples.length - 1; index >= 0 && values.length < 24; index -= 1) {
+    const sample = samples[index];
+    if (!sample) continue;
+    const timestamp = Date.parse(sample.timestamp);
+    if (!Number.isFinite(timestamp) || timestamp > latest || sample.quality === "stale") continue;
+    if (timestamp < earliest) break;
+    const value = measurementValue(sample, "temperature");
+    if (value !== undefined) values.push(value);
+  }
+  return values.reverse();
 }
 
 function severityFor(temperature: number | null, humidity: number | null, co2: number | null): Exclude<RoomState, "offline" | "live"> {
@@ -138,16 +161,10 @@ export function buildRoomComforts({
     const representative = currentSamples
       .sort((left, right) => Date.parse(right.sample.timestamp) - Date.parse(left.sample.timestamp))[0]?.sensor
       ?? roomSensors[0]!;
-    const temperatureTrend = (measurementHistory[representative.id]?.temperature ?? [])
-      .filter((sample) => {
-        const timestamp = Date.parse(sample.timestamp);
-        return sample.quality !== "stale" && timestamp <= now + 5 * 60_000 && timestamp >= now - 24 * 60 * 60_000;
-      })
-      .flatMap((sample) => {
-        const value = measurementValue(sample, "temperature");
-        return value === undefined ? [] : [value];
-      })
-      .slice(-24);
+    const temperatureTrend = recentTemperatureTrend(
+      measurementHistory[representative.id]?.temperature ?? [],
+      now,
+    );
     const hasClimateReading = temperature !== null || humidity !== null || co2 !== null;
     const state = roomState(hasClimateReading, power !== null, roomHasAlert, temperature, humidity, co2);
     return {

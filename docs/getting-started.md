@@ -45,8 +45,11 @@ installations enter that separate runtime token once in the UI. Stugu keeps
 provider grants in memory, sends no provider token through the host-agent
 queue, configures Access before DNS/Tunnel ingress, recreates the affected
 services, verifies the edge, and revokes the OAuth grant. If verification
-fails, it stops `cloudflared` while leaving loopback recovery available. The
-terminal wizard and protected token files remain an advanced fallback.
+fails, it removes the `cloudflare` Compose profile and stops `cloudflared`
+while leaving loopback recovery available. Generated files alone never enable
+the connector. Only a verified connection persists the profile so an appliance
+reconnects after reboot. The terminal wizard and protected token files remain
+an advanced fallback.
 
 The wizard creates `.env` only when missing and ordinarily changes only
 `MOCK_ENABLED`, `APP_PORT`, and the Podman profile guard. Choosing the Linux

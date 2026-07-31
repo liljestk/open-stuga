@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   closeSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -52,6 +53,105 @@ export async function activeServices(config, composeCommand = compose) {
 export async function exactApiVersion(config, composeCommand = compose) {
   const script = "fetch('http://127.0.0.1:8787/api/v1/health').then(r=>r.json()).then(x=>process.stdout.write(String(x.systemVersion||'')))";
   return composeCommand(config, ["exec", "-T", "api", "node", "-e", script], 30_000);
+}
+
+export function setCloudflareComposeProfile(config, enabled) {
+  const path = config.composeProfileEnvironmentFile;
+  if (!existsSync(path) || !lstatSync(path).isFile()) {
+    throw new Error("The persistent Compose environment file is unavailable");
+  }
+  const metadata = statSync(path);
+  if (metadata.size > 256 * 1024) {
+    throw new Error("The persistent Compose environment file is unexpectedly large");
+  }
+
+  const source = readFileSync(path, "utf8");
+  const newline = source.includes("\r\n") ? "\r\n" : "\n";
+  const lines = source.replace(/\r?\n$/u, "").split(/\r?\n/u);
+  const indexes = lines.flatMap((line, index) => (
+    /^COMPOSE_PROFILES=/u.test(line) ? [index] : []
+  ));
+  if (indexes.length > 1) {
+    throw new Error("COMPOSE_PROFILES must be configured at most once");
+  }
+
+  if (indexes.length === 0) {
+    if (!enabled) return false;
+    if (lines.length > 0 && lines.at(-1) !== "") lines.push("");
+    lines.push("COMPOSE_PROFILES=cloudflare");
+  } else {
+    const index = indexes[0];
+    const configured = lines[index].slice("COMPOSE_PROFILES=".length).trim();
+    if (
+      configured.startsWith("\"")
+      || configured.startsWith("'")
+      || configured.endsWith("\"")
+      || configured.endsWith("'")
+    ) {
+      throw new Error("COMPOSE_PROFILES must use an unquoted comma-separated list");
+    }
+    const profiles = new Set(configured.split(/[\s,]+/u).filter(Boolean));
+    if ([...profiles].some((profile) => (
+      profile !== "*" && !/^[a-z0-9][a-z0-9_.-]*$/iu.test(profile)
+    ))) {
+      throw new Error("COMPOSE_PROFILES contains an invalid profile name");
+    }
+    if (profiles.has("*")) {
+      throw new Error("COMPOSE_PROFILES must list profiles explicitly for fail-closed Cloudflare setup");
+    }
+    if (enabled) profiles.add("cloudflare");
+    else profiles.delete("cloudflare");
+    lines[index] = `COMPOSE_PROFILES=${[...profiles].join(",")}`;
+  }
+
+  const next = `${lines.join(newline)}${newline}`;
+  if (next === source) return false;
+  writeTextAtomic(path, next, metadata.mode & 0o777, metadata);
+  return true;
+}
+
+const provisionalCloudflareOverride = `services:
+  cloudflared:
+    restart: "no"
+`;
+
+function provisionalCloudflareOverridePath(config, request) {
+  return join(
+    config.operationsDirectory,
+    `cloudflare-provisional-${request.id}.compose.yml`,
+  );
+}
+
+function provisionalComposeArguments(overridePath, ...args) {
+  return ["--file", overridePath, ...args];
+}
+
+async function stopAndRemoveCloudflared(
+  config,
+  composeCommand,
+  prefix = [],
+) {
+  await composeCommand(config, [...prefix, "stop", "cloudflared"], 30_000);
+  await composeCommand(
+    config,
+    [...prefix, "rm", "--force", "--stop", "cloudflared"],
+    30_000,
+  );
+}
+
+async function bestEffortStopAndRemoveCloudflared(config, composeCommand) {
+  const failures = [];
+  for (const args of [
+    ["stop", "cloudflared"],
+    ["rm", "--force", "--stop", "cloudflared"],
+  ]) {
+    try {
+      await composeCommand(config, args, 30_000);
+    } catch (error) {
+      failures.push(error instanceof Error ? bounded(error.message) : "container cleanup failed");
+    }
+  }
+  return failures;
 }
 
 export function cloudflareOperation(request, phase, detail, completedAt = null) {
@@ -149,6 +249,7 @@ export async function applyCloudflareSetupRequest(config, requestPath, dependenc
     rmSync(requestPath, { force: true });
     return;
   }
+  const overridePath = provisionalCloudflareOverridePath(config, request);
 
   const setStatus = (phase, detail, completedAt = null) => writeJson(
     statusPath,
@@ -159,6 +260,12 @@ export async function applyCloudflareSetupRequest(config, requestPath, dependenc
   let finalDetail = "Cloudflare setup did not complete";
   try {
     setStatus("provisioning", "Configuring the secure Cloudflare connection");
+    // A previous verified connection may already own the profile. Remove it
+    // before changing provider state so a failed or interrupted replacement
+    // remains stopped after the next appliance boot.
+    setCloudflareComposeProfile(config, false);
+    await stopAndRemoveCloudflared(config, composeCommand);
+    writeTextAtomic(overridePath, provisionalCloudflareOverride, 0o600);
     claim = await claimer(config, request);
     await provisioner({
       command: request.command,
@@ -191,11 +298,39 @@ export async function applyCloudflareSetupRequest(config, requestPath, dependenc
       "600",
       "api",
       "web",
-      "cloudflared",
     ]);
+    await composeCommand(config, provisionalComposeArguments(
+      overridePath,
+      "up",
+      "--no-start",
+      "--no-deps",
+      "--force-recreate",
+      "cloudflared",
+    ), 30_000);
+    await composeCommand(config, provisionalComposeArguments(
+      overridePath,
+      "start",
+      "cloudflared",
+    ), 30_000);
 
     setStatus("verifying", "Checking every public and protected path");
     await verifyCloudflareWithRetry(config, request, dependencies);
+    await stopAndRemoveCloudflared(
+      config,
+      composeCommand,
+      ["--file", overridePath],
+    );
+    setCloudflareComposeProfile(config, true);
+    await composeCommand(config, [
+      "up",
+      "--detach",
+      "--no-deps",
+      "--force-recreate",
+      "--wait",
+      "--wait-timeout",
+      "600",
+      "cloudflared",
+    ]);
     finalPhase = "complete";
     finalDetail = `Secure connection verified at https://${request.hostname}`;
   } catch (error) {
@@ -203,7 +338,21 @@ export async function applyCloudflareSetupRequest(config, requestPath, dependenc
     if (!claim) {
       finalDetail = `${finalDetail} Stugu could not confirm approval revocation; revoke Stugu Setup from the Cloudflare OAuth authorizations page.`;
     }
-    try { await composeCommand(config, ["stop", "cloudflared"], 30_000); } catch { /* Keep the original failure. */ }
+    try {
+      setCloudflareComposeProfile(config, false);
+    } catch (profileError) {
+      const detail = profileError instanceof Error ? bounded(profileError.message) : "profile persistence failed";
+      finalDetail = `${finalDetail} The Cloudflare boot profile could not be cleared: ${detail}`;
+    }
+    const cleanupFailures = await bestEffortStopAndRemoveCloudflared(
+      config,
+      composeCommand,
+    );
+    if (cleanupFailures.length > 0) {
+      finalDetail = bounded(
+        `${finalDetail} Cloudflare container cleanup needs attention: ${cleanupFailures.join("; ")}`,
+      );
+    }
   }
 
   if (claim) {
@@ -218,6 +367,7 @@ export async function applyCloudflareSetupRequest(config, requestPath, dependenc
   }
   setStatus(finalPhase, finalDetail, new Date().toISOString());
   claim = null;
+  rmSync(overridePath, { force: true });
   rmSync(requestPath, { force: true });
 }
 

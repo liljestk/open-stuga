@@ -299,6 +299,10 @@ export async function createMigrationBundle({
   if (await sha256File(join(backup.root, "manifest.json")) !== backup.expectedManifestHash) {
     throw new Error("Backup manifest checksum mismatch");
   }
+  if (backup.manifest.sourceVersion !== undefined
+    && assertReleaseVersion(backup.manifest.sourceVersion, "Backup source version") !== sourceVersion) {
+    throw new Error(`Backup source Stugu ${backup.manifest.sourceVersion} does not match migration source ${sourceVersion}`);
+  }
   const deployment = deploymentInputs({
     workspaceDirectory: workspace,
     settingsFile,

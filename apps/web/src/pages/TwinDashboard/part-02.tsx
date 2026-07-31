@@ -38,7 +38,7 @@ import { readLocalStorage, writeLocalStorage } from "../../browserStorage";
 import { detectReplayClimateEvents, type ReplayClimateEvent } from "../../replayEvents";
 import { openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../openingState";
 import { integrationForHouse } from "../../integrationScope";
-import { BuildingScene, FloorPlan, HomeActivityTimeline, MeasurementGlyph, RoomComparisonChart, SensorInspector, SpatialLayerLab, StructureEditor, ThermalSimulationPanel, energyDeviceLayerPreferenceKey, experimentalVisualizationPreferenceKey, houseLocalDateTimeCandidates, initialEnergyDeviceLayerVisibility, initialExperimentalVisualizations, localDateTimeValue, localDateValue, mergeOpeningStateObservations, observationConfidences, observationKinds, observationSources, observationTimeFields, observationTimePrecisions, zonedDateTimeParts } from "./support";
+import { BuildingScene, FloorPlan, HomeActivityTimeline, MeasurementGlyph, RoomComparisonChart, SensorInspector, SpatialLayerLab, StructureEditor, ThermalSimulationPanel, energyDeviceLayerPreferenceKey, experimentalVisualizationPreferenceKey, houseLocalDateTimeCandidates, initialEnergyDeviceLayerVisibility, initialExperimentalVisualizations, localDateTimeValue, localDateValue, mergeOpeningStateObservations, observationConfidences, observationKinds, observationSources, observationTimeFields, observationTimePrecisions, sensorSupportsMeasurement, zonedDateTimeParts } from "./support";
 import type { TwinDashboardProps } from "./support";
 import { useTwinDashboardPart01 } from "./part-01";
 export function useTwinDashboardPart02(context: ReturnType<typeof useTwinDashboardPart01>) {
@@ -111,19 +111,20 @@ export function useTwinDashboardPart02(context: ReturnType<typeof useTwinDashboa
   const selectedSensor = houseSensors.find((sensor) => sensor.id === selectedSensorId) ?? floorSensors[0] ?? houseSensors[0] ?? null;
   const selectedFloor = house.floors.find((item) => item.id === selectedSensor?.floorId) ?? floor;
   const viewSensors = viewMode === "isometric" ? houseSensors : floorSensors;
-  // Home-level status stays house-scoped so changing the visual view cannot
-    // silently change the meaning of the headline values.
-    const summarySensors = houseSensors;
   const definitions = enabledDefinitions(state.measurementDefinitions);
-  const houseDefinitions = definitions.filter((definition) => houseSensors.some((sensor) =>
-      state.latestMeasurements[sensor.id]?.[definition.id]
-      || (state.measurementHistory[sensor.id]?.[definition.id]?.length ?? 0) > 0
-      || Boolean(sensor.measurementEntityIds?.[definition.id]),
-    ));
+  const houseDefinitions = definitions.filter((definition) => houseSensors.some((sensor) => (
+      sensorSupportsMeasurement(state, sensor, definition.id)
+    )));
   const availableDefinitions = houseDefinitions.length ? houseDefinitions : definitions;
   const airflowDefinitions = definitions.filter((item) => item.id === "temperature" || item.id === "humidity" || item.id === "co2");
   const airflowMetricKey = airflowDefinitions.map((item) => item.id).join(",");
   const definition = definitionFor(definitions, metric);
+  // Average, reporting count, and spread all describe the selected measurement.
+  // Keep unrelated endpoints out while retaining stale/non-reporting capable sensors.
+  const summarySensors = useMemo(
+      () => houseSensors.filter((sensor) => sensorSupportsMeasurement(state, sensor, definition.id)),
+      [definition.id, houseSensors, state],
+    );
   const metricOptions = availableDefinitions.some((item) => item.id === definition.id)
       ? availableDefinitions
       : [definition, ...availableDefinitions];

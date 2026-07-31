@@ -167,7 +167,7 @@ export function useTwinDashboardPart04(context: ReturnType<typeof useTwinDashboa
   const visualOutdoor: OutdoorVisualizationState = { ...outdoor, conditionColors: outdoorConditionColors };
   const average = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
   const spread = values.length ? Math.max(...values) - Math.min(...values) : null;
-  const openAlerts = state.alerts.filter((alert) => !alert.resolvedAt && summarySensors.some((sensor) => sensor.id === alert.sensorId));
+  const openAlerts = state.alerts.filter((alert) => !alert.resolvedAt && houseSensors.some((sensor) => sensor.id === alert.sensorId));
   const floorObservations = state.observations.filter((observation) => observation.houseId === houseId && observation.floorId === floorId);
   const houseObservations = state.observations.filter((observation) => observation.houseId === houseId);
   const houseParameters = state.staticParameters.filter((parameter) => parameter.houseId === houseId);

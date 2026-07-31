@@ -48,7 +48,9 @@ import { useFloorPlanPart05 } from "./part-05";
 
 export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloorPlanPart05>) {
   const { floor, house, sensors, samples, climateSamples, observations, definition, colorDomain, units, viewMode, selectedSensorId, editing, observationPlacement, onSensorSelect, onSensorMove, onFloorChange, onObservationPoint, onCancelObservationPlacement, referenceTimeMs, maxSampleAgeMs, outdoor, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalAirflow, experimentalSensorCoverage, experimentalOutdoorInfluence, openingStateObservations, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, climateSensorMarkersVisible, energyDevicesVisible, allowBackgroundImageEditing, locale, t, houseOpeningStateObservations, metricLabel, svgRef, fileRef, roomNameInputRef, undoButtonRef, roomNameBeforeEdit, dragging, draggingElement, draggingRoomVertex, roomVertexRefs, pendingRoomVertexFocus, planElementRefs, mapHelpId, mapInformationId, roomNameErrorId, wallLengthErrorId, fieldId, editorTool, setEditorTool, wallStart, setWallStart, roomStart, setRoomStart, selectedWallId, setSelectedWallId, wallLengthDraft, setWallLengthDraft, wallLengthError, setWallLengthError, selectedRoomId, setSelectedRoomId, selectedPlanElementId, setSelectedPlanElementId, planElementKind, setPlanElementKind, placementError, setPlacementError, roomNameError, setRoomNameError, deletedWallUndo, setDeletedWallUndo, undoMessage, setUndoMessage, snapEnabled, setSnapEnabled, gridDensity, setGridDensity, addToolsOpen, setAddToolsOpen, editorOptionsOpen, setEditorOptionsOpen, keyboardPoint, setKeyboardPoint, placementAnnouncement, setPlacementAnnouncement, uploadError, setUploadError, reducedMotion, setReducedMotion, mapInformationExpanded, setMapInformationExpanded, renderScale, metresPerPlanUnit, placementCoordinateScale, placementCoordinateUnit, renderWidth, renderHeight, gridSize, renderedGridSize, viewportMargin, resolvedReferenceTimeMs, spatialFreshness, renderSensors, heat, visualDomain, clouds, gradientFlows, transform, layoutEditing, drawingWall, drawingRoom, placingElement, selectingLayout, keyboardPlacementActive, wallSelectionActive, roomSelectionActive, planElementSelectionActive, showMonitoringOverlays, planElements, chimneyPenetrations, selectedWall, selectedRoom, selectedPlanElement, selectedRoomSensorCount, roomName, pointFromEvent, placementPoint, clearLayoutSelection, chooseEditorTool, applyFloorChange, resetSelectedWallLengthDraft, commitSelectedWallLength, nextUnusedRoomName, addWall, deleteWall, undoLastDeletion, addRoom, updateRoom, addRoomVertex, commitRoomName, deleteRoom, resolveElementPlacement, placementFailureMessage, addPlanElement, updatePlanElement, movePlanElement, updatePlanElementWidth, updatePlanElementHeight, deletePlanElement, mapPointerDown, mapPointerMove, mapKeyDown, wallPointerDown, wallKeyDown, roomPointerDown, roomKeyDown, roomVertexPointerDown, roomEdgeKeyDown, moveRoomVertex, roomVertexKeyDown, planElementPointerDown, planElementPointerMove, planElementKeyDown, startSensorDrag, moveSensor, sensorKeyDown, uploadBackground, legendMin, legendMax, outdoorContext, airflow, airflowPaths, activeGradientFlows, hasMapInformation, airflowSupport, airflowDriver, airflowDescription, airflowAria, outdoorTemperature, outdoorHumidity, outdoorTemperatureColor, outdoorHumidityColor, activeOutdoorColor, activeOutdoorStyle, outdoorTemperatureStyle, outdoorHumidityStyle, outdoorWindSpeed, outdoorWindDirection, outdoorWindwardSide, outdoorShellLabel, edgeLabels, elementPreviewPlacement, selectedElementWidthBounds, selectedElementHeightBounds, selectedElementRotation, selectedElementHasCardinalRotation, wallPreview, editorHint } = context;
-  return (<div className={`plan-stage ${viewMode === "isometric" ? "isometric" : ""}`}>
+  return (<div className="outdoor-map-layout floor-plan-layout">
+        {showMonitoringOverlays && outdoor && <OutdoorConditionsBadge outdoor={outdoor} units={units} showCompass />}
+        <div className={`plan-stage ${viewMode === "isometric" ? "isometric" : ""}`}>
           <svg
             ref={svgRef}
             className={`floor-plan ${layoutEditing || observationPlacement ? "direct-manipulation" : "monitoring"}`}
@@ -550,7 +552,6 @@ export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloor
               </g>
             </g>
           </svg>
-          {showMonitoringOverlays && outdoor && <OutdoorConditionsBadge outdoor={outdoor} units={units} showCompass />}
           {showMonitoringOverlays && hasMapInformation && <MapInformationToggle
             controls={mapInformationId}
             expanded={mapInformationExpanded}
@@ -572,5 +573,6 @@ export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloor
               {spatialLayerSnapshots.length > 0 && <div className="flow-legend spatial-layer-legend"><span className="flow-sample" aria-hidden="true">⇢</span><span><strong>{t("spatial.title")}</strong><small>{t("spatial.inferenceDisclaimer")}</small></span></div>}
             </div>}
           </div>}
-        </div>);
+        </div>
+      </div>);
 }

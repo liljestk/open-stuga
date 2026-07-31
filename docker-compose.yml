@@ -93,6 +93,14 @@ services:
       - -c
       - max_connections=30
       - -c
+      # One scheduler plus the current policy set needs more than PostgreSQL's
+      # eight default worker slots; retain four separate parallel-query slots.
+      - max_worker_processes=16
+      - -c
+      - max_parallel_workers=4
+      - -c
+      - timescaledb.max_background_workers=12
+      - -c
       - wal_compression=on
       - -c
       - max_wal_size=1GB
@@ -295,14 +303,19 @@ services:
       SYSTEM_UPDATE_IMAGE_PREFIX: ${SYSTEM_UPDATE_IMAGE_PREFIX:-ghcr.io/liljestk/open-stuga}
       SYSTEM_UPDATE_RUNTIME: ${SYSTEM_UPDATE_RUNTIME:-docker}
       STUGA_COMPOSE_PROJECT_NAME: ${STUGA_COMPOSE_PROJECT_NAME:-stuga}
-      STUGA_CLOUDFLARE_SECRET_DIR: /persistent/stugu/cloudflare
+      # Keep updater-private paths separate from the host paths inherited
+      # above. Nested Compose talks to the host daemon and must continue to
+      # interpolate STUGA_CLOUDFLARE_SECRET_DIR as a host bind source.
+      STUGA_UPDATE_CLOUDFLARE_SECRET_DIR: /persistent/stugu/secrets/cloudflare
+      STUGA_UPDATE_PROFILE_ENV_FILE: /persistent/stugu/settings/${STUGA_MIGRATION_ENV_FILENAME:-.env}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - .:/opt/stugu:ro,z
       - ${STUGA_UPDATE_OPERATIONS_DIRECTORY:-./data/update-operations}:/persistent/stugu/update-operations:${STUGA_UPDATE_OPERATIONS_MOUNT_OPTIONS:-z}
       - ${STUGA_UPDATE_RELEASE_DIRECTORY:-./data/update-release}:/persistent/stugu/update-release:z
       - ${STUGA_DOCKER_CONFIG_DIRECTORY:-./data/docker-config}:/persistent/stugu/docker-config:ro,z
-      - ${STUGA_CLOUDFLARE_SECRET_DIR:-./secrets/cloudflare}:/persistent/stugu/cloudflare:z
+      - ${STUGA_MIGRATION_SETTINGS_DIRECTORY:-.}:/persistent/stugu/settings:z
+      - ${STUGA_CLOUDFLARE_SECRET_DIR:-./secrets/cloudflare}:/persistent/stugu/secrets/cloudflare:z
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777

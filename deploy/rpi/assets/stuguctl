@@ -15,6 +15,20 @@ readonly -a migration_application_services=(
   telemetry-migrate timeseries-credential-reconcile
 )
 
+# Host power control must remain available when application configuration or a
+# release manifest is damaged. Reject extra arguments before invoking either
+# exact sudoers command.
+case "${1:-}" in
+  reboot)
+    [[ "$#" -eq 1 ]] || { echo "Usage: stuguctl reboot" >&2; exit 2; }
+    exec sudo -n /usr/bin/systemctl reboot
+    ;;
+  poweroff)
+    [[ "$#" -eq 1 ]] || { echo "Usage: stuguctl poweroff" >&2; exit 2; }
+    exec sudo -n /usr/bin/systemctl poweroff
+    ;;
+esac
+
 if [[ "$(grep -c '^SYSTEM_UPDATE_IMAGE_PREFIX=' "$local_env")" -ne 1 ]]; then
   echo "SYSTEM_UPDATE_IMAGE_PREFIX must be configured once in $local_env" >&2
   exit 1
@@ -109,6 +123,8 @@ Commands:
   system-log  Follow the appliance startup/update log
   config      Edit persistent appliance settings
   restart     Pull the pinned images and restart the appliance
+  reboot      Gracefully reboot the appliance host
+  poweroff    Gracefully power off the appliance host
   backup      Create a complete Stugu backup
   migration   Receive, verify, apply, or roll back a live system migration
   images      Show the active known-good container references

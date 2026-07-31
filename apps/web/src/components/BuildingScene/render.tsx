@@ -103,7 +103,9 @@ export function renderBuildingScene(context: ReturnType<typeof useBuildingSceneP
             </>
             : <p>{t("building.editElementHelp")}</p>}
         </div>}
-        <div className="building-viewport">
+        <div className="outdoor-map-layout building-map-layout">
+          {outdoor && <OutdoorConditionsBadge outdoor={outdoor} units={units} />}
+          <div className="building-viewport">
           <svg
             className="building-svg" viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`} role="group"
             aria-label={t("building.aria", { house: house.name, floors: house.floors.length, sensors: sensors.filter((sensor) => sensor.enabled).length, metric: metricLabel })}
@@ -392,7 +394,7 @@ export function renderBuildingScene(context: ReturnType<typeof useBuildingSceneP
             </g>}
 
           </svg>
-          {outdoor && <OutdoorConditionsBadge outdoor={outdoor} units={units} />}
+          </div>
         </div>
         <div className={`building-legend ${!editing && !mapInformationExpanded ? "collapsed" : ""}`}>
           {(editing || mapInformationExpanded) && <div id={mapInformationId} className="building-legend-content">

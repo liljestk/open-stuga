@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { McpOperationTracker } from "../src/mcp-lifecycle.js";
+import { McpOperationTracker, runMcpToolRequest } from "../src/mcp-lifecycle.js";
 
 describe("MCP operation lifecycle", () => {
   it("rejects new work during shutdown and waits for active tool calls", async () => {
@@ -42,5 +42,25 @@ describe("MCP operation lifecycle", () => {
     await expect(tracker.waitForIdle(5)).rejects.toThrow(
       "MCP shutdown timed out with 1 active operation(s)",
     );
+  });
+
+  it("forwards the SDK request signal through tool dispatch", async () => {
+    const tracker = new McpOperationTracker();
+    const controller = new AbortController();
+    let observedSignal: AbortSignal | undefined;
+
+    await expect(runMcpToolRequest(
+      tracker,
+      {
+        thermal: (args, signal) => {
+          observedSignal = signal;
+          return args;
+        },
+      },
+      "thermal",
+      { houseId: "house-main" },
+      controller.signal,
+    )).resolves.toEqual({ houseId: "house-main" });
+    expect(observedSignal).toBe(controller.signal);
   });
 });

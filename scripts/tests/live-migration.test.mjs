@@ -10,6 +10,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 
@@ -38,10 +39,13 @@ import {
   assertTargetCapacity,
   composeBackupArguments,
   effectiveSettingsFile,
+  migrationBundlePhase,
   parseLiveMigrationArgs,
+  runLiveMigration,
   safeSshTarget,
   stopSourceWriters,
   uploadMissingChunks,
+  validatedExistingBackupManifest,
 } from "../stugu-live-migrate.mjs";
 
 import {
@@ -140,6 +144,7 @@ test("source CLI validates SSH identity, target syntax, and cutover freshness", 
   writeFileSync(identity, "test-only-private-key\n");
   writeFileSync(join(root, "package.json"), '{"version":"0.5.0"}\n');
   writeFileSync(join(root, "docker-compose.yml"), "services: {}\n");
+  mkdirSync(join(root, "old-backup"));
   assert.equal(safeSshTarget("stugu@stugu.local"), "stugu@stugu.local");
   assert.throws(() => safeSshTarget("-oProxyCommand=bad"), /safe SSH/u);
   const seed = parseLiveMigrationArgs([
@@ -156,6 +161,170 @@ test("source CLI validates SSH identity, target syntax, and cutover freshness", 
     "status", "--target", "stugu@stugu.local", "--identity-file", identity,
     "--project-directory", root, "--migration-id", "bad;touch-pwned",
   ], {}, root), /UUID/u);
+});
+
+test("backup recovery requires recorded source provenance and preserves target host settings", async (t) => {
+  const root = temporaryDirectory(t);
+  const identity = join(root, "id_ed25519");
+  const backup = backupFixture(root);
+  writeFileSync(identity, "test-only-private-key\n");
+  writeFileSync(join(root, "package.json"), '{"version":"0.5.0"}\n');
+
+  const recovery = parseLiveMigrationArgs([
+    "recover", "--target", "stugu@stugu.local", "--identity-file", identity,
+    "--project-directory", root, "--backup", backup, "--source-version", "0.4.1",
+    "--allow-legacy-unverified-source-version",
+  ], {}, root);
+  assert.equal(recovery.sourceVersion, "0.4.1");
+  assert.equal(recovery.controllerVersion, "0.5.0");
+  assert.equal(recovery.deploymentSettings, false);
+  assert.equal(migrationBundlePhase(recovery.phase), "cutover");
+
+  const bundle = await createMigrationBundle({
+    backupDirectory: recovery.backup,
+    workspaceDirectory: join(root, "recovery-workspace"),
+    phase: migrationBundlePhase(recovery.phase),
+    sourceVersion: recovery.sourceVersion,
+    id: "d19f8ada-fdc9-78e0-93e8-b63126fb1257",
+  });
+  assert.equal(bundle.plan.phase, "cutover");
+  assert.deepEqual(bundle.plan.deployment, {
+    authoritativeEnvironment: false,
+    exactConfig: false,
+    exactSecretRoots: [],
+  });
+  assert.ok(bundle.plan.files.every((file) => !file.path.startsWith("deployment/")));
+
+  assert.throws(() => parseLiveMigrationArgs([
+    "recover", "--target", "stugu@stugu.local", "--identity-file", identity,
+    "--project-directory", root, "--source-version", "0.4.1",
+    "--allow-legacy-unverified-source-version",
+  ], {}, root), /requires --backup/u);
+  assert.throws(() => parseLiveMigrationArgs([
+    "recover", "--target", "stugu@stugu.local", "--identity-file", identity,
+    "--project-directory", root, "--backup", backup,
+    "--allow-legacy-unverified-source-version",
+  ], {}, root), /requires --source-version/u);
+  assert.throws(() => parseLiveMigrationArgs([
+    "recover", "--target", "stugu@stugu.local", "--identity-file", identity,
+    "--project-directory", root, "--backup", backup, "--source-version", "0.4.1",
+  ], {}, root), /does not record its source version/u);
+  assert.throws(() => parseLiveMigrationArgs([
+    "recover", "--target", "stugu@stugu.local", "--identity-file", identity,
+    "--project-directory", root, "--backup", backup, "--source-version", "0.6.0",
+    "--allow-legacy-unverified-source-version",
+  ], {}, root), /newer than controller/u);
+  assert.throws(() => parseLiveMigrationArgs([
+    "recover", "--target", "stugu@stugu.local", "--identity-file", identity,
+    "--project-directory", root, "--backup", backup, "--source-version", "0.4.1",
+    "--allow-legacy-unverified-source-version",
+    "--settings-file", join(root, ".env"),
+  ], {}, root), /always preserves target host settings/u);
+  assert.throws(() => parseLiveMigrationArgs([
+    "seed", "--target", "stugu@stugu.local", "--identity-file", identity,
+    "--project-directory", root, "--source-version", "0.4.1",
+  ], {}, root), /only valid with recover/u);
+
+  const declaredRoot = join(root, "declared-source");
+  mkdirSync(declaredRoot);
+  const declaredBackup = backupFixture(declaredRoot);
+  const declaredManifestPath = join(declaredBackup, "manifest.json");
+  const declaredManifest = JSON.parse(readFileSync(declaredManifestPath, "utf8"));
+  declaredManifest.sourceVersion = "0.4.2";
+  const declaredText = `${JSON.stringify(declaredManifest, null, 2)}\n`;
+  writeFileSync(declaredManifestPath, declaredText);
+  writeFileSync(join(declaredBackup, "manifest.sha256"), `${sha256(declaredText)}  manifest.json\n`);
+  const declaredRecovery = parseLiveMigrationArgs([
+    "recover", "--target", "stugu@stugu.local", "--identity-file", identity,
+    "--project-directory", root, "--backup", declaredBackup,
+  ], {}, root);
+  assert.equal(declaredRecovery.sourceVersion, "0.4.2");
+  assert.equal(declaredRecovery.sourceVersionProvenance, "backup-manifest");
+  assert.throws(() => parseLiveMigrationArgs([
+    "recover", "--target", "stugu@stugu.local", "--identity-file", identity,
+    "--project-directory", root, "--backup", declaredBackup, "--source-version", "0.4.1",
+  ], {}, root), /does not match/u);
+  await assert.rejects(createMigrationBundle({
+    backupDirectory: declaredBackup,
+    workspaceDirectory: join(root, "mismatched-source-workspace"),
+    phase: "cutover",
+    sourceVersion: "0.4.1",
+  }), /does not match migration source/u);
+});
+
+test("backup recovery rejects symlinked artifact parents", (t) => {
+  const root = temporaryDirectory(t);
+  const backup = join(root, "backup");
+  const external = join(root, "external");
+  mkdirSync(backup);
+  mkdirSync(external);
+  writeFileSync(join(external, "payload.sqlite"), "outside-backup");
+  try {
+    symlinkSync(external, join(backup, "linked"), process.platform === "win32" ? "junction" : "dir");
+  } catch (error) {
+    if (error?.code === "EPERM") {
+      t.skip("Creating a test symlink is not permitted");
+      return;
+    }
+    throw error;
+  }
+  const manifest = {
+    format: "stugu-backup",
+    version: 2,
+    verification: { status: "passed" },
+    files: [{ path: "linked/payload.sqlite", category: "core-sqlite" }],
+  };
+  const text = `${JSON.stringify(manifest)}\n`;
+  writeFileSync(join(backup, "manifest.json"), text);
+  writeFileSync(join(backup, "manifest.sha256"), `${sha256(text)}  manifest.json\n`);
+  assert.throws(
+    () => validatedExistingBackupManifest(backup),
+    /symbolic link/u,
+  );
+});
+
+test("recover orchestration avoids local Compose and submits an applicable rollback-guarded plan", async (t) => {
+  const root = temporaryDirectory(t);
+  const identity = join(root, "id_ed25519");
+  const backup = backupFixture(root);
+  writeFileSync(identity, "test-only-private-key\n");
+  writeFileSync(join(root, "package.json"), '{"version":"0.5.0"}\n');
+  const forbiddenSourceCall = async () => {
+    throw new Error("recover touched the local Compose source");
+  };
+  const remoteCalls = [];
+  let stagedPlan;
+  let restartCalls = 0;
+  await assert.rejects(
+    runLiveMigration([
+      "recover", "--target", "stugu@stugu.local", "--identity-file", identity,
+      "--project-directory", root, "--backup", backup, "--source-version", "0.4.1",
+      "--allow-legacy-unverified-source-version",
+    ], {
+      resolveComposeDeploymentInputs: forbiddenSourceCall,
+      assertRunningSourceVersion: forbiddenSourceCall,
+      stopSourceWriters: forbiddenSourceCall,
+      runningComposeServices: forbiddenSourceCall,
+      createComposeBackup: forbiddenSourceCall,
+      restartSource: async () => { restartCalls += 1; },
+      stageBundle: async (_options, _target, bundle) => { stagedPlan = bundle.plan; },
+      remoteJson: async (_options, command) => {
+        remoteCalls.push(command);
+        if (command[2] === "init") {
+          return { format: "stugu-migration-preflight", version: 1, targetVersion: "0.5.0" };
+        }
+        if (command[2] === "apply") throw new Error("simulated target apply failure");
+        if (command[2] === "status") return { receipt: { status: "rolled-back" } };
+        throw new Error(`Unexpected remote command: ${command.join(" ")}`);
+      },
+      writeOutput: () => {},
+    }),
+    /recovery failed and rolled back safely/u,
+  );
+  assert.equal(stagedPlan.phase, "cutover");
+  assert.ok(stagedPlan.files.every((file) => !file.path.startsWith("deployment/")));
+  assert.deepEqual(remoteCalls.map((command) => command[2]), ["init", "apply", "status"]);
+  assert.equal(restartCalls, 0);
 });
 
 test("source runtime profiles migrate even when they were enabled outside .env", (t) => {
@@ -325,6 +494,35 @@ test("backup validation requires a declared Stuguby identity artifact", (t) => {
     createdAt: "2026-07-23T00:00:00.000Z",
   }), { mode: 0o600 });
   assert.equal(completeBackupManifest(root).sources.stugubyIdentity.status, "included");
+
+  const trackingKeyPath = join(root, "secrets", "tracking-secret.key");
+  manifest.files.push({
+    category: "tracking-secret-key",
+    path: "secrets/tracking-secret.key",
+  });
+  writeFileSync(trackingKeyPath, "not a tracking key\n", { mode: 0o600 });
+  writeFileSync(join(root, "manifest.json"), JSON.stringify(manifest));
+  assert.throws(() => completeBackupManifest(root), /tracking secret key is invalid/u);
+  writeFileSync(trackingKeyPath, `${Buffer.alloc(32, 9).toString("base64url")}\n`);
+  assert.equal(
+    completeBackupManifest(root).files
+      .filter(({ category }) => category === "tracking-secret-key").length,
+    1,
+  );
+  manifest.files.push({
+    category: "tracking-secret-key",
+    path: "secrets/duplicate-tracking-secret.key",
+  });
+  writeFileSync(join(root, "manifest.json"), JSON.stringify(manifest));
+  assert.throws(() => completeBackupManifest(root), /multiple tracking-secret-key artifacts/u);
+  manifest.files.pop();
+
+  manifest.sourceVersion = "0.4.9";
+  writeFileSync(join(root, "manifest.json"), JSON.stringify(manifest));
+  assert.throws(
+    () => completeBackupManifest(root, "0.5.0"),
+    /does not match migration source/u,
+  );
 });
 
 test("data swap rollback is crash-safe and idempotent at each rename boundary", async (t) => {
@@ -339,11 +537,16 @@ test("data swap rollback is crash-safe and idempotent at each rename boundary", 
   const cases = [
     { id: "219f8ada-fdc9-78e0-93e8-b63126fb1257", point: "old-moved" },
     { id: "319f8ada-fdc9-78e0-93e8-b63126fb1257", point: "new-installed" },
+    {
+      id: "519f8ada-fdc9-78e0-93e8-b63126fb1257",
+      point: "new-installed",
+      targetHadTrackingKey: false,
+    },
   ];
   for (const scenario of cases) {
-    const data = join(root, `data-${scenario.point}`);
-    const stage = join(root, `stage-${scenario.point}`);
-    const rollback = join(root, `rollback-${scenario.point}`);
+    const data = join(root, `data-${scenario.id}`);
+    const stage = join(root, `stage-${scenario.id}`);
+    const rollback = join(root, `rollback-${scenario.id}`);
     const receiptPath = join(root, "receipts", `${scenario.id}.json`);
     mkdirSync(data, { recursive: true });
     mkdirSync(stage, { recursive: true });
@@ -352,8 +555,12 @@ test("data swap rollback is crash-safe and idempotent at each rename boundary", 
     writeFileSync(join(data, "climate-twin.sqlite"), "old-core");
     writeFileSync(join(data, "climate-twin.sqlite-wal"), "old-wal");
     writeFileSync(join(data, "stuguby-identity.json"), "old-identity");
+    if (scenario.targetHadTrackingKey !== false) {
+      writeFileSync(join(data, "tracking-secret.key"), "old-tracking-key");
+    }
     writeFileSync(join(stage, "climate-twin.sqlite"), "new-core");
     writeFileSync(join(stage, "stuguby-identity.json"), "new-identity");
+    writeFileSync(join(stage, "tracking-secret.key"), "new-tracking-key");
     const receipt = {
       status: "applying",
       settings: [],
@@ -361,7 +568,12 @@ test("data swap rollback is crash-safe and idempotent at each rename boundary", 
         data,
         stage,
         rollback,
-        targets: ["climate-twin.sqlite", "climate-twin.sqlite-wal", "stuguby-identity.json"],
+        targets: [
+          "climate-twin.sqlite",
+          "climate-twin.sqlite-wal",
+          "stuguby-identity.json",
+          "tracking-secret.key",
+        ],
         items: {},
       },
     };
@@ -369,7 +581,7 @@ test("data swap rollback is crash-safe and idempotent at each rename boundary", 
     assert.throws(
       () => swapData({ receipt: receiptPath }, receipt, {
         afterMutation(point, name) {
-          if (point === scenario.point && name === "stuguby-identity.json") {
+          if (point === scenario.point && name === "tracking-secret.key") {
             throw new Error(`simulated crash after ${point}`);
           }
         },
@@ -381,8 +593,18 @@ test("data swap rollback is crash-safe and idempotent at each rename boundary", 
     assert.equal(readFileSync(join(data, "climate-twin.sqlite"), "utf8"), "old-core");
     assert.equal(readFileSync(join(data, "climate-twin.sqlite-wal"), "utf8"), "old-wal");
     assert.equal(readFileSync(join(data, "stuguby-identity.json"), "utf8"), "old-identity");
+    if (scenario.targetHadTrackingKey === false) {
+      assert.equal(existsSync(join(data, "tracking-secret.key")), false);
+    } else {
+      assert.equal(readFileSync(join(data, "tracking-secret.key"), "utf8"), "old-tracking-key");
+    }
     await rollbackMigration(scenario.id);
     assert.equal(readFileSync(join(data, "stuguby-identity.json"), "utf8"), "old-identity");
+    if (scenario.targetHadTrackingKey === false) {
+      assert.equal(existsSync(join(data, "tracking-secret.key")), false);
+    } else {
+      assert.equal(readFileSync(join(data, "tracking-secret.key"), "utf8"), "old-tracking-key");
+    }
   }
 });
 
@@ -404,7 +626,7 @@ test("a committed migration cannot be rolled back", async (t) => {
   );
 });
 
-test("pending migration commit requires fresh exact-release health evidence", (t) => {
+test("pending migration commit requires fresh release and Timescale health evidence", async (t) => {
   const root = temporaryDirectory(t);
   const id = "a19f8ada-fdc9-78e0-93e8-b63126fb1257";
   const previousRoot = process.env.STUGA_MIGRATION_ROOT;
@@ -420,18 +642,56 @@ test("pending migration commit requires fresh exact-release health evidence", (t
     targetVersion: "0.5.0",
     appliedAt: "2026-07-23T01:00:00.000Z",
   }));
-  assert.throws(
-    () => commitMigration(id, "0.4.9", "2026-07-23T01:01:00.000Z"),
+  let timescaleChecks = 0;
+  const verifyTimescale = async () => {
+    timescaleChecks += 1;
+    return {
+      schedulerRunning: true,
+      restoringOff: true,
+      workerBudgetHealthy: true,
+      scheduledJobCount: 8,
+      dueJobIds: [],
+      pendingDueJobIds: [],
+      failedJobIds: [],
+      runningJobIds: [],
+      verifiedAt: "2026-07-23T01:00:30.000Z",
+      telemetryArchive: {
+        apiStatus: "ok",
+        databaseReady: true,
+        enabled: true,
+        phase: "ready",
+        caughtUp: true,
+        timescaleAvailable: true,
+        dirtyRows: 0,
+        queuedSamples: 0,
+      },
+    };
+  };
+  await assert.rejects(
+    commitMigration(id, "0.4.9", "2026-07-23T01:01:00.000Z", { verifyTimescale }),
     /health proof does not match/u,
   );
-  assert.throws(
-    () => commitMigration(id, "0.5.0", "2026-07-23T00:59:59.000Z"),
+  await assert.rejects(
+    commitMigration(id, "0.5.0", "2026-07-23T00:59:59.000Z", { verifyTimescale }),
     /health proof does not match/u,
   );
-  assert.equal(
-    commitMigration(id, "0.5.0", "2026-07-23T01:01:00.000Z").status,
-    "committed",
+  assert.equal(timescaleChecks, 0);
+  await assert.rejects(
+    commitMigration(id, "0.5.0", "2026-07-23T01:01:00.000Z", {
+      verifyTimescale: async () => { throw new Error("scheduler missing"); },
+    }),
+    /scheduler missing/u,
   );
+  assert.equal(JSON.parse(readFileSync(receiptPath, "utf8")).status, "applied-pending-health-check");
+  const committed = await commitMigration(
+    id,
+    "0.5.0",
+    "2026-07-23T01:01:00.000Z",
+    { verifyTimescale },
+  );
+  assert.equal(committed.status, "committed");
+  assert.equal(committed.timescaleRecovery.mode, "pre-commit");
+  assert.equal(timescaleChecks, 1);
 });
 
 test("migration bundles are chunked, resumable, reassembled, and verified", async (t) => {

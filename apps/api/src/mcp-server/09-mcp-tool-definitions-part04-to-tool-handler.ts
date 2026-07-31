@@ -47,7 +47,7 @@ import { EnergyOptimizer } from "../energy-optimizer.js";
 import { publicElectricityConfiguration } from "../electricity-prices.js";
 import { TelemetryBus } from "../events.js";
 import { HomeAssistantBridge } from "../home-assistant.js";
-import { McpOperationTracker } from "../mcp-lifecycle.js";
+import type { McpToolHandler } from "../mcp-lifecycle.js";
 import {
   mcpToolAnnotations,
   mcpBoundedInteger,
@@ -386,4 +386,4 @@ export const mcpTools = mcpToolDefinitions.filter((tool) => ACTIVE_MCP_TOOL_NAME
 
 server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: mcpTools }));
 
-export type ToolHandler = (args: Record<string, unknown>) => unknown | Promise<unknown>;
+export type ToolHandler = McpToolHandler;

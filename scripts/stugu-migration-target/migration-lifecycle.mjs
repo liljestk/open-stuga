@@ -54,6 +54,17 @@ import { assertRestoreCapacity, atomicJson, completeBackupManifest, createCandid
 
 import { applyDeploymentSettings, copyVerified, deploymentTargetFromReceipt, prepareDataSwap, swapData, swapDatabases } from "./data-deployment.mjs";
 
+import {
+  activateRestoredTimescale,
+  assertTimescaleWorkerBudget,
+  createTimescaleActivationBaseline,
+  ensureTimescaleScheduler,
+  ensurePendingTimescaleRecovery,
+  readTimescaleRecoveryStatus,
+  telemetryArchiveRecoveryIsHealthy,
+  timescaleRecoveryIsHealthy,
+} from "./timescale-recovery.mjs";
+
 export async function rollbackMigration(id, { automatic = false } = {}) {
   const paths = migrationPaths(id);
   if (!existsSync(paths.receipt)) throw new Error("Migration receipt does not exist");
@@ -103,6 +114,28 @@ export async function rollbackMigration(id, { automatic = false } = {}) {
     }
     receipt.databaseSwapped = false;
     receipt.databasePhase = "rolled-back";
+    if (targetExists && receipt.databaseSwapStarted) {
+      receipt.databaseRollbackPhase = "restarting-timescale-workers";
+      receipt.timescaleRecovery = {
+        status: "restarting-rollback",
+        database: target,
+        startedAt: new Date().toISOString(),
+      };
+      atomicJson(paths.receipt, receipt);
+      const baseline = createTimescaleActivationBaseline(
+        await readTimescaleRecoveryStatus(configuration, target),
+      );
+      receipt.timescaleRecovery.activationBaseline = baseline;
+      atomicJson(paths.receipt, receipt);
+      const recovery = await ensureTimescaleScheduler(configuration, target, { baseline });
+      receipt.timescaleRecovery = {
+        status: "scheduler-running",
+        database: target,
+        mode: "rollback",
+        activationBaseline: baseline,
+        ...recovery,
+      };
+    }
     receipt.databaseRollbackPhase = "complete";
     atomicJson(paths.receipt, receipt);
   }
@@ -198,7 +231,12 @@ export async function createApplyIntent(id, expectedSha256) {
   return receipt;
 }
 
-export function commitMigration(id, healthVersion, healthyAt) {
+export async function commitMigration(
+  id,
+  healthVersion,
+  healthyAt,
+  { verifyTimescale = ensurePendingTimescaleRecovery } = {},
+) {
   const paths = migrationPaths(id);
   const receipt = readJson(paths.receipt, "migration receipt");
   if (receipt.status !== "applied-pending-health-check") {
@@ -213,11 +251,29 @@ export function commitMigration(id, healthVersion, healthyAt) {
     || healthTime < appliedTime) {
     throw new Error("Migration health proof does not match the applied target release");
   }
-  receipt.status = "committed";
-  receipt.healthConfirmedAt = new Date(healthTime).toISOString();
-  receipt.committedAt = new Date().toISOString();
-  atomicJson(paths.receipt, receipt);
-  return receipt;
+  const timescaleRecovery = await verifyTimescale(receipt);
+  if (!timescaleRecoveryIsHealthy(timescaleRecovery)
+    || !telemetryArchiveRecoveryIsHealthy(timescaleRecovery.telemetryArchive)) {
+    throw new Error("TimescaleDB scheduler, background jobs, and telemetry archive are not healthy");
+  }
+  const pending = readJson(paths.receipt, "migration receipt");
+  if (pending.status !== "applied-pending-health-check"
+    || pending.planSha256 !== receipt.planSha256
+    || pending.appliedAt !== receipt.appliedAt) {
+    throw new Error("Migration receipt changed during final health verification");
+  }
+  pending.timescaleRecovery = {
+    status: "healthy",
+    database: pending.targetDatabase,
+    mode: "pre-commit",
+    activationBaseline: receipt.timescaleRecovery?.activationBaseline,
+    ...timescaleRecovery,
+  };
+  pending.status = "committed";
+  pending.healthConfirmedAt = new Date(healthTime).toISOString();
+  pending.committedAt = new Date().toISOString();
+  atomicJson(paths.receipt, pending);
+  return pending;
 }
 
 export async function applyMigration(id, expectedSha256) {
@@ -242,6 +298,10 @@ export async function applyMigration(id, expectedSha256) {
   await verifyAssembledMigrationBundle({ plan, outputDirectory: paths.staged });
   await verifyBackup(backupDirectory);
   const manifest = completeBackupManifest(backupDirectory, plan.sourceVersion);
+  const preflightConfiguration = postgresConfiguration();
+  assertTimescaleWorkerBudget(
+    await readTimescaleRecoveryStatus(preflightConfiguration, preflightConfiguration.database),
+  );
   receipt.status = "applying";
   receipt.startedAt = new Date().toISOString();
   atomicJson(paths.receipt, receipt);
@@ -251,6 +311,28 @@ export async function applyMigration(id, expectedSha256) {
     swapData(paths, receipt);
     applyDeploymentSettings(paths, plan, receipt);
     await swapDatabases(configuration, paths, receipt);
+    const activation = await activateRestoredTimescale(
+      configuration,
+      configuration.database,
+      {
+        onBaseline: async (baseline) => {
+          receipt.timescaleRecovery = {
+            status: "activating-restored-target",
+            database: configuration.database,
+            startedAt: baseline.activatedAt,
+            activationBaseline: baseline,
+          };
+          atomicJson(paths.receipt, receipt);
+        },
+      },
+    );
+    receipt.timescaleRecovery = {
+      status: "healthy",
+      database: configuration.database,
+      mode: "restored-target",
+      activationBaseline: activation.baseline,
+      ...activation.recovery,
+    };
     receipt.status = "applied-pending-health-check";
     receipt.appliedAt = new Date().toISOString();
     atomicJson(paths.receipt, receipt);
@@ -266,11 +348,16 @@ export async function applyMigration(id, expectedSha256) {
   }
 }
 
-export async function assembleCommand(id, expectedSha256) {
+export async function assembleCommand(
+  id,
+  expectedSha256,
+  { verifyBackupArtifact = verifyBackup } = {},
+) {
   const { paths, plan, planSha256 } = loadPlan(id, expectedSha256);
   const missing = await missingMigrationChunks(plan, paths.chunks);
   if (missing.length > 0) throw new Error(`Migration is missing ${missing.length} chunk(s)`);
   const markerPath = join(paths.staged, ".stugu-assembled.json");
+  const backupDirectory = join(paths.staged, "backup");
   if (existsSync(paths.staged)) {
     const marker = existsSync(markerPath) ? readJson(markerPath, "assembly marker") : null;
     if (marker && (marker.planSha256 !== planSha256 || marker.backupVerified !== true)) {
@@ -278,15 +365,16 @@ export async function assembleCommand(id, expectedSha256) {
     }
     if (marker) {
       await verifyAssembledMigrationBundle({ plan, outputDirectory: paths.staged });
-      await verifyBackup(join(paths.staged, "backup"));
+      await verifyBackupArtifact(backupDirectory);
+      completeBackupManifest(backupDirectory, plan.sourceVersion);
       return { reused: true, files: plan.files.length, totalBytes: plan.totalBytes };
     }
     rmSync(paths.staged, { recursive: true, force: true });
   }
   const result = await assembleMigrationBundle({ plan, chunkDirectory: paths.chunks, outputDirectory: paths.staged });
   await verifyAssembledMigrationBundle({ plan, outputDirectory: paths.staged });
-  await verifyBackup(join(paths.staged, "backup"));
-  completeBackupManifest(join(paths.staged, "backup"));
+  await verifyBackupArtifact(backupDirectory);
+  completeBackupManifest(backupDirectory, plan.sourceVersion);
   atomicJson(markerPath, { version: 1, planSha256, backupVerified: true, verifiedAt: new Date().toISOString() });
   return { ...result, reused: false };
 }

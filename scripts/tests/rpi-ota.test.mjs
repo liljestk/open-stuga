@@ -221,6 +221,8 @@ test("the USB appliance binds A/B slots to the firmware-selected boot disk", asy
   assert.match(initramfsCompat, /source\.count\(old\) != 1/);
   assert.match(initramfsCompat, /find \. -false/);
   assert.match(initramfsCompat, /one compressed initramfs stream/);
+  assert.match(layer, /rootdelay=6 cgroup_enable=memory/);
+  assert.match(layer, /USB storage discovery races initramfs/);
   assert.match(buildScript, /config core\.autocrlf false/);
   assert.match(buildScript, /config core\.filemode false/);
   assert.match(
@@ -293,6 +295,45 @@ test("the appliance exposes secure LAN access and persistent Tailscale by defaul
   assert.match(eepromCompat, /desired_usb_power_off=0/);
 });
 
+test("recovery-key operators get exact host power commands without general sudo", async () => {
+  const [layer, control] = await Promise.all([
+    readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stuguctl", import.meta.url), "utf8"),
+  ]);
+
+  const sudoersMatch = layer.match(
+    /cat > "\$1\/etc\/sudoers\.d\/020_stuguctl" <<-EOF\r?\n(?<body>[\s\S]*?)\r?\n\s+EOF/,
+  );
+  assert.ok(sudoersMatch?.groups?.body, "stuguctl sudoers policy is missing");
+  const sudoersLines = sudoersMatch.groups.body
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => line.trim());
+  assert.deepEqual(sudoersLines, [
+    "${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/systemctl start stugu.service",
+    "${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/systemctl stop stugu.service",
+    "${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/systemctl restart stugu.service",
+    "${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/systemctl reboot",
+    "${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff",
+    "${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/tailscale up --operator=${IGconf_device_user1}",
+  ]);
+
+  const applicationValidation = control.indexOf(
+    "if [[ \"$(grep -c '^SYSTEM_UPDATE_IMAGE_PREFIX='",
+  );
+  assert.ok(applicationValidation > 0, "application validation is missing");
+  const recoveryControl = control.slice(0, applicationValidation);
+  assert.match(
+    recoveryControl,
+    /reboot\)\s+\[\[ "\$#" -eq 1 \]\][\s\S]*exec sudo -n \/usr\/bin\/systemctl reboot/,
+  );
+  assert.match(
+    recoveryControl,
+    /poweroff\)\s+\[\[ "\$#" -eq 1 \]\][\s\S]*exec sudo -n \/usr\/bin\/systemctl poweroff/,
+  );
+  assert.doesNotMatch(recoveryControl, /systemctl "\$@"/);
+});
+
 test("factory builds fail closed unless Linux validates the complete SSD layout", async () => {
   const [buildScript, validator] = await Promise.all([
     readFile(new URL("../build-rpi-image.sh", import.meta.url), "utf8"),
@@ -321,6 +362,10 @@ test("factory builds fail closed unless Linux validates the complete SSD layout"
   assert.match(validator, /unsafe explicit kernel\/initramfs override/);
   assert.match(validator, /initramfs8 is not a single zstd stream/);
   assert.match(validator, /initramfs8 contains data outside its zstd stream/);
+  assert.match(validator, /does not wait for root storage/);
+  assert.match(validator, /does not include rootdelay=6/);
+  assert.match(validator, /does not enable memory cgroups/);
+  assert.match(validator, /diagnostic netconsole configuration/);
   assert.match(validator, /direct-boot payload differs from bootconfig rescue/);
   assert.match(validator, /2025-01-22 GPT autoboot partition-number fix/);
   assert.match(validator, /boot_a and boot_b differ/);

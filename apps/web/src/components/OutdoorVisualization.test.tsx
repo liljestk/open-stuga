@@ -120,6 +120,12 @@ describe("outdoor boundary visualization", () => {
     expect(Number(view.container.querySelector('[data-plan-edge="right"]')?.getAttribute("x"))).toBeGreaterThan(1000);
     expect(view.container.querySelector(".floor-plan")?.getAttribute("viewBox")).toMatch(/^-\d+ -\d+ /);
     expect(view.container.querySelector(".floor-outdoor-wind")).toBeNull();
+    const mapLayout = view.container.querySelector(".floor-plan-layout");
+    const weatherCard = mapLayout?.querySelector(".outdoor-context-card");
+    const planStage = mapLayout?.querySelector(".plan-stage");
+    expect(weatherCard?.parentElement).toBe(mapLayout);
+    expect(planStage?.parentElement).toBe(mapLayout);
+    expect(weatherCard?.nextElementSibling).toBe(planStage);
   });
 
   it("applies the shared indoor comparison colors to the outdoor shell and condition values", () => {
@@ -257,6 +263,12 @@ describe("outdoor boundary visualization", () => {
     expect(shell.querySelector(".building-temperature-chip rect")?.getAttribute("height")).toBe("52");
     expect(shell.querySelectorAll(".building-outdoor-shell-edge")).toHaveLength(4);
     expect(windwardEdge.dataset.windwardEdge).toBe("left");
+    const mapLayout = view.container.querySelector(".building-map-layout");
+    const weatherCard = mapLayout?.querySelector(".outdoor-context-card");
+    const viewport = mapLayout?.querySelector(".building-viewport");
+    expect(weatherCard?.parentElement).toBe(mapLayout);
+    expect(viewport?.parentElement).toBe(mapLayout);
+    expect(weatherCard?.nextElementSibling).toBe(viewport);
     const shellBefore = shell.querySelector(".building-outdoor-shell-top")!.getAttribute("points");
     const before = [windwardEdge.getAttribute("x1"), windwardEdge.getAttribute("y1"), windwardEdge.getAttribute("x2"), windwardEdge.getAttribute("y2")];
     fireEvent.click(screen.getByRole("button", { name: "Rotate view right" }));

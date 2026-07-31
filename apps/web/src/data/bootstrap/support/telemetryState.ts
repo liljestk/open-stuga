@@ -79,6 +79,8 @@ export interface HistoricalSeriesWindow {
 
 export const MAX_SERIES_SAMPLES = 50_000;
 
+export const LIVE_SERIES_SAMPLES = 500;
+
 export const HEARTBEAT_POLL_MIN_INTERVAL_MS = 60_000;
 
 export const STREAM_BOOTSTRAP_WAIT_MS = 1_500;
@@ -290,7 +292,7 @@ export function advanceMockTelemetry(
     history[sensor.id] = [...(history[sensor.id] ?? []), next].slice(-500);
     const samples = readingSamples(next, current.measurementDefinitions);
     latestMeasurements = upsertLatest(latestMeasurements, samples);
-    measurementHistory = appendHistory(measurementHistory, samples, 500);
+    measurementHistory = appendHistory(measurementHistory, samples, LIVE_SERIES_SAMPLES);
   }
   return {
     ...current,

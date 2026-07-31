@@ -86,7 +86,7 @@ import {
 import { SetupDoctor } from "../setup-doctor.js";
 import { HybridTelemetryReader } from "../timeseries/read-facade.js";
 import { runThermalIsolation } from "../thermal-isolation.js";
-import { runThermalSimulation } from "../thermal-simulation.js";
+import { runThermalSimulationAsync } from "../thermal-simulation.js";
 import { TpLinkBridge } from "../tp-link.js";
 import { SYSTEM_VERSION } from "../version.js";
 import { FmiWeatherProvider, WeatherRequestSupersededError, WeatherService } from "../weather.js";
@@ -94,8 +94,12 @@ import type { StugubyService } from "../stuguby/service.js";
 import { StugubyStore } from "../stuguby/store.js";
 import { config, database, measurements, optionalBoolean, optionalString, optionalStringArray, requiredArray, requiredNumber, requiredObject, requiredString, status, stuguby, telemetry, telemetryReader, weather } from "./01-config-to-get-house-weather.js";
 import { outdoorTemperatureHistory } from "./05-get-mcp-stuguby-to-result-output-schema.js";
+import { runMcpThermalWork } from "./thermal-work.js";
 
-export async function thermalSimulation(args: Record<string, unknown>): Promise<unknown> {
+export async function thermalSimulation(
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<unknown> {
   const houseId = requiredString(args, "houseId");
   const house = requireMcpHouse(database, houseId);
   const sensor = requireMcpHouseSensor(database, houseId, requiredString(args, "sensorId"));
@@ -106,33 +110,37 @@ export async function thermalSimulation(args: Record<string, unknown>): Promise<
     "scenarioOutdoorTemperatureC",
   );
   const boundaryPaddingMs = 2 * 3_600_000;
-  const [indoorRead, outdoorRead] = await Promise.all([
-    telemetryReader.thermalMeasurementHistory({
-      sensorId: sensor.id,
+  return runMcpThermalWork({
+    subjects: [sensor],
+    ...(signal ? { signal } : {}),
+    readIndoor: (subject, readSignal) => telemetryReader.thermalMeasurementHistory({
+      sensorId: subject.id,
       metrics: ["temperature"],
       from,
       to,
       bucketMinutes: 5,
       limitPerMetric: 5_000,
+      ...(readSignal ? { signal: readSignal } : {}),
     }),
-    telemetryReader.outdoorTemperatureHistory({
+    readOutdoor: (readSignal) => telemetryReader.outdoorTemperatureHistory({
       houseId,
       locationKey: outdoorLocationKey(house.location),
       from: new Date(Date.parse(from) - boundaryPaddingMs).toISOString(),
       to: new Date(Date.parse(to) + boundaryPaddingMs).toISOString(),
       limit: 50_000,
+      ...(readSignal ? { signal: readSignal } : {}),
     }),
-  ]);
-  return runThermalSimulation({
-    houseId,
-    sensorId: sensor.id,
-    roomLabel: sensor.room,
-    from,
-    to,
-    indoorSamples: indoorRead.records,
-    outdoorSamples: outdoorRead.records,
-    horizonHours,
-    scenarioOutdoorTemperatureC,
+    complete: ({ indoor, outdoor }, completionSignal) => runThermalSimulationAsync({
+      houseId,
+      sensorId: sensor.id,
+      roomLabel: sensor.room,
+      from,
+      to,
+      indoorSamples: indoor[0]!.records,
+      outdoorSamples: outdoor.records,
+      horizonHours,
+      scenarioOutdoorTemperatureC,
+    }, undefined, completionSignal ? { signal: completionSignal } : {}),
   });
 }
 

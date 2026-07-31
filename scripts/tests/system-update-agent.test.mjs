@@ -125,18 +125,47 @@ test("agent configuration is portable and pins one trusted release namespace", (
     assert.equal(config.factoryReleaseEnvFile, join(directory, "release.env"));
     assert.equal(config.knownGoodReleaseEnvFile, join(directory, ".stugu-known-good.env"));
     assert.equal(config.releaseEnvFile, join(directory, ".stugu-release.env"));
+    assert.equal(config.composeProfileEnvironmentFile, join(directory, ".env"));
     assert.equal(config.runtime, "docker");
     assert.equal(config.composeProjectName, null);
     assert.equal(composeArguments(config).includes("--project-name"), false);
 
     const named = readAgentConfig({
       STUGA_COMPOSE_PROJECT_NAME: "stuga",
+      STUGA_CLOUDFLARE_SECRET_DIR: join(directory, "host-cloudflare"),
       STUGA_PROJECT_DIRECTORY: directory,
+      STUGA_UPDATE_CLOUDFLARE_SECRET_DIR: join(directory, "agent-cloudflare"),
+      STUGA_UPDATE_PROFILE_ENV_FILE: join(directory, "persistent.env"),
     }, directory, []);
     assert.deepEqual(composeArguments(named).slice(0, 3), ["compose", "--project-name", "stuga"]);
+    assert.equal(named.cloudflareSecretDirectory, join(directory, "agent-cloudflare"));
+    assert.equal(named.composeProfileEnvironmentFile, join(directory, "persistent.env"));
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("containerized updater preserves host paths for nested Compose", () => {
+  const compose = readFileSync(new URL("../../docker-compose.yml", import.meta.url), "utf8");
+  const service = compose.slice(
+    compose.indexOf("  stugu-update-agent:"),
+    compose.indexOf("  tapo-export-runner:"),
+  );
+
+  assert.match(
+    service,
+    /STUGA_UPDATE_CLOUDFLARE_SECRET_DIR: \/persistent\/stugu\/secrets\/cloudflare/u,
+  );
+  assert.doesNotMatch(service, /^\s+STUGA_CLOUDFLARE_SECRET_DIR:/mu);
+  assert.ok(service.includes(
+    "${STUGA_CLOUDFLARE_SECRET_DIR:-./secrets/cloudflare}:/persistent/stugu/secrets/cloudflare:z",
+  ));
+  assert.ok(service.includes(
+    "${STUGA_MIGRATION_SETTINGS_DIRECTORY:-.}:/persistent/stugu/settings:z",
+  ));
+  assert.ok(service.includes(
+    "STUGA_UPDATE_PROFILE_ENV_FILE: /persistent/stugu/settings/${STUGA_MIGRATION_ENV_FILENAME:-.env}",
+  ));
 });
 
 test("system updates keep the optional R2 replicator on the backup image release", async () => {
@@ -255,28 +284,79 @@ test("agent provisions, restarts, verifies, and revokes a UI-approved Cloudflare
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const operationsDirectory = join(directory, "operations");
   mkdirSync(operationsDirectory);
+  const profileEnvironment = join(directory, "stugu.env");
+  writeFileSync(
+    profileEnvironment,
+    "# Persistent appliance profiles\nCOMPOSE_PROFILES=self-update,r2-backup\n",
+    "utf8",
+  );
   const config = readAgentConfig({
     STUGA_PROJECT_DIRECTORY: directory,
     STUGA_CLOUDFLARE_SECRET_DIR: join(directory, "cloudflare"),
+    STUGA_UPDATE_PROFILE_ENV_FILE: profileEnvironment,
     SYSTEM_UPDATE_OPERATIONS_DIRECTORY: operationsDirectory,
   }, directory, []);
+  const request = cloudflareSetupRequest();
   const requestPath = join(operationsDirectory, "cloudflare-request-test.json");
-  writeFileSync(requestPath, JSON.stringify(cloudflareSetupRequest()), "utf8");
+  const overridePath = join(
+    operationsDirectory,
+    `cloudflare-provisional-${request.id}.compose.yml`,
+  );
+  writeFileSync(requestPath, JSON.stringify(request), "utf8");
   const composeCalls = [];
   const provisionCalls = [];
   const revokeCalls = [];
+  const events = [];
+  let overrideText = null;
   let verified = 0;
 
   await applyCloudflareSetupRequest(config, requestPath, {
-    claim: async () => ({
-      provisionToken: "temporary-oauth-provision-token-that-is-long-enough",
-      accessToken: "runtime-access-group-token-that-is-long-enough",
-      oauthClientId: "stugu-private-client",
-    }),
-    provisioner: async (...args) => { provisionCalls.push(args); },
-    compose: async (_config, args) => { composeCalls.push(args); return ""; },
-    verifyCoordinator: async () => { verified += 1; },
-    revoke: async (value) => { revokeCalls.push(value); },
+    claim: async () => {
+      events.push("claim");
+      return {
+        provisionToken: "temporary-oauth-provision-token-that-is-long-enough",
+        accessToken: "runtime-access-group-token-that-is-long-enough",
+        oauthClientId: "stugu-private-client",
+      };
+    },
+    provisioner: async (...args) => {
+      events.push("provision");
+      provisionCalls.push(args);
+    },
+    compose: async (_config, args) => {
+      composeCalls.push(args);
+      const provisional = args[0] === "--file";
+      const command = provisional ? args[2] : args[0];
+      const service = args.at(-1);
+      events.push(
+        provisional && command === "up" && args.includes("--no-start")
+          ? "compose:provisional-create"
+          : command === "up"
+          ? `compose:${service === "cloudflared" ? "regular" : "application"}-up`
+          : `compose:${provisional ? "provisional-" : ""}${command}`,
+      );
+      if (provisional && command === "up" && args.includes("--no-start")) {
+        assert.equal(args[1], overridePath);
+        overrideText = readFileSync(overridePath, "utf8");
+      }
+      if (!provisional && command === "up" && service === "cloudflared") {
+        assert.match(readFileSync(profileEnvironment, "utf8"), /cloudflare/u);
+      }
+      return "";
+    },
+    verifyCoordinator: async () => {
+      assert.equal(
+        readFileSync(profileEnvironment, "utf8").includes("cloudflare"),
+        false,
+      );
+      assert.equal(existsSync(requestPath), true);
+      events.push("verify");
+      verified += 1;
+    },
+    revoke: async (value) => {
+      events.push("revoke");
+      revokeCalls.push(value);
+    },
     waitForRetry: async () => undefined,
   });
 
@@ -288,14 +368,36 @@ test("agent provisions, restarts, verifies, and revokes a UI-approved Cloudflare
     accessToken: "temporary-oauth-provision-token-that-is-long-enough",
     clientId: "stugu-private-client",
   }]);
-  assert.equal(composeCalls.length, 1);
-  assert.deepEqual(composeCalls[0].slice(-3), ["api", "web", "cloudflared"]);
+  assert.equal(composeCalls.length, 8);
+  assert.deepEqual(events, [
+    "compose:stop",
+    "compose:rm",
+    "claim",
+    "provision",
+    "compose:application-up",
+    "compose:provisional-create",
+    "compose:provisional-start",
+    "verify",
+    "compose:provisional-stop",
+    "compose:provisional-rm",
+    "compose:regular-up",
+    "revoke",
+  ]);
+  assert.equal(
+    overrideText,
+    "services:\n  cloudflared:\n    restart: \"no\"\n",
+  );
   const statusText = readFileSync(join(operationsDirectory, "cloudflare-status.json"), "utf8");
   const status = JSON.parse(statusText);
   assert.equal(status.phase, "complete");
   assert.equal(statusText.includes("temporary-oauth-provision-token"), false);
   assert.equal(statusText.includes("runtime-access-group-token"), false);
   assert.equal(existsSync(requestPath), false);
+  assert.equal(existsSync(overridePath), false);
+  assert.match(
+    readFileSync(profileEnvironment, "utf8"),
+    /^COMPOSE_PROFILES=self-update,r2-backup,cloudflare$/mu,
+  );
 });
 
 test("agent closes public ingress and still revokes approval after failed verification", async (t) => {
@@ -303,13 +405,28 @@ test("agent closes public ingress and still revokes approval after failed verifi
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const operationsDirectory = join(directory, "operations");
   mkdirSync(operationsDirectory);
+  const cloudflareDirectory = join(directory, "cloudflare");
+  const profileEnvironment = join(directory, "stugu.env");
+  writeFileSync(
+    profileEnvironment,
+    "COMPOSE_PROFILES=self-update,cloudflare\n",
+    "utf8",
+  );
   const config = readAgentConfig({
     STUGA_PROJECT_DIRECTORY: directory,
+    STUGA_CLOUDFLARE_SECRET_DIR: cloudflareDirectory,
+    STUGA_UPDATE_PROFILE_ENV_FILE: profileEnvironment,
     SYSTEM_UPDATE_OPERATIONS_DIRECTORY: operationsDirectory,
   }, directory, []);
+  const request = cloudflareSetupRequest();
   const requestPath = join(operationsDirectory, "cloudflare-request-test.json");
-  writeFileSync(requestPath, JSON.stringify(cloudflareSetupRequest()), "utf8");
+  const overridePath = join(
+    operationsDirectory,
+    `cloudflare-provisional-${request.id}.compose.yml`,
+  );
+  writeFileSync(requestPath, JSON.stringify(request), "utf8");
   const composeCalls = [];
+  let overrideText = null;
   let revoked = 0;
 
   await applyCloudflareSetupRequest(config, requestPath, {
@@ -318,8 +435,20 @@ test("agent closes public ingress and still revokes approval after failed verifi
       accessToken: "runtime-access-group-token-that-is-long-enough",
       oauthClientId: "stugu-private-client",
     }),
-    provisioner: async () => undefined,
-    compose: async (_config, args) => { composeCalls.push(args); return ""; },
+    provisioner: async () => {
+      mkdirSync(cloudflareDirectory);
+      writeFileSync(join(cloudflareDirectory, "deployment.json"), "{}\n", "utf8");
+    },
+    compose: async (_config, args) => {
+      composeCalls.push(args);
+      if (args[0] === "--file"
+        && args[2] === "up"
+        && args.includes("--no-start")) {
+        assert.equal(args[1], overridePath);
+        overrideText = readFileSync(overridePath, "utf8");
+      }
+      return "";
+    },
     verifyCoordinator: async () => { throw new Error("protected route remained open"); },
     revoke: async () => { revoked += 1; },
     waitForRetry: async () => undefined,
@@ -328,9 +457,88 @@ test("agent closes public ingress and still revokes approval after failed verifi
   const status = JSON.parse(readFileSync(join(operationsDirectory, "cloudflare-status.json"), "utf8"));
   assert.equal(status.phase, "failed");
   assert.match(status.detail, /protected route remained open/);
-  assert.equal(composeCalls.some((args) => args[0] === "stop" && args[1] === "cloudflared"), true);
+  assert.deepEqual(composeCalls.slice(0, 2), [
+    ["stop", "cloudflared"],
+    ["rm", "--force", "--stop", "cloudflared"],
+  ]);
+  assert.deepEqual(composeCalls.slice(-2), [
+    ["stop", "cloudflared"],
+    ["rm", "--force", "--stop", "cloudflared"],
+  ]);
+  assert.equal(
+    composeCalls.some((args) => args[0] === "up" && args.at(-1) === "cloudflared"),
+    false,
+  );
+  assert.equal(
+    overrideText,
+    "services:\n  cloudflared:\n    restart: \"no\"\n",
+  );
   assert.equal(revoked, 1);
   assert.equal(existsSync(requestPath), false);
+  assert.equal(existsSync(overridePath), false);
+  assert.equal(existsSync(join(cloudflareDirectory, "deployment.json")), true);
+  assert.equal(
+    readFileSync(profileEnvironment, "utf8"),
+    "COMPOSE_PROFILES=self-update\n",
+  );
+});
+
+test("pending Cloudflare request re-entry closes stale ingress before reclaiming", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "stugu-cloudflare-reentry-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const operationsDirectory = join(directory, "operations");
+  mkdirSync(operationsDirectory);
+  const profileEnvironment = join(directory, "stugu.env");
+  writeFileSync(profileEnvironment, "COMPOSE_PROFILES=self-update,cloudflare\n", "utf8");
+  const config = readAgentConfig({
+    STUGA_PROJECT_DIRECTORY: directory,
+    STUGA_UPDATE_PROFILE_ENV_FILE: profileEnvironment,
+    SYSTEM_UPDATE_OPERATIONS_DIRECTORY: operationsDirectory,
+  }, directory, []);
+  const request = cloudflareSetupRequest();
+  const requestPath = join(operationsDirectory, "cloudflare-request-test.json");
+  const overridePath = join(
+    operationsDirectory,
+    `cloudflare-provisional-${request.id}.compose.yml`,
+  );
+  writeFileSync(requestPath, JSON.stringify(request), "utf8");
+  writeFileSync(overridePath, "stale provisional state\n", "utf8");
+  const composeCalls = [];
+  let claimed = 0;
+
+  await applyCloudflareSetupRequest(config, requestPath, {
+    claim: async () => {
+      claimed += 1;
+      assert.deepEqual(composeCalls, [
+        ["stop", "cloudflared"],
+        ["rm", "--force", "--stop", "cloudflared"],
+      ]);
+      assert.equal(
+        readFileSync(profileEnvironment, "utf8"),
+        "COMPOSE_PROFILES=self-update\n",
+      );
+      assert.equal(existsSync(requestPath), true);
+      throw new Error("the prior in-memory claim was already consumed");
+    },
+    compose: async (_config, args) => {
+      composeCalls.push(args);
+      return "";
+    },
+    provisioner: async () => assert.fail("re-entry must not provision without a claim"),
+    revoke: async () => assert.fail("re-entry has no claimed token to revoke"),
+  });
+
+  assert.equal(claimed, 1);
+  assert.deepEqual(composeCalls.slice(-2), [
+    ["stop", "cloudflared"],
+    ["rm", "--force", "--stop", "cloudflared"],
+  ]);
+  assert.equal(existsSync(requestPath), false);
+  assert.equal(existsSync(overridePath), false);
+  assert.equal(
+    readFileSync(profileEnvironment, "utf8"),
+    "COMPOSE_PROFILES=self-update\n",
+  );
 });
 
 test("pre-update failures do not attempt rollback before any release state changes", async (t) => {

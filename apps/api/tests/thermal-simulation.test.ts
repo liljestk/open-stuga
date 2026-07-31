@@ -4,7 +4,7 @@ import request from "supertest";
 import { createApi, persistWeatherObservation, type ApiRuntime } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
 import { outdoorLocationKey } from "../src/db.js";
-import { runThermalSimulation, simulateThermalStep } from "../src/thermal-simulation.js";
+import { runThermalSimulation, runThermalSimulationAsync, simulateThermalStep } from "../src/thermal-simulation.js";
 
 const config: AppConfig = {
   port: 0,
@@ -69,6 +69,60 @@ function syntheticSeries(hours = 96, intervalMinutes = 15): { indoor: Measuremen
 describe("effective thermal simulation", () => {
   it("uses the exact discrete first-order equation", () => {
     expect(simulateThermalStep(20, 0, 1, 10, 30)).toBeCloseTo(20.95162582, 8);
+  });
+
+  it("keeps the cooperative async result identical to the synchronous model", async () => {
+    const series = syntheticSeries();
+    const input = {
+      houseId: "house-synthetic",
+      sensorId: "sensor-synthetic",
+      roomLabel: "Test room",
+      from: series.indoor[0]!.timestamp,
+      to: series.indoor.at(-1)!.timestamp,
+      indoorSamples: series.indoor,
+      outdoorSamples: series.outdoor,
+      horizonHours: 4,
+      scenarioOutdoorTemperatureC: -10,
+      generatedAt: "2026-02-01T00:00:00.000Z",
+    };
+
+    expect(await runThermalSimulationAsync(input)).toEqual(runThermalSimulation(input));
+  });
+
+  it("honors cancellation before starting async calibration", async () => {
+    const series = syntheticSeries();
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(runThermalSimulationAsync({
+      houseId: "house-synthetic",
+      sensorId: "sensor-synthetic",
+      roomLabel: "Test room",
+      from: series.indoor[0]!.timestamp,
+      to: series.indoor.at(-1)!.timestamp,
+      indoorSamples: series.indoor,
+      outdoorSamples: series.outdoor,
+    }, undefined, { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("yields to other event-loop work during calibration", async () => {
+    const series = syntheticSeries(7 * 24, 5);
+    let observedAnotherTurn = false;
+    const pending = runThermalSimulationAsync({
+      houseId: "house-synthetic",
+      sensorId: "sensor-synthetic",
+      roomLabel: "Test room",
+      from: series.indoor[0]!.timestamp,
+      to: series.indoor.at(-1)!.timestamp,
+      indoorSamples: series.indoor,
+      outdoorSamples: series.outdoor,
+      generatedAt: "2026-02-01T00:00:00.000Z",
+    });
+    setImmediate(() => { observedAnotherTurn = true; });
+
+    await pending;
+
+    expect(observedAnotherTurn).toBe(true);
   });
 
   it("recovers a known model and keeps observed, simulated, and residual values separate", () => {

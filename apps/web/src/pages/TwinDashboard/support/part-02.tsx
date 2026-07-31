@@ -40,6 +40,18 @@ import { openingStateCanChange, openingStateKey, openingStateObservationsForHous
 import { integrationForHouse } from "../../../integrationScope";
 import { MeasurementGlyph } from "./part-01";
 
+export function sensorSupportsMeasurement(state: ClimateState, sensor: Sensor, metric: Metric): boolean {
+  if (state.latestMeasurements[sensor.id]?.[metric]) return true;
+  if ((state.measurementHistory[sensor.id]?.[metric]?.length ?? 0) > 0) return true;
+  if (sensor.measurementEntityIds?.[metric]) return true;
+  if (metric === "temperature" && sensor.temperatureEntityId) return true;
+  if (metric === "humidity" && sensor.humidityEntityId) return true;
+  if (metric === "battery" && sensor.batteryEntityId) return true;
+  const reading = state.readings[sensor.id];
+  if (metric === "temperature" || metric === "humidity") return Number.isFinite(reading?.[metric] ?? Number.NaN);
+  return Number.isFinite(reading?.measurements?.[metric] ?? Number.NaN);
+}
+
 export function SensorInspector({
   sensor, reading, samples, definitions, selectedDefinition, units, house, floor, editing, onSensorUpdate, onFloorSelect,
 }: {

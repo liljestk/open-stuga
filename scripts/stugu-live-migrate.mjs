@@ -18,11 +18,13 @@ import {
   validateMigrationPlan,
 } from "./stugu-migration-bundle.mjs";
 import {
+  assertSafeRelativePath,
   assertReleaseVersion,
   assertMigrationId,
   compareReleaseVersions,
   isSha256,
   parseEnvironmentAssignments,
+  pathWithin,
   validatedChunkSize,
 } from "./stugu-migration-common.mjs";
 import { hardenPrivateDirectory, hardenPrivateFile, sha256File } from "./sqlite-snapshot-utils.mjs";
@@ -35,12 +37,15 @@ function help() {
 Usage:
   node scripts/stugu-live-migrate.mjs seed --target stugu@host --identity-file <private-key> [options]
   node scripts/stugu-live-migrate.mjs cutover --target stugu@host --identity-file <private-key> [options]
+  node scripts/stugu-live-migrate.mjs recover --target stugu@host --identity-file <private-key> --backup <directory> [options]
   node scripts/stugu-live-migrate.mjs status --target stugu@host --identity-file <private-key> --migration-id <uuid>
 
 Phases:
   seed       Create a verified online snapshot and pre-stage content-addressed chunks while the source stays live.
   cutover    Stop source writers, create a final verified snapshot, transfer only missing chunks, apply on target,
              health-check the target, and leave the source stopped. A failed target apply rolls back and restarts source.
+  recover    Restore an existing verified backup through the target's guarded cutover path without requiring a live
+             source. Target host settings, config, and runtime secret directories are always preserved.
   status     Query a target migration receipt without changing either system.
 
 Required:
@@ -51,7 +56,10 @@ Options:
   --ssh-port <port>          SSH port (default: 22)
   --known-hosts <path>       Dedicated known_hosts file
   --accept-new-host-key      Explicitly trust and record a previously unseen target key
-  --backup <directory>       Reuse a verified backup for seed only
+  --backup <directory>       Reuse a verified backup for seed, or restore it with recover
+  --source-version <version> Running version that created a legacy backup without source provenance
+  --allow-legacy-unverified-source-version
+                             Acknowledge that a legacy backup's manually supplied version cannot be verified
   --backup-root <directory>  Compose backup bind directory (default: STUGA_BACKUP_DIRECTORY or ./backups)
   --workspace <directory>    Private chunk cache (default: <backup-root>/.live-migration)
   --settings-file <file>     Source deployment environment (default: ./.env)
@@ -90,10 +98,54 @@ function packageVersion(projectDirectory) {
   return assertReleaseVersion(manifest.version, "Source version");
 }
 
+function assertRealBackupFile(root, portablePath, label) {
+  const relativePath = assertSafeRelativePath(portablePath, label);
+  const candidate = resolve(root, ...relativePath.split("/"));
+  if (!pathWithin(root, candidate)) throw new Error(`${label} escaped the backup directory`);
+  let current = root;
+  const segments = relativePath.split("/");
+  for (const [index, segment] of segments.entries()) {
+    current = join(current, segment);
+    if (!existsSync(current)) throw new Error(`${label} is missing: ${relativePath}`);
+    const details = lstatSync(current);
+    if (details.isSymbolicLink()) throw new Error(`${label} contains a symbolic link: ${relativePath}`);
+    if (index < segments.length - 1 && !details.isDirectory()) {
+      throw new Error(`${label} has a non-directory parent: ${relativePath}`);
+    }
+    if (index === segments.length - 1 && !details.isFile()) {
+      throw new Error(`${label} is not a regular file: ${relativePath}`);
+    }
+  }
+  return candidate;
+}
+
+export function validatedExistingBackupManifest(backupDirectory) {
+  const root = resolve(backupDirectory);
+  const manifestPath = assertRealBackupFile(root, "manifest.json", "Backup manifest");
+  assertRealBackupFile(root, "manifest.sha256", "Backup manifest checksum");
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  } catch {
+    throw new Error("Backup manifest is not valid JSON");
+  }
+  if (manifest?.format !== "stugu-backup"
+    || ![1, 2].includes(manifest?.version)
+    || manifest?.verification?.status !== "passed"
+    || !Array.isArray(manifest?.files)) {
+    throw new Error("Recovery requires a successfully verified Stugu backup");
+  }
+  for (const record of manifest.files) {
+    assertRealBackupFile(root, record?.path, "Backup artifact");
+  }
+  return manifest;
+}
+
 export function parseLiveMigrationArgs(argv, environment = process.env, cwd = process.cwd()) {
   const options = {
     phase: argv[0],
     acceptNewHostKey: false,
+    allowLegacyUnverifiedSourceVersion: false,
     deploymentSettings: true,
     help: false,
     explicit: new Set(),
@@ -103,13 +155,15 @@ export function parseLiveMigrationArgs(argv, environment = process.env, cwd = pr
     const argument = argv[index];
     if (argument === "-h" || argument === "--help") options.help = true;
     else if (argument === "--accept-new-host-key") options.acceptNewHostKey = true;
+    else if (argument === "--allow-legacy-unverified-source-version") options.allowLegacyUnverifiedSourceVersion = true;
     else if (argument === "--no-deployment-settings") options.deploymentSettings = false;
-    else if (["--target", "--identity-file", "--ssh-port", "--known-hosts", "--backup", "--backup-root", "--workspace",
+    else if (["--target", "--identity-file", "--ssh-port", "--known-hosts", "--backup", "--source-version", "--backup-root", "--workspace",
       "--settings-file", "--config-directory", "--secrets-directory", "--chunk-size", "--project-directory", "--compose-file",
       "--migration-id"].includes(argument)) {
       const key = {
         "--target": "target", "--identity-file": "identityFile", "--ssh-port": "sshPort", "--known-hosts": "knownHosts",
-        "--backup": "backup", "--backup-root": "backupRoot", "--workspace": "workspace", "--settings-file": "settingsFile",
+        "--backup": "backup", "--source-version": "recordedSourceVersion",
+        "--backup-root": "backupRoot", "--workspace": "workspace", "--settings-file": "settingsFile",
         "--config-directory": "configDirectory", "--secrets-directory": "secretsDirectory", "--chunk-size": "chunkSize",
         "--project-directory": "projectDirectory", "--compose-file": "composeFile", "--migration-id": "migrationId",
       }[argument];
@@ -119,7 +173,9 @@ export function parseLiveMigrationArgs(argv, environment = process.env, cwd = pr
     } else throw new Error(`Unknown argument: ${argument}`);
   }
   if (options.help) return options;
-  if (!["seed", "cutover", "status"].includes(options.phase)) throw new Error("First argument must be seed, cutover, or status");
+  if (!["seed", "cutover", "recover", "status"].includes(options.phase)) {
+    throw new Error("First argument must be seed, cutover, recover, or status");
+  }
   options.target = safeSshTarget(options.target);
   if (!options.identityFile) throw new Error("--identity-file is required");
   options.identityFile = resolve(cwd, options.identityFile);
@@ -138,14 +194,63 @@ export function parseLiveMigrationArgs(argv, environment = process.env, cwd = pr
   options.configDirectory = resolve(options.projectDirectory, options.configDirectory ?? "config");
   options.secretsDirectory = resolve(options.projectDirectory, options.secretsDirectory ?? "secrets");
   options.chunkSize = validatedChunkSize(options.chunkSize);
-  if (options.backup) options.backup = resolve(options.projectDirectory, options.backup);
-  if (options.phase === "cutover" && options.backup) throw new Error("Cutover always creates a fresh snapshot after stopping source writers; --backup is seed-only");
+  if (options.backup) {
+    options.backup = resolve(options.projectDirectory, options.backup);
+    if (!existsSync(options.backup)
+      || !lstatSync(options.backup).isDirectory()
+      || lstatSync(options.backup).isSymbolicLink()) {
+      throw new Error("--backup must name an existing real directory");
+    }
+  }
+  if (options.phase === "cutover" && options.backup) {
+    throw new Error("Cutover always creates a fresh snapshot after stopping source writers; use seed to pre-stage or recover to restore an existing backup");
+  }
+  if (options.backup) options.backupManifest = validatedExistingBackupManifest(options.backup);
+  if (options.phase !== "recover"
+    && (options.recordedSourceVersion || options.allowLegacyUnverifiedSourceVersion)) {
+    throw new Error("--source-version and its legacy override are only valid with recover");
+  }
   if (options.phase !== "status") {
-    if (!existsSync(options.composeFile)) throw new Error("Compose file does not exist");
-    options.sourceVersion = packageVersion(options.projectDirectory);
+    const controllerVersion = packageVersion(options.projectDirectory);
+    if (options.phase === "recover") {
+      if (!options.backup) throw new Error("recover requires --backup");
+      if (["settingsFile", "configDirectory", "secretsDirectory"].some((key) => options.explicit.has(key))) {
+        throw new Error("recover always preserves target host settings; source deployment paths are not accepted");
+      }
+      const declaredSourceVersion = options.backupManifest?.sourceVersion;
+      if (declaredSourceVersion !== undefined) {
+        options.sourceVersion = assertReleaseVersion(declaredSourceVersion, "Backup source version");
+        if (options.recordedSourceVersion
+          && assertReleaseVersion(options.recordedSourceVersion, "Recovery source version") !== options.sourceVersion) {
+          throw new Error("--source-version does not match the version recorded in the backup manifest");
+        }
+        options.sourceVersionProvenance = "backup-manifest";
+      } else {
+        if (!options.recordedSourceVersion) {
+          throw new Error("Legacy backup recovery requires --source-version from the system that created the backup");
+        }
+        if (!options.allowLegacyUnverifiedSourceVersion) {
+          throw new Error("This legacy backup does not record its source version; confirm independent evidence and pass --allow-legacy-unverified-source-version");
+        }
+        options.sourceVersion = assertReleaseVersion(options.recordedSourceVersion, "Legacy recovery source version");
+        options.sourceVersionProvenance = "operator-acknowledged-legacy-override";
+      }
+      options.controllerVersion = controllerVersion;
+      if (compareReleaseVersions(options.sourceVersion, controllerVersion) > 0) {
+        throw new Error(`Recovery source Stugu ${options.sourceVersion} is newer than controller ${controllerVersion}`);
+      }
+      options.deploymentSettings = false;
+    } else {
+      if (!existsSync(options.composeFile)) throw new Error("Compose file does not exist");
+      options.sourceVersion = controllerVersion;
+    }
   } else if (!options.migrationId) throw new Error("status requires --migration-id");
   else options.migrationId = assertMigrationId(options.migrationId);
   return options;
+}
+
+export function migrationBundlePhase(phase) {
+  return phase === "recover" ? "cutover" : phase;
 }
 
 function run(executable, arguments_, { cwd, env = process.env, stream = false, stdin = "ignore" } = {}) {
@@ -499,21 +604,32 @@ async function stageBundle(options, target, bundle) {
   return remoteJson(options, ["stuguctl", "migration", "assemble", bundle.plan.id, bundle.planSha256], { stream: true });
 }
 
-async function targetStatus(options, id) {
-  return remoteJson(options, ["stuguctl", "migration", "status", id]);
+async function targetStatus(options, id, remoteCommand = remoteJson) {
+  return remoteCommand(options, ["stuguctl", "migration", "status", id]);
 }
 
-async function main(argv = process.argv.slice(2)) {
+async function main(argv = process.argv.slice(2), dependencies = {}) {
+  const remoteCommand = dependencies.remoteJson ?? remoteJson;
+  const resolveDeploymentInputs = dependencies.resolveComposeDeploymentInputs ?? resolveComposeDeploymentInputs;
+  const assertSourceVersion = dependencies.assertRunningSourceVersion ?? assertRunningSourceVersion;
+  const stopWriters = dependencies.stopSourceWriters ?? stopSourceWriters;
+  const listSourceServices = dependencies.runningComposeServices ?? runningComposeServices;
+  const createBackup = dependencies.createComposeBackup ?? createComposeBackup;
+  const verifyBackup = dependencies.verifyBackupSidecar ?? verifyBackupSidecar;
+  const createBundle = dependencies.createMigrationBundle ?? createMigrationBundle;
+  const stage = dependencies.stageBundle ?? stageBundle;
+  const restart = dependencies.restartSource ?? restartSource;
+  const writeOutput = dependencies.writeOutput ?? ((value) => process.stdout.write(value));
   const options = parseLiveMigrationArgs(argv);
-  if (options.help) { process.stdout.write(help()); return; }
+  if (options.help) { writeOutput(help()); return; }
   if (options.phase === "status") {
-    process.stdout.write(`${JSON.stringify(await targetStatus(options, options.migrationId), null, 2)}\n`);
+    writeOutput(`${JSON.stringify(await targetStatus(options, options.migrationId, remoteCommand), null, 2)}\n`);
     return;
   }
-  await resolveComposeDeploymentInputs(options);
+  if (options.phase !== "recover") await resolveDeploymentInputs(options);
   hardenPrivateDirectory(options.workspace);
-  await assertRunningSourceVersion(options);
-  const target = await remoteJson(options, ["stuguctl", "migration", "init"]);
+  if (options.phase !== "recover") await assertSourceVersion(options);
+  const target = await remoteCommand(options, ["stuguctl", "migration", "init"]);
   if (target.format !== "stugu-migration-preflight" || target.version !== 1) {
     throw new Error("Target does not expose a compatible migration receiver");
   }
@@ -525,18 +641,18 @@ async function main(argv = process.argv.slice(2)) {
   let backup;
   try {
     if (options.phase === "cutover") {
-      const sourceState = await stopSourceWriters(options);
+      const sourceState = await stopWriters(options);
       stoppedServices = sourceState.writers;
       sourceRunningServices = sourceState.running;
-    } else {
-      sourceRunningServices = await runningComposeServices(options);
+    } else if (options.phase === "seed") {
+      sourceRunningServices = await listSourceServices(options);
     }
-    backup = options.backup ?? await createComposeBackup(options);
-    await verifyBackupSidecar(backup);
-    const bundle = await createMigrationBundle({
+    backup = options.backup ?? await createBackup(options);
+    await verifyBackup(backup);
+    const bundle = await createBundle({
       backupDirectory: backup,
       workspaceDirectory: options.workspace,
-      phase: options.phase,
+      phase: migrationBundlePhase(options.phase),
       sourceVersion: options.sourceVersion,
       settingsFile: effectiveSettingsFile(options, sourceRunningServices),
       configDirectory: options.deploymentSettings ? options.configDirectory : undefined,
@@ -544,34 +660,44 @@ async function main(argv = process.argv.slice(2)) {
       secretDirectories: options.deploymentSettings ? options.secretDirectories : undefined,
       chunkSize: options.chunkSize,
     });
-    process.stdout.write(`Migration ${bundle.plan.id}: ${bundle.plan.files.length} files, ${bundle.plan.totalBytes} bytes, ${bundle.plan.uniqueChunkBytes} unique chunk bytes.\n`);
-    await stageBundle(options, target, bundle);
+    writeOutput(`Migration ${bundle.plan.id}: ${bundle.plan.files.length} files, ${bundle.plan.totalBytes} bytes, ${bundle.plan.uniqueChunkBytes} unique chunk bytes.\n`);
+    await stage(options, target, bundle);
     if (options.phase === "seed") {
-      process.stdout.write(`Seed ${bundle.plan.id} is staged and verified; the source remains online.\n`);
+      writeOutput(`Seed ${bundle.plan.id} is staged and verified; the source remains online.\n`);
       return;
     }
     try {
-      await remoteJson(options, ["stuguctl", "migration", "apply", bundle.plan.id, bundle.planSha256], { stream: true });
-      process.stdout.write(`Cutover ${bundle.plan.id} committed on the target. Source writers remain stopped.\n`);
+      await remoteCommand(options, ["stuguctl", "migration", "apply", bundle.plan.id, bundle.planSha256], { stream: true });
+      if (options.phase === "recover") {
+        writeOutput(`Recovery ${bundle.plan.id} committed on the target; target host settings were preserved.\n`);
+      } else {
+        writeOutput(`Cutover ${bundle.plan.id} committed on the target. Source writers remain stopped.\n`);
+      }
     } catch (error) {
       let status;
       let statusQueried = false;
       try {
-        status = await targetStatus(options, bundle.plan.id);
+        status = await targetStatus(options, bundle.plan.id, remoteCommand);
         statusQueried = true;
       } catch { /* Fail closed below. */ }
       const targetState = status?.receipt?.status;
       if (statusQueried && targetState === "rolled-back") {
-        await restartSource(options, stoppedServices);
-        stoppedServices = [];
-        throw new Error(`Target cutover failed or rolled back; source writers were restarted. ${error instanceof Error ? error.message : String(error)}`);
+        if (options.phase === "cutover") {
+          await restart(options, stoppedServices);
+          stoppedServices = [];
+          throw new Error(`Target cutover failed or rolled back; source writers were restarted. ${error instanceof Error ? error.message : String(error)}`);
+        }
+        throw new Error(`Target recovery failed and rolled back safely. ${error instanceof Error ? error.message : String(error)}`);
       }
       stoppedServices = [];
+      if (options.phase === "recover") {
+        throw new Error(`Target recovery ended in state '${targetState}'; inspect migration ${bundle.plan.id} before retrying.`);
+      }
       throw new Error(`Target cutover ended in state '${targetState}'. Source writers remain stopped to prevent split-brain; inspect migration ${bundle.plan.id}.`);
     }
   } catch (error) {
     if (options.phase === "cutover" && stoppedServices.length > 0) {
-      await restartSource(options, stoppedServices).catch((restartError) => {
+      await restart(options, stoppedServices).catch((restartError) => {
         throw new Error(`Migration failed and source restart also failed: ${restartError instanceof Error ? restartError.message : String(restartError)}`);
       });
     }

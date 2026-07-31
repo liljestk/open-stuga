@@ -175,11 +175,16 @@ export function upsertLatest(latest: LatestMeasurements, samples: MeasurementSam
   return next;
 }
 
-export function appendHistory(history: MeasurementHistory, samples: MeasurementSample[], limit = 50_000): MeasurementHistory {
+function appendHistoryWithLimit(
+  history: MeasurementHistory,
+  samples: MeasurementSample[],
+  limitForSeries: (existing: MeasurementSample[]) => number,
+): MeasurementHistory {
   const next = { ...history };
   for (const sample of samples) {
     const sensorHistory = { ...(next[sample.sensorId] ?? {}) };
     const existing = sensorHistory[sample.metric] ?? [];
+    const limit = Math.max(1, Math.floor(limitForSeries(existing)));
     const last = existing.at(-1);
     const sampleTime = Date.parse(sample.timestamp);
     const lastTime = last ? Date.parse(last.timestamp) : Number.NEGATIVE_INFINITY;
@@ -200,6 +205,27 @@ export function appendHistory(history: MeasurementHistory, samples: MeasurementS
     next[sample.sensorId] = sensorHistory;
   }
   return next;
+}
+
+export function appendHistory(history: MeasurementHistory, samples: MeasurementSample[], limit = 50_000): MeasurementHistory {
+  return appendHistoryWithLimit(history, samples, () => limit);
+}
+
+/**
+ * Keep a compact live tail without discarding a larger series that the user
+ * explicitly loaded. Once a series reaches either size, new samples replace
+ * its oldest entries instead of growing it toward the global query ceiling.
+ */
+export function appendLiveHistory(
+  history: MeasurementHistory,
+  samples: MeasurementSample[],
+  minimumLimit = 500,
+): MeasurementHistory {
+  return appendHistoryWithLimit(
+    history,
+    samples,
+    (existing) => Math.max(minimumLimit, existing.length),
+  );
 }
 
 export function samplesAt(
