@@ -319,17 +319,15 @@ export function configureApiPart21(context: ReturnType<typeof configureApiPart20
   const integrationDiscovery = async (
       houseId?: string,
       draftCredentials?: { username: string; password: string },
-      includeTuya = false,
     ) => {
       if (context.options.integrationDiscoverer) {
         const result = await context.options.integrationDiscoverer(houseId, draftCredentials);
-        return includeTuya ? result : { ...result, tuya: [] };
+        return { ...result, tuya: [] };
       }
-      const [homeAssistantResult, tpLinkResult, greeResult, tuyaResult] = await Promise.allSettled([
+      const [homeAssistantResult, tpLinkResult, greeResult] = await Promise.allSettled([
         discoverHomeAssistant(),
         context.tpLink.discoverSources(houseId, draftCredentials),
         context.gree.discoverSources(houseId),
-        includeTuya ? context.tuya.discoverSources(houseId) : Promise.resolve([]),
       ]);
       const warnings: string[] = [];
       if (homeAssistantResult.status === "rejected") warnings.push("Home Assistant discovery was unavailable. Enter its address manually.");
@@ -338,14 +336,11 @@ export function configureApiPart21(context: ReturnType<typeof configureApiPart20
       if (greeResult.status === "rejected" && (config.greeConnections?.length ?? 0) > 0) {
         warnings.push("Gree/Wilfa heat-pump discovery was unavailable.");
       }
-      if (includeTuya && tuyaResult.status === "rejected") {
-        warnings.push("Tuya LAN discovery was unavailable. You can still enter the device address manually.");
-      }
       return {
         homeAssistant: homeAssistantResult.status === "fulfilled" ? homeAssistantResult.value : [],
         tpLink: tpLinkResult.status === "fulfilled" ? tpLinkResult.value.sources : [],
         gree: greeResult.status === "fulfilled" ? greeResult.value : [],
-        tuya: tuyaResult.status === "fulfilled" ? tuyaResult.value : [],
+        tuya: [],
         warnings,
       };
     };
@@ -369,8 +364,7 @@ export function configureApiPart21(context: ReturnType<typeof configureApiPart20
     };
   context.app.post(`${context.prefix}/integrations/discover`, async (request, response) => {
       const { houseId, draftCredentials } = discoveryInput(request);
-      const role = requestPrincipal(response).role;
-      response.json(await integrationDiscovery(houseId, draftCredentials, role === "owner" || role === "admin"));
+      response.json(await integrationDiscovery(houseId, draftCredentials));
     });
   context.app.post(`${context.prefix}/integrations/discovery-jobs`, (request, response) => {
       const { houseId, draftCredentials } = discoveryInput(request);
@@ -380,11 +374,7 @@ export function configureApiPart21(context: ReturnType<typeof configureApiPart20
       const job = integrationDiscoveryJobs.start(
         ownerId,
         houseId,
-        () => integrationDiscovery(
-          houseId,
-          draftCredentials,
-          principal.role === "owner" || principal.role === "admin",
-        ),
+        () => integrationDiscovery(houseId, draftCredentials),
       );
       response.status(202).json({ job });
     });

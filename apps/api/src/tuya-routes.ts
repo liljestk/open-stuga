@@ -17,6 +17,7 @@ import { TuyaBridge } from "./tuya.js";
 import {
   HttpError,
   bodyObject,
+  credentialString,
   rejectUnknownFields,
   requestPrincipal,
   requireWorkspaceAdmin,
@@ -77,6 +78,15 @@ function optionalText(
     throw new HttpError(400, "INVALID_FIELD", `${key} must be a non-empty string`);
   }
   return value.trim();
+}
+
+function tuyaCredentials(body: Record<string, unknown>): { deviceId: string; localKey: string } {
+  const deviceId = requiredString(body, "deviceId");
+  const localKey = credentialString(body, "localKey", 256);
+  if (deviceId.length > 200) {
+    throw new HttpError(400, "INVALID_TUYA_CREDENTIAL", "The Tuya LAN identity is invalid");
+  }
+  return { deviceId, localKey };
 }
 
 function finite(value: unknown, name: string): number {
@@ -242,12 +252,40 @@ export function registerTuyaRoutes(context: TuyaRouteContext): void {
   const pendingConfigurations = new Set<string>();
 
   context.app.post(`${context.prefix}/integrations/tuya/discover`, requireWorkspaceAdmin, async (request, response) => {
+    response.setHeader("cache-control", "no-store");
     const body = bodyObject(request.body);
-    rejectUnknownFields(body, new Set(["houseId"]), "Tuya discovery");
+    rejectUnknownFields(body, new Set(["houseId", "deviceId", "localKey"]), "Tuya discovery");
     const houseId = requiredString(body, "houseId");
     if (!context.database.getHouse(houseId)) throw new HttpError(404, "NOT_FOUND", "Home not found");
     context.stuguby.assertHouseLocalAuthority(houseId);
-    response.json({ devices: await context.tuya.discoverSources(houseId) });
+    const { deviceId, localKey } = tuyaCredentials(body);
+    if ((context.config.tuyaConnections ?? []).some((item) => item.deviceId === deviceId)) {
+      throw new HttpError(409, "TUYA_ALREADY_CONFIGURED", "This Tuya device has already been added");
+    }
+    const [device] = await context.tuya.discoverSources(houseId, deviceId);
+    if (!device) {
+      response.json({ devices: [] });
+      return;
+    }
+    let verified;
+    try {
+      verified = await context.tuya.verify({
+        host: device.host,
+        deviceId,
+        localKey,
+        protocolVersion: device.protocolVersion,
+      });
+    } catch {
+      throw new HttpError(
+        422,
+        "TUYA_DISCOVERY_VERIFICATION_FAILED",
+        "Stugu found the Tuya device but could not verify it locally. Check its Device ID and local key.",
+      );
+    }
+    if (!localIpv4(verified.host)) {
+      throw new HttpError(422, "TUYA_DISCOVERY_VERIFICATION_FAILED", "The Tuya device did not verify on the local network");
+    }
+    response.json({ devices: [{ ...device, host: verified.host }] });
   });
 
   context.app.put(`${context.prefix}/integrations/tuya/config`, requireWorkspaceAdmin, async (request, response) => {
@@ -262,11 +300,9 @@ export function registerTuyaRoutes(context: TuyaRouteContext): void {
     if (!localIpv4(host)) {
       throw new HttpError(400, "INVALID_TUYA_HOST", "Tuya host must be a local IPv4 address");
     }
-    const deviceId = requiredString(body, "deviceId");
-    const localKey = requiredString(body, "localKey");
+    const { deviceId, localKey } = tuyaCredentials(body);
     const protocolVersion = requiredString(body, "protocolVersion");
-    if (deviceId.length > 200 || localKey.length > 256
-      || !["3.1", "3.2", "3.3", "3.4", "3.5"].includes(protocolVersion)) {
+    if (!["3.1", "3.2", "3.3", "3.4", "3.5"].includes(protocolVersion)) {
       throw new HttpError(400, "INVALID_TUYA_CREDENTIAL", "The Tuya LAN identity or protocol version is invalid");
     }
     if ((context.config.tuyaConnections ?? []).some((item) => item.deviceId === deviceId)) {

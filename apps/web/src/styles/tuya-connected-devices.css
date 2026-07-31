@@ -31,15 +31,23 @@
 }
 
 .tuya-light-form,
-.tuya-placement-form {
+.tuya-placement-form,
+.tuya-setup-form,
+.tuya-manual-network-fields,
+.tuya-finish-actions {
   display: grid;
   gap: 12px;
+}
+
+.tuya-light-form,
+.tuya-placement-form {
   padding: 0 0 12px;
 }
 
 .tuya-light-form > label,
 .tuya-placement-form > label,
-.tuya-setup-form > label {
+.tuya-setup-form > label,
+.tuya-manual-network-fields > label {
   display: grid;
   gap: 7px;
   color: var(--ink);
@@ -106,6 +114,41 @@
 .tuya-setup-form select,
 .tuya-placement-form select {
   min-height: 44px;
+}
+
+.tuya-discovery-off span {
+  line-height: 1.5;
+}
+
+.tuya-manual-network {
+  margin-top: 2px;
+}
+
+.tuya-manual-network-fields {
+  padding-bottom: 4px;
+}
+
+.tuya-manual-network-fields .setup-help {
+  margin: 0;
+}
+
+.tuya-network-result {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  margin: 0;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--positive) 45%, var(--line));
+  border-radius: 8px;
+  color: var(--pine);
+  background: var(--positive-soft);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.tuya-network-result svg {
+  margin-top: 1px;
 }
 
 .connected-device-marker {

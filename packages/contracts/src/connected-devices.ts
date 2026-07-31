@@ -87,6 +87,14 @@ export interface TuyaDiscoveredDevice {
   configuredConnectionId?: string;
 }
 
+export interface TuyaDiscoveryInput {
+  houseId: string;
+  /** Limits the LAN result to one user-supplied physical identity. */
+  deviceId: string;
+  /** Used for local verification and not persisted by discovery. */
+  localKey: string;
+}
+
 export interface TuyaConnectionStatus {
   id: string;
   houseId: string;

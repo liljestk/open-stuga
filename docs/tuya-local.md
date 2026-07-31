@@ -27,15 +27,20 @@ comparing the two paths.
    activation.
 2. Keep the device and Stugu on the same trusted IPv4 LAN. Guest isolation and
    many VLAN policies block Tuya discovery and control.
-3. Obtain the device ID, LAN protocol version, and local key. LAN discovery can
-   reveal the address, device ID, and protocol, but not the encrypted local key.
+3. Obtain the device ID and local key. LAN discovery can reveal the address and
+   protocol version, but not the encrypted local key.
    TinyTuya's setup wizard can retrieve the key through a temporary Tuya IoT
    authorization. Treat its generated device file as a secret and remove it
    after import.
-4. Open the owning Home in **Set up → Connections → Tuya Wi-Fi**. Select the
-   discovered device, enter its local key, choose a floor, and select
-   **Verify and add**.
-5. Open the Home's live view. The **Lights and switches** layer shows the
+4. Open the owning Home in **Set up → Connections → Tuya Wi-Fi**. Tuya is not
+   included in Stugu's normal network search. Enter the device ID and local key,
+   then select **Enable discovery and find device**. Stugu returns only that
+   matching device and verifies it locally before filling in its address and
+   protocol version. If UDP discovery is blocked, enter those two network
+   details manually instead.
+5. Optionally name and place the verified device, then select **Verify and
+   add**. The local key is not saved until this step succeeds.
+6. Open the Home's live view. The **Lights and switches** layer shows the
    device in both 2D and 3D. Use **Layout** to drag it or move it with the
    arrow keys.
 
@@ -83,7 +88,8 @@ production image includes the pinned TinyTuya dependency.
 
 ## Security
 
-- The browser sends the local key once over the authenticated Stugu session.
+- The browser sends the local key over the authenticated Stugu session for the
+  opt-in scan and final add. The scan does not persist it.
 - The key and raw Tuya device ID live only in the protected integration-secrets
   file; normal state, map, event, and command responses omit both.
 - SQLite retains provider-neutral current state, placement, equipment identity,
@@ -103,6 +109,10 @@ GET    /api/v1/connected-devices?houseId={homeId}
 PATCH  /api/v1/connected-devices/{connectionId}/placement
 POST   /api/v1/connected-devices/{connectionId}/commands
 ```
+
+The discovery request requires `houseId`, `deviceId`, and `localKey`. It scans
+only after this explicit request, filters the result to that device ID, verifies
+the local credential, and returns no secret material.
 
 Every command requires a client-generated UUID `operationId`. Retrying the
 same operation returns the confirmed result; reusing its UUID for a different

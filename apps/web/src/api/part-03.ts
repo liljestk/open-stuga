@@ -75,6 +75,7 @@ import type {
   ConnectedDevicePlacementPatch,
   ConnectedDeviceState,
   TuyaConfigInput,
+  TuyaDiscoveryInput,
   TuyaDiscoveredDevice,
   Property,
   PropertyArea,
@@ -282,10 +283,10 @@ export const apiPart03 = {
   disconnectGree: (connectionId: string) => request<{ ok: boolean; integration: IntegrationStatus }>(`/integrations/gree/config/${encodeURIComponent(connectionId)}`, {
       method: "DELETE",
     }),
-  discoverTuya: async (houseId: string) => list<TuyaDiscoveredDevice>(
+  discoverTuya: async (input: TuyaDiscoveryInput) => list<TuyaDiscoveredDevice>(
       await request<unknown>("/integrations/tuya/discover", {
         method: "POST",
-        body: JSON.stringify({ houseId }),
+        body: JSON.stringify(input),
       }),
       ["devices", "data"],
     ),

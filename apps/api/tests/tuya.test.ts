@@ -56,6 +56,10 @@ function helperSource(): string {
       if (process.argv.includes("--probe")) {
         lines.once("line", (line) => {
           const input = JSON.parse(line);
+          if (input.localKey !== "${LOCAL_KEY}") {
+            send({ type: "fatal", message: "Tuya device rejected the local key" }, true);
+            return;
+          }
           const meter = input.deviceId.includes("meter");
           send({
             type: "verified",
@@ -136,14 +140,34 @@ describe("local Tuya integration", () => {
     await request(runtime!.app)
       .post("/api/v1/integrations/tuya/discover")
       .send({ houseId: "house-main" })
+      .expect(400);
+
+    await request(runtime!.app)
+      .post("/api/v1/integrations/tuya/discover")
+      .send({ houseId: "house-main", deviceId: "another-device", localKey: LOCAL_KEY })
       .expect(200)
+      .expect(({ body }) => expect(body.devices).toEqual([]));
+
+    await request(runtime!.app)
+      .post("/api/v1/integrations/tuya/discover")
+      .send({ houseId: "house-main", deviceId: LIGHT_ID, localKey: "wrong-local-key" })
+      .expect(422)
+      .expect(({ body }) => expect(JSON.stringify(body)).not.toContain("wrong-local-key"));
+
+    await request(runtime!.app)
+      .post("/api/v1/integrations/tuya/discover")
+      .send({ houseId: "house-main", deviceId: LIGHT_ID, localKey: LOCAL_KEY })
+      .expect(200)
+      .expect("cache-control", "no-store")
       .expect(({ body }) => {
         expect(body.devices).toEqual([expect.objectContaining({
           host: "192.168.1.60",
           deviceId: LIGHT_ID,
           protocolVersion: "3.5",
         })]);
+        expect(JSON.stringify(body)).not.toContain(LOCAL_KEY);
       });
+    expect(readIntegrationSecrets(secrets).tuyaConnections ?? []).toEqual([]);
 
     const configured = await request(runtime!.app)
       .put("/api/v1/integrations/tuya/config")

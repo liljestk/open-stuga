@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Check,
   Lightbulb,
@@ -25,7 +25,6 @@ import { useI18n } from "../../i18n";
 interface TuyaSetupPanelProps {
   house: House;
   integration: IntegrationStatus;
-  devices: TuyaDiscoveredDevice[];
   onIntegrationChange(integration: IntegrationStatus): void;
 }
 
@@ -262,46 +261,105 @@ function TuyaDeviceCard({
 export function TuyaSetupPanel({
   house,
   integration,
-  devices,
   onIntegrationChange,
 }: TuyaSetupPanelProps) {
   const { t } = useI18n();
   const connections = integration.tuya?.connections ?? [];
   const [states, setStates] = useState<ConnectedDeviceState[]>([]);
-  const [selectedId, setSelectedId] = useState("");
   const [host, setHost] = useState("");
   const [deviceId, setDeviceId] = useState("");
   const [localKey, setLocalKey] = useState("");
   const [version, setVersion] = useState("3.3");
+  const [networkSource, setNetworkSource] = useState<"discovered" | "manual" | null>(null);
+  const [discoveredDevice, setDiscoveredDevice] = useState<TuyaDiscoveredDevice | null>(null);
   const [name, setName] = useState("");
   const [floorId, setFloorId] = useState(house.floors[0]?.id ?? "");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const setupGeneration = useRef(0);
   const statesQuery = useConnectedDevicesQuery(house.id, connections.length > 0);
-  const discovered = useMemo(() => [
-    ...new Map(devices.map((device) => [device.deviceId, device])).values(),
-  ], [devices]);
-  const configured = useMemo(() => new Set(connections.map((connection) => connection.id)), [connections]);
-  const addable = discovered.filter((device) => !device.configuredConnectionId
-    || !configured.has(device.configuredConnectionId));
 
   useEffect(() => {
     if (statesQuery.data) setStates(statesQuery.data);
   }, [statesQuery.data]);
 
-  useEffect(() => setStates([]), [house.id]);
-
   useEffect(() => {
-    if (!selectedId) return;
-    const selected = discovered.find((device) => device.deviceId === selectedId);
-    if (!selected) return;
-    setHost(selected.host);
-    setDeviceId(selected.deviceId);
-    setVersion(selected.protocolVersion);
-  }, [discovered, selectedId]);
+    setupGeneration.current += 1;
+    setStates([]);
+    setHost("");
+    setDeviceId("");
+    setLocalKey("");
+    setVersion("3.3");
+    setNetworkSource(null);
+    setDiscoveredDevice(null);
+    setName("");
+    setFloorId(house.floors[0]?.id ?? "");
+    setBusyId(null);
+    setFeedback(null);
+  }, [house.id]);
+
+  const resetNetworkDetails = () => {
+    setupGeneration.current += 1;
+    setHost("");
+    setVersion("3.3");
+    setNetworkSource(null);
+    setDiscoveredDevice(null);
+    setFeedback(null);
+  };
+
+  const changeDeviceId = (value: string) => {
+    setDeviceId(value);
+    resetNetworkDetails();
+  };
+
+  const changeLocalKey = (value: string) => {
+    setLocalKey(value);
+    resetNetworkDetails();
+  };
+
+  const discover = async () => {
+    const generation = ++setupGeneration.current;
+    setBusyId("discover");
+    setFeedback(null);
+    setNetworkSource(null);
+    setDiscoveredDevice(null);
+    setHost("");
+    try {
+      const [device] = await api.discoverTuya({
+        houseId: house.id,
+        deviceId: deviceId.trim(),
+        localKey,
+      });
+      if (generation !== setupGeneration.current) return;
+      if (!device) {
+        setFeedback({ kind: "error", text: t("setup.tuyaDiscoveryEmpty") });
+        return;
+      }
+      setHost(device.host);
+      setVersion(device.protocolVersion);
+      setDiscoveredDevice(device);
+      setNetworkSource("discovered");
+    } catch {
+      if (generation === setupGeneration.current) {
+        setFeedback({ kind: "error", text: t("setup.tuyaDiscoveryFailed") });
+      }
+    } finally {
+      if (generation === setupGeneration.current) setBusyId(null);
+    }
+  };
+
+  const useManualNetwork = () => {
+    if (!host.trim()) return;
+    setHost(host.trim());
+    setDiscoveredDevice(null);
+    setNetworkSource("manual");
+    setFeedback(null);
+  };
 
   const add = async (event: FormEvent) => {
     event.preventDefault();
+    if (!networkSource) return;
+    const generation = ++setupGeneration.current;
     setBusyId("new");
     setFeedback(null);
     try {
@@ -311,20 +369,28 @@ export function TuyaSetupPanel({
         deviceId,
         localKey,
         protocolVersion: version,
+        ...(discoveredDevice?.productKey ? { productKey: discoveredDevice.productKey } : {}),
+        ...(discoveredDevice?.mac ? { mac: discoveredDevice.mac } : {}),
         ...(name.trim() ? { name: name.trim() } : {}),
         ...(floorId ? { floorId } : {}),
       });
+      if (generation !== setupGeneration.current) return;
       setStates((current) => [result.state, ...current.filter((state) => state.id !== result.state.id)]);
       setLocalKey("");
       setDeviceId("");
       setHost("");
-      setSelectedId("");
+      setVersion("3.3");
+      setNetworkSource(null);
+      setDiscoveredDevice(null);
+      setName("");
       onIntegrationChange(result.integration);
       setFeedback({ kind: "success", text: t("setup.tuyaAdded") });
     } catch {
-      setFeedback({ kind: "error", text: t("setup.tuyaAddFailed") });
+      if (generation === setupGeneration.current) {
+        setFeedback({ kind: "error", text: t("setup.tuyaAddFailed") });
+      }
     } finally {
-      setBusyId(null);
+      if (generation === setupGeneration.current) setBusyId(null);
     }
   };
 
@@ -350,7 +416,9 @@ export function TuyaSetupPanel({
       <span className="ha-mark" aria-hidden="true"><Lightbulb size={22} /></span>
     </div>
     <p className="connection-card-description">{t("setup.tuyaDescription")}</p>
-    <p className="configured-note"><RadioTower size={17} aria-hidden="true" /><span>{t("setup.tuyaAccountHelp")}</span></p>
+    <p className="configured-note tuya-discovery-off"><RadioTower size={17} aria-hidden="true" />
+      <span>{t("setup.tuyaDiscoveryOff")}</span>
+    </p>
 
     {connections.length > 0 && <div className="connection-source-list">
       {connections.map((connection) => <TuyaDeviceCard
@@ -372,26 +440,57 @@ export function TuyaSetupPanel({
       <summary><span><PlugZap size={16} aria-hidden="true" />{t("setup.tuyaManualTitle")}</span>
         <small>{t("setup.tuyaManualHelp")}</small></summary>
       <form onSubmit={(event) => void add(event)} className="guided-setup tuya-setup-form">
-        {addable.length > 0 && <label><span>{t("setup.tuyaFoundDevice")}</span><select value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
-          <option value="">{t("setup.tuyaManualEntry")}</option>
-          {addable.map((device) => <option key={device.deviceId} value={device.deviceId}>{device.host} · Tuya {device.protocolVersion}</option>)}
-        </select></label>}
-        <label><span>{t("setup.tuyaName")}</span><input value={name} maxLength={200} onChange={(event) => setName(event.target.value)} /></label>
-        <label><span>{t("setup.tuyaHost")}</span><input required inputMode="decimal" value={host} onChange={(event) => setHost(event.target.value)} placeholder="192.168.1.50" /></label>
-        <label><span>{t("setup.tuyaDeviceId")}</span><input required autoComplete="off" value={deviceId} onChange={(event) => setDeviceId(event.target.value)} /></label>
-        <label><span>{t("setup.tuyaLocalKey")}</span><input required type="password" autoComplete="new-password" value={localKey} onChange={(event) => setLocalKey(event.target.value)} /></label>
-        <label><span>{t("setup.tuyaVersion")}</span><select value={version} onChange={(event) => setVersion(event.target.value)}>
-          {["3.1", "3.2", "3.3", "3.4", "3.5"].map((candidate) => <option key={candidate}>{candidate}</option>)}
-        </select></label>
-        <label><span>{t("setup.tuyaFloor")}</span><select value={floorId} onChange={(event) => setFloorId(event.target.value)}>
-          <option value="">{t("setup.tuyaUnplaced")}</option>
-          {house.floors.map((floor) => <option key={floor.id} value={floor.id}>{floor.name}</option>)}
-        </select></label>
-        <p className="setup-help">{t("setup.tuyaKeyHelp")}</p>
-        <button type="submit" className="primary-button full-width" disabled={busyId !== null}>
-          {busyId === "new" ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}
-          {t(busyId === "new" ? "setup.tuyaAdding" : "setup.tuyaAdd")}
-        </button>
+        <label><span>{t("setup.tuyaDeviceId")}</span><input required autoComplete="off" maxLength={200} value={deviceId}
+          disabled={busyId !== null || networkSource !== null} onChange={(event) => changeDeviceId(event.target.value)} /></label>
+        <label><span>{t("setup.tuyaLocalKey")}</span><input required type="password" autoComplete="new-password" maxLength={256} value={localKey}
+          disabled={busyId !== null || networkSource !== null} onChange={(event) => changeLocalKey(event.target.value)} /></label>
+        <p className="setup-help">{t("setup.tuyaDiscoveryScope")}</p>
+
+        {!networkSource && <>
+          <button type="button" className="primary-button full-width"
+            disabled={busyId !== null || !deviceId.trim() || !localKey.trim()}
+            onClick={() => void discover()}>
+            {busyId === "discover" ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <RadioTower size={16} aria-hidden="true" />}
+            {t(busyId === "discover" ? "setup.tuyaDiscovering" : "setup.tuyaEnableDiscovery")}
+          </button>
+          <details className="advanced-setup tuya-manual-network">
+            <summary>{t("setup.tuyaManualNetworkTitle")}</summary>
+            <div className="tuya-manual-network-fields">
+              <p className="setup-help">{t("setup.tuyaManualNetworkHelp")}</p>
+              <label><span>{t("setup.tuyaHost")}</span><input required inputMode="decimal" value={host}
+                disabled={busyId !== null} onChange={(event) => setHost(event.target.value)} placeholder="192.168.1.50" /></label>
+              <label><span>{t("setup.tuyaVersion")}</span><select value={version} disabled={busyId !== null}
+                onChange={(event) => setVersion(event.target.value)}>
+                {["3.1", "3.2", "3.3", "3.4", "3.5"].map((candidate) => <option key={candidate}>{candidate}</option>)}
+              </select></label>
+              <button type="button" className="secondary-button" disabled={busyId !== null || !host.trim() || !deviceId.trim() || !localKey.trim()}
+                onClick={useManualNetwork}>{t("setup.tuyaUseManualNetwork")}</button>
+            </div>
+          </details>
+        </>}
+
+        {networkSource && <>
+          <p className="tuya-network-result" role="status"><Check size={17} aria-hidden="true" /><span>
+            {t(networkSource === "discovered" ? "setup.tuyaDiscoveryFound" : "setup.tuyaManualReady", { host, version })}
+          </span></p>
+          <label><span>{t("setup.tuyaName")}</span><input value={name} maxLength={200} disabled={busyId !== null}
+            onChange={(event) => setName(event.target.value)} /></label>
+          <label><span>{t("setup.tuyaFloor")}</span><select value={floorId} disabled={busyId !== null}
+            onChange={(event) => setFloorId(event.target.value)}>
+            <option value="">{t("setup.tuyaUnplaced")}</option>
+            {house.floors.map((floor) => <option key={floor.id} value={floor.id}>{floor.name}</option>)}
+          </select></label>
+          <p className="setup-help">{t("setup.tuyaKeyHelp")}</p>
+          <div className="tuya-finish-actions">
+            <button type="submit" className="primary-button full-width" disabled={busyId !== null}>
+              {busyId === "new" ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}
+              {t(busyId === "new" ? "setup.tuyaAdding" : "setup.tuyaAdd")}
+            </button>
+            <button type="button" className="secondary-button" disabled={busyId !== null} onClick={() => resetNetworkDetails()}>
+              {t("setup.tuyaChangeNetwork")}
+            </button>
+          </div>
+        </>}
       </form>
     </details>
 

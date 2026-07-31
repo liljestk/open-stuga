@@ -22,9 +22,20 @@ describe("background integration discovery routes", () => {
 
   it("accepts discovery immediately and exposes the completed owner-scoped snapshot", async () => {
     directory = mkdtempSync(join(tmpdir(), "stugu-discovery-jobs-"));
-    let finish!: (result: { homeAssistant: []; tpLink: []; warnings: string[] }) => void;
+    let finish!: (result: {
+      homeAssistant: [];
+      tpLink: [];
+      tuya: Array<{
+        host: string;
+        deviceId: string;
+        protocolVersion: string;
+        productKey: null;
+        mac: null;
+      }>;
+      warnings: string[];
+    }) => void;
     const discover = vi.fn((_houseId?: string, _credentials?: { username: string; password: string }) => (
-      new Promise<{ homeAssistant: []; tpLink: []; warnings: string[] }>((resolve) => { finish = resolve; })
+      new Promise<Parameters<typeof finish>[0]>((resolve) => { finish = resolve; })
     ));
     runtime = createApi({
       config: loadConfig({
@@ -72,7 +83,18 @@ describe("background integration discovery routes", () => {
     expect(events).toContain("event: integration-discovery");
     expect(events).toContain('"status":"running"');
 
-    finish({ homeAssistant: [], tpLink: [], warnings: ["No devices replied."] });
+    finish({
+      homeAssistant: [],
+      tpLink: [],
+      tuya: [{
+        host: "192.168.1.60",
+        deviceId: "must-not-be-enumerated",
+        protocolVersion: "3.5",
+        productKey: null,
+        mac: null,
+      }],
+      warnings: ["No devices replied."],
+    });
     for (let index = 0; index < 3 && !events.includes('"status":"completed"'); index += 1) {
       events += new TextDecoder().decode((await reader.read()).value);
     }
@@ -93,7 +115,8 @@ describe("background integration discovery routes", () => {
     expect(latest.body.job).toMatchObject({
       id: started.body.job.id,
       status: "completed",
-      result: { warnings: ["No devices replied."] },
+      result: { tuya: [], warnings: ["No devices replied."] },
     });
+    expect(JSON.stringify(latest.body)).not.toContain("must-not-be-enumerated");
   });
 });

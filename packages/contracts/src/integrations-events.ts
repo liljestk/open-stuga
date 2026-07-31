@@ -165,7 +165,7 @@ export interface IntegrationDiscoveryResult {
   tpLink: TpLinkDiscoveredSource[];
   /** Optional for wire compatibility with servers without direct Gree support. */
   gree?: GreeDiscoveredDevice[];
-  /** Optional for wire compatibility with servers without local Tuya discovery. */
+  /** Legacy wire field; general discovery leaves this empty because Tuya uses an opt-in targeted scan. */
   tuya?: TuyaDiscoveredDevice[];
   warnings: string[];
 }

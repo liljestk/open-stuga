@@ -301,7 +301,7 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
             </details>}
             {activeSection === "connections" && <div className="connection-provider-grid" role="group" aria-label={t("setup.connectionMethods")}>
             <GreeSetupPanel house={house} integration={integration} devices={discovery?.gree ?? []} onIntegrationChange={onIntegrationChange} />
-            {canManageTuya && <TuyaSetupPanel house={house} integration={integration} devices={discovery?.tuya ?? []} onIntegrationChange={onIntegrationChange} />}
+            {canManageTuya && <TuyaSetupPanel house={house} integration={integration} onIntegrationChange={onIntegrationChange} />}
             {canManageTuya && <Nexus433SetupPanel house={house} onOpenSensors={onOpenSensors} />}
             <section className="panel connection-card connection-provider" aria-labelledby="direct-connection-heading">
               <div className="panel-header"><div><span className="eyebrow">{t("setup.directTitle")}</span><h2 id="direct-connection-heading">{t("setup.directConnectionTitle")}</h2></div><span className="ha-mark" aria-hidden="true"><Router size={22} /></span></div>

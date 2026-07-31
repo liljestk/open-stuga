@@ -267,7 +267,7 @@ export class TuyaBridge {
     if (running) this.start();
   }
 
-  async discoverSources(houseId?: string): Promise<TuyaDiscoveredDevice[]> {
+  async discoverSources(houseId?: string, expectedDeviceId?: string): Promise<TuyaDiscoveredDevice[]> {
     const devices = this.options.discover
       ? await this.options.discover()
       : await this.oneShot(["--discover"], undefined, 12_000, (message) => {
@@ -278,6 +278,7 @@ export class TuyaBridge {
     const configured = new Map((this.config.tuyaConnections ?? [])
       .map((connection) => [connection.deviceId, connection]));
     return devices.flatMap((device) => {
+      if (expectedDeviceId && device.deviceId !== expectedDeviceId) return [];
       const connection = configured.get(device.deviceId);
       if (!connection) return [device];
       if (houseId && connection.houseId !== houseId) return [];

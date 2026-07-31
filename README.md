@@ -208,11 +208,13 @@ explicit action, and this first phase is read-only. See
 
 Supported Tuya-compatible Wi-Fi lamps, outlets, and switches use a separate
 local-first path. Pair the device to Wi-Fi in Tuya Smart or Smart Life, then
-add its write-only local key under the owning Home's **Set up** page. Stugu
-verifies the exact datapoint profile before saving it, controls it directly on
-the LAN, reconnects after address changes, and shows the same provider-neutral
-device in 2D and 3D. Only devices that actually report measured power enter
-Energy; lamp consumption is never guessed. See
+provide its device ID and write-only local key under the owning Home's **Set
+up** page. Tuya discovery is excluded from the normal network scan and starts
+only for that supplied device. Stugu verifies the exact datapoint profile before
+saving it, controls it directly on the LAN, reconnects after address changes,
+and shows the same provider-neutral device in 2D and 3D. Only devices that
+actually report measured power enter Energy; lamp consumption is never
+guessed. See
 [local Tuya Wi-Fi devices](docs/tuya-local.md).
 
 Credentials saved in the web flow are write-only to the browser and live in a
