@@ -190,12 +190,12 @@ describe("Setup workspace", () => {
     expect((screen.getByRole("button", { name: "Refresh" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("leads with the next TP-Link setup task, scans automatically, and keeps diagnostics in settings", async () => {
+  it("keeps connection methods separate from network search and diagnostics", async () => {
     const user = userEvent.setup();
     window.history.replaceState(null, "", "/setup/connections");
     const scan = vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
     const onOpenSensors = vi.fn();
-    renderPage({ integration: connectedTpLink(), onOpenSensors });
+    renderPage({ integration: connectedTpLink(), canManageTuya: true, onOpenSensors });
     await act(async () => { await Promise.resolve(); });
     const setupStatus = screen.getByRole("region", { name: "TP-Link setup status" });
     expect(within(setupStatus).getByRole("heading", { name: "TP-Link sources: 1 of 1 connected" })).not.toBeNull();
@@ -208,9 +208,19 @@ describe("Setup workspace", () => {
     expect(within(setupStatus).queryByRole("button", { name: "Refresh device inventory" })).toBeNull();
     expect(within(setupStatus).queryByRole("button", { name: "Check direct TP-Link connection" })).toBeNull();
     await waitFor(() => expect(scan).toHaveBeenCalledWith(house.id, undefined, expect.any(Function), expect.any(AbortSignal)));
-    const connectionSetup = screen.getByRole("group", { name: "Add a connection" }) as HTMLDetailsElement;
+    const connectionSetup = screen.getByRole("group", { name: "Search this network" }) as HTMLDetailsElement;
     expect(connectionSetup.open).toBe(false);
     const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
+    const homeAssistantSection = screen.getByRole("heading", { name: "Connect Home Assistant" }).closest("section")!;
+    const tuyaSection = screen.getByRole("heading", { name: "Tuya Wi-Fi" }).closest("section")!;
+    const connectionMethods = screen.getByRole("group", { name: "Connection methods" });
+    expect(connectionSetup.contains(connectionMethods)).toBe(false);
+    expect(connectionMethods.contains(directSection)).toBe(true);
+    expect(connectionMethods.contains(homeAssistantSection)).toBe(true);
+    expect(connectionMethods.contains(tuyaSection)).toBe(true);
+    expect(directSection.classList.contains("panel")).toBe(true);
+    expect(homeAssistantSection.classList.contains("panel")).toBe(true);
+    expect(tuyaSection.classList.contains("panel")).toBe(true);
     const settings = directSection.querySelector<HTMLDetailsElement>(".setup-config-disclosure")!;
     expect(settings.open).toBe(false);
     expect(within(directSection).getByText("Enter an address manually")).not.toBeNull();
@@ -227,7 +237,7 @@ describe("Setup workspace", () => {
     renderPage({ integration: connectedTpLink() });
     await waitFor(() => expect(scan).toHaveBeenCalledWith(house.id, undefined, expect.any(Function), expect.any(AbortSignal)));
 
-    const connectionSetup = screen.getByRole("group", { name: "Add a connection" }) as HTMLDetailsElement;
+    const connectionSetup = screen.getByRole("group", { name: "Search this network" }) as HTMLDetailsElement;
     await user.click(connectionSetup.querySelector("summary")!);
     const compatibilityHelp = within(connectionSetup).getByText("Tapo device not found?").closest("details") as HTMLDetailsElement;
     expect(compatibilityHelp.open).toBe(false);
@@ -271,7 +281,7 @@ describe("Setup workspace", () => {
     const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
     const settings = directSection.querySelector<HTMLDetailsElement>(".setup-config-disclosure")!;
     const workshopPlug = within(directSection).getByRole("radio", { name: /Workshop plug/ });
-    const connectionSetup = screen.getByRole("group", { name: "Add a connection" }) as HTMLDetailsElement;
+    const connectionSetup = screen.getByRole("group", { name: "Search this network" }) as HTMLDetailsElement;
     expect(connectionSetup.open).toBe(true);
     expect(settings.open).toBe(true);
     expect(workshopPlug.closest("details")).toBe(settings);

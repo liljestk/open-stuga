@@ -4,6 +4,12 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.25.1 - 2026-07-31
+
+- Separate network discovery from provider-specific setup so Tuya, direct
+  TP-Link, Home Assistant, and discovered Gree devices appear as independent,
+  responsive connection cards.
+
 ## 0.25.0 - 2026-07-31
 
 - Add local-first Tuya Wi-Fi light, switch, and metered-outlet support with

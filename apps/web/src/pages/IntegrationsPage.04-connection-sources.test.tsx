@@ -197,7 +197,7 @@ describe("Saved connection data paths", () => {
     expect(within(manager).getByText("Timed out getting discovery response for 192.168.68.57")).not.toBeNull();
 
     await user.click(within(manager).getByRole("button", { name: "Update address for Hall hub" }));
-    expect((screen.getByRole("group", { name: "Add a connection" }) as HTMLDetailsElement).open).toBe(true);
+    expect((screen.getByRole("group", { name: "Search this network" }) as HTMLDetailsElement).open).toBe(true);
     const directSection = screen.getByRole("heading", {
       name: "Connect TP-Link directly",
     }).closest("section")!;
