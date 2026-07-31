@@ -296,10 +296,12 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
                   <p className="setup-scan-scope">{t("setup.tapoCompatibilityHelp")}</p>
                 </details>
                 </div>
-                <div className="connection-provider-options">
-            {activeSection === "connections" && <GreeSetupPanel house={house} integration={integration} devices={discovery?.gree ?? []} onIntegrationChange={onIntegrationChange} />}
-            {activeSection === "connections" && canManageTuya && <TuyaSetupPanel house={house} integration={integration} devices={discovery?.tuya ?? []} onIntegrationChange={onIntegrationChange} />}
-            {activeSection === "connections" && <section className="connection-provider" aria-labelledby="direct-connection-heading">
+              </div>
+            </details>}
+            {activeSection === "connections" && <div className="connection-provider-grid" role="group" aria-label={t("setup.connectionMethods")}>
+            <GreeSetupPanel house={house} integration={integration} devices={discovery?.gree ?? []} onIntegrationChange={onIntegrationChange} />
+            {canManageTuya && <TuyaSetupPanel house={house} integration={integration} devices={discovery?.tuya ?? []} onIntegrationChange={onIntegrationChange} />}
+            <section className="panel connection-card connection-provider" aria-labelledby="direct-connection-heading">
               <div className="panel-header"><div><span className="eyebrow">{t("setup.directTitle")}</span><h2 id="direct-connection-heading">{t("setup.directConnectionTitle")}</h2></div><span className="ha-mark" aria-hidden="true"><Router size={22} /></span></div>
               <p className="connection-card-description">{t("setup.directDescription")}</p>
               {tpLinkFeedback?.kind === "success" && !tpLinkSettingsOpen && <p className="configured-note connection-save-confirmation" role="status" aria-live="polite"><Check size={17} aria-hidden="true" /><span>{tpLinkFeedback.message}</span></p>}
@@ -382,8 +384,8 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
                 </>}
               </form>}
               </details>
-            </section>}
-            {activeSection === "connections" && <section className="connection-provider" aria-labelledby="connection-heading">
+            </section>
+            <section className="panel connection-card connection-provider" aria-labelledby="connection-heading">
               <div className="panel-header"><div><span className="eyebrow">Home Assistant</span><h2 id="connection-heading">{t("setup.homeAssistantConnectionTitle")}</h2></div><span className="ha-mark" aria-hidden="true"><Home size={22} /></span></div>
               <p className="connection-card-description">{t("setup.homeAssistantConnectionDescription")}</p>
               <details className="setup-config-disclosure">
@@ -404,10 +406,8 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
                 <details className="advanced-setup"><summary>{t("setup.advanced")}</summary><pre className="env-example" aria-label={t("setup.homeAssistantEnvironmentVariables")}><code>HA_URL=http://homeassistant.local:8123{"\n"}HA_TOKEN=••••••••</code></pre></details>
               </form>
                </details>
-             </section>}
-                </div>
-              </div>
-            </details>}
+             </section>
+            </div>}
             {activeSection === "overview" && <section className="panel integration-status" aria-label={t("status.dataSource")}>
               <div><span className={`status-symbol ${integration.tpLink.connected ? "positive" : ""}`}><Router size={17} aria-hidden="true" /></span><span><strong>TP-Link {integration.tpLink.hubModel ?? (integration.tpLink.connected ? t("setup.tpLinkEnergyDevice") : t("setup.tpLinkDefault"))}</strong><small>{integration.tpLink.lastPollAt ? t("setup.lastPoll", { time: localDateTime(integration.tpLink.lastPollAt) ?? "—" }) : t("setup.mappedDevices", { count: integration.tpLink.mappedDevices })}</small></span><b>{integration.tpLink.connected ? t("common.on") : t("common.off")}</b></div>
               <div><span className={`status-symbol ${integration.homeAssistant.connected ? "positive" : ""}`}><Home size={17} aria-hidden="true" /></span><span><strong>Home Assistant</strong><small>{t("setup.mapped", { count: integration.homeAssistant.mappedEntities })}</small></span><b>{integration.homeAssistant.connected ? t("common.on") : t("common.off")}</b></div>

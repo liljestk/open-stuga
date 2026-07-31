@@ -344,7 +344,7 @@ export function TuyaSetupPanel({
     }
   };
 
-  return <section className="connection-provider tuya-setup-panel" aria-labelledby="tuya-connection-heading">
+  return <section className="panel connection-card connection-provider tuya-setup-panel" aria-labelledby="tuya-connection-heading">
     <div className="panel-header">
       <div><span className="eyebrow">{t("setup.tuyaEyebrow")}</span><h2 id="tuya-connection-heading">{t("setup.tuyaTitle")}</h2></div>
       <span className="ha-mark" aria-hidden="true"><Lightbulb size={22} /></span>

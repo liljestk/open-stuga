@@ -139,7 +139,7 @@ export function GreeSetupPanel({
   );
 
   return (
-    <section className="connection-provider" aria-labelledby="gree-connection-heading">
+    <section className="panel connection-card connection-provider" aria-labelledby="gree-connection-heading">
       <div className="panel-header">
         <div><span className="eyebrow">{t("setup.greeEyebrow")}</span><h2 id="gree-connection-heading">{t("setup.greeTitle")}</h2></div>
         <span className="ha-mark" aria-hidden="true"><Snowflake size={22} /></span>

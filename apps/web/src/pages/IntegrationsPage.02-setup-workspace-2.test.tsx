@@ -367,7 +367,7 @@ describe("Setup workspace", () => {
     renderPage({ integration: configured, onRefreshTpLinkDevices: vi.fn().mockResolvedValue([]) });
 
     await user.click(screen.getByRole("tab", { name: /Where readings come from/ }));
-    const discoveryPanel = screen.getByRole("group", { name: "Add a connection" });
+    const discoveryPanel = screen.getByRole("group", { name: "Search this network" });
     await waitFor(() => expect((discoveryPanel as HTMLDetailsElement).open).toBe(true));
     const directSection = screen.getByRole("heading", { name: "Connect TP-Link directly" }).closest("section")!;
     const addFlow = directSection.querySelector<HTMLDetailsElement>(".setup-config-disclosure")!;

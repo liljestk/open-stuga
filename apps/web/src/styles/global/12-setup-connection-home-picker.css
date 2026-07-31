@@ -194,11 +194,9 @@
 
 .discovery-card-content .connection-check { margin-top: 16px; }
 
-.connection-provider-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+.connection-provider-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); align-items: start; gap: 16px; }
 
-.connection-provider { min-width: 0; }
-
-.connection-provider + .connection-provider { padding-left: 16px; border-left: 1px solid var(--line); }
+.connection-provider { min-width: 0; padding: 20px; }
 
 .discovery-card-content .setup-config-disclosure > .connection-check { margin-top: 0; }
 
