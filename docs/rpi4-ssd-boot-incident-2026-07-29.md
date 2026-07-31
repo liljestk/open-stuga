@@ -191,7 +191,7 @@ integrity check. The pre-OTA safety backup was retained at
 
 OTA operation `542307f2-502b-4ce7-8151-1b85bf730207` then installed application
 release `v0.24.0`. This did not replace the immutable host: `/etc/stugu-version`
-remains `v0.23.0`, with the repaired `rootdelay=6` and memory-cgroup command
+remains `0.23.0`, with the repaired `rootdelay=6` and memory-cgroup command
 line applied directly to the preserved boot partition. A complete `v0.24.0`
 factory image and automatic unhealthy-slot rollback remain outside the proven
 gate.

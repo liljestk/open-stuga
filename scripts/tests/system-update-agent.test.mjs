@@ -26,6 +26,10 @@ import {
   validatedRequest,
 } from "../stugu-update-agent.mjs";
 import { activeServices } from "../stugu-update-agent/services-cloudflare.mjs";
+import {
+  releaseEnvironmentOwnership,
+  writeTextAtomic,
+} from "../stugu-update-agent/configuration-request.mjs";
 import { applianceUpdateTransition } from "../stugu-update-agent/update-loop.mjs";
 
 function updateRequest() {
@@ -101,6 +105,55 @@ function assertReleaseStateMetadata(path, directory) {
   assert.equal(file.gid, owner.gid);
   assert.equal(file.mode & 0o777, 0o640);
 }
+
+test("release writes only adopt directory ownership for a privileged updater", () => {
+  const directoryMetadata = { uid: 12_345, gid: 23_456 };
+  assert.equal(
+    releaseEnvironmentOwnership(directoryMetadata, 1_000, "linux"),
+    null,
+  );
+  assert.equal(
+    releaseEnvironmentOwnership(directoryMetadata, 0, "win32"),
+    null,
+  );
+  assert.equal(
+    releaseEnvironmentOwnership(directoryMetadata, 0, "linux"),
+    directoryMetadata,
+  );
+});
+
+test("atomic writes enforce mode despite umask", {
+  skip: process.platform === "win32",
+}, (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "stugu-atomic-mode-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const path = join(directory, "release.env");
+  const previousUmask = process.umask(0o777);
+  try {
+    writeTextAtomic(path, "release\n", 0o640);
+  } finally {
+    process.umask(previousUmask);
+  }
+  assert.equal(statSync(path).mode & 0o777, 0o640);
+});
+
+test("failed atomic writes preserve the target and remove temporary files", {
+  skip: process.platform === "win32",
+}, (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "stugu-atomic-failure-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const path = join(directory, "release.env");
+  writeFileSync(path, "known good\n", "utf8");
+  assert.throws(
+    () => writeTextAtomic(path, "candidate\n", 0o640, {
+      uid: 0x1_0000_0000,
+      gid: 0,
+    }),
+    /uid|range|integer/iu,
+  );
+  assert.equal(readFileSync(path, "utf8"), "known good\n");
+  assert.deepEqual(readdirSync(directory), ["release.env"]);
+});
 
 function composeImages(config) {
   const result = spawnSync(

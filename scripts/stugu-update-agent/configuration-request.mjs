@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  chmodSync,
   chownSync,
   closeSync,
   existsSync,
@@ -157,20 +158,37 @@ export function readJson(path) {
 export function writeTextAtomic(path, text, mode = 0o640, ownership = null) {
   mkdirSync(dirname(path), { recursive: true });
   const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
-  writeFileSync(temporary, text, { encoding: "utf8", mode });
-  if (ownership && process.platform !== "win32") {
-    chownSync(temporary, ownership.uid, ownership.gid);
+  try {
+    writeFileSync(temporary, text, { encoding: "utf8", mode });
+    chmodSync(temporary, mode);
+    if (ownership && process.platform !== "win32") {
+      chownSync(temporary, ownership.uid, ownership.gid);
+    }
+    renameSync(temporary, path);
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw error;
   }
-  renameSync(temporary, path);
+}
+
+export function releaseEnvironmentOwnership(
+  directoryMetadata,
+  effectiveUserId = process.geteuid?.(),
+  platform = process.platform,
+) {
+  return platform !== "win32" && effectiveUserId === 0
+    ? directoryMetadata
+    : null;
 }
 
 export function writeReleaseEnvironmentAtomic(path, text) {
   const directory = dirname(path);
   mkdirSync(directory, { recursive: true });
-  const ownership = statSync(directory);
-  if (!ownership.isDirectory()) {
+  const directoryMetadata = statSync(directory);
+  if (!directoryMetadata.isDirectory()) {
     throw new Error("Release state parent must be a directory");
   }
+  const ownership = releaseEnvironmentOwnership(directoryMetadata);
   writeTextAtomic(path, text, 0o640, ownership);
 }
 
