@@ -274,6 +274,50 @@ Its Timescale worker settings also remain an `ALTER SYSTEM` bridge:
 `max_worker_processes=16`, `max_parallel_workers=4`, and
 `timescaledb.max_background_workers=12`.
 
+## v0.24.2 production verification
+
+The public
+[`v0.24.2` release](https://github.com/liljestk/stugu-releases/releases/tag/v0.24.2)
+was built from source commit
+`318e6d8dbe3f90aa19486f2d3c2b3b10bb046e3e`. OTA operation
+`1cee091d-2e35-4d8d-8ad9-dad16b82b05d` completed successfully at
+`09:32:26Z`, after verified pre-update backup
+`/persistent/stugu/backups/stugu-backup-2026-07-31T09-29-17-273Z`.
+
+Immediately after the operation completed, both `release.env` and
+`known-good.env` were owned by `stugu:stugu` with mode `0640`. Unprivileged
+`stuguctl images` and the ordinary `stuguctl restart` path both succeeded,
+proving the `v0.24.1` ownership correction during a real subsequent OTA.
+
+The released `v0.24.2` updater then created proof backup
+`/persistent/stugu/backups/stugu-backup-2026-07-31T09-34-27-200Z`. Its
+manifest SHA-256 is
+`6442e41858a059af78e85dc6ffd56f322c3d7b8c07610536ebadde05e0ea9ebb`;
+all six artifacts and 753,196,010 bytes independently matched the manifest,
+including a passing TimescaleDB catalog verification.
+
+TimescaleDB retained container ID `3a92da6b1156`, its original creation and
+start timestamps, and restart count zero throughout that backup. The Docker
+journal showed only the one-off backup container joining and leaving the
+network. This is direct appliance proof that `--no-deps` prevents maintenance
+backup creation from reconciling or restarting TimescaleDB.
+
+During more than five minutes of post-proof monitoring, the boot ID remained
+unchanged and SSH stayed reachable. CPU idle stayed between 85.5% and 97%; load
+dropped from 1.30 to 0.36; temperature stayed between 54.5 and 58.9 °C; and
+throttling remained `0x0`. Available RAM ended at 3.0 GiB and `/persistent`
+was 5% used. API CPU stayed between 4.65% and 13.83%, event-loop delay between
+0.218 and 1.338 ms, and query failures at zero. The live archive queue stayed
+between zero and two samples with zero dirty rows and no failure.
+
+All containers remained healthy where health checks apply, with zero restarts
+and no OOM kills. There were no failed systemd units, warning-or-higher service
+events after health was recorded, or kernel storage, I/O, watchdog,
+undervoltage, or OOM errors. Cloudflare Access returned its expected HTTP 302
+authentication redirect rather than tunnel error 1033. The application release
+is therefore stable on this appliance; the immutable host and full factory
+image/A-B rollback gates remain separate work.
+
 ## Superseded boot-artifact hypothesis
 
 The complete FAT inventories were then extracted from the failed factory
