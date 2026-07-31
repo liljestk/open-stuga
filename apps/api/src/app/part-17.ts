@@ -70,11 +70,11 @@ import { mergeTpLinkHistoryRecovery, TpLinkBridge } from "../tp-link.js";
 import { discoverHomeAssistant } from "../discovery.js";
 import {
   readIntegrationSecrets,
-  updateIntegrationSecrets,
   type AppleNotesGrantSecret,
   type IntegrationSecrets,
   type TpLinkConnectionSecret,
 } from "../integration-secrets.js";
+import { commitCoordinatedIntegrationSecrets } from "../integration-secrets-coordinator.js";
 import { IntegrationMetadataStore } from "../integration-metadata.js";
 import { openApiV1Document, openApiV2Document } from "../openapi.js";
 import {
@@ -197,7 +197,53 @@ export function configureApiPart17(context: ReturnType<typeof configureApiPart16
       context.stuguby.assertHouseWriteAllowed(houseId);
       context.stuguby.assertHouseLocalAuthority(houseId);
       context.requireImmutableTelemetryLineage("house", houseId);
-      if (!context.database.deleteHouse(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
+      const previousHomeAssistantConnections = [...(config.homeAssistantConnections ?? [])];
+      const previousTpLinkConnections = [...(config.tpLinkConnections ?? [])];
+      const previousGreeConnections = [...(config.greeConnections ?? [])];
+      const previousTuyaConnections = [...(config.tuyaConnections ?? [])];
+      const previousAppleNotesGrants = [...config.appleNotesGrants];
+      const remainingHomeAssistantConnections = previousHomeAssistantConnections
+        .filter((connection) => connection.houseId !== houseId);
+      const remainingTpLinkConnections = previousTpLinkConnections
+        .filter((connection) => connection.houseId !== houseId);
+      const remainingGreeConnections = previousGreeConnections
+        .filter((connection) => connection.houseId !== houseId);
+      const greeChanged = remainingGreeConnections.length !== previousGreeConnections.length;
+      const remainingTuyaConnections = previousTuyaConnections
+        .filter((connection) => connection.houseId !== houseId);
+      const tuyaChanged = remainingTuyaConnections.length !== previousTuyaConnections.length;
+      const remainingGrants = previousAppleNotesGrants.filter((grant) => grant.houseId !== houseId);
+      const connectionsChanged = remainingHomeAssistantConnections.length !== previousHomeAssistantConnections.length
+        || remainingTpLinkConnections.length !== previousTpLinkConnections.length
+        || greeChanged
+        || tuyaChanged;
+      const grantsChanged = remainingGrants.length !== previousAppleNotesGrants.length;
+      if (connectionsChanged || grantsChanged) {
+        commitCoordinatedIntegrationSecrets(config.integrationSecretsFile, context.database, () => {
+          context.integrationMetadata.retireHouse(houseId);
+          if (!context.database.deleteHouse(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
+          return {
+            patch: {
+              homeAssistantConnections: remainingHomeAssistantConnections,
+              tpLinkConnections: remainingTpLinkConnections,
+              greeConnections: remainingGreeConnections,
+              tuyaConnections: remainingTuyaConnections,
+              appleNotesGrants: remainingGrants,
+            },
+            result: undefined,
+          };
+        });
+      } else {
+        context.database.transaction(() => {
+          context.integrationMetadata.retireHouse(houseId);
+          if (!context.database.deleteHouse(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
+        });
+      }
+      config.homeAssistantConnections = remainingHomeAssistantConnections;
+      config.tpLinkConnections = remainingTpLinkConnections;
+      config.greeConnections = remainingGreeConnections;
+      config.tuyaConnections = remainingTuyaConnections;
+      config.appleNotesGrants = remainingGrants;
       if (previous) context.notifySpatial((runtime) => runtime.scheduler.enqueueScope(
         { kind: "property", id: previous.propertyId },
         new Date().toISOString(),
@@ -205,30 +251,7 @@ export function configureApiPart17(context: ReturnType<typeof configureApiPart16
         true,
       ));
       context.homeAssistant.refreshMappings();
-      const remainingHomeAssistantConnections = (config.homeAssistantConnections ?? [])
-        .filter((connection) => connection.houseId !== houseId);
-      const remainingTpLinkConnections = (config.tpLinkConnections ?? [])
-        .filter((connection) => connection.houseId !== houseId);
-      const remainingGreeConnections = (config.greeConnections ?? [])
-        .filter((connection) => connection.houseId !== houseId);
-      const greeChanged = remainingGreeConnections.length !== (config.greeConnections ?? []).length;
-      const remainingTuyaConnections = (config.tuyaConnections ?? [])
-        .filter((connection) => connection.houseId !== houseId);
-      const tuyaChanged = remainingTuyaConnections.length !== (config.tuyaConnections ?? []).length;
-      if (remainingHomeAssistantConnections.length !== (config.homeAssistantConnections ?? []).length
-        || remainingTpLinkConnections.length !== (config.tpLinkConnections ?? []).length
-        || greeChanged
-        || tuyaChanged) {
-        updateIntegrationSecrets(config.integrationSecretsFile, {
-          homeAssistantConnections: remainingHomeAssistantConnections,
-          tpLinkConnections: remainingTpLinkConnections,
-          greeConnections: remainingGreeConnections,
-          tuyaConnections: remainingTuyaConnections,
-        });
-        config.homeAssistantConnections = remainingHomeAssistantConnections;
-        config.tpLinkConnections = remainingTpLinkConnections;
-        config.greeConnections = remainingGreeConnections;
-        config.tuyaConnections = remainingTuyaConnections;
+      if (connectionsChanged) {
         if (context.options.startBackground) {
           context.homeAssistant.restart();
           context.tpLink.restart();
@@ -238,13 +261,7 @@ export function configureApiPart17(context: ReturnType<typeof configureApiPart16
       }
       context.weather.invalidate(houseId);
       context.weatherEvents.invalidate(houseId);
-      const remainingGrants = config.appleNotesGrants.filter((grant) => grant.houseId !== houseId);
-      if (remainingGrants.length !== config.appleNotesGrants.length) {
-        updateIntegrationSecrets(config.integrationSecretsFile, { appleNotesGrants: remainingGrants });
-        config.appleNotesGrants = remainingGrants;
-        refreshAppleNotesStatus(config, context.status);
-      }
-      context.integrationMetadata.retireHouse(houseId);
+      if (grantsChanged) refreshAppleNotesStatus(config, context.status);
       context.status.refreshWeatherConfiguration();
       response.status(204).end();
     });

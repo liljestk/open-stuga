@@ -18,7 +18,7 @@
 
 .plan-zoom-controls button:disabled { color: var(--muted-2); cursor: not-allowed; }
 
-.plan-zoom-controls output { min-height: 24px; display: grid; place-items: center; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 9px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.plan-zoom-controls > span { min-height: 24px; display: grid; place-items: center; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 9px; font-weight: 750; font-variant-numeric: tabular-nums; }
 
 .plan-zoom-controls button:last-child { border-bottom: 0; }
 

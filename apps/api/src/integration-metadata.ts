@@ -552,14 +552,6 @@ export class IntegrationMetadataStore {
   }
 
   private transaction<T>(operation: () => T): T {
-    this.database.db.exec("BEGIN IMMEDIATE");
-    try {
-      const result = operation();
-      this.database.db.exec("COMMIT");
-      return result;
-    } catch (error) {
-      this.database.db.exec("ROLLBACK");
-      throw error;
-    }
+    return this.database.transaction(operation);
   }
 }

@@ -29,6 +29,7 @@ from tuya_profiles import command_datapoints, detect_profile, normalized_state, 
 
 MAX_LINE_BYTES = 64 * 1024
 SUPPORTED_VERSIONS = {"3.1", "3.2", "3.3", "3.4", "3.5"}
+HOST_RECOVERY_INTERVAL_SECONDS = 5 * 60
 
 
 def emit(message: dict[str, Any]) -> None:
@@ -177,7 +178,9 @@ def discover(timeout_seconds: float = 8.0) -> list[dict[str, Any]]:
     deadline = time.monotonic() + max(1.0, min(15.0, timeout_seconds))
     try:
         while sockets and time.monotonic() < deadline:
-            readable, _, _ = select.select(sockets, [], [], min(0.5, deadline - time.monotonic()))
+            readable, _, _ = select.select(
+                sockets, [], [], min(0.5, deadline - time.monotonic())
+            )
             for listener in readable:
                 try:
                     payload, address = listener.recvfrom(65535)
@@ -220,7 +223,9 @@ def local_candidates(host: str) -> list[str]:
 
     addresses = [str(address) for address in network.hosts()]
     with ThreadPoolExecutor(max_workers=32) as executor:
-        return [candidate for candidate in executor.map(open_port, addresses) if candidate]
+        return [
+            candidate for candidate in executor.map(open_port, addresses) if candidate
+        ]
 
 
 def recover_host(config: dict[str, Any]) -> tuple[str, Any, dict[str, Any]] | None:
@@ -263,6 +268,7 @@ def worker(config: dict[str, Any], poll_interval: float) -> None:
     host = config["host"]
     failures = 0
     next_poll = 0.0
+    next_host_recovery = 0.0
     while True:
         timeout = max(0.0, next_poll - time.monotonic())
         try:
@@ -278,7 +284,9 @@ def worker(config: dict[str, Any], poll_interval: float) -> None:
             if device is None:
                 device = device_for(config, host)
             if message.get("type") == "command":
-                datapoints = command_datapoints(message.get("command"), config["profileId"])
+                datapoints = command_datapoints(
+                    message.get("command"), config["profileId"]
+                )
                 response = device.set_multiple_values(datapoints)
                 if isinstance(response, dict) and response.get("Error"):
                     raise OSError(str(response["Error"]))
@@ -310,14 +318,19 @@ def worker(config: dict[str, Any], poll_interval: float) -> None:
                     "message": public_error(error, config),
                 }
             )
-            if failures >= 3:
+            now = time.monotonic()
+            if failures >= 3 and now >= next_host_recovery:
+                next_host_recovery = now + HOST_RECOVERY_INTERVAL_SECONDS
                 recovered = recover_host(config)
                 if recovered:
                     previous = host
                     host, device, status = recovered
                     config["host"] = host
                     failures = 0
-                    emit({"type": "host-change", "previousHost": previous, "host": host})
+                    next_host_recovery = 0.0
+                    emit(
+                        {"type": "host-change", "previousHost": previous, "host": host}
+                    )
                     emit(
                         {
                             "type": "snapshot",
@@ -348,7 +361,12 @@ def main() -> int:
             return 0
         raise ValueError("Choose --discover, --probe, or --worker")
     except (OSError, RuntimeError, ValueError, TypeError) as error:
-        emit({"type": "fatal", "message": public_error(error, config, "Tuya helper failed")})
+        emit(
+            {
+                "type": "fatal",
+                "message": public_error(error, config, "Tuya helper failed"),
+            }
+        )
         return 1
 
 

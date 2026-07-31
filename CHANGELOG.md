@@ -17,6 +17,9 @@ All notable Stugu releases are recorded here.
   plus fully local steady-state operation.
 - Safely rebuild empty legacy tracking-preview tables during upgrade while
   refusing to discard non-empty legacy tracking data.
+- Harden local-device durability with crash-recoverable credential commits,
+  bounded host recovery, finite telemetry validation, and floor-plan integrity
+  checks for placed devices.
 
 ## 0.24.2 - 2026-07-31
 

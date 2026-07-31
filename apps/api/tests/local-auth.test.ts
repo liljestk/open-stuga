@@ -542,4 +542,29 @@ describe("local account authentication and authorization", () => {
         .expect(403);
     }
   });
+
+  it("restricts connected-device placement and control to Owner and Admin roles", async () => {
+    const runtime = authRuntime();
+    runtimes.push(runtime);
+    const owner = await setupOwner(runtime);
+    const invitation = await owner.agent.post("/api/v1/tenant/members")
+      .set("x-csrf-token", owner.csrf)
+      .send({ email: "device-member@example.test", role: "member", grants: [] })
+      .expect(201);
+    const member = request.agent(runtime.app);
+    const registration = await member.post("/api/v1/auth/register").send({
+      token: invitation.body.registrationToken,
+      password: "member password long enough",
+    }).expect(201);
+    const csrf = registration.body.csrfToken as string;
+
+    await member.patch("/api/v1/connected-devices/missing/placement")
+      .set("x-csrf-token", csrf)
+      .send({ floorId: null, roomId: null, x: null, y: null, z: null })
+      .expect(403);
+    await member.post("/api/v1/connected-devices/missing/commands")
+      .set("x-csrf-token", csrf)
+      .send({ operationId: "11111111-1111-4111-8111-111111111111", power: false })
+      .expect(403);
+  });
 });

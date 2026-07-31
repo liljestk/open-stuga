@@ -44,6 +44,7 @@ const UNPLACED: ConnectedDevicePlacement = {
   y: null,
   z: null,
 };
+const STATE_UNCHANGED_HEARTBEAT_MS = 60_000;
 
 /**
  * Durable provider-neutral Tuya projection and idempotency journal.
@@ -57,7 +58,12 @@ export class ConnectedDeviceStore {
       const row = this.database.db.prepare(
         "SELECT state_json FROM connected_device_state_current WHERE connection_id = ?",
       ).get(state.connectionId) as unknown as StateRow | undefined;
-      const changed = !row || semanticState(parseState(row)) !== semanticState(state);
+      const previous = row ? parseState(row) : null;
+      const changed = !previous || semanticState(previous) !== semanticState(state);
+      if (!changed && previous.receivedAt && Number.isFinite(Date.parse(previous.receivedAt))
+        && Date.parse(previous.receivedAt) > Date.now() - STATE_UNCHANGED_HEARTBEAT_MS) {
+        return false;
+      }
       this.database.db.prepare(`
         INSERT INTO connected_device_state_current
           (connection_id, house_id, observed_at, received_at, state_json)

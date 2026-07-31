@@ -72,9 +72,9 @@ export interface ConnectedDeviceCommand {
 export interface ConnectedDevicePlacementPatch {
   floorId: string | null;
   roomId?: string | null;
-  x: number | null;
-  y: number | null;
-  z: number | null;
+  x?: number | null;
+  y?: number | null;
+  z?: number | null;
 }
 
 export interface TuyaDiscoveredDevice {

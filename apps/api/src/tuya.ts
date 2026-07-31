@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
+import { isIP } from "node:net";
 import { createInterface } from "node:readline";
 import type {
   ConnectedDeviceCapabilities,
@@ -19,6 +20,19 @@ import type { MeasurementService, RuntimeStatus } from "./services.js";
 
 const VERSIONS = new Set(["3.1", "3.2", "3.3", "3.4", "3.5"]);
 const KINDS = new Set<ConnectedDeviceKind>(["light", "outlet", "switch"]);
+const STATE_UNCHANGED_HEARTBEAT_MS = 5 * 60_000;
+const STATUS_UNCHANGED_HEARTBEAT_MS = 60_000;
+
+function localIpv4(value: string): boolean {
+  if (isIP(value) !== 4) return false;
+  const [first, second] = value.split(".").map(Number);
+  return first === 10
+    || first === 100 && second! >= 64 && second! <= 127
+    || first === 127
+    || first === 169 && second === 254
+    || first === 172 && second! >= 16 && second! <= 31
+    || first === 192 && second === 168;
+}
 
 interface StatePayload {
   observedAt: string;
@@ -151,7 +165,7 @@ function discoveredDevice(value: unknown): TuyaDiscoveredDevice | null {
   const protocolVersion = text(item?.protocolVersion, 10);
   const productKey = item?.productKey === null ? null : text(item?.productKey);
   const mac = item?.mac === null ? null : text(item?.mac, 32);
-  if (!item || !host || !deviceId || !protocolVersion || !VERSIONS.has(protocolVersion)
+  if (!item || !host || !localIpv4(host) || !deviceId || !protocolVersion || !VERSIONS.has(protocolVersion)
     || productKey === null && item.productKey !== null
     || mac === null && item.mac !== null) return null;
   return { host, deviceId, protocolVersion, productKey, mac };
@@ -165,7 +179,7 @@ function verifiedDevice(value: Record<string, unknown>): TuyaVerifiedDevice | nu
   const kind = profileValue?.kind as ConnectedDeviceKind;
   const parsedCapabilities = capabilities(profileValue?.capabilities);
   const state = statePayload(value.state);
-  if (!host || !profileId || !KINDS.has(kind) || !parsedCapabilities || !state) return null;
+  if (!host || !localIpv4(host) || !profileId || !KINDS.has(kind) || !parsedCapabilities || !state) return null;
   return { host, profileId, kind, capabilities: parsedCapabilities, state };
 }
 
@@ -192,6 +206,10 @@ function helperEnvironment(): NodeJS.ProcessEnv {
 export class TuyaBridge {
   readonly #workers = new Map<string, Worker>();
   readonly #restartTimers = new Map<string, NodeJS.Timeout>();
+  readonly #lastIngestedPower = new Map<string, { sensorId: string; value: number; ingestedAt: number }>();
+  #statusTimer: NodeJS.Timeout | null = null;
+  #lastStatusSignature = "";
+  #lastStatusPublishedAt = Number.NEGATIVE_INFINITY;
   #running = false;
 
   constructor(
@@ -213,12 +231,21 @@ export class TuyaBridge {
   start(): void {
     if (this.#running) return;
     this.#running = true;
-    for (const connection of this.config.tuyaConnections ?? []) this.startWorker(connection);
+    const connections = this.config.tuyaConnections ?? [];
+    const configuredIds = new Set(connections.map((connection) => connection.id));
+    for (const connectionId of this.#lastIngestedPower.keys()) {
+      if (!configuredIds.has(connectionId)) this.#lastIngestedPower.delete(connectionId);
+    }
+    for (const connection of connections) this.startWorker(connection);
     this.aggregateStatus();
   }
 
   stop(): void {
     this.#running = false;
+    if (this.#statusTimer) {
+      clearTimeout(this.#statusTimer);
+      this.#statusTimer = null;
+    }
     for (const timer of this.#restartTimers.values()) clearTimeout(timer);
     this.#restartTimers.clear();
     for (const worker of this.#workers.values()) {
@@ -352,6 +379,7 @@ export class TuyaBridge {
 
   private startWorker(connection: TuyaConnectionSecret, restartDelayMs = 1_000): void {
     if (this.#workers.has(connection.id)) return;
+    if (!this.database.getHouse(connection.houseId)) return;
     const child = spawn(
       this.config.tuyaPython ?? this.config.tpLinkPython,
       [this.config.tuyaBridgeScript ?? "./apps/api/python/tuya_bridge.py", "--worker"],
@@ -402,17 +430,33 @@ export class TuyaBridge {
       worker.lastPollAt = payload.observedAt;
       worker.error = null;
       worker.restartDelayMs = 1_000;
-      this.record(worker.connection, payload);
-      this.aggregateStatus();
+      try {
+        this.record(worker.connection, payload);
+      } catch {
+        worker.connected = false;
+        worker.error = "Tuya state could not be stored for its configured Home";
+      }
+      this.scheduleAggregateStatus();
       return;
     }
     if (message.type === "command-result") {
       const requestId = text(message.requestId);
       const pending = requestId ? worker.pending.get(requestId) : undefined;
-      const state = this.states.get(worker.connection.id);
-      if (!requestId || !pending || !state) return;
+      if (!requestId || !pending) return;
+      let state: ConnectedDeviceState | null = null;
+      try {
+        if (worker.connected) state = this.states.get(worker.connection.id);
+      } catch {
+        worker.connected = false;
+        worker.error = "The confirmed Tuya state could not be read";
+        this.scheduleAggregateStatus();
+      }
       worker.pending.delete(requestId);
       clearTimeout(pending.timer);
+      if (!worker.connected || !state) {
+        pending.reject(new Error("The confirmed Tuya state could not be stored"));
+        return;
+      }
       pending.resolve(state);
       return;
     }
@@ -428,16 +472,20 @@ export class TuyaBridge {
       if (worker.failures >= 3) {
         worker.connected = false;
         worker.error = safeError(message.message);
-        const unavailable = this.states.markUnavailable(worker.connection.id);
-        if (unavailable) this.bus.publish({ type: "connected-device", data: structuredClone(unavailable) });
-        this.aggregateStatus();
+        try {
+          const unavailable = this.states.markUnavailable(worker.connection.id);
+          if (unavailable) this.bus.publish({ type: "connected-device", data: structuredClone(unavailable) });
+        } catch {
+          worker.error = "Tuya availability could not be stored";
+        }
+        this.scheduleAggregateStatus();
       }
       return;
     }
     if (message.type === "host-change") {
       const previousHost = text(message.previousHost, 253);
       const host = text(message.host, 253);
-      if (!previousHost || !host || previousHost !== worker.connection.host) return;
+      if (!previousHost || !host || !localIpv4(host) || previousHost !== worker.connection.host) return;
       worker.connection = { ...worker.connection, host };
       try {
         this.options.onConnectionUpdate?.({ ...worker.connection });
@@ -485,7 +533,15 @@ export class TuyaBridge {
 
   private ingestEnergy(connection: TuyaConnectionSecret, state: ConnectedDeviceState): void {
     if (!connection.sensorId || !state.observedAt || state.powerWatts === null) return;
-    if (!this.database.getSensor(connection.sensorId)?.enabled) return;
+    if (!this.database.getSensor(connection.sensorId)?.enabled) {
+      this.#lastIngestedPower.delete(connection.id);
+      return;
+    }
+    const observedAt = Date.parse(state.observedAt);
+    const previous = this.#lastIngestedPower.get(connection.id);
+    if (previous?.sensorId === connection.sensorId && previous.value === state.powerWatts
+      && observedAt >= previous.ingestedAt
+      && observedAt - previous.ingestedAt < STATE_UNCHANGED_HEARTBEAT_MS) return;
     try {
       this.measurements.ingest({
         sensorId: connection.sensorId,
@@ -495,6 +551,11 @@ export class TuyaBridge {
         timestamp: state.observedAt,
         source: "tuya",
         quality: "good",
+      });
+      this.#lastIngestedPower.set(connection.id, {
+        sensorId: connection.sensorId,
+        value: state.powerWatts,
+        ingestedAt: observedAt,
       });
     } catch {
       // Device control/state stays healthy if an optional energy projection is misconfigured.
@@ -511,9 +572,13 @@ export class TuyaBridge {
       pending.reject(new Error(message));
     }
     worker.pending.clear();
-    const unavailable = this.states.markUnavailable(worker.connection.id);
-    if (unavailable) this.bus.publish({ type: "connected-device", data: structuredClone(unavailable) });
-    this.aggregateStatus();
+    try {
+      const unavailable = this.states.markUnavailable(worker.connection.id);
+      if (unavailable) this.bus.publish({ type: "connected-device", data: structuredClone(unavailable) });
+    } catch {
+      worker.error = "Tuya availability could not be stored";
+    }
+    this.scheduleAggregateStatus();
     const configured = (this.config.tuyaConnections ?? []).some((item) => item.id === worker.connection.id);
     if (!this.#running || !configured) {
       this.#workers.delete(worker.connection.id);
@@ -534,24 +599,32 @@ export class TuyaBridge {
   }
 
   private aggregateStatus(): void {
+    if (this.#statusTimer) {
+      clearTimeout(this.#statusTimer);
+      this.#statusTimer = null;
+    }
     const configured = this.config.tuyaConnections ?? [];
     if (configured.length === 0) {
       if (this.status.value.tuya) {
         delete this.status.value.tuya;
+        this.#lastStatusSignature = "";
+        this.#lastStatusPublishedAt = Date.now();
         this.status.changed();
       }
       return;
     }
+    const houseIds = new Set(this.database.listHouses().map((house) => house.id));
     const connections = configured.map((connection) => {
       const worker = this.#workers.get(connection.id);
+      const houseExists = houseIds.has(connection.houseId);
       return {
         id: connection.id,
         houseId: connection.houseId,
         equipmentId: connection.equipmentId ?? null,
         configured: true,
-        connected: worker?.connected ?? false,
+        connected: houseExists && (worker?.connected ?? false),
         lastPollAt: worker?.lastPollAt ?? null,
-        error: worker?.error ?? null,
+        error: houseExists ? worker?.error ?? null : "Configured Home no longer exists",
         host: worker?.connection.host ?? connection.host,
         kind: connection.profileId.includes("light") ? "light" as const
           : connection.profileId.includes("outlet") ? "outlet" as const : "switch" as const,
@@ -564,13 +637,35 @@ export class TuyaBridge {
     const tuya: NonNullable<IntegrationStatus["tuya"]> = {
       configured: true,
       connected: connections.some((connection) => connection.connected),
-      lastPollAt: connections.map((connection) => connection.lastPollAt)
-        .filter((value): value is string => Boolean(value)).sort().at(-1) ?? null,
+      lastPollAt: connections.reduce<string | null>((latest, connection) => (
+        connection.lastPollAt && (!latest || connection.lastPollAt > latest)
+          ? connection.lastPollAt
+          : latest
+      ), null),
       error: connections.map((connection) => connection.error).filter(Boolean).join("; ") || null,
       connections,
     };
-    if (JSON.stringify(this.status.value.tuya) === JSON.stringify(tuya)) return;
     this.status.value.tuya = tuya;
+    const signature = JSON.stringify([
+      tuya.configured,
+      tuya.connected,
+      tuya.error,
+      tuya.connections.map(({ lastPollAt: _lastPollAt, ...connection }) => connection),
+    ]);
+    const now = Date.now();
+    if (signature === this.#lastStatusSignature
+      && now - this.#lastStatusPublishedAt < STATUS_UNCHANGED_HEARTBEAT_MS) return;
+    this.#lastStatusSignature = signature;
+    this.#lastStatusPublishedAt = now;
     this.status.changed();
+  }
+
+  private scheduleAggregateStatus(): void {
+    if (this.#statusTimer) return;
+    this.#statusTimer = setTimeout(() => {
+      this.#statusTimer = null;
+      this.aggregateStatus();
+    }, 500);
+    this.#statusTimer.unref();
   }
 }

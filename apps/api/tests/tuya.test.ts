@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import request from "supertest";
 import { createApi, type ApiRuntime } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import { readIntegrationSecrets } from "../src/integration-secrets.js";
+import { TuyaBridge } from "../src/tuya.js";
 
 const LOCAL_KEY = "test-local-key-1234";
 const LIGHT_ID = "test-tuya-light";
@@ -228,6 +229,11 @@ describe("local Tuya integration", () => {
       .send({ floorId: floor.id, roomId: null, x: 4, y: 5, z: floor.elevation + 1.4 })
       .expect(200)
       .expect(({ body }) => expect(body.state).toMatchObject({ x: 4, y: 5 }));
+    await request(runtime!.app)
+      .patch(`/api/v1/connected-devices/${saved.id}/placement`)
+      .send({})
+      .expect(400);
+    expect(runtime!.connectedDevices.get(saved.id)).toMatchObject({ floorId: floor.id, x: 4, y: 5 });
 
     await request(runtime!.app)
       .delete(`/api/v1/integrations/tuya/config/${saved.id}`)
@@ -288,5 +294,121 @@ describe("local Tuya integration", () => {
       x: 2,
       y: 2,
     });
+  });
+
+  it("rejects floor-plan changes that would orphan a placed connected device", async () => {
+    setup();
+    const houseId = "tuya-layout-home";
+    const floor = { id: "ground", name: "Ground", width: 8, height: 6, elevation: 0, walls: [], rooms: [] };
+    await request(runtime!.app).post("/api/v1/houses").send({
+      id: houseId,
+      propertyId: "property-main",
+      name: "Layout test",
+      timezone: "Europe/Helsinki",
+      floors: [floor],
+    }).expect(201);
+    await request(runtime!.app)
+      .put("/api/v1/integrations/tuya/config")
+      .send({
+        houseId,
+        host: "192.168.1.60",
+        deviceId: LIGHT_ID,
+        localKey: LOCAL_KEY,
+        protocolVersion: "3.5",
+        floorId: floor.id,
+      })
+      .expect(200);
+
+    await request(runtime!.app)
+      .put(`/api/v1/houses/${houseId}/layout`)
+      .send({ floors: [{ ...floor, id: "replacement" }] })
+      .expect(409)
+      .expect(({ body }) => {
+        expect(body.error?.code).toBe("LAYOUT_ORPHANS_CONNECTED_DEVICE");
+      });
+    expect(runtime!.database.getHouse(houseId)?.floors[0]?.id).toBe(floor.id);
+  });
+
+  it("rolls back inventory and preserves pre-existing telemetry when credential persistence fails", async () => {
+    const { secrets } = setup();
+    const floor = runtime!.database.getHouse("house-main")!.floors[0]!;
+    const connectionId = TuyaBridge.connectionId(METER_ID);
+    const energySensorId = `tuya-energy-${connectionId.slice("tuya-".length)}`;
+    runtime!.database.createSensor({
+      id: energySensorId,
+      houseId: "house-main",
+      floorId: floor.id,
+      name: "Preserved meter",
+      roomId: null,
+      room: "",
+      model: "Existing meter",
+      x: 1,
+      y: 1,
+      z: floor.elevation + .3,
+      energyMeterRole: "standalone",
+      tags: ["energy"],
+      enabled: false,
+    });
+    mkdirSync(secrets, { recursive: true });
+
+    await request(runtime!.app)
+      .put("/api/v1/integrations/tuya/config")
+      .send({
+        houseId: "house-main",
+        host: "192.168.1.61",
+        deviceId: METER_ID,
+        localKey: LOCAL_KEY,
+        protocolVersion: "3.4",
+        floorId: floor.id,
+        x: 1,
+        y: 1,
+        z: floor.elevation + .3,
+      })
+      .expect(500);
+
+    expect(runtime!.database.getSensor(energySensorId)).toMatchObject({
+      name: "Preserved meter",
+      enabled: false,
+      tags: ["energy"],
+    });
+    expect(runtime!.database.getAreaEquipment(`equipment-${connectionId}`)).toBeNull();
+    expect(runtime!.connectedDevices.get(connectionId)).toBeNull();
+  });
+
+  it("keeps a Home intact when its combined credential revocation cannot be persisted", async () => {
+    const { secrets } = setup();
+    const houseId = "tuya-delete-home";
+    const floor = { id: "ground", name: "Ground", width: 8, height: 6, elevation: 0, walls: [], rooms: [] };
+    await request(runtime!.app).post("/api/v1/houses").send({
+      id: houseId,
+      propertyId: "property-main",
+      name: "Delete test",
+      timezone: "Europe/Helsinki",
+      floors: [floor],
+    }).expect(201);
+    await request(runtime!.app)
+      .put("/api/v1/integrations/tuya/config")
+      .send({
+        houseId,
+        host: "192.168.1.60",
+        deviceId: LIGHT_ID,
+        localKey: LOCAL_KEY,
+        protocolVersion: "3.5",
+        floorId: floor.id,
+      })
+      .expect(200);
+    const connection = readIntegrationSecrets(secrets).tuyaConnections?.[0];
+    expect(connection).toBeDefined();
+    runtime!.connectedDevices.deleteConnection(connection!.id);
+    if (connection!.equipmentId) runtime!.database.deleteAreaEquipment(connection!.equipmentId);
+    rmSync(secrets, { force: true });
+    mkdirSync(secrets);
+
+    await request(runtime!.app).delete(`/api/v1/houses/${houseId}`).expect(500);
+
+    expect(runtime!.database.getHouse(houseId)).not.toBeNull();
+    expect(runtime!.status.value.tuya?.connections).toContainEqual(
+      expect.objectContaining({ id: connection!.id, houseId }),
+    );
   });
 });

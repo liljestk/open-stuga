@@ -92,10 +92,14 @@ export function invalidateForTelemetry(
     break;
   case "weather":
   case "heat-pump":
-  case "connected-device":
     invalidate(client, (query) => (
       isMonitoringQuery(query, houseId)
       || isHomePerformanceQuery(query, houseId)
+    ));
+    break;
+  case "connected-device":
+    invalidate(client, (query) => (
+      isMonitoringQuery(query, houseId)
       || (query.queryKey[0] === "connected-devices"
         && (houseId === undefined || query.queryKey[1] === houseId))
     ));

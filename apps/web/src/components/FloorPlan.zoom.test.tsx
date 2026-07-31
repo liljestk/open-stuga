@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDemoState } from "../domain";
@@ -38,7 +38,7 @@ describe("2D floor-plan camera", () => {
     expect(zoomedViewBox[1]! + zoomedViewBox[3]! / 2).toBeCloseTo(initialViewBox[1]! + initialViewBox[3]! / 2);
 
     fireEvent.wheel(svg, { ctrlKey: true, deltaY: -120 });
-    expect(Number(svg.dataset.planZoom)).toBeGreaterThan(1.15);
+    await waitFor(() => expect(Number(svg.dataset.planZoom)).toBeGreaterThan(1.15));
     const wheelZoom = svg.dataset.planZoom;
     fireEvent.wheel(svg, { deltaY: -120 });
     expect(svg.dataset.planZoom).toBe(wheelZoom);

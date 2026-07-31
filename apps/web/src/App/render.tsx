@@ -458,6 +458,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             onOpenOutdoor={() => navigate("outdoor", house.id)}
             onOpenAnalytics={() => navigate("analytics", house.id)}
             readOnly={readOnly}
+            canManageConnectedDevices={canManagePeople}
             localAuthority={houseLocalAuthority}
           />
         )}
@@ -525,6 +526,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             streamConnection={climate.connection}
             tpLinkDevicesLoading={climate.tpLinkDevicesLoading}
             tpLinkDevicesError={climate.tpLinkDevicesError}
+            canManageTuya={canManagePeople}
             onHouse={chooseHouse}
             onHouseUpdate={climate.updateHouse}
             onGeoreferenceChange={climate.setHouseGeoreference}

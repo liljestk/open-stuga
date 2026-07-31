@@ -75,6 +75,7 @@ import {
   type IntegrationSecrets,
   type TpLinkConnectionSecret,
 } from "../integration-secrets.js";
+import { recoverCoordinatedIntegrationSecrets } from "../integration-secrets-coordinator.js";
 import { IntegrationMetadataStore } from "../integration-metadata.js";
 import { openApiV1Document, openApiV2Document } from "../openapi.js";
 import {
@@ -202,6 +203,14 @@ export function configureApiPart02(context: ReturnType<typeof configureApiPart01
       throw new Error("timeseriesRequired=true requires timeseriesEnabled=true");
     }
   const database = context.options.database ?? new ClimateDatabase(config.databasePath);
+  const recoveredSecrets = recoverCoordinatedIntegrationSecrets(config.integrationSecretsFile, database);
+  if (recoveredSecrets) {
+    config.homeAssistantConnections = recoveredSecrets.homeAssistantConnections ?? [];
+    config.tpLinkConnections = recoveredSecrets.tpLinkConnections ?? [];
+    config.greeConnections = recoveredSecrets.greeConnections ?? [];
+    config.tuyaConnections = recoveredSecrets.tuyaConnections ?? [];
+    config.appleNotesGrants = recoveredSecrets.appleNotesGrants ?? [];
+  }
   const trackingFlags: TrackingFeatureFlags = {
       "tracking.enabled": config.trackingEnabled,
       "tracking.mobileObserver.enabled": config.trackingMobileObserverEnabled,

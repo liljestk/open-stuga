@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { OutdoorBoundaryContext } from "../outdoorContext";
 import { createOutdoorWindFlowGeometry } from "../outdoorWindFlow";
 
@@ -22,7 +23,17 @@ export function OutdoorWindFlow2D({
   extrasVisible,
   reducedMotion,
 }: OutdoorWindFlow2DProps) {
-  const geometry = createOutdoorWindFlowGeometry(context, width, height, shellOffset);
+  const geometry = useMemo(
+    () => createOutdoorWindFlowGeometry(context, width, height, shellOffset),
+    [
+      context.conditions.windSpeedMps,
+      context.planWindFromDegrees,
+      context.stale,
+      height,
+      shellOffset,
+      width,
+    ],
+  );
   if (!geometry) return null;
   const animate = animationsEnabled && !reducedMotion && geometry.motionSupported;
   const routes = [...geometry.incomingPaths, ...geometry.bypassPaths];

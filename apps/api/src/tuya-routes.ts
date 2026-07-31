@@ -10,10 +10,8 @@ import type {
 import type { AppConfig } from "./config.js";
 import type { ConnectedDeviceStore } from "./connected-device-store.js";
 import type { ClimateDatabase } from "./db.js";
-import {
-  updateIntegrationSecrets,
-  type TuyaConnectionSecret,
-} from "./integration-secrets.js";
+import type { TuyaConnectionSecret } from "./integration-secrets.js";
+import { commitCoordinatedIntegrationSecrets } from "./integration-secrets-coordinator.js";
 import type { RuntimeStatus } from "./services.js";
 import { TuyaBridge } from "./tuya.js";
 import {
@@ -185,19 +183,27 @@ function addEnergySensor(
   if (!capabilities.measuredPower || !devicePlacement.floorId
     || devicePlacement.x === null || devicePlacement.y === null || devicePlacement.z === null) return undefined;
   const id = sensorId(connection.id);
-  const existing = context.database.getSensor(id);
-  if (existing) {
-    if (existing.houseId !== connection.houseId) {
-      throw new HttpError(409, "TUYA_ENERGY_SENSOR_CONFLICT", "The energy sensor identity is already in use");
-    }
-    if (!existing.enabled) context.database.updateSensor(id, { enabled: true });
-    return id;
-  }
   const house = context.database.getHouse(connection.houseId)!;
   const floor = house.floors.find((candidate) => candidate.id === devicePlacement.floorId)!;
   const room = devicePlacement.roomId
     ? floor.rooms.find((candidate) => candidate.id === devicePlacement.roomId)
     : null;
+  const existing = context.database.getSensor(id);
+  if (existing) {
+    if (existing.houseId !== connection.houseId) {
+      throw new HttpError(409, "TUYA_ENERGY_SENSOR_CONFLICT", "The energy sensor identity is already in use");
+    }
+    context.database.updateSensor(id, {
+      floorId: devicePlacement.floorId,
+      roomId: room?.id ?? null,
+      room: room?.name ?? "",
+      x: devicePlacement.x,
+      y: devicePlacement.y,
+      z: devicePlacement.z,
+      enabled: true,
+    });
+    return id;
+  }
   context.database.createSensor({
     id,
     houseId: connection.houseId,
@@ -214,6 +220,21 @@ function addEnergySensor(
     enabled: true,
   });
   return id;
+}
+
+function commitTuyaSecretsMutation<T>(
+  context: TuyaRouteContext,
+  operation: (previousConnections: TuyaConnectionSecret[]) => { connections: TuyaConnectionSecret[]; result: T },
+): { connections: TuyaConnectionSecret[]; result: T } {
+  const committed = commitCoordinatedIntegrationSecrets(
+    context.config.integrationSecretsFile,
+    context.database,
+    (current) => {
+      const mutation = operation(current.tuyaConnections ?? []);
+      return { patch: { tuyaConnections: mutation.connections }, result: mutation.result };
+    },
+  );
+  return { connections: committed.secrets.tuyaConnections ?? [], result: committed.result };
 }
 
 /** Registers Home-scoped local Tuya onboarding, state, placement, and control. */
@@ -266,6 +287,9 @@ export function registerTuyaRoutes(context: TuyaRouteContext): void {
           "Stugu could not verify the device locally. Check its address, local key, protocol version, and Wi-Fi.",
         );
       }
+      if (!localIpv4(verified.host)) {
+        throw new HttpError(422, "TUYA_VERIFICATION_FAILED", "The Tuya device did not verify on the local network");
+      }
       const id = TuyaBridge.connectionId(deviceId);
       const equipmentId = `equipment-${id}`;
       const deviceName = optionalText(body, "name") ?? (
@@ -279,8 +303,26 @@ export function registerTuyaRoutes(context: TuyaRouteContext): void {
       if (existingEquipment && existingEquipment.propertyId !== house.propertyId) {
         throw new HttpError(409, "TUYA_EQUIPMENT_CONFLICT", "The device inventory identity is already in use");
       }
-      const equipment = existingEquipment
-        ? context.database.updateAreaEquipment(equipmentId, {
+      let connection: TuyaConnectionSecret = {
+        id,
+        houseId,
+        equipmentId,
+        host: verified.host,
+        deviceId,
+        localKey,
+        protocolVersion: protocolVersion as TuyaConnectionSecret["protocolVersion"],
+        profileId: verified.profileId,
+        name: deviceName,
+        ...(model ? { model } : {}),
+        ...(productKey ? { productKey } : {}),
+        ...(mac ? { mac } : {}),
+      };
+      const committed = commitTuyaSecretsMutation(context, (previousConnections) => {
+        if (previousConnections.some((item) => item.deviceId === deviceId)) {
+          throw new HttpError(409, "TUYA_ALREADY_CONFIGURED", "This Tuya device has already been added");
+        }
+        if (existingEquipment) {
+          context.database.updateAreaEquipment(equipmentId, {
             houseId,
             name: deviceName,
             kind: verified.kind === "light" ? "smart-light" : `smart-${verified.kind}`,
@@ -288,8 +330,9 @@ export function registerTuyaRoutes(context: TuyaRouteContext): void {
             model: model ?? null,
             status: "active",
             notes: "Direct local-network control. No cloud connection is used at runtime.",
-          }, "system-service")!
-        : context.database.createAreaEquipment({
+          }, "system-service");
+        } else {
+          context.database.createAreaEquipment({
             id: equipmentId,
             propertyId: house.propertyId,
             houseId,
@@ -301,34 +344,18 @@ export function registerTuyaRoutes(context: TuyaRouteContext): void {
             status: "active",
             notes: "Direct local-network control. No cloud connection is used at runtime.",
           });
-      let connection: TuyaConnectionSecret = {
-        id,
-        houseId,
-        equipmentId: equipment.id,
-        host: verified.host,
-        deviceId,
-        localKey,
-        protocolVersion: protocolVersion as TuyaConnectionSecret["protocolVersion"],
-        profileId: verified.profileId,
-        name: deviceName,
-        ...(model ? { model } : {}),
-        ...(productKey ? { productKey } : {}),
-        ...(mac ? { mac } : {}),
-      };
-      const createdSensorId = addEnergySensor(context, connection, verified.capabilities, devicePlacement);
-      if (createdSensorId) connection = { ...connection, sensorId: createdSensorId };
-      context.connectedDevices.setPlacement(id, houseId, devicePlacement);
+        }
+        const energySensorId = addEnergySensor(context, connection, verified.capabilities, devicePlacement);
+        if (energySensorId) connection = { ...connection, sensorId: energySensorId };
+        context.connectedDevices.setPlacement(id, houseId, devicePlacement);
+        return {
+          connections: [...previousConnections, connection],
+          result: connection,
+        };
+      });
+      connection = committed.result;
+      context.config.tuyaConnections = committed.connections;
       const state = context.tuya.recordInitial(connection, verified.state);
-      const connections = [...(context.config.tuyaConnections ?? []), connection];
-      try {
-        updateIntegrationSecrets(context.config.integrationSecretsFile, { tuyaConnections: connections });
-      } catch (error) {
-        context.connectedDevices.deleteConnection(id);
-        if (createdSensorId) context.database.deleteSensor(createdSensorId);
-        if (!existingEquipment) context.database.deleteAreaEquipment(equipmentId);
-        throw error;
-      }
-      context.config.tuyaConnections = connections;
       context.dataMode.activate();
       context.tuya.refreshConfiguration();
       context.recordSecurityAudit(requestPrincipal(response), {
@@ -354,17 +381,24 @@ export function registerTuyaRoutes(context: TuyaRouteContext): void {
     const connection = (context.config.tuyaConnections ?? []).find((item) => item.id === id);
     if (!connection) throw new HttpError(404, "NOT_FOUND", "Tuya device connection not found");
     context.stuguby.assertHouseLocalAuthority(connection.houseId);
-    const connections = (context.config.tuyaConnections ?? []).filter((item) => item.id !== id);
-    updateIntegrationSecrets(context.config.integrationSecretsFile, { tuyaConnections: connections });
-    context.config.tuyaConnections = connections;
+    const committed = commitTuyaSecretsMutation(context, (previousConnections) => {
+      if (!previousConnections.some((item) => item.id === id)) {
+        throw new HttpError(404, "NOT_FOUND", "Tuya device connection not found");
+      }
+      context.connectedDevices.deleteConnection(id);
+      if (connection.sensorId && context.database.getSensor(connection.sensorId)) {
+        context.database.updateSensor(connection.sensorId, { enabled: false });
+      }
+      if (connection.equipmentId && context.database.getAreaEquipment(connection.equipmentId)) {
+        context.database.updateAreaEquipment(connection.equipmentId, { status: "retired" }, "system-service");
+      }
+      return {
+        connections: previousConnections.filter((item) => item.id !== id),
+        result: undefined,
+      };
+    });
+    context.config.tuyaConnections = committed.connections;
     context.tuya.refreshConfiguration();
-    context.connectedDevices.deleteConnection(id);
-    if (connection.sensorId && context.database.getSensor(connection.sensorId)) {
-      context.database.updateSensor(connection.sensorId, { enabled: false });
-    }
-    if (connection.equipmentId && context.database.getAreaEquipment(connection.equipmentId)) {
-      context.database.updateAreaEquipment(connection.equipmentId, { status: "retired" }, "system-service");
-    }
     context.recordSecurityAudit(requestPrincipal(response), {
       eventType: "integration.credentials.revoked",
       subjectType: "integration",
@@ -388,61 +422,78 @@ export function registerTuyaRoutes(context: TuyaRouteContext): void {
     });
   });
 
-  context.app.patch(`${context.prefix}/connected-devices/:connectionId/placement`, (request, response) => {
+  context.app.patch(`${context.prefix}/connected-devices/:connectionId/placement`, requireWorkspaceAdmin, (request, response) => {
     const id = request.params.connectionId as string;
     const connection = (context.config.tuyaConnections ?? []).find((item) => item.id === id);
     if (!connection) throw new HttpError(404, "NOT_FOUND", "Connected device not found");
     context.stuguby.assertHouseLocalAuthority(connection.houseId);
     const body = bodyObject(request.body);
     rejectUnknownFields(body, new Set(["floorId", "roomId", "x", "y", "z"]), "Device placement");
-    const devicePlacement = placement(context.database, connection.houseId, body);
-    let nextConnection = connection;
-    let createdSensorId: string | undefined;
-    if (!connection.sensorId) {
-      const state = context.connectedDevices.get(id);
-      createdSensorId = state
-        ? addEnergySensor(context, connection, state.capabilities, devicePlacement)
-        : undefined;
-      if (createdSensorId) {
-        nextConnection = { ...connection, sensorId: createdSensorId };
-        const connections = (context.config.tuyaConnections ?? []).map((item) => (
-          item.id === id ? nextConnection : item
-        ));
-        try {
-          updateIntegrationSecrets(context.config.integrationSecretsFile, { tuyaConnections: connections });
-        } catch (error) {
-          context.database.deleteSensor(createdSensorId);
-          throw error;
-        }
-        context.config.tuyaConnections = connections;
-        context.tuya.refreshConfiguration();
-      }
-    } else if (connection.sensorId) {
-      if (devicePlacement.floorId && devicePlacement.x !== null
-        && devicePlacement.y !== null && devicePlacement.z !== null) {
-        const house = context.database.getHouse(connection.houseId)!;
-        const floor = house.floors.find((item) => item.id === devicePlacement.floorId)!;
-        const room = devicePlacement.roomId
-          ? floor.rooms.find((item) => item.id === devicePlacement.roomId)
-          : null;
-        context.database.updateSensor(connection.sensorId, {
-          floorId: devicePlacement.floorId,
-          roomId: room?.id ?? null,
-          room: room?.name ?? "",
-          x: devicePlacement.x,
-          y: devicePlacement.y,
-          z: devicePlacement.z,
-          enabled: true,
-        });
-      } else {
-        context.database.updateSensor(connection.sensorId, { enabled: false });
-      }
+    if (!Object.prototype.hasOwnProperty.call(body, "floorId")) {
+      throw new HttpError(400, "CONNECTED_DEVICE_FLOOR_REQUIRED", "floorId is required when changing device placement");
     }
-    const state = context.connectedDevices.setPlacement(id, connection.houseId, devicePlacement);
+    const devicePlacement = placement(context.database, connection.houseId, body);
+    const currentState = context.connectedDevices.get(id);
+    const shouldAddSensor = !connection.sensorId && Boolean(
+      currentState?.capabilities.measuredPower
+      && devicePlacement.floorId
+      && devicePlacement.x !== null
+      && devicePlacement.y !== null
+      && devicePlacement.z !== null,
+    );
+    let nextConnection = connection;
+    let state;
+    if (shouldAddSensor) {
+      const committed = commitTuyaSecretsMutation(context, (previousConnections) => {
+        if (!previousConnections.some((item) => item.id === id)) {
+          throw new HttpError(404, "NOT_FOUND", "Connected device not found");
+        }
+        const energySensorId = addEnergySensor(
+          context,
+          connection,
+          currentState!.capabilities,
+          devicePlacement,
+        )!;
+        nextConnection = { ...connection, sensorId: energySensorId };
+        state = context.connectedDevices.setPlacement(id, connection.houseId, devicePlacement);
+        return {
+          connections: previousConnections.map((item) => item.id === id ? nextConnection : item),
+          result: state,
+        };
+      });
+      context.config.tuyaConnections = committed.connections;
+      state = committed.result;
+      context.tuya.refreshConfiguration();
+    } else {
+      state = context.database.transaction(() => {
+        if (connection.sensorId) {
+          if (devicePlacement.floorId && devicePlacement.x !== null
+            && devicePlacement.y !== null && devicePlacement.z !== null) {
+            const house = context.database.getHouse(connection.houseId)!;
+            const floor = house.floors.find((item) => item.id === devicePlacement.floorId)!;
+            const room = devicePlacement.roomId
+              ? floor.rooms.find((item) => item.id === devicePlacement.roomId)
+              : null;
+            context.database.updateSensor(connection.sensorId, {
+              floorId: devicePlacement.floorId,
+              roomId: room?.id ?? null,
+              room: room?.name ?? "",
+              x: devicePlacement.x,
+              y: devicePlacement.y,
+              z: devicePlacement.z,
+              enabled: true,
+            });
+          } else {
+            context.database.updateSensor(connection.sensorId, { enabled: false });
+          }
+        }
+        return context.connectedDevices.setPlacement(id, connection.houseId, devicePlacement);
+      });
+    }
     response.json({ state, energySensorId: nextConnection.sensorId ?? null });
   });
 
-  context.app.post(`${context.prefix}/connected-devices/:connectionId/commands`, async (request, response) => {
+  context.app.post(`${context.prefix}/connected-devices/:connectionId/commands`, requireWorkspaceAdmin, async (request, response) => {
     const id = request.params.connectionId as string;
     const connection = (context.config.tuyaConnections ?? []).find((item) => item.id === id);
     const current = context.connectedDevices.get(id);

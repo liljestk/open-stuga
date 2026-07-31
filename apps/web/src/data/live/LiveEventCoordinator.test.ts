@@ -85,6 +85,23 @@ describe("LiveEventCoordinator", () => {
     ).toBe(false);
   });
 
+  it("keeps connected-device snapshots from bypassing the Home Performance cache", async () => {
+    const client = clientWithQueries();
+    invalidateForTelemetry(client, {
+      type: "connected-device",
+      data: {
+        houseId: "home-1",
+      },
+    } as TelemetryEvent, "home-1");
+    await Promise.resolve();
+
+    expect(client.getQueryState(["connected-devices", "home-1"])?.isInvalidated).toBe(true);
+    expect(client.getQueryState(["connected-devices", "home-2"])?.isInvalidated).toBe(false);
+    expect(
+      client.getQueryState(["house", "home-1", "analytics", "home-performance", "live"])?.isInvalidated,
+    ).toBe(false);
+  });
+
   it("owns exactly one subscription to each transport and disposes both once", () => {
     let onTelemetry: ((event: TelemetryEvent) => void) | undefined;
     let onMeasurement: ((sample: MeasurementSample) => void) | undefined;

@@ -338,7 +338,7 @@ export const pathsPart05 = {
       tags: ["Digital twin"],
       operationId: "placeConnectedDevice",
       security: [{ localSession: [], csrfToken: [] }],
-      description: "Updates the shared 2D/3D Home placement. Metering is disabled while a metered device is unplaced.",
+      description: "Owner/Admin-only update of the shared 2D/3D Home placement. Metering is disabled while a metered device is unplaced.",
       parameters: [{
         name: "connectionId",
         in: "path",
@@ -375,6 +375,7 @@ export const pathsPart05 = {
             },
           },
         },
+        "403": { description: "Owner or Admin role required" },
         "404": { $ref: "#/components/responses/NotFound" },
         "422": { description: "Placement is incomplete or outside the selected Home floor" },
       },
@@ -385,7 +386,7 @@ export const pathsPart05 = {
       tags: ["Digital twin"],
       operationId: "commandConnectedDevice",
       security: [{ localSession: [], csrfToken: [] }],
-      description: "Sends a bounded absolute command. operationId makes same-payload retries idempotent.",
+      description: "Owner/Admin-only bounded absolute command. operationId makes same-payload retries idempotent.",
       parameters: [{
         name: "connectionId",
         in: "path",
@@ -418,6 +419,7 @@ export const pathsPart05 = {
             },
           },
         },
+        "403": { description: "Owner or Admin role required" },
         "404": { $ref: "#/components/responses/NotFound" },
         "409": { description: "operationId conflict or a matching command is still in progress" },
         "422": { description: "Command is unsupported or outside the verified profile bounds" },

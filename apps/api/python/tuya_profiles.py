@@ -7,6 +7,7 @@ change unrelated device settings, so support is added profile by profile.
 from __future__ import annotations
 
 import json
+import math
 from datetime import UTC, datetime
 from typing import Any
 
@@ -110,14 +111,19 @@ def profile(profile_id: str) -> dict[str, Any]:
 def _number(value: Any, divisor: float = 1.0) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return round(float(value) / divisor, 4)
+    number = float(value)
+    if not math.isfinite(number):
+        return None
+    return round(number / divisor, 4)
 
 
 def _light_color(value: Any) -> dict[str, float] | None:
     if not isinstance(value, str):
         return None
     text = value.strip()
-    if len(text) >= 12 and all(character in "0123456789abcdefABCDEF" for character in text[:12]):
+    if len(text) >= 12 and all(
+        character in "0123456789abcdefABCDEF" for character in text[:12]
+    ):
         hue = int(text[0:4], 16)
         saturation = int(text[4:8], 16) / 10
         brightness = int(text[8:12], 16) / 10
@@ -200,7 +206,7 @@ def _bounded_number(value: Any, minimum: float, maximum: float, name: str) -> fl
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{name} must be a number")
     number = float(value)
-    if number < minimum or number > maximum:
+    if not math.isfinite(number) or number < minimum or number > maximum:
         raise ValueError(f"{name} is outside its supported range")
     return number
 
@@ -221,7 +227,9 @@ def command_datapoints(command: Any, profile_id: str) -> dict[str, Any]:
     if "brightnessPercent" in command:
         if not selected["capabilities"]["brightness"]:
             raise ValueError("This Tuya device does not support brightness")
-        value = _bounded_number(command["brightnessPercent"], 1, 100, "brightnessPercent")
+        value = _bounded_number(
+            command["brightnessPercent"], 1, 100, "brightnessPercent"
+        )
         result.update({"21": "white", "22": max(10, min(1000, round(value * 10)))})
     if "colorTemperatureKelvin" in command:
         if not selected["capabilities"]["colorTemperature"]:
@@ -240,9 +248,7 @@ def command_datapoints(command: Any, profile_id: str) -> dict[str, Any]:
         saturation = round(
             _bounded_number(color["saturation"], 0, 100, "color.saturation") * 10
         )
-        brightness = round(
-            _bounded_number(color["value"], 1, 100, "color.value") * 10
-        )
+        brightness = round(_bounded_number(color["value"], 1, 100, "color.value") * 10)
         result.update(
             {"21": "colour", "24": f"{hue:04x}{saturation:04x}{brightness:04x}"}
         )

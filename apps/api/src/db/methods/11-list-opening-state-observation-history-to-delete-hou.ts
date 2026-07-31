@@ -420,6 +420,7 @@ registerDatabaseMethods({
         this.validateHouseLayoutForSensors(id, next.floors);
         if (patch.floors !== undefined) {
           this.validateHouseLayoutForObservations(id, next.floors);
+          this.validateHouseLayoutForConnectedDevices(id, next.floors);
           this.validateHouseLayoutForMaintenanceTasks(id, next.floors);
         }
         this.db.prepare("UPDATE houses SET property_id = ?, name = ?, timezone = ?, location_json = ?, map_placement_json = ?, orientation_degrees = ?, floors_json = ?, updated_at = ? WHERE id = ?")

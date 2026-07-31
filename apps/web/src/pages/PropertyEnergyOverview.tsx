@@ -48,8 +48,18 @@ export function PropertyEnergyOverview({ state, propertyId, propertyName, units,
   const homes = useMemo(() => state.houses
     .filter((candidate) => candidate.propertyId === propertyId)
     .sort((left, right) => left.name.localeCompare(right.name)), [propertyId, state.houses]);
+  const enabledSensorsByHome = useMemo(() => {
+    const indexed = new Map<string, typeof state.sensors>();
+    for (const sensor of state.sensors) {
+      if (!sensor.enabled) continue;
+      const sensors = indexed.get(sensor.houseId);
+      if (sensors) sensors.push(sensor);
+      else indexed.set(sensor.houseId, [sensor]);
+    }
+    return indexed;
+  }, [state.sensors]);
   const homeEnergy = useMemo<PropertyHomeEnergy[]>(() => homes.map((home) => {
-    const homeSensors = state.sensors.filter((sensor) => sensor.houseId === home.id && sensor.enabled);
+    const homeSensors = enabledSensorsByHome.get(home.id) ?? [];
     const electricitySensors = homeSensors.filter((sensor) => ELECTRICITY_METRICS.some((metric) => (
       supportsMetric(state, sensor, metric)
     )));
@@ -67,7 +77,7 @@ export function PropertyEnergyOverview({ state, propertyId, propertyName, units,
         ? powerSources.reduce((sum, source) => sum + (source.sample?.value ?? 0), 0)
         : null,
     };
-  }), [homes, now, state]);
+  }), [enabledSensorsByHome, homes, now, state]);
   const summaryQueries = useQueries({
     queries: homeEnergy.map((home) => homeEnergySummaryQueryOptions(
       home.houseId, "24h", DAY_MS, home.hasUsageSource, 60_000,

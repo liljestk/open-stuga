@@ -69,6 +69,8 @@ export interface TwinDashboardProps {
   dataMode?: DataMode;
   connection?: ConnectionState;
   readOnly?: boolean;
+  /** Connected-device control and placement require an Owner or Admin account. */
+  canManageConnectedDevices?: boolean;
   /** Owner-only integrations, imports, runtime controls, and local analysis configuration stay local. */
   localAuthority?: boolean;
   onHouse: (id: string) => void;

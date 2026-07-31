@@ -27,6 +27,7 @@ export function PropertyCarousel({
   const { locale, t } = useI18n();
   const carouselId = useId();
   const trackRef = useRef<HTMLOListElement>(null);
+  const scrollFrameRef = useRef<number | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const activeIndex = Math.min(selectedIndex, Math.max(0, properties.length - 1));
   const activeProperty = properties[activeIndex];
@@ -51,6 +52,10 @@ export function PropertyCarousel({
     setSelectedIndex((current) => Math.min(current, Math.max(0, properties.length - 1)));
   }, [properties.length]);
 
+  useEffect(() => () => {
+    if (scrollFrameRef.current !== null) window.cancelAnimationFrame(scrollFrameRef.current);
+  }, []);
+
   if (!activeProperty) return null;
 
   const revealProperty = (index: number) => {
@@ -73,20 +78,29 @@ export function PropertyCarousel({
 
   const updateSelectionFromScroll = (event: UIEvent<HTMLOListElement>) => {
     const track = event.currentTarget;
-    const trackRect = track.getBoundingClientRect();
-    const viewportCenter = trackRect.left + trackRect.width / 2;
-    const slides = Array.from(track.children) as HTMLElement[];
-    let closestIndex = 0;
-    let closestDistance = Number.POSITIVE_INFINITY;
-    slides.forEach((slide, index) => {
-      const slideRect = slide.getBoundingClientRect();
-      const distance = Math.abs(slideRect.left + slideRect.width / 2 - viewportCenter);
-      if (distance < closestDistance) {
-        closestDistance = distance;
-        closestIndex = index;
+    if (scrollFrameRef.current !== null) return;
+    scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      if (trackRef.current !== track || track.children.length === 0) return;
+      const viewportCenter = track.scrollLeft + track.clientWidth / 2;
+      let lower = 0;
+      let upper = track.children.length - 1;
+      while (lower < upper) {
+        const middle = Math.floor((lower + upper) / 2);
+        const slide = track.children.item(middle) as HTMLElement;
+        const center = slide.offsetLeft + slide.offsetWidth / 2;
+        if (center < viewportCenter) lower = middle + 1;
+        else upper = middle;
       }
+      const right = track.children.item(lower) as HTMLElement;
+      const left = lower > 0 ? track.children.item(lower - 1) as HTMLElement : null;
+      const rightDistance = Math.abs(right.offsetLeft + right.offsetWidth / 2 - viewportCenter);
+      const leftDistance = left
+        ? Math.abs(left.offsetLeft + left.offsetWidth / 2 - viewportCenter)
+        : Number.POSITIVE_INFINITY;
+      const closestIndex = leftDistance <= rightDistance ? lower - 1 : lower;
+      setSelectedIndex((current) => current === closestIndex ? current : closestIndex);
     });
-    setSelectedIndex(closestIndex);
   };
 
   const navigateTrack = (event: ReactKeyboardEvent<HTMLOListElement>) => {

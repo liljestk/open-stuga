@@ -446,6 +446,46 @@ registerDatabaseMethods({
         }
       }
     },
+  validateHouseLayoutForConnectedDevices(houseId: string, floors: Floor[]): void {
+      const floorsById = new Map(floors.map((floor) => [
+        floor.id,
+        { floor, roomIds: new Set(floor.rooms.map((room) => room.id)) },
+      ]));
+      const placements = this.db.prepare(`SELECT connection_id, floor_id, room_id, x, y
+        FROM connected_device_placements WHERE house_id = ? AND floor_id IS NOT NULL
+        ORDER BY connection_id`).all(houseId) as unknown as Array<{
+          connection_id: string;
+          floor_id: string;
+          room_id: string | null;
+          x: number;
+          y: number;
+        }>;
+      for (const placement of placements) {
+        const target = floorsById.get(placement.floor_id);
+        if (!target) {
+          throw new ClimateDataValidationError(
+            409,
+            "LAYOUT_ORPHANS_CONNECTED_DEVICE",
+            `Floor ${placement.floor_id} cannot be removed while connected device ${placement.connection_id} uses it`,
+          );
+        }
+        if (placement.x < 0 || placement.x > target.floor.width
+          || placement.y < 0 || placement.y > target.floor.height) {
+          throw new ClimateDataValidationError(
+            409,
+            "LAYOUT_EXCLUDES_CONNECTED_DEVICE",
+            `Floor ${placement.floor_id} extent would exclude connected device ${placement.connection_id}`,
+          );
+        }
+        if (placement.room_id && !target.roomIds.has(placement.room_id)) {
+          throw new ClimateDataValidationError(
+            409,
+            "LAYOUT_ORPHANS_CONNECTED_DEVICE_ROOM",
+            `Room ${placement.room_id} cannot be removed while connected device ${placement.connection_id} uses it`,
+          );
+        }
+      }
+    },
   validateHouseLayoutForMaintenanceTasks(houseId: string, floors: Floor[]): void {
       const floorIds = new Set(floors.map((floor) => floor.id));
       const rows = this.db.prepare(`SELECT id, floor_id FROM maintenance_tasks

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type WheelEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { BoxSelect, Grid3X3, ImagePlus, MapPinPlus, MousePointer2, PenLine, Plus, RotateCcw, RotateCw, Trash2 } from "lucide-react";
 import { floorMetersPerPlanUnit, isAirflowPlanElement, wallLengthPlanUnits, type ConfiguredOpeningState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type PlanElementKind, type Point, type Room, type Sensor, type UnitSystem, type Wall } from "@climate-twin/contracts";
 import { clamp, round, type ViewMode } from "../../domain";
@@ -88,6 +88,8 @@ export function useFloorPlanPart01(context: { floor: FloorPlanProps["floor"]; ho
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [planZoom, setPlanZoom] = useState(1);
+  const planWheelDelta = useRef(0);
+  const planWheelFrame = useRef<number | null>(null);
   const { expanded: mapInformationExpanded, setMapInformationExpanded } = useMapInformationVisibility();
   const renderScale = floorRenderScale(floor.width);
   const metresPerPlanUnit = floorMetersPerPlanUnit(floor, house);
@@ -98,16 +100,35 @@ export function useFloorPlanPart01(context: { floor: FloorPlanProps["floor"]; ho
   const gridSize = floorGridSize(floor, gridDensity);
   const renderedGridSize = gridSize * renderScale;
   const viewportMargin = viewMode === "plan" ? Math.max(PLAN_VIEWPORT_MARGIN, renderedGridSize * 3 + 24) : 0;
-  const planViewportWidth = (renderWidth + viewportMargin * 2) / planZoom;
-  const planViewportHeight = (renderHeight + viewportMargin * 2) / planZoom;
+  const effectivePlanZoom = viewMode === "plan" ? planZoom : 1;
+  const planViewportWidth = (renderWidth + viewportMargin * 2) / effectivePlanZoom;
+  const planViewportHeight = (renderHeight + viewportMargin * 2) / effectivePlanZoom;
   const planViewBox = `${(renderWidth - planViewportWidth) / 2} ${(renderHeight - planViewportHeight) / 2} ${planViewportWidth} ${planViewportHeight}`;
   const changePlanZoom = (next: number) => setPlanZoom(clamp(next, .6, 2));
   const stepPlanZoom = (direction: -1 | 1) => setPlanZoom((current) => clamp(Number((current + direction * .15).toFixed(2)), .6, 2));
-  const onPlanWheel = (event: WheelEvent<SVGSVGElement>) => {
-    if (!event.ctrlKey && !event.metaKey) return;
-    event.preventDefault();
-    setPlanZoom((current) => clamp(current * Math.exp(-event.deltaY * .0012), .6, 2));
-  };
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (viewMode !== "plan" || !svg) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      planWheelDelta.current += event.deltaY;
+      if (planWheelFrame.current !== null) return;
+      planWheelFrame.current = window.requestAnimationFrame(() => {
+        const delta = planWheelDelta.current;
+        planWheelDelta.current = 0;
+        planWheelFrame.current = null;
+        setPlanZoom((current) => clamp(current * Math.exp(-delta * .0012), .6, 2));
+      });
+    };
+    svg.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      svg.removeEventListener("wheel", onWheel);
+      if (planWheelFrame.current !== null) window.cancelAnimationFrame(planWheelFrame.current);
+      planWheelFrame.current = null;
+      planWheelDelta.current = 0;
+    };
+  }, [viewMode]);
   const resolvedReferenceTimeMs = referenceTimeMs ?? Date.now();
   const spatialFreshness = useMemo(() => ({
       referenceTimeMs: resolvedReferenceTimeMs,
@@ -177,5 +198,5 @@ export function useFloorPlanPart01(context: { floor: FloorPlanProps["floor"]; ho
       draggingRoomVertex.current = null;
       pendingRoomVertexFocus.current = null;
     }, [floor.id]);
-  return Object.assign(context, { locale, t, houseOpeningStateObservations, metricLabel, svgRef, fileRef, roomNameInputRef, undoButtonRef, roomNameBeforeEdit, dragging, draggingElement, draggingRoomVertex, roomVertexRefs, pendingRoomVertexFocus, planElementRefs, mapHelpId, mapInformationId, roomNameErrorId, wallLengthErrorId, fieldId, editorTool, setEditorTool, wallStart, setWallStart, roomStart, setRoomStart, selectedWallId, setSelectedWallId, wallLengthDraft, setWallLengthDraft, wallLengthError, setWallLengthError, selectedRoomId, setSelectedRoomId, selectedPlanElementId, setSelectedPlanElementId, planElementKind, setPlanElementKind, placementError, setPlacementError, roomNameError, setRoomNameError, deletedWallUndo, setDeletedWallUndo, undoMessage, setUndoMessage, snapEnabled, setSnapEnabled, gridDensity, setGridDensity, addToolsOpen, setAddToolsOpen, editorOptionsOpen, setEditorOptionsOpen, keyboardPoint, setKeyboardPoint, placementAnnouncement, setPlacementAnnouncement, uploadError, setUploadError, reducedMotion, setReducedMotion, mapInformationExpanded, setMapInformationExpanded, planZoom, changePlanZoom, stepPlanZoom, onPlanWheel, planViewBox, renderScale, metresPerPlanUnit, placementCoordinateScale, placementCoordinateUnit, renderWidth, renderHeight, gridSize, renderedGridSize, viewportMargin, resolvedReferenceTimeMs, spatialFreshness, renderSensors, heat, visualDomain, clouds, gradientFlows, transform, layoutEditing, drawingWall, drawingRoom, placingElement, selectingLayout, keyboardPlacementActive, wallSelectionActive, roomSelectionActive, planElementSelectionActive, showMonitoringOverlays, planElements, chimneyPenetrations, selectedWall, selectedRoom, selectedPlanElement, selectedRoomSensorCount });
+  return Object.assign(context, { locale, t, houseOpeningStateObservations, metricLabel, svgRef, fileRef, roomNameInputRef, undoButtonRef, roomNameBeforeEdit, dragging, draggingElement, draggingRoomVertex, roomVertexRefs, pendingRoomVertexFocus, planElementRefs, mapHelpId, mapInformationId, roomNameErrorId, wallLengthErrorId, fieldId, editorTool, setEditorTool, wallStart, setWallStart, roomStart, setRoomStart, selectedWallId, setSelectedWallId, wallLengthDraft, setWallLengthDraft, wallLengthError, setWallLengthError, selectedRoomId, setSelectedRoomId, selectedPlanElementId, setSelectedPlanElementId, planElementKind, setPlanElementKind, placementError, setPlacementError, roomNameError, setRoomNameError, deletedWallUndo, setDeletedWallUndo, undoMessage, setUndoMessage, snapEnabled, setSnapEnabled, gridDensity, setGridDensity, addToolsOpen, setAddToolsOpen, editorOptionsOpen, setEditorOptionsOpen, keyboardPoint, setKeyboardPoint, placementAnnouncement, setPlacementAnnouncement, uploadError, setUploadError, reducedMotion, setReducedMotion, mapInformationExpanded, setMapInformationExpanded, planZoom, effectivePlanZoom, changePlanZoom, stepPlanZoom, planViewBox, renderScale, metresPerPlanUnit, placementCoordinateScale, placementCoordinateUnit, renderWidth, renderHeight, gridSize, renderedGridSize, viewportMargin, resolvedReferenceTimeMs, spatialFreshness, renderSensors, heat, visualDomain, clouds, gradientFlows, transform, layoutEditing, drawingWall, drawingRoom, placingElement, selectingLayout, keyboardPlacementActive, wallSelectionActive, roomSelectionActive, planElementSelectionActive, showMonitoringOverlays, planElements, chimneyPenetrations, selectedWall, selectedRoom, selectedPlanElement, selectedRoomSensorCount });
 }

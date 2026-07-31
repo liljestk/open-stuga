@@ -107,6 +107,7 @@ declare module "../core.js" {
     validateHouseMapPlacement(mapPlacement: HouseMapPlacement, floors: Floor[]): void;
     validateHouseOrientation(orientationDegrees: number): void;
     validateHouseLayoutForSensors(houseId: string, floors: Floor[]): void;
+    validateHouseLayoutForConnectedDevices(houseId: string, floors: Floor[]): void;
     validateHouseLayoutForMaintenanceTasks(houseId: string, floors: Floor[]): void;
   }
 }

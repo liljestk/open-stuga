@@ -47,6 +47,13 @@ afterEach(() => {
 });
 
 describe("Setup workspace", () => {
+  it("fails closed when Tuya management permission is omitted", () => {
+    window.history.replaceState(null, "", "/setup/connections");
+    renderPage();
+
+    expect(screen.queryByRole("heading", { name: "Tuya Wi-Fi" })).toBeNull();
+  });
+
   it("queues an eight-interval Tapo canary for a daily export configuration", async () => {
     window.history.replaceState(null, "", "/setup/connections");
     vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });

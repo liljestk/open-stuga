@@ -105,11 +105,9 @@ function freshestElectricitySample(
   metric: ElectricityMetric,
   now: number,
 ): MeasurementSample | null {
-  const candidates = [
-    state.latestMeasurements[sensorId]?.[metric],
-    ...(state.measurementHistory[sensorId]?.[metric] ?? []),
-  ];
-  return candidates.reduce<MeasurementSample | null>((freshest, candidate) => {
+  const latest = freshElectricitySample(state.latestMeasurements[sensorId]?.[metric], metric, now);
+  if (latest) return latest;
+  return (state.measurementHistory[sensorId]?.[metric] ?? []).reduce<MeasurementSample | null>((freshest, candidate) => {
     const sample = freshElectricitySample(candidate, metric, now);
     if (!sample) return freshest;
     return !freshest || Date.parse(sample.timestamp) > Date.parse(freshest.timestamp) ? sample : freshest;

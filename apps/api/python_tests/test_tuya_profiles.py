@@ -62,6 +62,19 @@ def test_metered_outlet_uses_verified_scaling_without_inventing_energy() -> None
     assert selected["capabilities"]["measuredEnergy"] is False
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_device_values_are_not_projected_or_commanded(value: float) -> None:
+    state = normalized_state(
+        {"dps": {"1": True, "18": value, "19": value, "20": value}},
+        METERED_OUTLET_PROFILE,
+    )
+    assert state["currentAmps"] is None
+    assert state["powerWatts"] is None
+    assert state["voltageVolts"] is None
+    with pytest.raises(ValueError, match="outside its supported range"):
+        command_datapoints({"brightnessPercent": value}, LIGHT_PROFILE)
+
+
 def test_unknown_datapoints_are_rejected() -> None:
     with pytest.raises(ValueError, match="not supported safely"):
         detect_profile({"dps": {"7": 42}})
@@ -78,9 +91,11 @@ def test_bridge_errors_redact_credentials_and_device_identity() -> None:
 
 def test_bridge_rejects_non_local_device_addresses() -> None:
     with pytest.raises(ValueError, match="local network"):
-        validated_config({
-            "host": "8.8.8.8",
-            "deviceId": "device",
-            "localKey": "key",
-            "protocolVersion": "3.5",
-        })
+        validated_config(
+            {
+                "host": "8.8.8.8",
+                "deviceId": "device",
+                "localKey": "key",
+                "protocolVersion": "3.5",
+            }
+        )

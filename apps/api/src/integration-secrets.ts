@@ -7,14 +7,16 @@ import {
   openSync,
   readFileSync,
   renameSync,
-  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
+import { pendingIntegrationSecretsPath, withIntegrationSecretsLock } from "./integration-secrets-lock.js";
 
 export interface IntegrationSecrets {
   version: 1;
+  /** Coordinates crash-safe publication with the SQLite metadata revision. */
+  databaseRevision?: string;
   /** Set only when a new file was synthesized from one environment credential. */
   metadataSnapshotIncomplete?: true;
   homeAssistant?: { url: string; token: string };
@@ -311,6 +313,13 @@ export function readIntegrationSecrets(path: string): IntegrationSecrets {
   if (parsed.version !== 1) throw new Error("The integration secrets file has an unsupported version");
 
   const result: IntegrationSecrets = { version: 1 };
+  if (parsed.databaseRevision !== undefined) {
+    if (typeof parsed.databaseRevision !== "string"
+      || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(parsed.databaseRevision)) {
+      throw new Error("The integration secrets database revision is invalid");
+    }
+    result.databaseRevision = parsed.databaseRevision;
+  }
   if (parsed.metadataSnapshotIncomplete !== undefined) {
     if (parsed.metadataSnapshotIncomplete !== true) throw new Error("The integration metadata completeness marker is invalid");
     result.metadataSnapshotIncomplete = true;
@@ -426,6 +435,10 @@ export function writeIntegrationSecrets(path: string, secrets: IntegrationSecret
   if (secrets.webhook && secrets.webhookDestinations) {
     throw new Error("Integration secrets cannot configure both legacy and multi-destination webhooks");
   }
+  if (secrets.databaseRevision !== undefined
+    && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(secrets.databaseRevision)) {
+    throw new Error("The integration secrets database revision is invalid");
+  }
   const validatedSecrets: IntegrationSecrets = {
     ...secrets,
     ...(secrets.tpLinkConnections === undefined
@@ -455,6 +468,12 @@ export function writeIntegrationSecrets(path: string, secrets: IntegrationSecret
     descriptor = null;
     try { chmodSync(temporary, 0o600); } catch { /* Windows ACLs are managed by the host. */ }
     renameSync(temporary, path);
+    try {
+      const directoryDescriptor = openSync(directory, "r");
+      try { fsyncSync(directoryDescriptor); } finally { closeSync(directoryDescriptor); }
+    } catch {
+      // Windows does not expose directory fsync. The file was flushed before the atomic rename.
+    }
   } finally {
     if (descriptor !== null) {
       try { closeSync(descriptor); } catch { /* Best-effort cleanup after a failed write. */ }
@@ -466,9 +485,7 @@ export function writeIntegrationSecrets(path: string, secrets: IntegrationSecret
   try { chmodSync(path, 0o600); } catch { /* Windows ACLs are managed by the host. */ }
 }
 
-export function updateIntegrationSecrets(
-  path: string,
-  patch: {
+export interface IntegrationSecretsPatch {
     metadataSnapshotIncomplete?: boolean;
     homeAssistant?: IntegrationSecrets["homeAssistant"] | null;
     homeAssistantLegacyDisabled?: boolean;
@@ -484,10 +501,13 @@ export function updateIntegrationSecrets(
     appleNotesGrants?: AppleNotesGrantSecret[];
     addAppleNotesGrant?: AppleNotesGrantSecret;
     removeAppleNotesGrantId?: string;
-  },
+}
+
+export function applyIntegrationSecretsPatch(
+  current: IntegrationSecrets,
+  patch: IntegrationSecretsPatch,
 ): IntegrationSecrets {
-  return withIntegrationSecretsLock(path, () => {
-    const next = readIntegrationSecrets(path);
+    const next: IntegrationSecrets = structuredClone(current);
     if (patch.metadataSnapshotIncomplete === true) next.metadataSnapshotIncomplete = true;
     else if (patch.metadataSnapshotIncomplete === false) delete next.metadataSnapshotIncomplete;
     if (patch.homeAssistant === null) delete next.homeAssistant;
@@ -528,46 +548,19 @@ export function updateIntegrationSecrets(
       next.appleNotesGrants = (next.appleNotesGrants ?? [])
         .filter((grant) => grant.id !== patch.removeAppleNotesGrantId);
     }
+    return next;
+}
+
+export function updateIntegrationSecrets(
+  path: string,
+  patch: IntegrationSecretsPatch,
+): IntegrationSecrets {
+  return withIntegrationSecretsLock(path, () => {
+    if (existsSync(pendingIntegrationSecretsPath(path))) {
+      throw new Error("A committed integration secrets update is pending recovery");
+    }
+    const next = applyIntegrationSecretsPatch(readIntegrationSecrets(path), patch);
     writeIntegrationSecrets(path, next);
     return next;
   });
-}
-
-const LOCK_WAIT_MS = 10;
-const LOCK_TIMEOUT_MS = 5_000;
-const STALE_LOCK_MS = 60_000;
-const lockWaitArray = new Int32Array(new SharedArrayBuffer(4));
-
-function withIntegrationSecretsLock<T>(path: string, operation: () => T): T {
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const lockPath = `${path}.lock`;
-  const deadline = Date.now() + LOCK_TIMEOUT_MS;
-  let descriptor: number | null = null;
-  while (descriptor === null) {
-    try {
-      descriptor = openSync(lockPath, "wx", 0o600);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "EEXIST") throw error;
-      try {
-        if (Date.now() - statSync(lockPath).mtimeMs > STALE_LOCK_MS) {
-          unlinkSync(lockPath);
-          continue;
-        }
-      } catch (staleError) {
-        if ((staleError as NodeJS.ErrnoException).code !== "ENOENT") throw staleError;
-        continue;
-      }
-      if (Date.now() >= deadline) {
-        throw new Error("Timed out waiting to update the integration secrets file");
-      }
-      Atomics.wait(lockWaitArray, 0, 0, LOCK_WAIT_MS);
-    }
-  }
-  try {
-    return operation();
-  } finally {
-    closeSync(descriptor);
-    try { unlinkSync(lockPath); } catch { /* A stale-lock recovery may already have removed it. */ }
-  }
 }

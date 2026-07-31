@@ -252,6 +252,7 @@ export const schemasPart08 = {
   ConnectedDevicePlacementPatch: {
           type: "object",
           additionalProperties: false,
+          required: ["floorId"],
           properties: {
             floorId: { type: ["string", "null"], maxLength: 200 },
             roomId: { type: ["string", "null"], maxLength: 200 },

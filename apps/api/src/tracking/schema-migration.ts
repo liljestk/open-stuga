@@ -41,10 +41,9 @@ export function migrateEmptyLegacyTrackingSchema(database: DatabaseSync): void {
     )) return;
 
   const existing = TRACKING_TABLES_IN_DROP_ORDER.filter((table) => tableExists(database, table));
-  const nonEmpty = existing.filter((table) => {
-    const row = database.prepare(`SELECT COUNT(*) AS count FROM "${table}"`).get() as { count: number | bigint };
-    return Number(row.count) > 0;
-  });
+  const nonEmpty = existing.filter((table) => Boolean(
+    database.prepare(`SELECT 1 FROM "${table}" LIMIT 1`).get(),
+  ));
   if (nonEmpty.length > 0) {
     throw new Error(
       `Legacy tracking data requires an explicit migration before startup (${nonEmpty.join(", ")})`,
