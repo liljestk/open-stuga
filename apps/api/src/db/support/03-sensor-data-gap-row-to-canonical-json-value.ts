@@ -95,7 +95,7 @@ import {
 import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord } from "../../timeseries/types.js";
 import { CORE_SCHEMA_SQL } from "../migrations/core-schema.js";
 import { SecurityAuditEventRow } from "./01-json-value-to-area-equipment-row.js";
-import { SensorDataGapSource, SensorDataGapState } from "./02-equipment-attachment-row-to-sensor-data-gap-state.js";
+import { SensorDataGapCompleteness, SensorDataGapSource, SensorDataGapState } from "./02-equipment-attachment-row-to-sensor-data-gap-state.js";
 
 export interface SensorDataGapRow {
   id: number;
@@ -106,6 +106,8 @@ export interface SensorDataGapRow {
   detected_at: string;
   ended_at: string | null;
   recovery_state: SensorDataGapState;
+  recoverable_until: string | null;
+  recovery_completeness: SensorDataGapCompleteness;
   recovered_points: number;
   attempt_count: number;
   last_attempt_at: string | null;
@@ -122,6 +124,8 @@ export interface SensorDataGapRecord {
   detectedAt: string;
   endedAt: string | null;
   recoveryState: SensorDataGapState;
+  recoverableUntil: string | null;
+  recoveryCompleteness: SensorDataGapCompleteness;
   recoveredPoints: number;
   attemptCount: number;
   lastAttemptAt: string | null;

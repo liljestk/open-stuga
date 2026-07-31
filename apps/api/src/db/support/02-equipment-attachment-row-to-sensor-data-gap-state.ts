@@ -427,3 +427,5 @@ export interface WeatherOutageRecord {
 export type SensorDataGapSource = "home-assistant" | "tp-link";
 
 export type SensorDataGapState = "open" | "pending" | "running" | "complete" | "partial" | "failed" | "not-supported";
+
+export type SensorDataGapCompleteness = "unknown" | "none" | "partial" | "complete";

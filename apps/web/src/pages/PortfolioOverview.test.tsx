@@ -106,6 +106,30 @@ const openAlert: AlertEvent = {
   resolvedAt: null,
 };
 
+function renderTrustState(input: {
+  monitoring?: ReturnType<typeof monitoringCollection>;
+  monitoringRequestState?: "pending" | "error" | "ready" | "unknown";
+}) {
+  return render(
+    <I18nProvider><PortfolioOverview
+      properties={[property]}
+      propertyAreas={[]}
+      houses={[readyHouse]}
+      sensors={[sensor]}
+      latestMeasurements={{}}
+      measurementHistory={{}}
+      alerts={[]}
+      alertRules={[]}
+      integration={integration}
+      {...input}
+      onOpenProperty={vi.fn()}
+      onOpenTwin={vi.fn()}
+      onOpenOutdoor={vi.fn()}
+      onOpenSetup={vi.fn()}
+    /></I18nProvider>,
+  );
+}
+
 describe("PortfolioOverview", () => {
   it("visibly identifies remote Homes without labelling locally owned Homes", () => {
     render(
@@ -243,6 +267,60 @@ describe("PortfolioOverview", () => {
     expect(confirmedDisclosure.open).toBe(true);
     const healthyCard = screen.getByRole("heading", { name: healthyHouse.name }).closest("article")!;
     expect(within(healthyCard).getByText("Monitoring confirmed")).toBeTruthy();
+  });
+
+  it.each(["pending", "error"] as const)("does not present %s monitoring as an all-clear", (monitoringRequestState) => {
+    const view = renderTrustState({ monitoringRequestState });
+    const card = screen.getByRole("heading", { name: readyHouse.name }).closest("article")!;
+
+    expect(within(card).getByText("Condition unknown")).toBeTruthy();
+    expect(within(card).getByText("More fresh sensor data is needed before drawing a conclusion.")).toBeTruthy();
+    expect(within(card).queryByText("All enabled sensors have current data and no alert is open.")).toBeNull();
+    expect(view.container.querySelector(".portfolio-confirmed-homes")).toBeNull();
+  });
+
+  it.each(["partial", "unknown"] as const)("keeps %s evidence out of the confirmed group", (condition) => {
+    const response = monitoringCollection([monitoringSummary({
+      houseId: readyHouse.id,
+      status: condition === "unknown" ? "unknown" : "monitoring-ok",
+      pulseStatus: condition === "unknown" ? "unknown" : "steady",
+      coverage: { enabledSensors: 1, freshSensors: 1 },
+    })]);
+    const view = renderTrustState({ monitoring: condition === "partial" ? { ...response, completeness: "partial" } : response });
+    const card = screen.getByRole("heading", { name: readyHouse.name }).closest("article")!;
+
+    expect(within(card).getByText("Condition unknown")).toBeTruthy();
+    expect(within(card).queryByText("All enabled sensors have current data and no alert is open.")).toBeNull();
+    expect(view.container.querySelector(".portfolio-confirmed-homes")).toBeNull();
+  });
+
+  it("requires the response to cover every known Home before confirming any Home", () => {
+    const response = monitoringCollection([monitoringSummary({
+      houseId: readyHouse.id,
+      coverage: { enabledSensors: 1, freshSensors: 1 },
+    })]);
+    render(
+      <I18nProvider><PortfolioOverview
+        properties={[property]}
+        propertyAreas={[]}
+        houses={[readyHouse, setupHouse]}
+        sensors={[sensor]}
+        latestMeasurements={{}}
+        measurementHistory={{}}
+        alerts={[]}
+        alertRules={[]}
+        integration={integration}
+        monitoring={response}
+        onOpenProperty={vi.fn()}
+        onOpenTwin={vi.fn()}
+        onOpenOutdoor={vi.fn()}
+        onOpenSetup={vi.fn()}
+      /></I18nProvider>,
+    );
+
+    const readyCard = screen.getByRole("heading", { name: readyHouse.name }).closest("article")!;
+    expect(within(readyCard).getByText("Condition unknown")).toBeTruthy();
+    expect(screen.queryByText(/Monitoring confirmed/)).toBeNull();
   });
 
   it("keeps a Property with no Homes visible and navigable", async () => {

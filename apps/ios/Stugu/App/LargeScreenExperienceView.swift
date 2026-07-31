@@ -189,6 +189,7 @@ struct LargeScreenExperienceView: View {
                 } label: {
                     Label("Scan a room", systemImage: "viewfinder")
                 }
+                .disabled(!model.roomPlanCaptureAvailable)
                 #endif
 
                 Button {
@@ -340,6 +341,13 @@ struct LargeScreenExperienceView: View {
         case .capture:
             showingCapture = true
         case .roomScan:
+            guard model.roomPlanCaptureAvailable else {
+                model.errorMessage = model.selectedHomeReadOnly
+                    ? "This Home is read-only. Room scanning cannot replace its floor plan."
+                    : "Reconnect to Stugu before scanning a room."
+                model.consumeDeepLink()
+                return
+            }
             showingRoomScan = true
         case let .equipment(code):
             Task {

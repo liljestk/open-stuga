@@ -114,7 +114,97 @@ describe("AlertsPage monitoring coverage", () => {
     expect(screen.queryByText(/within their rules/i)).toBeNull();
   });
 
-  it("puts unresolved work first and keeps monitoring and rule administration disclosed", () => {
+  it.each(["pending", "error"] as const)("keeps a neutral unknown state when monitoring is %s", (monitoringRequestState) => {
+    const state = createDemoState();
+    render(
+      <I18nProvider><AlertsPage
+        state={{ ...state, alerts: [] }}
+        units="metric"
+        monitoringRequestState={monitoringRequestState}
+        onCreateRule={vi.fn()}
+        onUpdateRule={vi.fn()}
+        onAcknowledge={vi.fn()}
+      /></I18nProvider>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Monitoring status unknown or incomplete" })).toBeTruthy();
+    expect(screen.queryByText("Monitoring data is current")).toBeNull();
+    expect(screen.queryByText(/every enabled sensor has a current reading/i)).toBeNull();
+    expect(screen.getByText("No threshold alerts").closest(".empty-state")?.classList.contains("success")).toBe(false);
+  });
+
+  it.each(["partial", "unknown"] as const)("does not confirm %s monitoring evidence", (condition) => {
+    const state = createDemoState();
+    const enabledSensorCount = state.sensors.filter((sensor) => sensor.enabled).length;
+    const response = monitoringCollection([monitoringSummary({
+      houseId: state.houses[0]!.id,
+      status: condition === "unknown" ? "unknown" : "monitoring-ok",
+      pulseStatus: condition === "unknown" ? "unknown" : "steady",
+      coverage: { enabledSensors: enabledSensorCount, freshSensors: enabledSensorCount },
+    })]);
+    render(
+      <I18nProvider><AlertsPage
+        state={{ ...state, alerts: [] }}
+        units="metric"
+        monitoring={condition === "partial" ? { ...response, completeness: "partial" } : response}
+        onCreateRule={vi.fn()}
+        onUpdateRule={vi.fn()}
+        onAcknowledge={vi.fn()}
+      /></I18nProvider>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Monitoring status unknown or incomplete" })).toBeTruthy();
+    expect(screen.queryByText("Monitoring data is current")).toBeNull();
+    expect(screen.queryByText(/every enabled sensor has a current reading/i)).toBeNull();
+  });
+
+  it("does not claim an all-clear when monitoring reports action is required", () => {
+    const state = createDemoState();
+    const enabledSensorCount = state.sensors.filter((sensor) => sensor.enabled).length;
+    render(
+      <I18nProvider><AlertsPage
+        state={{ ...state, alerts: [] }}
+        units="metric"
+        monitoring={monitoringCollection([monitoringSummary({
+          houseId: state.houses[0]!.id,
+          status: "action-required",
+          pulseStatus: "critical",
+          coverage: { enabledSensors: enabledSensorCount, freshSensors: enabledSensorCount },
+          blockers: [monitoringBlocker("critical-alert")],
+        })])}
+        onCreateRule={vi.fn()}
+        onUpdateRule={vi.fn()}
+        onAcknowledge={vi.fn()}
+      /></I18nProvider>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Monitoring status unknown or incomplete" })).toBeTruthy();
+    expect(screen.queryByText("Monitoring data is current")).toBeNull();
+    expect(screen.getByText("No threshold alerts").closest(".empty-state")?.classList.contains("success")).toBe(false);
+  });
+
+  it("confirms monitoring only when every Home has complete current coverage", () => {
+    const state = createDemoState();
+    const enabledSensorCount = state.sensors.filter((sensor) => sensor.enabled).length;
+    render(
+      <I18nProvider><AlertsPage
+        state={{ ...state, alerts: [] }}
+        units="metric"
+        monitoring={monitoringCollection([monitoringSummary({
+          houseId: state.houses[0]!.id,
+          coverage: { enabledSensors: enabledSensorCount, freshSensors: enabledSensorCount },
+        })])}
+        onCreateRule={vi.fn()}
+        onUpdateRule={vi.fn()}
+        onAcknowledge={vi.fn()}
+      /></I18nProvider>,
+    );
+
+    expect(screen.getByText("Monitoring data is current")).toBeTruthy();
+    expect(screen.getByText(/every enabled sensor has a current reading/i)).toBeTruthy();
+  });
+
+  it("puts unresolved work first and keeps unknown monitoring and rule administration disclosed", () => {
     const state = createDemoState();
     const { container } = render(
       <I18nProvider><AlertsPage state={state} units="metric" onCreateRule={vi.fn()} onUpdateRule={vi.fn()} onAcknowledge={vi.fn()} /></I18nProvider>,
@@ -124,7 +214,7 @@ describe("AlertsPage monitoring coverage", () => {
     const actionPanel = screen.getByRole("heading", { name: "Needs attention" }).closest("section")!;
     expect(pageHeader.nextElementSibling).toBe(actionPanel);
     expect(container.querySelector(".alerts-rule-admin")?.hasAttribute("open")).toBe(false);
-    expect(container.querySelector(".alerts-monitoring-summary.confirmed")?.hasAttribute("open")).toBe(false);
+    expect(container.querySelector(".alerts-monitoring-summary.unknown")).not.toBeNull();
   });
 
   it("offers inspection as the primary action while acknowledgement stays secondary", async () => {

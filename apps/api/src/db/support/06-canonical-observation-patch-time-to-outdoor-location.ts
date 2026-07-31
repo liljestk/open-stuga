@@ -211,6 +211,8 @@ export function sensorDataGapFromRow(row: SensorDataGapRow): SensorDataGapRecord
     detectedAt: row.detected_at,
     endedAt: row.ended_at,
     recoveryState: row.recovery_state,
+    recoverableUntil: row.recoverable_until,
+    recoveryCompleteness: row.recovery_completeness,
     recoveredPoints: row.recovered_points,
     attemptCount: row.attempt_count,
     lastAttemptAt: row.last_attempt_at,

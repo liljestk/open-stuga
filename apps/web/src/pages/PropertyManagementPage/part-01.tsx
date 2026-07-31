@@ -82,7 +82,18 @@ export function usePropertyManagementPagePart01(context: { props: Readonly<Prope
   const propertySummary = (homeCount: number, areaCount: number) => `${t(homeCount === 1 ? "properties.homeCountOne" : "properties.homeCountMany", { count: homeCount })} · ${t(areaCount === 1 ? "properties.areaCountOne" : "properties.areaCountMany", { count: areaCount })}`;
   const workspaceReadOnly = state.session.readOnly;
   const canManageAccess = !workspaceReadOnly && (state.session.tenant.role === "owner" || state.session.tenant.role === "admin");
-  const [tab, setTab] = useState<WorkspaceTab>(() => props.initialTab ?? "map");
+  const requestedInitialTab = props.initialTab ?? "map";
+  const availableInitialTab = requestedInitialTab === "access" && !canManageAccess
+    ? "overview"
+    : requestedInitialTab;
+  const [tab, setTabState] = useState<WorkspaceTab>(() => availableInitialTab);
+  const setTab = useCallback((next: WorkspaceTab) => {
+      setTabState(next);
+      props.onTab?.(next);
+    }, [props.onTab]);
+  useEffect(() => {
+      setTabState(availableInitialTab);
+    }, [availableInitialTab, props.propertyId]);
   const properties = state.properties;
   const initialPropertyAvailable = Boolean(props.initialPropertyId
       && properties.some((candidate) => candidate.id === props.initialPropertyId));

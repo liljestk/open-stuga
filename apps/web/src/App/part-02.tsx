@@ -8,7 +8,7 @@ import { countActionableAlertGroups } from "../alertGrouping";
 import { useI18n } from "../i18n";
 import { enabledDefinitions } from "../measurements";
 import { api, type CreateHouseInput } from "../api";
-import { locationForRoute, routeFromLocation } from "../routing";
+import { locationForPropertySection, locationForRoute, routeFromLocation } from "../routing";
 import { StuguMark } from "../components/StuguMark";
 import { RouteErrorBoundary } from "../components/RouteErrorBoundary";
 import { readLocalStorage, writeLocalStorage } from "../browserStorage";
@@ -25,6 +25,7 @@ import type { TpLinkDeviceReference } from "./support";
 import { useAppPart01 } from "./part-01";
 export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
   const { t, climate, state, workspaceReadOnly, canManagePeople, loadSeriesInBackground, initialRoute, initialHouse, initialPropertyId, initialSelectedHouse, page, setPage, routeLoading, routeNotFound, setRouteNotFound, setRouteRevision, propertyId, setPropertyId, houseId, setHouseId, floorId, setFloorId, metric, setMetric, viewMode, setViewMode, selectedSensorId, setSelectedSensorId, units, setUnitsState, firstHomeName, setFirstHomeName, firstPropertyName, setFirstPropertyName, firstHomePropertyId, setFirstHomePropertyId, bootstrapAction, setBootstrapAction, maintenanceObservationId, setMaintenanceObservationId, requestedSensorDevice, setRequestedSensorDevice, dismissedTpLinkDeviceIds, setDismissedTpLinkDeviceIds, invitationToken, setInvitationToken, logoutUncertain, setLogoutUncertain, previousPage, logout, property, propertyReadOnly, propertyElectricityAvailable, propertyHouses, selectedPropertyHouse, house, activeSharedHouse, houseReadOnly, houseLocalAuthority, locationRoute, readOnly, routeHouse, routeScopeInvalid, effectiveRouteNotFound, floor, measurementDefinitions, availableMeasurements, lastUpdated, openAlertCount, scopedIntegration, availableTpLinkDevices, currentTpLinkDevices, undisclosedTpLinkDevices, discoveredSensorNotice } = context;
+  const previousFocusScope = useRef(`${page}:${locationRoute.propertyId ?? ""}:${locationRoute.houseId ?? ""}`);
   const applyHouse = useCallback((id: string) => {
       const next = state.houses.find((item) => item.id === id);
       if (!next) return;
@@ -51,6 +52,14 @@ export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
         ?? "";
       if (!scopedPropertyId) return;
       if (propertyId !== scopedPropertyId) setPropertyId(scopedPropertyId);
+      const propertyOnlyRoute = Boolean(route.propertyId && !route.houseId
+        && ["properties", "maintenance", "energy"].includes(route.page));
+      if (propertyOnlyRoute) {
+        if (houseId) setHouseId("");
+        if (floorId) setFloorId("");
+        if (selectedSensorId) setSelectedSensorId(null);
+        return;
+      }
       const currentHouse = state.houses.find((candidate) => candidate.id === houseId && candidate.propertyId === scopedPropertyId);
       if (currentHouse) return;
       const nextHouse = state.houses.find((candidate) => candidate.propertyId === scopedPropertyId);
@@ -60,7 +69,7 @@ export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
         setFloorId("");
         setSelectedSensorId(null);
       }
-    }, [applyHouse, climate.bootstrapStatus, houseId, propertyId, routeScopeInvalid, state.houses, state.properties]);
+    }, [applyHouse, climate.bootstrapStatus, floorId, houseId, propertyId, routeScopeInvalid, selectedSensorId, state.houses, state.properties]);
   useEffect(() => {
       if (house && !house.floors.some((item) => item.id === floorId)) setFloorId(house.floors[0]?.id ?? "");
     }, [house, floorId]);
@@ -75,12 +84,22 @@ export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
       }
     }, [availableMeasurements, metric]);
   useEffect(() => {
-      document.title = `${t(effectiveRouteNotFound ? "route.notFoundTitle" : pageTitleKeys[page])} — ${t("app.name")}`;
-      if (previousPage.current === page) return;
+      const pageTitle = t(effectiveRouteNotFound ? "route.notFoundTitle" : pageTitleKeys[page]);
+      const homeScoped = Boolean(locationRoute.houseId && house);
+      const propertyScoped = Boolean(locationRoute.propertyId && property);
+      const scopeTitle = homeScoped
+        ? `${house!.name} — ${property?.name ?? ""}`
+        : propertyScoped
+          ? property!.name
+          : "";
+      document.title = [pageTitle, scopeTitle, t("app.name")].filter(Boolean).join(" — ");
+      const focusScope = `${page}:${locationRoute.propertyId ?? ""}:${locationRoute.houseId ?? ""}`;
+      if (previousPage.current === page && previousFocusScope.current === focusScope) return;
       previousPage.current = page;
+      previousFocusScope.current = focusScope;
       const frame = window.requestAnimationFrame(() => document.getElementById("main-content")?.focus());
       return () => window.cancelAnimationFrame(frame);
-    }, [effectiveRouteNotFound, page, t]);
+    }, [effectiveRouteNotFound, house, locationRoute.houseId, locationRoute.propertyId, page, property, t]);
   const setUnits = (next: UnitSystem) => {
       if (next === "imperial") {
         writeLocalStorage("climate-twin-units", "imperial");
@@ -129,20 +148,25 @@ export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
   const chooseProperty = useCallback((id: string) => {
       const nextProperty = state.properties.find((candidate) => candidate.id === id);
       if (!nextProperty) return;
-      const nextHouse = state.houses.find((candidate) => candidate.propertyId === id);
       setPropertyId(id);
       setFirstHomePropertyId(id);
-      if (nextHouse) applyHouse(nextHouse.id);
-      else {
-        setHouseId("");
-        setFloorId("");
-        setSelectedSensorId(null);
-      }
       const currentRoute = routeFromLocation(window.location);
-      const homeScoped = ["twin", "activity", "outdoor", "sensors", "analytics", "integrations"].includes(page)
-        || (page === "energy" && Boolean(currentRoute.houseId));
-      navigate(homeScoped && !nextHouse ? "properties" : page, homeScoped ? nextHouse?.id ?? null : null, false, window.location.pathname, id);
-    }, [applyHouse, navigate, page, state.houses, state.properties]);
+      const homeScoped = Boolean(currentRoute.houseId)
+        || ["twin", "activity", "outdoor", "sensors", "analytics", "integrations"].includes(page);
+      setHouseId("");
+      setFloorId("");
+      setSelectedSensorId(null);
+      if (page === "properties" && currentRoute.propertySection) {
+        const url = locationForPropertySection(id, currentRoute.propertySection);
+        if (`${window.location.pathname}${window.location.search}` !== url) {
+          window.history.pushState({ page, propertyId: id, houseId: null, propertySection: currentRoute.propertySection }, "", url);
+          setRouteRevision((current) => current + 1);
+        }
+        setRouteNotFound(false);
+        return;
+      }
+      navigate(homeScoped ? "properties" : page, null, false, window.location.pathname, id);
+    }, [navigate, page, state.properties]);
   useEffect(() => {
       const restoreRoute = () => {
         const route = routeFromLocation(window.location);
@@ -159,13 +183,9 @@ export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
           applyHouse(routeHouse.id);
         } else if (route.propertyId && state.properties.some((candidate) => candidate.id === route.propertyId)) {
           setPropertyId(route.propertyId);
-          const firstPropertyHouse = state.houses.find((candidate) => candidate.propertyId === route.propertyId);
-          if (firstPropertyHouse) applyHouse(firstPropertyHouse.id);
-          else {
-            setHouseId("");
-            setFloorId("");
-            setSelectedSensorId(null);
-          }
+          setHouseId("");
+          setFloorId("");
+          setSelectedSensorId(null);
         }
       };
       window.addEventListener("popstate", restoreRoute);

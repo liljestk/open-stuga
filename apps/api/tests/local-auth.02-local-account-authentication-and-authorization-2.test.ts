@@ -69,6 +69,55 @@ describe("local account authentication and authorization", () => {
       .expect(({ body }) => expect(body.job.status).toBe("queued"));
   });
 
+  it("advertises and permits delivery retry only to Owner and Admin roles", async () => {
+    const runtime = authRuntime();
+    runtimes.push(runtime);
+    const owner = await setupOwner(runtime);
+    const terminalAt = "2026-07-31T09:00:00.000Z";
+    runtime.database.db.prepare(`INSERT INTO notification_outbox
+      (id, subject_kind, subject_id, stage, sequence, channel, destination_id,
+       attempts, max_attempts, available_at, created_at, payload_json,
+       destination_ref, dead_lettered_at, last_error)
+      VALUES (?, 'maintenance', ?, 'due', 0, 'webhook', 'primary', 1, 1, ?, ?, '{}', '{}', ?, ?)`)
+      .run("delivery-authz", "maintenance-authz", terminalAt, terminalAt, terminalAt, "terminal failure");
+
+    const invitation = await owner.agent.post("/api/v1/tenant/members")
+      .set("x-csrf-token", owner.csrf)
+      .send({ email: "member-delivery-retry@example.test", role: "member", grants: [] })
+      .expect(201);
+    const member = request.agent(runtime.app);
+    const registration = await member.post("/api/v1/auth/register").send({
+      token: invitation.body.registrationToken,
+      password: "member delivery retry password long enough",
+    }).expect(201);
+
+    await member.get("/api/v1/notification-deliveries")
+      .expect(200)
+      .expect(({ body }) => expect(body.deliveries).toContainEqual(expect.objectContaining({
+        id: "delivery-authz",
+        canRetry: false,
+      })));
+    await member.post("/api/v1/notification-deliveries/delivery-authz/retry")
+      .set("x-csrf-token", registration.body.csrfToken)
+      .expect(403, {
+        error: { code: "FORBIDDEN", message: "Workspace administration requires an Owner or Admin account" },
+      });
+
+    await owner.agent.get("/api/v1/notification-deliveries")
+      .expect(200)
+      .expect(({ body }) => expect(body.deliveries).toContainEqual(expect.objectContaining({
+        id: "delivery-authz",
+        canRetry: true,
+      })));
+    await owner.agent.post("/api/v1/notification-deliveries/delivery-authz/retry")
+      .set("x-csrf-token", owner.csrf)
+      .expect(200)
+      .expect(({ body }) => expect(body.delivery).toMatchObject({
+        id: "delivery-authz",
+        canRetry: false,
+      }));
+  });
+
   it("cleans expired invitations and deleted grants, scans beyond 500 hidden rows, and limits subject churn", async () => {
     const runtime = authRuntime();
     runtimes.push(runtime);

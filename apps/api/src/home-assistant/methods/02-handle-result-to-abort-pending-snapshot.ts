@@ -249,7 +249,10 @@ registerHomeAssistantConnectionBridgeMethods({
         canonicalUnit: definition.unit,
         timestamp: update.timestamp,
         source: "home-assistant",
-        quality: "good",
+        // HA exposes a normalized entity state, not proof that the upstream
+        // value is a direct calibrated observation. Keep generic entities
+        // estimated until a future binding contract can validate provenance.
+        quality: "estimated",
       };
       if (this[homeAssistantConnectionBridgeState].options.shouldIngestLiveMeasurement?.(sample.sensorId, sample.metric) === false) {
         // Keep connection freshness accurate while the faster direct source owns

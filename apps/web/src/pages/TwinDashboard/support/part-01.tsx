@@ -77,7 +77,7 @@ export interface TwinDashboardProps {
   onFloor: (id: string) => void;
   onMetric: (metric: Metric) => void;
   onViewMode: (view: ViewMode) => void;
-  onSensorSelect: (id: string) => void;
+  onSensorSelect: (id: string | null) => void;
   onSensorMove: (id: string, point: Point) => void;
   onSensorUpdate: (id: string, patch: SensorPatch) => Promise<Sensor>;
   onFloorChange: (floor: Floor) => void;
@@ -104,6 +104,7 @@ export interface TwinDashboardProps {
   onOpenEnergy?: () => void;
   onOpenOutdoor?: () => void;
   onOpenAnalytics?: () => void;
+  onAcknowledgeAlert?: (alertId: string) => Promise<void>;
 }
 
 export const observationKinds: ManualObservation["kind"][] = ["leak", "condensation", "mould", "ventilation", "maintenance", "note"];

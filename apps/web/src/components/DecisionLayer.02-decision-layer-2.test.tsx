@@ -221,6 +221,7 @@ describe("decision layer", () => {
 
     view.rerender(<I18nProvider><HomePulsePanel {...baseProps} alerts={[{ ...warningAlert, severity: "critical", value: 40 }]} monitoring={responseFor("critical")} /></I18nProvider>);
     expect(view.container.querySelector(".pulse-insight.critical")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /^Hide / })).toBeNull();
   });
 
   it("localizes generated Home Pulse guidance and evidence in Finnish", () => {

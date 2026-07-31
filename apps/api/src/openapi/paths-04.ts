@@ -28,7 +28,7 @@ export const pathsPart04 = {
                         items: {
                           type: "object",
                           additionalProperties: false,
-                          required: ["id", "sensorId", "metric", "source", "startedAt", "detectedAt", "endedAt", "recoveryState", "recoveredPoints", "attemptCount", "lastAttemptAt", "nextAttemptAt", "recoveryError"],
+                          required: ["id", "sensorId", "metric", "source", "startedAt", "detectedAt", "endedAt", "recoveryState", "recoverableUntil", "recoveryCompleteness", "recoveredPoints", "attemptCount", "lastAttemptAt", "nextAttemptAt", "recoveryError"],
                           properties: {
                             id: { type: "integer" },
                             sensorId: { type: "string" },
@@ -38,6 +38,8 @@ export const pathsPart04 = {
                             detectedAt: { type: "string", format: "date-time" },
                             endedAt: { type: ["string", "null"], format: "date-time" },
                             recoveryState: { enum: ["open", "pending", "running", "complete", "partial", "failed", "not-supported"] },
+                            recoverableUntil: { type: ["string", "null"], format: "date-time", description: "Known local retention deadline; null means source-managed or unknown, not unlimited." },
+                            recoveryCompleteness: { enum: ["unknown", "none", "partial", "complete"] },
                             recoveredPoints: { type: "integer", minimum: 0 },
                             attemptCount: { type: "integer", minimum: 0 },
                             lastAttemptAt: { type: ["string", "null"], format: "date-time" },

@@ -94,6 +94,11 @@ export function useTwinDashboardPart05(context: ReturnType<typeof useTwinDashboa
       props.onViewMode("plan");
       setLiveMapOpen(true);
     };
+  const openDecisionRoom = (targetFloorId: string, _roomId: string | null) => {
+      props.onFloor(targetFloorId);
+      props.onSensorSelect(null);
+      props.onViewMode("plan");
+    };
   const liveMapVisible = liveMapOpen || editing || replayActive || fullPage;
-  return Object.assign(context, { submitParameter, startEditing, saveEdits, finishEditing, openDecisionSensor, liveMapVisible });
+  return Object.assign(context, { submitParameter, startEditing, saveEdits, finishEditing, openDecisionSensor, openDecisionRoom, liveMapVisible });
 }

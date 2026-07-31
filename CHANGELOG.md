@@ -4,6 +4,30 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.27.0 - 2026-07-31
+
+- Refine the Home, Workspace, Property, Alerts, and room-comfort surfaces into
+  calmer decision layers that lead with actionable exceptions and preserve
+  critical guidance until the underlying condition resolves; acknowledgement
+  remains lifecycle metadata rather than a dismissal.
+- Treat monitoring trust as product state: distinguish pending, partial,
+  unavailable, stale, estimated, and complete evidence; expose source,
+  freshness, quality, and provenance without presenting unknown coverage as
+  reassurance.
+- Preserve Property sections, Home scope, browser history, deep links, and
+  keyboard focus when switching context, while keeping Property-owned content
+  correctly scoped and usable without a Home.
+- Make alert-delivery retry eligibility explicit and enforce Owner/Admin
+  authority server-side, with durable notification and sensor-gap schema
+  migrations that preserve existing records during upgrade.
+- Bound TP-Link temperature and humidity recovery by retained device history,
+  record none/partial/complete recovery outcomes, and document source-specific
+  Home Assistant and outage-recovery limits.
+- Version iPhone, iPad, Mac, Widget, and Watch persistence migrations; bind
+  Watch actions to the correct server, account, and Home; enforce per-alert
+  authority plus offline/read-only action gating; and verify Finnish and Swedish
+  localization coverage.
+
 ## 0.26.1 - 2026-07-31
 
 - Keep Tuya discovery disabled during general network searches and require an

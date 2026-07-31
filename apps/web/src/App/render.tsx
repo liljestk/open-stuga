@@ -8,7 +8,7 @@ import { countActionableAlertGroups } from "../alertGrouping";
 import { useI18n } from "../i18n";
 import { enabledDefinitions } from "../measurements";
 import { api, type CreateHouseInput } from "../api";
-import { locationForRoute, routeFromLocation } from "../routing";
+import { locationForPropertySection, locationForRoute, routeFromLocation } from "../routing";
 import { StuguMark } from "../components/StuguMark";
 import { RouteErrorBoundary } from "../components/RouteErrorBoundary";
 import { readLocalStorage, writeLocalStorage } from "../browserStorage";
@@ -294,7 +294,14 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
       ><Suspense fallback={routeLoading}><PropertyManagementPage
         state={state}
         dataMode={climate.dataMode}
-        initialTab="overview"
+        initialTab={locationRoute.propertySection ?? "overview"}
+        onTab={(section) => {
+          if (!propertyId) return;
+          const url = locationForPropertySection(propertyId, section);
+          if (`${window.location.pathname}${window.location.search}` === url) return;
+          window.history.pushState({ page: "properties", propertyId, houseId: null, propertySection: section }, "", url);
+          setRouteRevision((current) => current + 1);
+        }}
         indexMode={propertyIndex}
         propertyId={propertyIndex ? undefined : propertyId}
         onProperty={chooseProperty}
@@ -303,6 +310,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         onDeleteProperty={climate.deleteProperty}
         onCreateHouse={climate.createHouse}
         onUpdateHouse={climate.updateHouse}
+        onOpenHouse={(id) => { applyHouse(id); navigate("twin", id); }}
         onCreateArea={climate.createPropertyArea}
         onUpdateArea={climate.updatePropertyArea}
         onDeleteArea={climate.deletePropertyArea}
@@ -456,6 +464,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
             onOpenMaintenance={() => navigate("maintenance", house.id)}
             onOpenEnergy={() => navigate("energy", house.id)}
             onOpenOutdoor={() => navigate("outdoor", house.id)}
+            onAcknowledgeAlert={climate.acknowledgeAlert}
             onOpenAnalytics={() => navigate("analytics", house.id)}
             readOnly={readOnly}
             canManageConnectedDevices={canManagePeople}

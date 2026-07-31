@@ -4,6 +4,10 @@ import UIKit
 import WidgetKit
 
 private struct WidgetSnapshot: Codable, Equatable {
+    static let currentSchemaVersion = 2
+    static let minimumSupportedSchemaVersion = 1
+
+    let schemaVersion: Int
     let homeId: String
     let homeName: String
     let homeOrigin: String?
@@ -15,6 +19,67 @@ private struct WidgetSnapshot: Codable, Equatable {
 
     static let appGroupIdentifier = "group.net.nysta.stuga"
     static let storageKey = "stugu.widget.snapshot.v1"
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case homeId
+        case homeName
+        case homeOrigin
+        case state
+        case title
+        case detail
+        case activeAlertCount
+        case updatedAt
+    }
+
+    init(
+        homeId: String,
+        homeName: String,
+        homeOrigin: String?,
+        state: String,
+        title: String,
+        detail: String,
+        activeAlertCount: Int,
+        updatedAt: String
+    ) {
+        schemaVersion = Self.currentSchemaVersion
+        self.homeId = homeId
+        self.homeName = homeName
+        self.homeOrigin = homeOrigin
+        self.state = state
+        self.title = title
+        self.detail = detail
+        self.activeAlertCount = activeAlertCount
+        self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let storedSchemaVersion = try values.decodeIfPresent(
+            Int.self,
+            forKey: .schemaVersion
+        ) ?? Self.minimumSupportedSchemaVersion
+        guard (Self.minimumSupportedSchemaVersion...Self.currentSchemaVersion)
+            .contains(storedSchemaVersion) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion,
+                in: values,
+                debugDescription: "Unsupported widget snapshot schema \(storedSchemaVersion)."
+            )
+        }
+        schemaVersion = Self.currentSchemaVersion
+        homeId = try values.decode(String.self, forKey: .homeId)
+        homeName = try values.decode(String.self, forKey: .homeName)
+        homeOrigin = try values.decodeIfPresent(String.self, forKey: .homeOrigin)
+        state = try values.decode(String.self, forKey: .state)
+        title = try values.decode(String.self, forKey: .title)
+        detail = try values.decode(String.self, forKey: .detail)
+        activeAlertCount = try values.decodeIfPresent(
+            Int.self,
+            forKey: .activeAlertCount
+        ) ?? 0
+        updatedAt = try values.decode(String.self, forKey: .updatedAt)
+    }
 }
 
 private struct StuguWidgetEntry: TimelineEntry {

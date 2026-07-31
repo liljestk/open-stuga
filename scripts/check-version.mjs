@@ -40,6 +40,33 @@ if (runtimeVersion !== expected) {
 const apiVersionSource = readFileSync(resolve(root, "apps/api/src/version.ts"), "utf8");
 const apiRuntimeVersion = /export const SYSTEM_VERSION = "([^"]+)"/.exec(apiVersionSource)?.[1];
 if (apiRuntimeVersion !== expected) mismatches.push(`apps/api/src/version.ts: ${apiRuntimeVersion ?? "missing"}`);
+const versioningSource = readFileSync(resolve(root, "docs/versioning.md"), "utf8");
+const documentedRelease = /The current release is `([^`]+)`\./.exec(versioningSource)?.[1];
+if (documentedRelease !== expected) {
+  mismatches.push(`docs/versioning.md current release: ${documentedRelease ?? "missing"}`);
+}
+const xcodeGenSource = readFileSync(resolve(root, "apps/ios/project.yml"), "utf8");
+const xcodeGenVersions = [...xcodeGenSource.matchAll(/^\s*MARKETING_VERSION:\s*["']?([^"'\s#]+)["']?\s*$/gm)]
+  .map((match) => match[1]);
+if (xcodeGenVersions.length === 0) {
+  mismatches.push("apps/ios/project.yml MARKETING_VERSION: missing");
+} else {
+  for (const version of new Set(xcodeGenVersions)) {
+    if (version !== expected) mismatches.push(`apps/ios/project.yml MARKETING_VERSION: ${version}`);
+  }
+}
+const xcodeProjectSource = readFileSync(resolve(root, "apps/ios/Stugu.xcodeproj/project.pbxproj"), "utf8");
+const xcodeProjectVersions = [...xcodeProjectSource.matchAll(/\bMARKETING_VERSION = ([^;]+);/g)]
+  .map((match) => match[1].trim());
+if (xcodeProjectVersions.length === 0) {
+  mismatches.push("apps/ios/Stugu.xcodeproj/project.pbxproj MARKETING_VERSION: missing");
+} else {
+  for (const version of new Set(xcodeProjectVersions)) {
+    if (version !== expected) {
+      mismatches.push(`apps/ios/Stugu.xcodeproj/project.pbxproj MARKETING_VERSION: ${version}`);
+    }
+  }
+}
 const lock = json("package-lock.json");
 if (lock.version !== expected || lock.packages?.[""]?.version !== expected) {
   mismatches.push(`package-lock.json: ${lock.version ?? "missing"}`);
@@ -89,5 +116,5 @@ if (mismatches.length) {
   process.exitCode = 1;
 } else {
   const bump = baseVersion ? ` and is newer than PR base ${baseVersion}` : "";
-  console.log(`Stugu version ${expected} is consistent across the local runtime, package metadata, and changelog${bump}.`);
+  console.log(`Stugu version ${expected} is consistent across runtime, repository, package, Apple, and changelog metadata${bump}.`);
 }

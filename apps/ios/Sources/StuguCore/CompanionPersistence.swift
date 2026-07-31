@@ -180,7 +180,8 @@ public struct PendingCompanionAction: Codable, Equatable, Identifiable, Sendable
 }
 
 public struct CompanionCache: Codable, Equatable, Sendable {
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
+    public static let minimumSupportedSchemaVersion = 1
 
     public let schemaVersion: Int
     public let serverOrigin: String
@@ -201,6 +202,28 @@ public struct CompanionCache: Codable, Equatable, Sendable {
     public let pendingActions: [PendingCompanionAction]
     public let tpLinkDevices: [TpLinkDiscoveredDevice]?
     public let latestOpeningStateObservation: OpeningStateObservation?
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case serverOrigin
+        case savedAt
+        case session
+        case properties
+        case houses
+        case sensors
+        case definitions
+        case measurementSnapshot
+        case alerts
+        case rules
+        case propertyInventory
+        case selectedHomeId
+        case selectedPropertyId
+        case history
+        case todayContext
+        case pendingActions
+        case tpLinkDevices
+        case latestOpeningStateObservation
+    }
 
     public init(
         serverOrigin: String,
@@ -243,6 +266,72 @@ public struct CompanionCache: Codable, Equatable, Sendable {
         self.latestOpeningStateObservation = latestOpeningStateObservation
     }
 
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let storedSchemaVersion = try values.decodeIfPresent(
+            Int.self,
+            forKey: .schemaVersion
+        ) ?? Self.minimumSupportedSchemaVersion
+        guard Self.supports(schemaVersion: storedSchemaVersion) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion,
+                in: values,
+                debugDescription: "Unsupported companion cache schema \(storedSchemaVersion)."
+            )
+        }
+
+        schemaVersion = Self.currentSchemaVersion
+        serverOrigin = try values.decode(String.self, forKey: .serverOrigin)
+        savedAt = try values.decode(String.self, forKey: .savedAt)
+        session = try values.decode(AppSession.self, forKey: .session)
+        properties = try values.decodeIfPresent(
+            [StuguProperty].self,
+            forKey: .properties
+        ) ?? []
+        houses = try values.decodeIfPresent([House].self, forKey: .houses) ?? []
+        sensors = try values.decodeIfPresent([Sensor].self, forKey: .sensors) ?? []
+        definitions = try values.decodeIfPresent(
+            [MeasurementDefinition].self,
+            forKey: .definitions
+        ) ?? []
+        measurementSnapshot = try values.decodeIfPresent(
+            [MeasurementSnapshotEntry].self,
+            forKey: .measurementSnapshot
+        ) ?? []
+        alerts = try values.decodeIfPresent([AlertEvent].self, forKey: .alerts) ?? []
+        rules = try values.decodeIfPresent([AlertRule].self, forKey: .rules) ?? []
+        propertyInventory = try values.decodeIfPresent(
+            PropertyInventorySnapshot.self,
+            forKey: .propertyInventory
+        )
+        selectedHomeId = try values.decodeIfPresent(String.self, forKey: .selectedHomeId)
+        selectedPropertyId = try values.decodeIfPresent(
+            String.self,
+            forKey: .selectedPropertyId
+        )
+        history = try values.decodeIfPresent(
+            [CompanionHistorySeries].self,
+            forKey: .history
+        ) ?? []
+        todayContext = try values.decodeIfPresent(TodayContext.self, forKey: .todayContext)
+        pendingActions = try values.decodeIfPresent(
+            [PendingCompanionAction].self,
+            forKey: .pendingActions
+        ) ?? []
+        tpLinkDevices = try values.decodeIfPresent(
+            [TpLinkDiscoveredDevice].self,
+            forKey: .tpLinkDevices
+        )
+        latestOpeningStateObservation = try values.decodeIfPresent(
+            OpeningStateObservation.self,
+            forKey: .latestOpeningStateObservation
+        )
+    }
+
+    public static func supports(schemaVersion: Int) -> Bool {
+        (minimumSupportedSchemaVersion...currentSchemaVersion).contains(schemaVersion)
+    }
+
     public func bounded(
         maximumHistorySeries: Int = 24,
         maximumSamplesPerSeries: Int = 672,
@@ -283,8 +372,12 @@ public struct CompanionCache: Codable, Equatable, Sendable {
 public actor CompanionCacheStore {
     public enum StoreError: Error {
         case cacheTooLarge
-        case unsupportedSchema
+        case unsupportedSchema(Int)
         case serverMismatch
+    }
+
+    private struct CacheHeader: Decodable {
+        let schemaVersion: Int?
     }
 
     private static let maximumEncodedBytes = 16 * 1_024 * 1_024
@@ -309,17 +402,35 @@ public actor CompanionCacheStore {
 
     public func load(serverOrigin: String) throws -> CompanionCache? {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
-        let cache = try decoder.decode(CompanionCache.self, from: Data(contentsOf: fileURL))
-        guard cache.schemaVersion == CompanionCache.currentSchemaVersion else {
-            throw StoreError.unsupportedSchema
+        let data = try Data(contentsOf: fileURL)
+        let storedSchemaVersion = try decoder.decode(CacheHeader.self, from: data)
+            .schemaVersion ?? CompanionCache.minimumSupportedSchemaVersion
+        guard CompanionCache.supports(schemaVersion: storedSchemaVersion) else {
+            throw StoreError.unsupportedSchema(storedSchemaVersion)
         }
+        let cache = try decoder.decode(CompanionCache.self, from: data)
         guard cache.serverOrigin == serverOrigin else {
             throw StoreError.serverMismatch
         }
-        return cache.bounded()
+        let migrated = cache.bounded()
+        if storedSchemaVersion != CompanionCache.currentSchemaVersion {
+            // A failed best-effort rewrite must not make a readable legacy
+            // cache unavailable to the user.
+            try? save(migrated)
+        }
+        return migrated
     }
 
     public func save(_ cache: CompanionCache) throws {
+        if FileManager.default.fileExists(atPath: fileURL.path),
+           let existingData = try? Data(contentsOf: fileURL),
+           let header = try? decoder.decode(CacheHeader.self, from: existingData) {
+            let storedSchemaVersion = header.schemaVersion
+                ?? CompanionCache.minimumSupportedSchemaVersion
+            guard CompanionCache.supports(schemaVersion: storedSchemaVersion) else {
+                throw StoreError.unsupportedSchema(storedSchemaVersion)
+            }
+        }
         let directory = fileURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(
             at: directory,
@@ -347,9 +458,12 @@ public actor CompanionCacheStore {
 }
 
 public struct CompanionWidgetSnapshot: Codable, Equatable, Sendable {
+    public static let currentSchemaVersion = 2
+    public static let minimumSupportedSchemaVersion = 1
     public static let appGroupIdentifier = "group.net.nysta.stuga"
     public static let storageKey = "stugu.widget.snapshot.v1"
 
+    public let schemaVersion: Int
     public let homeId: String
     public let homeName: String
     public let homeOrigin: String?
@@ -358,6 +472,18 @@ public struct CompanionWidgetSnapshot: Codable, Equatable, Sendable {
     public let detail: String
     public let activeAlertCount: Int
     public let updatedAt: String
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case homeId
+        case homeName
+        case homeOrigin
+        case state
+        case title
+        case detail
+        case activeAlertCount
+        case updatedAt
+    }
 
     public init(
         homeId: String,
@@ -369,6 +495,7 @@ public struct CompanionWidgetSnapshot: Codable, Equatable, Sendable {
         activeAlertCount: Int,
         updatedAt: String
     ) {
+        schemaVersion = Self.currentSchemaVersion
         self.homeId = homeId
         self.homeName = homeName
         self.homeOrigin = homeOrigin
@@ -378,10 +505,42 @@ public struct CompanionWidgetSnapshot: Codable, Equatable, Sendable {
         self.activeAlertCount = activeAlertCount
         self.updatedAt = updatedAt
     }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let storedSchemaVersion = try values.decodeIfPresent(
+            Int.self,
+            forKey: .schemaVersion
+        ) ?? Self.minimumSupportedSchemaVersion
+        guard (Self.minimumSupportedSchemaVersion...Self.currentSchemaVersion)
+            .contains(storedSchemaVersion) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .schemaVersion,
+                in: values,
+                debugDescription: "Unsupported widget snapshot schema \(storedSchemaVersion)."
+            )
+        }
+        schemaVersion = Self.currentSchemaVersion
+        homeId = try values.decode(String.self, forKey: .homeId)
+        homeName = try values.decode(String.self, forKey: .homeName)
+        homeOrigin = try values.decodeIfPresent(String.self, forKey: .homeOrigin)
+        state = try values.decode(String.self, forKey: .state)
+        title = try values.decode(String.self, forKey: .title)
+        detail = try values.decode(String.self, forKey: .detail)
+        activeAlertCount = try values.decodeIfPresent(
+            Int.self,
+            forKey: .activeAlertCount
+        ) ?? 0
+        updatedAt = try values.decode(String.self, forKey: .updatedAt)
+    }
 }
 
 public struct CompanionWidgetSnapshotStore {
     public static let widgetKind = "StuguStatusWidget"
+
+    private struct SnapshotHeader: Decodable {
+        let schemaVersion: Int?
+    }
 
     private let defaults: UserDefaults
 
@@ -395,11 +554,34 @@ public struct CompanionWidgetSnapshotStore {
         guard let data = defaults.data(forKey: CompanionWidgetSnapshot.storageKey) else {
             return nil
         }
-        return try? JSONDecoder().decode(CompanionWidgetSnapshot.self, from: data)
+        let storedSchemaVersion = (try? JSONDecoder().decode(
+            SnapshotHeader.self,
+            from: data
+        ).schemaVersion) ?? CompanionWidgetSnapshot.minimumSupportedSchemaVersion
+        guard let snapshot = try? JSONDecoder().decode(
+            CompanionWidgetSnapshot.self,
+            from: data
+        ) else {
+            return nil
+        }
+        if storedSchemaVersion != CompanionWidgetSnapshot.currentSchemaVersion,
+           let migrated = try? JSONEncoder().encode(snapshot) {
+            defaults.set(migrated, forKey: CompanionWidgetSnapshot.storageKey)
+        }
+        return snapshot
     }
 
     public func save(_ snapshot: CompanionWidgetSnapshot) {
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        if let existingData = defaults.data(forKey: CompanionWidgetSnapshot.storageKey),
+           let header = try? JSONDecoder().decode(SnapshotHeader.self, from: existingData) {
+            let storedSchemaVersion = header.schemaVersion
+                ?? CompanionWidgetSnapshot.minimumSupportedSchemaVersion
+            guard storedSchemaVersion >= CompanionWidgetSnapshot.minimumSupportedSchemaVersion,
+                  storedSchemaVersion <= CompanionWidgetSnapshot.currentSchemaVersion else {
+                return
+            }
+        }
         defaults.set(data, forKey: CompanionWidgetSnapshot.storageKey)
         reloadWidget()
     }

@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { AlertCircle, Bell, BellRing, Check, ChevronDown, Clock3, HelpCircle, LoaderCircle, MessageCircle, Plus, ShieldCheck } from "lucide-react";
-import type { AlertDeliveryPolicy, AlertEvent, AlertOperator, AlertRule, AlertRulePatch, AlertSeverity, HomeMonitoringBlocker, HomeMonitoringCollectionResponse, IntegrationStatus, MeasurementDefinition, Metric, Sensor, UnitSystem } from "@climate-twin/contracts";
+import type { AlertDeliveryPolicy, AlertEvent, AlertOperator, AlertRule, AlertRulePatch, AlertSeverity, HomeMonitoringBlocker, HomeMonitoringCollectionResponse, HomeMonitoringSummary, IntegrationStatus, MeasurementDefinition, Metric, Sensor, UnitSystem } from "@climate-twin/contracts";
 import { type ClimateState } from "../domain";
 import { useI18n } from "../i18n";
 import { defaultAlertThreshold, definitionFor, displayUnit, enabledDefinitions, formatMeasurement, fromDisplayValue, measurementLabel, toDisplayValue } from "../measurements";
@@ -13,6 +13,33 @@ import { HostSystemAlertsPanel } from "./HostSystemAlertsPanel";
 
 export { countActionableAlertGroups } from "../alertGrouping";
 
+type MonitoringRequestState = "pending" | "error" | "ready" | "unknown";
+
+const coverageBlockerKinds = new Set<HomeMonitoringBlocker["kind"]>([
+  "no-sensors",
+  "missing-data",
+  "stale-data",
+  "source-disconnected",
+  "estimated-data",
+  "aging-data",
+]);
+
+function coverageBlocker(result: HomeMonitoringSummary): HomeMonitoringBlocker | null {
+  return result.blockers.find((item) => coverageBlockerKinds.has(item.kind)) ?? null;
+}
+
+function hasCurrentCoverage(result: HomeMonitoringSummary): boolean {
+  return result.status === "monitoring-ok"
+    && result.blockers.length === 0
+    && !coverageBlocker(result)
+    && result.coverage.enabledSensors > 0
+    && result.coverage.freshSensors === result.coverage.enabledSensors
+    && result.coverage.estimatedSensors === 0
+    && result.coverage.agingSensors === 0
+    && result.coverage.staleSensors === 0
+    && result.coverage.sensorsWithoutData === 0;
+}
+
 interface AlertsPageProps {
   state: ClimateState;
   units: UnitSystem;
@@ -24,11 +51,12 @@ interface AlertsPageProps {
   readOnly?: boolean;
   dataMode?: "demo" | "real" | "unknown";
   monitoring?: HomeMonitoringCollectionResponse;
+  monitoringRequestState?: MonitoringRequestState;
   canManageSystem?: boolean;
   onOpenSystem?: () => void;
 }
 
-function AlertsPageView({ state, units, onCreateRule, onUpdateRule, onAcknowledge, onInspectAlert, onIntegrationChange, readOnly = false, monitoring, canManageSystem = false, onOpenSystem }: AlertsPageProps) {
+function AlertsPageView({ state, units, onCreateRule, onUpdateRule, onAcknowledge, onInspectAlert, onIntegrationChange, readOnly = false, monitoring, monitoringRequestState, canManageSystem = false, onOpenSystem }: AlertsPageProps) {
   const { locale, t } = useI18n();
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
@@ -54,12 +82,18 @@ function AlertsPageView({ state, units, onCreateRule, onUpdateRule, onAcknowledg
   const monitoringByHouse = new Map(
     (monitoring?.houses ?? []).map((result) => [result.houseId, result]),
   );
+  const effectiveMonitoringRequestState = monitoringRequestState ?? (monitoring ? "ready" : "unknown");
+  const monitoringResponseComplete = effectiveMonitoringRequestState === "ready"
+    && monitoring?.completeness === "complete";
   const coverageExceptions = state.houses.flatMap((house) => {
     const result = monitoringByHouse.get(house.id);
-    if (!result) return [];
-    const blocker = result.blockers.find((item) => ["no-sensors", "missing-data", "stale-data", "source-disconnected", "estimated-data", "aging-data"].includes(item.kind));
-    return blocker ? [{ house, blocker }] : [];
+    if (!monitoringResponseComplete || !result) return [{ house, blocker: null }];
+    const blocker = coverageBlocker(result);
+    return hasCurrentCoverage(result) ? [] : [{ house, blocker }];
   });
+  const monitoringConfirmed = monitoringResponseComplete
+    && state.houses.length > 0
+    && coverageExceptions.length === 0;
   useEffect(() => {
     if (definitions.length && !definitions.some((item) => item.id === metric)) {
       const next = definitions[0]!;
@@ -104,7 +138,7 @@ function AlertsPageView({ state, units, onCreateRule, onUpdateRule, onAcknowledg
         <div className="panel-header alerts-open-heading"><div><span className="eyebrow">{t("alerts.open")}</span><h2 id="open-alerts-heading">{t("alerts.needsAttention")}</h2></div><span className="alerts-open-count" aria-label={`${actionableGroups.length} ${t("alerts.open")}`}>{actionableGroups.length}</span></div>
         {actionableGroups.length === 0 ? inventoryUnavailable
           ? <div className="empty-state"><HelpCircle size={34} aria-hidden="true" /><strong>{t("properties.noAccessTitle")}</strong><span>{t("properties.noAccessBody")}</span></div>
-          : <div className="empty-state success"><ShieldCheck size={34} aria-hidden="true" /><strong>{t("alerts.noThresholdAlerts")}</strong><span>{t(acknowledgedGroups.length ? "alerts.noneActionable" : coverageExceptions.length ? "alerts.noThresholdAlertsUnknown" : "alerts.noThresholdAlertsConfirmed")}</span></div>
+          : <div className={`empty-state${monitoringConfirmed ? " success" : ""}`}>{monitoringConfirmed ? <ShieldCheck size={34} aria-hidden="true" /> : <HelpCircle size={34} aria-hidden="true" />}<strong>{t("alerts.noThresholdAlerts")}</strong><span>{t(!monitoringConfirmed ? "alerts.noThresholdAlertsUnknown" : acknowledgedGroups.length ? "alerts.noneActionable" : "alerts.noThresholdAlertsConfirmed")}</span></div>
           : <div className="event-list">{actionableGroups.map((group) => { const sensor = state.sensors.find((candidate) => candidate.id === group.primary.sensorId); const sensorHouse = state.houses.find((candidate) => candidate.id === sensor?.houseId); return <AlertRow key={group.key} alerts={group.alerts} rule={group.rule} sensor={sensor} houseName={sensorHouse?.name} timeZone={sensorHouse?.timezone} definitions={definitions} units={units} locale={locale} onAcknowledge={readOnly ? undefined : onAcknowledge} onInspect={onInspectAlert} />; })}</div>}
         {acknowledgedGroups.length > 0 && <details className="acknowledged-alerts">
           <summary><span><Check size={15} aria-hidden="true" />{t("alerts.acknowledgedOpen")}</span><small>{t("alerts.acknowledgedCount", { count: acknowledgedGroups.length })}</small><ChevronDown size={16} aria-hidden="true" /></summary>
@@ -112,9 +146,9 @@ function AlertsPageView({ state, units, onCreateRule, onUpdateRule, onAcknowledg
         </details>}
       </section>
 
-      {!inventoryUnavailable && (coverageExceptions.length ? <section className="alerts-monitoring-summary unknown" aria-labelledby="alerts-monitoring-heading">
+      {!inventoryUnavailable && (!monitoringConfirmed ? <section className="alerts-monitoring-summary unknown" aria-labelledby="alerts-monitoring-heading">
         <span aria-hidden="true"><HelpCircle size={19} /></span>
-        <div><h2 id="alerts-monitoring-heading">{t("alerts.monitoringUnknown")}</h2><ul>{coverageExceptions.map(({ house, blocker }) => <li key={house.id}><b>{house.name}</b><span>{coverageBlockerText(blocker, t)}</span></li>)}</ul></div>
+        <div><h2 id="alerts-monitoring-heading">{t("alerts.monitoringUnknown")}</h2>{coverageExceptions.length ? <ul>{coverageExceptions.map(({ house, blocker }) => <li key={house.id}><b>{house.name}</b><span>{blocker ? coverageBlockerText(blocker, t) : t("alerts.noThresholdAlertsUnknown")}</span></li>)}</ul> : <p>{t("alerts.noThresholdAlertsUnknown")}</p>}</div>
       </section> : <details className="alerts-monitoring-summary confirmed">
         <summary><ShieldCheck size={19} aria-hidden="true" /><strong>{t("alerts.monitoringConfirmed")}</strong><ChevronDown size={16} aria-hidden="true" /></summary>
         <p>{t("alerts.monitoringConfirmedBody")}</p>
@@ -184,6 +218,15 @@ function AlertsPageQuery(props: AlertsPageProps) {
   return <AlertsPageView
     {...props}
     {...(query.data ? { monitoring: query.data } : {})}
+    monitoringRequestState={props.dataMode === "unknown"
+      ? "unknown"
+      : query.isPending
+        ? "pending"
+        : query.isError
+          ? "error"
+          : query.data
+            ? "ready"
+            : "unknown"}
   />;
 }
 

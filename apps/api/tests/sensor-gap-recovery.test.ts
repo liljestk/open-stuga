@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -74,6 +75,8 @@ describe("sensor data-gap recovery", () => {
     expect(recoverHistory).not.toHaveBeenCalled();
     expect(runtime.database.listSensorDataGaps("sensor-01")[0]).toMatchObject({
       recoveryState: "not-supported",
+      recoverableUntil: "2026-07-01T23:45:00.000Z",
+      recoveryCompleteness: "none",
       recoveredPoints: 0,
     });
     expect(runtime.database.measurementHistory("sensor-01", "temperature", from, to))
@@ -141,12 +144,20 @@ describe("sensor data-gap recovery", () => {
     expect(runtime.database.openSensorDataGap("sensor-01", "temperature", "home-assistant")).toMatchObject({
       startedAt: initialTimestamp,
       recoveryState: "open",
+      recoverableUntil: null,
+      recoveryCompleteness: "unknown",
     });
 
     available = true;
     await recovery.runOnce(new Date(base + outageDurationMs));
     const [gap] = runtime.database.listSensorDataGaps("sensor-01");
-    expect(gap).toMatchObject({ recoveryState: "complete", recoveredPoints: 1, attemptCount: 1 });
+    expect(gap).toMatchObject({
+      recoveryState: "complete",
+      recoverableUntil: null,
+      recoveryCompleteness: "complete",
+      recoveredPoints: 1,
+      attemptCount: 1,
+    });
     expect(recoveryCalls).toBe(1);
     expect(runtime.database.getLatestMeasurementSample("sensor-01", "temperature")).toMatchObject({
       timestamp: recoveredTimestamp,
@@ -168,6 +179,55 @@ describe("sensor data-gap recovery", () => {
 
     await recovery.runOnce(new Date(base + outageDurationMs + 1_000));
     expect(recoveryCalls).toBe(1);
+  });
+
+  it("migrates existing recovery rows without losing their durable state", async () => {
+    temporaryDirectory = mkdtempSync(join(tmpdir(), "stugu-sensor-gap-migration-"));
+    const databasePath = join(temporaryDirectory, "climate.sqlite");
+    runtime = createApi({ config: config({ databasePath }), startBackground: false });
+    const from = "2026-07-20T04:00:00.000Z";
+    const gap = runtime.database.noteHistoricalSensorDataGap(
+      "sensor-01",
+      "temperature",
+      "tp-link",
+      from,
+      "2026-07-20T05:00:00.000Z",
+      "2026-07-20T05:01:00.000Z",
+    );
+    expect(runtime.database.claimSensorDataGapRecovery(
+      gap.id,
+      "2026-07-20T05:02:00.000Z",
+      "2026-07-20T05:03:00.000Z",
+    )).not.toBeNull();
+    runtime.database.updateSensorDataGapRecovery(
+      gap.id,
+      "partial",
+      2,
+      "2026-07-20T05:02:30.000Z",
+      "One segment remains unavailable",
+      "2026-07-20T05:04:00.000Z",
+    );
+    await runtime.close();
+    runtime = null;
+
+    const legacy = new DatabaseSync(databasePath);
+    legacy.exec(`ALTER TABLE sensor_data_gaps DROP COLUMN recovery_completeness;
+      ALTER TABLE sensor_data_gaps DROP COLUMN recoverable_until;`);
+    legacy.close();
+
+    runtime = createApi({ config: config({ databasePath }), startBackground: false });
+    expect(runtime.database.sensorDataGap(gap.id)).toMatchObject({
+      id: gap.id,
+      sensorId: "sensor-01",
+      recoveryState: "partial",
+      recoverableUntil: "2026-07-21T03:45:00.000Z",
+      recoveryCompleteness: "partial",
+      recoveredPoints: 2,
+      attemptCount: 1,
+      lastAttemptAt: "2026-07-20T05:02:30.000Z",
+      nextAttemptAt: "2026-07-20T05:04:00.000Z",
+      recoveryError: "One segment remains unavailable",
+    });
   });
 
   it("offers even a short explicit outage to its recovery adapter once", async () => {
@@ -199,6 +259,7 @@ describe("sensor data-gap recovery", () => {
     expect(recoverHistory).toHaveBeenCalledWith("sensor-01", "temperature", from, to);
     expect(runtime.database.listSensorDataGaps("sensor-01")[0]).toMatchObject({
       recoveryState: "complete",
+      recoveryCompleteness: "none",
       recoveredPoints: 0,
       attemptCount: 1,
       lastAttemptAt: "2026-07-19T07:00:00.000Z",
@@ -538,14 +599,19 @@ describe("sensor data-gap recovery", () => {
 
     await recovery.runOnce(new Date("2026-07-02T00:00:00.000Z"));
     expect(runtime.database.listSensorDataGaps("sensor-01")[0]).toMatchObject({
-      recoveryState: "partial", nextAttemptAt: "2026-07-02T00:00:01.000Z",
+      recoveryState: "partial",
+      recoveryCompleteness: "partial",
+      nextAttemptAt: "2026-07-02T00:00:01.000Z",
     });
     await recovery.runOnce(new Date("2026-07-02T00:00:00.999Z"));
     expect(calls).toBe(1);
     await recovery.runOnce(new Date("2026-07-02T00:00:01.000Z"));
     expect(calls).toBe(2);
     expect(runtime.database.listSensorDataGaps("sensor-01")[0]).toMatchObject({
-      recoveryState: "complete", attemptCount: 2, recoveredPoints: 2,
+      recoveryState: "complete",
+      recoveryCompleteness: "complete",
+      attemptCount: 2,
+      recoveredPoints: 2,
     });
   });
 

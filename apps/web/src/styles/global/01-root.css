@@ -352,7 +352,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .brand strong { font-family: "Manrope", sans-serif; font-size: 20px; line-height: 1.1; letter-spacing: -.045em; }
 
-.brand small { overflow: hidden; color: #bfc3ba; font-size: 10px; font-weight: 600; letter-spacing: .055em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.brand small { overflow: visible; color: #bfc3ba; font-size: 10px; font-weight: 600; line-height: 1.25; letter-spacing: .035em; overflow-wrap: anywhere; text-transform: uppercase; white-space: normal; }
 
 .stugu-mark { width: 40px; height: 40px; display: block; flex: 0 0 auto; filter: drop-shadow(0 5px 10px rgb(0 0 0 / .16)); }
 

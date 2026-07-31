@@ -204,7 +204,7 @@ describe("Stugu app", () => {
     vi.mocked(useClimateData).mockReturnValue(climate);
     renderApp();
 
-    await findPageHeading("Your home, at a glance");
+    await findPageHeading("Pine House");
     expect(screen.queryByText("New TP-Link sensor found")).toBeNull();
     await user.selectOptions(screen.getByLabelText("Home shown on this page"), lakeHouse.id);
     expect(await screen.findByText("New TP-Link sensor found")).not.toBeNull();
@@ -244,7 +244,7 @@ describe("Stugu app", () => {
     vi.mocked(useClimateData).mockReturnValue(climate);
     renderApp();
 
-    await findPageHeading("Your home, at a glance");
+    await findPageHeading("Pine House");
     expect(screen.queryByText("New TP-Link sensor found")).toBeNull();
   });
 

@@ -120,7 +120,9 @@ private struct AlertCard: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(StuguTheme.muted)
 
-                if alert.isActive, alert.acknowledgedAt == nil, !model.isReadOnly {
+                if alert.isActive,
+                   alert.acknowledgedAt == nil,
+                   model.canAcknowledgeAlert(alert) {
                     Button {
                         isAcknowledging = true
                         Task {

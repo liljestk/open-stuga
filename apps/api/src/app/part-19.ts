@@ -258,6 +258,7 @@ export function configureApiPart19(context: ReturnType<typeof configureApiPart18
   context.app.get(`${context.prefix}/notification-deliveries`, (request, response) => {
       const access = context.visibility(response);
       const principal = requestPrincipal(response);
+      const canManageDeliveries = principal.role === "owner" || principal.role === "admin";
       const limit = safeInteger(request.query.limit, 200, 1, 500);
       const deliveries = context.database.listNotificationDeliveries(limit * 2).filter((delivery) => {
         if (!access.restricted) return true;
@@ -269,7 +270,12 @@ export function configureApiPart19(context: ReturnType<typeof configureApiPart18
             principal.userId,
             delivery.destinationId,
           ) !== null;
-      }).slice(0, limit);
+      }).slice(0, limit).map((delivery) => ({
+        ...delivery,
+        canRetry: canManageDeliveries
+          && delivery.deliveredAt === null
+          && (delivery.deadLetteredAt !== null || delivery.abandonedAt !== null),
+      }));
       response.json({ deliveries });
     });
   context.app.post(`${context.prefix}/notification-deliveries/:id/retry`, requireWorkspaceAdmin, (request, response) => {
@@ -279,7 +285,7 @@ export function configureApiPart19(context: ReturnType<typeof configureApiPart18
       context.notificationOutbox.wake();
       const delivery = context.database.listNotificationDeliveries(500)
         .find((candidate) => candidate.id === request.params.id);
-      response.json({ delivery });
+      response.json({ delivery: delivery ? { ...delivery, canRetry: false } : delivery });
     });
   context.app.get(`${context.prefix}/action-playbooks`, (request, response) => {
       const metric = typeof request.query.metric === "string" ? measurementId(request.query.metric) : undefined;

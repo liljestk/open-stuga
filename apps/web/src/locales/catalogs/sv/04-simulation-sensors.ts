@@ -207,6 +207,8 @@ export const svPart4 = {
   "measurement.source.mock": "Demodata",
   "measurement.source.home-assistant": "Hemassistent",
   "measurement.source.tp-link": "Direkt TP-länk",
+  "measurement.source.tuya": "Tuya",
+  "measurement.source.nexus433": "Nexus433",
   "measurement.source.api": "API",
   "measurement.source.import": "Importerad historik",
   "measurement.source.replay": "Spela om",

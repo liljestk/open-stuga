@@ -138,6 +138,7 @@ export const svPart3 = {
   "overview.outdoorReady": "Klar på begäran",
   "overview.locationNeeded": "Lägg till en plats först",
   "overview.openHome": "Öppna hem",
+  "overview.openHomeNamed": "Öppna {name}",
   "overview.openOutdoor": "Utomhusdetaljer",
   "overview.finishSetup": "Slutför konfigurationen",
   "overview.connections": "Hemmens anslutningar",

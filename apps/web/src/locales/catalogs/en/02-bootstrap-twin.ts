@@ -381,6 +381,7 @@ export const enPart2 = {
   "overview.outdoorReady": "Ready on demand",
   "overview.locationNeeded": "Add a location first",
   "overview.openHome": "Open home",
+  "overview.openHomeNamed": "Open {name}",
   "overview.openOutdoor": "Outdoor details",
   "overview.finishSetup": "Finish setup",
   "overview.connections": "Home connections",

@@ -70,6 +70,7 @@ export type { TelemetryArchiveWatermarks } from "./db/support/01-json-value-to-a
 export type { WeatherOutageRecord } from "./db/support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
 export type { SensorDataGapSource } from "./db/support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
 export type { SensorDataGapState } from "./db/support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
+export type { SensorDataGapCompleteness } from "./db/support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
 export type { SensorDataGapRecord } from "./db/support/03-sensor-data-gap-row-to-canonical-json-value.js";
 export type { TapoHistoryExportProvider } from "./db/tapo-history-export-types.js";
 export type { TapoHistoryExportJobStatus } from "./db/tapo-history-export-types.js";

@@ -84,6 +84,7 @@ struct EquipmentMapView: View {
                             } label: {
                                 Label("Add equipment", systemImage: "plus")
                             }
+                            .disabled(!model.inventoryMutationsAvailable)
                             Divider()
                         }
                         Button {
@@ -244,6 +245,7 @@ struct EquipmentMapView: View {
             VStack(spacing: 10) {
                 displayModePicker
                 compactFilterControls
+                mutationGate
                 if model.memberLocationSharingAvailable {
                     MemberLocationSharingBanner(controller: model.memberLocationSharing)
                 }
@@ -363,6 +365,7 @@ struct EquipmentMapView: View {
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
                 inventoryOverview
+                mutationGate
 
                 if mapAvailable {
                     displayModePicker
@@ -410,6 +413,7 @@ struct EquipmentMapView: View {
                             }
                             .buttonStyle(PrimaryButtonStyle())
                             .frame(maxWidth: 360)
+                            .disabled(!model.inventoryMutationsAvailable)
                         } else if filtersAreActive {
                             Button("Clear search and filters", action: resetFilters)
                                 .buttonStyle(SecondaryButtonStyle())
@@ -701,6 +705,24 @@ struct EquipmentMapView: View {
         return "Add the first item, then print or scan its Stugu QR tag."
     }
 
+    @ViewBuilder
+    private var mutationGate: some View {
+        if !model.inventoryMutationsAvailable {
+            Label {
+                Text(LocalizedStringKey(
+                    model.selectedPropertyReadOnly
+                        ? "This Property is read-only. Inventory can be viewed but not changed."
+                        : "Reconnect to Stugu before changing inventory."
+                ))
+            } icon: {
+                Image(systemName: model.selectedPropertyReadOnly ? "eye" : "wifi.slash")
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(StuguTheme.warning)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     private var observationPrompt: some View {
         HStack(spacing: 12) {
             Image(systemName: "antenna.radiowaves.left.and.right")
@@ -913,6 +935,12 @@ struct EquipmentMapView: View {
     }
 
     private func beginAddingEquipment() {
+        guard model.inventoryMutationsAvailable else {
+            model.errorMessage = model.selectedPropertyReadOnly
+                ? "This Property is read-only. Inventory can be viewed but not changed."
+                : "Reconnect to Stugu before changing inventory."
+            return
+        }
         addEquipmentCoordinate = nil
         openEditorAfterMapPicker = false
         addLocation.clearError()

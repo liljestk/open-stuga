@@ -102,6 +102,29 @@ import { ClimateDataValidationError, SensorDataGapRecord, SensorDataGapRow } fro
 import { normalizedTapoHistoryText, normalizedTapoHistoryTimestamp, sensorDataGapFromRow, weatherOutageFromRow } from "../support/06-canonical-observation-patch-time-to-outdoor-location.js";
 import { registerDatabaseMethods } from "../core.js";
 
+function knownRecoverableUntil(
+  source: SensorDataGapSource,
+  metric: string,
+  startedAt: string,
+  sensorModel: string,
+): string | null {
+  if (source !== "tp-link"
+    || (metric !== "temperature" && metric !== "humidity")
+    || !/\bT3(?:10|15)\b/i.test(sensorModel)) return null;
+  const startedMs = Date.parse(startedAt);
+  return Number.isFinite(startedMs)
+    ? new Date(startedMs + TP_LINK_LOCAL_CLIMATE_HISTORY_RETENTION_MS).toISOString()
+    : null;
+}
+
+function recoveryCompleteness(
+  state: Exclude<SensorDataGapState, "open" | "pending" | "running">,
+  recoveredPoints: number,
+): "unknown" | "none" | "partial" | "complete" {
+  if (recoveredPoints <= 0) return "none";
+  return state === "complete" ? "complete" : "partial";
+}
+
 registerDatabaseMethods({
   resolveWeatherOutages(
       houseId: string,
@@ -252,11 +275,18 @@ registerDatabaseMethods({
         ORDER BY id DESC LIMIT 1`)
         .get(sensorId, metric, source, startedAt, endedAt) as unknown as SensorDataGapRow | undefined;
       if (existing) return sensorDataGapFromRow(existing);
+      const recoverableUntil = knownRecoverableUntil(
+        source,
+        metric,
+        startedAt,
+        this.getSensor(sensorId)?.model ?? "",
+      );
       const result = this.db.prepare(`INSERT INTO sensor_data_gaps
         (sensor_id, metric, source, started_at, detected_at, ended_at, recovery_state,
-         recovered_points, attempt_count, last_attempt_at, next_attempt_at, recovery_error)
-        VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, 0, NULL, ?, NULL)`)
-        .run(sensorId, metric, source, startedAt, detectedAt, endedAt, detectedAt);
+         recoverable_until, recovery_completeness, recovered_points, attempt_count,
+         last_attempt_at, next_attempt_at, recovery_error)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 'unknown', 0, 0, NULL, ?, NULL)`)
+        .run(sensorId, metric, source, startedAt, detectedAt, endedAt, recoverableUntil, detectedAt);
       const inserted = this.db.prepare("SELECT * FROM sensor_data_gaps WHERE id = ?")
         .get(Number(result.lastInsertRowid)) as unknown as SensorDataGapRow;
       return sensorDataGapFromRow(inserted);
@@ -270,6 +300,7 @@ registerDatabaseMethods({
       const at = normalizedTapoHistoryTimestamp(availableAt, "availableAt");
       const result = this.db.prepare(`UPDATE sensor_data_gaps SET recovery_state = 'pending',
           attempt_count = CASE WHEN ? = 1 THEN 0 ELSE attempt_count END,
+          recovery_completeness = CASE WHEN recovered_points > 0 THEN 'partial' ELSE 'none' END,
           next_attempt_at = ?, recovery_error = NULL
         WHERE id = ? AND ended_at IS NOT NULL AND recovery_state <> 'running'`)
         .run(resetAttempts ? 1 : 0, at, id);
@@ -289,7 +320,9 @@ registerDatabaseMethods({
           .get(key) as { value: string } | undefined;
         if (current?.value === revision) return 0;
         const result = this.db.prepare(`UPDATE sensor_data_gaps SET recovery_state = 'pending',
-            attempt_count = 0, next_attempt_at = ?, recovery_error = NULL
+            attempt_count = 0,
+            recovery_completeness = CASE WHEN recovered_points > 0 THEN 'partial' ELSE 'none' END,
+            next_attempt_at = ?, recovery_error = NULL
           WHERE id IN (
             SELECT gap.id FROM sensor_data_gaps AS gap
             JOIN sensors AS sensor ON sensor.id = gap.sensor_id
@@ -321,7 +354,9 @@ registerDatabaseMethods({
           .get(TP_LINK_LOCAL_CLIMATE_HISTORY_REARM_KEY) as { value: string } | undefined;
         if (current?.value === revision) return 0;
         const result = this.db.prepare(`UPDATE sensor_data_gaps SET recovery_state = 'pending',
-            attempt_count = 0, next_attempt_at = ?, recovery_error = NULL
+            attempt_count = 0,
+            recovery_completeness = CASE WHEN recovered_points > 0 THEN 'partial' ELSE 'none' END,
+            next_attempt_at = ?, recovery_error = NULL
           WHERE id IN (
             SELECT gap.id FROM sensor_data_gaps AS gap
             JOIN sensors AS sensor ON sensor.id = gap.sensor_id
@@ -344,7 +379,9 @@ registerDatabaseMethods({
       const at = new Date().toISOString();
       const retainedAfter = new Date(Date.parse(at) - TP_LINK_LOCAL_CLIMATE_HISTORY_RETENTION_MS).toISOString();
       const result = this.db.prepare(`UPDATE sensor_data_gaps SET recovery_state = 'pending',
-          attempt_count = 0, next_attempt_at = ?, recovery_error = NULL
+          attempt_count = 0,
+          recovery_completeness = CASE WHEN recovered_points > 0 THEN 'partial' ELSE 'none' END,
+          next_attempt_at = ?, recovery_error = NULL
         WHERE source = 'tp-link' AND ended_at IS NOT NULL AND recovery_state = 'not-supported'
           AND (? IS NULL OR sensor_id = ?) AND (? IS NULL OR metric = ?)
           AND (
@@ -383,13 +420,20 @@ registerDatabaseMethods({
       startedAt: string,
       detectedAt = new Date().toISOString(),
     ): SensorDataGapRecord {
+      const recoverableUntil = knownRecoverableUntil(
+        source,
+        metric,
+        startedAt,
+        this.getSensor(sensorId)?.model ?? "",
+      );
       this.db.prepare(`INSERT INTO sensor_data_gaps
         (sensor_id, metric, source, started_at, detected_at, ended_at, recovery_state,
-         recovered_points, attempt_count, last_attempt_at, next_attempt_at, recovery_error)
-        VALUES (?, ?, ?, ?, ?, NULL, 'open', 0, 0, NULL, NULL, NULL)
+         recoverable_until, recovery_completeness, recovered_points, attempt_count,
+         last_attempt_at, next_attempt_at, recovery_error)
+        VALUES (?, ?, ?, ?, ?, NULL, 'open', ?, 'unknown', 0, 0, NULL, NULL, NULL)
         ON CONFLICT(sensor_id, metric, source) WHERE ended_at IS NULL DO UPDATE SET
           detected_at = excluded.detected_at`)
-        .run(sensorId, metric, source, startedAt, detectedAt);
+        .run(sensorId, metric, source, startedAt, detectedAt, recoverableUntil);
       const gap = this.openSensorDataGap(sensorId, metric, source);
       if (!gap) throw new Error("Could not persist the detected sensor data gap");
       return gap;
@@ -446,9 +490,18 @@ registerDatabaseMethods({
       error: string | null,
       nextAttemptAt: string | null = null,
     ): void {
+      const completeness = recoveryCompleteness(state, recoveredPoints);
       this.db.prepare(`UPDATE sensor_data_gaps SET recovery_state = ?, recovered_points = ?,
-        last_attempt_at = ?, next_attempt_at = ?, recovery_error = ? WHERE id = ?`)
-        .run(state, Math.max(0, Math.trunc(recoveredPoints)), attemptedAt, nextAttemptAt, error, id);
+        recovery_completeness = ?, last_attempt_at = ?, next_attempt_at = ?, recovery_error = ? WHERE id = ?`)
+        .run(
+          state,
+          Math.max(0, Math.trunc(recoveredPoints)),
+          completeness,
+          attemptedAt,
+          nextAttemptAt,
+          error,
+          id,
+        );
     },
   /** Makes a completed asynchronous export immediately eligible for the gap coordinator's next pass. */
   expediteSensorDataGapRecovery(

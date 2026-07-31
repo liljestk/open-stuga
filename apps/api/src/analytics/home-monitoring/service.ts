@@ -1,9 +1,12 @@
 import type {
   DataMode,
+  DerivedAnalyticsWarning,
   HomeInsight,
+  HomeInsightEvidence,
   HomeMonitoringBlocker,
   HomeMonitoringCollectionResponse,
   HomeMonitoringDetailResponse,
+  HomeMonitoringEvidenceSource,
   HomeMonitoringSummary,
   House,
   HouseWeather,
@@ -26,6 +29,7 @@ import {
   type LatestMeasurements,
   type MeasurementHistory,
 } from "./insights.js";
+import { coverageFreshnessForSample } from "./model.js";
 
 const HISTORY_BUCKET_MINUTES = 5;
 const HISTORY_LIMIT_PER_METRIC = 100;
@@ -191,7 +195,32 @@ function blocker(blocker: DerivedBlocker): HomeMonitoringBlocker {
   };
 }
 
-function insight(item: DerivedInsight): HomeInsight {
+function evidenceSample(
+  input: ReturnType<typeof evidence>,
+  item: DerivedInsight["evidence"][number],
+): MeasurementSample | undefined {
+  if (!item.sensorId || !item.metric || !item.observedAt) return undefined;
+  const latest = input.latestMeasurements[item.sensorId]?.[item.metric];
+  if (latest?.timestamp === item.observedAt) return latest;
+  return input.measurementHistory?.[item.sensorId]?.[item.metric]
+    ?.find((sample) => sample.timestamp === item.observedAt);
+}
+
+function insightEvidence(
+  input: ReturnType<typeof evidence>,
+  item: DerivedInsight["evidence"][number],
+  nowMs: number,
+): HomeInsightEvidence {
+  const sample = evidenceSample(input, item);
+  return sample ? {
+    ...item,
+    source: sample.source,
+    quality: sample.quality,
+    freshness: coverageFreshnessForSample(sample, nowMs),
+  } : item;
+}
+
+function insight(item: DerivedInsight, input: ReturnType<typeof evidence>, evaluatedAt: string): HomeInsight {
   return {
     id: item.id,
     rank: item.rank,
@@ -211,7 +240,7 @@ function insight(item: DerivedInsight): HomeInsight {
     fallbackSummary: item.summary,
     fallbackAction: item.action,
     target: item.target,
-    evidence: item.evidence,
+    evidence: item.evidence.map((entry) => insightEvidence(input, entry, Date.parse(evaluatedAt))),
     freshness: item.freshness,
     confidence: {
       level: item.confidence.level,
@@ -238,7 +267,65 @@ function summaryFrom(
   };
 }
 
-function envelope(context: HomeMonitoringServiceContext, sourceIds: string[]) {
+function latestEvidenceSamples(input: ReturnType<typeof evidence>): MeasurementSample[] {
+  const enabled = new Set(input.sensors.filter((sensor) => sensor.enabled).map((sensor) => sensor.id));
+  return Object.values(input.latestMeasurements).flatMap((metrics) => Object.values(metrics))
+    .filter((sample): sample is MeasurementSample => Boolean(sample && enabled.has(sample.sensorId)));
+}
+
+function monitoringWarnings(summaries: readonly HomeMonitoringSummary[]): DerivedAnalyticsWarning[] {
+  const totals = summaries.reduce((result, summary) => ({
+    noSensors: result.noSensors + (summary.coverage.enabledSensors === 0 ? 1 : 0),
+    missing: result.missing + summary.coverage.sensorsWithoutData,
+    stale: result.stale + summary.coverage.staleSensors,
+    aging: result.aging + summary.coverage.agingSensors,
+    estimated: result.estimated + summary.coverage.estimatedSensors,
+    disconnected: result.disconnected + summary.blockers
+      .filter((item) => item.kind === "source-disconnected")
+      .reduce((sum, item) => sum + item.count, 0),
+  }), { noSensors: 0, missing: 0, stale: 0, aging: 0, estimated: 0, disconnected: 0 });
+  const warnings: DerivedAnalyticsWarning[] = [];
+  const add = (code: string, message: string, count: number) => {
+    if (count > 0) warnings.push({ code, message, details: { count } });
+  };
+  add(
+    "monitoring.no-enabled-sensors",
+    "One or more Homes have no enabled sensors and were not evaluated from measurements.",
+    totals.noSensors,
+  );
+  add("monitoring.missing-evidence", "Some enabled sensors have no usable evidence.", totals.missing);
+  add("monitoring.stale-evidence", "Some evidence is stale and cannot support a current all-clear.", totals.stale);
+  add("monitoring.aging-evidence", "Some evidence is aging and should be confirmed.", totals.aging);
+  add("monitoring.estimated-evidence", "Some evidence is estimated rather than directly observed.", totals.estimated);
+  add("monitoring.source-disconnected", "Some configured measurement sources are disconnected.", totals.disconnected);
+  return warnings;
+}
+
+function envelope(
+  context: HomeMonitoringServiceContext,
+  inputs: readonly ReturnType<typeof evidence>[],
+  summaries: readonly HomeMonitoringSummary[],
+) {
+  const samples = inputs.flatMap(latestEvidenceSamples);
+  const evidenceSources = samples
+    .map((sample): HomeMonitoringEvidenceSource => ({
+      sensorId: sample.sensorId,
+      metric: sample.metric,
+      observedAt: sample.timestamp,
+      source: sample.source,
+      quality: sample.quality,
+      freshness: coverageFreshnessForSample(sample, Date.parse(context.evaluatedAt)),
+    }))
+    .sort((left, right) => left.sensorId.localeCompare(right.sensorId)
+      || left.metric.localeCompare(right.metric)
+      || left.observedAt.localeCompare(right.observedAt));
+  const warnings = monitoringWarnings(summaries);
+  const enabledSensorCount = summaries.reduce((sum, summary) => sum + summary.coverage.enabledSensors, 0);
+  const completeness = enabledSensorCount === 0 || evidenceSources.length === 0
+    ? "unavailable" as const
+    : warnings.length > 0
+      ? "partial" as const
+      : "complete" as const;
   return {
     apiVersion: "1.0" as const,
     dataMode: context.dataMode,
@@ -248,14 +335,15 @@ function envelope(context: HomeMonitoringServiceContext, sourceIds: string[]) {
     },
     generatedAt: context.evaluatedAt,
     evaluatedAt: context.evaluatedAt,
-    completeness: "complete" as const,
-    warnings: [],
+    completeness,
+    warnings,
     provenance: {
       algorithmKey: "home-monitoring",
       algorithmVersion: HOME_MONITORING_ALGORITHM_VERSION,
       evaluatedAt: context.evaluatedAt,
-      sourceIds,
+      sourceIds: [...new Set(evidenceSources.map((item) => item.sensorId))],
     },
+    evidenceSources,
   };
 }
 
@@ -268,9 +356,11 @@ export function getHomeMonitoringCollection(
     rules: context.database.listAlertRules(),
     alerts: context.database.listAlertEvents(2_000, true),
   };
+  const inputs = ordered.map((scope) => evidence(context, scope, false, sharedAlerts));
+  const summaries = inputs.map(summaryFrom);
   return {
-    ...envelope(context, ordered.flatMap((scope) => scope.sensors.map((sensor) => sensor.id))),
-    houses: ordered.map((scope) => summaryFrom(evidence(context, scope, false, sharedAlerts))),
+    ...envelope(context, inputs, summaries),
+    houses: summaries,
   };
 }
 
@@ -280,11 +370,12 @@ export function getHomeMonitoringDetail(
 ): HomeMonitoringDetailResponse {
   const collected = evidence(context, scope, true);
   const pulse = deriveHomePulse(collected);
+  const summary = summaryFrom(collected);
   return {
-    ...envelope(context, scope.sensors.map((sensor) => sensor.id)),
-    house: summaryFrom(collected),
+    ...envelope(context, [collected], [summary]),
+    house: summary,
     sensorCoverage: pulse.sensorCoverage,
-    insights: pulse.insights.map(insight),
+    insights: pulse.insights.map((item) => insight(item, collected, context.evaluatedAt)),
     advisoryCode: "monitoring.advisory",
     fallbackAdvisory: HOME_INSIGHT_ADVISORY,
   };

@@ -1,7 +1,7 @@
-import { Activity, AlertTriangle, Bolt, ChevronDown, CloudOff, Droplets, Wind } from "lucide-react";
+import { Activity, AlertTriangle, Bolt, ChevronDown, CloudOff, Droplets, Radio, Wind, X } from "lucide-react";
 import type { AlertEvent, MeasurementDefinition, MeasurementSample, Metric, Sensor, UnitSystem } from "@climate-twin/contracts";
-import { useMemo, type ReactNode } from "react";
-import { useI18n } from "../i18n";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useI18n, type TranslationKey } from "../i18n";
 import {
   definitionFor,
   formatMeasurement,
@@ -18,8 +18,12 @@ export interface RoomComfort {
   key: string;
   room: string;
   floorId: string;
-  sensorId: string;
+  roomId: string | null;
+  sensorIds: string[];
   sensorCount: number;
+  freshSensorCount: number;
+  sources: MeasurementSample["source"][];
+  quality: Exclude<MeasurementSample["quality"], "stale"> | null;
   state: RoomState;
   temperature: number | null;
   humidity: number | null;
@@ -38,7 +42,7 @@ interface RoomComfortBoardProps {
   alerts: AlertEvent[];
   units: UnitSystem;
   now?: number;
-  onOpenRoom: (floorId: string, sensorId: string) => void;
+  onOpenRoom: (floorId: string, roomId: string | null) => void;
 }
 
 function mean(values: number[]): number | null {
@@ -130,12 +134,15 @@ export function buildRoomComforts({
 }: Pick<RoomComfortBoardProps, "sensors" | "latestMeasurements" | "measurementHistory" | "alerts" | "now">): RoomComfort[] {
   const groups = new Map<string, Sensor[]>();
   sensors.filter((sensor) => sensor.enabled).forEach((sensor) => {
-    const key = `${sensor.floorId}\u0000${sensor.room.trim() || sensor.name}`;
+    const roomLabel = sensor.room.trim() || sensor.name;
+    const key = sensor.roomId
+      ? `${sensor.floorId}\u0000room:${sensor.roomId}`
+      : `${sensor.floorId}\u0000label:${roomLabel.toLocaleLowerCase()}`;
     groups.set(key, [...(groups.get(key) ?? []), sensor]);
   });
   const openAlertSensors = new Set(alerts.filter((alert) => !alert.resolvedAt).map((alert) => alert.sensorId));
 
-  return [...groups.entries()].map(([key, roomSensors]) => {
+  return [...groups.entries()].map<RoomComfort>(([key, roomSensors]) => {
     const fresh = (metric: Metric) => roomSensors.flatMap((sensor) => {
       const sample = freshestSample(sensor.id, metric, latestMeasurements, measurementHistory, now);
       const value = measurementValue(sample, metric);
@@ -171,8 +178,14 @@ export function buildRoomComforts({
       key,
       room: representative.room.trim() || representative.name,
       floorId: representative.floorId,
-      sensorId: representative.id,
+      roomId: representative.roomId ?? null,
+      sensorIds: roomSensors.map((sensor) => sensor.id),
       sensorCount: roomSensors.length,
+      freshSensorCount: new Set(currentSamples.map(({ sensor }) => sensor.id)).size,
+      sources: [...new Set(samples.map((sample) => sample.source))],
+      quality: samples.length === 0
+        ? null
+        : samples.some((sample) => sample.quality === "estimated") ? "estimated" : "good",
       state,
       temperature,
       humidity,
@@ -215,11 +228,31 @@ export function RoomComfortBoard(props: Readonly<RoomComfortBoardProps>) {
   const { locale, t } = useI18n();
   const now = props.now ?? Date.now();
   const rooms = useMemo(() => buildRoomComforts(props), [props.sensors, props.latestMeasurements, props.measurementHistory, props.alerts, props.now]);
+  const [selectedRoomKey, setSelectedRoomKey] = useState<string | null>(null);
+  const evidenceId = `room-evidence-${useId().replace(/:/g, "")}`;
+  const evidenceRef = useRef<HTMLElement>(null);
+  const roomCardRefs = useRef(new Map<string, HTMLButtonElement>());
   const temperatureDefinition = definitionFor(props.definitions, "temperature");
   const humidityDefinition = definitionFor(props.definitions, "humidity");
   const co2Definition = definitionFor(props.definitions, "co2");
   const powerDefinition = definitionFor(props.definitions, "power");
   const relativeTime = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  const selectedRoom = rooms.find((room) => room.key === selectedRoomKey) ?? null;
+
+  useEffect(() => {
+    if (selectedRoomKey && !selectedRoom) setSelectedRoomKey(null);
+  }, [selectedRoom, selectedRoomKey]);
+
+  useEffect(() => {
+    if (!selectedRoomKey) return;
+    evidenceRef.current?.focus();
+  }, [selectedRoomKey]);
+
+  const closeEvidence = () => {
+    const roomKey = selectedRoomKey;
+    setSelectedRoomKey(null);
+    if (roomKey) window.requestAnimationFrame(() => roomCardRefs.current.get(roomKey)?.focus());
+  };
 
   const roomCard = (room: RoomComfort) => {
     const path = sparkline(room.temperatureTrend);
@@ -236,9 +269,16 @@ export function RoomComfortBoard(props: Readonly<RoomComfortBoardProps>) {
     return (
       <button
         type="button"
+        ref={(node) => { if (node) roomCardRefs.current.set(room.key, node); else roomCardRefs.current.delete(room.key); }}
         className={`room-comfort-card ${room.state}`}
         key={room.key}
-        onClick={() => props.onOpenRoom(room.floorId, room.sensorId)}
+        aria-expanded={selectedRoomKey === room.key}
+        aria-controls={evidenceId}
+        onClick={() => {
+          const opening = selectedRoomKey !== room.key;
+          setSelectedRoomKey(opening ? room.key : null);
+          if (opening) props.onOpenRoom(room.floorId, room.roomId);
+        }}
         aria-label={`${t("decision.openRoom", { room: room.room, status: t(`decision.state.${room.state}`) })}. ${readingLabels}. ${updated}.`}
       >
         <span className="room-card-topline"><strong>{room.room}</strong><span className={`comfort-state ${room.state}`}><ComfortStateIcon state={room.state} />{t(`decision.state.${room.state}`)}</span></span>
@@ -287,6 +327,42 @@ export function RoomComfortBoard(props: Readonly<RoomComfortBoardProps>) {
         <p>{t("decision.roomsDescription")}</p>
       </div>
       {roomContent}
+      {selectedRoom && <section
+        id={evidenceId}
+        ref={evidenceRef}
+        className="panel room-evidence-panel"
+        aria-labelledby={`${evidenceId}-title`}
+        tabIndex={-1}
+      >
+        <div className="room-evidence-heading">
+          <div>
+            <span className="eyebrow">{t("decision.roomsEyebrow")}</span>
+            <h3 id={`${evidenceId}-title`}>{selectedRoom.room}</h3>
+            <span className={`comfort-state ${selectedRoom.state}`}><ComfortStateIcon state={selectedRoom.state} />{t(`decision.state.${selectedRoom.state}`)}</span>
+          </div>
+          <button type="button" className="icon-button" aria-label={t("common.close")} onClick={closeEvidence}><X size={16} aria-hidden="true" /></button>
+        </div>
+        <div className="room-evidence-readings">
+          <div><small>{t("common.temperature")}</small><strong>{formattedReading(selectedRoom.temperature, temperatureDefinition, props.units)}</strong></div>
+          <div><small>{t("common.humidity")}</small><strong>{formattedReading(selectedRoom.humidity, humidityDefinition, props.units)}</strong></div>
+          {selectedRoom.supportsCo2 && <div><small>{t("common.co2")}</small><strong>{formattedReading(selectedRoom.co2, co2Definition, props.units)}</strong></div>}
+          {selectedRoom.power !== null && <div><small>{t("common.power")}</small><strong>{formattedReading(selectedRoom.power, powerDefinition, props.units)}</strong></div>}
+        </div>
+        <dl className="room-evidence-metadata">
+          <div><dt>{t("decision.coverageLabel")}</dt><dd>{selectedRoom.freshSensorCount} {t("decision.freshOf", { total: selectedRoom.sensorCount })}</dd></div>
+          <div><dt>{t("twin.quality")}</dt><dd>{selectedRoom.quality ? t(`measurement.quality.${selectedRoom.quality}`) : t("common.noData")}</dd></div>
+          <div><dt>{t("twin.source")}</dt><dd>{selectedRoom.sources.length
+            ? selectedRoom.sources.map((source) => t(`measurement.source.${source}` as TranslationKey)).join(" · ")
+            : t("observations.source.unknown")}</dd></div>
+          <div><dt>{t("setup.sourceLastUpdate")}</dt><dd>{selectedRoom.updatedAt
+            ? relativeTime.format(-Math.max(0, Math.round((now - Date.parse(selectedRoom.updatedAt)) / 60_000)), "minute")
+            : t("decision.noRecentReading")}</dd></div>
+        </dl>
+        <details className="room-evidence-sensors">
+          <summary><Radio size={15} aria-hidden="true" />{t("nav.sensors")} · {selectedRoom.sensorCount}<ChevronDown size={15} aria-hidden="true" /></summary>
+          <ul>{props.sensors.filter((sensor) => selectedRoom.sensorIds.includes(sensor.id)).map((sensor) => <li key={sensor.id}><strong>{sensor.name}</strong><span>{sensor.model}</span></li>)}</ul>
+        </details>
+      </section>}
     </section>
   );
 }

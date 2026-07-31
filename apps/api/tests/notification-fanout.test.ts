@@ -214,6 +214,12 @@ describe("durable webhook fan-out", () => {
       expect(runtime.database.deadLetterNotificationOutbox(claimed!.id, claimed!.lockToken, "forced terminal failure"))
         .toBe(true);
 
+      const retryable = await request(runtime.app).get("/api/v1/notification-deliveries").expect(200);
+      expect(retryable.body.deliveries).toContainEqual(expect.objectContaining({
+        id: claimed!.id,
+        canRetry: true,
+      }));
+
       const retried = await request(runtime.app)
         .post(`/api/v1/notification-deliveries/${claimed!.id}/retry`)
         .expect(200);
@@ -224,11 +230,13 @@ describe("durable webhook fan-out", () => {
         deadLetteredAt: null,
         abandonedAt: null,
         lastError: null,
+        canRetry: false,
       });
       const listed = await request(runtime.app).get("/api/v1/notification-deliveries").expect(200);
       expect(listed.body.deliveries).toContainEqual(expect.objectContaining({
         id: claimed!.id,
         maxAttempts: 1,
+        canRetry: false,
       }));
       await request(runtime.app)
         .post(`/api/v1/notification-deliveries/${claimed!.id}/retry`)

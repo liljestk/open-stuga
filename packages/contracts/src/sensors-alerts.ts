@@ -237,6 +237,8 @@ export interface NotificationDeliveryStatus {
   deadLetteredAt: string | null;
   abandonedAt: string | null;
   lastError: string | null;
+  /** Session-scoped API capability. Present on API responses; true only for an Owner/Admin and terminal work. */
+  canRetry?: boolean;
 }
 
 export type ActionPlaybookGoal = "decrease" | "increase" | "below" | "above";

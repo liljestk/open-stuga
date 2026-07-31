@@ -18,6 +18,8 @@ import type { LatestMeasurements, MeasurementHistory } from "../measurements";
 import { HomeOriginIndicator, isRemoteHome } from "../components/HomeOriginIndicator";
 import { useHomeMonitoringCollectionQuery } from "../data/analytics/homeMonitoringQuery";
 
+type MonitoringRequestState = "pending" | "error" | "ready" | "unknown";
+
 interface PortfolioOverviewProps {
   properties: Property[];
   propertyAreas: Array<Pick<PropertyArea, "id" | "propertyId">>;
@@ -35,6 +37,7 @@ interface PortfolioOverviewProps {
   readOnly?: boolean;
   dataMode?: "demo" | "real" | "unknown";
   monitoring?: HomeMonitoringCollectionResponse;
+  monitoringRequestState?: MonitoringRequestState;
 }
 
 function localTime(timezone: string, locale: string, now: number): string {
@@ -64,6 +67,16 @@ function MonitoringIcon({ result }: { result: HomeMonitoringSummary }) {
   return <AlertTriangle size={16} aria-hidden="true" />;
 }
 
+function hasCurrentHomeEvidence(result: HomeMonitoringSummary): boolean {
+  return result.status !== "unknown"
+    && result.coverage.enabledSensors > 0
+    && result.coverage.freshSensors === result.coverage.enabledSensors
+    && result.coverage.estimatedSensors === 0
+    && result.coverage.agingSensors === 0
+    && result.coverage.staleSensors === 0
+    && result.coverage.sensorsWithoutData === 0;
+}
+
 function PortfolioOverviewView({
   properties,
   propertyAreas,
@@ -80,6 +93,7 @@ function PortfolioOverviewView({
   onOpenSetup,
   readOnly = false,
   monitoring: monitoringResponse,
+  monitoringRequestState,
 }: PortfolioOverviewProps) {
   const { locale, t } = useI18n();
   const now = useNow();
@@ -87,33 +101,56 @@ function PortfolioOverviewView({
   const monitoring = new Map(
     (monitoringResponse?.houses ?? []).map((result) => [result.houseId, result]),
   );
-  const unknownResult = (house: House): HomeMonitoringSummary => ({
-    houseId: house.id,
-    generatedAt: new Date(now).toISOString(),
-    status: "unknown",
-    pulseStatus: "unknown",
-    coverage: {
-      enabledSensors: sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled).length,
-      freshSensors: 0,
-      estimatedSensors: 0,
-      agingSensors: 0,
-      staleSensors: 0,
-      sensorsWithoutData: sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled).length,
-    },
-    activeAlertCount: 0,
-    blockers: [],
+  const effectiveMonitoringRequestState = monitoringRequestState ?? (monitoringResponse ? "ready" : "unknown");
+  const monitoringResponseComplete = effectiveMonitoringRequestState === "ready"
+    && monitoringResponse?.completeness === "complete"
+    && houses.every((house) => monitoring.has(house.id));
+  const unknownResult = (house: House): HomeMonitoringSummary => {
+    const houseSensorIds = new Set(sensors.filter((sensor) => sensor.houseId === house.id).map((sensor) => sensor.id));
+    const openHouseAlerts = alerts.filter((alert) => !alert.resolvedAt && houseSensorIds.has(alert.sensorId));
+    const actionableHouseAlerts = openHouseAlerts.filter((alert) => !alert.acknowledgedAt);
+    const enabledSensorCount = sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled).length;
+    return {
+      houseId: house.id,
+      generatedAt: new Date(now).toISOString(),
+      status: actionableHouseAlerts.length ? "action-required" : "unknown",
+      pulseStatus: actionableHouseAlerts.some((alert) => alert.severity === "critical")
+        ? "critical"
+        : actionableHouseAlerts.length
+          ? "attention"
+          : "unknown",
+      coverage: {
+        enabledSensors: enabledSensorCount,
+        freshSensors: 0,
+        estimatedSensors: 0,
+        agingSensors: 0,
+        staleSensors: 0,
+        sensorsWithoutData: enabledSensorCount,
+      },
+      activeAlertCount: openHouseAlerts.length,
+      blockers: [],
+    };
+  };
+  const monitoredHouses = houses.map((house) => {
+    const responseResult = monitoring.get(house.id);
+    const monitoringSuccessful = Boolean(
+      monitoringResponseComplete
+      && responseResult?.status === "monitoring-ok"
+      && responseResult.blockers.length === 0
+      && hasCurrentHomeEvidence(responseResult),
+    );
+    const result = responseResult && (responseResult.status !== "monitoring-ok" || monitoringSuccessful)
+      ? responseResult
+      : unknownResult(house);
+    return { house, result, monitoringSuccessful };
   });
-  const monitoredHouses = houses.map((house) => ({
-    house,
-    result: monitoring.get(house.id) ?? unknownResult(house),
-  }));
   const propertyGroups = properties.map((property) => {
     const homes = monitoredHouses.filter(({ house }) => house.propertyId === property.id);
     return {
       property,
       areaCount: propertyAreas.filter((area) => area.propertyId === property.id).length,
-      attentionHomes: homes.filter(({ result }) => result.status !== "monitoring-ok"),
-      confirmedHomes: homes.filter(({ result }) => result.status === "monitoring-ok"),
+      attentionHomes: homes.filter(({ monitoringSuccessful }) => !monitoringSuccessful),
+      confirmedHomes: homes.filter(({ monitoringSuccessful }) => monitoringSuccessful),
     };
   });
 
@@ -124,13 +161,14 @@ function PortfolioOverviewView({
     </div>;
   }
 
-  const renderHouseCard = ({ house, result }: (typeof monitoredHouses)[number], Heading: "h3" | "h4" = "h3") => {
+  const renderHouseCard = ({ house, result, monitoringSuccessful }: (typeof monitoredHouses)[number], Heading: "h3" | "h4" = "h3") => {
     const houseSensors = sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled);
     const primaryBlocker = result.blockers[0] ?? null;
     const reportingCount = result.coverage.freshSensors;
     const alertCount = result.activeAlertCount;
     const locationReady = Boolean(house.location);
     const remoteHome = isRemoteHome(house);
+    const monitoringConfirmed = monitoringSuccessful && result.status === "monitoring-ok";
     const primaryRoutesToSetup = !readOnly && Boolean(primaryBlocker && !primaryBlocker.kind.endsWith("alert"));
 
     return (
@@ -149,7 +187,7 @@ function PortfolioOverviewView({
 
         <div className={`portfolio-monitoring ${result.status}`}>
           <MonitoringIcon result={result} />
-          <span><strong>{t(`overview.monitoring.${result.status}` as TranslationKey)}</strong><small>{primaryBlocker ? blockerText(primaryBlocker, t) : t("overview.blocker.none")}</small></span>
+          <span><strong>{t(`overview.monitoring.${result.status}` as TranslationKey)}</strong><small>{primaryBlocker ? blockerText(primaryBlocker, t) : monitoringConfirmed ? t("overview.blocker.none") : t("decision.pulse.unknown.body")}</small></span>
         </div>
 
         <dl className="portfolio-facts">
@@ -243,6 +281,15 @@ function PortfolioOverviewQuery(props: PortfolioOverviewProps) {
   return <PortfolioOverviewView
     {...props}
     {...(query.data ? { monitoring: query.data } : {})}
+    monitoringRequestState={props.dataMode === "unknown"
+      ? "unknown"
+      : query.isPending
+        ? "pending"
+        : query.isError
+          ? "error"
+          : query.data
+            ? "ready"
+            : "unknown"}
   />;
 }
 
