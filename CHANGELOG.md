@@ -4,6 +4,12 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.24.1 - 2026-07-31
+
+- Preserve the persistent release-state directory owner on atomic updater
+  writes so unprivileged `stuguctl` can read candidate, known-good, and rollback
+  manifests immediately after an OTA update.
+
 ## 0.24.0 - 2026-07-31
 
 - Add an explicit six-second Raspberry Pi USB root delay for the observed

@@ -180,6 +180,46 @@ for the tested direct-boot payload. It does not yet approve the complete
 byte-comparison and SSD boot checks, and the automatic unhealthy-slot rollback
 gate remains outstanding.
 
+## v0.24.0 recovery OTA and performance result
+
+The verified recovery source was backup
+`stugu-backup-2026-07-30T12-50-47-264Z` in the operator's local Stugu Backups
+directory. Recovery migration `96c6a743-6a6d-4030-930b-bc659c44c226` restored
+the persistent application data, and the restored SQLite database passed its
+integrity check. The pre-OTA safety backup was retained at
+`/persistent/stugu/backups/stugu-backup-2026-07-31T07-47-03-639Z`.
+
+OTA operation `542307f2-502b-4ce7-8151-1b85bf730207` then installed application
+release `v0.24.0`. This did not replace the immutable host: `/etc/stugu-version`
+remains `v0.23.0`, with the repaired `rootdelay=6` and memory-cgroup command
+line applied directly to the preserved boot partition. A complete `v0.24.0`
+factory image and automatic unhealthy-slot rollback remain outside the proven
+gate.
+
+TimescaleDB was restarted after applying and verifying:
+
+- `max_worker_processes=16`;
+- `max_parallel_workers=4`; and
+- `timescaledb.max_background_workers=12`.
+
+All three settings reported `pending_restart=false`. During repeated monitoring
+for more than eight minutes after settling, host idle stayed at 88–98%,
+generally about 96%; load stayed near 0.3–0.6; temperature stayed at
+55.5–58.4 °C; and throttling remained `0x0`. The API used about 4–9% CPU and
+205–219 MiB, while TimescaleDB used about 35–54 MiB. `/persistent` was 4% used,
+with no failed units, OOM events, container restarts, kernel I/O errors, or
+undervoltage warnings. A host-monitor snapshot reported 4.8% CPU, 15.8% memory,
+7.4% storage, 57 °C, and no active alerts.
+
+The monitoring ended at 7,489 seconds uptime on the same boot ID, so it is not
+evidence of another reboot. The OTA also exposed an ownership defect: the
+root-running updater atomically replaced `release.env` and `known-good.env` as
+`root:root` mode `0640`, preventing unprivileged `stuguctl` from reading the
+selected release until a root service restart repaired ownership. Release
+`v0.24.1` assigns each candidate, known-good, and rollback temporary file the
+owning release-state directory's UID/GID before the atomic rename, while
+retaining mode `0640`.
+
 ## Superseded boot-artifact hypothesis
 
 The complete FAT inventories were then extracted from the failed factory
