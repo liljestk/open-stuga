@@ -55,7 +55,7 @@ export type AggregationSemantic =
   | "custom";
 
 /** Product release version. Pre-1.0 minor releases may contain breaking changes. */
-export const SYSTEM_VERSION = "0.24.2" as const;
+export const SYSTEM_VERSION = "0.25.0" as const;
 
 export interface MeasurementDefinition {
   id: Metric;
@@ -92,7 +92,7 @@ export interface MeasurementSample {
   value: number;
   canonicalUnit: string;
   timestamp: string;
-  source: "mock" | "home-assistant" | "tp-link" | "api" | "import" | "replay";
+  source: "mock" | "home-assistant" | "tp-link" | "tuya" | "api" | "import" | "replay";
   quality: "good" | "estimated" | "stale";
 }
 

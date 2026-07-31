@@ -1,6 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
+import { migrateEmptyLegacyTrackingSchema } from "./schema-migration.js";
 
 export function initializeTrackingSchema(database: DatabaseSync): void {
+  migrateEmptyLegacyTrackingSchema(database);
   database.exec(`
     CREATE TABLE IF NOT EXISTS tracking_property_settings (
       property_id TEXT PRIMARY KEY REFERENCES properties(id) ON DELETE CASCADE,

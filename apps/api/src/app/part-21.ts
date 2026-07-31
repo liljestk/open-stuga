@@ -186,6 +186,7 @@ import { AREA_EQUIPMENT_STATUSES, AuthAbuseLimiter, HttpError, LOCAL_CSRF_COOKIE
 import type { ApiRuntime, AuthAttemptBucket, AuthAttemptLimit, BoundedSseWriter, CreateApiOptions, IntegrationDraftTestResult, LocalRequestPrincipal } from "./support/index.js";
 import { configureApiPart20 } from "./part-20.js";
 import { registerGreeRoutes } from "../gree-routes.js";
+import { registerTuyaRoutes } from "../tuya-routes.js";
 import { registerAnalyticsRoutes } from "../analytics/routes.js";
 
 
@@ -196,6 +197,7 @@ export function configureApiPart21(context: ReturnType<typeof configureApiPart20
   const sensorGapRecovery = context.sensorGapRecovery!;
   const integrationDiscoveryJobs = new IntegrationDiscoveryJobs();
   registerGreeRoutes(context);
+  registerTuyaRoutes(context);
   const removeAnalyticsCacheWake = registerAnalyticsRoutes(context);
   context.app.delete(`${context.prefix}/maintenance-tasks/:id`, (request, response) => {
       const taskId = request.params.id as string;
@@ -317,14 +319,17 @@ export function configureApiPart21(context: ReturnType<typeof configureApiPart20
   const integrationDiscovery = async (
       houseId?: string,
       draftCredentials?: { username: string; password: string },
+      includeTuya = false,
     ) => {
       if (context.options.integrationDiscoverer) {
-        return context.options.integrationDiscoverer(houseId, draftCredentials);
+        const result = await context.options.integrationDiscoverer(houseId, draftCredentials);
+        return includeTuya ? result : { ...result, tuya: [] };
       }
-      const [homeAssistantResult, tpLinkResult, greeResult] = await Promise.allSettled([
+      const [homeAssistantResult, tpLinkResult, greeResult, tuyaResult] = await Promise.allSettled([
         discoverHomeAssistant(),
         context.tpLink.discoverSources(houseId, draftCredentials),
         context.gree.discoverSources(houseId),
+        includeTuya ? context.tuya.discoverSources(houseId) : Promise.resolve([]),
       ]);
       const warnings: string[] = [];
       if (homeAssistantResult.status === "rejected") warnings.push("Home Assistant discovery was unavailable. Enter its address manually.");
@@ -333,10 +338,14 @@ export function configureApiPart21(context: ReturnType<typeof configureApiPart20
       if (greeResult.status === "rejected" && (config.greeConnections?.length ?? 0) > 0) {
         warnings.push("Gree/Wilfa heat-pump discovery was unavailable.");
       }
+      if (includeTuya && tuyaResult.status === "rejected") {
+        warnings.push("Tuya LAN discovery was unavailable. You can still enter the device address manually.");
+      }
       return {
         homeAssistant: homeAssistantResult.status === "fulfilled" ? homeAssistantResult.value : [],
         tpLink: tpLinkResult.status === "fulfilled" ? tpLinkResult.value.sources : [],
         gree: greeResult.status === "fulfilled" ? greeResult.value : [],
+        tuya: tuyaResult.status === "fulfilled" ? tuyaResult.value : [],
         warnings,
       };
     };
@@ -360,16 +369,22 @@ export function configureApiPart21(context: ReturnType<typeof configureApiPart20
     };
   context.app.post(`${context.prefix}/integrations/discover`, async (request, response) => {
       const { houseId, draftCredentials } = discoveryInput(request);
-      response.json(await integrationDiscovery(houseId, draftCredentials));
+      const role = requestPrincipal(response).role;
+      response.json(await integrationDiscovery(houseId, draftCredentials, role === "owner" || role === "admin"));
     });
   context.app.post(`${context.prefix}/integrations/discovery-jobs`, (request, response) => {
       const { houseId, draftCredentials } = discoveryInput(request);
       if (!houseId) throw new HttpError(400, "HOUSE_REQUIRED", "houseId is required for background discovery");
-      const ownerId = requestPrincipal(response).userId;
+      const principal = requestPrincipal(response);
+      const ownerId = principal.userId;
       const job = integrationDiscoveryJobs.start(
         ownerId,
         houseId,
-        () => integrationDiscovery(houseId, draftCredentials),
+        () => integrationDiscovery(
+          houseId,
+          draftCredentials,
+          principal.role === "owner" || principal.role === "admin",
+        ),
       );
       response.status(202).json({ job });
     });

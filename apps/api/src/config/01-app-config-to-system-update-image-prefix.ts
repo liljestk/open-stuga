@@ -8,6 +8,7 @@ import {
   type GreeConnectionSecret,
   type HomeAssistantConnectionSecret,
   type TpLinkConnectionSecret,
+  type TuyaConnectionSecret,
   type WebhookDestinationSecret,
 } from "../integration-secrets.js";
 
@@ -101,6 +102,11 @@ export interface AppConfig {
   greeBridgeScript?: string;
   /** Directed broadcast targets required by some bridged/container networks. */
   greeDiscoveryTargets?: string[];
+  /** Home-scoped local Tuya LAN credentials saved after explicit verification. */
+  tuyaConnections?: TuyaConnectionSecret[];
+  tuyaPollIntervalMs?: number;
+  tuyaPython?: string;
+  tuyaBridgeScript?: string;
   /** Enables asynchronous Tapo app/private-history fallback after local retention is exhausted. */
   tapoHistoryEnabled?: boolean;
   /** Route-scoped bearer secret shared only with the isolated Appium worker. */

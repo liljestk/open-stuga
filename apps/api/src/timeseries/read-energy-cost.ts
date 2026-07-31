@@ -40,7 +40,10 @@ export async function readCostAggregate(input: {
     if (!localRead) throw new Error(`Local ${input.metric}-cost aggregation is unavailable`);
     return { ...localRead.call(input.local, input.query), archiveState: "local-only" };
   }
-  if (input.archivePhase !== "ready") {
+  // A synchronizing archive still has a consistent committed prefix. Use it
+  // without merging the SQLite tail, and expose the result as pending.
+  const archiveIsSynchronizing = input.archivePhase === "syncing";
+  if (input.archivePhase !== "ready" && !archiveIsSynchronizing) {
     input.requestReconciliation();
     if (!input.localHistoryComplete || !localRead) {
       throw new IncompleteTelemetryHistoryError("not-ready");
@@ -48,7 +51,10 @@ export async function readCostAggregate(input: {
     return { ...localRead.call(input.local, input.query), archiveState: "pending" };
   }
   try {
-    return { ...await archiveRead.call(input.archive, input.query), archiveState: "archived" };
+    return {
+      ...await archiveRead.call(input.archive, input.query),
+      archiveState: archiveIsSynchronizing ? "pending" : "archived",
+    };
   } catch {
     const afterFailureCancellation = aborted(input.query.signal);
     if (afterFailureCancellation) throw afterFailureCancellation;

@@ -49,6 +49,8 @@
   gap: 12px;
 }
 
+.floor-plan-layout { position: relative; }
+
 .outdoor-map-layout > .outdoor-context-card {
   position: relative;
   z-index: 1;
@@ -71,6 +73,15 @@
   flex-basis: auto;
 }
 
+.floor-plan-layout > .outdoor-context-card.collapsed {
+  position: absolute;
+  z-index: 11;
+  inset: 12px auto auto 12px;
+  margin: 0;
+  box-shadow: 0 8px 24px rgb(13 39 31 / .13);
+  backdrop-filter: blur(10px);
+}
+
 .outdoor-map-layout > .plan-stage,
 .outdoor-map-layout > .building-viewport {
   min-width: 0;
@@ -85,6 +96,8 @@
   }
 
   .floor-plan-layout > .outdoor-context-card {
+    position: relative;
+    inset: auto;
     width: auto;
     max-width: none;
     max-height: none;

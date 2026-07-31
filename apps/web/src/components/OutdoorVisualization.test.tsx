@@ -46,7 +46,13 @@ function outdoorState(house: House, response = weather(house)): OutdoorVisualiza
   };
 }
 
-function floorView(house: House, outdoor: OutdoorVisualizationState, units: UnitSystem = "metric", editing = false) {
+function floorView(
+  house: House,
+  outdoor: OutdoorVisualizationState,
+  units: UnitSystem = "metric",
+  editing = false,
+  display: { mapAnimationsEnabled?: boolean; outdoorExtrasVisible?: boolean } = {},
+) {
   const state = createDemoState();
   const floor = house.floors[0]!;
   const sensors = state.sensors.filter((sensor) => sensor.floorId === floor.id);
@@ -57,7 +63,7 @@ function floorView(house: House, outdoor: OutdoorVisualizationState, units: Unit
       <FloorPlan
         floor={floor} sensors={sensors} samples={samples} observations={[]} definition={definition} units={units}
         viewMode="plan" selectedSensorId={sensors[0]!.id} editing={editing} observationPlacement={false}
-        outdoor={outdoor} onSensorSelect={vi.fn()} onSensorMove={vi.fn()} onFloorChange={vi.fn()}
+        outdoor={outdoor} {...display} onSensorSelect={vi.fn()} onSensorMove={vi.fn()} onFloorChange={vi.fn()}
         onObservationPoint={vi.fn()} onCancelObservationPlacement={vi.fn()}
       />
     </I18nProvider>,
@@ -126,6 +132,59 @@ describe("outdoor boundary visualization", () => {
     expect(weatherCard?.parentElement).toBe(mapLayout);
     expect(planStage?.parentElement).toBe(mapLayout);
     expect(weatherCard?.nextElementSibling).toBe(planStage);
+  });
+
+  it("animates observed exterior wind while keeping the border and details independently controllable", () => {
+    localStorage.setItem("climate-twin-locale", "en");
+    const demo = createDemoState();
+    const house: House = {
+      ...demo.houses[0]!, location: { latitude: 60.17, longitude: 24.94 }, orientationDegrees: 0,
+    };
+    const animated = floorView(house, outdoorState(house, weather(house, 225)));
+
+    expect(animated.container.querySelector(".outdoor-wind-contact-dot")).not.toBeNull();
+    expect(animated.container.querySelectorAll(".outdoor-wind-streak")).toHaveLength(10);
+    expect(animated.container.querySelector(".outdoor-wind-label")?.textContent).toMatch(/Wind from SW 225/);
+    animated.unmount();
+
+    const still = floorView(house, outdoorState(house, weather(house, 225)), "metric", false, {
+      mapAnimationsEnabled: false,
+      outdoorExtrasVisible: true,
+    });
+    expect(still.container.querySelector(".outdoor-wind-streak")).toBeNull();
+    expect(still.container.querySelector(".outdoor-shell-windward-edge")).not.toBeNull();
+    expect(still.container.querySelector(".outdoor-wind-contact-dot")).not.toBeNull();
+    expect(still.container.querySelector(".outdoor-wind-label")).not.toBeNull();
+    still.unmount();
+
+    const minimal = floorView(house, outdoorState(house, weather(house, 225)), "metric", false, {
+      mapAnimationsEnabled: false,
+      outdoorExtrasVisible: false,
+    });
+    expect(minimal.container.querySelector(".outdoor-wind-label")).toBeNull();
+    expect(minimal.container.querySelector(".outdoor-temperature-chip")).toBeNull();
+    expect(minimal.container.querySelector(".outdoor-edge-labels")).toBeNull();
+    expect(minimal.container.querySelector(".outdoor-shell-windward-edge")).not.toBeNull();
+    expect(minimal.container.querySelector(".outdoor-wind-contact-dot")).not.toBeNull();
+  });
+
+  it("does not animate stale or calm wind observations", () => {
+    localStorage.setItem("climate-twin-locale", "en");
+    const demo = createDemoState();
+    const house: House = {
+      ...demo.houses[0]!, location: { latitude: 60.17, longitude: 24.94 }, orientationDegrees: 0,
+    };
+    const staleWeather = { ...weather(house, 225), stale: true };
+    const stale = floorView(house, outdoorState(house, staleWeather));
+    expect(stale.container.querySelector(".outdoor-wind-streak")).toBeNull();
+    expect(stale.container.querySelector(".outdoor-shell-windward-edge")).not.toBeNull();
+    stale.unmount();
+
+    const windyWeather = weather(house, 225);
+    const calmWeather = { ...windyWeather, current: { ...windyWeather.current!, windSpeedMps: .1 } };
+    const calm = floorView(house, outdoorState(house, calmWeather));
+    expect(calm.container.querySelector(".outdoor-wind-streak")).toBeNull();
+    expect(calm.container.querySelector(".outdoor-wind-contact-dot")).not.toBeNull();
   });
 
   it("applies the shared indoor comparison colors to the outdoor shell and condition values", () => {

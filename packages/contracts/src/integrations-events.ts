@@ -13,6 +13,11 @@ import type {
   GreeIntegrationStatus,
   HeatPumpState,
 } from "./heat-pumps.js";
+import type {
+  ConnectedDeviceState,
+  TuyaDiscoveredDevice,
+  TuyaIntegrationStatus,
+} from "./connected-devices.js";
 
 export type TpLinkConnectionSourceType = "hub" | "energy-device";
 
@@ -129,6 +134,11 @@ export interface IntegrationStatus {
    * This keeps the integration entirely out of clients that do not use it.
    */
   gree?: GreeIntegrationStatus;
+  /**
+   * Absent on older servers and while no direct local Tuya device is saved.
+   * Tuya cloud credentials and raw datapoints are never exposed here.
+   */
+  tuya?: TuyaIntegrationStatus;
 }
 
 export interface HomeAssistantDiscoveredInstance {
@@ -155,6 +165,8 @@ export interface IntegrationDiscoveryResult {
   tpLink: TpLinkDiscoveredSource[];
   /** Optional for wire compatibility with servers without direct Gree support. */
   gree?: GreeDiscoveredDevice[];
+  /** Optional for wire compatibility with servers without local Tuya discovery. */
+  tuya?: TuyaDiscoveredDevice[];
   warnings: string[];
 }
 
@@ -276,6 +288,7 @@ export type TelemetryEvent =
   | { type: "weather"; data: WeatherUpdateEvent }
   | { type: "opening"; data: OpeningStateObservation }
   | { type: "heat-pump"; data: HeatPumpState }
+  | { type: "connected-device"; data: ConnectedDeviceState }
   | { type: "mutation"; data: { method: string; resource: string; occurredAt: string } }
   | { type: "heartbeat"; data: { timestamp: string } };
 

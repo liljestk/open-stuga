@@ -274,6 +274,15 @@ export function configureApiPart05(context: ReturnType<typeof configureApiPart04
           .filter((timestamp): timestamp is string => Boolean(timestamp)).sort().at(-1) ?? null;
         value.gree.error = greeConnections.map((connection) => connection.error).filter(Boolean).join("; ") || null;
       }
+      if (value.tuya) {
+        const tuyaConnections = value.tuya.connections.filter((connection) => connection.houseId === houseId);
+        value.tuya.connections = tuyaConnections;
+        value.tuya.configured = tuyaConnections.some((connection) => connection.configured);
+        value.tuya.connected = tuyaConnections.some((connection) => connection.connected);
+        value.tuya.lastPollAt = tuyaConnections.map((connection) => connection.lastPollAt)
+          .filter((timestamp): timestamp is string => Boolean(timestamp)).sort().at(-1) ?? null;
+        value.tuya.error = tuyaConnections.map((connection) => connection.error).filter(Boolean).join("; ") || null;
+      }
       const weatherConnections = (value.weather.connections ?? []).filter((connection) => connection.houseId === houseId);
       value.weather.connections = weatherConnections;
       value.weather.configuredHouses = weatherConnections.filter((connection) => connection.configured).length;

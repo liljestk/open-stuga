@@ -14,6 +14,12 @@ shows a breathing-zone slice; the 3D Home view shows paths through the sampled
 room volumes. The selected state persists locally, but the layer is unavailable
 when the experimental engine capability is disabled.
 
+The ordinary outdoor wind animation is not this estimate. It is a directional
+boundary sketch and never enters the house on its own. Interior paths appear
+only when this experimental layer is enabled and its effective opening states,
+fresh wind, geometry, and sensor evidence support them. The shared Animations
+switch can pause particles without hiding either layer's static evidence.
+
 A separate **Sensor support** toggle visualizes the current sampling constraint:
 soft solid/dashed regions surround fresh temperature and paired-humidity
 anchors, while plus markers identify rooms or positions where another anchor

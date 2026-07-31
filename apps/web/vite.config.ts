@@ -18,6 +18,11 @@ export default defineConfig({
     },
   },
   build: {
+    // Production CSP keeps font-src at 'self'. Fontsource's small subsets fall
+    // below Vite's default inline threshold unless font files are excluded.
+    assetsInlineLimit(filePath) {
+      return /\.(?:woff2?|ttf|otf)$/iu.test(filePath) ? false : undefined;
+    },
     rollupOptions: {
       output: {
         // Route modules are already lazy-loaded. Keep the stable React runtime

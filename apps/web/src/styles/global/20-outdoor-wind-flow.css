@@ -1,0 +1,80 @@
+.outdoor-wind-visualization {
+  color: var(--blue);
+  pointer-events: none;
+}
+
+.outdoor-wind-visualization .outdoor-shell-windward-edge {
+  stroke-width: 10;
+}
+
+.outdoor-wind-contact-dot {
+  fill: var(--blue);
+  stroke: var(--panel);
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 5px rgb(36 83 155 / .5));
+}
+
+.outdoor-wind-route {
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-dasharray: 4 11;
+  opacity: .28;
+  vector-effect: non-scaling-stroke;
+}
+
+.outdoor-wind-motion .bypass .outdoor-wind-route {
+  opacity: .18;
+}
+
+.outdoor-wind-streak {
+  fill: var(--blue);
+  opacity: .88;
+  filter: drop-shadow(0 0 3px rgb(36 83 155 / .45));
+}
+
+.outdoor-wind-label rect {
+  fill: color-mix(in srgb, var(--panel) 92%, var(--blue));
+  stroke: var(--blue);
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 3px 7px rgb(0 0 0 / .22));
+}
+
+.outdoor-wind-label circle {
+  fill: var(--blue);
+}
+
+.outdoor-wind-label text {
+  fill: var(--ink);
+  font-family: "Manrope", sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .01em;
+}
+
+.outdoor-shell.stale .outdoor-wind-contact-dot,
+.outdoor-shell.stale .outdoor-wind-label circle {
+  fill: var(--yellow);
+}
+
+.outdoor-shell.stale .outdoor-wind-label rect {
+  stroke: var(--yellow);
+}
+
+.outdoor-wind-legend {
+  border-color: color-mix(in srgb, var(--blue) 40%, var(--line)) !important;
+  background: color-mix(in srgb, var(--blue) 7%, var(--panel)) !important;
+}
+
+.flow-sample.outdoor-wind {
+  color: var(--blue);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .outdoor-wind-motion {
+    display: none;
+  }
+}

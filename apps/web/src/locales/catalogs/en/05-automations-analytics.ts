@@ -368,6 +368,7 @@ export const enPart5 = {
   "analytics.visibleGapCount": "{count} visible gaps",
   "analytics.missingData": "Missing data",
   "analytics.missingSeriesStatus": "Missing data in {count} selected series",
+  "analytics.dismissGapNotice": "Dismiss data gap notice",
   "analytics.gapSourceOffline": "A source is still disconnected. Recovery starts after it returns.",
   "analytics.gapRecoveryActive": "Stugu is recovering what the sources still retain.",
   "analytics.gapRecoveryPartial": "Some history was restored, but part of the interval is still missing.",

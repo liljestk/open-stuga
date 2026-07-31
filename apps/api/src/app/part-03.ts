@@ -69,6 +69,8 @@ import { HomeAssistantBridge, testHomeAssistantCredentials } from "../home-assis
 import { mergeTpLinkHistoryRecovery, TpLinkBridge } from "../tp-link.js";
 import { GreeBridge } from "../gree.js";
 import { HeatPumpStateStore } from "../heat-pump-state.js";
+import { ConnectedDeviceStore } from "../connected-device-store.js";
+import { TuyaBridge } from "../tuya.js";
 import { discoverHomeAssistant } from "../discovery.js";
 import {
   readIntegrationSecrets,
@@ -77,6 +79,7 @@ import {
   type GreeConnectionSecret,
   type IntegrationSecrets,
   type TpLinkConnectionSecret,
+  type TuyaConnectionSecret,
 } from "../integration-secrets.js";
 import { IntegrationMetadataStore } from "../integration-metadata.js";
 import { openApiV1Document, openApiV2Document } from "../openapi.js";
@@ -220,6 +223,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
       batchSize: config.timeseriesBatchSize,
     }) : null;
   const heatPumpStates = new HeatPumpStateStore(context.database);
+  const connectedDevices = new ConnectedDeviceStore(context.database);
   const telemetryArchive = timeseries
       ? new TelemetryArchiveWorker(context.database, context.bus, timeseries, {
         batchSize: config.timeseriesBatchSize,
@@ -408,6 +412,31 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         config.greeConnections = connections;
       },
     });
+  const tuya = new TuyaBridge(
+      config,
+      status,
+      connectedDevices,
+      context.database,
+      measurements,
+      context.bus,
+      {
+        onConnectionUpdate: (update) => {
+          const existing = config.tuyaConnections ?? [];
+          const current = existing.find((connection) => connection.id === update.id);
+          if (!current || current.houseId !== update.houseId
+            || current.deviceId !== update.deviceId || current.localKey !== update.localKey
+            || current.protocolVersion !== update.protocolVersion
+            || current.profileId !== update.profileId) return;
+          const nextConnection: TuyaConnectionSecret = { ...current, host: update.host };
+          if (nextConnection.host === current.host) return;
+          const connections = existing.map((connection) => (
+            connection.id === current.id ? nextConnection : connection
+          ));
+          updateIntegrationSecrets(config.integrationSecretsFile, { tuyaConnections: connections });
+          config.tuyaConnections = connections;
+        },
+      },
+    );
   deferred.sensorGapRecovery = new SensorGapRecoveryCoordinator(context.database, measurements, [homeAssistant, deferred.tpLink], {
       telemetryReader,
       onRecovered: () => {
@@ -415,7 +444,7 @@ export function configureApiPart03(context: ReturnType<typeof configureApiPart02
         return telemetryArchive?.reconcileNow();
       },
     });
-  const extended = Object.assign(context, { timeseries, telemetryArchive, telemetryRetention, telemetryReader, analyticsWorkLimiter, dailyAnalyticsFindings, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, storedTelegramIdentity, telegram, alertEngine, telemetry, measurements, notificationOutbox, mock, replay, wakeSensorGapRecovery, tapoHistory, tapoHistoryFallbackKeys, historyFallbackKey, homeAssistant, heatPumpStates, gree });
+  const extended = Object.assign(context, { timeseries, telemetryArchive, telemetryRetention, telemetryReader, analyticsWorkLimiter, dailyAnalyticsFindings, measurementSnapshotCache, readingSnapshotCache, status, setupDoctor, energyCost, storedTelegramIdentity, telegram, alertEngine, telemetry, measurements, notificationOutbox, mock, replay, wakeSensorGapRecovery, tapoHistory, tapoHistoryFallbackKeys, historyFallbackKey, homeAssistant, heatPumpStates, gree, connectedDevices, tuya });
   return extended as typeof extended & DeferredContext & {
     sensorGapRecovery: SensorGapRecoveryCoordinator;
     tpLink: TpLinkBridge;

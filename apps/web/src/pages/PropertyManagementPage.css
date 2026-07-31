@@ -419,16 +419,6 @@
   .equipment-label-copy p, .equipment-label-copy small { color: #333; }
   .equipment-label-actions { display: none; }
 }
-.property-index-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
-.property-index-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-content: start; align-items: start; padding: 18px; }
-.property-index-card > .secondary-button { grid-column: 2; justify-self: start; margin-top: 2px; }
-.property-index-card h2 { margin: 0 0 4px; }
-.property-index-card p { margin: 0 0 6px; }
-.property-index-card small { color: var(--muted); }
-.property-index-card > div > small { display: block; margin-top: 6px; }
-.property-index-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: var(--panel-soft); }
-.property-index-card.stuguby-shared { border-color: color-mix(in srgb, var(--brand-red) 24%, var(--line)); }
-.property-index-card.stuguby-shared .property-index-icon { width: 42px; background: transparent; }
 .property-stuguby-label { width: fit-content; display: inline-flex !important; align-items: center; padding: 3px 7px; border-radius: 999px; color: var(--action) !important; background: var(--action-soft); font-size: 12px !important; font-weight: 750; line-height: 1.4; white-space: normal !important; }
 .property-heading .eyebrow .stuguby-mark { width: 31px; height: 22px; filter: none; }
 .property-house-group li.stuguby-shared { border: 1px solid color-mix(in srgb, var(--brand-red) 20%, var(--line)); }
@@ -438,7 +428,6 @@
 .property-index-create { width: min(100%, 680px); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; margin-top: 16px; padding: 18px; }
 
 @media (max-width: 760px) {
-  .property-index-card > .secondary-button { grid-column: 1 / -1; width: 100%; }
   .property-index-create { grid-template-columns: 1fr; }
   .property-index-create .primary-button { width: 100%; }
 }

@@ -185,4 +185,244 @@ export const pathsPart05 = {
       },
     },
   },
+  "/integrations/tuya/discover": {
+    post: {
+      tags: ["Integrations"],
+      operationId: "discoverTuyaLanDevices",
+      security: [{ localSession: [], csrfToken: [] }],
+      description: "Owner/Admin-only, non-binding LAN discovery for Tuya devices. Raw device identities appear only in this setup response.",
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              additionalProperties: false,
+              required: ["houseId"],
+              properties: { houseId: { type: "string", minLength: 1, maxLength: 200 } },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Tuya LAN advertisements visible to this Stugu host",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                required: ["devices"],
+                properties: {
+                  devices: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/TuyaDiscoveredDevice" },
+                  },
+                },
+              },
+            },
+          },
+        },
+        "403": { description: "Owner or Admin role required" },
+        "404": { $ref: "#/components/responses/NotFound" },
+      },
+    },
+  },
+  "/integrations/tuya/config": {
+    put: {
+      tags: ["Integrations"],
+      operationId: "configureTuyaLanDevice",
+      security: [{ localSession: [], csrfToken: [] }],
+      description: "Owner/Admin-only local verification and binding. The local key and raw device identity are write-only and remain in Stugu's protected integration-secret store.",
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: { $ref: "#/components/schemas/TuyaConfigInput" },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Verified device saved and supervised polling started",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                required: ["ok", "configured", "connectionId", "state", "integration"],
+                properties: {
+                  ok: { const: true },
+                  configured: { const: true },
+                  connectionId: { type: "string" },
+                  state: { $ref: "#/components/schemas/ConnectedDeviceState" },
+                  integration: { $ref: "#/components/schemas/IntegrationStatus" },
+                },
+              },
+            },
+          },
+        },
+        "400": { description: "Malformed credentials, protocol, placement, or non-local address" },
+        "403": { description: "Owner or Admin role required" },
+        "404": { $ref: "#/components/responses/NotFound" },
+        "409": { description: "Device, inventory identity, or concurrent setup conflict" },
+        "422": { description: "Local verification failed or the datapoint profile is unsupported" },
+      },
+    },
+  },
+  "/integrations/tuya/config/{connectionId}": {
+    delete: {
+      tags: ["Integrations"],
+      operationId: "disconnectTuyaLanDevice",
+      security: [{ localSession: [], csrfToken: [] }],
+      description: "Owner/Admin-only credential revocation. Polling stops; inventory and measured energy history are retained.",
+      parameters: [{
+        name: "connectionId",
+        in: "path",
+        required: true,
+        schema: { type: "string", minLength: 1, maxLength: 200 },
+      }],
+      responses: {
+        "200": {
+          description: "Tuya connection removed",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                required: ["ok", "integration"],
+                properties: {
+                  ok: { const: true },
+                  integration: { $ref: "#/components/schemas/IntegrationStatus" },
+                },
+              },
+            },
+          },
+        },
+        "403": { description: "Owner or Admin role required" },
+        "404": { $ref: "#/components/responses/NotFound" },
+      },
+    },
+  },
+  "/connected-devices": {
+    get: {
+      tags: ["Digital twin"],
+      operationId: "listConnectedDevices",
+      description: "Returns provider-neutral current device state. Provider credentials, raw datapoints, and Tuya device identities are excluded.",
+      parameters: [{ $ref: "#/components/parameters/HouseIdQuery" }],
+      responses: {
+        "200": {
+          description: "Current connected-device states visible to this account",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                required: ["devices"],
+                properties: {
+                  devices: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/ConnectedDeviceState" },
+                  },
+                },
+              },
+            },
+          },
+        },
+        "404": { $ref: "#/components/responses/NotFound" },
+      },
+    },
+  },
+  "/connected-devices/{connectionId}/placement": {
+    patch: {
+      tags: ["Digital twin"],
+      operationId: "placeConnectedDevice",
+      security: [{ localSession: [], csrfToken: [] }],
+      description: "Updates the shared 2D/3D Home placement. Metering is disabled while a metered device is unplaced.",
+      parameters: [{
+        name: "connectionId",
+        in: "path",
+        required: true,
+        schema: { type: "string", minLength: 1, maxLength: 200 },
+      }],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: { $ref: "#/components/schemas/ConnectedDevicePlacementPatch" },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Placement saved",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                required: ["state", "energySensorId"],
+                properties: {
+                  state: {
+                    oneOf: [
+                      { $ref: "#/components/schemas/ConnectedDeviceState" },
+                      { type: "null" },
+                    ],
+                  },
+                  energySensorId: { type: ["string", "null"] },
+                },
+              },
+            },
+          },
+        },
+        "404": { $ref: "#/components/responses/NotFound" },
+        "422": { description: "Placement is incomplete or outside the selected Home floor" },
+      },
+    },
+  },
+  "/connected-devices/{connectionId}/commands": {
+    post: {
+      tags: ["Digital twin"],
+      operationId: "commandConnectedDevice",
+      security: [{ localSession: [], csrfToken: [] }],
+      description: "Sends a bounded absolute command. operationId makes same-payload retries idempotent.",
+      parameters: [{
+        name: "connectionId",
+        in: "path",
+        required: true,
+        schema: { type: "string", minLength: 1, maxLength: 200 },
+      }],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: { $ref: "#/components/schemas/ConnectedDeviceCommand" },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Device-confirmed state, including idempotent retries",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                required: ["ok", "deduplicated", "state"],
+                properties: {
+                  ok: { const: true },
+                  deduplicated: { type: "boolean" },
+                  state: { $ref: "#/components/schemas/ConnectedDeviceState" },
+                },
+              },
+            },
+          },
+        },
+        "404": { $ref: "#/components/responses/NotFound" },
+        "409": { description: "operationId conflict or a matching command is still in progress" },
+        "422": { description: "Command is unsupported or outside the verified profile bounds" },
+        "503": { description: "The local device did not confirm the command" },
+      },
+    },
+  },
 } as const;

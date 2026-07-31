@@ -350,6 +350,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     greeBridgeScript: resolve(env.GREE_BRIDGE_SCRIPT ?? "./apps/api/python/gree_bridge.py"),
     greeDiscoveryTargets: [...new Set((optional(env.GREE_DISCOVERY_TARGETS) ?? "")
       .split(",").map((target) => target.trim()).filter(Boolean))],
+    tuyaConnections: (stored.tuyaConnections ?? []).map((connection) => ({ ...connection })),
+    tuyaPollIntervalMs: boundedInteger(
+      env.TUYA_POLL_INTERVAL_MS,
+      5_000,
+      2_000,
+      15 * 60_000,
+      "TUYA_POLL_INTERVAL_MS",
+    ),
+    tuyaPython: optional(env.TUYA_PYTHON)
+      ?? optional(env.TP_LINK_PYTHON)
+      ?? (process.platform === "win32" ? "python" : "python3"),
+    tuyaBridgeScript: resolve(env.TUYA_BRIDGE_SCRIPT ?? "./apps/api/python/tuya_bridge.py"),
     tapoHistoryEnabled,
     tapoHistoryWorkerToken,
     tapoHistoryExportEmail,

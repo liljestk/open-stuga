@@ -380,6 +380,8 @@ export const enPart6 = {
   "outdoor.planTop": "Plan top {degrees}°",
   "outdoor.compassAria": "True-north compass. The top of the floor plan faces {degrees} degrees.",
   "outdoor.windArrowAria": "Outdoor wind from {direction} at {degrees} degrees maps to the {edge} edge; this is not simulated indoor airflow.",
+  "outdoor.windFlowTitle": "Observed wind direction",
+  "outdoor.windFlowDisclaimer": "Bearing and wind-speed density use the weather observation. Paths around the plan are schematic; indoor paths are the separate Air movement estimate and require modeled open openings plus sensor support.",
   "outdoor.edge.top": "top",
   "outdoor.edge.right": "right",
   "outdoor.edge.bottom": "bottom",

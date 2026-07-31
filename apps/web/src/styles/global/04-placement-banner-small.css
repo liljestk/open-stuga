@@ -10,6 +10,18 @@
 
 .floor-plan:focus-visible { outline: 3px solid var(--pine); outline-offset: -4px; }
 
+.plan-zoom-controls { position: absolute; z-index: 10; top: 50%; left: 10px; display: grid; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink); background: rgb(255 255 255 / .92); box-shadow: 0 4px 14px rgb(13 39 31 / .12); backdrop-filter: blur(9px); transform: translateY(-50%); }
+
+.plan-zoom-controls button { width: 40px; min-width: 40px; height: 40px; min-height: 40px; display: grid; place-items: center; padding: 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; color: inherit; background: transparent; }
+
+.plan-zoom-controls button:hover:not(:disabled) { color: var(--action); background: var(--panel); }
+
+.plan-zoom-controls button:disabled { color: var(--muted-2); cursor: not-allowed; }
+
+.plan-zoom-controls output { min-height: 24px; display: grid; place-items: center; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 9px; font-weight: 750; font-variant-numeric: tabular-nums; }
+
+.plan-zoom-controls button:last-child { border-bottom: 0; }
+
 .plan-base { fill: #fcfbf7; stroke: #dedbd2; stroke-width: 2; }
 
 .floor-edge { fill: #d4d1c8; stroke: #a6a39a; stroke-width: 2; }

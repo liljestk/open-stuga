@@ -21,10 +21,12 @@ import { useHomeEnergySummaryQuery } from "../data/energy/homeEnergySummaryQuery
 import { useNow } from "../useNow";
 import type { SeriesLoadState } from "../useClimateData";
 import { ElectricityHistory, ELECTRICITY_METRICS, type ElectricityMetric } from "./ElectricityHistory";
+import { PropertyEnergyOverview } from "./PropertyEnergyOverview";
 import {
   freshElectricitySample,
   freshSourcesForMetric,
   metricSources,
+  sensorsForHomeTotal,
   sensorsForMetric,
   supportsMetric,
 } from "./energyTelemetry";
@@ -113,12 +115,7 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
   const electricitySensors = useMemo(() => houseSensors.filter((sensor) => ELECTRICITY_METRICS.some((candidate) => (
     supportsMetric(state, sensor, candidate)
   ))), [houseSensors, state.latestMeasurements, state.measurementHistory]);
-  const totalElectricitySensors = useMemo(() => {
-    const wholeHome = electricitySensors.filter((sensor) => sensor.energyMeterRole === "whole_home");
-    if (wholeHome.length > 0) return wholeHome.slice(0, 1);
-    const independent = electricitySensors.filter((sensor) => (sensor.energyMeterRole ?? "standalone") === "standalone");
-    return independent.length > 0 ? independent : electricitySensors;
-  }, [electricitySensors]);
+  const totalElectricitySensors = useMemo(() => sensorsForHomeTotal(electricitySensors), [electricitySensors]);
   const powerSensors = useMemo(
     () => sensorsForMetric(state, totalElectricitySensors, "power"),
     [totalElectricitySensors, state.latestMeasurements, state.measurementHistory],
@@ -241,7 +238,7 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
       : t("energy.combinedSources", { count: reporting, total: sensors.length });
   const powerSourceLabel = combinedSourceLabel(powerSensors, powerSources.length);
   const energySourceLabel = combinedSourceLabel(
-    used24Hours === null ? energySensors : totalElectricitySensors,
+    totalElectricitySensors,
     used24Hours === null ? energySources.length : dailySummary?.sourceCount ?? 0,
   );
   const priceSourceLabel = homePrice?.effectivePriceEurPerKwh !== undefined && homePrice?.effectivePriceEurPerKwh !== null
@@ -250,7 +247,15 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
   const energyCostBasis = (() => {
     if (energyCostBusy) return t("energy.costLoading");
     if (energyCostError || !energyCost || energyCost.totalSources === 0) return t("energy.costUnavailable");
+    const selectedSourceCount = Math.max(0, energyCost.totalSources - energyCost.excludedSourceCount);
     if (energyCost.archiveState === "pending") {
+      if (selectedSourceCount > 1) {
+        return t("energy.costCombinedArchivePending", {
+          count: energyCost.sourceCount,
+          total: selectedSourceCount,
+          coverage: energyCost.priceCoveragePercent.toFixed(0),
+        });
+      }
       return t("energy.costArchivePending", { coverage: energyCost.priceCoveragePercent.toFixed(0) });
     }
     if (energyCost.aggregationMode === "submeters_only") return t("energy.costSubmetersOnly");
@@ -263,11 +268,11 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
         ? t("energy.costBasis")
         : t("energy.costCombinedBasis", { count: energyCost.sourceCount });
     }
-    return energyCost.sourceCount <= 1
+    return selectedSourceCount <= 1
       ? t("energy.costPartial", { coverage: energyCost.priceCoveragePercent.toFixed(0) })
       : t("energy.costCombinedPartial", {
         count: energyCost.sourceCount,
-        total: energyCost.totalSources - energyCost.excludedSourceCount,
+        total: selectedSourceCount,
         coverage: energyCost.priceCoveragePercent.toFixed(0),
       });
   })();
@@ -357,6 +362,14 @@ export function EnergyPage({ state, house = null, propertyId: requestedPropertyI
         </form>}
         {priceFeedback && <p role={priceFeedback.kind === "error" ? "alert" : "status"}>{priceFeedback.text}</p>}
       </section>}
+
+      {!house && <PropertyEnergyOverview
+        state={state}
+        propertyId={propertyId}
+        propertyName={property?.name ?? propertyId}
+        units={units}
+        now={now}
+      />}
 
       {house && !electricitySensors.length && <section className="panel energy-onboarding" aria-labelledby="energy-onboarding-heading">
         <span className="energy-onboarding-icon" aria-hidden="true"><RadioTower size={26} /></span>

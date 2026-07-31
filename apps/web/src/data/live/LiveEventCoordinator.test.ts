@@ -18,6 +18,8 @@ function clientWithQueries(): QueryClient {
   client.setQueryData(["analytics", "opening-activity", "home-2", "request"], {});
   client.setQueryData(["analytics", "calendar-comparison", "home-1", "request"], {});
   client.setQueryData(["analytics", "calendar-comparison", "home-2", "request"], {});
+  client.setQueryData(["connected-devices", "home-1"], []);
+  client.setQueryData(["connected-devices", "home-2"], []);
   return client;
 }
 
@@ -50,6 +52,7 @@ describe("LiveEventCoordinator", () => {
       ["house", "home-1", "analytics", "home-performance", "live"],
       ["analytics", "opening-activity", "home-1", "request"],
       ["analytics", "calendar-comparison", "home-1", "request"],
+      ["connected-devices", "home-1"],
     ]) {
       expect(client.getQueryState(key)?.isInvalidated).toBe(true);
     }

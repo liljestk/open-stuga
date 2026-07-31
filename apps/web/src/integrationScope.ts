@@ -13,6 +13,7 @@ export function integrationForHouse(value: IntegrationStatus, houseId: string, w
   const homeAssistantConnections = value.homeAssistant.connections?.filter((connection) => connection.houseId === houseId);
   const tpLinkConnections = value.tpLink.connections?.filter((connection) => connection.houseId === houseId);
   const greeConnections = value.gree?.connections.filter((connection) => connection.houseId === houseId);
+  const tuyaConnections = value.tuya?.connections.filter((connection) => connection.houseId === houseId);
   const weatherConnections = value.weather.connections?.filter((connection) => connection.houseId === houseId);
 
   const homeAssistant = homeAssistantConnections === undefined
@@ -78,5 +79,16 @@ export function integrationForHouse(value: IntegrationStatus, houseId: string, w
         connections: greeConnections ?? [],
       };
 
-  return { ...value, homeAssistant, tpLink, weather, ...(gree ? { gree } : {}) };
+  const tuya = value.tuya === undefined
+    ? undefined
+    : {
+        ...value.tuya,
+        configured: (tuyaConnections ?? []).some((connection) => connection.configured),
+        connected: (tuyaConnections ?? []).some((connection) => connection.connected),
+        lastPollAt: newest((tuyaConnections ?? []).map((connection) => connection.lastPollAt)),
+        error: (tuyaConnections ?? []).map((connection) => connection.error).filter(Boolean).join("; ") || null,
+        connections: tuyaConnections ?? [],
+      };
+
+  return { ...value, homeAssistant, tpLink, weather, ...(gree ? { gree } : {}), ...(tuya ? { tuya } : {}) };
 }

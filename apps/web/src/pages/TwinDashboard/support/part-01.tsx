@@ -118,7 +118,15 @@ export const outdoorInfluenceMetricPreferenceKey = "stugu-outdoor-influence-metr
 
 export const energyDeviceLayerPreferenceKey = "stugu-home-map-energy-devices-visible";
 
+export const connectedDeviceLayerPreferenceKey = "stugu-home-map-connected-devices-visible";
+
 export const climateSensorLayerPreferenceKey = "stugu-home-map-climate-sensors-visible";
+
+export const openingStateLabelsPreferenceKey = "stugu-home-map-opening-state-labels-visible";
+
+export const mapAnimationsPreferenceKey = "stugu-home-map-animations-enabled";
+
+export const outdoorExtrasPreferenceKey = "stugu-home-map-outdoor-extras-visible";
 
 export function initialExperimentalVisualizations(): ExperimentalVisualizationId[] {
   const stored = readLocalStorage(experimentalVisualizationPreferenceKey);
@@ -145,8 +153,24 @@ export function initialEnergyDeviceLayerVisibility(): boolean {
   return readLocalStorage(energyDeviceLayerPreferenceKey) !== "false";
 }
 
+export function initialConnectedDeviceLayerVisibility(): boolean {
+  return readLocalStorage(connectedDeviceLayerPreferenceKey) !== "false";
+}
+
 export function initialClimateSensorLayerVisibility(): boolean {
   return readLocalStorage(climateSensorLayerPreferenceKey) !== "false";
+}
+
+export function initialOpeningStateLabelsVisibility(): boolean {
+  return readLocalStorage(openingStateLabelsPreferenceKey) !== "false";
+}
+
+export function initialMapAnimationsEnabled(): boolean {
+  return readLocalStorage(mapAnimationsPreferenceKey) !== "false";
+}
+
+export function initialOutdoorExtrasVisibility(): boolean {
+  return readLocalStorage(outdoorExtrasPreferenceKey) !== "false";
 }
 
 export function mergeOpeningStateObservations(

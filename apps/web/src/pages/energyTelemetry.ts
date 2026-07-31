@@ -27,6 +27,14 @@ export function sensorsForMetric(state: ClimateState, sensors: Sensor[], metric:
   return sensors.filter((sensor) => supportsMetric(state, sensor, metric));
 }
 
+/** Select meters that can be added without double-counting a Home. */
+export function sensorsForHomeTotal(sensors: Sensor[]): Sensor[] {
+  const wholeHome = sensors.filter((sensor) => sensor.energyMeterRole === "whole_home");
+  if (wholeHome.length > 0) return wholeHome.slice(0, 1);
+  const independent = sensors.filter((sensor) => (sensor.energyMeterRole ?? "standalone") === "standalone");
+  return independent.length > 0 ? independent : sensors;
+}
+
 function sourceForMetric(
   state: ClimateState,
   sensors: Sensor[],

@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { BoxSelect, Grid3X3, ImagePlus, MapPinPlus, MousePointer2, PenLine, Plus, RotateCcw, RotateCw, Trash2 } from "lucide-react";
-import { floorMetersPerPlanUnit, isAirflowPlanElement, wallLengthPlanUnits, type ConfiguredOpeningState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type PlanElementKind, type Point, type Room, type Sensor, type UnitSystem, type Wall } from "@climate-twin/contracts";
+import { floorMetersPerPlanUnit, isAirflowPlanElement, wallLengthPlanUnits, type ConfiguredOpeningState, type ConnectedDeviceState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type PlanElementKind, type Point, type Room, type Sensor, type UnitSystem, type Wall } from "@climate-twin/contracts";
 import { clamp, round, type ViewMode } from "../../../domain";
 import { useI18n, type TranslationKey } from "../../../i18n";
 import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue, type LatestMeasurements } from "../../../measurements";
@@ -56,6 +56,9 @@ export interface FloorPlanProps {
   sensorMeasurements?: LatestMeasurements;
   climateSensorMarkersVisible?: boolean;
   energyDevicesVisible?: boolean;
+  connectedDevices?: readonly ConnectedDeviceState[];
+  connectedDevicesVisible?: boolean;
+  pendingConnectedDeviceIds?: ReadonlySet<string>;
   climateSamples?: ClimateSampleMatrix;
   observations: ManualObservation[];
   definition: MeasurementDefinition;
@@ -70,6 +73,10 @@ export interface FloorPlanProps {
   referenceTimeMs?: number;
   maxSampleAgeMs?: number;
   outdoor?: OutdoorVisualizationState;
+  /** Controls nonessential particle motion without hiding the underlying map cues. */
+  mapAnimationsEnabled?: boolean;
+  /** Controls supplementary outdoor labels and condition chips. */
+  outdoorExtrasVisible?: boolean;
   spatialLayerSnapshots?: readonly SpatialLayerSnapshot[];
   spatialLayerTopology?: SpatialTopology | null;
   experimentalAirflowEnabled?: boolean;
@@ -79,6 +86,8 @@ export interface FloorPlanProps {
   openingStateObservations?: readonly OpeningStateObservation[];
   pendingOpeningStateKeys?: ReadonlySet<string>;
   onOpeningStateChange?: (floorId: string, elementId: string, state: ConfiguredOpeningState) => void;
+  onConnectedDevicePowerChange?: (connectionId: string, power: boolean) => void;
+  onConnectedDeviceMove?: (connectionId: string, point: Point) => void;
   onSensorSelect: (sensorId: string) => void;
   onSensorMove: (sensorId: string, point: Point) => void;
   onFloorChange: (floor: Floor) => void;
@@ -116,7 +125,7 @@ export const ROOM_KINDS = ["living", "dining", "kitchen", "bedroom", "bathroom",
 
 export const PLAN_ELEMENT_KINDS: PlanElementKind[] = ["door", "window", "fireplace", "vent", "fireEscape"];
 
-export const PLAN_VIEWPORT_MARGIN = 88;
+export const PLAN_VIEWPORT_MARGIN = 132;
 
 export const OUTDOOR_SHELL_OFFSET = 64;
 
@@ -151,12 +160,14 @@ export function outdoorWindBearingPath(planWindFromDegrees: number, width: numbe
   const shellWidth = width + OUTDOOR_SHELL_OFFSET * 2;
   const shellHeight = height + OUTDOOR_SHELL_OFFSET * 2;
   const path = windPathOnRectangle(planWindFromDegrees, shellWidth, shellHeight, .035, .035);
-  const translate = (point: Point) => ({
-    x: point.x - OUTDOOR_SHELL_OFFSET,
-    y: point.y - OUTDOOR_SHELL_OFFSET,
-  });
-  const source = translate(path.sourcePoint);
-  const target = translate(path.inwardTarget);
+  const source = {
+    x: path.sourcePoint.x - OUTDOOR_SHELL_OFFSET,
+    y: path.sourcePoint.y - OUTDOOR_SHELL_OFFSET,
+  };
+  const target = {
+    x: path.inwardTarget.x - OUTDOOR_SHELL_OFFSET,
+    y: path.inwardTarget.y - OUTDOOR_SHELL_OFFSET,
+  };
   return `M${source.x.toFixed(2)} ${source.y.toFixed(2)}L${target.x.toFixed(2)} ${target.y.toFixed(2)}`;
 }
 

@@ -26,6 +26,7 @@ import { PeopleAccessPage } from "./PeopleAccessPage";
 import { PropertyManagementPage } from "./PropertyManagementPage";
 
 import propertyStyles from "./PropertyManagementPage.css?raw";
+import carouselStyles from "./PropertyManagementPage/PropertyCarousel.css?raw";
 
 import { area, areaNavigation, areaTask, callbacks, enabledTrackingCapabilities, equipment, equipmentOnlyTask, note, originalClipboard, selectArea } from "./PropertyManagementPageTestSupport";
 
@@ -82,10 +83,52 @@ afterEach(() => {
 });
 
 describe("PropertyManagementPage", () => {
-  it("keeps the property index cards contained and padded", () => {
-    expect(propertyStyles).toMatch(/\.property-index-grid\s*\{[^}]*repeat\(auto-fill,/);
-    expect(propertyStyles).toMatch(/\.property-index-card\s*\{[^}]*padding:\s*18px/);
+  it("keeps the property carousel swipeable, contained, and touch-sized", () => {
+    expect(carouselStyles).toMatch(/\.property-carousel-track\s*\{[^}]*grid-auto-flow:\s*column/);
+    expect(carouselStyles).toMatch(/\.property-carousel-track\s*\{[^}]*overflow-x:\s*auto/);
+    expect(carouselStyles).toMatch(/\.property-carousel-track\s*\{[^}]*scroll-snap-type:\s*x mandatory/);
+    expect(carouselStyles).toMatch(/\.property-carousel-arrow\s*\{[^}]*width:\s*42px[^}]*height:\s*42px/);
     expect(propertyStyles).toMatch(/\.property-index-create\s*\{[^}]*width:\s*min\(100%,\s*680px\)[^}]*padding:\s*18px/);
+  });
+
+  it("browses a large property collection directly and shows useful details", () => {
+    const state = createDemoState();
+    const firstProperty = state.properties[0]!;
+    state.properties = Array.from({ length: 24 }, (_, index) => ({
+      ...firstProperty,
+      id: `property-${index + 1}`,
+      name: `Property ${index + 1}`,
+      description: index === 0 ? "Woodland home and lakeside buildings." : null,
+    }));
+    state.houses = [{ ...state.houses[0]!, propertyId: "property-1" }];
+    state.propertyAreas = [{ ...area, propertyId: "property-1" }];
+    state.areaEquipment = [{ ...equipment, propertyId: "property-1" }];
+    state.maintenanceTasks = [{ ...areaTask, propertyId: "property-1" }];
+    const handlers = callbacks();
+    const onProperty = vi.fn();
+    const { container } = render(<I18nProvider><PropertyManagementPage
+      state={state}
+      indexMode
+      onProperty={onProperty}
+      {...handlers}
+    /></I18nProvider>);
+
+    expect(screen.getByRole("heading", { name: "Browse properties" })).not.toBeNull();
+    const picker = screen.getByLabelText("Jump to property") as HTMLSelectElement;
+    expect(picker.options).toHaveLength(24);
+    const firstCard = container.querySelector<HTMLElement>(".property-index-card")!;
+    expect(within(firstCard).getByText("Woodland home and lakeside buildings.")).not.toBeNull();
+    expect(within(firstCard).getByText("Homes")).not.toBeNull();
+    expect(within(firstCard).getByText("Inventory")).not.toBeNull();
+
+    const track = container.querySelector<HTMLOListElement>(".property-carousel-track")!;
+    track.focus();
+    fireEvent.keyDown(track, { key: "ArrowRight" });
+    expect(picker.value).toBe("property-2");
+    fireEvent.change(picker, { target: { value: "property-24" } });
+    expect(picker.value).toBe("property-24");
+    fireEvent.click(screen.getByRole("button", { name: "Open Property 24" }));
+    expect(onProperty).toHaveBeenCalledWith("property-24");
   });
 
   it("keeps the map workspace focused on placement and hides secondary tools by default", () => {

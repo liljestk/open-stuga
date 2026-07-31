@@ -110,11 +110,15 @@
 
 .sensor-analytics-gap-status > svg { flex: 0 0 auto; margin-top: 1px; color: var(--yellow); }
 
-.sensor-analytics-gap-status > span { min-width: 0; display: grid; gap: 2px; }
+.sensor-analytics-gap-status > span { min-width: 0; display: grid; flex: 1 1 auto; gap: 2px; }
 
 .sensor-analytics-gap-status strong { color: var(--ink); font-size: 11px; }
 
 .sensor-analytics-gap-status small { color: var(--yellow); font-size: 10px; line-height: 1.4; }
+
+.sensor-analytics-gap-status > .icon-button { flex: 0 0 auto; width: 30px; height: 30px; margin: -4px -8px -4px auto; color: var(--yellow); }
+
+.sensor-analytics-gap-status > .icon-button:hover { background: color-mix(in srgb, var(--yellow) 12%, transparent); }
 
 .sensor-analytics-legend { display: flex; flex-wrap: wrap; gap: 7px 13px; padding: 10px 18px 2px; color: var(--muted); font-size: 9.5px; }
 

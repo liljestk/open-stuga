@@ -212,22 +212,29 @@ export function configureApiPart17(context: ReturnType<typeof configureApiPart16
       const remainingGreeConnections = (config.greeConnections ?? [])
         .filter((connection) => connection.houseId !== houseId);
       const greeChanged = remainingGreeConnections.length !== (config.greeConnections ?? []).length;
+      const remainingTuyaConnections = (config.tuyaConnections ?? [])
+        .filter((connection) => connection.houseId !== houseId);
+      const tuyaChanged = remainingTuyaConnections.length !== (config.tuyaConnections ?? []).length;
       if (remainingHomeAssistantConnections.length !== (config.homeAssistantConnections ?? []).length
         || remainingTpLinkConnections.length !== (config.tpLinkConnections ?? []).length
-        || greeChanged) {
+        || greeChanged
+        || tuyaChanged) {
         updateIntegrationSecrets(config.integrationSecretsFile, {
           homeAssistantConnections: remainingHomeAssistantConnections,
           tpLinkConnections: remainingTpLinkConnections,
           greeConnections: remainingGreeConnections,
+          tuyaConnections: remainingTuyaConnections,
         });
         config.homeAssistantConnections = remainingHomeAssistantConnections;
         config.tpLinkConnections = remainingTpLinkConnections;
         config.greeConnections = remainingGreeConnections;
+        config.tuyaConnections = remainingTuyaConnections;
         if (context.options.startBackground) {
           context.homeAssistant.restart();
           context.tpLink.restart();
         }
         if (greeChanged) context.gree.refreshConfiguration();
+        if (tuyaChanged) context.tuya.refreshConfiguration();
       }
       context.weather.invalidate(houseId);
       context.weatherEvents.invalidate(houseId);

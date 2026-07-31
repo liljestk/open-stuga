@@ -69,6 +69,8 @@ import { HomeAssistantBridge, testHomeAssistantCredentials } from "../../home-as
 import { mergeTpLinkHistoryRecovery, TpLinkBridge } from "../../tp-link.js";
 import { GreeBridge } from "../../gree.js";
 import { HeatPumpStateStore } from "../../heat-pump-state.js";
+import { TuyaBridge } from "../../tuya.js";
+import { ConnectedDeviceStore } from "../../connected-device-store.js";
 import { discoverHomeAssistant } from "../../discovery.js";
 import {
   readIntegrationSecrets,
@@ -404,6 +406,8 @@ export interface ApiRuntime {
   tpLink: TpLinkBridge;
   gree: GreeBridge;
   heatPumpStates: HeatPumpStateStore;
+  tuya: TuyaBridge;
+  connectedDevices: ConnectedDeviceStore;
   tapoHistory: TapoHistoryExportService;
   electricityPrices: ElectricityPriceService;
   telegram: TelegramService;

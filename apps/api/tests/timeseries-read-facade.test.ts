@@ -603,4 +603,39 @@ describe("HybridTelemetryReader", () => {
     expect(localPowerAggregate).not.toHaveBeenCalled();
     expect(archivePowerAggregate).toHaveBeenCalledTimes(2);
   });
+
+  it("uses archive cost aggregates while synchronization is in progress", async () => {
+    const localAggregate = vi.fn(() => ({
+      deltaCount: 1, consumptionKwh: 1, pricedConsumptionKwh: 0, costEur: 0,
+      totalDurationMs: 1_000, pricedDurationMs: 0, coverageFrom: FROM, coverageUntil: TO,
+    }));
+    const archiveAggregate = vi.fn(async () => ({
+      deltaCount: 2, consumptionKwh: 2, pricedConsumptionKwh: 2, costEur: 0.2,
+      totalDurationMs: 2_000, pricedDurationMs: 2_000, coverageFrom: FROM, coverageUntil: TO,
+    }));
+    const reader = new HybridTelemetryReader({
+      local: localReader({
+        energyCostAggregate: localAggregate,
+        powerCostAggregate: localAggregate,
+      }),
+      archive: archiveReader({
+        energyCostAggregate: archiveAggregate,
+        powerCostAggregate: archiveAggregate,
+      }),
+      archivePhase: () => "syncing",
+      localHistoryComplete: false,
+    });
+    const query = { sensorId: "meter-1", propertyId: "property-1", from: FROM, to: TO };
+
+    await expect(reader.energyCostAggregate(query)).resolves.toMatchObject({
+      costEur: 0.2,
+      archiveState: "pending",
+    });
+    await expect(reader.powerCostAggregate(query)).resolves.toMatchObject({
+      costEur: 0.2,
+      archiveState: "pending",
+    });
+    expect(archiveAggregate).toHaveBeenCalledTimes(2);
+    expect(localAggregate).not.toHaveBeenCalled();
+  });
 });

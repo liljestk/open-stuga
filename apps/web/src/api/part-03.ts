@@ -71,6 +71,11 @@ import type {
   StaticParameter,
   GuestAccessGrant,
   HeatPumpState,
+  ConnectedDeviceCommand,
+  ConnectedDevicePlacementPatch,
+  ConnectedDeviceState,
+  TuyaConfigInput,
+  TuyaDiscoveredDevice,
   Property,
   PropertyArea,
   PropertyAreaInput,
@@ -277,6 +282,49 @@ export const apiPart03 = {
   disconnectGree: (connectionId: string) => request<{ ok: boolean; integration: IntegrationStatus }>(`/integrations/gree/config/${encodeURIComponent(connectionId)}`, {
       method: "DELETE",
     }),
+  discoverTuya: async (houseId: string) => list<TuyaDiscoveredDevice>(
+      await request<unknown>("/integrations/tuya/discover", {
+        method: "POST",
+        body: JSON.stringify({ houseId }),
+      }),
+      ["devices", "data"],
+    ),
+  configureTuya: (configuration: TuyaConfigInput) => request<{
+    ok: boolean;
+    configured: boolean;
+    connectionId: string;
+    state: ConnectedDeviceState;
+    integration: IntegrationStatus;
+  }>("/integrations/tuya/config", {
+    method: "PUT",
+    body: JSON.stringify(configuration),
+  }),
+  disconnectTuya: (connectionId: string) => request<{ ok: boolean; integration: IntegrationStatus }>(
+      `/integrations/tuya/config/${encodeURIComponent(connectionId)}`,
+      { method: "DELETE" },
+    ),
+  connectedDevices: async (houseId?: string, signal?: AbortSignal) => list<ConnectedDeviceState>(
+      await request<unknown>(
+        `/connected-devices${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`,
+        signal ? { signal } : undefined,
+      ),
+      ["devices", "data"],
+    ),
+  commandConnectedDevice: (connectionId: string, command: ConnectedDeviceCommand) => request<{
+    ok: boolean;
+    deduplicated: boolean;
+    state: ConnectedDeviceState;
+  }>(`/connected-devices/${encodeURIComponent(connectionId)}/commands`, {
+    method: "POST",
+    body: JSON.stringify(command),
+  }),
+  placeConnectedDevice: (connectionId: string, placement: ConnectedDevicePlacementPatch) => request<{
+    state: ConnectedDeviceState | null;
+    energySensorId: string | null;
+  }>(`/connected-devices/${encodeURIComponent(connectionId)}/placement`, {
+    method: "PATCH",
+    body: JSON.stringify(placement),
+  }),
   heatPumpStates: async (houseId?: string) => list<HeatPumpState>(
       await request<unknown>(`/heat-pumps${houseId ? `?houseId=${encodeURIComponent(houseId)}` : ""}`),
       ["states", "data"],

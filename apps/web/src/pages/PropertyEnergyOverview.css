@@ -1,0 +1,216 @@
+.property-energy-overview {
+  margin: 1.5rem 0 1.25rem;
+}
+
+.property-energy-overview-heading {
+  display: grid;
+  grid-template-columns: minmax(16rem, 0.7fr) minmax(20rem, 1fr);
+  align-items: end;
+  gap: 2rem;
+  margin-bottom: 1rem;
+}
+
+.property-energy-overview-heading h2 {
+  margin: 0.35rem 0 0;
+  font-size: clamp(1.45rem, 2vw, 1.85rem);
+}
+
+.property-energy-overview-heading p {
+  max-width: 66ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.property-energy-summary {
+  margin-bottom: 1rem;
+}
+
+.property-energy-homes {
+  padding: 1.25rem;
+}
+
+.property-energy-homes > .panel-header {
+  align-items: end;
+}
+
+.property-energy-homes > .panel-header h3 {
+  margin-top: 0.35rem;
+  font-size: 1.05rem;
+}
+
+.property-energy-homes > .panel-header p {
+  max-width: 52ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.property-energy-home-list {
+  display: grid;
+  margin-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.property-energy-home {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(15rem, 0.65fr);
+  gap: 0.75rem 2rem;
+  min-width: 0;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.property-energy-home:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.property-energy-home-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.property-energy-home-icon {
+  display: inline-grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border-radius: 0.4rem;
+  color: var(--action);
+  background: var(--action-soft);
+}
+
+.property-energy-home-heading > div {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.property-energy-home h4 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: "Manrope", sans-serif;
+  font-size: 0.92rem;
+}
+
+.property-energy-home-heading > div > span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.property-energy-home-heading > strong {
+  font-family: "Manrope", sans-serif;
+  font-size: 1rem;
+}
+
+.property-energy-share {
+  grid-column: 1;
+  height: 0.35rem;
+  overflow: hidden;
+  border-radius: 0.2rem;
+  background: var(--panel-soft);
+}
+
+.property-energy-share i {
+  display: block;
+  width: var(--property-energy-share, 0%);
+  height: 100%;
+  background: var(--action);
+}
+
+.property-energy-home dl {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: center;
+  gap: 1rem;
+  margin: 0;
+}
+
+.property-energy-home dl div {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.property-energy-home dt {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.property-energy-home dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: "Manrope", sans-serif;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.property-energy-empty {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.25rem;
+}
+
+.property-energy-empty h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+
+.property-energy-empty p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 800px) {
+  .property-energy-home {
+    grid-template-columns: 1fr;
+  }
+
+  .property-energy-home dl {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
+@media (max-width: 680px) {
+  .property-energy-overview-heading {
+    grid-template-columns: 1fr;
+    gap: 0.65rem;
+  }
+
+  .property-energy-homes {
+    padding: 1rem;
+  }
+
+  .property-energy-homes > .panel-header {
+    align-items: flex-start;
+  }
+
+  .property-energy-homes > .panel-header p {
+    text-align: left;
+  }
+
+  .property-energy-home-heading {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .property-energy-home-heading > strong {
+    grid-column: 2;
+  }
+
+  .property-energy-home dl {
+    grid-template-columns: 1fr;
+  }
+}

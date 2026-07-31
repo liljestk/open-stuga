@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { MeasurementSample, OutdoorTemperatureSample, Sensor } from "@climate-twin/contracts";
+import type { HouseWeather, MeasurementSample, OutdoorTemperatureSample, Sensor } from "@climate-twin/contracts";
 import { api } from "../api";
 import type { ClimateState } from "../domain";
 import { createDemoState } from "../domain";
@@ -171,6 +171,116 @@ describe("TwinDashboard climate-sensor map layer", () => {
     await waitFor(() => expect(building.container.querySelector(".building-sensor:not(.energy-device)")).not.toBeNull());
     building.unmount();
     localStorage.removeItem(preferenceKey);
+  });
+});
+
+describe("TwinDashboard opening-status layer", () => {
+  it("toggles and persists the 3D opening labels without removing opening controls", async () => {
+    const preferenceKey = "stugu-home-map-opening-state-labels-visible";
+    localStorage.removeItem(preferenceKey);
+    const demo = createDemoState();
+    const floor = demo.houses[0]!.floors[0]!;
+    const house = {
+      ...demo.houses[0]!,
+      floors: [{
+        ...floor,
+        planElements: [
+          ...(floor.planElements ?? []),
+          { id: "status-door", kind: "door" as const, wallId: floor.walls[0]!.id, position: { x: 220, y: 45 }, rotationDegrees: 0, state: "closed" as const },
+        ],
+      }, ...demo.houses[0]!.floors.slice(1)],
+    };
+    const state = { ...demo, houses: [house, ...demo.houses.slice(1)] };
+
+    const first = renderDashboard(state, "demo", false, "isometric");
+    fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    const layerButton = await screen.findByRole("button", { name: "Opening status" });
+    expect(first.container.querySelector(".building-opening-state-badge")).not.toBeNull();
+    expect(first.container.querySelector(".building-plan-element.opening-control")).not.toBeNull();
+
+    fireEvent.click(layerButton);
+    expect(layerButton.getAttribute("aria-pressed")).toBe("false");
+    expect(first.container.querySelector(".building-opening-state-badge")).toBeNull();
+    expect(first.container.querySelector(".building-plan-element.opening-control")).not.toBeNull();
+    await waitFor(() => expect(localStorage.getItem(preferenceKey)).toBe("false"));
+    first.unmount();
+
+    const second = renderDashboard(state, "demo", false, "isometric");
+    fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    expect((await screen.findByRole("button", { name: "Opening status" })).getAttribute("aria-pressed")).toBe("false");
+    expect(second.container.querySelector(".building-opening-state-badge")).toBeNull();
+    second.unmount();
+    localStorage.removeItem(preferenceKey);
+  });
+});
+
+describe("TwinDashboard wind display controls", () => {
+  it("toggles and persists motion separately from outdoor UI extras", async () => {
+    const animationKey = "stugu-home-map-animations-enabled";
+    const extrasKey = "stugu-home-map-outdoor-extras-visible";
+    localStorage.removeItem(animationKey);
+    localStorage.removeItem(extrasKey);
+    const demo = createDemoState();
+    const house = {
+      ...demo.houses[0]!,
+      location: { latitude: 60.17, longitude: 24.94 },
+      orientationDegrees: 0,
+    };
+    const state: ClimateState = { ...demo, houses: [house] };
+    const response: HouseWeather = {
+      houseId: house.id,
+      location: house.location,
+      provider: "fmi",
+      attribution: "FMI open data",
+      fetchedAt: "2026-07-31T07:05:00.000Z",
+      forecastIssuedAt: null,
+      stale: false,
+      current: {
+        timestamp: "2026-07-31T07:00:00.000Z",
+        temperatureC: 12,
+        relativeHumidityPercent: 78,
+        windDirectionDegrees: 225,
+        windSpeedMps: 4,
+      },
+      observationStation: null,
+      forecast: [],
+      warnings: [],
+      unavailable: [],
+    };
+    const weather = vi.spyOn(api, "houseWeather").mockResolvedValue(response);
+
+    try {
+      const first = renderDashboard(state);
+      fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+      const animationButton = await screen.findByRole("button", { name: "Animations" });
+      const detailsButton = screen.getByRole("button", { name: "Wind details" });
+      await waitFor(() => expect(first.container.querySelector(".outdoor-wind-streak")).not.toBeNull());
+
+      fireEvent.click(animationButton);
+      expect(animationButton.getAttribute("aria-pressed")).toBe("false");
+      expect(first.container.querySelector(".outdoor-wind-streak")).toBeNull();
+      expect(first.container.querySelector(".outdoor-shell-windward-edge")).not.toBeNull();
+      expect(first.container.querySelector(".outdoor-wind-label")).not.toBeNull();
+      await waitFor(() => expect(localStorage.getItem(animationKey)).toBe("false"));
+
+      fireEvent.click(detailsButton);
+      expect(detailsButton.getAttribute("aria-pressed")).toBe("false");
+      expect(first.container.querySelector(".outdoor-wind-label")).toBeNull();
+      expect(first.container.querySelector(".outdoor-temperature-chip")).toBeNull();
+      expect(first.container.querySelector(".outdoor-wind-contact-dot")).not.toBeNull();
+      await waitFor(() => expect(localStorage.getItem(extrasKey)).toBe("false"));
+      first.unmount();
+
+      const second = renderDashboard(state);
+      fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+      expect((await screen.findByRole("button", { name: "Animations" })).getAttribute("aria-pressed")).toBe("false");
+      expect(screen.getByRole("button", { name: "Wind details" }).getAttribute("aria-pressed")).toBe("false");
+      second.unmount();
+    } finally {
+      weather.mockRestore();
+      localStorage.removeItem(animationKey);
+      localStorage.removeItem(extrasKey);
+    }
   });
 });
 

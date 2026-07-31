@@ -136,6 +136,39 @@ describe("home performance API", () => {
     expect(afterMeasurement.headers["x-stugu-cache"]).toBe("hit");
   });
 
+  it("does not cancel an active calculation when a routine measurement arrives", async () => {
+    const originalRollup = runtime.telemetryReader.measurementAnalyticsRollup
+      .bind(runtime.telemetryReader);
+    let releaseRollups!: () => void;
+    const rollupsReleased = new Promise<void>((resolve) => { releaseRollups = resolve; });
+    let markRollupStarted!: () => void;
+    const rollupStarted = new Promise<void>((resolve) => { markRollupStarted = resolve; });
+    runtime.telemetryReader.measurementAnalyticsRollup = async (query) => {
+      markRollupStarted();
+      await rollupsReleased;
+      return originalRollup(query);
+    };
+
+    const pending = request(runtime.app)
+      .get("/api/v2/analytics/home-performance?houseId=performance-house&dataMode=live")
+      .then((response) => response);
+    await rollupStarted;
+    runtime.bus.publishMeasurement({
+      sensorId: "performance-sensor",
+      metric: "temperature",
+      value: 22,
+      canonicalUnit: "Ã‚Â°C",
+      timestamp: new Date().toISOString(),
+      source: "api",
+      quality: "good",
+    });
+    releaseRollups();
+
+    const response = await pending;
+    expect(response.status).toBe(200);
+    expect(response.body.cache).toMatchObject({ hit: false, coalesced: false });
+  });
+
   it("rejects cross-mode requests and whole-Home scopes over the deterministic limit", async () => {
     await request(runtime.app)
       .get("/api/v2/analytics/home-performance?houseId=performance-house&dataMode=demo")

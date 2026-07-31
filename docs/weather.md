@@ -146,12 +146,16 @@ unavailable rather than being replaced with zero.
 Wind direction is the direction the wind comes **from**. With a known house
 orientation, Stugu converts it into plan coordinates as
 `windFrom - orientationDegrees` (normalized to 0–359 degrees). The resulting
-arrow starts at the windward plan edge and points inward in the 2D and 3D
-views. If orientation or wind direction is unknown, the numeric outside values
-remain available but the plan-relative arrow is withheld. Historical replay
-uses the latest durable outdoor observation at or before the replay cursor,
-including its complete canonical conditions and provenance. It never substitutes
-the current live snapshot for a historical observation.
+source point is shown as a thick segment of the outdoor shell in the 2D view
+and as a windward cue in 3D. The optional 2D motion follows the observed bearing
+to that point and then splits schematically around the shell. Particle density
+uses conservative wind-speed bands; animation duration does not claim a
+plan-scale metres-per-second velocity. Stale observations and calm wind do not
+animate. If orientation or wind direction is unknown, the numeric outside values
+remain available but the plan-relative cue is withheld. Historical replay uses
+the latest durable outdoor observation at or before the replay cursor, including
+its complete canonical conditions and provenance. It never substitutes the
+current live snapshot for a historical observation.
 
 This overlay is a structured external boundary condition only. It is not added
 as a synthetic indoor sensor, interpolation anchor, or measurement-history
@@ -160,6 +164,11 @@ materials, outward normals, or room adjacency, so the UI reports a windward
 **plan edge** rather than claiming that a specific wall segment is affected.
 Quantifying how wind changes indoor temperature or humidity needs a separately
 calibrated building-physics model and supporting building data.
+
+The Home toolbar persists separate **Animations** and **Wind details** switches.
+Turning motion off retains the windward segment and contact dot. Turning details
+off removes supplementary labels, edge bearings, and shell condition chips.
+The operating-system reduced-motion preference always suppresses particles.
 
 ## Retrieve house weather
 

@@ -202,6 +202,7 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
       context.homeAssistant.start();
       context.tpLink.start();
       context.gree.start();
+      context.tuya.start();
       context.tapoHistory.start();
       sensorGapRecovery.start();
       context.electricityPrices.start();
@@ -224,6 +225,7 @@ export function configureApiPart28(context: ReturnType<typeof configureApiPart27
       context.homeAssistant.stop();
       context.tpLink.stop();
       context.gree.stop();
+      context.tuya.stop();
       context.integrationDiscoveryJobs.stop();
       context.electricityPrices.stop();
       context.weatherMonitor.stop();

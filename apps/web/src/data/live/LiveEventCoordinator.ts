@@ -92,8 +92,12 @@ export function invalidateForTelemetry(
     break;
   case "weather":
   case "heat-pump":
+  case "connected-device":
     invalidate(client, (query) => (
-      isMonitoringQuery(query, houseId) || isHomePerformanceQuery(query, houseId)
+      isMonitoringQuery(query, houseId)
+      || isHomePerformanceQuery(query, houseId)
+      || (query.queryKey[0] === "connected-devices"
+        && (houseId === undefined || query.queryKey[1] === houseId))
     ));
     break;
   case "integration":
@@ -107,6 +111,7 @@ export function invalidateForTelemetry(
       || isOpeningActivityQuery(query)
       || isCalendarComparisonQuery(query)
       || isHomePerformanceQuery(query)
+      || query.queryKey[0] === "connected-devices"
     ));
     break;
   case "heartbeat":
@@ -127,6 +132,7 @@ function telemetryHouseId(
   case "opening":
   case "weather":
   case "heat-pump":
+  case "connected-device":
     return event.data.houseId;
   default:
     return undefined;

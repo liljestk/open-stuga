@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import { Activity, BrainCircuit, ChevronDown, CloudSun, GitCompareArrows, TriangleAlert } from "lucide-react";
+import { Activity, BrainCircuit, ChevronDown, CloudSun, GitCompareArrows, TriangleAlert, X } from "lucide-react";
 import type {
   MeasurementDefinition,
   MeasurementForecastPoint,
@@ -65,6 +65,17 @@ interface SensorAnalyticsChartProps {
   onWeatherObservationsVisible: (visible: boolean) => void;
   onWeatherForecastVisible: (visible: boolean) => void;
   onLoadSeries?: (sensorId: string, metric: Metric, range: TimeRange, forecastSupported: boolean) => void;
+}
+
+function SensorAnalyticsGapNotice({ title, description }: Readonly<{ title: string; description: string }>) {
+  const { t } = useI18n();
+  const [visible, setVisible] = useState(true);
+  if (!visible) return null;
+  return <div className="sensor-analytics-gap-status" role="status">
+    <TriangleAlert size={18} aria-hidden="true" />
+    <span><strong>{title}</strong><small>{description}</small></span>
+    <button type="button" className="icon-button small" onClick={() => setVisible(false)} aria-label={t("analytics.dismissGapNotice")}><X size={16} aria-hidden="true" /></button>
+  </div>;
 }
 
 function bucketMilliseconds(range: TimeRange): number {
@@ -306,6 +317,7 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
     to: now,
     thresholdMs: gapThresholdMs,
   });
+  const gapNoticeKey = [props.houseId, definition.id, props.range, sensorIds, gapStatusKey, missingSeriesCount, missingIntervals.length].join(":");
   const reportingSensors = data.observed.filter((series) => series.points.length > 0).length;
   const observedValues = activeSensors.length > 0
     ? data.observed.flatMap((series) => series.points.map((point) => point.value))
@@ -481,10 +493,11 @@ export function SensorAnalyticsChart(props: Readonly<SensorAnalyticsChartProps>)
         <div><span><BrainCircuit size={14} aria-hidden="true" />{predictionLabel}</span><strong>{finalPrediction ? formatMeasurement(finalPrediction.value, definition, props.units) : "—"}</strong><small>{finalPrediction ? formatInTimeZone(finalPrediction.timestamp, locale, props.timeZone, { weekday: "short", hour: "2-digit", minute: "2-digit" }) : t("sensors.analyticsNoPrediction")}</small></div>
       </div>
 
-      {missingSeriesCount > 0 && <div className="sensor-analytics-gap-status" role="status">
-        <TriangleAlert size={18} aria-hidden="true" />
-        <span><strong>{t("analytics.missingSeriesStatus", { count: missingSeriesCount })}</strong><small>{t(gapStatusKey)}</small></span>
-      </div>}
+      {missingSeriesCount > 0 && <SensorAnalyticsGapNotice
+        key={gapNoticeKey}
+        title={t("analytics.missingSeriesStatus", { count: missingSeriesCount })}
+        description={t(gapStatusKey)}
+      />}
 
       <div className="sensor-analytics-legend" aria-label={t("sensors.analyticsLegend")}>
         {data.observed.map(({ sensor, points }, index) => points.length > 0 && <span key={sensor.id}><i className={`sensor-series-swatch series-${index % 6}`} style={{ borderTopStyle: sensorDashes[index % sensorDashes.length] ? "dashed" : "solid" }} aria-hidden="true" />{sensor.name}</span>)}

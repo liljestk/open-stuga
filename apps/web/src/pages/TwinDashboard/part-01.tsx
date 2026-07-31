@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Activity, AlertTriangle, BatteryMedium, Bolt, Box, Check, ChevronDown, Droplets, Edit3, Gauge, History, Home, Map, MapPinPlus, Maximize2, Minimize2, Save, Sparkles, Thermometer, Wind } from "lucide-react";
-import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectionState, type Floor, type House, type ManualObservation, type ManualObservationInput, type ManualObservationPatch, type MeasurementDefinition, type MeasurementSample, type Metric, type MockScenario, type ObservationConfidence, type ObservationRevision, type ObservationSource, type ObservationTimePrecision, type OpeningStateObservation, type OutdoorTemperatureSample, type Point, type Reading, type Sensor, type StaticParameter, type UnitSystem } from "@climate-twin/contracts";
+import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectedDeviceState, type ConnectionState, type Floor, type House, type ManualObservation, type ManualObservationInput, type ManualObservationPatch, type MeasurementDefinition, type MeasurementSample, type Metric, type MockScenario, type ObservationConfidence, type ObservationRevision, type ObservationSource, type ObservationTimePrecision, type OpeningStateObservation, type OutdoorTemperatureSample, type Point, type Reading, type Sensor, type StaticParameter, type UnitSystem } from "@climate-twin/contracts";
 import { ReplayControls } from "../../components/ReplayControls";
 import { RoomComfortBoard } from "../../components/RoomComfortBoard";
 import { MoistureCoach } from "../../components/MoistureCoach";
@@ -38,7 +38,10 @@ import { readLocalStorage, writeLocalStorage } from "../../browserStorage";
 import { detectReplayClimateEvents, type ReplayClimateEvent } from "../../replayEvents";
 import { openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../openingState";
 import { integrationForHouse } from "../../integrationScope";
-import { BuildingScene, FloorPlan, HomeActivityTimeline, MeasurementGlyph, RoomComparisonChart, SensorInspector, SpatialLayerLab, StructureEditor, ThermalSimulationPanel, climateSensorLayerPreferenceKey, energyDeviceLayerPreferenceKey, experimentalVisualizationPreferenceKey, houseLocalDateTimeCandidates, initialClimateSensorLayerVisibility, initialEnergyDeviceLayerVisibility, initialExperimentalVisualizations, initialOutdoorInfluenceMetric, localDateTimeValue, localDateValue, mergeOpeningStateObservations, observationConfidences, observationKinds, observationSources, observationTimeFields, observationTimePrecisions, outdoorInfluenceMetricPreferenceKey, zonedDateTimeParts } from "./support";
+import { useConnectedDevicesQuery } from "../../data/connectedDevicesQuery";
+import { queryClient } from "../../data/queryClient";
+import { queryKeys } from "../../data/queryKeys";
+import { BuildingScene, FloorPlan, HomeActivityTimeline, MeasurementGlyph, RoomComparisonChart, SensorInspector, SpatialLayerLab, StructureEditor, ThermalSimulationPanel, climateSensorLayerPreferenceKey, connectedDeviceLayerPreferenceKey, energyDeviceLayerPreferenceKey, experimentalVisualizationPreferenceKey, houseLocalDateTimeCandidates, initialClimateSensorLayerVisibility, initialConnectedDeviceLayerVisibility, initialEnergyDeviceLayerVisibility, initialExperimentalVisualizations, initialMapAnimationsEnabled, initialOpeningStateLabelsVisibility, initialOutdoorExtrasVisibility, initialOutdoorInfluenceMetric, localDateTimeValue, localDateValue, mapAnimationsPreferenceKey, mergeOpeningStateObservations, observationConfidences, observationKinds, observationSources, observationTimeFields, observationTimePrecisions, openingStateLabelsPreferenceKey, outdoorExtrasPreferenceKey, outdoorInfluenceMetricPreferenceKey, zonedDateTimeParts } from "./support";
 import type { TwinDashboardProps } from "./support";
 export function useTwinDashboardPart01(context: { props: TwinDashboardProps }) {
   const { props } = context;
@@ -77,6 +80,15 @@ export function useTwinDashboardPart01(context: { props: TwinDashboardProps }) {
   const [outdoorInfluenceMetric, setOutdoorInfluenceMetric] = useState(() => initialOutdoorInfluenceMetric(metric));
   const [climateSensorsVisible, setClimateSensorsVisible] = useState(initialClimateSensorLayerVisibility);
   const [energyDevicesVisible, setEnergyDevicesVisible] = useState(initialEnergyDeviceLayerVisibility);
+  const [connectedDevicesVisible, setConnectedDevicesVisible] = useState(initialConnectedDeviceLayerVisibility);
+  const [openingStateLabelsVisible, setOpeningStateLabelsVisible] = useState(initialOpeningStateLabelsVisibility);
+  const [mapAnimationsEnabled, setMapAnimationsEnabled] = useState(initialMapAnimationsEnabled);
+  const [outdoorExtrasVisible, setOutdoorExtrasVisible] = useState(initialOutdoorExtrasVisibility);
+  const connectedDevicesQuery = useConnectedDevicesQuery(houseId, Boolean(scopedIntegration.tuya?.configured));
+  const connectedDevices = connectedDevicesQuery.data ?? [];
+  const [pendingConnectedDeviceIds, setPendingConnectedDeviceIds] = useState<ReadonlySet<string>>(new Set());
+  const [connectedDeviceError, setConnectedDeviceError] = useState<string | null>(null);
+  const [connectedDeviceAnnouncement, setConnectedDeviceAnnouncement] = useState("");
   const [observationPlacement, setObservationPlacement] = useState(false);
   const [observationKind, setObservationKind] = useState<ManualObservation["kind"]>("leak");
   const [observationSeverity, setObservationSeverity] = useState<ManualObservation["severity"]>("warning");
@@ -114,6 +126,64 @@ export function useTwinDashboardPart01(context: { props: TwinDashboardProps }) {
       if (effectSeriesLoadsRef.current.keys.has(key)) return;
       effectSeriesLoadsRef.current.keys.add(key);
       props.onLoadSeries(sensorId, candidate.id, range, candidate.forecastSupported);
+    };
+  const cacheConnectedDevice = (next: ConnectedDeviceState) => {
+      queryClient.setQueryData<ConnectedDeviceState[]>(
+        queryKeys.connectedDevices(houseId),
+        (current = []) => [next, ...current.filter((device) => device.connectionId !== next.connectionId)],
+      );
+    };
+  const setConnectedDevicePending = (connectionId: string, value: boolean) => {
+      setPendingConnectedDeviceIds((current) => {
+        const next = new Set(current);
+        if (value) next.add(connectionId);
+        else next.delete(connectionId);
+        return next;
+      });
+    };
+  const changeConnectedDevicePower = async (connectionId: string, power: boolean) => {
+      const device = connectedDevices.find((candidate) => candidate.connectionId === connectionId);
+      if (!device || readOnly || !localAuthority || replayActive || pendingConnectedDeviceIds.has(connectionId)) return;
+      setConnectedDevicePending(connectionId, true);
+      setConnectedDeviceError(null);
+      try {
+        const result = await api.commandConnectedDevice(connectionId, {
+          operationId: crypto.randomUUID(),
+          power,
+        });
+        cacheConnectedDevice(result.state);
+        setConnectedDeviceAnnouncement(t("twin.connectedDeviceChanged", {
+          device: result.state.name,
+          state: t(result.state.power ? "connectedDevice.state.on" : "connectedDevice.state.off"),
+        }));
+      } catch {
+        setConnectedDeviceError(t("twin.connectedDeviceCommandFailed", { device: device.name }));
+      } finally {
+        setConnectedDevicePending(connectionId, false);
+      }
+    };
+  const moveConnectedDevice = async (connectionId: string, point: Point) => {
+      const device = connectedDevices.find((candidate) => candidate.connectionId === connectionId);
+      if (!device || !device.floorId || readOnly || !localAuthority || pendingConnectedDeviceIds.has(connectionId)) return;
+      const targetFloor = house.floors.find((candidate) => candidate.id === device.floorId);
+      if (!targetFloor) return;
+      setConnectedDevicePending(connectionId, true);
+      setConnectedDeviceError(null);
+      try {
+        const result = await api.placeConnectedDevice(connectionId, {
+          floorId: targetFloor.id,
+          roomId: null,
+          x: clamp(point.x, 0, targetFloor.width),
+          y: clamp(point.y, 0, targetFloor.height),
+          z: device.z ?? targetFloor.elevation + 1.2,
+        });
+        if (result.state) cacheConnectedDevice(result.state);
+        setConnectedDeviceAnnouncement(t("twin.connectedDeviceMoved", { device: device.name }));
+      } catch {
+        setConnectedDeviceError(t("twin.connectedDeviceMoveFailed", { device: device.name }));
+      } finally {
+        setConnectedDevicePending(connectionId, false);
+      }
     };
   useEffect(() => {
       if (!fullPage) return;
@@ -183,6 +253,18 @@ export function useTwinDashboardPart01(context: { props: TwinDashboardProps }) {
       writeLocalStorage(energyDeviceLayerPreferenceKey, String(energyDevicesVisible));
     }, [energyDevicesVisible]);
   useEffect(() => {
+      writeLocalStorage(connectedDeviceLayerPreferenceKey, String(connectedDevicesVisible));
+    }, [connectedDevicesVisible]);
+  useEffect(() => {
+      writeLocalStorage(openingStateLabelsPreferenceKey, String(openingStateLabelsVisible));
+    }, [openingStateLabelsVisible]);
+  useEffect(() => {
+      writeLocalStorage(mapAnimationsPreferenceKey, String(mapAnimationsEnabled));
+    }, [mapAnimationsEnabled]);
+  useEffect(() => {
+      writeLocalStorage(outdoorExtrasPreferenceKey, String(outdoorExtrasVisible));
+    }, [outdoorExtrasVisible]);
+  useEffect(() => {
       const now = new Date();
       setObservationDateTime(localDateTimeValue(now, house.timezone));
       setObservationDate(localDateValue(now, house.timezone));
@@ -194,5 +276,10 @@ export function useTwinDashboardPart01(context: { props: TwinDashboardProps }) {
       setObservationStatus(false);
       setObservationError(false);
     }, [houseId, floorId, house.timezone]);
-  return Object.assign(context, { state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection, dataMode, locale, t, scopedIntegration, sensorSourceHealthy, editing, setEditing, fullPage, setFullPage, liveMapOpen, setLiveMapOpen, historyOpen, setHistoryOpen, analysisOpen, setAnalysisOpen, fullPagePanelRef, fullPageTriggerRef, readOnly, localAuthority, range, setRange, replayActive, setReplayActive, replayPlaying, setReplayPlaying, replayStartPending, setReplayStartPending, replayPrepared, setReplayPrepared, replaySpeed, setReplaySpeed, replayWindowFrom, setReplayWindowFrom, replayWindowTo, setReplayWindowTo, replayResolutionSeconds, setReplayResolutionSeconds, replayRequestedBounds, setReplayRequestedBounds, replayLoadState, setReplayLoadState, replayLoadError, setReplayLoadError, replayLoadPartial, setReplayLoadPartial, replaySampleCount, setReplaySampleCount, replayOutdoorSamples, setReplayOutdoorSamples, replayOutdoorLoading, setReplayOutdoorLoading, replayOutdoorPartial, setReplayOutdoorPartial, liveSpatialClockMs, setLiveSpatialClockMs, experimentalVisualizations, setExperimentalVisualizations, outdoorInfluenceMetric, setOutdoorInfluenceMetric, climateSensorsVisible, setClimateSensorsVisible, energyDevicesVisible, setEnergyDevicesVisible, observationPlacement, setObservationPlacement, observationKind, setObservationKind, observationSeverity, setObservationSeverity, observationNote, setObservationNote, observationTimePrecision, setObservationTimePrecision, observationDateTime, setObservationDateTime, observationDate, setObservationDate, observationValidFrom, setObservationValidFrom, observationValidTo, setObservationValidTo, observationSource, setObservationSource, observationSourceDetail, setObservationSourceDetail, observationConfidence, setObservationConfidence, observationDraft, setObservationDraft, observationValidationError, setObservationValidationError, observationStatus, setObservationStatus, observationError, setObservationError, parameterLabel, setParameterLabel, parameterValue, setParameterValue, parameterUnit, setParameterUnit, parameterPending, setParameterPending, parameterFeedback, setParameterFeedback, replayBatchRef, replayPreparationBatchRef, airflowReplayBatchRef, inspectorReplayBatchRef, replayWindowRequestRef, replayOutdoorBatchRef, previousReplayActiveRef, effectSeriesLoadsRef, loadSeriesOnce });
+  useEffect(() => {
+      setPendingConnectedDeviceIds(new Set());
+      setConnectedDeviceError(null);
+      setConnectedDeviceAnnouncement("");
+    }, [houseId]);
+  return Object.assign(context, { state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection, dataMode, locale, t, scopedIntegration, sensorSourceHealthy, editing, setEditing, fullPage, setFullPage, liveMapOpen, setLiveMapOpen, historyOpen, setHistoryOpen, analysisOpen, setAnalysisOpen, fullPagePanelRef, fullPageTriggerRef, readOnly, localAuthority, range, setRange, replayActive, setReplayActive, replayPlaying, setReplayPlaying, replayStartPending, setReplayStartPending, replayPrepared, setReplayPrepared, replaySpeed, setReplaySpeed, replayWindowFrom, setReplayWindowFrom, replayWindowTo, setReplayWindowTo, replayResolutionSeconds, setReplayResolutionSeconds, replayRequestedBounds, setReplayRequestedBounds, replayLoadState, setReplayLoadState, replayLoadError, setReplayLoadError, replayLoadPartial, setReplayLoadPartial, replaySampleCount, setReplaySampleCount, replayOutdoorSamples, setReplayOutdoorSamples, replayOutdoorLoading, setReplayOutdoorLoading, replayOutdoorPartial, setReplayOutdoorPartial, liveSpatialClockMs, setLiveSpatialClockMs, experimentalVisualizations, setExperimentalVisualizations, outdoorInfluenceMetric, setOutdoorInfluenceMetric, climateSensorsVisible, setClimateSensorsVisible, energyDevicesVisible, setEnergyDevicesVisible, connectedDevicesVisible, setConnectedDevicesVisible, openingStateLabelsVisible, setOpeningStateLabelsVisible, connectedDevices, pendingConnectedDeviceIds, connectedDeviceError, connectedDeviceAnnouncement, changeConnectedDevicePower, moveConnectedDevice, mapAnimationsEnabled, setMapAnimationsEnabled, outdoorExtrasVisible, setOutdoorExtrasVisible, observationPlacement, setObservationPlacement, observationKind, setObservationKind, observationSeverity, setObservationSeverity, observationNote, setObservationNote, observationTimePrecision, setObservationTimePrecision, observationDateTime, setObservationDateTime, observationDate, setObservationDate, observationValidFrom, setObservationValidFrom, observationValidTo, setObservationValidTo, observationSource, setObservationSource, observationSourceDetail, setObservationSourceDetail, observationConfidence, setObservationConfidence, observationDraft, setObservationDraft, observationValidationError, setObservationValidationError, observationStatus, setObservationStatus, observationError, setObservationError, parameterLabel, setParameterLabel, parameterValue, setParameterValue, parameterUnit, setParameterUnit, parameterPending, setParameterPending, parameterFeedback, setParameterFeedback, replayBatchRef, replayPreparationBatchRef, airflowReplayBatchRef, inspectorReplayBatchRef, replayWindowRequestRef, replayOutdoorBatchRef, previousReplayActiveRef, effectSeriesLoadsRef, loadSeriesOnce });
 }

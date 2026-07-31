@@ -2,7 +2,7 @@ import {
   useEffect, useId, useMemo, useRef, useState,
   type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent,
 } from "react";
-import { isAirflowPlanElement, type ConfiguredOpeningState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type Sensor, type UnitSystem } from "@climate-twin/contracts";
+import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectedDeviceState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type Sensor, type UnitSystem } from "@climate-twin/contracts";
 import { useI18n, type TranslationKey } from "../../../i18n";
 import { formatMeasurement, formatMeasurementDelta, measurementGradient, measurementLabel, measurementValue, toDisplayValue, type LatestMeasurements } from "../../../measurements";
 import { energyDeviceMapStats, isEnergyDeviceSensor } from "../../../energyDeviceMap";
@@ -57,6 +57,9 @@ export interface BuildingSceneProps {
   sensorMeasurements?: LatestMeasurements;
   climateSensorMarkersVisible?: boolean;
   energyDevicesVisible?: boolean;
+  connectedDevices?: readonly ConnectedDeviceState[];
+  connectedDevicesVisible?: boolean;
+  pendingConnectedDeviceIds?: ReadonlySet<string>;
   climateSamples?: ClimateSampleMatrix;
   observations: ManualObservation[];
   definition: MeasurementDefinition;
@@ -67,6 +70,8 @@ export interface BuildingSceneProps {
   referenceTimeMs?: number;
   maxSampleAgeMs?: number;
   outdoor?: OutdoorVisualizationState;
+  mapAnimationsEnabled?: boolean;
+  outdoorExtrasVisible?: boolean;
   editing?: boolean;
   spatialLayerSnapshots?: readonly SpatialLayerSnapshot[];
   spatialLayerTopology?: SpatialTopology | null;
@@ -75,8 +80,10 @@ export interface BuildingSceneProps {
   experimentalSensorCoverage?: SensorCoverageAssessment | null;
   experimentalOutdoorInfluence?: OutdoorInfluenceEstimate | null;
   openingStateObservations?: readonly OpeningStateObservation[];
+  openingStateLabelsVisible?: boolean;
   pendingOpeningStateKeys?: ReadonlySet<string>;
   onOpeningStateChange?: (floorId: string, elementId: string, state: ConfiguredOpeningState) => void;
+  onConnectedDevicePowerChange?: (connectionId: string, power: boolean) => void;
   onFloorSelect: (floorId: string) => void;
   onSensorSelect: (sensorId: string, floorId: string) => void;
   onFloorChange?: (floor: Floor) => void;

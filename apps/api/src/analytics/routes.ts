@@ -260,8 +260,13 @@ export function registerAnalyticsRoutes(context: AnalyticsRouteContext): () => v
     invalidateHouse(context.database.getSensor(sensorId)?.houseId);
   };
   const removeLegacyCacheWake = context.bus.subscribe((event) => {
-    if (event.type === "heartbeat") return;
-    if (event.type === "reading") return;
+    // Home Performance is a 30-day derived view with a 60-second cache. Routine
+    // ingestion must not cancel an in-flight calculation on a busy live Home.
+    if (
+      event.type === "heartbeat"
+      || event.type === "reading"
+      || event.type === "measurement"
+    ) return;
     if (event.type === "alert") {
       invalidateSensorHouse(event.data.sensorId);
       return;

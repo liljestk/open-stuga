@@ -440,6 +440,7 @@ export const svPart1 = {
   "analytics.visibleGapCount": "{count} synliga luckor",
   "analytics.missingData": "Data saknas",
   "analytics.missingSeriesStatus": "Data saknas i {count} valda serier",
+  "analytics.dismissGapNotice": "Stäng meddelandet om datalucka",
   "analytics.gapSourceOffline": "En källa är fortfarande frånkopplad. Återställningen börjar när den återkommer.",
   "analytics.gapRecoveryActive": "Stugu återställer det som källorna fortfarande har kvar.",
   "analytics.gapRecoveryPartial": "En del historik återställdes, men en del av intervallet saknas fortfarande.",

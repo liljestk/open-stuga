@@ -92,6 +92,7 @@ import type {
   TrackingProfileManifest,
   TrackedEquipmentState,
   TpLinkDiscoveredDevice,
+  TuyaDiscoveredDevice,
 } from "@climate-twin/contracts";
 import type {
   StugubyDatasetGrant,
@@ -205,6 +206,7 @@ export interface IntegrationDiscoveryResult {
   homeAssistant: HomeAssistantDiscoveredInstance[];
   tpLink: TpLinkDiscoveredSource[];
   gree?: GreeDiscoveredDevice[];
+  tuya?: TuyaDiscoveredDevice[];
   warnings: string[];
 }
 

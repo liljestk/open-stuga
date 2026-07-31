@@ -24,6 +24,7 @@ export interface IntegrationSecrets {
   tpLinkLegacyDisabled?: true;
   tpLinkConnections?: TpLinkConnectionSecret[];
   greeConnections?: GreeConnectionSecret[];
+  tuyaConnections?: TuyaConnectionSecret[];
   webhook?: { url: string; bearerToken?: string; signingSecret?: string };
   webhookDestinations?: WebhookDestinationSecret[];
   telegram?: { botToken: string; chatId: string };
@@ -73,6 +74,25 @@ export interface GreeConnectionSecret {
   brand?: string;
   model?: string;
   version?: string;
+}
+
+export interface TuyaConnectionSecret {
+  id: string;
+  houseId: string;
+  equipmentId?: string;
+  /** Canonical measurement endpoint created only for metering-capable devices. */
+  sensorId?: string;
+  host: string;
+  /** Stable local device identity. Never expose it through normal state APIs. */
+  deviceId: string;
+  /** Device-local LAN key. Never expose through API responses or logs. */
+  localKey: string;
+  protocolVersion: "3.1" | "3.2" | "3.3" | "3.4" | "3.5";
+  profileId: string;
+  name: string;
+  model?: string;
+  productKey?: string;
+  mac?: string;
 }
 
 export interface AppleNotesGrantSecret {
@@ -229,6 +249,62 @@ function normalizedGreeConnections(value: unknown): GreeConnectionSecret[] {
   });
 }
 
+function normalizedTuyaConnections(value: unknown): TuyaConnectionSecret[] {
+  if (!Array.isArray(value)) throw new Error("The Tuya connections in the integration secrets file are invalid");
+  const ids = new Set<string>();
+  const deviceIds = new Set<string>();
+  return value.map((candidate) => {
+    const item = candidate as Record<string, unknown>;
+    const optional = (field: string, maximumLength: number): string | undefined | null => {
+      const fieldValue = item?.[field];
+      if (fieldValue === undefined) return undefined;
+      if (!isNonEmptyString(fieldValue) || fieldValue.length > maximumLength) return null;
+      return fieldValue.trim();
+    };
+    const equipmentId = optional("equipmentId", 200);
+    const sensorId = optional("sensorId", 200);
+    const model = optional("model", 200);
+    const productKey = optional("productKey", 200);
+    const rawMac = optional("mac", 32);
+    const mac = rawMac === undefined ? undefined : normalizedGreeMac(rawMac);
+    if (!item || !isNonEmptyString(item.id) || item.id.length > 200
+      || !isNonEmptyString(item.houseId) || item.houseId.length > 200
+      || !isNonEmptyString(item.host) || item.host.length > 253
+      || !isNonEmptyString(item.deviceId) || item.deviceId.length > 200
+      || !isNonEmptyString(item.localKey) || item.localKey.length > 256
+      || !["3.1", "3.2", "3.3", "3.4", "3.5"].includes(String(item.protocolVersion))
+      || !["tuya-light-dp20-v1", "tuya-outlet-dp1-meter-v1", "tuya-switch-dp1-v1"]
+        .includes(String(item.profileId))
+      || !isNonEmptyString(item.name) || item.name.length > 200
+      || equipmentId === null || sensorId === null || model === null || productKey === null
+      || rawMac === null || (rawMac !== undefined && !mac)) {
+      throw new Error("The Tuya connections in the integration secrets file are invalid");
+    }
+    const id = item.id.trim();
+    const deviceId = item.deviceId.trim();
+    if (ids.has(id) || deviceIds.has(deviceId)) {
+      throw new Error("The Tuya connections in the integration secrets file contain conflicting identities");
+    }
+    ids.add(id);
+    deviceIds.add(deviceId);
+    return {
+      id,
+      houseId: item.houseId.trim(),
+      ...(equipmentId ? { equipmentId } : {}),
+      ...(sensorId ? { sensorId } : {}),
+      host: item.host.trim(),
+      deviceId,
+      localKey: item.localKey as string,
+      protocolVersion: item.protocolVersion as TuyaConnectionSecret["protocolVersion"],
+      profileId: (item.profileId as string).trim(),
+      name: item.name.trim(),
+      ...(model ? { model } : {}),
+      ...(productKey ? { productKey } : {}),
+      ...(mac ? { mac } : {}),
+    };
+  });
+}
+
 export function readIntegrationSecrets(path: string): IntegrationSecrets {
   if (!existsSync(path)) return { version: 1 };
   const parsed = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
@@ -282,6 +358,9 @@ export function readIntegrationSecrets(path: string): IntegrationSecrets {
   }
   if (parsed.greeConnections !== undefined) {
     result.greeConnections = normalizedGreeConnections(parsed.greeConnections);
+  }
+  if (parsed.tuyaConnections !== undefined) {
+    result.tuyaConnections = normalizedTuyaConnections(parsed.tuyaConnections);
   }
   if (parsed.webhook !== undefined) {
     const value = parsed.webhook as Record<string, unknown>;
@@ -355,6 +434,9 @@ export function writeIntegrationSecrets(path: string, secrets: IntegrationSecret
     ...(secrets.greeConnections === undefined
       ? {}
       : { greeConnections: normalizedGreeConnections(secrets.greeConnections) }),
+    ...(secrets.tuyaConnections === undefined
+      ? {}
+      : { tuyaConnections: normalizedTuyaConnections(secrets.tuyaConnections) }),
     ...(secrets.webhookDestinations === undefined
       ? {}
       : { webhookDestinations: normalizedWebhookDestinations(secrets.webhookDestinations, "Webhook destinations") }),
@@ -395,6 +477,7 @@ export function updateIntegrationSecrets(
     tpLinkLegacyDisabled?: boolean;
     tpLinkConnections?: TpLinkConnectionSecret[];
     greeConnections?: GreeConnectionSecret[];
+    tuyaConnections?: TuyaConnectionSecret[];
     webhook?: IntegrationSecrets["webhook"] | null;
     webhookDestinations?: WebhookDestinationSecret[] | null;
     telegram?: IntegrationSecrets["telegram"] | null;
@@ -420,6 +503,7 @@ export function updateIntegrationSecrets(
     else if (patch.tpLinkLegacyDisabled === false) delete next.tpLinkLegacyDisabled;
     if (patch.tpLinkConnections !== undefined) next.tpLinkConnections = normalizedTpLinkConnections(patch.tpLinkConnections);
     if (patch.greeConnections !== undefined) next.greeConnections = normalizedGreeConnections(patch.greeConnections);
+    if (patch.tuyaConnections !== undefined) next.tuyaConnections = normalizedTuyaConnections(patch.tuyaConnections);
     if (patch.webhook === null) delete next.webhook;
     else if (patch.webhook !== undefined) {
       next.webhook = { ...patch.webhook };

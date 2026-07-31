@@ -144,6 +144,66 @@ describe("electricity cost correctness", () => {
     });
   });
 
+  it("keeps every source in a combined summary while archive confirmation is pending", async () => {
+    const emptyAggregate = {
+      deltaCount: 0,
+      consumptionKwh: 0,
+      pricedConsumptionKwh: 0,
+      costEur: 0,
+      totalDurationMs: 0,
+      pricedDurationMs: 0,
+      maximumIntervalDurationMs: 0,
+      coverageFrom: null,
+      coverageUntil: null,
+      archiveState: "pending" as const,
+    };
+    const pricedAggregate = {
+      deltaCount: 4,
+      consumptionKwh: 1,
+      pricedConsumptionKwh: 1,
+      costEur: 0.1,
+      totalDurationMs: 3_600_000,
+      pricedDurationMs: 3_600_000,
+      maximumIntervalDurationMs: 900_000,
+      coverageFrom: FROM,
+      coverageUntil: TO,
+      archiveState: "pending" as const,
+    };
+    const reader = {
+      measurementCoverage: vi.fn(async () => ({
+        archiveState: "merged",
+        complete: true,
+        records: ["meter-a", "meter-b"].map((sensorId) => ({
+          sensorId,
+          metric: "power",
+          start: FROM,
+          end: TO,
+        })),
+      })),
+      energyCostAggregate: vi.fn(async () => emptyAggregate),
+      powerCostAggregate: vi.fn(async () => pricedAggregate),
+    } as unknown as HybridTelemetryReader;
+    const service = new EnergyCostService(reader);
+
+    await expect(service.summarize({
+      houseId: "house-main",
+      propertyId: "property-main",
+      sensorIds: ["meter-a", "meter-b"],
+      from: FROM,
+      to: TO,
+    })).resolves.toMatchObject({
+      consumptionKwh: 2,
+      pricedConsumptionKwh: 2,
+      costEur: 0.2,
+      priceCoveragePercent: 100,
+      archiveState: "pending",
+      sourceCount: 2,
+      totalSources: 2,
+      failedSourceCount: 0,
+      complete: false,
+    });
+  });
+
   it("uses matching historical prices for the optimizer daily cost", async () => {
     runtime = createApi({
       config: loadConfig({ NODE_ENV: "test", DATABASE_PATH: ":memory:" }),

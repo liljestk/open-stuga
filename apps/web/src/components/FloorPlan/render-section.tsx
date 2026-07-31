@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { BoxSelect, Grid3X3, ImagePlus, MapPinPlus, MousePointer2, PenLine, Plus, RotateCcw, RotateCw, Trash2 } from "lucide-react";
+import { BoxSelect, Grid3X3, ImagePlus, MapPinPlus, Minus, MousePointer2, PenLine, Plus, RotateCcw, RotateCw, Trash2 } from "lucide-react";
 import { floorMetersPerPlanUnit, isAirflowPlanElement, wallLengthPlanUnits, type ConfiguredOpeningState, type Floor, type House, type ManualObservation, type MeasurementDefinition, type MeasurementSample, type OpeningStateObservation, type PlanElement, type PlanElementKind, type Point, type Room, type Sensor, type UnitSystem, type Wall } from "@climate-twin/contracts";
 import { clamp, round, type ViewMode } from "../../domain";
 import { useI18n, type TranslationKey } from "../../i18n";
@@ -25,6 +25,8 @@ import type { SpatialLayerSnapshot, SpatialTopology } from "../../spatialLayers"
 import type { SensorCoverageAssessment } from "../../experimentalSpatialLayers";
 import { ExperimentalSensorCoverage2D } from "../ExperimentalSensorCoverage";
 import { OutdoorInfluenceOverlay2D } from "../OutdoorInfluenceOverlay";
+import { OutdoorWindFlow2D } from "../OutdoorWindFlow2D";
+import { ConnectedDeviceMarker2D } from "../ConnectedDeviceMarkers";
 import {
   clampPlanElementHeight,
   clampPlanElementWidth,
@@ -42,26 +44,28 @@ import { chimneyPenetrationsForFloor, fireplaceChimneyDimensions } from "../../a
 import { MapInformationToggle, useMapInformationVisibility } from "../MapInformationToggle";
 import { effectiveOpeningState, openingStateCanChange, openingStateKey, openingStateObservationsForHouse } from "../../openingState";
 import { GEOMETRY_EPSILON, GRID_DENSITY_MULTIPLIER, OUTDOOR_SHELL_CHIP_GAP, OUTDOOR_SHELL_CHIP_HEIGHT, OUTDOOR_SHELL_CHIP_RIGHT_INSET, OUTDOOR_SHELL_CHIP_WIDTH, OUTDOOR_SHELL_OFFSET, PLAN_ELEMENT_KINDS, PLAN_VIEWPORT_MARGIN, PlanElementGlyph, ROOM_KINDS, defaultFloorGridSize, floorGridSize, floorRenderScale, insertRoomVertex, isValidRoomPolygon, nearestWallOpeningPlacement, nearestWallPlacement, orientation, outdoorWindwardEdgePath, pointOnSegment, pointsEqual, roomRectanglePoints, segmentsIntersect, smoothAirflowPath, snapPointToGrid, wallLengthInputValue } from "./support";
-import { outdoorWindBearingPath } from "./support";
 import type { DeletedWallUndo, EditorTool, FloorGridDensity, FloorPlanProps, PlanElementPatch, WallOpeningPlacementResult, WallPlacement } from "./support";
 import { useFloorPlanPart05 } from "./part-05";
 
 export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloorPlanPart05>) {
-  const { floor, house, sensors, samples, climateSamples, observations, definition, colorDomain, units, viewMode, selectedSensorId, editing, observationPlacement, onSensorSelect, onSensorMove, onFloorChange, onObservationPoint, onCancelObservationPlacement, referenceTimeMs, maxSampleAgeMs, outdoor, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalAirflow, experimentalSensorCoverage, experimentalOutdoorInfluence, openingStateObservations, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, climateSensorMarkersVisible, energyDevicesVisible, allowBackgroundImageEditing, locale, t, houseOpeningStateObservations, metricLabel, svgRef, fileRef, roomNameInputRef, undoButtonRef, roomNameBeforeEdit, dragging, draggingElement, draggingRoomVertex, roomVertexRefs, pendingRoomVertexFocus, planElementRefs, mapHelpId, mapInformationId, roomNameErrorId, wallLengthErrorId, fieldId, editorTool, setEditorTool, wallStart, setWallStart, roomStart, setRoomStart, selectedWallId, setSelectedWallId, wallLengthDraft, setWallLengthDraft, wallLengthError, setWallLengthError, selectedRoomId, setSelectedRoomId, selectedPlanElementId, setSelectedPlanElementId, planElementKind, setPlanElementKind, placementError, setPlacementError, roomNameError, setRoomNameError, deletedWallUndo, setDeletedWallUndo, undoMessage, setUndoMessage, snapEnabled, setSnapEnabled, gridDensity, setGridDensity, addToolsOpen, setAddToolsOpen, editorOptionsOpen, setEditorOptionsOpen, keyboardPoint, setKeyboardPoint, placementAnnouncement, setPlacementAnnouncement, uploadError, setUploadError, reducedMotion, setReducedMotion, mapInformationExpanded, setMapInformationExpanded, renderScale, metresPerPlanUnit, placementCoordinateScale, placementCoordinateUnit, renderWidth, renderHeight, gridSize, renderedGridSize, viewportMargin, resolvedReferenceTimeMs, spatialFreshness, renderSensors, heat, visualDomain, clouds, gradientFlows, transform, layoutEditing, drawingWall, drawingRoom, placingElement, selectingLayout, keyboardPlacementActive, wallSelectionActive, roomSelectionActive, planElementSelectionActive, showMonitoringOverlays, planElements, chimneyPenetrations, selectedWall, selectedRoom, selectedPlanElement, selectedRoomSensorCount, roomName, pointFromEvent, placementPoint, clearLayoutSelection, chooseEditorTool, applyFloorChange, resetSelectedWallLengthDraft, commitSelectedWallLength, nextUnusedRoomName, addWall, deleteWall, undoLastDeletion, addRoom, updateRoom, addRoomVertex, commitRoomName, deleteRoom, resolveElementPlacement, placementFailureMessage, addPlanElement, updatePlanElement, movePlanElement, updatePlanElementWidth, updatePlanElementHeight, deletePlanElement, mapPointerDown, mapPointerMove, mapKeyDown, wallPointerDown, wallKeyDown, roomPointerDown, roomKeyDown, roomVertexPointerDown, roomEdgeKeyDown, moveRoomVertex, roomVertexKeyDown, planElementPointerDown, planElementPointerMove, planElementKeyDown, startSensorDrag, moveSensor, sensorKeyDown, uploadBackground, legendMin, legendMax, outdoorContext, airflow, airflowPaths, activeGradientFlows, hasMapInformation, airflowSupport, airflowDriver, airflowDescription, airflowAria, outdoorTemperature, outdoorHumidity, outdoorTemperatureColor, outdoorHumidityColor, activeOutdoorColor, activeOutdoorStyle, outdoorTemperatureStyle, outdoorHumidityStyle, outdoorWindSpeed, outdoorWindDirection, outdoorWindwardSide, outdoorShellLabel, edgeLabels, elementPreviewPlacement, selectedElementWidthBounds, selectedElementHeightBounds, selectedElementRotation, selectedElementHasCardinalRotation, wallPreview, editorHint } = context;
+  const { floor, house, sensors, samples, climateSamples, observations, definition, colorDomain, units, viewMode, selectedSensorId, editing, observationPlacement, onSensorSelect, onSensorMove, onFloorChange, onObservationPoint, onCancelObservationPlacement, referenceTimeMs, maxSampleAgeMs, outdoor, mapAnimationsEnabled, outdoorExtrasVisible, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalAirflow, experimentalSensorCoverage, experimentalOutdoorInfluence, openingStateObservations, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, climateSensorMarkersVisible, energyDevicesVisible, connectedDevices, connectedDevicesVisible, pendingConnectedDeviceIds, onConnectedDevicePowerChange, onConnectedDeviceMove, allowBackgroundImageEditing, locale, t, houseOpeningStateObservations, metricLabel, svgRef, fileRef, roomNameInputRef, undoButtonRef, roomNameBeforeEdit, dragging, draggingElement, draggingRoomVertex, roomVertexRefs, pendingRoomVertexFocus, planElementRefs, mapHelpId, mapInformationId, roomNameErrorId, wallLengthErrorId, fieldId, editorTool, setEditorTool, wallStart, setWallStart, roomStart, setRoomStart, selectedWallId, setSelectedWallId, wallLengthDraft, setWallLengthDraft, wallLengthError, setWallLengthError, selectedRoomId, setSelectedRoomId, selectedPlanElementId, setSelectedPlanElementId, planElementKind, setPlanElementKind, placementError, setPlacementError, roomNameError, setRoomNameError, deletedWallUndo, setDeletedWallUndo, undoMessage, setUndoMessage, snapEnabled, setSnapEnabled, gridDensity, setGridDensity, addToolsOpen, setAddToolsOpen, editorOptionsOpen, setEditorOptionsOpen, keyboardPoint, setKeyboardPoint, placementAnnouncement, setPlacementAnnouncement, uploadError, setUploadError, reducedMotion, setReducedMotion, mapInformationExpanded, setMapInformationExpanded, planZoom, changePlanZoom, stepPlanZoom, onPlanWheel, planViewBox, renderScale, metresPerPlanUnit, placementCoordinateScale, placementCoordinateUnit, renderWidth, renderHeight, gridSize, renderedGridSize, viewportMargin, resolvedReferenceTimeMs, spatialFreshness, renderSensors, heat, visualDomain, clouds, gradientFlows, transform, layoutEditing, drawingWall, drawingRoom, placingElement, selectingLayout, keyboardPlacementActive, wallSelectionActive, roomSelectionActive, planElementSelectionActive, showMonitoringOverlays, planElements, chimneyPenetrations, selectedWall, selectedRoom, selectedPlanElement, selectedRoomSensorCount, roomName, pointFromEvent, placementPoint, clearLayoutSelection, chooseEditorTool, applyFloorChange, resetSelectedWallLengthDraft, commitSelectedWallLength, nextUnusedRoomName, addWall, deleteWall, undoLastDeletion, addRoom, updateRoom, addRoomVertex, commitRoomName, deleteRoom, resolveElementPlacement, placementFailureMessage, addPlanElement, updatePlanElement, movePlanElement, updatePlanElementWidth, updatePlanElementHeight, deletePlanElement, mapPointerDown, mapPointerMove, mapKeyDown, wallPointerDown, wallKeyDown, roomPointerDown, roomKeyDown, roomVertexPointerDown, roomEdgeKeyDown, moveRoomVertex, roomVertexKeyDown, planElementPointerDown, planElementPointerMove, planElementKeyDown, startSensorDrag, moveSensor, sensorKeyDown, uploadBackground, legendMin, legendMax, outdoorContext, airflow, airflowPaths, activeGradientFlows, hasOutdoorWindCue, hasMapInformation, airflowSupport, airflowDriver, airflowDescription, airflowAria, outdoorTemperature, outdoorHumidity, outdoorTemperatureColor, outdoorHumidityColor, activeOutdoorColor, activeOutdoorStyle, outdoorTemperatureStyle, outdoorHumidityStyle, outdoorWindSpeed, outdoorWindDirection, outdoorWindwardSide, outdoorShellLabel, edgeLabels, elementPreviewPlacement, selectedElementWidthBounds, selectedElementHeightBounds, selectedElementRotation, selectedElementHasCardinalRotation, wallPreview, editorHint } = context;
+  const windLabel = outdoorWindDirection ? t("outdoor.windFromAria", { value: outdoorWindDirection }) : null;
   return (<div className="outdoor-map-layout floor-plan-layout">
         {showMonitoringOverlays && outdoor && <OutdoorConditionsBadge outdoor={outdoor} units={units} showCompass />}
         <div className={`plan-stage ${viewMode === "isometric" ? "isometric" : ""}`}>
           <svg
             ref={svgRef}
             className={`floor-plan ${layoutEditing || observationPlacement ? "direct-manipulation" : "monitoring"}`}
-            viewBox={`${-viewportMargin} ${-viewportMargin} ${renderWidth + viewportMargin * 2} ${renderHeight + viewportMargin * 2}`}
+            viewBox={planViewBox}
             role="group"
+            data-plan-zoom={planZoom.toFixed(2)}
             aria-label={layoutEditing ? t("twin.ariaEditMap", { floor: floor.name }) : t("twin.ariaMap", { metric: metricLabel, floor: floor.name })}
             aria-describedby={keyboardPlacementActive ? mapHelpId : undefined}
             tabIndex={keyboardPlacementActive ? 0 : undefined}
             onPointerDown={mapPointerDown}
             onPointerMove={mapPointerMove}
             onKeyDown={mapKeyDown}
+            onWheel={onPlanWheel}
           >
             <desc>{layoutEditing
               ? t("twin.editMapDescription")
@@ -112,17 +116,17 @@ export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloor
                     rx="32"
                     className="outdoor-shell-border"
                   />
-                  {outdoorContext.windwardEdge && outdoorContext.planWindFromDegrees !== null && (
-                    <path
-                      d={outdoorWindBearingPath(outdoorContext.planWindFromDegrees, renderWidth, renderHeight)}
-                      className="outdoor-shell-windward-edge"
-                      data-windward-edge={outdoorContext.windwardEdge}
-                      data-wind-from-degrees={outdoorContext.windFromDegrees ?? undefined}
-                      data-plan-wind-from-degrees={outdoorContext.planWindFromDegrees}
-                      aria-hidden="true"
-                    />
-                  )}
-                  <g transform={`translate(${renderWidth - OUTDOOR_SHELL_CHIP_RIGHT_INSET - OUTDOOR_SHELL_CHIP_WIDTH * 2 - OUTDOOR_SHELL_CHIP_GAP} ${-OUTDOOR_SHELL_OFFSET})`} className={`outdoor-shell-chip outdoor-temperature-chip ${outdoorTemperatureColor ? "condition-color" : ""}`} style={outdoorTemperatureStyle}>
+                  {outdoorContext.windwardEdge && outdoorContext.planWindFromDegrees !== null && <OutdoorWindFlow2D
+                    context={outdoorContext}
+                    width={renderWidth}
+                    height={renderHeight}
+                    shellOffset={OUTDOOR_SHELL_OFFSET}
+                    windLabel={windLabel}
+                    animationsEnabled={mapAnimationsEnabled}
+                    extrasVisible={outdoorExtrasVisible}
+                    reducedMotion={reducedMotion}
+                  />}
+                  {outdoorExtrasVisible && <><g transform={`translate(${renderWidth - OUTDOOR_SHELL_CHIP_RIGHT_INSET - OUTDOOR_SHELL_CHIP_WIDTH * 2 - OUTDOOR_SHELL_CHIP_GAP} ${-OUTDOOR_SHELL_OFFSET})`} className={`outdoor-shell-chip outdoor-temperature-chip ${outdoorTemperatureColor ? "condition-color" : ""}`} style={outdoorTemperatureStyle}>
                     <rect width={OUTDOOR_SHELL_CHIP_WIDTH} height={OUTDOOR_SHELL_CHIP_HEIGHT} x="0" y={-OUTDOOR_SHELL_CHIP_HEIGHT / 2} rx={OUTDOOR_SHELL_CHIP_HEIGHT / 2} />
                     <text x={OUTDOOR_SHELL_CHIP_WIDTH / 2} y="-8" textAnchor="middle"><tspan className="outdoor-shell-chip-label">{t("outdoor.shellTemperature")}</tspan></text>
                     <text x={OUTDOOR_SHELL_CHIP_WIDTH / 2} y="15" textAnchor="middle"><tspan className="outdoor-shell-chip-value">{outdoorTemperature ?? t("common.noData")}</tspan></text>
@@ -131,7 +135,7 @@ export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloor
                     <rect width={OUTDOOR_SHELL_CHIP_WIDTH} height={OUTDOOR_SHELL_CHIP_HEIGHT} x="0" y={-OUTDOOR_SHELL_CHIP_HEIGHT / 2} rx={OUTDOOR_SHELL_CHIP_HEIGHT / 2} />
                     <text x={OUTDOOR_SHELL_CHIP_WIDTH / 2} y="-8" textAnchor="middle"><tspan className="outdoor-shell-chip-label">{t("outdoor.shellHumidity")}</tspan></text>
                     <text x={OUTDOOR_SHELL_CHIP_WIDTH / 2} y="15" textAnchor="middle"><tspan className="outdoor-shell-chip-value">{outdoorHumidity ?? t("common.noData")}</tspan></text>
-                  </g>
+                  </g></>}
                 </g>
               )}
               <rect x="0" y="0" width={renderWidth} height={renderHeight} rx="20" className="plan-base" />
@@ -257,7 +261,7 @@ export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloor
                   </g>
                 )}
               </g>
-              {showMonitoringOverlays && edgeLabels.length > 0 && (
+              {showMonitoringOverlays && outdoorExtrasVisible && edgeLabels.length > 0 && (
                 <g className="outdoor-edge-labels" aria-hidden="true">
                   {edgeLabels.map((item) => (
                     <text key={item.edge} x={item.x} y={item.y} textAnchor="middle" dominantBaseline="middle" data-plan-edge={item.edge}>
@@ -288,7 +292,7 @@ export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloor
                         data-vertical={flow.verticalTendency.toFixed(3)}
                       >
                         <path d={path} className="flow-path simulated-flow-path" markerEnd={`url(#${fieldId}-airflow-arrow)`} />
-                        {!reducedMotion && <circle r="5" className="flow-particle simulated-flow-particle"><animateMotion dur="3.4s" repeatCount="indefinite" path={path} /></circle>}
+                        {mapAnimationsEnabled && !reducedMotion && <circle r="5" className="flow-particle simulated-flow-particle"><animateMotion dur="3.4s" repeatCount="indefinite" path={path} /></circle>}
                         {verticalCue && <text x={midpoint.x * renderScale} y={midpoint.y * renderScale - 12} textAnchor="middle" className="airflow-vertical-cue" aria-hidden="true">{verticalCue}</text>}
                       </g>
                     );
@@ -315,7 +319,7 @@ export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloor
                     <g key={id} role="img" aria-label={label}>
                       <title>{label}</title>
                       <path d={path} className="flow-path" markerEnd={`url(#${fieldId}-arrow)`} />
-                      {!reducedMotion && <circle r="5" className="flow-particle"><animateMotion dur={`${2.8 + index * .32}s`} repeatCount="indefinite" path={path} /></circle>}
+                      {mapAnimationsEnabled && !reducedMotion && <circle r="5" className="flow-particle"><animateMotion dur={`${2.8 + index * .32}s`} repeatCount="indefinite" path={path} /></circle>}
                     </g>
                   );
                 })}
@@ -550,8 +554,37 @@ export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloor
                   </g>
                 )}
               </g>
+              {(editing || connectedDevicesVisible) && <g className="connected-devices-layer">
+                {connectedDevices.filter((device) => (
+                  device.floorId === floor.id && device.x !== null && device.y !== null
+                )).map((device) => <ConnectedDeviceMarker2D
+                  key={device.id}
+                  device={device}
+                  floor={floor}
+                  scale={renderScale}
+                  editing={editing}
+                  pending={pendingConnectedDeviceIds.has(device.connectionId)}
+                  {...(onConnectedDevicePowerChange ? { onPowerChange: onConnectedDevicePowerChange } : {})}
+                  {...(onConnectedDeviceMove ? {
+                    onMove: onConnectedDeviceMove,
+                    onMoveFromClient: (connectionId: string, clientX: number, clientY: number) => {
+                      const point = pointFromEvent(clientX, clientY);
+                      onConnectedDeviceMove(connectionId, {
+                        x: clamp(point.x, 0, floor.width),
+                        y: clamp(point.y, 0, floor.height),
+                      });
+                    },
+                  } : {})}
+                />)}
+              </g>}
             </g>
           </svg>
+          <div className="plan-zoom-controls" role="group" aria-label={t("twin.planControls")}>
+            <button type="button" aria-label={t("twin.zoomIn")} title={t("twin.zoomIn")} disabled={planZoom >= 2} onClick={() => stepPlanZoom(1)}><Plus size={17} aria-hidden="true" /></button>
+            <output aria-live="polite" aria-label={t("twin.zoomState", { zoom: Math.round(planZoom * 100) })}>{Math.round(planZoom * 100)}%</output>
+            <button type="button" aria-label={t("twin.zoomOut")} title={t("twin.zoomOut")} disabled={planZoom <= .6} onClick={() => stepPlanZoom(-1)}><Minus size={17} aria-hidden="true" /></button>
+            <button type="button" aria-label={t("twin.resetView")} title={t("twin.resetView")} disabled={planZoom === 1} onClick={() => changePlanZoom(1)}><RotateCcw size={16} aria-hidden="true" /></button>
+          </div>
           {showMonitoringOverlays && hasMapInformation && <MapInformationToggle
             controls={mapInformationId}
             expanded={mapInformationExpanded}
@@ -565,7 +598,8 @@ export function renderFloorPlanEditorSection(context: ReturnType<typeof useFloor
               <span>{t("twin.heatLegendHigh")}</span>
               <strong>{legendMin}</strong><strong>{legendMax}</strong>
             </div>}
-            {(airflowPaths.length > 0 || activeGradientFlows.length > 0 || experimentalSensorCoverage || experimentalOutdoorInfluence || spatialLayerSnapshots.length > 0) && <div className="map-layer-legends">
+            {(hasOutdoorWindCue || airflowPaths.length > 0 || activeGradientFlows.length > 0 || experimentalSensorCoverage || experimentalOutdoorInfluence || spatialLayerSnapshots.length > 0) && <div className="map-layer-legends">
+              {hasOutdoorWindCue && <div className="flow-legend outdoor-wind-legend"><span className="flow-sample outdoor-wind" aria-hidden="true">≋</span><span><strong>{t("outdoor.windFlowTitle")}</strong><small>{t("outdoor.windFlowDisclaimer")}</small></span></div>}
               {experimentalOutdoorInfluence && <div className="flow-legend outdoor-influence-legend"><span className="flow-sample outdoor-influence" aria-hidden="true">→</span><span><strong>{t("spatial.outdoorInfluence.title")}</strong><small>{t("spatial.outdoorInfluence.disclaimer")}</small></span></div>}
               {airflowPaths.length > 0 && <div className="flow-legend simulated-flow-legend experimental-layer-legend"><span className="flow-sample simulated" aria-hidden="true">↝</span><span><strong>{t("spatial.airflow.title")}</strong><small>{airflowDescription}</small></span></div>}
               {airflowPaths.length === 0 && activeGradientFlows.length > 0 && <div className="flow-legend"><span className="flow-sample" aria-hidden="true">→</span><span><strong>{t("twin.flow")}</strong><small>{t("twin.flowDescription")}</small></span></div>}

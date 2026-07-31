@@ -346,6 +346,8 @@ export const svPart5 = {
   "outdoor.planTop": "Planens ovankant {degrees}°",
   "outdoor.compassAria": "Kompass med sann nord. Planlösningens ovankant vetter mot {degrees} grader.",
   "outdoor.windArrowAria": "Utomhusvind från {direction} vid {degrees} grader motsvarar planens {edge} kant; detta är inte simulerat luftflöde inomhus.",
+  "outdoor.windFlowTitle": "Observerad vindriktning",
+  "outdoor.windFlowDisclaimer": "Riktning och täthet efter vindstyrka följer väderobservationen. Banorna runt planen är schematiska; inomhusbanor är den separata uppskattningen av luftrörelse och kräver modellerade öppna öppningar samt sensorstöd.",
   "outdoor.edge.top": "övre",
   "outdoor.edge.right": "högra",
   "outdoor.edge.bottom": "nedre",

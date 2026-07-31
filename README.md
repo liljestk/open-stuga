@@ -1,4 +1,4 @@
-# Stugu 0.8.0
+# Stugu 0.25.0
 
 Stugu is a local-first digital twin for understanding how environmental conditions change and move through one or more homes. Temperature and relative humidity are the starting point; a measurement registry also supports CO2 and other finite numeric scalar measurements without coupling ingestion, history, alerts, or visualisation to one sensor model. It is designed around TP-Link Tapo H100/H200 hubs with T310/T315 sensors, while keeping ingestion vendor-neutral through a direct local bridge, Home Assistant, and versioned APIs. Internal package names retain the original `climate-twin` identifier for compatibility.
 
@@ -37,7 +37,8 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
   boundary observations, fitted reconstructions, untouched holdout metrics,
   empirical bands, residuals, and a bounded
   weather scenario; observed and simulated values remain separate
-- Direct local H100/H200 polling, Home Assistant WebSocket ingestion, and a mock scenario generator
+- Direct local H100/H200 and supported Tuya Wi-Fi device polling, Home
+  Assistant WebSocket ingestion, and a mock scenario generator
 - Durable TP-Link gap recovery: local retained history first, an optional
   operator-maintained private adapter second, then a disabled-by-default,
   canary-gated Tapo Android/Appium export with Gmail CSV correlation
@@ -204,6 +205,16 @@ Home's **Set up** page and monitored directly on the LAN. The section stays
 hidden until a unit is discovered or configured, adding always requires an
 explicit action, and this first phase is read-only. See
 [Direct Gree/Wilfa heat pumps](docs/gree-direct.md).
+
+Supported Tuya-compatible Wi-Fi lamps, outlets, and switches use a separate
+local-first path. Pair the device to Wi-Fi in Tuya Smart or Smart Life, then
+add its write-only local key under the owning Home's **Set up** page. Stugu
+verifies the exact datapoint profile before saving it, controls it directly on
+the LAN, reconnects after address changes, and shows the same provider-neutral
+device in 2D and 3D. Only devices that actually report measured power enter
+Energy; lamp consumption is never guessed. See
+[local Tuya Wi-Fi devices](docs/tuya-local.md).
+
 Credentials saved in the web flow are write-only to the browser and live in a
 server-side protected secrets file outside SQLite. Safe integration ownership,
 endpoint identity, lifecycle state, and revisions live in SQLite; environment
@@ -232,7 +243,7 @@ persistent banner and visually distinct shell while navigating the product.
 Use a separate database or deployment for later demonstrations; setting
 `MOCK_ENABLED=true` cannot undo the real-data latch.
 
-See [direct TP-Link setup](docs/tp-link-direct.md), [automated Tapo history recovery](docs/tapo-history-automation.md), [electricity prices and contracts](docs/electricity-prices.md), [Home Assistant setup](docs/home-assistant.md), [property management and Guest access](docs/property-management.md), [Stuguby federation](docs/stuguby.md), [ChatGPT and voice](docs/chatgpt.md), [Cloudflare Tunnel and Access](docs/cloudflare-access.md), [system updates](docs/system-updates.md), [live system migration](docs/live-migration.md), [manual observation semantics](docs/observations.md), [activity and maintenance work](docs/maintenance.md), [Apple Notes and Telegram setup](docs/apple-notes-telegram.md), [architecture](docs/architecture.md), and [API/MCP integration](docs/integrations.md) for details.
+See [direct TP-Link setup](docs/tp-link-direct.md), [local Tuya Wi-Fi devices](docs/tuya-local.md), [automated Tapo history recovery](docs/tapo-history-automation.md), [electricity prices and contracts](docs/electricity-prices.md), [Home Assistant setup](docs/home-assistant.md), [property management and Guest access](docs/property-management.md), [Stuguby federation](docs/stuguby.md), [ChatGPT and voice](docs/chatgpt.md), [Cloudflare Tunnel and Access](docs/cloudflare-access.md), [system updates](docs/system-updates.md), [live system migration](docs/live-migration.md), [manual observation semantics](docs/observations.md), [activity and maintenance work](docs/maintenance.md), [Apple Notes and Telegram setup](docs/apple-notes-telegram.md), [architecture](docs/architecture.md), and [API/MCP integration](docs/integrations.md) for details.
 
 The thermal model is documented in [effective room thermal
 simulation](docs/thermal-simulation.md), and the 2D/3D dynamics layer in
@@ -276,8 +287,10 @@ provenance, partial failures, and stale fallback explicitly.
 
 The live Twin view shows the current outside temperature, humidity, and wind.
 When orientation is known, it also maps wind direction to a windward plan edge
-in 2D and 3D. This is an external boundary cue, not a heat-transfer or airflow
-simulation.
+in 2D and 3D. The 2D view can animate a directional sketch approaching and
+splitting around the plan; its bearing and density come from the observation,
+but the exterior paths are not CFD. Indoor paths remain the separate,
+sensor-constrained Air movement estimate.
 
 The map loads attributed tiles directly from OpenStreetMap, which is an external
 browser request; FMI requests are server-side. See [outdoor weather and home

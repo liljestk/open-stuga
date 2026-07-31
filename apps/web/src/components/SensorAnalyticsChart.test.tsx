@@ -249,6 +249,12 @@ describe("SensorAnalyticsChart", () => {
     expect(screen.getByText("Some history was restored, but part of the interval is still missing.")).not.toBeNull();
     expect(screen.getByText("Missing data")).not.toBeNull();
     expect(container.querySelector(".sensor-data-gap-region")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss data gap notice" }));
+
+    expect(screen.queryByText("Missing data in 1 selected series")).toBeNull();
+    expect(screen.getByText("Missing data")).not.toBeNull();
+    expect(container.querySelector(".sensor-data-gap-region")).not.toBeNull();
   });
 
   it("plots the configured property electricity-price schedule without a sensor binding", () => {

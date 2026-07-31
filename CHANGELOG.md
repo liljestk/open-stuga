@@ -4,6 +4,20 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.25.0 - 2026-07-31
+
+- Add local-first Tuya Wi-Fi light, switch, and metered-outlet support with
+  authenticated LAN discovery, durable supervised workers, absolute commands,
+  and protected local keys.
+- Configure and control Tuya devices from their Home, place them once across
+  the shared 2D and 3D views, and keep controls accessible during unavailable
+  and pending states.
+- Ingest only measured Tuya power into Home energy views, without estimating
+  unsupported energy counters, and document the cloud-assisted key bootstrap
+  plus fully local steady-state operation.
+- Safely rebuild empty legacy tracking-preview tables during upgrade while
+  refusing to discard non-empty legacy tracking data.
+
 ## 0.24.2 - 2026-07-31
 
 - Run the verified pre-update backup with Compose dependency startup disabled,

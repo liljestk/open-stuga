@@ -319,7 +319,7 @@ describe("EnergyPage", () => {
     expect(onOpenSensors).toHaveBeenCalledTimes(1);
   });
 
-  it("labels an unarchived cost as priced so far", async () => {
+  it("labels a combined unarchived cost as priced so far", async () => {
     const state = createDemoState();
     const house = state.houses[0]!;
     const meter: Sensor = {
@@ -328,7 +328,13 @@ describe("EnergyPage", () => {
       houseId: house.id,
       measurementEntityIds: { power: "sensor.pending_power" },
     };
-    state.sensors = [meter];
+    const secondMeter: Sensor = {
+      ...meter,
+      id: "pending-meter-2",
+      name: "Second pending meter",
+      measurementEntityIds: { power: "sensor.pending_power_2" },
+    };
+    state.sensors = [meter, secondMeter];
     state.latestMeasurements = {
       [meter.id]: {
         power: {
@@ -338,12 +344,20 @@ describe("EnergyPage", () => {
           canonicalUnit: "W",
         },
       },
+      [secondMeter.id]: {
+        power: {
+          ...sample(300, "2026-07-16T11:59:00.000Z"),
+          sensorId: secondMeter.id,
+          metric: "power",
+          canonicalUnit: "W",
+        },
+      },
     };
-    state.measurementHistory = { [meter.id]: { power: [] } };
-    state.measurementForecasts = { [meter.id]: {} };
+    state.measurementHistory = { [meter.id]: { power: [] }, [secondMeter.id]: { power: [] } };
+    state.measurementForecasts = { [meter.id]: {}, [secondMeter.id]: {} };
     vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({ current: null });
     vi.spyOn(api, "houseEnergySummary").mockImplementation(async (houseId, from, to) => {
-      const summary = combinedSummary(houseId, from, to, 2.5, [meter.id]);
+      const summary = combinedSummary(houseId, from, to, 2.5, [meter.id, secondMeter.id]);
       return {
         ...summary,
         quality: "partial",
@@ -361,7 +375,7 @@ describe("EnergyPage", () => {
     render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={vi.fn()} onOpenAlerts={vi.fn()} /></I18nProvider>);
 
     expect(await screen.findByText(/priced so far/i)).not.toBeNull();
-    expect(screen.getByText(/Pending time-database confirmation/i)).not.toBeNull();
+    expect(screen.getByText(/2 of 2 sensors combined · Pending time-database confirmation/i)).not.toBeNull();
   });
 
   it("uses the Home-safe effective Property price without exposing contract controls", async () => {
@@ -538,14 +552,21 @@ describe("EnergyPage", () => {
       name: "Main electricity meter",
       measurementEntityIds: { energy: "sensor.main_energy" },
     };
+    const powerOnlyMeter: Sensor = {
+      ...meter,
+      id: "power-only-meter",
+      name: "Power-only meter",
+      measurementEntityIds: { power: "sensor.power_only" },
+    };
     const shortHistory = [
       sample(1, "2026-07-16T06:00:00.000Z"),
       sample(3, "2026-07-16T12:00:00.000Z"),
     ];
-    state.sensors = [meter];
-    state.latestMeasurements = { meter: { energy: shortHistory.at(-1)! } };
-    state.measurementHistory = { meter: { energy: shortHistory } };
-    state.measurementForecasts = { meter: {} };
+    const power = { ...sample(500, "2026-07-16T11:59:00.000Z"), sensorId: powerOnlyMeter.id, metric: "power" as const, canonicalUnit: "W" };
+    state.sensors = [meter, powerOnlyMeter];
+    state.latestMeasurements = { meter: { energy: shortHistory.at(-1)! }, [powerOnlyMeter.id]: { power } };
+    state.measurementHistory = { meter: { energy: shortHistory }, [powerOnlyMeter.id]: { power: [power] } };
+    state.measurementForecasts = { meter: {}, [powerOnlyMeter.id]: {} };
     const summaryRequest = vi.spyOn(api, "houseEnergySummary").mockRejectedValue(new Error("Summary unavailable"));
 
     render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={vi.fn()} onOpenSensors={vi.fn()} onOpenAlerts={vi.fn()} /></I18nProvider>);
@@ -554,6 +575,9 @@ describe("EnergyPage", () => {
     expect(screen.getByText("Consumption reading")).not.toBeNull();
     expect(screen.queryByText("Consumption · 24 hours")).toBeNull();
     expect(screen.getAllByText("3.00 kWh")).toHaveLength(2);
+    const energyCard = document.querySelector<HTMLElement>(".energy-summary-card.energy")!;
+    expect(within(energyCard).getByText("1 of 2 sensors combined")).not.toBeNull();
+    expect(within(energyCard).queryByText(meter.name)).toBeNull();
   });
 
   it("uses a fresh electricity source when a newer candidate is marked stale", () => {

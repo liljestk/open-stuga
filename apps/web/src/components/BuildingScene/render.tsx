@@ -30,6 +30,7 @@ import type { SpatialLayerSnapshot, SpatialTopology } from "../../spatialLayers"
 import type { SensorCoverageAssessment } from "../../experimentalSpatialLayers";
 import { ExperimentalSensorCoverage3D } from "../ExperimentalSensorCoverage";
 import { OutdoorInfluenceOverlay3D } from "../OutdoorInfluenceOverlay";
+import { ConnectedDeviceMarker3D } from "../ConnectedDeviceMarkers";
 import {
   clampPlanElementHeight,
   clampPlanElementWidth,
@@ -52,7 +53,7 @@ import { DEFAULT_CAMERA, VIEW_HEIGHT, VIEW_WIDTH, buildingBounds, elementAxis, e
 import type { AddableOpeningKind, BuildingSceneProps, DragState, ElementWorldGeometry, ProjectedCloud, SelectedElementPatch } from "./support";
 import { useBuildingScenePart03 } from "./part-03";
 export function renderBuildingScene(context: ReturnType<typeof useBuildingScenePart03>) {
-  const { house, sensors, samples, climateSamples, observations, definition, colorDomain, units, activeFloorId, selectedSensorId, referenceTimeMs, maxSampleAgeMs, outdoor, editing, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalAirflow, experimentalSensorCoverage, experimentalOutdoorInfluence, openingStateObservations, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, climateSensorMarkersVisible, energyDevicesVisible, onFloorSelect, onSensorSelect, onFloorChange, locale, t, houseOpeningStateObservations, metricLabel, markerId, camera, setCamera, reducedMotion, setReducedMotion, mapInformationExpanded, setMapInformationExpanded, mapInformationId, selectedElementKey, setSelectedElementKey, addableOpeningKind, setAddableOpeningKind, openingEditorMessage, setOpeningEditorMessage, dragRef, suppressClickRef, effectiveReferenceTimeMs, effectiveMaxAgeMs, freshness, boundsSignature, bounds, floorModels, volume, heatMin, heatMax, clouds, gradientFlows, allValues, project, outdoorContext, airflow, airflowPaths, activeGradientFlows, airflowSupport, airflowDriver, airflowDescription, airflowAria, outdoorTemperature, outdoorHumidity, outdoorTemperatureColor, outdoorHumidityColor, activeOutdoorColor, activeOutdoorStyle, outdoorTemperatureStyle, outdoorHumidityStyle, outdoorWindSpeed, outdoorWindDirection, outdoorWindwardSide, outdoorShellLabel, outdoorShellWorld, outdoorShellProjected, outdoorWindwardProjected, outdoorShellRail, projectedClouds, renderedSensors, orderedFloors, selectedElementFloor, selectedElement, changeCamera, rotateCamera, onPointerDown, onPointerMove, endPointer, onWheel, activateFloor, floorKeyDown, selectSensor, selectArchitecturalElement, updateSelectedElement, selectedWidthBounds, selectedHeightBounds, updateSelectedWidth, updateSelectedHeight, deleteSelectedElement, addOpeningIn3d, renderArchitecturalElement, observationName } = context;
+  const { house, sensors, samples, climateSamples, observations, definition, colorDomain, units, activeFloorId, selectedSensorId, referenceTimeMs, maxSampleAgeMs, outdoor, mapAnimationsEnabled, outdoorExtrasVisible, editing, spatialLayerSnapshots, spatialLayerTopology, experimentalAirflowEnabled, experimentalAirflow, experimentalSensorCoverage, experimentalOutdoorInfluence, openingStateObservations, pendingOpeningStateKeys, onOpeningStateChange, sensorMeasurements, climateSensorMarkersVisible, energyDevicesVisible, connectedDevices, connectedDevicesVisible, pendingConnectedDeviceIds, onConnectedDevicePowerChange, onFloorSelect, onSensorSelect, onFloorChange, locale, t, houseOpeningStateObservations, metricLabel, markerId, camera, setCamera, reducedMotion, setReducedMotion, mapInformationExpanded, setMapInformationExpanded, mapInformationId, selectedElementKey, setSelectedElementKey, addableOpeningKind, setAddableOpeningKind, openingEditorMessage, setOpeningEditorMessage, dragRef, suppressClickRef, effectiveReferenceTimeMs, effectiveMaxAgeMs, freshness, boundsSignature, bounds, floorModels, volume, heatMin, heatMax, clouds, gradientFlows, allValues, project, outdoorContext, airflow, airflowPaths, activeGradientFlows, airflowSupport, airflowDriver, airflowDescription, airflowAria, outdoorTemperature, outdoorHumidity, outdoorTemperatureColor, outdoorHumidityColor, activeOutdoorColor, activeOutdoorStyle, outdoorTemperatureStyle, outdoorHumidityStyle, outdoorWindSpeed, outdoorWindDirection, outdoorWindwardSide, outdoorShellLabel, outdoorShellWorld, outdoorShellProjected, outdoorWindwardProjected, outdoorShellRail, projectedClouds, renderedSensors, orderedFloors, selectedElementFloor, selectedElement, changeCamera, rotateCamera, onPointerDown, onPointerMove, endPointer, onWheel, activateFloor, floorKeyDown, selectSensor, selectArchitecturalElement, updateSelectedElement, selectedWidthBounds, selectedHeightBounds, updateSelectedWidth, updateSelectedHeight, deleteSelectedElement, addOpeningIn3d, renderArchitecturalElement, observationName } = context;
   return (
       <div className="building-scene">
         <div className="building-scene-controls">
@@ -162,7 +163,7 @@ export function renderBuildingScene(context: ReturnType<typeof useBuildingSceneP
                     className="building-outdoor-shell-edge"
                   />
                 ))}
-                <line
+                {outdoorExtrasVisible && <><line
                   x1={outdoorShellRail.anchor.x}
                   y1={outdoorShellRail.anchor.y}
                   x2={outdoorShellRail.x + 209}
@@ -184,7 +185,7 @@ export function renderBuildingScene(context: ReturnType<typeof useBuildingSceneP
                     <text x="68" y="18" textAnchor="middle"><tspan className="outdoor-shell-chip-label">{t("outdoor.shellHumidity")}</tspan></text>
                     <text x="68" y="38" textAnchor="middle"><tspan className="outdoor-shell-chip-value">{outdoorHumidity ?? t("common.noData")}</tspan></text>
                   </g>
-                </g>
+                </g></>}
               </g>
             )}
 
@@ -292,7 +293,7 @@ export function renderBuildingScene(context: ReturnType<typeof useBuildingSceneP
                     data-relative-speed={flow.relativeSpeed.toFixed(3)} data-support={flow.support.toFixed(3)}
                   >
                     <path d={path} className="building-flow-path simulated-building-flow-path" markerEnd={`url(#${markerId}-airflow${flow.hasVerticalComponent ? "-vertical" : ""})`} />
-                    {!reducedMotion && <circle r="4.5" className="building-flow-particle simulated-flow-particle"><animateMotion dur="3.4s" repeatCount="indefinite" path={path} /></circle>}
+                    {mapAnimationsEnabled && !reducedMotion && <circle r="4.5" className="building-flow-particle simulated-flow-particle"><animateMotion dur="3.4s" repeatCount="indefinite" path={path} /></circle>}
                   </g>
                 );
               })}
@@ -320,7 +321,7 @@ export function renderBuildingScene(context: ReturnType<typeof useBuildingSceneP
                   >
                     <title>{label}</title>
                     <path d={path} className="building-flow-path" markerEnd={`url(#${markerId}${flow.hasVerticalComponent ? "-vertical" : ""})`} />
-                    {!reducedMotion && <circle r="4.5" className="building-flow-particle"><animateMotion dur={`${2.7 + index * .22}s`} repeatCount="indefinite" path={path} /></circle>}
+                    {mapAnimationsEnabled && !reducedMotion && <circle r="4.5" className="building-flow-particle"><animateMotion dur={`${2.7 + index * .22}s`} repeatCount="indefinite" path={path} /></circle>}
                   </g>
                 );
               })}
@@ -388,6 +389,25 @@ export function renderBuildingScene(context: ReturnType<typeof useBuildingSceneP
                 );
               })}
             </g>
+
+            {(editing || connectedDevicesVisible) && <g className="building-connected-devices">
+              {connectedDevices.flatMap((device) => {
+                if (device.floorId === null || device.x === null || device.y === null) return [];
+                const deviceFloor = house.floors.find((candidate) => candidate.id === device.floorId);
+                if (!deviceFloor) return [];
+                const z = device.z ?? deviceFloor.elevation + 1.2;
+                return <ConnectedDeviceMarker3D
+                  key={device.id}
+                  device={device}
+                  floor={deviceFloor}
+                  position={project({ x: device.x, y: device.y, z })}
+                  anchor={project({ x: device.x, y: device.y, z: deviceFloor.elevation + .08 })}
+                  activeFloor={device.floorId === activeFloorId}
+                  pending={pendingConnectedDeviceIds.has(device.connectionId)}
+                  {...(onConnectedDevicePowerChange ? { onPowerChange: onConnectedDevicePowerChange } : {})}
+                />;
+              })}
+            </g>}
 
             {editing && <g className="building-plan-elements building-plan-elements-editing">
               {orderedFloors.flatMap(({ floor }) => (floor.planElements ?? []).map((element, index) => renderArchitecturalElement(floor, element, index)))}

@@ -27,11 +27,15 @@ flowchart LR
     subgraph Home[Home network]
         S[Tapo T310 / T315 sensors] -->|Sub-GHz| H[Tapo H100 / H200 hub]
         H -->|local LAN polling| HA[Home Assistant\nTP-Link Smart Home integration]
+        TU[Tuya-compatible lamp,\noutlet, or switch]
     end
 
     subgraph Twin[Stugu]
         HAB[Home Assistant adapter] --> N[Normalizer and validation]
         TPL[Direct TP-Link adapter\npython-kasa helper] --> N
+        TU -->|encrypted local polling\nand absolute commands| TUA[Supervised Tuya LAN adapter]
+        TUA --> CD[(Provider-neutral device state,\nplacement, command journal)]
+        TUA -->|verified measured power only| N
         M[Mock / replay adapter] --> N
         I[Versioned ingest API] --> N
         N --> DB[(SQLite control plane,\noutbox, current projections)]
@@ -64,6 +68,8 @@ flowchart LR
         SL --> API
         P --> API
         WX --> API
+        CD --> API
+        TUA --> E
         API --> LD[Location discovery]
         API --> UI[2D digital-twin web app]
         API --> IOSAPP[Native iPhone companion]
@@ -107,7 +113,7 @@ Routine measurement ingestion does not evict Home Performance's minute
 snapshot, and the browser coalesces duplicate legacy/measurement refresh
 signals before invalidating monitoring.
 
-The browser does not talk to Home Assistant, TP-Link, FMI, or Open-Meteo
+The browser does not talk to Home Assistant, TP-Link, Tuya devices, FMI, or Open-Meteo
 directly. The API owns credentials, normalisation, retention, alert evaluation,
 provider selection, weather/location-service retrieval, caching, and reconnect
 logic. The location picker's attributed OpenStreetMap tiles are the one direct
@@ -151,8 +157,8 @@ The web information architecture follows ownership. Workspace navigation holds
 land-only Properties. A selected Home owns **Home**, **Sensors**, and **Set up**;
 Activity and Outdoor are Home-scoped operational subviews. **Set up** has four
 deep-linkable, keyboard-operable sections: **Overview** for readiness,
-**Homes** for placement/orientation, **Connections** for that Home's TP-Link and
-Home Assistant connections, and **Weather** for the Home's location/timezone and
+**Homes** for placement/orientation, **Connections** for that Home's TP-Link,
+Tuya, Gree, and Home Assistant connections, and **Weather** for the Home's location/timezone and
 automatic-provider summary. Current conditions, warnings, and the 48-hour
 forecast belong on Outdoor rather than crowding **Set up**. Canonical URLs retain
 Property and optional Home scope across refresh, Back/Forward, and copied links.
@@ -429,7 +435,8 @@ retention, migration, backup, and restore contract.
 
 | Module | Owns | Must not own |
 | --- | --- | --- |
-| Source adapters | Direct TP-Link, Home Assistant, mock, replay, API ingestion | UI layout or database-specific queries |
+| Source adapters | Direct TP-Link, direct Tuya, Home Assistant, mock, replay, API ingestion | UI layout or database-specific queries |
+| Connected-device service | provider-neutral current state, shared 2D/3D placement, bounded absolute commands, idempotent command journal | raw vendor datapoints, credentials, or energy estimates |
 | Measurement registry | stable IDs, labels, units, ranges, display and capability metadata | sensor samples or site-specific thresholds |
 | Normalizer | entity mapping, canonical units, validation, quality | vendor credentials or forecast policy |
 | Repository | schema, transactions, retention queries | HTTP or visualisation |
@@ -474,6 +481,9 @@ Recommended failure behaviour:
    can duplicate after an ambiguous remote success.
 6. Mark each metric sample and its UI representation stale independently after
    a configured freshness threshold.
+7. Supervise each Tuya LAN worker independently, serialize its bounded command
+   queue, preserve the last confirmed state on failure, and recover a changed
+   address only after the same device key and profile authenticate.
 
 The production weather monitor runs only with background services enabled. It
 refreshes located homes in non-overlapping cycles with concurrency two, startup

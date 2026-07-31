@@ -26,6 +26,9 @@ export const queryKeys = {
   homeEnergySummary: (houseId: string, intervalId: string, durationMs: number) => (
     ["house", houseId, "energy-summary", intervalId, durationMs] as const
   ),
+  connectedDevices: (houseId: string) => (
+    ["connected-devices", houseId] as const
+  ),
   openingActivity: (request: OpeningActivityRequest) => (
     ["analytics", "opening-activity", request.houseId, fingerprint(request)] as const
   ),

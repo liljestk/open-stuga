@@ -128,6 +128,7 @@ export const fiOverridesPart1 = {
   "analytics.visibleGapCount": "{count} näkyvää aukkoa",
   "analytics.missingData": "Puuttuva data",
   "analytics.missingSeriesStatus": "Dataa puuttuu {count} valitusta aikasarjasta",
+  "analytics.dismissGapNotice": "Sulje ilmoitus datakatkoksesta",
   "analytics.gapSourceOffline": "Lähde ei ole vieläkään yhteydessä. Palautus alkaa yhteyden palattua.",
   "analytics.gapRecoveryActive": "Stugu palauttaa lähteissä vielä säilyvät tiedot.",
   "analytics.gapRecoveryPartial": "Osa historiasta palautettiin, mutta osa aikavälistä puuttuu edelleen.",
