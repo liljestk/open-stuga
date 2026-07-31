@@ -4,6 +4,11 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.24.2 - 2026-07-31
+
+- Run the verified pre-update backup with Compose dependency startup disabled,
+  preventing backup creation from reconciling or restarting live services.
+
 ## 0.24.1 - 2026-07-31
 
 - Preserve the persistent release-state directory owner on atomic updater

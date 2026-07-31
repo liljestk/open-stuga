@@ -220,6 +220,60 @@ selected release until a root service restart repaired ownership. Release
 owning release-state directory's UID/GID before the atomic rename, while
 retaining mode `0640`.
 
+## v0.24.1 ownership patch and dependency finding
+
+The public
+[`v0.24.1` release](https://github.com/liljestk/stugu-releases/releases/tag/v0.24.1)
+was built from source commit
+`20cfa7f2cb6ef732580a98e02491b0f7f48b7a24`. OTA operation
+`bd021a7f-7f00-4a20-a33a-795926eb981e` completed using verified pre-update
+backup
+`/persistent/stugu/backups/stugu-backup-2026-07-31T08-48-33-654Z`.
+
+The already-running older updater performed this transition, so its release
+files were normalized once after completion. Both then reported
+`stugu:stugu` mode `0640`; the `v0.24.1` ownership probe preserved that state,
+and unprivileged `stuguctl images` read the digest-pinned `v0.24.1` release
+successfully.
+
+A five-minute post-update window retained the same boot ID and continuous SSH:
+
+- host idle was 88.3–94.0%, averaging 91.9%; load was 0.27–0.82 and settled at
+  0.56;
+- API CPU was normally 4.2–17.5%, with one brief 109% sample and immediate
+  recovery; memory was 215–227 MiB and settled at 221 MiB;
+- temperature was 55.5–57.4 °C, throttling remained `0x0`, and available RAM
+  was 3.00–3.09 GiB;
+- `/persistent` remained 4% used; event-loop delay was 0.187–1.44 ms and
+  settled at 0.187 ms;
+- the archive queue stayed between zero and five with zero dirty rows and no
+  failures; and
+- there were no failed units, container restarts, OOM events, or kernel errors.
+  Cloudflare Access returned the expected HTTP 302 authentication redirect.
+
+The backup exposed a separate Compose-client interaction. The immutable host's
+Compose configuration hash began `f30f700…`, while the updater generated
+`fe83c95…`; after sanitization, the only configuration difference was
+`bind.create_host_path: true` on
+`/opt/stugu/scripts/bootstrap-timescale.sh`. The host used Compose `v5.3.1`
+with Docker client `29.6.2`; the updater used Compose `v2.40.3` with client
+`28.5.2`.
+
+When backup creation began at `08:48:24.596Z`, Compose reconciled its declared
+dependencies: the old TimescaleDB container stopped at `08:48:25`, and a new
+one started before the backup timestamp at `08:48:33`. A later host-service
+restart recreated it back to the host configuration. TimescaleDB warmed from
+85 to 149 MiB; no corruption occurred, but the needless restart caused a brief
+outage and cold cache.
+
+Release `v0.24.2` adds `--no-deps` to the updater's maintenance `compose run`,
+so backup creation cannot reconcile or restart current dependencies. Backup
+failure remains fail-closed before release-state mutation. The immutable host
+still reports `0.23.0`; application OTAs do not satisfy the factory-image gate.
+Its Timescale worker settings also remain an `ALTER SYSTEM` bridge:
+`max_worker_processes=16`, `max_parallel_workers=4`, and
+`timescaledb.max_background_workers=12`.
+
 ## Superseded boot-artifact hypothesis
 
 The complete FAT inventories were then extracted from the failed factory

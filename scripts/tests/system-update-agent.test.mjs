@@ -663,7 +663,7 @@ test("pending Cloudflare request re-entry closes stale ingress before reclaiming
   );
 });
 
-test("pre-update failures do not attempt rollback before any release state changes", async (t) => {
+test("dependency-free pre-update backup failures remain fail-closed before release mutation", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "stugu-update-agent-preflight-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const operationsDirectory = join(directory, "operations");
@@ -693,6 +693,13 @@ test("pre-update failures do not attempt rollback before any release state chang
   assert.equal(status.phase, "failed");
   assert.equal(status.detail, "simulated backup failure");
   assert.deepEqual(status.activity.map((entry) => entry.phase), ["queued", "preparing", "backup", "failed"]);
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls[0], ["ps", "--services", "--filter", "status=running"]);
+  assert.deepEqual(calls[1].slice(0, 3), ["exec", "-T", "api"]);
+  assert.deepEqual(
+    calls[2],
+    ["--profile", "maintenance", "run", "--rm", "--no-deps", "stugu-backup"],
+  );
   assert.equal(calls.some((args) => args[0] === "up"), false);
   assert.equal(existsSync(config.releaseEnvFile), false);
   assert.equal(existsSync(requestPath), false);

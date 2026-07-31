@@ -120,7 +120,10 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
     }
 
     setStatus("backup", "Creating a verified pre-update backup");
-    await composeCommand(config, ["--profile", "maintenance", "run", "--rm", "stugu-backup"]);
+    await composeCommand(
+      config,
+      ["--profile", "maintenance", "run", "--rm", "--no-deps", "stugu-backup"],
+    );
 
     writeReleaseEnvironmentAtomic(config.releaseEnvFile, releaseEnvironment(request));
     releaseChanged = true;
