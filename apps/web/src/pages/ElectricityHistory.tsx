@@ -22,6 +22,7 @@ import { definitionFor, formatMeasurement, measurementLabel } from "../measureme
 import { useI18n } from "../i18n";
 import { useNow } from "../useNow";
 import { seriesStateKey, type SeriesLoadState } from "../useClimateData";
+import { aggregateCumulativeSeries, electricityUsageSeries } from "./energyAnalysis";
 
 export const ELECTRICITY_METRICS = ["power", "energy", "electricity_price"] as const;
 export type ElectricityMetric = typeof ELECTRICITY_METRICS[number];
@@ -43,10 +44,19 @@ interface ElectricityHistoryProps {
   seriesStates?: Record<string, SeriesLoadState>;
 }
 
-function supportsMetric(state: ClimateState, sensor: Sensor, metric: ElectricityMetric): boolean {
+function supportsDirectMetric(state: ClimateState, sensor: Sensor, metric: ElectricityMetric): boolean {
   return Boolean(sensor.measurementEntityIds?.[metric])
     || Boolean(state.latestMeasurements[sensor.id]?.[metric])
     || (state.measurementHistory[sensor.id]?.[metric]?.length ?? 0) > 0;
+}
+
+function supportsMetric(state: ClimateState, sensor: Sensor, metric: ElectricityMetric): boolean {
+  return supportsDirectMetric(state, sensor, metric)
+    || (metric === "energy" && supportsDirectMetric(state, sensor, "power"));
+}
+
+function loadedMetric(state: ClimateState, sensor: Sensor, metric: ElectricityMetric): ElectricityMetric {
+  return metric === "energy" && !supportsDirectMetric(state, sensor, "energy") ? "power" : metric;
 }
 
 function bucketMilliseconds(range: TimeRange): number {
@@ -124,6 +134,9 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
   const activeSensors = mode === "single" ? (singleSensor ? [singleSensor] : [])
     : mode === "multiple" ? multipleSensors : metricSensors;
   const activeSensorKey = activeSensors.map((sensor) => sensor.id).join("\u0000");
+  const activeLoadKey = activeSensors.map((sensor) => (
+    `${sensor.id}:${loadedMetric(props.state, sensor, props.metric)}`
+  )).join("\u0000");
   const from = now - timeRangeHours(props.range) * 3_600_000;
   const propertyPrices = useMemo(
     () => props.metric === "electricity_price"
@@ -140,20 +153,25 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
 
   useEffect(() => {
     activeSensors.forEach((sensor) => {
-      props.onLoadSeries?.(sensor.id, props.metric, props.range, false);
+      props.onLoadSeries?.(sensor.id, loadedMetric(props.state, sensor, props.metric), props.range, false);
     });
-  }, [activeSensorKey, props.metric, props.onLoadSeries, props.range]);
+  }, [activeLoadKey, props.metric, props.onLoadSeries, props.range]);
 
   const observed = useMemo(() => activeSensors.map((sensor) => ({
     sensor,
-    points: observedSeries(sensor.id, props.metric, props.state, from),
-  })), [activeSensorKey, from, props.metric, props.state]);
+    points: props.metric === "energy"
+      ? electricityUsageSeries(props.state, sensor.id, from, now)
+      : observedSeries(sensor.id, props.metric, props.state, from),
+  })), [activeSensorKey, from, now, props.metric, props.state]);
   const aggregateResult = useMemo(() => {
-    const points = aggregateObservedSeries(
-      observed.map(({ sensor, points: sensorPoints }) => ({ sensorId: sensor.id, points: sensorPoints })),
-      bucketMilliseconds(props.range),
-      props.metric === "electricity_price" ? "mean" : "sum",
-    );
+    const input = observed.map(({ sensor, points: sensorPoints }) => ({ sensorId: sensor.id, points: sensorPoints }));
+    const points = props.metric === "energy"
+      ? aggregateCumulativeSeries(input, bucketMilliseconds(props.range))
+      : aggregateObservedSeries(
+        input,
+        bucketMilliseconds(props.range),
+        props.metric === "electricity_price" ? "mean" : "sum",
+      );
     const complete = points.filter((point) => point.sensorCount === activeSensors.length);
     return { points: complete, partialCount: points.length - complete.length };
   }, [activeSensors.length, observed, props.metric, props.range]);
@@ -164,7 +182,7 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
     ? aggregate.map((point) => point.value)
     : observed.flatMap((series) => series.points.map((point) => point.value));
   const domain = timelineValueDomain(definition, [...values, ...propertyPrices.map((point) => point.value)]);
-  const metricLabel = measurementLabel(definition, locale);
+  const metricLabel = props.metric === "energy" ? t("energy.intervalUse") : measurementLabel(definition, locale);
   const sourceTitle = propertyOnly
     ? t("sensors.analyticsPropertyPrice")
     : mode === "combined"
@@ -196,7 +214,7 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
     electricityPrice: propertyPrices,
   };
   const loadStates = activeSensors.flatMap((sensor) => {
-    const state = props.seriesStates?.[seriesStateKey(sensor.id, props.metric)];
+    const state = props.seriesStates?.[seriesStateKey(sensor.id, loadedMetric(props.state, sensor, props.metric))];
     return state ? [state] : [];
   });
   const loading = loadStates.some((state) => state.status === "loading")
@@ -236,7 +254,8 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
           <span>{t("common.metric")}</span>
           <div className="segmented" role="group" aria-label={t("common.metric")}>{ELECTRICITY_METRICS.map((candidate) => {
             const candidateDefinition = definitionFor(props.state.measurementDefinitions, candidate);
-            return <button key={candidate} type="button" aria-pressed={props.metric === candidate} onClick={() => props.onMetric(candidate)}>{measurementLabel(candidateDefinition, locale)}</button>;
+            const label = candidate === "energy" ? t("energy.intervalUse") : measurementLabel(candidateDefinition, locale);
+            return <button key={candidate} type="button" aria-pressed={props.metric === candidate} onClick={() => props.onMetric(candidate)}>{label}</button>;
           })}</div>
         </div>
         <div className="field">
@@ -320,7 +339,6 @@ export function ElectricityHistory(props: Readonly<ElectricityHistoryProps>) {
           </table>
         </div>}
       </details>}
-      {!definition.forecastSupported && <p className="chart-capability-note">{t("chart.forecastUnsupported", { metric: metricLabel })}</p>}
     </section>
   </>;
 }

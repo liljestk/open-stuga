@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChartLine, ChevronDown, CloudSun, Database, Download, Droplets, FileJson, FileSpreadsheet, RefreshCw, ShieldCheck, Table2, TriangleAlert } from "lucide-react";
+import { ChartLine, ChevronDown, CloudSun, Database, DoorOpen, Download, Droplets, FileJson, FileSpreadsheet, Gauge, RefreshCw, ShieldCheck, Table2, TriangleAlert } from "lucide-react";
 import type {
   AnalyticsAggregation,
   AnalyticsQueryResponse,
@@ -13,7 +13,7 @@ import type {
   SensorDataGap,
   UnitSystem,
 } from "@climate-twin/contracts";
-import { timeRangeHours, type ClimateState, type TimeRange } from "../domain";
+import { ANALYTICS_TIME_RANGES, timeRangeHours, type ClimateState, type TimeRange } from "../domain";
 import { api } from "../api";
 import { SensorAnalyticsChart } from "../components/SensorAnalyticsChart";
 import { DailyAnalyticsFindings } from "../components/DailyAnalyticsFindings";
@@ -48,8 +48,133 @@ interface ContinuityRow {
 }
 
 type QualityPreset = "good" | "reliable" | "all";
+type AnalyticsTool = "performance" | "openings" | "sensors";
 
 const ANALYTICS_RESOLUTIONS: AnalyticsResolution[] = ["auto", "raw", "1m", "5m", "15m", "1h", "1d"];
+const ANALYTICS_AGGREGATIONS: AnalyticsAggregation[] = ["default", "mean", "sum", "delta", "last", "time_weighted_mean", "min", "max"];
+const QUALITY_PRESETS: QualityPreset[] = ["good", "reliable", "all"];
+const ANALYTICS_TOOLS: AnalyticsTool[] = ["performance", "openings", "sensors"];
+const ANALYTICS_CHART_PARAMS = ["range", "resolution", "aggregation", "quality", "metric", "sensors", "weather"];
+const DEFAULT_ANALYTICS_STATE = {
+  range: "24h",
+  resolution: "auto",
+  aggregation: "default",
+  qualityPreset: "reliable",
+  metric: "temperature",
+  selectedSensorIds: null,
+  weatherObservationsVisible: true,
+  weatherForecastVisible: true,
+} as const satisfies AnalyticsLocationState;
+
+interface AnalyticsLocationState {
+  range: TimeRange;
+  resolution: AnalyticsResolution;
+  aggregation: AnalyticsAggregation;
+  qualityPreset: QualityPreset;
+  metric: Metric;
+  selectedSensorIds: string[] | null;
+  weatherObservationsVisible: boolean;
+  weatherForecastVisible: boolean;
+}
+
+function analyticsToolsFromLocation(): AnalyticsTool[] {
+  if (typeof window === "undefined") return [];
+  const params = new URLSearchParams(window.location.search);
+  const requested = (params.get("tools") ?? "")
+    .split(",")
+    .filter((tool): tool is AnalyticsTool => ANALYTICS_TOOLS.includes(tool as AnalyticsTool));
+  const tools = new Set<AnalyticsTool>(requested);
+  const hasExplicitHash = ["#performance", "#openings", "#sensors", "#evidence"].includes(window.location.hash);
+  if (window.location.hash === "#performance") tools.add("performance");
+  if (window.location.hash === "#openings") tools.add("openings");
+  if (
+    window.location.hash === "#sensors"
+    || window.location.hash === "#evidence"
+    || (requested.length === 0 && !hasExplicitHash && ANALYTICS_CHART_PARAMS.some((parameter) => params.has(parameter)))
+  ) tools.add("sensors");
+  return ANALYTICS_TOOLS.filter((tool) => tools.has(tool));
+}
+
+function writeAnalyticsToolsToLocation(tools: ReadonlySet<AnalyticsTool>): void {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  const ordered = ANALYTICS_TOOLS.filter((tool) => tools.has(tool));
+  if (ordered.length > 0) url.searchParams.set("tools", ordered.join(","));
+  else url.searchParams.delete("tools");
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (next !== current) window.history.pushState(window.history.state, "", next);
+}
+
+function evidenceIsDeepLinked(): boolean {
+  return typeof window !== "undefined" && window.location.hash === "#evidence";
+}
+
+function defaultAnalyticsMetric(metricIds: readonly Metric[]): Metric {
+  return metricIds.includes("temperature") ? "temperature" : metricIds[0] ?? "temperature";
+}
+
+function analyticsStateFromLocation(metricIds: readonly Metric[], sensorIds: readonly string[]): AnalyticsLocationState {
+  const defaultMetric = defaultAnalyticsMetric(metricIds);
+  if (typeof window === "undefined") return { ...DEFAULT_ANALYTICS_STATE, metric: defaultMetric };
+  const params = new URLSearchParams(window.location.search);
+  const requestedRange = params.get("range");
+  const requestedResolution = params.get("resolution");
+  const requestedAggregation = params.get("aggregation");
+  const requestedQuality = params.get("quality");
+  const requestedMetric = params.get("metric");
+  const requestedSensors = params.get("sensors");
+  const requestedWeather = params.get("weather");
+  const validRequestedSensors = requestedSensors && requestedSensors !== "none"
+    ? [...new Set(requestedSensors.split(",").filter((sensorId) => sensorIds.includes(sensorId)))].sort()
+    : [];
+  const resolution = ANALYTICS_RESOLUTIONS.includes(requestedResolution as AnalyticsResolution)
+    ? requestedResolution as AnalyticsResolution
+    : DEFAULT_ANALYTICS_STATE.resolution;
+  return {
+    range: ANALYTICS_TIME_RANGES.includes(requestedRange as TimeRange)
+      ? requestedRange as TimeRange
+      : DEFAULT_ANALYTICS_STATE.range,
+    resolution,
+    aggregation: resolution !== "raw" && ANALYTICS_AGGREGATIONS.includes(requestedAggregation as AnalyticsAggregation)
+      ? requestedAggregation as AnalyticsAggregation
+      : DEFAULT_ANALYTICS_STATE.aggregation,
+    qualityPreset: QUALITY_PRESETS.includes(requestedQuality as QualityPreset)
+      ? requestedQuality as QualityPreset
+      : DEFAULT_ANALYTICS_STATE.qualityPreset,
+    metric: requestedMetric && metricIds.includes(requestedMetric) ? requestedMetric : defaultMetric,
+    selectedSensorIds: requestedSensors === "none"
+      ? []
+      : validRequestedSensors.length > 0 ? validRequestedSensors : null,
+    weatherObservationsVisible: requestedWeather !== "forecast" && requestedWeather !== "none",
+    weatherForecastVisible: requestedWeather !== "observations" && requestedWeather !== "none",
+  };
+}
+
+function writeAnalyticsStateToLocation(state: AnalyticsLocationState, mode: "push" | "replace", defaultMetric: Metric): void {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  const write = (key: string, value: string, defaultValue: string) => {
+    if (value === defaultValue) url.searchParams.delete(key);
+    else url.searchParams.set(key, value);
+  };
+  write("range", state.range, DEFAULT_ANALYTICS_STATE.range);
+  write("resolution", state.resolution, DEFAULT_ANALYTICS_STATE.resolution);
+  write("aggregation", state.resolution === "raw" ? "default" : state.aggregation, DEFAULT_ANALYTICS_STATE.aggregation);
+  write("quality", state.qualityPreset, DEFAULT_ANALYTICS_STATE.qualityPreset);
+  write("metric", state.metric, defaultMetric);
+  if (state.selectedSensorIds === null) url.searchParams.delete("sensors");
+  else if (state.selectedSensorIds.length === 0) url.searchParams.set("sensors", "none");
+  else url.searchParams.set("sensors", [...new Set(state.selectedSensorIds)].sort().join(","));
+  const weather = state.weatherObservationsVisible
+    ? state.weatherForecastVisible ? null : "observations"
+    : state.weatherForecastVisible ? "forecast" : "none";
+  if (weather) url.searchParams.set("weather", weather);
+  else url.searchParams.delete("weather");
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (next !== current) window.history[`${mode}State`](window.history.state, "", next);
+}
 
 function aggregationOptions(definition: MeasurementDefinition | undefined): AnalyticsAggregation[] {
   const kind = definition?.kind ?? "gauge";
@@ -120,14 +245,25 @@ function downloadText(filename: string, content: string, type: string): void {
 export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const { locale, t } = useI18n();
   const now = useNow();
-  const [metric, setMetric] = useState<Metric>("temperature");
-  const [selectedSensorIds, setSelectedSensorIds] = useState<string[] | null>(null);
-  const [weatherObservationsVisible, setWeatherObservationsVisible] = useState(true);
-  const [weatherForecastVisible, setWeatherForecastVisible] = useState(true);
-  const [range, setRange] = useState<TimeRange>("24h");
-  const [resolution, setResolution] = useState<AnalyticsResolution>("auto");
-  const [aggregation, setAggregation] = useState<AnalyticsAggregation>("default");
-  const [qualityPreset, setQualityPreset] = useState<QualityPreset>("reliable");
+  const sensors = useMemo(
+    () => props.state.sensors.filter((sensor) => sensor.houseId === props.house.id && sensor.enabled),
+    [props.house.id, props.state.sensors],
+  );
+  const definitions = useMemo(() => props.state.measurementDefinitions.filter((definition) => definition.enabled), [props.state.measurementDefinitions]);
+  const metricIds = definitions.map((definition) => definition.id);
+  const sensorIds = sensors.map((sensor) => sensor.id);
+  const metricIdsKey = metricIds.join("\u0000");
+  const sensorIdsKey = sensorIds.join("\u0000");
+  const defaultMetric = defaultAnalyticsMetric(metricIds);
+  const initialLocationState = analyticsStateFromLocation(metricIds, sensorIds);
+  const [metric, setMetric] = useState<Metric>(initialLocationState.metric);
+  const [selectedSensorIds, setSelectedSensorIds] = useState<string[] | null>(initialLocationState.selectedSensorIds);
+  const [weatherObservationsVisible, setWeatherObservationsVisible] = useState(initialLocationState.weatherObservationsVisible);
+  const [weatherForecastVisible, setWeatherForecastVisible] = useState(initialLocationState.weatherForecastVisible);
+  const [range, setRange] = useState<TimeRange>(initialLocationState.range);
+  const [resolution, setResolution] = useState<AnalyticsResolution>(initialLocationState.resolution);
+  const [aggregation, setAggregation] = useState<AnalyticsAggregation>(initialLocationState.aggregation);
+  const [qualityPreset, setQualityPreset] = useState<QualityPreset>(initialLocationState.qualityPreset);
   const [outdoorHistory, setOutdoorHistory] = useState<OutdoorTemperatureSample[]>([]);
   const [electricityPrices, setElectricityPrices] = useState<HomeElectricityPricePoint[]>([]);
   const [sensorGaps, setSensorGaps] = useState<SensorDataGap[]>([]);
@@ -137,15 +273,11 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [refreshRevision, setRefreshRevision] = useState(0);
+  const [openTools, setOpenTools] = useState<Set<AnalyticsTool>>(() => new Set(analyticsToolsFromLocation()));
   const [isolationOpen, setIsolationOpen] = useState(false);
   const [moistureOpen, setMoistureOpen] = useState(false);
-  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [evidenceOpen, setEvidenceOpen] = useState(evidenceIsDeepLinked);
   const weather = useHouseWeather(props.house);
-  const sensors = useMemo(
-    () => props.state.sensors.filter((sensor) => sensor.houseId === props.house.id && sensor.enabled),
-    [props.house.id, props.state.sensors],
-  );
-  const definitions = useMemo(() => props.state.measurementDefinitions.filter((definition) => definition.enabled), [props.state.measurementDefinitions]);
   const selectedDefinition = definitions.find((definition) => definition.id === metric) ?? definitions[0];
   const availableAggregations = useMemo(() => aggregationOptions(selectedDefinition), [selectedDefinition]);
   const metricSensors = useMemo(() => sensors.filter((sensor) => (
@@ -160,24 +292,108 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
     ? metricSensors
     : metricSensors.filter((sensor) => selectedSensorIds.includes(sensor.id)), [metricSensors, selectedSensorIds]);
 
-  useEffect(() => {
-    if (selectedDefinition && selectedDefinition.id !== metric) setMetric(selectedDefinition.id);
-  }, [metric, selectedDefinition]);
+  const writeLocationPatch = (patch: Partial<AnalyticsLocationState>, mode: "push" | "replace") => {
+    const current = analyticsStateFromLocation(metricIds, sensorIds);
+    writeAnalyticsStateToLocation({ ...current, ...patch }, mode, defaultMetric);
+  };
+
+  const toggleTool = (tool: AnalyticsTool, open: boolean) => {
+    if (openTools.has(tool) === open) return;
+    const next = new Set(openTools);
+    if (open) next.add(tool);
+    else next.delete(tool);
+    setOpenTools(next);
+    writeAnalyticsToolsToLocation(next);
+  };
 
   useEffect(() => {
-    if (!availableAggregations.includes(aggregation)) setAggregation("default");
-  }, [aggregation, availableAggregations]);
+    const expectedPathname = window.location.pathname;
+    const restoreState = () => {
+      if (window.location.pathname !== expectedPathname) return;
+      const next = analyticsStateFromLocation(metricIds, sensorIds);
+      setMetric(next.metric);
+      setSelectedSensorIds(next.selectedSensorIds);
+      setWeatherObservationsVisible(next.weatherObservationsVisible);
+      setWeatherForecastVisible(next.weatherForecastVisible);
+      setRange(next.range);
+      setResolution(next.resolution);
+      setAggregation(next.aggregation);
+      setQualityPreset(next.qualityPreset);
+      setOpenTools(new Set(analyticsToolsFromLocation()));
+      setEvidenceOpen(evidenceIsDeepLinked());
+      writeAnalyticsStateToLocation(next, "replace", defaultMetric);
+    };
+    restoreState();
+    window.addEventListener("popstate", restoreState);
+    return () => window.removeEventListener("popstate", restoreState);
+  }, [defaultMetric, metricIdsKey, props.house.id, sensorIdsKey]);
+
+  const selectRange = (next: TimeRange) => {
+    setRange(next);
+    writeLocationPatch({ range: next }, "push");
+  };
+  const selectResolution = (next: AnalyticsResolution) => {
+    const nextAggregation = next === "raw" ? "default" : aggregation;
+    setResolution(next);
+    setAggregation(nextAggregation);
+    writeLocationPatch({ resolution: next, aggregation: nextAggregation }, "push");
+  };
+  const selectAggregation = (next: AnalyticsAggregation) => {
+    setAggregation(next);
+    writeLocationPatch({ aggregation: next }, "push");
+  };
+  const selectQualityPreset = (next: QualityPreset) => {
+    setQualityPreset(next);
+    writeLocationPatch({ qualityPreset: next }, "push");
+  };
+  const selectMetric = (next: Metric) => {
+    setMetric(next);
+    writeLocationPatch({ metric: next }, "push");
+  };
+  const selectSensors = (next: string[] | null) => {
+    setSelectedSensorIds(next);
+    writeLocationPatch({ selectedSensorIds: next }, "push");
+  };
+  const selectWeatherObservationsVisible = (next: boolean) => {
+    setWeatherObservationsVisible(next);
+    writeLocationPatch({ weatherObservationsVisible: next }, "push");
+  };
+  const selectWeatherForecastVisible = (next: boolean) => {
+    setWeatherForecastVisible(next);
+    writeLocationPatch({ weatherForecastVisible: next }, "push");
+  };
+
+  useEffect(() => {
+    if (selectedDefinition && selectedDefinition.id !== metric) {
+      setMetric(selectedDefinition.id);
+      writeLocationPatch({ metric: selectedDefinition.id }, "replace");
+    }
+  }, [defaultMetric, metric, selectedDefinition]);
+
+  useEffect(() => {
+    if (!availableAggregations.includes(aggregation)) {
+      setAggregation("default");
+      writeLocationPatch({ aggregation: "default" }, "replace");
+    }
+  }, [aggregation, availableAggregations, qualityPreset, range, resolution]);
 
   useEffect(() => {
     if (selectedSensorIds === null) return;
     const available = new Set(metricSensors.map((sensor) => sensor.id));
     const valid = selectedSensorIds.filter((sensorId) => available.has(sensorId));
-    if (valid.length !== selectedSensorIds.length) setSelectedSensorIds(valid);
+    const next = valid.length === metricSensors.length && metricSensors.length > 0
+      ? null
+      : valid.length > 0 || selectedSensorIds.length === 0 ? valid : null;
+    if (next === null || valid.length !== selectedSensorIds.length) {
+      if (next === null && selectedSensorIds.length === metricSensors.length) {
+        setSelectedSensorIds(null);
+        writeLocationPatch({ selectedSensorIds: null }, "replace");
+      } else if (valid.length !== selectedSensorIds.length) {
+      setSelectedSensorIds(next);
+        writeLocationPatch({ selectedSensorIds: next }, "replace");
+      }
+    }
   }, [metricSensors, selectedSensorIds]);
-
-  useEffect(() => {
-    setSelectedSensorIds(null);
-  }, [props.house.id]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -343,50 +559,85 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
         refreshRevision={refreshRevision}
       />
 
-      <HomePerformancePanel
-        house={props.house}
-        definitions={props.state.measurementDefinitions}
-        dataMode={props.dataMode}
-        refreshRevision={refreshRevision}
-      />
+      <section className="analytics-primary-tools" aria-labelledby="analytics-primary-tools-title">
+        <div className="analytics-tools-intro">
+          <h2 id="analytics-primary-tools-title">{t("analytics.toolsTitle")}</h2>
+          <p>{t("analytics.toolsDescription")}</p>
+        </div>
+        <div className="analytics-tool-stack">
+          <details className="analytics-tool analytics-primary-tool" open={openTools.has("performance")} onToggle={(event) => toggleTool("performance", event.currentTarget.open)}>
+            <summary>
+              <span className="analytics-tool-icon"><Gauge size={18} aria-hidden="true" /></span>
+              <span className="analytics-tool-copy"><strong>{t("performance.title")}</strong><small>{t("performance.description")}</small></span>
+              <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
+            </summary>
+            {openTools.has("performance") && <div className="analytics-primary-tool-content">
+              <HomePerformancePanel
+                house={props.house}
+                definitions={props.state.measurementDefinitions}
+                dataMode={props.dataMode}
+                refreshRevision={refreshRevision}
+              />
+            </div>}
+          </details>
 
-      <OpeningAnalyticsPanel
-        house={props.house}
-        dataMode={props.dataMode}
-        range={range}
-        refreshRevision={refreshRevision}
-        {...(props.state.latestOpeningStateObservation?.houseId === props.house.id
-          ? { liveObservationId: props.state.latestOpeningStateObservation.id }
-          : {})}
-        onRange={setRange}
-      />
+          <details className="analytics-tool analytics-primary-tool" open={openTools.has("openings")} onToggle={(event) => toggleTool("openings", event.currentTarget.open)}>
+            <summary>
+              <span className="analytics-tool-icon"><DoorOpen size={18} aria-hidden="true" /></span>
+              <span className="analytics-tool-copy"><strong>{t("analytics.openingTitle")}</strong><small>{t("analytics.openingDescription")}</small></span>
+              <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
+            </summary>
+            {openTools.has("openings") && <div className="analytics-primary-tool-content">
+              <OpeningAnalyticsPanel
+                house={props.house}
+                dataMode={props.dataMode}
+                range={range}
+                refreshRevision={refreshRevision}
+                {...(props.state.latestOpeningStateObservation?.houseId === props.house.id
+                  ? { liveObservationId: props.state.latestOpeningStateObservation.id }
+                  : {})}
+                onRange={selectRange}
+              />
+            </div>}
+          </details>
 
-      {definitions.length > 0 && sensors.length > 0 ? <SensorAnalyticsChart
-        houseId={props.house.id}
-        dataMode={props.dataMode}
-        sensors={metricSensors}
-        history={props.state.measurementHistory}
-        forecasts={props.state.measurementForecasts}
-        latestMeasurements={props.state.latestMeasurements}
-        definitions={definitions}
-        outdoorHistory={outdoorHistory}
-        weather={weather.weather}
-        electricityPrices={electricityPrices}
-        sensorGaps={sensorGaps}
-        metric={metric}
-        units={props.units}
-        range={range}
-        timeZone={props.house.timezone}
-        selectedSensorIds={selectedSensorIds}
-        weatherObservationsVisible={weatherObservationsVisible}
-        weatherForecastVisible={weatherForecastVisible}
-        onMetric={setMetric}
-        onRange={setRange}
-        onSensors={setSelectedSensorIds}
-        onWeatherObservationsVisible={setWeatherObservationsVisible}
-        onWeatherForecastVisible={setWeatherForecastVisible}
-        onLoadSeries={props.onLoadSeries}
-      /> : <div className="empty-state">{t("common.noData")}</div>}
+          <details className="analytics-tool analytics-primary-tool" open={openTools.has("sensors")} onToggle={(event) => toggleTool("sensors", event.currentTarget.open)}>
+            <summary>
+              <span className="analytics-tool-icon"><ChartLine size={18} aria-hidden="true" /></span>
+              <span className="analytics-tool-copy"><strong>{t("sensors.analyticsTitle")}</strong><small>{t("sensors.analyticsDescription")}</small></span>
+              <ChevronDown className="analytics-tool-chevron" size={18} aria-hidden="true" />
+            </summary>
+            {openTools.has("sensors") && <div className="analytics-primary-tool-content">
+              {definitions.length > 0 && sensors.length > 0 ? <SensorAnalyticsChart
+                houseId={props.house.id}
+                dataMode={props.dataMode}
+                sensors={metricSensors}
+                history={props.state.measurementHistory}
+                forecasts={props.state.measurementForecasts}
+                latestMeasurements={props.state.latestMeasurements}
+                definitions={definitions}
+                outdoorHistory={outdoorHistory}
+                weather={weather.weather}
+                electricityPrices={electricityPrices}
+                sensorGaps={sensorGaps}
+                metric={metric}
+                units={props.units}
+                range={range}
+                timeZone={props.house.timezone}
+                selectedSensorIds={selectedSensorIds}
+                weatherObservationsVisible={weatherObservationsVisible}
+                weatherForecastVisible={weatherForecastVisible}
+                onMetric={selectMetric}
+                onRange={selectRange}
+                onSensors={selectSensors}
+                onWeatherObservationsVisible={selectWeatherObservationsVisible}
+                onWeatherForecastVisible={selectWeatherForecastVisible}
+                onLoadSeries={props.onLoadSeries}
+              /> : <div className="empty-state">{t("common.noData")}</div>}
+            </div>}
+          </details>
+        </div>
+      </section>
 
       <div className="analytics-tool-stack">
         <details className="analytics-tool" onToggle={(event) => setIsolationOpen(event.currentTarget.open)}>
@@ -407,7 +658,7 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
           {moistureOpen && <MoistureResponsePanel house={props.house} embedded />}
         </details>
 
-        <details className="analytics-tool analytics-evidence-tool" onToggle={(event) => setEvidenceOpen(event.currentTarget.open)}>
+        <details className="analytics-tool analytics-evidence-tool" open={evidenceOpen} onToggle={(event) => setEvidenceOpen(event.currentTarget.open)}>
           <summary>
             <span className="analytics-tool-icon"><Table2 size={18} aria-hidden="true" /></span>
             <span className="analytics-tool-copy"><strong id="analytics-evidence-title">{t("analytics.evidenceTitle")}</strong><small>{t("analytics.evidenceDescription")}</small></span>
@@ -424,13 +675,13 @@ export function DataAnalyticsPage(props: Readonly<DataAnalyticsPageProps>) {
             )}><FileJson size={14} aria-hidden="true" />{t("analytics.exportJson")}</button>
           </div>}
         <div className="analytics-query-controls" role="group" aria-label={t("analytics.queryControls")}>
-          <label className="field"><span>{t("analytics.resolution")}</span><select value={resolution} onChange={(event) => setResolution(event.target.value as AnalyticsResolution)}>
+          <label className="field"><span>{t("analytics.resolution")}</span><select value={resolution} onChange={(event) => selectResolution(event.target.value as AnalyticsResolution)}>
             {ANALYTICS_RESOLUTIONS.map((option) => <option key={option} value={option}>{t(`analytics.resolution_${option}`)}</option>)}
           </select></label>
-          <label className="field"><span>{t("analytics.aggregation")}</span><select value={resolution === "raw" ? "default" : aggregation} disabled={resolution === "raw"} onChange={(event) => setAggregation(event.target.value as AnalyticsAggregation)}>
+          <label className="field"><span>{t("analytics.aggregation")}</span><select value={resolution === "raw" ? "default" : aggregation} disabled={resolution === "raw"} onChange={(event) => selectAggregation(event.target.value as AnalyticsAggregation)}>
             {availableAggregations.map((option) => <option key={option} value={option}>{t(`analytics.aggregation_${option}`)}</option>)}
           </select></label>
-          <label className="field"><span>{t("analytics.qualityFilter")}</span><select value={qualityPreset} onChange={(event) => setQualityPreset(event.target.value as QualityPreset)}>
+          <label className="field"><span>{t("analytics.qualityFilter")}</span><select value={qualityPreset} onChange={(event) => selectQualityPreset(event.target.value as QualityPreset)}>
             <option value="good">{t("analytics.quality_good")}</option>
             <option value="reliable">{t("analytics.quality_reliable")}</option>
             <option value="all">{t("analytics.quality_all")}</option>

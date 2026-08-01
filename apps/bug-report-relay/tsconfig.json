@@ -1,0 +1,8 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "WebWorker"],
+    "types": ["./.wrangler/worker-configuration.d.ts", "node"]
+  },
+  "include": ["src", "tests", "vitest.config.ts", ".wrangler/worker-configuration.d.ts"]
+}

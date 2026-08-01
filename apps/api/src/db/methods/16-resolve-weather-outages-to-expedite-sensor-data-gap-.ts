@@ -148,6 +148,7 @@ registerDatabaseMethods({
         .filter((outage) => outage.endedAt === endedAt && components.includes(outage.component));
     },
   listWeatherOutages(houseId: string, locationKey: string, limit = 50): WeatherOutageRecord[] {
+      if (!this.getHouse(houseId)) return [];
       const safeLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
       const rows = this.db.prepare(`SELECT * FROM weather_outages
         WHERE house_id = ? AND location_key = ?
@@ -167,12 +168,14 @@ registerDatabaseMethods({
         .run(state, Math.max(0, Math.trunc(recoveredPoints)), attemptedAt, error, id);
     },
   latestMeasurementTimestamp(sensorId: string, metric: string, source: SensorDataGapSource): string | null {
+      if (!this.getSensor(sensorId)) return null;
       const row = this.db.prepare(`SELECT timestamp FROM measurement_samples
         WHERE sensor_id = ? AND metric = ? AND source = ?
         ORDER BY timestamp DESC, id DESC LIMIT 1`).get(sensorId, metric, source) as { timestamp?: string } | undefined;
       return row?.timestamp ?? null;
     },
   sensorSourceMetrics(sensorId: string, source: SensorDataGapSource): string[] {
+      if (!this.getSensor(sensorId)) return [];
       const rows = this.db.prepare(`SELECT metric, MAX(timestamp) AS latest_timestamp FROM measurement_samples
         WHERE sensor_id = ? AND source = ? GROUP BY metric ORDER BY metric`)
         .all(sensorId, source) as unknown as Array<{ metric: string; latest_timestamp: string }>;
@@ -187,6 +190,7 @@ registerDatabaseMethods({
       minimumGapMs: number,
       limit = 100,
     ): HistoricalTelemetryGap[] {
+      if (!this.getSensor(sensorId)) return [];
       const safeLimit = Math.max(1, Math.min(1_000, Math.trunc(limit)));
       const thresholdSeconds = Math.max(1, minimumGapMs / 1_000);
       const rows = this.db.prepare(`WITH ordered AS (
@@ -228,6 +232,7 @@ registerDatabaseMethods({
       candidates: HistoricalTelemetryGap[],
       limit = 100,
     ): HistoricalTelemetryGap[] {
+      if (!this.getSensor(sensorId)) return [];
       if (candidates.length === 0) return [];
       if (candidates.length > 1_000) throw new RangeError("At most 1000 candidate gaps may be filtered");
       const safeLimit = Math.max(1, Math.min(1_000, Math.trunc(limit)));
@@ -270,6 +275,9 @@ registerDatabaseMethods({
       endedAt: string,
       detectedAt = new Date().toISOString(),
     ): SensorDataGapRecord {
+      if (!this.getSensor(sensorId)) {
+        throw new ClimateDataValidationError(404, "SENSOR_NOT_FOUND", `Sensor ${sensorId} does not exist`);
+      }
       const existing = this.db.prepare(`SELECT * FROM sensor_data_gaps
         WHERE sensor_id = ? AND metric = ? AND source = ? AND started_at = ? AND ended_at = ?
         ORDER BY id DESC LIMIT 1`)
@@ -453,23 +461,42 @@ registerDatabaseMethods({
       return this.sensorDataGap(current.id);
     },
   sensorDataGap(id: number): SensorDataGapRecord | null {
-      const row = this.db.prepare("SELECT * FROM sensor_data_gaps WHERE id = ?").get(id) as unknown as SensorDataGapRow | undefined;
+      const row = this.db.prepare(`SELECT gap.* FROM sensor_data_gaps AS gap
+        JOIN sensors AS sensor ON sensor.id = gap.sensor_id
+        JOIN houses AS house ON house.id = sensor.house_id
+        WHERE gap.id = ? AND house.deleted_at IS NULL`).get(id) as unknown as SensorDataGapRow | undefined;
       return row ? sensorDataGapFromRow(row) : null;
     },
   listSensorDataGaps(sensorId?: string, limit = 100): SensorDataGapRecord[] {
       const safeLimit = Math.max(1, Math.min(1_000, Math.trunc(limit)));
-      const rows = this.db.prepare(`SELECT * FROM sensor_data_gaps ${sensorId ? "WHERE sensor_id = ?" : ""}
-        ORDER BY started_at DESC, id DESC LIMIT ?`)
+      const rows = this.db.prepare(`SELECT gap.* FROM sensor_data_gaps AS gap
+        JOIN sensors AS sensor ON sensor.id = gap.sensor_id
+        JOIN houses AS house ON house.id = sensor.house_id
+        WHERE house.deleted_at IS NULL ${sensorId ? "AND gap.sensor_id = ?" : ""}
+        ORDER BY gap.started_at DESC, gap.id DESC LIMIT ?`)
         .all(...(sensorId ? [sensorId, safeLimit] : [safeLimit])) as unknown as SensorDataGapRow[];
+      return rows.map(sensorDataGapFromRow);
+    },
+  listHouseSensorDataGaps(houseId: string, sensorId?: string, limit = 100): SensorDataGapRecord[] {
+      const safeLimit = Math.max(1, Math.min(1_000, Math.trunc(limit)));
+      const rows = this.db.prepare(`SELECT gap.* FROM sensor_data_gaps AS gap
+        JOIN sensors AS sensor ON sensor.id = gap.sensor_id
+        JOIN houses AS house ON house.id = sensor.house_id
+        WHERE sensor.house_id = ? AND house.deleted_at IS NULL
+          ${sensorId ? "AND gap.sensor_id = ?" : ""}
+        ORDER BY gap.started_at DESC, gap.id DESC LIMIT ?`)
+        .all(...(sensorId ? [houseId, sensorId, safeLimit] : [houseId, safeLimit])) as unknown as SensorDataGapRow[];
       return rows.map(sensorDataGapFromRow);
     },
   recoverableSensorDataGaps(now = new Date().toISOString(), limit = 100): SensorDataGapRecord[] {
       const safeLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
-      const rows = this.db.prepare(`SELECT * FROM sensor_data_gaps
-        WHERE ended_at IS NOT NULL
-          AND recovery_state IN ('pending', 'failed', 'partial', 'running')
-          AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-        ORDER BY COALESCE(next_attempt_at, ended_at), id LIMIT ?`)
+      const rows = this.db.prepare(`SELECT gap.* FROM sensor_data_gaps AS gap
+        JOIN sensors AS sensor ON sensor.id = gap.sensor_id
+        JOIN houses AS house ON house.id = sensor.house_id
+        WHERE house.deleted_at IS NULL AND gap.ended_at IS NOT NULL
+          AND gap.recovery_state IN ('pending', 'failed', 'partial', 'running')
+          AND (gap.next_attempt_at IS NULL OR gap.next_attempt_at <= ?)
+        ORDER BY COALESCE(gap.next_attempt_at, gap.ended_at), gap.id LIMIT ?`)
         .all(now, safeLimit) as unknown as SensorDataGapRow[];
       return rows.map(sensorDataGapFromRow);
     },

@@ -257,11 +257,40 @@ registerDatabaseMethods({
       if (!houseColumns.some((column) => column.name === "map_placement_json")) {
             this.db.exec("ALTER TABLE houses ADD COLUMN map_placement_json TEXT");
           }
+      // Weather is Property-scoped by default. Preserve every existing Home
+      // location as an override, and only infer a reference where it is absent.
+      this.db.exec(`
+            UPDATE houses
+            SET location_json = json_set(
+              (SELECT property.location_json FROM properties AS property WHERE property.id = houses.property_id),
+              '$.source', 'property-location', '$.userOverridden', json('false')
+            )
+            WHERE location_json IS NULL
+              AND EXISTS (
+                SELECT 1 FROM properties AS property
+                WHERE property.id = houses.property_id AND property.location_json IS NOT NULL
+              );
+            UPDATE houses
+            SET location_json = json_object(
+              'latitude', json_extract(map_placement_json, '$.latitude'),
+              'longitude', json_extract(map_placement_json, '$.longitude'),
+              'source', 'map-placement',
+              'confidence', 'high',
+              'userOverridden', json('false')
+            )
+            WHERE location_json IS NULL
+              AND map_placement_json IS NOT NULL
+              AND json_type(map_placement_json, '$.latitude') IN ('integer', 'real')
+              AND json_type(map_placement_json, '$.longitude') IN ('integer', 'real');
+          `);
       if (!houseColumns.some((column) => column.name === "orientation_degrees")) {
             this.db.exec("ALTER TABLE houses ADD COLUMN orientation_degrees REAL CHECK (orientation_degrees >= 0 AND orientation_degrees < 360)");
           }
       if (!houseColumns.some((column) => column.name === "stugby_json")) {
             this.db.exec("ALTER TABLE houses ADD COLUMN stugby_json TEXT");
+          }
+      if (!houseColumns.some((column) => column.name === "deleted_at")) {
+            this.db.exec("ALTER TABLE houses ADD COLUMN deleted_at TEXT");
           }
       // A short-lived build persisted the Stuguby id as `stugbyId`. Normalize
       // those links before any federation service reads them.
@@ -284,7 +313,11 @@ registerDatabaseMethods({
               AND json_type(stugby_json, '$.stugbyId') = 'text';
           `);
       this.db.exec(`
-            CREATE INDEX IF NOT EXISTS idx_houses_property_name ON houses(property_id, name, id);
+            DROP INDEX IF EXISTS idx_houses_property_name;
+            CREATE INDEX IF NOT EXISTS idx_houses_visible_property_name
+              ON houses(property_id, name, id) WHERE deleted_at IS NULL;
+            CREATE INDEX IF NOT EXISTS idx_houses_visible_name
+              ON houses(name, id) WHERE deleted_at IS NULL;
             DROP TRIGGER IF EXISTS require_house_property_insert;
             CREATE TRIGGER require_house_property_insert
               BEFORE INSERT ON houses WHEN NEW.property_id IS NULL OR trim(NEW.property_id) = ''
@@ -296,6 +329,7 @@ registerDatabaseMethods({
                 OR NOT EXISTS (SELECT 1 FROM properties property WHERE property.id = NEW.property_id)
               BEGIN SELECT RAISE(ABORT, 'HOUSE_PROPERTY_REQUIRED'); END;
           `);
+      this.db.exec("PRAGMA optimize");
       const propertyAreaColumns = this.db.prepare("PRAGMA table_info(property_areas)").all() as unknown as Array<{ name: string }>;
       if (!propertyAreaColumns.some((column) => column.name === "location_json")) {
             this.db.exec("ALTER TABLE property_areas ADD COLUMN location_json TEXT");

@@ -301,8 +301,8 @@ export function CloudflareSetupPanel({
         <small>{t("cloudflareSetup.runtimeTokenHelp")}</small>
       </label>}
 
-      <details className="stuguby-subdetails">
-        <summary>{t("nav.advanced")}</summary>
+      {(!status.configuration.accountIdKnown || !status.configuration.zoneIdKnown) && <details className="stuguby-subdetails">
+        <summary>{t("cloudflareSetup.optionalIds")}</summary>
         <div className="stuguby-subdetails-body cloudflare-setup-grid">
           {!status.configuration.accountIdKnown && <label className="field">
             <span>{t("cloudflareSetup.accountId")}</span>
@@ -314,10 +314,10 @@ export function CloudflareSetupPanel({
           </label>}
           <small>{t("cloudflareSetup.idsHelp")}</small>
         </div>
-      </details>
+      </details>}
 
       {submitError && <p className="inline-error" role="alert">{submitError}</p>}
-      <button className="primary-button" disabled={submitting}>
+      <button type="submit" className="primary-button" disabled={submitting}>
         {submitting ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <ShieldCheck size={16} aria-hidden="true" />}
         {t(submitting ? "cloudflareSetup.starting" : operation?.phase === "failed" ? "cloudflareSetup.tryAgain" : "cloudflareSetup.begin")}
       </button>

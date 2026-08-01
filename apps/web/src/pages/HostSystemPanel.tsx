@@ -1,5 +1,6 @@
 import {
   CheckCircle2,
+  ChevronDown,
   CircleAlert,
   Clock3,
   Cpu,
@@ -229,7 +230,14 @@ export function HostSystemPanel() {
       <div><HostSystemAlertList health={health} /></div>
     </section>}
 
-    <div className="host-system-grid">
+    <details className="host-system-details">
+      <summary>
+        <Database size={16} aria-hidden="true" />
+        <span><strong>{t("systemHealth.metricsTitle")}</strong><small>{t("systemHealth.metricsSummary")}</small></span>
+        <ChevronDown className="host-system-details-chevron" size={17} aria-hidden="true" />
+      </summary>
+      <div className="host-system-details-content">
+      <div className="host-system-grid">
       <MetricCard
         icon={Cpu}
         label={t("systemHealth.cpu")}
@@ -286,9 +294,6 @@ export function HostSystemPanel() {
       />
     </div>
 
-    <details className="host-system-details">
-      <summary><Database size={16} aria-hidden="true" /><span><strong>{t("systemHealth.metricsTitle")}</strong><small>{t("systemHealth.metricsSummary")}</small></span></summary>
-      <div>
         <p>{t("systemHealth.metricsBody")}</p>
         <a href={metricsPath} target="_blank" rel="noreferrer"><code>{metricsPath}</code></a>
         <dl>

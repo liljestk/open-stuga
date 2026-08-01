@@ -15,7 +15,7 @@ export function browserFacingApiBase(base: string, browserOrigin: string): strin
   }
 }
 
-export function DeveloperPage() {
+export function DeveloperPage({ canManageSystem = false }: { canManageSystem?: boolean }) {
   const { t } = useI18n();
   const [copyResult, setCopyResult] = useState<{ id: string; status: "copied" | "failed" } | null>(null);
   const [operationsOpen, setOperationsOpen] = useState(false);
@@ -94,10 +94,10 @@ export function DeveloperPage() {
           <tr><td><code>GET v2</code></td><td><code>/measurements/events</code></td><td>{t("developer.routeMeasurementEvents")}</td></tr>
         </tbody></table></div>
       </details>
-      <details className="panel route-table developer-route-disclosure" open={operationsOpen} onToggle={(event) => setOperationsOpen(event.currentTarget.open)}>
+      {canManageSystem && <details className="panel route-table developer-route-disclosure" open={operationsOpen} onToggle={(event) => setOperationsOpen(event.currentTarget.open)}>
         <summary><span><span className="eyebrow">{t("nav.advanced")}</span><strong>{t("setup.operations.dataTitle")}</strong><small>{t("setup.operations.doctorTitle")}</small></span><ChevronDown size={18} aria-hidden="true" /></summary>
         {operationsOpen && <SystemOperationsPanel />}
-      </details>
+      </details>}
     </>
   );
 }

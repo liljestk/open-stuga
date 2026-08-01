@@ -39,23 +39,21 @@ final class LocalizationCoverageTests: XCTestCase {
         }
     }
 
-    func testGeneralCatalogCoverageDoesNotRegress() throws {
+    func testGeneralCatalogIsCompleteAndPreservesPlaceholders() throws {
         let strings = try catalogStrings(named: "Localizable.xcstrings")
-        for locale in ["fi", "sv"] {
-            let translated = strings.values.filter {
-                guard let entry = $0 as? [String: Any] else { return false }
-                return isTranslated(entry, locale: locale)
-            }.count
-            XCTAssertGreaterThanOrEqual(
-                translated,
-                76,
-                "Do not remove reviewed \(locale) translations"
-            )
-            XCTAssertGreaterThanOrEqual(
-                Double(translated) / Double(max(strings.count, 1)),
-                0.20,
-                "Keep at least the established 20% FI/SV catalog floor"
-            )
+        for (key, rawEntry) in strings {
+            let entry = try XCTUnwrap(rawEntry as? [String: Any])
+            for locale in ["fi", "sv"] {
+                let value = try XCTUnwrap(
+                    translatedValue(entry, locale: locale),
+                    "General key \(key) is missing a reviewed \(locale) translation"
+                )
+                XCTAssertEqual(
+                    placeholderSignature(key),
+                    placeholderSignature(value),
+                    "General key \(key) changes its placeholders in \(locale)"
+                )
+            }
         }
     }
 
@@ -89,13 +87,52 @@ final class LocalizationCoverageTests: XCTestCase {
     }
 
     private func isTranslated(_ entry: [String: Any], locale: String) -> Bool {
+        translatedValue(entry, locale: locale) != nil
+    }
+
+    private func translatedValue(
+        _ entry: [String: Any],
+        locale: String
+    ) -> String? {
         guard let localizations = entry["localizations"] as? [String: Any],
               let localization = localizations[locale] as? [String: Any],
               let stringUnit = localization["stringUnit"] as? [String: Any],
               stringUnit["state"] as? String == "translated",
               let value = stringUnit["value"] as? String else {
-            return false
+            return nil
         }
-        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil
+            : value
+    }
+
+    private func placeholderSignature(_ value: String) -> [String] {
+        let pattern = #"%(?:(\d+)\$)?[-+0 #']*(?:\d+|\*)?(?:\.(?:\d+|\*))?(hh|h|ll|l|L|z|t|j)?([@diuoxXfFeEgGaAcCsSp%])"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else {
+            XCTFail("The placeholder expression must compile")
+            return []
+        }
+        let range = NSRange(value.startIndex..., in: value)
+        var implicitPosition = 1
+        return expression.matches(in: value, range: range).compactMap { match in
+            guard let typeRange = Range(match.range(at: 3), in: value) else {
+                return nil
+            }
+            let type = String(value[typeRange])
+            guard type != "%" else { return nil }
+
+            let position: Int
+            if let explicitRange = Range(match.range(at: 1), in: value),
+               let explicit = Int(value[explicitRange]) {
+                position = explicit
+            } else {
+                position = implicitPosition
+                implicitPosition += 1
+            }
+            let length = Range(match.range(at: 2), in: value)
+                .map { String(value[$0]) } ?? ""
+            return "\(position):\(length)\(type)"
+        }
+        .sorted()
     }
 }

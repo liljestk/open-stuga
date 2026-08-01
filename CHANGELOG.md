@@ -4,6 +4,37 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.28.0 - 2026-08-01
+
+- Redesign the responsive web lifecycle from first account and Property setup
+  through Home configuration and connection enablement, inferring safe defaults
+  and keeping advanced controls available through progressive disclosure.
+- Recompose Workspace, Property, Home, Live View, navigation, setup, and daily
+  decision layers around the most important status and next action, with
+  bookmarkable context and phone, tablet, and desktop layouts.
+- Add richer interval-aware Home energy analysis with reset-safe counters,
+  power-only integration, cost and projection fallbacks, ranked consumers,
+  uncertainty, patterns, and practical recommendations.
+- Make weather configuration Property-owned by default with explicit advanced
+  Home overrides, automatic map/location inheritance, and read-only sharing
+  safeguards that preserve separate authoritative records.
+- Add an authenticated, consent-aware in-product bug-report flow with exact
+  diagnostic preview, redaction and rate limits, backed by a least-privilege
+  GitHub App relay fixed to the private issue repository.
+- Harden role and visibility policy, deep-link restoration, structured
+  confirmations, principal-scoped browser storage, and retained-data handling
+  when a Home is hidden.
+- Reduce default Home history fan-out from one request per sensor/metric to one,
+  avoid spatial work while Live View is hidden, abort obsolete refreshes, and
+  open measurement event streams immediately through buffering proxies.
+- Complete Finnish and Swedish web/native catalogue coverage, improve Apple
+  large-screen routes and ready-state errors, and make Watch state fallbacks
+  safe for future values.
+- Prevent live sensor readings from flickering between Good and Stale when the
+  Stugu host and browser clocks differ by a small amount.
+- Enable continuous NTP synchronization on Raspberry Pi appliances without
+  making local startup depend on internet time being reachable.
+
 ## 0.27.1 - 2026-08-01
 
 - Reduce initial web transfer size by lazy-loading non-English catalogs, serving

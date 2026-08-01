@@ -9,6 +9,7 @@ import request from "supertest";
 import { createApi, type ApiRuntime } from "../src/app.js";
 
 import type { AppConfig } from "../src/config.js";
+import { outdoorLocationKey } from "../src/db.js";
 
 import {
   currentObservation,
@@ -94,6 +95,12 @@ describe("GET /api/v1/houses/:id/weather", () => {
     const events: WeatherUpdateEvent[] = [];
     runtime.weatherEvents.subscribe((event) => events.push(event));
     await request(runtime.app).patch("/api/v1/houses/house-main").send({ location: firstLocation }).expect(200);
+    const firstLocationKey = outdoorLocationKey(firstLocation);
+    const persistedFirstLocationSamples = () => (runtime!.database.db.prepare(`SELECT COUNT(*) AS count
+      FROM outdoor_temperature_samples
+      WHERE house_id = ? AND location_key = ? AND source = 'fmi-observation'`)
+      .get("house-main", firstLocationKey) as { count: number }).count;
+    const firstLocationSamplesBeforeRequest = persistedFirstLocationSamples();
 
     const pendingResponse = request(runtime.app).get("/api/v1/houses/house-main/weather").then((response) => response);
     await started;
@@ -103,8 +110,7 @@ describe("GET /api/v1/houses/:id/weather", () => {
     const superseded = await pendingResponse;
     expect(superseded.status).toBe(409);
     expect(superseded.body.error.code).toBe("WEATHER_REQUEST_SUPERSEDED");
-    expect((runtime.database.db.prepare("SELECT COUNT(*) AS count FROM outdoor_temperature_samples").get() as { count: number }).count)
-      .toBe(0);
+    expect(persistedFirstLocationSamples()).toBe(firstLocationSamplesBeforeRequest);
     expect(events).toEqual([]);
     await request(runtime.app).get("/api/v1/integrations/status").expect(200).expect(({ body }) => {
       expect(body.weather).toMatchObject({ lastSuccessAt: null, error: null });

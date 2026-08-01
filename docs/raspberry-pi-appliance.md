@@ -29,6 +29,8 @@ before the immutable system slot is mapped.
   first-owner creation requires a device-generated setup link.
 - Tailscale is enabled and ready for a one-time interactive Tailnet login; no
   reusable Tailnet credential is embedded in the image.
+- The host clock is continuously synchronized over NTP, while an unavailable
+  time service never prevents the local appliance from starting.
 - Factory images pull release-tagged, digest-pinned ARM64 containers and wait
   for their health checks.
 - If new application containers fail, the startup service restores the last

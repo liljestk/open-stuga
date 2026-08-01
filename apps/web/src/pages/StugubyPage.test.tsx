@@ -2,17 +2,25 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { StugubyShareGrant, StugubySummary } from "@climate-twin/stuguby-protocol";
 
 import { api, type StugubyDetailResponse, type StugubyListResponse } from "../api";
+import { confirmAction } from "../components/ConfirmationProvider";
 
 import { I18nProvider } from "../i18n";
 
 import { localDateTimeInput, StugubyPage } from "./StugubyPage";
 
 import { detail, identity, localGrant, mockLoadedStugubys, summary } from "./StugubyPageTestSupport";
+
+vi.mock("../components/ConfirmationProvider", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../components/ConfirmationProvider")>();
+  return { ...actual, confirmAction: vi.fn().mockResolvedValue(true) };
+});
+
+beforeEach(() => vi.mocked(confirmAction).mockReset().mockResolvedValue(true));
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -41,7 +49,8 @@ describe("StugubyPage", () => {
     const coordinatorUrl = createForm!.querySelector<HTMLInputElement>('input[type="url"]');
     expect(coordinatorUrl).not.toBeNull();
     expect(coordinatorUrl!.value).toBe("https://stugu.example.test");
-    await user.click(within(createForm!).getByRole("button", { name: "Create" }));
+    expect(within(createForm!).getByText("Advanced Stuguby settings")).toBeTruthy();
+    await user.click(within(createForm!).getByRole("button", { name: "Create Stuguby" }));
 
     await waitFor(() => expect(configure).toHaveBeenCalledWith("https://stugu.example.test"));
     expect(create).toHaveBeenCalledWith({ name: "My Stuguby", description: null });
@@ -120,13 +129,14 @@ describe("StugubyPage", () => {
     const createPanel = (await screen.findByRole("heading", { name: "Create a Stuguby" })).closest("section");
     expect(createPanel).not.toBeNull();
     expect(createPanel!.querySelector('input[type="url"]')).toBeNull();
-    expect(within(createPanel!).queryByRole("button", { name: "Create" })).toBeNull();
+    expect(within(createPanel!).queryByRole("button", { name: "Create Stuguby" })).toBeNull();
     expect(await within(createPanel!).findByText("Open this page on the Stugu computer")).toBeTruthy();
     expect(within(createPanel!).getByRole("link", { name: "Open local Stugu" }).getAttribute("href"))
       .toBe("http://127.0.0.1:8080/stugbys");
   });
 
-  it("makes the deliberate federation boundary explicit before onboarding", async () => {
+  it("keeps the deliberate federation boundary explicit but calm before onboarding", async () => {
+    const user = userEvent.setup();
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -143,7 +153,9 @@ describe("StugubyPage", () => {
       }),
     } as Response);
     render(<I18nProvider><StugubyPage houses={[]} /></I18nProvider>);
-    expect(await screen.findByRole("heading", { name: "A deliberate sharing boundary" })).toBeTruthy();
+    const boundary = (await screen.findByText("A deliberate sharing boundary")).closest("details");
+    expect(boundary?.open).toBe(false);
+    await user.click(screen.getByText("A deliberate sharing boundary"));
     expect(screen.getByText(/Shared Homes are read-only unless their owner enables edits/)).toBeTruthy();
     expect(screen.getByText(/Integration settings, endpoints, credentials, secrets, account identities, controls and automations are never shared/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Join without publishing my Homes" })).toBeTruthy();
@@ -238,16 +250,15 @@ describe("StugubyPage", () => {
     const remove = vi.spyOn(api, "deleteStuguby").mockImplementation(async () => {
       listStugubys.mockResolvedValue({ identity, publicOrigin: "https://stugu.example.test", stugubys: [] });
     });
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-
     render(<I18nProvider><StugubyPage houses={[]} /></I18nProvider>);
     const summaryCard = (await screen.findByText("Automatic sync")).closest("section");
     expect(summaryCard).not.toBeNull();
     await user.click(within(summaryCard!).getByText("Advanced"));
     await user.click(within(summaryCard!).getByRole("button", { name: "Delete Stuguby" }));
 
-    expect(confirm).toHaveBeenCalledWith(
+    expect(confirmAction).toHaveBeenCalledWith(
       "Delete Faulty Stuguby permanently from this Stugu? Its roster, invitations, shared property, sharing records, and cached remote data will be removed. Local Homes and sensor data are unchanged.",
+      "Delete",
     );
     await waitFor(() => expect(remove).toHaveBeenCalledWith(stuguby.id));
     expect(await screen.findByRole("heading", { name: "Create a Stuguby" })).toBeTruthy();
@@ -331,6 +342,23 @@ describe("StugubyPage", () => {
       "home.sensor-catalog.v1",
     ]);
     expect(api.syncStuguby).toHaveBeenCalledWith(stuguby.id);
+  });
+
+  it("leads with status and keeps administrative workflows closed until requested", async () => {
+    const stuguby = summary("stuguby-a", "North grounds");
+    mockLoadedStugubys([stuguby], { [stuguby.id]: detail(stuguby) });
+
+    const { container } = render(<I18nProvider><StugubyPage houses={[{ id: "home-1", propertyId: "property-1", name: "Main Home" }]} /></I18nProvider>);
+    expect(await screen.findByText("Automatic sync")).toBeTruthy();
+
+    const participants = screen.getByText("Host and Clients").closest<HTMLDetailsElement>("details");
+    const property = screen.getAllByText("Connect this Property").map((item) => item.closest<HTMLDetailsElement>("details")).find(Boolean);
+    const sharing = screen.getAllByText("Home sharing grants").map((item) => item.closest<HTMLDetailsElement>("details")).find(Boolean);
+    expect(participants?.open).toBe(false);
+    expect(property?.open).toBe(false);
+    expect(sharing?.open).toBe(false);
+    expect(property?.classList.contains("is-recommended")).toBe(true);
+    expect(container.querySelectorAll(".stuguby-collapsible.is-recommended")).toHaveLength(1);
   });
 
   it("offers only Homes without an active share", async () => {
@@ -423,8 +451,6 @@ describe("StugubyPage", () => {
       createdGrants: [],
     });
     const onInventoryChange = vi.fn();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-
     render(<I18nProvider><StugubyPage
       houses={[{ id: "home-client", propertyId: "property-client", name: "Client Home" }]}
       properties={[
@@ -469,7 +495,7 @@ describe("StugubyPage", () => {
       }],
       epoch: 1,
       revision: 1,
-      expiresAt: "2026-08-01T10:00:00.000Z",
+      expiresAt: null,
       revokedAt: null,
       createdAt: "2026-07-23T06:00:00.000Z",
       updatedAt: "2026-07-23T06:00:00.000Z",
@@ -565,7 +591,6 @@ describe("StugubyPage", () => {
     mockLoadedStugubys([stuguby], { [stuguby.id]: detail(stuguby, [orphan, valid, revoked]) });
     const removeInvalid = vi.spyOn(api, "removeInvalidStugubyGrant")
       .mockResolvedValue({ removed: true, grantId: orphan.id });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<I18nProvider><StugubyPage houses={[
       { id: "home-1", propertyId: "property-1", name: "Main Home" },
       { id: "home-2", propertyId: "property-1", name: "Annex" },

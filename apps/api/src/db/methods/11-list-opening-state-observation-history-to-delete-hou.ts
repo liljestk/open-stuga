@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, fixedPlanElementOpeningState } from "@climate-twin/contracts";
+import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, automaticWeatherLocation, fixedPlanElementOpeningState, isAutomaticWeatherLocation } from "@climate-twin/contracts";
 import type {
   AreaEquipment,
   AreaEquipmentInput,
@@ -109,6 +109,7 @@ registerDatabaseMethods({
       to: string | number | Date,
       limit = 10_000,
     ): OpeningStateObservation[] {
+      if (!this.getHouse(houseId)) return [];
       const fromMs = from instanceof Date ? from.getTime() : typeof from === "number" ? from : Date.parse(from);
       const toMs = to instanceof Date ? to.getTime() : typeof to === "number" ? to : Date.parse(to);
       if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs < fromMs) return [];
@@ -131,6 +132,7 @@ registerDatabaseMethods({
       from: string | number | Date,
       to: string | number | Date,
     ): OpeningStateActivityRecord[] {
+      if (!this.getHouse(houseId)) return [];
       const fromMs = from instanceof Date ? from.getTime() : typeof from === "number" ? from : Date.parse(from);
       const toMs = to instanceof Date ? to.getTime() : typeof to === "number" ? to : Date.parse(to);
       if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs) return [];
@@ -173,6 +175,7 @@ registerDatabaseMethods({
       }));
     },
   dailyAnalyticsFindings(houseId: string, dataMode: "live" | "demo"): StoredDailyAnalyticsFindings | null {
+      if (!this.getHouse(houseId)) return null;
       const row = this.db.prepare(`SELECT snapshot_json, last_attempt_at, last_error
         FROM analytics_daily_findings WHERE house_id = ? AND data_mode = ?`)
         .get(houseId, dataMode) as { snapshot_json: string | null; last_attempt_at: string; last_error: string | null } | undefined;
@@ -211,6 +214,7 @@ registerDatabaseMethods({
       attemptedAt: string,
       error: string,
     ): void {
+      if (!this.getHouse(houseId)) return;
       const detail = error.trim().slice(0, 1_000) || "Daily analytics run failed";
       this.db.prepare(`INSERT INTO analytics_daily_findings
           (house_id, data_mode, evaluated_through, generated_at, algorithm_version, snapshot_json, last_attempt_at, last_error)
@@ -339,12 +343,14 @@ registerDatabaseMethods({
             );
           }
         }
-        if (!this.getProperty(propertyId)) {
+        const property = this.getProperty(propertyId);
+        if (!property) {
           throw new ClimateDataValidationError(404, "HOUSE_PROPERTY_NOT_FOUND", `Property ${propertyId} does not exist`);
         }
+        const location = input.location ?? automaticWeatherLocation(property.location, input.mapPlacement);
         const house: House = {
           id: input.id ?? randomUUID(), propertyId, name: input.name, timezone: input.timezone,
-          ...(input.location ? { location: input.location } : {}),
+          ...(location ? { location } : {}),
           ...(input.mapPlacement ? { mapPlacement: input.mapPlacement } : {}),
           ...(input.orientationDegrees !== undefined ? { orientationDegrees: input.orientationDegrees } : {}),
           floors: input.floors,
@@ -413,10 +419,16 @@ registerDatabaseMethods({
         else if (patch.location !== undefined) next.location = patch.location;
         if (patch.mapPlacement === null) delete next.mapPlacement;
         else if (patch.mapPlacement !== undefined) next.mapPlacement = patch.mapPlacement;
-        if (next.location) this.validateHouseLocation(next.location);
-        if (next.orientationDegrees !== undefined) this.validateHouseOrientation(next.orientationDegrees);
+        if (patch.location === null
+          || (patch.location === undefined && (!next.location || isAutomaticWeatherLocation(current.location)))) {
+          const inferred = automaticWeatherLocation(this.getProperty(next.propertyId)?.location, next.mapPlacement);
+          if (inferred) next.location = inferred;
+          else delete next.location;
+        }
         this.validateFloorDefinitions(next.floors);
         if (next.mapPlacement) this.validateHouseMapPlacement(next.mapPlacement, next.floors);
+        if (next.location) this.validateHouseLocation(next.location);
+        if (next.orientationDegrees !== undefined) this.validateHouseOrientation(next.orientationDegrees);
         this.validateHouseLayoutForSensors(id, next.floors);
         if (patch.floors !== undefined) {
           this.validateHouseLayoutForObservations(id, next.floors);
@@ -429,11 +441,8 @@ registerDatabaseMethods({
             next.orientationDegrees ?? null,
             JSON.stringify(next.floors), next.updatedAt, id);
         this.recordScopeMoveMaintenanceRevisions(affectedTasks, actor);
-        if (patch.location !== undefined && outdoorLocationKey(current.location) !== outdoorLocationKey(next.location)) {
-          this.db.prepare("DELETE FROM outdoor_temperature_samples WHERE house_id = ?").run(id);
-          this.db.prepare("DELETE FROM weather_outages WHERE house_id = ?").run(id);
-        }
-        if (patch.floors !== undefined || patch.location !== undefined || patch.timezone !== undefined) {
+        const weatherLocationChanged = outdoorLocationKey(current.location) !== outdoorLocationKey(next.location);
+        if (patch.floors !== undefined || weatherLocationChanged || patch.timezone !== undefined) {
           this.db.prepare("DELETE FROM analytics_daily_findings WHERE house_id = ?").run(id);
         }
         return next;
@@ -492,25 +501,16 @@ registerDatabaseMethods({
       });
     },
   deleteHouse(id: string): boolean {
-      if (this.db.prepare("SELECT 1 FROM maintenance_tasks WHERE house_id = ? LIMIT 1").get(id)) {
-        throw new ClimateDataValidationError(
-          409,
-          "HOUSE_HAS_MAINTENANCE_TASKS",
-          `House ${id} still owns maintenance tasks; reassign or delete them first`,
-        );
-      }
-      this.requireImmutableTelemetryLineage("house", id);
-      try {
-        return Number(this.db.prepare("DELETE FROM houses WHERE id = ?").run(id).changes) > 0;
-      } catch (error) {
-        if (error instanceof Error && error.message.includes("FOREIGN KEY constraint failed")) {
-          throw new ClimateDataValidationError(
-            409,
-            "HOUSE_IN_USE",
-            `House ${id} is referenced by equipment, notes, or maintenance tasks`,
-          );
-        }
-        throw error;
-      }
+      const deletedAt = new Date().toISOString();
+      return this.immediateTransaction(() => {
+        const hidden = Number(this.db.prepare(`UPDATE houses
+          SET deleted_at = ?, updated_at = ?
+          WHERE id = ? AND deleted_at IS NULL`).run(deletedAt, deletedAt, id).changes) > 0;
+        if (!hidden) return false;
+        this.db.prepare(`UPDATE external_source_gateways
+          SET enabled = 0, revision = revision + 1, updated_at = ?
+          WHERE house_id = ? AND enabled = 1`).run(deletedAt, id);
+        return true;
+      });
     },
 });

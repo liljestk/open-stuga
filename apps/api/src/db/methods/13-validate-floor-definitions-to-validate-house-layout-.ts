@@ -371,7 +371,7 @@ registerDatabaseMethods({
       if (location.countryCode !== undefined && !/^[A-Z]{2}$/.test(location.countryCode)) {
         throw new ClimateDataValidationError(422, "INVALID_LOCATION_COUNTRY", "House location countryCode must be a two-letter uppercase code");
       }
-      if (location.source !== undefined && !["manual", "place-search", "browser-geolocation", "home-assistant", "map-placement"].includes(location.source)) {
+      if (location.source !== undefined && !["manual", "place-search", "browser-geolocation", "home-assistant", "map-placement", "property-location"].includes(location.source)) {
         throw new ClimateDataValidationError(422, "INVALID_LOCATION_SOURCE", "House location source is not supported");
       }
       if (location.confidence !== undefined && !["high", "medium", "low"].includes(location.confidence)) {

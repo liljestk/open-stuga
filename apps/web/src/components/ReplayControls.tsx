@@ -7,6 +7,7 @@ import { definitionFor, formatMeasurementDelta, measurementLabel } from "../meas
 import type { ReplayClimateEvent } from "../replayEvents";
 
 interface ReplayControlsProps {
+  id?: string;
   active: boolean;
   playing: boolean;
   timestamp: number;
@@ -100,6 +101,7 @@ function replayEventMarkerLanes(events: readonly ReplayClimateEvent[], min: numb
 }
 
 export function ReplayControls({
+  id,
   active,
   playing,
   timestamp,
@@ -238,7 +240,7 @@ export function ReplayControls({
       })
       : null;
   return (
-    <section className={`replay-bar ${active ? "active" : ""}`} aria-labelledby={replayTitleId}>
+    <section id={id} className={`replay-bar ${active ? "active" : ""}`} aria-labelledby={replayTitleId}>
       <div className="replay-transport">
         <div className="replay-title">
           <span className="replay-icon" aria-hidden="true"><RotateCcw size={17} /></span>

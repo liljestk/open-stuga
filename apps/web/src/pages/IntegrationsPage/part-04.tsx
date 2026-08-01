@@ -44,6 +44,7 @@ import {
   type TpLinkHistoryExportJobStatus,
 } from "../../api";
 import type { HouseLocationMapItem, MapLocation } from "../../components/HouseLocationMap";
+import { confirmAction } from "../../components/ConfirmationProvider";
 import { LocationDiscoveryPanel, type DiscoveredHomeDefaults } from "../../components/LocationDiscoveryPanel";
 import { useI18n } from "../../i18n";
 import { integrationForHouse } from "../../integrationScope";
@@ -260,7 +261,7 @@ export function useIntegrationsPagePart04(context: ReturnType<typeof useIntegrat
       credentialSourceConnectionId?: string,
     ) => {
       event.preventDefault();
-      if (!credentialSourceConnectionId && !window.confirm(t("setup.activationConfirm"))) return;
+      if (!credentialSourceConnectionId && !await confirmAction(t("setup.activationConfirm"), t("confirmation.activate"), false)) return;
       setSavingTpLink(true);
       setTpLinkFeedback(null);
       const requestViewHouseId = house.id;
@@ -367,7 +368,7 @@ export function useIntegrationsPagePart04(context: ReturnType<typeof useIntegrat
         setHomeAssistantFeedback({ kind: "error", message: t("setup.validationRequired") });
         return;
       }
-      if (!window.confirm(t("setup.activationConfirm"))) return;
+      if (!await confirmAction(t("setup.activationConfirm"), t("confirmation.activate"), false)) return;
       setSavingHomeAssistant(true);
       setHomeAssistantFeedback(null);
       const requestHouseId = house.id;

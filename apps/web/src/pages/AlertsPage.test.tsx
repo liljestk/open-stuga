@@ -109,8 +109,8 @@ describe("AlertsPage monitoring coverage", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Monitoring status unknown or incomplete" })).toBeTruthy();
-    expect(screen.getByText("No threshold alerts")).toBeTruthy();
-    expect(screen.getByText(/condition cannot be confirmed/i)).toBeTruthy();
+    expect(screen.queryByText("No threshold alerts")).toBeNull();
+    expect(screen.getByText(/sensors are missing required monitoring data/i)).toBeTruthy();
     expect(screen.queryByText(/within their rules/i)).toBeNull();
   });
 
@@ -130,7 +130,7 @@ describe("AlertsPage monitoring coverage", () => {
     expect(screen.getByRole("heading", { name: "Monitoring status unknown or incomplete" })).toBeTruthy();
     expect(screen.queryByText("Monitoring data is current")).toBeNull();
     expect(screen.queryByText(/every enabled sensor has a current reading/i)).toBeNull();
-    expect(screen.getByText("No threshold alerts").closest(".empty-state")?.classList.contains("success")).toBe(false);
+    expect(screen.queryByText("No threshold alerts")).toBeNull();
   });
 
   it.each(["partial", "unknown"] as const)("does not confirm %s monitoring evidence", (condition) => {
@@ -180,7 +180,7 @@ describe("AlertsPage monitoring coverage", () => {
 
     expect(screen.getByRole("heading", { name: "Monitoring status unknown or incomplete" })).toBeTruthy();
     expect(screen.queryByText("Monitoring data is current")).toBeNull();
-    expect(screen.getByText("No threshold alerts").closest(".empty-state")?.classList.contains("success")).toBe(false);
+    expect(screen.queryByText("No threshold alerts")).toBeNull();
   });
 
   it("confirms monitoring only when every Home has complete current coverage", () => {
@@ -346,12 +346,15 @@ describe("AlertsPage monitoring coverage", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Notification delivery" })).toBeTruthy();
+    const deliverySettings = screen.getByRole("heading", { name: "Notification delivery" }).closest("details")!;
+    expect(deliverySettings.open).toBe(false);
     const telegramSetup = screen.getByText("Telegram alerts").closest("details")!;
     expect(telegramSetup.open).toBe(false);
     await user.click(screen.getByText("Rules", { selector: ".alerts-rule-admin > summary strong" }));
     await user.click(screen.getByRole("button", { name: "New rule" }));
     expect((screen.getByLabelText("Notify in Telegram") as HTMLInputElement).disabled).toBe(true);
     await user.click(screen.getByRole("button", { name: "Set up Telegram" }));
+    expect(deliverySettings.open).toBe(true);
     expect(telegramSetup.open).toBe(true);
   });
 

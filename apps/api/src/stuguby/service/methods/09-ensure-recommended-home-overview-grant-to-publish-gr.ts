@@ -276,6 +276,64 @@ registerStugubyServiceMethods({
       this.deleteUnreferencedBlobs(this.store.pendingBlobDeletions(1_000));
       return revoked;
     },
+  retireLocalHouseShares(this: StugubyServiceInternals, houseId: string): {
+      revokedGrantIds: string[];
+      cancelledHomeCommands: number;
+    } {
+      const house = this.database.getHouse(houseId);
+      if (!house) throw new StugubyError(404, "HOUSE_NOT_FOUND", "Local Home was not found");
+
+      const localGrants = this.store.listStugubys().flatMap((stuguby) => (
+        this.store.listGrants(stuguby.id, this.identity.nodeId)
+          .filter((grant) => grant.localHouseId === houseId)
+      ));
+      const activeGrants = localGrants.filter((grant) => !grant.revokedAt);
+      for (const stugubyId of new Set(activeGrants.map((grant) => grant.stugubyId))) {
+        this.requireLocalPublisher(stugubyId);
+      }
+
+      const scopes = new Map<string, { stugubyId: string; publicationId: string }>();
+      for (const grant of localGrants) {
+        scopes.set(`${grant.stugubyId}\n${grant.publicationId}`, {
+          stugubyId: grant.stugubyId,
+          publicationId: grant.publicationId,
+        });
+      }
+      if (house.stuguby?.ownership === "local" && house.stuguby.authorityNodeId === this.identity.nodeId) {
+        scopes.set(`${house.stuguby.stugubyId}\n${house.stuguby.publicationId}`, {
+          stugubyId: house.stuguby.stugubyId,
+          publicationId: house.stuguby.publicationId,
+        });
+      }
+
+      const retired = this.atomicPublication(() => {
+        const now = new Date().toISOString();
+        let cancelledHomeCommands = 0;
+        for (const scope of scopes.values()) {
+          cancelledHomeCommands += this.store.cancelPendingHomeCommandsFor(
+            scope.stugubyId,
+            this.identity.nodeId,
+            scope.publicationId,
+            now,
+          );
+        }
+        const revokedGrantIds: string[] = [];
+        for (const grant of activeGrants) {
+          this.store.discardOutboxGrantEpoch(grant.stugubyId, grant.id, grant.epoch);
+          const revoked = this.store.revokeGrant(grant.id);
+          this.publishGrant({ ...revoked, audience: grant.audience }, "grant.revoked");
+          this.store.retireLocalBlobReferences(grant.stugubyId, grant.id, grant.epoch);
+          this.store.audit(grant.stugubyId, "grant.revoked", this.identity.nodeId, grant.id, {
+            epoch: revoked.epoch,
+            reason: "home-retired",
+          }, now);
+          revokedGrantIds.push(grant.id);
+        }
+        return { revokedGrantIds, cancelledHomeCommands };
+      });
+      this.deleteUnreferencedBlobs(this.store.pendingBlobDeletions(1_000));
+      return retired;
+    },
   removeInvalidGrant(this: StugubyServiceInternals, grantId: string): { removed: true; grantId: string } {
       const grant = this.store.getGrant(grantId);
       if (!grant) throw new StugubyError(404, "GRANT_NOT_FOUND", "Share grant was not found");

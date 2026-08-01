@@ -142,6 +142,7 @@ export function LocalAuthPage({ mode, invitationToken = null, noticeKey = null, 
       <StuguMark />
       <span className="bootstrap-icon" aria-hidden="true">{mode === "setup" ? <ShieldCheck size={22} /> : mode === "invitation" ? <KeyRound size={22} /> : <LockKeyhole size={22} />}</span>
       <div><span className="eyebrow">{t(mode === "setup" ? "auth.setupEyebrow" : mode === "invitation" ? "auth.invitationEyebrow" : "auth.loginEyebrow")}</span><h1 id="local-auth-title">{t(titleKey)}</h1><p>{t(descriptionKey)}</p></div>
+      {mode === "setup" && <p className="local-auth-privacy"><LockKeyhole size={16} aria-hidden="true" />{t("auth.localDataPromise")}</p>}
       {noticeKey && <p className="local-auth-notice" role="alert">{t(noticeKey)}</p>}
       <form className="local-auth-form" onSubmit={(event) => void submit(event)}>
         <div className="field"><label htmlFor="local-auth-email">{t("auth.email")}</label><input ref={emailRef} id="local-auth-email" type="text" inputMode="email" spellCheck={false} required autoComplete="email" aria-invalid={errorField === "email"} aria-describedby={errorField === "email" ? "local-auth-error" : undefined} value={email} onChange={(event) => { setEmail(event.target.value); setErrorField(null); }} /></div>

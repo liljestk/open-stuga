@@ -68,6 +68,14 @@
 }
 
 
+.stuguby-collapsible > summary > .stuguby-mark {
+  width: 36px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+}
+
+
 .stuguby-collapsible > summary strong,
 .stuguby-collapsible > summary small {
   display: block;
@@ -90,6 +98,17 @@
 
 .stuguby-collapsible[open] > summary {
   border-bottom: 1px solid var(--line);
+}
+
+
+.stuguby-collapsible.is-recommended {
+  border-color: color-mix(in srgb, var(--action) 48%, var(--line));
+  box-shadow: inset 4px 0 0 var(--action), var(--shadow);
+}
+
+
+.stuguby-collapsible.is-recommended > summary strong {
+  color: var(--action);
 }
 
 
@@ -344,7 +363,7 @@
   color: var(--positive);
   background: var(--panel);
   font-size: .75rem;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 
@@ -382,8 +401,13 @@
 }
 
 
-.stuguby-conflicts :is(h3, p) {
+.stuguby-conflicts :is(h2, h3, p) {
   margin: 0;
+}
+
+
+.stuguby-conflicts h2 {
+  font-size: 16px;
 }
 
 

@@ -1,6 +1,6 @@
 # Stugu brand and interface system
 
-Version 1.3 · 30 July 2026
+Version 1.7 · 1 August 2026
 
 ## 1. Brand idea
 
@@ -30,6 +30,10 @@ The result should feel architectural rather than decorative, warm rather than ru
 4. **Quiet by default.** Use animation only to explain a change in state or location.
 5. **Details on demand.** Lead with the conclusion; reveal sensor provenance, confidence, and API detail progressively.
 6. **Accessibility is a release criterion.** WCAG 2.2 AA is the minimum, not an optional polish pass.
+7. **Trust outranks drama.** Unknown, delayed, stale, and partial evidence are explicit states; none may be promoted to healthy or urgent without supporting evidence.
+8. **Premium means coherent.** Prefer fewer, better-composed layers, predictable placement, and platform-appropriate behaviour over ornamental effects or denser dashboards.
+9. **Ask only what matters.** Infer or prefill safe, reversible values; ask when a choice changes identity, ownership, privacy, or meaning.
+10. **Advanced is available, not ambient.** Expert controls remain easy to find in the relevant context, but start closed unless they are the current task.
 
 ### Scope and information architecture
 
@@ -49,17 +53,34 @@ Workspace
 - **Workspace** owns the cross-property overview, aggregated alerts, accounts,
   and developer access through API & MCP.
 - **Property** owns land, mapped areas and structures, wells, equipment, notes,
-  access grants, maintenance work, contracts, and electricity pricing. A
+  access grants, maintenance work, contracts, electricity pricing, and the
+  default weather location. A
   Property with no Home must remain fully usable.
 - **Home** owns floors, rooms, sensors, activity, indoor/outdoor telemetry,
-  consumption meters, and its Tapo, Home Assistant, and weather connections.
+  consumption meters, its Tapo and Home Assistant connections, and an optional
+  advanced weather-location override.
 - **Maintenance** is Property-owned and may optionally target a Home, Floor,
   Area, structure, or piece of Equipment inside that Property.
+
+Hiding a Home is retirement, not erasure. The action and confirmation say
+**Hide Home**. Active navigation and APIs exclude the Home and its Home-owned
+telemetry, layout, sensors, and connections; new writes to that retired scope
+fail closed. Property-owned maintenance, notes, and equipment remain visible
+and editable, labelled **Hidden Home** until they are reassigned. Legacy
+credentials are archived with the retired Home so they can never attach to a
+different Home. Detaching a remote Stuguby projection is the deliberate
+exception: purge that projection because it is a cache of remote authority,
+not retained local history.
 
 The shell keeps the selected Property in the URL and may keep one selected Home
 inside it. Selecting a Home also selects its parent Property. The Home selector
 shows only children of the selected Property. Back, Forward, refresh, copied
 links, and a new browser session must restore the same visible scope.
+
+Meaningful nested views are URL state too. A tab or filter that changes the
+evidence someone is reading must use a stable path or query parameter when it
+is useful to refresh, copy, or revisit that exact view. Back and Forward restore
+the visible selection without resetting the surrounding Property or Home.
 
 Use **Home** in user-facing copy and canonical browser routes. **House** is the
 internal API/domain term and must not leak into ordinary navigation. **Site**
@@ -71,7 +92,18 @@ Primary navigation is scoped and deliberately short:
 - Selected Property: **Property**, **Maintenance**, **Electricity**.
 - Selected Home: **Home**, **Activity**, **Outdoor**, **Electricity use**,
   **Data & analytics**, **Sensors**, **Set up**.
-- Advanced: **System**, **API & MCP**.
+- Advanced: **People & access**, **Stugubys**, **System**, **API & MCP**.
+
+Only the current scope is expanded by default. Other scope headers stay visible
+and may be opened deliberately; changing scope closes the previous group. A
+Property or Home switcher appears only when there is a real choice. Account,
+language, units, and sign-out live in one compact preferences disclosure rather
+than competing with everyday navigation.
+
+People & access and Stugubys remain Workspace-owned routes, but they are
+administrative utilities rather than everyday primary navigation. Owners and
+Admins find them under Advanced; permissions and canonical URLs remain
+unchanged.
 
 **System** describes the Stugu installation and its host, not a Workspace,
 Property, or Home. Keep it outside the selected Property and Home scope. Only
@@ -89,6 +121,11 @@ Activity,
 Outdoor, Home electricity consumption, and Data & analytics appear only in the
 selected Home group. Property electricity covers the contract and price source;
 Home electricity covers meters and consumption.
+
+A cross-Home recommendation must identify itself as Property-owned even when it
+is reached from a Home page. Never place a Property-wide optimizer beneath a
+Home-scoped heading without a visible Property label and an explicit route back
+to the Property context.
 
 ### Attention management and progressive disclosure
 
@@ -108,6 +145,11 @@ Use a stable hierarchy across Home and other overview surfaces:
 3. **Key status.** Present frequently checked information as compact cards with one primary value and a plain-language interpretation.
 4. **Everything else.** Collapse healthy, unchanged, historical, or specialist information into a reassuring summary that can be expanded.
 
+Unknown is not attention. Missing confirmation, pending setup, delayed data,
+and unverified monitoring belong in a clearly labelled **Not yet confirmed** or
+**Monitoring incomplete** group unless there is separate evidence of risk.
+Reserve **Needs attention** for actionable exceptions.
+
 Core zones remain in a predictable order so people retain spatial memory. Items may be ranked within a zone by urgency, time sensitivity, relevance, confidence, and recent activity, but personalization must not make the page feel as though it rearranges itself at random.
 
 Support four intentional density states:
@@ -120,6 +162,48 @@ Support four intentional density states:
 Compact summaries follow **icon · label · key value or status · one-line interpretation**. The collapsed state contains at most one primary action. Supporting explanation, contributing factors, history, provenance, and secondary actions belong in an inline disclosure or a clearly labelled detail view. Prefer native `details`/`summary` or a button with `aria-expanded` and `aria-controls`; expansion should preserve the user's context.
 
 Do not place every available chart, form, and tool on an overview. Creation forms, calibration tools, simulations, imports, and advanced settings start closed unless they are the page's primary task. A disclosure label must describe its contents (for example, “Add an observation”), not use vague text such as “More.” The expanded state must remain understandable at 320 px and 200% zoom.
+
+### Lifecycle setup contract
+
+Setup is a guided path, not a catalogue of configuration forms. From first
+owner account through the first Property, Home, and connection, each screen:
+
+- explains the immediate value in one sentence and offers one primary next step;
+- asks only for information that cannot be inferred safely, and marks inferred
+  or copied suggestions with their source;
+- lets the person skip nonessential steps, preserves completed work, and makes
+  resuming obvious;
+- detects available local or existing sources before asking for addresses,
+  identifiers, credentials, or protocol details;
+- keeps completed steps and expert configuration in nearby, closed disclosures;
+- confirms success in context and advances to the next incomplete useful step;
+  and
+- provides Cancel, Back, retry, and recovery without erasing earlier work.
+
+Inference never changes authority. The interface may suggest a Home timezone
+from its Property location, reuse a typed name as a draft label, or offer saved
+connection credentials after explicit confirmation. Once accepted, each value
+is stored in the configuration object that owns it and can diverge independently.
+Do not create hidden live bindings, merge Property and Home records, or copy
+credentials, account identity, sharing policy, or secrets across boundaries.
+Show where a suggested value came from and let the person replace it before
+saving.
+
+Weather setup is Property-level by default because ordinary Properties use one
+local report. When no weather reference exists, a saved Property location is
+used first and a saved Home map location is the fallback. Record the inferred
+source so later Property changes update automatic values without replacing a
+manual Home override. Home-specific weather configuration belongs in Advanced.
+
+Use one action-disclosure pattern throughout the product:
+
+- The collapsed summary uses a verb and object, such as **Add Home**, **Add Property**, or **Record note**.
+- The summary sits next to the collection or context it changes.
+- Opening the disclosure does not submit, navigate, or discard existing work.
+- Successful completion closes the disclosure when that preserves context;
+  validation failure keeps it open and moves focus to the first useful error.
+- Editing an existing item opens the same editor with a clear **Editing** state
+  and a Cancel action that restores focus to its opener.
 
 ### Smart-alert standard
 
@@ -331,6 +415,22 @@ name the Home or Property they will change.
 - Icon button: must have an accessible name and at least a 24 × 24 px target; aim for 40–44 px.
 - Disabled controls retain their label and must not be communicated by opacity alone.
 
+### Confirmations
+
+Use a shared structured confirmation for uncommon, consequential actions that
+cannot be reliably undone. Do not use a browser-native confirmation prompt.
+The dialog names the consequence in plain language and repeats the exact
+object or scope being changed. The confirmation button names the result — for
+example **Disconnect**, **Delete**, or **Install update** — rather than **OK** or
+**Continue**.
+
+Every confirmation provides **Cancel**, initially focuses the safe choice,
+supports Escape, contains focus while open, and restores focus to the invoking
+control when it closes. Use Critical styling only for destructive or
+irreversible outcomes; high-consequence but constructive actions use the
+ordinary action colour. Prefer undo or an inline reversible action when it can
+provide equivalent safety without interruption.
+
 ### Forms
 
 Every input has a persistent visible label. Help text explains the consequence, not the implementation. Errors appear next to the field, use `role="alert"` when immediate, and say how to recover.
@@ -348,6 +448,12 @@ Use plain language:
 - “Demo data” instead of “Offline” when the experience is intentionally simulated.
 
 Do not animate critical alerts indefinitely. Acknowledge state changes in a polite live region.
+
+Every live-data surface supports and distinguishes these states where
+applicable: loading, empty, live, stale, reconnecting, offline, partial,
+permission denied, and error. A cached or last-known value includes its age and
+never uses the healthy treatment merely because a numeric value exists. Unknown
+future enum values use the neutral/unknown treatment, never success.
 
 ## 8. Content and voice
 
@@ -388,6 +494,9 @@ Stugu targets **WCAG 2.2 AA**. A feature is not done until all applicable checks
 - Motion: full operation with reduced motion enabled.
 - Colour: operation and comprehension in grayscale and common colour-vision simulations.
 - Language: the document `lang` follows the selected locale.
+- Localisation: every user-facing string in a shipped locale is translated or
+  that locale is explicitly declared preview-only; silent broad English
+  fallback is not a release-ready state.
 - Themes: the same checks pass in light and dark mode.
 
 ### Test matrix
@@ -410,5 +519,38 @@ Automation cannot approve wording, focus order, chart comprehension, or whether 
 - Data ramps live in [`measurements.ts`](apps/web/src/measurements.ts).
 - The shell and lockup live in [`AppShell.tsx`](apps/web/src/components/AppShell.tsx).
 - `--pine*` variables are temporary compatibility aliases for the semantic `--action*` tokens. Do not use the legacy name in new components.
+- Referencing an undeclared design token is a build failure. Components use
+  semantic tokens (`--bg`, `--panel-soft`, `--line-strong`, `--red`, and
+  related theme pairs) rather than local fallbacks that bypass dark mode.
+- Body and control text must not render below 10 px at default settings. Font
+  weights use the loaded 400–700 range; synthetic weights above 700 are a
+  migration defect, not a new style.
+- Existing routes and stored data keep working through a documented migration
+  window. Scope or hierarchy changes must preserve historical telemetry
+  ownership, authorization, deep links, rollback, and explicit failure modes.
+- Browser presentation preferences are scoped to the installation and signed-in
+  principal. A different account must never inherit dismissed warnings, hidden
+  items, setup progress, or other trust-affecting UI state. Sign-out and an
+  unauthorized session purge the scoped browser state.
 
 When introducing a component, document any new token here rather than adding a one-off hex value. A design-system change should include light/dark values, contrast evidence, keyboard behaviour, and reduced-motion behaviour in the same pull request.
+
+### Change record
+
+- **1.7 (1 August 2026):** Simplified active-scope and Live View navigation;
+  defined progressive lifecycle setup with safe inference and separate
+  authoritative records; made weather Property-owned by default with explicit
+  Home overrides; and required advanced controls to remain available on demand
+  without competing with the primary task.
+- **1.6 (1 August 2026):** Defined Home retirement as an explicit soft hide;
+  preserved editable Property-owned records; required retired-scope write
+  denial and credential isolation; and distinguished Stuguby projection purge.
+- **1.5 (1 August 2026):** Made nested evidence views bookmarkable; defined the
+  structured confirmation and focus-restoration contract; required
+  action-specific confirmation labels and risk-matched colour; and added
+  installation-and-principal scoping for browser presentation state.
+- **1.4 (1 August 2026):** Defined the premium target as a coherent evolution;
+  moved Workspace administration into Advanced navigation; separated unknown
+  monitoring from actionable attention; specified cross-scope recommendations,
+  action disclosures, live-data states, localisation completeness, semantic
+  token enforcement, typography limits, and migration safeguards.

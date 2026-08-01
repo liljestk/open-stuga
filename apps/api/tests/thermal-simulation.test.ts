@@ -302,7 +302,7 @@ describe("thermal simulation API and outdoor persistence", () => {
       .toHaveLength(1);
   });
 
-  it("uses opaque location keys, erases boundaries on location change, and applies retention", () => {
+  it("uses opaque location keys, retains prior keyed boundaries, and applies retention", () => {
     const location = { latitude: 60, longitude: 24 };
     const key = outdoorLocationKey(location);
     expect(key).not.toContain("60.000000");
@@ -323,7 +323,7 @@ describe("thermal simulation API and outdoor persistence", () => {
     expect(runtime.database.purgeReadingsBefore("2026-01-01T00:00:00.000Z")).toBeGreaterThanOrEqual(1);
     runtime.database.updateHouse("house-main", { location: null });
     expect(runtime.database.outdoorTemperatureHistory("house-main", key, "2025-01-01T00:00:00Z", "2027-01-01T00:00:00Z"))
-      .toEqual([]);
+      .toEqual([{ ...old, timestamp: "2026-07-14T10:00:00.000Z" }]);
   });
 
   it("aggregates dense database telemetry before fitting", () => {

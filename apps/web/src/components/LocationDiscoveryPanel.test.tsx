@@ -39,7 +39,12 @@ describe("LocationDiscoveryPanel", () => {
 
     expect(screen.getByText("Helsinki")).not.toBeNull();
     expect(screen.queryByLabelText("Find this home")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Change" }));
+    const change = screen.getByRole("button", { name: "Change weather location" });
+    expect(change).not.toHaveAttribute("aria-controls");
+    await user.click(change);
+    expect(change).toHaveAttribute("aria-expanded", "true");
+    expect(change).toHaveAttribute("aria-controls", "location-discovery-editor");
+    expect(document.getElementById("location-discovery-editor")).not.toBeNull();
     expect(screen.getByLabelText("Find this home")).not.toBeNull();
   });
 

@@ -65,6 +65,7 @@ import type {
   TrackedEquipmentState,
 } from "@climate-twin/contracts";
 import { api, ApiRequestError, subscribeToTrackingEvents, type HouseGeoreferencePatch } from "../../../api";
+import { confirmAction } from "../../../components/ConfirmationProvider";
 import { EquipmentQrLabel } from "../../../components/EquipmentQrLabel";
 import { StugubyMark } from "../../../components/StugubyMark";
 import { formatInTimeZone } from "../../../dateTime";
@@ -109,7 +110,6 @@ export function AccessPanel({ state, properties, canRemoveGuests, workspaceMode 
     cloudflareStatus: "disabled" | "pending" | "synced";
   } | null>(null);
   const [activationCopy, setActivationCopy] = useState<"idle" | "copied" | "failed">("idle");
-  const [removeConfirmationEmail, setRemoveConfirmationEmail] = useState("");
 
   const guests = useMemo(() => [...members, ...invitations]
     .filter((member) => member.role === "guest")
@@ -146,7 +146,7 @@ export function AccessPanel({ state, properties, canRemoveGuests, workspaceMode 
       const available = [...result.members, ...result.invitations];
       setSelectedEmail((selectedEmail) => selectedEmail && available.some((member) => member.email === selectedEmail)
         ? selectedEmail
-        : available.find((member) => member.role === "guest")?.email ?? "");
+        : "");
     }).catch(() => {
       if (current) setFeedback({ kind: "error", text: t("properties.loadAccessFailed") });
     }).finally(() => {
@@ -155,7 +155,6 @@ export function AccessPanel({ state, properties, canRemoveGuests, workspaceMode 
     return () => { current = false; };
   }, [t]);
   useEffect(() => { setDraftGrants(selected ? normalizeGuestGrants(selected.grants, state) : []); }, [selected?.email, selected?.grants, state.houses, state.propertyAreas]);
-  useEffect(() => { setRemoveConfirmationEmail(""); }, [selectedEmail]);
 
   const toggle = (grant: GuestAccessGrant) => {
     const next = toggledGuestGrants(draftGrants, grant, state);
@@ -235,7 +234,11 @@ export function AccessPanel({ state, properties, canRemoveGuests, workspaceMode 
   };
 
   const removeGuest = async () => {
-    if (!selected || !canRemoveGuests || pending || removeConfirmationEmail !== selected.email) return;
+    if (!selected || !canRemoveGuests || pending) return;
+    if (!await confirmAction(
+      t("properties.removeGuestConfirm", { email: selected.email }),
+      t("properties.confirmRemoveGuest"),
+    )) return;
     setPending(true);
     setFeedback(null);
     try {
@@ -244,7 +247,6 @@ export function AccessPanel({ state, properties, canRemoveGuests, workspaceMode 
       setInvitations((current) => current.filter((member) => member.email !== selected.email));
       if (activation?.email === selected.email) setActivation(null);
       setSelectedEmail("");
-      setRemoveConfirmationEmail("");
       setFeedback({ kind: "success", text: t("properties.guestRemoved") });
     } catch {
       setFeedback({ kind: "error", text: t("properties.guestRemoveFailed") });
@@ -257,7 +259,7 @@ export function AccessPanel({ state, properties, canRemoveGuests, workspaceMode 
   return <div className="property-access-grid">
     <section className="panel guest-list-panel">
       <div className="panel-header"><div><span className="eyebrow">{t("properties.guests")}</span><h2>{t("properties.guestAccounts")}</h2></div><Users size={20} /></div>
-      {workspaceMode && <form className="guest-invite-form" onSubmit={(event) => void invite(event)}><label className="field"><span>{t("properties.guestEmail")}</span><input type="email" required value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder={t("properties.guestEmail")} /></label><button className="primary-button" type="submit" disabled={pending || !inviteEmail.trim()}><Plus size={15} />{pending ? t("auth.working") : t("properties.inviteGuest")}</button></form>}
+      {workspaceMode && <details className="guest-invite-disclosure"><summary><Plus size={15} aria-hidden="true" /><span>{t("properties.addGuest")}</span></summary><form className="guest-invite-form" onSubmit={(event) => void invite(event)}><label className="field"><span>{t("properties.guestEmail")}</span><input type="email" required value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} placeholder={t("properties.guestEmail")} /></label><button className="primary-button" type="submit" disabled={pending || !inviteEmail.trim()}><Plus size={15} />{pending ? t("auth.working") : t("properties.inviteGuest")}</button></form></details>}
       {workspaceMode && activation && <section className="guest-activation-card" aria-labelledby="guest-activation-title" aria-live="polite">
         <div><span><KeyRound size={15} aria-hidden="true" /></span><div><h3 id="guest-activation-title">{t("properties.activationReady")}</h3><p>{t("properties.activationReadyHelp", { email: activation.email })}</p></div><button type="button" className="icon-button small" onClick={() => setActivation(null)} aria-label={t("properties.dismissActivation")}><X size={15} aria-hidden="true" /></button></div>
         <label className="field"><span>{t("properties.activationLink")}</span><div className="guest-activation-copy"><input readOnly value={activation.url} onFocus={(event) => event.currentTarget.select()} /><button type="button" className="secondary-button" onClick={() => void copyActivation()}><Clipboard size={14} aria-hidden="true" />{t("properties.copyActivation")}</button></div></label>
@@ -280,11 +282,7 @@ export function AccessPanel({ state, properties, canRemoveGuests, workspaceMode 
             <div>{areas.map((area) => { const directlyGranted = checked("area", area.id); return <label key={area.id}><input type="checkbox" checked={propertyGranted || directlyGranted} disabled={propertyGranted || (!directlyGranted && draftGrants.length >= MAX_GUEST_ACCESS_GRANTS)} onChange={() => toggle({ scopeType: "area", scopeId: area.id })} /><MapPin size={13} />{area.name}</label>; })}</div>
           </fieldset>;
         })}</div>
-        <div className="access-actions"><button type="button" className="primary-button access-save" disabled={pending || draftGrants.length > MAX_GUEST_ACCESS_GRANTS} onClick={() => void save()}><Save size={15} />{pending ? t("common.saving") : t("properties.saveAccess")}</button>{workspaceMode && canRemoveGuests && removeConfirmationEmail !== selected.email && <button type="button" className="secondary-button danger-text" disabled={pending} onClick={() => setRemoveConfirmationEmail(selected.email)}><Trash2 size={15} />{t("properties.removeGuest")}</button>}</div>
-        {workspaceMode && canRemoveGuests && removeConfirmationEmail === selected.email && <div className="guest-remove-confirmation" role="alert">
-          <p>{t("properties.removeGuestConfirm", { email: selected.email })}</p>
-          <div><button type="button" className="secondary-button" disabled={pending} onClick={() => setRemoveConfirmationEmail("")}>{t("common.cancel")}</button><button type="button" className="secondary-button danger-text" disabled={pending} onClick={() => void removeGuest()}><Trash2 size={15} />{t("properties.confirmRemoveGuest")}</button></div>
-        </div>}
+        <div className="access-actions"><button type="button" className="primary-button access-save" disabled={pending || draftGrants.length > MAX_GUEST_ACCESS_GRANTS} onClick={() => void save()}><Save size={15} />{pending ? t("common.saving") : t("properties.saveAccess")}</button>{workspaceMode && canRemoveGuests && <button type="button" className="secondary-button danger-text" disabled={pending} onClick={() => void removeGuest()}><Trash2 size={15} aria-hidden="true" />{t("properties.removeGuest")}</button>}</div>
       </>}
       {feedback && <p className={`property-feedback ${feedback.kind}`} role={feedback.kind === "error" ? "alert" : "status"}>{feedback.text}</p>}
     </section>

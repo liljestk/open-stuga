@@ -90,7 +90,8 @@ export const CORE_SCHEMA_01 = `
         location_json TEXT,
         stugby_json TEXT CHECK (stugby_json IS NULL OR json_valid(stugby_json)),
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
       );
       CREATE TABLE IF NOT EXISTS property_electricity_configs (
         property_id TEXT PRIMARY KEY REFERENCES properties(id) ON DELETE CASCADE,

@@ -130,6 +130,7 @@ import {
   type SpatialCalibrationSessionResult,
 } from "../../spatialLayers";
 import { publishAuthEpoch } from "../../authEpoch";
+import { recordApiError } from "../../bugReportDiagnostics";
 import type { HouseGeoreferencePatch } from "./part-01";
 import { API_BASE, API_REQUEST_TIMEOUT_MS, API_V2_BASE, ApiRequestError, COLLECTION_PAGE_SIZE, SAFE_HTTP_METHODS, activeRequestControllers, apiClientState, apiRequestGeneration, assertSafeApiPath, authorizationChange, notifyAuthorizationChange } from "./part-02";
 import type { SystemUpdateLiveStatus } from "./part-02";
@@ -184,6 +185,7 @@ export async function requestFrom<T>(
         : `Request failed with HTTP ${response.status}`;
       if (response.status === 401 && path !== "/session" && !path.startsWith("/auth/")) notifyAuthorizationChange("expired");
       else if (response.status === 403 && code === "CSRF_TOKEN_INVALID") notifyAuthorizationChange("changed");
+      recordApiError(response.status, code, message);
       throw new ApiRequestError(response.status, code, message, apiError?.details);
     }
     if (response.status === 204) {

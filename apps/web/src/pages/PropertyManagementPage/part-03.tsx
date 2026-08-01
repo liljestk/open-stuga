@@ -224,22 +224,13 @@ export function usePropertyManagementPagePart03(context: ReturnType<typeof usePr
       setEquipmentLatitude("");
       setEquipmentLongitude("");
       setEquipmentPinMapOpen(false);
-      setInventoryQuery("");
-      setInventoryStatus("all");
-      setInventoryLocation("all");
-      setStructureQuery("");
-      setMapItemQuery("");
-      setMapItemFilter("all");
       setMapItemLimit(MAP_ITEM_BATCH_SIZE);
-      setMapItemSelection(houses[0] ? { kind: "home", id: houses[0].id } : null);
-      setMapLayers({ home: true, asset: true, equipment: true, person: true });
       setInventoryFormOpen(false);
       setTrackedEquipment([]);
       setTrackingCapabilities(null);
       setTrackingSnapshot(null);
       setTrackingEndpoints([]);
       setTrackingConnection("off");
-      setSelectedEquipmentId(null);
       setSelectedEndpointId("");
       setEditingNoteId(null);
       setNoteText("");
@@ -271,6 +262,21 @@ export function usePropertyManagementPagePart03(context: ReturnType<typeof usePr
         ? houses[0] ? { kind: "home", id: houses[0].id } : null
         : current);
     }, [houses]);
+  useEffect(() => {
+      if (mapItemSelection?.kind === "home") {
+        setPlacementHouseId(mapItemSelection.id);
+        return;
+      }
+      if (mapItemSelection?.kind !== "asset") return;
+      const asset = fixedAssets.find((candidate) => candidate.id === mapItemSelection.id);
+      if (!asset) return;
+      setPlacementAssetId(asset.id);
+      setSelectedAreaId(asset.id);
+      setAreaForm(areaDraft(asset));
+      setAssetDraftLocation(asset.location ? { ...asset.location } : null);
+      setAssetLatitudeInput(asset.location ? String(asset.location.latitude) : "");
+      setAssetLongitudeInput(asset.location ? String(asset.location.longitude) : "");
+    }, [fixedAssets, mapItemSelection?.id, mapItemSelection?.kind]);
   useEffect(() => {
       setSelectedEndpointId("");
     }, [selectedEquipmentId]);

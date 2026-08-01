@@ -88,7 +88,32 @@ describe("PropertyManagementPage", () => {
     expect(carouselStyles).toMatch(/\.property-carousel-track\s*\{[^}]*overflow-x:\s*auto/);
     expect(carouselStyles).toMatch(/\.property-carousel-track\s*\{[^}]*scroll-snap-type:\s*x mandatory/);
     expect(carouselStyles).toMatch(/\.property-carousel-arrow\s*\{[^}]*width:\s*42px[^}]*height:\s*42px/);
-    expect(propertyStyles).toMatch(/\.property-index-create\s*\{[^}]*width:\s*min\(100%,\s*680px\)[^}]*padding:\s*18px/);
+    expect(propertyStyles).toMatch(/\.property-index-create\s*\{[^}]*width:\s*min\(100%,\s*680px\)[^}]*padding:\s*0/);
+    expect(propertyStyles).toMatch(/\.property-index-create\s*>\s*\.property-index-create-form\s*\{[^}]*padding:\s*18px/);
+  });
+
+  it("configures Property weather from a placed Home", async () => {
+    const state = createDemoState();
+    state.houses[0] = {
+      ...state.houses[0]!,
+      mapPlacement: { latitude: 60.17, longitude: 24.94, metersPerPlanUnit: 0.1 },
+    };
+    const handlers = callbacks();
+    render(<I18nProvider><PropertyManagementPage state={state} {...handlers} /></I18nProvider>);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+    expect(screen.getByRole("heading", { name: "Weather" })).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Use Pine House location" }));
+
+    await waitFor(() => expect(handlers.onUpdateProperty).toHaveBeenCalledWith(DEMO_PROPERTY_ID, {
+      location: {
+        latitude: 60.17,
+        longitude: 24.94,
+        source: "map-placement",
+        confidence: "high",
+        userOverridden: false,
+      },
+    }));
   });
 
   it("browses a large property collection directly and shows useful details", () => {

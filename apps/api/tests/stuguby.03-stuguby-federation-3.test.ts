@@ -567,9 +567,38 @@ describe("Stuguby federation", () => {
       ownership: "local",
     });
 
+    participant.runtime.database.createAreaEquipment({
+      id: "disconnect-shared-equipment",
+      propertyId: adoptedPropertyId,
+      houseId: sharedHomeId,
+      name: "Projected Home equipment",
+      kind: "test-equipment",
+    });
+    participant.runtime.database.createMaintenanceTask({
+      id: "disconnect-shared-task",
+      propertyId: adoptedPropertyId,
+      houseId: sharedHomeId,
+      title: "Projected Home task",
+      basis: "required",
+    });
+    participant.runtime.database.createPropertyNote({
+      id: "disconnect-shared-note",
+      propertyId: adoptedPropertyId,
+      houseId: sharedHomeId,
+      kind: "note",
+      text: "Projected Home note",
+    });
+
     await request(participant.runtime.app).post(`/api/v1/stugbys/${stugubyId}/property/disconnect`)
       .send({ confirmation: "DISCONNECT" }).expect(200);
     expect(participant.runtime.database.getHouse(sharedHomeId)).toBeNull();
+    expect(participant.runtime.database.db.prepare("SELECT id FROM houses WHERE id=?").get(sharedHomeId))
+      .toBeUndefined();
+    expect(participant.runtime.database.getAreaEquipment("disconnect-shared-equipment"))
+      .toMatchObject({ houseId: null });
+    expect(participant.runtime.database.getMaintenanceTask("disconnect-shared-task"))
+      .toMatchObject({ houseId: null, floorId: null });
+    expect(participant.runtime.database.getPropertyNote("disconnect-shared-note")).toBeNull();
     expect(participant.runtime.database.getHouse(localHome.id)).toMatchObject({
       propertyId: adoptedPropertyId,
     });

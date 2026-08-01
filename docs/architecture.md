@@ -155,13 +155,21 @@ The web information architecture follows ownership. Workspace navigation holds
 **Overview**, **Properties**, and **Alerts**. A selected Property owns its
 **Property**, **Maintenance**, and **Electricity** destinations, including
 land-only Properties. A selected Home owns **Home**, **Sensors**, and **Set up**;
-Activity and Outdoor are Home-scoped operational subviews. **Set up** has four
+Activity and Outdoor are Home-scoped operational subviews. **Set up** has six
 deep-linkable, keyboard-operable sections: **Overview** for readiness,
-**Homes** for placement/orientation, **Connections** for that Home's TP-Link,
-Tuya, Gree, and Home Assistant connections, and **Weather** for the Home's location/timezone and
-automatic-provider summary. Current conditions, warnings, and the 48-hour
-forecast belong on Outdoor rather than crowding **Set up**. Canonical URLs retain
-Property and optional Home scope across refresh, Back/Forward, and copied links.
+**Layout** for the floor-plan editor, **Connections** for that Home's TP-Link,
+Tuya, Gree, and Home Assistant connections, **Weather** for location/timezone
+and the automatic-provider summary, **Operations** for bulk source mapping and
+history work, and **Automations** for Home rules. The retired `/setup/homes`
+destination remains a compatibility redirect; Property map and placement tools
+own that work. Current conditions, warnings, and the 48-hour forecast belong on
+Outdoor rather than crowding **Set up**. Canonical URLs retain Property and
+optional Home scope across refresh, Back/Forward, and copied links. Activity's
+Timeline and Observations views and the meaningful evidence controls on
+Property map/inventory, Home dashboard, Outdoor, Maintenance, Electricity,
+Sensors, and Analytics preserve nested state with validated, default-omitting
+query parameters. Discrete choices push history, search typing replaces it,
+and `popstate` restores state without discarding unrelated parameters or hashes.
 
 Overview and Alerts share one explainable Home-monitoring selector. It applies
 the same freshness and quality gates as Home Pulse before presenting a Home as

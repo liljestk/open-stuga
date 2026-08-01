@@ -3,11 +3,17 @@ import userEvent from "@testing-library/user-event";
 import type { IntegrationStatus } from "@climate-twin/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
+import { confirmAction } from "../components/ConfirmationProvider";
 import { historyAutomation, house, integration, renderPage } from "./IntegrationsPageTestSupport";
+
+vi.mock("../components/ConfirmationProvider", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../components/ConfirmationProvider")>();
+  return { ...actual, confirmAction: vi.fn().mockResolvedValue(true) };
+});
 
 beforeEach(() => {
   window.history.replaceState(null, "", "/setup/connections");
-  vi.spyOn(window, "confirm").mockReturnValue(true);
+  vi.mocked(confirmAction).mockReset().mockResolvedValue(true);
   vi.spyOn(api, "testTpLinkDraft").mockResolvedValue({ ok: true, message: "Connected" });
   vi.spyOn(api, "tpLinkHistoryExportJobs").mockResolvedValue({
     enabled: false,
@@ -120,7 +126,7 @@ describe("Saved connection data paths", () => {
       credentialSourceConnectionId: savedHub.id,
     }));
     expect(api.testTpLinkDraft).not.toHaveBeenCalled();
-    expect(window.confirm).not.toHaveBeenCalled();
+    expect(confirmAction).not.toHaveBeenCalled();
     expect(within(directSection).getByText(/Water heater was added/)).not.toBeNull();
   });
 

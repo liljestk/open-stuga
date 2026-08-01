@@ -22,6 +22,39 @@ import "./OperationsPages.css";
 const bases: MaintenanceTaskBasis[] = ["required", "scheduled", "condition-based", "predictive", "optional-improvement"];
 const priorities: MaintenanceTaskPriority[] = ["low", "normal", "high", "urgent"];
 type TaskFilter = "active" | "overdue" | "upcoming" | "in-progress" | "completed";
+const taskFilters: TaskFilter[] = ["active", "overdue", "upcoming", "in-progress", "completed"];
+
+interface MaintenanceLocationState {
+  filter: TaskFilter;
+  basisFilter: "all" | MaintenanceTaskBasis;
+  search: string;
+}
+
+function maintenanceStateFromLocation(): MaintenanceLocationState {
+  if (typeof window === "undefined") return { filter: "active", basisFilter: "all", search: "" };
+  const params = new URLSearchParams(window.location.search);
+  const requestedFilter = params.get("filter");
+  const requestedBasis = params.get("basis");
+  return {
+    filter: taskFilters.includes(requestedFilter as TaskFilter) ? requestedFilter as TaskFilter : "active",
+    basisFilter: bases.includes(requestedBasis as MaintenanceTaskBasis) ? requestedBasis as MaintenanceTaskBasis : "all",
+    search: params.get("search")?.trim() ?? "",
+  };
+}
+
+function writeMaintenanceStateToLocation(state: MaintenanceLocationState, mode: "push" | "replace"): void {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  if (state.filter === "active") url.searchParams.delete("filter");
+  else url.searchParams.set("filter", state.filter);
+  if (state.basisFilter === "all") url.searchParams.delete("basis");
+  else url.searchParams.set("basis", state.basisFilter);
+  if (state.search.trim()) url.searchParams.set("search", state.search.trim());
+  else url.searchParams.delete("search");
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (next !== current) window.history[`${mode}State`](window.history.state, "", next);
+}
 
 interface MaintenancePageProps {
   state: ClimateState;
@@ -154,7 +187,7 @@ function TaskEditor({ propertyId, houses, defaultHouseId, observations, areas, e
       <div className="maintenance-form-grid">
         <label className="field"><span>{t("maintenance.basis")}</span><select value={basis} disabled={pending} onChange={(event) => { const next = event.target.value as MaintenanceTaskBasis; setBasis(next); if (next === "predictive") setDueBy(""); }}>{bases.map((item) => <option key={item} value={item}>{t(`maintenance.basis.${item}` as TranslationKey)}</option>)}</select></label>
         <label className="field"><span>{t("maintenance.priority")}</span><select value={priority} disabled={pending} onChange={(event) => setPriority(event.target.value as MaintenanceTaskPriority)}>{priorities.map((item) => <option key={item} value={item}>{t(`maintenance.priority.${item}` as TranslationKey)}</option>)}</select></label>
-        <label className="field"><span>{t("properties.houses")}</span><select value={houseId} disabled={pending} onChange={(event) => { setHouseId(event.target.value); setFloorId(""); setObservationIds([]); }}><option value="">{t("maintenance.wholeProperty")}</option>{houses.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>
+        <label className="field"><span>{t("properties.houses")}</span><select value={houseId} disabled={pending} onChange={(event) => { setHouseId(event.target.value); setFloorId(""); setObservationIds([]); }}><option value="">{t("maintenance.wholeProperty")}</option>{task?.houseId && !houses.some((candidate) => candidate.id === task.houseId) && <option value={task.houseId}>{t("properties.inventoryUnknownHome")}</option>}{houses.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>
         {selectedHouse && <label className="field"><span>{t("common.floor")}</span><select value={floorId} disabled={pending} onChange={(event) => setFloorId(event.target.value)}><option value="">{selectedHouse.name}</option>{selectedHouse.floors.map((floor) => <option key={floor.id} value={floor.id}>{floor.name}</option>)}</select></label>}
         {areas.length > 0 && <label className="field"><span>{t("properties.areas")}</span><select value={areaId} disabled={pending} onChange={(event) => { setAreaId(event.target.value); setEquipmentId(""); if (event.target.value) setFloorId(""); }}><option value="">{t("maintenance.wholeProperty")}</option>{areas.map((area) => <option key={area.id} value={area.id}>{area.name}</option>)}</select></label>}
         {areaId && <label className="field"><span>{t("properties.equipmentOptional")}</span><select value={equipmentId} disabled={pending} onChange={(event) => setEquipmentId(event.target.value)}><option value="">{t("properties.wholeArea")}</option>{equipment.filter((item) => item.areaId === areaId).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
@@ -244,20 +277,22 @@ function TaskCard({ task, houses, fallbackTimeZone, observations, areas, equipme
 }>) {
   const { locale, t } = useI18n();
   const [open, setOpen] = useState(false);
+  const detailId = useId();
   const house = houses.find((candidate) => candidate.id === task.houseId) ?? null;
   const floor = house?.floors.find((candidate) => candidate.id === task.floorId);
   const area = areas.find((candidate) => candidate.id === task.areaId);
   const installedEquipment = equipment.find((candidate) => candidate.id === task.equipmentId);
-  const target = installedEquipment?.name ?? area?.name ?? floor?.name ?? house?.name ?? t("maintenance.wholeProperty");
+  const target = installedEquipment?.name ?? area?.name ?? floor?.name ?? house?.name
+    ?? (task.houseId ? t("properties.inventoryUnknownHome") : t("maintenance.wholeProperty"));
   const timeZone = house?.timezone ?? fallbackTimeZone;
   const linked = observations.filter((observation) => task.observationIds.includes(observation.id));
   return <article className={`maintenance-task-card ${task.priority} ${task.status}`}>
-    <button type="button" className="maintenance-task-summary" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+    <button type="button" className="maintenance-task-summary" aria-expanded={open} aria-controls={open ? detailId : undefined} onClick={() => setOpen((value) => !value)}>
       <span className={`maintenance-priority-dot ${task.priority}`} aria-hidden="true" />
       <span className="maintenance-task-copy"><span><strong>{task.title}</strong><span className={`maintenance-status-badge ${task.status}`}>{t(`maintenance.status.${task.status}` as TranslationKey)}</span></span><small>{t(`maintenance.priority.${task.priority}` as TranslationKey)} | {t(`maintenance.basis.${task.basis}` as TranslationKey)} | <span>{target}</span></small>{taskDate(task) && <span><CalendarDays size={13} aria-hidden="true" />{task.dueBy ? t("maintenance.dueDate", { date: task.dueBy }) : t("maintenance.plannedDate", { date: task.plannedFor ?? "" })}</span>}</span>
       <ChevronDown size={17} aria-hidden="true" />
     </button>
-    {open && <div className="maintenance-task-detail">
+    {open && <div id={detailId} className="maintenance-task-detail">
       {task.description && <p>{task.description}</p>}
       {task.basisDetail && <p className="maintenance-basis-explanation"><AlertTriangle size={14} aria-hidden="true" />{task.basisDetail}</p>}
       {linked.length > 0 && <div className="maintenance-linked-evidence"><strong>{t("maintenance.linkedObservations")}</strong><ul>{linked.map((observation) => <li key={observation.id}>{observation.note}</li>)}</ul></div>}
@@ -290,21 +325,34 @@ export function MaintenancePage(props: Readonly<MaintenancePageProps>) {
   const houseIds = new Set(houses.map((house) => house.id));
   const observations = props.state.observations.filter((observation) => houseIds.has(observation.houseId));
   const seedObservation = observations.find((observation) => observation.id === props.initialObservationId);
+  const initialLocationState = useMemo(maintenanceStateFromLocation, []);
   const [editorOpen, setEditorOpen] = useState(Boolean(seedObservation));
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<TaskFilter>("active");
-  const [basisFilter, setBasisFilter] = useState<"all" | MaintenanceTaskBasis>("all");
-  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<TaskFilter>(initialLocationState.filter);
+  const [basisFilter, setBasisFilter] = useState<"all" | MaintenanceTaskBasis>(initialLocationState.basisFilter);
+  const [search, setSearch] = useState(initialLocationState.search);
   const headerActionRef = useRef<HTMLButtonElement>(null);
   const editorOpenerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setEditorOpen(false);
     setEditingId(null);
-    setFilter("active");
-    setBasisFilter("all");
-    setSearch("");
     editorOpenerRef.current = null;
+  }, [propertyId]);
+
+  useEffect(() => {
+    const expectedPathname = window.location.pathname;
+    const restoreState = () => {
+      if (window.location.pathname !== expectedPathname) return;
+      const next = maintenanceStateFromLocation();
+      setFilter(next.filter);
+      setBasisFilter(next.basisFilter);
+      setSearch(next.search);
+      writeMaintenanceStateToLocation(next, "replace");
+    };
+    restoreState();
+    window.addEventListener("popstate", restoreState);
+    return () => window.removeEventListener("popstate", restoreState);
   }, [propertyId]);
 
   useEffect(() => {
@@ -355,22 +403,37 @@ export function MaintenancePage(props: Readonly<MaintenancePageProps>) {
     window.setTimeout(() => (opener?.isConnected ? opener : headerActionRef.current)?.focus(), 0);
   };
   const group = (title: string, items: MaintenanceTask[], icon: ReactNode) => items.length > 0 && <section className="maintenance-group"><header>{icon}<div><h3>{title}</h3><span>{items.length}</span></div></header><div>{items.map((task) => <TaskCard key={task.id} task={task} houses={houses} fallbackTimeZone={fallbackTimeZone} observations={observations} areas={areas} equipment={equipment} readOnly={readOnly} onEdit={() => openEditor(task.id)} onUpdate={props.onUpdateTask} onReload={props.onReloadTask} onLoadRevisions={props.onLoadTaskRevisions} />)}</div></section>;
+  const selectFilter = (next: TaskFilter) => {
+    setFilter(next);
+    writeMaintenanceStateToLocation({ filter: next, basisFilter, search }, "push");
+  };
+  const selectBasisFilter = (next: "all" | MaintenanceTaskBasis) => {
+    setBasisFilter(next);
+    writeMaintenanceStateToLocation({ filter, basisFilter: next, search }, "push");
+  };
+  const updateSearch = (next: string) => {
+    setSearch(next);
+    writeMaintenanceStateToLocation({ filter, basisFilter, search: next }, "replace");
+  };
 
   return <div className="page-stack operations-page maintenance-page">
     <header className="page-heading operations-heading"><div><span className="eyebrow"><Wrench size={14} aria-hidden="true" />{props.house?.name ?? property?.name ?? t("nav.properties")}</span><h1>{t("maintenance.pageTitle")}</h1><p>{t("maintenance.pageDescription")}</p></div>{!readOnly && <button ref={headerActionRef} type="button" className="primary-button" onClick={() => { if (editorOpen && !editingId) closeEditor(); else openEditor(); }}>{editorOpen && !editingId ? <X size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}{t(editorOpen && !editingId ? "common.close" : "maintenance.planWork")}</button>}</header>
-    <section className="operations-summary maintenance-summary" aria-label={t("maintenance.summary") }>
-      <button type="button" aria-pressed={filter === "active"} className={filter === "active" ? "active" : ""} onClick={() => setFilter("active")}><span className="operations-summary-icon"><Wrench size={18} aria-hidden="true" /></span><span><small>{t("maintenance.allActive")}</small><strong>{active.length}</strong></span></button>
-      <button type="button" aria-pressed={filter === "overdue"} className={filter === "overdue" ? "active attention" : overdueCount > 0 ? "attention" : ""} onClick={() => setFilter("overdue")}><span className="operations-summary-icon critical"><AlertTriangle size={18} aria-hidden="true" /></span><span><small>{t("maintenance.overdue")}</small><strong>{overdueCount}</strong></span></button>
-      <button type="button" aria-pressed={filter === "upcoming"} className={filter === "upcoming" ? "active" : ""} onClick={() => setFilter("upcoming")}><span className="operations-summary-icon open"><CalendarDays size={18} aria-hidden="true" /></span><span><small>{t("maintenance.upcoming")}</small><strong>{upcomingCount}</strong></span></button>
-      <button type="button" aria-pressed={filter === "in-progress"} className={filter === "in-progress" ? "active" : ""} onClick={() => setFilter("in-progress")}><span className="operations-summary-icon progress"><Clock3 size={18} aria-hidden="true" /></span><span><small>{t("maintenance.status.in-progress")}</small><strong>{inProgressCount}</strong></span></button>
-      <button type="button" aria-pressed={filter === "completed"} className={filter === "completed" ? "active" : ""} onClick={() => setFilter("completed")}><span className="operations-summary-icon resolved"><ShieldCheck size={18} aria-hidden="true" /></span><span><small>{t("maintenance.awaitingVerification")}</small><strong>{completedCount}</strong></span></button>
-    </section>
+    <details className="panel maintenance-summary-disclosure" open={filter !== "active" || undefined}>
+      <summary><span className={`operations-summary-icon${overdueCount > 0 ? " critical" : ""}`}>{overdueCount > 0 ? <AlertTriangle size={18} aria-hidden="true" /> : <Wrench size={18} aria-hidden="true" />}</span><span><strong>{overdueCount > 0 ? `${t("maintenance.overdue")} · ${overdueCount}` : `${t("maintenance.allActive")} · ${active.length}`}</strong><small>{t("maintenance.viewStatuses")}</small></span><ChevronDown className="disclosure-chevron" size={17} aria-hidden="true" /></summary>
+      <section className="operations-summary maintenance-summary" aria-label={t("maintenance.summary") }>
+      <button type="button" aria-pressed={filter === "active"} className={filter === "active" ? "active" : ""} onClick={() => selectFilter("active")}><span className="operations-summary-icon"><Wrench size={18} aria-hidden="true" /></span><span><small>{t("maintenance.allActive")}</small><strong>{active.length}</strong></span></button>
+      <button type="button" aria-pressed={filter === "overdue"} className={filter === "overdue" ? "active attention" : overdueCount > 0 ? "attention" : ""} onClick={() => selectFilter("overdue")}><span className="operations-summary-icon critical"><AlertTriangle size={18} aria-hidden="true" /></span><span><small>{t("maintenance.overdue")}</small><strong>{overdueCount}</strong></span></button>
+      <button type="button" aria-pressed={filter === "upcoming"} className={filter === "upcoming" ? "active" : ""} onClick={() => selectFilter("upcoming")}><span className="operations-summary-icon open"><CalendarDays size={18} aria-hidden="true" /></span><span><small>{t("maintenance.upcoming")}</small><strong>{upcomingCount}</strong></span></button>
+      <button type="button" aria-pressed={filter === "in-progress"} className={filter === "in-progress" ? "active" : ""} onClick={() => selectFilter("in-progress")}><span className="operations-summary-icon progress"><Clock3 size={18} aria-hidden="true" /></span><span><small>{t("maintenance.status.in-progress")}</small><strong>{inProgressCount}</strong></span></button>
+      <button type="button" aria-pressed={filter === "completed"} className={filter === "completed" ? "active" : ""} onClick={() => selectFilter("completed")}><span className="operations-summary-icon resolved"><ShieldCheck size={18} aria-hidden="true" /></span><span><small>{t("maintenance.awaitingVerification")}</small><strong>{completedCount}</strong></span></button>
+      </section>
+    </details>
 
     {!readOnly && editorOpen && <TaskEditor key={`${propertyId}:${editingTask?.id ?? seedObservation?.id ?? "new"}`} propertyId={propertyId} houses={houses} defaultHouseId={defaultHouseId} observations={observations} areas={areas} equipment={equipment} {...(editingTask ? { task: editingTask } : {})} {...(!editingTask && seedObservation ? { seedObservation } : {})} onCreate={props.onCreateTask} onUpdate={props.onUpdateTask} onReload={props.onReloadTask} onSaved={closeEditor} onCancel={closeEditor} />}
 
     <section className="panel maintenance-workspace" aria-labelledby="maintenance-work-plan-title">
       <div className="maintenance-workspace-heading"><div><span className="eyebrow">{t("maintenance.workPlanEyebrow")}</span><h2 id="maintenance-work-plan-title">{t("maintenance.workPlan")}</h2></div><span>{t("maintenance.activeCount", { count: active.length })}</span></div>
-      <div className="operations-toolbar"><label className="field operations-search-field"><span>{t("maintenance.search")}</span><span className="operations-search"><Search size={16} aria-hidden="true" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("maintenance.searchPlaceholder")} /></span></label><label className="field operations-filter"><span>{t("maintenance.basis")}</span><select value={basisFilter} onChange={(event) => setBasisFilter(event.target.value as typeof basisFilter)}><option value="all">{t("maintenance.allBases")}</option>{bases.map((basis) => <option key={basis} value={basis}>{t(`maintenance.basis.${basis}` as TranslationKey)}</option>)}</select></label></div>
+      <details className="maintenance-filter-disclosure" open={Boolean(search || basisFilter !== "all") || undefined}><summary><Search size={15} aria-hidden="true" /><span><strong>{t("maintenance.filters")}</strong><small>{t("maintenance.filtersHelp")}</small></span><ChevronDown className="disclosure-chevron" size={16} aria-hidden="true" /></summary><div className="operations-toolbar"><label className="field operations-search-field"><span>{t("maintenance.search")}</span><span className="operations-search"><Search size={16} aria-hidden="true" /><input type="search" value={search} onChange={(event) => updateSearch(event.target.value)} placeholder={t("maintenance.searchPlaceholder")} /></span></label><label className="field operations-filter"><span>{t("maintenance.basis")}</span><select value={basisFilter} onChange={(event) => selectBasisFilter(event.target.value as typeof basisFilter)}><option value="all">{t("maintenance.allBases")}</option>{bases.map((basis) => <option key={basis} value={basis}>{t(`maintenance.basis.${basis}` as TranslationKey)}</option>)}</select></label></div></details>
       {visible.length === 0 ? <div className="operations-empty"><Wrench size={25} aria-hidden="true" /><strong>{t("maintenance.emptyTitle")}</strong><p>{t("maintenance.emptyDescription")}</p></div> : <div className="maintenance-groups">{group(t("maintenance.verificationNeeded"), verification, <ShieldCheck size={18} aria-hidden="true" />)}{group(t("maintenance.overdue"), overdue, <AlertTriangle size={18} aria-hidden="true" />)}{group(t("maintenance.pastPlanned"), pastPlanned, <Clock3 size={18} aria-hidden="true" />)}{group(t("maintenance.upcoming"), upcoming, <CalendarDays size={18} aria-hidden="true" />)}{group(t("maintenance.unscheduled"), unscheduled, <Clock3 size={18} aria-hidden="true" />)}</div>}
     </section>
     {history.length > 0 && <details className="panel maintenance-history"><summary><span><History size={17} aria-hidden="true" /><span><strong>{t("maintenance.history")}</strong><small>{t("maintenance.historyCount", { count: history.length })}</small></span></span><ChevronDown size={17} aria-hidden="true" /></summary><div>{history.map((task) => <TaskCard key={task.id} task={task} houses={houses} fallbackTimeZone={fallbackTimeZone} observations={observations} areas={areas} equipment={equipment} readOnly={readOnly} onEdit={() => openEditor(task.id)} onUpdate={props.onUpdateTask} onReload={props.onReloadTask} onLoadRevisions={props.onLoadTaskRevisions} />)}</div></details>}

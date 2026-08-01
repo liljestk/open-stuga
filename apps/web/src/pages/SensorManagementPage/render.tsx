@@ -78,10 +78,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
       <>
         <header className="page-heading sensor-page-heading">
           <div><span className="eyebrow"><RadioTower size={14} aria-hidden="true" />{t("sensors.eyebrow")}</span><h1 ref={pageHeadingRef} tabIndex={-1}>{t("sensors.title")}</h1><p>{t("sensors.description")}</p></div>
-          {!readOnly && (currentSensors.length > 0 || mappedContactDevices.length > 0 || demoSensors.length > 0) && <div className="sensor-heading-actions">
-            {demoSensors.length > 0 && <button type="button" className="secondary-button delete-action" onClick={() => void removeDemoSensors()} disabled={mode !== "closed" || cleanupBusy}>{cleanupBusy ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}{cleanupBusy ? t("sensors.removingDemoSensors") : t("sensors.removeDemoSensors", { count: demoSensors.length })}</button>}
-            {currentSensors.length > 0 && <button type="button" className={addableDevices.length > 0 || availableContactDevices.length > 0 ? "secondary-button" : "primary-button"} onClick={beginAdd} disabled={mode !== "closed" || cleanupBusy}><Plus size={16} aria-hidden="true" />{t("sensors.add")}</button>}
-          </div>}
+          {!readOnly && (currentSensors.length > 0 || mappedContactDevices.length > 0) && <button type="button" className={addableDevices.length > 0 || availableContactDevices.length > 0 ? "secondary-button" : "primary-button"} onClick={beginAdd} disabled={mode !== "closed" || cleanupBusy}><Plus size={16} aria-hidden="true" />{t("sensors.add")}</button>}
         </header>
 
         {!readOnly && localAuthority && importOpen && <Suspense fallback={<output className="history-import-loading"><LoaderCircle className="spin" size={18} aria-hidden="true" />{t("common.loading")}</output>}>
@@ -96,6 +93,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
         </Suspense>}
 
         {pageFeedback && <p className={`sensor-page-feedback ${pageFeedback.kind}`} role={pageFeedback.kind === "error" ? "alert" : "status"}>{pageFeedback.kind === "error" ? <TriangleAlert size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{pageFeedback.message}<button type="button" className="icon-button small" onClick={() => setPageFeedback(null)} aria-label={t("common.close")}><X size={14} /></button></p>}
+        {!readOnly && localAuthority && (tpLinkDevicesError || refreshError) && <p className="sensor-page-feedback error" role="alert"><TriangleAlert size={16} aria-hidden="true" />{refreshError || tpLinkDevicesError}</p>}
         {context.canManageIntegrations && <Nexus433SendersPanel house={house} sensors={currentSensors} readOnly={readOnly || !localAuthority} onAddSensor={beginAdd} />}
 
         {!readOnly && localAuthority && contactSetupDevice && <TpLinkContactAssignment
@@ -154,25 +152,19 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
           </button>
         </section>}
 
-        {!readOnly && localAuthority && tpLinkStatus.configured && <section
-          className={`sensor-discovery-watch ${tpLinkStatus.connected ? "active" : "waiting"}`}
+        {!readOnly && localAuthority && tpLinkStatus.configured && !tpLinkStatus.connected && <section
+          className="sensor-discovery-watch waiting"
           role="region"
           aria-label={t("sensors.discoveryStatus")}
         >
           <span className="sensor-discovery-watch-icon" aria-hidden="true">
             {tpLinkDevicesLoading || refreshing
               ? <LoaderCircle className="spin" size={19} />
-              : tpLinkStatus.connected
-                ? <RadioTower size={19} />
-                : <RefreshCw className="spin" size={19} />}
+              : <RefreshCw className="spin" size={19} />}
           </span>
           <span>
-            <strong>{t(tpLinkStatus.connected ? "sensors.discoveryWatchingTitle" : "sensors.discoveryPausedTitle")}</strong>
-            <small>{tpLinkStatus.connected
-              ? tpLinkStatus.lastPollAt
-                ? t("sensors.discoveryLastChecked", { time: formatInTimeZone(tpLinkStatus.lastPollAt, locale, house.timezone, { hour: "2-digit", minute: "2-digit", second: "2-digit" }) })
-                : t("sensors.discoveryStarting")
-              : t("sensors.discoveryPaused")}</small>
+            <strong>{t("sensors.discoveryPausedTitle")}</strong>
+            <small>{t("sensors.discoveryPaused")}</small>
           </span>
           <button type="button" className="secondary-button" disabled={tpLinkDevicesLoading || refreshing} onClick={() => void refreshDevices()}>
             <RefreshCw className={tpLinkDevicesLoading || refreshing ? "spin" : ""} size={15} aria-hidden="true" />{t("sensors.refreshDeviceList")}
@@ -180,11 +172,33 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
         </section>}
 
         <section className="sensor-overview" aria-label={t("sensors.overview") }>
-          <button type="button" className={filter === "waiting" ? "active" : ""} aria-pressed={filter === "waiting"} onClick={() => setFilter("waiting")}><span className="sensor-overview-icon waiting"><TriangleAlert size={18} aria-hidden="true" /></span><span><small>{t("sensors.waiting")}</small><strong>{statusCounts.waiting}</strong></span></button>
-          <button type="button" className={filter === "unplaced" ? "active" : ""} aria-pressed={filter === "unplaced"} onClick={() => setFilter("unplaced")}><span className="sensor-overview-icon unplaced"><MapPin size={18} aria-hidden="true" /></span><span><small>{t("sensors.unplaced")}</small><strong>{statusCounts.unplaced}</strong></span></button>
-          <button type="button" className={filter === "live" ? "active" : ""} aria-pressed={filter === "live"} onClick={() => setFilter("live")}><span className="sensor-overview-icon live"><CircleDot size={18} aria-hidden="true" /></span><span><small>{t("sensors.live")}</small><strong>{statusCounts.live}</strong></span></button>
-          <button type="button" className={filter === "archived" ? "active" : ""} aria-pressed={filter === "archived"} onClick={() => setFilter("archived")}><span className="sensor-overview-icon archived"><Archive size={18} aria-hidden="true" /></span><span><small>{t("sensors.archived")}</small><strong>{statusCounts.archived}</strong></span></button>
+          <button type="button" className={filter === "waiting" ? "active" : ""} aria-pressed={filter === "waiting"} onClick={() => context.selectSensorFilter("waiting")}><span className="sensor-overview-icon waiting"><TriangleAlert size={18} aria-hidden="true" /></span><span><small>{t("sensors.waiting")}</small><strong>{statusCounts.waiting}</strong></span></button>
+          <button type="button" className={filter === "unplaced" ? "active" : ""} aria-pressed={filter === "unplaced"} onClick={() => context.selectSensorFilter("unplaced")}><span className="sensor-overview-icon unplaced"><MapPin size={18} aria-hidden="true" /></span><span><small>{t("sensors.unplaced")}</small><strong>{statusCounts.unplaced}</strong></span></button>
+          <button type="button" className={filter === "live" ? "active" : ""} aria-pressed={filter === "live"} onClick={() => context.selectSensorFilter("live")}><span className="sensor-overview-icon live"><CircleDot size={18} aria-hidden="true" /></span><span><small>{t("sensors.live")}</small><strong>{statusCounts.live}</strong></span></button>
+          <button type="button" className={filter === "archived" ? "active" : ""} aria-pressed={filter === "archived"} onClick={() => context.selectSensorFilter("archived")}><span className="sensor-overview-icon archived"><Archive size={18} aria-hidden="true" /></span><span><small>{t("sensors.archived")}</small><strong>{statusCounts.archived}</strong></span></button>
         </section>
+
+        {!readOnly && localAuthority && <details className="panel sensor-management-disclosure">
+          <summary>
+            <span><RadioTower size={17} aria-hidden="true" /><span><strong>{t("sensors.manageConnections")}</strong><small>{t("sensors.manageConnectionsBody", { sensors: currentSensors.length + mappedContactDevices.length, devices: homeTpLinkDevices.length })}</small></span></span>
+            <ChevronDown size={17} aria-hidden="true" />
+          </summary>
+          <div className="sensor-management-body">
+            {(currentSensors.length > 0 || demoSensors.length > 0) && <div className="sensor-management-actions" role="group" aria-label={t("sensors.manageConnections") }>
+              {localAuthority && currentSensors.length > 0 && <button ref={importButtonRef} type="button" className="secondary-button" disabled={mode !== "closed"} onClick={() => setImportOpen(true)}><FileSpreadsheet size={16} aria-hidden="true" />{t("historyImport.open")}</button>}
+              {demoSensors.length > 0 && <button type="button" className="secondary-button delete-action" onClick={() => void removeDemoSensors()} disabled={mode !== "closed" || cleanupBusy}>{cleanupBusy ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}{cleanupBusy ? t("sensors.removingDemoSensors") : t("sensors.removeDemoSensors", { count: demoSensors.length })}</button>}
+            </div>}
+            {localAuthority && tpLinkStatus.configured && tpLinkStatus.connected && <section className="sensor-management-connection" aria-label={t("sensors.discoveryStatus") }>
+              <div className="sensor-bridge-status"><span className={`status-pulse ${tpLinkStatus.connected ? "live" : "reconnecting"}`} aria-hidden="true" /><span><strong>{tpLinkStatus.connected ? t("common.connected") : t("status.reconnecting")}</strong><small>{tpLinkStatus.connected
+                ? tpLinkStatus.lastPollAt
+                  ? t("sensors.discoveryLastChecked", { time: formatInTimeZone(tpLinkStatus.lastPollAt, locale, house.timezone, { hour: "2-digit", minute: "2-digit", second: "2-digit" }) })
+                  : t("sensors.discoveryStarting")
+                : t("sensors.discoveryPaused")}</small></span></div>
+              {(tpLinkDevicesLoading || refreshing) && <p className="sensor-discovery-loading" role="status"><LoaderCircle className="spin" size={15} aria-hidden="true" />{t("sensors.refreshing")}</p>}
+              <button type="button" className="secondary-button" disabled={tpLinkDevicesLoading || refreshing} onClick={() => void refreshDevices()}><RefreshCw className={tpLinkDevicesLoading || refreshing ? "spin" : ""} size={15} aria-hidden="true" />{t("sensors.refreshDevices")}</button>
+            </section>}
+          </div>
+        </details>}
 
         {!readOnly && mode === "add" && renderAddEditor()}
         {!readOnly && mode === "edit" && renderEditEditor()}
@@ -202,7 +216,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
         {visibleDetailsSensor && <section id="sensor-details-panel" className="panel sensor-details-panel" aria-labelledby="sensor-details-title">
           <header>
             <div><span className="eyebrow">{t(visibleDetailsIsContactSensor ? "sensors.contactDevice" : "sensors.dataAndLogs")}</span><h2 ref={detailsHeadingRef} id="sensor-details-title" tabIndex={-1}>{visibleDetailsSensor.name}</h2><small>{visibleDetailsSensor.id}</small></div>
-            <button type="button" className="icon-button" onClick={closeSensorDetails} aria-label={t("common.close")}><X size={17} /></button>
+            <button type="button" className="icon-button" onClick={() => closeSensorDetails()} aria-label={t("common.close")}><X size={17} /></button>
           </header>
           {visibleDetailsIsContactSensor ? <>
             <div className="sensor-details-summary">
@@ -257,7 +271,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
                 definition={detailDefinition}
                 units={units}
                 range={detailRange}
-                onRange={setDetailRange}
+                onRange={context.selectDetailRange}
                 timeZone={house.timezone}
                 heading={measurementLabel(detailDefinition, locale)}
               />
@@ -290,7 +304,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
           </footer>
         </section>}
 
-        <div className="sensor-workspace">
+        <div className="sensor-workspace simplified">
           {currentSensors.length === 0 && mappedContactDevices.length === 0 ? <section className="panel sensor-help-card" aria-labelledby="sensor-zero-title">
             <span className="sensor-help-icon"><ThermometerSun size={20} aria-hidden="true" /></span>
             <div><span className="eyebrow">{t("sensors.inventory")}</span><h2 id="sensor-zero-title">{t("sensors.easySetup")}</h2><p>{t("sensors.easySetupHelp")}</p>{!readOnly && mode === "closed" && <button type="button" className={addableDevices.length > 0 || availableContactDevices.length > 0 ? "secondary-button" : "primary-button"} onClick={beginAdd}><Plus size={15} aria-hidden="true" />{t("sensors.startSetup")}</button>}</div>
@@ -300,7 +314,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
             </div>
             <div className="sensor-list-controls">
               <label className="field sensor-search-field"><span>{t("sensors.search")}</span><span className="sensor-search"><Search size={16} aria-hidden="true" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("sensors.searchPlaceholder")} /></span></label>
-              <label className="field sensor-filter"><span>{t("sensors.filterStatus")}</span><select value={filter} onChange={(event) => setFilter(event.target.value as SensorFilter)}><option value="all">{t("sensors.filterAll")}</option><option value="live">{t("sensors.filterLive")}</option><option value="waiting">{t("sensors.filterWaiting")}</option><option value="unplaced">{t("sensors.filterUnplaced")}</option><option value="archived">{t("sensors.filterArchived")}</option></select></label>
+              <label className="field sensor-filter"><span>{t("sensors.filterStatus")}</span><select value={filter} onChange={(event) => context.selectSensorFilter(event.target.value as SensorFilter)}><option value="all">{t("sensors.filterAll")}</option><option value="live">{t("sensors.filterLive")}</option><option value="waiting">{t("sensors.filterWaiting")}</option><option value="unplaced">{t("sensors.filterUnplaced")}</option><option value="archived">{t("sensors.filterArchived")}</option></select></label>
               <label className="field sensor-filter"><span>{t("sensors.filterType")}</span><select value={modelFilter} onChange={(event) => setModelFilter(event.target.value)}><option value="">{t("sensors.filterTypeAll")}</option>{sensorModels.map((model) => <option key={model} value={model}>{model}</option>)}</select></label>
             </div>
             {visibleSensors.length > 0 || visibleContactDevices.length > 0 ? (
@@ -327,7 +341,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
                         className="secondary-button"
                         disabled={cleanupBusy}
                         aria-expanded={detailsContactKey === deviceBindingKey(device.deviceId, device.connectionId)}
-                        aria-controls="sensor-details-panel"
+                        aria-controls={detailsContactKey === deviceBindingKey(device.deviceId, device.connectionId) ? "sensor-details-panel" : undefined}
                         onClick={() => openContactDetails(device)}
                       ><Database size={14} aria-hidden="true" />{t("sensors.detailsAction", { name })}</button>
                       {!readOnly && localAuthority && <button type="button" className="secondary-button" disabled={cleanupBusy || mode !== "closed"} onClick={() => beginContactSetup(device)}><Edit3 size={14} aria-hidden="true" />{t("sensors.contactManageAction")}</button>}
@@ -353,7 +367,7 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
                           : sensor.tpLinkDeviceId ? ` · ${t("sensors.boundTo", { id: sensor.tpLinkDeviceId })}` : ` · ${t("sensors.manual")}`}{lastTimestamp ? ` · ${t("sensors.lastSeen", { time: formatInTimeZone(lastTimestamp, locale, sensorTimeZone, { dateStyle: "short", timeStyle: "short" }) })}` : ""}</small>
                       </div>
                       <div className="sensor-list-actions">
-                        <button type="button" className="secondary-button" disabled={cleanupBusy} aria-expanded={visibleDetailsSensor?.id === sensor.id} aria-controls="sensor-details-panel" onClick={() => void loadSensorDetails(sensor)}><Database size={14} aria-hidden="true" />{t("sensors.detailsAction", { name: sensor.name })}</button>
+                        <button type="button" className="secondary-button" disabled={cleanupBusy} aria-expanded={visibleDetailsSensor?.id === sensor.id} aria-controls={visibleDetailsSensor?.id === sensor.id ? "sensor-details-panel" : undefined} onClick={() => void loadSensorDetails(sensor)}><Database size={14} aria-hidden="true" />{t("sensors.detailsAction", { name: sensor.name })}</button>
                       </div>
                     </li>
                   );
@@ -362,21 +376,6 @@ export function renderSensorManagementPage(context: ReturnType<typeof useSensorM
             ) : <div className="sensor-list-empty"><Search size={22} aria-hidden="true" /><strong>{t("sensors.noMatches")}</strong><p>{t("sensors.noMatchesHelp")}</p></div>}
           </section>}
 
-          {!readOnly && localAuthority && <aside className="sensor-side-column">
-            {currentSensors.length > 0 && <details className="panel sensor-import-card">
-              <summary><span><FileSpreadsheet size={16} aria-hidden="true" /><strong>{t("historyImport.open")}</strong></span><ChevronDown size={16} aria-hidden="true" /></summary>
-              <button ref={importButtonRef} type="button" className="secondary-button full-width" disabled={mode !== "closed"} onClick={() => setImportOpen(true)}><FileSpreadsheet size={16} aria-hidden="true" />{t("historyImport.open")}</button>
-            </details>}
-            <details className="panel sensor-discovery-card" aria-labelledby="sensor-discovery-title">
-              <summary><span><RadioTower size={17} aria-hidden="true" /><strong id="sensor-discovery-title">{t("sensors.discovery")}</strong><small>{t("sensors.discoveryCount", { available: addableDevices.length, total: homeTpLinkDevices.length })}</small></span><ChevronDown size={16} aria-hidden="true" /></summary>
-              <div>
-                <div className="sensor-bridge-status"><span className={`status-pulse ${tpLinkStatus.connected ? "live" : "reconnecting"}`} aria-hidden="true" /><span><strong>{tpLinkStatus.connected ? t("common.connected") : t("status.reconnecting")}</strong><small>{t("sensors.tpLinkBridgeScope")}</small></span></div>
-                {(tpLinkDevicesError || refreshError) && <p className="sensor-discovery-error" role="alert"><TriangleAlert size={15} aria-hidden="true" />{refreshError || tpLinkDevicesError}</p>}
-                {(tpLinkDevicesLoading || refreshing) && <p className="sensor-discovery-loading" role="status"><LoaderCircle className="spin" size={15} aria-hidden="true" />{t("sensors.refreshing")}</p>}
-                <button type="button" className="secondary-button full-width" disabled={tpLinkDevicesLoading || refreshing} onClick={() => void refreshDevices()}><RefreshCw className={tpLinkDevicesLoading || refreshing ? "spin" : ""} size={15} aria-hidden="true" />{t("sensors.refreshDevices")}</button>
-              </div>
-            </details>
-          </aside>}
         </div>
       </>
     );

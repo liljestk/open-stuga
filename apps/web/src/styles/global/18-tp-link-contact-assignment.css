@@ -113,7 +113,7 @@
   margin: 16px 18px;
   padding: 16px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--panel-soft);
 }
 
@@ -193,7 +193,7 @@
 
 .sensor-contact-details dt {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -226,7 +226,7 @@
   max-height: min(52vh, 560px);
   display: block;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--panel-soft);
 }
 

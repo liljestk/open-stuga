@@ -29,26 +29,28 @@
   .summary-strip { margin-bottom: 11px; }
   .summary-item { gap: 8px; padding: 0 9px; }
   .summary-item strong { font-size: 14px; }
-  .summary-item small { font-size: 9px; }
+  .summary-item small { font-size: 10px; }
   .summary-icon { width: 28px; height: 28px; }
   .twin-toolbar { min-height: 0; gap: 10px; padding: 10px; background: linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel-soft) 56%, var(--panel))); }
   .toolbar-context { width: 100%; display: grid; gap: 9px; }
-  .toolbar-title { width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 1px 2px; }
+  .toolbar-title { width: 100%; min-width: 0; display: grid; padding: 1px 2px; }
   .toolbar-title strong { min-height: 32px; color: var(--muted); font-size: 11px; font-weight: 650; }
   .toolbar-floor-picker { width: 100%; display: grid; grid-template-columns: 62px minmax(0, 1fr); align-items: center; gap: 8px; color: var(--ink); font-size: 12px; font-weight: 700; }
-  .toolbar-floor-picker select { min-width: 0; min-height: 40px; height: 40px; border-radius: 9px; font-size: 14px; }
+  .toolbar-floor-picker select { min-width: 0; min-height: 40px; height: 40px; border-radius: var(--radius-sm); font-size: 14px; }
+  .toolbar-static-floor { width: 100%; display: grid; grid-template-columns: 62px minmax(0, 1fr); align-items: center; gap: 8px; color: var(--ink); font-size: 12px; font-weight: 700; }
+  .toolbar-static-floor strong { min-width: 0; min-height: 40px; color: var(--ink); font-size: 14px; }
   .metric-picker { width: 100%; min-width: 0; display: grid; grid-template-columns: 62px minmax(0, 1fr); align-items: center; gap: 8px; color: var(--ink); font-size: 12px; font-weight: 700; }
-  .metric-picker select { width: 100%; min-width: 0; max-width: none; min-height: 40px; height: 40px; border-radius: 9px; font-size: 14px; }
-  .toolbar-groups { width: 100%; display: grid; gap: 8px; }
-  .toolbar-view-controls { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 8px; }
-  .toolbar-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-  .segmented { width: 100%; min-width: 0; flex: none; border-radius: 10px; }
-  .segmented button { min-width: 0; flex: 1; justify-content: center; padding: 0 6px; border-radius: 7px; }
-  .toolbar-view-controls > .segmented:not(.compact):last-child { grid-column: 1 / -1; }
-  .map-device-layers { min-width: 0; }
-  .map-device-layers button { width: 100%; min-height: 40px; }
-  .twin-full-page-button { width: 100%; grid-column: 1 / -1; }
-  .toolbar-actions > .primary-button, .toolbar-actions > .secondary-button { width: 100%; min-width: 0; flex: none; }
+  .metric-picker select { width: 100%; min-width: 0; max-width: none; min-height: 40px; height: 40px; border-radius: var(--radius-sm); font-size: 14px; }
+  .toolbar-navigation { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .toolbar-view-controls { grid-column: 1 / -1; }
+  .toolbar-edit-actions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .segmented { width: 100%; min-width: 0; flex: none; border-radius: var(--radius); }
+  .segmented button { min-width: 0; flex: 1; justify-content: center; padding: 0 6px; border-radius: var(--radius-sm); }
+  .twin-view-options, .twin-close-live-view { width: 100%; min-width: 0; grid-column: 1 / -1; }
+  .twin-view-options > summary, .twin-close-live-view { width: 100%; min-width: 0; justify-content: center; }
+  .twin-view-options-menu { position: static; width: 100%; min-width: 0; margin-top: 8px; box-shadow: var(--shadow); }
+  .twin-view-option-actions { grid-template-columns: 1fr; }
+  .toolbar-edit-actions > .primary-button, .toolbar-edit-actions > .secondary-button { width: 100%; min-width: 0; }
   .plan-stage, .floor-plan { min-height: 320px; }
   .floor-plan.monitoring { touch-action: pan-y; }
   .floor-plan.direct-manipulation { touch-action: none; }
@@ -86,6 +88,7 @@
   .thermal-legend { justify-content: flex-start; }
   .simulation-warnings { grid-template-columns: 1fr; }
   .side-stack, .setup-side, .developer-grid { grid-template-columns: 1fr; }
+  .field-row { grid-template-columns: 1fr; }
   .setup-workspace-tabs { grid-template-columns: 1fr 1fr; margin-bottom: 14px; }
   .setup-workspace-tabs > button { min-height: 52px; padding: 7px 9px; }
   .setup-workspace-tabs > button:last-child:nth-child(odd) { grid-column: 1 / -1; }
@@ -159,6 +162,10 @@
   .icon-button.small { width: 40px; height: 40px; }
   .sensor-overview { grid-template-columns: 1fr 1fr; }
   .sensor-overview > button { min-height: 62px; padding: 9px 11px; }
+  .sensor-management-actions { display: grid; grid-template-columns: 1fr; }
+  .sensor-management-actions > button { width: 100%; }
+  .sensor-management-connection { grid-template-columns: 1fr; }
+  .sensor-management-connection > .secondary-button { width: 100%; }
   .sensor-list-header { align-items: stretch; flex-direction: column; }
   .sensor-house-picker { width: 100%; }
   .sensor-list-controls { grid-template-columns: 1fr; }
@@ -184,7 +191,7 @@
   .sensor-editor-actions > span { display: none; }
   .sensor-editor-actions > button { width: 100%; }
   .history-import-backdrop { padding: 0; place-items: stretch; }
-  .history-import-dialog { width: 100%; max-height: 100vh; border: 0; border-radius: 0; }
+  .history-import-dialog { width: 100%; max-height: 100vh; max-height: 100dvh; border: 0; border-radius: 0; }
   .history-import-header { padding: 16px 15px 13px; }
   .history-import-header h2 { font-size: 19px; }
   .history-import-stepper { padding: 0 20px 13px; }
@@ -231,6 +238,10 @@
 
 @media (max-width: 360px) {
   .main-content { padding-inline: 9px; }
+  .history-import-map-list > div { grid-template-columns: minmax(0, 1fr) auto; }
+  .history-import-map-list > div > label,
+  .history-import-map-list > div > label:last-child { min-width: 0; grid-column: 1 / -1; }
+  .history-import-map-list > div > svg { justify-self: end; }
   .building-scene-controls .building-orbit-controls { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .building-orbit-controls .building-reset { grid-column: 1 / -1; grid-row: 2; }
   .building-scene-controls .building-zoom { grid-row: 3; }
@@ -353,7 +364,7 @@
   .building-plan-element.door .building-element-front { fill: #8c6747; stroke: #d0a77f; }
   .building-plan-element.fireplace .building-element-front { fill: #77716a; stroke: #d1ccc4; }
   .building-floor-label rect, .vertical-gradient rect { fill: rgb(27 29 25 / .96); stroke: #55594f; }
-  .building-sensor-ring { fill: rgb(27 29 25 / .92); stroke: var(--pine); }
+  .building-sensor-ring { fill: rgb(27 29 25 / .92); stroke: var(--action); }
   .building-sensor.selected .building-sensor-ring { fill: #2d3f60; }
   .building-sensor-name { fill: #f4f2ec; stroke: rgb(20 21 18 / .95); }
   .building-sensor-energy-stats { fill: #ffc27d; stroke: rgb(20 21 18 / .95); }
@@ -390,6 +401,7 @@
 
 
 .portfolio-property > .portfolio-attention-zone,
+.portfolio-property > .portfolio-unknown-zone,
 .portfolio-property > .portfolio-system-summary {
   margin: 0;
 }
@@ -477,7 +489,7 @@
   color: var(--orange);
   padding: 0.35rem 0.55rem;
   font-size: 0.72rem;
-  font-weight: 750;
+  font-weight: 700;
   white-space: nowrap;
 }
 

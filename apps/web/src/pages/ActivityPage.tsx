@@ -13,6 +13,39 @@ type ObservationFilter = "all" | "open" | "resolved" | "critical";
 type ActivityTab = "timeline" | "observations";
 
 const activityTabs: ActivityTab[] = ["timeline", "observations"];
+const observationFilters: ObservationFilter[] = ["all", "open", "resolved", "critical"];
+
+interface ActivityLocationState {
+  tab: ActivityTab;
+  statusFilter: ObservationFilter;
+  search: string;
+}
+
+function activityStateFromLocation(): ActivityLocationState {
+  if (typeof window === "undefined") return { tab: "timeline", statusFilter: "all", search: "" };
+  const params = new URLSearchParams(window.location.search);
+  const requestedStatus = params.get("status");
+  return {
+    tab: params.get("view") === "observations" ? "observations" : "timeline",
+    statusFilter: observationFilters.includes(requestedStatus as ObservationFilter)
+      ? requestedStatus as ObservationFilter
+      : "all",
+    search: params.get("search")?.trim() ?? "",
+  };
+}
+
+function writeActivityState(state: ActivityLocationState, mode: "push" | "replace"): void {
+  const url = new URL(window.location.href);
+  if (state.tab === "observations") url.searchParams.set("view", state.tab);
+  else url.searchParams.delete("view");
+  if (state.statusFilter === "all") url.searchParams.delete("status");
+  else url.searchParams.set("status", state.statusFilter);
+  if (state.search.trim()) url.searchParams.set("search", state.search.trim());
+  else url.searchParams.delete("search");
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (next !== current) window.history[`${mode}State`](window.history.state, "", next);
+}
 
 interface ActivityPageProps {
   state: ClimateState;
@@ -35,17 +68,32 @@ function observedLabel(observation: ManualObservation, locale: string, timeZone:
 
 export function ActivityPage(props: Readonly<ActivityPageProps>) {
   const { locale, t } = useI18n();
-  const [tab, setTab] = useState<ActivityTab>("timeline");
+  const initialLocationState = useMemo(activityStateFromLocation, []);
+  const [tab, setTab] = useState<ActivityTab>(initialLocationState.tab);
   const [composerOpen, setComposerOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<ObservationFilter>("all");
-  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<ObservationFilter>(initialLocationState.statusFilter);
+  const [search, setSearch] = useState(initialLocationState.search);
   const [announcement, setAnnouncement] = useState("");
   const composerButtonRef = useRef<HTMLButtonElement>(null);
   const tabRefs = useRef<Record<ActivityTab, HTMLButtonElement | null>>({ timeline: null, observations: null });
   const weather = useHouseWeather(props.house);
   const readOnly = props.readOnly ?? false;
+  useEffect(() => {
+    const expectedPathname = window.location.pathname;
+    const restoreState = () => {
+      if (window.location.pathname !== expectedPathname) return;
+      const next = activityStateFromLocation();
+      setTab(next.tab);
+      setStatusFilter(next.statusFilter);
+      setSearch(next.search);
+      writeActivityState(next, "replace");
+    };
+    restoreState();
+    window.addEventListener("popstate", restoreState);
+    return () => window.removeEventListener("popstate", restoreState);
+  }, [props.house.id]);
   useEffect(() => {
     if (!readOnly) return;
     setComposerOpen(false);
@@ -85,6 +133,22 @@ export function ActivityPage(props: Readonly<ActivityPageProps>) {
     window.setTimeout(() => composerButtonRef.current?.focus(), 0);
   };
 
+  const activateTab = (next: ActivityTab) => {
+    if (next === tab) return;
+    setTab(next);
+    writeActivityState({ tab: next, statusFilter, search }, "push");
+  };
+
+  const selectStatusFilter = (next: ObservationFilter) => {
+    setStatusFilter(next);
+    writeActivityState({ tab, statusFilter: next, search }, "push");
+  };
+
+  const updateSearch = (next: string) => {
+    setSearch(next);
+    writeActivityState({ tab, statusFilter, search: next }, "replace");
+  };
+
   const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, current: ActivityTab) => {
     if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
@@ -95,7 +159,7 @@ export function ActivityPage(props: Readonly<ActivityPageProps>) {
         ? activityTabs.length - 1
         : (currentIndex + (["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : -1) + activityTabs.length) % activityTabs.length;
     const next = activityTabs[nextIndex]!;
-    setTab(next);
+    activateTab(next);
     tabRefs.current[next]?.focus();
   };
 
@@ -103,14 +167,14 @@ export function ActivityPage(props: Readonly<ActivityPageProps>) {
     <div className="page-stack operations-page activity-page">
       <header className="page-heading operations-heading">
         <div><span className="eyebrow"><Eye size={14} aria-hidden="true" />{props.house.name}</span><h1>{t("activity.pageTitle")}</h1><p>{t("activity.pageDescription")}</p></div>
-        {!readOnly && <button ref={composerButtonRef} type="button" className="primary-button" aria-expanded={composerOpen} onClick={() => composerOpen ? closeComposer() : setComposerOpen(true)}>{composerOpen ? <X size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}{t(composerOpen ? "common.close" : "observations.add")}</button>}
+        {!readOnly && <button ref={composerButtonRef} type="button" className="primary-button" aria-expanded={composerOpen} aria-controls={composerOpen ? "activity-observation-composer" : undefined} onClick={() => composerOpen ? closeComposer() : setComposerOpen(true)}>{composerOpen ? <X size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}{t(composerOpen ? "common.close" : "observations.add")}</button>}
       </header>
 
-      {!readOnly && composerOpen && <ObservationComposer house={props.house} floorId={props.house.floors[0]?.id ?? ""} onCreate={props.onCreateObservation} onSaved={closeComposer} onCancel={closeComposer} />}
+      {!readOnly && composerOpen && <ObservationComposer id="activity-observation-composer" house={props.house} floorId={props.house.floors[0]?.id ?? ""} onCreate={props.onCreateObservation} onSaved={closeComposer} onCancel={closeComposer} />}
 
       <div className="operations-tabs" role="tablist" aria-label={t("activity.views") }>
-        <button ref={(node) => { tabRefs.current.timeline = node; }} type="button" role="tab" aria-selected={tab === "timeline"} aria-controls="activity-timeline-panel" id="activity-timeline-tab" tabIndex={tab === "timeline" ? 0 : -1} onClick={() => setTab("timeline")} onKeyDown={(event) => handleTabKeyDown(event, "timeline")}>{t("activity.timelineTab")}</button>
-        <button ref={(node) => { tabRefs.current.observations = node; }} type="button" role="tab" aria-selected={tab === "observations"} aria-controls="activity-observations-panel" id="activity-observations-tab" tabIndex={tab === "observations" ? 0 : -1} onClick={() => setTab("observations")} onKeyDown={(event) => handleTabKeyDown(event, "observations")}>{t("activity.observationsTab")}<span>{observations.length}</span></button>
+        <button ref={(node) => { tabRefs.current.timeline = node; }} type="button" role="tab" aria-selected={tab === "timeline"} aria-controls="activity-timeline-panel" id="activity-timeline-tab" tabIndex={tab === "timeline" ? 0 : -1} onClick={() => activateTab("timeline")} onKeyDown={(event) => handleTabKeyDown(event, "timeline")}>{t("activity.timelineTab")}</button>
+        <button ref={(node) => { tabRefs.current.observations = node; }} type="button" role="tab" aria-selected={tab === "observations"} aria-controls="activity-observations-panel" id="activity-observations-tab" tabIndex={tab === "observations" ? 0 : -1} onClick={() => activateTab("observations")} onKeyDown={(event) => handleTabKeyDown(event, "observations")}>{t("activity.observationsTab")}<span>{observations.length}</span></button>
       </div>
       <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</p>
 
@@ -131,8 +195,8 @@ export function ActivityPage(props: Readonly<ActivityPageProps>) {
       </div>
       <section className="panel observation-workspace" role="tabpanel" id="activity-observations-panel" aria-labelledby="activity-observations-tab" hidden={tab !== "observations"}>
         <div className="operations-toolbar">
-          <label className="field operations-search-field"><span>{t("activity.searchObservations")}</span><span className="operations-search"><Search size={16} aria-hidden="true" /><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("activity.searchPlaceholder")} /></span></label>
-          <label className="field operations-filter"><span>{t("observations.status")}</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as ObservationFilter)}><option value="all">{t("activity.allObservations")}</option><option value="open">{t("observations.status.open")}</option><option value="critical">{t("activity.criticalOpen")}</option><option value="resolved">{t("observations.status.resolved")}</option></select></label>
+          <label className="field operations-search-field"><span>{t("activity.searchObservations")}</span><span className="operations-search"><Search size={16} aria-hidden="true" /><input type="search" value={search} onChange={(event) => updateSearch(event.target.value)} placeholder={t("activity.searchPlaceholder")} /></span></label>
+          <label className="field operations-filter"><span>{t("observations.status")}</span><select value={statusFilter} onChange={(event) => selectStatusFilter(event.target.value as ObservationFilter)}><option value="all">{t("activity.allObservations")}</option><option value="open">{t("observations.status.open")}</option><option value="critical">{t("activity.criticalOpen")}</option><option value="resolved">{t("observations.status.resolved")}</option></select></label>
         </div>
         {filteredObservations.length === 0 ? <div className="operations-empty"><CheckCircle2 size={24} aria-hidden="true" /><strong>{t("activity.noObservationMatches")}</strong><p>{t("activity.noObservationMatchesHelp")}</p></div> : <ul className="observation-management-list">
           {filteredObservations.map((observation) => {

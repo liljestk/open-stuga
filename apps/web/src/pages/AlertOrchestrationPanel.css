@@ -22,10 +22,10 @@
 .alert-orchestration-grid li.delivered > svg, .alert-orchestration-grid li.verified > svg { color: var(--positive); }
 .alert-orchestration-grid li.failed > svg, .alert-orchestration-grid li.not-improved > svg { color: var(--red); }
 .action-playbook-launcher { position: relative; }
-.action-playbook-menu { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; width: min(420px, calc(100vw - 32px)); max-height: 65vh; display: grid; gap: 10px; overflow: auto; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow-lg); }
+.action-playbook-menu { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; width: min(420px, calc(100vw - 32px)); max-height: 65vh; display: grid; gap: 10px; overflow: auto; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow-lg); }
 .action-playbook-menu article { display: grid; gap: 7px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 .action-playbook-menu ol { margin: 0; padding-left: 20px; }
-.delivery-policy-editor { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.delivery-policy-editor { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); }
 .delivery-policy-editor legend { padding: 0 6px; font-weight: 650; }
 .rule-policy-editor { display: inline-block; margin-left: 6px; }
 .rule-policy-editor > summary { cursor: pointer; font-size: .78rem; }

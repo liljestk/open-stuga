@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -133,7 +133,7 @@ describe("direct TP-Link retained history IPC", () => {
 
   it("validates and maps live-helper samples into canonical telemetry", async () => {
     const { sensorId, pollMarker } = setupHelper();
-    await waitFor(() => existsSync(pollMarker));
+    await waitFor(() => Boolean(markerPid(pollMarker)));
     const previousPollPid = markerPid(pollMarker);
     await expect(runtime!.tpLink.recoverHistory(
       sensorId, "temperature", "2026-01-15T10:00:00.000Z", "2026-01-15T10:30:00.000Z",
@@ -150,7 +150,7 @@ describe("direct TP-Link retained history IPC", () => {
 
   it("serializes history commands on the live polling session", async () => {
     const { sensorId, pollMarker } = setupHelper();
-    await waitFor(() => existsSync(pollMarker));
+    await waitFor(() => Boolean(markerPid(pollMarker)));
     const previousPollPid = markerPid(pollMarker);
 
     const recovered = await Promise.all([
@@ -175,7 +175,7 @@ describe("direct TP-Link retained history IPC", () => {
 
   it("does not persist encrypted response bodies from helper failures", async () => {
     const { sensorId, pollMarker } = setupHelper("", "TP-Link history recovery failed: Unable to decrypt response from 192.0.2.10, error: Invalid padding bytes., response: sensitive-ciphertext");
-    await waitFor(() => existsSync(pollMarker));
+    await waitFor(() => Boolean(markerPid(pollMarker)));
 
     await expect(runtime!.tpLink.recoverHistory(
       sensorId, "temperature", "2026-01-15T10:00:00.000Z", "2026-01-15T10:30:00.000Z",

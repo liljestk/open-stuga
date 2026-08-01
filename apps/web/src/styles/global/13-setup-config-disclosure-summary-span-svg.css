@@ -30,7 +30,7 @@
 
 .status-symbol { width: 31px; height: 31px; display: inline-grid; place-items: center; border-radius: 9px; color: var(--muted); background: var(--panel-soft); }
 
-.status-symbol.positive { color: var(--pine); background: var(--pine-soft); }
+.status-symbol.positive { color: var(--action); background: var(--action-soft); }
 
 .integration-status > div > span:nth-child(2) { display: grid; gap: 2px; }
 
@@ -52,7 +52,7 @@
 
 .weather-grid { display: grid; grid-template-columns: minmax(220px, .8fr) minmax(320px, 1.25fr) minmax(220px, .85fr); gap: 16px; margin-top: 18px; align-items: stretch; }
 
-.location-form, .weather-preview { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel-soft); }
+.location-form, .weather-preview { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-soft); }
 
 .location-form { display: grid; align-content: start; gap: 13px; }
 
@@ -70,11 +70,11 @@
 
 .house-location-map { width: 100%; height: 100%; min-height: 286px; z-index: 0; }
 
-.house-location-map:focus-visible { outline: 3px solid #0755c9; outline-offset: -3px; }
+.house-location-map:focus-visible { outline: 3px solid var(--action); outline-offset: 3px; }
 
 .house-location-marker-wrap { border: 0; background: transparent; }
 
-.house-location-marker { position: relative; display: block; width: 27px; height: 27px; margin: 1px; transform: rotate(-45deg); border: 3px solid #fff; border-radius: 50% 50% 50% 0; background: var(--pine); box-shadow: 0 4px 12px rgb(7 42 34 / .35); }
+.house-location-marker { position: relative; display: block; width: 27px; height: 27px; margin: 1px; transform: rotate(-45deg); border: 3px solid #fff; border-radius: 50% 50% 50% 0; background: var(--action); box-shadow: 0 4px 12px rgb(7 42 34 / .35); }
 
 .house-location-marker::after { position: absolute; width: 7px; height: 7px; inset: 7px; content: ""; border-radius: 50%; background: #fff; }
 
@@ -90,17 +90,17 @@
 
 .house-footprint-rotator svg { width: 100%; height: 100%; display: block; overflow: visible; }
 
-.house-footprint-walls { fill: none; stroke: var(--pine); stroke-width: 2.1; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.house-footprint-walls { fill: none; stroke: var(--action); stroke-width: 2.1; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 
 .house-plan-top-edge { fill: none; stroke: var(--orange); stroke-width: 4.2; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 
-.house-plan-top-label { position: absolute; left: 50%; top: 1px; translate: -50% 0; padding: 1px 3px; border-radius: 3px; color: var(--on-orange); background: var(--orange); font: 700 9px/1.2 "Manrope", sans-serif; letter-spacing: .06em; white-space: nowrap; }
+.house-plan-top-label { position: absolute; left: 50%; top: 1px; translate: -50% 0; padding: 1px 3px; border-radius: 3px; color: var(--on-orange); background: var(--orange); font: 700 10px/1.2 "Manrope", sans-serif; letter-spacing: .06em; white-space: nowrap; }
 
-.house-map-north { position: absolute; z-index: 2; left: 6px; top: 4px; width: 20px; height: 31px; display: grid; justify-items: center; color: #142e27; font: 800 9px/1 "Manrope", sans-serif; }
+.house-map-north { position: absolute; z-index: 2; left: 6px; top: 4px; width: 20px; height: 31px; display: grid; justify-items: center; color: #142e27; font: 700 10px/1 "Manrope", sans-serif; }
 
 .house-map-north i { width: 0; height: 0; margin-top: 2px; border-right: 5px solid transparent; border-bottom: 13px solid #142e27; border-left: 5px solid transparent; }
 
-.house-map-not-scale { position: absolute; left: 50%; bottom: 0; translate: -50% 0; padding: 2px 4px; border-radius: 4px; color: #233e36; background: rgb(255 255 255 / .88); font: 600 9px/1.2 "Manrope", sans-serif; letter-spacing: .02em; white-space: nowrap; }
+.house-map-not-scale { position: absolute; left: 50%; bottom: 0; translate: -50% 0; padding: 2px 4px; border-radius: 4px; color: #233e36; background: rgb(255 255 255 / .88); font: 600 10px/1.2 "Manrope", sans-serif; letter-spacing: .02em; white-space: nowrap; }
 
 .weather-preview { display: grid; align-content: start; gap: 14px; }
 
@@ -114,9 +114,9 @@
 
 .outdoor-values { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
-.outdoor-values > div { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 3px 7px; min-width: 0; padding: 11px; border-radius: 9px; color: var(--pine); background: var(--panel); }
+.outdoor-values > div { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 3px 7px; min-width: 0; padding: 11px; border-radius: 9px; color: var(--action); background: var(--panel); }
 
-.outdoor-values span { color: var(--muted); font-size: 9px; }
+.outdoor-values span { color: var(--muted); font-size: 10px; }
 
 .outdoor-values strong { grid-column: 1 / -1; color: var(--ink); font-family: "Manrope", sans-serif; font-size: 18px; }
 
@@ -147,7 +147,7 @@
 
 .weather-freshness { min-height: 31px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 16px; font-size: 10px; font-weight: 700; white-space: nowrap; }
 
-.weather-freshness.fresh { color: var(--pine); background: var(--pine-soft); }
+.weather-freshness.fresh { color: var(--action); background: var(--action-soft); }
 
 .weather-freshness.stale { color: var(--yellow); background: var(--yellow-soft); }
 
@@ -161,7 +161,7 @@
 
 .setup-weather-config-card h3, .setup-system-card h3 { margin: 5px 0 0; font-family: "Manrope", sans-serif; font-size: 18px; letter-spacing: -.02em; }
 
-.setup-weather-config-card > .location-discovery { margin: 14px 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-soft); }
+.setup-weather-config-card > .location-discovery { margin: 14px 0; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-soft); }
 
 .weather-location-card h3, .weather-current-card h3, .weather-forecast-card h3, .weather-warnings-card h3 { margin: 5px 0 0; font-family: "Manrope", sans-serif; font-size: 18px; letter-spacing: -.02em; }
 
@@ -173,7 +173,7 @@
 
 .weather-location-card .house-location-map { height: 430px; min-height: 430px; background: #dce8e3; }
 
-.house-location-map .leaflet-control-attribution { color: #44534d; font-size: 8px; }
+.house-location-map .leaflet-control-attribution { color: #44534d; font-size: 10px; }
 
 .house-location-map .leaflet-control-attribution a { color: #174f43; }
 
@@ -183,11 +183,11 @@
 
 .house-map-house-list { display: flex; gap: 6px; padding: 2px 1px 5px; overflow-x: auto; scrollbar-width: thin; }
 
-.house-map-house-list > button { min-width: 142px; min-height: 49px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink); background: var(--panel-soft); text-align: left; cursor: pointer; }
+.house-map-house-list > button { min-width: 142px; min-height: 49px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--ink); background: var(--panel-soft); text-align: left; cursor: pointer; }
 
-.house-map-house-list > button:hover, .house-map-house-list > button.active { border-color: var(--pine); background: var(--pine-soft); }
+.house-map-house-list > button:hover, .house-map-house-list > button.active { border-color: var(--action); background: var(--action-soft); }
 
-.house-map-house-list > button > svg { color: var(--pine); }
+.house-map-house-list > button > svg { color: var(--action); }
 
 .house-map-house-list > button > span { min-width: 0; display: grid; gap: 2px; }
 
@@ -199,15 +199,15 @@
 
 .house-map-view-actions button { min-height: 32px; display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--muted); background: var(--panel); font-size: 10.5px; font-weight: 700; cursor: pointer; }
 
-.house-map-view-actions button:hover, .house-map-view-actions button.active { border-color: var(--pine); color: var(--pine); background: var(--pine-soft); }
+.house-map-view-actions button:hover, .house-map-view-actions button.active { border-color: var(--action); color: var(--action); background: var(--action-soft); }
 
 .house-map-view-actions button:disabled { opacity: 1; cursor: not-allowed; }
 
 .house-map-shell { position: relative; min-width: 0; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 12px; background: #dce8e3; }
 
-.house-map-shell.editing { border-color: var(--pine); box-shadow: 0 0 0 2px var(--pine-soft); }
+.house-map-shell.editing { border-color: var(--action); box-shadow: 0 0 0 2px var(--action-soft); }
 
-.setup-map-gate { min-height: 250px; display: grid; place-content: center; justify-items: center; gap: 13px; padding: 28px; border: 1px dashed var(--line-strong); border-radius: 12px; color: var(--muted); background: linear-gradient(135deg, var(--panel-soft), var(--blue-soft)); text-align: center; }
+.setup-map-gate { min-height: 250px; display: grid; place-content: center; justify-items: center; gap: 13px; padding: 28px; border: 1px dashed var(--line-strong); border-radius: var(--radius); color: var(--muted); background: linear-gradient(135deg, var(--panel-soft), var(--blue-soft)); text-align: center; }
 
 .setup-map-gate > svg { color: var(--blue); }
 
@@ -233,9 +233,9 @@
 
 .house-placement-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
 
-.weather-reference-details { margin-top: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-soft); }
+.weather-reference-details { margin-top: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-soft); }
 
-.weather-reference-details > summary { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 12px; color: var(--ink); font-size: 11px; font-weight: 750; cursor: pointer; list-style: none; }
+.weather-reference-details > summary { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 12px; color: var(--ink); font-size: 11px; font-weight: 700; cursor: pointer; list-style: none; }
 
 .weather-reference-details > summary::-webkit-details-marker { display: none; }
 
@@ -277,7 +277,7 @@
 
 .setup-layout-card > .primary-button { justify-self: start; margin-top: 18px; }
 
-.setup-config-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--line); }
+.setup-config-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--line); }
 
 .setup-layout-card .setup-config-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
@@ -295,41 +295,41 @@
 
 .setup-use-placement { margin-top: 13px; }
 
-.setup-inline-guidance { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; margin-top: 13px; padding: 11px; border-radius: 10px; color: var(--blue); background: var(--blue-soft); }
+.setup-inline-guidance { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; margin-top: 13px; padding: 11px; border-radius: var(--radius); color: var(--blue); background: var(--blue-soft); }
 
 .setup-inline-guidance > span { min-width: 0; display: grid; gap: 3px; }
 
 .setup-inline-guidance strong { color: var(--ink); font-size: 10.5px; }
 
-.setup-inline-guidance small { color: var(--muted); font-size: 9px; line-height: 1.4; }
+.setup-inline-guidance small { color: var(--muted); font-size: 10px; line-height: 1.4; }
 
 .compact-status { margin-top: 11px; padding: 0; border: 0; box-shadow: none; }
 
-.house-orientation-fieldset { min-width: 0; display: grid; gap: 10px; margin: 16px 0 0; padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel-soft); }
+.house-orientation-fieldset { min-width: 0; display: grid; gap: 10px; margin: 16px 0 0; padding: 13px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-soft); }
 
-.house-orientation-fieldset legend { display: inline-flex; align-items: center; gap: 6px; padding: 0 5px; color: var(--ink); font-family: "Manrope", sans-serif; font-size: 11px; font-weight: 750; }
+.house-orientation-fieldset legend { display: inline-flex; align-items: center; gap: 6px; padding: 0 5px; color: var(--ink); font-family: "Manrope", sans-serif; font-size: 11px; font-weight: 700; }
 
-.house-orientation-fieldset > p:first-of-type { margin: 0; color: var(--muted); font-size: 9.5px; line-height: 1.5; }
+.house-orientation-fieldset > p:first-of-type { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
 
 .house-orientation-inputs { display: grid; grid-template-columns: minmax(135px, .65fr) minmax(170px, 1.35fr); align-items: end; gap: 12px; }
 
 .house-orientation-inputs .field { display: grid; gap: 5px; }
 
-.house-orientation-inputs .field > span, .house-orientation-range > span { color: var(--muted); font-size: 9.5px; font-weight: 650; }
+.house-orientation-inputs .field > span, .house-orientation-range > span { color: var(--muted); font-size: 10px; font-weight: 650; }
 
 .house-orientation-range { min-width: 0; display: grid; gap: 9px; padding-bottom: 8px; }
 
-.house-orientation-range input { width: 100%; accent-color: var(--pine); cursor: pointer; }
+.house-orientation-range input { width: 100%; accent-color: var(--action); cursor: pointer; }
 
 .house-orientation-presets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
 
-.house-orientation-presets button { min-height: 31px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--ink); background: var(--panel); font: 750 10px/1 "Manrope", sans-serif; cursor: pointer; }
+.house-orientation-presets button { min-height: 31px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--ink); background: var(--panel); font: 700 10px/1 "Manrope", sans-serif; cursor: pointer; }
 
-.house-orientation-presets button:hover, .house-orientation-presets button.active { border-color: var(--pine); color: var(--pine); background: var(--pine-soft); }
+.house-orientation-presets button:hover, .house-orientation-presets button.active { border-color: var(--action); color: var(--action); background: var(--action-soft); }
 
-.house-orientation-presets button small { color: var(--muted); font-size: 7px; }
+.house-orientation-presets button small { color: var(--muted); font-size: 10px; }
 
-.house-orientation-explanation { display: flex; align-items: flex-start; gap: 7px; margin: 0; padding: 9px 10px; border-radius: 9px; color: var(--pine); background: var(--pine-soft); font-size: 9px; line-height: 1.45; }
+.house-orientation-explanation { display: flex; align-items: flex-start; gap: 7px; margin: 0; padding: 9px 10px; border-radius: 9px; color: var(--action); background: var(--action-soft); font-size: 10px; line-height: 1.45; }
 
 .house-orientation-explanation svg { flex: 0 0 auto; margin-top: 1px; }
 
@@ -337,7 +337,7 @@
 
 .weather-feedback { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; padding: 9px 10px; border-radius: 9px; font-size: 10px; }
 
-.weather-feedback.success { color: var(--pine); background: var(--pine-soft); }
+.weather-feedback.success { color: var(--action); background: var(--action-soft); }
 
 .weather-feedback.error { color: var(--red); background: var(--red-soft); }
 

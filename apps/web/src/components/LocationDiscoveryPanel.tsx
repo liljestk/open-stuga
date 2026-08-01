@@ -178,11 +178,11 @@ export function LocationDiscoveryPanel({ currentLocation, currentTimezone, onApp
           <span aria-hidden="true"><MapPin size={17} /></span>
           <div><strong>{currentLocation.label || t("locationDiscovery.savedLocation")}</strong><small>{currentTimezone}</small></div>
           <span className="readiness-pill ready"><Check size={13} aria-hidden="true" />{t("locationDiscovery.ready")}</span>
-          <button type="button" className="secondary-button" aria-expanded={changing} onClick={() => { searchGeneration.current += 1; locationGeneration.current += 1; saveGeneration.current += 1; searchController.current?.abort(); setSearching(false); setLocating(false); setSaving(false); setChanging((value) => !value); setQuery(""); setResults([]); setSelected(null); setDeviceSuggestion(null); setAnnouncedResultCount(null); setError(null); setSaved(false); }}>{changing ? t("common.cancel") : t("locationDiscovery.change")}</button>
+          <button type="button" className="secondary-button" aria-expanded={changing} aria-controls={changing ? "location-discovery-editor" : undefined} onClick={() => { searchGeneration.current += 1; locationGeneration.current += 1; saveGeneration.current += 1; searchController.current?.abort(); setSearching(false); setLocating(false); setSaving(false); setChanging((value) => !value); setQuery(""); setResults([]); setSelected(null); setDeviceSuggestion(null); setAnnouncedResultCount(null); setError(null); setSaved(false); }}>{changing ? t("common.cancel") : t("locationDiscovery.change")}</button>
         </div>
       )}
 
-      {(!currentLocation || changing) && <><div className="location-discovery-actions">
+      {(!currentLocation || changing) && <><div id="location-discovery-editor" className="location-discovery-actions">
         <form className="location-search-form" aria-busy={searching} onSubmit={(event) => void searchPlaces(event)}>
           <label className="field">
             <span>{t("locationDiscovery.searchLabel")}</span>

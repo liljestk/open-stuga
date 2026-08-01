@@ -9,6 +9,7 @@ import { pathsPart04 } from "./paths-04.js";
 import { pathsPart05 } from "./paths-05.js";
 import { pathsPart06 } from "./paths-06.js";
 import { pathsPart07 } from "./paths-07.js";
+import { pathsPart08 } from "./paths-08.js";
 import { schemasPart01 } from "./schemas-01.js";
 import { schemasPart02 } from "./schemas-02.js";
 import { schemasPart03 } from "./schemas-03.js";
@@ -44,6 +45,7 @@ export const combinedOpenApiDocument = {
     ...pathsPart05,
     ...pathsPart06,
     ...pathsPart07,
+    ...pathsPart08,
   },
   components: {
     securitySchemes: {

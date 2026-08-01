@@ -70,7 +70,7 @@ export function AlertOrchestrationPanel() {
                 ? t("alerts.orchestration.deliveredAt", { time: formatDate(delivery.deliveredAt, locale, t("alerts.orchestration.pending")) })
                 : delivery.lastError ?? t("alerts.orchestration.queuedAttempt", { attempt: delivery.attempts, time: formatDate(delivery.availableAt, locale, t("alerts.orchestration.pending")) })}</small>
             </span>
-            {(delivery.deadLetteredAt || delivery.abandonedAt) && <button type="button" className="secondary-button" disabled={retrying === delivery.id} onClick={() => void retry(delivery)}>
+            {(delivery.deadLetteredAt || delivery.abandonedAt) && delivery.canRetry && <button type="button" className="secondary-button" disabled={retrying === delivery.id} onClick={() => void retry(delivery)}>
               {retrying === delivery.id ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <RotateCcw size={14} aria-hidden="true" />}
               {t("alerts.orchestration.retry")}
             </button>}
@@ -149,7 +149,7 @@ export function ActionPlaybookLauncher({ alert }: Readonly<{ alert: AlertEvent }
     }
   };
   return <div className="action-playbook-launcher">
-    <button ref={triggerRef} type="button" className="secondary-button" aria-expanded={open} aria-controls={menuId} onClick={toggle}><CirclePlay size={15} aria-hidden="true" /> {t("alerts.orchestration.actionPlan")}</button>
+    <button ref={triggerRef} type="button" className="secondary-button" aria-expanded={open} aria-controls={open ? menuId : undefined} onClick={toggle}><CirclePlay size={15} aria-hidden="true" /> {t("alerts.orchestration.actionPlan")}</button>
     {open && <div ref={menuRef} id={menuId} className="action-playbook-menu" role="region" aria-label={t("alerts.orchestration.actionPlan")} tabIndex={-1}>
       {busy && !run && <p><LoaderCircle className="spin" size={15} aria-hidden="true" /> {t("alerts.orchestration.loadingActions")}</p>}
       {run ? <>

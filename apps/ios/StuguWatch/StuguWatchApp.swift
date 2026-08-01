@@ -127,7 +127,8 @@ private struct StuguWatchHomeView: View {
         case "critical": "exclamationmark.octagon.fill"
         case "attention": "exclamationmark.triangle.fill"
         case "limited": "circle.dashed"
-        default: "checkmark.circle.fill"
+        case "balanced": "checkmark.circle.fill"
+        default: "circle.dashed"
         }
     }
 
@@ -136,7 +137,8 @@ private struct StuguWatchHomeView: View {
         case "critical": .red
         case "attention": .orange
         case "limited": .secondary
-        default: .green
+        case "balanced": .green
+        default: .secondary
         }
     }
 

@@ -115,11 +115,12 @@ registerDatabaseMethods({
       to: string,
       limit = 100_000,
     ): MeasurementSample[] {
-      if (sensorIds.length === 0 || metrics.length === 0) return [];
+      const visibleSensorIds = sensorIds.filter((id) => Boolean(this.getSensor(id)));
+      if (visibleSensorIds.length === 0 || metrics.length === 0) return [];
       if (!Number.isInteger(limit) || limit < 1 || limit > 250_000) {
         throw new ClimateDataValidationError(400, "INVALID_LIMIT", "Measurement window limit must be an integer from 1 to 250000");
       }
-      const sensorPlaceholders = sensorIds.map(() => "?").join(",");
+      const sensorPlaceholders = visibleSensorIds.map(() => "?").join(",");
       const metricPlaceholders = metrics.map(() => "?").join(",");
       const rows = this.db.prepare(`SELECT sensor_id, metric, value, canonical_unit, timestamp, source, quality FROM (
         SELECT id, sensor_id, metric, value, canonical_unit, timestamp, source, quality
@@ -128,12 +129,13 @@ registerDatabaseMethods({
           AND timestamp >= ? AND timestamp <= ?
         ORDER BY timestamp DESC, id DESC LIMIT ?
       ) ORDER BY timestamp ASC, id ASC`)
-        .all(...sensorIds, ...metrics, from, to, limit) as unknown as MeasurementSampleRow[];
+        .all(...visibleSensorIds, ...metrics, from, to, limit) as unknown as MeasurementSampleRow[];
       return rows.map(measurementSampleFromRow);
     },
   measurementCoverage(sensorIds: string[], metrics: string[]): MeasurementCoverageRecord[] {
-      if (sensorIds.length === 0 || metrics.length === 0) return [];
-      const sensorPlaceholders = sensorIds.map(() => "?").join(",");
+      const visibleSensorIds = sensorIds.filter((id) => Boolean(this.getSensor(id)));
+      if (visibleSensorIds.length === 0 || metrics.length === 0) return [];
+      const sensorPlaceholders = visibleSensorIds.map(() => "?").join(",");
       const metricPlaceholders = metrics.map(() => "?").join(",");
       const rows = this.db.prepare(`SELECT sensor_id, metric,
           MIN(timestamp) AS coverage_start, MAX(timestamp) AS coverage_end
@@ -141,7 +143,7 @@ registerDatabaseMethods({
         WHERE sensor_id IN (${sensorPlaceholders}) AND metric IN (${metricPlaceholders})
         GROUP BY sensor_id, metric
         ORDER BY sensor_id, metric`)
-        .all(...sensorIds, ...metrics) as Array<{
+        .all(...visibleSensorIds, ...metrics) as Array<{
           sensor_id: string;
           metric: string;
           coverage_start: string;
@@ -162,6 +164,7 @@ registerDatabaseMethods({
       bucketSeconds: number,
       limit = 20_000,
     ): MeasurementSample[] {
+      if (!this.getSensor(sensorId)) return [];
       const rows = this.db.prepare(`WITH source_rows AS (
           SELECT id, timestamp, source,
             CAST(CAST(strftime('%s', timestamp) AS INTEGER) / ? AS INTEGER) * ? AS bucket_epoch, value
@@ -208,7 +211,7 @@ registerDatabaseMethods({
       sensorIds: string[], metrics: string[], from: string, to: string,
       bucketSeconds: number, limitPerSeries = 20_000,
     ): MeasurementSample[] {
-      const uniqueSensorIds = [...new Set(sensorIds)];
+      const uniqueSensorIds = [...new Set(sensorIds)].filter((id) => Boolean(this.getSensor(id)));
       const uniqueMetrics = [...new Set(metrics)];
       if (uniqueSensorIds.length === 0 || uniqueMetrics.length === 0) return [];
       if (!Number.isInteger(bucketSeconds) || bucketSeconds < 1 || bucketSeconds > 86_400) {
@@ -283,6 +286,7 @@ registerDatabaseMethods({
       samples: MeasurementSample[];
       nextCursor: string | null;
     } {
+      if (!this.getSensor(sensorId)) return { samples: [], nextCursor: null };
       const cursorClause = before ? "AND (timestamp < ? OR (timestamp = ? AND id < ?))" : "";
       const parameters = before
         ? [sensorId, before.timestamp, before.timestamp, before.id, limit + 1]
@@ -310,6 +314,7 @@ registerDatabaseMethods({
       bucketMinutes = 5,
       limit = 5_000,
     ): MeasurementSample[] {
+      if (!this.getSensor(sensorId)) return [];
       if (!Number.isInteger(bucketMinutes) || bucketMinutes < 1 || bucketMinutes > 60) {
         throw new ClimateDataValidationError(400, "INVALID_BUCKET_SIZE", "Thermal bucket size must be 1 to 60 minutes");
       }
@@ -372,6 +377,7 @@ registerDatabaseMethods({
       bucketMinutes = 5,
       limitPerMetric = 5_000,
     ): MeasurementSample[] {
+      if (!this.getSensor(sensorId)) return [];
       if (!Number.isInteger(bucketMinutes) || bucketMinutes < 1 || bucketMinutes > 60) {
         throw new ClimateDataValidationError(400, "INVALID_BUCKET_SIZE", "Climate bucket size must be 1 to 60 minutes");
       }
@@ -483,6 +489,7 @@ registerDatabaseMethods({
       to: string,
       limit = 20_000,
     ): OutdoorTemperatureSample[] {
+      if (!this.getHouse(houseId)) return [];
       const rows = this.db.prepare(`SELECT house_id, location_key, timestamp, temperature_c, source, fetched_at,
         station_id, station_name, conditions_json FROM (
           SELECT rowid, house_id, location_key, timestamp, temperature_c, source, fetched_at, station_id, station_name,
@@ -503,6 +510,7 @@ registerDatabaseMethods({
       minimumGapMs: number,
       limit = 100,
     ): HistoricalTelemetryGap[] {
+      if (!this.getHouse(houseId)) return [];
       const safeLimit = Math.max(1, Math.min(1_000, Math.trunc(limit)));
       const thresholdSeconds = Math.max(1, minimumGapMs / 1_000);
       const sourcePrefix = provider === "fmi" ? "fmi-%" : "open-meteo-%";
@@ -536,6 +544,7 @@ registerDatabaseMethods({
       locationKey: string,
       provider: WeatherProviderName,
     ): string | null {
+      if (!this.getHouse(houseId)) return null;
       const sourcePrefix = provider === "fmi" ? "fmi-%" : "open-meteo-%";
       const row = this.db.prepare(`SELECT timestamp FROM outdoor_temperature_samples
         WHERE house_id = ? AND location_key = ? AND source LIKE ?
@@ -551,6 +560,9 @@ registerDatabaseMethods({
       endedAt: string,
       detectedAt = new Date().toISOString(),
     ): WeatherOutageRecord {
+      if (!this.getHouse(houseId)) {
+        throw new ClimateDataValidationError(404, "HOUSE_NOT_FOUND", `House ${houseId} does not exist`);
+      }
       const existing = this.db.prepare(`SELECT * FROM weather_outages
         WHERE house_id = ? AND location_key = ? AND provider = ?
           AND component = 'observation' AND backfill_from = ? AND backfill_to = ?
@@ -584,6 +596,9 @@ registerDatabaseMethods({
       error: string,
       detectedAt = new Date().toISOString(),
     ): WeatherOutageRecord {
+      if (!this.getHouse(houseId)) {
+        throw new ClimateDataValidationError(404, "HOUSE_NOT_FOUND", `House ${houseId} does not exist`);
+      }
       this.db.prepare(`INSERT INTO weather_outages
         (house_id, location_key, provider, component, started_at, last_seen_at, ended_at, last_error,
          backfill_state, backfill_from, backfill_to, recovered_points, last_attempt_at, backfill_error)

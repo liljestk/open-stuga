@@ -11,7 +11,7 @@ import { api, type CreateHouseInput } from "../api";
 import { locationForRoute, routeFromLocation } from "../routing";
 import { StuguMark } from "../components/StuguMark";
 import { RouteErrorBoundary } from "../components/RouteErrorBoundary";
-import { readLocalStorage, writeLocalStorage } from "../browserStorage";
+import { readLocalStorage, subscribeToAccountStorageScope, writeLocalStorage } from "../browserStorage";
 import {
   clearInvitationBootstrapStorage,
   clearInvitationFragment,
@@ -24,6 +24,7 @@ import { rememberedIntegrationDiscovery } from "../integrationDiscoveryStorage";
 import { houseHasTpLinkOpeningBinding } from "../tpLinkDeviceClassification";
 import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, dismissedIntegrationDiscoveryJobsKey, dismissedTpLinkDevicesKey, firstFloor, freshTpLinkDiscoveryWindowMs, latestIso, pageTitleKeys, settleInBackground, storedDismissedIntegrationDiscoveryJobs, storedDismissedTpLinkDevices, tpLinkDeviceKey } from "./support";
 import type { TpLinkDeviceReference } from "./support";
+import { hasBrowserCapability } from "../accessPolicy";
 
 export interface CompletedIntegrationDiscovery {
   jobId: string;
@@ -36,7 +37,7 @@ export function useAppPart01(context: Record<string, never>) {
   const climate = useClimateData();
   const { state } = climate;
   const workspaceReadOnly = state.session?.readOnly ?? true;
-  const canManagePeople = state.session?.tenant.role === "owner" || state.session?.tenant.role === "admin";
+  const canManagePeople = hasBrowserCapability(state.session?.tenant.role ?? "guest", "workspace-administration");
   const loadSeriesInBackground = useCallback((...args: Parameters<typeof climate.loadSeries>) => {
       settleInBackground(climate.loadSeries(...args));
     }, [climate.loadSeries]);
@@ -67,6 +68,11 @@ export function useAppPart01(context: Record<string, never>) {
   const [requestedSensorDevice, setRequestedSensorDevice] = useState<TpLinkDeviceReference | null>(null);
   const [dismissedTpLinkDeviceIds, setDismissedTpLinkDeviceIds] = useState(storedDismissedTpLinkDevices);
   const [dismissedIntegrationDiscoveryJobIds, setDismissedIntegrationDiscoveryJobIds] = useState(storedDismissedIntegrationDiscoveryJobs);
+  useEffect(() => subscribeToAccountStorageScope(() => {
+    setUnitsState(readLocalStorage("climate-twin-units") === "imperial" ? "imperial" : "metric");
+    setDismissedTpLinkDeviceIds(storedDismissedTpLinkDevices());
+    setDismissedIntegrationDiscoveryJobIds(storedDismissedIntegrationDiscoveryJobs());
+  }), []);
   const [completedIntegrationDiscoveries, setCompletedIntegrationDiscoveries] = useState<Record<string, CompletedIntegrationDiscovery>>({});
   const integrationDiscoverySubscriptions = useRef(new Map<string, { jobId: string; controller: AbortController }>());
   const watchedIntegrationDiscoveryJobIds = useRef(new Set<string>());

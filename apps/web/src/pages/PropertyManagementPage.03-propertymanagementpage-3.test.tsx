@@ -16,6 +16,7 @@ import type {
 } from "@climate-twin/contracts";
 
 import { api, ApiRequestError } from "../api";
+import { ConfirmationProvider } from "../components/ConfirmationProvider";
 
 import { createDemoState, DEMO_PROPERTY_ID } from "../domain";
 
@@ -107,9 +108,11 @@ describe("PropertyManagementPage", () => {
     const updateAccess = vi.spyOn(api, "updateMemberAccess").mockImplementation(async (_email, grants) => ({ email: guest.email, role: "guest", grants }));
     const removeMember = vi.spyOn(api, "removeTenantMember").mockResolvedValue(undefined);
 
-    render(<I18nProvider><PeopleAccessPage state={state} /></I18nProvider>);
+    render(<I18nProvider><ConfirmationProvider><PeopleAccessPage state={state} /></ConfirmationProvider></I18nProvider>);
 
     expect((await screen.findAllByText("guest@example.test")).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("checkbox", { name: "Pine Estate" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /guest@example\.test/ }));
     const propertyGrant = screen.getByRole("checkbox", { name: "Pine Estate" });
     const houseGrant = screen.getByRole("checkbox", { name: "Pine House" });
     const areaGrant = screen.getByRole("checkbox", { name: "North well" });
@@ -133,13 +136,18 @@ describe("PropertyManagementPage", () => {
     ]));
     expect(screen.getByText("Active guest")).not.toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove guest" }));
+    const removeTrigger = screen.getByRole("button", { name: "Remove guest" });
+    removeTrigger.focus();
+    fireEvent.click(removeTrigger);
     expect(removeMember).not.toHaveBeenCalled();
-    expect(screen.getByText("Remove guest access for guest@example.test? Their grants to this workspace will be cleared.")).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("button", { name: "Confirm removal" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Remove guest" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm removal" }));
+    let dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Remove guest access for guest@example.test? Their grants to this workspace will be cleared.")).not.toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(removeTrigger).toHaveFocus();
+    fireEvent.click(removeTrigger);
+    dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove guest access" }));
     await waitFor(() => expect(removeMember).toHaveBeenCalledWith("guest@example.test"));
     expect(screen.getByText("Guest access removed.")).not.toBeNull();
   });
@@ -172,6 +180,8 @@ describe("PropertyManagementPage", () => {
     }));
 
     render(<I18nProvider><PeopleAccessPage state={state} /></I18nProvider>);
+    await screen.findByRole("button", { name: /guest@example\.test/ });
+    fireEvent.click(screen.getByRole("button", { name: /guest@example\.test/ }));
     await screen.findByText("Selected access scopes: 100 of 100.");
 
     expect((screen.getByRole("checkbox", { name: "Area 100" }) as HTMLInputElement).disabled).toBe(true);
@@ -194,5 +204,56 @@ describe("PropertyManagementPage", () => {
     };
     render(<I18nProvider><PropertyManagementPage state={state} {...callbacks()} /></I18nProvider>);
     expect(screen.getByRole("tab", { name: "Access" })).toBeTruthy();
+  });
+
+  it("labels and preserves retained equipment and notes from a hidden Home", async () => {
+    const state = createDemoState();
+    const hiddenHouse = state.houses[0]!;
+    const retainedEquipment: AreaEquipment = {
+      ...equipment,
+      id: "equipment-hidden-home",
+      areaId: null,
+      houseId: hiddenHouse.id,
+      name: "Retained boiler",
+    };
+    const retainedNote: PropertyNote = {
+      ...note,
+      id: "note-hidden-home",
+      houseId: hiddenHouse.id,
+      areaId: null,
+      text: "Retained service history.",
+    };
+    state.houses = [];
+    state.propertyAreas = [];
+    state.areaEquipment = [retainedEquipment];
+    state.propertyNotes = [retainedNote];
+    const handlers = callbacks();
+    handlers.onUpdateEquipment.mockResolvedValue(retainedEquipment);
+
+    render(<I18nProvider><PropertyManagementPage state={state} {...handlers} /></I18nProvider>);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Inventory" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit inventory item: Retained boiler" }));
+    const equipmentLocation = within(document.querySelector(".inventory-form")!).getAllByRole("combobox")[0] as HTMLSelectElement;
+    expect(equipmentLocation.value).toBe(`house:${hiddenHouse.id}`);
+    expect(equipmentLocation.selectedOptions[0]?.textContent).toBe("Hidden Home");
+    fireEvent.click(screen.getByRole("button", { name: "Save equipment" }));
+    await waitFor(() => expect(handlers.onUpdateEquipment).toHaveBeenCalledWith(retainedEquipment.id, expect.objectContaining({
+      houseId: hiddenHouse.id,
+      areaId: null,
+    })));
+
+    fireEvent.click(screen.getByRole("tab", { name: "Notes" }));
+    expect(screen.getByText("Hidden Home")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: `Edit: ${retainedNote.text}` }));
+    const noteTarget = screen.getByLabelText("Attach to") as HTMLSelectElement;
+    expect(noteTarget.value).toBe(`house:${hiddenHouse.id}`);
+    expect(noteTarget.selectedOptions[0]?.textContent).toBe("Hidden Home");
+    fireEvent.click(screen.getByRole("button", { name: "Save note" }));
+    await waitFor(() => expect(handlers.onUpdateNote).toHaveBeenCalledWith(retainedNote.id, expect.objectContaining({
+      houseId: hiddenHouse.id,
+      areaId: null,
+      equipmentId: null,
+    })));
   });
 });

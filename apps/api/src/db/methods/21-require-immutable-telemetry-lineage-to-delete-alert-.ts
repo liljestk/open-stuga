@@ -329,9 +329,11 @@ registerDatabaseMethods({
             timestamp,
             timestamp,
           );
-        this.db.prepare(
-          "DELETE FROM ios_notification_subscriptions WHERE registration_id = ?",
-        ).run(id);
+        this.db.prepare(`DELETE FROM ios_notification_subscriptions
+          WHERE registration_id = ? AND EXISTS (
+            SELECT 1 FROM houses AS house
+            WHERE house.id = ios_notification_subscriptions.house_id AND house.deleted_at IS NULL
+          )`).run(id);
         const subscribe = this.db.prepare(`INSERT INTO ios_notification_subscriptions(
           registration_id, house_id
         ) VALUES (?, ?)`);
@@ -348,8 +350,10 @@ registerDatabaseMethods({
       const row = this.db.prepare(`SELECT * FROM ios_notification_registrations
         WHERE id = ? AND user_id = ?`).get(id, userId) as unknown as IOSNotificationRegistrationRow | undefined;
       if (!row) return null;
-      const homeIds = (this.db.prepare(`SELECT house_id FROM ios_notification_subscriptions
-        WHERE registration_id = ? ORDER BY house_id`).all(id) as Array<{ house_id: string }>)
+      const homeIds = (this.db.prepare(`SELECT subscription.house_id FROM ios_notification_subscriptions AS subscription
+        JOIN houses AS house ON house.id = subscription.house_id
+        WHERE subscription.registration_id = ? AND house.deleted_at IS NULL
+        ORDER BY subscription.house_id`).all(id) as Array<{ house_id: string }>)
         .map((item) => item.house_id);
       return iosNotificationRegistrationFromRow(row, homeIds);
     },
@@ -397,6 +401,7 @@ registerDatabaseMethods({
           ON subscription.registration_id = registration.id
           AND subscription.house_id = house.id
         WHERE registration.id = ? AND registration.enabled = 1
+          AND house.deleted_at IS NULL
           AND event.acknowledged_at IS NULL AND event.resolved_at IS NULL
           AND CASE registration.minimum_severity
             WHEN 'info' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END
@@ -440,7 +445,7 @@ registerDatabaseMethods({
           ON subscription.registration_id = registration.id
         JOIN houses house ON house.id = subscription.house_id
         JOIN local_workspace_members member ON member.user_id = registration.user_id
-        WHERE subscription.house_id = ? AND registration.enabled = 1
+        WHERE subscription.house_id = ? AND registration.enabled = 1 AND house.deleted_at IS NULL
           AND CASE registration.minimum_severity
             WHEN 'info' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END
             <= CASE ? WHEN 'info' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END
@@ -472,11 +477,19 @@ registerDatabaseMethods({
       }));
     },
   listAlertRules(): AlertRule[] {
-      return (this.db.prepare("SELECT * FROM alert_rules WHERE retired_at IS NULL ORDER BY name")
+      return (this.db.prepare(`SELECT rule.* FROM alert_rules AS rule
+        LEFT JOIN sensors AS sensor ON sensor.id = rule.sensor_id
+        LEFT JOIN houses AS house ON house.id = sensor.house_id
+        WHERE rule.retired_at IS NULL AND (rule.sensor_id IS NULL OR house.deleted_at IS NULL)
+        ORDER BY rule.name`)
         .all() as unknown as AlertRuleRow[]).map(ruleFromRow);
     },
   getAlertRule(id: string): AlertRule | null {
-      const row = this.db.prepare("SELECT * FROM alert_rules WHERE id = ? AND retired_at IS NULL")
+      const row = this.db.prepare(`SELECT rule.* FROM alert_rules AS rule
+        LEFT JOIN sensors AS sensor ON sensor.id = rule.sensor_id
+        LEFT JOIN houses AS house ON house.id = sensor.house_id
+        WHERE rule.id = ? AND rule.retired_at IS NULL
+          AND (rule.sensor_id IS NULL OR house.deleted_at IS NULL)`)
         .get(id) as unknown as AlertRuleRow | undefined;
       return row ? ruleFromRow(row) : null;
     },
@@ -521,6 +534,7 @@ registerDatabaseMethods({
     },
   deleteAlertRule(id: string): boolean {
       return this.immediateTransaction(() => {
+        if (!this.getAlertRule(id)) return false;
         const retiredAt = new Date().toISOString();
         const retired = Number(this.db.prepare(`UPDATE alert_rules SET retired_at = ?, enabled = 0
           WHERE id = ? AND retired_at IS NULL`).run(retiredAt, id).changes) > 0;

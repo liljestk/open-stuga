@@ -1,6 +1,6 @@
 {
   "name": "climate-twin",
-  "version": "0.27.1",
+  "version": "0.28.0",
   "private": true,
   "license": "MIT",
   "description": "A local-first digital twin for extensible whole-home environmental telemetry.",
@@ -21,8 +21,9 @@
     "build": "npm run build:packages && npm run build --workspace @climate-twin/api && npm run build --workspace @climate-twin/web",
     "ci:local": "node scripts/local-ci.mjs",
     "test": "npm run build:packages && npm run test --workspaces --if-present && npm run test:tooling",
-    "test:tooling": "npm run test:setup && npm run test:data-safety && npm run test:r2-backup && npm run test:live-migration && npm run test:cloudflare && npm run test:rpi-ota && npm run test:update-agent && npm run test:nexus433-runtime",
+    "test:tooling": "npm run test:setup && npm run test:native-readiness && npm run test:data-safety && npm run test:r2-backup && npm run test:live-migration && npm run test:cloudflare && npm run test:rpi-ota && npm run test:update-agent && npm run test:nexus433-runtime",
     "test:setup": "node --test scripts/tests/setup.test.mjs scripts/tests/setup.part-02.test.mjs scripts/tests/cloudflare-oauth.test.mjs scripts/tests/local-ci.test.mjs",
+    "test:native-readiness": "node --test apps/ios/Tests/native-readiness.test.mjs",
     "test:data-safety": "node --test scripts/tests/data-safety.test.mjs scripts/tests/data-safety.part-02.test.mjs scripts/tests/remove-stuguby-connection.test.mjs",
     "test:r2-backup": "node --test scripts/tests/r2-backup.test.mjs",
     "test:live-migration": "node --test scripts/tests/live-migration.test.mjs scripts/tests/live-migration.part-02.test.mjs",

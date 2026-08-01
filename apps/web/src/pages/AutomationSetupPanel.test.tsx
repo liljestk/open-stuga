@@ -1,8 +1,9 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { IntegrationStatus } from "@climate-twin/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
+import { ConfirmationProvider } from "../components/ConfirmationProvider";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
 import { AutomationSetupPanel } from "./AutomationSetupPanel";
@@ -37,6 +38,62 @@ afterEach(() => {
 });
 
 describe("AutomationSetupPanel", () => {
+  it("uses a scoped shared confirmation before disconnecting Telegram", async () => {
+    const user = userEvent.setup();
+    const configured = integrationWith({
+      telegram: { available: true, configured: true, connected: true, botUsername: "stuga_house_bot", chatLabel: "Home alerts", lastDeliveryAt: null, error: null },
+    });
+    const disconnected = integrationWith({
+      telegram: { available: true, configured: false, connected: false, botUsername: null, chatLabel: null, lastDeliveryAt: null, error: null },
+    });
+    const disconnect = vi.spyOn(api, "disconnectTelegram").mockResolvedValue({ ok: true, integration: disconnected });
+    const onIntegrationChange = vi.fn();
+    render(<I18nProvider><ConfirmationProvider><TelegramSetupPanel integration={configured} onIntegrationChange={onIntegrationChange} /></ConfirmationProvider></I18nProvider>);
+
+    await user.click(screen.getByText("Telegram alerts").closest("summary")!);
+    const trigger = screen.getByRole("button", { name: "Disconnect Telegram" });
+    await user.click(trigger);
+    let dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Disconnect Telegram from Home alerts? Alert rules will stop sending there.")).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(disconnect).not.toHaveBeenCalled();
+    expect(trigger).toHaveFocus();
+
+    await user.click(trigger);
+    dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Disconnect" }));
+    await waitFor(() => expect(disconnect).toHaveBeenCalledOnce());
+    expect(onIntegrationChange).toHaveBeenCalledWith(disconnected);
+  });
+
+  it("names the Notes grant and Home before revoking access", async () => {
+    const user = userEvent.setup();
+    const state = createDemoState();
+    const integration = integrationWith({
+      appleNotes: { available: true, configured: true, grantCount: 1, lastSyncAt: null, error: null },
+    });
+    vi.spyOn(api, "appleNotesSetup").mockResolvedValue({});
+    vi.spyOn(api, "appleNotesGrants").mockResolvedValue([
+      { id: "grant-a", houseId: state.houses[0]!.id, deviceLabel: "Phone A", createdAt: "2026-07-15T10:00:00.000Z" },
+    ]);
+    const revoke = vi.spyOn(api, "revokeAppleNotesGrant").mockResolvedValue({ ok: true, integration });
+    render(<I18nProvider><ConfirmationProvider><AutomationSetupPanel
+      integration={integration}
+      house={state.houses[0]!}
+      houses={state.houses}
+      onHouse={vi.fn()}
+      onIntegrationChange={vi.fn()}
+    /></ConfirmationProvider></I18nProvider>);
+
+    await user.click(screen.getByText("Apple Notes via Shortcuts").closest("summary")!);
+    const trigger = await screen.findByRole("button", { name: "Revoke grant labelled Phone A" });
+    await user.click(trigger);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(`Revoke the Apple Notes grant labelled Phone A for ${state.houses[0]!.name}? Shortcuts using it will stop working.`)).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Revoke access" }));
+    await waitFor(() => expect(revoke).toHaveBeenCalledWith("grant-a"));
+  });
+
   it("guides Telegram discovery, clears the token after saving, and reports a successful test", async () => {
     const user = userEvent.setup();
     const initial = integrationWith({

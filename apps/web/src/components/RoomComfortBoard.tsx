@@ -273,7 +273,7 @@ export function RoomComfortBoard(props: Readonly<RoomComfortBoardProps>) {
         className={`room-comfort-card ${room.state}`}
         key={room.key}
         aria-expanded={selectedRoomKey === room.key}
-        aria-controls={evidenceId}
+        aria-controls={selectedRoomKey === room.key ? evidenceId : undefined}
         onClick={() => {
           const opening = selectedRoomKey !== room.key;
           setSelectedRoomKey(opening ? room.key : null);

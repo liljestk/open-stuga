@@ -92,7 +92,7 @@ export interface IntegrationsPageProps {
 
 export type Feedback = { kind: "success" | "error"; message: string } | null;
 
-export type SetupSection = "overview" | "homes" | "layout" | "connections" | "weather" | "automations" | "operations";
+export type SetupSection = "overview" | "layout" | "connections" | "weather" | "automations" | "operations";
 
 export type DiscoveryOutcome = "idle" | "found" | "empty" | "error";
 

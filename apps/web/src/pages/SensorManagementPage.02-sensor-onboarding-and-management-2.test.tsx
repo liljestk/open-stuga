@@ -4,9 +4,10 @@ import userEvent from "@testing-library/user-event";
 
 import type { DoorPlanElement, Sensor, TpLinkDiscoveredDevice, WindowPlanElement } from "@climate-twin/contracts";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../api";
+import { confirmAction } from "../components/ConfirmationProvider";
 
 import { createDemoState } from "../domain";
 
@@ -15,6 +16,13 @@ import { I18nProvider } from "../i18n";
 import { SensorManagementPage } from "./SensorManagementPage";
 
 import { deferred, discoveredDevice, expectDescribedError, renderPage } from "./SensorManagementPageTestSupport";
+
+vi.mock("../components/ConfirmationProvider", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../components/ConfirmationProvider")>();
+  return { ...actual, confirmAction: vi.fn().mockResolvedValue(true) };
+});
+
+beforeEach(() => vi.mocked(confirmAction).mockReset().mockResolvedValue(true));
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -154,10 +162,10 @@ describe("sensor onboarding and management", () => {
     await user.click(screen.getByRole("button", { name: "View data for Living room" }));
     await user.click(screen.getByRole("button", { name: "Edit Living room" }));
     await user.click(screen.getByText("Advanced placement and connection"));
-    await user.type(screen.getByRole("textbox", { name: "Power Home Assistant entity ID" }), "sensor.house_power");
-    await user.type(screen.getByRole("textbox", { name: "Energy Home Assistant entity ID" }), "sensor.house_energy");
-    await user.type(screen.getByRole("textbox", { name: "Electricity spot price Home Assistant entity ID" }), "sensor.nordpool_price");
-    expect(screen.queryByRole("textbox", { name: "Voltage Home Assistant entity ID" })).toBeNull();
+    await user.type(screen.getByRole("textbox", { name: "Power Home Assistant source ID" }), "sensor.house_power");
+    await user.type(screen.getByRole("textbox", { name: "Energy Home Assistant source ID" }), "sensor.house_energy");
+    await user.type(screen.getByRole("textbox", { name: "Electricity spot price Home Assistant source ID" }), "sensor.nordpool_price");
+    expect(screen.queryByRole("textbox", { name: "Voltage Home Assistant source ID" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(rendered.props.onUpdateSensor).toHaveBeenCalledTimes(1));
@@ -189,7 +197,7 @@ describe("sensor onboarding and management", () => {
     expect(screen.getByRole("heading", { name: "Edit Kitchen" })).not.toBeNull();
     expect((screen.getByRole("textbox", { name: "Sensor name" }) as HTMLInputElement).value).toBe("Kitchen north");
 
-    await user.click(screen.getByText("Device discovery"));
+    await user.click(screen.getByText("Manage sensors & connections"));
     await user.click(screen.getByRole("button", { name: "Refresh devices" }));
     expect(await screen.findByText("Hub discovery timed out")).not.toBeNull();
     expect(onRefreshDevices).toHaveBeenCalledTimes(1);
@@ -443,7 +451,6 @@ describe("sensor onboarding and management", () => {
     const sensor = state.sensors[0]!;
     const page = deferred<Awaited<ReturnType<typeof api.sensorMeasurementPage>>>();
     vi.spyOn(api, "sensorMeasurementPage").mockReturnValue(page.promise);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const rendered = renderPage({ state });
 
     await user.click(screen.getByRole("button", { name: `View data for ${sensor.name}` }));

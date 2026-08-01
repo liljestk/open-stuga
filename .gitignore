@@ -29,6 +29,7 @@ backups/
 .tmp-runtime/
 tmp/
 temp/
+.wrangler/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal

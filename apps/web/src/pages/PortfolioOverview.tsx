@@ -149,7 +149,14 @@ function PortfolioOverviewView({
     return {
       property,
       areaCount: propertyAreas.filter((area) => area.propertyId === property.id).length,
-      attentionHomes: homes.filter(({ monitoringSuccessful }) => !monitoringSuccessful),
+      attentionHomes: homes.filter(({ result }) => (
+        result.status === "action-required" || result.status === "inspection-recommended"
+      )),
+      unknownHomes: homes.filter(({ result, monitoringSuccessful }) => (
+        !monitoringSuccessful
+        && result.status !== "action-required"
+        && result.status !== "inspection-recommended"
+      )),
       confirmedHomes: homes.filter(({ monitoringSuccessful }) => monitoringSuccessful),
     };
   });
@@ -161,7 +168,7 @@ function PortfolioOverviewView({
     </div>;
   }
 
-  const renderHouseCard = ({ house, result, monitoringSuccessful }: (typeof monitoredHouses)[number], Heading: "h3" | "h4" = "h3") => {
+  const renderHouseCard = ({ house, result, monitoringSuccessful }: (typeof monitoredHouses)[number], Heading: "h3" | "h4" = "h3", showMonitoring = true) => {
     const enabledSensorCount = result.coverage.enabledSensors;
     const primaryBlocker = result.blockers[0] ?? null;
     const reportingCount = result.coverage.freshSensors;
@@ -185,10 +192,10 @@ function PortfolioOverviewView({
           {alertCount > 0 && <span className="portfolio-alert"><AlertTriangle size={14} aria-hidden="true" />{t("overview.alertCount", { count: alertCount })}</span>}
         </div>
 
-        <div className={`portfolio-monitoring ${result.status}`}>
+        {showMonitoring && <div className={`portfolio-monitoring ${result.status}`}>
           <MonitoringIcon result={result} />
           <span><strong>{t(`overview.monitoring.${result.status}` as TranslationKey)}</strong><small>{primaryBlocker ? blockerText(primaryBlocker, t) : monitoringConfirmed ? t("overview.blocker.none") : t("decision.pulse.unknown.body")}</small></span>
-        </div>
+        </div>}
 
         <dl className="portfolio-facts">
           <div>
@@ -221,6 +228,15 @@ function PortfolioOverviewView({
     );
   };
 
+  const renderConfirmedHomeRow = ({ house }: (typeof monitoredHouses)[number]) => {
+    const remoteHome = isRemoteHome(house);
+    return <article className="portfolio-confirmed-row" key={house.id}>
+      <span className="portfolio-home-icon" aria-hidden="true"><Building2 size={18} /></span>
+      <div><div className="portfolio-home-name"><h3>{house.name}</h3>{remoteHome && <HomeOriginIndicator home={house} label={t("home.origin.remote")} />}</div><p><Clock3 size={14} aria-hidden="true" />{t("overview.monitoring.monitoring-ok")} · {localTime(house.timezone, locale, now)}</p></div>
+      <button type="button" className="primary-button" aria-label={`${t("overview.openHome")}: ${house.name}`} onClick={() => onOpenTwin(house.id)}>{t("overview.openHome")}<ArrowRight size={15} aria-hidden="true" /></button>
+    </article>;
+  };
+
   return (
     <div className="page-stack portfolio-overview">
       <header className="page-heading portfolio-heading">
@@ -231,17 +247,17 @@ function PortfolioOverviewView({
         </div>
       </header>
 
-      {propertyGroups.map(({ property, areaCount, attentionHomes, confirmedHomes }) => <section className="panel portfolio-property" key={property.id} aria-labelledby={`portfolio-property-${property.id}`}>
+      {propertyGroups.map(({ property, areaCount, attentionHomes, unknownHomes, confirmedHomes }) => <section className="panel portfolio-property" key={property.id} aria-labelledby={`portfolio-property-${property.id}`}>
         <div className="portfolio-card-title">
           <span className="portfolio-home-icon" aria-hidden="true"><MapPin size={19} /></span>
           <div>
             <span className="eyebrow">{t("properties.activeProperty")}</span>
             <h2 id={`portfolio-property-${property.id}`}>{property.name}</h2>
-            <p>{propertySummary(attentionHomes.length + confirmedHomes.length, areaCount)}</p>
+            <p>{propertySummary(attentionHomes.length + unknownHomes.length + confirmedHomes.length, areaCount)}</p>
           </div>
           <button type="button" className="secondary-button" aria-label={`${t("nav.properties")}: ${property.name}`} onClick={() => onOpenProperty(property.id)}>{t("nav.properties")}<ArrowRight size={15} aria-hidden="true" /></button>
         </div>
-        {attentionHomes.length === 0 && confirmedHomes.length === 0
+        {attentionHomes.length === 0 && unknownHomes.length === 0 && confirmedHomes.length === 0
           ? <p className="property-empty-copy">{t("properties.noHouses")}</p>
           : <>
             {attentionHomes.length > 0 && <section className="portfolio-attention-zone" aria-labelledby={`portfolio-attention-${property.id}`}>
@@ -251,12 +267,19 @@ function PortfolioOverviewView({
               </div>
               <div className="portfolio-grid">{attentionHomes.map((home) => renderHouseCard(home, "h4"))}</div>
             </section>}
-            {confirmedHomes.length > 0 && (attentionHomes.length > 0
+            {unknownHomes.length > 0 && <section className="portfolio-unknown-zone" aria-labelledby={`portfolio-unknown-${property.id}`}>
+              <div className="portfolio-unknown">
+                <span aria-hidden="true"><HelpCircle size={20} /></span>
+                <div><span className="eyebrow">{t("overview.monitoringUnknown")}</span><h3 id={`portfolio-unknown-${property.id}`}>{t(unknownHomes.length === 1 ? "overview.unknownHome" : "overview.unknownHomes", { count: unknownHomes.length })}</h3><p>{t("overview.unknownDescription")}</p></div>
+              </div>
+              <div className="portfolio-grid">{unknownHomes.map((home) => renderHouseCard(home, "h4", false))}</div>
+            </section>}
+            {confirmedHomes.length > 0 && (attentionHomes.length > 0 || unknownHomes.length > 0
               ? <details className="panel portfolio-system-summary portfolio-confirmed-homes">
                 <summary><span><span className="eyebrow">{t("overview.homes")}</span><strong>{t("overview.monitoring.monitoring-ok")} · {confirmedHomes.length}</strong></span><ChevronDown size={18} aria-hidden="true" /></summary>
-                <div className="portfolio-grid">{confirmedHomes.map((home) => renderHouseCard(home))}</div>
+                <div className="portfolio-confirmed-list">{confirmedHomes.map(renderConfirmedHomeRow)}</div>
               </details>
-              : <div className="portfolio-grid" aria-label={t("overview.homes")}>{confirmedHomes.map((home) => renderHouseCard(home))}</div>)}
+              : <div className="portfolio-confirmed-list" aria-label={t("overview.homes")}>{confirmedHomes.map(renderConfirmedHomeRow)}</div>)}
           </>}
       </section>)}
 

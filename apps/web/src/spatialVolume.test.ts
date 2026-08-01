@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MeasurementDefinition, MeasurementSample, Sensor } from "@climate-twin/contracts";
 import { createDemoState } from "./domain";
 import { definitionFor } from "./measurements";
-import { configuredSpatialMaxSampleAgeMs, configuredSpatialReplayMaxSampleAgeMs, isSpatialSampleFresh } from "./spatialFreshness";
+import { configuredSpatialMaxSampleAgeMs, configuredSpatialReplayMaxSampleAgeMs, DEFAULT_SPATIAL_FUTURE_TOLERANCE_MS, isSpatialSampleFresh } from "./spatialFreshness";
 import {
   clampCameraOrbit, createVolumeClouds, estimateVolumeFlows, interpolateVolume, projectPoint3D,
   type VolumeBounds,
@@ -147,5 +147,27 @@ describe("spatial sample freshness", () => {
     expect(isSpatialSampleFresh(old, freshness)).toBe(false);
     expect(isSpatialSampleFresh(future, freshness)).toBe(false);
     expect(isSpatialSampleFresh(stale, freshness)).toBe(false);
+  });
+
+  it("absorbs modest host and browser clock drift without accepting distant future samples", () => {
+    const state = createDemoState();
+    const definition = definitionFor(state.measurementDefinitions, "temperature");
+    const sensor = state.sensors[0]!;
+    const options = { referenceTimeMs, maxSampleAgeMs: 10 * 60_000 };
+    const withinClockDrift = sample(
+      sensor,
+      definition,
+      22,
+      new Date(referenceTimeMs + DEFAULT_SPATIAL_FUTURE_TOLERANCE_MS).toISOString(),
+    );
+    const distantFuture = sample(
+      sensor,
+      definition,
+      22,
+      new Date(referenceTimeMs + DEFAULT_SPATIAL_FUTURE_TOLERANCE_MS + 1).toISOString(),
+    );
+
+    expect(isSpatialSampleFresh(withinClockDrift, options)).toBe(true);
+    expect(isSpatialSampleFresh(distantFuture, options)).toBe(false);
   });
 });

@@ -160,6 +160,7 @@ registerDatabaseMethods({
       });
     },
   deleteObservation(id: string): boolean {
+      if (!this.getObservation(id)) return false;
       const linked = this.db.prepare(`SELECT maintenance_task_id FROM maintenance_task_observations
         WHERE observation_id = ? ORDER BY maintenance_task_id LIMIT 1`).get(id) as { maintenance_task_id: string } | undefined;
       if (linked) {

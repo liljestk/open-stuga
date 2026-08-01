@@ -35,6 +35,7 @@ import type {
   TelemetryEvent,
   TpLinkDiscoveredDevice,
 } from "@climate-twin/contracts";
+import { automaticWeatherLocation, hasLocalHouseAuthority, isAutomaticWeatherLocation } from "@climate-twin/contracts";
 import {
   api,
   cancelPendingApiRequests,
@@ -68,7 +69,27 @@ export function usePropertyActions(
   const updateProperty = useCallback(async (id: string, patch: PropertyPatch): Promise<Property> => {
       ensurePropertyWrite();
       const saved = await api.updateProperty(id, patch);
-      setState((current) => ({ ...current, properties: current.properties.map((item) => item.id === id ? saved : item) }));
+      setState((current) => {
+        const houses = patch.location === undefined ? current.houses : current.houses.map((house) => {
+          if (house.propertyId !== id || !hasLocalHouseAuthority(house) || (house.location && !isAutomaticWeatherLocation(house.location))) return house;
+          const inferred = automaticWeatherLocation(saved.location, house.mapPlacement);
+          if (inferred) return { ...house, location: inferred, updatedAt: saved.updatedAt };
+          const { location: _removed, ...withoutLocation } = house;
+          return { ...withoutLocation, updatedAt: saved.updatedAt };
+        });
+        return {
+          ...current,
+          houses,
+          properties: current.properties.map((item) => item.id === id ? saved : item),
+          integration: {
+            ...current.integration,
+            weather: {
+              ...current.integration.weather,
+              configuredHouses: houses.filter((house) => Boolean(house.location)).length,
+            },
+          },
+        };
+      });
       return saved;
     }, [ensurePropertyWrite]);
   const deleteProperty = useCallback(async (id: string): Promise<void> => {

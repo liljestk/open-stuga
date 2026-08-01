@@ -7,6 +7,7 @@ import type { House, IntegrationStatus, TpLinkDiscoveredDevice } from "@climate-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../api";
+import { confirmAction } from "../components/ConfirmationProvider";
 
 import { I18nProvider } from "../i18n";
 
@@ -32,9 +33,14 @@ vi.mock("../components/HouseLocationMap", () => ({
   ),
 }));
 
+vi.mock("../components/ConfirmationProvider", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../components/ConfirmationProvider")>();
+  return { ...actual, confirmAction: vi.fn().mockResolvedValue(true) };
+});
+
 beforeEach(() => {
   window.history.replaceState(null, "", "/setup/overview");
-  vi.spyOn(window, "confirm").mockReturnValue(true);
+  vi.mocked(confirmAction).mockReset().mockResolvedValue(true);
   vi.spyOn(api, "testTpLinkDraft").mockResolvedValue({ ok: true, message: "Connected" });
   vi.spyOn(api, "testHomeAssistantDraft").mockResolvedValue({ ok: true, message: "Connected" });
   vi.spyOn(api, "tpLinkHistoryExportJobs").mockResolvedValue({ enabled: false, automation: historyAutomation, jobs: [] });

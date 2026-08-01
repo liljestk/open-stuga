@@ -473,6 +473,11 @@ describe("registry-driven measurements API", () => {
       expect(response.status).toBe(200);
       const reader = response.body?.getReader();
       if (!reader) throw new Error("SSE response has no body");
+      const connected = await Promise.race([
+        reader.read(),
+        new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error("Timed out opening SSE stream")), 2_000)),
+      ]);
+      expect(new TextDecoder().decode(connected.value)).toContain(": connected");
       await request(runtime.app).post("/api/v2/measurements").send({
         sensorId: "sensor-01", metric: "co2", value: 875, canonicalUnit: "ppm", timestamp: "2026-07-14T12:00:00Z",
       }).expect(201);

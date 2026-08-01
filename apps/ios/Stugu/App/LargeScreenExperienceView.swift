@@ -335,7 +335,7 @@ struct LargeScreenExperienceView: View {
         case .alerts:
             navigate(to: webURL(origin: origin, path: ["alerts"]))
         case .inventory:
-            let path = model.selectedPropertyID.map { ["properties", $0] }
+            let path = model.selectedProperty?.id.map { ["properties", $0, "inventory"] }
                 ?? ["properties"]
             navigate(to: webURL(origin: origin, path: path))
         case .capture:

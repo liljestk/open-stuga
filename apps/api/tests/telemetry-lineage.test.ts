@@ -68,7 +68,7 @@ describe("immutable telemetry ownership lineage", () => {
     }]);
   }
 
-  it("rejects moves and hard deletes of resources that own real telemetry", async () => {
+  it("rejects moves and hard deletes but permits a non-destructive Home hide", async () => {
     addReading("api");
 
     await request(runtime.app).patch("/api/v1/sensors/lineage-sensor").send({
@@ -81,17 +81,16 @@ describe("immutable telemetry ownership lineage", () => {
     await request(runtime.app).patch("/api/v1/houses/lineage-house-a").send({ propertyId: "lineage-b" })
       .expect(409).expect(({ body }) => expect(body.error.code).toBe("TELEMETRY_LINEAGE_REQUIRED"));
 
-    for (const path of [
-      "/api/v1/sensors/lineage-sensor",
-      "/api/v1/houses/lineage-house-a",
-      "/api/v1/properties/lineage-a",
-    ]) {
+    for (const path of ["/api/v1/sensors/lineage-sensor", "/api/v1/properties/lineage-a"]) {
       await request(runtime.app).delete(path).expect(409)
         .expect(({ body }) => expect(body.error.code).toBe("TELEMETRY_LINEAGE_REQUIRED"));
     }
 
-    expect(runtime.database.getSensor("lineage-sensor")?.houseId).toBe("lineage-house-a");
-    expect(runtime.database.getHouse("lineage-house-a")?.propertyId).toBe("lineage-a");
+    await request(runtime.app).delete("/api/v1/houses/lineage-house-a").expect(204);
+    expect(runtime.database.getSensor("lineage-sensor")).toBeNull();
+    expect(runtime.database.getHouse("lineage-house-a")).toBeNull();
+    expect(runtime.database.db.prepare("SELECT COUNT(*) AS count FROM readings WHERE sensor_id = ?")
+      .get("lineage-sensor")).toMatchObject({ count: 1 });
     expect(runtime.database.getProperty("lineage-a")).not.toBeNull();
   });
 
@@ -112,7 +111,7 @@ describe("immutable telemetry ownership lineage", () => {
     }));
     conflict(() => runtime.database.updateHouse("lineage-house-a", { propertyId: "lineage-b" }));
     conflict(() => runtime.database.deleteSensor("lineage-sensor"));
-    conflict(() => runtime.database.deleteHouse("lineage-house-a"));
+    expect(runtime.database.deleteHouse("lineage-house-a")).toBe(true);
     conflict(() => runtime.database.deleteProperty("lineage-a"));
   });
 
@@ -120,6 +119,7 @@ describe("immutable telemetry ownership lineage", () => {
     addReading("mock");
     await request(runtime.app).delete("/api/v1/sensors/lineage-sensor").expect(204);
     await request(runtime.app).delete("/api/v1/houses/lineage-house-a").expect(204);
-    await request(runtime.app).delete("/api/v1/properties/lineage-a").expect(204);
+    expect(runtime.database.db.prepare("SELECT deleted_at FROM houses WHERE id = ?")
+      .get("lineage-house-a")).toMatchObject({ deleted_at: expect.any(String) });
   });
 });

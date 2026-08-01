@@ -64,6 +64,7 @@ import { isLegacyTpLinkContactSensor, tpLinkOpeningMatchesDevice } from "../../t
 import { HistoricalImportWizard, PlacementPicker, SensorLabelCard, UNPLACED_TAG, availableForSensor, clamp, deviceBindingKey, draftContext, draftForSensor, errorMessage, hasHomeAssistantBinding, hasRealBinding, initialDraft, isDemoSensor, isLive, isUnplaced, latestSensorTimestamp, mergeMetricSamples, normalizedMeasurementEntityIds, roomCenter, rounded, sameMeasurementEntityIds, sensorFloor, sensorHasMetric, sensorMeasurementEntityIds, sensorStatus, stableRoomId, tpLinkDeviceSummary, validationErrors } from "./support";
 import type { AddStep, DraftErrors, DraftSource, EditorMode, Feedback, SensorDraft, SensorFilter, SensorManagementPageProps, SensorStatus, Translate } from "./support";
 import { useSensorManagementPagePart01 } from "./part-01";
+import { sensorUrlStateFromLocation, writeSensorUrlStateToLocation, type SensorDetailTarget } from "./urlState";
 export function useSensorManagementPagePart02(context: ReturnType<typeof useSensorManagementPagePart01>) {
   const { state, house, houses, integration, tpLinkDevices, tpLinkDevicesLoading, tpLinkDevicesError, requestedDevice, requestedDeviceId, readOnly, localAuthority, units, onRequestedDeviceHandled, onLoadSeries, onHouse, onUpdateHouse, onRefreshDevices, onCreateSensor, onUpdateSensor, onDeleteSensor, onImportHistoricalData, locale, t, now, tpLinkStatus, formId, pageHeadingRef, editorHeadingRef, editorOpenerRef, importButtonRef, detailsHeadingRef, detailsOpenerRef, detailsRequestGeneration, search, setSearch, filter, setFilter, mode, setMode, addStep, setAddStep, editingSensorId, setEditingSensorId, attachSensorId, setAttachSensorId, draft, setDraft, errors, setErrors, editorFeedback, setEditorFeedback, pageFeedback, setPageFeedback, contactSetupDevice, setContactSetupDevice, setLocallyAssignedContactKeys, contactOpenerRef, submitting, setSubmitting, rowBusyId, setRowBusyId, cleanupBusy, setCleanupBusy, refreshing, setRefreshing, refreshError, setRefreshError, importOpen, setImportOpen, detailsSensor, setDetailsSensor, detailsContactKey, setDetailsContactKey, detailSamples, setDetailSamples, detailCursor, setDetailCursor, detailsLoading, setDetailsLoading, detailsError, setDetailsError, detailMetric, setDetailMetric, detailRange, setDetailRange, currentSensors, currentSensorIds, visibleDetailsSensor, demoSensors, hasExistingRealBoundSensor, enabledMeasurementDefinitions, detailDefinitions, detailDefinition, detailHistory, usedDeviceIds, homeTpLinkDevices, contactHistoryDevice, availableContactDevices, addableDevices, attachableSensors, sensorStatuses, statusCounts, normalizedSearch, visibleSensors, draftHouse, draftFloor, editingSensor, selectableDevices, currentBindingMissing, draftDevice, energyOnlyDraft, placementAnalysisEnabled, placementLayerScope, placementLayers, placementCoverage, placementSuggestion } = context;
   useEffect(() => {
@@ -137,8 +138,36 @@ export function useSensorManagementPagePart02(context: ReturnType<typeof useSens
       setImportOpen(false);
       window.setTimeout(() => importButtonRef.current?.focus(), 0);
     };
-  const loadSensorDetails = async (sensor: Sensor, cursor: string | null = null) => {
+  type SensorHistoryMode = "push" | "replace" | "none";
+  const writeSensorLocation = (
+    overrides: Partial<ReturnType<typeof sensorUrlStateFromLocation>>,
+    mode: Exclude<SensorHistoryMode, "none">,
+  ) => {
+      const current = sensorUrlStateFromLocation();
+      writeSensorUrlStateToLocation({
+        ...current,
+        urgency: filter,
+        range: detailRange,
+        ...overrides,
+      }, mode);
+    };
+  const selectSensorFilter = (next: SensorFilter) => {
+      setFilter(next);
+      writeSensorLocation({ urgency: next }, "replace");
+    };
+  const selectDetailRange = (next: TimeRange) => {
+      setDetailRange(next);
+      writeSensorLocation({ range: next }, "replace");
+    };
+  const loadSensorDetails = async (
+    sensor: Sensor,
+    cursor: string | null = null,
+    historyMode: SensorHistoryMode = cursor ? "none" : "push",
+  ) => {
       if (cursor && detailsLoading) return;
+      if (!cursor && historyMode !== "none") {
+        writeSensorLocation({ detail: { kind: "sensor", sensorId: sensor.id } }, historyMode);
+      }
       if (!cursor) detailsOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : pageHeadingRef.current;
       const generation = ++detailsRequestGeneration.current;
       setDetailsContactKey(null);
@@ -165,7 +194,7 @@ export function useSensorManagementPagePart02(context: ReturnType<typeof useSens
         if (detailsRequestGeneration.current === generation) setDetailsLoading(false);
       }
     };
-  const closeSensorDetails = () => {
+  const closeSensorDetails = (historyMode: SensorHistoryMode = "push") => {
       const opener = detailsOpenerRef.current;
       detailsOpenerRef.current = null;
       detailsRequestGeneration.current += 1;
@@ -174,9 +203,10 @@ export function useSensorManagementPagePart02(context: ReturnType<typeof useSens
       setDetailCursor(null);
       setDetailsError(null);
       setDetailsLoading(false);
+      if (historyMode !== "none") writeSensorLocation({ detail: null }, historyMode);
       window.setTimeout(() => (opener?.isConnected ? opener : pageHeadingRef.current)?.focus(), 0);
     };
-  const openContactDetails = (device: TpLinkDiscoveredDevice) => {
+  const openContactDetails = (device: TpLinkDiscoveredDevice, historyMode: SensorHistoryMode = "push") => {
       detailsOpenerRef.current = document.activeElement instanceof HTMLElement
         ? document.activeElement
         : pageHeadingRef.current;
@@ -187,23 +217,84 @@ export function useSensorManagementPagePart02(context: ReturnType<typeof useSens
       setDetailsError(null);
       setDetailsLoading(false);
       setDetailsContactKey(deviceBindingKey(device.deviceId, device.connectionId));
+      if (historyMode !== "none") writeSensorLocation({
+        detail: {
+          kind: "contact",
+          deviceId: device.deviceId,
+          ...(device.connectionId ? { connectionId: device.connectionId } : {}),
+        },
+      }, historyMode);
     };
-  const closeContactDetails = () => {
+  const closeContactDetails = (historyMode: SensorHistoryMode = "push") => {
       const opener = detailsOpenerRef.current;
       detailsOpenerRef.current = null;
       setDetailsContactKey(null);
+      if (historyMode !== "none") writeSensorLocation({ detail: null }, historyMode);
       window.setTimeout(() => (opener?.isConnected ? opener : pageHeadingRef.current)?.focus(), 0);
     };
+  const clearDetailsWithoutFocus = () => {
+      detailsOpenerRef.current = null;
+      detailsRequestGeneration.current += 1;
+      setDetailsSensor(null);
+      setDetailsContactKey(null);
+      setDetailSamples([]);
+      setDetailCursor(null);
+      setDetailsError(null);
+      setDetailsLoading(false);
+    };
+  const sensorScopeKey = currentSensors.map((sensor) => sensor.id).sort().join("\u0000");
+  const contactScopeKey = context.mappedContactDevices
+    .map((device) => deviceBindingKey(device.deviceId, device.connectionId))
+    .sort()
+    .join("\u0000");
+  useEffect(() => {
+      const expectedPathname = window.location.pathname;
+      const restoreSensorLocation = () => {
+        if (window.location.pathname !== expectedPathname) return;
+        const next = sensorUrlStateFromLocation();
+        setFilter(next.urgency);
+        setDetailRange(next.range);
+        let canonicalDetail: SensorDetailTarget = next.detail;
+        if (!next.detail) {
+          clearDetailsWithoutFocus();
+        } else if (next.detail.kind === "sensor") {
+          const target = next.detail;
+          const sensor = currentSensors.find((candidate) => candidate.id === target.sensorId);
+          if (!sensor) {
+            canonicalDetail = null;
+            clearDetailsWithoutFocus();
+          } else if (detailsSensor?.id !== sensor.id || detailsContactKey) {
+            void loadSensorDetails(sensor, null, "none");
+          }
+        } else if (!tpLinkDevicesLoading) {
+          const target = next.detail;
+          const device = context.mappedContactDevices.find((candidate) => (
+            candidate.deviceId === target.deviceId
+            && (candidate.connectionId ?? "") === (target.connectionId ?? "")
+          ));
+          if (!device) {
+            canonicalDetail = null;
+            clearDetailsWithoutFocus();
+          } else if (detailsContactKey !== deviceBindingKey(device.deviceId, device.connectionId) || detailsSensor) {
+            openContactDetails(device, "none");
+          }
+        }
+        writeSensorUrlStateToLocation({ ...next, detail: canonicalDetail }, "replace");
+      };
+      restoreSensorLocation();
+      window.addEventListener("popstate", restoreSensorLocation);
+      return () => window.removeEventListener("popstate", restoreSensorLocation);
+    }, [contactScopeKey, detailsContactKey, detailsSensor?.id, house.id, sensorScopeKey, tpLinkDevicesLoading]);
   useEffect(() => {
       if (!visibleDetailsSensor && !contactHistoryDevice) return;
       const timer = window.setTimeout(() => detailsHeadingRef.current?.focus(), 0);
       return () => window.clearTimeout(timer);
     }, [contactHistoryDevice?.connectionId, contactHistoryDevice?.deviceId, visibleDetailsSensor?.id]);
   useEffect(() => {
-      if (detailsSensor && !visibleDetailsSensor) closeSensorDetails();
+      if (detailsSensor && !visibleDetailsSensor) closeSensorDetails("replace");
     }, [detailsSensor, visibleDetailsSensor]);
   useEffect(() => {
-      if (detailsContactKey && !contactHistoryDevice) closeContactDetails();
+      if (detailsContactKey && !contactHistoryDevice) closeContactDetails("replace");
     }, [contactHistoryDevice, detailsContactKey]);
   useEffect(() => {
       if (detailDefinition && detailDefinition.id !== detailMetric) setDetailMetric(detailDefinition.id);
@@ -257,6 +348,7 @@ export function useSensorManagementPagePart02(context: ReturnType<typeof useSens
     };
   const beginContactSetup = (device: TpLinkDiscoveredDevice) => {
       if (readOnly) return;
+      if (detailsSensor || detailsContactKey) writeSensorLocation({ detail: null }, "push");
       contactOpenerRef.current = document.activeElement instanceof HTMLButtonElement
         ? document.activeElement
         : null;
@@ -445,5 +537,5 @@ export function useSensorManagementPagePart02(context: ReturnType<typeof useSens
         floor,
       };
     };
-  return Object.assign(context, { clearError, beginAdd, beginAddDevice, beginEdit, restoreEditorFocus, cancelEditor, closeImport, loadSensorDetails, closeSensorDetails, openContactDetails, closeContactDetails, chooseSource, chooseDevice, attachDeviceToExistingSensor, beginContactSetup, closeContactSetup, assignContactToOpening, changeDraftHouse, changeDraftFloor, focusFirstError, advanceAdd, retreatAdd, buildPlacement });
+  return Object.assign(context, { clearError, beginAdd, beginAddDevice, beginEdit, restoreEditorFocus, cancelEditor, closeImport, selectSensorFilter, selectDetailRange, loadSensorDetails, closeSensorDetails, openContactDetails, closeContactDetails, chooseSource, chooseDevice, attachDeviceToExistingSensor, beginContactSetup, closeContactSetup, assignContactToOpening, changeDraftHouse, changeDraftFloor, focusFirstError, advanceAdd, retreatAdd, buildPlacement });
 }

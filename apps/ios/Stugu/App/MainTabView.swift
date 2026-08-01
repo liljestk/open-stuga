@@ -50,6 +50,14 @@ struct MainTabView: View {
             RoomPlanImportView()
                 .environmentObject(model)
         }
+        .alert("Needs attention", isPresented: Binding(
+            get: { model.errorMessage != nil },
+            set: { if !$0 { model.errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.errorMessage ?? "")
+        }
         .onChange(of: model.pendingDeepLink, initial: true) { _, link in
             guard let link else { return }
             switch link {

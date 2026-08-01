@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { createDemoState } from "../domain";
 import { I18nProvider } from "../i18n";
+import { ConfirmationProvider } from "./ConfirmationProvider";
 import { StructureEditor } from "./StructureEditor";
 
 describe("StructureEditor", () => {
@@ -84,7 +85,10 @@ describe("StructureEditor", () => {
     expect(screen.queryByRole("button", { name: "Delete level" })).toBeNull();
     await user.click(screen.getByText("Level actions", { selector: "summary" }));
     expect((screen.getByRole("button", { name: "Delete level" }) as HTMLButtonElement).disabled).toBe(true);
-    await user.click(screen.getByRole("button", { name: "Add level" }));
+    const addLevelTrigger = screen.getByRole("button", { name: "Add level" });
+    expect(addLevelTrigger).not.toHaveAttribute("aria-controls");
+    await user.click(addLevelTrigger);
+    expect(document.getElementById(addLevelTrigger.getAttribute("aria-controls")!)).not.toBeNull();
     const name = screen.getAllByLabelText("Level name").find((item) => item.closest("form"))!;
     const form = name.closest("form")!;
     await user.selectOptions(within(form).getByLabelText("Level type"), "attic");
@@ -151,17 +155,22 @@ describe("StructureEditor", () => {
 
     const view = render(
       <I18nProvider>
-        <StructureEditor
-          houses={[house]} house={house} floor={house.floors[0]!} sensors={state.sensors}
-          onHouseSelect={onHouseSelect} onFloorSelect={onFloorSelect} onHouseChange={onHouseChange}
-          onHouseSave={onHouseSave} onHouseCreate={onHouseCreate} onHouseDelete={onHouseDelete}
-        />
+        <ConfirmationProvider>
+          <StructureEditor
+            houses={[house]} house={house} floor={house.floors[0]!} sensors={state.sensors}
+            onHouseSelect={onHouseSelect} onFloorSelect={onFloorSelect} onHouseChange={onHouseChange}
+            onHouseSave={onHouseSave} onHouseCreate={onHouseCreate} onHouseDelete={onHouseDelete}
+          />
+        </ConfirmationProvider>
       </I18nProvider>,
     );
 
     expect(screen.queryByRole("button", { name: "Add home" })).toBeNull();
     await user.click(screen.getByText("Manage homes", { selector: "summary" }));
-    await user.click(screen.getByRole("button", { name: "Add home" }));
+    const addHomeTrigger = screen.getByRole("button", { name: "Add home" });
+    expect(addHomeTrigger).not.toHaveAttribute("aria-controls");
+    await user.click(addHomeTrigger);
+    expect(document.getElementById(addHomeTrigger.getAttribute("aria-controls")!)).not.toBeNull();
     await user.type(screen.getByPlaceholderText("e.g. Lake home"), "Lake house");
     await user.click(within(screen.getByPlaceholderText("e.g. Lake home").closest("form")!).getByRole("button", { name: "Add" }));
     await waitFor(() => expect(onHouseCreate).toHaveBeenCalledWith(expect.objectContaining({ name: "Lake house", propertyId: house.propertyId })));
@@ -172,22 +181,30 @@ describe("StructureEditor", () => {
     const renamed = onHouseChange.mock.calls.at(-1)![0];
     view.rerender(
       <I18nProvider>
-        <StructureEditor
-          houses={[renamed, created]} house={renamed} floor={renamed.floors[0]!} sensors={state.sensors}
-          onHouseSelect={onHouseSelect} onFloorSelect={onFloorSelect} onHouseChange={onHouseChange}
-          onHouseSave={onHouseSave} onHouseCreate={onHouseCreate} onHouseDelete={onHouseDelete}
-        />
+        <ConfirmationProvider>
+          <StructureEditor
+            houses={[renamed, created]} house={renamed} floor={renamed.floors[0]!} sensors={state.sensors}
+            onHouseSelect={onHouseSelect} onFloorSelect={onFloorSelect} onHouseChange={onHouseChange}
+            onHouseSave={onHouseSave} onHouseCreate={onHouseCreate} onHouseDelete={onHouseDelete}
+          />
+        </ConfirmationProvider>
       </I18nProvider>,
     );
     await user.click(screen.getByRole("button", { name: "Save name" }));
     await waitFor(() => expect(onHouseSave).toHaveBeenCalledWith(expect.objectContaining({ id: house.id, name: "Pine retreat" })));
 
-    const dangerDisclosure = screen.getByText("Delete home", { selector: "summary" });
-    expect(within(dangerDisclosure.closest("details")!).queryByRole("button", { name: "Delete home" })).toBeNull();
+    const dangerDisclosure = screen.getByText("Hide Home", { selector: "summary" });
+    expect(within(dangerDisclosure.closest("details")!).queryByRole("button", { name: "Hide Home" })).toBeNull();
     await user.click(dangerDisclosure);
-    await user.click(within(dangerDisclosure.closest("details")!).getByRole("button", { name: "Delete home" }));
-    expect(screen.getByText("Delete Pine retreat and all of its local data?")).not.toBeNull();
-    await user.click(within(dangerDisclosure.closest("details")!).getByRole("button", { name: "Delete home" }));
+    const deleteTrigger = within(dangerDisclosure.closest("details")!).getByRole("button", { name: "Hide Home" });
+    await user.click(deleteTrigger);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Hide Pine retreat and all of its Home data? Nothing will be permanently erased.")).not.toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(onHouseDelete).not.toHaveBeenCalled();
+    expect(deleteTrigger).toHaveFocus();
+    await user.click(deleteTrigger);
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Hide Home" }));
     await waitFor(() => expect(onHouseDelete).toHaveBeenCalledWith(house.id));
     expect(onHouseDelete).toHaveBeenCalledOnce();
   });

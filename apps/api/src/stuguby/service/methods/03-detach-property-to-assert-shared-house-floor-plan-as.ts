@@ -153,7 +153,7 @@ registerStugubyServiceMethods({
               detachedAt: now,
             });
           } else {
-            this.database.deleteHouse(house.id);
+            this.database.purgeSharedHouseProjection(house.id);
           }
         }
         const detached = this.store.detachProperty(stugubyId, now);

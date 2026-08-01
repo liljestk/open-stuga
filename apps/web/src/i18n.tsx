@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { en, type TranslationKey } from "./locales/catalogs/en";
+import { readLocalStorage, subscribeToAccountStorageScope, writeLocalStorage } from "./browserStorage";
 
 export const SUPPORTED_LOCALES = ["en", "fi", "sv"] as const;
 export type Locale = typeof SUPPORTED_LOCALES[number];
@@ -47,13 +48,8 @@ function requestCatalog(locale: Locale): Promise<TranslationCatalog> {
 }
 
 function initialLocale(): Locale {
-    try {
-        const stored = localStorage.getItem("climate-twin-locale");
-        if (SUPPORTED_LOCALES.some((candidate) => candidate === stored)) return stored as Locale;
-    } catch {
-        // Storage can be disabled by browser privacy policy. Language selection
-        // must not prevent Stugu from starting.
-    }
+    const stored = readLocalStorage("climate-twin-locale");
+    if (SUPPORTED_LOCALES.some((candidate) => candidate === stored)) return stored as Locale;
     const browserLocales = navigator.languages?.length ? navigator.languages : [navigator.language];
     return browserLocales
         .map((candidate) => candidate.toLowerCase().split("-")[0])
@@ -61,11 +57,7 @@ function initialLocale(): Locale {
 }
 
 function persistLocale(locale: Locale): void {
-    try {
-        localStorage.setItem("climate-twin-locale", locale);
-    } catch {
-        // Keep the in-memory selection usable when persistent storage is denied.
-    }
+    writeLocalStorage("climate-twin-locale", locale);
 }
 
 interface I18nValue {
@@ -104,6 +96,10 @@ export function I18nProvider({ children, catalogLoader = requestCatalog }: Reado
     useEffect(() => {
         if (!active) activateLocale(preferredLocale, false);
     }, [active, activateLocale, preferredLocale]);
+
+    useEffect(() => subscribeToAccountStorageScope(() => {
+        activateLocale(initialLocale(), false);
+    }), [activateLocale]);
 
     useEffect(() => {
         if (active) document.documentElement.lang = active.locale;

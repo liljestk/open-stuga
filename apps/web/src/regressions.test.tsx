@@ -99,6 +99,10 @@ describe("frontend regressions", () => {
 
   it("removes the closed mobile navigation from interaction and restores it when opened", async () => {
     const user = userEvent.setup();
+    vi.spyOn(HTMLElement.prototype, "getClientRects").mockImplementation(function (this: HTMLElement) {
+      const hidden = this.classList.contains("desktop-navigation-hide") || Boolean(this.closest("details:not([open])"));
+      return { length: hidden ? 0 : 1 } as DOMRectList;
+    });
     vi.stubGlobal("matchMedia", vi.fn().mockImplementation((media: string) => ({
       matches: media === "(max-width: 900px)",
       media,
@@ -140,7 +144,16 @@ describe("frontend regressions", () => {
       expect(scrim.getAttribute("aria-hidden")).toBe("true");
       expect(scrim.hasAttribute("tabindex")).toBe(false);
       expect(scrim.tagName).toBe("DIV");
-      await waitFor(() => expect(document.activeElement).toBe(within(navigation).getByRole("button", { name: "Close navigation" })));
+      const firstFocusable = within(navigation).getByRole("button", { name: "Close navigation" });
+      await waitFor(() => expect(document.activeElement).toBe(firstFocusable));
+
+      const focusable = [...navigation.querySelectorAll<HTMLElement>("button:not([disabled]), select:not([disabled]), a[href], summary")]
+        .filter((element) => element.getClientRects().length > 0);
+      const lastFocusable = focusable.at(-1)!;
+      await user.tab({ shift: true });
+      expect(document.activeElement).toBe(lastFocusable);
+      await user.tab();
+      expect(document.activeElement).toBe(firstFocusable);
 
       await user.keyboard("{Escape}");
       await waitFor(() => expect(document.activeElement).toBe(opener));
@@ -149,6 +162,43 @@ describe("frontend regressions", () => {
       expect(mainColumn.hasAttribute("aria-hidden")).toBe(false);
       expect(document.body.style.overflow).toBe("");
       view.unmount();
+    } finally {
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("closes the mobile navigation after selecting a route", async () => {
+    const user = userEvent.setup();
+    const onPage = vi.fn();
+    vi.stubGlobal("matchMedia", vi.fn().mockImplementation((media: string) => ({
+      matches: media === "(max-width: 900px)",
+      media,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })));
+
+    try {
+      render(withI18n(
+        <AppShell page="twin" onPage={onPage} connection="offline" units="metric" onUnits={vi.fn()} lastUpdated={null} dataMode="demo">
+          <p>Content</p>
+        </AppShell>,
+      ));
+      const navigation = screen.getByLabelText("Primary navigation");
+      const opener = screen.getByRole("button", { name: "Open navigation" });
+      await user.click(opener);
+      await user.click(within(navigation).getByRole("link", { name: "Overview" }));
+
+      expect(onPage).toHaveBeenCalledWith("overview", { propertyId: null, houseId: null });
+      expect(opener.getAttribute("aria-expanded")).toBe("false");
+      expect(navigation.getAttribute("aria-hidden")).toBe("true");
+      expect(navigation.hasAttribute("inert")).toBe(true);
+      expect(document.body.style.overflow).toBe("");
+      await waitFor(() => expect(document.activeElement).toBe(opener));
     } finally {
       vi.unstubAllGlobals();
     }

@@ -159,7 +159,10 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
       });
     }, [replayActive, replayRequestedBounds, houseId, definition.id, definition.forecastSupported, range, houseSensorIds, selectedSensor?.id]);
   useEffect(() => {
-      if (!replayPrepared || replayRequestedBounds) {
+      // Loading every metric for every sensor can produce dozens of requests.
+      // History is an on-demand workspace, so prepare it only after the person
+      // opens that workspace (or while an active replay still depends on it).
+      if ((!historyOpen && !replayActive) || !replayPrepared || replayRequestedBounds) {
         replayPreparationBatchRef.current = "";
         return;
       }
@@ -171,7 +174,7 @@ export function useTwinDashboardPart03(context: ReturnType<typeof useTwinDashboa
         .forEach((replayDefinition) => houseSensors.forEach((sensor) => {
           loadSeriesOnce(sensor.id, replayDefinition);
         }));
-    }, [replayPrepared, replayRequestedBounds, houseId, range, houseSensorIds, replayMetricIds]);
+    }, [historyOpen, replayActive, replayPrepared, replayRequestedBounds, houseId, range, houseSensorIds, replayMetricIds]);
   useEffect(() => {
       if (!replayActive || replayRequestedBounds) {
         airflowReplayBatchRef.current = "";

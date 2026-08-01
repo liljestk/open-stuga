@@ -28,7 +28,7 @@ describe("PlanElementAirflowFields", () => {
 
     fireEvent.click(screen.getByText("Advanced airflow and sensor settings"));
     fireEvent.change(screen.getByRole("combobox", { name: "Provider" }), { target: { value: "tapo" } });
-    const deviceId = screen.getByRole("textbox", { name: "Entity or device id" });
+    const deviceId = screen.getByRole("textbox", { name: "Source ID" });
     fireEvent.change(deviceId, { target: { value: "contact-entry" } });
     fireEvent.blur(deviceId);
     expect(onChange).toHaveBeenLastCalledWith({

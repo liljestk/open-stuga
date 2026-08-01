@@ -48,8 +48,10 @@ describe("RoomComfortBoard evidence", () => {
     const view = renderBoard({ latestMeasurements });
     const roomCard = screen.getByRole("button", { name: /^Open Office\. Status: Comfortable\./ });
 
+    expect(roomCard).not.toHaveAttribute("aria-controls");
     fireEvent.click(roomCard);
     const panel = view.container.querySelector<HTMLElement>(".room-evidence-panel")!;
+    expect(roomCard).toHaveAttribute("aria-controls", panel.id);
     await waitFor(() => expect(document.activeElement).toBe(panel));
     expect(view.onOpenRoom).toHaveBeenCalledWith("floor", "room-office");
 
@@ -77,5 +79,6 @@ describe("RoomComfortBoard evidence", () => {
     fireEvent.click(within(panel).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(document.activeElement).toBe(roomCard));
     expect(roomCard.getAttribute("aria-expanded")).toBe("false");
+    expect(roomCard).not.toHaveAttribute("aria-controls");
   });
 });

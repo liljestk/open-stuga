@@ -26,6 +26,12 @@ import { CloudflareSetupPanel } from "../CloudflareSetupPanel";
 import "../StugubyPage.css";
 import { MemberIdentity, activeGrant, datasetLabelKeys, editableHomeDatasets, errorMessage, formattedTime, grantHomeName, idlePublicationCatalog, initialDatasetDraft, localDateTimeInput, loopbackOrigin, memberStateLabelKeys, parseArray, roleLabelKeys, suggestedCoordinatorOrigin } from "./support";
 import type { DatasetDraft, PublicationCatalogState, StugubyPageProps } from "./support";
+
+type StugubyActiveScope = Readonly<{
+  id: string;
+  generation: number;
+}>;
+
 export function useStugubyPagePart01(context: { houses: Readonly<StugubyPageProps>["houses"]; properties: Exclude<Readonly<StugubyPageProps>["properties"], undefined>; onInventoryChange: Readonly<StugubyPageProps>["onInventoryChange"] }) {
   const { houses, properties, onInventoryChange } = context;
   const { locale, t } = useI18n();
@@ -101,6 +107,25 @@ export function useStugubyPagePart01(context: { houses: Readonly<StugubyPageProp
   const [migrationPropertyId, setMigrationPropertyId] = useState("");
   const detailRequest = useRef(0);
   const selectedIdRef = useRef("");
+  const activeScopeRef = useRef<StugubyActiveScope | null>(null);
+  const scopeGenerationRef = useRef(0);
+  const advanceActiveScope = useCallback((id: string): StugubyActiveScope => {
+      const scope = { id, generation: ++scopeGenerationRef.current };
+      activeScopeRef.current = scope;
+      return scope;
+    }, []);
+  const captureActiveScope = useCallback((id: string): StugubyActiveScope | null => {
+      const scope = activeScopeRef.current;
+      return scope?.id === id && selectedIdRef.current === id ? scope : null;
+    }, []);
+  const isActiveScope = useCallback((scope: StugubyActiveScope | null): scope is StugubyActiveScope => (
+      scope !== null && activeScopeRef.current === scope && selectedIdRef.current === scope.id
+    ), []);
+  useEffect(() => () => {
+      activeScopeRef.current = null;
+      selectedIdRef.current = "";
+      detailRequest.current += 1;
+    }, []);
   const resetGrantDraft = useCallback(() => {
       setGrantHouseId(unsharedHouses[0]?.id ?? "");
       setAudienceKind("all-members");
@@ -131,11 +156,12 @@ export function useStugubyPagePart01(context: { houses: Readonly<StugubyPageProp
       setNotice(null);
     }, [resetGrantDraft]);
   const beginSelection = useCallback((id: string) => {
+      advanceActiveScope(id);
       selectedIdRef.current = id;
       setSelectedId(id);
       setDetail(null);
       resetStugubyScopedUi();
-    }, [resetStugubyScopedUi]);
+    }, [advanceActiveScope, resetStugubyScopedUi]);
   const loadDetail = useCallback(async (id: string) => {
       const request = ++detailRequest.current;
       setDetailLoading(true);
@@ -158,5 +184,5 @@ export function useStugubyPagePart01(context: { houses: Readonly<StugubyPageProp
         if (request === detailRequest.current && selectedIdRef.current === id) setDetailLoading(false);
       }
     }, [t]);
-  return Object.assign(context, { locale, t, roleLabel, stateLabel, index, setIndex, detail, setDetail, selectedId, setSelectedId, loading, setLoading, busy, setBusy, error, setError, notice, setNotice, detailLoading, setDetailLoading, telemetryError, setTelemetryError, copied, setCopied, cloudflareSetupRequested, setCloudflareSetupRequested, createdInvitation, setCreatedInvitation, telemetrySamples, setTelemetrySamples, createName, setCreateName, createDescription, setCreateDescription, createCoordinatorUrl, setCreateCoordinatorUrl, joinCoordinatorUrl, setJoinCoordinatorUrl, joinUrl, setJoinUrl, joinInvitationId, setJoinInvitationId, joinSecret, setJoinSecret, inviteRole, setInviteRole, inviteLocalLabel, setInviteLocalLabel, inviteExpiresAt, setInviteExpiresAt, publishableHouses, grantHouseId, setGrantHouseId, audienceKind, setAudienceKind, audienceNodes, setAudienceNodes, datasetDraft, setDatasetDraft, telemetryLive, setTelemetryLive, telemetryHistoryHours, setTelemetryHistoryHours, telemetryMetrics, setTelemetryMetrics, telemetrySensors, setTelemetrySensors, telemetryRate, setTelemetryRate, grantExpiresAt, setGrantExpiresAt, houseEditPolicy, setHouseEditPolicy, recoveryMode, setRecoveryMode, houseSuccessorNodeId, setHouseSuccessorNodeId, editingGrantId, setEditingGrantId, publicationCatalog, setPublicationCatalog, catalogRevision, setCatalogRevision, activeLocalGrantHouseIds, unsharedHouses, grantHouseOptions, propertyName, setPropertyName, propertyDescription, setPropertyDescription, propertyLatitude, setPropertyLatitude, propertyLongitude, setPropertyLongitude, propertyLocationLabel, setPropertyLocationLabel, areasJson, setAreasJson, equipmentJson, setEquipmentJson, notesJson, setNotesJson, maintenanceJson, setMaintenanceJson, propertyEditPolicy, setPropertyEditPolicy, propertySuccessorNodeId, setPropertySuccessorNodeId, adoptionPropertyId, setAdoptionPropertyId, migrationPropertyId, setMigrationPropertyId, detailRequest, selectedIdRef, resetGrantDraft, resetStugubyScopedUi, beginSelection, loadDetail });
+  return Object.assign(context, { locale, t, roleLabel, stateLabel, index, setIndex, detail, setDetail, selectedId, setSelectedId, loading, setLoading, busy, setBusy, error, setError, notice, setNotice, detailLoading, setDetailLoading, telemetryError, setTelemetryError, copied, setCopied, cloudflareSetupRequested, setCloudflareSetupRequested, createdInvitation, setCreatedInvitation, telemetrySamples, setTelemetrySamples, createName, setCreateName, createDescription, setCreateDescription, createCoordinatorUrl, setCreateCoordinatorUrl, joinCoordinatorUrl, setJoinCoordinatorUrl, joinUrl, setJoinUrl, joinInvitationId, setJoinInvitationId, joinSecret, setJoinSecret, inviteRole, setInviteRole, inviteLocalLabel, setInviteLocalLabel, inviteExpiresAt, setInviteExpiresAt, publishableHouses, grantHouseId, setGrantHouseId, audienceKind, setAudienceKind, audienceNodes, setAudienceNodes, datasetDraft, setDatasetDraft, telemetryLive, setTelemetryLive, telemetryHistoryHours, setTelemetryHistoryHours, telemetryMetrics, setTelemetryMetrics, telemetrySensors, setTelemetrySensors, telemetryRate, setTelemetryRate, grantExpiresAt, setGrantExpiresAt, houseEditPolicy, setHouseEditPolicy, recoveryMode, setRecoveryMode, houseSuccessorNodeId, setHouseSuccessorNodeId, editingGrantId, setEditingGrantId, publicationCatalog, setPublicationCatalog, catalogRevision, setCatalogRevision, activeLocalGrantHouseIds, unsharedHouses, grantHouseOptions, propertyName, setPropertyName, propertyDescription, setPropertyDescription, propertyLatitude, setPropertyLatitude, propertyLongitude, setPropertyLongitude, propertyLocationLabel, setPropertyLocationLabel, areasJson, setAreasJson, equipmentJson, setEquipmentJson, notesJson, setNotesJson, maintenanceJson, setMaintenanceJson, propertyEditPolicy, setPropertyEditPolicy, propertySuccessorNodeId, setPropertySuccessorNodeId, adoptionPropertyId, setAdoptionPropertyId, migrationPropertyId, setMigrationPropertyId, detailRequest, selectedIdRef, captureActiveScope, isActiveScope, resetGrantDraft, resetStugubyScopedUi, beginSelection, loadDetail });
 }

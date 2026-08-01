@@ -18,6 +18,7 @@ import type {
   TuyaDiscoveredDevice,
 } from "@climate-twin/contracts";
 import { api } from "../../api";
+import { confirmAction } from "../../components/ConfirmationProvider";
 import { formatInTimeZone } from "../../dateTime";
 import { useConnectedDevicesQuery } from "../../data/connectedDevicesQuery";
 import { useI18n } from "../../i18n";
@@ -395,7 +396,7 @@ export function TuyaSetupPanel({
   };
 
   const disconnect = async (connectionId: string, deviceName: string) => {
-    if (!window.confirm(t("setup.tuyaDisconnectConfirm", { device: deviceName }))) return;
+    if (!await confirmAction(t("setup.tuyaDisconnectConfirm", { device: deviceName }), t("confirmation.disconnect"))) return;
     setBusyId(connectionId);
     setFeedback(null);
     try {

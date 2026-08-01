@@ -94,7 +94,7 @@
   margin-bottom: 2px;
   color: var(--muted);
   font-size: 10px;
-  font-weight: 750;
+  font-weight: 700;
   letter-spacing: .04em;
   text-transform: uppercase;
 }
@@ -141,7 +141,7 @@
   padding: 11px 12px;
   border: 1px solid color-mix(in srgb, var(--positive) 45%, var(--line));
   border-radius: 8px;
-  color: var(--pine);
+  color: var(--action);
   background: var(--positive-soft);
   font-size: 12.5px;
   line-height: 1.45;
@@ -212,7 +212,7 @@
   fill: var(--ink);
   font-family: "Manrope", sans-serif;
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 700;
   paint-order: stroke;
   pointer-events: none;
   stroke: var(--panel);
@@ -222,7 +222,7 @@
 
 .connected-device-state {
   fill: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .connected-device-marker.unavailable {
@@ -239,7 +239,8 @@
 }
 
 .connected-device-marker:focus-visible {
-  outline: none;
+  outline: 3px solid var(--action);
+  outline-offset: 3px;
 }
 
 .connected-device-marker:focus-visible .connected-device-ring {

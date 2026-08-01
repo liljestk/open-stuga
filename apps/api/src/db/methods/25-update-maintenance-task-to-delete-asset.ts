@@ -138,7 +138,13 @@ registerDatabaseMethods({
             : {}),
           ...lifecycle,
         };
-        this.validateMaintenanceTask(next);
+        const currentObservationIds = new Set(current.observationIds);
+        const retainedHiddenHouseId = next.houseId === current.houseId
+          && next.floorId === current.floorId
+          && next.observationIds.every((observationId) => currentObservationIds.has(observationId))
+          ? current.houseId
+          : null;
+        this.validateMaintenanceTask(next, retainedHiddenHouseId);
         const changedFields = MAINTENANCE_TASK_CHANGED_FIELDS.filter((field) => (
           field === "observationIds"
             ? JSON.stringify(current.observationIds) !== JSON.stringify(next.observationIds)
@@ -147,6 +153,9 @@ registerDatabaseMethods({
         if (changedFields.length === 0) return current;
         next.revision = current.revision + 1;
         next.updatedAt = changedAt;
+        if (changedFields.includes("observationIds")) {
+          this.db.prepare("DELETE FROM maintenance_task_observations WHERE maintenance_task_id = ?").run(id);
+        }
         const result = this.db.prepare(`UPDATE maintenance_tasks SET
           house_id = ?, floor_id = ?, area_id = ?, equipment_id = ?, title = ?, description = ?, basis = ?, basis_detail = ?, priority = ?, planned_for = ?, due_by = ?,
           status = ?, completion_note = ?, completed_at = ?, verification_note = ?, verified_at = ?, revision = ?, updated_at = ?
@@ -238,7 +247,7 @@ registerDatabaseMethods({
         this.insertMaintenanceTaskRevision(next, actor, changedFields);
       }
     },
-  validateMaintenanceTask(task: MaintenanceTask): void {
+  validateMaintenanceTask(task: MaintenanceTask, retainedHiddenHouseId: string | null = null): void {
       if (!this.getProperty(task.propertyId)) {
         throw new ClimateDataValidationError(
           404,
@@ -247,7 +256,8 @@ registerDatabaseMethods({
         );
       }
       const house = task.houseId === null ? null : this.getHouse(task.houseId);
-      if (task.houseId !== null && !house) {
+      const retainingHiddenHouse = task.houseId !== null && !house && task.houseId === retainedHiddenHouseId;
+      if (task.houseId !== null && !house && !retainingHiddenHouse) {
         throw new ClimateDataValidationError(
           404,
           "MAINTENANCE_HOUSE_NOT_FOUND",
@@ -261,7 +271,7 @@ registerDatabaseMethods({
           `House ${house.id} does not belong to property ${task.propertyId}`,
         );
       }
-      if (task.floorId !== null && !house) {
+      if (task.floorId !== null && !house && !retainingHiddenHouse) {
         throw new ClimateDataValidationError(
           422,
           "MAINTENANCE_HOUSE_REQUIRED",
@@ -354,14 +364,14 @@ registerDatabaseMethods({
           "observationIds must contain at most 100 unique, non-empty identifiers of at most 200 characters",
         );
       }
-      if (task.observationIds.length > 0 && !house) {
+      if (task.observationIds.length > 0 && !house && !retainingHiddenHouse) {
         throw new ClimateDataValidationError(
           422,
           "MAINTENANCE_HOUSE_REQUIRED",
           "Maintenance observation evidence requires a house",
         );
       }
-      for (const observationId of task.observationIds) {
+      for (const observationId of retainingHiddenHouse ? [] : task.observationIds) {
         const observation = this.getObservation(observationId);
         if (!observation) {
           throw new ClimateDataValidationError(
@@ -394,11 +404,18 @@ registerDatabaseMethods({
     },
   listParameters(houseId?: string): StaticParameter[] {
       const rows = (houseId
-        ? this.db.prepare("SELECT * FROM static_parameters WHERE house_id = ? ORDER BY label").all(houseId)
-        : this.db.prepare("SELECT * FROM static_parameters ORDER BY label").all()) as unknown as StaticParameterRow[];
+        ? this.db.prepare(`SELECT parameter.* FROM static_parameters AS parameter
+            JOIN houses AS house ON house.id = parameter.house_id
+            WHERE parameter.house_id = ? AND house.deleted_at IS NULL ORDER BY parameter.label`).all(houseId)
+        : this.db.prepare(`SELECT parameter.* FROM static_parameters AS parameter
+            JOIN houses AS house ON house.id = parameter.house_id
+            WHERE house.deleted_at IS NULL ORDER BY parameter.label`).all()) as unknown as StaticParameterRow[];
       return rows.map(parameterFromRow);
     },
   saveParameter(input: Omit<StaticParameter, "id"> & { id?: string }): StaticParameter {
+      if (!this.getHouse(input.houseId)) {
+        throw new ClimateDataValidationError(404, "HOUSE_NOT_FOUND", `House ${input.houseId} does not exist`);
+      }
       const parameter: StaticParameter = { ...input, id: input.id ?? randomUUID() };
       this.db.prepare(`INSERT INTO static_parameters
         (id, house_id, scope_type, scope_id, key, value_json, unit, label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -412,9 +429,14 @@ registerDatabaseMethods({
       return parameterFromRow(row);
     },
   deleteParameter(id: string): boolean {
-      return Number(this.db.prepare("DELETE FROM static_parameters WHERE id = ?").run(id).changes) > 0;
+      return Number(this.db.prepare(`DELETE FROM static_parameters WHERE id = ?
+        AND EXISTS (SELECT 1 FROM houses AS house
+          WHERE house.id = static_parameters.house_id AND house.deleted_at IS NULL)`).run(id).changes) > 0;
     },
   createAsset(input: Omit<AssetRecord, "id" | "size" | "createdAt"> & { data: Uint8Array }): AssetRecord {
+      if (!this.getHouse(input.houseId)) {
+        throw new ClimateDataValidationError(404, "HOUSE_NOT_FOUND", `House ${input.houseId} does not exist`);
+      }
       const asset: AssetRecord = {
         id: randomUUID(), houseId: input.houseId, name: input.name, mimeType: input.mimeType, kind: input.kind,
         size: input.data.byteLength, createdAt: new Date().toISOString(),
@@ -425,15 +447,21 @@ registerDatabaseMethods({
     },
   listAssets(houseId?: string): AssetRecord[] {
       const sql = `SELECT id, house_id as houseId, name, mime_type as mimeType, kind, size, created_at as createdAt
-        FROM assets ${houseId ? "WHERE house_id = ?" : ""} ORDER BY created_at DESC`;
+        FROM assets WHERE EXISTS (SELECT 1 FROM houses AS house
+          WHERE house.id = assets.house_id AND house.deleted_at IS NULL)
+        ${houseId ? "AND house_id = ?" : ""} ORDER BY created_at DESC`;
       return (houseId ? this.db.prepare(sql).all(houseId) : this.db.prepare(sql).all()) as unknown as AssetRecord[];
     },
   getAsset(id: string): (AssetRecord & { data: Uint8Array }) | null {
       const row = this.db.prepare(`SELECT id, house_id as houseId, name, mime_type as mimeType, kind, size,
-        created_at as createdAt, data FROM assets WHERE id = ?`).get(id);
+        created_at as createdAt, data FROM assets WHERE id = ?
+          AND EXISTS (SELECT 1 FROM houses AS house
+            WHERE house.id = assets.house_id AND house.deleted_at IS NULL)`).get(id);
       return row as unknown as (AssetRecord & { data: Uint8Array }) | null;
     },
   deleteAsset(id: string): boolean {
-      return Number(this.db.prepare("DELETE FROM assets WHERE id = ?").run(id).changes) > 0;
+      return Number(this.db.prepare(`DELETE FROM assets WHERE id = ?
+        AND EXISTS (SELECT 1 FROM houses AS house
+          WHERE house.id = assets.house_id AND house.deleted_at IS NULL)`).run(id).changes) > 0;
     },
 });

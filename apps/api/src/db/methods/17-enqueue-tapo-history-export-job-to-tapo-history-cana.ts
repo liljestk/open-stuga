@@ -229,18 +229,24 @@ registerDatabaseMethods({
       });
     },
   getTapoHistoryExportJob(id: string): TapoHistoryExportJob | null {
-      const row = this.db.prepare("SELECT * FROM tapo_history_export_jobs WHERE id = ?")
+      const row = this.db.prepare(`SELECT job.* FROM tapo_history_export_jobs AS job
+        JOIN sensors AS sensor ON sensor.id = job.sensor_id
+        JOIN houses AS house ON house.id = sensor.house_id
+        WHERE job.id = ? AND house.deleted_at IS NULL`)
         .get(id) as unknown as TapoHistoryExportJobRow | undefined;
       return row ? tapoHistoryExportJobFromRow(row) : null;
     },
   getTapoHistoryExportJobByDedupeKey(dedupeKey: string): TapoHistoryExportJob | null {
       const key = normalizedTapoHistoryText(dedupeKey, "dedupeKey", 500);
-      const row = this.db.prepare("SELECT * FROM tapo_history_export_jobs WHERE dedupe_key = ?")
+      const row = this.db.prepare(`SELECT job.* FROM tapo_history_export_jobs AS job
+        JOIN sensors AS sensor ON sensor.id = job.sensor_id
+        JOIN houses AS house ON house.id = sensor.house_id
+        WHERE job.dedupe_key = ? AND house.deleted_at IS NULL`)
         .get(key) as unknown as TapoHistoryExportJobRow | undefined;
       return row ? tapoHistoryExportJobFromRow(row) : null;
     },
   listTapoHistoryExportJobs(filter: TapoHistoryExportJobFilter = {}): TapoHistoryExportJob[] {
-      const conditions: string[] = [];
+      const conditions: string[] = ["house.deleted_at IS NULL"];
       const parameters: string[] = [];
       if (filter.statuses) {
         const statuses = [...new Set(filter.statuses)];
@@ -248,34 +254,41 @@ registerDatabaseMethods({
         if (statuses.some((status) => !(status in TAPO_HISTORY_EXPORT_TRANSITIONS))) {
           throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_STATUS", "Unsupported Tapo export status");
         }
-        conditions.push(`status IN (${statuses.map(() => "?").join(",")})`);
+        conditions.push(`job.status IN (${statuses.map(() => "?").join(",")})`);
         parameters.push(...statuses);
       }
       if (filter.provider) {
         if (filter.provider !== "appium" && filter.provider !== "private-cloud") {
           throw new ClimateDataValidationError(422, "INVALID_TAPO_EXPORT_PROVIDER", "Unsupported Tapo history export provider");
         }
-        conditions.push("provider = ?");
+        conditions.push("job.provider = ?");
         parameters.push(filter.provider);
       }
       if (filter.sensorId) {
-        conditions.push("sensor_id = ?");
+        conditions.push("job.sensor_id = ?");
         parameters.push(filter.sensorId);
       }
       const limit = Math.max(1, Math.min(1_000, Math.trunc(filter.limit ?? 100)));
-      const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+      const where = `WHERE ${conditions.join(" AND ")}`;
       const direction = filter.oldestFirst === true ? "ASC" : "DESC";
-      const rows = this.db.prepare(`SELECT * FROM tapo_history_export_jobs ${where}
-        ORDER BY created_at ${direction}, id ${direction} LIMIT ?`).all(...parameters, limit) as unknown as TapoHistoryExportJobRow[];
+      const rows = this.db.prepare(`SELECT job.* FROM tapo_history_export_jobs AS job
+        JOIN sensors AS sensor ON sensor.id = job.sensor_id
+        JOIN houses AS house ON house.id = sensor.house_id ${where}
+        ORDER BY job.created_at ${direction}, job.id ${direction} LIMIT ?`).all(...parameters, limit) as unknown as TapoHistoryExportJobRow[];
       return rows.map(tapoHistoryExportJobFromRow);
     },
   hasOpenTapoHistoryCanary(): boolean {
-      return Boolean(this.db.prepare(`SELECT 1 AS present FROM tapo_history_export_jobs
-        WHERE dedupe_key LIKE 'canary:%' AND status NOT IN ('completed', 'cancelled') LIMIT 1`).get());
+      return Boolean(this.db.prepare(`SELECT 1 AS present FROM tapo_history_export_jobs AS job
+        JOIN sensors AS sensor ON sensor.id = job.sensor_id
+        JOIN houses AS house ON house.id = sensor.house_id
+        WHERE job.dedupe_key LIKE 'canary:%' AND job.status NOT IN ('completed', 'cancelled')
+          AND house.deleted_at IS NULL LIMIT 1`).get());
     },
   countWaitingTapoHistoryExportEmails(): number {
-      const row = this.db.prepare(`SELECT COUNT(*) AS count FROM tapo_history_export_jobs
-        WHERE provider = 'appium' AND status = 'waiting-email'`).get() as { count: number };
+      const row = this.db.prepare(`SELECT COUNT(*) AS count FROM tapo_history_export_jobs AS job
+        JOIN sensors AS sensor ON sensor.id = job.sensor_id
+        JOIN houses AS house ON house.id = sensor.house_id
+        WHERE job.provider = 'appium' AND job.status = 'waiting-email' AND house.deleted_at IS NULL`).get() as { count: number };
       return Number(row.count);
     },
   hasRecentTapoHistoryCanaryApproval(deploymentFingerprint: string, notBefore: string): boolean {

@@ -97,7 +97,10 @@ export class Nexus433Store {
 
   gatewayForHouse(houseId: string, create = true): GatewayRow | null {
     const existing = this.database.db.prepare(
-      "SELECT id, house_id, enabled, revision, receiver_identity FROM external_source_gateways WHERE adapter = ? AND house_id = ?",
+      `SELECT gateway.id, gateway.house_id, gateway.enabled, gateway.revision, gateway.receiver_identity
+        FROM external_source_gateways AS gateway
+        JOIN houses AS house ON house.id = gateway.house_id
+        WHERE gateway.adapter = ? AND gateway.house_id = ? AND house.deleted_at IS NULL`,
     ).get(ADAPTER, houseId) as unknown as GatewayRow | undefined;
     if (existing || !create) return existing ?? null;
     if (!this.database.getHouse(houseId)) {
@@ -114,7 +117,10 @@ export class Nexus433Store {
 
   enabledGateway(): GatewayRow | null {
     return (this.database.db.prepare(
-      "SELECT id, house_id, enabled, revision, receiver_identity FROM external_source_gateways WHERE adapter = ? AND enabled = 1",
+      `SELECT gateway.id, gateway.house_id, gateway.enabled, gateway.revision, gateway.receiver_identity
+        FROM external_source_gateways AS gateway
+        JOIN houses AS house ON house.id = gateway.house_id
+        WHERE gateway.adapter = ? AND gateway.enabled = 1 AND house.deleted_at IS NULL`,
     ).get(ADAPTER) as unknown as GatewayRow | undefined) ?? null;
   }
 

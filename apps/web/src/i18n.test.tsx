@@ -128,6 +128,30 @@ describe("localization coverage", () => {
     });
   });
 
+  it("keeps the primary setup journey vendor-neutral in every locale", () => {
+    for (const locale of SUPPORTED_LOCALES) {
+      const setupCopy = [
+        translationCatalogs[locale]["setup.step1body"],
+        translationCatalogs[locale]["setup.step2body"],
+        translationCatalogs[locale]["setup.step3body"],
+      ].join(" ");
+      expect(setupCopy, locale).not.toMatch(/TP-Link|Home Assistant|H100|H200|Tapo/);
+    }
+  });
+
+  it("keeps unknown monitoring and Property-wide optimizer scope explicit in every locale", () => {
+    expect(SUPPORTED_LOCALES.map((locale) => ({
+      locale,
+      monitoring: translationCatalogs[locale]["overview.monitoringUnknown"],
+      homes: translationCatalogs[locale]["overview.unknownHomes"],
+      optimizer: translationCatalogs[locale]["energy.optimizer.propertyScope"],
+    }))).toEqual([
+      { locale: "en", monitoring: "Monitoring not confirmed", homes: "Monitoring is not confirmed for {count} homes", optimizer: "Property scope · {property}" },
+      { locale: "fi", monitoring: "Seurantaa ei ole vahvistettu", homes: "{count} kodin seurantaa ei ole vahvistettu", optimizer: "Kiinteistötaso · {property}" },
+      { locale: "sv", monitoring: "Övervakning inte bekräftad", homes: "Övervakningen är inte bekräftad för {count} hem", optimizer: "Fastighetsnivå · {property}" },
+    ]);
+  });
+
   it("loads and persists Swedish without falling back to English", async () => {
     localStorage.setItem("climate-twin-locale", "sv");
     render(<I18nProvider><LocaleProbe /></I18nProvider>);

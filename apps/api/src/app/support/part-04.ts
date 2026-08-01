@@ -182,6 +182,7 @@ import {
   type AuthenticatedTrackingObserver,
 } from "../../tracking/store.js";
 import { HttpError } from "./part-01.js";
+import { roleCanManageWorkspace } from "../access-policy.js";
 
 export function visibleCollectionPage<T>(
   load: (limit: number, offset: number) => T[],
@@ -427,7 +428,7 @@ export function auditAccountSubject(value: unknown): string {
 
 export function requireWorkspaceAdmin(_request: Request, response: Response, next: NextFunction): void {
   const principal = requestPrincipal(response);
-  if (principal.role !== "owner" && principal.role !== "admin") {
+  if (!roleCanManageWorkspace(principal.role)) {
     next(new HttpError(403, "FORBIDDEN", "Workspace administration requires an Owner or Admin account"));
     return;
   }

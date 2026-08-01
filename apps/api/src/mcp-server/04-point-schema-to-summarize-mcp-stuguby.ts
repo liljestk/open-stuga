@@ -108,7 +108,7 @@ export const houseLocationSchema = {
     longitude: { type: "number", minimum: -180, maximum: 180 },
     label: { type: "string", maxLength: 200 },
     countryCode: { type: "string", pattern: "^[A-Za-z]{2}$" },
-    source: { enum: ["manual", "place-search", "browser-geolocation", "home-assistant", "map-placement"] },
+    source: { enum: ["manual", "place-search", "browser-geolocation", "home-assistant", "map-placement", "property-location"] },
     confidence: { enum: ["high", "medium", "low"] },
     discoveredAt: { type: "string", format: "date-time" },
     userOverridden: { type: "boolean" },

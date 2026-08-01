@@ -69,6 +69,7 @@ import {
 } from "../../tpLinkDeviceClassification";
 import { HistoricalImportWizard, PlacementPicker, SensorLabelCard, UNPLACED_TAG, availableForSensor, clamp, deviceBindingKey, draftContext, draftForSensor, errorMessage, hasHomeAssistantBinding, hasRealBinding, initialDraft, isDemoSensor, isLive, isUnplaced, latestSensorTimestamp, mergeMetricSamples, normalizedMeasurementEntityIds, roomCenter, rounded, sameMeasurementEntityIds, sensorFloor, sensorHasMetric, sensorMeasurementEntityIds, sensorStatus, stableRoomId, tpLinkDeviceSummary, validationErrors } from "./support";
 import type { AddStep, DraftErrors, DraftSource, EditorMode, Feedback, SensorDraft, SensorFilter, SensorManagementPageProps, SensorStatus, Translate } from "./support";
+import { sensorUrlStateFromLocation } from "./urlState";
 export function useSensorManagementPagePart01(context: { state: SensorManagementPageProps["state"]; house: SensorManagementPageProps["house"]; houses: SensorManagementPageProps["houses"]; integration: SensorManagementPageProps["integration"]; tpLinkDevices: SensorManagementPageProps["tpLinkDevices"]; tpLinkDevicesLoading: SensorManagementPageProps["tpLinkDevicesLoading"]; tpLinkDevicesError: SensorManagementPageProps["tpLinkDevicesError"]; requestedDevice: Exclude<SensorManagementPageProps["requestedDevice"], undefined>; requestedDeviceId: Exclude<SensorManagementPageProps["requestedDeviceId"], undefined>; readOnly: Exclude<SensorManagementPageProps["readOnly"], undefined>; localAuthority: Exclude<SensorManagementPageProps["localAuthority"], undefined>; canManageIntegrations: Exclude<SensorManagementPageProps["canManageIntegrations"], undefined>; units: Exclude<SensorManagementPageProps["units"], undefined>; onRequestedDeviceHandled: SensorManagementPageProps["onRequestedDeviceHandled"]; onLoadSeries: SensorManagementPageProps["onLoadSeries"]; onHouse: SensorManagementPageProps["onHouse"]; onUpdateHouse: SensorManagementPageProps["onUpdateHouse"]; onRefreshDevices: SensorManagementPageProps["onRefreshDevices"]; onCreateSensor: SensorManagementPageProps["onCreateSensor"]; onUpdateSensor: SensorManagementPageProps["onUpdateSensor"]; onDeleteSensor: SensorManagementPageProps["onDeleteSensor"]; onImportHistoricalData: SensorManagementPageProps["onImportHistoricalData"] }) {
   const { state, house, houses, integration, tpLinkDevices, tpLinkDevicesLoading, tpLinkDevicesError, requestedDevice, requestedDeviceId, readOnly, localAuthority, canManageIntegrations, units, onRequestedDeviceHandled, onLoadSeries, onHouse, onUpdateHouse, onRefreshDevices, onCreateSensor, onUpdateSensor, onDeleteSensor, onImportHistoricalData } = context;
   const { locale, t } = useI18n();
@@ -85,8 +86,9 @@ export function useSensorManagementPagePart01(context: { state: SensorManagement
   const detailsHeadingRef = useRef<HTMLHeadingElement>(null);
   const detailsOpenerRef = useRef<HTMLElement | null>(null);
   const detailsRequestGeneration = useRef(0);
+  const [initialSensorUrlState] = useState(sensorUrlStateFromLocation);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<SensorFilter>("all");
+  const [filter, setFilter] = useState<SensorFilter>(initialSensorUrlState.urgency);
   const [modelFilter, setModelFilter] = useState("");
   const [mode, setMode] = useState<EditorMode>("closed");
   const [addStep, setAddStep] = useState<AddStep>(1);
@@ -112,7 +114,7 @@ export function useSensorManagementPagePart01(context: { state: SensorManagement
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [detailMetric, setDetailMetric] = useState<Metric>("temperature");
-  const [detailRange, setDetailRange] = useState<TimeRange>("24h");
+  const [detailRange, setDetailRange] = useState<TimeRange>(initialSensorUrlState.range);
   const currentSensors = useMemo(
       () => state.sensors.filter((sensor) => sensor.houseId === house.id),
       [state.sensors, house.id],

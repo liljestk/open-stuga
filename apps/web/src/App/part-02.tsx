@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { Floor, Metric, TpLinkDiscoveredDevice, UnitSystem } from "@climate-twin/contracts";
-import { AlertTriangle, HousePlus, LoaderCircle, RotateCcw, ShieldCheck, Wrench } from "lucide-react";
+import { AlertTriangle, HousePlus, LoaderCircle, RotateCcw, ShieldCheck, Sparkles, Wrench } from "lucide-react";
 import { AppShell } from "../components/AppShell";
 import { type AppPage, type ViewMode } from "../domain";
 import { useClimateData } from "../useClimateData";
@@ -180,7 +180,7 @@ export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
         setRouteNotFound(Boolean(route.notFound) || invalidScope);
         setPage(route.page);
         if (routeHouse && (!route.propertyId || routeHouse.propertyId === route.propertyId)) {
-          applyHouse(routeHouse.id);
+          if (propertyId !== routeHouse.propertyId || houseId !== routeHouse.id) applyHouse(routeHouse.id);
         } else if (route.propertyId && state.properties.some((candidate) => candidate.id === route.propertyId)) {
           setPropertyId(route.propertyId);
           setHouseId("");
@@ -190,7 +190,7 @@ export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
       };
       window.addEventListener("popstate", restoreRoute);
       return () => window.removeEventListener("popstate", restoreRoute);
-    }, [applyHouse, climate.bootstrapStatus, state.houses, state.properties]);
+    }, [applyHouse, climate.bootstrapStatus, houseId, propertyId, state.houses, state.properties]);
   useEffect(() => {
       const route = routeFromLocation(window.location);
       if (!route.legacy || route.notFound || !property) return;
@@ -225,12 +225,21 @@ export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
           propertyId = createdProperty.id;
           setFirstHomePropertyId(propertyId);
         }
-        await climate.createHouse({
+        const createdHome = await climate.createHouse({
           name,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+          timezone: inferredTimezone,
           floors: [firstFloor(t("bootstrap.groundFloor"))],
           propertyId,
         });
+        setPropertyId(propertyId);
+        setHouseId(createdHome.id);
+        setFloorId(createdHome.floors[0]?.id ?? "");
+        setPage("integrations");
+        window.history.replaceState(
+          { page: "integrations", propertyId, houseId: createdHome.id },
+          "",
+          locationForRoute("integrations", { propertyId, houseId: createdHome.id }, "/setup/overview"),
+        );
         climate.retryBootstrap();
       } catch {
         setBootstrapAction("error");
@@ -248,6 +257,7 @@ export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
         setBootstrapAction("error");
       }
     };
+  const inferredTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const renderFirstHomeCard = () => (
       <section className="bootstrap-card" aria-labelledby="bootstrap-empty-title">
         <StuguMark />
@@ -258,17 +268,6 @@ export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
           <p>{t("bootstrap.emptyBody")}</p>
         </div>
         <form onSubmit={(event) => void createFirstHome(event)}>
-          {state.properties.length > 0 ? <label className="field">
-            <span>{t("bootstrap.propertyForHome")}</span>
-            <select value={firstHomePropertyId} required onChange={(event) => setFirstHomePropertyId(event.target.value)}>
-              {state.properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
-            </select>
-            <small>{t("bootstrap.propertyForHomeHelp")}</small>
-          </label> : <label className="field">
-            <span>{t("bootstrap.propertyName")}</span>
-            <input required value={firstPropertyName} onChange={(event) => setFirstPropertyName(event.target.value)} />
-            <small>{t("bootstrap.propertyNameHelp")}</small>
-          </label>}
           <label className="field">
             <span>{t("bootstrap.homeName")}</span>
             <input
@@ -282,6 +281,27 @@ export function useAppPart02(context: ReturnType<typeof useAppPart01>) {
               placeholder={t("bootstrap.homeNamePlaceholder")}
             />
           </label>
+          {state.properties.length > 0 ? <label className="field">
+            <span>{t("bootstrap.propertyForHome")}</span>
+            <select value={firstHomePropertyId} required onChange={(event) => setFirstHomePropertyId(event.target.value)}>
+              {state.properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
+            </select>
+            <small>{t("bootstrap.propertyForHomeHelp")}</small>
+          </label> : <>
+            <p className="bootstrap-inferred"><Sparkles size={17} aria-hidden="true" /><span>{t("bootstrap.inferredSetup", {
+              property: firstPropertyName.trim() || t("bootstrap.defaultPropertyName"),
+              floor: t("bootstrap.groundFloor"),
+              timezone: inferredTimezone,
+            })}</span></p>
+            <details className="bootstrap-advanced">
+              <summary>{t("bootstrap.propertyDetails")}</summary>
+              <label className="field">
+                <span>{t("bootstrap.propertyName")}</span>
+                <input value={firstPropertyName} onChange={(event) => setFirstPropertyName(event.target.value)} />
+                <small>{t("bootstrap.propertyNameHelp")}</small>
+              </label>
+            </details>
+          </>}
           <button type="submit" className="primary-button" disabled={!firstHomeName.trim() || bootstrapAction === "saving"}>
             {bootstrapAction === "saving"
               ? <LoaderCircle className="spin" size={16} aria-hidden="true" />

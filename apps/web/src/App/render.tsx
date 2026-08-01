@@ -24,9 +24,11 @@ import { isTpLinkContactDevice } from "../tpLinkDeviceClassification";
 import { ActivityPage, AlertsPage, DataAnalyticsPage, DeveloperPage, EnergyPage, IntegrationsPage, MaintenancePage, OutdoorWeatherPage, PeopleAccessPage, PortfolioOverview, PropertyManagementPage, SensorManagementPage, StugubyPage, SystemUpdatesPage, TwinDashboard, dismissedTpLinkDevicesKey, firstFloor, freshTpLinkDiscoveryWindowMs, latestIso, pageTitleKeys, settleInBackground, storedDismissedTpLinkDevices, tpLinkDeviceKey } from "./support";
 import type { TpLinkDeviceReference } from "./support";
 import { useAppPart03 } from "./part-03";
+import { hasBrowserCapability } from "../accessPolicy";
 export function renderApp(context: ReturnType<typeof useAppPart03>) {
   const { t, climate, state, workspaceReadOnly, canManagePeople, loadSeriesInBackground, initialRoute, initialHouse, initialPropertyId, initialSelectedHouse, page, setPage, routeLoading, routeNotFound, setRouteNotFound, setRouteRevision, propertyId, setPropertyId, houseId, setHouseId, floorId, setFloorId, metric, setMetric, viewMode, setViewMode, selectedSensorId, setSelectedSensorId, units, setUnitsState, firstHomeName, setFirstHomeName, firstPropertyName, setFirstPropertyName, firstHomePropertyId, setFirstHomePropertyId, bootstrapAction, setBootstrapAction, maintenanceObservationId, setMaintenanceObservationId, requestedSensorDevice, setRequestedSensorDevice, dismissedTpLinkDeviceIds, setDismissedTpLinkDeviceIds, invitationToken, setInvitationToken, logoutUncertain, setLogoutUncertain, previousPage, logout, property, propertyReadOnly, propertyElectricityAvailable, propertyHouses, selectedPropertyHouse, house, activeSharedHouse, houseReadOnly, houseLocalAuthority, locationRoute, readOnly, routeHouse, routeScopeInvalid, effectiveRouteNotFound, floor, measurementDefinitions, availableMeasurements, lastUpdated, openAlertCount, scopedIntegration, availableTpLinkDevices, currentTpLinkDevices, undisclosedTpLinkDevices, discoveredSensorNotice, applyHouse, setUnits, dismissTpLinkDeviceNotices, navigate, chooseHouse, chooseProperty, createHouse, deleteHouse, createFirstHome, repairHome, renderFirstHomeCard, renderNoAccessCard } = context;
   const localAuthorityHouses = propertyHouses.filter(hasLocalHouseAuthority);
+  const canUseDeveloperTools = hasBrowserCapability(state.session?.tenant.role ?? "guest", "developer-tools");
   if (climate.loading || climate.bootstrapStatus === "loading") {
       return <output className="loading-screen"><span className="loading-logo" aria-hidden="true" /><strong>{t("app.name")}</strong><span>{t("common.loading")}</span></output>;
     }
@@ -55,6 +57,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
       return <AppShell
         page={page}
         canManagePeople={canManagePeople}
+        canUseDeveloperTools={canUseDeveloperTools}
         onPage={(next, scope) => navigate(next, scope?.houseId, false, window.location.pathname, scope?.propertyId)}
         connection={climate.connection}
         units={units}
@@ -94,6 +97,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
         resourceErrors={[...new Set(Object.values(climate.resourceErrors ?? {}))]}
         openAlertCount={openAlertCount}
         canManagePeople={canManagePeople}
+        canUseDeveloperTools={canUseDeveloperTools}
         properties={state.properties}
         propertyId={propertyId}
         onProperty={chooseProperty}
@@ -170,7 +174,9 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
           {page === "stugubys" && (canManagePeople
             ? <StugubyPage houses={state.houses} properties={state.properties} onInventoryChange={climate.retryBootstrap} />
             : <section className="route-recovery" aria-labelledby="stuguby-access-title"><ShieldCheck size={24} aria-hidden="true" /><div><span className="eyebrow">{t("properties.guestReadOnly")}</span><h1 id="stuguby-access-title">{t("properties.adminOnlyTitle")}</h1><p>{t("properties.adminOnlyBody")}</p></div><button type="button" className="primary-button" onClick={() => navigate("overview", null, true, window.location.pathname, null)}>{t("route.openOverview")}</button></section>)}
-          {page === "developer" && <DeveloperPage />}
+          {page === "developer" && (canUseDeveloperTools
+            ? <DeveloperPage canManageSystem={canManagePeople} />
+            : <section className="route-recovery" aria-labelledby="developer-access-title"><ShieldCheck size={24} aria-hidden="true" /><div><span className="eyebrow">{t("properties.guestReadOnly")}</span><h1 id="developer-access-title">{t("developer.accessDeniedTitle")}</h1><p>{t("developer.accessDeniedBody")}</p></div><button type="button" className="primary-button" onClick={() => navigate("overview", null, true, window.location.pathname, null)}>{t("route.openOverview")}</button></section>)}
           {page === "updates" && (canManagePeople
             ? <SystemUpdatesPage />
             : <section className="route-recovery" aria-labelledby="updates-access-title"><ShieldCheck size={24} aria-hidden="true" /><div><span className="eyebrow">{t("properties.guestReadOnly")}</span><h1 id="updates-access-title">{t("properties.adminOnlyTitle")}</h1><p>{t("properties.adminOnlyBody")}</p></div><button type="button" className="primary-button" onClick={() => navigate("overview", null, true, window.location.pathname, null)}>{t("route.openOverview")}</button></section>)}
@@ -181,6 +187,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
       return <AppShell
         page="maintenance"
         canManagePeople={canManagePeople}
+        canUseDeveloperTools={canUseDeveloperTools}
         onPage={(next, scope) => navigate(next, scope?.houseId, false, window.location.pathname, scope?.propertyId)}
         connection={climate.connection}
         units={units}
@@ -225,6 +232,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
       return <AppShell
         page="energy"
         canManagePeople={canManagePeople}
+        canUseDeveloperTools={canUseDeveloperTools}
         onPage={(next, scope) => navigate(next, scope?.houseId, false, window.location.pathname, scope?.propertyId)}
         connection={climate.connection}
         units={units}
@@ -271,6 +279,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
       return <AppShell
         page="properties"
         canManagePeople={canManagePeople}
+        canUseDeveloperTools={canUseDeveloperTools}
         onPage={(next, scope) => navigate(next, scope?.houseId, false, window.location.pathname, scope?.propertyId)}
         connection={climate.connection}
         units={units}
@@ -329,6 +338,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
       return <AppShell
         page="twin"
         canManagePeople={canManagePeople}
+        canUseDeveloperTools={canUseDeveloperTools}
         onPage={(next, scope) => navigate(next, scope?.houseId, false, window.location.pathname, scope?.propertyId)}
         connection={climate.connection}
         units={units}
@@ -374,6 +384,7 @@ export function renderApp(context: ReturnType<typeof useAppPart03>) {
       <AppShell
         page={page}
         canManagePeople={canManagePeople}
+        canUseDeveloperTools={canUseDeveloperTools}
         onPage={(next, scope) => navigate(next, scope?.houseId, false, window.location.pathname, scope?.propertyId)}
         connection={climate.connection}
         units={units}

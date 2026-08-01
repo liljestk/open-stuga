@@ -2,7 +2,10 @@ import type { MeasurementSample } from "@climate-twin/contracts";
 
 export const DEFAULT_SPATIAL_MAX_SAMPLE_AGE_MS = 15 * 60_000;
 export const DEFAULT_SPATIAL_REPLAY_MAX_SAMPLE_AGE_MS = 90 * 60_000;
-export const DEFAULT_SPATIAL_FUTURE_TOLERANCE_MS = 30_000;
+// Sensor timestamps are produced by the Stugu host, while freshness is checked
+// against the browser clock. Allow ordinary host/browser clock drift without
+// making each new reading briefly appear stale.
+export const DEFAULT_SPATIAL_FUTURE_TOLERANCE_MS = 2 * 60_000;
 
 export interface SpatialFreshnessOptions {
   referenceTimeMs: number;

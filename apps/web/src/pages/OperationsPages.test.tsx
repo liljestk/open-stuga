@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MaintenanceTask, ManualObservation, ManualObservationInput } from "@climate-twin/contracts";
 import { I18nProvider } from "../i18n";
 import { createDemoState } from "../domain";
@@ -11,6 +11,10 @@ import { MaintenancePage } from "./MaintenancePage";
 vi.mock("../useHouseWeather", () => ({
   useHouseWeather: () => ({ weather: null, loading: false, error: null, refresh: vi.fn() }),
 }));
+
+afterEach(() => {
+  window.history.replaceState(null, "", "/");
+});
 
 function savedObservation(input: ManualObservationInput): ManualObservation {
   return {
@@ -137,6 +141,76 @@ describe("Home operations preview", () => {
 });
 
 describe("Activity and maintenance pages", () => {
+  it("restores and updates the bookmarkable Activity view", async () => {
+    const state = createDemoState();
+    window.history.replaceState(null, "", "/properties/property-pine/homes/house-pine/activity?view=observations");
+    render(<I18nProvider><ActivityPage
+      state={state}
+      house={state.houses[0]!}
+      onCreateObservation={vi.fn()}
+      onUpdateObservation={vi.fn()}
+      onReloadObservation={vi.fn()}
+      onLoadObservationRevisions={vi.fn().mockResolvedValue([])}
+      onOpenFloor={vi.fn()}
+      onPlanMaintenance={vi.fn()}
+    /></I18nProvider>);
+
+    const timeline = screen.getByRole("tab", { name: "All activity" });
+    const observations = screen.getByRole("tab", { name: /Observations/ });
+    await waitFor(() => expect(observations).toHaveAttribute("aria-selected", "true"));
+
+    fireEvent.click(timeline);
+    expect(window.location.search).toBe("");
+    expect(timeline).toHaveAttribute("aria-selected", "true");
+
+    window.history.pushState(null, "", "?view=observations");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await waitFor(() => expect(observations).toHaveAttribute("aria-selected", "true"));
+  });
+
+  it("deep-links Activity filters and search while preserving unrelated query state", async () => {
+    const state = createDemoState();
+    window.history.replaceState(null, "", "/properties/property-pine/homes/house-pine/activity?keep=yes&view=observations&status=critical&search=seal#observations");
+    render(<I18nProvider><ActivityPage
+      state={state}
+      house={state.houses[0]!}
+      onCreateObservation={vi.fn()}
+      onUpdateObservation={vi.fn()}
+      onReloadObservation={vi.fn()}
+      onLoadObservationRevisions={vi.fn().mockResolvedValue([])}
+      onOpenFloor={vi.fn()}
+      onPlanMaintenance={vi.fn()}
+    /></I18nProvider>);
+
+    expect(screen.getByRole("tab", { name: /Observations/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByLabelText("Status")).toHaveValue("critical");
+    expect(screen.getByLabelText("Search observations")).toHaveValue("seal");
+
+    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "resolved" } });
+    expect(new URLSearchParams(window.location.search).get("status")).toBe("resolved");
+    fireEvent.change(screen.getByLabelText("Search observations"), { target: { value: "window" } });
+    expect(new URLSearchParams(window.location.search).get("search")).toBe("window");
+    expect(new URLSearchParams(window.location.search).get("keep")).toBe("yes");
+    expect(window.location.hash).toBe("#observations");
+
+    fireEvent.click(screen.getByRole("tab", { name: "All activity" }));
+    expect(new URLSearchParams(window.location.search).has("view")).toBe(false);
+    expect(new URLSearchParams(window.location.search).get("status")).toBe("resolved");
+
+    window.history.pushState(null, "", "?keep=yes&view=invalid&status=invalid&search=%20%20#observations");
+    fireEvent(window, new PopStateEvent("popstate"));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "All activity" })).toHaveAttribute("aria-selected", "true"));
+    expect(screen.getByLabelText("Status")).toHaveValue("all");
+    expect(screen.getByLabelText("Search observations")).toHaveValue("");
+    expect(window.location.search).toBe("?keep=yes");
+
+    window.history.pushState(null, "", "?keep=yes&view=observations&status=open&search=window#observations");
+    fireEvent(window, new PopStateEvent("popstate"));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /Observations/ })).toHaveAttribute("aria-selected", "true"));
+    expect(screen.getByLabelText("Status")).toHaveValue("open");
+    expect(screen.getByLabelText("Search observations")).toHaveValue("window");
+  });
+
   it("supports roving keyboard tabs and keeps both controlled panels mounted", async () => {
     const state = createDemoState();
     render(<I18nProvider><ActivityPage
@@ -166,6 +240,34 @@ describe("Activity and maintenance pages", () => {
     fireEvent.keyDown(observations, { key: "Home" });
     expect(timeline.getAttribute("aria-selected")).toBe("true");
     expect(document.activeElement).toBe(timeline);
+  });
+
+  it("links the observation composer disclosure and restores its trigger on cancel", async () => {
+    const state = createDemoState();
+    render(<I18nProvider><ActivityPage
+      state={state}
+      house={state.houses[0]!}
+      onCreateObservation={vi.fn()}
+      onUpdateObservation={vi.fn()}
+      onReloadObservation={vi.fn()}
+      onLoadObservationRevisions={vi.fn().mockResolvedValue([])}
+      onOpenFloor={vi.fn()}
+      onPlanMaintenance={vi.fn()}
+    /></I18nProvider>);
+
+    const trigger = screen.getByRole("button", { name: "Log observation" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).not.toHaveAttribute("aria-controls");
+
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(trigger).toHaveAttribute("aria-controls", "activity-observation-composer");
+    expect(document.getElementById("activity-observation-composer")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(document.getElementById("activity-observation-composer")).toBeNull();
   });
 
   it("opens an observation and carries it into maintenance planning", () => {
@@ -326,6 +428,8 @@ describe("Activity and maintenance pages", () => {
     expect(screen.getByRole("heading", { level: 2, name: "Maintenance plan" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 3, name: "Overdue" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 3, name: "Upcoming" })).toBeTruthy();
+    expect(screen.getByText("Status filters").closest("details")?.open).toBe(false);
+    expect(screen.getByText("Search and evidence filters").closest("details")?.open).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: /Overdue 1/ }));
     expect(screen.getByText("Overdue seal")).not.toBeNull();
@@ -333,11 +437,66 @@ describe("Activity and maintenance pages", () => {
     fireEvent.click(screen.getByRole("button", { name: /All active 2/ }));
     expect(screen.getByText("Upcoming filter")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Overdue 1/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Overdue seal/ }));
+    const taskDisclosure = screen.getByRole("button", { name: /Overdue seal/ });
+    expect(taskDisclosure).not.toHaveAttribute("aria-controls");
+    fireEvent.click(taskDisclosure);
+    const detailId = taskDisclosure.getAttribute("aria-controls");
+    expect(detailId).toBeTruthy();
+    expect(document.getElementById(detailId!)).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Start work" }));
     await waitFor(() => expect(onUpdateTask).toHaveBeenCalledWith("overdue", { baseRevision: 1, status: "in-progress" }));
     expect((await screen.findByText("Work status changed to In progress.", { selector: "p[role='status']" })).textContent).toBe("Work status changed to In progress.");
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Maintenance work status")));
+  });
+
+  it("deep-links the maintenance evidence filter and restores it on popstate", async () => {
+    const state = createDemoState();
+    const overdue = task({ id: "url-overdue", title: "URL overdue", dueBy: "2000-01-01" });
+    const upcoming = task({ id: "url-upcoming", title: "URL upcoming", dueBy: "2099-01-01" });
+    const completed = task({ id: "url-completed", title: "URL completed", status: "completed", dueBy: "2099-01-01" });
+    window.history.replaceState(null, "", "/properties/property-pine/maintenance?keep=yes&filter=overdue&basis=condition-based&search=URL#plan");
+    render(<I18nProvider><MaintenancePage
+      state={{ ...state, maintenanceTasks: [overdue, upcoming, completed] }}
+      house={state.houses[0]!}
+      onCreateTask={vi.fn()}
+      onUpdateTask={vi.fn()}
+      onReloadTask={vi.fn()}
+      onLoadTaskRevisions={vi.fn().mockResolvedValue([])}
+    /></I18nProvider>);
+
+    expect(screen.getByRole("button", { name: /Overdue 1/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("Why this work exists")).toHaveValue("condition-based");
+    expect(screen.getByLabelText("Search maintenance work")).toHaveValue("URL");
+    expect(screen.getByText("URL overdue")).not.toBeNull();
+    expect(screen.queryByText("URL upcoming")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Upcoming 1/ }));
+    expect(new URLSearchParams(window.location.search).get("filter")).toBe("upcoming");
+    expect(new URLSearchParams(window.location.search).get("basis")).toBe("condition-based");
+    expect(new URLSearchParams(window.location.search).get("search")).toBe("URL");
+    expect(new URLSearchParams(window.location.search).get("keep")).toBe("yes");
+    expect(window.location.hash).toBe("#plan");
+
+    fireEvent.click(screen.getByRole("button", { name: /All active 3/ }));
+    expect(new URLSearchParams(window.location.search).has("filter")).toBe(false);
+    expect(new URLSearchParams(window.location.search).get("keep")).toBe("yes");
+
+    fireEvent.change(screen.getByLabelText("Why this work exists"), { target: { value: "all" } });
+    fireEvent.change(screen.getByLabelText("Search maintenance work"), { target: { value: "" } });
+    expect(window.location.search).toBe("?keep=yes");
+
+    window.history.pushState(null, "", "?keep=yes&filter=invalid&basis=invalid&search=%20%20#plan");
+    fireEvent(window, new PopStateEvent("popstate"));
+    await waitFor(() => expect(screen.getByRole("button", { name: /All active 3/ })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByLabelText("Why this work exists")).toHaveValue("all");
+    expect(screen.getByLabelText("Search maintenance work")).toHaveValue("");
+    expect(window.location.search).toBe("?keep=yes");
+
+    window.history.pushState(null, "", "?keep=yes&filter=completed#plan");
+    fireEvent(window, new PopStateEvent("popstate"));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Needs verification 1/ })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByText("URL completed")).not.toBeNull();
+    expect(screen.queryByText("URL overdue")).toBeNull();
   });
 
   it("discards editor state when changing houses and consumes a seeded editor when closed", async () => {

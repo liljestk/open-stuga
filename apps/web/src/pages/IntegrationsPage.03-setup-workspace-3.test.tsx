@@ -7,12 +7,24 @@ import type { House, IntegrationStatus, TpLinkDiscoveredDevice } from "@climate-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../api";
+import { confirmAction } from "../components/ConfirmationProvider";
 
 import { I18nProvider } from "../i18n";
 
 import { IntegrationsPage } from "./IntegrationsPage";
 
 import { connectedTpLink, deferred, discoveredChild, historyAutomation, house, integration, renderPage } from "./IntegrationsPageTestSupport";
+
+async function openAdvancedWeather(user: ReturnType<typeof userEvent.setup>) {
+  const advanced = screen.getByText("Advanced setup").closest("details")!;
+  if (!advanced.open) await user.click(within(advanced).getByText("Advanced setup"));
+  await user.click(within(advanced).getByRole("button", { name: /Weather/ }));
+}
+
+async function openManualWeather(user: ReturnType<typeof userEvent.setup>) {
+  const details = document.querySelector<HTMLDetailsElement>(".weather-reference-details")!;
+  if (!details.open) await user.click(within(details).getByText("Advanced weather location"));
+}
 
 vi.mock("../components/HouseLocationMap", () => ({
   HouseLocationMap: ({ onChange, onSelect, ariaLabel, selectedHouseId, items }: {
@@ -32,9 +44,14 @@ vi.mock("../components/HouseLocationMap", () => ({
   ),
 }));
 
+vi.mock("../components/ConfirmationProvider", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../components/ConfirmationProvider")>();
+  return { ...actual, confirmAction: vi.fn().mockResolvedValue(true) };
+});
+
 beforeEach(() => {
   window.history.replaceState(null, "", "/setup/overview");
-  vi.spyOn(window, "confirm").mockReturnValue(true);
+  vi.mocked(confirmAction).mockReset().mockResolvedValue(true);
   vi.spyOn(api, "testTpLinkDraft").mockResolvedValue({ ok: true, message: "Connected" });
   vi.spyOn(api, "testHomeAssistantDraft").mockResolvedValue({ ok: true, message: "Connected" });
   vi.spyOn(api, "tpLinkHistoryExportJobs").mockResolvedValue({ enabled: false, automation: historyAutomation, jobs: [] });
@@ -62,8 +79,8 @@ describe("Setup workspace", () => {
     };
     const rendered = renderPage({ integration: almostComplete, onOpenSensors });
 
-    expect(screen.getByRole("progressbar", { name: "Setup progress" }).getAttribute("aria-valuenow")).toBe("3");
-    expect(screen.getByRole("heading", { level: 2, name: "Map and place sensors" })).not.toBeNull();
+    expect(screen.getByRole("progressbar", { name: "Setup progress" }).getAttribute("aria-valuenow")).toBe("2");
+    expect(screen.getByRole("heading", { level: 2, name: "Review the readings" })).not.toBeNull();
     const checklist = screen.getByText("Review setup checklist").closest("details")!;
     expect(checklist.hasAttribute("open")).toBe(false);
     await user.click(screen.getByRole("button", { name: "Add sensor" }));
@@ -76,13 +93,48 @@ describe("Setup workspace", () => {
     expect(screen.getByText("Sensor data is connected and mapped.")).not.toBeNull();
   });
 
+  it.each([
+    ["an empty search", { tpLink: [], homeAssistant: [], warnings: [] }],
+    ["a failed search", new Error("Network search unavailable")],
+  ])("retries the recommended device search after %s", async (_label, outcome) => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "latestIntegrationDiscovery").mockResolvedValue(null);
+    const scan = vi.spyOn(api, "discoverIntegrations");
+    if (outcome instanceof Error) scan.mockRejectedValue(outcome);
+    else scan.mockResolvedValue(outcome);
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: "Find devices" }));
+    await waitFor(() => expect(scan).toHaveBeenCalledTimes(1));
+    await screen.findByRole("button", { name: "Find devices" });
+
+    await user.click(screen.getByRole("tab", { name: /Overview/ }));
+    await user.click(screen.getByRole("button", { name: "Find devices" }));
+    await waitFor(() => expect(scan).toHaveBeenCalledTimes(2));
+  });
+
+  it("keeps specialist setup available without putting it in the primary path", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
+    const advanced = screen.getByText("Advanced setup").closest("details")!;
+    expect(advanced.hasAttribute("open")).toBe(false);
+    expect(screen.getByRole("link", { name: "Go to Home" }).getAttribute("href")).toContain(`/homes/${house.id}`);
+
+    await user.click(screen.getByText("Advanced setup"));
+    expect(screen.getByRole("button", { name: /Weather/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Sensor mapping/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Automations/ })).not.toBeNull();
+  });
+
   it("identifies invalid manual coordinates and timezone with actionable field feedback", async () => {
     const user = userEvent.setup();
     const onHouseUpdate = vi.fn().mockResolvedValue(undefined);
     renderPage({ onHouseUpdate });
 
-    await user.click(screen.getByRole("tab", { name: /Weather/ }));
-    await user.click(screen.getByText("Advanced weather location"));
+    await openAdvancedWeather(user);
+    await openManualWeather(user);
     const latitude = screen.getByRole("spinbutton", { name: "Latitude" });
     const timezone = screen.getByRole("textbox", { name: "Timezone" });
     await user.clear(latitude);
@@ -117,7 +169,7 @@ describe("Setup workspace", () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("tab", { name: /Layout & rooms/ })));
     expect(screen.getByRole("tab", { name: /Layout & rooms/ }).getAttribute("aria-selected")).toBe("true");
     await user.keyboard("{End}");
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("tab", { name: /Automations/ })));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("tab", { name: /Where readings come from/ })));
   });
 
   it("uses pushed status for an already-configured hub without a duplicate waiting state", async () => {
@@ -242,7 +294,7 @@ describe("Setup workspace", () => {
     const worldHouse: House = { ...house, id: "house-world", name: "World house", timezone: "America/Anchorage" };
     renderPage({ house: placedHouse, houses: [placedHouse, worldHouse], onHouseUpdate, onGeoreferenceChange });
 
-    await user.click(screen.getByRole("tab", { name: /Weather/ }));
+    await openAdvancedWeather(user);
     expect(screen.getAllByText("Automatic weather").length).toBeGreaterThan(0);
     expect(screen.getByText("Automatic (FMI in Finland, Open-Meteo worldwide)")).not.toBeNull();
     expect(screen.getAllByText("Europe/Helsinki").length).toBeGreaterThan(0);
@@ -256,13 +308,13 @@ describe("Setup workspace", () => {
         longitude: -149.5,
         source: "map-placement",
         confidence: "high",
-        userOverridden: false,
+        userOverridden: true,
       }),
       timezone: "America/Anchorage",
     }));
     expect(coordinateDefaults).toHaveBeenCalledWith(62.25, -149.5);
 
-    await user.click(screen.getByRole("button", { name: "Change" }));
+    await user.click(screen.getByRole("button", { name: "Change weather location" }));
     await user.clear(screen.getByLabelText("Find this home"));
     await user.type(screen.getByLabelText("Find this home"), "Anchorage");
     await user.click(screen.getByRole("button", { name: "Search" }));
@@ -274,7 +326,7 @@ describe("Setup workspace", () => {
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Home" }), worldHouse.id);
     expect((screen.getByRole("combobox", { name: "Home" }) as HTMLSelectElement).value).toBe(worldHouse.id);
-    expect(screen.getByText(/Configure the weather reference and system behavior for World house/)).not.toBeNull();
+    expect(screen.getAllByText(/Override the Property weather location/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("America/Anchorage").length).toBeGreaterThan(0);
   });
 
@@ -296,11 +348,11 @@ describe("Setup workspace", () => {
     const onHouseUpdate = vi.fn().mockResolvedValue(undefined);
     renderPage({ house: firstHouse, houses: [firstHouse, secondHouse], onHouseUpdate });
 
-    await user.click(screen.getByRole("tab", { name: /Weather/ }));
+    await openAdvancedWeather(user);
     await user.click(screen.getByRole("button", { name: "Sync from home placement" }));
     await waitFor(() => expect(api.coordinateDefaults).toHaveBeenCalledWith(62.25, -149.5));
     await user.selectOptions(screen.getByRole("combobox", { name: "Home" }), secondHouse.id);
-    await user.click(screen.getByText("Advanced weather location"));
+    await openManualWeather(user);
     expect((screen.getByRole("spinbutton", { name: "Latitude" }) as HTMLInputElement).value).toBe("61.2181");
 
     await act(async () => {
@@ -321,7 +373,7 @@ describe("Setup workspace", () => {
     const onHouse = vi.fn();
     const rendered = renderPage({ houses: [house, secondHouse], onHouse });
 
-    await user.click(screen.getByRole("tab", { name: /Weather/ }));
+    await openAdvancedWeather(user);
     await user.selectOptions(screen.getByRole("combobox", { name: "Home" }), secondHouse.id);
     expect(onHouse).toHaveBeenCalledWith(secondHouse.id);
 
@@ -344,7 +396,7 @@ describe("Setup workspace", () => {
     renderPage();
 
     const progress = screen.getByRole("progressbar", { name: "Setup progress" });
-    expect(progress.getAttribute("aria-valuetext")).toMatch(/^\d+ \/ 4$/);
+    expect(progress.getAttribute("aria-valuetext")).toMatch(/^\d+ \/ 3$/);
     for (const tab of screen.getAllByRole("tab")) {
       const panelId = tab.getAttribute("aria-controls");
       expect(panelId).toBeTruthy();
@@ -389,7 +441,7 @@ describe("Setup workspace", () => {
     window.history.replaceState(null, "", `${setupBase}/weather?source=test`);
     renderPage();
 
-    expect(screen.getByRole("tab", { name: /Weather/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("button", { name: /Weather/ }).getAttribute("aria-current")).toBe("page");
     await user.click(screen.getByRole("tab", { name: /Layout & rooms/ }));
     expect(window.location.pathname).toBe(`${setupBase}/layout`);
     expect(window.location.search).toBe("?source=test");

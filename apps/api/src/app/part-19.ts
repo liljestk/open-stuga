@@ -261,10 +261,10 @@ export function configureApiPart19(context: ReturnType<typeof configureApiPart18
       const canManageDeliveries = principal.role === "owner" || principal.role === "admin";
       const limit = safeInteger(request.query.limit, 200, 1, 500);
       const deliveries = context.database.listNotificationDeliveries(limit * 2).filter((delivery) => {
-        if (!access.restricted) return true;
-        if (delivery.subjectKind !== "alert") return false;
+        if (delivery.subjectKind !== "alert") return !access.restricted;
         const event = context.database.getAlertEvent(delivery.subjectId);
         if (!event || !access.sensor(event.sensorId)) return false;
+        if (!access.restricted) return true;
         return delivery.channel !== "apns"
           || context.database.getIOSNotificationRegistration(
             principal.userId,
@@ -287,7 +287,7 @@ export function configureApiPart19(context: ReturnType<typeof configureApiPart18
         .find((candidate) => candidate.id === request.params.id);
       response.json({ delivery: delivery ? { ...delivery, canRetry: false } : delivery });
     });
-  context.app.get(`${context.prefix}/action-playbooks`, (request, response) => {
+  context.app.get(`${context.prefix}/action-playbooks`, requireNonGuest, (request, response) => {
       const metric = typeof request.query.metric === "string" ? measurementId(request.query.metric) : undefined;
       response.json({ playbooks: context.database.listActionPlaybooks(metric, request.query.enabled === "true") });
     });
@@ -304,7 +304,9 @@ export function configureApiPart19(context: ReturnType<typeof configureApiPart18
     });
   context.app.get(`${context.prefix}/alerts/:id/action-playbooks`, (request, response) => {
       const event = context.database.getAlertEvent(request.params.id as string);
-      if (!event) throw new HttpError(404, "NOT_FOUND", "Alert event not found");
+      if (!event || !context.visibility(response).sensor(event.sensorId)) {
+        throw new HttpError(404, "NOT_FOUND", "Alert event not found");
+      }
       response.json({ playbooks: context.database.listActionPlaybooks(event.metric, true) });
     });
   context.app.get(`${context.prefix}/action-runs`, (request, response) => {
@@ -341,7 +343,7 @@ export function configureApiPart19(context: ReturnType<typeof configureApiPart18
       context.bus.publish({ type: "mutation", data: { method: "PATCH", resource: `/action-runs/${run.id}`, occurredAt: run.updatedAt } });
       response.json({ run });
     });
-  context.app.get(`${context.prefix}/data-export/preview`, (request, response) => {
+  context.app.get(`${context.prefix}/data-export/preview`, requireWorkspaceAdmin, (request, response) => {
       const privacyLevel = enumValue(request.query.privacyLevel ?? "operations", ["structure", "operations", "full"] as const, "privacyLevel");
       const includeTelemetry = request.query.includeTelemetry === "true";
       response.json({ preview: context.dataOperations.preview(privacyLevel, includeTelemetry) });

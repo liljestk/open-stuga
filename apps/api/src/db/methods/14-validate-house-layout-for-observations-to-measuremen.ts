@@ -313,6 +313,7 @@ registerDatabaseMethods({
   deleteSensor(id: string): boolean {
       return this.immediateTransaction(() => {
         const sensor = this.getSensor(id);
+        if (!sensor) return false;
         const historicalAlert = this.db.prepare(`SELECT id FROM alert_events
           WHERE sensor_id = ? LIMIT 1`).get(id) as { id: string } | undefined;
         if (historicalAlert) {
@@ -327,7 +328,7 @@ registerDatabaseMethods({
         if (!deleted) return false;
         this.db.prepare(`DELETE FROM static_parameters
           WHERE scope_type = 'sensor' AND scope_id = ?`).run(id);
-        if (sensor) this.db.prepare("DELETE FROM analytics_daily_findings WHERE house_id = ?").run(sensor.houseId);
+        this.db.prepare("DELETE FROM analytics_daily_findings WHERE house_id = ?").run(sensor.houseId);
         return true;
       });
     },
@@ -396,6 +397,7 @@ registerDatabaseMethods({
       deduplicateAcrossSources = false,
       enqueueAlertEvaluation = false,
     ): boolean {
+      if (!this.getSensor(sample.sensorId)) return false;
       if (deduplicateAcrossSources && this.db.prepare(`SELECT 1 FROM measurement_samples
         WHERE sensor_id = ? AND metric = ? AND timestamp = ? LIMIT 1`)
         .get(sample.sensorId, sample.metric, sample.timestamp)) return false;
@@ -427,10 +429,11 @@ registerDatabaseMethods({
       });
     },
   latestMeasurementSamples(houseId?: string): MeasurementSample[] {
-      const where = houseId ? "WHERE s.house_id = ?" : "";
+      const where = houseId ? "WHERE s.house_id = ? AND house.deleted_at IS NULL" : "WHERE house.deleted_at IS NULL";
       const rows = this.db.prepare(`SELECT ms.sensor_id, ms.metric, ms.value, ms.canonical_unit,
           ms.timestamp, ms.source, ms.quality
-        FROM sensors s CROSS JOIN measurement_definitions definition
+        FROM sensors s JOIN houses AS house ON house.id = s.house_id
+        CROSS JOIN measurement_definitions definition
         JOIN measurement_samples ms ON ms.id = (
           SELECT latest.id FROM measurement_samples latest
           WHERE latest.sensor_id = s.id AND latest.metric = definition.id
@@ -442,6 +445,7 @@ registerDatabaseMethods({
       return rows.map(measurementSampleFromRow);
     },
   getLatestMeasurementSample(sensorId: string, metric: string): MeasurementSample | null {
+      if (!this.getSensor(sensorId)) return null;
       const row = this.db.prepare(`SELECT sensor_id, metric, value, canonical_unit, timestamp, source, quality
         FROM measurement_samples WHERE sensor_id = ? AND metric = ? ORDER BY timestamp DESC, id DESC LIMIT 1`)
         .get(sensorId, metric) as unknown as MeasurementSampleRow | undefined;
@@ -453,6 +457,7 @@ registerDatabaseMethods({
       source: SensorDataGapSource,
       timestamp: string,
     ): MeasurementSample | null {
+      if (!this.getSensor(sensorId)) return null;
       const row = this.db.prepare(`SELECT sensor_id, metric, value, canonical_unit, timestamp, source, quality
         FROM measurement_samples WHERE sensor_id = ? AND metric = ? AND source = ? AND timestamp <= ?
         ORDER BY timestamp DESC, id DESC LIMIT 1`)
@@ -460,6 +465,7 @@ registerDatabaseMethods({
       return row ? measurementSampleFromRow(row) : null;
     },
   measurementHistory(sensorId: string, metric: string, from: string, to: string, limit = 20_000): MeasurementSample[] {
+      if (!this.getSensor(sensorId)) return [];
       const rows = this.db.prepare(`SELECT sensor_id, metric, value, canonical_unit, timestamp, source, quality FROM (
         SELECT id, sensor_id, metric, value, canonical_unit, timestamp, source, quality
         FROM measurement_samples WHERE sensor_id = ? AND metric = ? AND timestamp >= ? AND timestamp <= ?

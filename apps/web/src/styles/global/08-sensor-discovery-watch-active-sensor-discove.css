@@ -24,7 +24,7 @@
 
 .sensor-overview strong { font-family: "Manrope", sans-serif; font-size: 18px; }
 
-.sensor-overview-icon { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 10px; color: var(--pine); background: var(--pine-soft); }
+.sensor-overview-icon { width: 34px; height: 34px; display: grid; place-items: center; flex: 0 0 auto; border-radius: var(--radius); color: var(--action); background: var(--action-soft); }
 
 .sensor-overview-icon.live { color: var(--aqua); background: var(--blue-soft); }
 
@@ -72,11 +72,11 @@
 
 .sensor-series-picker[open] > summary > svg { transform: rotate(180deg); }
 
-.sensor-series-picker-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 12; width: max(100%, 280px); max-height: min(390px, 65vh); overflow-y: auto; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); box-shadow: var(--shadow-lg); }
+.sensor-series-picker-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 12; width: max(100%, 280px); max-height: min(390px, 65vh); overflow-y: auto; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel); box-shadow: var(--shadow-lg); }
 
 .sensor-series-picker-actions { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
 
-.sensor-series-picker-actions button { min-height: 27px; padding: 0 7px; border: 0; color: var(--action); background: transparent; font-size: 10.5px; font-weight: 750; }
+.sensor-series-picker-actions button { min-height: 27px; padding: 0 7px; border: 0; color: var(--action); background: transparent; font-size: 10.5px; font-weight: 700; }
 
 .sensor-series-picker-actions button:disabled { color: var(--muted-2); cursor: default; }
 
@@ -84,7 +84,7 @@
 
 .sensor-series-picker-menu fieldset:first-of-type { border-top: 0; }
 
-.sensor-series-picker-menu legend { padding: 2px 0 4px; color: var(--muted-2); font-size: 9px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; }
+.sensor-series-picker-menu legend { padding: 2px 0 4px; color: var(--muted-2); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 
 .sensor-series-picker-menu label { min-height: 31px; display: flex; align-items: center; gap: 8px; padding: 3px 5px; border-radius: 6px; color: var(--ink); cursor: pointer; font-size: 11px; }
 
@@ -104,7 +104,7 @@
 
 .sensor-analytics-stats strong { grid-row: 1 / span 2; grid-column: 2; align-self: center; font-family: "Manrope", sans-serif; font-size: 16px; }
 
-.sensor-analytics-stats small { color: var(--muted-2); font-size: 9.5px; }
+.sensor-analytics-stats small { color: var(--muted-2); font-size: 10px; }
 
 .sensor-analytics-gap-status { display: flex; align-items: flex-start; gap: 9px; padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--yellow-soft); }
 
@@ -120,7 +120,7 @@
 
 .sensor-analytics-gap-status > .icon-button:hover { background: color-mix(in srgb, var(--yellow) 12%, transparent); }
 
-.sensor-analytics-legend { display: flex; flex-wrap: wrap; gap: 7px 13px; padding: 10px 18px 2px; color: var(--muted); font-size: 9.5px; }
+.sensor-analytics-legend { display: flex; flex-wrap: wrap; gap: 7px 13px; padding: 10px 18px 2px; color: var(--muted); font-size: 10px; }
 
 .sensor-analytics-legend span { display: inline-flex; align-items: center; gap: 5px; }
 
@@ -182,7 +182,7 @@
 
 .sensor-analytics-end-label circle { fill: var(--panel); stroke: var(--ink); stroke-width: 2; vector-effect: non-scaling-stroke; }
 
-.sensor-analytics-end-label text { fill: var(--ink); font-family: "DM Sans", sans-serif; font-size: 9px; font-weight: 700; paint-order: stroke; stroke: var(--panel); stroke-width: 4px; stroke-linejoin: round; }
+.sensor-analytics-end-label text { fill: var(--ink); font-family: "DM Sans", sans-serif; font-size: 10px; font-weight: 700; paint-order: stroke; stroke: var(--panel); stroke-width: 4px; stroke-linejoin: round; }
 
 .sensor-analytics-hover { pointer-events: none; }
 
@@ -194,11 +194,11 @@
 
 .sensor-analytics-tooltip text { fill: var(--ink); font-family: "DM Sans", sans-serif; }
 
-.sensor-analytics-tooltip-time { font-size: 8px; }
+.sensor-analytics-tooltip-time { font-size: 10px; }
 
-.sensor-analytics-tooltip-label { font-size: 9px; font-weight: 650; }
+.sensor-analytics-tooltip-label { font-size: 10px; font-weight: 650; }
 
-.sensor-analytics-tooltip-value { font-size: 13px; font-weight: 750; }
+.sensor-analytics-tooltip-value { font-size: 13px; font-weight: 700; }
 
 .sensor-analytics-hover-dot.series-0 { stroke: var(--blue); }
 .sensor-analytics-hover-dot.series-1 { stroke: var(--orange); }
@@ -265,13 +265,13 @@
 
 .calendar-comparison-period-summaries article > strong { color: var(--ink); font-family: "Manrope", sans-serif; font-size: 17px; }
 
-.calendar-comparison-period-summaries article > small { color: var(--muted); font-size: 9.5px; line-height: 1.4; }
+.calendar-comparison-period-summaries article > small { color: var(--muted); font-size: 10px; line-height: 1.4; }
 
-.calendar-comparison-period-summaries article > em { position: absolute; top: 10px; right: 12px; padding: 2px 6px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--muted); background: var(--panel-soft); font-size: 9px; font-style: normal; font-weight: 700; }
+.calendar-comparison-period-summaries article > em { position: absolute; top: 10px; right: 12px; padding: 2px 6px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--muted); background: var(--panel-soft); font-size: 10px; font-style: normal; font-weight: 700; }
 
 .calendar-comparison-period-summaries .calendar-comparison-delta { border-left: 3px solid var(--action); }
 
-.calendar-comparison-cohort { margin: 0; padding: 8px 18px 0; color: var(--muted); font-size: 9.5px; line-height: 1.45; }
+.calendar-comparison-cohort { margin: 0; padding: 8px 18px 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
 
 .calendar-comparison-legend { display: flex; flex-wrap: wrap; gap: 7px 13px; padding: 10px 18px 3px; color: var(--muted); font-size: 10px; }
 
@@ -317,7 +317,7 @@
 
 .calendar-comparison-chart-wrap { min-width: 0; overflow-x: auto; padding: 0 16px 8px; }
 
-.calendar-comparison-chart-wrap:focus-visible { outline: 3px solid var(--action); outline-offset: -4px; }
+.calendar-comparison-chart-wrap:focus-visible { outline: 3px solid var(--action); outline-offset: 3px; }
 
 .calendar-comparison-chart { width: 100%; height: auto; display: block; overflow: visible; }
 
@@ -345,11 +345,11 @@
 
 .calendar-comparison-unit { fill: var(--muted); font-family: "DM Sans", sans-serif; font-size: 10px; font-weight: 700; }
 
-.calendar-comparison-table-details > summary { min-height: 42px; display: flex; align-items: center; padding: 0 18px; border-top: 1px solid var(--line); color: var(--action); cursor: pointer; font-size: 10.5px; font-weight: 750; }
+.calendar-comparison-table-details > summary { min-height: 42px; display: flex; align-items: center; padding: 0 18px; border-top: 1px solid var(--line); color: var(--action); cursor: pointer; font-size: 10.5px; font-weight: 700; }
 
 .calendar-comparison-table-wrap { max-height: 420px; overflow: auto; }
 
-.calendar-comparison-table-wrap:focus-visible { outline: 3px solid var(--action); outline-offset: -4px; }
+.calendar-comparison-table-wrap:focus-visible { outline: 3px solid var(--action); outline-offset: 3px; }
 
 .calendar-comparison-table-wrap table { width: 100%; border-collapse: collapse; font-size: 10.5px; }
 
@@ -361,7 +361,7 @@
 
 .calendar-comparison-table-wrap td strong, .calendar-comparison-table-wrap td small { display: block; }
 
-.calendar-comparison-table-wrap td small { margin-top: 2px; color: var(--muted); font-size: 9px; }
+.calendar-comparison-table-wrap td small { margin-top: 2px; color: var(--muted); font-size: 10px; }
 
 .daily-findings { min-width: 0; margin-bottom: 16px; overflow: hidden; }
 
@@ -415,7 +415,7 @@
 
 .daily-finding-card .status-badge { font-size: 10px; }
 
-.daily-finding-icon { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 10px; color: var(--action); background: var(--accent-soft); }
+.daily-finding-icon { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 auto; border-radius: var(--radius); color: var(--action); background: var(--accent-soft); }
 
 .daily-finding-icon.outdoor-weather { color: var(--blue); background: var(--blue-soft); }
 
@@ -427,7 +427,7 @@
 
 .daily-finding-card > details { border-top: 1px solid var(--line); }
 
-.daily-finding-card > details > summary { min-height: 42px; display: flex; align-items: center; padding: 0 18px; color: var(--action); background: var(--panel-soft); cursor: pointer; font-size: 10.5px; font-weight: 750; }
+.daily-finding-card > details > summary { min-height: 42px; display: flex; align-items: center; padding: 0 18px; color: var(--action); background: var(--panel-soft); cursor: pointer; font-size: 10.5px; font-weight: 700; }
 
 .daily-finding-card .table-scroll { max-height: 220px; margin: 0; overflow: auto; }
 

@@ -34,10 +34,12 @@ TP-Link credentials and connections belong to the selected Home. Different
 Homes can use independent credentials and endpoints; a Home can also have
 multiple named direct TP-Link connections.
 
-`House.location` is the weather lookup reference. Its latitude and longitude
-can be entered directly. An optional label such as `Espoo` is for display only;
-Stugu does not need or derive a street address. Save this location before
-loading weather.
+`Property.location` is the normal weather lookup reference. Each Home retains a
+separate operational `House.location`: Stugu automatically copies the Property
+value there, falls back to the Home's map placement when the Property has no
+location, or preserves an explicit advanced Home override. An optional label
+such as `Espoo` is for display only; Stugu does not need or derive a street
+address.
 
 The public `House.location` shape can include discovery provenance:
 
@@ -54,7 +56,7 @@ The public `House.location` shape can include discovery provenance:
 }
 ```
 
-`House.mapPlacement` is the independent, precise map placement:
+`House.mapPlacement` remains the independent, precise map placement record:
 
 ```json
 {
@@ -119,11 +121,13 @@ Set `location` to `null` to remove it. Updating or removing a location clears
 that house's in-memory weather cache. A coordinate change also deletes that
 house's previously retained outdoor-boundary rows; location keys in the
 boundary table are opaque digests rather than plaintext coordinates.
-Moving or clearing `mapPlacement` does not change `location`, clear the weather
-cache, or purge retained weather history. `POST /api/v1/houses` also accepts the
-same optional location, placement, and orientation. Set `mapPlacement` or
-`orientationDegrees` to `null` to clear only that property. All three properties
-can be patched separately; clearing one does not erase the others.
+Moving or clearing `mapPlacement` updates `location` only when that location is
+the automatic `map-placement` fallback and the Property has no location. A
+coordinate change then clears the affected weather cache and retained outdoor
+history. Property-derived automatic locations follow the Property instead;
+manual Home overrides never change automatically. `POST /api/v1/houses` also
+accepts the same optional location, placement, and orientation. The records stay
+separate even when Stugu copies coordinates between them.
 
 ## Outdoor page and Twin context
 

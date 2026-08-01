@@ -74,6 +74,7 @@ mmdebstrap:
     - curl
     - gdisk
     - nano
+    - systemd-timesyncd
     - tailscale
   customize-hooks:
     - |-
@@ -91,6 +92,7 @@ mmdebstrap:
       install -d -m 0755 "$1/etc/systemd/system/persistent-shared-init.service.d"
       install -d -m 0755 "$1/etc/systemd/system/systemd-networkd-wait-online.service.d"
       install -d -m 0755 "$1/etc/systemd/system/tailscaled.service.d"
+      install -d -m 0755 "$1/etc/systemd/timesyncd.conf.d"
       install -d -m 0755 "$1/etc/initramfs-tools/hooks"
       install -d -m 0755 "$1/etc/initramfs-tools/scripts/local-block"
       install -d -m 0755 "$1/etc/initramfs-tools/scripts/local-bottom"
@@ -147,6 +149,8 @@ mmdebstrap:
         "$1/etc/systemd/system/stugu-data-grow.service"
       install -m 0644 "${IGconf_stugu_assetdir}/stugu-eeprom-compat.service" \
         "$1/etc/systemd/system/stugu-eeprom-compat.service"
+      install -m 0644 "${IGconf_stugu_assetdir}/stugu-timesyncd.conf" \
+        "$1/etc/systemd/timesyncd.conf.d/stugu.conf"
 
       # The Pi 4 USB rescue path boots this FAT payload directly. Keep the
       # firmware's automatic kernel/initramfs pairing: explicit late [pi4]
@@ -257,4 +261,4 @@ mmdebstrap:
       ${IGconf_device_user1} ALL=(root) NOPASSWD: /usr/bin/tailscale up --operator=${IGconf_device_user1}
       EOF
       chmod 0440 "$1/etc/sudoers.d/020_stuguctl"
-    - $BDEBSTRAP_HOOKS/enable-units "$1" tailscaled stugu-data-grow stugu-eeprom-compat stugu
+    - $BDEBSTRAP_HOOKS/enable-units "$1" tailscaled stugu-data-grow stugu-eeprom-compat stugu systemd-timesyncd

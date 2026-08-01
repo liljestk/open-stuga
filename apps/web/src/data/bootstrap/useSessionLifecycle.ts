@@ -51,6 +51,7 @@ import { createDemoState, nextMockReading, snapshotToReadings, timeRangeHours, t
 import { appendHistory, enabledDefinitions, legacyForecastSamples, readingSamples, upsertLatest } from "../../measurements";
 import { routeFromLocation } from "../../routing";
 import { publishHouseWeatherUpdate } from "../../useHouseWeather";
+import { activateAccountStorage, deactivateAccountStorage } from "../../browserStorage";
 import { LiveEventCoordinator } from "../live/LiveEventCoordinator";
 import { HEARTBEAT_POLL_MIN_INTERVAL_MS, LIVE_TELEMETRY_BUFFER_LIMIT, MAX_SERIES_SAMPLES, STREAM_BOOTSTRAP_WAIT_MS, advanceMockTelemetry, aggregateConnection, apiStatus, blankState, bufferLiveTelemetry, bufferSeriesValue, canonicalSeries, errorMessage, houseMutationKey, isDemoSource, isPollingCompatibilityHeartbeat, legacySeries, mergeLegacySeries, mergeMeasurementSeries, metricForecastSamples, metricHistorySamples, optionalForecast, preserveMutatedSensorTelemetry, preserveSeriesCommittedDuringLoad, replaceFloor, replaceHouseSensors, replaceLoadedHouseTelemetry, replayBufferedLiveTelemetry, replayHouseInventory, replayHouseMutations, replayMaintenanceTaskMutation, sensorsFromSnapshots, seriesBucketSeconds, seriesLimit, seriesStateKey, settleInBackground, synchronizeSensorRoomLabels, unauthenticatedSession, withoutDemoTelemetry, withoutSensorIds } from "./support";
 import type { BootstrapStatus, BufferedHouseMutation, BufferedLiveTelemetry, BufferedSeriesTelemetry, DataMode, HistoricalSeriesWindow, HouseInventoryMutation, HouseMutationBuffer, LoadedTelemetryState, SeriesCommit, SeriesLoadState, SeriesLoadStatus, StreamConnections } from "./support";
@@ -135,6 +136,7 @@ export function useSessionLifecycle(
           const session = await api.session();
           if (invalidated()) return;
           if (!session.authenticated || session.setupRequired) {
+            deactivateAccountStorage({ purge: true });
             apiAvailable.current = false;
             const locked = !session.setupRequired;
             sessionLockedRef.current = locked;
@@ -148,6 +150,7 @@ export function useSessionLifecycle(
             setBootstrapStatus(session.setupRequired ? "setup-required" : "login-required");
             return;
           }
+          activateAccountStorage(session);
           const [properties, rawHouses, propertyAreas, areaEquipment, propertyNotes, scopedMaintenanceResult, workspaceSensorsResult] = await Promise.all([
             api.properties(),
             api.houses(),
@@ -276,6 +279,7 @@ export function useSessionLifecycle(
             apiAvailable.current = false;
             resetStreamConnections();
             if (apiStatus(error) === 401) {
+              deactivateAccountStorage({ purge: true });
               sessionLockedRef.current = true;
               setSessionLocked(true);
               setBootstrapError(null);

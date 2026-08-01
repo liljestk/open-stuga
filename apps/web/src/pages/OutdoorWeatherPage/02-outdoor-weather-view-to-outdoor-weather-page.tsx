@@ -13,7 +13,7 @@ import {
   TriangleAlert,
   Wind,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   House,
   HouseWeather,
@@ -41,6 +41,12 @@ import { homeRelevantWeatherWarnings } from "../../weatherWarningRelevance";
 import "../OutdoorWeatherPage.css";
 import { OutdoorWeatherViewProps, WarningCoverageArea, WeatherIssueDetails, backfillLabelKeys, decimal, finite, outageComponentLabel, pressure, recoveryFromError, stationDistance, summarizeOutdoorForecast, translateCopy, unavailableLabel, visibility } from "./01-outdoor-page-copy-to-outdoor-weather-view-props";
 
+function forecastDisclosureRequested(): boolean {
+  if (typeof window === "undefined") return false;
+  return ["0-12", "12-24", "24-36", "36-48"]
+    .includes(new URLSearchParams(window.location.search).get("forecast") ?? "");
+}
+
 export function OutdoorWeatherView({
   house,
   houses = [house],
@@ -54,6 +60,7 @@ export function OutdoorWeatherView({
   horizonHours = MAX_FORECAST_HOURS,
 }: OutdoorWeatherViewProps) {
   const { locale, t } = useI18n();
+  const [forecastDetailsOpen, setForecastDetailsOpen] = useState(forecastDisclosureRequested);
   const copy = useMemo(() => translateCopy(t), [t]);
   const forecastWindowLabels = useMemo(() => FORECAST_WINDOW_LABEL_KEYS.map((key) => t(key)), [t]);
   const horizonPoints = useMemo(
@@ -72,6 +79,16 @@ export function OutdoorWeatherView({
       && !warningStatus.stale
     : Boolean(weather && weather.provider === "fmi" && !weather.unavailable.includes("warnings") && !weather.stale);
   const warningIssueVisible = Boolean(error || !warningsVerified);
+
+  useEffect(() => {
+    const path = window.location.pathname;
+    const revealForecastDeepLink = () => {
+      if (window.location.pathname === path && forecastDisclosureRequested()) setForecastDetailsOpen(true);
+    };
+    revealForecastDeepLink();
+    window.addEventListener("popstate", revealForecastDeepLink);
+    return () => window.removeEventListener("popstate", revealForecastDeepLink);
+  }, []);
   const locationName = house.location?.label || house.name;
   const freshnessLabel = refreshFailed
     ? copy.refreshFailed
@@ -237,7 +254,11 @@ export function OutdoorWeatherView({
                 </dl>
               </section>
 
-              <details className="outdoor-forecast-details">
+              <details
+                className="outdoor-forecast-details"
+                open={forecastDetailsOpen}
+                onToggle={(event) => setForecastDetailsOpen(event.currentTarget.open)}
+              >
                 <summary><span><strong>{copy.forecastDetails}</strong><small>{copy.forecastDetailsHelp}</small></span><ChevronDown size={18} aria-hidden="true" /></summary>
                 <ForecastWindowNavigator
                   points={weather.forecast}

@@ -116,7 +116,10 @@ function renderView(
   };
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  window.history.replaceState({}, "", "/");
+});
 
 describe("OutdoorWeatherPage", () => {
   it("loads the existing 48-hour contract and paginates semantic 12-hour windows while summarizing all 48 hours", async () => {
@@ -141,6 +144,7 @@ describe("OutdoorWeatherPage", () => {
 
     await user.click(screen.getByRole("tab", { name: /\+12–24h/ }));
     expect(screen.getByRole("tab", { name: /\+12–24h/ }).getAttribute("aria-selected")).toBe("true");
+    expect(window.location.search).toBe("?forecast=12-24");
     expect(within(screen.getByRole("table", { name: /\+12–24h/ })).getByText("12 °C")).toBeTruthy();
     await user.click(screen.getByText("Detailed hourly forecast"));
     expect(forecastDisclosure.hasAttribute("open")).toBe(false);
@@ -185,6 +189,35 @@ describe("OutdoorWeatherPage", () => {
       </I18nProvider>,
     );
     await waitFor(() => expect(screen.getByRole("tab", { name: /Next 12h/ }).getAttribute("aria-selected")).toBe("true"));
+    expect(window.location.search).toBe("");
+  });
+
+  it("deep-links forecast windows and restores keyboard choices with browser history", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/properties/property-main/homes/house-main/setup/weather?forecast=24-36");
+    renderView(weather());
+
+    expect(screen.getByText("Detailed hourly forecast").closest("details")).toHaveAttribute("open");
+    const thirdWindow = screen.getByRole("tab", { name: /\+24–36h/ });
+    expect(thirdWindow.getAttribute("aria-selected")).toBe("true");
+
+    thirdWindow.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: /\+36–48h/ }).getAttribute("aria-selected")).toBe("true");
+    expect(window.location.search).toBe("?forecast=36-48");
+
+    await user.keyboard("{Home}");
+    expect(screen.getByRole("tab", { name: /Next 12h/ }).getAttribute("aria-selected")).toBe("true");
+    expect(window.location.search).toBe("");
+
+    window.history.replaceState({}, "", "?forecast=12-24");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /\+12–24h/ }).getAttribute("aria-selected")).toBe("true"));
+
+    window.history.replaceState({}, "", "?forecast=invalid");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /Next 12h/ }).getAttribute("aria-selected")).toBe("true"));
+    expect(window.location.search).toBe("");
   });
 
   it("keeps warning status persistent and never turns unavailable or stale coverage into an all-clear", () => {

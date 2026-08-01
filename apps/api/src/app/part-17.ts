@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { isIP } from "node:net";
 import { dirname, join } from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
-import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, resolvePlanElementOpeningState } from "@climate-twin/contracts";
+import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, MAX_OBSERVATION_RESOLUTION_NOTE_LENGTH, hasLocalHouseAuthority, resolvePlanElementOpeningState } from "@climate-twin/contracts";
 import type {
   AreaEquipmentInput,
   AreaEquipmentPatch,
@@ -194,14 +194,23 @@ export function configureApiPart17(context: ReturnType<typeof configureApiPart16
   context.app.delete(`${context.prefix}/houses/:id`, async (request, response) => {
       const houseId = request.params.id as string;
       const previous = context.database.getHouse(houseId);
+      if (!previous) throw new HttpError(404, "NOT_FOUND", "House not found");
       context.stuguby.assertHouseWriteAllowed(houseId);
       context.stuguby.assertHouseLocalAuthority(houseId);
-      context.requireImmutableTelemetryLineage("house", houseId);
+      // Revoke every durable share and queue its purge tombstone before the
+      // authoritative Home disappears from the local active scope. If this
+      // phase fails, the Home stays visible and the request remains retryable.
+      context.stuguby.retireLocalHouseShares(houseId);
       const previousHomeAssistantConnections = [...(config.homeAssistantConnections ?? [])];
       const previousTpLinkConnections = [...(config.tpLinkConnections ?? [])];
       const previousGreeConnections = [...(config.greeConnections ?? [])];
       const previousTuyaConnections = [...(config.tuyaConnections ?? [])];
       const previousAppleNotesGrants = [...config.appleNotesGrants];
+      const firstLocalHouseId = context.database.listHouses().find(hasLocalHouseAuthority)?.id;
+      const hideLegacyHomeAssistant = firstLocalHouseId === houseId && !config.homeAssistantLegacyDisabled
+        && Boolean(config.haUrl && config.haToken);
+      const hideLegacyTpLink = firstLocalHouseId === houseId && !config.tpLinkLegacyDisabled
+        && Boolean(config.tpLinkHost && config.tpLinkUsername && config.tpLinkPassword);
       const remainingHomeAssistantConnections = previousHomeAssistantConnections
         .filter((connection) => connection.houseId !== houseId);
       const remainingTpLinkConnections = previousTpLinkConnections
@@ -216,19 +225,40 @@ export function configureApiPart17(context: ReturnType<typeof configureApiPart16
       const connectionsChanged = remainingHomeAssistantConnections.length !== previousHomeAssistantConnections.length
         || remainingTpLinkConnections.length !== previousTpLinkConnections.length
         || greeChanged
-        || tuyaChanged;
+        || tuyaChanged
+        || hideLegacyHomeAssistant
+        || hideLegacyTpLink;
       const grantsChanged = remainingGrants.length !== previousAppleNotesGrants.length;
       if (connectionsChanged || grantsChanged) {
-        commitCoordinatedIntegrationSecrets(config.integrationSecretsFile, context.database, () => {
+        commitCoordinatedIntegrationSecrets(config.integrationSecretsFile, context.database, (currentSecrets) => {
           context.integrationMetadata.retireHouse(houseId);
           if (!context.database.deleteHouse(houseId)) throw new HttpError(404, "NOT_FOUND", "House not found");
+          const hiddenAt = new Date().toISOString();
           return {
             patch: {
               homeAssistantConnections: remainingHomeAssistantConnections,
+              ...(hideLegacyHomeAssistant ? { homeAssistant: null, homeAssistantLegacyDisabled: true } : {}),
               tpLinkConnections: remainingTpLinkConnections,
+              ...(hideLegacyTpLink ? { tpLink: null, tpLinkLegacyDisabled: true } : {}),
               greeConnections: remainingGreeConnections,
               tuyaConnections: remainingTuyaConnections,
               appleNotesGrants: remainingGrants,
+              hiddenHouseData: [
+                ...(currentSecrets.hiddenHouseData ?? []),
+                {
+                  houseId,
+                  hiddenAt,
+                  ...(hideLegacyHomeAssistant && currentSecrets.homeAssistant
+                    ? { homeAssistant: currentSecrets.homeAssistant }
+                    : {}),
+                  ...(hideLegacyTpLink && currentSecrets.tpLink ? { tpLink: currentSecrets.tpLink } : {}),
+                  homeAssistantConnections: previousHomeAssistantConnections.filter((item) => item.houseId === houseId),
+                  tpLinkConnections: previousTpLinkConnections.filter((item) => item.houseId === houseId),
+                  greeConnections: previousGreeConnections.filter((item) => item.houseId === houseId),
+                  tuyaConnections: previousTuyaConnections.filter((item) => item.houseId === houseId),
+                  appleNotesGrants: previousAppleNotesGrants.filter((item) => item.houseId === houseId),
+                },
+              ],
             },
             result: undefined,
           };
@@ -240,11 +270,13 @@ export function configureApiPart17(context: ReturnType<typeof configureApiPart16
         });
       }
       config.homeAssistantConnections = remainingHomeAssistantConnections;
+      if (hideLegacyHomeAssistant) config.homeAssistantLegacyDisabled = true;
       config.tpLinkConnections = remainingTpLinkConnections;
+      if (hideLegacyTpLink) config.tpLinkLegacyDisabled = true;
       config.greeConnections = remainingGreeConnections;
       config.tuyaConnections = remainingTuyaConnections;
       config.appleNotesGrants = remainingGrants;
-      if (previous) context.notifySpatial((runtime) => runtime.scheduler.enqueueScope(
+      context.notifySpatial((runtime) => runtime.scheduler.enqueueScope(
         { kind: "property", id: previous.propertyId },
         new Date().toISOString(),
         "ownership-changed",

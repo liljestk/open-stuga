@@ -119,7 +119,7 @@ declare module "../core.js" {
         previousTasks: readonly MaintenanceTask[],
         actor?: MaintenanceTaskRevisionActor,
       ): void;
-    validateMaintenanceTask(task: MaintenanceTask): void;
+    validateMaintenanceTask(task: MaintenanceTask, retainedHiddenHouseId?: string | null): void;
     listParameters(houseId?: string): StaticParameter[];
     saveParameter(input: Omit<StaticParameter, "id"> & {
             id?: string;

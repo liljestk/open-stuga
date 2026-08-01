@@ -105,6 +105,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   const localAuthProxyBindAddress = optional(env.LOCAL_AUTH_PROXY_BIND_ADDRESS);
   const proxySecret = localAuthProxySecret(env);
+  const bugReportRelayUrl = optional(env.BUG_REPORT_RELAY_URL);
+  const bugReportRelayToken = optionalFileSecret(
+    env,
+    "BUG_REPORT_RELAY_TOKEN",
+    "BUG_REPORT_RELAY_TOKEN_FILE",
+    "Bug report relay token",
+    32,
+  );
+  if (Boolean(bugReportRelayUrl) !== Boolean(bugReportRelayToken)) {
+    throw new Error("Bug reporting requires both BUG_REPORT_RELAY_URL and BUG_REPORT_RELAY_TOKEN");
+  }
+  if (bugReportRelayUrl && new URL(bugReportRelayUrl).protocol !== "https:") {
+    throw new Error("BUG_REPORT_RELAY_URL must use HTTPS");
+  }
   const cloudflareAccessAccountId = optional(env.CLOUDFLARE_ACCESS_ACCOUNT_ID);
   const cloudflareAccessGroupId = optional(env.CLOUDFLARE_ACCESS_GROUP_ID);
   const cloudflareAccessApiToken = optionalFileSecret(
@@ -421,6 +435,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     localAuthTestBypass,
     localAuthProxyBindAddress,
     localAuthProxySecret: proxySecret,
+    bugReportRelayUrl,
+    bugReportRelayToken,
     cloudflareAccessAccountId,
     cloudflareAccessGroupId,
     cloudflareAccessGroupName,

@@ -13,6 +13,7 @@ interface GrantOverviewProps {
   onRepublish: (grant: StugubyShareGrant) => void;
   onRevoke: (grant: StugubyShareGrant) => void;
   onRemoveInvalid: (grant: StugubyShareGrant) => void;
+  variant?: "all" | "attention" | "routine";
 }
 
 interface GrantCardProps extends GrantOverviewProps {
@@ -111,10 +112,14 @@ export function GrantOverview(props: GrantOverviewProps) {
   const card = (grant: StugubyShareGrant, cardProps: { duplicate?: boolean; invalid?: boolean } = {}) =>
     <GrantCard key={grant.id} {...props} grant={grant} {...cardProps} />;
 
-  if (detail.grants.length === 0) return <p>{t("stuguby.noGrants")}</p>;
+  if (detail.grants.length === 0) return props.variant === "attention" ? null : <p>{t("stuguby.noGrants")}</p>;
+  if (props.variant === "attention" && invalid.length === 0 && duplicatedHomeNames.length === 0) return null;
+
+  const showAttention = props.variant !== "routine";
+  const showRoutine = props.variant !== "attention";
 
   return <div className="stuguby-grant-groups">
-    {(invalid.length > 0 || duplicatedHomeNames.length > 0) && <section className="stuguby-grant-attention" aria-labelledby="stuguby-grant-attention-title">
+    {showAttention && (invalid.length > 0 || duplicatedHomeNames.length > 0) && <section className="stuguby-grant-attention" aria-labelledby="stuguby-grant-attention-title">
       <div className="stuguby-grant-group-header">
         <AlertTriangle size={19} aria-hidden="true" />
         <div><h3 id="stuguby-grant-attention-title">{t("stuguby.needsAttention")}</h3><p>{t("stuguby.needsAttentionBody")}</p></div>
@@ -124,19 +129,19 @@ export function GrantOverview(props: GrantOverviewProps) {
       <div className="stuguby-existing-grants">{invalid.map((grant) => card(grant, { invalid: true }))}</div>
     </section>}
 
-    <section className="stuguby-grant-group" aria-labelledby="stuguby-outgoing-shares-title">
+    {showRoutine && <section className="stuguby-grant-group" aria-labelledby="stuguby-outgoing-shares-title">
       <div className="stuguby-grant-group-header"><div><h3 id="stuguby-outgoing-shares-title">{t("stuguby.outgoingSharesTitle")}</h3><p>{t("stuguby.outgoingSharesBody")}</p></div><span>{local.length}</span></div>
       {local.length === 0 ? <p className="stuguby-empty-grants">{t("stuguby.noOutgoingShares")}</p> : <div className="stuguby-existing-grants">
         {local.map((grant) => card(grant, { duplicate: Boolean(grant.localHouseId && duplicatedLocalHouseIds.has(grant.localHouseId)) }))}
       </div>}
-    </section>
+    </section>}
 
-    <section className="stuguby-grant-group" aria-labelledby="stuguby-incoming-shares-title">
+    {showRoutine && <section className="stuguby-grant-group" aria-labelledby="stuguby-incoming-shares-title">
       <div className="stuguby-grant-group-header"><div><h3 id="stuguby-incoming-shares-title">{t("stuguby.incomingSharesTitle")}</h3><p>{t("stuguby.incomingSharesBody")}</p></div><span>{remote.length}</span></div>
       {remote.length === 0 ? <p className="stuguby-empty-grants">{t("stuguby.noIncomingShares")}</p> : <div className="stuguby-existing-grants">{remote.map((grant) => card(grant))}</div>}
-    </section>
+    </section>}
 
-    {history.length > 0 && <details className="stuguby-grant-history">
+    {showRoutine && history.length > 0 && <details className="stuguby-grant-history">
       <summary>{t("stuguby.sharingHistory", { count: history.length })}</summary>
       <p>{t("stuguby.sharingHistoryBody")}</p>
       <div className="stuguby-existing-grants">{history.map((grant) => card(grant))}</div>

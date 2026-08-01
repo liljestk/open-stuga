@@ -96,10 +96,13 @@ export function useSpatialLayers({ scope, enabled = true, historyAt = null }: Us
   const [now, setNow] = useState(() => Date.now());
   const requestSequence = useRef(0);
   const activeScope = useRef(scopeKey);
+  const activeRefreshController = useRef<AbortController | null>(null);
 
   const selectionKey = selectedLayerIds.join(",");
 
   useEffect(() => {
+    activeRefreshController.current?.abort();
+    activeRefreshController.current = null;
     activeScope.current = scopeKey;
     requestSequence.current += 1;
     setEngines([]);
@@ -110,6 +113,8 @@ export function useSpatialLayers({ scope, enabled = true, historyAt = null }: Us
     setSelectedLayerIds([]);
     setAvailable(false);
     setError(null);
+    setRefreshing(false);
+    setHistoryLoading(false);
     setStreamState("idle");
     if (!enabled || !scope) {
       setLoading(false);
@@ -140,13 +145,19 @@ export function useSpatialLayers({ scope, enabled = true, historyAt = null }: Us
     }).finally(() => {
       if (!controller.signal.aborted && requestId === requestSequence.current) setLoading(false);
     });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      activeRefreshController.current?.abort();
+      activeRefreshController.current = null;
+    };
   }, [enabled, scopeKey]);
 
   const refresh = useCallback(async () => {
     if (!enabled || !scope || !available) return;
+    activeRefreshController.current?.abort();
     const requestId = ++requestSequence.current;
     const controller = new AbortController();
+    activeRefreshController.current = controller;
     setRefreshing(true);
     try {
       const [snapshots, nextHealth, configuration] = await Promise.all([
@@ -161,16 +172,27 @@ export function useSpatialLayers({ scope, enabled = true, historyAt = null }: Us
       setError(null);
       setNow(Date.now());
     } catch (reason) {
-      if (requestId === requestSequence.current) setError(asError(reason));
+      if (!controller.signal.aborted && requestId === requestSequence.current) setError(asError(reason));
     } finally {
-      if (requestId === requestSequence.current) setRefreshing(false);
+      if (activeRefreshController.current === controller) activeRefreshController.current = null;
+      if (!controller.signal.aborted && requestId === requestSequence.current) setRefreshing(false);
     }
   }, [available, enabled, scope, scopeKey, selectionKey]);
 
   useEffect(() => {
     if (!available || !scope || historyAt !== null) return;
-    const timer = window.setInterval(() => void refresh(), SPATIAL_LAYER_POLL_MS);
-    return () => window.clearInterval(timer);
+    const refreshIfVisible = () => {
+      if (typeof document === "undefined" || !document.hidden) void refresh();
+    };
+    const timer = window.setInterval(refreshIfVisible, SPATIAL_LAYER_POLL_MS);
+    const handleVisibilityChange = () => {
+      if (!document.hidden) void refresh();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [available, historyAt, refresh, scopeKey]);
 
   useEffect(() => {
@@ -178,6 +200,9 @@ export function useSpatialLayers({ scope, enabled = true, historyAt = null }: Us
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     const unsubscribe = subscribeToSpatialLayerEvents(scope, (event) => {
       if (event.layerId && selectedLayerIds.length && !selectedLayerIds.includes(event.layerId)) return;
+      // The visibility listener on the polling path performs one authoritative
+      // refresh when the tab returns; streaming changes need not wake a hidden UI.
+      if (typeof document !== "undefined" && document.hidden) return;
       if (refreshTimer !== null) clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => {
         refreshTimer = null;

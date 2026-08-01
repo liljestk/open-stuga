@@ -191,7 +191,7 @@ type NormalizedApiConfig = { [Key in keyof AppConfig]-?: Exclude<AppConfig[Key],
 export function configureApiPart20(context: ReturnType<typeof configureApiPart19>) {
   const config = context.config as NormalizedApiConfig;
   const sensorGapRecovery = context.sensorGapRecovery!;
-  context.app.get(`${context.prefix}/data-export`, async (request, response) => {
+  context.app.get(`${context.prefix}/data-export`, requireWorkspaceAdmin, async (request, response) => {
       const privacyLevel = enumValue(request.query.privacyLevel ?? "operations", ["structure", "operations", "full"] as const, "privacyLevel") as DataExportPrivacyLevel;
       const includeTelemetry = request.query.includeTelemetry === "true";
       if (includeTelemetry && context.telemetryArchive) {
@@ -246,17 +246,21 @@ export function configureApiPart20(context: ReturnType<typeof configureApiPart19
       response.end("}}");
       context.dataOperations.audit("export.completed", { privacyLevel, includeTelemetry });
     });
-  context.app.get(`${context.prefix}/backups/status`, (_request, response) => {
+  context.app.get(`${context.prefix}/backups/status`, requireWorkspaceAdmin, (_request, response) => {
       response.json({ backup: context.dataOperations.backupStatus() });
     });
-  context.app.post(`${context.prefix}/backups`, (_request, response) => {
+  context.app.post(`${context.prefix}/backups`, requireWorkspaceAdmin, (_request, response) => {
       response.status(202).json({ backup: context.dataOperations.requestBackup() });
     });
-  context.app.get(`${context.prefix}/setup/doctor`, (_request, response) => {
+  context.app.get(`${context.prefix}/setup/doctor`, requireWorkspaceAdmin, (_request, response) => {
       response.json({ report: context.setupDoctor.report() });
     });
   context.app.get(`${context.prefix}/sensors/:id/label`, (request, response) => {
-      const label = context.setupDoctor.sensorLabel(request.params.id as string);
+      const sensorId = request.params.id as string;
+      if (!context.visibility(response).sensor(sensorId)) {
+        throw new HttpError(404, "NOT_FOUND", "Sensor not found");
+      }
+      const label = context.setupDoctor.sensorLabel(sensorId);
       if (!label) throw new HttpError(404, "NOT_FOUND", "Sensor not found");
       response.json({ label });
     });

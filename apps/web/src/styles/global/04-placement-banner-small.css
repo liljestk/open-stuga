@@ -1,4 +1,4 @@
-.placement-banner small { color: inherit; opacity: .8; font-size: 9px; }
+.placement-banner small { color: inherit; opacity: .8; font-size: 10px; }
 
 .editor-toolbar + .placement-banner { top: 60px; }
 
@@ -8,9 +8,9 @@
 
 .floor-plan { width: 100%; height: 100%; min-height: 390px; display: block; touch-action: none; }
 
-.floor-plan:focus-visible { outline: 3px solid var(--pine); outline-offset: -4px; }
+.floor-plan:focus-visible { outline: 3px solid var(--action); outline-offset: 3px; }
 
-.plan-zoom-controls { position: absolute; z-index: 10; top: 50%; left: 10px; display: grid; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink); background: rgb(255 255 255 / .92); box-shadow: 0 4px 14px rgb(13 39 31 / .12); backdrop-filter: blur(9px); transform: translateY(-50%); }
+.plan-zoom-controls { position: absolute; z-index: 10; top: 50%; left: 10px; display: grid; overflow: hidden; border: 1px solid var(--line-strong); border-radius: var(--radius); color: var(--ink); background: rgb(255 255 255 / .92); box-shadow: 0 4px 14px rgb(13 39 31 / .12); backdrop-filter: blur(9px); transform: translateY(-50%); }
 
 .plan-zoom-controls button { width: 40px; min-width: 40px; height: 40px; min-height: 40px; display: grid; place-items: center; padding: 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; color: inherit; background: transparent; }
 
@@ -18,7 +18,7 @@
 
 .plan-zoom-controls button:disabled { color: var(--muted-2); cursor: not-allowed; }
 
-.plan-zoom-controls > span { min-height: 24px; display: grid; place-items: center; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 9px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.plan-zoom-controls > span { min-height: 24px; display: grid; place-items: center; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .plan-zoom-controls button:last-child { border-bottom: 0; }
 
@@ -68,7 +68,7 @@
 
 .room-edge-handle path { fill: none; stroke: #fff; stroke-width: 2.5; stroke-linecap: round; pointer-events: none; vector-effect: non-scaling-stroke; }
 
-.room-edge-handle:hover .room-edge-add, .room-edge-handle:focus-visible .room-edge-add { fill: var(--pine); stroke-width: 4; }
+.room-edge-handle:hover .room-edge-add, .room-edge-handle:focus-visible .room-edge-add { fill: var(--action); stroke-width: 4; }
 
 .room-vertex-handle { fill: #fff; stroke: var(--action); stroke-width: 4; cursor: move; pointer-events: all; vector-effect: non-scaling-stroke; }
 
@@ -90,7 +90,7 @@
 
 .wall-segment-group.selected .wall-segment { stroke: var(--action); stroke-width: 12; filter: drop-shadow(0 2px 2px rgb(63 118 211 / .28)); }
 
-.wall-length-label { fill: #2f3935; font-family: "DM Sans", sans-serif; font-size: 13px; font-weight: 750; letter-spacing: .015em; paint-order: stroke; stroke: rgb(252 251 247 / .96); stroke-width: 6px; stroke-linejoin: round; pointer-events: none; }
+.wall-length-label { fill: #2f3935; font-family: "DM Sans", sans-serif; font-size: 13px; font-weight: 700; letter-spacing: .015em; paint-order: stroke; stroke: rgb(252 251 247 / .96); stroke-width: 6px; stroke-linejoin: round; pointer-events: none; }
 
 .wall-length-label.uncalibrated { fill: #7c766d; font-size: 11px; font-weight: 650; }
 
@@ -102,11 +102,11 @@
 
 .wall-preview-group { pointer-events: none; }
 
-.wall-length-label.wall-preview-length { fill: var(--action); font-size: 14px; font-weight: 800; stroke-width: 7px; }
+.wall-length-label.wall-preview-length { fill: var(--action); font-size: 14px; font-weight: 700; stroke-width: 7px; }
 
 .isometric .walls .wall-segment { stroke-width: 10; }
 
-.wall-start { fill: var(--pine); stroke: #fff; stroke-width: 4; }
+.wall-start { fill: var(--action); stroke: #fff; stroke-width: 4; }
 
 .plan-element { cursor: pointer; outline: none; }
 
@@ -152,11 +152,11 @@
 
 .chimney-penetration line { stroke: #6e665d; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 
-.flow-path { fill: none; stroke: var(--pine); stroke-width: 3; stroke-dasharray: 8 9; opacity: .9; }
+.flow-path { fill: none; stroke: var(--action); stroke-width: 3; stroke-dasharray: 8 9; opacity: .9; }
 
-.flow-arrow-head { fill: var(--pine); }
+.flow-arrow-head { fill: var(--action); }
 
-.flow-particle { fill: var(--panel); stroke: var(--pine); stroke-width: 2; }
+.flow-particle { fill: var(--panel); stroke: var(--action); stroke-width: 2; }
 
 .simulated-flow-path { stroke: var(--aqua); stroke-width: 3.5; stroke-dasharray: 11 7; stroke-linecap: round; opacity: .88; vector-effect: non-scaling-stroke; }
 
@@ -194,15 +194,15 @@
 
 .sensor-marker.movable:active { cursor: grabbing; }
 
-.sensor-halo { fill: #fff; opacity: 0; stroke: var(--pine); stroke-width: 3; transition: opacity .15s ease, r .15s ease; }
+.sensor-halo { fill: #fff; opacity: 0; stroke: var(--action); stroke-width: 3; transition: opacity .15s ease, r .15s ease; }
 
 .sensor-marker:hover .sensor-halo, .sensor-marker:focus-visible .sensor-halo, .sensor-marker.selected .sensor-halo { opacity: .72; }
 
 .sensor-marker.selected .sensor-halo { r: 31; stroke-dasharray: 4 4; }
 
-.sensor-core { fill: var(--pine); stroke: #fff; stroke-width: 3; }
+.sensor-core { fill: var(--action); stroke: #fff; stroke-width: 3; }
 
-.sensor-marker.selected .sensor-core { fill: var(--pine-hover); stroke: #dce8ff; stroke-width: 4; }
+.sensor-marker.selected .sensor-core { fill: var(--action-hover); stroke: #dce8ff; stroke-width: 4; }
 
 .sensor-marker.stale .sensor-core { fill: var(--muted-2); }
 
@@ -224,7 +224,7 @@
 
 .sensor-energy-glyph { fill: #fff; pointer-events: none; }
 
-.sensor-energy-stats { fill: #7a3f10; font-family: "Manrope", sans-serif; font-size: 11px; font-weight: 800; paint-order: stroke; stroke: rgb(255 255 255 / .94); stroke-width: 5px; stroke-linejoin: round; pointer-events: none; }
+.sensor-energy-stats { fill: #7a3f10; font-family: "Manrope", sans-serif; font-size: 11px; font-weight: 700; paint-order: stroke; stroke: rgb(255 255 255 / .94); stroke-width: 5px; stroke-linejoin: round; pointer-events: none; }
 
 .observation-marker { fill: #fff; stroke: var(--blue); stroke-width: 3; filter: drop-shadow(0 3px 4px rgb(13 39 31 / .2)); }
 
@@ -242,7 +242,7 @@
 
 .observation-marker.resolved .observation-resolution-check { fill: none; stroke: var(--positive); stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
 
-.placement-cursor { color: var(--pine); pointer-events: none; }
+.placement-cursor { color: var(--action); pointer-events: none; }
 
 .placement-cursor circle { fill: rgb(255 255 255 / .85); stroke: currentColor; stroke-width: 3; }
 
@@ -274,7 +274,7 @@
 
 .flow-legend { position: absolute; right: 15px; bottom: 14px; display: flex; align-items: center; gap: 8px; max-width: 230px; padding: 7px 10px; border: 1px solid rgb(255 255 255 / .72); border-radius: 9px; background: rgb(255 255 255 / .88); box-shadow: 0 4px 14px rgb(13 39 31 / .08); backdrop-filter: blur(9px); }
 
-.flow-sample { color: var(--pine); font-size: 23px; line-height: 1; }
+.flow-sample { color: var(--action); font-size: 23px; line-height: 1; }
 
 .flow-sample.simulated { color: var(--aqua); }
 
@@ -323,7 +323,7 @@
 
 .flow-sample.outdoor-influence, .volume-vector-key.outdoor-influence { color: var(--brand-red); }
 
-.volume-vector-key.outdoor-influence { border-radius: 5px; background: var(--orange-soft); }
+.volume-vector-key.outdoor-influence { border-radius: var(--radius-sm); background: var(--orange-soft); }
 
 .outdoor-shell-halo { fill: rgb(63 118 211 / .025); stroke: rgb(63 118 211 / .11); stroke-width: 15; vector-effect: non-scaling-stroke; }
 
@@ -347,13 +347,13 @@
 
 .outdoor-shell-chip text { dominant-baseline: middle; font-family: "Manrope", sans-serif; }
 
-.outdoor-shell-chip-label { fill: var(--blue); font-size: 12px; font-weight: 850; letter-spacing: .035em; text-transform: uppercase; }
+.outdoor-shell-chip-label { fill: var(--blue); font-size: 12px; font-weight: 700; letter-spacing: .035em; text-transform: uppercase; }
 
-.outdoor-shell-chip-value { fill: var(--ink); font-size: 18px; font-weight: 850; }
+.outdoor-shell-chip-value { fill: var(--ink); font-size: 18px; font-weight: 700; }
 
-.outdoor-edge-labels text { fill: var(--blue); font-family: "Manrope", sans-serif; font-size: 18px; font-weight: 850; letter-spacing: .035em; paint-order: stroke; stroke: rgb(255 255 255 / .9); stroke-width: 6px; stroke-linejoin: round; }
+.outdoor-edge-labels text { fill: var(--blue); font-family: "Manrope", sans-serif; font-size: 18px; font-weight: 700; letter-spacing: .035em; paint-order: stroke; stroke: rgb(255 255 255 / .9); stroke-width: 6px; stroke-linejoin: round; }
 
-.outdoor-context-card { position: absolute; z-index: 8; top: 12px; left: 12px; width: min(286px, calc(100% - 24px)); display: grid; gap: 8px; padding: 11px 12px; border: 1px solid rgb(63 118 211 / .3); border-radius: 12px; color: var(--ink); background: rgb(255 255 255 / .94); box-shadow: 0 8px 24px rgb(13 39 31 / .13); backdrop-filter: blur(10px); pointer-events: none; }
+.outdoor-context-card { position: absolute; z-index: 8; top: 12px; left: 12px; width: min(286px, calc(100% - 24px)); display: grid; gap: 8px; padding: 11px 12px; border: 1px solid rgb(63 118 211 / .3); border-radius: var(--radius); color: var(--ink); background: rgb(255 255 255 / .94); box-shadow: 0 8px 24px rgb(13 39 31 / .13); backdrop-filter: blur(10px); pointer-events: none; }
 
 .outdoor-context-card.has-toggle { padding-right: 42px; }
 
@@ -369,7 +369,7 @@
 
 .outdoor-collapsed-copy strong { flex: 0 0 auto; }
 
-.outdoor-collapsed-wind { min-width: 0; display: inline-flex; align-items: center; gap: 4px; padding-left: 9px; overflow: hidden; border-left: 1px solid var(--line-strong); color: var(--blue) !important; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.outdoor-collapsed-wind { min-width: 0; display: inline-flex; align-items: center; gap: 4px; padding-left: 9px; overflow: hidden; border-left: 1px solid var(--line-strong); color: var(--blue) !important; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 
 .outdoor-collapsed-wind svg { flex: 0 0 auto; }
 
