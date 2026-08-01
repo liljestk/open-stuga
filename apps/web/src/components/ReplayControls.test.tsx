@@ -209,10 +209,10 @@ describe("ReplayControls time and speed labels", () => {
     expect(markers.every((marker) => marker.querySelector(".replay-event-marker svg"))).toBe(true);
   });
 
-  it("localizes every speed option", () => {
+  it("localizes every speed option", async () => {
     localStorage.setItem("climate-twin-locale", "fi");
     renderControls();
-    const select = screen.getByLabelText("Toistonopeus");
+    const select = await screen.findByLabelText("Toistonopeus");
 
     expect(within(select).getByRole("option", { name: "1 minuutti sekunnissa" })).not.toBeNull();
     expect(within(select).getByRole("option", { name: "4 minuuttia sekunnissa" })).not.toBeNull();

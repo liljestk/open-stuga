@@ -1,6 +1,6 @@
 import type { MeasurementSample } from "@climate-twin/contracts";
-import { describe, expect, it } from "vitest";
-import { appendLiveHistory, samplesAt, type MeasurementHistory } from "./measurements";
+import { describe, expect, it, vi } from "vitest";
+import { appendHistory, appendLiveHistory, samplesAt, type MeasurementHistory } from "./measurements";
 
 function sample(sensorId: string, minute: number, value: number): MeasurementSample {
   return {
@@ -51,5 +51,47 @@ describe("appendLiveHistory", () => {
     expect(next[sensorId]?.temperature).toHaveLength(1_000);
     expect(next[sensorId]?.temperature?.[0]?.value).toBe(1);
     expect(next[sensorId]?.temperature?.at(-1)?.value).toBe(1_000);
+  });
+
+  it("does not trim a 50k retained series once per ordered live event", () => {
+    const sensorId = "sensor-large-live";
+    const series = Array.from({ length: 50_000 }, (_, minute) => sample(sensorId, minute, minute));
+    const incoming = Array.from({ length: 250 }, (_, index) => sample(sensorId, 50_000 + index, 50_000 + index));
+    const history: MeasurementHistory = { [sensorId]: { temperature: series } };
+    const sliceSpy = vi.spyOn(Array.prototype, "slice");
+    let next!: MeasurementHistory;
+    let sliceCalls = 0;
+    try {
+      next = appendLiveHistory(history, incoming, 500);
+      sliceCalls = sliceSpy.mock.calls.length;
+    } finally {
+      sliceSpy.mockRestore();
+    }
+
+    expect(sliceCalls).toBeLessThanOrEqual(2);
+    expect(next[sensorId]?.temperature).toHaveLength(50_000);
+    expect(next[sensorId]?.temperature?.[0]?.value).toBe(250);
+    expect(next[sensorId]?.temperature?.at(-1)?.value).toBe(50_249);
+    expect(history[sensorId]?.temperature?.[0]?.value).toBe(0);
+  });
+});
+
+describe("appendHistory", () => {
+  it("orders and deduplicates a mixed batch before applying its limit", () => {
+    const sensorId = "sensor-reconnect";
+    const original = [sample(sensorId, 0, 0), sample(sensorId, 2, 2), sample(sensorId, 4, 4)];
+    const history: MeasurementHistory = { [sensorId]: { temperature: original } };
+
+    const next = appendHistory(history, [
+      sample(sensorId, 3, 30),
+      sample(sensorId, 1, 10),
+      sample(sensorId, 3, 33),
+      sample(sensorId, 5, 50),
+      sample(sensorId, 2, 22),
+    ], 5);
+
+    expect(next[sensorId]?.temperature?.map((item) => item.value)).toEqual([10, 22, 33, 4, 50]);
+    expect(new Set(next[sensorId]?.temperature?.map((item) => item.timestamp)).size).toBe(5);
+    expect(history[sensorId]?.temperature).toEqual(original);
   });
 });

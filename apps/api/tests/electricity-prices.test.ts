@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT } from "@climate-twin/contracts";
 import { createApi, type ApiRuntime } from "../src/app.js";
@@ -13,6 +13,14 @@ import { ClimateDatabase } from "../src/db.js";
 import { HybridTelemetryReader } from "../src/timeseries/read-facade.js";
 
 const PUBLIC_RESOLVER = async (): Promise<string[]> => ["93.184.216.34"];
+
+function electricityPriceResponse(): Response {
+  return new Response(JSON.stringify({ prices: [{
+    price: 5.25,
+    startDate: "2026-07-17T09:00:00.000Z",
+    endDate: "2026-07-17T09:15:00.000Z",
+  }] }), { status: 200 });
+}
 
 describe("electricity price archival", () => {
   it("wakes durable archival immediately after storing fetched intervals", async () => {
@@ -44,6 +52,172 @@ describe("electricity price archival", () => {
       ]);
     } finally {
       database.close();
+    }
+  });
+});
+
+describe("electricity price refresh deadlines", () => {
+  it("times out unresolved DNS and lets a later refresh retry", async () => {
+    vi.useFakeTimers();
+    const database = new ClimateDatabase(":memory:");
+    let resolverCalls = 0;
+    const resolver = vi.fn(async (): Promise<readonly string[]> => {
+      resolverCalls += 1;
+      if (resolverCalls === 1) return new Promise<readonly string[]>(() => undefined);
+      return ["93.184.216.34"];
+    });
+    const fetcher = vi.fn<typeof fetch>(async () => electricityPriceResponse());
+    const service = new ElectricityPriceService(
+      database,
+      fetcher,
+      12 * 60 * 60_000,
+      { resolver },
+    );
+
+    try {
+      const first = service.refresh("property-main");
+      expect(service.refresh("property-main")).toBe(first);
+      const timedOut = expect(first).rejects.toThrow("Electricity price request timed out");
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      await timedOut;
+      expect(resolver).toHaveBeenCalledTimes(1);
+      expect(fetcher).not.toHaveBeenCalled();
+
+      await expect(service.refresh("property-main")).resolves.toHaveLength(1);
+      expect(resolver).toHaveBeenCalledTimes(2);
+      expect(fetcher).toHaveBeenCalledOnce();
+    } finally {
+      database.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it("times out while waiting for response headers and clears in-flight retry state", async () => {
+    vi.useFakeTimers();
+    const database = new ClimateDatabase(":memory:");
+    let fetchCalls = 0;
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      fetchCalls += 1;
+      if (fetchCalls === 1) return new Promise<Response>(() => undefined);
+      return electricityPriceResponse();
+    });
+    const service = new ElectricityPriceService(
+      database,
+      fetcher,
+      12 * 60 * 60_000,
+      { resolver: PUBLIC_RESOLVER },
+    );
+
+    try {
+      const first = service.refresh("property-main");
+      expect(service.refresh("property-main")).toBe(first);
+      const timedOut = expect(first).rejects.toThrow("Electricity price request timed out");
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      await timedOut;
+      expect(fetcher).toHaveBeenCalledOnce();
+
+      await expect(service.refresh("property-main")).resolves.toHaveLength(1);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    } finally {
+      database.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it("times out a stalled response body stream and lets a later refresh retry", async () => {
+    vi.useFakeTimers();
+    const database = new ClimateDatabase(":memory:");
+    let fetchCalls = 0;
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      fetchCalls += 1;
+      if (fetchCalls === 1) {
+        return new Response(new ReadableStream<Uint8Array>({ start() { /* Never yields or closes. */ } }));
+      }
+      return electricityPriceResponse();
+    });
+    const service = new ElectricityPriceService(
+      database,
+      fetcher,
+      12 * 60 * 60_000,
+      { resolver: PUBLIC_RESOLVER },
+    );
+
+    try {
+      const first = service.refresh("property-main");
+      const timedOut = expect(first).rejects.toThrow("Electricity price request timed out");
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      await timedOut;
+      expect(fetcher).toHaveBeenCalledOnce();
+
+      await expect(service.refresh("property-main")).resolves.toHaveLength(1);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    } finally {
+      database.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses one absolute deadline across DNS, headers, and body streaming", async () => {
+    vi.useFakeTimers();
+    const database = new ClimateDatabase(":memory:");
+    let resolverCalls = 0;
+    const resolver = vi.fn(async (): Promise<readonly string[]> => {
+      resolverCalls += 1;
+      if (resolverCalls > 1) return ["93.184.216.34"];
+      return new Promise((resolveAddresses) => {
+        setTimeout(() => resolveAddresses(["93.184.216.34"]), 6_000);
+      });
+    });
+    let fetchCalls = 0;
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      fetchCalls += 1;
+      if (fetchCalls > 1) return electricityPriceResponse();
+      await new Promise((resolveHeaders) => setTimeout(resolveHeaders, 6_000));
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          setTimeout(() => {
+            controller.enqueue(new TextEncoder().encode(JSON.stringify({ prices: [] })));
+            controller.close();
+          }, 4_000);
+        },
+      }));
+    });
+    const service = new ElectricityPriceService(
+      database,
+      fetcher,
+      12 * 60 * 60_000,
+      { resolver },
+    );
+
+    try {
+      let state: "pending" | "resolved" | "rejected" = "pending";
+      let failure: unknown = null;
+      const first = service.refresh("property-main");
+      void first.then(
+        () => { state = "resolved"; },
+        (error: unknown) => { state = "rejected"; failure = error; },
+      );
+
+      await vi.advanceTimersByTimeAsync(6_000);
+      expect(fetcher).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(6_000);
+      await vi.advanceTimersByTimeAsync(2_999);
+      expect(state).toBe("pending");
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(state).toBe("rejected");
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toBe("Electricity price request timed out");
+
+      await expect(service.refresh("property-main")).resolves.toHaveLength(1);
+      expect(resolver).toHaveBeenCalledTimes(2);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    } finally {
+      database.close();
+      vi.useRealTimers();
     }
   });
 });

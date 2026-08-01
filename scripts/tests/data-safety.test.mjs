@@ -31,7 +31,11 @@ import {
   verifyBackup,
 } from "../stugu-backup.mjs";
 
-import { backupArguments } from "../stugu-backup-scheduler.mjs";
+import {
+  backupArguments,
+  boundedSchedulerInteger,
+  schedulerTimestampDue,
+} from "../stugu-backup-scheduler.mjs";
 
 import { openReadOnlySqlite, sha256File } from "../sqlite-snapshot-utils.mjs";
 
@@ -48,6 +52,27 @@ test("scheduled backups include protected integration data only when its file ex
     withSecrets.slice(-5),
     ["--include-secrets", "--secrets-file", "/app/data/integration-secrets.json", "--output", "/app/backups/with-secrets"],
   );
+});
+
+test("scheduled backup retention fails closed for malformed or unsafe values", () => {
+  assert.equal(boundedSchedulerInteger(undefined, 30, 2, 10_000, "BACKUP_RETENTION_COUNT"), 30);
+  assert.equal(boundedSchedulerInteger(" 45 ", 30, 2, 10_000, "BACKUP_RETENTION_COUNT"), 45);
+  for (const value of ["garbage", "NaN", "Infinity", "1.5", "1", "10001"]) {
+    assert.throws(
+      () => boundedSchedulerInteger(value, 30, 2, 10_000, "BACKUP_RETENTION_COUNT"),
+      /BACKUP_RETENTION_COUNT must be a whole number from 2 to 10000/u,
+    );
+  }
+});
+
+test("scheduled backups and restore drills fail safe when status timestamps are corrupt", () => {
+  const now = Date.parse("2026-08-01T12:00:00.000Z");
+  const interval = 24 * 60 * 60_000;
+  assert.equal(schedulerTimestampDue(null, interval, now), true);
+  assert.equal(schedulerTimestampDue("not-a-date", interval, now), true);
+  assert.equal(schedulerTimestampDue("2026-08-02T12:00:00.000Z", interval, now), true);
+  assert.equal(schedulerTimestampDue("2026-08-01T00:00:00.000Z", interval, now), false);
+  assert.equal(schedulerTimestampDue("2026-07-31T12:00:00.000Z", interval, now), true);
 });
 
 test("dry-run inventories all telemetry without changing the SQLite source", async (t) => {

@@ -205,7 +205,10 @@ COPY config/nginx.conf /etc/nginx/templates/nginx.conf.template
 COPY config/nginx-entrypoint.sh /usr/local/bin/stugu-nginx-entrypoint
 COPY --from=web-build /app/apps/web/dist /usr/share/nginx/html
 
-RUN chmod 755 /usr/local/bin/stugu-nginx-entrypoint
+RUN chmod 755 /usr/local/bin/stugu-nginx-entrypoint \
+  && find /usr/share/nginx/html -type f \
+    \( -name '*.css' -o -name '*.html' -o -name '*.js' -o -name '*.json' -o -name '*.svg' \) \
+    -exec sh -ec 'for file do gzip -9 -c "$file" > "$file.gz"; done' sh '{}' +
 
 USER nginx
 

@@ -341,7 +341,7 @@ describe("frontend regressions", () => {
 
     localStorage.setItem("climate-twin-locale", "fi");
     render(withI18n(dashboard("imperial")));
-    await user.click(screen.getByRole("button", { name: "Avaa kodin reaaliaikainen näkymä" }));
+    await user.click(await screen.findByRole("button", { name: "Avaa kodin reaaliaikainen näkymä" }));
     const finnishPicker = await screen.findByRole("combobox", { name: "Mittari" });
     expect(within(finnishPicker).getByRole("option", { name: /Hiilidioksidi.*ppm/ })).not.toBeNull();
     const finnishMeasurements = await screen.findByRole("list", { name: "Saatavilla olevat mittaukset" });

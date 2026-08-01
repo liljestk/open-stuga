@@ -79,12 +79,6 @@ const sensor: Sensor = {
   enabled: true,
 };
 
-const healthySensor: Sensor = {
-  ...sensor,
-  id: "sensor-turku-living-room",
-  houseId: healthyHouse.id,
-};
-
 const integration: IntegrationStatus = {
   homeAssistant: { configured: false, connected: false, lastEventAt: null, mappedEntities: 0, error: null },
   tpLink: { configured: true, connected: true, lastPollAt: null, mappedDevices: 1, discoveredDevices: 1, hubModel: "H100", error: null },
@@ -184,7 +178,6 @@ describe("PortfolioOverview", () => {
       source: "tp-link",
       quality: "good",
     };
-    const healthySample: MeasurementSample = { ...sample, sensorId: healthySensor.id };
     const onOpenTwin = vi.fn();
     const onOpenOutdoor = vi.fn();
     const onOpenSetup = vi.fn();
@@ -194,8 +187,8 @@ describe("PortfolioOverview", () => {
           properties={[property]}
           propertyAreas={[]}
           houses={[healthyHouse, setupHouse, readyHouse]}
-          sensors={[sensor, healthySensor]}
-          latestMeasurements={{ [sensor.id]: { temperature: sample }, [healthySensor.id]: { temperature: healthySample } }}
+          sensors={[sensor]}
+          latestMeasurements={{ [sensor.id]: { temperature: sample } }}
           measurementHistory={{}}
           alerts={[openAlert]}
           alertRules={[]}
@@ -267,6 +260,7 @@ describe("PortfolioOverview", () => {
     expect(confirmedDisclosure.open).toBe(true);
     const healthyCard = screen.getByRole("heading", { name: healthyHouse.name }).closest("article")!;
     expect(within(healthyCard).getByText("Monitoring confirmed")).toBeTruthy();
+    expect(within(healthyCard).getByText(/1 enabled.*reporting/)).toBeTruthy();
   });
 
   it.each(["pending", "error"] as const)("does not present %s monitoring as an all-clear", (monitoringRequestState) => {

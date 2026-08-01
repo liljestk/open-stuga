@@ -16,6 +16,7 @@ import type { MeasurementService, RuntimeStatus, TelemetryService } from "../../
 import { AUTOMATIC_ELECTRICITY_METRICS, EntityTarget, HA_HANDSHAKE_TIMEOUT_MS, HA_HISTORY_CHUNK_MS, HaState, HomeAssistantEntityMapping, OpeningTarget, normalizeHomeAssistantElectricityMeasurement, normalizeHomeAssistantTemperature, websocketUrl } from "../support/01-home-assistant-measurement-binding-to-validate-entit.js";
 import { importEntityMappingFile, mappedEntityIds, mappingFingerprint, mappingMetricKeys, parseHaMessage, sensorMetricKey, validateEntityMappings } from "../support/02-validate-entity-mappings-to-home-assistant-bridge.js";
 import { registerHomeAssistantConnectionBridgeMethods, homeAssistantConnectionBridgeState, type HomeAssistantConnectionBridgeInternals } from "../core.js";
+import { assertHomeAssistantHistoryChunkLimit, boundedHomeAssistantHistoryJson, storeBoundedHomeAssistantHistorySample } from "../history-limits.js";
 
 registerHomeAssistantConnectionBridgeMethods({
   start(this: HomeAssistantConnectionBridgeInternals): void {
@@ -66,6 +67,7 @@ registerHomeAssistantConnectionBridgeMethods({
       if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
         return { state: "complete", samples: [], error: null };
       }
+      assertHomeAssistantHistoryChunkLimit(startMs, endMs);
       const samples = new Map<string, MeasurementSample>();
       for (let cursor = startMs; cursor < endMs; cursor += HA_HISTORY_CHUNK_MS) {
         const chunkEnd = Math.min(endMs, cursor + HA_HISTORY_CHUNK_MS);
@@ -84,7 +86,7 @@ registerHomeAssistantConnectionBridgeMethods({
           return { state: "not-supported", samples: [], error: "Home Assistant recorder history is not available" };
         }
         if (!response.ok) throw new Error(`Home Assistant history request failed with status ${response.status}`);
-        const body = await response.json() as unknown;
+        const body = await boundedHomeAssistantHistoryJson(response);
         if (!Array.isArray(body)) throw new Error("Home Assistant history returned an invalid response");
         for (const group of body) {
           if (!Array.isArray(group)) continue;
@@ -99,7 +101,7 @@ registerHomeAssistantConnectionBridgeMethods({
             if (value === null || Date.parse(timestamp) < startMs || Date.parse(timestamp) > endMs) continue;
             const definition = this[homeAssistantConnectionBridgeState].database.getMeasurementDefinition(metric);
             if (!definition?.enabled) continue;
-            samples.set(timestamp, {
+            storeBoundedHomeAssistantHistorySample(samples, {
               sensorId,
               metric,
               value,

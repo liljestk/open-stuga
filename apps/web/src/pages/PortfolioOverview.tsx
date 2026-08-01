@@ -162,7 +162,7 @@ function PortfolioOverviewView({
   }
 
   const renderHouseCard = ({ house, result, monitoringSuccessful }: (typeof monitoredHouses)[number], Heading: "h3" | "h4" = "h3") => {
-    const houseSensors = sensors.filter((sensor) => sensor.houseId === house.id && sensor.enabled);
+    const enabledSensorCount = result.coverage.enabledSensors;
     const primaryBlocker = result.blockers[0] ?? null;
     const reportingCount = result.coverage.freshSensors;
     const alertCount = result.activeAlertCount;
@@ -197,7 +197,7 @@ function PortfolioOverviewView({
           </div>
           <div>
             <dt><RadioTower size={15} aria-hidden="true" />{t("overview.sensors")}</dt>
-            <dd>{t("overview.sensorCount", { count: houseSensors.length })} · {reportingCount === houseSensors.length && houseSensors.length > 0 ? t("overview.reporting") : reportingCount > 0 ? t("overview.partialReporting", { fresh: reportingCount, total: houseSensors.length }) : t("overview.waiting")}</dd>
+            <dd>{t("overview.sensorCount", { count: enabledSensorCount })} · {reportingCount === enabledSensorCount && enabledSensorCount > 0 ? t("overview.reporting") : reportingCount > 0 ? t("overview.partialReporting", { fresh: reportingCount, total: enabledSensorCount }) : t("overview.waiting")}</dd>
           </div>
           <div>
             <dt><CloudSun size={15} aria-hidden="true" />{t("overview.outdoor")}</dt>

@@ -231,7 +231,8 @@ describe("useClimateData", () => {
     useTwoHouseApi(fixture);
     const { result } = renderHook(() => useClimateData());
     await waitFor(() => expect(result.current.loading).toBe(false));
-    await waitFor(() => expect(result.current.state.sensors).toContainEqual(fixture.secondSensor));
+    await act(async () => { await result.current.selectHouse(fixture.secondHouse.id); });
+    expect(result.current.state.sensors).toContainEqual(fixture.secondSensor);
     const destinationSnapshot = deferred<SensorSnapshot[]>();
     mocks.snapshot.mockReturnValueOnce(destinationSnapshot.promise);
     const moved: Sensor = {

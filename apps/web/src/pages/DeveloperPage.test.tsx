@@ -82,11 +82,11 @@ describe("DeveloperPage", () => {
     expect(screen.getByText("Copy failed. Select the value and copy it manually.").getAttribute("role")).toBe("status");
   });
 
-  it("explains the local integrations in Finnish", () => {
+  it("explains the local integrations in Finnish", async () => {
     localStorage.setItem("climate-twin-locale", "fi");
     render(<I18nProvider><DeveloperPage /></I18nProvider>);
 
-    expect(screen.getByRole("heading", { name: "Paikallinen v1 + v2 HTTP-rajapinta" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Paikallinen v1 + v2 HTTP-rajapinta" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Paikallinen MCP-palvelin" })).toBeTruthy();
     expect(screen.getByText("Paikalliset integraatiorajapinnat")).toBeTruthy();
     expect(screen.getByText("Käytä Stugua paikallisesti versioidun HTTP-rajapinnan ja luotetun stdio-MCP-palvelimen kautta.")).toBeTruthy();

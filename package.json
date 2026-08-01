@@ -1,6 +1,6 @@
 {
   "name": "climate-twin",
-  "version": "0.27.0",
+  "version": "0.27.1",
   "private": true,
   "license": "MIT",
   "description": "A local-first digital twin for extensible whole-home environmental telemetry.",
@@ -34,7 +34,7 @@
     "cloudflare:verify-coordinator": "node scripts/cloudflare-stugu.mjs verify-coordinator",
     "stuguby:remove": "node scripts/remove-stuguby-connection.mjs",
     "test:rpi-ota": "node --test scripts/tests/rpi-ota.test.mjs",
-    "test:update-agent": "node --test scripts/tests/system-update-agent.test.mjs scripts/tests/update-agent-service.test.mjs scripts/tests/source-profile-agent.test.mjs",
+    "test:update-agent": "node --test scripts/tests/system-update-agent.test.mjs scripts/tests/update-agent-process-safety.test.mjs scripts/tests/update-agent-service.test.mjs scripts/tests/source-profile-agent.test.mjs",
     "test:nexus433-runtime": "node --test scripts/tests/nexus433-runtime.test.mjs",
     "update-agent": "node --env-file-if-exists=.env scripts/stugu-update-agent.mjs",
     "update-agent:service:install": "node scripts/stugu-update-agent-service.mjs install",

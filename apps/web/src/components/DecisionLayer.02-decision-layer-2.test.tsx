@@ -224,7 +224,7 @@ describe("decision layer", () => {
     expect(screen.queryByRole("button", { name: /^Hide / })).toBeNull();
   });
 
-  it("localizes generated Home Pulse guidance and evidence in Finnish", () => {
+  it("localizes generated Home Pulse guidance and evidence in Finnish", async () => {
     localStorage.setItem("climate-twin-locale", "fi");
     const state = createDemoState();
     const house = state.houses[0]!;
@@ -277,6 +277,7 @@ describe("decision layer", () => {
       onOpenTarget={vi.fn()}
     /></I18nProvider>);
 
+    await screen.findByRole("heading", { name: "Muutama asia vaatii huomiota" });
     expect(within(view.container.querySelector(".pulse-glance-list")!).getByText(`Huoneen ${roomSensor.room} ilmankosteus on koholla`)).not.toBeNull();
     expect(screen.getByText("Viimeisin suhteellinen ilmankosteus on 70,5 %.")).not.toBeNull();
     fireEvent.click(view.container.querySelector(".home-pulse-more > summary")!);

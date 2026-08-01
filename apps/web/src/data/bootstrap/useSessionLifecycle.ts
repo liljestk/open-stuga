@@ -52,7 +52,7 @@ import { appendHistory, enabledDefinitions, legacyForecastSamples, readingSample
 import { routeFromLocation } from "../../routing";
 import { publishHouseWeatherUpdate } from "../../useHouseWeather";
 import { LiveEventCoordinator } from "../live/LiveEventCoordinator";
-import { HEARTBEAT_POLL_MIN_INTERVAL_MS, LIVE_TELEMETRY_BUFFER_LIMIT, MAX_SERIES_SAMPLES, PORTFOLIO_LOAD_CONCURRENCY, STREAM_BOOTSTRAP_WAIT_MS, advanceMockTelemetry, aggregateConnection, apiStatus, blankState, bufferLiveTelemetry, bufferSeriesValue, canonicalSeries, errorMessage, houseMutationKey, isDemoSource, isPollingCompatibilityHeartbeat, legacySeries, loadPortfolioInBackground, mergeLegacySeries, mergeMeasurementSeries, metricForecastSamples, metricHistorySamples, optionalForecast, preserveMutatedSensorTelemetry, preserveSeriesCommittedDuringLoad, replaceFloor, replaceHouseSensors, replaceLoadedHouseTelemetry, replayBufferedLiveTelemetry, replayHouseInventory, replayHouseMutations, replayMaintenanceTaskMutation, sensorsFromSnapshots, seriesBucketSeconds, seriesLimit, seriesStateKey, settleInBackground, synchronizeSensorRoomLabels, unauthenticatedSession, withoutDemoTelemetry, withoutSensorIds } from "./support";
+import { HEARTBEAT_POLL_MIN_INTERVAL_MS, LIVE_TELEMETRY_BUFFER_LIMIT, MAX_SERIES_SAMPLES, STREAM_BOOTSTRAP_WAIT_MS, advanceMockTelemetry, aggregateConnection, apiStatus, blankState, bufferLiveTelemetry, bufferSeriesValue, canonicalSeries, errorMessage, houseMutationKey, isDemoSource, isPollingCompatibilityHeartbeat, legacySeries, mergeLegacySeries, mergeMeasurementSeries, metricForecastSamples, metricHistorySamples, optionalForecast, preserveMutatedSensorTelemetry, preserveSeriesCommittedDuringLoad, replaceFloor, replaceHouseSensors, replaceLoadedHouseTelemetry, replayBufferedLiveTelemetry, replayHouseInventory, replayHouseMutations, replayMaintenanceTaskMutation, sensorsFromSnapshots, seriesBucketSeconds, seriesLimit, seriesStateKey, settleInBackground, synchronizeSensorRoomLabels, unauthenticatedSession, withoutDemoTelemetry, withoutSensorIds } from "./support";
 import type { BootstrapStatus, BufferedHouseMutation, BufferedLiveTelemetry, BufferedSeriesTelemetry, DataMode, HistoricalSeriesWindow, HouseInventoryMutation, HouseMutationBuffer, LoadedTelemetryState, SeriesCommit, SeriesLoadState, SeriesLoadStatus, StreamConnections } from "./support";
 import type { SessionLifecycleActions, WorkspaceHydrationContext } from "./pipelineTypes";
 type DeferredContext = {
@@ -63,7 +63,7 @@ export function useSessionLifecycle(
   context: WorkspaceHydrationContext,
 ): WorkspaceHydrationContext & SessionLifecycleActions {
   const deferred = context as typeof context & DeferredContext;
-  const { initialHouseId, sessionLockedRef, sessionLocked, setSessionLocked, state, setStateInternal, setState, loading, setLoading, bootstrapStatus, setBootstrapStatus, bootstrapError, setBootstrapError, bootstrapAttempt, setBootstrapAttempt, dataMode, setDataMode, streamConnections, setStreamConnections, connection, pollingFallback, setPollingFallback, resourceErrors, setResourceErrors, seriesStates, setSeriesStates, scenario, setScenario, saveState, setSaveState, tpLinkDevices, setTpLinkDevices, tpLinkDevicesRef, tpLinkDevicesLoading, setTpLinkDevicesLoading, tpLinkDevicesError, setTpLinkDevicesError, tick, apiAvailable, dataModeRef, stateRef, streamConnectionsRef, hasReachedLiveConnection, hasHydratedActiveHouse, heartbeatPollAt, reconnectResyncTimer, heartbeatFallbackTimer, mutationRefreshTimer, sensorMoveQueues, sensorMoveVersions, persistedSensorPoints, activeHouseId, activeHouseLoadVersion, houseTelemetryVersions, seriesLoadVersions, seriesCommitVersions, seriesCommitSequence, tpLinkPollStatus, tpLinkRefreshVersion, pendingMeasurementSamples, measurementFlushTimer, saveStateTimer, activeTelemetryLoadBuffers, activeHouseMutationBuffers, activeSeriesTelemetryBuffers, activeInventoryMutationBuffers, activeStreamUnsubscribers, activeStreamGateReleases, sessionLifecycleEpoch, globalFieldVersions, recordResourceError, recordHouseMutation, recordInventoryMutation, applyIntegrationStatus, refreshTpLinkDevices, disconnectHomeAssistant, applyDetachedTpLinkSensors, disconnectTpLink, moveHomeAssistant, moveTpLink, loadHouseData, loadPortfolioHouseData } = context;
+  const { initialHouseId, sessionLockedRef, sessionLocked, setSessionLocked, state, setStateInternal, setState, loading, setLoading, bootstrapStatus, setBootstrapStatus, bootstrapError, setBootstrapError, bootstrapAttempt, setBootstrapAttempt, dataMode, setDataMode, streamConnections, setStreamConnections, connection, pollingFallback, setPollingFallback, resourceErrors, setResourceErrors, seriesStates, setSeriesStates, scenario, setScenario, saveState, setSaveState, tpLinkDevices, setTpLinkDevices, tpLinkDevicesRef, tpLinkDevicesLoading, setTpLinkDevicesLoading, tpLinkDevicesError, setTpLinkDevicesError, tick, apiAvailable, dataModeRef, stateRef, streamConnectionsRef, hasReachedLiveConnection, hasHydratedActiveHouse, heartbeatPollAt, reconnectResyncTimer, heartbeatFallbackTimer, mutationRefreshTimer, sensorMoveQueues, sensorMoveVersions, persistedSensorPoints, activeHouseId, activeHouseLoadVersion, houseTelemetryVersions, seriesLoadVersions, seriesCommitVersions, seriesCommitSequence, tpLinkPollStatus, tpLinkRefreshVersion, pendingMeasurementSamples, measurementFlushTimer, saveStateTimer, activeTelemetryLoadBuffers, activeHouseMutationBuffers, activeSeriesTelemetryBuffers, activeInventoryMutationBuffers, activeStreamUnsubscribers, activeStreamGateReleases, sessionLifecycleEpoch, globalFieldVersions, recordResourceError, recordHouseMutation, recordInventoryMutation, applyIntegrationStatus, refreshTpLinkDevices, disconnectHomeAssistant, applyDetachedTpLinkSensors, disconnectTpLink, moveHomeAssistant, moveTpLink, loadHouseData } = context;
   const scheduleActiveHouseResync = useCallback((delay = 50) => {
       if (!hasHydratedActiveHouse.current || !apiAvailable.current) return;
       if (reconnectResyncTimer.current !== null) window.clearTimeout(reconnectResyncTimer.current);
@@ -127,7 +127,9 @@ export function useSessionLifecycle(
         hasHydratedActiveHouse.current = false;
         resetStreamConnections();
         const inventoryMutations = new Map<string, HouseInventoryMutation>();
+        const workspaceSensorMutations: HouseMutationBuffer = new Map();
         activeInventoryMutationBuffers.current.add(inventoryMutations);
+        activeHouseMutationBuffers.current.add(workspaceSensorMutations);
         try {
           // Resolve authentication before any workspace resource is requested.
           const session = await api.session();
@@ -146,7 +148,7 @@ export function useSessionLifecycle(
             setBootstrapStatus(session.setupRequired ? "setup-required" : "login-required");
             return;
           }
-          const [properties, rawHouses, propertyAreas, areaEquipment, propertyNotes, scopedMaintenanceResult] = await Promise.all([
+          const [properties, rawHouses, propertyAreas, areaEquipment, propertyNotes, scopedMaintenanceResult, workspaceSensorsResult] = await Promise.all([
             api.properties(),
             api.houses(),
             api.propertyAreas(),
@@ -156,10 +158,17 @@ export function useSessionLifecycle(
               (tasks) => ({ tasks, error: null as unknown }),
               (error: unknown) => ({ tasks: null, error }),
             ),
+            api.sensors().then(
+              (sensors) => ({ sensors, error: null as unknown }),
+              (error: unknown) => ({ sensors: null, error }),
+            ),
           ]);
           const houses = replayHouseInventory(rawHouses, inventoryMutations);
           if (invalidated()) return;
           recordResourceError("maintenance:scoped", scopedMaintenanceResult.error);
+          recordResourceError("sensors:workspace", workspaceSensorsResult.error);
+          const workspaceSensors = workspaceSensorsResult.sensors;
+          const accessibleHouseIds = new Set(houses.map((house) => house.id));
           apiAvailable.current = true;
           if (houses.length === 0) {
             setState((current) => ({
@@ -190,6 +199,14 @@ export function useSessionLifecycle(
             propertyNotes,
             maintenanceTasks: scopedMaintenanceResult.tasks ?? current.maintenanceTasks,
             houses,
+            sensors: workspaceSensors === null
+              ? current.sensors.filter((sensor) => accessibleHouseIds.has(sensor.houseId))
+              : houses.flatMap((house) => replayHouseMutations(house.id, {
+                  sensors: workspaceSensors.filter((sensor) => sensor.houseId === house.id),
+                  observations: [],
+                  maintenanceTasks: [],
+                  staticParameters: [],
+                }, workspaceSensorMutations).sensors),
           }));
           const currentHouse = activeHouseId.current
             ? houses.find((house) => house.id === activeHouseId.current)
@@ -251,12 +268,6 @@ export function useSessionLifecycle(
           hasHydratedActiveHouse.current = true;
           if (!session.readOnly) settleInBackground(refreshTpLinkDevices());
           setBootstrapStatus("ready");
-          const secondaryHouseIds = houses.filter((house) => house.id !== activeHouse.id).map((house) => house.id);
-          settleInBackground(loadPortfolioInBackground(
-            secondaryHouseIds,
-            loadPortfolioHouseData,
-            invalidated,
-          ));
         } catch (error) {
           if (unsubscribeStreams) activeStreamUnsubscribers.current.delete(unsubscribeStreams);
           unsubscribeStreams?.();
@@ -298,6 +309,7 @@ export function useSessionLifecycle(
           }
         } finally {
           activeInventoryMutationBuffers.current.delete(inventoryMutations);
+          activeHouseMutationBuffers.current.delete(workspaceSensorMutations);
           if (!invalidated()) setLoading(false);
         }
       };
@@ -312,6 +324,6 @@ export function useSessionLifecycle(
         if (unsubscribeStreams) activeStreamUnsubscribers.current.delete(unsubscribeStreams);
         unsubscribeStreams?.();
       };
-    }, [bootstrapAttempt, handleHeartbeat, loadHouseData, loadPortfolioHouseData, refreshTpLinkDevices, resetStreamConnections, sessionLocked, updateStreamConnection]);
+    }, [bootstrapAttempt, handleHeartbeat, loadHouseData, refreshTpLinkDevices, resetStreamConnections, sessionLocked, updateStreamConnection]);
   return Object.assign(context, { scheduleActiveHouseResync, updateStreamConnection, resetStreamConnections, handleHeartbeat });
 }

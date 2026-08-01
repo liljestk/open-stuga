@@ -3,6 +3,18 @@ import XCTest
 @testable import StuguCore
 
 final class WatchModelsTests: XCTestCase {
+    func testCompanionPayloadKeysKeepActionsAndDurableReceiptsDistinct() {
+        XCTAssertEqual(WatchCompanionPayload.actionDataKey, "stuguWatchAction")
+        XCTAssertEqual(
+            WatchCompanionPayload.actionReceiptIDKey,
+            "stuguWatchActionReceiptID"
+        )
+        XCTAssertNotEqual(
+            WatchCompanionPayload.actionDataKey,
+            WatchCompanionPayload.actionReceiptIDKey
+        )
+    }
+
     func testVersionOneSnapshotDecodesReadOnlyWithoutActionContext() throws {
         let data = Data(
             #"{"schemaVersion":1,"available":true,"homeId":"home-1","homeName":"Forest cottage","state":"attention","title":"Check the utility room","detail":"One alert needs attention","updatedAt":"2027-01-15T08:00:00Z","cached":false,"readOnly":false,"alerts":[]}"#.utf8
@@ -43,6 +55,39 @@ final class WatchModelsTests: XCTestCase {
             accountBinding: context.accountBinding,
             homeId: "home-2"
         )))
+    }
+
+    func testActionDeliveryWindowRejectsExpiredAndFarFutureActions() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let formatter = ISO8601DateFormatter()
+        let context = WatchActionContext(
+            serverBinding: "server-binding",
+            accountBinding: "account-binding",
+            homeId: "home-1"
+        )
+        let current = WatchCompanionAction(
+            alertId: "alert-current",
+            createdAt: formatter.string(from: now),
+            context: context
+        )
+        let expired = WatchCompanionAction(
+            alertId: "alert-expired",
+            createdAt: formatter.string(from: now.addingTimeInterval(
+                -WatchCompanionAction.deliveryLifetime - 1
+            )),
+            context: context
+        )
+        let future = WatchCompanionAction(
+            alertId: "alert-future",
+            createdAt: formatter.string(from: now.addingTimeInterval(
+                WatchCompanionAction.maximumFutureClockSkew + 1
+            )),
+            context: context
+        )
+
+        XCTAssertTrue(current.isWithinDeliveryWindow(at: now))
+        XCTAssertFalse(expired.isWithinDeliveryWindow(at: now))
+        XCTAssertFalse(future.isWithinDeliveryWindow(at: now))
     }
 
     func testLegacyUnboundActionCannotMatchCurrentContext() throws {

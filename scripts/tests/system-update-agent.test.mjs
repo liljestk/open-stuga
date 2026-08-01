@@ -29,10 +29,16 @@ import {
 } from "../stugu-update-agent.mjs";
 import { activeServices } from "../stugu-update-agent/services-cloudflare.mjs";
 import {
+  releaseEnvironment as requestReleaseEnvironment,
   releaseEnvironmentOwnership,
   writeTextAtomic,
 } from "../stugu-update-agent/configuration-request.mjs";
-import { applianceUpdateTransition } from "../stugu-update-agent/update-loop.mjs";
+import {
+  applianceUpdateTransition,
+  updateJournal,
+  updateJournalPath,
+  writeUpdateJournal,
+} from "../stugu-update-agent/update-loop.mjs";
 
 function updateRequest() {
   const version = "0.6.0";
@@ -775,6 +781,163 @@ test("dependency-free pre-update backup failures remain fail-closed before relea
   assert.equal(existsSync(requestPath), false);
 });
 
+test("restart after candidate mutation rolls back from the durable update journal", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "stugu-update-agent-journal-rollback-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const operationsDirectory = join(directory, "operations");
+  mkdirSync(operationsDirectory);
+  const config = readAgentConfig({
+    STUGA_PROJECT_DIRECTORY: directory,
+    SYSTEM_UPDATE_IMAGE_PREFIX: "ghcr.io/liljestk/open-stuga",
+    SYSTEM_UPDATE_OPERATIONS_DIRECTORY: operationsDirectory,
+    SYSTEM_UPDATE_REPOSITORY: "liljestk/open-stuga",
+  }, directory, []);
+  const request = updateRequest();
+  const requestPath = join(operationsDirectory, "request-interrupted.json");
+  const previousRelease = releaseEnvironment(request.previousVersion);
+  writeFileSync(config.factoryReleaseEnvFile, previousRelease, "utf8");
+  writeFileSync(requestPath, JSON.stringify(request), "utf8");
+  writeUpdateJournal(
+    config,
+    updateJournal(
+      config,
+      validatedRequest(request, config),
+      requestPath,
+      previousRelease,
+      ["api", "web"],
+    ),
+  );
+  writeFileSync(config.releaseEnvFile, requestReleaseEnvironment(request), "utf8");
+  const calls = [];
+
+  await applyRequest(config, requestPath, {
+    compose: async (_config, args) => {
+      calls.push(args);
+      assert.equal(readFileSync(config.releaseEnvFile, "utf8"), previousRelease);
+      return "";
+    },
+  });
+
+  assert.deepEqual(calls, [[
+    "up", "--detach", "--no-deps", "--wait", "--wait-timeout", "600", "api", "web",
+  ]]);
+  assert.equal(readFileSync(config.releaseEnvFile, "utf8"), previousRelease);
+  assert.equal(existsSync(requestPath), false);
+  assert.equal(existsSync(updateJournalPath(config)), false);
+  const status = JSON.parse(readFileSync(join(operationsDirectory, "status.json"), "utf8"));
+  assert.equal(status.phase, "failed");
+  assert.match(status.detail, /Previous release restored/u);
+});
+
+test("restart after verification commits from the journal even after request cleanup", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "stugu-update-agent-journal-verify-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const operationsDirectory = join(directory, "operations");
+  mkdirSync(operationsDirectory);
+  const config = readAgentConfig({
+    STUGA_PROJECT_DIRECTORY: directory,
+    SYSTEM_UPDATE_IMAGE_PREFIX: "ghcr.io/liljestk/open-stuga",
+    SYSTEM_UPDATE_OPERATIONS_DIRECTORY: operationsDirectory,
+    SYSTEM_UPDATE_REPOSITORY: "liljestk/open-stuga",
+  }, directory, []);
+  const request = updateRequest();
+  const requestPath = join(operationsDirectory, "request-verified.json");
+  const previousRelease = releaseEnvironment(request.previousVersion);
+  const candidateRelease = requestReleaseEnvironment(request);
+  writeFileSync(config.factoryReleaseEnvFile, previousRelease, "utf8");
+  writeFileSync(config.releaseEnvFile, candidateRelease, "utf8");
+  writeUpdateJournal(
+    config,
+    updateJournal(
+      config,
+      validatedRequest(request, config),
+      requestPath,
+      previousRelease,
+      ["api", "web"],
+      "verified",
+    ),
+  );
+  const calls = [];
+
+  await applyRequest(config, null, {
+    compose: async (_config, args) => {
+      calls.push(args);
+      return args[0] === "exec" ? request.version : "";
+    },
+  });
+
+  assert.equal(calls[0][0], "up");
+  assert.equal(calls[1][0], "exec");
+  assert.equal(readFileSync(config.knownGoodReleaseEnvFile, "utf8"), candidateRelease);
+  assert.equal(existsSync(updateJournalPath(config)), false);
+  const status = JSON.parse(readFileSync(join(operationsDirectory, "status.json"), "utf8"));
+  assert.equal(status.phase, "complete");
+});
+
+for (const timedOutMutation of ["backup", "candidate-pull"]) {
+for (const processTreeTerminated of [false, true]) {
+test(`${timedOutMutation} timeout blocks rollback across agent restarts when process tree termination is ${processTreeTerminated ? "confirmed" : "unconfirmed"}`, async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), `stugu-update-agent-${timedOutMutation}-timeout-${processTreeTerminated}-`));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const operationsDirectory = join(directory, "operations");
+  mkdirSync(operationsDirectory);
+  const config = readAgentConfig({
+    STUGA_PROJECT_DIRECTORY: directory,
+    SYSTEM_UPDATE_IMAGE_PREFIX: "ghcr.io/liljestk/open-stuga",
+    SYSTEM_UPDATE_OPERATIONS_DIRECTORY: operationsDirectory,
+    SYSTEM_UPDATE_REPOSITORY: "liljestk/open-stuga",
+  }, directory, []);
+  const request = updateRequest();
+  const requestPath = join(operationsDirectory, "request-timeout.json");
+  writeFileSync(config.factoryReleaseEnvFile, releaseEnvironment(request.previousVersion), "utf8");
+  writeFileSync(requestPath, JSON.stringify(request), "utf8");
+  let activeMutation = null;
+
+  await applyRequest(config, requestPath, {
+    compose: async (_config, args) => {
+      if (args[0] === "ps") return "api\nweb";
+      if (args[0] === "exec") return request.previousVersion;
+      if (args.includes("stugu-backup") && timedOutMutation !== "backup") return "";
+      if (args.includes("stugu-backup") || args[0] === "pull") {
+        activeMutation = JSON.parse(readFileSync(updateJournalPath(config), "utf8"));
+        const error = new Error("simulated mutator timeout");
+        error.code = "COMMAND_TIMEOUT";
+        error.processTreeTerminated = processTreeTerminated;
+        throw error;
+      }
+      assert.fail(`Unexpected Compose call: ${args.join(" ")}`);
+    },
+  });
+
+  const journalPath = updateJournalPath(config);
+  assert.equal(activeMutation?.phase, "mutation-active");
+  assert.equal(activeMutation?.mutation, timedOutMutation);
+  assert.equal(JSON.parse(readFileSync(journalPath, "utf8")).phase, "termination-uncertain");
+  assert.equal(existsSync(requestPath), true);
+  if (timedOutMutation === "candidate-pull") {
+    assert.equal(readFileSync(config.releaseEnvFile, "utf8"), requestReleaseEnvironment(request));
+  } else {
+    assert.equal(existsSync(config.releaseEnvFile), false);
+  }
+
+  let retriedCompose = false;
+  await applyRequest(config, null, {
+    compose: async () => {
+      retriedCompose = true;
+      assert.fail("blocked recovery must not mutate Compose state");
+    },
+  });
+
+  assert.equal(retriedCompose, false);
+  assert.equal(JSON.parse(readFileSync(journalPath, "utf8")).phase, "termination-uncertain");
+  assert.equal(existsSync(requestPath), true);
+  const status = JSON.parse(readFileSync(join(operationsDirectory, "status.json"), "utf8"));
+  assert.equal(status.phase, "failed");
+  assert.match(status.detail, /remains blocked/u);
+});
+}
+}
+
 test("Docker transition restores the exact legacy six-line release after candidate failure", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "stugu-update-agent-legacy-rollback-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -797,6 +960,7 @@ test("Docker transition restores the exact legacy six-line release after candida
   writeFileSync(requestPath, JSON.stringify(updateRequest()), "utf8");
   let starts = 0;
   let rollbackRelease = null;
+  const persistedMutations = [];
 
   await applyRequest(config, requestPath, {
     compose: async (_config, args) => {
@@ -805,6 +969,7 @@ test("Docker transition restores the exact legacy six-line release after candida
       if (args.includes("stugu-backup") || args[0] === "pull") return "";
       if (args[0] === "up") {
         starts += 1;
+        persistedMutations.push(JSON.parse(readFileSync(updateJournalPath(config), "utf8")));
         if (starts === 1) throw new Error("simulated candidate health failure");
         rollbackRelease = readFileSync(config.releaseEnvFile, "utf8");
         return "";
@@ -814,6 +979,13 @@ test("Docker transition restores the exact legacy six-line release after candida
   });
 
   assert.equal(starts, 2);
+  assert.deepEqual(
+    persistedMutations.map(({ phase, mutation }) => ({ phase, mutation })),
+    [
+      { phase: "mutation-active", mutation: "candidate-start" },
+      { phase: "mutation-active", mutation: "rollback" },
+    ],
+  );
   assert.equal(rollbackRelease, legacyRelease);
   assert.equal(readFileSync(config.releaseEnvFile, "utf8"), legacyRelease);
   assertReleaseStateMetadata(config.releaseEnvFile, releaseDirectory);

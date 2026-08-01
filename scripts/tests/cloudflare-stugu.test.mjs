@@ -180,7 +180,11 @@ test("provisioning refuses to retain a broad setup token as the runtime token", 
 
 test("bundled reverse proxy rate-limits the machine exception before the generic API route", () => {
   const nginx = readFileSync(new URL("../../config/nginx.conf", import.meta.url), "utf8");
+  const dockerfile = readFileSync(new URL("../../Dockerfile", import.meta.url), "utf8");
   assert.match(nginx, /client_max_body_size 16m;/u);
+  assert.match(nginx, /gzip_static on;/u);
+  assert.match(nginx, /gzip_vary on;/u, "compressed responses must emit Vary: Accept-Encoding");
+  assert.match(dockerfile, /find \/usr\/share\/nginx\/html[\s\S]*gzip -9 -c "\$file" > "\$file\.gz"/u);
   assert.match(nginx, /resolver \$\{STUGA_CONTAINER_DNS_RESOLVER\} valid=10s ipv6=off;/u);
   assert.match(nginx, /set \$stuga_api_host api;/u);
   assert.equal((nginx.match(/proxy_pass http:\/\/\$stuga_api_host:8787;/gu) ?? []).length, 3);
@@ -193,6 +197,16 @@ test("bundled reverse proxy rate-limits the machine exception before the generic
   assert.match(nginx.slice(join, protocol), /client_max_body_size 64k;/u);
   assert.match(nginx.slice(join, protocol), /limit_req zone=stugby_join burst=5 nodelay;/u);
   assert.match(nginx.slice(protocol, genericApi), /limit_req zone=stugby_protocol burst=120 nodelay;/u);
+  const assets = nginx.indexOf("location ^~ /assets/");
+  const application = nginx.indexOf("location / {", assets);
+  assert.ok(assets > genericApi && application > assets);
+  assert.match(nginx.slice(assets, application), /try_files \$uri =404;[\s\S]*expires 1y;/u);
+  const applicationEnd = nginx.indexOf("\n    }\n  }\n}", application);
+  assert.ok(applicationEnd > application);
+  assert.match(
+    nginx.slice(application, applicationEnd),
+    /expires -1;[\s\S]*try_files \$uri \$uri\/ \/index\.html;/u,
+  );
 });
 
 function accessRedirect() {

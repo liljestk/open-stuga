@@ -5,6 +5,7 @@ import {
   existsSync,
   fchmodSync,
   fchownSync,
+  fsyncSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -159,18 +160,20 @@ const atomicFileOperations = {
   closeSync,
   fchmodSync,
   fchownSync,
+  fsyncSync,
   openSync,
   renameSync,
   rmSync,
   writeFileSync,
 };
 
-export function writeTextAtomic(
+function writeTextAtomicInternal(
   path,
   text,
   mode = 0o640,
   ownership = null,
   operationOverrides = {},
+  durable = false,
 ) {
   const operations = { ...atomicFileOperations, ...operationOverrides };
   mkdirSync(dirname(path), { recursive: true });
@@ -185,9 +188,11 @@ export function writeTextAtomic(
     if (ownership && process.platform !== "win32") {
       operations.fchownSync(descriptor, ownership.uid, ownership.gid);
     }
+    if (durable) operations.fsyncSync(descriptor);
     operations.closeSync(descriptor);
     descriptor = null;
     operations.renameSync(temporary, path);
+    if (durable) fsyncRenamedFile(path, operations);
   } catch (error) {
     if (descriptor !== null) {
       try {
@@ -207,6 +212,57 @@ export function writeTextAtomic(
   }
 }
 
+function fsyncRenamedFile(path, operations) {
+  if (process.platform !== "win32") {
+    fsyncDirectory(dirname(path), operations);
+    return;
+  }
+  // Node cannot open Windows directories for fsync. Reopening the renamed
+  // target and flushing its handle is the strongest portable metadata barrier.
+  const descriptor = operations.openSync(path, "r+");
+  try {
+    operations.fsyncSync(descriptor);
+  } finally {
+    operations.closeSync(descriptor);
+  }
+}
+
+function fsyncDirectory(path, operations) {
+  if (process.platform === "win32") return;
+  const directoryDescriptor = operations.openSync(path, "r");
+  try {
+    operations.fsyncSync(directoryDescriptor);
+  } finally {
+    operations.closeSync(directoryDescriptor);
+  }
+}
+
+export function writeTextAtomic(
+  path,
+  text,
+  mode = 0o640,
+  ownership = null,
+  operationOverrides = {},
+) {
+  writeTextAtomicInternal(path, text, mode, ownership, operationOverrides, false);
+}
+
+export function writeTextDurableAtomic(
+  path,
+  text,
+  mode = 0o640,
+  ownership = null,
+  operationOverrides = {},
+) {
+  writeTextAtomicInternal(path, text, mode, ownership, operationOverrides, true);
+}
+
+export function removeFileDurable(path, operationOverrides = {}) {
+  const operations = { ...atomicFileOperations, ...operationOverrides };
+  operations.rmSync(path, { force: true });
+  fsyncDirectory(dirname(path), operations);
+}
+
 export function releaseEnvironmentOwnership(
   directoryMetadata,
   effectiveUserId = process.geteuid?.(),
@@ -217,7 +273,7 @@ export function releaseEnvironmentOwnership(
     : null;
 }
 
-export function writeReleaseEnvironmentAtomic(path, text) {
+export function writeReleaseEnvironmentAtomic(path, text, operationOverrides = {}) {
   const directory = dirname(path);
   mkdirSync(directory, { recursive: true });
   const directoryMetadata = statSync(directory);
@@ -225,7 +281,7 @@ export function writeReleaseEnvironmentAtomic(path, text) {
     throw new Error("Release state parent must be a directory");
   }
   const ownership = releaseEnvironmentOwnership(directoryMetadata);
-  writeTextAtomic(path, text, 0o640, ownership);
+  writeTextDurableAtomic(path, text, 0o640, ownership, operationOverrides);
 }
 
 export function writeJson(path, value) {
@@ -237,30 +293,196 @@ export function bounded(text) {
   return text.slice(text.length - MAX_COMMAND_OUTPUT);
 }
 
+const COMMAND_TERMINATION_GRACE_MS = 5_000;
+const COMMAND_TERMINATION_WAIT_MS = 5_000;
+const COMMAND_CLOSE_WAIT_MS = 5_000;
+const COMMAND_EXIT_CLOSE_WAIT_MS = 1_000;
+const COMMAND_TERMINATION_POLL_MS = 25;
+
+function delay(milliseconds) {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+}
+
+function processExists(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+function processGroupExists(pid) {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+async function waitUntil(check, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (check()) {
+    if (Date.now() >= deadline) return false;
+    await delay(Math.min(COMMAND_TERMINATION_POLL_MS, Math.max(1, deadline - Date.now())));
+  }
+  return true;
+}
+
+function signalProcessGroup(pid, signal) {
+  try {
+    process.kill(-pid, signal);
+  } catch (error) {
+    if (error?.code !== "ESRCH") throw error;
+  }
+}
+
+function taskkill(pid, force) {
+  return new Promise((resolveTaskkill) => {
+    const args = ["/PID", String(pid), "/T"];
+    if (force) args.push("/F");
+    const killer = spawn("taskkill.exe", args, {
+      windowsHide: true,
+      stdio: "ignore",
+    });
+    killer.once("error", (error) => resolveTaskkill({ error, status: null }));
+    killer.once("close", (status) => resolveTaskkill({ error: null, status }));
+  });
+}
+
+async function terminateProcessTree(child, options) {
+  const pid = child.pid;
+  if (!Number.isSafeInteger(pid) || pid <= 0) {
+    child.kill("SIGTERM");
+    return;
+  }
+  const graceMs = options.terminationGraceMs ?? COMMAND_TERMINATION_GRACE_MS;
+  const waitMs = options.terminationWaitMs ?? COMMAND_TERMINATION_WAIT_MS;
+
+  if (process.platform === "win32") {
+    const taskkillProcess = options.taskkill ?? taskkill;
+    const processExistsCheck = options.processExists ?? processExists;
+    const graceful = await taskkillProcess(pid, false);
+    if (!processExistsCheck(pid)) return;
+    await delay(graceMs);
+    const forced = await taskkillProcess(pid, true);
+    const stopped = await waitUntil(() => processExistsCheck(pid), waitMs);
+    if (stopped) return;
+    const cause = forced.error ?? graceful.error;
+    throw new Error(
+      `process tree ${pid} could not be confirmed terminated after taskkill${cause ? `: ${cause.message}` : ""}`,
+    );
+  }
+
+  signalProcessGroup(pid, "SIGTERM");
+  if (await waitUntil(() => processGroupExists(pid), graceMs)) return;
+  signalProcessGroup(pid, "SIGKILL");
+  if (await waitUntil(() => processGroupExists(pid), waitMs)) return;
+  throw new Error(`process group ${pid} remained alive after SIGKILL`);
+}
+
+function commandTimeoutError(command, terminationError = null) {
+  const error = new Error(
+    terminationError
+      ? `${command} timed out and its process tree could not be terminated: ${terminationError.message}`
+      : `${command} timed out`,
+  );
+  error.code = "COMMAND_TIMEOUT";
+  error.processTreeTerminated = terminationError === null;
+  return error;
+}
+
+function waitForClose(closed, timeoutMs) {
+  return new Promise((resolveWait) => {
+    let complete = false;
+    const finish = (value) => {
+      if (complete) return;
+      complete = true;
+      clearTimeout(timer);
+      resolveWait(value);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    void closed.then(() => finish(true));
+  });
+}
+
 export async function runCommand(command, args, options = {}) {
   return new Promise((resolveCommand, rejectCommand) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
+      detached: process.platform !== "win32",
       env: options.env ?? process.env,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
+    let settled = false;
+    let timedOut = false;
+    let exitCloseTimer = null;
+    let resolveClosed;
+    const closed = new Promise((resolveClose) => { resolveClosed = resolveClose; });
+    const settle = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (exitCloseTimer !== null) clearTimeout(exitCloseTimer);
+      callback(value);
+    };
+    const settleFromExit = (code, signal) => {
+      if (code === 0) settle(resolveCommand, output.trim());
+      else settle(rejectCommand, new Error(`${command} exited ${code ?? signal ?? "unexpectedly"}${output.trim() ? `: ${output.trim()}` : ""}`));
+    };
     const append = (chunk) => { output = bounded(output + chunk.toString("utf8")); };
     child.stdout.on("data", append);
     if (!options.ignoreStderr) child.stderr.on("data", append);
     const timeout = setTimeout(() => {
-      child.kill("SIGTERM");
-      rejectCommand(new Error(`${command} timed out`));
+      if (settled) return;
+      timedOut = true;
+      void terminateProcessTree(child, options).then(
+        async () => {
+          const didClose = await waitForClose(
+            closed,
+            options.terminationCloseWaitMs ?? COMMAND_CLOSE_WAIT_MS,
+          );
+          settle(
+            rejectCommand,
+            commandTimeoutError(
+              command,
+              didClose
+                ? null
+                : new Error("terminated process group left inherited output handles open"),
+            ),
+          );
+        },
+        (terminationError) => {
+          settle(rejectCommand, commandTimeoutError(command, terminationError));
+        },
+      );
     }, options.timeoutMs ?? UPDATE_TIMEOUT_MS);
     child.once("error", (error) => {
-      clearTimeout(timeout);
-      rejectCommand(error);
+      resolveClosed();
+      if (!timedOut) settle(rejectCommand, error);
     });
     child.once("exit", (code, signal) => {
+      if (timedOut || settled) return;
+      // Process execution is complete. Give inherited output handles a short,
+      // independent drain window rather than converting a successful exit into
+      // a full command timeout when a descendant keeps a pipe open.
       clearTimeout(timeout);
-      if (code === 0) resolveCommand(output.trim());
-      else rejectCommand(new Error(`${command} exited ${code ?? signal ?? "unexpectedly"}${output.trim() ? `: ${output.trim()}` : ""}`));
+      exitCloseTimer = setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        resolveClosed();
+        settleFromExit(code, signal);
+      }, options.exitCloseWaitMs ?? COMMAND_EXIT_CLOSE_WAIT_MS);
+    });
+    child.once("close", (code, signal) => {
+      resolveClosed();
+      if (timedOut) return;
+      settleFromExit(code, signal);
     });
   });
 }

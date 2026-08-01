@@ -79,9 +79,10 @@ async function resolveEndpoint(
   endpoint: URL,
   resolver: ElectricityEndpointResolver,
   allowPrivateNetwork: boolean,
+  signal: AbortSignal,
 ): Promise<void> {
   const hostname = normalizedHost(endpoint.hostname);
-  const addresses = isIP(hostname) > 0 ? [hostname] : await resolver(hostname);
+  const addresses = isIP(hostname) > 0 ? [hostname] : await waitForOperation(resolver(hostname), signal);
   if (addresses.length === 0) {
     throw new ElectricityEndpointPolicyError("Electricity price endpoint hostname did not resolve");
   }
@@ -93,6 +94,33 @@ async function resolveEndpoint(
 async function defaultResolver(hostname: string): Promise<readonly string[]> {
   const results = await lookup(hostname, { all: true, verbatim: true });
   return results.map((result) => result.address);
+}
+
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new ElectricityPriceSourceError("Electricity price request timed out");
+}
+
+function waitForOperation<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(abortReason(signal));
+  return new Promise<T>((resolve, reject) => {
+    const aborted = (): void => {
+      signal.removeEventListener("abort", aborted);
+      reject(abortReason(signal));
+    };
+    signal.addEventListener("abort", aborted, { once: true });
+    void operation.then(
+      (value) => {
+        signal.removeEventListener("abort", aborted);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", aborted);
+        reject(error);
+      },
+    );
+  });
 }
 
 async function limitedJson(response: Response, controller: AbortController): Promise<unknown> {
@@ -107,7 +135,7 @@ async function limitedJson(response: Response, controller: AbortController): Pro
   const chunks: Uint8Array[] = [];
   let total = 0;
   while (true) {
-    const result = await reader.read();
+    const result = await waitForOperation(reader.read(), controller.signal);
     if (result.done) break;
     total += result.value.byteLength;
     if (total > MAX_ELECTRICITY_RESPONSE_BYTES) {
@@ -209,19 +237,24 @@ export class ElectricityPriceService {
     if (!config.enabled) return [];
     const allowPrivateNetwork = this.endpointPolicy.allowPrivateNetwork === true;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(
+      new ElectricityPriceSourceError("Electricity price request timed out"),
+    ), REQUEST_TIMEOUT_MS);
     timeout.unref();
     try {
       const endpoint = validateElectricityEndpointUrl(config.endpointUrl, allowPrivateNetwork);
       if (config.provider === "porssisahko" && endpoint.toString() !== DEFAULT_ELECTRICITY_PRICE_ENDPOINT) {
         throw new ElectricityEndpointPolicyError("The Porssisahko provider must use its canonical endpoint");
       }
-      await resolveEndpoint(endpoint, this.endpointPolicy.resolver ?? defaultResolver, allowPrivateNetwork);
-      const response = await this.fetcher(endpoint.toString(), {
-        headers: { accept: "application/json", "user-agent": "Stugu electricity-price integration" },
-        redirect: "error",
-        signal: controller.signal,
-      });
+      await resolveEndpoint(endpoint, this.endpointPolicy.resolver ?? defaultResolver, allowPrivateNetwork, controller.signal);
+      const response = await waitForOperation(
+        this.fetcher(endpoint.toString(), {
+          headers: { accept: "application/json", "user-agent": "Stugu electricity-price integration" },
+          redirect: "error",
+          signal: controller.signal,
+        }),
+        controller.signal,
+      );
       if (response.redirected) throw new ElectricityPriceSourceError("Electricity price source redirects are not allowed");
       if (!response.ok) throw new Error(`Electricity price source returned HTTP ${response.status}`);
       const payload = await limitedJson(response, controller);

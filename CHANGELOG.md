@@ -4,6 +4,20 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.27.1 - 2026-08-01
+
+- Reduce initial web transfer size by lazy-loading non-English catalogs, serving
+  pre-compressed immutable assets, and keeping telemetry hydration scoped to the
+  active Home while preserving workspace-wide sensor identity and actions.
+- Batch live measurement updates without sacrificing ordering or deduplication,
+  and derive portfolio monitoring totals from coverage rather than hydrated
+  telemetry.
+- Bound electricity-price and Home Assistant history work by shared deadlines,
+  response-size and sample limits; make backup scheduling fail safe on malformed
+  state and make updater mutation recovery durable and process-tree aware.
+- Retain Watch alert actions until the phone durably records them and returns an
+  idempotent receipt, with bounded retry lifetime and clock-skew handling.
+
 ## 0.27.0 - 2026-07-31
 
 - Refine the Home, Workspace, Property, Alerts, and room-comfort surfaces into
