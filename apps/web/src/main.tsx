@@ -7,16 +7,22 @@ import "@fontsource/dm-sans/700.css";
 import "@fontsource/manrope/600.css";
 import "@fontsource/manrope/700.css";
 import { App } from "./App";
+import { ConfirmationProvider } from "./components/ConfirmationProvider";
 import { I18nProvider } from "./i18n";
 import { ServerStateProvider } from "./data/queryClient";
+import { startBugReportDiagnostics } from "./bugReportDiagnostics";
 import "./styles.css";
+
+startBugReportDiagnostics();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <I18nProvider>
-      <ServerStateProvider>
-        <App />
-      </ServerStateProvider>
+      <ConfirmationProvider>
+        <ServerStateProvider>
+          <App />
+        </ServerStateProvider>
+      </ConfirmationProvider>
     </I18nProvider>
   </React.StrictMode>,
 );

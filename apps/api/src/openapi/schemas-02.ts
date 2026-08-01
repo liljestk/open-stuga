@@ -111,7 +111,7 @@ export const schemasPart02 = {
             longitude: { type: "number", minimum: -180, maximum: 180, description: "WGS84 longitude in decimal degrees." },
             label: { type: "string", maxLength: 200, description: "Optional user-facing area label. A precise street address is not required." },
             countryCode: { type: "string", pattern: "^[A-Z]{2}$", description: "Optional ISO country hint retained from discovery." },
-            source: { enum: ["manual", "place-search", "browser-geolocation", "home-assistant", "map-placement"] },
+            source: { enum: ["manual", "place-search", "browser-geolocation", "home-assistant", "map-placement", "property-location"] },
             confidence: { enum: ["high", "medium", "low"] },
             discoveredAt: { type: "string", format: "date-time" },
             userOverridden: { type: "boolean", description: "True after a person explicitly enters or corrects this value." },

@@ -1,8 +1,8 @@
 [Unit]
 Description=Stugu appliance
-Wants=network-online.target
+Wants=network-online.target systemd-timesyncd.service
 Requires=docker.service stugu-data-grow.service
-After=network-online.target docker.service stugu-data-grow.service
+After=network-online.target systemd-timesyncd.service docker.service stugu-data-grow.service
 StartLimitIntervalSec=0
 
 [Service]

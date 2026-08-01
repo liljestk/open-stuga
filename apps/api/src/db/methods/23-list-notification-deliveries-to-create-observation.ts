@@ -106,7 +106,14 @@ registerDatabaseMethods({
   listNotificationDeliveries(limit = 200): NotificationDeliveryStatus[] {
       return (this.db.prepare(`SELECT id, subject_kind, subject_id, stage, sequence, channel, destination_id, attempts, max_attempts,
           available_at, created_at, delivered_at, dead_lettered_at, abandoned_at, last_error
-        FROM notification_outbox ORDER BY created_at DESC LIMIT ?`).all(boundedCollectionLimit(limit)) as Array<{
+        FROM notification_outbox
+        WHERE subject_kind <> 'alert' OR EXISTS (
+          SELECT 1 FROM alert_events AS event
+          JOIN sensors AS sensor ON sensor.id = event.sensor_id
+          JOIN houses AS house ON house.id = sensor.house_id
+          WHERE event.id = notification_outbox.subject_id AND house.deleted_at IS NULL
+        )
+        ORDER BY created_at DESC LIMIT ?`).all(boundedCollectionLimit(limit)) as Array<{
           id: string; subject_kind: NotificationSubjectKind; subject_id: string; stage: NotificationDeliveryStage; sequence: number;
           channel: NotificationChannel; destination_id: string; attempts: number; max_attempts: number; available_at: string;
           created_at: string; delivered_at: string | null; dead_lettered_at: string | null;
@@ -121,7 +128,13 @@ registerDatabaseMethods({
   retryNotificationDelivery(id: string, at = new Date()): boolean {
       return Number(this.db.prepare(`UPDATE notification_outbox SET attempts = 0, available_at = ?, locked_at = NULL,
         lock_token = NULL, dead_lettered_at = NULL, abandoned_at = NULL, last_error = NULL
-        WHERE id = ? AND delivered_at IS NULL AND (dead_lettered_at IS NOT NULL OR abandoned_at IS NOT NULL)`)
+        WHERE id = ? AND delivered_at IS NULL AND (dead_lettered_at IS NOT NULL OR abandoned_at IS NOT NULL)
+          AND (subject_kind <> 'alert' OR EXISTS (
+            SELECT 1 FROM alert_events AS event
+            JOIN sensors AS sensor ON sensor.id = event.sensor_id
+            JOIN houses AS house ON house.id = sensor.house_id
+            WHERE event.id = notification_outbox.subject_id AND house.deleted_at IS NULL
+          ))`)
         .run(at.toISOString(), id).changes) > 0;
     },
   releaseNotificationOutbox(id: string, lockToken: string, availableAt = new Date()): boolean {
@@ -137,7 +150,13 @@ registerDatabaseMethods({
     },
   pendingNotificationCount(): number {
       return Number((this.db.prepare(`SELECT COUNT(*) AS count FROM notification_outbox
-        WHERE delivered_at IS NULL AND dead_lettered_at IS NULL AND abandoned_at IS NULL`)
+        WHERE delivered_at IS NULL AND dead_lettered_at IS NULL AND abandoned_at IS NULL
+          AND (subject_kind <> 'alert' OR EXISTS (
+            SELECT 1 FROM alert_events AS event
+            JOIN sensors AS sensor ON sensor.id = event.sensor_id
+            JOIN houses AS house ON house.id = sensor.house_id
+            WHERE event.id = notification_outbox.subject_id AND house.deleted_at IS NULL
+          ))`)
         .get() as { count: number }).count);
     },
   listActionPlaybooks(metric?: string, enabledOnly = false): ActionPlaybook[] {
@@ -212,22 +231,28 @@ registerDatabaseMethods({
       const clauses: string[] = [];
       const parameters: Array<string | number> = [];
       if (options.houseId) {
-        clauses.push("sensor_id IN (SELECT id FROM sensors WHERE house_id = ?)");
+        clauses.push("sensor.house_id = ?");
         parameters.push(options.houseId);
       }
-      if (options.sensorId) { clauses.push("sensor_id = ?"); parameters.push(options.sensorId); }
-      if (options.alertEventId) { clauses.push("alert_event_id = ?"); parameters.push(options.alertEventId); }
-      if (options.activeOnly) clauses.push("status IN ('active', 'waiting')");
-      const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+      if (options.sensorId) { clauses.push("run.sensor_id = ?"); parameters.push(options.sensorId); }
+      if (options.alertEventId) { clauses.push("run.alert_event_id = ?"); parameters.push(options.alertEventId); }
+      if (options.activeOnly) clauses.push("run.status IN ('active', 'waiting')");
+      const where = ["house.deleted_at IS NULL", ...clauses].join(" AND ");
       const requestedLimit = options.limit ?? 500;
       const limit = Number.isFinite(requestedLimit)
         ? Math.min(500, Math.max(1, Math.trunc(requestedLimit)))
         : 500;
-      return (this.db.prepare(`SELECT * FROM action_runs ${where} ORDER BY updated_at DESC, id DESC LIMIT ?`)
+      return (this.db.prepare(`SELECT run.* FROM action_runs AS run
+        JOIN sensors AS sensor ON sensor.id = run.sensor_id
+        JOIN houses AS house ON house.id = sensor.house_id
+        WHERE ${where} ORDER BY run.updated_at DESC, run.id DESC LIMIT ?`)
         .all(...parameters, limit) as unknown as ActionRunRow[]).map(actionRunFromRow);
     },
   getActionRun(id: string): ActionRun | null {
-      const row = this.db.prepare("SELECT * FROM action_runs WHERE id = ?").get(id) as unknown as ActionRunRow | undefined;
+      const row = this.db.prepare(`SELECT run.* FROM action_runs AS run
+        JOIN sensors AS sensor ON sensor.id = run.sensor_id
+        JOIN houses AS house ON house.id = sensor.house_id
+        WHERE run.id = ? AND house.deleted_at IS NULL`).get(id) as unknown as ActionRunRow | undefined;
       return row ? actionRunFromRow(row) : null;
     },
   startActionRun(input: ActionRunStartInput, now = new Date()): ActionRun {
@@ -338,8 +363,11 @@ registerDatabaseMethods({
       return this.getActionRun(run.id);
     },
   verifyDueActionRuns(now = new Date()): ActionRun[] {
-      const due = (this.db.prepare(`SELECT * FROM action_runs
-        WHERE status = 'waiting' AND verify_after <= ? ORDER BY verify_after LIMIT 200`)
+      const due = (this.db.prepare(`SELECT run.* FROM action_runs AS run
+        JOIN sensors AS sensor ON sensor.id = run.sensor_id
+        JOIN houses AS house ON house.id = sensor.house_id
+        WHERE run.status = 'waiting' AND run.verify_after <= ? AND house.deleted_at IS NULL
+        ORDER BY run.verify_after LIMIT 200`)
         .all(now.toISOString()) as unknown as ActionRunRow[]).map(actionRunFromRow);
       const changed: ActionRun[] = [];
       for (const run of due) {
@@ -356,12 +384,18 @@ registerDatabaseMethods({
     },
   listObservations(houseId?: string): ManualObservation[] {
       const rows = (houseId
-        ? this.db.prepare("SELECT * FROM observations WHERE house_id = ? ORDER BY occurred_at DESC").all(houseId)
-        : this.db.prepare("SELECT * FROM observations ORDER BY occurred_at DESC").all()) as unknown as ObservationRow[];
+        ? this.db.prepare(`SELECT observation.* FROM observations AS observation
+            JOIN houses AS house ON house.id = observation.house_id
+            WHERE observation.house_id = ? AND house.deleted_at IS NULL ORDER BY observation.occurred_at DESC`).all(houseId)
+        : this.db.prepare(`SELECT observation.* FROM observations AS observation
+            JOIN houses AS house ON house.id = observation.house_id
+            WHERE house.deleted_at IS NULL ORDER BY observation.occurred_at DESC`).all()) as unknown as ObservationRow[];
       return rows.map(observationFromRow);
     },
   getObservation(id: string): StoredObservation | null {
-      const row = this.db.prepare("SELECT * FROM observations WHERE id = ?").get(id) as unknown as ObservationRow | undefined;
+      const row = this.db.prepare(`SELECT observation.* FROM observations AS observation
+        JOIN houses AS house ON house.id = observation.house_id
+        WHERE observation.id = ? AND house.deleted_at IS NULL`).get(id) as unknown as ObservationRow | undefined;
       return row ? observationFromRow(row) : null;
     },
   getOrCreateObservation(

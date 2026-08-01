@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { HomeEnergyCost, HomeEnergySummary, MeasurementSample, Sensor } from "@climate-twin/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -82,6 +82,7 @@ describe("EnergyPage", () => {
     queryClient.clear();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    window.history.replaceState(null, "", "/");
   });
 
   it("explains the one-device direct TP-Link boundary during onboarding", () => {
@@ -109,6 +110,18 @@ describe("EnergyPage", () => {
     expect(screen.getByText(/Only this Home's owner can configure its electricity sources/i)).not.toBeNull();
     expect(screen.queryByRole("heading", { name: "Connect electricity data" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Configure a source" })).toBeNull();
+  });
+
+  it("labels the optimizer as Property-wide on a Home electricity page", () => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const property = state.properties.find((candidate) => candidate.id === house.propertyId)!;
+
+    render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onOpenAlerts={vi.fn()} /></I18nProvider>);
+
+    const optimizer = screen.getByRole("heading", { name: "Cheapest practical times" }).closest("details")!;
+    expect(optimizer.open).toBe(false);
+    expect(within(optimizer).getByText(`Property scope · ${property.name}`)).not.toBeNull();
   });
 
   it("preserves a disabled fixed contract when editing its descriptive fields", async () => {
@@ -148,6 +161,48 @@ describe("EnergyPage", () => {
       retailer: "New retailer",
     })));
     expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("summarizes a working Property contract and keeps its editor closed", async () => {
+    const user = userEvent.setup();
+    const state = createDemoState();
+    const propertyId = state.properties[0]!.id;
+    const config = {
+      propertyId,
+      provider: "porssisahko" as const,
+      endpointUrl: "https://api.porssisahko.net/v1/latest-prices.json",
+      enabled: true,
+      marginCentsPerKwh: 0.5,
+      contractType: "spot" as const,
+      contractName: "Everyday spot",
+      retailer: "Local energy",
+      monthlyFeeEur: 3.5,
+      lastFetchedAt: "2026-07-17T10:00:00.000Z",
+      lastError: null,
+      updatedAt: "2026-07-17T10:00:00.000Z",
+    };
+    vi.spyOn(api, "propertyElectricity").mockResolvedValue({
+      config,
+      current: {
+        propertyId,
+        startAt: "2026-07-17T10:00:00.000Z",
+        endAt: "2026-07-17T11:00:00.000Z",
+        rawPriceCentsPerKwh: 8,
+        effectivePriceCentsPerKwh: 8.5,
+        effectivePriceEurPerKwh: 0.085,
+        fetchedAt: "2026-07-17T10:00:00.000Z",
+      },
+      prices: [],
+    });
+
+    render(<I18nProvider><EnergyPage state={state} propertyId={propertyId} units="metric" onOpenAlerts={vi.fn()} /></I18nProvider>);
+
+    expect(await screen.findByText(/8\.500/)).not.toBeNull();
+    const editor = screen.getByText("Edit electricity contract", { selector: ".energy-contract-editor > summary span" }).closest("details")!;
+    expect(editor.open).toBe(false);
+    await user.click(editor.querySelector("summary")!);
+    expect(editor.open).toBe(true);
+    expect(screen.getByRole("button", { name: "Save and refresh" })).not.toBeNull();
   });
 
   it("keeps the property contract observational for Guests", async () => {
@@ -308,13 +363,14 @@ describe("EnergyPage", () => {
     expect(Date.parse(latestSummaryCall[2]) - Date.parse(latestSummaryCall[1])).toBe(3_600_000);
     await waitFor(() => expect(onLoadSeries).toHaveBeenCalledWith("meter", "power", "24h", false));
 
-    await user.click(screen.getByRole("button", { name: "Electricity consumption" }));
+    await user.click(screen.getByRole("button", { name: "Energy used" }));
     await user.click(screen.getByRole("button", { name: "6 hours" }));
     await waitFor(() => expect(onLoadSeries).toHaveBeenLastCalledWith("meter", "energy", "6h", false));
     expect(screen.getByText("5.00 kWh")).not.toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Manage alerts" }));
     expect(onOpenAlerts).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("heading", { name: "Electricity sources" }));
     await user.click(screen.getByRole("button", { name: "Edit sources" }));
     expect(onOpenSensors).toHaveBeenCalledTimes(1);
   });
@@ -376,6 +432,58 @@ describe("EnergyPage", () => {
 
     expect(await screen.findByText(/priced so far/i)).not.toBeNull();
     expect(screen.getByText(/2 of 2 sensors combined · Pending time-database confirmation/i)).not.toBeNull();
+  });
+
+  it("shows a cumulative 30-day estimate when usage exists but historical prices do not", async () => {
+    const user = userEvent.setup();
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const meter: Sensor = {
+      ...state.sensors[0]!, id: "cost-meter", houseId: house.id, name: "Water heater",
+      measurementEntityIds: { energy: "sensor.water_heater_energy" },
+    };
+    state.sensors = [meter];
+    state.latestMeasurements = { [meter.id]: { energy: { ...sample(20, "2026-07-16T11:59:00.000Z"), sensorId: meter.id } } };
+    state.measurementHistory = { [meter.id]: { energy: [] } };
+    state.measurementForecasts = { [meter.id]: {} };
+    vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({
+      current: {
+        startAt: "2026-07-16T11:00:00.000Z",
+        endAt: "2026-07-16T12:00:00.000Z",
+        effectivePriceCentsPerKwh: 20,
+        effectivePriceEurPerKwh: 0.2,
+        fetchedAt: "2026-07-16T11:55:00.000Z",
+      },
+    });
+    vi.spyOn(api, "houseEnergySummary").mockImplementation(async (houseId, from, to) => {
+      const consumptionKwh = Date.parse(to) - Date.parse(from) <= 3_600_000 ? 1 : 5;
+      const result = combinedSummary(houseId, from, to, 0, [meter.id]);
+      return {
+        ...result,
+        consumptionKwh,
+        pricedConsumptionKwh: null,
+        costEur: null,
+        priceCoveragePercent: 0,
+        complete: false,
+        quality: "partial",
+        contributions: result.contributions.map((cost) => ({
+          ...cost, consumptionKwh, pricedConsumptionKwh: null, costEur: null, priceCoveragePercent: 0, complete: false, quality: "partial",
+        })),
+      };
+    });
+
+    const view = render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={vi.fn()} onOpenAlerts={vi.fn()} /></I18nProvider>);
+
+    const costCard = view.container.querySelector<HTMLElement>(".energy-summary-card.running_cost")!;
+    expect(await within(costCard).findByText("≈ 1.00 €")).not.toBeNull();
+    expect(within(costCard).getByText(/cumulative usage × the current Property price/i)).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Usage outlook" })).not.toBeNull();
+    expect(screen.getByText("Biggest electricity consumers")).not.toBeNull();
+    expect(screen.getAllByText("Water heater").length).toBeGreaterThan(1);
+    expect(screen.getByText("5 kWh · 100%")).not.toBeNull();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Running cost interval" }), "1h");
+    expect(await within(costCard).findByText("≈ 0.20 €")).not.toBeNull();
+    expect(screen.getByText("5 kWh · 100%")).not.toBeNull();
   });
 
   it("uses the Home-safe effective Property price without exposing contract controls", async () => {
@@ -513,6 +621,7 @@ describe("EnergyPage", () => {
   it("shows server-derived consumption for a power-only plug", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2026-07-16T12:00:00.000Z"));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const state = createDemoState();
     const house = state.houses[0]!;
     const plug: Sensor = {
@@ -531,16 +640,21 @@ describe("EnergyPage", () => {
       combinedSummary(houseId, from, to, 0.5, [plug.id], "integrated_power")
     ));
     const legacyCostRequest = vi.spyOn(api, "houseEnergyCost");
+    const onLoadSeries = vi.fn();
 
-    render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={vi.fn()} onOpenAlerts={vi.fn()} /></I18nProvider>);
+    render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={onLoadSeries} onOpenAlerts={vi.fn()} /></I18nProvider>);
 
     expect(await screen.findByText("5.00 kWh")).not.toBeNull();
     expect(await screen.findByText("0.50 €")).not.toBeNull();
     expect(summaryRequest).toHaveBeenCalled();
     expect(legacyCostRequest).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Energy used" }));
+    await user.click(screen.getByRole("button", { name: "Multiple" }));
+    expect(screen.getByRole("checkbox", { name: "Bathroom plug" })).toBeChecked();
+    await waitFor(() => expect(onLoadSeries).toHaveBeenCalledWith(plug.id, "power", "24h", false));
   });
 
-  it("does not label a shorter chart cache as 24-hour consumption when the dedicated request fails", async () => {
+  it("does not substitute a lifetime counter when the 24-hour summary fails", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2026-07-16T12:00:00.000Z"));
     const state = createDemoState();
@@ -572,12 +686,11 @@ describe("EnergyPage", () => {
     render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={vi.fn()} onOpenSensors={vi.fn()} onOpenAlerts={vi.fn()} /></I18nProvider>);
 
     await waitFor(() => expect(summaryRequest).toHaveBeenCalled());
-    expect(screen.getByText("Consumption reading")).not.toBeNull();
-    expect(screen.queryByText("Consumption · 24 hours")).toBeNull();
-    expect(screen.getAllByText("3.00 kWh")).toHaveLength(2);
+    expect(screen.getByText("Consumption · 24 hours")).not.toBeNull();
     const energyCard = document.querySelector<HTMLElement>(".energy-summary-card.energy")!;
-    expect(within(energyCard).getByText("1 of 2 sensors combined")).not.toBeNull();
-    expect(within(energyCard).queryByText(meter.name)).toBeNull();
+    expect(within(energyCard).getByText("—")).not.toBeNull();
+    expect(within(energyCard).getByText("0 of 2 sensors combined")).not.toBeNull();
+    expect(within(energyCard).queryByText("3.00 kWh")).toBeNull();
   });
 
   it("uses a fresh electricity source when a newer candidate is marked stale", () => {
@@ -611,5 +724,77 @@ describe("EnergyPage", () => {
     expect(within(summary).getByText("1500 W")).not.toBeNull();
     expect(within(summary).getByText("1 of 2 sensors combined")).not.toBeNull();
     expect(within(summary).queryByText("9000 W")).toBeNull();
+  });
+
+  it("deep-links the evidence range and restores it without losing unrelated query state", async () => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const meter: Sensor = {
+      ...state.sensors[0]!,
+      id: "history-meter",
+      houseId: house.id,
+      name: "History meter",
+      measurementEntityIds: { power: "sensor.history_power" },
+    };
+    const power = {
+      ...sample(800, new Date().toISOString()),
+      sensorId: meter.id,
+      metric: "power" as const,
+      canonicalUnit: "W",
+    };
+    state.sensors = [meter];
+    state.latestMeasurements = { [meter.id]: { power } };
+    state.measurementHistory = { [meter.id]: { power: [power] } };
+    state.measurementForecasts = { [meter.id]: {} };
+    vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({ current: null, prices: [] });
+    vi.spyOn(api, "houseEnergySummary").mockImplementation(async (houseId, from, to) => combinedSummary(houseId, from, to, 1));
+    window.history.replaceState(null, "", `/properties/${house.propertyId}/homes/${house.id}/electricity?source=retained&range=7d&metric=energy&cost=7d#history`);
+
+    const user = userEvent.setup();
+    render(<I18nProvider><EnergyPage state={state} house={house} units="metric" onLoadSeries={vi.fn()} onOpenAlerts={vi.fn()} /></I18nProvider>);
+
+    expect(screen.getByRole("button", { name: "7 days" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Energy used" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("combobox", { name: "Running cost interval" })).toHaveValue("7d");
+    await user.click(screen.getByRole("button", { name: "30 days" }));
+    expect(new URLSearchParams(window.location.search).get("range")).toBe("30d");
+    expect(new URLSearchParams(window.location.search).get("source")).toBe("retained");
+    expect(new URLSearchParams(window.location.search).get("metric")).toBe("energy");
+    expect(new URLSearchParams(window.location.search).get("cost")).toBe("7d");
+    expect(window.location.hash).toBe("#history");
+
+    await user.click(screen.getByRole("button", { name: "24 hours" }));
+    expect(new URLSearchParams(window.location.search).has("range")).toBe(false);
+    expect(new URLSearchParams(window.location.search).get("source")).toBe("retained");
+
+    await user.click(screen.getByRole("button", { name: "Power" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Running cost interval" }), "month");
+    expect(new URLSearchParams(window.location.search).has("metric")).toBe(false);
+    expect(new URLSearchParams(window.location.search).has("cost")).toBe(false);
+
+    act(() => {
+      window.history.pushState(null, "", `?source=retained&range=invalid&metric=invalid&cost=invalid#history`);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "24 hours" })).toHaveAttribute("aria-pressed", "true"));
+    expect(new URLSearchParams(window.location.search).has("range")).toBe(false);
+    expect(new URLSearchParams(window.location.search).has("metric")).toBe(false);
+    expect(new URLSearchParams(window.location.search).has("cost")).toBe(false);
+    expect(new URLSearchParams(window.location.search).get("source")).toBe("retained");
+
+    act(() => {
+      window.history.pushState(null, "", `?source=retained&range=6h&metric=electricity_price&cost=1h#history`);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "6 hours" })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByRole("button", { name: "Electricity price" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("combobox", { name: "Running cost interval" })).toHaveValue("1h");
+
+    act(() => {
+      window.history.pushState(null, "", `/properties/${house.propertyId}/homes/${house.id}/analytics?range=90d&metric=humidity#evidence`);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(window.location.search).toBe("?range=90d&metric=humidity");
+    expect(window.location.hash).toBe("#evidence");
   });
 });

@@ -213,7 +213,7 @@ registerDatabaseMethods({
         );
       }
     },
-  validateAreaEquipment(equipment: AreaEquipment): void {
+  validateAreaEquipment(equipment: AreaEquipment, retainedHiddenHouseId: string | null = null): void {
       if (!this.getProperty(equipment.propertyId)) {
         throw new ClimateDataValidationError(
           404,
@@ -248,14 +248,15 @@ registerDatabaseMethods({
       }
       if (houseId !== null) {
         const house = this.getHouse(houseId);
-        if (!house) {
+        const retainingHiddenHouse = !house && houseId === retainedHiddenHouseId;
+        if (!house && !retainingHiddenHouse) {
           throw new ClimateDataValidationError(
             404,
             "EQUIPMENT_HOUSE_NOT_FOUND",
             `House ${houseId} does not exist`,
           );
         }
-        if (house.propertyId !== equipment.propertyId) {
+        if (house && house.propertyId !== equipment.propertyId) {
           throw new ClimateDataValidationError(
             409,
             "EQUIPMENT_HOUSE_SCOPE_MISMATCH",
@@ -281,7 +282,7 @@ registerDatabaseMethods({
         throw new ClimateDataValidationError(422, "INVALID_EQUIPMENT_STATUS", "Equipment status is not supported");
       }
     },
-  validatePropertyNote(note: PropertyNote): void {
+  validatePropertyNote(note: PropertyNote, retainedHiddenHouseId: string | null = null): void {
       if (!this.getProperty(note.propertyId)) {
         throw new ClimateDataValidationError(404, "NOTE_PROPERTY_NOT_FOUND", `Property ${note.propertyId} does not exist`);
       }
@@ -297,8 +298,11 @@ registerDatabaseMethods({
       }
       if (note.houseId !== null) {
         const house = this.getHouse(note.houseId);
-        if (!house) throw new ClimateDataValidationError(404, "NOTE_HOUSE_NOT_FOUND", `House ${note.houseId} does not exist`);
-        if (house.propertyId !== note.propertyId) {
+        const retainingHiddenHouse = !house && note.houseId === retainedHiddenHouseId;
+        if (!house && !retainingHiddenHouse) {
+          throw new ClimateDataValidationError(404, "NOTE_HOUSE_NOT_FOUND", `House ${note.houseId} does not exist`);
+        }
+        if (house && house.propertyId !== note.propertyId) {
           throw new ClimateDataValidationError(409, "PROPERTY_NOTE_SCOPE_MISMATCH", "Note house belongs to another property");
         }
       }
@@ -329,12 +333,13 @@ registerDatabaseMethods({
     },
   listHouses(propertyId?: string): House[] {
       const rows = (propertyId
-        ? this.db.prepare("SELECT * FROM houses WHERE property_id = ? ORDER BY name").all(propertyId)
-        : this.db.prepare("SELECT * FROM houses ORDER BY name").all()) as unknown as HouseRow[];
+        ? this.db.prepare("SELECT * FROM houses WHERE property_id = ? AND deleted_at IS NULL ORDER BY name").all(propertyId)
+        : this.db.prepare("SELECT * FROM houses WHERE deleted_at IS NULL ORDER BY name").all()) as unknown as HouseRow[];
       return rows.map(houseFromRow);
     },
   getHouse(id: string): House | null {
-      const row = this.db.prepare("SELECT * FROM houses WHERE id = ?").get(id) as unknown as HouseRow | undefined;
+      const row = this.db.prepare("SELECT * FROM houses WHERE id = ? AND deleted_at IS NULL")
+        .get(id) as unknown as HouseRow | undefined;
       return row ? houseFromRow(row) : null;
     },
   setHouseStugubyLink(id: string, link: StugubyHouseLink | null): House | null {
@@ -410,6 +415,7 @@ registerDatabaseMethods({
       });
     },
   listOpeningStateObservations(houseId: string, limit = 5_000, at?: string | number | Date): OpeningStateObservation[] {
+      if (!this.getHouse(houseId)) return [];
       const boundedLimit = Math.min(10_000, Math.max(1, Math.trunc(limit)));
       if (at === undefined) {
         const rows = this.db.prepare(`SELECT id, house_id, floor_id, element_id, state, open_fraction, source, observed_at, valid_until, external_id, connection_id
@@ -420,8 +426,7 @@ registerDatabaseMethods({
       const atMs = at instanceof Date ? at.getTime() : typeof at === "number" ? at : Date.parse(at);
       if (!Number.isFinite(atMs)) return [];
       const atIso = new Date(atMs).toISOString();
-      const house = this.getHouse(houseId);
-      if (!house) return [];
+      const house = this.getHouse(houseId)!;
       const columns = "id, house_id, floor_id, element_id, state, open_fraction, source, observed_at, valid_until, external_id, connection_id";
       const latestBySource = this.db.prepare(`SELECT ${columns} FROM opening_state_observations
         WHERE house_id = ? AND floor_id = ? AND element_id = ? AND source = ?

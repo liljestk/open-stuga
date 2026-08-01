@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, fixedPlanElementOpeningState } from "@climate-twin/contracts";
+import { DEFAULT_ELECTRICITY_PRICE_ENDPOINT, automaticWeatherLocation, fixedPlanElementOpeningState, hasLocalHouseAuthority, isAutomaticWeatherLocation } from "@climate-twin/contracts";
 import type {
   AreaEquipment,
   AreaEquipmentInput,
@@ -95,10 +95,11 @@ import {
 } from "../../notification-policy.js";
 import type { EnergyCostAggregateQuery, EnergyCostAggregateRecord, MeasurementCoverageRecord, PowerCostAggregateQuery } from "../../timeseries/types.js";
 import { CORE_SCHEMA_SQL } from "../migrations/core-schema.js";
-import { AreaEquipmentRow, DEFAULT_COLLECTION_LIMIT, DEFAULT_PROPERTY_ID, EnergyCostAggregateRow, PropertyAreaRow, boundedCollectionLimit, boundedCollectionOffset } from "../support/01-json-value-to-area-equipment-row.js";
+import { AreaEquipmentRow, DEFAULT_COLLECTION_LIMIT, DEFAULT_PROPERTY_ID, EnergyCostAggregateRow, HouseRow, PropertyAreaRow, boundedCollectionLimit, boundedCollectionOffset } from "../support/01-json-value-to-area-equipment-row.js";
 import { LocalMaintenanceTaskRevisionActor } from "../support/02-equipment-attachment-row-to-sensor-data-gap-state.js";
 import { ClimateDataValidationError } from "../support/03-sensor-data-gap-row-to-canonical-json-value.js";
-import { areaEquipmentFromRow, propertyAreaFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
+import { areaEquipmentFromRow, houseFromRow, propertyAreaFromRow } from "../support/04-canonical-json-value-to-action-playbook-from-row.js";
+import { outdoorLocationKey } from "../support/06-canonical-observation-patch-time-to-outdoor-location.js";
 import { registerDatabaseMethods } from "../core.js";
 
 registerDatabaseMethods({
@@ -300,6 +301,23 @@ registerDatabaseMethods({
         if (next.location) this.validateHouseLocation(next.location);
         this.db.prepare(`UPDATE properties SET name = ?, description = ?, location_json = ?, updated_at = ? WHERE id = ?`)
           .run(next.name, next.description, next.location ? JSON.stringify(next.location) : null, next.updatedAt, id);
+        if (patch.location !== undefined) {
+          const rows = this.db.prepare("SELECT * FROM houses WHERE property_id = ? AND deleted_at IS NULL")
+            .all(id) as unknown as HouseRow[];
+          for (const row of rows) {
+            const house = houseFromRow(row);
+            if (!hasLocalHouseAuthority(house)) continue;
+            if (house.location && !isAutomaticWeatherLocation(house.location)) continue;
+            const inferred = automaticWeatherLocation(next.location, house.mapPlacement);
+            const previousKey = outdoorLocationKey(house.location);
+            const nextKey = outdoorLocationKey(inferred);
+            if (previousKey === nextKey && house.location?.source === inferred?.source) continue;
+            const houseUpdatedAt = this.nextUpdatedAt(house.updatedAt);
+            this.db.prepare("UPDATE houses SET location_json = ?, updated_at = ? WHERE id = ?")
+              .run(inferred ? JSON.stringify(inferred) : null, houseUpdatedAt, house.id);
+            this.db.prepare("DELETE FROM analytics_daily_findings WHERE house_id = ?").run(house.id);
+          }
+        }
         return next;
       });
     },

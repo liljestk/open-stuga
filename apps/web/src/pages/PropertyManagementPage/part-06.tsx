@@ -35,6 +35,7 @@ import {
   X,
 } from "lucide-react";
 import { floorMetersPerPlanUnit } from "@climate-twin/contracts";
+import { confirmAction } from "../../components/ConfirmationProvider";
 import type {
   AreaEquipment,
   AreaEquipmentInput,
@@ -81,7 +82,7 @@ export function usePropertyManagementPagePart06(context: ReturnType<typeof usePr
       if (!property || readOnly || pending || nextPropertyId === property.id) return;
       const movingHouse = houses.find((house) => house.id === houseId);
       if (!movingHouse || houseReadOnly(movingHouse)) return;
-      if (movingHouse && !window.confirm(t("properties.moveHouseConfirm", { name: movingHouse.name }))) return;
+      if (movingHouse && !await confirmAction(t("properties.moveHouseConfirm", { name: movingHouse.name }), t("confirmation.move"), false)) return;
       setPending(true);
       setFeedback(null);
       try {
@@ -95,7 +96,7 @@ export function usePropertyManagementPagePart06(context: ReturnType<typeof usePr
     };
   const removeEquipment = async (id: string) => {
       const item = equipment.find((candidate) => candidate.id === id);
-      if (readOnly || pending || !item || !window.confirm(t("properties.deleteEquipmentConfirm", { name: item.name }))) return;
+      if (readOnly || pending || !item || !await confirmAction(t("properties.deleteEquipmentConfirm", { name: item.name }), t("confirmation.delete"))) return;
       setPending(true);
       try { await props.onDeleteEquipment(id); setFeedback({ kind: "success", text: t("properties.equipmentDeleted") }); }
       catch { setFeedback({ kind: "error", text: t("properties.equipmentDeleteFailed") }); }
@@ -150,7 +151,7 @@ export function usePropertyManagementPagePart06(context: ReturnType<typeof usePr
     };
   const removeEquipmentAttachment = async (attachment: EquipmentAttachment) => {
       if (!selectedEquipment || readOnly || equipmentResourcesBusy
-        || !window.confirm(t("properties.inventoryAttachmentDeleteConfirm", { name: attachment.name }))) return;
+        || !await confirmAction(t("properties.inventoryAttachmentDeleteConfirm", { name: attachment.name }), t("confirmation.delete"))) return;
       setEquipmentResourcesBusy(true);
       setEquipmentResourcesFeedback(null);
       try {
@@ -186,7 +187,7 @@ export function usePropertyManagementPagePart06(context: ReturnType<typeof usePr
     };
   const removeEquipmentLink = async (link: EquipmentLink) => {
       if (!selectedEquipment || readOnly || equipmentResourcesBusy
-        || !window.confirm(t("properties.inventoryLinkDeleteConfirm", { label: link.label }))) return;
+        || !await confirmAction(t("properties.inventoryLinkDeleteConfirm", { label: link.label }), t("confirmation.delete"))) return;
       setEquipmentResourcesBusy(true);
       setEquipmentResourcesFeedback(null);
       try {
@@ -225,6 +226,13 @@ export function usePropertyManagementPagePart06(context: ReturnType<typeof usePr
     };
   const unbindEndpoint = async () => {
       if (!selectedEquipment || !selectedTracking?.binding || !canManageAccess || pending) return;
+      if (!await confirmAction(
+        t("properties.trackingEndpointUnbindConfirm", {
+          endpoint: selectedTracking.endpoint.displayName,
+          equipment: selectedEquipment.name,
+        }),
+        t("properties.trackingEndpointUnbind"),
+      )) return;
       setPending(true);
       setFeedback(null);
       try {
@@ -238,8 +246,7 @@ export function usePropertyManagementPagePart06(context: ReturnType<typeof usePr
       }
     };
   const showEquipmentOnMap = (equipmentId: string) => {
-      setSelectedEquipmentId(equipmentId);
-      setMapItemSelection({ kind: "equipment", id: equipmentId });
+      context.changeMapAndInventoryEquipmentSelection(equipmentId);
       setPlacementEditing(false);
       setAssetPlacementEditing(false);
       setDrawing(false);
@@ -247,7 +254,7 @@ export function usePropertyManagementPagePart06(context: ReturnType<typeof usePr
       setTab("map");
     };
   const removeNote = async (id: string) => {
-      if (readOnly || pending || !window.confirm(t("properties.deleteNoteConfirm"))) return;
+      if (readOnly || pending || !await confirmAction(t("properties.deleteNoteConfirm"), t("confirmation.delete"))) return;
       setPending(true);
       setFeedback(null);
       try {
@@ -268,7 +275,10 @@ export function usePropertyManagementPagePart06(context: ReturnType<typeof usePr
       if (separator < 0) return null;
       const target = { kind: noteTarget.slice(0, separator), id: noteTarget.slice(separator + 1) };
       if (target.kind === "property") return target.id ? null : target;
-      if (target.kind === "house") return houses.some((house) => house.id === target.id) ? target : null;
+      if (target.kind === "house") {
+        const retainedHouseId = notes.find((note) => note.id === editingNoteId)?.houseId;
+        return houses.some((house) => house.id === target.id) || retainedHouseId === target.id ? target : null;
+      }
       if (target.kind === "area") return areas.some((area) => area.id === target.id) ? target : null;
       if (target.kind === "equipment") return equipment.some((item) => item.id === target.id) ? target : null;
       return null;

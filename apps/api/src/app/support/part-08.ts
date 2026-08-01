@@ -264,6 +264,7 @@ export interface CreateApiOptions {
   electricityPriceFetcher?: typeof fetch;
   cloudflareAccessFetcher?: typeof fetch;
   cloudflareSetupFetcher?: typeof fetch;
+  bugReportFetcher?: typeof fetch;
   cloudflareSetup?: CloudflareSetupService;
   stugubyFetcher?: typeof fetch;
   electricityEndpointResolver?: ElectricityEndpointResolver;

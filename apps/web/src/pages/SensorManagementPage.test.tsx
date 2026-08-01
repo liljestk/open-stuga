@@ -4,9 +4,10 @@ import userEvent from "@testing-library/user-event";
 
 import type { Sensor, TpLinkDiscoveredDevice } from "@climate-twin/contracts";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../api";
+import { confirmAction } from "../components/ConfirmationProvider";
 
 import { createDemoState } from "../domain";
 
@@ -15,6 +16,13 @@ import { I18nProvider } from "../i18n";
 import { SensorManagementPage } from "./SensorManagementPage";
 
 import { deferred, discoveredDevice, expectDescribedError, renderPage } from "./SensorManagementPageTestSupport";
+
+vi.mock("../components/ConfirmationProvider", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../components/ConfirmationProvider")>();
+  return { ...actual, confirmAction: vi.fn().mockResolvedValue(true) };
+});
+
+beforeEach(() => vi.mocked(confirmAction).mockReset().mockResolvedValue(true));
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -36,7 +44,6 @@ describe("sensor onboarding and management", () => {
 
     await user.click(screen.getByRole("button", { name: "Add sensor" }));
     expect(screen.getByRole("button", { name: /Laundry plug.*P110.*Energy endpoint.*tapo-plug-laundry.*Power 428\.5 W.*Total 12\.34 kWh.*online/i })).not.toBeNull();
-    expect(screen.getByText("TP-Link hub or one direct energy device")).not.toBeNull();
   });
 
   it("guides a non-technical user from a CSV file to a validated history import", async () => {
@@ -44,7 +51,7 @@ describe("sensor onboarding and management", () => {
     const onImportHistoricalData = vi.fn().mockResolvedValue({ submitted: 2, accepted: 2, ignoredDuplicates: 0 });
     const rendered = renderPage({ onImportHistoricalData });
 
-    await user.click(screen.getAllByText("Import history").find((item) => item.closest("summary"))!);
+    await user.click(screen.getByText("Manage sensors & connections"));
     await user.click(screen.getByRole("button", { name: "Import history" }));
     expect(await screen.findByRole("heading", { name: "Choose your file" })).not.toBeNull();
     const file = new File([
@@ -252,13 +259,17 @@ describe("sensor onboarding and management", () => {
     expect(screen.queryByText("tapo-child-sibling")).toBeNull();
   });
 
-  it("shows that automatic hub discovery is active even between list refreshes", () => {
+  it("keeps healthy automatic discovery available in a closed management disclosure", async () => {
+    const user = userEvent.setup();
     renderPage();
 
+    const management = screen.getByText("Manage sensors & connections").closest("details");
+    expect(management?.open).toBe(false);
+    await user.click(screen.getByText("Manage sensors & connections"));
     const status = screen.getByRole("region", { name: "Automatic sensor discovery status" });
-    expect(within(status).getByText("Looking for new TP-Link sensors")).not.toBeNull();
+    expect(within(status).getByText("Connected")).not.toBeNull();
     expect(within(status).getByText(/Automatic hub checks are active\. Last checked/)).not.toBeNull();
-    expect(within(status).getByRole("button", { name: "Refresh device list" })).not.toBeNull();
+    expect(within(status).getByRole("button", { name: "Refresh devices" })).not.toBeNull();
   });
 
   it("keeps owner-only integrations and imports out of an editable shared Home", async () => {
@@ -307,7 +318,7 @@ describe("sensor onboarding and management", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(document.activeElement).toBe(addButton));
 
-    await user.click(screen.getAllByText("Import history").find((item) => item.closest("summary"))!);
+    await user.click(screen.getByText("Manage sensors & connections"));
     const importButton = screen.getByRole("button", { name: "Import history" });
     await user.click(importButton);
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Choose your file" })));
@@ -497,13 +508,12 @@ describe("sensor onboarding and management", () => {
 
   it("permanently deletes a sensor only after confirmation", async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const { props } = renderPage();
 
     await user.click(screen.getByRole("button", { name: "View data for Living room" }));
     await user.click(screen.getByRole("button", { name: "Delete Living room" }));
 
-    expect(confirm).toHaveBeenCalledWith("Delete Living room permanently? Its sensor history and bindings will also be removed.");
+    expect(confirmAction).toHaveBeenCalledWith("Delete Living room permanently? Its sensor history and bindings will also be removed.", "Delete");
     await waitFor(() => expect(props.onDeleteSensor).toHaveBeenCalledWith("sensor-living"));
     expect(await screen.findByText("Living room and its sensor history were deleted.")).not.toBeNull();
   });
@@ -516,12 +526,12 @@ describe("sensor onboarding and management", () => {
       sensors: base.sensors.slice(0, 2).map((sensor) => ({ ...sensor, tags: [...sensor.tags, "seeded"] })),
     };
     const onDeleteSensor = vi.fn().mockResolvedValue(undefined);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     renderPage({ state, onDeleteSensor });
 
+    await user.click(screen.getByText("Manage sensors & connections"));
     await user.click(screen.getByRole("button", { name: "Remove demo sensors (2)" }));
 
-    expect(confirm).toHaveBeenCalledWith("Remove all 2 demo sensors? Their generated history and bindings will be permanently deleted.");
+    expect(confirmAction).toHaveBeenCalledWith("Remove all 2 demo sensors? Their generated history and bindings will be permanently deleted.", "Remove demo sensors");
     await waitFor(() => expect(onDeleteSensor).toHaveBeenCalledTimes(2));
     expect(onDeleteSensor.mock.calls.map(([sensorId]) => sensorId).sort()).toEqual(["sensor-kitchen", "sensor-living"]);
     expect(await screen.findByText("2 demo sensors and their generated history were removed.")).not.toBeNull();
@@ -539,7 +549,6 @@ describe("sensor onboarding and management", () => {
       },
     };
     const onDeleteSensor = vi.fn().mockResolvedValue(undefined);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     renderPage({ state, integration: state.integration, onDeleteSensor });
 
     await user.click(screen.getByRole("button", { name: "Add sensor" }));
@@ -551,7 +560,7 @@ describe("sensor onboarding and management", () => {
     await user.click(within(review).getByRole("button", { name: "Add sensor" }));
 
     await waitFor(() => expect(onDeleteSensor).toHaveBeenCalledTimes(2));
-    expect(confirm).toHaveBeenCalledWith("Remove all 2 demo sensors? Their generated history and bindings will be permanently deleted.");
+    expect(confirmAction).toHaveBeenCalledWith("Remove all 2 demo sensors? Their generated history and bindings will be permanently deleted.", "Remove demo sensors");
     expect(await screen.findByText("Office window was added and 2 demo sensors were removed.")).not.toBeNull();
   });
 
@@ -563,7 +572,6 @@ describe("sensor onboarding and management", () => {
       sensors: base.sensors.slice(0, 2).map((sensor) => ({ ...sensor, tags: [...sensor.tags, "seeded"] })),
     };
     const onDeleteSensor = vi.fn().mockResolvedValue(undefined);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     renderPage({ state, integration: state.integration, onDeleteSensor });
 
     await user.click(screen.getByRole("button", { name: "Add sensor" }));
@@ -575,7 +583,7 @@ describe("sensor onboarding and management", () => {
     await user.click(within(review).getByRole("button", { name: "Add sensor" }));
 
     expect(await screen.findByText("Office window was added.")).not.toBeNull();
-    expect(confirm).not.toHaveBeenCalled();
+    expect(confirmAction).not.toHaveBeenCalled();
     expect(onDeleteSensor).not.toHaveBeenCalled();
   });
 });

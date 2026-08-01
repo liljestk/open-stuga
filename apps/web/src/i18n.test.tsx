@@ -1,7 +1,18 @@
 import ts from "typescript";
 import { act, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { I18nProvider, SUPPORTED_LOCALES, translationCatalogs, useI18n, type TranslationKey } from "./i18n";
+import { useEffect } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { I18nProvider, SUPPORTED_LOCALES, useI18n, type TranslationKey } from "./i18n";
+import { en } from "./locales/catalogs/en";
+import { fiOverrides } from "./locales/catalogs/fi-overrides";
+import { fiSupplement } from "./locales/catalogs/fi-supplement";
+import { svOverrides } from "./locales/catalogs/sv";
+
+const translationCatalogs = {
+  en,
+  fi: { ...fiOverrides, ...fiSupplement } as Record<TranslationKey, string>,
+  sv: svOverrides,
+};
 
 const uiSources = import.meta.glob(
   [
@@ -49,9 +60,24 @@ function userFacingLiterals(fileName: string, source: string): string[] {
   return literals;
 }
 
-function LocaleProbe() {
+function LocaleProbe({ onMount, onUnmount }: Readonly<{
+  onMount?: () => void;
+  onUnmount?: () => void;
+}> = {}) {
   const { locale, setLocale, t } = useI18n();
-  return <><span>{locale}:{t("common.save")}</span><button type="button" onClick={() => setLocale("sv")}>switch</button></>;
+  useEffect(() => {
+    onMount?.();
+    return () => onUnmount?.();
+  }, [onMount, onUnmount]);
+  return <><span>{locale}:{t("common.save")}</span><button type="button" onClick={() => setLocale("fi")}>Finnish</button><button type="button" onClick={() => setLocale("sv")}>Swedish</button></>;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 afterEach(() => {
@@ -102,15 +128,120 @@ describe("localization coverage", () => {
     });
   });
 
-  it("loads and persists Swedish without falling back to English", () => {
+  it("keeps the primary setup journey vendor-neutral in every locale", () => {
+    for (const locale of SUPPORTED_LOCALES) {
+      const setupCopy = [
+        translationCatalogs[locale]["setup.step1body"],
+        translationCatalogs[locale]["setup.step2body"],
+        translationCatalogs[locale]["setup.step3body"],
+      ].join(" ");
+      expect(setupCopy, locale).not.toMatch(/TP-Link|Home Assistant|H100|H200|Tapo/);
+    }
+  });
+
+  it("keeps unknown monitoring and Property-wide optimizer scope explicit in every locale", () => {
+    expect(SUPPORTED_LOCALES.map((locale) => ({
+      locale,
+      monitoring: translationCatalogs[locale]["overview.monitoringUnknown"],
+      homes: translationCatalogs[locale]["overview.unknownHomes"],
+      optimizer: translationCatalogs[locale]["energy.optimizer.propertyScope"],
+    }))).toEqual([
+      { locale: "en", monitoring: "Monitoring not confirmed", homes: "Monitoring is not confirmed for {count} homes", optimizer: "Property scope · {property}" },
+      { locale: "fi", monitoring: "Seurantaa ei ole vahvistettu", homes: "{count} kodin seurantaa ei ole vahvistettu", optimizer: "Kiinteistötaso · {property}" },
+      { locale: "sv", monitoring: "Övervakning inte bekräftad", homes: "Övervakningen är inte bekräftad för {count} hem", optimizer: "Fastighetsnivå · {property}" },
+    ]);
+  });
+
+  it("loads and persists Swedish without falling back to English", async () => {
     localStorage.setItem("climate-twin-locale", "sv");
     render(<I18nProvider><LocaleProbe /></I18nProvider>);
-    expect(screen.getByText("sv:Spara")).not.toBeNull();
+    expect(await screen.findByText("sv:Spara")).not.toBeNull();
 
     localStorage.setItem("climate-twin-locale", "en");
-    act(() => screen.getByRole("button", { name: "switch" }).click());
+    act(() => screen.getByRole("button", { name: "Swedish" }).click());
+    expect(await screen.findByText("sv:Spara")).not.toBeNull();
     expect(localStorage.getItem("climate-twin-locale")).toBe("sv");
     expect(document.documentElement.lang).toBe("sv");
+  });
+
+  it("preserves direct child DOM when the initial catalog is immediately available", () => {
+    localStorage.setItem("climate-twin-locale", "en");
+    const { container } = render(<I18nProvider><LocaleProbe /></I18nProvider>);
+
+    expect(screen.getByText("en:Save").parentElement).toBe(container);
+  });
+
+  it("starts child effects while keeping a preferred non-English locale hidden until its catalog resolves", async () => {
+    localStorage.setItem("climate-twin-locale", "fi");
+    const request = deferred<Record<TranslationKey, string>>();
+    const catalogLoader = vi.fn(() => request.promise);
+    const onMount = vi.fn();
+    const onUnmount = vi.fn();
+
+    render(<I18nProvider catalogLoader={catalogLoader}><LocaleProbe onMount={onMount} onUnmount={onUnmount} /></I18nProvider>);
+
+    expect(catalogLoader).toHaveBeenCalledOnce();
+    expect(catalogLoader).toHaveBeenCalledWith("fi");
+    expect(onMount).toHaveBeenCalledOnce();
+    expect(onUnmount).not.toHaveBeenCalled();
+    const mountedProbe = screen.getByText("en:Save");
+    expect(mountedProbe.parentElement).toHaveAttribute("aria-hidden", "true");
+    expect(mountedProbe.parentElement).toHaveAttribute("inert");
+    expect(screen.queryByRole("button", { name: "Finnish" })).toBeNull();
+    expect(screen.getByRole("status")).toHaveAttribute("aria-busy", "true");
+
+    await act(async () => {
+      request.resolve(translationCatalogs.fi);
+      await request.promise;
+    });
+    expect(screen.getByText("fi:Tallenna")).toBe(mountedProbe);
+    expect(screen.getByRole("button", { name: "Finnish" })).not.toBeNull();
+    expect(document.documentElement.lang).toBe("fi");
+    expect(mountedProbe.parentElement).not.toHaveAttribute("aria-hidden");
+    expect(mountedProbe.parentElement).not.toHaveAttribute("inert");
+    expect(onMount).toHaveBeenCalledOnce();
+    expect(onUnmount).not.toHaveBeenCalled();
+  });
+
+  it("ignores a stale locale load that finishes after a newer selection", async () => {
+    localStorage.setItem("climate-twin-locale", "en");
+    const finnish = deferred<Record<TranslationKey, string>>();
+    const swedish = deferred<Record<TranslationKey, string>>();
+    const catalogLoader = vi.fn((locale: typeof SUPPORTED_LOCALES[number]) => {
+      if (locale === "fi") return finnish.promise;
+      if (locale === "sv") return swedish.promise;
+      return Promise.resolve(translationCatalogs.en);
+    });
+    render(<I18nProvider catalogLoader={catalogLoader}><LocaleProbe /></I18nProvider>);
+
+    act(() => screen.getByRole("button", { name: "Finnish" }).click());
+    act(() => screen.getByRole("button", { name: "Swedish" }).click());
+    expect(catalogLoader.mock.calls.map(([locale]) => locale)).toEqual(["fi", "sv"]);
+    await act(async () => {
+      swedish.resolve(translationCatalogs.sv);
+      await swedish.promise;
+    });
+    expect(screen.getByText("sv:Spara")).not.toBeNull();
+
+    await act(async () => {
+      finnish.resolve(translationCatalogs.fi);
+      await finnish.promise;
+    });
+    expect(screen.getByText("sv:Spara")).not.toBeNull();
+    expect(localStorage.getItem("climate-twin-locale")).toBe("sv");
+    expect(document.documentElement.lang).toBe("sv");
+  });
+
+  it("starts when browser privacy settings block persistent storage", () => {
+    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("Storage denied", "SecurityError");
+    });
+    try {
+      render(<I18nProvider><LocaleProbe /></I18nProvider>);
+      expect(screen.getByText("en:Save")).not.toBeNull();
+    } finally {
+      getItem.mockRestore();
+    }
   });
 
   it("keeps prose and accessibility copy out of UI components", () => {

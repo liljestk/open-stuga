@@ -83,6 +83,7 @@ export function usePropertyManagementPagePart02(context: ReturnType<typeof usePr
   const [noteKind, setNoteKind] = useState<PropertyNote["kind"]>("note");
   const [noteTarget, setNoteTarget] = useState("property:");
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [noteFormOpen, setNoteFormOpen] = useState(false);
   const [maintenanceTitle, setMaintenanceTitle] = useState("");
   const [maintenanceHouseId, setMaintenanceHouseId] = useState("");
   const [maintenanceEquipmentId, setMaintenanceEquipmentId] = useState("");
@@ -108,6 +109,9 @@ export function usePropertyManagementPagePart02(context: ReturnType<typeof usePr
   const liveMapEnabled = trackingEnabled
       && trackingCapabilities?.flags["tracking.liveMap.enabled"] === true;
   const selectedEquipment = equipment.find((item) => item.id === selectedEquipmentId) ?? null;
+  const mapSelectedEquipment = mapItemSelection?.kind === "equipment"
+      ? equipment.find((item) => item.id === mapItemSelection.id) ?? null
+      : null;
   const selectedEquipmentResourceId = selectedEquipment?.id ?? null;
   const selectedTracking = selectedEquipment ? trackingByEquipmentId.get(selectedEquipment.id) ?? null : null;
   const sharedMembers = useMemo(() => (
@@ -259,5 +263,5 @@ export function usePropertyManagementPagePart02(context: ReturnType<typeof usePr
       && (!normalizedMapItemQuery || item.searchText.toLocaleLowerCase().includes(normalizedMapItemQuery))
     )), [mapCatalogItems, mapItemFilter, normalizedMapItemQuery]);
   const visibleMapCatalogItems = matchingMapCatalogItems.slice(0, mapItemLimit);
-  return Object.assign(context, { equipmentDocumentInputRef, selectedEndpointId, setSelectedEndpointId, noteText, setNoteText, noteKind, setNoteKind, noteTarget, setNoteTarget, editingNoteId, setEditingNoteId, maintenanceTitle, setMaintenanceTitle, maintenanceHouseId, setMaintenanceHouseId, maintenanceEquipmentId, setMaintenanceEquipmentId, placementHouseId, setPlacementHouseId, placementLatitude, setPlacementLatitude, placementLongitude, setPlacementLongitude, placementWidth, setPlacementWidth, placementOrientation, setPlacementOrientation, placementEditing, setPlacementEditing, placementAssetId, setPlacementAssetId, assetPlacementEditing, setAssetPlacementEditing, assetDraftLocation, setAssetDraftLocation, assetLatitudeInput, setAssetLatitudeInput, assetLongitudeInput, setAssetLongitudeInput, trackingStates, trackingByEquipmentId, trackingEnabled, liveMapEnabled, selectedEquipment, selectedEquipmentResourceId, selectedTracking, sharedMembers, assignedEndpointIds, availableTrackingEndpoints, equipmentLatitudeValue, equipmentLongitudeValue, equipmentPinEmpty, equipmentPinValid, equipmentDraftMapLocation, equipmentPinMapItem, updateEquipmentPinFromMap, equipmentLocationLabel, normalizedStructureQuery, sidebarHouses, sidebarAreas, mapCatalogItems, normalizedMapItemQuery, matchingMapCatalogItems, visibleMapCatalogItems });
+  return Object.assign(context, { equipmentDocumentInputRef, selectedEndpointId, setSelectedEndpointId, noteText, setNoteText, noteKind, setNoteKind, noteTarget, setNoteTarget, editingNoteId, setEditingNoteId, noteFormOpen, setNoteFormOpen, maintenanceTitle, setMaintenanceTitle, maintenanceHouseId, setMaintenanceHouseId, maintenanceEquipmentId, setMaintenanceEquipmentId, placementHouseId, setPlacementHouseId, placementLatitude, setPlacementLatitude, placementLongitude, setPlacementLongitude, placementWidth, setPlacementWidth, placementOrientation, setPlacementOrientation, placementEditing, setPlacementEditing, placementAssetId, setPlacementAssetId, assetPlacementEditing, setAssetPlacementEditing, assetDraftLocation, setAssetDraftLocation, assetLatitudeInput, setAssetLatitudeInput, assetLongitudeInput, setAssetLongitudeInput, trackingStates, trackingByEquipmentId, trackingEnabled, liveMapEnabled, selectedEquipment, mapSelectedEquipment, selectedEquipmentResourceId, selectedTracking, sharedMembers, assignedEndpointIds, availableTrackingEndpoints, equipmentLatitudeValue, equipmentLongitudeValue, equipmentPinEmpty, equipmentPinValid, equipmentDraftMapLocation, equipmentPinMapItem, updateEquipmentPinFromMap, equipmentLocationLabel, normalizedStructureQuery, sidebarHouses, sidebarAreas, mapCatalogItems, normalizedMapItemQuery, matchingMapCatalogItems, visibleMapCatalogItems });
 }

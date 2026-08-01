@@ -69,6 +69,12 @@ function renderDashboard(
   };
 }
 
+function openViewOptions() {
+  const details = document.querySelector<HTMLDetailsElement>(".twin-view-options")!;
+  if (!details.open) fireEvent.click(details.querySelector("summary")!);
+  return details;
+}
+
 describe("TwinDashboard full-page home view", () => {
   it.each([
     ["plan", "Plan"],
@@ -78,18 +84,26 @@ describe("TwinDashboard full-page home view", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
     expect((await screen.findByRole("button", { name: activeViewLabel })).getAttribute("aria-pressed")).toBe("true");
 
+    openViewOptions();
     const enterButton = screen.getByRole("button", { name: "View full page" });
     const panel = enterButton.closest(".twin-panel");
+    const disclosure = enterButton.closest("details")!;
+    const disclosureSummary = disclosure.querySelector<HTMLElement>("summary")!;
     fireEvent.click(enterButton);
 
     expect(panel?.classList.contains("is-full-page")).toBe(true);
     expect(document.body.style.overflow).toBe("hidden");
     expect(screen.getByRole("button", { name: "Exit full page" }).getAttribute("aria-pressed")).toBe("true");
 
+    fireEvent.keyDown(enterButton, { key: "Escape" });
+    expect(disclosure.open).toBe(false);
+    expect(panel?.classList.contains("is-full-page")).toBe(true);
+
     fireEvent.keyDown(window, { key: "Escape" });
     expect(panel?.classList.contains("is-full-page")).toBe(false);
     expect(document.body.style.overflow).toBe("");
     expect(screen.getByRole("button", { name: "View full page" }).getAttribute("aria-pressed")).toBe("false");
+    await waitFor(() => expect(document.activeElement).toBe(disclosureSummary));
   });
 });
 
@@ -110,6 +124,7 @@ describe("TwinDashboard plug map layer", () => {
     };
     const view = renderDashboard(state, "demo", false, "plan", plug.id);
     fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    openViewOptions();
 
     const marker = await waitFor(() => {
       const candidate = view.container.querySelector(".sensor-marker.energy-device");
@@ -144,6 +159,7 @@ describe("TwinDashboard climate-sensor map layer", () => {
 
     const plan = renderDashboard(createDemoState(), "demo", false, "plan");
     fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    openViewOptions();
     await waitFor(() => {
       expect(plan.container.querySelector(".sensor-marker:not(.energy-device)")).not.toBeNull();
       expect(plan.container.querySelector(".heat-cloud-lobe")).not.toBeNull();
@@ -159,6 +175,7 @@ describe("TwinDashboard climate-sensor map layer", () => {
 
     const building = renderDashboard(createDemoState(), "demo", false, "isometric");
     fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    openViewOptions();
     const buildingLayerButton = await screen.findByRole("button", { name: "Climate sensors" });
     expect(buildingLayerButton.getAttribute("aria-pressed")).toBe("false");
     await waitFor(() => {
@@ -194,6 +211,7 @@ describe("TwinDashboard opening-status layer", () => {
 
     const first = renderDashboard(state, "demo", false, "isometric");
     fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    openViewOptions();
     const layerButton = await screen.findByRole("button", { name: "Opening status" });
     expect(first.container.querySelector(".building-opening-state-badge")).not.toBeNull();
     expect(first.container.querySelector(".building-plan-element.opening-control")).not.toBeNull();
@@ -206,7 +224,9 @@ describe("TwinDashboard opening-status layer", () => {
     first.unmount();
 
     const second = renderDashboard(state, "demo", false, "isometric");
-    fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    const liveViewButton = screen.queryByRole("button", { name: "Open live home view" });
+    if (liveViewButton) fireEvent.click(liveViewButton);
+    openViewOptions();
     expect((await screen.findByRole("button", { name: "Opening status" })).getAttribute("aria-pressed")).toBe("false");
     expect(second.container.querySelector(".building-opening-state-badge")).toBeNull();
     second.unmount();
@@ -252,6 +272,7 @@ describe("TwinDashboard wind display controls", () => {
     try {
       const first = renderDashboard(state);
       fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+      openViewOptions();
       const animationButton = await screen.findByRole("button", { name: "Animations" });
       const detailsButton = screen.getByRole("button", { name: "Wind details" });
       await waitFor(() => expect(first.container.querySelector(".outdoor-wind-streak")).not.toBeNull());
@@ -273,6 +294,7 @@ describe("TwinDashboard wind display controls", () => {
 
       const second = renderDashboard(state);
       fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+      openViewOptions();
       expect((await screen.findByRole("button", { name: "Animations" })).getAttribute("aria-pressed")).toBe("false");
       expect(screen.getByRole("button", { name: "Wind details" }).getAttribute("aria-pressed")).toBe("false");
       second.unmount();
@@ -387,6 +409,7 @@ describe("TwinDashboard room geometry", () => {
     const view = renderDashboard(state);
 
     fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    openViewOptions();
     fireEvent.click(await screen.findByRole("button", { name: "Edit layout" }));
     fireEvent.pointerDown(await screen.findByRole("button", { name: `Room: ${room.name}` }));
     const roomName = screen.getByLabelText("Name");
@@ -408,8 +431,34 @@ describe("TwinDashboard room geometry", () => {
 });
 
 describe("TwinDashboard progressive disclosure", () => {
+  it("keeps core navigation visible and moves display controls behind View options", () => {
+    const view = renderDashboard(createDemoState());
+    fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+
+    const toolbar = view.container.querySelector<HTMLElement>(".twin-toolbar")!;
+    const options = toolbar.querySelector<HTMLDetailsElement>(".twin-view-options")!;
+    const optionsSummary = options.querySelector<HTMLElement>("summary")!;
+    expect(options.open).toBe(false);
+    expect(within(toolbar).getByRole("button", { name: "Plan" })).not.toBeNull();
+    expect(within(toolbar).getByRole("button", { name: "3D building" })).not.toBeNull();
+    expect(within(toolbar).getByRole("button", { name: "Hide live home view" })).not.toBeNull();
+    expect(options.contains(within(toolbar).getByRole("button", { name: "Climate sensors" }))).toBe(true);
+
+    fireEvent.click(optionsSummary);
+    expect(options.open).toBe(true);
+    expect(within(toolbar).getByRole("button", { name: "Climate sensors" })).not.toBeNull();
+    expect(within(toolbar).getByRole("button", { name: "View full page" })).not.toBeNull();
+    expect(within(toolbar).getByRole("button", { name: "Edit layout" })).not.toBeNull();
+
+    fireEvent.keyDown(options, { key: "Escape" });
+    expect(options.open).toBe(false);
+    expect(document.activeElement).toBe(optionsSummary);
+  });
+
   it("keeps Guest dashboards observational", () => {
     renderDashboard(createDemoState(), "demo", true);
+    fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    openViewOptions();
     expect(screen.queryByRole("button", { name: "Edit layout" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Finish setup" })).toBeNull();
 
@@ -422,24 +471,46 @@ describe("TwinDashboard progressive disclosure", () => {
   it("leads with Home Pulse and keeps optional Home utilities closed", () => {
     const view = renderDashboard(createDemoState());
     const decisionLayer = view.container.querySelector(".decision-layer")!;
-    const liveLauncher = view.container.querySelector(".home-live-launcher")!;
-    const secondary = view.container.querySelector(".home-secondary-grid")!;
+    const currentState = view.container.querySelector(".home-now")!;
+    const explore = view.container.querySelector<HTMLDetailsElement>(".home-explore-disclosure")!;
 
-    expect(decisionLayer.compareDocumentPosition(liveLauncher) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
-    expect(liveLauncher.compareDocumentPosition(secondary) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(decisionLayer.compareDocumentPosition(currentState) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(currentState.compareDocumentPosition(explore) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(view.container.querySelector(".twin-panel")).toBeNull();
     expect(screen.getByRole("button", { name: "Open live home view" }).getAttribute("aria-expanded")).toBe("false");
+    expect(view.container.querySelector(".home-live-launcher")).toBeNull();
+    expect(view.container.querySelector(".home-quick-links")).toBeNull();
+    expect(explore.open).toBe(false);
+    expect(currentState.querySelectorAll(".primary-button")).toHaveLength(1);
 
     const observation = view.container.querySelector<HTMLDetailsElement>(".observation-composer.collapsible");
     const operations = view.container.querySelector<HTMLDetailsElement>(".home-operations-disclosure")!;
+    const history = view.container.querySelector(".history-events-workspace")!;
+    const tools = view.container.querySelector(".home-tools-disclosure")!;
     expect(observation).toBeNull();
+    expect(explore.contains(operations)).toBe(true);
+    expect(explore.contains(history)).toBe(true);
+    expect(explore.contains(tools)).toBe(true);
     expect(operations.open).toBe(false);
     expect(within(operations).queryByRole("button", { name: "View all activity" })).toBeNull();
 
+    fireEvent.click(within(explore).getByText("Explore this home", { selector: "strong" }));
+    expect(explore.open).toBe(true);
     fireEvent.click(within(operations).getByText("Activity and maintenance overview", { selector: "strong" }));
     expect(operations.open).toBe(true);
     expect(within(operations).getByRole("heading", { name: "Recent activity" })).not.toBeNull();
     expect(within(operations).getByRole("heading", { name: "Upcoming maintenance" })).not.toBeNull();
+  });
+
+  it("reveals the hidden live map when a room is selected from the decision view", () => {
+    const view = renderDashboard(createDemoState());
+    expect(view.container.querySelector(".twin-panel")).toBeNull();
+
+    fireEvent.click(screen.getByText("Explore this home", { selector: "strong" }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Open .+\. Status:/ })[0]!);
+
+    expect(view.container.querySelector("#home-live-map.twin-panel")).not.toBeNull();
+    expect(view.onSensorSelect).toHaveBeenLastCalledWith(null);
   });
 
   it("keeps no-data recovery in Home Pulse and removes duplicate home-level controls", () => {
@@ -456,7 +527,9 @@ describe("TwinDashboard progressive disclosure", () => {
     expect(view.onOpenConnections).toHaveBeenCalledWith(demo.houses[0]!.id);
 
     expect(screen.queryByLabelText("House")).toBeNull();
+    fireEvent.click(screen.getByText("Explore this home", { selector: "strong" }));
     fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    openViewOptions();
     const floorPicker = screen.getByLabelText("Floor");
     expect(floorPicker.closest("header")).toBeNull();
     expect(floorPicker.closest(".twin-toolbar")).not.toBeNull();
@@ -464,9 +537,10 @@ describe("TwinDashboard progressive disclosure", () => {
     expect(screen.getAllByRole("button", { name: "Edit layout" })).toHaveLength(1);
   });
 
-  it("labels the alert-only summary independently from the broader Home Pulse", () => {
+  it("keeps alert status in Home Pulse instead of duplicating it in the current reading", () => {
     const view = renderDashboard(createDemoState());
-    expect(view.container.querySelector('[data-summary-scope="threshold-alerts"] small')?.textContent).toBe("Open events");
+    expect(view.container.querySelector('[data-summary-scope="threshold-alerts"]')).toBeNull();
+    expect(view.container.querySelector(".home-pulse")).not.toBeNull();
   });
 });
 
@@ -566,7 +640,7 @@ describe("TwinDashboard replay timing", () => {
     }
   });
 
-  it("preloads climate history and seeks a detected event in its metric, floor, and sensor context", async () => {
+  it("loads broad climate history only when replay is opened and seeks a detected event in context", async () => {
     const demo = createDemoState();
     const selectedSensor = demo.sensors.find((sensor) => sensor.id === "sensor-living")!;
     const eventSensor = demo.sensors.find((sensor) => sensor.id === "sensor-bathroom")!;
@@ -595,15 +669,25 @@ describe("TwinDashboard replay timing", () => {
       },
     };
     const view = renderDashboard(state);
-    const expectedClimateLoads = demo.sensors
+    const expectedReplayLoads = demo.sensors
       .filter((sensor) => sensor.houseId === demo.houses[0]!.id && sensor.enabled)
-      .flatMap((sensor) => ["temperature", "humidity"].map((metric) => `${sensor.id}:${metric}`));
-    await waitFor(() => {
-      const loaded = new Set(view.onLoadSeries.mock.calls.map(([sensorId, metric]) => `${sensorId}:${metric}`));
-      expect([...loaded]).toEqual(expect.arrayContaining(expectedClimateLoads));
-    });
+      .flatMap((sensor) => demo.measurementDefinitions.map((definition) => `${sensor.id}:${definition.id}`));
+    await waitFor(() => expect(view.onLoadSeries).toHaveBeenCalledWith(
+      selectedSensor.id,
+      "temperature",
+      "24h",
+      true,
+    ));
+    expect(new Set(view.onLoadSeries.mock.calls.map(([sensorId, metric]) => `${sensorId}:${metric}`)))
+      .toEqual(new Set([`${selectedSensor.id}:temperature`]));
+    expect(view.onLoadSeries).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Open history and replay" }));
+    await waitFor(() => {
+      const loaded = new Set(view.onLoadSeries.mock.calls.map(([sensorId, metric]) => `${sensorId}:${metric}`));
+      expect(loaded).toEqual(new Set(expectedReplayLoads));
+    });
+    expect(view.onLoadSeries).toHaveBeenCalledTimes(expectedReplayLoads.length);
     const events = screen.getByLabelText("Auto-tagged events");
     fireEvent.click(within(events).getByRole("button", { name: /Humidity fell 14 percentage points in Bathroom/ }));
 
@@ -631,6 +715,8 @@ describe("TwinDashboard replay timing", () => {
       slider = screen.getByRole("slider", { name: /Replay time/ }) as HTMLInputElement;
       expect(screen.getByRole("button", { name: "Pause replay" })).not.toBeNull();
       expect(screen.getByRole("button", { name: "Return to live" })).not.toBeNull();
+      openViewOptions();
+      expect(screen.queryByRole("button", { name: "Edit layout" })).toBeNull();
       expect(historyEvents.contains(screen.getByRole("region", { name: "Replay" }))).toBe(true);
       expect(tools.contains(screen.getByRole("region", { name: "Replay" }))).toBe(false);
       expect(Number(slider.value)).toBe(minimum);

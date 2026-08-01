@@ -201,6 +201,11 @@ export function configureApiPart07(context: ReturnType<typeof configureApiPart06
         context.cloudflareSetupJsonParser(request, response, next);
         return;
       }
+      if (request.path === `${context.prefix}/bug-reports`) {
+        response.locals.accountBodyLimit = "32 KiB";
+        context.memberJsonParser(request, response, next);
+        return;
+      }
       if (request.path.startsWith(`${context.prefix}/tenant/members`)
         || request.path.startsWith(`${context.prefix}/internal/tapo-history/`)) {
         response.locals.accountBodyLimit = "32 KiB";
@@ -232,6 +237,7 @@ export function configureApiPart07(context: ReturnType<typeof configureApiPart06
         || request.path === `${context.v2Prefix}/measurements`
         || request.path === `${context.v2Prefix}/measurements/import`
         || request.path === `${context.prefix}/tracking/evidence:batch`
+        || request.path === `${context.prefix}/bug-reports`
         || isTrackingObserverHeartbeatPath(request.path, context.prefix)
         || request.path.startsWith(`${context.prefix}/mock/`)
         || request.path === `${context.prefix}/replay`;

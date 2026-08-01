@@ -121,6 +121,7 @@ declare module "../core.js" {
     resolveSensorDataGap(sensorId: string, metric: string, source: SensorDataGapSource, endedAt?: string): SensorDataGapRecord | null;
     sensorDataGap(id: number): SensorDataGapRecord | null;
     listSensorDataGaps(sensorId?: string, limit?: number): SensorDataGapRecord[];
+    listHouseSensorDataGaps(houseId: string, sensorId?: string, limit?: number): SensorDataGapRecord[];
     recoverableSensorDataGaps(now?: string, limit?: number): SensorDataGapRecord[];
     claimSensorDataGapRecovery(id: number, attemptedAt: string, leaseUntil: string): SensorDataGapRecord | null;
     updateSensorDataGapRecovery(id: number, state: Exclude<SensorDataGapState, "open" | "pending" | "running">, recoveredPoints: number, attemptedAt: string, error: string | null, nextAttemptAt?: string | null): void;
@@ -144,6 +145,7 @@ declare module "../core.js" {
     resolveSensorDataGap(sensorId: string, metric: string, source: SensorDataGapSource, endedAt?: string): SensorDataGapRecord | null;
     sensorDataGap(id: number): SensorDataGapRecord | null;
     listSensorDataGaps(sensorId?: string, limit?: number): SensorDataGapRecord[];
+    listHouseSensorDataGaps(houseId: string, sensorId?: string, limit?: number): SensorDataGapRecord[];
     recoverableSensorDataGaps(now?: string, limit?: number): SensorDataGapRecord[];
     claimSensorDataGapRecovery(id: number, attemptedAt: string, leaseUntil: string): SensorDataGapRecord | null;
     updateSensorDataGapRecovery(id: number, state: Exclude<SensorDataGapState, "open" | "pending" | "running">, recoveredPoints: number, attemptedAt: string, error: string | null, nextAttemptAt?: string | null): void;

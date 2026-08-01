@@ -35,6 +35,7 @@ import {
   X,
 } from "lucide-react";
 import { floorMetersPerPlanUnit } from "@climate-twin/contracts";
+import { confirmAction } from "../../components/ConfirmationProvider";
 import type {
   AreaEquipment,
   AreaEquipmentInput,
@@ -145,7 +146,7 @@ export function usePropertyManagementPagePart05(context: ReturnType<typeof usePr
         };
         const destinationPropertyId = areaDestinationPropertyId || property.id;
         if (selectedArea && destinationPropertyId !== selectedArea.propertyId
-          && !window.confirm(t("properties.moveAreaConfirm", { name: selectedArea.name }))) return;
+          && !await confirmAction(t("properties.moveAreaConfirm", { name: selectedArea.name }), t("confirmation.move"), false)) return;
         const saved = isNewArea
           ? await props.onCreateArea({ propertyId: property.id, ...common })
           : selectedArea ? await props.onUpdateArea(selectedArea.id, { ...common, propertyId: destinationPropertyId }) : null;
@@ -156,7 +157,7 @@ export function usePropertyManagementPagePart05(context: ReturnType<typeof usePr
           setIsNewFixedAsset(false);
           setDrawing(false);
           setPlacementAssetId(saved.id);
-          setMapItemSelection(editingFixedAsset ? { kind: "asset", id: saved.id } : null);
+          context.changeMapItemSelection(editingFixedAsset ? { kind: "asset", id: saved.id } : null);
           setAssetPlacementEditing(false);
           setAssetDraftLocation(saved.location ? { ...saved.location } : null);
           setFeedback({ kind: "success", text: t("properties.areaSaved") });
@@ -165,13 +166,13 @@ export function usePropertyManagementPagePart05(context: ReturnType<typeof usePr
       finally { setPending(false); }
     };
   const removeArea = async () => {
-      if (!selectedArea || readOnly || pending || !window.confirm(t("properties.deleteAreaConfirm", { name: selectedArea.name }))) return;
+      if (!selectedArea || readOnly || pending || !await confirmAction(t("properties.deleteAreaConfirm", { name: selectedArea.name }), t("confirmation.delete"))) return;
       setPending(true);
       try {
         await props.onDeleteArea(selectedArea.id);
         setSelectedAreaId(null);
         setPlacementAssetId("");
-        setMapItemSelection(null);
+        context.changeMapItemSelection(null);
         setAssetPlacementEditing(false);
         setAreaForm(emptyAreaDraft());
         setCoordinateInput("");
@@ -221,7 +222,7 @@ export function usePropertyManagementPagePart05(context: ReturnType<typeof usePr
     };
   const removeProperty = async () => {
       if (!property || (property.stuguby && property.stuguby.syncState !== "detached")
-        || readOnly || pending || !window.confirm(t("properties.deletePropertyConfirm", { name: property.name }))) return;
+        || readOnly || pending || !await confirmAction(t("properties.deletePropertyConfirm", { name: property.name }), t("confirmation.delete"))) return;
       setPending(true);
       setFeedback(null);
       try {
@@ -257,7 +258,7 @@ export function usePropertyManagementPagePart05(context: ReturnType<typeof usePr
       setEquipmentLatitude(item.location ? String(item.location.latitude) : "");
       setEquipmentLongitude(item.location ? String(item.location.longitude) : "");
       setEquipmentPinMapOpen(false);
-      setSelectedEquipmentId(item.id);
+      context.changeSelectedEquipmentId(item.id);
       setInventoryFormOpen(true);
       setTab("inventory");
     };
@@ -290,9 +291,9 @@ export function usePropertyManagementPagePart05(context: ReturnType<typeof usePr
         if (editingEquipmentId) {
           const currentEquipment = state.areaEquipment.find((item) => item.id === editingEquipmentId);
           if (currentEquipment && equipmentPlacement(currentEquipment) !== equipmentDestination
-            && !window.confirm(t("properties.moveEquipmentConfirm", { name: currentEquipment.name }))) return;
+            && !await confirmAction(t("properties.moveEquipmentConfirm", { name: currentEquipment.name }), t("confirmation.move"), false)) return;
           const saved = await props.onUpdateEquipment(editingEquipmentId, common);
-          setSelectedEquipmentId(editingEquipmentId);
+          context.changeSelectedEquipmentId(editingEquipmentId);
           if (saved.propertyId !== property.id) setPropertyId(saved.propertyId);
         }
         else {
@@ -308,7 +309,7 @@ export function usePropertyManagementPagePart05(context: ReturnType<typeof usePr
             status: common.status,
             notes: common.notes,
           });
-          setSelectedEquipmentId(created.id);
+          context.changeSelectedEquipmentId(created.id);
         }
         if (equipmentDestination.startsWith("area:")) setSelectedAreaId(equipmentDestination.slice(5));
         clearEquipmentDraft(tab === "map" && selectedArea ? `area:${selectedArea.id}` : "unassigned");

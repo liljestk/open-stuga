@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState, type Ref } from "react";
 import { useHomeMonitoringQuery } from "../data/analytics/homeMonitoringQuery";
 import { useI18n, type Locale, type TranslationKey } from "../i18n";
 import type { LatestMeasurements, MeasurementHistory } from "../measurements";
+import { readLocalStorage, removeLocalStorage, subscribeToAccountStorageScope, writeLocalStorage } from "../browserStorage";
 
 type Translate = (key: TranslationKey, values?: Record<string, string | number>) => string;
 interface DisplayInsight {
@@ -63,7 +64,7 @@ function alertForInsight(insight: HomeInsight, alerts: AlertEvent[]): AlertEvent
 
 function readHiddenInsights(houseId: string): string[] {
   try {
-    const stored = localStorage.getItem(hiddenPulseStorageKey(houseId));
+    const stored = readLocalStorage(hiddenPulseStorageKey(houseId));
     if (!stored) return [];
     const parsed: unknown = JSON.parse(stored);
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
@@ -73,13 +74,9 @@ function readHiddenInsights(houseId: string): string[] {
 }
 
 function persistHiddenInsights(houseId: string, fingerprints: string[]): void {
-  try {
-    const key = hiddenPulseStorageKey(houseId);
-    if (fingerprints.length) localStorage.setItem(key, JSON.stringify(fingerprints));
-    else localStorage.removeItem(key);
-  } catch {
-    // Hiding an insight remains useful for the current session even when storage is unavailable.
-  }
+  const key = hiddenPulseStorageKey(houseId);
+  if (fingerprints.length) writeLocalStorage(key, JSON.stringify(fingerprints));
+  else removeLocalStorage(key);
 }
 
 function PulseIcon({ status }: { status: HomePulseStatus }) {
@@ -282,6 +279,9 @@ export function HomePulsePanel(props: HomePulsePanelProps) {
     insights: monitoring?.insights ?? [],
   }), [monitoring, monitoringSuccessful, props.sensors]);
   const [hiddenInsightFingerprints, setHiddenInsightFingerprints] = useState(() => readHiddenInsights(props.house.id));
+  useEffect(() => subscribeToAccountStorageScope(() => {
+    setHiddenInsightFingerprints(readHiddenInsights(props.house.id));
+  }), [props.house.id]);
   const [focusTarget, setFocusTarget] = useState<{ kind: "hidden" } | { kind: "insight"; fingerprint: string } | null>(null);
   const hiddenSummaryRef = useRef<HTMLElement>(null);
   const insightSummaryRefs = useRef(new Map<string, HTMLElement>());
@@ -340,7 +340,7 @@ export function HomePulsePanel(props: HomePulsePanelProps) {
         <div><span className="eyebrow">{t("decision.pulseEyebrow")}</span><h2 id="home-pulse-heading">{t(`decision.pulse.${pulse.status}.title`)}</h2></div>
         <span className={`pulse-status ${pulse.status}`}>{t(`decision.pulse.${pulse.status}.label`)}</span>
       </div>
-      {visibleInsights.length ? <ul className="pulse-glance-list">{visibleInsights.map((insight) => {
+      {visibleInsights.length ? <ul className="pulse-glance-list">{visibleInsights.slice(0, 1).map((insight) => {
         const display = displayHomeInsight(insight, locale, t);
         return <li key={insight.id} className={insight.severity}><span>{t(`decision.severity.${insight.severity}`)}</span><strong>{display.title}</strong></li>;
       })}</ul> : pulse.insights.length === 0 ? monitoringSuccessful && pulse.status === "steady" ? <div className="pulse-calm"><CheckCircle2 size={18} aria-hidden="true" /><span><strong>{t("decision.pulseCalmTitle")}</strong></span></div> : <p className="home-pulse-explanation" data-pulse-empty-state={pulse.status} role="status"><PulseIcon status={pulse.status} /> <span>{t(`decision.pulse.${pulse.status}.body`)}</span></p> : null}

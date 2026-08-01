@@ -91,6 +91,18 @@ describe("CloudflareSetupPanel", () => {
     expect(await screen.findByLabelText(/^One-time OAuth client token/)).toBeTruthy();
     expect(screen.getByLabelText(/^Runtime Access group token/)).toBeTruthy();
     expect(screen.getByText(/Secret values stay in memory/)).toBeTruthy();
+    expect(screen.queryByText("Optional Cloudflare account and zone IDs")).toBeNull();
+  });
+
+  it("names the optional ID disclosure by its contents", async () => {
+    vi.spyOn(api, "cloudflareSetupStatus").mockResolvedValue(setupStatus({
+      accountIdKnown: false,
+      zoneIdKnown: false,
+    }));
+
+    render(<I18nProvider><CloudflareSetupPanel suggestedOrigin="https://stugu.example.com" onComplete={vi.fn()} /></I18nProvider>);
+
+    expect(await screen.findByText("Optional Cloudflare account and zone IDs")).toBeTruthy();
   });
 
   it("shows and hides the one-time token instructions", async () => {

@@ -284,7 +284,9 @@ export const apiPart02 = {
       const response = await request<OpeningStateObservation | { observation: OpeningStateObservation }>(`/houses/${encodeURIComponent(houseId)}/opening-states`, { method: "POST", body: JSON.stringify(observation) });
       return "observation" in response ? response.observation : response;
     },
-  sensors: async (houseId: string) => list<Sensor>(await request<unknown>(`/sensors?houseId=${encodeURIComponent(houseId)}`), ["sensors", "data"]),
+  sensors: async (houseId?: string) => list<Sensor>(await request<unknown>(
+      houseId === undefined ? "/sensors" : `/sensors?houseId=${encodeURIComponent(houseId)}`,
+    ), ["sensors", "data"]),
   snapshot: async (houseId: string) => list<SensorSnapshot>(await request<unknown>(`/snapshot?houseId=${encodeURIComponent(houseId)}`), ["snapshot", "sensors", "data"]),
   readings: async (sensorId: string, from: string, to: string, limit = 500) => list<Reading>(
       await request<unknown>(`/readings?sensorId=${encodeURIComponent(sensorId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=${limit}`),

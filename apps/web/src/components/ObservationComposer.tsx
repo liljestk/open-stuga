@@ -20,6 +20,7 @@ const sources: ObservationSource[] = ["owner", "caretaker", "contractor", "senso
 const confidences: ObservationConfidence[] = ["confirmed", "probable", "uncertain", "awaiting-inspection"];
 
 interface ObservationComposerProps {
+  id?: string;
   house: House;
   floorId: string;
   observation?: ManualObservation;
@@ -41,9 +42,9 @@ function initialLocalDateTime(observation: ManualObservation | undefined, house:
   return localObservationDateTime(new Date(), house.timezone);
 }
 
-export function ObservationComposer({ house, floorId, observation, compact = false, collapsible = false, onCreate, onUpdate, onReload, onSaved, onCancel, onViewActivity }: Readonly<ObservationComposerProps>) {
+export function ObservationComposer({ id, house, floorId, observation, compact = false, collapsible = false, onCreate, onUpdate, onReload, onSaved, onCancel, onViewActivity }: Readonly<ObservationComposerProps>) {
   const { locale, t } = useI18n();
-  const id = useId();
+  const generatedId = useId();
   const editing = Boolean(observation);
   const [kind, setKind] = useState<ManualObservation["kind"]>(observation?.kind ?? "note");
   const [severity, setSeverity] = useState<ManualObservation["severity"]>(observation?.severity ?? "info");
@@ -179,7 +180,7 @@ export function ObservationComposer({ house, floorId, observation, compact = fal
       </form>;
 
   if (collapsible && !editing) {
-    return <details className={`panel observation-composer ${compact ? "compact" : ""} collapsible creating`} open={disclosureOpen}>
+    return <details id={id} className={`panel observation-composer ${compact ? "compact" : ""} collapsible creating`} open={disclosureOpen}>
       <summary className="observation-composer-summary" onClick={(event) => { event.preventDefault(); setDisclosureOpen((value) => !value); }}>
         <span className="observation-composer-icon" aria-hidden="true"><Eye size={18} /></span>
         <span className="observation-composer-summary-copy"><span className="eyebrow">{t("observations.quickEyebrow")}</span><strong>{t("observations.add")}</strong><small>{t("observations.quickDescription")}</small></span>
@@ -190,10 +191,10 @@ export function ObservationComposer({ house, floorId, observation, compact = fal
   }
 
   return (
-    <section className={`panel observation-composer ${compact ? "compact" : ""} ${editing ? "editing" : "creating"}`} aria-labelledby={`${id}-title`}>
+    <section id={id} className={`panel observation-composer ${compact ? "compact" : ""} ${editing ? "editing" : "creating"}`} aria-labelledby={`${generatedId}-title`}>
       <div className="observation-composer-heading">
         <span className="observation-composer-icon" aria-hidden="true"><Eye size={18} /></span>
-        <div><span className="eyebrow">{t(editing ? "activity.editObservationEyebrow" : "observations.quickEyebrow")}</span><h2 id={`${id}-title`}>{t(editing ? "activity.editObservation" : "observations.quickTitle")}</h2><p>{t(editing ? "activity.editObservationDescription" : "observations.quickDescription")}</p></div>
+        <div><span className="eyebrow">{t(editing ? "activity.editObservationEyebrow" : "observations.quickEyebrow")}</span><h2 id={`${generatedId}-title`}>{t(editing ? "activity.editObservation" : "observations.quickTitle")}</h2><p>{t(editing ? "activity.editObservationDescription" : "observations.quickDescription")}</p></div>
       </div>
       {form}
     </section>

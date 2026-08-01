@@ -184,9 +184,10 @@ import {
 import { HttpError } from "./part-01.js";
 import { keyMatches, requestPrincipal, trustedProxyRequest } from "./part-04.js";
 import type { LocalRequestPrincipal } from "./part-04.js";
+import { roleCanAccessNonGuestConfiguration } from "../access-policy.js";
 
 export function requireNonGuest(_request: Request, response: Response, next: NextFunction): void {
-  if (requestPrincipal(response).role === "guest") {
+  if (!roleCanAccessNonGuestConfiguration(requestPrincipal(response).role)) {
     next(new HttpError(403, "GUEST_READ_ONLY", "Guest accounts cannot access administrative configuration"));
     return;
   }
@@ -235,11 +236,12 @@ export class LocalVisibility {
   }
 
   house(houseId: string): boolean {
-    if (!this.restricted) return true;
     const cached = this.#houseAccess.get(houseId);
     if (cached !== undefined) return cached;
     const house = this.database.getHouse(houseId);
-    const allowed = Boolean(house && (this.#propertyIds.has(house.propertyId) || this.#houseIds.has(houseId)));
+    const allowed = Boolean(house && (!this.restricted
+      || this.#propertyIds.has(house.propertyId)
+      || this.#houseIds.has(houseId)));
     this.#houseAccess.set(houseId, allowed);
     return allowed;
   }
@@ -266,7 +268,6 @@ export class LocalVisibility {
   }
 
   sensor(sensorId: string): boolean {
-    if (!this.restricted) return true;
     const cached = this.#sensorAccess.get(sensorId);
     if (cached !== undefined) return cached;
     const sensor = this.database.getSensor(sensorId);

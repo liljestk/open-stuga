@@ -149,7 +149,9 @@ vi.mock("./authEpoch", () => ({
 function useTwoHouseApi(fixture: ReturnType<typeof twoHouseFixture>) {
   const { firstHouse, secondHouse, firstSensor, secondSensor, firstSample, secondSample, firstObservation, secondObservation } = fixture;
   mocks.houses.mockResolvedValue([firstHouse, secondHouse]);
-  mocks.sensors.mockImplementation(async (houseId: string) => houseId === secondHouse.id ? [secondSensor] : [firstSensor]);
+  mocks.sensors.mockImplementation(async (houseId?: string) => houseId === undefined
+    ? [firstSensor, secondSensor]
+    : houseId === secondHouse.id ? [secondSensor] : [firstSensor]);
   mocks.snapshot.mockImplementation(async (houseId: string): Promise<SensorSnapshot[]> => houseId === secondHouse.id
     ? [{ ...secondSensor, reading: null }]
     : [{ ...firstSensor, reading: fixture.demo.readings[firstSensor.id] ?? null }]);
@@ -287,151 +289,127 @@ describe("useClimateData", () => {
     expect(result.current.state.forecasts[sensor.id]).toBeUndefined();
   });
 
-  it("loads every house for the portfolio and preserves other houses across active-house refreshes", async () => {
+  it("keeps initial telemetry requests constant as secondary homes grow", async () => {
     const fixture = twoHouseFixture();
     useTwoHouseApi(fixture);
+    const secondaryHouses: House[] = [
+      fixture.secondHouse,
+      ...Array.from({ length: 24 }, (_, index) => ({
+        ...fixture.secondHouse,
+        id: `house-secondary-${index}`,
+        name: `Secondary home ${index}`,
+      })),
+    ];
+    mocks.houses.mockResolvedValue([fixture.firstHouse, ...secondaryHouses]);
 
     const { result } = renderHook(() => useClimateData());
-    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() => expect(result.current.bootstrapStatus).toBe("ready"));
 
-    await waitFor(() => expect(result.current.state.sensors.map((sensor) => sensor.id).sort()).toEqual([
-      fixture.firstSensor.id, fixture.secondSensor.id,
-    ].sort()));
-    expect(result.current.state.latestMeasurements[fixture.firstSensor.id]?.temperature).toEqual(fixture.firstSample);
-    expect(result.current.state.latestMeasurements[fixture.secondSensor.id]?.temperature).toEqual(fixture.secondSample);
+    expect(result.current.state.houses).toHaveLength(26);
+    expect(mocks.sensors).toHaveBeenCalledOnce();
+    expect(mocks.sensors).toHaveBeenCalledWith();
+    expect(mocks.snapshot.mock.calls.map(([houseId]) => houseId)).toEqual([fixture.firstHouse.id]);
+    expect(mocks.measurementSnapshot.mock.calls.map(([houseId]) => houseId)).toEqual([fixture.firstHouse.id]);
+    expect(result.current.state.sensors.map((sensor) => sensor.id).sort()).toEqual([
+      fixture.firstSensor.id,
+      fixture.secondSensor.id,
+    ].sort());
+  });
 
+  it("indexes a secondary home's alert and targeted rule before hydrating its telemetry", async () => {
+    const fixture = twoHouseFixture();
+    useTwoHouseApi(fixture);
+    const secondaryRule = {
+      ...fixture.demo.alertRules[0]!,
+      id: "rule-lake-temperature",
+      sensorId: fixture.secondSensor.id,
+      name: "Lake temperature",
+    };
+    const secondaryAlert = {
+      ...fixture.demo.alerts[0]!,
+      id: "alert-lake-temperature",
+      ruleId: secondaryRule.id,
+      sensorId: fixture.secondSensor.id,
+    };
+    mocks.alertRules.mockResolvedValue([secondaryRule]);
+    mocks.alerts.mockResolvedValue([secondaryAlert]);
+
+    const { result } = renderHook(() => useClimateData());
+    await waitFor(() => expect(result.current.bootstrapStatus).toBe("ready"));
+
+    const indexedSensor = result.current.state.sensors.find((sensor) => sensor.id === secondaryAlert.sensorId);
+    expect(indexedSensor).toMatchObject({
+      id: fixture.secondSensor.id,
+      houseId: fixture.secondHouse.id,
+      name: fixture.secondSensor.name,
+    });
+    expect(result.current.state.alerts).toContainEqual(secondaryAlert);
+    expect(result.current.state.alertRules).toContainEqual(secondaryRule);
+    expect(mocks.sensors).toHaveBeenCalledOnce();
+    expect(mocks.sensors).toHaveBeenCalledWith();
+    expect(mocks.snapshot.mock.calls.map(([houseId]) => houseId)).toEqual([fixture.firstHouse.id]);
+    expect(mocks.measurementSnapshot.mock.calls.map(([houseId]) => houseId)).toEqual([fixture.firstHouse.id]);
+
+    await act(async () => { await result.current.selectHouse(indexedSensor!.houseId); });
+    expect(mocks.snapshot.mock.calls.map(([houseId]) => houseId)).toEqual([
+      fixture.firstHouse.id,
+      fixture.secondHouse.id,
+    ]);
+  });
+
+  it("ignores live telemetry for an indexed but unselected secondary home", async () => {
+    const fixture = twoHouseFixture();
+    useTwoHouseApi(fixture);
+    const secondaryReading = {
+      ...fixture.demo.readings[fixture.firstSensor.id]!,
+      sensorId: fixture.secondSensor.id,
+      temperature: 31.2,
+    };
+
+    const { result } = renderHook(() => useClimateData());
+    await waitFor(() => expect(result.current.bootstrapStatus).toBe("ready"));
+    const [[handleTelemetry]] = mocks.subscribeToEvents.mock.calls as unknown as [[(event: TelemetryEvent) => void]];
+    const [[handleMeasurement]] = mocks.subscribeToMeasurementEvents.mock.calls as unknown as [[(sample: MeasurementSample) => void]];
+
+    act(() => {
+      handleTelemetry({ type: "reading", data: secondaryReading });
+      handleMeasurement({ ...fixture.secondSample, value: 31.2 });
+    });
+
+    await new Promise((resolve) => window.setTimeout(resolve, 25));
+    expect(result.current.state.readings[fixture.secondSensor.id]).toBeUndefined();
+    expect(result.current.state.latestMeasurements[fixture.secondSensor.id]).toBeUndefined();
+    expect(result.current.state.measurementHistory[fixture.secondSensor.id]).toBeUndefined();
+  });
+
+  it("hydrates only the selected secondary home and preserves the active home", async () => {
+    const fixture = twoHouseFixture();
+    useTwoHouseApi(fixture);
+    const unselectedHouses: House[] = Array.from({ length: 8 }, (_, index) => ({
+      ...fixture.secondHouse,
+      id: `house-unselected-${index}`,
+      name: `Unselected home ${index}`,
+    }));
+    mocks.houses.mockResolvedValue([fixture.firstHouse, fixture.secondHouse, ...unselectedHouses]);
+
+    const { result } = renderHook(() => useClimateData());
+    await waitFor(() => expect(result.current.bootstrapStatus).toBe("ready"));
     await act(async () => { await result.current.selectHouse(fixture.secondHouse.id); });
 
+    expect(mocks.snapshot.mock.calls.map(([houseId]) => houseId)).toEqual([
+      fixture.firstHouse.id,
+      fixture.secondHouse.id,
+    ]);
+    expect(mocks.measurementSnapshot.mock.calls.map(([houseId]) => houseId)).toEqual([
+      fixture.firstHouse.id,
+      fixture.secondHouse.id,
+    ]);
     expect(result.current.state.sensors.map((sensor) => sensor.id).sort()).toEqual([
       fixture.firstSensor.id,
       fixture.secondSensor.id,
     ].sort());
     expect(result.current.state.latestMeasurements[fixture.firstSensor.id]?.temperature).toEqual(fixture.firstSample);
     expect(result.current.state.latestMeasurements[fixture.secondSensor.id]?.temperature).toEqual(fixture.secondSample);
-  });
-
-  it("becomes ready from the active house while portfolio hydration continues in the background", async () => {
-    const fixture = twoHouseFixture();
-    useTwoHouseApi(fixture);
-    const secondarySnapshot = deferred<SensorSnapshot[]>();
-    mocks.snapshot.mockImplementation(async (houseId: string): Promise<SensorSnapshot[]> => houseId === fixture.secondHouse.id
-      ? secondarySnapshot.promise
-      : [{ ...fixture.firstSensor, reading: fixture.demo.readings[fixture.firstSensor.id] ?? null }]);
-
-    const { result } = renderHook(() => useClimateData());
-    await waitFor(() => expect(result.current.loading).toBe(false));
-
-    expect(result.current.bootstrapStatus).toBe("ready");
-    expect(result.current.state.sensors.some((sensor) => sensor.id === fixture.firstSensor.id)).toBe(true);
-    expect(result.current.state.sensors.some((sensor) => sensor.id === fixture.secondSensor.id)).toBe(false);
-    expect(mocks.measurementDefinitions).toHaveBeenCalledOnce();
-    expect(mocks.alertRules).toHaveBeenCalledOnce();
-    expect(mocks.alerts).toHaveBeenCalledOnce();
-    expect(mocks.integrations).toHaveBeenCalledOnce();
-    expect(mocks.scenarios).toHaveBeenCalledOnce();
-    expect(mocks.sensors).not.toHaveBeenCalled();
-
-    await act(async () => { secondarySnapshot.resolve([{ ...fixture.secondSensor, reading: null }]); });
-    await waitFor(() => expect(result.current.state.sensors.some((sensor) => sensor.id === fixture.secondSensor.id)).toBe(true));
-    await act(async () => { await result.current.selectHouse(fixture.secondHouse.id); });
-
-    expect(mocks.measurementDefinitions).toHaveBeenCalledOnce();
-    expect(mocks.alertRules).toHaveBeenCalledOnce();
-    expect(mocks.alerts).toHaveBeenCalledOnce();
-    expect(mocks.integrations).toHaveBeenCalledOnce();
-    expect(mocks.scenarios).toHaveBeenCalledOnce();
-    expect(mocks.sensors).not.toHaveBeenCalled();
-  });
-
-  it("preserves live telemetry received while a secondary house hydrates in the background", async () => {
-    const fixture = twoHouseFixture();
-    useTwoHouseApi(fixture);
-    const secondarySnapshot = deferred<SensorSnapshot[]>();
-    mocks.snapshot.mockImplementation(async (houseId: string): Promise<SensorSnapshot[]> => houseId === fixture.secondHouse.id
-      ? secondarySnapshot.promise
-      : [{ ...fixture.firstSensor, reading: fixture.demo.readings[fixture.firstSensor.id] ?? null }]);
-    const liveTimestamp = new Date(Date.parse(fixture.secondSample.timestamp) + 60_000).toISOString();
-    const liveReading = {
-      ...fixture.demo.readings[fixture.firstSensor.id]!,
-      sensorId: fixture.secondSensor.id,
-      timestamp: liveTimestamp,
-      temperature: 25.8,
-    };
-    const liveSample: MeasurementSample = {
-      ...fixture.secondSample,
-      timestamp: liveTimestamp,
-      value: 25.8,
-    };
-
-    const { result } = renderHook(() => useClimateData());
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    await waitFor(() => expect(mocks.snapshot).toHaveBeenCalledWith(fixture.secondHouse.id));
-    const [[handleTelemetry]] = mocks.subscribeToEvents.mock.calls as unknown as [[(event: TelemetryEvent) => void]];
-    const [[handleMeasurement]] = mocks.subscribeToMeasurementEvents.mock.calls as unknown as [[(sample: MeasurementSample) => void]];
-
-    act(() => {
-      handleTelemetry({ type: "reading", data: liveReading });
-      handleMeasurement(liveSample);
-    });
-    expect(result.current.state.sensors.some((sensor) => sensor.id === fixture.secondSensor.id)).toBe(false);
-    expect(result.current.state.readings[fixture.secondSensor.id]).toBeUndefined();
-
-    await act(async () => {
-      secondarySnapshot.resolve([{ ...fixture.secondSensor, reading: null }]);
-    });
-    await waitFor(() => expect(result.current.state.sensors.some((sensor) => sensor.id === fixture.secondSensor.id)).toBe(true));
-
-    expect(result.current.state.readings[fixture.secondSensor.id]).toEqual(liveReading);
-    expect(result.current.state.latestMeasurements[fixture.secondSensor.id]?.temperature).toEqual(liveSample);
-    expect(result.current.state.measurementHistory[fixture.secondSensor.id]?.temperature).toContainEqual(liveSample);
-  });
-
-  it("does not let a late portfolio response overwrite a house selected in the foreground", async () => {
-    const fixture = twoHouseFixture();
-    useTwoHouseApi(fixture);
-    const staleSnapshot = deferred<SensorSnapshot[]>();
-    const staleSensor = { ...fixture.secondSensor, name: "Stale portfolio sensor" };
-    const freshSensor = { ...fixture.secondSensor, name: "Fresh selected sensor" };
-    const freshSample: MeasurementSample = {
-      ...fixture.secondSample,
-      timestamp: new Date(Date.parse(fixture.secondSample.timestamp) + 1_000).toISOString(),
-      value: 19.8,
-    };
-    let secondHouseSnapshotCalls = 0;
-    let secondHouseMeasurementCalls = 0;
-    mocks.snapshot.mockImplementation(async (houseId: string): Promise<SensorSnapshot[]> => {
-      if (houseId !== fixture.secondHouse.id) {
-        return [{ ...fixture.firstSensor, reading: fixture.demo.readings[fixture.firstSensor.id] ?? null }];
-      }
-      secondHouseSnapshotCalls += 1;
-      return secondHouseSnapshotCalls === 1
-        ? staleSnapshot.promise
-        : [{ ...freshSensor, reading: null }];
-    });
-    mocks.measurementSnapshot.mockImplementation(async (houseId: string) => {
-      if (houseId !== fixture.secondHouse.id) {
-        return [{ sensorId: fixture.firstSensor.id, measurements: { temperature: fixture.firstSample } }];
-      }
-      secondHouseMeasurementCalls += 1;
-      const sample = secondHouseMeasurementCalls === 1 ? fixture.secondSample : freshSample;
-      return [{ sensorId: fixture.secondSensor.id, measurements: { temperature: sample } }];
-    });
-
-    const { result } = renderHook(() => useClimateData());
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    await waitFor(() => expect(secondHouseSnapshotCalls).toBe(1));
-
-    await act(async () => { await result.current.selectHouse(fixture.secondHouse.id); });
-    expect(secondHouseSnapshotCalls).toBe(2);
-    expect(result.current.state.sensors.find((sensor) => sensor.id === fixture.secondSensor.id)?.name).toBe(freshSensor.name);
-    expect(result.current.state.latestMeasurements[fixture.secondSensor.id]?.temperature).toEqual(freshSample);
-
-    await act(async () => {
-      staleSnapshot.resolve([{ ...staleSensor, reading: null }]);
-      await staleSnapshot.promise;
-    });
-    expect(result.current.state.sensors.find((sensor) => sensor.id === fixture.secondSensor.id)?.name).toBe(freshSensor.name);
-    expect(result.current.state.latestMeasurements[fixture.secondSensor.id]?.temperature).toEqual(freshSample);
   });
 
   it("preserves live readings and measurements received during a foreground refresh", async () => {

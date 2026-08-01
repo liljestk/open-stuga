@@ -1,5 +1,5 @@
 import axe from "axe-core";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsQueryResponse } from "@climate-twin/contracts";
@@ -18,6 +18,7 @@ describe("DataAnalyticsPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     refreshWeather.mockReset();
+    window.history.replaceState(null, "", "/");
   });
 
   it("combines sensor analytics with outdoor history and durable gap recovery state", async () => {
@@ -115,10 +116,21 @@ describe("DataAnalyticsPage", () => {
     /></I18nProvider>);
 
     expect(screen.getByRole("heading", { name: "Data & analytics", level: 1 })).not.toBeNull();
-    expect(screen.getByRole("heading", { name: "How the Home has been performing", level: 2 })).not.toBeNull();
-    expect(screen.getByRole("heading", { name: "Home sensor analytics" })).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Explore further", level: 2 })).not.toBeNull();
+    expect(screen.queryByRole("region", { name: "How the Home has been performing" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Home sensor analytics" })).toBeNull();
+    const performanceSummary = screen.getByText("How the Home has been performing").closest("summary")!;
+    const openingSummary = screen.getByText("Door & window activity").closest("summary")!;
+    const sensorsSummary = screen.getByText("Home sensor analytics").closest("summary")!;
+    expect(performanceSummary.closest("details")?.open).toBe(false);
+    expect(openingSummary.closest("details")?.open).toBe(false);
+    expect(sensorsSummary.closest("details")?.open).toBe(false);
+    await user.click(performanceSummary);
+    const performancePanel = await screen.findByRole("region", { name: "How the Home has been performing" });
+    await user.click(sensorsSummary);
+    expect(await screen.findByRole("heading", { name: "Home sensor analytics" })).not.toBeNull();
+    expect(new URLSearchParams(window.location.search).get("tools")).toBe("performance,sensors");
     await waitFor(() => expect(screen.getByText("Source has no history")).not.toBeNull());
-    const performancePanel = screen.getByRole("region", { name: "How the Home has been performing" });
     const accessibility = await axe.run(performancePanel, {
       rules: {
         // jsdom does not compute the visual styles needed for a reliable contrast result.
@@ -173,5 +185,106 @@ describe("DataAnalyticsPage", () => {
       }),
       expect.any(AbortSignal),
     ));
+  });
+
+  it("deep-links analytics evidence controls and canonicalizes defaults on popstate", async () => {
+    const state = createDemoState();
+    const house = state.houses[0]!;
+    const firstSensor = state.sensors.find((sensor) => sensor.houseId === house.id && sensor.enabled)!;
+    const secondSensor = { ...firstSensor, id: "analytics-second", name: "Second analytics sensor" };
+    state.sensors = [...state.sensors, secondSensor];
+    state.latestMeasurements[secondSensor.id] = { ...state.latestMeasurements[firstSensor.id] };
+    state.measurementHistory[secondSensor.id] = { ...state.measurementHistory[firstSensor.id] };
+    state.measurementForecasts[secondSensor.id] = { ...state.measurementForecasts[firstSensor.id] };
+    vi.spyOn(api, "outdoorTemperatureHistory").mockResolvedValue({ samples: [], from: "", to: "", truncated: false });
+    vi.spyOn(api, "houseElectricityPrice").mockResolvedValue({ current: null, prices: [] });
+    vi.spyOn(api, "sensorDataGaps").mockResolvedValue([]);
+    window.history.replaceState(null, "", `/properties/${house.propertyId}/homes/${house.id}/analytics?keep=yes&range=7d&resolution=1h&aggregation=max&quality=good&sensors=${firstSensor.id}&weather=none#evidence`);
+
+    const user = userEvent.setup();
+    render(<I18nProvider><DataAnalyticsPage
+      state={state}
+      house={house}
+      units="metric"
+      dataMode="demo"
+      onLoadSeries={vi.fn()}
+    /></I18nProvider>);
+
+    expect(screen.getByRole("button", { name: "7 days" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("combobox", { name: "Resolution" })).toHaveValue("1h");
+    expect(screen.getByRole("combobox", { name: "Aggregation" })).toHaveValue("max");
+    expect(screen.getByRole("combobox", { name: "Source quality" })).toHaveValue("good");
+    expect(screen.getByRole("combobox", { name: "Measurement" })).toHaveValue("temperature");
+    const sourcePicker = screen.getByLabelText("Choose data series").closest("details")!;
+    expect(within(sourcePicker).getByLabelText(firstSensor.name)).toBeChecked();
+    expect(within(sourcePicker).getByLabelText(secondSensor.name)).not.toBeChecked();
+    expect(within(sourcePicker).getByLabelText("FMI observations")).not.toBeChecked();
+    expect(within(sourcePicker).getByLabelText("FMI forecast")).not.toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "30 days" }));
+    expect(new URLSearchParams(window.location.search).get("range")).toBe("30d");
+    expect(new URLSearchParams(window.location.search).get("keep")).toBe("yes");
+    expect(new URLSearchParams(window.location.search).get("sensors")).toBe(firstSensor.id);
+    expect(new URLSearchParams(window.location.search).get("weather")).toBe("none");
+    expect(window.location.hash).toBe("#evidence");
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Resolution" }), "raw");
+    expect(new URLSearchParams(window.location.search).get("resolution")).toBe("raw");
+    expect(new URLSearchParams(window.location.search).has("aggregation")).toBe(false);
+    expect(screen.getByRole("combobox", { name: "Aggregation" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Aggregation" })).toHaveValue("default");
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Measurement" }), "humidity");
+    expect(new URLSearchParams(window.location.search).get("metric")).toBe("humidity");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Measurement" }), "temperature");
+    expect(new URLSearchParams(window.location.search).has("metric")).toBe(false);
+    await user.click(within(sourcePicker).getByLabelText(secondSensor.name));
+    expect(new URLSearchParams(window.location.search).get("sensors")).toBe(
+      [firstSensor.id, secondSensor.id].sort().join(","),
+    );
+    await user.click(within(sourcePicker).getByLabelText("FMI observations"));
+    expect(new URLSearchParams(window.location.search).get("weather")).toBe("observations");
+    await user.click(within(sourcePicker).getByLabelText("FMI forecast"));
+    expect(new URLSearchParams(window.location.search).has("weather")).toBe(false);
+    await user.click(within(sourcePicker).getByRole("button", { name: "Clear" }));
+    expect(new URLSearchParams(window.location.search).get("sensors")).toBe("none");
+    expect(new URLSearchParams(window.location.search).get("weather")).toBe("none");
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Resolution" }), "auto");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Source quality" }), "reliable");
+    await user.click(screen.getByRole("button", { name: "24 hours" }));
+    await user.click(within(sourcePicker).getByRole("button", { name: "Select all" }));
+    expect(window.location.search).toBe("?keep=yes");
+
+    act(() => {
+      window.history.pushState(null, "", "?keep=yes&range=invalid&resolution=invalid&aggregation=invalid&quality=invalid&metric=invalid&sensors=missing&weather=invalid#evidence");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "24 hours" })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByRole("combobox", { name: "Resolution" })).toHaveValue("auto");
+    expect(screen.getByRole("combobox", { name: "Aggregation" })).toHaveValue("default");
+    expect(screen.getByRole("combobox", { name: "Source quality" })).toHaveValue("reliable");
+    expect(screen.getByRole("combobox", { name: "Measurement" })).toHaveValue("temperature");
+    expect(window.location.search).toBe("?keep=yes");
+
+    act(() => {
+      window.history.pushState(null, "", `?keep=yes&range=90d&resolution=1d&aggregation=mean&quality=all&sensors=${firstSensor.id}&weather=forecast#evidence`);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "90 days" })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByRole("combobox", { name: "Resolution" })).toHaveValue("1d");
+    expect(screen.getByRole("combobox", { name: "Aggregation" })).toHaveValue("mean");
+    expect(screen.getByRole("combobox", { name: "Source quality" })).toHaveValue("all");
+    expect(within(sourcePicker).getByLabelText(firstSensor.name)).toBeChecked();
+    expect(within(sourcePicker).getByLabelText(secondSensor.name)).not.toBeChecked();
+    expect(within(sourcePicker).getByLabelText("FMI observations")).not.toBeChecked();
+    expect(within(sourcePicker).getByLabelText("FMI forecast")).toBeChecked();
+
+    act(() => {
+      window.history.pushState(null, "", `/properties/${house.propertyId}/homes/${house.id}/electricity?range=7d&metric=energy&cost=7d#history`);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(window.location.search).toBe("?range=7d&metric=energy&cost=7d");
+    expect(window.location.hash).toBe("#history");
   });
 });

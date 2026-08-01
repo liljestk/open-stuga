@@ -21,6 +21,7 @@ import {
   type StugubyRemoteTelemetrySample,
 } from "../../api";
 import { StugubyMark } from "../../components/StugubyMark";
+import { confirmAction } from "../../components/ConfirmationProvider";
 import { useI18n, type TranslationKey } from "../../i18n";
 import { CloudflareSetupPanel } from "../CloudflareSetupPanel";
 import "../StugubyPage.css";
@@ -28,7 +29,7 @@ import { MemberIdentity, activeGrant, datasetLabelKeys, editableHomeDatasets, er
 import type { DatasetDraft, PublicationCatalogState, StugubyPageProps } from "./support";
 import { useStugubyPagePart01 } from "./part-01";
 export function useStugubyPagePart02(context: ReturnType<typeof useStugubyPagePart01>) {
-  const { houses, properties, onInventoryChange, locale, t, roleLabel, stateLabel, index, setIndex, detail, setDetail, selectedId, setSelectedId, loading, setLoading, busy, setBusy, error, setError, notice, setNotice, detailLoading, setDetailLoading, telemetryError, setTelemetryError, copied, setCopied, cloudflareSetupRequested, setCloudflareSetupRequested, createdInvitation, setCreatedInvitation, telemetrySamples, setTelemetrySamples, createName, setCreateName, createDescription, setCreateDescription, createCoordinatorUrl, setCreateCoordinatorUrl, joinCoordinatorUrl, setJoinCoordinatorUrl, joinUrl, setJoinUrl, joinInvitationId, setJoinInvitationId, joinSecret, setJoinSecret, inviteRole, setInviteRole, inviteLocalLabel, setInviteLocalLabel, inviteExpiresAt, setInviteExpiresAt, publishableHouses, grantHouseId, setGrantHouseId, audienceKind, setAudienceKind, audienceNodes, setAudienceNodes, datasetDraft, setDatasetDraft, telemetryLive, setTelemetryLive, telemetryHistoryHours, setTelemetryHistoryHours, telemetryMetrics, setTelemetryMetrics, telemetrySensors, setTelemetrySensors, telemetryRate, setTelemetryRate, grantExpiresAt, setGrantExpiresAt, houseEditPolicy, setHouseEditPolicy, recoveryMode, setRecoveryMode, houseSuccessorNodeId, setHouseSuccessorNodeId, editingGrantId, setEditingGrantId, publicationCatalog, setPublicationCatalog, catalogRevision, setCatalogRevision, activeLocalGrantHouseIds, unsharedHouses, grantHouseOptions, propertyName, setPropertyName, propertyDescription, setPropertyDescription, propertyLatitude, setPropertyLatitude, propertyLongitude, setPropertyLongitude, propertyLocationLabel, setPropertyLocationLabel, areasJson, setAreasJson, equipmentJson, setEquipmentJson, notesJson, setNotesJson, maintenanceJson, setMaintenanceJson, propertyEditPolicy, setPropertyEditPolicy, propertySuccessorNodeId, setPropertySuccessorNodeId, adoptionPropertyId, setAdoptionPropertyId, migrationPropertyId, setMigrationPropertyId, detailRequest, selectedIdRef, resetGrantDraft, resetStugubyScopedUi, beginSelection, loadDetail } = context;
+  const { houses, properties, onInventoryChange, locale, t, roleLabel, stateLabel, index, setIndex, detail, setDetail, selectedId, setSelectedId, loading, setLoading, busy, setBusy, error, setError, notice, setNotice, detailLoading, setDetailLoading, telemetryError, setTelemetryError, copied, setCopied, cloudflareSetupRequested, setCloudflareSetupRequested, createdInvitation, setCreatedInvitation, telemetrySamples, setTelemetrySamples, createName, setCreateName, createDescription, setCreateDescription, createCoordinatorUrl, setCreateCoordinatorUrl, joinCoordinatorUrl, setJoinCoordinatorUrl, joinUrl, setJoinUrl, joinInvitationId, setJoinInvitationId, joinSecret, setJoinSecret, inviteRole, setInviteRole, inviteLocalLabel, setInviteLocalLabel, inviteExpiresAt, setInviteExpiresAt, publishableHouses, grantHouseId, setGrantHouseId, audienceKind, setAudienceKind, audienceNodes, setAudienceNodes, datasetDraft, setDatasetDraft, telemetryLive, setTelemetryLive, telemetryHistoryHours, setTelemetryHistoryHours, telemetryMetrics, setTelemetryMetrics, telemetrySensors, setTelemetrySensors, telemetryRate, setTelemetryRate, grantExpiresAt, setGrantExpiresAt, houseEditPolicy, setHouseEditPolicy, recoveryMode, setRecoveryMode, houseSuccessorNodeId, setHouseSuccessorNodeId, editingGrantId, setEditingGrantId, publicationCatalog, setPublicationCatalog, catalogRevision, setCatalogRevision, activeLocalGrantHouseIds, unsharedHouses, grantHouseOptions, propertyName, setPropertyName, propertyDescription, setPropertyDescription, propertyLatitude, setPropertyLatitude, propertyLongitude, setPropertyLongitude, propertyLocationLabel, setPropertyLocationLabel, areasJson, setAreasJson, equipmentJson, setEquipmentJson, notesJson, setNotesJson, maintenanceJson, setMaintenanceJson, propertyEditPolicy, setPropertyEditPolicy, propertySuccessorNodeId, setPropertySuccessorNodeId, adoptionPropertyId, setAdoptionPropertyId, migrationPropertyId, setMigrationPropertyId, detailRequest, selectedIdRef, captureActiveScope, isActiveScope, resetGrantDraft, resetStugubyScopedUi, beginSelection, loadDetail } = context;
   const load = useCallback(async (preferredId?: string) => {
       setError(null);
       try {
@@ -188,7 +189,7 @@ export function useStugubyPagePart02(context: ReturnType<typeof useStugubyPagePa
           : draft];
       })) as Record<StugubyDataset, DatasetDraft>);
     };
-  const saveGrant = (event: FormEvent) => {
+  const saveGrant = async (event: FormEvent) => {
       event.preventDefault();
       if (!detail || detail.stuguby.id !== selectedIdRef.current) return;
       if (!editingGrantId && detail.grants.some((grant) => (
@@ -217,9 +218,16 @@ export function useStugubyPagePart02(context: ReturnType<typeof useStugubyPagePa
         setError(t("stuguby.sensorCatalogRequired"));
         return;
       }
-      if (datasetDraft["home.location.v1"].enabled && !window.confirm(t("stuguby.confirmLocationShare"))) return;
       const selectedDetail = detail;
+      const operationScope = captureActiveScope(selectedDetail.stuguby.id);
+      if (!operationScope) return;
+      if (datasetDraft["home.location.v1"].enabled) {
+        const confirmed = await confirmAction(t("stuguby.confirmLocationShare"), t("confirmation.share"), false);
+        if (!confirmed || !isActiveScope(operationScope)) return;
+      }
+      if (!isActiveScope(operationScope)) return;
       void withBusy("grant", async () => {
+        if (!isActiveScope(operationScope)) return;
         const datasets: StugubyDatasetGrant[] = STUGBY_DATASETS.map((dataset) => {
           const draft = datasetDraft[dataset];
           const base: StugubyDatasetGrant = {
@@ -254,9 +262,12 @@ export function useStugubyPagePart02(context: ReturnType<typeof useStugubyPagePa
         const expiresAt = grantExpiresAt ? new Date(grantExpiresAt).toISOString() : null;
         const existing = editingGrantId ? selectedDetail.grants.find((grant) => grant.id === editingGrantId) : null;
         if (editingGrantId && !existing) throw new Error(t("stuguby.grantScopeChanged"));
+        if (!isActiveScope(operationScope)) return;
         if (existing) await api.updateStugubyGrant(selectedDetail.stuguby.id, existing.id, { baseRevision: existing.revision, audience, datasets, housePolicy, expiresAt });
         else await api.createStugubyGrant(selectedDetail.stuguby.id, { localHouseId: grantHouseId, audience, datasets, housePolicy, expiresAt });
+        if (!isActiveScope(operationScope)) return;
         await api.syncStuguby(selectedDetail.stuguby.id);
+        if (!isActiveScope(operationScope)) return;
         onInventoryChange?.();
         setNotice(t("stuguby.changesSaved"));
         resetGrantDraft();

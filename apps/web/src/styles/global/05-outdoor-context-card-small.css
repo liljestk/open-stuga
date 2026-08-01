@@ -2,7 +2,7 @@
 
 .outdoor-context-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 
-.outdoor-context-heading > b { padding: 2px 6px; border-radius: 9px; color: var(--yellow); background: var(--yellow-soft); font-size: 7px; letter-spacing: .045em; text-transform: uppercase; }
+.outdoor-context-heading > b { padding: 2px 6px; border-radius: 9px; color: var(--yellow); background: var(--yellow-soft); font-size: 10px; letter-spacing: .045em; text-transform: uppercase; }
 
 .outdoor-context-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
 
@@ -18,7 +18,7 @@
 
 .outdoor-context-values small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.outdoor-boundary-note { margin: 0; display: flex; align-items: flex-start; gap: 5px; color: var(--blue); font-size: 8.5px; font-weight: 700; line-height: 1.35; }
+.outdoor-boundary-note { margin: 0; display: flex; align-items: flex-start; gap: 5px; color: var(--blue); font-size: 10px; font-weight: 700; line-height: 1.35; }
 
 .outdoor-boundary-note svg { flex: 0 0 auto; }
 
@@ -32,7 +32,7 @@
 
 .outdoor-compass-dial i { position: absolute; inset: 4px; display: grid; place-items: start center; color: var(--red); font-size: 16px; font-style: normal; transform-origin: center; }
 
-.outdoor-compass-dial b { font-size: 7px; transform: translateY(7px); }
+.outdoor-compass-dial b { font-size: 10px; transform: translateY(7px); }
 
 .outdoor-model-note { padding-top: 6px; border-top: 1px solid var(--line); }
 
@@ -118,7 +118,7 @@
 
 .building-scene-controls label { min-width: 185px; display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 11px; font-weight: 600; }
 
-.building-scene-controls input[type="range"] { min-height: 24px; height: 24px; padding: 0; border: 0; accent-color: var(--pine); background: transparent; }
+.building-scene-controls input[type="range"] { min-height: 24px; height: 24px; padding: 0; border: 0; accent-color: var(--action); background: transparent; }
 
 .building-orbit-controls { display: flex !important; align-items: center; justify-content: flex-end; gap: 5px !important; flex-wrap: wrap; }
 
@@ -142,15 +142,15 @@
 
 .building-element-add { grid-column: 2; display: flex; align-items: end; gap: 7px; }
 
-.building-element-add label { min-width: 150px; display: grid; gap: 3px; color: var(--muted); font-size: 9px; font-weight: 700; }
+.building-element-add label { min-width: 150px; display: grid; gap: 3px; color: var(--muted); font-size: 10px; font-weight: 700; }
 
-.building-element-add select, .building-element-editor .plan-element-airflow-fields input, .building-element-editor .plan-element-airflow-fields select, .building-element-editor .plan-element-fixture-fields input, .building-element-editor .plan-element-fixture-fields select { min-height: 31px; padding-inline: 8px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: var(--panel); font-size: 10px; }
+.building-element-add select, .building-element-editor .plan-element-airflow-fields input, .building-element-editor .plan-element-airflow-fields select, .building-element-editor .plan-element-fixture-fields input, .building-element-editor .plan-element-fixture-fields select { min-height: 31px; padding-inline: 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink); background: var(--panel); font-size: 10px; }
 
 .building-element-editor > .opening-inventory { grid-column: 3; grid-row: 1; justify-self: end; }
 
 .building-fireplace-fields { grid-column: 2; grid-row: 2; display: flex; align-items: end; gap: 8px; }
 
-.building-fireplace-fields label { min-width: 150px; display: grid; gap: 4px; color: var(--muted); font-size: 9px; font-weight: 700; }
+.building-fireplace-fields label { min-width: 150px; display: grid; gap: 4px; color: var(--muted); font-size: 10px; font-weight: 700; }
 
 .building-fireplace-fields select, .building-fireplace-fields input { min-height: 31px; }
 
@@ -158,7 +158,7 @@
 
 .building-element-editor-heading strong { font-size: 12px; }
 
-.building-element-editor-heading small { color: var(--muted); font-size: 9px; }
+.building-element-editor-heading small { color: var(--muted); font-size: 10px; }
 
 .building-element-editor > p { grid-column: 2 / -1; margin: 0; color: var(--muted); font-size: 10.5px; line-height: 1.45; }
 
@@ -218,13 +218,13 @@
 
 .building-outdoor-shell-rail .outdoor-shell-chip rect { height: 52px; }
 
-.building-outdoor-shell-rail .outdoor-shell-chip-label { font-size: 9.5px; }
+.building-outdoor-shell-rail .outdoor-shell-chip-label { font-size: 10px; }
 
 .building-outdoor-shell-rail .outdoor-shell-chip-value { font-size: 16px; }
 
 .building-shell-title rect { fill: var(--blue); }
 
-.building-shell-title .outdoor-shell-chip-label { fill: #fff; font-size: 9.5px; opacity: 1; }
+.building-shell-title .outdoor-shell-chip-label { fill: #fff; font-size: 10px; opacity: 1; }
 
 .building-outdoor-influence { pointer-events: none; }
 
@@ -240,9 +240,9 @@
 
 .floor-slab-front { fill: #d7d4cb; stroke: #99968e; stroke-width: 1; }
 
-.building-floor:hover .floor-surface, .building-floor:focus-visible .floor-surface { stroke: var(--pine); stroke-width: 3; filter: drop-shadow(0 4px 7px rgb(7 85 201 / .18)); }
+.building-floor:hover .floor-surface, .building-floor:focus-visible .floor-surface { stroke: var(--action); stroke-width: 3; filter: drop-shadow(0 4px 7px rgb(7 85 201 / .18)); }
 
-.building-floor.active .floor-surface { stroke: var(--pine); stroke-width: 3.5; }
+.building-floor.active .floor-surface { stroke: var(--action); stroke-width: 3.5; }
 
 .building-clouds { opacity: .78; mix-blend-mode: multiply; pointer-events: none; }
 
@@ -304,7 +304,7 @@
 
 .building-opening-state-badge rect { fill: var(--panel); stroke: var(--line-strong); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 
-.building-opening-state-badge text { fill: var(--ink); font-family: "DM Sans", sans-serif; font-size: 10px; font-weight: 750; dominant-baseline: middle; }
+.building-opening-state-badge text { fill: var(--ink); font-family: "DM Sans", sans-serif; font-size: 10px; font-weight: 700; dominant-baseline: middle; }
 
 .building-opening-state-icon { fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 
@@ -356,7 +356,7 @@
 
 .building-observation path { fill: currentColor; stroke: #fff; stroke-width: 2; filter: drop-shadow(0 3px 4px rgb(13 39 31 / .24)); }
 
-.building-observation text { fill: #fff; font-size: 11px; font-weight: 800; pointer-events: none; }
+.building-observation text { fill: #fff; font-size: 11px; font-weight: 700; pointer-events: none; }
 
 .building-sensor { cursor: pointer; outline: none; pointer-events: bounding-box; }
 
@@ -364,9 +364,9 @@
 
 .sensor-tether { stroke: #6b6f67; stroke-width: 1.4; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
 
-.building-sensor-ring { fill: rgb(255 255 255 / .88); stroke: var(--pine); stroke-width: 2.5; transition: r .15s ease, stroke-width .15s ease; }
+.building-sensor-ring { fill: rgb(255 255 255 / .88); stroke: var(--action); stroke-width: 2.5; transition: r .15s ease, stroke-width .15s ease; }
 
-.building-sensor-core { fill: var(--pine); stroke: #fff; stroke-width: 2; }
+.building-sensor-core { fill: var(--action); stroke: #fff; stroke-width: 2; }
 
 .building-sensor.selected .building-sensor-ring { fill: #dce8ff; stroke-width: 4; }
 
@@ -374,9 +374,9 @@
 
 .building-sensor.stale .building-sensor-core { fill: var(--muted); }
 
-.building-sensor:hover .building-sensor-ring, .building-sensor:focus-visible .building-sensor-ring { r: 24; stroke: var(--pine); stroke-width: 4; }
+.building-sensor:hover .building-sensor-ring, .building-sensor:focus-visible .building-sensor-ring { r: 24; stroke: var(--action); stroke-width: 4; }
 
-.building-sensor-value { fill: #fff; font-family: "Manrope", sans-serif; font-size: 11px; font-weight: 800; }
+.building-sensor-value { fill: #fff; font-family: "Manrope", sans-serif; font-size: 11px; font-weight: 700; }
 
 .building-sensor-name { fill: var(--ink); font-size: 11px; font-weight: 700; paint-order: stroke; stroke: rgb(255 255 255 / .94); stroke-width: 4px; stroke-linejoin: round; }
 
@@ -388,15 +388,15 @@
 
 .building-sensor-energy-glyph { fill: #fff; pointer-events: none; }
 
-.building-sensor-energy-stats { fill: #7a3f10; font-family: "Manrope", sans-serif; font-size: 10px; font-weight: 800; paint-order: stroke; stroke: rgb(255 255 255 / .94); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+.building-sensor-energy-stats { fill: #7a3f10; font-family: "Manrope", sans-serif; font-size: 10px; font-weight: 700; paint-order: stroke; stroke: rgb(255 255 255 / .94); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
 
 .vertical-gradient line { stroke: var(--orange); stroke-width: 3; stroke-dasharray: 7 6; vector-effect: non-scaling-stroke; }
 
-.building-flow-path { fill: none; stroke: var(--pine); stroke-width: 2.5; stroke-dasharray: 7 7; opacity: .82; vector-effect: non-scaling-stroke; }
+.building-flow-path { fill: none; stroke: var(--action); stroke-width: 2.5; stroke-dasharray: 7 7; opacity: .82; vector-effect: non-scaling-stroke; }
 
 .building-volume-vector.has-z .building-flow-path { stroke: var(--orange); }
 
-.building-flow-particle { fill: var(--panel); stroke: var(--pine); stroke-width: 2; }
+.building-flow-particle { fill: var(--panel); stroke: var(--action); stroke-width: 2; }
 
 .building-volume-vector.has-z .building-flow-particle { stroke: var(--orange); }
 
@@ -404,7 +404,7 @@
 
 .simulated-volume-flow .building-flow-particle, .simulated-volume-flow.has-z .building-flow-particle { stroke: var(--aqua); }
 
-.building-arrow-head { fill: var(--pine); }
+.building-arrow-head { fill: var(--action); }
 
 .vertical-arrow-head { fill: var(--orange); }
 
@@ -412,9 +412,9 @@
 
 .vertical-gradient rect { fill: rgb(255 255 255 / .94); stroke: var(--line-strong); }
 
-.vertical-gradient text { fill: var(--ink); font-size: 9.5px; font-weight: 700; }
+.vertical-gradient text { fill: var(--ink); font-size: 10px; font-weight: 700; }
 
-.vertical-gradient .sub-label { fill: var(--muted); font-size: 7.8px; font-weight: 500; }
+.vertical-gradient .sub-label { fill: var(--muted); font-size: 10px; font-weight: 500; }
 
 .building-legend { min-height: 38px; padding: 7px 13px; display: flex; align-items: center; gap: 18px; border-top: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: 11px; }
 
@@ -436,9 +436,9 @@
 
 .building-legend .heat-gradient { width: 78px; height: 7px; }
 
-.vertical-key { width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: 50%; color: var(--orange); background: var(--orange-soft); font-style: normal; font-size: 14px; font-weight: 800; }
+.vertical-key { width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: 50%; color: var(--orange); background: var(--orange-soft); font-style: normal; font-size: 14px; font-weight: 700; }
 
-.volume-vector-key { width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: 50%; color: var(--pine); background: var(--pine-soft); font-style: normal; font-size: 14px; font-weight: 800; }
+.volume-vector-key { width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: 50%; color: var(--action); background: var(--action-soft); font-style: normal; font-size: 14px; font-weight: 700; }
 
 .volume-vector-key.simulated { color: var(--aqua); background: rgb(0 111 158 / .11); }
 

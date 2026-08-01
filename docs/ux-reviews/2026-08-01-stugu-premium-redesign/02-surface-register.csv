@@ -1,0 +1,65 @@
+id,platform,scope,surface,entry,evidence,target_disposition,implementation_status,coverage_status
+W01,Web,Workspace,Portfolio overview,/overview,Live+source,Improve trust grouping,Implemented,Audited with limitations
+W02,Web,Workspace,Properties index,/properties,Live+source,Improve creation disclosure,Implemented,Audited with limitations
+W03,Web,Workspace,People and access,/people,Live+source+five-role page matrix+direct-route test,Move to Advanced; retain route and permissions,Implemented admin surface and guest denial before member requests; live session proof pending,Audited with limitations
+W04,Web,Workspace,Stugubys,/stugbys,Live+source,Move to Advanced; retain route and permissions,Implemented,Audited with limitations
+W05,Web,Workspace,Aggregated alerts,/alerts,Live+source,Keep; lifecycle standard retained,No change,Audited with limitations
+W06,Web,System,Host health and updates,/system,Live+source+policy matrix+direct-route test,Keep under Advanced and role gate,Implemented role/action gate and guest denial before update-status requests; live session proof pending,Audited with limitations
+W07,Web,Workspace,API and MCP,/developer,Live+source+policy matrix,Keep under Advanced with visibility/action/API parity,Implemented role-aware visibility and direct-route denial; live session proof pending,Audited with limitations
+P01,Web,Property,Property overview,/properties/:propertyId,Live+source,Improve action disclosure and calm first viewport,Implemented,Audited with limitations
+P02,Web,Property,Map,/properties/:propertyId/map,Live+source+static gate+route tests,Keep with documented contextual map/data palettes,Implemented semantic chrome convergence plus validated ?structure-search/?map-search/?map-type/?map-layers/?map-item state with default omission and popstate restoration; visual/CVD proof pending,Audited with limitations
+P03,Web,Property,Inventory,/properties/:propertyId/inventory,Live+source+route tests,Keep existing contextual disclosure,Implemented validated ?inventory-search/?inventory-status/?inventory-location/?inventory-item state with default omission and popstate restoration,Audited with limitations
+P04,Web,Property,Notes,/properties/:propertyId/notes,Live+source,Collapse editor; edit opens in context,Implemented,Audited with limitations
+P05,Web,Property,Access,/properties/:propertyId/access,Live+source,Keep role-gated,No change,Audited with limitations
+P06,Web,Property,Maintenance,/properties/:propertyId/maintenance,Live+source+route tests,Keep Property ownership,Property and Home-context route states plus ?filter/?basis/?search are bookmarkable; defaults canonicalize away and popstate restores them,Audited with limitations
+P07,Web,Property,Electricity contract,/properties/:propertyId/electricity,Live+source,Keep Property scope,No change,Audited with limitations
+H01,Web,Home,Home dashboard,/properties/:propertyId/homes/:homeId,Live+source+route tests,Keep decision layers and progressive detail,Implemented validated ?floor/?metric/?view=isometric/?sensor/?range state; first-floor/temperature/plan/first-sensor/24h defaults are omitted and popstate is race-tested at App level,Audited with limitations
+H02,Web,Home,Activity,/properties/:propertyId/homes/:homeId/activity,Live+source+tests,Keep meaningful nested state in URL,Implemented ?view=observations plus validated ?status/?search with push for discrete choices; replace for typing; default omission; and popstate restoration,Audited with limitations
+H03,Web,Home,Outdoor,/properties/:propertyId/homes/:homeId/outdoor,Live+source+route+keyboard tests,Keep empty and weather states; restore meaningful forecast evidence windows,Implemented ?forecast=12-24|24-36|36-48 with keyboard and popstate restoration,Audited with limitations
+H04,Web,Home,Electricity use,/properties/:propertyId/homes/:homeId/electricity,Live+source+route tests,Label Property-wide optimizer explicitly,Implemented scope label plus validated ?range/?metric/?cost state with default omission and popstate restoration,Audited with limitations
+H05,Web,Home,Sensors,/properties/:propertyId/homes/:homeId/sensors,Live+source+route tests,Keep specialist density within converged type rules,Implemented global type convergence plus validated ?urgency/?detail/?range state; out-of-scope details canonicalize away and popstate restores valid state,Audited with limitations
+H06,Web,Home,Data and analytics,/properties/:propertyId/homes/:homeId/analytics,Live+source+route tests,Keep evidence depth within converged type rules,Implemented global type convergence plus validated ?range/?resolution/?aggregation/?quality/?metric/?sensors/?weather state with compact sets; default omission; and popstate restoration,Audited with limitations
+H07,Web,Home,Set up canonical entry,/properties/:propertyId/homes/:homeId/setup,Live+source,Keep and resolve to overview,No change,Audited with limitations
+H08,Web,Home,Set up overview,/properties/:propertyId/homes/:homeId/setup/overview,Live+source,Keep contextual onboarding,No change,Audited with limitations
+H09,Web,Home,Set up layout,/properties/:propertyId/homes/:homeId/setup/layout,Live+source,Keep,No change,Audited with limitations
+H10,Web,Home,Set up connections,/properties/:propertyId/homes/:homeId/setup/connections,Live+source+guard tests,Wrap long help; keep advanced disclosure,Implemented help wrapping plus guest and foreign-shared-Home denial before Setup requests; live session proof pending,Audited with limitations
+H11,Web,Home,Set up weather,/properties/:propertyId/homes/:homeId/setup/weather,Live+source,Keep,No change,Audited with limitations
+H12,Web,Home,Set up operations,/properties/:propertyId/homes/:homeId/setup/operations,Live+source,Repair dark theme semantics,Implemented,Audited with limitations
+H13,Web,Home,Set up automations,/properties/:propertyId/homes/:homeId/setup/automations,Live+source,Keep,No change,Audited with limitations
+L01,Web,Compatibility,24 recognized legacy route templates,Legacy root+site+top-level Home+setup homes+system update forms,Source+exact 24-form parser matrix,Retain readable redirects with replaceState; remove dead renderer,24/24 forms parse as legacy and remain readable; legacy Setup Homes renderer removed; full live browser migration matrix pending,Audited with limitations
+G01,Web,Global,Initial loading,App bootstrap,Source,Keep concise status,No change,Audited with limitations
+G02,Web,Global,Owner setup,Unauthenticated bootstrap,Source,Keep,No change,Audited with limitations
+G03,Web,Global,Sign in and invitation,Authentication,Source,Keep accessible authentication,No change,Audited with limitations
+G04,Web,Global,Backend unavailable,App bootstrap,Source+integrated recovery test,Keep recovery action,Visible Try again action invokes bootstrap retry; real service-outage proof pending,Audited with limitations
+G05,Web,Workspace,Empty first Property or Home,Empty bootstrap,Source+live partial,Keep first-value flow,No change,Audited with limitations
+G06,Web,Global,Unknown route,Router recovery,Source+integrated recovery test,Keep canonical recovery,Visible Open overview action restores the canonical overview route,Audited with limitations
+G07,Web,Global,Lazy route error,Route boundary,Source+boundary test,Keep retry,Fallback receives focus; reload is exposed; route-key change resets the boundary; real chunk-failure proof pending,Audited with limitations
+G08,Web,Property,Property without Home,Scoped route,Source+tests,Keep fully usable,No change,Audited with limitations
+G09,Web,Home,Missing floor,Home rendering,Source,Keep explanatory empty state,No change,Audited with limitations
+G10,Web,Security,Scope denied,Authorization,Source+tests+policy matrices,Keep authoritative denial and hide unavailable actions,Implemented 35 browser and 10 API policy cells plus direct guest-route no-request assertions; live multi-session proof pending,Audited with limitations
+G11,Web,Security,Read-only or remote authority,Shell+pages,Source+tests+policy matrices,Keep persistent ownership cues and server parity,Implemented 32 server visibility cells plus foreign-shared-Home Setup no-request assertion; live multi-session proof pending,Audited with limitations
+G12,Web,Global,Demo data,Shell banner,Live+source,Keep explicit simulated state,No change,Audited with limitations
+G13,Web,Global,Polling fallback,Shell banner,Source,Keep delayed exception disclosure,No change,Audited with limitations
+G14,Web,Global,Partial resource failure,Shell banner,Source,Keep resource-specific recovery,No change,Audited with limitations
+G15,Web,Global,Reconnecting and offline,Shell banner,Source,Keep plain language,No change,Audited with limitations
+G16,Web,Global,Freshness and last known,Shell+cards,Source+live+catalogues,Keep distinct plain-language age and unknown semantics,Implemented EN/FI/SV sweep; representative-user proof pending,Audited with limitations
+G17,Web,Global,Integration discovery notice,Toast,Source,Keep dismiss/review actions,No change,Audited with limitations
+G18,Web,Global,Sensor discovery notice,Toast,Source,Keep add/dismiss actions,No change,Audited with limitations
+G19,Web,Global,Mobile navigation drawer,<=900 px,Live+tests,Keep focus trap inert and restore,No change,Audited with limitations
+G20,Web,Global,Hidden desktop rail,Desktop shell,Source+tests,Keep personal preference isolated by signed-in principal,Implemented principal-scoped browser storage and logout/unauthorized purge,Audited with limitations
+G21,Web,Global,Structured confirmations,32 frozen native confirmations plus 5 inline consequential actions,Source+exact static invariant+interaction tests,Shared accessible dialog with object impact recovery and safe cancel,Implemented 37/37 production call sites through ConfirmationProvider; helper fails closed when unmounted,Audited with limitations
+N01,iOS,Global,Five root phases,starting|server setup|sign in|owner setup required|ready,Static,Keep; ready errors must surface,Implemented,Audited with limitations
+N02,iOS,Home,Home tab,MainTabView,Static,Keep,No change,Audited with limitations
+N03,iOS,Home,Sensors tab,MainTabView,Static,Keep,No change,Audited with limitations
+N04,iOS,Property,Inventory tab,MainTabView,Static,Keep,No change,Audited with limitations
+N05,iOS,Workspace,Alerts tab,MainTabView,Static,Keep,No change,Audited with limitations
+N06,iOS,Global,Settings tab,MainTabView,Static,Keep,No change,Audited with limitations
+N07,iOS,Property,Quick Capture observation and maintenance,Full-screen cover,Static,Keep,No change,Audited with limitations
+N08,iOS,Home,LiDAR room scan review and import,Full-screen cover,Static,Keep platform-native workflow,No change,Audited with limitations
+N09,iOS,Home,Sensor and contact detail history,Sheets,Static,Keep,No change,Audited with limitations
+N10,iOS,Property,Inventory list and map,Native navigation,Static,Keep,No change,Audited with limitations
+N11,iOS,Property,QR scanner,Sheet,Static,Keep alternate to gesture/manual entry,No change,Audited with limitations
+N12,iOS,Property,Equipment detail edit resources nearby borrowing issues notes,Sheets,Static+catalogue census,Keep with complete shipped-locale strings,Implemented 367/367 FI and 367/367 SV; device layout proof pending,Audited with limitations
+N13,iPad+macOS,All,Embedded full web with native offline fallback,LargeScreenExperienceView,Static,Fix inventory deep link,Implemented,Audited with limitations
+N14,watchOS,Home,Home summary and alert acknowledgement,Watch app,Static+portable readiness test,Unknown future state must be neutral,Implemented neutral default fallback; Watch runtime proof pending,Audited with limitations
+N15,Widget,Home,Small medium and accessory status families,Widget extension,Static,Keep glanceable state,No change,Audited with limitations

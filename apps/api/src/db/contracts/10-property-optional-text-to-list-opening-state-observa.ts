@@ -106,8 +106,8 @@ declare module "../core.js" {
     equipmentLinkUrl(value: string): string;
     nextUpdatedAt(previous: string): string;
     validatePropertyArea(area: PropertyArea): void;
-    validateAreaEquipment(equipment: AreaEquipment): void;
-    validatePropertyNote(note: PropertyNote): void;
+    validateAreaEquipment(equipment: AreaEquipment, retainedHiddenHouseId?: string | null): void;
+    validatePropertyNote(note: PropertyNote, retainedHiddenHouseId?: string | null): void;
     ensureDefaultProperty(): Property;
     listHouses(propertyId?: string): House[];
     getHouse(id: string): House | null;

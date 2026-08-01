@@ -3,9 +3,29 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../i18n";
 import { AppShell } from "./AppShell";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  window.history.replaceState({}, "", "/");
+});
 
 describe("AppShell local account controls", () => {
+  it("shows API & MCP only when the principal can use developer tools", () => {
+    const props = {
+      page: "overview" as const,
+      onPage: vi.fn(),
+      connection: "live" as const,
+      units: "metric" as const,
+      onUnits: vi.fn(),
+      lastUpdated: null,
+      dataMode: "real" as const,
+    };
+    const view = render(<I18nProvider><AppShell {...props}><div>Overview</div></AppShell></I18nProvider>);
+    expect(screen.queryByRole("link", { name: "API & MCP" })).toBeNull();
+
+    view.rerender(<I18nProvider><AppShell {...props} canUseDeveloperTools><div>Overview</div></AppShell></I18nProvider>);
+    expect(screen.getByRole("link", { name: "API & MCP" }).getAttribute("href")).toBe("/developer");
+  });
+
   it("keeps the Property workspace reachable before a Home exists", () => {
     render(
       <I18nProvider>
@@ -50,7 +70,11 @@ describe("AppShell local account controls", () => {
       </I18nProvider>,
     );
 
-    expect(screen.getByRole("link", { name: "Stugubys" }).getAttribute("href")).toBe("/stugbys");
+    const stugubysLink = screen.getByRole("link", { name: "Stugubys" });
+    expect(stugubysLink.getAttribute("href")).toBe("/stugbys");
+    expect(stugubysLink.closest("details")?.querySelector("summary")?.textContent).toContain("Advanced");
+    const workspaceGroup = screen.getByText("Workspace").closest("details");
+    expect(workspaceGroup?.querySelectorAll(".nav-button")).toHaveLength(3);
     expect(screen.queryByLabelText("Active property")).toBeNull();
   });
 
@@ -137,10 +161,10 @@ describe("AppShell local account controls", () => {
       </I18nProvider>,
     );
 
-    const homePicker = screen.getByLabelText("Home shown on this page") as HTMLSelectElement;
-    expect(Array.from(homePicker.options, (option) => option.textContent)).toEqual(["Client Home"]);
+    expect(screen.queryByLabelText("Home shown on this page")).toBeNull();
     expect(screen.getByLabelText("Home · Client Home · Remote").textContent).toContain("Remote");
-    expect(container.querySelector(".page-home-switcher-group .stuguby-mark")).toBeTruthy();
+    expect(container.querySelector(".sidebar-nav-group .stuguby-mark")).toBeTruthy();
+    expect(container.querySelector(".page-home-switcher")).toBeNull();
   });
 
   it("does not mark an owned Stuguby Home as remote", () => {
@@ -186,6 +210,7 @@ describe("AppShell local account controls", () => {
     expect(screen.getByLabelText("Home · My Home · Own").textContent).toContain("Own");
     expect(container.querySelector(".page-home-switcher-group .stuguby-mark")).toBeNull();
     expect(container.querySelector(".sidebar-nav-group .stuguby-mark")).toBeNull();
+    expect(container.querySelector(".page-home-switcher")).toBeNull();
   });
 
   it("lets a read-only Guest sign out without exposing a workspace switcher", async () => {
@@ -210,8 +235,69 @@ describe("AppShell local account controls", () => {
     );
 
     expect(screen.queryByRole("combobox", { name: "Workspace" })).toBeNull();
+    fireEvent.click(screen.getByText("Account & preferences").closest("summary")!);
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(onLogout).toHaveBeenCalledOnce());
+  });
+
+  it("keeps only the current navigation scope expanded by default", async () => {
+    window.history.replaceState({}, "", "/properties/property-main/homes/home-main");
+    const props = {
+      onPage: vi.fn(),
+      connection: "live" as const,
+      units: "metric" as const,
+      onUnits: vi.fn(),
+      lastUpdated: null,
+      dataMode: "real" as const,
+      properties: [{ id: "property-main", name: "Main estate" }],
+      propertyId: "property-main",
+      houses: [{ id: "home-main", propertyId: "property-main", name: "Main home", timezone: "Europe/Helsinki" }],
+      houseId: "home-main",
+    };
+    const view = render(
+      <I18nProvider><AppShell {...props} page="twin"><div>Home</div></AppShell></I18nProvider>,
+    );
+
+    const workspaceGroup = screen.getByText("Workspace").closest("details")!;
+    const propertyGroup = screen.getByText(/Property .* Main estate/).closest("details")!;
+    const homeGroup = screen.getByText(/Home .* Main home/).closest("details")!;
+    expect(workspaceGroup.open).toBe(false);
+    expect(propertyGroup.open).toBe(false);
+    expect(homeGroup.open).toBe(true);
+
+    window.history.replaceState({}, "", "/properties/property-main/maintenance");
+    view.rerender(
+      <I18nProvider><AppShell {...props} page="maintenance"><div>Maintenance</div></AppShell></I18nProvider>,
+    );
+    await waitFor(() => {
+      expect(propertyGroup.open).toBe(true);
+      expect(homeGroup.open).toBe(false);
+    });
+  });
+
+  it.each(["map", "inventory", "notes", "access"])("keeps Property navigation current on the %s subtab", (subtab) => {
+    window.history.replaceState({}, "", `/properties/property-main/${subtab}`);
+    render(
+      <I18nProvider>
+        <AppShell
+          page="properties"
+          onPage={vi.fn()}
+          connection="live"
+          units="metric"
+          onUnits={vi.fn()}
+          lastUpdated={null}
+          dataMode="real"
+          properties={[{ id: "property-main", name: "Main estate" }]}
+          propertyId="property-main"
+          houses={[]}
+        >
+          <div>Property content</div>
+        </AppShell>
+      </I18nProvider>,
+    );
+
+    expect(screen.getByRole("link", { name: "Property" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Properties" })).not.toHaveAttribute("aria-current");
   });
 
   it("keeps Home sensors visible to a read-only guest while hiding setup and an ungranted Property contract", () => {

@@ -15,6 +15,34 @@ export const FORECAST_WINDOW_LABEL_KEYS = [
   "forecast.window.36to48",
 ] as const satisfies readonly TranslationKey[];
 
+const FORECAST_WINDOW_QUERY_KEY = "forecast";
+const FORECAST_WINDOW_QUERY_VALUES = ["0-12", "12-24", "24-36", "36-48"] as const;
+
+function forecastWindowFromLocation(): number {
+  if (typeof window === "undefined") return 0;
+  const value = new URLSearchParams(window.location.search).get(FORECAST_WINDOW_QUERY_KEY);
+  const index = FORECAST_WINDOW_QUERY_VALUES.indexOf(value as typeof FORECAST_WINDOW_QUERY_VALUES[number]);
+  return Math.max(0, index);
+}
+
+function forecastWindowLocationIsCanonical(index: number): boolean {
+  if (typeof window === "undefined") return true;
+  const value = new URLSearchParams(window.location.search).get(FORECAST_WINDOW_QUERY_KEY);
+  return index === 0 ? value === null : value === FORECAST_WINDOW_QUERY_VALUES[index];
+}
+
+function writeForecastWindowToLocation(index: number, mode: "push" | "replace"): void {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  const value = FORECAST_WINDOW_QUERY_VALUES[index];
+  if (!value || index === 0) url.searchParams.delete(FORECAST_WINDOW_QUERY_KEY);
+  else url.searchParams.set(FORECAST_WINDOW_QUERY_KEY, value);
+
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (next !== current) window.history[`${mode}State`](window.history.state, "", next);
+}
+
 function finite(value: number | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -142,8 +170,9 @@ export function ForecastWindowNavigator({
 }: ForecastWindowNavigatorProps) {
   const { t } = useI18n();
   const id = useId().replaceAll(":", "");
-  const [selectedWindow, setSelectedWindow] = useState(0);
+  const [selectedWindow, setSelectedWindow] = useState(forecastWindowFromLocation);
   const tabs = useRef<Array<HTMLButtonElement | null>>([]);
+  const scope = useRef({ houseId, horizonHours, path: typeof window === "undefined" ? "" : window.location.pathname });
   const windowLabels = useMemo(() => FORECAST_WINDOW_LABEL_KEYS.map((key) => t(key)), [t]);
   const windows = useMemo(
     () => buildForecastWindows(points, horizonHours, windowLabels),
@@ -153,17 +182,46 @@ export function ForecastWindowNavigator({
   const activeWindow = windows[activeIndex]!;
 
   useEffect(() => {
-    setSelectedWindow(0);
-  }, [houseId, horizonHours]);
+    const path = typeof window === "undefined" ? "" : window.location.pathname;
+    const houseChanged = scope.current.houseId !== houseId;
+    const horizonChanged = scope.current.horizonHours !== horizonHours;
+    const pathChanged = scope.current.path !== path;
+    scope.current = { houseId, horizonHours, path };
+
+    if (horizonChanged || (houseChanged && !pathChanged)) {
+      setSelectedWindow(0);
+      writeForecastWindowToLocation(0, "replace");
+      return;
+    }
+
+    const requested = forecastWindowFromLocation();
+    const next = Math.min(requested, windows.length - 1);
+    setSelectedWindow(next);
+    if (next !== requested || !forecastWindowLocationIsCanonical(next)) {
+      writeForecastWindowToLocation(next, "replace");
+    }
+  }, [houseId, horizonHours, windows.length]);
 
   useEffect(() => {
-    setSelectedWindow((current) => Math.min(current, windows.length - 1));
+    const restoreWindow = () => {
+      if (window.location.pathname !== scope.current.path) return;
+      const next = Math.min(forecastWindowFromLocation(), windows.length - 1);
+      setSelectedWindow(next);
+      if (!forecastWindowLocationIsCanonical(next)) writeForecastWindowToLocation(next, "replace");
+    };
+    window.addEventListener("popstate", restoreWindow);
+    return () => window.removeEventListener("popstate", restoreWindow);
   }, [windows.length]);
+
+  const selectWindow = (index: number, focus: boolean) => {
+    setSelectedWindow(index);
+    writeForecastWindowToLocation(index, "push");
+    if (focus) tabs.current[index]?.focus();
+  };
 
   const selectAndFocus = (index: number) => {
     const next = (index + windows.length) % windows.length;
-    setSelectedWindow(next);
-    tabs.current[next]?.focus();
+    selectWindow(next, true);
   };
 
   const handleTabKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -209,7 +267,7 @@ export function ForecastWindowNavigator({
             aria-selected={activeIndex === index}
             aria-controls={`${id}-forecast-panel`}
             tabIndex={activeIndex === index ? 0 : -1}
-            onClick={() => setSelectedWindow(index)}
+            onClick={() => selectWindow(index, false)}
             onKeyDown={(event) => handleTabKey(event, index)}
           >
             {window.label}

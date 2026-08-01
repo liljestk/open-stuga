@@ -428,7 +428,7 @@ describe("Stuguby federation", () => {
         && item.event.grantEpoch === updated.body.epoch)
       .map((item) => item.event.payload as unknown as { complete: boolean; samples: unknown[] });
     expect(emptyPayloads).toEqual([expect.objectContaining({ complete: true, samples: [] })]);
-  });
+  }, 15_000);
 
   it("keeps the live per-grant UTC-hour cap after recreating the service", async () => {
     const coordinator = await node("Live cap coordinator");

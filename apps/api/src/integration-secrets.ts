@@ -31,6 +31,19 @@ export interface IntegrationSecrets {
   webhookDestinations?: WebhookDestinationSecret[];
   telegram?: { botToken: string; chatId: string };
   appleNotesGrants?: AppleNotesGrantSecret[];
+  hiddenHouseData?: HiddenHouseIntegrationData[];
+}
+
+export interface HiddenHouseIntegrationData {
+  houseId: string;
+  hiddenAt: string;
+  homeAssistant?: IntegrationSecrets["homeAssistant"];
+  tpLink?: IntegrationSecrets["tpLink"];
+  homeAssistantConnections: HomeAssistantConnectionSecret[];
+  tpLinkConnections: TpLinkConnectionSecret[];
+  greeConnections: GreeConnectionSecret[];
+  tuyaConnections: TuyaConnectionSecret[];
+  appleNotesGrants: AppleNotesGrantSecret[];
 }
 
 export interface WebhookDestinationSecret {
@@ -307,6 +320,100 @@ function normalizedTuyaConnections(value: unknown): TuyaConnectionSecret[] {
   });
 }
 
+function normalizedHomeAssistantConnections(value: unknown): HomeAssistantConnectionSecret[] {
+  if (!Array.isArray(value)) {
+    throw new Error("The house Home Assistant connections in the integration secrets file are invalid");
+  }
+  const houseIds = new Set<string>();
+  return value.map((candidate) => {
+    const item = candidate as Record<string, unknown>;
+    if (!item || !isNonEmptyString(item.houseId) || !isNonEmptyString(item.url) || !isNonEmptyString(item.token)
+      || houseIds.has(item.houseId.trim())) {
+      throw new Error("The house Home Assistant connections in the integration secrets file are invalid");
+    }
+    const houseId = item.houseId.trim();
+    houseIds.add(houseId);
+    return { houseId, url: item.url.trim(), token: item.token };
+  });
+}
+
+function normalizedAppleNotesGrants(value: unknown): AppleNotesGrantSecret[] {
+  if (!Array.isArray(value)) throw new Error("The Apple Notes grants in the integration secrets file are invalid");
+  const grants: AppleNotesGrantSecret[] = [];
+  const ids = new Set<string>();
+  for (const candidate of value) {
+    const item = candidate as Record<string, unknown>;
+    if (!item || !isNonEmptyString(item.id) || typeof item.tokenHash !== "string"
+      || !/^sha256:[0-9a-f]{64}$/.test(item.tokenHash)
+      || !isNonEmptyString(item.deviceLabel) || !isNonEmptyString(item.houseId)
+      || !isNonEmptyString(item.createdAt) || !Number.isFinite(Date.parse(item.createdAt))) {
+      throw new Error("The Apple Notes grants in the integration secrets file are invalid");
+    }
+    if (ids.has(item.id)) throw new Error("The Apple Notes grants in the integration secrets file contain duplicate ids");
+    ids.add(item.id);
+    grants.push({
+      id: item.id.trim(),
+      tokenHash: item.tokenHash,
+      deviceLabel: item.deviceLabel.trim(),
+      houseId: item.houseId.trim(),
+      createdAt: new Date(item.createdAt).toISOString(),
+    });
+  }
+  return grants;
+}
+
+function normalizedHiddenHouseData(value: unknown): HiddenHouseIntegrationData[] {
+  if (!Array.isArray(value)) throw new Error("The hidden Home integration data are invalid");
+  const houseIds = new Set<string>();
+  return value.map((candidate) => {
+    const item = candidate as Record<string, unknown>;
+    if (!item || !isNonEmptyString(item.houseId) || houseIds.has(item.houseId.trim())
+      || !isNonEmptyString(item.hiddenAt) || !Number.isFinite(Date.parse(item.hiddenAt))) {
+      throw new Error("The hidden Home integration data are invalid");
+    }
+    const houseId = item.houseId.trim();
+    const homeAssistantConnections = normalizedHomeAssistantConnections(item.homeAssistantConnections ?? []);
+    const tpLinkConnections = normalizedTpLinkConnections(item.tpLinkConnections ?? []);
+    const greeConnections = normalizedGreeConnections(item.greeConnections ?? []);
+    const tuyaConnections = normalizedTuyaConnections(item.tuyaConnections ?? []);
+    const appleNotesGrants = normalizedAppleNotesGrants(item.appleNotesGrants ?? []);
+    if ([...homeAssistantConnections, ...tpLinkConnections, ...greeConnections, ...tuyaConnections, ...appleNotesGrants]
+      .some((entry) => entry.houseId !== houseId)) {
+      throw new Error("The hidden Home integration data cross a Home boundary");
+    }
+    houseIds.add(houseId);
+    const homeAssistant = item.homeAssistant === undefined
+      ? undefined
+      : (() => {
+          const value = item.homeAssistant as Record<string, unknown>;
+          if (!value || !isNonEmptyString(value.url) || !isNonEmptyString(value.token)) {
+            throw new Error("The hidden Home Assistant credentials are invalid");
+          }
+          return { url: value.url.trim(), token: value.token };
+        })();
+    const tpLink = item.tpLink === undefined
+      ? undefined
+      : (() => {
+          const value = item.tpLink as Record<string, unknown>;
+          if (!value || !isNonEmptyString(value.host) || !isNonEmptyString(value.username) || !isNonEmptyString(value.password)) {
+            throw new Error("The hidden TP-Link credentials are invalid");
+          }
+          return { host: value.host.trim(), username: value.username.trim(), password: value.password };
+        })();
+    return {
+      houseId,
+      hiddenAt: new Date(item.hiddenAt).toISOString(),
+      ...(homeAssistant ? { homeAssistant } : {}),
+      ...(tpLink ? { tpLink } : {}),
+      homeAssistantConnections,
+      tpLinkConnections,
+      greeConnections,
+      tuyaConnections,
+      appleNotesGrants,
+    };
+  });
+}
+
 export function readIntegrationSecrets(path: string): IntegrationSecrets {
   if (!existsSync(path)) return { version: 1 };
   const parsed = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
@@ -336,20 +443,7 @@ export function readIntegrationSecrets(path: string): IntegrationSecrets {
     result.homeAssistantLegacyDisabled = true;
   }
   if (parsed.homeAssistantConnections !== undefined) {
-    if (!Array.isArray(parsed.homeAssistantConnections)) {
-      throw new Error("The house Home Assistant connections in the integration secrets file are invalid");
-    }
-    const houseIds = new Set<string>();
-    result.homeAssistantConnections = parsed.homeAssistantConnections.map((candidate) => {
-      const value = candidate as Record<string, unknown>;
-      if (!value || !isNonEmptyString(value.houseId) || !isNonEmptyString(value.url) || !isNonEmptyString(value.token)
-        || houseIds.has(value.houseId.trim())) {
-        throw new Error("The house Home Assistant connections in the integration secrets file are invalid");
-      }
-      const houseId = value.houseId.trim();
-      houseIds.add(houseId);
-      return { houseId, url: value.url.trim(), token: value.token };
-    });
+    result.homeAssistantConnections = normalizedHomeAssistantConnections(parsed.homeAssistantConnections);
   }
   if (parsed.tpLink !== undefined) {
     const value = parsed.tpLink as Record<string, unknown>;
@@ -403,31 +497,9 @@ export function readIntegrationSecrets(path: string): IntegrationSecrets {
     result.telegram = { botToken: value.botToken.trim(), chatId: value.chatId.trim() };
   }
   if (parsed.appleNotesGrants !== undefined) {
-    if (!Array.isArray(parsed.appleNotesGrants)) {
-      throw new Error("The Apple Notes grants in the integration secrets file are invalid");
-    }
-    const grants: AppleNotesGrantSecret[] = [];
-    const ids = new Set<string>();
-    for (const candidate of parsed.appleNotesGrants) {
-      const value = candidate as Record<string, unknown>;
-      if (!value || !isNonEmptyString(value.id) || typeof value.tokenHash !== "string"
-        || !/^sha256:[0-9a-f]{64}$/.test(value.tokenHash)
-        || !isNonEmptyString(value.deviceLabel) || !isNonEmptyString(value.houseId)
-        || !isNonEmptyString(value.createdAt) || !Number.isFinite(Date.parse(value.createdAt))) {
-        throw new Error("The Apple Notes grants in the integration secrets file are invalid");
-      }
-      if (ids.has(value.id)) throw new Error("The Apple Notes grants in the integration secrets file contain duplicate ids");
-      ids.add(value.id);
-      grants.push({
-        id: value.id.trim(),
-        tokenHash: value.tokenHash,
-        deviceLabel: value.deviceLabel.trim(),
-        houseId: value.houseId.trim(),
-        createdAt: new Date(value.createdAt).toISOString(),
-      });
-    }
-    result.appleNotesGrants = grants;
+    result.appleNotesGrants = normalizedAppleNotesGrants(parsed.appleNotesGrants);
   }
+  if (parsed.hiddenHouseData !== undefined) result.hiddenHouseData = normalizedHiddenHouseData(parsed.hiddenHouseData);
   return result;
 }
 
@@ -450,6 +522,9 @@ export function writeIntegrationSecrets(path: string, secrets: IntegrationSecret
     ...(secrets.tuyaConnections === undefined
       ? {}
       : { tuyaConnections: normalizedTuyaConnections(secrets.tuyaConnections) }),
+    ...(secrets.hiddenHouseData === undefined
+      ? {}
+      : { hiddenHouseData: normalizedHiddenHouseData(secrets.hiddenHouseData) }),
     ...(secrets.webhookDestinations === undefined
       ? {}
       : { webhookDestinations: normalizedWebhookDestinations(secrets.webhookDestinations, "Webhook destinations") }),
@@ -499,6 +574,7 @@ export interface IntegrationSecretsPatch {
     webhookDestinations?: WebhookDestinationSecret[] | null;
     telegram?: IntegrationSecrets["telegram"] | null;
     appleNotesGrants?: AppleNotesGrantSecret[];
+    hiddenHouseData?: HiddenHouseIntegrationData[];
     addAppleNotesGrant?: AppleNotesGrantSecret;
     removeAppleNotesGrantId?: string;
 }
@@ -537,6 +613,7 @@ export function applyIntegrationSecretsPatch(
     if (patch.telegram === null) delete next.telegram;
     else if (patch.telegram !== undefined) next.telegram = patch.telegram;
     if (patch.appleNotesGrants !== undefined) next.appleNotesGrants = patch.appleNotesGrants.map((grant) => ({ ...grant }));
+    if (patch.hiddenHouseData !== undefined) next.hiddenHouseData = normalizedHiddenHouseData(patch.hiddenHouseData);
     if (patch.addAppleNotesGrant !== undefined) {
       const grants = next.appleNotesGrants ?? [];
       if (grants.some((grant) => grant.id === patch.addAppleNotesGrant!.id)) {

@@ -15,7 +15,7 @@ import {
 
 import { spawn } from "node:child_process";
 
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import process from "node:process";
 
@@ -30,7 +30,7 @@ import {
 
 import { revokeAccessToken } from ".././cloudflare-oauth.mjs";
 
-import { AGENT_VERSION, COMPOSE_CONTRACT, HEARTBEAT_MS, POLL_MS, UPDATE_AGENT_CONTRACT, bounded, compose, currentReleaseEnvironment, operation, readAgentConfig, readJson, readReleaseEnvironment, releaseEnvironment, runCommand, validatedRequest, writeJson, writeReleaseEnvironmentAtomic } from "./configuration-request.mjs";
+import { AGENT_VERSION, COMPOSE_CONTRACT, HEARTBEAT_MS, POLL_MS, RELEASE_MANIFEST_SCHEMA, UPDATE_AGENT_CONTRACT, UPDATE_REQUEST_SCHEMA, bounded, compose, currentReleaseEnvironment, operation, readAgentConfig, readJson, readReleaseEnvironment, releaseEnvironment, removeFileDurable, runCommand, validatedReleaseEnvironment, validatedRequest, writeJson, writeReleaseEnvironmentAtomic, writeTextDurableAtomic } from "./configuration-request.mjs";
 
 import { activeServices, applyCloudflareSetupRequest, exactApiVersion, restoreReleaseEnvironment } from "./services-cloudflare.mjs";
 import { applySourceProfileRequest } from "./services-source-profiles.mjs";
@@ -38,6 +38,126 @@ import { applySourceProfileRequest } from "./services-source-profiles.mjs";
 export const APPLIANCE_UPGRADE_REQUIRED = "appliance-upgrade-required";
 
 export const APPLIANCE_UPGRADE_DETAIL = "This Raspberry Pi uses an older updater boot contract. Create a verified backup, install a factory image with updater contract 3, and restore the backup before installing another container release.";
+
+export const UPDATE_JOURNAL_SCHEMA = "stugu-system-update-journal/v1";
+
+const UPDATE_JOURNAL_NAME = "update-journal.json";
+const UPDATE_JOURNAL_PHASES = new Set([
+  "prepared",
+  "verified",
+  "mutation-active",
+  "termination-uncertain",
+]);
+const UPDATE_MUTATION_NAMES = new Set([
+  "backup",
+  "candidate-pull",
+  "candidate-start",
+  "candidate-reconcile",
+  "rollback",
+]);
+const UPDATE_SERVICE_NAMES = new Set([
+  "api",
+  "web",
+  "stugu-backup-scheduler",
+  "stugu-r2-backup",
+  "tapo-export-runner",
+  "mqtt",
+  "nexus433",
+]);
+
+export function updateJournalPath(config) {
+  return join(config.operationsDirectory, UPDATE_JOURNAL_NAME);
+}
+
+export function updateJournal(
+  config,
+  request,
+  requestPath,
+  previousRelease,
+  services,
+  phase = "prepared",
+  mutation = null,
+) {
+  const durableRequest = {
+    schema: UPDATE_REQUEST_SCHEMA,
+    ...request,
+    repository: config.repository,
+    releaseManifestSchema: RELEASE_MANIFEST_SCHEMA,
+  };
+  return {
+    schema: UPDATE_JOURNAL_SCHEMA,
+    request: durableRequest,
+    requestFile: basename(requestPath),
+    requestId: request.id,
+    version: request.version,
+    previousVersion: request.previousVersion,
+    previousRelease,
+    services,
+    phase,
+    mutation,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function writeUpdateJournal(config, journal) {
+  writeTextDurableAtomic(
+    updateJournalPath(config),
+    `${JSON.stringify(journal, null, 2)}\n`,
+    0o600,
+  );
+}
+
+export function validatedUpdateJournal(raw, config, request) {
+  if (!raw || raw.schema !== UPDATE_JOURNAL_SCHEMA || !UPDATE_JOURNAL_PHASES.has(raw.phase)) {
+    throw new Error("The interrupted update journal is invalid");
+  }
+  if (
+    raw.requestId !== request.id
+    || raw.version !== request.version
+    || raw.previousVersion !== request.previousVersion
+  ) {
+    throw new Error("The interrupted update journal does not match its update request");
+  }
+  if (
+    typeof raw.requestFile !== "string"
+    || !/^request-[A-Za-z0-9._-]+\.json$/u.test(raw.requestFile)
+  ) {
+    throw new Error("The interrupted update journal contains an invalid request filename");
+  }
+  if (
+    !Array.isArray(raw.services)
+    || raw.services.length < 2
+    || raw.services[0] !== "api"
+    || raw.services[1] !== "web"
+    || new Set(raw.services).size !== raw.services.length
+    || raw.services.some((service) => !UPDATE_SERVICE_NAMES.has(service))
+  ) {
+    throw new Error("The interrupted update journal contains invalid Compose services");
+  }
+  const mutation = raw.mutation ?? null;
+  if (
+    (mutation !== null && !UPDATE_MUTATION_NAMES.has(mutation))
+    || (raw.phase === "mutation-active" && mutation === null)
+    || ((raw.phase === "prepared" || raw.phase === "verified") && mutation !== null)
+  ) {
+    throw new Error("The interrupted update journal contains an invalid mutation state");
+  }
+  const rollback = validatedReleaseEnvironment(
+    raw.previousRelease,
+    config,
+    "interrupted update rollback environment",
+  );
+  if (rollback.version !== request.previousVersion) {
+    throw new Error("The interrupted update journal contains the wrong rollback version");
+  }
+  return {
+    ...raw,
+    request,
+    previousRelease: raw.previousRelease,
+    services: [...raw.services],
+    mutation,
+  };
+}
 
 export function applianceUpdateTransition(config) {
   if (config.runtime !== "raspberry-pi") return null;
@@ -57,8 +177,12 @@ export function applianceUpdateTransition(config) {
 
 export async function applyRequest(config, requestPath, dependencies = {}) {
   const composeCommand = dependencies.compose ?? compose;
+  const removeDurableFile = dependencies.removeFileDurable ?? removeFileDurable;
   const statusPath = join(config.operationsDirectory, "status.json");
-  const raw = readJson(requestPath);
+  const journalPath = updateJournalPath(config);
+  const journalPresent = existsSync(journalPath);
+  const rawJournal = journalPresent ? readJson(journalPath) : null;
+  const raw = rawJournal?.request ?? (requestPath ? readJson(requestPath) : null);
   const startedAt = new Date().toISOString();
   let request;
   try {
@@ -80,13 +204,16 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
       previousVersion: typeof raw?.previousVersion === "string" ? raw.previousVersion : "unknown",
       activity: [{ phase: "failed", at: completedAt, detail }],
     });
-    rmSync(requestPath, { force: true });
+    if (!journalPresent && requestPath) removeDurableFile(requestPath);
     return;
   }
 
   let previousRelease = null;
   let services = [];
-  let releaseChanged = false;
+  let journal = null;
+  let candidateCommitted = false;
+  let releaseMutationStarted = false;
+  let effectiveRequestPath = requestPath;
   const activity = [{
     phase: "queued",
     at: request.requestedAt,
@@ -100,6 +227,154 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
       operation(request, phase, detail, startedAt, phaseStartedAt, activity, completedAt),
     );
   };
+  const cleanup = () => {
+    if (effectiveRequestPath) removeDurableFile(effectiveRequestPath);
+    // The journal is deliberately removed last. If the process dies between
+    // these removals, its embedded validated request can finish recovery.
+    removeDurableFile(journalPath);
+  };
+  const transitionJournal = (phase, mutation = null) => {
+    if (!journal) throw new Error("Durable update state is unavailable");
+    const next = {
+      ...journal,
+      phase,
+      mutation,
+      updatedAt: new Date().toISOString(),
+    };
+    writeUpdateJournal(config, next);
+    journal = next;
+  };
+  const blockAutomaticRecovery = (failure) => {
+    const blockedJournal = {
+      ...journal,
+      phase: "termination-uncertain",
+      updatedAt: new Date().toISOString(),
+    };
+    writeUpdateJournal(config, blockedJournal);
+    journal = blockedJournal;
+    setStatus(
+      "failed",
+      `${failure} Automatic release changes are blocked because a release mutation could not be confirmed quiescent; confirm Docker is idle and complete recovery manually before removing the update journal.`,
+      new Date().toISOString(),
+    );
+  };
+  const runComposeMutation = async (args, mutation, safePhase) => {
+    transitionJournal("mutation-active", mutation);
+    let result;
+    try {
+      result = await composeCommand(config, args);
+    } catch (error) {
+      // Killing the Compose CLI cannot prove that an in-flight Docker daemon
+      // mutation has quiesced, so every mutation timeout requires manual
+      // reconciliation even when the local process tree was terminated.
+      if (error?.code === "COMMAND_TIMEOUT" || error?.processTreeTerminated === false) {
+        transitionJournal("termination-uncertain", mutation);
+      } else {
+        transitionJournal(safePhase);
+      }
+      throw error;
+    }
+    transitionJournal(safePhase);
+    return result;
+  };
+  const rollback = async (failure, cause = null) => {
+    if (
+      cause?.processTreeTerminated === false
+      || journal?.phase === "mutation-active"
+      || journal?.phase === "termination-uncertain"
+    ) {
+      blockAutomaticRecovery(failure);
+      return;
+    }
+    setStatus("rolling-back", "The interrupted release was not committed; restoring the previous image set");
+    try {
+      if (!journal) throw new Error("Durable rollback state was lost");
+      await restoreReleaseEnvironment(config.releaseEnvFile, journal.previousRelease);
+      await runComposeMutation(
+        ["up", "--detach", "--no-deps", "--wait", "--wait-timeout", "600", ...journal.services],
+        "rollback",
+        "prepared",
+      );
+      setStatus("failed", `${failure} Previous release restored.`, new Date().toISOString());
+      cleanup();
+    } catch (rollbackError) {
+      const detail = rollbackError instanceof Error ? bounded(rollbackError.message) : "rollback failed";
+      if (
+        rollbackError?.processTreeTerminated === false
+        || journal?.phase === "mutation-active"
+        || journal?.phase === "termination-uncertain"
+      ) {
+        blockAutomaticRecovery(`${failure} Rollback also failed: ${detail}`);
+        return;
+      }
+      setStatus("failed", `${failure} Rollback also failed: ${detail}`, new Date().toISOString());
+      // Keep both the request and journal so the next agent start retries the
+      // rollback from the durable previous release.
+    }
+  };
+
+  if (journalPresent) {
+    try {
+      journal = validatedUpdateJournal(rawJournal, config, request);
+      effectiveRequestPath = join(config.operationsDirectory, journal.requestFile);
+    } catch (error) {
+      const detail = error instanceof Error ? bounded(error.message) : "The interrupted update journal is invalid";
+      setStatus("failed", detail, new Date().toISOString());
+      return;
+    }
+
+    if (journal.phase === "mutation-active" || journal.phase === "termination-uncertain") {
+      const mutation = journal.mutation ? ` (${journal.mutation})` : "";
+      setStatus(
+        "failed",
+        `Automatic rollback remains blocked because a prior release mutation${mutation} could not be confirmed quiescent. Confirm Docker is idle and reconcile the requested or previous release before removing the update journal.`,
+        new Date().toISOString(),
+      );
+      return;
+    }
+
+    if (journal.phase === "verified") {
+      try {
+        setStatus("verifying", `Resuming verification of interrupted Stugu ${request.version}`);
+        const expectedRelease = releaseEnvironment(request);
+        const candidate = readReleaseEnvironment(
+          config.releaseEnvFile,
+          config,
+          "interrupted candidate release environment",
+        );
+        if (candidate.text !== expectedRelease) {
+          throw new Error("The interrupted candidate release no longer matches its update request");
+        }
+        await runComposeMutation(
+          ["up", "--detach", "--no-deps", "--wait", "--wait-timeout", "600", ...journal.services],
+          "candidate-reconcile",
+          "verified",
+        );
+        const runningVersion = (await exactApiVersion(config, composeCommand)).trim();
+        if (runningVersion !== request.version) {
+          throw new Error(
+            `Interrupted candidate API reported ${runningVersion || "unknown"} instead of ${request.version}`,
+          );
+        }
+        writeReleaseEnvironmentAtomic(config.knownGoodReleaseEnvFile, expectedRelease);
+        candidateCommitted = true;
+        const completedAt = new Date().toISOString();
+        setStatus("complete", `Stugu ${request.version} is healthy`, completedAt);
+        cleanup();
+      } catch (error) {
+        // A durable known-good write is the commit boundary. Leave the
+        // verified journal for idempotent finalization instead of rolling a
+        // committed candidate back because status or cleanup failed.
+        if (candidateCommitted) return;
+        const failure = error instanceof Error ? bounded(error.message) : "Interrupted update verification failed";
+        await rollback(failure, error);
+      }
+      return;
+    }
+
+    await rollback("The update agent restarted before candidate verification completed.");
+    return;
+  }
 
   try {
     setStatus("preparing", "Checking the running Stugu services and installed version");
@@ -120,53 +395,78 @@ export async function applyRequest(config, requestPath, dependencies = {}) {
       );
     }
 
-    setStatus("backup", "Creating a verified pre-update backup");
-    await composeCommand(
+    const preparedJournal = updateJournal(
       config,
+      request,
+      effectiveRequestPath,
+      previousRelease,
+      services,
+    );
+    writeUpdateJournal(config, preparedJournal);
+    journal = preparedJournal;
+
+    setStatus("backup", "Creating a verified pre-update backup");
+    await runComposeMutation(
       ["--profile", "maintenance", "run", "--rm", "--no-deps", "stugu-backup"],
+      "backup",
+      "prepared",
     );
 
+    releaseMutationStarted = true;
     writeReleaseEnvironmentAtomic(config.releaseEnvFile, releaseEnvironment(request));
-    releaseChanged = true;
 
     setStatus("pulling", `Pulling Stugu ${request.version} images`);
-    await composeCommand(config, ["pull", ...services]);
+    await runComposeMutation(["pull", ...services], "candidate-pull", "prepared");
 
     setStatus("applying", `Starting Stugu ${request.version}`);
-    await composeCommand(config, ["up", "--detach", "--no-deps", "--wait", "--wait-timeout", "600", ...services]);
+    await runComposeMutation(
+      ["up", "--detach", "--no-deps", "--wait", "--wait-timeout", "600", ...services],
+      "candidate-start",
+      "prepared",
+    );
 
     setStatus("verifying", `Verifying Stugu ${request.version}`);
     const runningVersion = (await exactApiVersion(config, composeCommand)).trim();
     if (runningVersion !== request.version) {
       throw new Error(`Updated API reported version ${runningVersion || "unknown"} instead of ${request.version}`);
     }
+    const verifiedJournal = {
+      ...journal,
+      phase: "verified",
+      mutation: null,
+      updatedAt: new Date().toISOString(),
+    };
+    writeUpdateJournal(config, verifiedJournal);
+    journal = verifiedJournal;
     writeReleaseEnvironmentAtomic(config.knownGoodReleaseEnvFile, releaseEnvironment(request));
+    candidateCommitted = true;
 
     const completedAt = new Date().toISOString();
     setStatus("complete", `Stugu ${request.version} is healthy`, completedAt);
-    rmSync(requestPath, { force: true });
+    cleanup();
   } catch (error) {
+    // Post-commit status and cleanup are retryable from the verified journal;
+    // they must never turn a committed healthy release into a rollback.
+    if (candidateCommitted) return;
     const failure = error instanceof Error ? bounded(error.message) : "The update failed";
-    if (!releaseChanged) {
+    if (!journal) {
       setStatus("failed", failure, new Date().toISOString());
-      rmSync(requestPath, { force: true });
+      if (effectiveRequestPath) removeDurableFile(effectiveRequestPath);
       return;
     }
-    setStatus("rolling-back", "The new release was unhealthy; restoring the previous image set");
-    try {
-      if (previousRelease === null) throw new Error("Immutable rollback state was lost");
-      await restoreReleaseEnvironment(config.releaseEnvFile, previousRelease);
-      await composeCommand(config, ["up", "--detach", "--no-deps", "--wait", "--wait-timeout", "600", ...services]);
-      setStatus("failed", `${failure} Previous release restored.`, new Date().toISOString());
-    } catch (rollbackError) {
-      const rollback = rollbackError instanceof Error ? bounded(rollbackError.message) : "rollback failed";
-      setStatus("failed", `${failure} Rollback also failed: ${rollback}`, new Date().toISOString());
+    if (!releaseMutationStarted && journal.phase === "prepared") {
+      setStatus("failed", failure, new Date().toISOString());
+      cleanup();
+      return;
     }
-    rmSync(requestPath, { force: true });
+    await rollback(failure, error);
   }
 }
 
 export function pendingWork(config) {
+  if (existsSync(updateJournalPath(config))) {
+    return { kind: "update", path: null };
+  }
   const name = readdirSync(config.operationsDirectory)
     .filter((candidate) => /^(?:request-|cloudflare-request-|source-profile-request-).*\.json$/.test(candidate))
     .sort()

@@ -243,17 +243,6 @@ export function replaceHouseFloor(args: Record<string, unknown>): Floor {
   return floor;
 }
 
-export function deleteHouse(args: Record<string, unknown>): { deleted: true; houseId: string } {
-  requireMcpConfirmation(args.confirm);
-  const houseId = requiredString(args, "houseId");
-  stuguby.assertHouseWriteAllowed(houseId);
-  stuguby.assertHouseLocalAuthority(houseId);
-  if (!database.deleteHouse(houseId)) throw new Error(`Unknown house: ${houseId}`);
-  weather.invalidate(houseId);
-  status.refreshWeatherConfiguration();
-  return { deleted: true, houseId };
-}
-
 export function createSensor(args: Record<string, unknown>): Sensor {
   const tags = optionalStringArray(args, "tags", []);
   const houseId = requiredString(args, "houseId");

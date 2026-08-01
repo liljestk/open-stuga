@@ -1,56 +1,33 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { RouteErrorBoundary } from "./RouteErrorBoundary";
 
-function BrokenRoute(): never {
-  throw new Error("chunk failed");
+function RouteChunk({ failed }: Readonly<{ failed: boolean }>) {
+  if (failed) throw new Error("Route chunk failed");
+  return <h1>Recovered route</h1>;
 }
 
-describe("RouteErrorBoundary", () => {
-  beforeEach(() => vi.spyOn(console, "error").mockImplementation(() => undefined));
+describe("RouteErrorBoundary recovery", () => {
+  it("focuses the fallback, exposes reload, and resets when navigation changes", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const onReload = vi.fn();
+    const fallback = (reload: () => void) => <section>
+      <h1>Page could not be loaded</h1>
+      <button type="button" onClick={reload}>Reload page</button>
+    </section>;
+    const view = render(<RouteErrorBoundary resetKey="route-a" onReload={onReload} renderFallback={fallback}>
+      <RouteChunk failed />
+    </RouteErrorBoundary>);
 
-  it("contains a route failure and offers an explicit reload", () => {
-    const reload = vi.fn();
-    render(
-      <RouteErrorBoundary
-        resetKey="alerts:house-one"
-        onReload={reload}
-        renderFallback={(retry) => <button onClick={retry}>Reload Stugu</button>}
-      >
-        <BrokenRoute />
-      </RouteErrorBoundary>,
-    );
+    const alert = screen.getByRole("alert");
+    await waitFor(() => expect(alert).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "Reload page" }));
+    expect(onReload).toHaveBeenCalledOnce();
 
-    const announcement = screen.getByRole("alert");
-    expect(announcement.getAttribute("aria-atomic")).toBe("true");
-    expect(announcement.getAttribute("tabindex")).toBe("-1");
-    expect(document.activeElement).toBe(announcement);
-
-    fireEvent.click(screen.getByRole("button", { name: "Reload Stugu" }));
-    expect(reload).toHaveBeenCalledOnce();
-  });
-
-  it("recovers when navigation changes the reset key", () => {
-    const { rerender } = render(
-      <RouteErrorBoundary
-        resetKey="alerts:house-one"
-        onReload={() => undefined}
-        renderFallback={() => <p>Route failed</p>}
-      >
-        <BrokenRoute />
-      </RouteErrorBoundary>,
-    );
-    expect(screen.getByText("Route failed")).not.toBeNull();
-
-    rerender(
-      <RouteErrorBoundary
-        resetKey="sensors:house-one"
-        onReload={() => undefined}
-        renderFallback={() => <p>Route failed</p>}
-      >
-        <p>Recovered route</p>
-      </RouteErrorBoundary>,
-    );
-    expect(screen.getByText("Recovered route")).not.toBeNull();
+    view.rerender(<RouteErrorBoundary resetKey="route-b" onReload={onReload} renderFallback={fallback}>
+      <RouteChunk failed={false} />
+    </RouteErrorBoundary>);
+    expect(await screen.findByRole("heading", { level: 1, name: "Recovered route" })).toBeInTheDocument();
+    consoleError.mockRestore();
   });
 });

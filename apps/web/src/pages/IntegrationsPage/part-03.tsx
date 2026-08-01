@@ -44,6 +44,7 @@ import {
   type TpLinkHistoryExportJobStatus,
 } from "../../api";
 import type { HouseLocationMapItem, MapLocation } from "../../components/HouseLocationMap";
+import { confirmAction } from "../../components/ConfirmationProvider";
 import { LocationDiscoveryPanel, type DiscoveredHomeDefaults } from "../../components/LocationDiscoveryPanel";
 import { useI18n } from "../../i18n";
 import { integrationForHouse } from "../../integrationScope";
@@ -56,7 +57,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
   const { aggregateIntegration, initialHouse, houses, connectionHouses, streamConnection, tpLinkDevicesLoading, tpLinkDevicesError, onHouse, onHouseUpdate, onGeoreferenceChange, onIntegrationChange, onRefreshTpLinkDevices, onDisconnectHomeAssistant, onDisconnectTpLink, onMoveHomeAssistant, onMoveTpLink, onOpenSensors, onOpenLayout, locale, t, setupHouseId, setSetupHouseId, house, integration, activeSection, setActiveSection, mapLoaded, setMapLoaded, testing, setTesting, result, setResult, homeAssistantTestGeneration, discoveryGeneration, automaticallyScannedHouseId, inventoryRefreshGeneration, historyExportRequestGeneration, testingDirect, setTestingDirect, directResult, setDirectResult, tpLinkTestGeneration, validatedTpLinkDraft, setValidatedTpLinkDraft, discovering, setDiscovering, discovery, setDiscovery, discoveryOutcome, setDiscoveryOutcome, tpLinkSettingsOpen, setTpLinkSettingsOpen, tpLinkHost, setTpLinkHost, tpLinkHostDraft, tpLinkUsername, setTpLinkUsername, tpLinkPassword, setTpLinkPassword, showTpLinkPassword, setShowTpLinkPassword, savingTpLink, setSavingTpLink, tpLinkFeedback, setTpLinkFeedback, refreshingTpLinkInventory, setRefreshingTpLinkInventory, tpLinkInventoryRefreshFailed, setTpLinkInventoryRefreshFailed, tpLinkExportEnabled, setTpLinkExportEnabled, tpLinkExportJobs, setTpLinkExportJobs, tpLinkExportAutomation, setTpLinkExportAutomation, tpLinkExportJobsLoading, setTpLinkExportJobsLoading, tpLinkExportJobsError, setTpLinkExportJobsError, busyTpLinkExportJobId, setBusyTpLinkExportJobId, tpLinkCanaryTargets, setTpLinkCanaryTargets, tpLinkCanarySensorId, setTpLinkCanarySensorId, tpLinkCanaryMetric, setTpLinkCanaryMetric, tpLinkCanaryRunning, setTpLinkCanaryRunning, tpLinkChildDiscovery, setTpLinkChildDiscovery, tpLinkChildDiscoveryAbort, tpLinkChildDiscoveryKey, tpLinkChildDiscoveryRunning, haUrl, setHaUrl, haToken, setHaToken, showHaToken, setShowHaToken, savingHomeAssistant, setSavingHomeAssistant, homeAssistantFeedback, setHomeAssistantFeedback, busyAssignment, setBusyAssignment, assignmentHouseDrafts, setAssignmentHouseDrafts, assignmentFeedback, setAssignmentFeedback, validatedHomeAssistantDraft, setValidatedHomeAssistantDraft, latitude, setLatitude, longitude, setLongitude, locationLabel, setLocationLabel, timezone, setTimezone, locationValidationAttempted, setLocationValidationAttempted, placementLatitude, setPlacementLatitude, placementLongitude, setPlacementLongitude, footprintFloorId, setFootprintFloorId, footprintWidthMeters, setFootprintWidthMeters, placementEditing, setPlacementEditing, mapViewport, setMapViewport, orientation, setOrientation, savingLocation, setSavingLocation, locationFeedback, setLocationFeedback, savingPlacement, setSavingPlacement, placementFeedback, setPlacementFeedback, activeSetupHouseId, locationRequestGeneration, placementRequestGeneration, localDateTime, managedHouseIds, homeAssistantAssignments, tpLinkAssignments, beginLocationRequest, isCurrentLocationRequest, beginPlacementRequest, isCurrentPlacementRequest, stopTpLinkChildDiscovery, tpLinkDraftKey, homeAssistantDraftKey, changeTpLinkDraft, changeHomeAssistantDraft, draftLocation, coordinateValidationVisible, timezoneValidationVisible, selectedFootprintFloor, selectedPlanSize, draftMapLocation, draftPlacement, draftOrientation, footprintDepthMeters, mapItems, orientationDirection, orientationExplanation, selectSetupHouse, disconnectHomeAssistantAssignment } = context;
   const disconnectTpLinkAssignment = async (connectionId: string, houseId: string) => {
       const assignedHouse = connectionHouses.find((candidate) => candidate.id === houseId);
-      if (!window.confirm(t("setup.disconnectTpLinkConfirm", { home: assignedHouse?.name ?? houseId }))) return;
+      if (!await confirmAction(t("setup.disconnectTpLinkConfirm", { home: assignedHouse?.name ?? houseId }), t("confirmation.disconnect"))) return;
       const assignmentKey = `tp:${connectionId}`;
       setBusyAssignment(assignmentKey);
       setAssignmentFeedback(null);
@@ -81,7 +82,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
       if (fromHouseId === targetHouseId) return;
       const fromHome = connectionHouses.find((candidate) => candidate.id === fromHouseId)?.name ?? fromHouseId;
       const targetHome = connectionHouses.find((candidate) => candidate.id === targetHouseId)?.name ?? targetHouseId;
-      if (!window.confirm(t("setup.moveHomeAssistantConfirm", { from: fromHome, to: targetHome }))) return;
+      if (!await confirmAction(t("setup.moveHomeAssistantConfirm", { from: fromHome, to: targetHome }), t("confirmation.move"), false)) return;
       const assignmentKey = `ha:${fromHouseId}`;
       setBusyAssignment(assignmentKey);
       setAssignmentFeedback(null);
@@ -106,7 +107,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
       if (fromHouseId === targetHouseId) return;
       const fromHome = connectionHouses.find((candidate) => candidate.id === fromHouseId)?.name ?? fromHouseId;
       const targetHome = connectionHouses.find((candidate) => candidate.id === targetHouseId)?.name ?? targetHouseId;
-      if (!window.confirm(t("setup.moveTpLinkConfirm", { from: fromHome, to: targetHome }))) return;
+      if (!await confirmAction(t("setup.moveTpLinkConfirm", { from: fromHome, to: targetHome }), t("confirmation.move"), false)) return;
       const assignmentKey = `tp:${connectionId}`;
       setBusyAssignment(assignmentKey);
       setAssignmentFeedback(null);
@@ -199,6 +200,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
         : targets[0]?.sensorId ?? "");
     };
   const loadTpLinkCanaryTargets = async () => {
+      if (!context.canManageTuya) return;
       try {
         updateTpLinkCanaryTargets(await api.tpLinkDevices(house.id));
       } catch {
@@ -234,7 +236,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
         setTpLinkExportEnabled(result.enabled);
         setTpLinkExportAutomation(result.automation);
         setTpLinkExportJobs(result.jobs);
-        if (result.enabled) void loadTpLinkCanaryTargets();
+        if (result.enabled && context.canManageTuya) void loadTpLinkCanaryTargets();
       } catch (error) {
         if (historyExportRequestGeneration.current !== generation) return;
         setTpLinkExportJobsError(connectionError(error, t("setup.tpLinkHistoryLoadFailed")));
@@ -243,7 +245,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
       }
     };
   const runTpLinkCanary = async () => {
-      if (!tpLinkCanarySensorId) return;
+      if (!context.canManageTuya || !tpLinkCanarySensorId) return;
       setTpLinkCanaryRunning(true);
       setTpLinkExportJobsError(null);
       try {
@@ -265,6 +267,7 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
       }
     };
   const retryTpLinkExportJob = async (job: TpLinkHistoryExportJob) => {
+      if (!context.canManageTuya) return;
       setBusyTpLinkExportJobId(job.id);
       setTpLinkExportJobsError(null);
       try {
@@ -277,7 +280,8 @@ export function useIntegrationsPagePart03(context: ReturnType<typeof useIntegrat
       }
     };
   const cancelTpLinkExportJob = async (job: TpLinkHistoryExportJob) => {
-      if (!window.confirm(t("setup.tpLinkHistoryCancelConfirm", { device: job.deviceName || job.deviceId }))) return;
+      if (!context.canManageTuya) return;
+      if (!await confirmAction(t("setup.tpLinkHistoryCancelConfirm", { device: job.deviceName || job.deviceId }), t("confirmation.cancelJob"), false)) return;
       setBusyTpLinkExportJobId(job.id);
       setTpLinkExportJobsError(null);
       try {

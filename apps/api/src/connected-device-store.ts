@@ -6,6 +6,7 @@ import type { ClimateDatabase } from "./db.js";
 
 interface StateRow {
   state_json: string;
+  house_id?: string;
 }
 
 interface PlacementRow {
@@ -54,10 +55,12 @@ export class ConnectedDeviceStore {
   constructor(private readonly database: ClimateDatabase) {}
 
   record(state: ConnectedDeviceState): boolean {
+    if (!this.database.getHouse(state.houseId)) return false;
     return this.database.transaction(() => {
       const row = this.database.db.prepare(
-        "SELECT state_json FROM connected_device_state_current WHERE connection_id = ?",
+        "SELECT state_json, house_id FROM connected_device_state_current WHERE connection_id = ?",
       ).get(state.connectionId) as unknown as StateRow | undefined;
+      if (row?.house_id && row.house_id !== state.houseId) return false;
       const previous = row ? parseState(row) : null;
       const changed = !previous || semanticState(previous) !== semanticState(state);
       if (!changed && previous.receivedAt && Number.isFinite(Date.parse(previous.receivedAt))
@@ -87,27 +90,33 @@ export class ConnectedDeviceStore {
   current(houseId?: string): ConnectedDeviceState[] {
     const rows = (houseId
       ? this.database.db.prepare(`
-          SELECT state_json FROM connected_device_state_current
-          WHERE house_id = ? ORDER BY connection_id
+          SELECT state.state_json FROM connected_device_state_current AS state
+          JOIN houses AS house ON house.id = state.house_id
+          WHERE state.house_id = ? AND house.deleted_at IS NULL ORDER BY state.connection_id
         `).all(houseId)
       : this.database.db.prepare(`
-          SELECT state_json FROM connected_device_state_current
-          ORDER BY house_id, connection_id
+          SELECT state.state_json FROM connected_device_state_current AS state
+          JOIN houses AS house ON house.id = state.house_id
+          WHERE house.deleted_at IS NULL ORDER BY state.house_id, state.connection_id
         `).all()) as unknown as StateRow[];
     return rows.map(parseState);
   }
 
   get(connectionId: string): ConnectedDeviceState | null {
     const row = this.database.db.prepare(
-      "SELECT state_json FROM connected_device_state_current WHERE connection_id = ?",
+      `SELECT state.state_json FROM connected_device_state_current AS state
+        JOIN houses AS house ON house.id = state.house_id
+        WHERE state.connection_id = ? AND house.deleted_at IS NULL`,
     ).get(connectionId) as unknown as StateRow | undefined;
     return row ? parseState(row) : null;
   }
 
   placement(connectionId: string): ConnectedDevicePlacement {
     const row = this.database.db.prepare(`
-      SELECT floor_id, room_id, x, y, z
-      FROM connected_device_placements WHERE connection_id = ?
+      SELECT placement.floor_id, placement.room_id, placement.x, placement.y, placement.z
+      FROM connected_device_placements AS placement
+      JOIN houses AS house ON house.id = placement.house_id
+      WHERE placement.connection_id = ? AND house.deleted_at IS NULL
     `).get(connectionId) as unknown as PlacementRow | undefined;
     if (!row) return { ...UNPLACED };
     return {
@@ -124,6 +133,7 @@ export class ConnectedDeviceStore {
     houseId: string,
     placement: ConnectedDevicePlacement,
   ): ConnectedDeviceState | null {
+    if (!this.database.getHouse(houseId)) return null;
     return this.database.transaction(() => {
       const timestamp = new Date().toISOString();
       this.database.db.prepare(`

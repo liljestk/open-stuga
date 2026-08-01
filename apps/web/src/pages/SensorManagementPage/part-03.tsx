@@ -49,6 +49,7 @@ import type {
   UnitSystem,
 } from "@climate-twin/contracts";
 import { api, type CreateSensorInput, type HistoricalImportResult, type SensorPatch } from "../../api";
+import { confirmAction } from "../../components/ConfirmationProvider";
 import type { ClimateState, TimeRange } from "../../domain";
 import { useI18n, type TranslationKey } from "../../i18n";
 import { formatInTimeZone } from "../../dateTime";
@@ -111,7 +112,7 @@ export function useSensorManagementPagePart03(context: ReturnType<typeof useSens
           && demoSensors.length > 0
           && !hasExistingRealBoundSensor
           && hasRealBinding(saved);
-        if (offerDemoCleanup && window.confirm(t("sensors.cleanupConfirm", { count: demoSensors.length }))) {
+        if (offerDemoCleanup && await confirmAction(t("sensors.cleanupConfirm", { count: demoSensors.length }), t("confirmation.cleanUp"))) {
           const results = await Promise.allSettled(demoSensors.map((sensor) => onDeleteSensor(sensor.id)));
           const selectedResultIndex = demoSensors.findIndex((sensor) => sensor.id === detailsSensor?.id);
           if (selectedResultIndex >= 0 && results[selectedResultIndex]?.status === "fulfilled") closeSensorDetails();
@@ -201,7 +202,7 @@ export function useSensorManagementPagePart03(context: ReturnType<typeof useSens
       }
     };
   const removeSensor = async (sensor: Sensor) => {
-      if (readOnly || rowBusyId || cleanupBusy || !window.confirm(t("sensors.deleteConfirm", { name: sensor.name }))) return;
+      if (readOnly || rowBusyId || cleanupBusy || !await confirmAction(t("sensors.deleteConfirm", { name: sensor.name }), t("confirmation.delete"))) return;
       setRowBusyId(sensor.id);
       setPageFeedback(null);
       try {
@@ -217,7 +218,7 @@ export function useSensorManagementPagePart03(context: ReturnType<typeof useSens
     };
   const removeDemoSensors = async () => {
       if (readOnly || cleanupBusy || demoSensors.length === 0
-        || !window.confirm(t("sensors.cleanupConfirm", { count: demoSensors.length }))) return;
+        || !await confirmAction(t("sensors.cleanupConfirm", { count: demoSensors.length }), t("confirmation.cleanUp"))) return;
       setCleanupBusy(true);
       setPageFeedback(null);
       try {

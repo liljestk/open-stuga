@@ -1,4 +1,4 @@
-# Stugu 0.27.0
+# Stugu 0.28.0
 
 Stugu is a local-first digital twin for understanding how environmental conditions change and move through one or more homes. Temperature and relative humidity are the starting point; a measurement registry also supports CO2 and other finite numeric scalar measurements without coupling ingestion, history, alerts, or visualisation to one sensor model. It is designed around TP-Link Tapo H100/H200 hubs with T310/T315 sensors, while keeping ingestion vendor-neutral through a direct local bridge, Home Assistant, and versioned APIs. Internal package names retain the original `climate-twin` identifier for compatibility.
 
@@ -59,8 +59,8 @@ The opt-in demo starts with a two-floor home, ten virtual sensors, temperature, 
 - Built-in local owner, administrator, and Guest accounts in one workspace;
   Guests are always read-only and can be restricted to selected properties,
   Homes, and mapped areas
-- Independent per-Home FMI weather locations and true-north plan-top
-  orientation, plus observations, directional wind context, point forecasts,
+- Property-default FMI weather locations with optional advanced per-Home
+  overrides and true-north plan-top orientation, plus observations, directional wind context, point forecasts,
   official CAP warnings, provenance, partial/stale-data state, and a
   provider-neutral event broker that turns scheduled pulls into live SSE weather
   snapshots
@@ -245,7 +245,7 @@ persistent banner and visually distinct shell while navigating the product.
 Use a separate database or deployment for later demonstrations; setting
 `MOCK_ENABLED=true` cannot undo the real-data latch.
 
-See [direct TP-Link setup](docs/tp-link-direct.md), [local Tuya Wi-Fi devices](docs/tuya-local.md), [automated Tapo history recovery](docs/tapo-history-automation.md), [electricity prices and contracts](docs/electricity-prices.md), [Home Assistant setup](docs/home-assistant.md), [property management and Guest access](docs/property-management.md), [Stuguby federation](docs/stuguby.md), [ChatGPT and voice](docs/chatgpt.md), [Cloudflare Tunnel and Access](docs/cloudflare-access.md), [system updates](docs/system-updates.md), [live system migration](docs/live-migration.md), [manual observation semantics](docs/observations.md), [activity and maintenance work](docs/maintenance.md), [Apple Notes and Telegram setup](docs/apple-notes-telegram.md), [architecture](docs/architecture.md), and [API/MCP integration](docs/integrations.md) for details.
+See [direct TP-Link setup](docs/tp-link-direct.md), [local Tuya Wi-Fi devices](docs/tuya-local.md), [automated Tapo history recovery](docs/tapo-history-automation.md), [electricity prices and contracts](docs/electricity-prices.md), [Home Assistant setup](docs/home-assistant.md), [property management and Guest access](docs/property-management.md), [Stuguby federation](docs/stuguby.md), [private bug reports](docs/bug-reports.md), [ChatGPT and voice](docs/chatgpt.md), [Cloudflare Tunnel and Access](docs/cloudflare-access.md), [system updates](docs/system-updates.md), [live system migration](docs/live-migration.md), [manual observation semantics](docs/observations.md), [activity and maintenance work](docs/maintenance.md), [Apple Notes and Telegram setup](docs/apple-notes-telegram.md), [architecture](docs/architecture.md), and [API/MCP integration](docs/integrations.md) for details.
 
 The thermal model is documented in [effective room thermal
 simulation](docs/thermal-simulation.md), and the 2D/3D dynamics layer in
@@ -277,10 +277,12 @@ The **Properties** workspace groups Homes by Property and supports
 user-drawn operational areas. These polygons are planning context rather than
 surveyed or legally authoritative parcel boundaries.
 
-Weather lookup in `House.location` remains independent. Set the selected
-Home's WGS84 weather reference and the true-north bearing of the top of its
-floor plan. Moving its precise map placement does not change that reference or
-purge retained weather history. Stugu then retrieves Home-scoped
+Weather lookup uses the Property's WGS84 location by default. The separate
+`House.location` field stores the operational copy and may instead hold an
+advanced per-Home override. When neither is available, Stugu can infer an
+automatic fallback from `House.mapPlacement`; later Property or placement
+changes update only automatic values, never a manual override. Set the
+true-north bearing of the top of each floor plan separately. Stugu then retrieves Home-scoped
 observations, forecasts, and official warnings from the Finnish Meteorological
 Institute through
 `GET /api/v1/houses/{id}/weather?hours=48`. FMI's selected public endpoints do

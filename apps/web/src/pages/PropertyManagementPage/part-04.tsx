@@ -272,10 +272,11 @@ export function usePropertyManagementPagePart04(context: ReturnType<typeof usePr
       : t("properties.moveBoundaryPoint", { number: index + 1 }), [t]);
   const midpointLabel = useCallback((index: number) => t("properties.addBoundaryPoint", { number: index + 1 }), [t]);
   const startArea = () => {
+      setTab("map");
       setMapLoaded(true);
       setPlacementEditing(false);
       setAssetPlacementEditing(false);
-      setMapItemSelection(null);
+      context.changeMapItemSelection(null);
       setSelectedAreaId(null);
       setIsNewArea(true);
       setIsNewFixedAsset(false);
@@ -289,6 +290,7 @@ export function usePropertyManagementPagePart04(context: ReturnType<typeof usePr
   const startFixedAsset = () => {
       setMapLoaded(true);
       setPlacementEditing(false);
+      context.changeMapItemSelection(null);
       setMapItemSelection({ kind: "asset", id: NEW_FIXED_ASSET_ID });
       setSelectedAreaId(null);
       setIsNewArea(true);

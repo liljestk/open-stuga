@@ -151,6 +151,8 @@ public struct WatchHomeSnapshot: Codable, Equatable, Sendable {
 public struct WatchCompanionAction: Codable, Identifiable, Equatable, Sendable {
     public static let currentSchemaVersion = 2
     public static let minimumSupportedSchemaVersion = 1
+    public static let maximumFutureClockSkew: TimeInterval = 5 * 60
+    public static let deliveryLifetime: TimeInterval = 7 * 24 * 60 * 60
 
     public enum Kind: String, Codable, Sendable {
         case acknowledgeAlert
@@ -212,11 +214,21 @@ public struct WatchCompanionAction: Codable, Identifiable, Equatable, Sendable {
     public func isBound(to expectedContext: WatchActionContext) -> Bool {
         context == expectedContext && expectedContext.isWellFormed
     }
+
+    public func isWithinDeliveryWindow(at now: Date = Date()) -> Bool {
+        guard let created = ISO8601DateFormatter().date(from: createdAt) else {
+            return false
+        }
+        let age = now.timeIntervalSince(created)
+        return age >= -Self.maximumFutureClockSkew
+            && age <= Self.deliveryLifetime
+    }
 }
 
 public enum WatchCompanionPayload {
     public static let snapshotDataKey = "stuguWatchSnapshot"
     public static let actionDataKey = "stuguWatchAction"
+    public static let actionReceiptIDKey = "stuguWatchActionReceiptID"
     public static let requestKey = "stuguWatchRequest"
     public static let snapshotRequest = "snapshot"
 }

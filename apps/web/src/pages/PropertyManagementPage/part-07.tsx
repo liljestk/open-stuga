@@ -35,6 +35,7 @@ import {
   X,
 } from "lucide-react";
 import { floorMetersPerPlanUnit } from "@climate-twin/contracts";
+import { confirmAction } from "../../components/ConfirmationProvider";
 import type {
   AreaEquipment,
   AreaEquipmentInput,
@@ -76,7 +77,7 @@ import { AccessPanel, EQUIPMENT_DOCUMENT_ACCEPT, EQUIPMENT_DRAFT_MAP_ID, EQUIPME
 import type { AreaDraft, EquipmentPlacement, Feedback, InventoryLocationFilter, MapCatalogEntry, MapItemFilter, MapItemKind, MapItemSelection, MapLayerVisibility, PropertyManagementPageProps, WorkspaceTab } from "./support";
 import { usePropertyManagementPagePart06 } from "./part-06";
 export function usePropertyManagementPagePart07(context: ReturnType<typeof usePropertyManagementPagePart06>) {
-  const { props, state, t, now, propertySummary, workspaceReadOnly, canManageAccess, tab, setTab, properties, initialPropertyAvailable, appliedInitialPropertyIdRef, lastInitialPropertyIdRef, internalPropertyId, setInternalPropertyId, controlledPropertyAvailable, propertyId, setPropertyId, property, readOnly, houses, houseReadOnly, mapLoaded, setMapLoaded, areas, fixedAssets, equipment, propertyTrafficLights, notes, selectedAreaId, setSelectedAreaId, selectedArea, selectedAreaEquipmentIds, selectedAreaTasks, isNewArea, setIsNewArea, isNewFixedAsset, setIsNewFixedAsset, drawing, setDrawing, areaForm, setAreaForm, redoVertices, setRedoVertices, coordinateInput, setCoordinateInput, coordinateError, setCoordinateError, newPropertyName, setNewPropertyName, newHouseName, setNewHouseName, areaDestinationPropertyId, setAreaDestinationPropertyId, equipmentDestination, setEquipmentDestination, editingProperty, setEditingProperty, propertyEditButtonRef, propertyNameInputRef, propertyName, setPropertyName, propertyDescription, setPropertyDescription, pending, setPending, feedback, setFeedback, editingEquipmentId, setEditingEquipmentId, equipmentName, setEquipmentName, equipmentKind, setEquipmentKind, equipmentManufacturer, setEquipmentManufacturer, equipmentModel, setEquipmentModel, equipmentSerialNumber, setEquipmentSerialNumber, equipmentStatus, setEquipmentStatus, equipmentNotes, setEquipmentNotes, equipmentLatitude, setEquipmentLatitude, equipmentLongitude, setEquipmentLongitude, equipmentPinMapOpen, setEquipmentPinMapOpen, inventoryQuery, setInventoryQuery, inventoryStatus, setInventoryStatus, inventoryLocation, setInventoryLocation, structureQuery, setStructureQuery, mapItemQuery, setMapItemQuery, mapItemFilter, setMapItemFilter, mapItemLimit, setMapItemLimit, mapItemSelection, setMapItemSelection, mapLayers, setMapLayers, inventoryFormOpen, setInventoryFormOpen, trackedEquipment, setTrackedEquipment, trackingCapabilities, setTrackingCapabilities, trackingSnapshot, setTrackingSnapshot, trackingEndpoints, setTrackingEndpoints, trackingConnection, setTrackingConnection, selectedEquipmentId, setSelectedEquipmentId, equipmentAttachments, setEquipmentAttachments, equipmentLinks, setEquipmentLinks, equipmentResourcesState, setEquipmentResourcesState, equipmentResourcesBusy, setEquipmentResourcesBusy, equipmentResourcesRefresh, setEquipmentResourcesRefresh, equipmentResourcesFeedback, setEquipmentResourcesFeedback, equipmentLinkLabel, setEquipmentLinkLabel, equipmentLinkUrl, setEquipmentLinkUrl, equipmentPhotoInputRef, equipmentDocumentInputRef, selectedEndpointId, setSelectedEndpointId, noteText, setNoteText, noteKind, setNoteKind, noteTarget, setNoteTarget, editingNoteId, setEditingNoteId, maintenanceTitle, setMaintenanceTitle, maintenanceHouseId, setMaintenanceHouseId, maintenanceEquipmentId, setMaintenanceEquipmentId, placementHouseId, setPlacementHouseId, placementLatitude, setPlacementLatitude, placementLongitude, setPlacementLongitude, placementWidth, setPlacementWidth, placementOrientation, setPlacementOrientation, placementEditing, setPlacementEditing, placementAssetId, setPlacementAssetId, assetPlacementEditing, setAssetPlacementEditing, assetDraftLocation, setAssetDraftLocation, assetLatitudeInput, setAssetLatitudeInput, assetLongitudeInput, setAssetLongitudeInput, trackingStates, trackingByEquipmentId, trackingEnabled, liveMapEnabled, selectedEquipment, selectedEquipmentResourceId, selectedTracking, sharedMembers, assignedEndpointIds, availableTrackingEndpoints, equipmentLatitudeValue, equipmentLongitudeValue, equipmentPinEmpty, equipmentPinValid, equipmentDraftMapLocation, equipmentPinMapItem, updateEquipmentPinFromMap, equipmentLocationLabel, normalizedStructureQuery, sidebarHouses, sidebarAreas, mapCatalogItems, normalizedMapItemQuery, matchingMapCatalogItems, visibleMapCatalogItems, remainingMapCatalogItems, inventoryLocationCount, inventoryEquipmentVersion, visibleInventory, inventoryAttentionCount, placementAsset, editingFixedAsset, assetLatitude, assetLongitude, assetCoordinateInputsValid, updateFixedAssetCoordinate, mapAreas, placementHouse, mapHouses, visibleMapHouses, visibleAssetIds, visibleMapEquipment, visibleMapMembers, placementDraftIsValid, tabs, chooseTabFromKeyboard, vertexLabel, midpointLabel, startArea, startFixedAsset, appendVertex, moveVertex, insertVertex, undoVertex, redoVertex, applyCoordinates, saveArea, removeArea, createProperty, saveProperty, createHouse, removeProperty, clearEquipmentDraft, beginEquipmentEdit, saveEquipment, moveHouse, removeEquipment, uploadEquipmentAttachments, removeEquipmentAttachment, addEquipmentLink, removeEquipmentLink, refreshInventoryTracking, bindEndpoint, unbindEndpoint, showEquipmentOnMap, removeNote, noteTargetParts } = context;
+  const { props, state, t, now, propertySummary, workspaceReadOnly, canManageAccess, tab, setTab, properties, initialPropertyAvailable, appliedInitialPropertyIdRef, lastInitialPropertyIdRef, internalPropertyId, setInternalPropertyId, controlledPropertyAvailable, propertyId, setPropertyId, property, readOnly, houses, houseReadOnly, mapLoaded, setMapLoaded, areas, fixedAssets, equipment, propertyTrafficLights, notes, selectedAreaId, setSelectedAreaId, selectedArea, selectedAreaEquipmentIds, selectedAreaTasks, isNewArea, setIsNewArea, isNewFixedAsset, setIsNewFixedAsset, drawing, setDrawing, areaForm, setAreaForm, redoVertices, setRedoVertices, coordinateInput, setCoordinateInput, coordinateError, setCoordinateError, newPropertyName, setNewPropertyName, newHouseName, setNewHouseName, areaDestinationPropertyId, setAreaDestinationPropertyId, equipmentDestination, setEquipmentDestination, editingProperty, setEditingProperty, propertyEditButtonRef, propertyNameInputRef, propertyName, setPropertyName, propertyDescription, setPropertyDescription, pending, setPending, feedback, setFeedback, editingEquipmentId, setEditingEquipmentId, equipmentName, setEquipmentName, equipmentKind, setEquipmentKind, equipmentManufacturer, setEquipmentManufacturer, equipmentModel, setEquipmentModel, equipmentSerialNumber, setEquipmentSerialNumber, equipmentStatus, setEquipmentStatus, equipmentNotes, setEquipmentNotes, equipmentLatitude, setEquipmentLatitude, equipmentLongitude, setEquipmentLongitude, equipmentPinMapOpen, setEquipmentPinMapOpen, inventoryQuery, setInventoryQuery, inventoryStatus, setInventoryStatus, inventoryLocation, setInventoryLocation, structureQuery, setStructureQuery, mapItemQuery, setMapItemQuery, mapItemFilter, setMapItemFilter, mapItemLimit, setMapItemLimit, mapItemSelection, setMapItemSelection, mapLayers, setMapLayers, inventoryFormOpen, setInventoryFormOpen, trackedEquipment, setTrackedEquipment, trackingCapabilities, setTrackingCapabilities, trackingSnapshot, setTrackingSnapshot, trackingEndpoints, setTrackingEndpoints, trackingConnection, setTrackingConnection, selectedEquipmentId, setSelectedEquipmentId, equipmentAttachments, setEquipmentAttachments, equipmentLinks, setEquipmentLinks, equipmentResourcesState, setEquipmentResourcesState, equipmentResourcesBusy, setEquipmentResourcesBusy, equipmentResourcesRefresh, setEquipmentResourcesRefresh, equipmentResourcesFeedback, setEquipmentResourcesFeedback, equipmentLinkLabel, setEquipmentLinkLabel, equipmentLinkUrl, setEquipmentLinkUrl, equipmentPhotoInputRef, equipmentDocumentInputRef, selectedEndpointId, setSelectedEndpointId, noteText, setNoteText, noteKind, setNoteKind, noteTarget, setNoteTarget, editingNoteId, setEditingNoteId, noteFormOpen, setNoteFormOpen, maintenanceTitle, setMaintenanceTitle, maintenanceHouseId, setMaintenanceHouseId, maintenanceEquipmentId, setMaintenanceEquipmentId, placementHouseId, setPlacementHouseId, placementLatitude, setPlacementLatitude, placementLongitude, setPlacementLongitude, placementWidth, setPlacementWidth, placementOrientation, setPlacementOrientation, placementEditing, setPlacementEditing, placementAssetId, setPlacementAssetId, assetPlacementEditing, setAssetPlacementEditing, assetDraftLocation, setAssetDraftLocation, assetLatitudeInput, setAssetLatitudeInput, assetLongitudeInput, setAssetLongitudeInput, trackingStates, trackingByEquipmentId, trackingEnabled, liveMapEnabled, selectedEquipment, selectedEquipmentResourceId, selectedTracking, sharedMembers, assignedEndpointIds, availableTrackingEndpoints, equipmentLatitudeValue, equipmentLongitudeValue, equipmentPinEmpty, equipmentPinValid, equipmentDraftMapLocation, equipmentPinMapItem, updateEquipmentPinFromMap, equipmentLocationLabel, normalizedStructureQuery, sidebarHouses, sidebarAreas, mapCatalogItems, normalizedMapItemQuery, matchingMapCatalogItems, visibleMapCatalogItems, remainingMapCatalogItems, inventoryLocationCount, inventoryEquipmentVersion, visibleInventory, inventoryAttentionCount, placementAsset, editingFixedAsset, assetLatitude, assetLongitude, assetCoordinateInputsValid, updateFixedAssetCoordinate, mapAreas, placementHouse, mapHouses, visibleMapHouses, visibleAssetIds, visibleMapEquipment, visibleMapMembers, placementDraftIsValid, tabs, chooseTabFromKeyboard, vertexLabel, midpointLabel, startArea, startFixedAsset, appendVertex, moveVertex, insertVertex, undoVertex, redoVertex, applyCoordinates, saveArea, removeArea, createProperty, saveProperty, createHouse, removeProperty, clearEquipmentDraft, beginEquipmentEdit, saveEquipment, moveHouse, removeEquipment, uploadEquipmentAttachments, removeEquipmentAttachment, addEquipmentLink, removeEquipmentLink, refreshInventoryTracking, bindEndpoint, unbindEndpoint, showEquipmentOnMap, removeNote, noteTargetParts } = context;
   const saveNote = async (event: FormEvent) => {
       event.preventDefault();
       if (!property || readOnly || pending || !noteText.trim()) return;
@@ -97,7 +98,7 @@ export function usePropertyManagementPagePart07(context: ReturnType<typeof usePr
       try {
         if (editingNoteId) await props.onUpdateNote(editingNoteId, common);
         else await props.onCreateNote({ propertyId: property.id, ...common });
-        setNoteText(""); setEditingNoteId(null);
+        setNoteText(""); setEditingNoteId(null); setNoteFormOpen(false);
         setFeedback({ kind: "success", text: t("properties.noteSaved") });
       } catch { setFeedback({ kind: "error", text: t("properties.noteSaveFailed") }); }
       finally { setPending(false); }
@@ -128,7 +129,7 @@ export function usePropertyManagementPagePart07(context: ReturnType<typeof usePr
       finally { setPending(false); }
     };
   const selectMapArea = (areaId: string) => {
-      setMapItemSelection(null);
+      context.changeMapItemSelection(null);
       setSelectedAreaId(areaId);
     };
   const selectMapEquipment = (equipmentId: string) => {
@@ -136,8 +137,7 @@ export function usePropertyManagementPagePart07(context: ReturnType<typeof usePr
       setPlacementEditing(false);
       setAssetPlacementEditing(false);
       setDrawing(false);
-      setSelectedEquipmentId(equipmentId);
-      setMapItemSelection({ kind: "equipment", id: equipmentId });
+      context.changeMapEquipmentSelection(equipmentId);
       setFeedback(null);
     };
   const selectPlacementHouse = (houseId: string) => {
@@ -145,14 +145,14 @@ export function usePropertyManagementPagePart07(context: ReturnType<typeof usePr
       setAssetPlacementEditing(false);
       setPlacementEditing(false);
       setPlacementHouseId(houseId);
-      setMapItemSelection({ kind: "home", id: houseId });
+      context.changeMapItemSelection({ kind: "home", id: houseId });
       setFeedback(null);
     };
   const updatePlacementFromMap = useCallback((houseId: string, point: GeoCoordinate) => {
       const house = houses.find((candidate) => candidate.id === houseId);
       if (!house || houseReadOnly(house) || pending || !props.onSetHouseGeoreference) return;
       setPlacementHouseId(houseId);
-      setMapItemSelection({ kind: "home", id: houseId });
+      context.changeMapItemSelection({ kind: "home", id: houseId });
       setAssetPlacementEditing(false);
       setPlacementLatitude(String(point.latitude));
       setPlacementLongitude(String(point.longitude));
@@ -167,7 +167,7 @@ export function usePropertyManagementPagePart07(context: ReturnType<typeof usePr
       setPlacementEditing(false);
       setAssetPlacementEditing(false);
       setPlacementAssetId(asset.id);
-      setMapItemSelection({ kind: "asset", id: asset.id });
+      context.changeMapItemSelection({ kind: "asset", id: asset.id });
       setAssetDraftLocation(asset.location ? { ...asset.location } : null);
       setAssetLatitudeInput(asset.location ? String(asset.location.latitude) : "");
       setAssetLongitudeInput(asset.location ? String(asset.location.longitude) : "");
@@ -194,7 +194,7 @@ export function usePropertyManagementPagePart07(context: ReturnType<typeof usePr
       if (!asset) return;
       setSelectedAreaId(asset.id);
       setPlacementAssetId(asset.id);
-      setMapItemSelection({ kind: "asset", id: asset.id });
+      context.changeMapItemSelection({ kind: "asset", id: asset.id });
       setAssetDraftLocation(point);
       setAssetLatitudeInput(String(point.latitude));
       setAssetLongitudeInput(String(point.longitude));
@@ -220,7 +220,7 @@ export function usePropertyManagementPagePart07(context: ReturnType<typeof usePr
     };
   const removeAssetPlacement = async () => {
       if (!placementAsset?.location || readOnly || pending
-        || !window.confirm(t("properties.removeAssetPlacementConfirm", { name: placementAsset.name }))) return;
+        || !await confirmAction(t("properties.removeAssetPlacementConfirm", { name: placementAsset.name }), t("confirmation.remove"))) return;
       setPending(true);
       setFeedback(null);
       try {
@@ -265,7 +265,7 @@ export function usePropertyManagementPagePart07(context: ReturnType<typeof usePr
       finally { setPending(false); }
     };
   const removeHousePlacement = async () => {
-      if (!placementHouse?.mapPlacement || !props.onSetHouseGeoreference || houseReadOnly(placementHouse) || pending || !window.confirm(t("properties.removePlacementConfirm", { name: placementHouse.name }))) return;
+      if (!placementHouse?.mapPlacement || !props.onSetHouseGeoreference || houseReadOnly(placementHouse) || pending || !await confirmAction(t("properties.removePlacementConfirm", { name: placementHouse.name }), t("confirmation.remove"))) return;
       setPending(true);
       setFeedback(null);
       try {

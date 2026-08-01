@@ -205,7 +205,8 @@ export function configureApiPart14(context: ReturnType<typeof configureApiPart13
       if (!previous) throw new HttpError(404, "NOT_FOUND", "Property note not found");
       const patch = parsePropertyNotePatch(request.body);
       const targetHouseId = patch.houseId === undefined ? previous.houseId : patch.houseId;
-      if (previous.houseId) context.stuguby.assertHouseWriteAllowed(previous.houseId);
+      const previousHouse = previous.houseId ? context.database.getHouse(previous.houseId) : null;
+      if (previousHouse) context.stuguby.assertHouseWriteAllowed(previousHouse.id);
       else context.stuguby.assertPropertyWriteAllowed(previous.propertyId);
       if (targetHouseId !== previous.houseId) {
         if (targetHouseId) context.stuguby.assertHouseWriteAllowed(targetHouseId);
@@ -232,7 +233,8 @@ export function configureApiPart14(context: ReturnType<typeof configureApiPart13
   context.app.delete(`${context.prefix}/property-notes/:id`, (request, response) => {
       const noteId = request.params.id as string;
       const previous = context.database.getPropertyNote(noteId);
-      if (previous?.houseId) context.stuguby.assertHouseWriteAllowed(previous.houseId);
+      const previousHouse = previous?.houseId ? context.database.getHouse(previous.houseId) : null;
+      if (previousHouse) context.stuguby.assertHouseWriteAllowed(previousHouse.id);
       else if (previous) context.stuguby.assertPropertyWriteAllowed(previous.propertyId);
       context.database.transaction(() => {
         if (!context.database.deletePropertyNote(noteId)) {

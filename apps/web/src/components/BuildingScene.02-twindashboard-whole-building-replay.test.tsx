@@ -341,6 +341,7 @@ describe("TwinDashboard whole-building replay", () => {
 
     expect(screen.queryByLabelText("Sensor floor")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Open live home view" }));
+    await user.click(document.querySelector(".twin-view-options > summary")!);
     await user.click(await screen.findByRole("button", { name: "Edit layout" }));
     expect(screen.queryByRole("combobox", { name: "Metric" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Replay" })).toBeNull();

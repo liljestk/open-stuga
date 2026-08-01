@@ -376,7 +376,7 @@
   color: var(--muted);
   background: var(--panel-soft);
   font-size: .8125rem;
-  font-weight: 750;
+  font-weight: 700;
   text-align: center;
 }
 
@@ -395,7 +395,7 @@
   border-radius: 999px;
   color: var(--muted);
   font-size: .75rem;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 
@@ -413,7 +413,7 @@
 
 .stuguby-invalid-label {
   color: var(--yellow) !important;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 
@@ -428,7 +428,7 @@
   cursor: pointer;
   color: var(--action);
   font-size: .8125rem;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 
@@ -463,7 +463,7 @@
   width: fit-content;
   margin: 2px 0;
   color: var(--yellow);
-  font-weight: 750;
+  font-weight: 700;
 }
 
 
@@ -526,7 +526,7 @@
 .stuguby-resource-list pre:focus-visible,
 .stuguby-telemetry-preview pre:focus-visible {
   outline: 3px solid var(--action);
-  outline-offset: -3px;
+  outline-offset: 3px;
 }
 
 

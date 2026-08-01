@@ -18,6 +18,7 @@ import type {
   IntegrationStatus,
 } from "@climate-twin/contracts";
 import { API_BASE, api, type AppleNotesSetupMetadata } from "../api";
+import { confirmAction } from "../components/ConfirmationProvider";
 import { useI18n } from "../i18n";
 import "./AutomationSetupPanel.css";
 
@@ -133,6 +134,11 @@ export function AutomationSetupPanel({ integration, house, houses, onHouse, onIn
 
   const revokeGrant = async (id: string) => {
     if (revokingGrantId) return;
+    const grant = notesGrants.find((candidate) => candidate.id === id && candidate.houseId === house.id);
+    if (!grant || !await confirmAction(
+      t("automations.notes.revokeGrantConfirm", { device: grant.deviceLabel, house: house.name }),
+      t("confirmation.revoke"),
+    )) return;
     const requestedHouseId = house.id;
     const generation = ++revokeGrantGeneration.current;
     setRevokingGrantId(id);

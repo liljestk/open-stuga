@@ -295,6 +295,24 @@ test("the appliance exposes secure LAN access and persistent Tailscale by defaul
   assert.match(eepromCompat, /desired_usb_power_off=0/);
 });
 
+test("the appliance continuously synchronizes its host clock without blocking offline startup", async () => {
+  const [layer, service, timesync] = await Promise.all([
+    readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu.service", import.meta.url), "utf8"),
+    readFile(new URL("../../deploy/rpi/assets/stugu-timesyncd.conf", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(layer, /packages:[\s\S]*- systemd-timesyncd/);
+  assert.match(layer, /enable-units "\$1"[^\n]*systemd-timesyncd/);
+  assert.match(layer, /stugu-timesyncd\.conf[\s\S]*systemd\/timesyncd\.conf\.d\/stugu\.conf/);
+  assert.match(service, /^Wants=.*systemd-timesyncd\.service$/mu);
+  assert.match(service, /^After=.*systemd-timesyncd\.service/mu);
+  assert.doesNotMatch(service, /^Requires=.*systemd-timesyncd\.service$/mu);
+  assert.match(timesync, /^NTP=0\.pool\.ntp\.org 1\.pool\.ntp\.org 2\.pool\.ntp\.org 3\.pool\.ntp\.org$/mu);
+  assert.match(timesync, /^FallbackNTP=time\.cloudflare\.com time\.google\.com$/mu);
+  assert.match(timesync, /^SaveIntervalSec=60$/mu);
+});
+
 test("recovery-key operators get exact host power commands without general sudo", async () => {
   const [layer, control] = await Promise.all([
     readFile(new URL("../../deploy/rpi/layer/stugu.yaml", import.meta.url), "utf8"),

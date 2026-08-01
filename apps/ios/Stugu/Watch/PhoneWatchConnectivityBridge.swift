@@ -87,9 +87,23 @@ final class PhoneWatchConnectivityBridge: NSObject, WCSessionDelegate {
         }
         Task { [weak self] in
             guard let self else { return }
-            await inbox.enqueue(action)
+            guard await inbox.enqueue(action) else { return }
+            await deliverActionReceipt(id: action.id)
             await processInboxWhenReady()
         }
+    }
+
+    @MainActor
+    private func deliverActionReceipt(id: String) {
+        guard let session,
+              session.activationState == .activated,
+              session.isPaired,
+              session.isWatchAppInstalled else {
+            return
+        }
+        session.transferUserInfo([
+            WatchCompanionPayload.actionReceiptIDKey: id,
+        ])
     }
 
     private func valid(_ action: WatchCompanionAction) -> Bool {
@@ -106,7 +120,7 @@ final class PhoneWatchConnectivityBridge: NSObject, WCSessionDelegate {
                   CharacterSet.alphanumerics.contains($0)
                       || "-._:".unicodeScalars.contains($0)
               }),
-              let createdAt = ISO8601DateFormatter().date(from: action.createdAt) else {
+              action.isWithinDeliveryWindow() else {
             return false
         }
         if let context = action.context {
@@ -124,8 +138,7 @@ final class PhoneWatchConnectivityBridge: NSObject, WCSessionDelegate {
                 return false
             }
         }
-        let age = Date().timeIntervalSince(createdAt)
-        return age >= -300 && age <= 7 * 24 * 60 * 60
+        return true
     }
 
     @MainActor
@@ -219,25 +232,19 @@ private actor PhoneWatchActionInbox {
             .appendingPathComponent("watch-action-inbox-v1.json")
     }
 
-    func enqueue(_ action: WatchCompanionAction) {
+    func enqueue(_ action: WatchCompanionAction) -> Bool {
         var current = load()
-        guard !current.contains(where: { $0.id == action.id }) else { return }
+        guard !current.contains(where: { $0.id == action.id }) else { return true }
         current.append(action)
-        save(Array(current.suffix(100)))
+        return save(Array(current.suffix(100)))
     }
 
     func actions() -> [WatchCompanionAction] {
         let now = Date()
         let current = load()
-        let retained = current.filter { action in
-            guard let createdAt = ISO8601DateFormatter().date(from: action.createdAt) else {
-                return false
-            }
-            let age = now.timeIntervalSince(createdAt)
-            return age >= -300 && age <= 7 * 24 * 60 * 60
-        }
+        let retained = current.filter { $0.isWithinDeliveryWindow(at: now) }
         if retained.count != current.count {
-            save(retained)
+            _ = save(retained)
         }
         return retained
     }
@@ -245,7 +252,7 @@ private actor PhoneWatchActionInbox {
     func remove(id: String) {
         var current = load()
         current.removeAll { $0.id == id }
-        save(current)
+        _ = save(current)
     }
 
     private func load() -> [WatchCompanionAction] {
@@ -257,22 +264,27 @@ private actor PhoneWatchActionInbox {
         return value
     }
 
-    private func save(_ actions: [WatchCompanionAction]) {
-        cached = actions
+    private func save(_ actions: [WatchCompanionAction]) -> Bool {
         let directory = fileURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: true
-        )
-        guard let data = try? JSONEncoder().encode(actions) else { return }
-        try? data.write(
-            to: fileURL,
-            options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
-        )
+        guard let data = try? JSONEncoder().encode(actions) else { return false }
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+            try data.write(
+                to: fileURL,
+                options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+            )
+        } catch {
+            return false
+        }
+        cached = actions
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         var protectedURL = fileURL
         try? protectedURL.setResourceValues(values)
+        return true
     }
 }
 #endif

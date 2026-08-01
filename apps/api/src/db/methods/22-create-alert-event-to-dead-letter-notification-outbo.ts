@@ -221,6 +221,9 @@ registerDatabaseMethods({
           sample.timestamp, sample.source, sample.quality
         FROM alert_evaluation_queue queue
         JOIN measurement_samples sample ON sample.id = queue.measurement_sample_id
+        JOIN sensors sensor ON sensor.id = sample.sensor_id
+        JOIN houses house ON house.id = sensor.house_id
+        WHERE house.deleted_at IS NULL
         ORDER BY queue.measurement_sample_id
         LIMIT ?`).all(boundedCollectionLimit(limit)) as unknown as Array<MeasurementSampleRow & {
           queue_id: number;
@@ -240,7 +243,10 @@ registerDatabaseMethods({
           state.condition_since AS pending_condition_since, state.latest_timestamp AS pending_latest_timestamp
         FROM alert_evaluation_state state
         JOIN alert_rules rule ON rule.id = state.rule_id
+        JOIN sensors sensor ON sensor.id = state.sensor_id
+        JOIN houses house ON house.id = sensor.house_id
         WHERE rule.enabled = 1 AND rule.retired_at IS NULL AND state.condition_since IS NOT NULL
+          AND house.deleted_at IS NULL
           AND datetime(state.condition_since, '+' || rule.duration_seconds || ' seconds') <= datetime(?)
           AND NOT EXISTS (
             SELECT 1 FROM alert_events event
@@ -381,8 +387,11 @@ registerDatabaseMethods({
       this.db.prepare("DELETE FROM alert_evaluation_state").run();
     },
   listAlertEvents(limit = 200, activeOnly = false, offset = 0): AlertEvent[] {
-      const rows = this.db.prepare(`SELECT * FROM alert_events ${activeOnly ? "WHERE resolved_at IS NULL" : ""}
-        ORDER BY started_at DESC LIMIT ? OFFSET ?`).all(limit, offset) as unknown as AlertEventRow[];
+      const rows = this.db.prepare(`SELECT event.* FROM alert_events AS event
+        JOIN sensors AS sensor ON sensor.id = event.sensor_id
+        JOIN houses AS house ON house.id = sensor.house_id
+        WHERE house.deleted_at IS NULL ${activeOnly ? "AND event.resolved_at IS NULL" : ""}
+        ORDER BY event.started_at DESC LIMIT ? OFFSET ?`).all(limit, offset) as unknown as AlertEventRow[];
       return rows.map(eventFromRow);
     },
   activeAlert(ruleId: string, sensorId: string): AlertEvent | null {
@@ -403,7 +412,10 @@ registerDatabaseMethods({
       return this.getAlertEvent(id);
     },
   getAlertEvent(id: string): AlertEvent | null {
-      const row = this.db.prepare("SELECT * FROM alert_events WHERE id = ?").get(id) as unknown as AlertEventRow | undefined;
+      const row = this.db.prepare(`SELECT event.* FROM alert_events AS event
+        JOIN sensors AS sensor ON sensor.id = event.sensor_id
+        JOIN houses AS house ON house.id = sensor.house_id
+        WHERE event.id = ? AND house.deleted_at IS NULL`).get(id) as unknown as AlertEventRow | undefined;
       return row ? eventFromRow(row) : null;
     },
   claimNotificationOutbox(limit = 20, now = new Date()): NotificationOutboxItem[] {
@@ -414,6 +426,12 @@ registerDatabaseMethods({
             payload_json, destination_ref, policy_json, max_attempts, attempts FROM notification_outbox
           WHERE delivered_at IS NULL AND dead_lettered_at IS NULL AND abandoned_at IS NULL AND available_at <= ?
             AND (locked_at IS NULL OR locked_at <= ?)
+            AND (subject_kind <> 'alert' OR EXISTS (
+              SELECT 1 FROM alert_events AS event
+              JOIN sensors AS sensor ON sensor.id = event.sensor_id
+              JOIN houses AS house ON house.id = sensor.house_id
+              WHERE event.id = notification_outbox.subject_id AND house.deleted_at IS NULL
+            ))
           ORDER BY available_at, created_at LIMIT ?`).all(nowIso, staleLock, limit) as Array<{
             id: string;
             subject_kind: NotificationSubjectKind;

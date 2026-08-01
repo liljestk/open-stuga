@@ -251,7 +251,7 @@ describe("estimated spatial clouds and flows", () => {
     const samples = samplesFor(sensors, definition, (_, index) => 22 + index * 2);
     samples[sensors[0]!.id] = { ...samples[sensors[0]!.id]!, quality: "estimated" };
     samples[sensors[1]!.id] = { ...samples[sensors[1]!.id]!, timestamp: "2026-07-14T09:00:00.000Z" };
-    samples[sensors[2]!.id] = { ...samples[sensors[2]!.id]!, timestamp: "2026-07-14T10:02:00.000Z" };
+    samples[sensors[2]!.id] = { ...samples[sensors[2]!.id]!, timestamp: "2026-07-14T10:02:01.000Z" };
     samples[sensors[3]!.id] = { ...samples[sensors[3]!.id]!, quality: "stale" };
 
     const { container } = renderFloor(sensors, samples, definition);
@@ -338,7 +338,7 @@ describe("estimated spatial clouds and flows", () => {
   });
 
   it("uses a theme-aware vector cue and keeps the airflow disclaimer visible on narrow screens", () => {
-    expect(styles).toMatch(/\.flow-path\s*\{[^}]*stroke:\s*var\(--pine\)/s);
+    expect(styles).toMatch(/\.flow-path\s*\{[^}]*stroke:\s*var\(--action\)/s);
     const mobileStart = styles.indexOf("@media (max-width: 680px)");
     const mobile = styles.slice(mobileStart, styles.indexOf("@media (prefers-reduced-motion", mobileStart));
     expect(mobile).toMatch(/\.flow-legend\s*\{[^}]*display:\s*flex/s);

@@ -5,7 +5,7 @@ export interface Property {
   id: string;
   name: string;
   description: string | null;
-  /** Optional map centre used before any house or area geometry is available. */
+  /** Default Property weather reference and map centre before other geometry is available. */
   location: HouseLocation | null;
   /** Present only when this row is the local projection of a Stuguby Property. */
   stuguby?: StugubyPropertyLink;

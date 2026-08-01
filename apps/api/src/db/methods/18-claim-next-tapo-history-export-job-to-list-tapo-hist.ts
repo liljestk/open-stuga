@@ -169,21 +169,28 @@ registerDatabaseMethods({
         )` : "";
       return this.immediateTransaction(() => {
         if (maxOutstandingAppium !== null && allowedProviders.includes("appium")) {
-          const outstanding = this.db.prepare(`SELECT COUNT(*) AS count FROM tapo_history_export_jobs
-            WHERE provider = 'appium' AND (
-              status = 'waiting-email'
-              OR (status IN ('claimed', 'running') AND lease_expires_at IS NOT NULL AND lease_expires_at > ?)
+          const outstanding = this.db.prepare(`SELECT COUNT(*) AS count FROM tapo_history_export_jobs AS job
+            JOIN sensors AS sensor ON sensor.id = job.sensor_id
+            JOIN houses AS house ON house.id = sensor.house_id
+            WHERE job.provider = 'appium' AND house.deleted_at IS NULL AND (
+              job.status = 'waiting-email'
+              OR (job.status IN ('claimed', 'running') AND job.lease_expires_at IS NOT NULL AND job.lease_expires_at > ?)
             )`).get(reclaimCutoff) as { count: number };
           if (Number(outstanding.count) >= maxOutstandingAppium) return null;
         }
-        const row = this.db.prepare(`SELECT * FROM tapo_history_export_jobs
-          WHERE provider IN (${placeholders}) ${canaryPredicate} AND attempt_count < max_attempts AND (
+        const row = this.db.prepare(`SELECT tapo_history_export_jobs.* FROM tapo_history_export_jobs
+          JOIN sensors AS candidate_sensor ON candidate_sensor.id = tapo_history_export_jobs.sensor_id
+          JOIN houses AS candidate_house ON candidate_house.id = candidate_sensor.house_id
+          WHERE provider IN (${placeholders}) ${canaryPredicate} AND candidate_house.deleted_at IS NULL
+            AND attempt_count < max_attempts AND (
             (status IN ('queued', 'failed') AND available_at <= ?)
             OR (status IN ('claimed', 'running') AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)
           ) ${approvalPredicate} AND NOT EXISTS (
             SELECT 1 FROM tapo_history_export_jobs active
+            JOIN sensors AS active_sensor ON active_sensor.id = active.sensor_id
+            JOIN houses AS active_house ON active_house.id = active_sensor.house_id
             WHERE active.lease_owner = ? AND active.lease_expires_at IS NOT NULL
-              AND active.lease_expires_at > ?
+              AND active.lease_expires_at > ? AND active_house.deleted_at IS NULL
           )
           ORDER BY ${canaryOrder} CASE WHEN status IN ('claimed', 'running') THEN 0 ELSE 1 END,
             COALESCE(lease_expires_at, available_at), created_at, id LIMIT 1`)
@@ -221,6 +228,10 @@ registerDatabaseMethods({
           WHERE id = ? AND attempt_count < max_attempts AND (
             (status IN ('queued', 'failed') AND available_at <= ?)
             OR (status IN ('claimed', 'running') AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)
+          ) AND EXISTS (
+            SELECT 1 FROM sensors AS sensor
+            JOIN houses AS house ON house.id = sensor.house_id
+            WHERE sensor.id = tapo_history_export_jobs.sensor_id AND house.deleted_at IS NULL
           )`).run(
             owner, leaseToken, expiresAt, now, deploymentFingerprint, acceptanceRevision,
             approvedSchema?.schema_signature ?? null,

@@ -24,6 +24,7 @@ import { createDemoState, type ClimateState } from "./domain";
 import { replaceLoadedHouseTelemetry, seriesStateKey, useClimateData, withoutDemoTelemetry } from "./useClimateData";
 
 import { deferred, twoHouseFixture } from "./useClimateDataTestSupport";
+import { writeLocalStorage } from "./browserStorage";
 
 const mocks = vi.hoisted(() => ({
   session: vi.fn(),
@@ -285,6 +286,10 @@ describe("useClimateData", () => {
     const { result } = renderHook(() => useClimateData());
     await waitFor(() => expect(result.current.bootstrapStatus).toBe("ready"));
     await waitFor(() => expect(result.current.tpLinkDevices).toEqual([device]));
+    writeLocalStorage("logout-proof", "private account state");
+    const scopedStorageKey = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
+      .find((key) => key?.endsWith(".logout-proof"));
+    expect(scopedStorageKey).toBeTruthy();
     const sessionCalls = mocks.session.mock.calls.length;
 
     act(() => result.current.endSession());
@@ -300,6 +305,7 @@ describe("useClimateData", () => {
     expect(result.current.resourceErrors).toEqual({});
     expect(result.current.seriesStates).toEqual({});
     expect(mocks.cancelPendingApiRequests).toHaveBeenCalled();
+    expect(localStorage.getItem(scopedStorageKey!)).toBeNull();
     await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 20)); });
     expect(mocks.session).toHaveBeenCalledTimes(sessionCalls);
   });

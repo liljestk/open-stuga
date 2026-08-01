@@ -1,0 +1,67 @@
+.bug-report-trigger {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bug-report-trigger:hover { background: var(--panel-soft); color: var(--ink); }
+
+.bug-report-dialog {
+  width: min(94vw, 42rem);
+  max-height: min(88vh, 50rem);
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: var(--shadow-lg);
+}
+
+.bug-report-dialog::backdrop { background: color-mix(in srgb, var(--ink) 62%, transparent); backdrop-filter: blur(3px); }
+.bug-report-dialog__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 22px 24px 12px; }
+.bug-report-dialog__header h2 { margin: 2px 0 0; font-size: 22px; }
+.bug-report-dialog__eyebrow { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.bug-report-dialog form, .bug-report-dialog__success { display: grid; gap: 16px; padding: 0 24px 24px; }
+.bug-report-dialog__intro { margin: 0; color: var(--muted); }
+.bug-report-dialog__description { display: grid; gap: 7px; font-weight: 600; }
+.bug-report-dialog__description textarea { min-height: 8rem; resize: vertical; }
+.bug-report-dialog__choice { display: flex; align-items: flex-start; gap: 10px; font-weight: 500; }
+.bug-report-dialog__choice > input[type="checkbox"] {
+  flex: 0 0 18px;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: 2px 0 0;
+  padding: 0;
+  accent-color: var(--action);
+}
+.bug-report-dialog__choice span { min-width: 0; display: grid; gap: 2px; }
+.bug-report-dialog__choice small { color: var(--muted); font-weight: 400; }
+.bug-report-dialog__details { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-soft); }
+.bug-report-dialog__details summary { padding: 10px 12px; cursor: pointer; font-weight: 600; }
+.bug-report-dialog__details pre { max-height: 14rem; margin: 0; padding: 0 12px 12px; overflow: auto; white-space: pre-wrap; font-size: 11px; }
+.bug-report-dialog__error { margin: 0; color: var(--red); }
+.bug-report-dialog__actions { display: grid; grid-template-columns: auto 1fr auto auto; gap: 10px; align-items: center; }
+.bug-report-dialog__actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.bug-report-dialog__success h3 { margin: 4px 0 0; }
+.bug-report-dialog__success p { margin: 0; }
+.bug-report-dialog__success code { overflow-wrap: anywhere; }
+.bug-report-dialog__success .primary-button { justify-self: end; }
+
+@media (max-width: 36rem) {
+  .bug-report-dialog__header { padding: 18px 18px 10px; }
+  .bug-report-dialog form, .bug-report-dialog__success { padding: 0 18px 18px; }
+  .bug-report-dialog__actions { grid-template-columns: 1fr 1fr; }
+  .bug-report-dialog__actions span { display: none; }
+  .bug-report-dialog__actions button { width: 100%; }
+}

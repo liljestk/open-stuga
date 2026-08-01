@@ -86,14 +86,8 @@
     flex-direction: column;
   }
 
-  .stuguby-boundary {
-    grid-template-columns: 1fr;
-  }
-
-  .stuguby-boundary > svg {
-    width: 36px;
-    height: 36px;
-    padding: 7px;
+  .stuguby-boundary > p {
+    padding-left: 16px;
   }
 
   .stuguby-dataset-heading {

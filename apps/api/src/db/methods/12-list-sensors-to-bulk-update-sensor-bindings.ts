@@ -103,8 +103,12 @@ import { registerDatabaseMethods } from "../core.js";
 registerDatabaseMethods({
   listSensors(houseId?: string): Sensor[] {
       const rows = (houseId
-        ? this.db.prepare("SELECT * FROM sensors WHERE house_id = ? ORDER BY name").all(houseId)
-        : this.db.prepare("SELECT * FROM sensors ORDER BY name").all()) as unknown as SensorRow[];
+        ? this.db.prepare(`SELECT sensor.* FROM sensors AS sensor
+            JOIN houses AS house ON house.id = sensor.house_id
+            WHERE sensor.house_id = ? AND house.deleted_at IS NULL ORDER BY sensor.name`).all(houseId)
+        : this.db.prepare(`SELECT sensor.* FROM sensors AS sensor
+            JOIN houses AS house ON house.id = sensor.house_id
+            WHERE house.deleted_at IS NULL ORDER BY sensor.name`).all()) as unknown as SensorRow[];
       return rows.map((row) => this.sensorWithMeasurementBindings(row));
     },
   /** Detaches direct bindings owned by one deleted logical connection. */
@@ -178,7 +182,9 @@ registerDatabaseMethods({
       });
     },
   getSensor(id: string): Sensor | null {
-      const row = this.db.prepare("SELECT * FROM sensors WHERE id = ?").get(id) as unknown as SensorRow | undefined;
+      const row = this.db.prepare(`SELECT sensor.* FROM sensors AS sensor
+        JOIN houses AS house ON house.id = sensor.house_id
+        WHERE sensor.id = ? AND house.deleted_at IS NULL`).get(id) as unknown as SensorRow | undefined;
       return row ? this.sensorWithMeasurementBindings(row) : null;
     },
   sensorWithMeasurementBindings(row: SensorRow): Sensor {

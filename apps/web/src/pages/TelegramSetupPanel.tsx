@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import type { IntegrationStatus, TelegramDiscoveryResult } from "@climate-twin/contracts";
 import { api } from "../api";
+import { confirmAction } from "../components/ConfirmationProvider";
 import { formatInTimeZone } from "../dateTime";
 import { useI18n } from "../i18n";
 import "./AutomationSetupPanel.css";
@@ -60,7 +61,6 @@ export function TelegramSetupPanel({
   const [savingTelegram, setSavingTelegram] = useState(false);
   const [testingTelegram, setTestingTelegram] = useState(false);
   const [disconnectingTelegram, setDisconnectingTelegram] = useState(false);
-  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [telegramFeedback, setTelegramFeedback] = useState<Feedback>(null);
   const telegramDiscoveryGeneration = useRef(0);
   const telegramDiscoveryController = useRef<AbortController | null>(null);
@@ -146,12 +146,16 @@ export function TelegramSetupPanel({
 
   const disconnectTelegram = async () => {
     if (disconnectingTelegram) return;
+    const destination = telegram.chatLabel ?? telegram.botUsername ?? t("automations.telegram.savedChat");
+    if (!await confirmAction(
+      t("automations.telegram.disconnectConfirm", { destination }),
+      t("automations.telegram.disconnectAction"),
+    )) return;
     setDisconnectingTelegram(true);
     setTelegramFeedback(null);
     try {
       const result = await api.disconnectTelegram();
       onIntegrationChange(result.integration);
-      setConfirmDisconnect(false);
       setTelegramEditing(true);
       setTelegramFeedback({ kind: "success", message: t("automations.telegram.disconnected") });
     } catch (error) {
@@ -190,7 +194,7 @@ export function TelegramSetupPanel({
       {telegram.configured && !telegramEditing ? <div className="automation-actions">
         <button type="button" className="primary-button" disabled={testingTelegram} onClick={() => void testTelegram()}>{testingTelegram ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}{t(testingTelegram ? "automations.telegram.testing" : "automations.telegram.sendTest")}</button>
         <button type="button" className="secondary-button" onClick={() => { setTelegramEditing(true); setTelegramFeedback(null); }}>{t("automations.telegram.change")}</button>
-        {!confirmDisconnect ? <button type="button" className="text-button danger-text" onClick={() => setConfirmDisconnect(true)}>{t("automations.telegram.disconnect")}</button> : <span className="automation-confirm"><span>{t("automations.telegram.disconnectConfirm")}</span><button type="button" className="secondary-button danger-text" disabled={disconnectingTelegram} onClick={() => void disconnectTelegram()}>{disconnectingTelegram ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Trash2 size={15} aria-hidden="true" />}{t("automations.telegram.disconnectAction")}</button><button type="button" className="text-button" disabled={disconnectingTelegram} onClick={() => setConfirmDisconnect(false)}>{t("common.cancel")}</button></span>}
+        <button type="button" className="text-button danger-text" disabled={disconnectingTelegram} onClick={() => void disconnectTelegram()}>{disconnectingTelegram ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <Trash2 size={15} aria-hidden="true" />}{t("automations.telegram.disconnect")}</button>
       </div> : <form className="automation-wizard" onSubmit={(event) => void saveTelegram(event)}>
         <ol className="automation-steps">
           <li><span>1</span><div><strong>{t("automations.telegram.stepBotFather")}</strong><p>{t("automations.telegram.stepBotFatherBody")}</p><a href="https://t.me/BotFather" target="_blank" rel="noreferrer">{t("automations.telegram.openBotFather")}<ExternalLink size={13} aria-hidden="true" /></a></div></li>

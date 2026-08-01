@@ -15,6 +15,7 @@ import type {
   IntegrationStatus,
 } from "@climate-twin/contracts";
 import { api } from "../../api";
+import { confirmAction } from "../../components/ConfirmationProvider";
 import { formatInTimeZone } from "../../dateTime";
 import { useI18n } from "../../i18n";
 
@@ -118,7 +119,7 @@ export function GreeSetupPanel({
   };
 
   const disconnect = async (id: string, name: string) => {
-    if (!window.confirm(t("setup.greeDisconnectConfirm", { device: name }))) return;
+    if (!await confirmAction(t("setup.greeDisconnectConfirm", { device: name }), t("confirmation.disconnect"))) return;
     setBusyId(id);
     setFeedback(null);
     try {

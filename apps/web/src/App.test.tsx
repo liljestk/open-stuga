@@ -86,12 +86,13 @@ describe("Stugu app", () => {
 
     await findPageHeading("Lake home");
     expect((screen.getByLabelText("Active property") as HTMLSelectElement).value).toBe(lakeProperty.id);
-    expect((screen.getByLabelText("Home shown on this page") as HTMLSelectElement).value).toBe(lakeHouse.id);
+    expect(screen.queryByLabelText("Home shown on this page")).toBeNull();
 
     window.history.replaceState(null, "", "/properties/property-pine/homes/house-pine");
     window.dispatchEvent(new PopStateEvent("popstate"));
     await waitFor(() => expect((screen.getByLabelText("Active property") as HTMLSelectElement).value).toBe(mainProperty.id));
-    expect((screen.getByLabelText("Home shown on this page") as HTMLSelectElement).value).toBe(mainHouse.id);
+    await findPageHeading(mainHouse.name);
+    expect(screen.queryByLabelText("Home shown on this page")).toBeNull();
   });
 
   it("replaces a legacy Site URL with its canonical Property and Home path", async () => {
@@ -218,7 +219,7 @@ describe("Stugu app", () => {
     expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
     expect(screen.getByRole("link", { name: "Properties" })).toBeTruthy();
 
-    fireEvent.change(screen.getByRole("textbox", { name: "Add a home to this property" }), { target: { value: "Lake house" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Home name" }), { target: { value: "Lake house" } });
     fireEvent.click(screen.getByRole("button", { name: "Add home" }));
 
     await waitFor(() => expect(climate.createHouse).toHaveBeenCalledWith(expect.objectContaining({
@@ -227,7 +228,7 @@ describe("Stugu app", () => {
     })));
   });
 
-  it("creates a property before the first home when the workspace has none", async () => {
+  it("creates an inferred Property before the first Home without requiring advanced naming", async () => {
     const climate = mockClimateData();
     climate.state = {
       ...climate.state,
@@ -238,7 +239,7 @@ describe("Stugu app", () => {
     climate.bootstrapStatus = "empty";
     const createdProperty = {
       id: "property-lake",
-      name: "Lake estate",
+      name: "My property",
       description: null,
       location: null,
       createdAt: "2026-07-01T08:00:00.000Z",
@@ -254,7 +255,12 @@ describe("Stugu app", () => {
     vi.mocked(useClimateData).mockReturnValue(climate);
     renderApp();
 
-    fireEvent.change(screen.getByRole("textbox", { name: /^Property name/ }), { target: { value: createdProperty.name } });
+    const propertyDetails = screen.getByText("Change Property details").closest("details")!;
+    expect(propertyDetails.hasAttribute("open")).toBe(false);
+    fireEvent.click(screen.getByText("Change Property details"));
+    const propertyName = screen.getByRole("textbox", { name: /^Property name/ });
+    expect(propertyName).not.toBeRequired();
+    fireEvent.change(propertyName, { target: { value: "" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Home name" }), { target: { value: "Lake home" } });
     fireEvent.click(screen.getByRole("button", { name: "Create home" }));
 
@@ -262,9 +268,10 @@ describe("Stugu app", () => {
       name: "Lake home",
       propertyId: createdProperty.id,
     })));
-    expect(climate.createProperty).toHaveBeenCalledWith({ name: createdProperty.name });
+    expect(climate.createProperty).toHaveBeenCalledWith({ name: "My property" });
     expect(vi.mocked(climate.createProperty).mock.invocationCallOrder[0])
       .toBeLessThan(vi.mocked(climate.createHouse).mock.invocationCallOrder[0]!);
+    expect(window.location.pathname).toBe("/properties/property-lake/homes/house-lake/setup/overview");
   });
 
   it("shows first-owner setup before the workspace", () => {
@@ -274,7 +281,7 @@ describe("Stugu app", () => {
 
     renderApp();
 
-    expect(screen.getByRole("heading", { name: "Create the first owner account" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Protect your Stugu" })).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Primary navigation" })).toBeNull();
   });
 
@@ -288,6 +295,32 @@ describe("Stugu app", () => {
 
     expect(screen.getByRole("heading", { name: "Activate your account" })).toBeTruthy();
     expect(window.location.hash).toBe("");
+  });
+
+  it("retries from the integrated backend-unavailable state", async () => {
+    const user = userEvent.setup();
+    const climate = mockClimateData();
+    climate.bootstrapStatus = "unavailable";
+    climate.bootstrapError = "Connection refused";
+    vi.mocked(useClimateData).mockReturnValue(climate);
+
+    renderApp();
+
+    expect(screen.getByRole("heading", { level: 1, name: "Stugu could not reach its service" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(climate.retryBootstrap).toHaveBeenCalledOnce();
+  });
+
+  it("recovers from an unknown route through the visible overview action", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(null, "", "/removed-feature");
+
+    renderApp();
+
+    expect(await findPageHeading("This page is not part of Stugu")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Open overview" }));
+    expect(await findPageHeading("All properties, one calm overview")).toBeTruthy();
+    expect(window.location.pathname).toBe("/overview");
   });
 
   it("keeps a read-only guest with a floorless house inside the navigable property workspace", async () => {
@@ -390,6 +423,112 @@ describe("Stugu app", () => {
 
     expect(await findPageHeading("Administrator access required")).toBeTruthy();
     expect(stugubys).not.toHaveBeenCalled();
+  });
+
+  it("does not disclose API or MCP tooling on a direct guest route", async () => {
+    const climate = mockClimateData();
+    climate.state = {
+      ...climate.state,
+      session: {
+        ...climate.state.session,
+        principal: { type: "local", email: "guest@example.test" },
+        tenant: { id: "local", name: "Local Stugu", role: "guest" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "guest" }],
+        readOnly: true,
+        grants: [{ scopeType: "house", scopeId: climate.state.houses[0]!.id }],
+      },
+    };
+    vi.mocked(useClimateData).mockReturnValue(climate);
+    window.history.replaceState(null, "", "/developer");
+
+    renderApp();
+
+    expect(await findPageHeading("API & MCP access unavailable")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "API & MCP" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Local MCP server" })).toBeNull();
+    expect(screen.queryByDisplayValue("node apps/api/dist/mcp-server.js")).toBeNull();
+  });
+
+  it.each(["/people", "/system"])("does not start admin-only requests for a direct guest route at %s", async (path) => {
+    const climate = mockClimateData();
+    climate.state = {
+      ...climate.state,
+      session: {
+        ...climate.state.session,
+        principal: { type: "local", email: "guest@example.test" },
+        tenant: { id: "local", name: "Local Stugu", role: "guest" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "guest" }],
+        readOnly: true,
+        grants: [{ scopeType: "house", scopeId: climate.state.houses[0]!.id }],
+      },
+    };
+    vi.mocked(useClimateData).mockReturnValue(climate);
+    const tenantMembers = vi.spyOn(api, "tenantMembers");
+    const systemUpdateStatus = vi.spyOn(api, "systemUpdateStatus");
+    window.history.replaceState(null, "", path);
+
+    renderApp();
+
+    expect(await findPageHeading("Administrator access required")).toBeTruthy();
+    expect(tenantMembers).not.toHaveBeenCalled();
+    expect(systemUpdateStatus).not.toHaveBeenCalled();
+  });
+
+  it("does not start Setup requests for a direct guest route", async () => {
+    const climate = mockClimateData();
+    const home = climate.state.houses[0]!;
+    climate.state = {
+      ...climate.state,
+      session: {
+        ...climate.state.session,
+        principal: { type: "local", email: "guest@example.test" },
+        tenant: { id: "local", name: "Local Stugu", role: "guest" },
+        availableTenants: [{ id: "local", name: "Local Stugu", role: "guest" }],
+        readOnly: true,
+        grants: [{ scopeType: "house", scopeId: home.id }],
+      },
+    };
+    vi.mocked(useClimateData).mockReturnValue(climate);
+    vi.mocked(fetch).mockClear();
+    window.history.replaceState(null, "", `/properties/${home.propertyId}/homes/${home.id}/setup/connections`);
+
+    renderApp();
+
+    expect(await findPageHeading("Administrator access required")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Connections" })).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not start Setup requests across a foreign shared Home boundary", async () => {
+    const climate = mockClimateData();
+    const home = climate.state.houses[0]!;
+    climate.state = {
+      ...climate.state,
+      houses: [{
+        ...home,
+        stuguby: {
+          stugubyId: "stuguby-remote",
+          authorityNodeId: "node-remote",
+          publicationId: "publication-remote-home",
+          ownership: "shared",
+          editPolicy: "read-only",
+          syncState: "current",
+          authorityEpoch: 1,
+          pendingChangeCount: 0,
+          conflictCount: 0,
+          recoveryState: "not-enabled",
+        },
+      }],
+    };
+    vi.mocked(useClimateData).mockReturnValue(climate);
+    vi.mocked(fetch).mockClear();
+    window.history.replaceState(null, "", `/properties/${home.propertyId}/homes/${home.id}/setup/connections`);
+
+    renderApp();
+
+    expect(await findPageHeading("A deliberate sharing boundary")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Connections" })).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("gives a Home-scoped guest read-only access to that Home's sensor inventory", async () => {
@@ -512,12 +651,12 @@ describe("Stugu app", () => {
     await waitFor(() => expect(document.activeElement).toBe(main));
     expect(document.title).toBe("Sensors — Pine House — Pine Estate — Stugu");
 
-    const activeHome = screen.getByRole("combobox", { name: "Home shown on this page" });
-    expect(activeHome.closest("main")).toBe(main);
-    expect(activeHome.closest("aside")).toBeNull();
-    activeHome.focus();
-    fireEvent.change(activeHome, { target: { value: (activeHome as HTMLSelectElement).value } });
-    await waitFor(() => expect(document.activeElement).toBe(activeHome));
+    expect(screen.queryByRole("combobox", { name: "Home shown on this page" })).toBeNull();
+    const sensorSearch = screen.getByRole("searchbox", { name: "Search sensors" });
+    expect(sensorSearch.closest("main")).toBe(main);
+    sensorSearch.focus();
+    fireEvent.change(sensorSearch, { target: { value: "Living" } });
+    await waitFor(() => expect(document.activeElement).toBe(sensorSearch));
     expect(document.title).toBe("Sensors — Pine House — Pine Estate — Stugu");
   });
 

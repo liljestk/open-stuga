@@ -1,8 +1,9 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
 import { Building2, ChevronDown, ChevronUp, Copy, Layers3, Plus, Trash2 } from "lucide-react";
 import { floorMetersPerPlanUnit, type Floor, type FloorType, type House, type PlanElement, type RoofDesign, type RoofStyle, type Sensor } from "@climate-twin/contracts";
 import { useI18n, type TranslationKey } from "../i18n";
 import { DEFAULT_ROOF_DESIGN, roofPeakZ } from "../architecturalGeometry";
+import { confirmAction } from "./ConfirmationProvider";
 
 export type CreateHouseInput = Pick<House, "name" | "timezone" | "floors"> & Partial<Pick<House, "propertyId">>;
 
@@ -125,6 +126,7 @@ export function StructureEditor({
   houses, house, floor, sensors, onHouseSelect, onFloorSelect, onHouseChange, onHouseSave, onHouseCreate, onHouseDelete,
 }: StructureEditorProps) {
   const { locale, t } = useI18n();
+  const inlineFormId = useId();
   const [addingHouse, setAddingHouse] = useState(false);
   const [addingFloor, setAddingFloor] = useState(false);
   const [newHouseName, setNewHouseName] = useState("");
@@ -133,7 +135,6 @@ export function StructureEditor({
   const [creating, setCreating] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [deletingHouse, setDeletingHouse] = useState(false);
-  const [confirmDeleteHouse, setConfirmDeleteHouse] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const floorSensors = sensors.filter((sensor) => sensor.houseId === house.id && sensor.floorId === floor.id);
   const geometryPoints = [
@@ -151,7 +152,6 @@ export function StructureEditor({
   };
 
   useEffect(() => {
-    setConfirmDeleteHouse(false);
     setAddingFloor(false);
     setDeletingHouse(false);
     setMutationError(null);
@@ -274,13 +274,16 @@ export function StructureEditor({
 
   const removeHouse = async () => {
     if (!onHouseDelete || deletingHouse) return;
+    if (!await confirmAction(
+      t("structure.deletePropertyConfirm", { house: house.name }),
+      t("structure.deleteProperty"),
+    )) return;
     setDeletingHouse(true);
     setMutationError(null);
     try {
       await onHouseDelete(house.id);
     } catch {
       setMutationError(t("structure.deleteError"));
-      setConfirmDeleteHouse(false);
     } finally {
       setDeletingHouse(false);
     }
@@ -298,9 +301,9 @@ export function StructureEditor({
           {mutationError && <p className="structure-error" role="alert">{mutationError}</p>}
           <ProgressiveDisclosure className="structure-disclosure property-management" summaryClassName="structure-disclosure-summary" summary={t("structure.manageProperties")}>
             <div className="structure-disclosure-content">
-              <button type="button" className="structure-add-button" disabled={!onHouseCreate} onClick={() => setAddingHouse((value) => !value)} aria-expanded={addingHouse}><Plus size={15} aria-hidden="true" />{t("structure.addProperty")}</button>
+              <button type="button" className="structure-add-button" disabled={!onHouseCreate} onClick={() => setAddingHouse((value) => !value)} aria-expanded={addingHouse} aria-controls={addingHouse ? `${inlineFormId}-property` : undefined}><Plus size={15} aria-hidden="true" />{t("structure.addProperty")}</button>
               {addingHouse && (
-                <form className="structure-inline-form" onSubmit={submitHouse}>
+                <form id={`${inlineFormId}-property`} className="structure-inline-form" onSubmit={submitHouse}>
                   <label className="field compact-field"><span>{t("structure.propertyName")}</span><input autoFocus required value={newHouseName} onChange={(event) => setNewHouseName(event.target.value)} placeholder={t("structure.propertyPlaceholder")} /></label>
                   <div className="inline-form-actions"><button type="button" className="text-button" onClick={() => setAddingHouse(false)}>{t("common.cancel")}</button><button type="submit" className="primary-button" disabled={creating || !onHouseCreate}>{creating ? t("structure.creating") : t("common.add")}</button></div>
                 </form>
@@ -332,9 +335,9 @@ export function StructureEditor({
           </div>
           <ProgressiveDisclosure className="structure-disclosure level-management" summaryClassName="structure-disclosure-summary" summary={t("structure.levelActions")}>
             <div className="structure-disclosure-content">
-              <button type="button" className="structure-add-button" disabled={!onHouseChange} aria-expanded={addingFloor} onClick={() => setAddingFloor((value) => !value)}><Plus size={16} aria-hidden="true" />{t("structure.addLevel")}</button>
+              <button type="button" className="structure-add-button" disabled={!onHouseChange} aria-expanded={addingFloor} aria-controls={addingFloor ? `${inlineFormId}-level` : undefined} onClick={() => setAddingFloor((value) => !value)}><Plus size={16} aria-hidden="true" />{t("structure.addLevel")}</button>
               {addingFloor && (
-                <form className="structure-inline-form" onSubmit={addFloor}>
+                <form id={`${inlineFormId}-level`} className="structure-inline-form" onSubmit={addFloor}>
                   <label className="field compact-field"><span>{t("structure.levelType")}</span><select value={newFloorType} onChange={(event) => setNewFloorType(event.target.value as FloorType)}>{FLOOR_TYPES.map((type) => <option key={type} value={type}>{t(`floorType.${type}` as TranslationKey)}</option>)}</select></label>
                   <label className="field compact-field"><span>{t("structure.levelName")}</span><input required value={newFloorName} onChange={(event) => setNewFloorName(event.target.value)} /></label>
                   <div className="inline-form-actions"><button type="button" className="text-button" onClick={() => setAddingFloor(false)}>{t("common.cancel")}</button><button type="submit" className="primary-button" disabled={!onHouseChange}>{t("structure.addLevel")}</button></div>
@@ -407,7 +410,7 @@ export function StructureEditor({
         summary={<><Trash2 size={14} aria-hidden="true" />{t("structure.deleteProperty")}</>}
       >
         <div className="structure-disclosure-content">
-          {confirmDeleteHouse ? <><p>{t("structure.deletePropertyConfirm", { house: house.name })}</p><div className="inline-form-actions"><button type="button" className="text-button" disabled={deletingHouse} onClick={() => setConfirmDeleteHouse(false)}>{t("common.cancel")}</button><button type="button" className="danger-button" disabled={deletingHouse} onClick={() => void removeHouse()}>{t("structure.deleteProperty")}</button></div></> : <button type="button" className="danger-button" disabled={!onHouseDelete} onClick={() => setConfirmDeleteHouse(true)}>{t("structure.deleteProperty")}</button>}
+          <button type="button" className="danger-button" disabled={!onHouseDelete || deletingHouse} onClick={() => void removeHouse()}>{t("structure.deleteProperty")}</button>
         </div>
       </ProgressiveDisclosure>
     </aside>

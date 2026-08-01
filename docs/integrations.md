@@ -303,7 +303,8 @@ should omit forecast bands and handle the API's `FORECAST_UNSUPPORTED` response.
 
 ### House map placement, location discovery, and weather
 
-`House.location` is the optional weather lookup reference: a WGS84 object with
+`Property.location` is the default weather reference. `House.location` is the
+separate operational or advanced-override reference: a WGS84 object with
 finite `latitude` and `longitude` decimal degrees plus an optional display
 `label`, `countryCode`, and discovery provenance (`source`, `confidence`,
 `discoveredAt`, and `userOverridden`). `House.timezone` is an IANA timezone and
@@ -343,12 +344,15 @@ Set or replace these properties with `PATCH /api/v1/houses/{id}`:
 }
 ```
 
-Set any property to `null` to clear only that property. Unknown orientation must
+Set any property to `null` to clear that stored value. Unknown orientation must
 remain absent/null rather than defaulting to `0`; otherwise downstream clients
-would falsely label the top plan edge as north-facing. Moving or clearing
-`mapPlacement` does not change `location`, invalidate its weather cache, or
-purge retained weather history. A change to `location` retains its existing
-weather cache/history invalidation semantics.
+would falsely label the top plan edge as north-facing. Stugu copies the Property
+location into Homes that have no manual override, or uses `mapPlacement` as an
+automatic fallback when the Property location is absent. Moving or clearing a
+placement therefore changes `location` only for that automatic fallback and
+uses the normal weather cache/history invalidation semantics. Manual Home
+overrides remain untouched, and the stored Property, Home, and placement records
+remain separate.
 
 `GET /api/v1/locations/search?q=Espoo&language=en` performs an explicit
 Open-Meteo place search and returns sanitized suggestions with coordinates,

@@ -165,6 +165,10 @@ export interface AppConfig {
   localAuthProxyBindAddress?: string | null;
   /** High-entropy credential used to authenticate the immediate reverse proxy. */
   localAuthProxySecret?: string | null;
+  /** HTTPS relay that owns the GitHub App credential; never exposed through APIs. */
+  bugReportRelayUrl?: string | null;
+  /** Shared high-entropy relay credential; never expose or log AppConfig. */
+  bugReportRelayToken?: string | null;
   /** Optional account-scoped Cloudflare Access group synchronized from local members and invitations. */
   cloudflareAccessAccountId?: string | null;
   cloudflareAccessGroupId?: string | null;

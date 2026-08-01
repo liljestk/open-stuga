@@ -20,6 +20,7 @@ import {
   type StugubyLocalPublicationCatalog,
   type StugubyRemoteTelemetrySample,
 } from "../../api";
+import { confirmAction } from "../../components/ConfirmationProvider";
 import { StugubyMark } from "../../components/StugubyMark";
 import { twentyFourHourInputLocale } from "../../dateTime";
 import { useI18n, type TranslationKey } from "../../i18n";
@@ -30,7 +31,7 @@ import type { DatasetDraft, PublicationCatalogState, StugubyPageProps } from "./
 import { useStugubyPagePart03 } from "./part-03";
 import { GrantOverview } from "./GrantOverview";
 export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart03>) {
-  const { houses, properties, onInventoryChange, locale, t, roleLabel, stateLabel, index, setIndex, detail, setDetail, selectedId, setSelectedId, loading, setLoading, busy, setBusy, error, setError, notice, setNotice, detailLoading, setDetailLoading, telemetryError, setTelemetryError, copied, setCopied, cloudflareSetupRequested, setCloudflareSetupRequested, createdInvitation, setCreatedInvitation, telemetrySamples, setTelemetrySamples, createName, setCreateName, createDescription, setCreateDescription, createCoordinatorUrl, setCreateCoordinatorUrl, joinCoordinatorUrl, setJoinCoordinatorUrl, joinUrl, setJoinUrl, joinInvitationId, setJoinInvitationId, joinSecret, setJoinSecret, inviteRole, setInviteRole, inviteLocalLabel, setInviteLocalLabel, inviteExpiresAt, setInviteExpiresAt, publishableHouses, grantHouseId, setGrantHouseId, audienceKind, setAudienceKind, audienceNodes, setAudienceNodes, datasetDraft, setDatasetDraft, telemetryLive, setTelemetryLive, telemetryHistoryHours, setTelemetryHistoryHours, telemetryMetrics, setTelemetryMetrics, telemetrySensors, setTelemetrySensors, telemetryRate, setTelemetryRate, grantExpiresAt, setGrantExpiresAt, houseEditPolicy, setHouseEditPolicy, recoveryMode, setRecoveryMode, houseSuccessorNodeId, setHouseSuccessorNodeId, editingGrantId, setEditingGrantId, publicationCatalog, setPublicationCatalog, catalogRevision, setCatalogRevision, activeLocalGrantHouseIds, unsharedHouses, grantHouseOptions, propertyName, setPropertyName, propertyDescription, setPropertyDescription, propertyLatitude, setPropertyLatitude, propertyLongitude, setPropertyLongitude, propertyLocationLabel, setPropertyLocationLabel, areasJson, setAreasJson, equipmentJson, setEquipmentJson, notesJson, setNotesJson, maintenanceJson, setMaintenanceJson, propertyEditPolicy, setPropertyEditPolicy, propertySuccessorNodeId, setPropertySuccessorNodeId, adoptionPropertyId, setAdoptionPropertyId, migrationPropertyId, setMigrationPropertyId, detailRequest, selectedIdRef, resetGrantDraft, resetStugubyScopedUi, beginSelection, loadDetail, load, withBusy, createStuguby, joinStuguby, activeRemoteMembers, selectRecoveryMode, selectHouseEditPolicy, saveGrant, editGrant, saveProperty, memberName, updateMember, updateMemberLocalLabel, adoptSharedProperty, migrateLocalProperty, disconnectProperty, deleteStuguby } = context;
+  const { houses, properties, onInventoryChange, locale, t, roleLabel, stateLabel, index, setIndex, detail, setDetail, selectedId, setSelectedId, loading, setLoading, busy, setBusy, error, setError, notice, setNotice, detailLoading, setDetailLoading, telemetryError, setTelemetryError, copied, setCopied, cloudflareSetupRequested, setCloudflareSetupRequested, createdInvitation, setCreatedInvitation, telemetrySamples, setTelemetrySamples, createName, setCreateName, createDescription, setCreateDescription, createCoordinatorUrl, setCreateCoordinatorUrl, joinCoordinatorUrl, setJoinCoordinatorUrl, joinUrl, setJoinUrl, joinInvitationId, setJoinInvitationId, joinSecret, setJoinSecret, inviteRole, setInviteRole, inviteLocalLabel, setInviteLocalLabel, inviteExpiresAt, setInviteExpiresAt, publishableHouses, grantHouseId, setGrantHouseId, audienceKind, setAudienceKind, audienceNodes, setAudienceNodes, datasetDraft, setDatasetDraft, telemetryLive, setTelemetryLive, telemetryHistoryHours, setTelemetryHistoryHours, telemetryMetrics, setTelemetryMetrics, telemetrySensors, setTelemetrySensors, telemetryRate, setTelemetryRate, grantExpiresAt, setGrantExpiresAt, houseEditPolicy, setHouseEditPolicy, recoveryMode, setRecoveryMode, houseSuccessorNodeId, setHouseSuccessorNodeId, editingGrantId, setEditingGrantId, publicationCatalog, setPublicationCatalog, catalogRevision, setCatalogRevision, activeLocalGrantHouseIds, unsharedHouses, grantHouseOptions, propertyName, setPropertyName, propertyDescription, setPropertyDescription, propertyLatitude, setPropertyLatitude, propertyLongitude, setPropertyLongitude, propertyLocationLabel, setPropertyLocationLabel, areasJson, setAreasJson, equipmentJson, setEquipmentJson, notesJson, setNotesJson, maintenanceJson, setMaintenanceJson, propertyEditPolicy, setPropertyEditPolicy, propertySuccessorNodeId, setPropertySuccessorNodeId, adoptionPropertyId, setAdoptionPropertyId, migrationPropertyId, setMigrationPropertyId, detailRequest, selectedIdRef, captureActiveScope, isActiveScope, resetGrantDraft, resetStugubyScopedUi, beginSelection, loadDetail, load, withBusy, createStuguby, joinStuguby, activeRemoteMembers, selectRecoveryMode, selectHouseEditPolicy, saveGrant, editGrant, saveProperty, memberName, updateMember, updateMemberLocalLabel, adoptSharedProperty, migrateLocalProperty, disconnectProperty, deleteStuguby } = context;
   if (loading) return <output className="page-loading"><LoaderCircle className="spin" size={20} aria-hidden="true" />{t("common.loading")}</output>;
   const currentDetail = detail?.stuguby.id === selectedId ? detail : null;
   const coordinator = currentDetail?.stuguby.localMemberState === "active" && currentDetail.stuguby.localRole === "steward";
@@ -94,13 +95,13 @@ export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart0
         <label className="field"><span>{t("stuguby.name")}</span><input required maxLength={200} value={createName} onChange={(event) => setCreateName(event.target.value)} /></label>
         {!index?.publicOrigin && <label className="field"><span>{t("stuguby.coordinatorUrl")}</span><input required type="url" spellCheck={false} value={createCoordinatorUrl} placeholder={t("stuguby.coordinatorPlaceholder")} onChange={(event) => setCreateCoordinatorUrl(event.target.value)} /><small>{createCoordinatorUrl.trim() ? t("stuguby.addressReady", { origin: createCoordinatorUrl }) : t("stuguby.httpsHelp")}</small></label>}
         <details className="stuguby-subdetails">
-          <summary>{t("nav.advanced")}</summary>
+          <summary>{t("stuguby.advancedSettings")}</summary>
           <div className="stuguby-subdetails-body">
             <label className="field"><span>{t("stuguby.descriptionField")}</span><textarea value={createDescription} onChange={(event) => setCreateDescription(event.target.value)} /></label>
             {index?.publicOrigin && <label className="field"><span>{t("stuguby.coordinatorUrl")}</span><input readOnly type="url" value={index.publicOrigin} /></label>}
           </div>
         </details>
-        <button className="primary-button" disabled={busy !== null || !index || (!index.publicOrigin && !createCoordinatorUrl.trim())}>{busy === "create" ? <LoaderCircle className="spin" size={16} /> : <Network size={16} />}{t("stuguby.create")}</button>
+        <button type="submit" className="primary-button" disabled={busy !== null || !index || (!index.publicOrigin && !createCoordinatorUrl.trim())}>{busy === "create" ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Network size={16} aria-hidden="true" />}{t("stuguby.create")}</button>
       </form>;
   const connectionSetup = <div className="stuguby-onboarding-grid">
       {createPanel}
@@ -119,6 +120,62 @@ export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart0
         <button className="primary-button" disabled={busy !== null || !joinCoordinatorUrl || !joinInvitationId || !joinSecret}>{busy === "join" ? <LoaderCircle className="spin" size={16} /> : <Link size={16} />}{t("stuguby.joinWithoutSharing")}</button>
       </form>
     </div>;
+  const connectedPropertyName = currentDetail?.propertyAdoption
+    ? properties.find((candidate) => candidate.id === currentDetail.propertyAdoption?.localPropertyId)?.name
+      ?? currentDetail.sharedProperty?.name
+      ?? currentDetail.propertyAdoption.localPropertyId
+    : null;
+  const activeLocalShares = currentDetail?.grants.filter((grant) => (
+    grant.authorityNodeId === index?.identity.nodeId
+    && !grant.revokedAt
+    && (!grant.expiresAt || Date.parse(grant.expiresAt) > Date.now())
+  )).length ?? 0;
+  const propertyWorkflowRecommended = Boolean(currentDetail && !currentDetail.propertyAdoption);
+  const sharingWorkflowRecommended = Boolean(
+    currentDetail?.propertyAdoption && canPublish && grantHouseOptions.length > 0 && activeLocalShares === 0,
+  );
+  const syncIsPrimary = Boolean(currentDetail && (
+    currentDetail.stuguby.lastSyncError
+    || (!propertyWorkflowRecommended && !sharingWorkflowRecommended && currentDetail.propertyConflicts.length === 0)
+  ));
+  const grantOverview = (variant: "attention" | "routine") => currentDetail && index ? <GrantOverview
+    variant={variant}
+    detail={currentDetail}
+    houses={houses}
+    localNodeId={index.identity.nodeId}
+    busy={busy !== null}
+    onEdit={editGrant}
+    onRepublish={(grant) => void withBusy(`republish:${grant.id}`, async () => {
+      await api.republishStugubyGrant(currentDetail.stuguby.id, grant.id);
+      setNotice(t("stuguby.republishQueued"));
+    })}
+    onRevoke={async (grant) => {
+      const operationScope = captureActiveScope(currentDetail.stuguby.id);
+      if (!operationScope) return;
+      const confirmed = await confirmAction(t("stuguby.confirmRevoke"), t("confirmation.revoke"));
+      if (!confirmed || !isActiveScope(operationScope)) return;
+      void withBusy(`revoke:${grant.id}`, async () => {
+        if (!isActiveScope(operationScope)) return;
+        await api.revokeStugubyGrant(currentDetail.stuguby.id, grant.id);
+        if (!isActiveScope(operationScope)) return;
+        setNotice(t("stuguby.changesSaved"));
+        await loadDetail(currentDetail.stuguby.id);
+      });
+    }}
+    onRemoveInvalid={async (grant) => {
+      const operationScope = captureActiveScope(currentDetail.stuguby.id);
+      if (!operationScope) return;
+      const confirmed = await confirmAction(t("stuguby.confirmRemoveInvalidShare"), t("confirmation.remove"));
+      if (!confirmed || !isActiveScope(operationScope)) return;
+      void withBusy(`remove-invalid:${grant.id}`, async () => {
+        if (!isActiveScope(operationScope)) return;
+        await api.removeInvalidStugubyGrant(currentDetail.stuguby.id, grant.id);
+        if (!isActiveScope(operationScope)) return;
+        setNotice(t("stuguby.invalidShareRemoved"));
+        await loadDetail(currentDetail.stuguby.id);
+      });
+    }}
+  /> : null;
   Object.assign(context, { currentDetail, coordinator, unsharedProperties, migrationProperties, deletionBlocked, coordinatorInvitationReady, propertyWriter, canPublish, cannotPublishMessage, matchingCatalog, catalogMatches, coordinatorSetupRequired, localCoordinator, showCloudflareSetup, setupAddress, createPanel, connectionSetup });
   return <div className="stuguby-page">
       <header className="stuguby-page-header">
@@ -126,10 +183,10 @@ export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart0
         <StugubyMark />
       </header>
 
-      <section className="stuguby-boundary" aria-labelledby="stuguby-boundary-title">
-        <ShieldCheck size={24} aria-hidden="true" />
-        <div><h2 id="stuguby-boundary-title">{t("stuguby.boundaryTitle")}</h2><p>{t("stuguby.boundaryBody")}</p></div>
-      </section>
+      <details className="stuguby-boundary">
+        <summary><ShieldCheck size={20} aria-hidden="true" /><span><strong>{t("stuguby.boundaryTitle")}</strong><small>{t("stuguby.boundarySummary")}</small></span></summary>
+        <p>{t("stuguby.boundaryBody")}</p>
+      </details>
 
       {error && <p className="inline-error stuguby-error" role="alert">{error}</p>}
       {notice && <p className="stuguby-notice" role="status">{notice}</p>}
@@ -166,13 +223,14 @@ export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart0
         {detail && detail.stuguby.id === selectedId && <div className="stuguby-detail">
           <section className="stuguby-card stuguby-summary-card">
             <div><span className={`status-dot ${detail.stuguby.lastSyncError ? "error" : ""}`} aria-hidden="true" /> <strong>{stateLabel(detail.stuguby.localMemberState)}</strong></div>
-            <dl><div><dt>{t("stuguby.localRole")}</dt><dd>{roleLabel(detail.stuguby.localRole)}</dd></div><div><dt>{t("stuguby.syncAutomatic")}</dt><dd>{formattedTime(detail.stuguby.lastSyncAt, t("stuguby.never"), locale)}</dd></div></dl>
+            <dl><div><dt>{t("stuguby.localRole")}</dt><dd>{roleLabel(detail.stuguby.localRole)}</dd></div><div><dt>{t("stuguby.syncAutomatic")}</dt><dd>{formattedTime(detail.stuguby.lastSyncAt, t("stuguby.never"), locale)}</dd></div>{connectedPropertyName && <div><dt>{t("stuguby.propertyConnection")}</dt><dd>{connectedPropertyName}</dd></div>}<div><dt>{t("stuguby.grantsTitle")}</dt><dd>{activeLocalShares}</dd></div></dl>
+            {syncIsPrimary && <button type="button" className="primary-button" disabled={busy !== null || detail.stuguby.localMemberState === "left" || detail.stuguby.localMemberState === "revoked"} onClick={() => void withBusy("sync", async () => { await api.syncStuguby(detail.stuguby.id); onInventoryChange?.(); await load(detail.stuguby.id); })}><RefreshCw aria-hidden="true" className={busy === "sync" ? "spin" : ""} size={16} />{t("stuguby.syncNow")}</button>}
             <details className="stuguby-summary-actions">
               <summary>{t("nav.advanced")}</summary>
               <div>
                 <small>{t("stuguby.coordinator")}</small>
                 <code>{detail.stuguby.coordinatorUrl}</code>
-                <button type="button" className="secondary-button" disabled={busy !== null || detail.stuguby.localMemberState === "left" || detail.stuguby.localMemberState === "revoked"} onClick={() => void withBusy("sync", async () => { await api.syncStuguby(detail.stuguby.id); onInventoryChange?.(); await load(detail.stuguby.id); })}><RefreshCw aria-hidden="true" className={busy === "sync" ? "spin" : ""} size={16} />{t("stuguby.syncNow")}</button>
+                {!syncIsPrimary && <button type="button" className="secondary-button" disabled={busy !== null || detail.stuguby.localMemberState === "left" || detail.stuguby.localMemberState === "revoked"} onClick={() => void withBusy("sync", async () => { await api.syncStuguby(detail.stuguby.id); onInventoryChange?.(); await load(detail.stuguby.id); })}><RefreshCw aria-hidden="true" className={busy === "sync" ? "spin" : ""} size={16} />{t("stuguby.syncNow")}</button>}
                 <div className="stuguby-delete-action">
                   <strong>{t("stuguby.delete")}</strong>
                   <small>{t(deletionBlocked ? "stuguby.deleteBlocked" : "stuguby.deleteHelp")}</small>
@@ -183,8 +241,16 @@ export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart0
             {detail.stuguby.lastSyncError && <p className="inline-error stuguby-summary-error" role="alert">{detail.stuguby.lastSyncError}</p>}
           </section>
 
-          <section className="stuguby-card">
-            <div className="stuguby-card-title"><Users size={19} aria-hidden="true" /><div><h2>{t("stuguby.participants")}</h2><p>{t("stuguby.nodeRolesBody")}</p></div></div>
+          {detail.propertyConflicts.length > 0 && <section className="stuguby-conflicts stuguby-primary-conflicts" aria-labelledby="stuguby-conflicts-title">
+            <div><AlertTriangle size={18} aria-hidden="true" /><div><h2 id="stuguby-conflicts-title">{t("stuguby.conflictsTitle")}</h2><p>{t("stuguby.conflictsBody")}</p></div></div>
+            {detail.propertyConflicts.map((conflict) => <article key={conflict.commandId}><div><strong>{t("stuguby.conflictItem", { item: conflict.entityId, fields: conflict.fields.join(", ") })}</strong><small>{conflict.message}</small></div><button type="button" className="secondary-button" disabled={busy !== null} onClick={() => void withBusy(`conflict:${conflict.commandId}`, async () => { await api.resolveStugubyPropertyConflict(detail.stuguby.id, conflict.commandId); setNotice(t("stuguby.conflictAcknowledged")); await loadDetail(detail.stuguby.id); })}>{t("stuguby.acknowledgeConflict")}</button></article>)}
+          </section>}
+
+          {grantOverview("attention")}
+
+          <details className="stuguby-card stuguby-collapsible stuguby-participants">
+            <summary><Users size={19} aria-hidden="true" /><span><strong>{t("stuguby.participants")}</strong><small>{t("stuguby.participantsSummary", { members: detail.members.length, invitations: detail.invitations.length })}</small></span></summary>
+            <div className="stuguby-collapsible-body">
             <div className="stuguby-member-list">{detail.members.map((member) => {
               const isLocal = member.nodeId === index.identity.nodeId;
               const name = memberName(member);
@@ -242,15 +308,26 @@ export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart0
             {coordinator && <details className="stuguby-subdetails"><summary>{t("stuguby.invitations")} ({detail.invitations.length})</summary><div className="stuguby-existing-grants stuguby-subdetails-body">{detail.invitations.length === 0 ? <p>{t("stuguby.noInvitations")}</p> : detail.invitations.map((invitation) => {
               const active = !invitation.usedAt && !invitation.revokedAt && Date.parse(invitation.expiresAt) > Date.now();
               const status = invitation.usedAt ? t("stuguby.invitationUsed") : invitation.revokedAt ? t("stuguby.invitationRevoked") : active ? t("stuguby.invitationActive") : t("stuguby.invitationExpired");
-              return <article key={invitation.id}><div className="stuguby-record-copy"><strong>{invitation.localLabel || roleLabel(invitation.role)}</strong><span>{roleLabel(invitation.role)} · {status} · {formattedTime(invitation.expiresAt, t("stuguby.never"), locale)}</span><small>{invitation.id}</small></div>{active && <div className="stuguby-record-actions"><button type="button" className="danger-button" disabled={busy !== null} onClick={() => {
-                if (!window.confirm(t("stuguby.confirmRevokeInvitation", { id: invitation.id.slice(0, 12) }))) return;
-                void withBusy(`invitation:${invitation.id}`, async () => { await api.revokeStugubyInvitation(detail.stuguby.id, invitation.id); setNotice(t("stuguby.changesSaved")); await loadDetail(detail.stuguby.id); });
+              return <article key={invitation.id}><div className="stuguby-record-copy"><strong>{invitation.localLabel || roleLabel(invitation.role)}</strong><span>{roleLabel(invitation.role)} · {status} · {formattedTime(invitation.expiresAt, t("stuguby.never"), locale)}</span><small>{invitation.id}</small></div>{active && <div className="stuguby-record-actions"><button type="button" className="danger-button" disabled={busy !== null} onClick={async () => {
+                const operationScope = captureActiveScope(detail.stuguby.id);
+                if (!operationScope) return;
+                const confirmed = await confirmAction(t("stuguby.confirmRevokeInvitation", { id: invitation.id.slice(0, 12) }), t("confirmation.revoke"));
+                if (!confirmed || !isActiveScope(operationScope)) return;
+                void withBusy(`invitation:${invitation.id}`, async () => {
+                  if (!isActiveScope(operationScope)) return;
+                  await api.revokeStugubyInvitation(detail.stuguby.id, invitation.id);
+                  if (!isActiveScope(operationScope)) return;
+                  setNotice(t("stuguby.changesSaved"));
+                  await loadDetail(detail.stuguby.id);
+                });
               }}><Trash2 size={15} aria-hidden="true" />{t("stuguby.revokeInvitation")}</button></div>}</article>;
             })}</div></details>}
-          </section>
+            </div>
+          </details>
 
-          <section className="stuguby-card stuguby-property-connection">
-            <div className="stuguby-card-title"><StugubyMark className="small" /><div><h2>{t("stuguby.propertyConnection")}</h2><p>{t("stuguby.propertyConnectionBody")}</p></div></div>
+          <details className={`stuguby-card stuguby-collapsible stuguby-property-connection${propertyWorkflowRecommended ? " is-recommended" : ""}`}>
+            <summary><StugubyMark className="small" /><span><strong>{t(propertyWorkflowRecommended ? "stuguby.connectProperty" : "stuguby.propertyConnection")}</strong><small>{connectedPropertyName ? t("stuguby.propertyConnectionReadySummary", { property: connectedPropertyName }) : t("stuguby.propertyConnectionPendingSummary")}</small></span></summary>
+            <div className="stuguby-collapsible-body">
             {!detail.propertyAdoption ? <div className="stuguby-adoption-action">
               {coordinator && unsharedProperties.length > 0 && <label className="field"><span>{t("stuguby.coordinatorProperty")}</span><select value={adoptionPropertyId} onChange={(event) => setAdoptionPropertyId(event.target.value)}>{unsharedProperties.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select><small>{t("stuguby.coordinatorPropertyHelp")}</small></label>}
               <button type="button" className="primary-button" disabled={busy !== null || !detail.sharedProperty} onClick={adoptSharedProperty}>{busy === "adopt-property" ? <LoaderCircle className="spin" size={16} /> : <StugubyMark className="small" />}{coordinator && adoptionPropertyId ? t("stuguby.connectProperty") : t("stuguby.adoptProperty")}</button>
@@ -262,10 +339,6 @@ export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart0
                 {detail.homeCommandCounts.pending > 0 && <small>{t("stuguby.pendingHomeChanges", { count: detail.homeCommandCounts.pending })}</small>}
                 {detail.homeCommandCounts.conflicts > 0 && <small>{t("stuguby.homeConflicts", { count: detail.homeCommandCounts.conflicts })}</small>}
               </div>
-              {detail.propertyConflicts.length > 0 && <section className="stuguby-conflicts" aria-labelledby="stuguby-conflicts-title">
-                <div><AlertTriangle size={18} aria-hidden="true" /><div><h3 id="stuguby-conflicts-title">{t("stuguby.conflictsTitle")}</h3><p>{t("stuguby.conflictsBody")}</p></div></div>
-                {detail.propertyConflicts.map((conflict) => <article key={conflict.commandId}><div><strong>{t("stuguby.conflictItem", { item: conflict.entityId, fields: conflict.fields.join(", ") })}</strong><small>{conflict.message}</small></div><button type="button" className="secondary-button" disabled={busy !== null} onClick={() => void withBusy(`conflict:${conflict.commandId}`, async () => { await api.resolveStugubyPropertyConflict(detail.stuguby.id, conflict.commandId); setNotice(t("stuguby.conflictAcknowledged")); await loadDetail(detail.stuguby.id); })}>{t("stuguby.acknowledgeConflict")}</button></article>)}
-              </section>}
               {canPublish && !coordinator && detail.propertyAdoption.state === "adopted" && <details className="stuguby-subdetails">
                 <summary>{t("stuguby.localPropertyMigration")}</summary>
                 <div className="stuguby-subdetails-body stuguby-migration">
@@ -278,7 +351,8 @@ export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart0
                 <div className="stuguby-subdetails-body"><p>{t("stuguby.permanentDisconnectBody")}</p><button type="button" className="danger-button" disabled={busy !== null} onClick={disconnectProperty}>{busy === "disconnect-property" ? <LoaderCircle className="spin" size={16} /> : <Unplug size={16} />}{t("stuguby.disconnectAndKeepLocal")}</button></div>
               </details>}
             </>}
-          </section>
+            </div>
+          </details>
 
           <details className="stuguby-card stuguby-collapsible stuguby-property-editor">
             <summary><Database size={19} aria-hidden="true" /><span><strong>{t("stuguby.sharedProperty")}</strong><small>{t("stuguby.sharedPropertyBody")}</small></span></summary>
@@ -302,8 +376,9 @@ export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart0
             </form>
           </details>
 
-          <section className="stuguby-card stuguby-grants">
-            <div className="stuguby-card-title"><ShieldCheck size={19} aria-hidden="true" /><div><h2>{t("stuguby.grantsTitle")}</h2><p>{t("stuguby.grantsBody")}</p></div></div>
+          <details className={`stuguby-card stuguby-collapsible stuguby-grants${sharingWorkflowRecommended ? " is-recommended" : ""}`}>
+            <summary><ShieldCheck size={19} aria-hidden="true" /><span><strong>{t(sharingWorkflowRecommended ? "stuguby.startSharing" : "stuguby.grantsTitle")}</strong><small>{t("stuguby.grantsSummary", { active: activeLocalShares, available: grantHouseOptions.length })}</small></span></summary>
+            <div className="stuguby-collapsible-body">
             {canPublish ? grantHouseOptions.length > 0 ? <form onSubmit={saveGrant}>
               <div className="stuguby-form-grid"><label className="field"><span>{t("stuguby.localHome")}</span><select required disabled={editingGrantId !== null} value={grantHouseId} onChange={(event) => { setGrantHouseId(event.target.value); setTelemetrySensors(""); }}><option value="" disabled>{t("stuguby.chooseHome")}</option>{grantHouseOptions.map((house) => <option key={house.id} value={house.id}>{house.name}</option>)}</select></label><label className="field"><span>{t("stuguby.audience")}</span><select value={audienceKind} disabled={recoveryMode === "full"} onChange={(event) => { setAudienceKind(event.target.value as typeof audienceKind); setAudienceNodes([]); }}><option value="all-members">{t("stuguby.audienceAll")}</option><option value="members">{t("stuguby.audienceSelected")}</option></select></label></div>
               {audienceKind === "members" && <fieldset className="stuguby-audience"><legend>{t("stuguby.recipients")}</legend>{activeRemoteMembers.length === 0 ? <p>{t("stuguby.noEligibleRecipients")}</p> : activeRemoteMembers.map((member) => <label key={member.nodeId}><input type="checkbox" disabled={recoveryMode === "full"} checked={audienceNodes.includes(member.nodeId)} onChange={(event) => setAudienceNodes((current) => event.target.checked ? [...current, member.nodeId] : current.filter((id) => id !== member.nodeId))} />{member.displayName} ({roleLabel(member.role)})</label>)}{activeRemoteMembers.length > 0 && audienceNodes.length === 0 && <p className="stuguby-capability-note">{t("stuguby.audienceRequired")}</p>}</fieldset>}
@@ -337,32 +412,9 @@ export function renderStugubyPage(context: ReturnType<typeof useStugubyPagePart0
               </details>
               <div className="stuguby-grant-submit"><button className="primary-button" disabled={busy !== null || !grantHouseId || (recoveryMode === "full" ? !houseSuccessorNodeId : audienceKind === "members" && audienceNodes.length === 0) || (datasetDraft["home.telemetry.v1"].enabled && !catalogMatches)}>{busy === "grant" ? <LoaderCircle aria-hidden="true" className="spin" size={16} /> : <ShieldCheck aria-hidden="true" size={16} />}{t(editingGrantId ? "stuguby.updateGrant" : "stuguby.startSharing")}</button>{editingGrantId && <button type="button" className="secondary-button" onClick={resetGrantDraft}>{t("stuguby.cancelEdit")}</button>}</div>
             </form> : <p className="stuguby-capability-note">{t(publishableHouses.length === 0 ? "stuguby.noLocalHomesToShare" : "stuguby.allHomesAlreadyShared")}</p> : <p>{cannotPublishMessage}</p>}
-            <GrantOverview
-              detail={detail}
-              houses={houses}
-              localNodeId={index.identity.nodeId}
-              busy={busy !== null}
-              onEdit={editGrant}
-              onRepublish={(grant) => void withBusy(`republish:${grant.id}`, async () => {
-                await api.republishStugubyGrant(detail.stuguby.id, grant.id);
-                setNotice(t("stuguby.republishQueued"));
-              })}
-              onRevoke={(grant) => {
-                if (window.confirm(t("stuguby.confirmRevoke"))) void withBusy(`revoke:${grant.id}`, async () => {
-                  await api.revokeStugubyGrant(detail.stuguby.id, grant.id);
-                  setNotice(t("stuguby.changesSaved"));
-                  await loadDetail(detail.stuguby.id);
-                });
-              }}
-              onRemoveInvalid={(grant) => {
-                if (window.confirm(t("stuguby.confirmRemoveInvalidShare"))) void withBusy(`remove-invalid:${grant.id}`, async () => {
-                  await api.removeInvalidStugubyGrant(detail.stuguby.id, grant.id);
-                  setNotice(t("stuguby.invalidShareRemoved"));
-                  await loadDetail(detail.stuguby.id);
-                });
-              }}
-            />
-          </section>
+            {grantOverview("routine")}
+            </div>
+          </details>
 
           <details className="stuguby-card stuguby-collapsible">
             <summary><Database size={19} aria-hidden="true" /><span><strong>{t("stuguby.remoteTitle")}</strong><small>{t("stuguby.remoteBody")}</small></span></summary>

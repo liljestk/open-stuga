@@ -7,6 +7,7 @@ import type { House, IntegrationStatus, TpLinkDiscoveredDevice } from "@climate-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../api";
+import { confirmAction } from "../components/ConfirmationProvider";
 
 import { I18nProvider } from "../i18n";
 
@@ -32,9 +33,14 @@ vi.mock("../components/HouseLocationMap", () => ({
   ),
 }));
 
+vi.mock("../components/ConfirmationProvider", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../components/ConfirmationProvider")>();
+  return { ...actual, confirmAction: vi.fn().mockResolvedValue(true) };
+});
+
 beforeEach(() => {
   window.history.replaceState(null, "", "/setup/overview");
-  vi.spyOn(window, "confirm").mockReturnValue(true);
+  vi.mocked(confirmAction).mockReset().mockResolvedValue(true);
   vi.spyOn(api, "testTpLinkDraft").mockResolvedValue({ ok: true, message: "Connected" });
   vi.spyOn(api, "testHomeAssistantDraft").mockResolvedValue({ ok: true, message: "Connected" });
   vi.spyOn(api, "tpLinkHistoryExportJobs").mockResolvedValue({ enabled: false, automation: historyAutomation, jobs: [] });
@@ -65,11 +71,11 @@ describe("Setup workspace", () => {
     vi.mocked(api.tpLinkDevices).mockResolvedValue([{ ...discoveredChild, mappedSensorId: "sensor-hall" }]);
     const createCanary = vi.spyOn(api, "createTpLinkHistoryExportCanary").mockResolvedValue({ job: {} as never });
     const user = userEvent.setup();
-    renderPage({ integration: connectedTpLink() });
+    renderPage({ integration: connectedTpLink(), canManageTuya: true });
 
     const historyPanel = await screen.findByRole("heading", { name: "Automated Tapo history exports" });
     await user.click(historyPanel.closest("details")!.querySelector("summary")!);
-    await user.click(await screen.findByRole("button", { name: "Run acceptance canary" }));
+    await user.click(await screen.findByRole("button", { name: "Run acceptance check" }));
     expect(createCanary).toHaveBeenCalledWith(expect.objectContaining({
       sensorId: "sensor-hall",
       metric: "temperature",
@@ -159,7 +165,7 @@ describe("Setup workspace", () => {
     const retry = vi.spyOn(api, "retryTpLinkHistoryExportJob").mockResolvedValue(undefined);
     const cancel = vi.spyOn(api, "cancelTpLinkHistoryExportJob").mockResolvedValue(undefined);
     const user = userEvent.setup();
-    renderPage({ integration: connectedTpLink() });
+    renderPage({ integration: connectedTpLink(), canManageTuya: true });
 
     const panel = await screen.findByRole("heading", { name: "Automated Tapo history exports" });
     const section = panel.closest("details")!;
@@ -176,6 +182,44 @@ describe("Setup workspace", () => {
     await waitFor(() => expect(cancel).toHaveBeenCalledWith("active-job"));
     await user.click(within(section).getByRole("button", { name: "Refresh" }));
     await waitFor(() => expect(api.tpLinkHistoryExportJobs).toHaveBeenCalledTimes(4));
+  });
+
+  it("shows Tapo history status without admin-only canary, retry, or cancel actions", async () => {
+    window.history.replaceState(null, "", "/setup/connections");
+    vi.spyOn(api, "discoverIntegrations").mockResolvedValue({ tpLink: [], homeAssistant: [], warnings: [] });
+    vi.mocked(api.tpLinkHistoryExportJobs).mockResolvedValue({
+      enabled: true,
+      automation: historyAutomation,
+      jobs: [{
+        id: "failed-member-job",
+        status: "needs-attention",
+        provider: "appium",
+        deviceId: "device-hall",
+        deviceName: "Hall sensor",
+        attemptCount: 1,
+        maxAttempts: 3,
+        from: "2026-07-01T00:00:00.000Z",
+        to: "2026-07-02T00:00:00.000Z",
+      } as never],
+    });
+    const createCanary = vi.spyOn(api, "createTpLinkHistoryExportCanary");
+    const retry = vi.spyOn(api, "retryTpLinkHistoryExportJob");
+    const cancel = vi.spyOn(api, "cancelTpLinkHistoryExportJob");
+    const user = userEvent.setup();
+    renderPage({ integration: connectedTpLink(), canManageTuya: false });
+
+    const panel = await screen.findByRole("heading", { name: "Automated Tapo history exports" });
+    const section = panel.closest("details")!;
+    await user.click(section.querySelector("summary")!);
+    await user.click(within(section).getByRole("button", { name: "Refresh" }));
+
+    expect(await within(section).findByText("Hall sensor")).toBeTruthy();
+    expect(within(section).queryByRole("button", { name: "Run acceptance check" })).toBeNull();
+    expect(within(section).queryByRole("button", { name: "Retry export for Hall sensor" })).toBeNull();
+    expect(within(section).queryByRole("button", { name: "Cancel export for Hall sensor" })).toBeNull();
+    expect(createCanary).not.toHaveBeenCalled();
+    expect(retry).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
   });
 
   it("clearly marks automated Tapo history exports as disabled", async () => {
@@ -387,8 +431,10 @@ describe("Setup workspace", () => {
     expect(screen.queryByRole("table")).toBeNull();
     expect(weatherSpy).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("tab", { name: /Weather/ }));
-    expect(screen.getByRole("heading", { name: "Weather and system configuration" })).not.toBeNull();
+    const advanced = screen.getByText("Advanced setup").closest("details")!;
+    await user.click(within(advanced).getByText("Advanced setup"));
+    await user.click(within(advanced).getByRole("button", { name: /Weather/ }));
+    expect(screen.getAllByRole("heading", { name: "Advanced weather location" }).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Europe/Helsinki").length).toBeGreaterThan(0);
     expect(screen.queryByRole("table")).toBeNull();
     expect(screen.queryByText("Current conditions")).toBeNull();
@@ -581,7 +627,7 @@ describe("Setup workspace", () => {
     await user.click(within(assignmentManager).getByRole("button", { name: "Move TP-Link to Lake home" }));
 
     await waitFor(() => expect(moveTpLink).toHaveBeenCalledWith("hub-coast", lakeHouse.id));
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("Move TP-Link from Coast house to Lake home?"));
+    expect(confirmAction).toHaveBeenCalledWith(expect.stringContaining("Move TP-Link from Coast house to Lake home?"), "Move", false);
     expect(rendered.props.onIntegrationChange).toHaveBeenCalledWith(afterMove);
     expect(screen.getByText("Connection moved to Lake home. Direct sensor bindings removed from the previous Home: 1.")).not.toBeNull();
   });

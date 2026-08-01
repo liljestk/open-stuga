@@ -49,6 +49,7 @@ import type { HouseLocationMapItem, MapLocation } from "../../components/HouseLo
 import { LocationDiscoveryPanel, type DiscoveredHomeDefaults } from "../../components/LocationDiscoveryPanel";
 import { useI18n } from "../../i18n";
 import { integrationForHouse } from "../../integrationScope";
+import { locationForRoute } from "../../routing";
 import { AutomationSetupPanel } from "../AutomationSetupPanel";
 import { SetupOperationsPanel } from "../SetupOperationsPanel";
 import { ConnectionSourceManager } from "./ConnectionSourceManager";
@@ -59,8 +60,9 @@ import { GreeSetupPanel } from "./GreeSetupPanel";
 import { TuyaSetupPanel } from "./TuyaSetupPanel";
 import { Nexus433SetupPanel } from "./Nexus433SetupPanel";
 export function renderIntegrationsPage(context: ReturnType<typeof useIntegrationsPagePart06>) {
-  const { aggregateIntegration, initialHouse, houses, connectionHouses, streamConnection, tpLinkDevicesLoading, tpLinkDevicesError, canManageTuya, onHouse, onHouseUpdate, onGeoreferenceChange, onIntegrationChange, onRefreshTpLinkDevices, onDisconnectHomeAssistant, onDisconnectTpLink, onMoveHomeAssistant, onMoveTpLink, onOpenSensors, onOpenLayout, locale, t, setupHouseId, setSetupHouseId, house, integration, activeSection, setActiveSection, mapLoaded, setMapLoaded, testing, setTesting, result, setResult, homeAssistantTestGeneration, discoveryGeneration, automaticallyScannedHouseId, inventoryRefreshGeneration, historyExportRequestGeneration, testingDirect, setTestingDirect, directResult, setDirectResult, tpLinkTestGeneration, validatedTpLinkDraft, setValidatedTpLinkDraft, discovering, setDiscovering, discovery, setDiscovery, discoveryOutcome, setDiscoveryOutcome, connectionSetupOpen, setConnectionSetupOpen, tpLinkSettingsOpen, setTpLinkSettingsOpen, tpLinkHost, setTpLinkHost, tpLinkHostDraft, tpLinkUsername, setTpLinkUsername, tpLinkPassword, setTpLinkPassword, reuseSavedTpLinkAccount, setReuseSavedTpLinkAccount, showTpLinkPassword, setShowTpLinkPassword, savingTpLink, setSavingTpLink, tpLinkFeedback, setTpLinkFeedback, refreshingTpLinkInventory, setRefreshingTpLinkInventory, tpLinkInventoryRefreshFailed, setTpLinkInventoryRefreshFailed, tpLinkExportEnabled, setTpLinkExportEnabled, tpLinkExportJobs, setTpLinkExportJobs, tpLinkExportAutomation, setTpLinkExportAutomation, tpLinkExportJobsLoading, setTpLinkExportJobsLoading, tpLinkExportJobsError, setTpLinkExportJobsError, busyTpLinkExportJobId, setBusyTpLinkExportJobId, tpLinkCanaryTargets, setTpLinkCanaryTargets, tpLinkCanarySensorId, setTpLinkCanarySensorId, tpLinkCanaryMetric, setTpLinkCanaryMetric, tpLinkCanaryRunning, setTpLinkCanaryRunning, tpLinkChildDiscovery, setTpLinkChildDiscovery, tpLinkChildDiscoveryAbort, tpLinkChildDiscoveryKey, tpLinkChildDiscoveryRunning, haUrl, setHaUrl, haToken, setHaToken, showHaToken, setShowHaToken, savingHomeAssistant, setSavingHomeAssistant, homeAssistantFeedback, setHomeAssistantFeedback, busyAssignment, setBusyAssignment, assignmentHouseDrafts, setAssignmentHouseDrafts, assignmentFeedback, setAssignmentFeedback, validatedHomeAssistantDraft, setValidatedHomeAssistantDraft, latitude, setLatitude, longitude, setLongitude, locationLabel, setLocationLabel, timezone, setTimezone, locationValidationAttempted, setLocationValidationAttempted, placementLatitude, setPlacementLatitude, placementLongitude, setPlacementLongitude, footprintFloorId, setFootprintFloorId, footprintWidthMeters, setFootprintWidthMeters, placementEditing, setPlacementEditing, mapViewport, setMapViewport, orientation, setOrientation, savingLocation, setSavingLocation, locationFeedback, setLocationFeedback, savingPlacement, setSavingPlacement, placementFeedback, setPlacementFeedback, activeSetupHouseId, locationRequestGeneration, placementRequestGeneration, localDateTime, managedHouseIds, homeAssistantAssignments, tpLinkAssignments, beginLocationRequest, isCurrentLocationRequest, beginPlacementRequest, isCurrentPlacementRequest, stopTpLinkChildDiscovery, tpLinkDraftKey, homeAssistantDraftKey, changeTpLinkDraft, changeHomeAssistantDraft, draftLocation, coordinateValidationVisible, timezoneValidationVisible, selectedFootprintFloor, selectedPlanSize, draftMapLocation, draftPlacement, draftOrientation, footprintDepthMeters, mapItems, orientationDirection, orientationExplanation, selectSetupHouse, disconnectHomeAssistantAssignment, disconnectTpLinkAssignment, moveHomeAssistantAssignment, moveTpLinkAssignment, testConnection, testDirectConnection, updateTpLinkCanaryTargets, loadTpLinkCanaryTargets, refreshTpLinkInventory, loadTpLinkExportJobs, runTpLinkCanary, retryTpLinkExportJob, cancelTpLinkExportJob, scanIntegrations, settleTpLinkChildren, saveTpLink, saveHomeAssistant, saveLocation, removeLocation, resetPlacementDraft, savePlacement, removePlacement, clearOrientation, updateFromMap, usePlacementForWeather, savePlacementForWeather, applyDiscoveredDefaults, discoveredCount, sensorHardwareDetected, sensorSourceConfigured, sensorSourceConnected, mappedSensorSources, tpLinkReadyDevices, tpLinkHubName, connectedSourceCount, assignmentCount, connectedSourceLabel, streamStatusLabel, tpLinkHealthState, tpLinkHealthLabel, tpLinkStatusTitle, connectionWorkspaceActive, steps, completeCount, nextStepIndex, nextStep, weatherHomes, notesGrantCount, selectedDiscoveredTpLink, selectedDiscoveredHomeAssistant, setupSections, activeSectionLabel, sectionHeading, sectionDescription, activateSection, handleSectionKeyDown, runRecommendedAction, recommendedActionLabel } = context;
+  const { aggregateIntegration, initialHouse, houses, connectionHouses, streamConnection, tpLinkDevicesLoading, tpLinkDevicesError, canManageTuya, onHouse, onHouseUpdate, onGeoreferenceChange, onIntegrationChange, onRefreshTpLinkDevices, onDisconnectHomeAssistant, onDisconnectTpLink, onMoveHomeAssistant, onMoveTpLink, onOpenSensors, onOpenLayout, locale, t, setupHouseId, setSetupHouseId, house, integration, activeSection, setActiveSection, mapLoaded, setMapLoaded, testing, setTesting, result, setResult, homeAssistantTestGeneration, discoveryGeneration, automaticallyScannedHouseId, inventoryRefreshGeneration, historyExportRequestGeneration, testingDirect, setTestingDirect, directResult, setDirectResult, tpLinkTestGeneration, validatedTpLinkDraft, setValidatedTpLinkDraft, discovering, setDiscovering, discovery, setDiscovery, discoveryOutcome, setDiscoveryOutcome, connectionSetupOpen, setConnectionSetupOpen, tpLinkSettingsOpen, setTpLinkSettingsOpen, tpLinkHost, setTpLinkHost, tpLinkHostDraft, tpLinkUsername, setTpLinkUsername, tpLinkPassword, setTpLinkPassword, reuseSavedTpLinkAccount, setReuseSavedTpLinkAccount, showTpLinkPassword, setShowTpLinkPassword, savingTpLink, setSavingTpLink, tpLinkFeedback, setTpLinkFeedback, refreshingTpLinkInventory, setRefreshingTpLinkInventory, tpLinkInventoryRefreshFailed, setTpLinkInventoryRefreshFailed, tpLinkExportEnabled, setTpLinkExportEnabled, tpLinkExportJobs, setTpLinkExportJobs, tpLinkExportAutomation, setTpLinkExportAutomation, tpLinkExportJobsLoading, setTpLinkExportJobsLoading, tpLinkExportJobsError, setTpLinkExportJobsError, busyTpLinkExportJobId, setBusyTpLinkExportJobId, tpLinkCanaryTargets, setTpLinkCanaryTargets, tpLinkCanarySensorId, setTpLinkCanarySensorId, tpLinkCanaryMetric, setTpLinkCanaryMetric, tpLinkCanaryRunning, setTpLinkCanaryRunning, tpLinkChildDiscovery, setTpLinkChildDiscovery, tpLinkChildDiscoveryAbort, tpLinkChildDiscoveryKey, tpLinkChildDiscoveryRunning, haUrl, setHaUrl, haToken, setHaToken, showHaToken, setShowHaToken, savingHomeAssistant, setSavingHomeAssistant, homeAssistantFeedback, setHomeAssistantFeedback, busyAssignment, setBusyAssignment, assignmentHouseDrafts, setAssignmentHouseDrafts, assignmentFeedback, setAssignmentFeedback, validatedHomeAssistantDraft, setValidatedHomeAssistantDraft, latitude, setLatitude, longitude, setLongitude, locationLabel, setLocationLabel, timezone, setTimezone, locationValidationAttempted, setLocationValidationAttempted, placementLatitude, setPlacementLatitude, placementLongitude, setPlacementLongitude, footprintFloorId, setFootprintFloorId, footprintWidthMeters, setFootprintWidthMeters, placementEditing, setPlacementEditing, mapViewport, setMapViewport, orientation, setOrientation, savingLocation, setSavingLocation, locationFeedback, setLocationFeedback, savingPlacement, setSavingPlacement, placementFeedback, setPlacementFeedback, activeSetupHouseId, locationRequestGeneration, placementRequestGeneration, localDateTime, managedHouseIds, homeAssistantAssignments, tpLinkAssignments, beginLocationRequest, isCurrentLocationRequest, beginPlacementRequest, isCurrentPlacementRequest, stopTpLinkChildDiscovery, tpLinkDraftKey, homeAssistantDraftKey, changeTpLinkDraft, changeHomeAssistantDraft, draftLocation, coordinateValidationVisible, timezoneValidationVisible, selectedFootprintFloor, selectedPlanSize, draftMapLocation, draftPlacement, draftOrientation, footprintDepthMeters, mapItems, orientationDirection, orientationExplanation, selectSetupHouse, disconnectHomeAssistantAssignment, disconnectTpLinkAssignment, moveHomeAssistantAssignment, moveTpLinkAssignment, testConnection, testDirectConnection, updateTpLinkCanaryTargets, loadTpLinkCanaryTargets, refreshTpLinkInventory, loadTpLinkExportJobs, runTpLinkCanary, retryTpLinkExportJob, cancelTpLinkExportJob, scanIntegrations, settleTpLinkChildren, saveTpLink, saveHomeAssistant, saveLocation, removeLocation, resetPlacementDraft, savePlacement, removePlacement, clearOrientation, updateFromMap, usePlacementForWeather, savePlacementForWeather, applyDiscoveredDefaults, discoveredCount, sensorHardwareDetected, sensorSourceConfigured, sensorSourceConnected, mappedSensorSources, tpLinkReadyDevices, tpLinkHubName, connectedSourceCount, assignmentCount, connectedSourceLabel, streamStatusLabel, tpLinkHealthState, tpLinkHealthLabel, tpLinkStatusTitle, connectionWorkspaceActive, steps, completeCount, nextStepIndex, nextStep, weatherHomes, notesGrantCount, selectedDiscoveredTpLink, selectedDiscoveredHomeAssistant, setupSections, primarySetupSections, advancedSetupSections, activeSectionLabel, sectionHeading, sectionDescription, activateSection, handleSectionKeyDown, runRecommendedAction, recommendedActionLabel } = context;
   const editingTpLinkConnection = tpLinkAssignments.find((connection) => connection.id === context.tpLinkEditingConnectionId.current);
+  const inheritedPropertyWeather = house.location?.source === "property-location" && house.location.userOverridden !== true;
   const editingTpLinkSourceName = editingTpLinkConnection?.sourceAlias ?? editingTpLinkConnection?.sourceModel
     ?? (editingTpLinkConnection ? t("setup.sourceUnknownName") : null);
   const reusableTpLinkSources = selectedDiscoveredTpLink && !editingTpLinkConnection
@@ -96,8 +98,9 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
           <div><span className="eyebrow"><RadioTower size={14} aria-hidden="true" />{activeSectionLabel}</span><h1>{sectionHeading}</h1><p>{sectionDescription}</p></div>
           {!connectionWorkspaceActive && <span className={`integration-pill ${sensorSourceConnected ? "connected" : ""}`}><span aria-hidden="true" />{connectedSourceLabel}</span>}
         </header>
+        <div className="setup-workspace-navigation">
         <div className="setup-workspace-tabs" role="tablist" aria-label={t("setup.workspaceNavigation")}>
-          {setupSections.map((section) => (
+          {primarySetupSections.map((section) => (
             <button
               key={section.id}
               id={`setup-tab-${section.id}`}
@@ -113,10 +116,23 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
             </button>
           ))}
         </div>
+        <details className="setup-advanced-navigation" open={advancedSetupSections.some((section) => section.id === activeSection) || undefined}>
+          <summary>{t("setup.advancedSetup")}</summary>
+          <div>
+            {advancedSetupSections.map((section) => <button
+              key={section.id}
+              id={`setup-tab-${section.id}`}
+              type="button"
+              aria-current={activeSection === section.id ? "page" : undefined}
+              onClick={() => activateSection(section.id)}
+            ><strong>{section.label}</strong><small>{section.detail}</small></button>)}
+          </div>
+        </details>
+        </div>
 
         {(activeSection === "overview" || activeSection === "connections") && <div
           id={`setup-panel-${activeSection}`}
-          className={`setup-layout setup-workspace-panel ${activeSection === "connections" ? "connections-workspace" : ""}`}
+          className={`setup-layout setup-workspace-panel ${activeSection}-workspace`}
           role="tabpanel"
           aria-labelledby={`setup-tab-${activeSection}`}
         >
@@ -135,7 +151,10 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
             {nextStep ? <div className="setup-recommended-action">
               <span className="step-icon" aria-hidden="true">{(() => { const Icon = nextStep.icon; return <Icon size={20} />; })()}</span>
               <p>{nextStep.body}</p>
-              <button type="button" className="primary-button" disabled={nextStepIndex === 0 && discovering} onClick={runRecommendedAction}>{nextStepIndex === 0 && discovering ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}{nextStepIndex === 0 && discovering ? t("setup.scanning") : recommendedActionLabel}</button>
+              <span className="setup-recommended-actions">
+                <button type="button" className="primary-button" disabled={nextStepIndex === 1 && discovering} onClick={runRecommendedAction}>{nextStepIndex === 1 && discovering ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}{nextStepIndex === 1 && discovering ? t("setup.scanning") : recommendedActionLabel}</button>
+                <a className="secondary-button" href={locationForRoute("twin", { propertyId: house.propertyId, houseId: house.id })}>{t("setup.skipForNow")}</a>
+              </span>
             </div> : <p className="configured-note"><Check size={17} aria-hidden="true" />{t("setup.completeBody")}</p>}
             <details className="setup-checklist-disclosure">
               <summary>{t("setup.reviewChecklist")}</summary>
@@ -244,12 +263,12 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
               {tpLinkExportJobsError && <div className="tp-link-live-alert error" role="alert"><TriangleAlert size={17} aria-hidden="true" /><span><strong>{t("setup.tpLinkHistoryUnavailable")}</strong><small>{tpLinkExportJobsError}</small></span></div>}
               {tpLinkExportEnabled === null && tpLinkExportJobsLoading && <p className="tp-link-inventory-refresh" role="status"><LoaderCircle className="spin" size={16} aria-hidden="true" />{t("setup.tpLinkHistoryLoading")}</p>}
               {tpLinkExportEnabled === false && <p className="configured-note" aria-disabled="true"><CircleDot size={17} aria-hidden="true" />{t("setup.tpLinkHistoryDisabled")}</p>}
-              {tpLinkExportEnabled === true && <div className="tp-link-live-actions" aria-label={t("setup.tpLinkHistoryCanaryControls")}>
+              {tpLinkExportEnabled === true && tpLinkExportAutomation && canManageTuya && <div className="tp-link-live-actions" aria-label={t("setup.tpLinkHistoryCanaryControls")}>
                 <label className="field"><span>{t("setup.tpLinkHistoryCanarySensor")}</span><select aria-label={t("setup.tpLinkHistoryCanarySensor")} value={tpLinkCanarySensorId} disabled={tpLinkCanaryRunning || tpLinkCanaryTargets.length === 0} onChange={(event) => setTpLinkCanarySensorId(event.target.value)}>{tpLinkCanaryTargets.length === 0 ? <option value="">{t("setup.tpLinkHistoryNoMappedTarget")}</option> : tpLinkCanaryTargets.map((target) => <option key={target.sensorId} value={target.sensorId}>{target.label}</option>)}</select></label>
                 <label className="field"><span>{t("common.metric")}</span><select aria-label={t("setup.tpLinkHistoryCanaryMetric")} value={tpLinkCanaryMetric} disabled={tpLinkCanaryRunning} onChange={(event) => setTpLinkCanaryMetric(event.target.value as "temperature" | "humidity")}><option value="temperature">{t("common.temperature")}</option><option value="humidity">{t("common.humidity")}</option></select></label>
                 <button type="button" className="primary-button" disabled={tpLinkCanaryRunning || !tpLinkCanarySensorId} onClick={() => void runTpLinkCanary()}>{tpLinkCanaryRunning ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <ShieldCheck size={16} aria-hidden="true" />}{t("setup.tpLinkHistoryRunCanary")}</button>
               </div>}
-              {tpLinkExportEnabled === true && <p className="setup-help">{t("setup.tpLinkHistoryCanaryHelp")}</p>}
+              {tpLinkExportEnabled === true && tpLinkExportAutomation && canManageTuya && <p className="setup-help">{t("setup.tpLinkHistoryCanaryHelp")}</p>}
               {tpLinkExportEnabled === true && !tpLinkExportJobsLoading && tpLinkExportJobs.length === 0 && <p className="setup-help">{t("setup.tpLinkHistoryNoJobs")}</p>}
                 {tpLinkExportEnabled === true && tpLinkExportJobs.length > 0 && <div className="table-scroll" tabIndex={0} aria-label={t("setup.tpLinkHistoryJobsLabel")}>
                 <table>
@@ -266,9 +285,9 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
                       <td>{job.attemptCount} / {job.maxAttempts}</td>
                       <td>{problem ? <small>{problem}</small> : "—"}</td>
                       <td><div className="tp-link-live-actions">
-                        {RETRYABLE_TP_LINK_EXPORT_STATUSES.has(job.status) && <button type="button" className="secondary-button" disabled={busyTpLinkExportJobId !== null} aria-label={t("setup.tpLinkHistoryRetryLabel", { device: deviceLabel })} onClick={() => void retryTpLinkExportJob(job)}>{busy ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}{t("setup.tpLinkHistoryRetry")}</button>}
-                        {ACTIVE_TP_LINK_EXPORT_STATUSES.has(job.status) && <button type="button" className="danger-button" disabled={busyTpLinkExportJobId !== null} aria-label={t("setup.tpLinkHistoryCancelLabel", { device: deviceLabel })} onClick={() => void cancelTpLinkExportJob(job)}>{busy ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}{t("common.cancel")}</button>}
-                        {!RETRYABLE_TP_LINK_EXPORT_STATUSES.has(job.status) && !ACTIVE_TP_LINK_EXPORT_STATUSES.has(job.status) && <small>{t("setup.tpLinkHistoryNoAction")}</small>}
+                        {canManageTuya && RETRYABLE_TP_LINK_EXPORT_STATUSES.has(job.status) && <button type="button" className="secondary-button" disabled={busyTpLinkExportJobId !== null} aria-label={t("setup.tpLinkHistoryRetryLabel", { device: deviceLabel })} onClick={() => void retryTpLinkExportJob(job)}>{busy ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}{t("setup.tpLinkHistoryRetry")}</button>}
+                        {canManageTuya && ACTIVE_TP_LINK_EXPORT_STATUSES.has(job.status) && <button type="button" className="danger-button" disabled={busyTpLinkExportJobId !== null} aria-label={t("setup.tpLinkHistoryCancelLabel", { device: deviceLabel })} onClick={() => void cancelTpLinkExportJob(job)}>{busy ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}{t("common.cancel")}</button>}
+                        {(!canManageTuya || (!RETRYABLE_TP_LINK_EXPORT_STATUSES.has(job.status) && !ACTIVE_TP_LINK_EXPORT_STATUSES.has(job.status))) && <small>{t("setup.tpLinkHistoryNoAction")}</small>}
                       </div></td>
                     </tr>;
                   })}</tbody>
@@ -410,98 +429,34 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
                </details>
              </section>
             </div>}
-            {activeSection === "overview" && <section className="panel integration-status" aria-label={t("status.dataSource")}>
+            {activeSection === "overview" && <details className="panel setup-status-disclosure">
+              <summary><span>{t("setup.connectedServices")}</span><small>{connectedSourceLabel}</small></summary>
+              <div className="integration-status" aria-label={t("status.dataSource")}>
               <div><span className={`status-symbol ${integration.tpLink.connected ? "positive" : ""}`}><Router size={17} aria-hidden="true" /></span><span><strong>TP-Link {integration.tpLink.hubModel ?? (integration.tpLink.connected ? t("setup.tpLinkEnergyDevice") : t("setup.tpLinkDefault"))}</strong><small>{integration.tpLink.lastPollAt ? t("setup.lastPoll", { time: localDateTime(integration.tpLink.lastPollAt) ?? "—" }) : t("setup.mappedDevices", { count: integration.tpLink.mappedDevices })}</small></span><b>{integration.tpLink.connected ? t("common.on") : t("common.off")}</b></div>
               <div><span className={`status-symbol ${integration.homeAssistant.connected ? "positive" : ""}`}><Home size={17} aria-hidden="true" /></span><span><strong>Home Assistant</strong><small>{t("setup.mapped", { count: integration.homeAssistant.mappedEntities })}</small></span><b>{integration.homeAssistant.connected ? t("common.on") : t("common.off")}</b></div>
               <div><span className={`status-symbol ${integration.mock.enabled ? "positive" : ""}`}><RadioTower size={17} aria-hidden="true" /></span><span><strong>{integration.mock.mode === "real" ? t("setup.mockLocked") : t("setup.mockEnabled")}</strong><small>{integration.mock.mode === "real" ? t("setup.realDataMode") : `${integration.mock.intervalMs / 1000}s`}</small></span><b>{integration.mock.enabled ? t("common.on") : t("common.off")}</b></div>
               <div><span className={`status-symbol ${integration.webhook.configured ? "positive" : ""}`}><ExternalLink size={17} aria-hidden="true" /></span><span><strong>DayOps / OpenWearable webhook</strong><small>{integration.webhook.lastDeliveryAt ? t("setup.lastEvent", { time: localDateTime(integration.webhook.lastDeliveryAt) ?? "—" }) : t("common.noData")}</small></span><b>{integration.webhook.configured ? t("common.on") : t("common.off")}</b></div>
               <div><span className={`status-symbol ${integration.weather.configuredHouses > 0 && !integration.weather.error ? "positive" : ""}`}><CloudSun size={17} aria-hidden="true" /></span><span><strong>{t("setup.weatherService")}</strong><small>{integration.weather.error ?? (integration.weather.lastSuccessAt ? t("weather.lastSuccess", { time: localDateTime(integration.weather.lastSuccessAt) ?? "—" }) : t("weather.configuredHouses", { count: integration.weather.configuredHouses }))}</small></span><b>{t("setup.automatic")}</b></div>
-            </section>}
+              </div>
+            </details>}
           </div>
         </div>}
 
-        {(activeSection === "homes" || activeSection === "weather") && <section
-          id={`setup-panel-${activeSection}`}
-          className={`weather-section setup-workspace-panel ${activeSection}-workspace`}
+        {activeSection === "weather" && <section
+          id="setup-panel-weather"
+          className="weather-section setup-workspace-panel weather-workspace"
           role="tabpanel"
           aria-labelledby={`setup-tab-${activeSection}`}
         >
           <header className="weather-heading">
-            <div><span className="eyebrow">{activeSection === "homes" ? <Building2 size={14} aria-hidden="true" /> : <CloudSun size={14} aria-hidden="true" />}{activeSection === "homes" ? t("setup.workspaceHomes") : t("setup.workspaceWeather")}</span><h2>{activeSection === "homes" ? t("placement.title") : t("setup.weatherConfigurationTitle")}</h2><p>{activeSection === "homes" ? t("setup.homesDescription") : t("setup.weatherConfigurationDescription", { house: house.name })}</p></div>
+            <div><span className="eyebrow"><CloudSun size={14} aria-hidden="true" />{house.name}</span><h2>{t("setup.advancedWeather")}</h2><p>{t("setup.advancedWeatherDescription")}</p></div>
             <div className="weather-heading-actions">
               <label className="weather-house-picker"><span>{t("common.house")}</span><select value={house.id} onChange={(event) => selectSetupHouse(event.target.value)}>{houses.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>
-              <span className={`weather-freshness ${activeSection === "homes" ? (house.mapPlacement ? "fresh" : "stale") : (house.location ? "fresh" : "stale")}`}>{activeSection === "homes" ? (house.mapPlacement ? <Check size={14} aria-hidden="true" /> : <MapPin size={14} aria-hidden="true" />) : (house.location ? <Check size={14} aria-hidden="true" /> : <MapPin size={14} aria-hidden="true" />)}{activeSection === "homes" ? (house.mapPlacement ? t("placement.scaled") : t("placement.unplaced")) : (house.location ? t("weather.locationSet") : t("weather.locationMissing"))}</span>
+              <span className={`weather-freshness ${house.location ? "fresh" : "stale"}`}>{house.location ? <Check size={14} aria-hidden="true" /> : <MapPin size={14} aria-hidden="true" />}{house.location ? t("weather.locationSet") : t("weather.locationMissing")}</span>
             </div>
           </header>
 
           <div className="weather-location-grid">
-            {activeSection === "homes" && <section className="panel weather-location-card" aria-labelledby="weather-location-title">
-              <div className="panel-header"><div><span className="eyebrow">{t("placement.eyebrow", { count: houses.length })}</span><h3 id="weather-location-title">{t("placement.title")}</h3></div><span className="weather-card-icon"><Building2 size={20} aria-hidden="true" /></span></div>
-              <p className="weather-card-description">{t("placement.description")}</p>
-              <div className="house-map-toolbar">
-                <div className="house-map-house-list" role="group" aria-label={t("placement.houseList")}>
-                  {houses.map((candidate) => (
-                    <button key={candidate.id} type="button" className={candidate.id === house.id ? "active" : ""} aria-pressed={candidate.id === house.id} onClick={() => selectSetupHouse(candidate.id)}>
-                      <Building2 size={14} aria-hidden="true" />
-                      <span><strong>{candidate.name}</strong><small>{candidate.mapPlacement ? t("placement.scaled") : candidate.location ? t("placement.pinOnly") : t("placement.unplaced")}</small></span>
-                    </button>
-                  ))}
-                </div>
-                <div className="house-map-view-actions" role="group" aria-label={t("placement.mapView")}>
-                  <button type="button" className={mapViewport === "all" ? "active" : ""} aria-pressed={mapViewport === "all"} onClick={() => setMapViewport("all")}><Maximize2 size={14} aria-hidden="true" />{t("placement.showAll")}</button>
-                  <button type="button" className={mapViewport === "selected" ? "active" : ""} aria-pressed={mapViewport === "selected"} disabled={!draftMapLocation} onClick={() => setMapViewport("selected")}><LocateFixed size={14} aria-hidden="true" />{t("placement.centerSelected")}</button>
-                </div>
-              </div>
-              {!mapLoaded ? <div className="setup-map-gate">
-                <MapPin size={28} aria-hidden="true" />
-                <div><strong>{t("setup.loadMapTitle")}</strong><p>{t("setup.loadMapDescription")}</p></div>
-                <button type="button" className="primary-button" onClick={() => setMapLoaded(true)}><MapPin size={16} aria-hidden="true" />{t("setup.loadMap")}</button>
-              </div> : <>
-                <Suspense fallback={<output className="setup-map-loading"><LoaderCircle className="spin" size={18} aria-hidden="true" />{t("common.loading")}</output>}>
-                  <div className={`house-map-shell ${placementEditing ? "editing" : ""}`}>
-                    <HouseLocationMap
-                      items={mapItems}
-                      selectedHouseId={house.id}
-                      editable={placementEditing}
-                      onSelect={selectSetupHouse}
-                      onChange={updateFromMap}
-                      ariaLabel={t("placement.mapLabel")}
-                      viewport={mapViewport}
-                    />
-                    {placementEditing && <p className="house-map-editing-cue"><Move size={14} aria-hidden="true" />{t("placement.editingHint", { house: house.name })}</p>}
-                  </div>
-                </Suspense>
-                <p className="weather-map-hint">{t("placement.mapHint")}</p>
-              </>}
-              <details className="setup-config-disclosure home-placement-advanced">
-                <summary><span><Ruler size={15} aria-hidden="true" />{t("setup.advancedPlacement")}</span><small>{t("setup.manualCoordinates")}</small></summary>
-              <div className="house-placement-fields">
-                <label className="field"><span>{t("weather.latitude")}</span><input type="number" min={-90} max={90} step="any" inputMode="decimal" value={placementLatitude} onChange={(event) => { setPlacementLatitude(event.target.value); setPlacementEditing(true); setPlacementFeedback(null); }} required /></label>
-                <label className="field"><span>{t("weather.longitude")}</span><input type="number" min={-180} max={180} step="any" inputMode="decimal" value={placementLongitude} onChange={(event) => { setPlacementLongitude(event.target.value); setPlacementEditing(true); setPlacementFeedback(null); }} required /></label>
-                {house.floors.length > 0 && <label className="field"><span>{t("placement.footprintFloor")}</span><select value={selectedFootprintFloor?.id ?? ""} onChange={(event) => { setFootprintFloorId(event.target.value); setPlacementEditing(true); setPlacementFeedback(null); }}>{house.floors.filter((floor) => floor.type !== "outdoor").map((floor) => <option key={floor.id} value={floor.id}>{floor.name}</option>)}</select></label>}
-                <label className="field"><span>{t("placement.widthMeters")}</span><span className="input-with-icon"><Ruler size={15} aria-hidden="true" /><input type="number" min={1} max={500} step="0.1" inputMode="decimal" value={footprintWidthMeters} onChange={(event) => { setFootprintWidthMeters(event.target.value); setPlacementEditing(true); setPlacementFeedback(null); }} required /></span>{footprintDepthMeters !== null && <small>{t("placement.depthEstimate", { depth: decimal(footprintDepthMeters, locale, 1) })}</small>}</label>
-              </div>
-              <fieldset className="house-orientation-fieldset">
-                <legend><Compass size={15} aria-hidden="true" />{t("orientation.title")}</legend>
-                <p>{t("orientation.description")}</p>
-                <div className="house-orientation-inputs">
-                  <label className="field"><span>{t("orientation.degrees")}</span><input type="number" min={0} max={359} step={1} inputMode="numeric" value={orientation} placeholder={t("orientation.unknown")} onChange={(event) => { setOrientation(event.target.value); setPlacementEditing(true); setPlacementFeedback(null); }} /></label>
-                  <label className="house-orientation-range"><span>{t("orientation.rotate")}</span><input type="range" min={0} max={359} step={1} value={draftOrientation ?? 0} onChange={(event) => { setOrientation(event.target.value); setPlacementEditing(true); setPlacementFeedback(null); }} /></label>
-                </div>
-                <div className="house-orientation-presets" role="group" aria-label={t("orientation.presets")}>
-                  {([[0, "N"], [90, "E"], [180, "S"], [270, "W"]] as const).map(([degrees, label]) => <button key={degrees} type="button" className={draftOrientation === degrees ? "active" : ""} aria-pressed={draftOrientation === degrees} onClick={() => { setOrientation(String(degrees)); setPlacementEditing(true); setPlacementFeedback(null); }}>{label}<small>{degrees}{"\u00b0"}</small></button>)}
-                </div>
-                <p className="house-orientation-explanation" role="status" aria-live="polite"><Compass size={15} aria-hidden="true" /><span>{orientationExplanation}</span></p>
-                {house.orientationDegrees !== undefined && <button type="button" className="text-button" disabled={savingPlacement} onClick={() => void clearOrientation()}>{t("orientation.clear")}</button>}
-              </fieldset>
-              </details>
-              <div className="house-placement-actions">
-                {!placementEditing && <button type="button" className="primary-button" onClick={() => { setPlacementEditing(true); setPlacementFeedback(null); }}><Move size={16} aria-hidden="true" />{house.mapPlacement ? t("placement.move") : t("placement.place")}</button>}
-                {placementEditing && <><button type="button" className="primary-button" disabled={savingPlacement || !draftPlacement} onClick={() => void savePlacement()}>{savingPlacement ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <Check size={16} aria-hidden="true" />}{savingPlacement ? t("common.saving") : t("placement.save")}</button><button type="button" className="secondary-button" disabled={savingPlacement} onClick={resetPlacementDraft}>{t("common.cancel")}</button></>}
-                {house.mapPlacement && <button type="button" className="secondary-button danger-text" disabled={savingPlacement} onClick={() => void removePlacement()}><Trash2 size={15} aria-hidden="true" />{t("placement.remove")}</button>}
-              </div>
-              {placementFeedback && <p className={`weather-feedback ${placementFeedback.kind}`} role={placementFeedback.kind === "error" ? "alert" : "status"}>{placementFeedback.kind === "success" ? <Check size={15} aria-hidden="true" /> : <TriangleAlert size={15} aria-hidden="true" />}{placementFeedback.message}</p>}
-            </section>}
 
             {activeSection === "weather" && <section className="panel setup-weather-config-card" aria-labelledby="weather-reference-title">
               <div className="panel-header"><div><span className="eyebrow">{house.name}</span><h3 id="weather-reference-title">{t("placement.weatherReference")}</h3></div><span className="weather-card-icon"><CloudSun size={20} aria-hidden="true" /></span></div>
@@ -510,7 +465,7 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
               <div className="setup-config-summary">
                 <div><span>{t("setup.provider")}</span><strong>{t("setup.weatherService")}</strong><small>{t("setup.providerAutomatic")}</small></div>
                 <div><span>{t("setup.timezone")}</span><strong>{house.timezone}</strong><small>{t("setup.timezoneManaged")}</small></div>
-                <div><span>{t("placement.weatherReference")}</span><strong>{house.location?.label ?? (house.location ? `${decimal(house.location.latitude, locale, 4)}, ${decimal(house.location.longitude, locale, 4)}` : t("weather.locationMissing"))}</strong><small>{house.location ? t("weather.locationSet") : t("setup.weatherNeeded")}</small></div>
+                <div><span>{t("placement.weatherReference")}</span><strong>{house.location?.label ?? (house.location ? `${decimal(house.location.latitude, locale, 4)}, ${decimal(house.location.longitude, locale, 4)}` : t("weather.locationMissing"))}</strong><small>{inheritedPropertyWeather ? t("properties.weatherInherited") : house.location ? t("weather.locationSet") : t("setup.weatherNeeded")}</small></div>
               </div>
               {house.mapPlacement && <button type="button" className="primary-button setup-use-placement" disabled={savingLocation} onClick={() => void savePlacementForWeather()}>{savingLocation ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <LocateFixed size={16} aria-hidden="true" />}{house.location ? t("setup.syncWeatherLocation") : t("placement.useForWeather")}</button>}
               <details className="setup-config-disclosure weather-reference-details">
@@ -527,7 +482,7 @@ export function renderIntegrationsPage(context: ReturnType<typeof useIntegration
                 <div className="weather-location-actions">
                   <button type="button" className="secondary-button" disabled={!house.mapPlacement && !draftMapLocation} onClick={usePlacementForWeather}><LocateFixed size={15} aria-hidden="true" />{t("placement.useForWeather")}</button>
                   <button type="button" className="primary-button" disabled={savingLocation} onClick={() => void saveLocation()}>{savingLocation ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : <MapPin size={16} aria-hidden="true" />}{savingLocation ? t("common.saving") : t("weather.saveLocation")}</button>
-                  {house.location && <button type="button" className="secondary-button" disabled={savingLocation} onClick={() => void removeLocation()}><Trash2 size={16} aria-hidden="true" />{t("weather.removeLocation")}</button>}
+                  {house.location && !inheritedPropertyWeather && <button type="button" className="secondary-button" disabled={savingLocation} onClick={() => void removeLocation()}><Trash2 size={16} aria-hidden="true" />{t("weather.removeLocation")}</button>}
                 </div>
               </details>
               {locationFeedback && <p className={`weather-feedback ${locationFeedback.kind}`} role={locationFeedback.kind === "error" ? "alert" : "status"}>{locationFeedback.kind === "success" ? <Check size={15} aria-hidden="true" /> : <TriangleAlert size={15} aria-hidden="true" />}{locationFeedback.message}</p>}

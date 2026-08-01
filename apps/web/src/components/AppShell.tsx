@@ -8,7 +8,8 @@ import { HomeOriginIndicator, isRemoteHome, type HomeOriginScope } from "./HomeO
 import { formatInTimeZone } from "../dateTime";
 import type { DataMode } from "../useClimateData";
 import { locationForRoute } from "../routing";
-import { readLocalStorage, writeLocalStorage } from "../browserStorage";
+import { readLocalStorage, subscribeToAccountStorageScope, writeLocalStorage } from "../browserStorage";
+import { BugReportDialog } from "./BugReportDialog";
 
 interface AppShellProps {
   page: AppPage;
@@ -22,6 +23,7 @@ interface AppShellProps {
   pollingFallback?: boolean;
   resourceErrors?: string[];
   canManagePeople?: boolean;
+  canUseDeveloperTools?: boolean;
   openAlertCount?: number;
   readOnly?: boolean;
   principalEmail?: string | null;
@@ -92,7 +94,7 @@ function NavigationGroup({
   const [open, setOpen] = useState(active);
 
   useEffect(() => {
-    if (active) setOpen(true);
+    setOpen(active);
   }, [active]);
 
   return (
@@ -124,6 +126,7 @@ export function AppShell({
   pollingFallback = false,
   resourceErrors = [],
   canManagePeople = false,
+  canUseDeveloperTools = false,
   openAlertCount = 0,
   readOnly = false,
   principalEmail = null,
@@ -173,8 +176,6 @@ export function AppShell({
   const workspaceNavItems: NavigationItem[] = [
     { id: "overview", label: t("nav.overview"), scope: "workspace" },
     { id: "properties", label: t("nav.properties"), scope: "workspace" },
-    ...(canManagePeople ? [{ id: "people" as const, label: t("nav.people"), scope: "workspace" as const }] : []),
-    ...(canManagePeople ? [{ id: "stugubys" as const, label: t("nav.stugubys"), scope: "workspace" as const }] : []),
     { id: "alerts", label: t("nav.alerts"), scope: "workspace" },
   ];
   const propertyNavItems: NavigationItem[] = activeProperty ? [
@@ -196,14 +197,19 @@ export function AppShell({
     ] : []),
   ] : [];
   const advancedNavItems: NavigationItem[] = [
+    ...(canManagePeople ? [{ id: "people" as const, label: t("nav.people"), scope: "workspace" as const }] : []),
+    ...(canManagePeople ? [{ id: "stugubys" as const, label: t("nav.stugubys"), scope: "workspace" as const }] : []),
     ...(canManagePeople ? [{ id: "updates" as const, label: t("nav.updates"), scope: "workspace" as const }] : []),
-    { id: "developer", label: t("nav.developer"), scope: "workspace" },
+    ...(canUseDeveloperTools ? [{ id: "developer" as const, label: t("nav.developer"), scope: "workspace" as const }] : []),
   ];
   const currentPath = window.location.pathname.replace(/\/+$/, "") || "/";
   const homeGroupActive = currentPath.includes("/homes/");
   const propertyGroupActive = !homeGroupActive && /^\/properties\/[^/]+/.test(currentPath);
-  const workspaceGroupActive = !homeGroupActive && !propertyGroupActive && page !== "developer" && page !== "updates";
-  const advancedGroupActive = page === "developer" || page === "updates";
+  const advancedGroupActive = page === "people" || page === "stugubys" || page === "developer" || page === "updates";
+  const workspaceGroupActive = !homeGroupActive && !propertyGroupActive && !advancedGroupActive;
+  const homeSwitcherAvailable = propertyHouses.length > 1 && (["twin", "activity", "outdoor", "sensors", "analytics", "integrations"].includes(page)
+    || (page === "energy" && /\/homes\/[^/]+\/electricity\/?$/.test(window.location.pathname)));
+  const contextSwitcherAvailable = properties.length > 1 || homeSwitcherAvailable;
 
   const closeMenu = () => {
     const activeElement = document.activeElement;
@@ -224,6 +230,10 @@ export function AppShell({
     writeLocalStorage(navigationPreferenceKey, visible ? "visible" : "hidden");
     setDesktopNavigationVisible(visible);
   };
+
+  useEffect(() => subscribeToAccountStorageScope(() => {
+    setDesktopNavigationVisible(readLocalStorage(navigationPreferenceKey) !== "hidden");
+  }), []);
 
   const logout = async () => {
     if (!onLogout || logoutPending) return;
@@ -296,7 +306,7 @@ export function AppShell({
 
   const containMenuFocus = (event: KeyboardEvent<HTMLElement>) => {
     if (!mobileViewport || !menuOpen || event.key !== "Tab") return;
-    const focusable = [...event.currentTarget.querySelectorAll<HTMLElement>("button:not([disabled]), select:not([disabled]), a[href]")]
+    const focusable = [...event.currentTarget.querySelectorAll<HTMLElement>("button:not([disabled]), select:not([disabled]), a[href], summary")]
       .filter((element) => element.getClientRects().length > 0);
     const first = focusable[0];
     const last = focusable.at(-1);
@@ -320,7 +330,8 @@ export function AppShell({
         ? { propertyId, houseId: null }
         : { propertyId, houseId };
     const href = locationForRoute(item.id, scope, currentPath);
-    const active = page === item.id && currentPath === href;
+    const active = page === item.id && (currentPath === href
+      || (item.scope === "property" && item.id === "properties" && propertyGroupActive));
     return (
       <a
         key={`${item.scope}:${item.id}`}
@@ -405,31 +416,44 @@ export function AppShell({
               {homeNavItems.map(navigationItem)}
             </NavigationGroup>
           )}
-          <NavigationGroup label={t("nav.advanced")} active={advancedGroupActive}>
-            {advancedNavItems.map(navigationItem)}
-          </NavigationGroup>
+          {advancedNavItems.length > 0 && (
+            <NavigationGroup label={t("nav.advanced")} active={advancedGroupActive}>
+              {advancedNavItems.map(navigationItem)}
+            </NavigationGroup>
+          )}
         </div>
         <div className="sidebar-foot">
           {readOnly && <div className="guest-session-badge"><ShieldCheck size={15} aria-hidden="true" /><span><strong>{t("properties.guestReadOnly")}</strong>{principalEmail && <small>{principalEmail}</small>}</span></div>}
-          {principalEmail && onLogout && <>
-            <button type="button" className="secondary-button sidebar-logout" disabled={logoutPending} onClick={() => void logout()}><LogOut size={15} aria-hidden="true" />{t(logoutPending ? "auth.loggingOut" : "auth.logout")}</button>
-            {logoutFailed && <p className="sidebar-logout-error" role="alert">{t("auth.logoutFailed")}</p>}
-          </>}
-          <label className="compact-field">
-            <span><Languages size={15} aria-hidden="true" />{t("common.language")}</span>
-            <select value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>
-              <option value="en">{t("language.en")}</option>
-              <option value="fi">{t("language.fi")}</option>
-              <option value="sv">{t("language.sv")}</option>
-            </select>
-          </label>
-          <label className="compact-field">
-            <span><Activity size={15} aria-hidden="true" />{t("common.units")}</span>
-            <select value={units} onChange={(event) => onUnits(event.target.value as UnitSystem)}>
-              <option value="metric">{t("common.metricUnits")}</option>
-              <option value="imperial">{t("common.imperialUnits")}</option>
-            </select>
-          </label>
+          <BugReportDialog page={page} principalEmail={principalEmail} />
+          <details className="sidebar-preferences">
+            <summary>
+              <Settings2 size={15} aria-hidden="true" />
+              <span>{t("account.preferences")}</span>
+              <ChevronDown className="sidebar-preferences-chevron" size={15} aria-hidden="true" />
+            </summary>
+            <div className="sidebar-preferences-content">
+              {principalEmail && <p className="sidebar-account-email" title={principalEmail}>{principalEmail}</p>}
+              <label className="compact-field">
+                <span><Languages size={15} aria-hidden="true" />{t("common.language")}</span>
+                <select value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>
+                  <option value="en">{t("language.en")}</option>
+                  <option value="fi">{t("language.fi")}</option>
+                  <option value="sv">{t("language.sv")}</option>
+                </select>
+              </label>
+              <label className="compact-field">
+                <span><Activity size={15} aria-hidden="true" />{t("common.units")}</span>
+                <select value={units} onChange={(event) => onUnits(event.target.value as UnitSystem)}>
+                  <option value="metric">{t("common.metricUnits")}</option>
+                  <option value="imperial">{t("common.imperialUnits")}</option>
+                </select>
+              </label>
+              {principalEmail && onLogout && <>
+                <button type="button" className="secondary-button sidebar-logout" disabled={logoutPending} onClick={() => void logout()}><LogOut size={15} aria-hidden="true" />{t(logoutPending ? "auth.loggingOut" : "auth.logout")}</button>
+                {logoutFailed && <p className="sidebar-logout-error" role="alert">{t("auth.logoutFailed")}</p>}
+              </>}
+            </div>
+          </details>
           <div className="connection-row" role="group" aria-label={t("status.dataSource")}>
             <span className={`status-pulse ${connection}`} aria-hidden="true" />
             <span>{dataMode === "demo" ? t("demo.bannerTitle") : pollingFallback ? t("status.polling") : t(`status.${connection}`)}</span>
@@ -492,10 +516,10 @@ export function AppShell({
             : <button className="icon-button" type="button" onClick={() => onBack ? onBack() : choosePage({ id: "overview", label: t("nav.overview"), scope: "workspace" })} aria-label={onBackLabel ?? t("header.overview")}><ChevronLeft size={20} /></button>}
         </header>
         <main id="main-content" className={`main-content page-${page}`} tabIndex={-1}>
-          {properties.length > 0 && onProperty && !["overview", "people", "stugubys", "alerts", "developer", "updates"].includes(page)
+          {contextSwitcherAvailable && properties.length > 0 && onProperty && !["overview", "people", "stugubys", "alerts", "developer", "updates"].includes(page)
             && !(page === "properties" && /^\/properties\/?$/.test(window.location.pathname)) && (
             <div className="page-home-switcher">
-              <div className="page-home-switcher-group">
+              {properties.length > 1 && <div className="page-home-switcher-group">
                 <MapPinned size={16} aria-hidden="true" />
                 <label>
                   <span>{t("properties.activeProperty")}</span>
@@ -503,9 +527,8 @@ export function AppShell({
                     {properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
                   </select>
                 </label>
-              </div>
-              {onHouse && propertyHouses.length > 0 && (["twin", "activity", "outdoor", "sensors", "analytics", "integrations"].includes(page)
-                || (page === "energy" && /\/homes\/[^/]+\/electricity\/?$/.test(window.location.pathname))) && (
+              </div>}
+              {onHouse && homeSwitcherAvailable && (
                 <div className="page-home-switcher-group">
                   {activeHome && <HomeOriginIndicator home={activeHome} label={homeOriginLabel(activeHome)} />}
                   <label>

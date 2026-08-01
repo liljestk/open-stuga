@@ -79,12 +79,6 @@ const sensor: Sensor = {
   enabled: true,
 };
 
-const healthySensor: Sensor = {
-  ...sensor,
-  id: "sensor-turku-living-room",
-  houseId: healthyHouse.id,
-};
-
 const integration: IntegrationStatus = {
   homeAssistant: { configured: false, connected: false, lastEventAt: null, mappedEntities: 0, error: null },
   tpLink: { configured: true, connected: true, lastPollAt: null, mappedDevices: 1, discoveredDevices: 1, hubModel: "H100", error: null },
@@ -184,7 +178,6 @@ describe("PortfolioOverview", () => {
       source: "tp-link",
       quality: "good",
     };
-    const healthySample: MeasurementSample = { ...sample, sensorId: healthySensor.id };
     const onOpenTwin = vi.fn();
     const onOpenOutdoor = vi.fn();
     const onOpenSetup = vi.fn();
@@ -194,8 +187,8 @@ describe("PortfolioOverview", () => {
           properties={[property]}
           propertyAreas={[]}
           houses={[healthyHouse, setupHouse, readyHouse]}
-          sensors={[sensor, healthySensor]}
-          latestMeasurements={{ [sensor.id]: { temperature: sample }, [healthySensor.id]: { temperature: healthySample } }}
+          sensors={[sensor]}
+          latestMeasurements={{ [sensor.id]: { temperature: sample } }}
           measurementHistory={{}}
           alerts={[openAlert]}
           alertRules={[]}
@@ -234,12 +227,13 @@ describe("PortfolioOverview", () => {
     expect(confirmedDisclosure.open).toBe(false);
     expect(confirmedDisclosure.contains(screen.getByRole("heading", { name: healthyHouse.name }))).toBe(true);
     expect(screen.getByRole("heading", { level: 2, name: property.name })).toBeTruthy();
-    expect(screen.getByRole("heading", { level: 3, name: "2 homes have an open exception" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 3, name: "1 home has an open exception" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 3, name: "Monitoring is not confirmed for 1 home" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 4, name: setupHouse.name })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 4, name: readyHouse.name })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 3, name: healthyHouse.name })).toBeTruthy();
-    expect(Array.from(view.container.querySelectorAll("article.portfolio-card h3, article.portfolio-card h4"), (heading) => heading.textContent))
-      .toEqual([setupHouse.name, readyHouse.name, healthyHouse.name]);
+    expect(Array.from(view.container.querySelectorAll("article.portfolio-card h3, article.portfolio-card h4, article.portfolio-confirmed-row h3"), (heading) => heading.textContent))
+      .toEqual([readyHouse.name, setupHouse.name, healthyHouse.name]);
 
     expect(within(readyCard).getByText("Helsinki")).toBeTruthy();
     expect(within(readyCard).getByText(/1 enabled.*reporting/)).toBeTruthy();
@@ -249,7 +243,7 @@ describe("PortfolioOverview", () => {
     expect(within(readyCard).getByRole("button", { name: "Outdoor details: Helsinki home" })).toBeTruthy();
 
     expect(within(setupCard).getByText("Location not set")).toBeTruthy();
-    expect(within(setupCard).getByText("Condition unknown")).toBeTruthy();
+    expect(within(setupCard).queryByText("Condition unknown")).toBeNull();
     expect(within(setupCard).getByText(/0 enabled.*waiting for data/)).toBeTruthy();
     expect(within(setupCard).getByRole("button", { name: "Finish setup: Auckland home" }).classList.contains("primary-button")).toBe(true);
     expect(within(setupCard).getByRole("button", { name: "Open home: Auckland home" })).toBeTruthy();
@@ -266,17 +260,35 @@ describe("PortfolioOverview", () => {
     await user.click(screen.getByText("Monitoring confirmed · 1"));
     expect(confirmedDisclosure.open).toBe(true);
     const healthyCard = screen.getByRole("heading", { name: healthyHouse.name }).closest("article")!;
-    expect(within(healthyCard).getByText("Monitoring confirmed")).toBeTruthy();
+    expect(within(healthyCard).getByText(/Monitoring confirmed/)).toBeTruthy();
+    expect(healthyCard).toHaveClass("portfolio-confirmed-row");
+    expect(within(healthyCard).getByRole("button", { name: "Open home: Turku home" })).toBeTruthy();
+    expect(within(healthyCard).queryByText(/1 enabled.*reporting/)).toBeNull();
+  });
+
+  it("keeps an all-clear portfolio compact and action-oriented", () => {
+    const view = renderTrustState({ monitoring: monitoringCollection([monitoringSummary({
+      houseId: readyHouse.id,
+      coverage: { enabledSensors: 1, freshSensors: 1 },
+    })]) });
+
+    const row = screen.getByRole("heading", { name: readyHouse.name }).closest("article")!;
+    expect(row).toHaveClass("portfolio-confirmed-row");
+    expect(view.container.querySelector("article.portfolio-card")).toBeNull();
+    expect(within(row).getByText(/Monitoring confirmed/)).toBeTruthy();
+    expect(within(row).getByRole("button", { name: "Open home: Helsinki home" })).toBeTruthy();
   });
 
   it.each(["pending", "error"] as const)("does not present %s monitoring as an all-clear", (monitoringRequestState) => {
     const view = renderTrustState({ monitoringRequestState });
     const card = screen.getByRole("heading", { name: readyHouse.name }).closest("article")!;
 
-    expect(within(card).getByText("Condition unknown")).toBeTruthy();
-    expect(within(card).getByText("More fresh sensor data is needed before drawing a conclusion.")).toBeTruthy();
+    expect(within(card).queryByText("Condition unknown")).toBeNull();
+    expect(within(card).queryByText("More fresh sensor data is needed before drawing a conclusion.")).toBeNull();
     expect(within(card).queryByText("All enabled sensors have current data and no alert is open.")).toBeNull();
     expect(view.container.querySelector(".portfolio-confirmed-homes")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Monitoring is not confirmed for 1 home" })).toBeTruthy();
+    expect(screen.queryByText("Needs attention")).toBeNull();
   });
 
   it.each(["partial", "unknown"] as const)("keeps %s evidence out of the confirmed group", (condition) => {
@@ -289,9 +301,11 @@ describe("PortfolioOverview", () => {
     const view = renderTrustState({ monitoring: condition === "partial" ? { ...response, completeness: "partial" } : response });
     const card = screen.getByRole("heading", { name: readyHouse.name }).closest("article")!;
 
-    expect(within(card).getByText("Condition unknown")).toBeTruthy();
+    expect(within(card).queryByText("Condition unknown")).toBeNull();
     expect(within(card).queryByText("All enabled sensors have current data and no alert is open.")).toBeNull();
     expect(view.container.querySelector(".portfolio-confirmed-homes")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Monitoring is not confirmed for 1 home" })).toBeTruthy();
+    expect(screen.queryByText("Needs attention")).toBeNull();
   });
 
   it("requires the response to cover every known Home before confirming any Home", () => {
@@ -319,7 +333,7 @@ describe("PortfolioOverview", () => {
     );
 
     const readyCard = screen.getByRole("heading", { name: readyHouse.name }).closest("article")!;
-    expect(within(readyCard).getByText("Condition unknown")).toBeTruthy();
+    expect(within(readyCard).queryByText("Condition unknown")).toBeNull();
     expect(screen.queryByText(/Monitoring confirmed/)).toBeNull();
   });
 

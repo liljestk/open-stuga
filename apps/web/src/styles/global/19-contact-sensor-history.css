@@ -7,7 +7,7 @@
 .contact-history-content > .sensor-contact-detail-hero {
   padding: 13px 14px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--panel-soft);
 }
 
@@ -64,8 +64,8 @@
 
 .contact-history-stats dt {
   color: var(--muted);
-  font-size: 9px;
-  font-weight: 750;
+  font-size: 10px;
+  font-weight: 700;
   letter-spacing: .04em;
   text-transform: uppercase;
 }
@@ -94,7 +94,7 @@
   padding: 7px 11px;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 700;
 }
 
@@ -128,7 +128,7 @@
 
 .contact-history-scroll:focus-visible {
   outline: 3px solid var(--action);
-  outline-offset: -4px;
+  outline-offset: 3px;
 }
 
 .contact-history-scroll svg {

@@ -60,7 +60,13 @@ describe("house map placement", () => {
       mapPlacement: initial,
     }).expect(201);
     expect(created.body.house.mapPlacement).toEqual(initial);
-    expect(created.body.house).not.toHaveProperty("location");
+    expect(created.body.house.location).toEqual({
+      latitude: initial.latitude,
+      longitude: initial.longitude,
+      source: "map-placement",
+      confidence: "high",
+      userOverridden: false,
+    });
     expect(runtime.database.getHouse("house-map")?.mapPlacement).toEqual(initial);
 
     const updatedPlacement = {
@@ -127,45 +133,75 @@ describe("house map placement", () => {
     expect(runtime.database.getHouse("house-validation")?.mapPlacement).toEqual(valid);
   });
 
-  it("preserves outdoor temperature history for placement-only changes", async () => {
-    const location = { latitude: 60.1699, longitude: 24.9384 };
-    await request(runtime.app).patch("/api/v1/houses/house-main").send({ location }).expect(200);
-    const locationKey = outdoorLocationKey(location);
+  it("updates map-inferred weather without erasing prior location-keyed Home history", async () => {
+    const firstPlacement = {
+      latitude: 60.1699,
+      longitude: 24.9384,
+      metersPerPlanUnit: 0.5,
+      footprintFloorId: "floor-ground",
+    };
+    await request(runtime.app).patch("/api/v1/houses/house-main")
+      .send({ location: null, mapPlacement: firstPlacement })
+      .expect(200)
+      .expect(({ body }) => expect(body.house.location).toMatchObject({
+        latitude: firstPlacement.latitude,
+        longitude: firstPlacement.longitude,
+        source: "map-placement",
+        userOverridden: false,
+      }));
+    const locationKey = outdoorLocationKey(firstPlacement);
     runtime.database.upsertOutdoorTemperatureSample({
       houseId: "house-main",
       locationKey,
       timestamp: "2026-07-14T08:00:00.000Z",
       temperatureC: 17.5,
-      source: "mock",
+      source: "api",
       fetchedAt: "2026-07-14T08:01:00.000Z",
       stationId: null,
       stationName: null,
     });
+    runtime.database.noteWeatherOutage(
+      "house-main",
+      locationKey,
+      "fmi",
+      "observation",
+      "Historical test outage",
+      "2026-07-14T09:00:00.000Z",
+    );
+    runtime.database.db.prepare(`INSERT INTO analytics_daily_findings
+      (house_id, data_mode, evaluated_through, generated_at, algorithm_version, snapshot_json, last_attempt_at, last_error)
+      VALUES (?, 'live', ?, ?, 'test-v1', '{}', ?, NULL)`)
+      .run(
+        "house-main",
+        "2026-07-14T10:00:00.000Z",
+        "2026-07-14T10:01:00.000Z",
+        "2026-07-14T10:01:00.000Z",
+      );
 
+    const nextPlacement = {
+      latitude: 60.1701,
+      longitude: 24.939,
+      metersPerPlanUnit: 0.5,
+      footprintFloorId: "floor-ground",
+    };
     await request(runtime.app).patch("/api/v1/houses/house-main").send({
-      mapPlacement: {
-        latitude: 60.1701,
-        longitude: 24.939,
-        metersPerPlanUnit: 0.5,
-        footprintFloorId: "floor-ground",
-      },
-    }).expect(200);
+      mapPlacement: nextPlacement,
+    }).expect(200).expect(({ body }) => expect(body.house.location).toMatchObject({
+      latitude: nextPlacement.latitude,
+      longitude: nextPlacement.longitude,
+      source: "map-placement",
+      userOverridden: false,
+    }));
+    expect(outdoorLocationKey(runtime.database.getHouse("house-main")?.location)).not.toBe(locationKey);
     expect(runtime.database.outdoorTemperatureHistory(
       "house-main",
       locationKey,
       "2026-07-14T00:00:00.000Z",
       "2026-07-15T00:00:00.000Z",
     )).toHaveLength(1);
-
-    await request(runtime.app).patch("/api/v1/houses/house-main")
-      .send({ location: { latitude: 61, longitude: 25 } })
-      .expect(200);
-    expect(runtime.database.outdoorTemperatureHistory(
-      "house-main",
-      locationKey,
-      "2026-07-14T00:00:00.000Z",
-      "2026-07-15T00:00:00.000Z",
-    )).toHaveLength(0);
+    expect(runtime.database.listWeatherOutages("house-main", locationKey)).toHaveLength(1);
+    expect(runtime.database.db.prepare("SELECT 1 FROM analytics_daily_findings WHERE house_id = ?")
+      .get("house-main")).toBeUndefined();
   });
 
   it("documents map placement independently from weather location", async () => {

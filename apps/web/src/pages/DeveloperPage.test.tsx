@@ -52,6 +52,17 @@ describe("DeveloperPage", () => {
     expect(screen.getByText("Copied").getAttribute("role")).toBe("status");
   });
 
+  it("keeps workspace system operations out of non-admin developer access", () => {
+    localStorage.setItem("climate-twin-locale", "en");
+    const view = render(<I18nProvider><DeveloperPage /></I18nProvider>);
+
+    expect(screen.getByRole("heading", { name: "Local v1 + v2 HTTP API" })).toBeTruthy();
+    expect(screen.queryByText("Export, backup, and restore confidence")).toBeNull();
+
+    view.rerender(<I18nProvider><DeveloperPage canManageSystem /></I18nProvider>);
+    expect(screen.getByText("Export, backup, and restore confidence")).toBeTruthy();
+  });
+
   it("announces when copying is unavailable in a non-secure local context", async () => {
     const user = userEvent.setup();
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
@@ -82,11 +93,11 @@ describe("DeveloperPage", () => {
     expect(screen.getByText("Copy failed. Select the value and copy it manually.").getAttribute("role")).toBe("status");
   });
 
-  it("explains the local integrations in Finnish", () => {
+  it("explains the local integrations in Finnish", async () => {
     localStorage.setItem("climate-twin-locale", "fi");
     render(<I18nProvider><DeveloperPage /></I18nProvider>);
 
-    expect(screen.getByRole("heading", { name: "Paikallinen v1 + v2 HTTP-rajapinta" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Paikallinen v1 + v2 HTTP-rajapinta" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Paikallinen MCP-palvelin" })).toBeTruthy();
     expect(screen.getByText("Paikalliset integraatiorajapinnat")).toBeTruthy();
     expect(screen.getByText("Käytä Stugua paikallisesti versioidun HTTP-rajapinnan ja luotetun stdio-MCP-palvelimen kautta.")).toBeTruthy();

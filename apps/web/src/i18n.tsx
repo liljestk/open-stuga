@@ -1,15 +1,16 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { en, type TranslationKey } from "./locales/catalogs/en";
-import { fiOverrides } from "./locales/catalogs/fi-overrides";
-import { fiSupplement } from "./locales/catalogs/fi-supplement";
-import { svOverrides } from "./locales/catalogs/sv";
+import { readLocalStorage, subscribeToAccountStorageScope, writeLocalStorage } from "./browserStorage";
 
 export const SUPPORTED_LOCALES = ["en", "fi", "sv"] as const;
 export type Locale = typeof SUPPORTED_LOCALES[number];
 export type { TranslationKey };
 
-const fi = completeCatalog("fi", { ...fiOverrides, ...fiSupplement });
-const sv = completeCatalog("sv", svOverrides);
+type TranslationCatalog = Readonly<Record<TranslationKey, string>>;
+type CatalogLoader = (locale: Locale) => Promise<TranslationCatalog>;
+
+const catalogCache = new Map<Locale, TranslationCatalog>([["en", en]]);
+const catalogRequests = new Map<Locale, Promise<TranslationCatalog>>();
 
 function completeCatalog(locale: Exclude<Locale, "en">, overrides: Partial<Record<TranslationKey, string>>): Record<TranslationKey, string> {
     const englishKeys = Object.keys(en) as TranslationKey[];
@@ -20,39 +21,114 @@ function completeCatalog(locale: Exclude<Locale, "en">, overrides: Partial<Recor
     }
     return overrides as Record<TranslationKey, string>;
 }
-export const translationCatalogs: Readonly<Record<Locale, Readonly<Record<TranslationKey, string>>>> = { en, fi, sv };
+
+function requestCatalog(locale: Locale): Promise<TranslationCatalog> {
+    const cached = catalogCache.get(locale);
+    if (cached) return Promise.resolve(cached);
+    const pending = catalogRequests.get(locale);
+    if (pending) return pending;
+
+    const request = (locale === "fi"
+        ? Promise.all([
+            import("./locales/catalogs/fi-overrides"),
+            import("./locales/catalogs/fi-supplement"),
+        ]).then(([{ fiOverrides }, { fiSupplement }]) => completeCatalog("fi", { ...fiOverrides, ...fiSupplement }))
+        : import("./locales/catalogs/sv").then(({ svOverrides }) => completeCatalog("sv", svOverrides)))
+        .then((catalog) => {
+            catalogCache.set(locale, catalog);
+            catalogRequests.delete(locale);
+            return catalog;
+        })
+        .catch((error: unknown) => {
+            catalogRequests.delete(locale);
+            throw error;
+        });
+    catalogRequests.set(locale, request);
+    return request;
+}
+
+function initialLocale(): Locale {
+    const stored = readLocalStorage("climate-twin-locale");
+    if (SUPPORTED_LOCALES.some((candidate) => candidate === stored)) return stored as Locale;
+    const browserLocales = navigator.languages?.length ? navigator.languages : [navigator.language];
+    return browserLocales
+        .map((candidate) => candidate.toLowerCase().split("-")[0])
+        .find((candidate): candidate is Locale => SUPPORTED_LOCALES.some((supported) => supported === candidate)) ?? "en";
+}
+
+function persistLocale(locale: Locale): void {
+    writeLocalStorage("climate-twin-locale", locale);
+}
+
 interface I18nValue {
     locale: Locale;
     setLocale: (locale: Locale) => void;
     t: (key: TranslationKey, values?: Record<string, string | number>) => string;
 }
 const I18nContext = createContext<I18nValue | null>(null);
-export function I18nProvider({ children }: Readonly<{
+export function I18nProvider({ children, catalogLoader = requestCatalog }: Readonly<{
     children: ReactNode;
+    catalogLoader?: CatalogLoader;
 }>) {
-    const [locale, setLocaleState] = useState<Locale>(() => {
-        const stored = localStorage.getItem("climate-twin-locale");
-        if (SUPPORTED_LOCALES.some((candidate) => candidate === stored))
-            return stored as Locale;
-        const browserLocales = navigator.languages?.length ? navigator.languages : [navigator.language];
-        return browserLocales
-            .map((candidate) => candidate.toLowerCase().split("-")[0])
-            .find((candidate): candidate is Locale => SUPPORTED_LOCALES.some((supported) => supported === candidate)) ?? "en";
+    const [preferredLocale] = useState(initialLocale);
+    const [active, setActive] = useState<{ locale: Locale; catalog: TranslationCatalog } | null>(() => {
+        const catalog = catalogLoader === requestCatalog
+            ? catalogCache.get(preferredLocale)
+            : preferredLocale === "en" ? en : undefined;
+        return catalog ? { locale: preferredLocale, catalog } : null;
     });
+    const startedWithPendingCatalog = useRef(active === null);
+    const loadGeneration = useRef(0);
+
+    const activateLocale = useCallback((next: Locale, persist: boolean) => {
+        const generation = ++loadGeneration.current;
+        void catalogLoader(next).then((catalog) => {
+            if (generation !== loadGeneration.current) return;
+            if (persist) persistLocale(next);
+            setActive({ locale: next, catalog });
+        }).catch((error: unknown) => {
+            console.error(`Could not load the ${next} translation catalog`, error);
+            if (generation !== loadGeneration.current) return;
+            setActive((current) => current ?? { locale: "en", catalog: en });
+        });
+    }, [catalogLoader]);
+
     useEffect(() => {
-        document.documentElement.lang = locale;
-    }, [locale]);
+        if (!active) activateLocale(preferredLocale, false);
+    }, [active, activateLocale, preferredLocale]);
+
+    useEffect(() => subscribeToAccountStorageScope(() => {
+        activateLocale(initialLocale(), false);
+    }), [activateLocale]);
+
+    useEffect(() => {
+        if (active) document.documentElement.lang = active.locale;
+    }, [active]);
+
     const setLocale = useCallback((next: Locale) => {
-        localStorage.setItem("climate-twin-locale", next);
-        document.documentElement.lang = next;
-        setLocaleState(next);
-    }, []);
+        activateLocale(next, true);
+    }, [activateLocale]);
+
     const t = useCallback((key: TranslationKey, values: Record<string, string | number> = {}) => {
-        const template = translationCatalogs[locale][key];
+        const template = (active?.catalog ?? en)[key];
         return Object.entries(values).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), template);
-    }, [locale]);
-    const value = useMemo(() => ({ locale, setLocale, t }), [locale, setLocale, t]);
-    return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+    }, [active]);
+    const value = useMemo(() => ({ locale: active?.locale ?? "en", setLocale, t }), [active?.locale, setLocale, t]);
+
+    if (!startedWithPendingCatalog.current) {
+        return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+    }
+    const catalogPending = active === null;
+    return <I18nContext.Provider value={value}>
+        <div
+            aria-hidden={catalogPending ? true : undefined}
+            inert={catalogPending ? true : undefined}
+            style={{ display: catalogPending ? "none" : "contents" }}
+        >
+            {children}
+        </div>
+        {catalogPending && <div className="bootstrap-screen" role="status" aria-busy="true"><strong>Stugu</strong></div>}
+    </I18nContext.Provider>;
 }
 export function useI18n() {
     const context = useContext(I18nContext);

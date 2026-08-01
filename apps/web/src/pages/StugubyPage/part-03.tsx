@@ -21,6 +21,7 @@ import {
   type StugubyRemoteTelemetrySample,
 } from "../../api";
 import { StugubyMark } from "../../components/StugubyMark";
+import { confirmAction } from "../../components/ConfirmationProvider";
 import { useI18n, type TranslationKey } from "../../i18n";
 import { CloudflareSetupPanel } from "../CloudflareSetupPanel";
 import "../StugubyPage.css";
@@ -32,7 +33,7 @@ type DeferredContext = {
 };
 export function useStugubyPagePart03(context: ReturnType<typeof useStugubyPagePart02>) {
   const deferred = context as typeof context & DeferredContext;
-  const { houses, properties, onInventoryChange, locale, t, roleLabel, stateLabel, index, setIndex, detail, setDetail, selectedId, setSelectedId, loading, setLoading, busy, setBusy, error, setError, notice, setNotice, detailLoading, setDetailLoading, telemetryError, setTelemetryError, copied, setCopied, cloudflareSetupRequested, setCloudflareSetupRequested, createdInvitation, setCreatedInvitation, telemetrySamples, setTelemetrySamples, createName, setCreateName, createDescription, setCreateDescription, createCoordinatorUrl, setCreateCoordinatorUrl, joinCoordinatorUrl, setJoinCoordinatorUrl, joinUrl, setJoinUrl, joinInvitationId, setJoinInvitationId, joinSecret, setJoinSecret, inviteRole, setInviteRole, inviteLocalLabel, setInviteLocalLabel, inviteExpiresAt, setInviteExpiresAt, publishableHouses, grantHouseId, setGrantHouseId, audienceKind, setAudienceKind, audienceNodes, setAudienceNodes, datasetDraft, setDatasetDraft, telemetryLive, setTelemetryLive, telemetryHistoryHours, setTelemetryHistoryHours, telemetryMetrics, setTelemetryMetrics, telemetrySensors, setTelemetrySensors, telemetryRate, setTelemetryRate, grantExpiresAt, setGrantExpiresAt, houseEditPolicy, setHouseEditPolicy, recoveryMode, setRecoveryMode, houseSuccessorNodeId, setHouseSuccessorNodeId, editingGrantId, setEditingGrantId, publicationCatalog, setPublicationCatalog, catalogRevision, setCatalogRevision, activeLocalGrantHouseIds, unsharedHouses, grantHouseOptions, propertyName, setPropertyName, propertyDescription, setPropertyDescription, propertyLatitude, setPropertyLatitude, propertyLongitude, setPropertyLongitude, propertyLocationLabel, setPropertyLocationLabel, areasJson, setAreasJson, equipmentJson, setEquipmentJson, notesJson, setNotesJson, maintenanceJson, setMaintenanceJson, propertyEditPolicy, setPropertyEditPolicy, propertySuccessorNodeId, setPropertySuccessorNodeId, adoptionPropertyId, setAdoptionPropertyId, migrationPropertyId, setMigrationPropertyId, detailRequest, selectedIdRef, resetGrantDraft, resetStugubyScopedUi, beginSelection, loadDetail, load, withBusy, createStuguby, joinStuguby, activeRemoteMembers, selectRecoveryMode, selectHouseEditPolicy, saveGrant } = context;
+  const { houses, properties, onInventoryChange, locale, t, roleLabel, stateLabel, index, setIndex, detail, setDetail, selectedId, setSelectedId, loading, setLoading, busy, setBusy, error, setError, notice, setNotice, detailLoading, setDetailLoading, telemetryError, setTelemetryError, copied, setCopied, cloudflareSetupRequested, setCloudflareSetupRequested, createdInvitation, setCreatedInvitation, telemetrySamples, setTelemetrySamples, createName, setCreateName, createDescription, setCreateDescription, createCoordinatorUrl, setCreateCoordinatorUrl, joinCoordinatorUrl, setJoinCoordinatorUrl, joinUrl, setJoinUrl, joinInvitationId, setJoinInvitationId, joinSecret, setJoinSecret, inviteRole, setInviteRole, inviteLocalLabel, setInviteLocalLabel, inviteExpiresAt, setInviteExpiresAt, publishableHouses, grantHouseId, setGrantHouseId, audienceKind, setAudienceKind, audienceNodes, setAudienceNodes, datasetDraft, setDatasetDraft, telemetryLive, setTelemetryLive, telemetryHistoryHours, setTelemetryHistoryHours, telemetryMetrics, setTelemetryMetrics, telemetrySensors, setTelemetrySensors, telemetryRate, setTelemetryRate, grantExpiresAt, setGrantExpiresAt, houseEditPolicy, setHouseEditPolicy, recoveryMode, setRecoveryMode, houseSuccessorNodeId, setHouseSuccessorNodeId, editingGrantId, setEditingGrantId, publicationCatalog, setPublicationCatalog, catalogRevision, setCatalogRevision, activeLocalGrantHouseIds, unsharedHouses, grantHouseOptions, propertyName, setPropertyName, propertyDescription, setPropertyDescription, propertyLatitude, setPropertyLatitude, propertyLongitude, setPropertyLongitude, propertyLocationLabel, setPropertyLocationLabel, areasJson, setAreasJson, equipmentJson, setEquipmentJson, notesJson, setNotesJson, maintenanceJson, setMaintenanceJson, propertyEditPolicy, setPropertyEditPolicy, propertySuccessorNodeId, setPropertySuccessorNodeId, adoptionPropertyId, setAdoptionPropertyId, migrationPropertyId, setMigrationPropertyId, detailRequest, selectedIdRef, captureActiveScope, isActiveScope, resetGrantDraft, resetStugubyScopedUi, beginSelection, loadDetail, load, withBusy, createStuguby, joinStuguby, activeRemoteMembers, selectRecoveryMode, selectHouseEditPolicy, saveGrant } = context;
   const editGrant = (grant: StugubyShareGrant) => {
       const drafts = Object.fromEntries(STUGBY_DATASETS.map((dataset) => {
         const configured = grant.datasets.find((item) => item.dataset === dataset);
@@ -94,15 +95,23 @@ export function useStugubyPagePart03(context: ReturnType<typeof useStugubyPagePa
   const memberName = (member: StugubyLocalMember) => member.nodeId === index?.identity.nodeId
       ? t("stuguby.you")
       : member.localLabel?.trim() || member.displayName;
-  const updateMember = (member: StugubyLocalMember, input: { role?: StugubyRole; state?: StugubyMember["state"] }) => {
+  const updateMember = async (member: StugubyLocalMember, input: { role?: StugubyRole; state?: StugubyMember["state"] }) => {
       if (!detail || detail.stuguby.id !== selectedIdRef.current) return;
+      const selected = detail;
+      const operationScope = captureActiveScope(selected.stuguby.id);
+      if (!operationScope) return;
       const nextState = input.state ?? member.state;
-      if (input.state && nextState !== member.state
-        && !window.confirm(t("stuguby.confirmMemberState", { name: memberName(member), state: stateLabel(nextState) }))) return;
+      if (input.state && nextState !== member.state) {
+        const confirmed = await confirmAction(t("stuguby.confirmMemberState", { name: memberName(member), state: stateLabel(nextState) }), t("confirmation.change"), false);
+        if (!confirmed || !isActiveScope(operationScope)) return;
+      }
+      if (!isActiveScope(operationScope)) return;
       void withBusy(`member:${member.nodeId}`, async () => {
-        await api.updateStugubyMember(detail.stuguby.id, member.nodeId, { role: input.role ?? member.role, state: nextState });
+        if (!isActiveScope(operationScope)) return;
+        await api.updateStugubyMember(selected.stuguby.id, member.nodeId, { role: input.role ?? member.role, state: nextState });
+        if (!isActiveScope(operationScope)) return;
         setNotice(t("stuguby.changesSaved"));
-        await loadDetail(detail.stuguby.id);
+        await loadDetail(selected.stuguby.id);
       });
     };
   const updateMemberLocalLabel = (member: StugubyLocalMember, localLabel: string | null) => {
@@ -128,14 +137,21 @@ export function useStugubyPagePart03(context: ReturnType<typeof useStugubyPagePa
         await loadDetail(selected.stuguby.id);
       });
     };
-  const migrateLocalProperty = () => {
+  const migrateLocalProperty = async () => {
       if (!detail || !migrationPropertyId || detail.stuguby.id !== selectedIdRef.current) return;
-      const source = properties.find((property) => property.id === migrationPropertyId);
-      if (!source || !window.confirm(t("stuguby.confirmPropertyMigration", { name: source.name }))) return;
       const selected = detail;
+      const operationScope = captureActiveScope(selected.stuguby.id);
+      if (!operationScope) return;
+      const source = properties.find((property) => property.id === migrationPropertyId);
+      if (!source) return;
+      const confirmed = await confirmAction(t("stuguby.confirmPropertyMigration", { name: source.name }), t("confirmation.move"), false);
+      if (!confirmed || !isActiveScope(operationScope)) return;
       void withBusy("migrate-property", async () => {
+        if (!isActiveScope(operationScope)) return;
         const migrated = await api.migratePropertyToStuguby(selected.stuguby.id, source.id);
+        if (!isActiveScope(operationScope)) return;
         await api.syncStuguby(selected.stuguby.id);
+        if (!isActiveScope(operationScope)) return;
         onInventoryChange?.();
         setMigrationPropertyId("");
         setNotice(t(migrated.moved.houseIds.length === 1
@@ -144,23 +160,33 @@ export function useStugubyPagePart03(context: ReturnType<typeof useStugubyPagePa
         await loadDetail(selected.stuguby.id);
       });
     };
-  const disconnectProperty = () => {
-      if (!detail || detail.stuguby.id !== selectedIdRef.current
-        || !window.confirm(t("stuguby.confirmPropertyDisconnect"))) return;
+  const disconnectProperty = async () => {
+      if (!detail || detail.stuguby.id !== selectedIdRef.current) return;
       const selected = detail;
+      const operationScope = captureActiveScope(selected.stuguby.id);
+      if (!operationScope) return;
+      const confirmed = await confirmAction(t("stuguby.confirmPropertyDisconnect"), t("confirmation.disconnect"));
+      if (!confirmed || !isActiveScope(operationScope)) return;
       void withBusy("disconnect-property", async () => {
+        if (!isActiveScope(operationScope)) return;
         await api.disconnectStugubyProperty(selected.stuguby.id);
+        if (!isActiveScope(operationScope)) return;
         onInventoryChange?.();
         setNotice(t("stuguby.propertyDisconnected"));
         await loadDetail(selected.stuguby.id);
       });
     };
-  const deleteStuguby = () => {
+  const deleteStuguby = async () => {
       if (!detail || detail.stuguby.id !== selectedIdRef.current) return;
       const selected = detail.stuguby;
-      if (!window.confirm(t("stuguby.confirmDelete", { name: selected.name }))) return;
+      const operationScope = captureActiveScope(selected.id);
+      if (!operationScope) return;
+      const confirmed = await confirmAction(t("stuguby.confirmDelete", { name: selected.name }), t("confirmation.delete"));
+      if (!confirmed || !isActiveScope(operationScope)) return;
       void withBusy("delete", async () => {
+        if (!isActiveScope(operationScope)) return;
         await api.deleteStuguby(selected.id);
+        if (!isActiveScope(operationScope)) return;
         detailRequest.current += 1;
         beginSelection("");
         await load();

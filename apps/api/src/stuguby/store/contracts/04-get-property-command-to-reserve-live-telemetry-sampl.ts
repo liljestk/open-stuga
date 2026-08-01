@@ -55,6 +55,7 @@ declare module "../core.js" {
     deferHomeCommand(commandId: string, attempts: number, nextAttemptAt: string): void;
     completeHomeCommand(result: StugubyHomeCommandResult): StugubyStoredHomeCommand;
     cancelPendingHomeCommands(stugubyId: string, now?: string): number;
+    cancelPendingHomeCommandsFor(stugubyId: string, authorityNodeId: string, publicationId: string, now?: string): number;
     propertyFieldRevisions(stugubyId: string, entityKind: StugubyPropertyEntityKind, entityId: string): Record<string, number>;
     setPropertyFieldRevisions(stugubyId: string, entityKind: StugubyPropertyEntityKind, entityId: string, fields: readonly string[], revision: number): void;
     listPropertyConflicts(stugubyId: string, includeResolved?: boolean): StugubyPropertyConflict[];
@@ -97,6 +98,7 @@ declare module "../core.js" {
     deferHomeCommand(commandId: string, attempts: number, nextAttemptAt: string): void;
     completeHomeCommand(result: StugubyHomeCommandResult): StugubyStoredHomeCommand;
     cancelPendingHomeCommands(stugubyId: string, now?: string): number;
+    cancelPendingHomeCommandsFor(stugubyId: string, authorityNodeId: string, publicationId: string, now?: string): number;
     propertyFieldRevisions(stugubyId: string, entityKind: StugubyPropertyEntityKind, entityId: string): Record<string, number>;
     setPropertyFieldRevisions(stugubyId: string, entityKind: StugubyPropertyEntityKind, entityId: string, fields: readonly string[], revision: number): void;
     listPropertyConflicts(stugubyId: string, includeResolved?: boolean): StugubyPropertyConflict[];

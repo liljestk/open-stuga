@@ -42,5 +42,8 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
     css: true,
+    // Large jsdom suites can oversubscribe high-core local release hosts and
+    // time out midway through user-event input, cascading into later tests.
+    maxWorkers: 4,
   },
 });

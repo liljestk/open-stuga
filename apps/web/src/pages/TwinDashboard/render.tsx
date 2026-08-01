@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Activity, AlertTriangle, BatteryMedium, Bolt, Box, Check, ChevronDown, DoorOpen, Droplets, Edit3, Gauge, History, Home, Lightbulb, Map, MapPinPlus, Maximize2, Minimize2, Save, Sparkles, Thermometer, Wind } from "lucide-react";
+import { BatteryMedium, Bolt, Box, Check, ChevronDown, DoorOpen, Droplets, Edit3, Gauge, History, Home, Lightbulb, Map, MapPinPlus, Maximize2, Minimize2, Save, SlidersHorizontal, Sparkles, Thermometer, Wind } from "lucide-react";
 import { isAirflowPlanElement, type ConfiguredOpeningState, type ConnectionState, type Floor, type House, type ManualObservation, type ManualObservationInput, type ManualObservationPatch, type MeasurementDefinition, type MeasurementSample, type Metric, type MockScenario, type ObservationConfidence, type ObservationRevision, type ObservationSource, type ObservationTimePrecision, type OpeningStateObservation, type Point, type Reading, type Sensor, type StaticParameter, type UnitSystem } from "@climate-twin/contracts";
 import { ReplayControls } from "../../components/ReplayControls";
 import { RoomComfortBoard } from "../../components/RoomComfortBoard";
@@ -42,14 +42,16 @@ import { BuildingScene, FloorPlan, HomeActivityTimeline, MeasurementGlyph, RoomC
 import type { TwinDashboardProps } from "./support";
 import { useTwinDashboardPart05 } from "./part-05";
 export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardPart05>) {
-  const { props, state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection, dataMode, locale, t, scopedIntegration, sensorSourceHealthy, editing, setEditing, fullPage, setFullPage, liveMapOpen, setLiveMapOpen, historyOpen, setHistoryOpen, analysisOpen, setAnalysisOpen, fullPagePanelRef, fullPageTriggerRef, readOnly, canManageConnectedDevices, localAuthority, range, setRange, replayActive, setReplayActive, replayPlaying, setReplayPlaying, replayStartPending, setReplayStartPending, replayPrepared, setReplayPrepared, replaySpeed, setReplaySpeed, replayWindowFrom, setReplayWindowFrom, replayWindowTo, setReplayWindowTo, replayResolutionSeconds, setReplayResolutionSeconds, replayRequestedBounds, setReplayRequestedBounds, replayLoadState, setReplayLoadState, replayLoadError, setReplayLoadError, replayLoadPartial, setReplayLoadPartial, replaySampleCount, setReplaySampleCount, liveSpatialClockMs, setLiveSpatialClockMs, experimentalVisualizations, setExperimentalVisualizations, outdoorInfluenceMetric, setOutdoorInfluenceMetric, climateSensorsVisible, setClimateSensorsVisible, energyDevicesVisible, setEnergyDevicesVisible, connectedDevicesVisible, setConnectedDevicesVisible, openingStateLabelsVisible, setOpeningStateLabelsVisible, connectedDevices, pendingConnectedDeviceIds, connectedDeviceError, connectedDeviceAnnouncement, changeConnectedDevicePower, moveConnectedDevice, mapAnimationsEnabled, setMapAnimationsEnabled, outdoorExtrasVisible, setOutdoorExtrasVisible, observationPlacement, setObservationPlacement, observationKind, setObservationKind, observationSeverity, setObservationSeverity, observationNote, setObservationNote, observationTimePrecision, setObservationTimePrecision, observationDateTime, setObservationDateTime, observationDate, setObservationDate, observationValidFrom, setObservationValidFrom, observationValidTo, setObservationValidTo, observationSource, setObservationSource, observationSourceDetail, setObservationSourceDetail, observationConfidence, setObservationConfidence, observationDraft, setObservationDraft, observationValidationError, setObservationValidationError, observationStatus, setObservationStatus, observationError, setObservationError, parameterLabel, setParameterLabel, parameterValue, setParameterValue, parameterUnit, setParameterUnit, parameterPending, setParameterPending, parameterFeedback, setParameterFeedback, replayBatchRef, replayPreparationBatchRef, airflowReplayBatchRef, inspectorReplayBatchRef, replayWindowRequestRef, previousReplayActiveRef, effectSeriesLoadsRef, loadSeriesOnce, houseWeather, outdoorContext, outdoor, houseSensors, energyDeviceCount, floorSensors, selectedSensor, selectedFloor, viewSensors, summarySensors, definitions, houseDefinitions, availableDefinitions, airflowDefinitions, airflowMetricKey, definition, metricOptions, metricLabel, liveSamples, houseSensorIdList, houseSensorIds, replayMetricIds, loadedReplayBounds, fallbackReplayBounds, replayMin, replayMax, replayHistoryReady, replayEvents, replayTimestamp, setReplayTimestamp, spatialReferenceTimeMs, spatialLayerScope, spatialLayers, liveSpatialMaxSampleAgeMs, spatialMaxSampleAgeMs, spatialFreshness, changeReplayPlaying, selectReplayEvent, loadReplayWindow, displayedSamples, mapSensorMeasurements, airflowSamples, sensorCoverage, airMovementSelected, coverageSelected, openingStateAt, openingStateObservations, setOpeningStateObservations, pendingOpeningStateKeys, setPendingOpeningStateKeys, openingStateError, setOpeningStateError, openingStateAnnouncement, setOpeningStateAnnouncement, openingStateRequestsRef, openingStateContextRef, houseOpeningStateObservations, controllableOpenings, hasOpeningElements, changeOpeningState, experimentalFloorAirflow, experimentalBuildingAirflow, experimentalAirflowEvidence, experimentalSuggestions, outdoorInfluence, outdoorInfluenceSelected, toggleExperimentalVisualization, values, hasUsableReadings, houseValues, activeOutdoorValue, activeOutdoorComparison, houseColorDomain, outdoorConditionColors, visualOutdoor, average, spread, openAlerts, floorObservations, houseObservations, houseParameters, inspectorSamples, changeRange, submitObservation, placeObservation, cancelObservationPlacement, submitParameter, startEditing, saveEdits, finishEditing, openDecisionSensor, openDecisionRoom, liveMapVisible } = context;
+  const { props, state, house, floor, houseId, floorId, metric, units, viewMode, selectedSensorId, scenario, connection, dataMode, locale, t, scopedIntegration, sensorSourceHealthy, editing, setEditing, fullPage, setFullPage, liveMapOpen, setLiveMapOpen, historyOpen, setHistoryOpen, analysisOpen, setAnalysisOpen, fullPagePanelRef, fullPageTriggerRef, liveMapTriggerRef, pageHeadingRef, readOnly, canManageConnectedDevices, localAuthority, range, setRange, replayActive, setReplayActive, replayPlaying, setReplayPlaying, replayStartPending, setReplayStartPending, replayPrepared, setReplayPrepared, replaySpeed, setReplaySpeed, replayWindowFrom, setReplayWindowFrom, replayWindowTo, setReplayWindowTo, replayResolutionSeconds, setReplayResolutionSeconds, replayRequestedBounds, setReplayRequestedBounds, replayLoadState, setReplayLoadState, replayLoadError, setReplayLoadError, replayLoadPartial, setReplayLoadPartial, replaySampleCount, setReplaySampleCount, liveSpatialClockMs, setLiveSpatialClockMs, experimentalVisualizations, setExperimentalVisualizations, outdoorInfluenceMetric, setOutdoorInfluenceMetric, climateSensorsVisible, setClimateSensorsVisible, energyDevicesVisible, setEnergyDevicesVisible, connectedDevicesVisible, setConnectedDevicesVisible, openingStateLabelsVisible, setOpeningStateLabelsVisible, connectedDevices, pendingConnectedDeviceIds, connectedDeviceError, connectedDeviceAnnouncement, changeConnectedDevicePower, moveConnectedDevice, mapAnimationsEnabled, setMapAnimationsEnabled, outdoorExtrasVisible, setOutdoorExtrasVisible, observationPlacement, setObservationPlacement, observationKind, setObservationKind, observationSeverity, setObservationSeverity, observationNote, setObservationNote, observationTimePrecision, setObservationTimePrecision, observationDateTime, setObservationDateTime, observationDate, setObservationDate, observationValidFrom, setObservationValidFrom, observationValidTo, setObservationValidTo, observationSource, setObservationSource, observationSourceDetail, setObservationSourceDetail, observationConfidence, setObservationConfidence, observationDraft, setObservationDraft, observationValidationError, setObservationValidationError, observationStatus, setObservationStatus, observationError, setObservationError, parameterLabel, setParameterLabel, parameterValue, setParameterValue, parameterUnit, setParameterUnit, parameterPending, setParameterPending, parameterFeedback, setParameterFeedback, replayBatchRef, replayPreparationBatchRef, airflowReplayBatchRef, inspectorReplayBatchRef, replayWindowRequestRef, previousReplayActiveRef, effectSeriesLoadsRef, loadSeriesOnce, houseWeather, outdoorContext, outdoor, houseSensors, energyDeviceCount, floorSensors, selectedSensor, selectedFloor, summarySensors, definitions, houseDefinitions, availableDefinitions, airflowDefinitions, airflowMetricKey, definition, metricOptions, metricLabel, liveSamples, houseSensorIdList, houseSensorIds, replayMetricIds, loadedReplayBounds, fallbackReplayBounds, replayMin, replayMax, replayHistoryReady, replayEvents, replayTimestamp, setReplayTimestamp, spatialReferenceTimeMs, spatialLayerScope, spatialLayers, liveSpatialMaxSampleAgeMs, spatialMaxSampleAgeMs, spatialFreshness, changeReplayPlaying, selectReplayEvent, loadReplayWindow, displayedSamples, mapSensorMeasurements, airflowSamples, sensorCoverage, airMovementSelected, coverageSelected, openingStateAt, openingStateObservations, setOpeningStateObservations, pendingOpeningStateKeys, setPendingOpeningStateKeys, openingStateError, setOpeningStateError, openingStateAnnouncement, setOpeningStateAnnouncement, openingStateRequestsRef, openingStateContextRef, houseOpeningStateObservations, controllableOpenings, hasOpeningElements, changeOpeningState, experimentalFloorAirflow, experimentalBuildingAirflow, experimentalAirflowEvidence, experimentalSuggestions, outdoorInfluence, outdoorInfluenceSelected, toggleExperimentalVisualization, values, hasUsableReadings, houseValues, activeOutdoorValue, activeOutdoorComparison, houseColorDomain, outdoorConditionColors, visualOutdoor, average, spread, floorObservations, houseObservations, houseParameters, inspectorSamples, changeRange, submitObservation, placeObservation, cancelObservationPlacement, submitParameter, startEditing, saveEdits, finishEditing, openDecisionSensor, openDecisionRoom, liveMapVisible } = context;
+  const hasMapOptions = houseSensors.length > 0 || connectedDevices.length > 0 || Boolean(outdoorContext)
+    || (viewMode === "isometric" && hasOpeningElements);
   return (
       <>
         <header className="page-heading twin-heading">
-          <div className="twin-heading-copy"><span className={`eyebrow twin-status ${dataMode === "demo" ? "demo" : connection}`}>{dataMode === "demo" ? t("demo.bannerTitle") : t(`status.${connection}`)}</span><h1>{house.name}</h1><p>{t("twin.description")}</p></div>
+          <div className="twin-heading-copy"><span className={`eyebrow twin-status ${dataMode === "demo" ? "demo" : connection}`}>{dataMode === "demo" ? t("demo.bannerTitle") : t(`status.${connection}`)}</span><h1 ref={pageHeadingRef} tabIndex={-1}>{house.name}</h1><p>{t("twin.description")}</p></div>
         </header>
 
-        {!editing && !replayActive && <>
+        {!editing && !replayActive && !liveMapVisible && <>
           <div className="decision-layer">
             <HomePulsePanelData
               key={house.id}
@@ -71,74 +73,69 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
                 setupDestination: localAuthority && !sensorSourceHealthy ? "connections" as const : "sensors" as const,
               } : {})}
             />
-            {hasUsableReadings && <MoistureCoach
-              sensors={houseSensors}
-              latestMeasurements={state.latestMeasurements}
-              conditions={houseWeather.weather?.current}
-              {...(houseWeather.weather ? { weatherStale: houseWeather.weather.stale } : {})}
-              units={units}
-              now={spatialReferenceTimeMs}
-              onOpenSensor={(sensorId) => {
-                const sensor = houseSensors.find((candidate) => candidate.id === sensorId);
-                if (sensor) openDecisionSensor(sensor.floorId, sensor.id);
-              }}
-            />}
           </div>
-          <nav className="context-controls home-quick-links" aria-label={t("nav.homeGroup", { name: house.name })}>
-            {props.onOpenActivity && <button type="button" className="secondary-button" onClick={props.onOpenActivity}><Activity size={15} aria-hidden="true" />{t("nav.activity")}</button>}
-            {props.onOpenOutdoor && <button type="button" className="secondary-button" onClick={props.onOpenOutdoor}><Wind size={15} aria-hidden="true" />{t("nav.outdoor")}</button>}
-            {props.onOpenEnergy && <button type="button" className="secondary-button" onClick={props.onOpenEnergy}><Bolt size={15} aria-hidden="true" />{t("nav.energyUse")}</button>}
-            {props.onOpenAnalytics && <button type="button" className="secondary-button" onClick={props.onOpenAnalytics}><Gauge size={15} aria-hidden="true" />{t("nav.analytics")}</button>}
-          </nav>
-          {hasUsableReadings && <section className="home-status-zone" aria-labelledby="home-status-heading">
-            <div className="decision-section-heading home-zone-heading">
-              <div><span className="eyebrow">{t("home.statusEyebrow")}</span><h2 id="home-status-heading">{t("home.statusTitle")}</h2></div>
-              <p>{t("home.statusDescription")}</p>
+          {hasUsableReadings && <section className="panel home-now" aria-label={t("twin.title")}>
+            <span className={`home-now-icon measurement ${definition.colorScale}`}><MeasurementGlyph definition={definition} size={22} /></span>
+            <div className="home-now-copy">
+              <span className="eyebrow">{t("home.nowEyebrow")}</span>
+              <small>{t("twin.averageMeasurement", { metric: metricLabel })}</small>
+              <h2>{average == null ? t("common.noData") : formatMeasurement(average, definition, units)}</h2>
+              <p>{t("home.nowSummary", {
+                reporting: values.length,
+                total: summarySensors.length,
+                spread: spread == null ? t("common.noData") : formatMeasurementDelta(spread, definition, units),
+              })}</p>
             </div>
-            <section className="summary-strip" aria-label={t("twin.title")}>
-              <div className="summary-item"><span className={`summary-icon measurement ${definition.colorScale}`}><MeasurementGlyph definition={definition} size={18} /></span><span><small>{t("twin.averageMeasurement", { metric: metricLabel })}</small><strong>{average == null ? t("common.noData") : formatMeasurement(average, definition, units)}</strong></span></div>
-              <div className="summary-item"><span className="summary-icon flow"><Activity size={18} aria-hidden="true" /></span><span><small>{t("twin.reportingMetricSensors", { metric: metricLabel })}</small><strong>{t("twin.reportingCount", { count: values.length, total: summarySensors.length })}</strong></span></div>
-              <div className="summary-item"><span className="summary-icon flow"><Wind size={18} aria-hidden="true" /></span><span><small>{t("twin.spread")}</small><strong>{spread == null ? t("common.noData") : formatMeasurementDelta(spread, definition, units)}</strong></span></div>
-              <div className={`summary-item ${openAlerts.length ? "attention" : ""}`} data-summary-scope="threshold-alerts"><span className="summary-icon alert"><AlertTriangle size={18} aria-hidden="true" /></span><span><small>{t("alerts.open")}</small><strong>{openAlerts.length === 0 ? t("twin.noActiveAlerts") : openAlerts.length === 1 ? t("twin.oneAlert") : t("twin.manyAlerts", { count: openAlerts.length })}</strong></span></div>
-            </section>
+            <button ref={liveMapTriggerRef} type="button" className="primary-button home-now-action" aria-expanded="false" aria-controls="home-live-map" onClick={() => setLiveMapOpen(true)}><Map size={16} aria-hidden="true" />{t("home.openLiveView")}</button>
           </section>}
         </>}
 
-        {!liveMapVisible && <section className="panel home-live-launcher" aria-labelledby="home-live-launcher-title"><div><span className="eyebrow">{t("home.liveEyebrow")}</span><h2 id="home-live-launcher-title">{t("home.liveTitle")}</h2><p>{t("home.liveDescription")}</p></div><button type="button" className="secondary-button" aria-expanded="false" onClick={() => setLiveMapOpen(true)}><Map size={15} aria-hidden="true" />{t("home.openLiveView")}</button></section>}
         {liveMapVisible && <>
         {!editing && <div className="decision-section-heading home-live-heading"><div><span className="eyebrow">{replayActive ? t("replay.title") : t("home.liveEyebrow")}</span><h2>{replayActive
           ? t("replay.active", { time: formatInTimeZone(replayTimestamp, locale, house.timezone, { dateStyle: "medium", timeStyle: "short" }) })
           : t("home.liveTitle")}</h2></div><p>{replayActive ? t("replay.description") : t("home.liveDescription")}</p></div>}
-        <section ref={fullPagePanelRef} className={`panel twin-panel ${fullPage ? "is-full-page" : ""}`} role={fullPage ? "dialog" : undefined} aria-modal={fullPage ? true : undefined} aria-label={fullPage ? t("home.liveTitle") : undefined}>
+        <section id="home-live-map" ref={fullPagePanelRef} className={`panel twin-panel ${fullPage ? "is-full-page" : ""}`} role={fullPage ? "dialog" : undefined} aria-modal={fullPage ? true : undefined} aria-label={fullPage ? t("home.liveTitle") : undefined}>
           <div className="twin-toolbar">
             <div className="toolbar-context">
               <div className="toolbar-title">
                 {editing
                   ? <><span className="eyebrow">{house.name}</span><strong>{t("twin.editingFloor", { floor: floor.name })}</strong></>
                   : house.floors.length > 1
-                    ? <><label className="toolbar-floor-picker"><span>{t("common.floor")}</span><select value={floorId} onChange={(event) => props.onFloor(event.target.value)}>{house.floors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><strong>{viewSensors.length} {t("twin.sensors")}</strong></>
-                    : <><span className="eyebrow">{floor.name}</span><strong>{viewSensors.length} {t("twin.sensors")}</strong></>}
+                    ? <label className="toolbar-floor-picker"><span>{t("common.floor")}</span><select value={floorId} onChange={(event) => props.onFloor(event.target.value)}>{house.floors.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+                    : <span className="toolbar-static-floor"><span>{t("common.floor")}</span><strong>{floor.name}</strong></span>}
               </div>
               {!editing && <label className="metric-picker"><span>{t("common.metric")}</span><select value={definition.id} onChange={(event) => props.onMetric(event.target.value)}>{metricOptions.map((item) => <option key={item.id} value={item.id}>{measurementLabel(item, locale)} · {displayUnit(item, units)}</option>)}</select></label>}
             </div>
-            <div className="toolbar-groups">
-              <div className="toolbar-view-controls">
-                <div className="segmented" role="group" aria-label={t("common.view")}><button type="button" aria-pressed={viewMode === "plan"} onClick={() => props.onViewMode("plan")}><Map size={15} aria-hidden="true" />{t("twin.mode2d")}</button><button type="button" aria-pressed={viewMode === "isometric"} onClick={() => { cancelObservationPlacement(); props.onViewMode("isometric"); }}><Box size={15} aria-hidden="true" />{t("twin.modeIso")}</button></div>
-                {!editing && (houseSensors.length > 0 || connectedDevices.length > 0 || outdoorContext || (viewMode === "isometric" && hasOpeningElements)) && <div className="segmented compact map-device-layers" role="group" aria-label={t("twin.mapLayers")}>
-                  {houseSensors.length > energyDeviceCount && <button type="button" aria-pressed={climateSensorsVisible} onClick={() => setClimateSensorsVisible((current) => !current)}><Thermometer size={15} aria-hidden="true" />{t("twin.climateSensorLayer")}</button>}
-                  {energyDeviceCount > 0 && <button type="button" aria-pressed={energyDevicesVisible} onClick={() => setEnergyDevicesVisible((current) => !current)}><Bolt size={15} aria-hidden="true" />{t("twin.energyDeviceLayer")}</button>}
-                  {connectedDevices.length > 0 && <button type="button" aria-pressed={connectedDevicesVisible} onClick={() => setConnectedDevicesVisible((current) => !current)}><Lightbulb size={15} aria-hidden="true" />{t("twin.connectedDeviceLayer")}</button>}
-                  {viewMode === "isometric" && hasOpeningElements && <button type="button" aria-pressed={openingStateLabelsVisible} onClick={() => setOpeningStateLabelsVisible((current) => !current)}><DoorOpen size={15} aria-hidden="true" />{t("twin.openingStateLabels")}</button>}
-                  {outdoorContext?.planWindFromDegrees != null && <button type="button" aria-pressed={mapAnimationsEnabled} onClick={() => setMapAnimationsEnabled((current) => !current)}><Sparkles size={15} aria-hidden="true" />{t("twin.mapAnimations")}</button>}
-                  {outdoorContext && <button type="button" aria-pressed={outdoorExtrasVisible} onClick={() => setOutdoorExtrasVisible((current) => !current)}><Wind size={15} aria-hidden="true" />{t("twin.windDetails")}</button>}
-                </div>}
-              </div>
-              <div className="toolbar-actions">
-                {!editing && <button ref={fullPageTriggerRef} type="button" className="secondary-button twin-full-page-button" aria-pressed={fullPage} onClick={() => setFullPage((current) => !current)}>{fullPage ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}{fullPage ? t("twin.exitFullPage") : t("twin.fullPage")}</button>}
-                {!editing && !replayActive && !fullPage && <button type="button" className="secondary-button" onClick={() => setLiveMapOpen(false)}><Minimize2 size={15} aria-hidden="true" />{t("home.hideLiveView")}</button>}
-                {!readOnly && !editing && <button type="button" className="secondary-button" onClick={startEditing}><Edit3 size={15} aria-hidden="true" />{t("common.edit")}</button>}
-                {editing && <><button type="button" className="primary-button" onClick={() => void finishEditing()} disabled={props.saveState === "saving"}><Save size={15} aria-hidden="true" />{props.saveState === "saving" ? t("common.saving") : t("common.saveAndFinish")}</button><button type="button" className="secondary-button" onClick={() => setEditing(false)} disabled={props.saveState === "saving"}>{t("common.cancel")}</button></>}
-              </div>
+            <div className="toolbar-navigation">
+              <div className="toolbar-view-controls"><div className="segmented" role="group" aria-label={t("common.view")}><button type="button" aria-pressed={viewMode === "plan"} onClick={() => props.onViewMode("plan")}><Map size={15} aria-hidden="true" />{t("twin.mode2d")}</button><button type="button" aria-pressed={viewMode === "isometric"} onClick={() => { cancelObservationPlacement(); props.onViewMode("isometric"); }}><Box size={15} aria-hidden="true" />{t("twin.modeIso")}</button></div></div>
+              {!editing && <details className="twin-view-options" onKeyDown={(event) => {
+                if (event.key !== "Escape" || !event.currentTarget.open) return;
+                event.preventDefault();
+                event.stopPropagation();
+                event.currentTarget.open = false;
+                event.currentTarget.querySelector<HTMLElement>("summary")?.focus();
+              }}>
+                <summary className="secondary-button"><SlidersHorizontal size={16} aria-hidden="true" /><span>{t("twin.viewOptions")}</span><ChevronDown className="twin-view-options-chevron" size={15} aria-hidden="true" /></summary>
+                <div className="twin-view-options-menu">
+                  {hasMapOptions && <fieldset className="twin-layer-options"><legend>{t("twin.mapLayers")}</legend><div className="twin-option-list">
+                    {houseSensors.length > energyDeviceCount && <button type="button" aria-pressed={climateSensorsVisible} onClick={() => setClimateSensorsVisible((current) => !current)}><Thermometer size={16} aria-hidden="true" /><span>{t("twin.climateSensorLayer")}</span>{climateSensorsVisible && <Check size={15} aria-hidden="true" />}</button>}
+                    {energyDeviceCount > 0 && <button type="button" aria-pressed={energyDevicesVisible} onClick={() => setEnergyDevicesVisible((current) => !current)}><Bolt size={16} aria-hidden="true" /><span>{t("twin.energyDeviceLayer")}</span>{energyDevicesVisible && <Check size={15} aria-hidden="true" />}</button>}
+                    {connectedDevices.length > 0 && <button type="button" aria-pressed={connectedDevicesVisible} onClick={() => setConnectedDevicesVisible((current) => !current)}><Lightbulb size={16} aria-hidden="true" /><span>{t("twin.connectedDeviceLayer")}</span>{connectedDevicesVisible && <Check size={15} aria-hidden="true" />}</button>}
+                    {viewMode === "isometric" && hasOpeningElements && <button type="button" aria-pressed={openingStateLabelsVisible} onClick={() => setOpeningStateLabelsVisible((current) => !current)}><DoorOpen size={16} aria-hidden="true" /><span>{t("twin.openingStateLabels")}</span>{openingStateLabelsVisible && <Check size={15} aria-hidden="true" />}</button>}
+                    {outdoorContext?.planWindFromDegrees != null && <button type="button" aria-pressed={mapAnimationsEnabled} onClick={() => setMapAnimationsEnabled((current) => !current)}><Sparkles size={16} aria-hidden="true" /><span>{t("twin.mapAnimations")}</span>{mapAnimationsEnabled && <Check size={15} aria-hidden="true" />}</button>}
+                    {outdoorContext && <button type="button" aria-pressed={outdoorExtrasVisible} onClick={() => setOutdoorExtrasVisible((current) => !current)}><Wind size={16} aria-hidden="true" /><span>{t("twin.windDetails")}</span>{outdoorExtrasVisible && <Check size={15} aria-hidden="true" />}</button>}
+                  </div></fieldset>}
+                  <div className="twin-view-option-actions">
+                    <button ref={fullPageTriggerRef} type="button" className="secondary-button twin-full-page-button" aria-pressed={fullPage} onClick={() => setFullPage((current) => !current)}>{fullPage ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}{fullPage ? t("twin.exitFullPage") : t("twin.fullPage")}</button>
+                    {!readOnly && !replayActive && <button type="button" className="secondary-button" onClick={startEditing}><Edit3 size={15} aria-hidden="true" />{t("twin.editLayout")}</button>}
+                  </div>
+                </div>
+              </details>}
+              {!editing && !replayActive && !fullPage && <button type="button" className="secondary-button twin-close-live-view" aria-expanded="true" aria-controls="home-live-map" onClick={() => {
+                setLiveMapOpen(false);
+                window.requestAnimationFrame(() => (liveMapTriggerRef.current ?? pageHeadingRef.current)?.focus());
+              }}><Minimize2 size={15} aria-hidden="true" />{t("home.hideLiveView")}</button>}
+              {editing && <div className="toolbar-edit-actions"><button type="button" className="primary-button" onClick={() => void finishEditing()} disabled={props.saveState === "saving"}><Save size={15} aria-hidden="true" />{props.saveState === "saving" ? t("common.saving") : t("common.saveAndFinish")}</button><button type="button" className="secondary-button" onClick={() => setEditing(false)} disabled={props.saveState === "saving"}>{t("common.cancel")}</button></div>}
             </div>
           </div>
           {props.saveState === "error" && <p className="inline-error" role="alert">{t("twin.layoutSaveError")}</p>}
@@ -150,28 +147,6 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
           <p className="sr-only" role="status" aria-live="polite">{openingStateAnnouncement}</p>
           {connectedDeviceError && !replayActive && <p className="inline-error connected-device-error" role="alert">{connectedDeviceError}</p>}
           <p className="sr-only" role="status" aria-live="polite">{connectedDeviceAnnouncement}</p>
-          {!editing && <SpatialLayerPanel
-            layers={spatialLayers}
-            timeZone={house.timezone}
-            historyAt={replayActive ? replayTimestamp : null}
-            compact
-            visualization={{
-              selected: experimentalVisualizations,
-              mode: viewMode,
-              coverage: sensorCoverage,
-              airflow: experimentalAirflowEvidence,
-              outdoorInfluence,
-              outdoorInfluenceMetric,
-              units,
-              suggestions: experimentalSuggestions,
-              onToggle: toggleExperimentalVisualization,
-              onOutdoorInfluenceMetricChange: setOutdoorInfluenceMetric,
-            }}
-            onHistorySelect={(timestamp) => {
-              setReplayActive(true);
-              setReplayTimestamp(clamp(timestamp, replayMin, replayMax));
-            }}
-          />}
           <Suspense fallback={<output className="page-loading">{t("common.loading")}</output>}><div className={`twin-grid ${editing ? "is-editing" : ""}`}>
             {editing && (
               <StructureEditor
@@ -243,10 +218,50 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
               house={house} floor={selectedFloor} editing={editing} onSensorUpdate={props.onSensorUpdate} onFloorSelect={props.onFloor}
             />
           </div></Suspense>
+          {!editing && <SpatialLayerPanel
+            layers={spatialLayers}
+            timeZone={house.timezone}
+            historyAt={replayActive ? replayTimestamp : null}
+            compact
+            visualization={{
+              selected: experimentalVisualizations,
+              mode: viewMode,
+              coverage: sensorCoverage,
+              airflow: experimentalAirflowEvidence,
+              outdoorInfluence,
+              outdoorInfluenceMetric,
+              units,
+              suggestions: experimentalSuggestions,
+              onToggle: toggleExperimentalVisualization,
+              onOutdoorInfluenceMetricChange: setOutdoorInfluenceMetric,
+            }}
+            onHistorySelect={(timestamp) => {
+              setReplayActive(true);
+              setReplayTimestamp(clamp(timestamp, replayMin, replayMax));
+            }}
+          />}
         </section>
         </>}
 
-        {!editing && <>
+        {!editing && <details className="home-explore-disclosure">
+        <summary>
+          <span className="home-explore-icon" aria-hidden="true"><Home size={19} /></span>
+          <span className="home-explore-summary-copy"><span className="eyebrow">{t("home.exploreEyebrow")}</span><strong>{t("home.exploreTitle")}</strong><small>{t("home.exploreDescription")}</small></span>
+          <ChevronDown className="disclosure-chevron" size={19} aria-hidden="true" />
+        </summary>
+        <div className="home-explore-content">
+        {!replayActive && hasUsableReadings && <MoistureCoach
+          sensors={houseSensors}
+          latestMeasurements={state.latestMeasurements}
+          conditions={houseWeather.weather?.current}
+          {...(houseWeather.weather ? { weatherStale: houseWeather.weather.stale } : {})}
+          units={units}
+          now={spatialReferenceTimeMs}
+          onOpenSensor={(sensorId) => {
+            const sensor = houseSensors.find((candidate) => candidate.id === sensorId);
+            if (sensor) openDecisionSensor(sensor.floorId, sensor.id);
+          }}
+        />}
         {!replayActive && hasUsableReadings && <RoomComfortBoard
           sensors={houseSensors}
           latestMeasurements={state.latestMeasurements}
@@ -258,7 +273,7 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
           onOpenRoom={openDecisionRoom}
         />}
 
-        {!replayActive && <div className="home-secondary-grid">
+        {!replayActive &&
           <HomeOperationsPreview
             sensors={houseSensors}
             alerts={state.alerts.filter((alert) => houseSensors.some((sensor) => sensor.id === alert.sensorId))}
@@ -269,15 +284,15 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
             timeZone={house.timezone}
             {...(props.onOpenActivity ? { onOpenActivity: props.onOpenActivity } : {})}
             {...(props.onOpenMaintenance ? { onOpenMaintenance: props.onOpenMaintenance } : {})}
-          />
-        </div>}
+          />}
 
         <section className="panel history-events-workspace" aria-labelledby="history-events-heading">
           <div className="panel-header history-events-heading">
             <div><span className="eyebrow"><History size={14} aria-hidden="true" />{t("historyEvents.eyebrow")}</span><h2 id="history-events-heading">{t("historyEvents.title")}</h2><p className="panel-intro">{t("historyEvents.description")}</p></div>
-            <div className="history-events-actions"><span className="count-badge">{t("historyEvents.detectedCount", { count: replayEvents.length })}</span>{!replayActive && <button type="button" className="secondary-button" aria-expanded={historyOpen} onClick={() => setHistoryOpen((current) => !current)}><History size={15} aria-hidden="true" />{t(historyOpen ? "historyEvents.close" : "historyEvents.open")}</button>}</div>
+            <div className="history-events-actions"><span className="count-badge">{t("historyEvents.detectedCount", { count: replayEvents.length })}</span>{!replayActive && <button type="button" className="secondary-button" aria-expanded={historyOpen} aria-controls={historyOpen ? "history-events-controls" : undefined} onClick={() => setHistoryOpen((current) => !current)}><History size={15} aria-hidden="true" />{t(historyOpen ? "historyEvents.close" : "historyEvents.open")}</button>}</div>
           </div>
           {(historyOpen || replayActive) && <ReplayControls
+            id="history-events-controls"
             active={replayActive}
             playing={replayPlaying}
             timestamp={replayTimestamp}
@@ -401,7 +416,17 @@ export function renderTwinDashboard(context: ReturnType<typeof useTwinDashboardP
             </div>
           </div></Suspense>}
         </details>
-        </>}
+        {!replayActive && <nav className="home-related-views" aria-label={t("home.relatedViews")}>
+          <span className="eyebrow">{t("home.relatedViews")}</span>
+          <div className="context-controls">
+            {!hasUsableReadings && <button type="button" className="secondary-button" aria-expanded="false" onClick={() => setLiveMapOpen(true)}><Map size={15} aria-hidden="true" />{t("home.openLiveView")}</button>}
+            {props.onOpenOutdoor && <button type="button" className="secondary-button" onClick={props.onOpenOutdoor}><Wind size={15} aria-hidden="true" />{t("nav.outdoor")}</button>}
+            {props.onOpenEnergy && <button type="button" className="secondary-button" onClick={props.onOpenEnergy}><Bolt size={15} aria-hidden="true" />{t("nav.energyUse")}</button>}
+            {props.onOpenAnalytics && <button type="button" className="secondary-button" onClick={props.onOpenAnalytics}><Gauge size={15} aria-hidden="true" />{t("nav.analytics")}</button>}
+          </div>
+        </nav>}
+        </div>
+        </details>}
       </>
     );
 }

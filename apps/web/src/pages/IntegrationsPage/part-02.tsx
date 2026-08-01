@@ -44,6 +44,7 @@ import {
   type TpLinkHistoryExportJobStatus,
 } from "../../api";
 import type { HouseLocationMapItem, MapLocation } from "../../components/HouseLocationMap";
+import { confirmAction } from "../../components/ConfirmationProvider";
 import { LocationDiscoveryPanel, type DiscoveredHomeDefaults } from "../../components/LocationDiscoveryPanel";
 import { useI18n } from "../../i18n";
 import { integrationForHouse } from "../../integrationScope";
@@ -248,7 +249,7 @@ export function useIntegrationsPagePart02(context: ReturnType<typeof useIntegrat
     };
   const disconnectHomeAssistantAssignment = async (houseId: string) => {
       const assignedHouse = connectionHouses.find((candidate) => candidate.id === houseId);
-      if (!window.confirm(t("setup.disconnectHomeAssistantConfirm", { home: assignedHouse?.name ?? houseId }))) return;
+      if (!await confirmAction(t("setup.disconnectHomeAssistantConfirm", { home: assignedHouse?.name ?? houseId }), t("confirmation.disconnect"))) return;
       const assignmentKey = `ha:${houseId}`;
       setBusyAssignment(assignmentKey);
       setAssignmentFeedback(null);

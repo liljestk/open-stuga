@@ -190,7 +190,10 @@ export function useTwinDashboardPart02(context: ReturnType<typeof useTwinDashboa
   const spatialLayerScope = useMemo(() => ({ kind: "house" as const, id: houseId }), [houseId]);
   const spatialLayers = useSpatialLayers({
       scope: spatialLayerScope,
-      enabled: !editing,
+      // The spatial host fans out to catalog, snapshot, health, configuration,
+      // polling, and event-stream work. Keep that specialist path dormant on
+      // the calm Home summary until a view that can render it is actually open.
+      enabled: !editing && (liveMapOpen || analysisOpen || replayActive),
       historyAt: replayActive ? replayTimestamp : null,
     });
   const liveSpatialMaxSampleAgeMs = configuredSpatialMaxSampleAgeMs();

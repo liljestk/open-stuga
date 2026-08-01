@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { MeasurementSample, Sensor } from "@climate-twin/contracts";
 import type { ClimateState } from "../domain";
@@ -7,7 +7,7 @@ import { I18nProvider } from "../i18n";
 import { TwinDashboard } from "./TwinDashboard";
 
 describe("TwinDashboard metric summary", () => {
-  it("compares fresh readings with sensors capable of the selected measurement", () => {
+  it("compares fresh readings with sensors capable of the selected measurement", async () => {
     localStorage.setItem("climate-twin-locale", "en");
     const base = createDemoState();
     const template = base.sensors.find((sensor) => sensor.enabled)!;
@@ -111,8 +111,14 @@ describe("TwinDashboard metric summary", () => {
     /></I18nProvider>);
 
     const summary = screen.getByLabelText("Your home, at a glance");
-    expect(within(summary).getByText("Temperature sensors reporting")).not.toBeNull();
-    expect(within(summary).getByText("1 of 2")).not.toBeNull();
-    expect(within(summary).queryByText("1 of 3")).toBeNull();
+    expect(within(summary).getByText(/1 of 2 sensors reporting/)).not.toBeNull();
+    expect(within(summary).queryByText(/1 of 3 sensors reporting/)).toBeNull();
+    const openLiveView = within(summary).getByRole("button", { name: "Open live home view" });
+    expect(openLiveView).toHaveAttribute("aria-controls", "home-live-map");
+    fireEvent.click(openLiveView);
+    const hideLiveView = screen.getByRole("button", { name: "Hide live home view" });
+    hideLiveView.focus();
+    fireEvent.click(hideLiveView);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Open live home view" })).toHaveFocus());
   });
 });

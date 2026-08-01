@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   AreaEquipment,
@@ -16,6 +16,7 @@ import type {
 } from "@climate-twin/contracts";
 
 import { api, ApiRequestError } from "../api";
+import { confirmAction } from "../components/ConfirmationProvider";
 
 import { createDemoState, DEMO_PROPERTY_ID } from "../domain";
 
@@ -28,6 +29,13 @@ import { PropertyManagementPage } from "./PropertyManagementPage";
 import propertyStyles from "./PropertyManagementPage.css?raw";
 
 import { area, areaNavigation, areaTask, callbacks, enabledTrackingCapabilities, equipment, equipmentOnlyTask, note, originalClipboard, selectArea } from "./PropertyManagementPageTestSupport";
+
+vi.mock("../components/ConfirmationProvider", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../components/ConfirmationProvider")>();
+  return { ...actual, confirmAction: vi.fn().mockResolvedValue(true) };
+});
+
+beforeEach(() => vi.mocked(confirmAction).mockReset().mockResolvedValue(true));
 
 vi.mock("../components/PropertyAreaMap", () => ({
   PropertyAreaMap: ({
@@ -142,7 +150,7 @@ describe("PropertyManagementPage", () => {
 
     render(<I18nProvider><PropertyManagementPage state={state} {...handlers} /></I18nProvider>);
     fireEvent.click(screen.getByRole("tab", { name: "Notes" }));
-    fireEvent.click(screen.getByRole("button", { name: `Edit layout: ${note.text}` }));
+    fireEvent.click(screen.getByRole("button", { name: `Edit: ${note.text}` }));
     expect((screen.getByLabelText("Note") as HTMLTextAreaElement).value).toBe(note.text);
 
     fireEvent.change(screen.getByLabelText("Active property"), { target: { value: secondProperty.id } });
@@ -162,7 +170,7 @@ describe("PropertyManagementPage", () => {
     expect(handlers.onUpdateNote).not.toHaveBeenCalled();
   });
 
-  it("uses the active home's property and creates another home with explicit ownership defaults", async () => {
+  it("shows a direct first-Home form for a Property with no Homes and preserves explicit ownership defaults", async () => {
     const state = createDemoState();
     const secondProperty = { ...state.properties[0]!, id: "property-lake", name: "Lake estate" };
     state.properties = [...state.properties, secondProperty];
@@ -174,7 +182,10 @@ describe("PropertyManagementPage", () => {
     render(<I18nProvider><PropertyManagementPage state={state} initialPropertyId={secondProperty.id} {...handlers} /></I18nProvider>);
 
     expect((screen.getByLabelText("Active property") as HTMLSelectElement).value).toBe(secondProperty.id);
-    fireEvent.change(screen.getByLabelText("Add a home to this property"), { target: { value: "Lake home" } });
+    expect(screen.queryByText("Add home", { selector: "summary strong" })).toBeNull();
+    const firstHomeName = screen.getByLabelText("Home name");
+    expect(firstHomeName.closest(".property-overview-first-home")).not.toBeNull();
+    fireEvent.change(firstHomeName, { target: { value: "Lake home" } });
     fireEvent.click(screen.getByRole("button", { name: "Add home" }));
 
     await waitFor(() => expect(handlers.onCreateHouse).toHaveBeenCalledWith(expect.objectContaining({
@@ -255,6 +266,24 @@ describe("PropertyManagementPage", () => {
     expect(screen.getByRole("button", { name: "Finish drawing" })).not.toBeNull();
   });
 
+  it("opens the map workspace when Add area is requested from the overview", async () => {
+    const state = createDemoState();
+    const onTab = vi.fn();
+    render(<I18nProvider><PropertyManagementPage
+      state={state}
+      initialTab="overview"
+      onTab={onTab}
+      {...callbacks()}
+    /></I18nProvider>);
+
+    expect(screen.getByRole("tab", { name: "Overview" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Add area" }));
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Map" }).getAttribute("aria-selected")).toBe("true"));
+    expect(onTab).toHaveBeenCalledWith("map");
+    expect(screen.getByRole("button", { name: "Finish drawing" })).not.toBeNull();
+  });
+
   it("does not infer a well's health from an unbound Home connection", () => {
     const state = createDemoState();
     state.alerts = [];
@@ -276,6 +305,35 @@ describe("PropertyManagementPage", () => {
     expect(screen.getByLabelText(/^Well: Check\. No monitored assets are mapped\./)).not.toBeNull();
     expect(screen.queryByLabelText(/^Infrastructure:/)).toBeNull();
     expect(within(screen.getByLabelText("Property status")).getAllByText(/No monitored assets are mapped\./)).toHaveLength(2);
+  });
+
+  it("keeps the Property overview calm and puts configuration behind one disclosure", () => {
+    const state = createDemoState();
+    const home = state.houses[0]!;
+    const openHome = vi.fn();
+    const { container } = render(<I18nProvider><PropertyManagementPage
+      state={state}
+      initialTab="overview"
+      onOpenHouse={openHome}
+      {...callbacks()}
+    /></I18nProvider>);
+
+    const overview = screen.getByRole("tabpanel", { name: "Overview" });
+    expect(within(overview).getByRole("heading", { name: "At a glance" })).not.toBeNull();
+    fireEvent.click(within(overview).getByRole("button", { name: `Open ${home.name}` }));
+    expect(openHome).toHaveBeenCalledWith(home.id);
+    expect(container.querySelector(".property-sidebar")).toBeNull();
+    expect(container.querySelector(".property-overview-actions")).toBeNull();
+    expect(container.querySelector<HTMLDetailsElement>(".property-overview-status")?.open).toBe(false);
+
+    const manage = screen.getByText("Manage property", { selector: "summary strong" }).closest("details")!;
+    expect(manage.open).toBe(false);
+    fireEvent.click(manage.querySelector("summary")!);
+    expect(manage.open).toBe(true);
+    expect(within(manage).getByRole("button", { name: "Edit property" })).not.toBeNull();
+    expect(within(manage).getByRole("button", { name: "Add area" })).not.toBeNull();
+    expect(within(manage).getByText("Add home", { selector: "summary strong" })).not.toBeNull();
+    expect(within(manage).getByText("Add property", { selector: "summary strong" })).not.toBeNull();
   });
 
   it("announces selected areas and identifies equipment and note actions by their target", () => {
@@ -305,9 +363,9 @@ describe("PropertyManagementPage", () => {
     expect(screen.getByRole("button", { name: "Delete: Backup generator" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("tab", { name: "Notes" }));
-    expect(screen.getByRole("button", { name: `Edit layout: ${note.text}` })).toBeTruthy();
+    expect(screen.getByRole("button", { name: `Edit: ${note.text}` })).toBeTruthy();
     expect(screen.getByRole("button", { name: `Delete: ${note.text}` })).toBeTruthy();
-    expect(screen.getByRole("button", { name: `Edit layout: ${secondNote.text}` })).toBeTruthy();
+    expect(screen.getByRole("button", { name: `Edit: ${secondNote.text}` })).toBeTruthy();
     expect(screen.getByRole("button", { name: `Delete: ${secondNote.text}` })).toBeTruthy();
   });
 
@@ -317,15 +375,13 @@ describe("PropertyManagementPage", () => {
     state.properties = [...state.properties, secondProperty];
     const handlers = callbacks();
     handlers.onUpdateHouse.mockResolvedValue({ ...state.houses[0]!, propertyId: secondProperty.id });
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-
     render(<I18nProvider><PropertyManagementPage state={state} {...handlers} /></I18nProvider>);
     fireEvent.change(screen.getByLabelText("Move to property"), { target: { value: secondProperty.id } });
 
     await waitFor(() => expect(handlers.onUpdateHouse).toHaveBeenCalledWith(state.houses[0]!.id, {
       propertyId: secondProperty.id,
     }));
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining(state.houses[0]!.name));
+    expect(confirmAction).toHaveBeenCalledWith(expect.stringContaining(state.houses[0]!.name), "Move", false);
   });
 
   it("moves an area aggregate to another property", async () => {
@@ -335,8 +391,6 @@ describe("PropertyManagementPage", () => {
     state.propertyAreas = [area];
     const handlers = callbacks();
     handlers.onUpdateArea.mockResolvedValue({ ...area, propertyId: secondProperty.id });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-
     render(<I18nProvider><PropertyManagementPage state={state} {...handlers} /></I18nProvider>);
     await waitFor(() => expect((screen.getByLabelText("Active property") as HTMLSelectElement).value).toBe(DEMO_PROPERTY_ID));
     selectArea(/North well/);
@@ -359,8 +413,6 @@ describe("PropertyManagementPage", () => {
     state.areaEquipment = [equipment];
     const handlers = callbacks();
     handlers.onUpdateEquipment.mockResolvedValue({ ...equipment, propertyId: secondProperty.id, areaId: secondArea.id });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-
     render(<I18nProvider><PropertyManagementPage state={state} {...handlers} /></I18nProvider>);
     await waitFor(() => expect((screen.getByLabelText("Active property") as HTMLSelectElement).value).toBe(DEMO_PROPERTY_ID));
     selectArea(/North well/);
@@ -431,8 +483,6 @@ describe("PropertyManagementPage", () => {
     state.propertyNotes = [note];
     const handlers = callbacks();
     handlers.onDeleteNote.mockRejectedValue(new Error("offline"));
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-
     render(<I18nProvider><PropertyManagementPage state={state} {...handlers} /></I18nProvider>);
     fireEvent.click(screen.getByRole("tab", { name: "Notes" }));
     fireEvent.click(screen.getByRole("button", { name: `Delete: ${note.text}` }));
@@ -497,6 +547,7 @@ describe("PropertyManagementPage", () => {
     render(<I18nProvider><PeopleAccessPage state={state} /></I18nProvider>);
     await screen.findByText("No guest accounts have been invited.");
 
+    fireEvent.click(screen.getByText("Add a guest"));
     fireEvent.change(screen.getByLabelText("Guest email address"), { target: { value: "guest@example.test" } });
     fireEvent.click(screen.getByRole("button", { name: "Invite guest" }));
     const activation = await screen.findByLabelText("Activation link") as HTMLInputElement;

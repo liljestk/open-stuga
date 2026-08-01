@@ -1,9 +1,10 @@
 import { Compass, Droplets, Eye, EyeOff, LoaderCircle, PauseCircle, Thermometer, TriangleAlert, Wind } from "lucide-react";
-import { useState, type CSSProperties } from "react";
+import { useEffect, useId, useState, type CSSProperties } from "react";
 import type { UnitSystem } from "@climate-twin/contracts";
 import { formatInTimeZone } from "../dateTime";
 import type { OutdoorBoundaryContext, PlanEdge } from "../outdoorContext";
 import { useI18n, type TranslationKey } from "../i18n";
+import { readLocalStorage, subscribeToAccountStorageScope, writeLocalStorage } from "../browserStorage";
 
 export interface OutdoorVisualizationState {
   context: OutdoorBoundaryContext | null;
@@ -73,16 +74,22 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
   const { locale, t } = useI18n();
   const { context } = outdoor;
   const title = t(outdoor.replayActive ? "outdoor.replayTitle" : "outdoor.title");
+  const panelId = useId();
   const [collapsed, setCollapsed] = useState(() => {
-    const preference = localStorage.getItem(outdoorPanelPreferenceKey);
+    const preference = readLocalStorage(outdoorPanelPreferenceKey);
     if (preference) return preference === "collapsed";
     return window.matchMedia?.("(max-width: 500px)").matches ?? false;
   });
 
   const setPanelCollapsed = (next: boolean) => {
     setCollapsed(next);
-    localStorage.setItem(outdoorPanelPreferenceKey, next ? "collapsed" : "expanded");
+    writeLocalStorage(outdoorPanelPreferenceKey, next ? "collapsed" : "expanded");
   };
+
+  useEffect(() => subscribeToAccountStorageScope(() => {
+    const preference = readLocalStorage(outdoorPanelPreferenceKey);
+    setCollapsed(preference ? preference === "collapsed" : (window.matchMedia?.("(max-width: 500px)").matches ?? false));
+  }), []);
 
   if (!outdoor.hasLocation) return null;
 
@@ -96,11 +103,12 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
 
   if (collapsed) {
     return (
-      <aside className="outdoor-context-card collapsed" aria-label={[title, t("outdoor.collapsed"), collapsedWindSummary].filter(Boolean).join(". ")}>
+      <aside id={panelId} className="outdoor-context-card collapsed" aria-label={[title, t("outdoor.collapsed"), collapsedWindSummary].filter(Boolean).join(". ")}>
         <button
           type="button"
           className="outdoor-context-toggle"
           aria-expanded="false"
+          aria-controls={panelId}
           aria-label={t("outdoor.expand")}
           title={t("outdoor.expand")}
           onClick={() => setPanelCollapsed(false)}
@@ -120,6 +128,7 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
       type="button"
       className="outdoor-context-toggle"
       aria-expanded="true"
+      aria-controls={panelId}
       aria-label={t("outdoor.collapse")}
       title={t("outdoor.collapse")}
       onClick={() => setPanelCollapsed(true)}
@@ -130,7 +139,7 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
 
   if (outdoor.replayActive && !context && !outdoor.loading) {
     return (
-      <aside className="outdoor-context-card compact muted has-toggle" aria-label={t("outdoor.replayUnavailable")}>
+      <aside id={panelId} className="outdoor-context-card compact muted has-toggle" aria-label={t("outdoor.replayUnavailable")}>
         {collapseControl}
         <PauseCircle size={16} aria-hidden="true" />
         <span><strong>{title}</strong><small>{t("outdoor.replayUnavailable")}</small></span>
@@ -140,7 +149,7 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
 
   if (!context && outdoor.loading) {
     return (
-      <aside className="outdoor-context-card compact has-toggle" aria-label={t("outdoor.loading")}>
+      <aside id={panelId} className="outdoor-context-card compact has-toggle" aria-label={t("outdoor.loading")}>
         {collapseControl}
         <LoaderCircle className="spin" size={16} aria-hidden="true" />
         <span><strong>{title}</strong><small>{t("outdoor.loading")}</small></span>
@@ -150,7 +159,7 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
 
   if (!context && outdoor.unavailable) {
     return (
-      <aside className="outdoor-context-card compact warning has-toggle" aria-label={t("outdoor.unavailable")}>
+      <aside id={panelId} className="outdoor-context-card compact warning has-toggle" aria-label={t("outdoor.unavailable")}>
         {collapseControl}
         <TriangleAlert size={16} aria-hidden="true" />
         <span><strong>{title}</strong><small>{t("outdoor.unavailable")}</small></span>
@@ -183,7 +192,7 @@ export function OutdoorConditionsBadge({ outdoor, units, showCompass = false }: 
   ].filter(Boolean).join(". ");
 
   return (
-    <aside className={`outdoor-context-card has-toggle ${context.stale ? "stale" : ""}`} aria-label={`${title}. ${accessibleSummary}`}>
+    <aside id={panelId} className={`outdoor-context-card has-toggle ${context.stale ? "stale" : ""}`} aria-label={`${title}. ${accessibleSummary}`}>
       {collapseControl}
       <div className="outdoor-context-heading">
         <span><strong>{title}</strong><small>{t("outdoor.observedAt", { time: observedTime(context.observedAt, locale, outdoor.timeZone) })}</small></span>

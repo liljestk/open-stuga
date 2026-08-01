@@ -181,30 +181,71 @@ function appendHistoryWithLimit(
   limitForSeries: (existing: MeasurementSample[]) => number,
 ): MeasurementHistory {
   const next = { ...history };
+  const samplesBySensor = new Map<string, Map<Metric, MeasurementSample[]>>();
   for (const sample of samples) {
-    const sensorHistory = { ...(next[sample.sensorId] ?? {}) };
-    const existing = sensorHistory[sample.metric] ?? [];
-    const limit = Math.max(1, Math.floor(limitForSeries(existing)));
-    const last = existing.at(-1);
-    const sampleTime = Date.parse(sample.timestamp);
-    const lastTime = last ? Date.parse(last.timestamp) : Number.NEGATIVE_INFINITY;
-    if (!last || Number.isFinite(sampleTime) && Number.isFinite(lastTime) && sampleTime >= lastTime) {
-      const appended = last?.timestamp === sample.timestamp
-        ? [...existing.slice(0, -1), sample]
-        : [...existing, sample];
-      sensorHistory[sample.metric] = appended.slice(-limit);
-    } else {
-      // Historical imports and reconnects can legitimately arrive out of order.
-      // Keep that uncommon path correct while making ordered live telemetry O(n)
-      // (array copy only) instead of sorting the complete series per sample.
-      const withoutDuplicate = existing.filter((item) => item.timestamp !== sample.timestamp);
-      sensorHistory[sample.metric] = [...withoutDuplicate, sample]
-        .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
-        .slice(-limit);
+    let samplesByMetric = samplesBySensor.get(sample.sensorId);
+    if (!samplesByMetric) {
+      samplesByMetric = new Map();
+      samplesBySensor.set(sample.sensorId, samplesByMetric);
     }
-    next[sample.sensorId] = sensorHistory;
+    const seriesSamples = samplesByMetric.get(sample.metric) ?? [];
+    seriesSamples.push(sample);
+    samplesByMetric.set(sample.metric, seriesSamples);
+  }
+  for (const [sensorId, samplesByMetric] of samplesBySensor) {
+    const sensorHistory = { ...(next[sensorId] ?? {}) };
+    for (const [metric, seriesSamples] of samplesByMetric) {
+      const existing = sensorHistory[metric] ?? [];
+      const limit = Math.max(1, Math.floor(limitForSeries(existing)));
+      sensorHistory[metric] = mergeHistorySeries(existing, seriesSamples, limit);
+    }
+    next[sensorId] = sensorHistory;
   }
   return next;
+}
+
+function mergeHistorySeries(
+  existing: MeasurementSample[],
+  samples: MeasurementSample[],
+  limit: number,
+): MeasurementSample[] {
+  const byTimestamp = new Map<string, MeasurementSample>();
+  for (const sample of samples) {
+    // Moving an existing key makes the Map order match the last occurrence too.
+    byTimestamp.delete(sample.timestamp);
+    byTimestamp.set(sample.timestamp, sample);
+  }
+  const incoming = [...byTimestamp.values()];
+  const last = existing.at(-1);
+  let previousTime = last ? Date.parse(last.timestamp) : Number.NEGATIVE_INFINITY;
+  let orderedAppend = !last || Number.isFinite(previousTime);
+  for (const sample of incoming) {
+    const sampleTime = Date.parse(sample.timestamp);
+    if (!Number.isFinite(sampleTime) || sampleTime < previousTime) {
+      orderedAppend = false;
+      break;
+    }
+    previousTime = sampleTime;
+  }
+
+  if (orderedAppend) {
+    const existingEnd = last?.timestamp === incoming[0]?.timestamp
+      ? existing.length - 1
+      : existing.length;
+    const retainedStart = Math.max(0, existingEnd + incoming.length - limit);
+    if (retainedStart >= existingEnd) return incoming.slice(retainedStart - existingEnd);
+    const retained = existing.slice(retainedStart, existingEnd);
+    for (const sample of incoming) retained.push(sample);
+    return retained;
+  }
+
+  // Imports and reconnects can arrive out of order. Consolidate the whole batch
+  // first so a large retained series is copied and sorted at most once per flush.
+  const incomingTimestamps = new Set(byTimestamp.keys());
+  const merged = existing.filter((sample) => !incomingTimestamps.has(sample.timestamp));
+  for (const sample of incoming) merged.push(sample);
+  merged.sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
+  return merged.length > limit ? merged.slice(-limit) : merged;
 }
 
 export function appendHistory(history: MeasurementHistory, samples: MeasurementSample[], limit = 50_000): MeasurementHistory {

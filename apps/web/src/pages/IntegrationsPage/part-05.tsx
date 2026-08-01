@@ -159,7 +159,7 @@ export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrat
         source: "map-placement",
         confidence: "high",
         discoveredAt,
-        userOverridden: false,
+        userOverridden: true,
       };
       setSavingLocation(true);
       setLocationFeedback(null);
@@ -241,10 +241,9 @@ export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrat
   const connectionWorkspaceActive = activeSection === "connections"
       && (sensorSourceConfigured || Boolean(integration.gree?.configured));
   const steps = [
-      { icon: Router, title: t("setup.step1"), body: t("setup.step1body"), complete: sensorHardwareDetected },
-      { icon: Home, title: t("setup.step2"), body: t("setup.step2body"), complete: sensorSourceConfigured },
-      { icon: Link2, title: t("setup.step3"), body: t("setup.step3body"), complete: sensorSourceConnected },
-      { icon: ThermometerSun, title: t("setup.step4"), body: t("setup.step4body"), complete: mappedSensorSources },
+      { icon: Home, title: t("setup.step1"), body: t("setup.step1body"), complete: true },
+      { icon: Link2, title: t("setup.step2"), body: t("setup.step2body"), complete: sensorSourceConnected },
+      { icon: ThermometerSun, title: t("setup.step3"), body: t("setup.step3body"), complete: mappedSensorSources },
     ];
   const completeCount = steps.filter((step) => step.complete).length;
   const nextStepIndex = steps.findIndex((step) => !step.complete);
@@ -261,16 +260,24 @@ export function useIntegrationsPagePart05(context: ReturnType<typeof useIntegrat
       { id: "operations", label: t("setup.workspaceOperations"), detail: t("setup.workspaceOperationsDetail") },
       { id: "automations", label: t("setup.workspaceAutomations"), detail: t("setup.workspaceAutomationsDetail", { count: notesGrantCount }) },
     ];
+  const primarySetupSections = setupSections.filter((section) => section.id !== "weather" && section.id !== "operations" && section.id !== "automations");
+  const advancedSetupSections = setupSections.filter((section) => section.id === "weather" || section.id === "operations" || section.id === "automations");
   const activeSectionLabel = setupSections.find((section) => section.id === activeSection)?.label ?? t("setup.workspaceOverview");
   const sectionHeading = activeSection === "overview"
       ? t("setup.title")
       : activeSection === "connections"
         ? t("setup.connectionsTitle")
+        : activeSection === "weather"
+          ? t("setup.advancedWeather")
         : activeSectionLabel;
-  const sectionDescription = activeSection === "connections" ? t("setup.connectionsDescription") : t("setup.description");
+  const sectionDescription = activeSection === "connections"
+      ? t("setup.connectionsDescription")
+      : activeSection === "weather"
+        ? t("setup.advancedWeatherDescription")
+        : t("setup.description");
   const activateSection = (section: SetupSection) => {
       setActiveSection(section);
       writeSetupSection(section);
     };
-  return Object.assign(context, { resetPlacementDraft, savePlacement, removePlacement, clearOrientation, updateFromMap, usePlacementForWeather, savePlacementForWeather, applyDiscoveredDefaults, addableTpLinkSources, addableGreeDevices, discoveredCount, sensorHardwareDetected, sensorSourceConfigured, sensorSourceConnected, mappedSensorSources, tpLinkReadyDevices, tpLinkHubName, connectedSourceCount, assignmentCount, connectedSourceLabel, streamStatusLabel, tpLinkHealthState, tpLinkHealthLabel, tpLinkStatusTitle, connectionWorkspaceActive, steps, completeCount, nextStepIndex, nextStep, weatherHomes, notesGrantCount, selectedDiscoveredTpLink, selectedDiscoveredHomeAssistant, setupSections, activeSectionLabel, sectionHeading, sectionDescription, activateSection });
+  return Object.assign(context, { resetPlacementDraft, savePlacement, removePlacement, clearOrientation, updateFromMap, usePlacementForWeather, savePlacementForWeather, applyDiscoveredDefaults, addableTpLinkSources, addableGreeDevices, discoveredCount, sensorHardwareDetected, sensorSourceConfigured, sensorSourceConnected, mappedSensorSources, tpLinkReadyDevices, tpLinkHubName, connectedSourceCount, assignmentCount, connectedSourceLabel, streamStatusLabel, tpLinkHealthState, tpLinkHealthLabel, tpLinkStatusTitle, connectionWorkspaceActive, steps, completeCount, nextStepIndex, nextStep, weatherHomes, notesGrantCount, selectedDiscoveredTpLink, selectedDiscoveredHomeAssistant, setupSections, primarySetupSections, advancedSetupSections, activeSectionLabel, sectionHeading, sectionDescription, activateSection });
 }

@@ -122,11 +122,6 @@ export const mcpToolDefinitionsPart02 = [
         inputSchema: { type: "object", properties: { houseId: { type: "string" }, floorId: { type: "string" }, floor: floorSchema }, required: ["houseId", "floorId", "floor"], additionalProperties: false },
       },
   {
-        name: "delete_house",
-        description: "Permanently delete a house and its dependent local data. Requires confirm=true.",
-        inputSchema: { type: "object", properties: { houseId: { type: "string" }, ...confirmationProperty }, required: ["houseId", "confirm"], additionalProperties: false },
-      },
-  {
         name: "search_locations",
         description: "Search worldwide place and timezone suggestions through Open-Meteo geocoding. The query is sent to that public service only when this tool is called.",
         inputSchema: {

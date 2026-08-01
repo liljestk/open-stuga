@@ -267,6 +267,7 @@ export function configureApiPart11(context: ReturnType<typeof configureApiPart10
       response.setHeader("connection", "keep-alive");
       response.flushHeaders();
       const writer = boundedSseWriter(response);
+      writer.send(": connected\n\n");
       const write = (sample: MeasurementSample): void => {
         if (response.destroyed || response.writableEnded) return;
         const access = context.authorizedStreamVisibility(request, response, acceptedAuthorization);

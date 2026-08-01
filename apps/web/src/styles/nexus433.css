@@ -124,6 +124,115 @@
   font-weight: 700;
 }
 
+.nexus433-surface {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.nexus433-attention {
+  display: grid;
+  gap: 14px;
+  padding: 16px 19px;
+  border-color: color-mix(in srgb, var(--yellow) 44%, var(--line));
+  box-shadow: inset 4px 0 0 var(--yellow), var(--shadow);
+}
+
+.nexus433-attention .panel-header {
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.nexus433-attention .panel-header p {
+  max-width: 700px;
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.nexus433-senders {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+}
+
+.nexus433-senders > summary {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  color: var(--ink);
+  cursor: pointer;
+  list-style: none;
+}
+
+.nexus433-senders > summary::-webkit-details-marker {
+  display: none;
+}
+
+.nexus433-senders > summary > span {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nexus433-senders > summary > span:first-child > svg {
+  flex: 0 0 auto;
+  color: var(--action);
+}
+
+.nexus433-senders > summary > span:first-child > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.nexus433-senders > summary strong,
+.nexus433-senders > summary small {
+  display: block;
+}
+
+.nexus433-senders > summary strong {
+  font: 700 13px/1.35 "Manrope", sans-serif;
+}
+
+.nexus433-senders > summary small {
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.nexus433-senders > summary > span:last-child > svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+  transition: transform .16s ease;
+}
+
+.nexus433-senders[open] > summary {
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-soft);
+}
+
+.nexus433-senders[open] > summary > span:last-child > svg {
+  transform: rotate(180deg);
+}
+
+.nexus433-management-body {
+  display: grid;
+  gap: 14px;
+  padding: 16px 19px 19px;
+}
+
+.nexus433-management-body > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 @media (max-width: 680px) {
   .nexus433-binding-list li,
   .nexus433-candidate-list li,
@@ -134,5 +243,15 @@
 
   .nexus433-candidate-action label {
     min-width: 0;
+  }
+
+  .nexus433-attention .panel-header,
+  .nexus433-senders > summary {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .nexus433-senders > summary > span:last-child {
+    justify-content: space-between;
   }
 }

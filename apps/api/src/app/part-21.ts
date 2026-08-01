@@ -309,10 +309,20 @@ export function configureApiPart21(context: ReturnType<typeof configureApiPart20
         throw new HttpError(404, "NOT_FOUND", "House not found");
       }
       const limit = safeInteger(request.query.limit, 100, 1, 1_000);
-      const gaps = context.database.listSensorDataGaps(sensorId, limit)
+      const visibleHouseIds = houseId
+        ? [houseId]
+        : access.restricted
+          ? context.database.listHouses().filter((house) => access.house(house.id)).map((house) => house.id)
+          : null;
+      const gaps = (visibleHouseIds === null
+        ? context.database.listSensorDataGaps(sensorId, limit)
+        : visibleHouseIds
+          .flatMap((visibleHouseId) => context.database.listHouseSensorDataGaps(visibleHouseId, sensorId, limit))
+          .sort((left, right) => right.startedAt.localeCompare(left.startedAt) || right.id - left.id)
+          .slice(0, limit))
         .filter((gap) => {
           const sensor = context.database.getSensor(gap.sensorId);
-          return Boolean(sensor && access.sensor(gap.sensorId) && (!houseId || sensor.houseId === houseId));
+          return Boolean(sensor && access.sensor(gap.sensorId));
         });
       response.json({ gaps });
     });

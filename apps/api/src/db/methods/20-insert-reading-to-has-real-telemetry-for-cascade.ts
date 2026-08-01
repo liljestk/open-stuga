@@ -133,6 +133,7 @@ registerDatabaseMethods({
       });
     },
   upsertLegacyReading(reading: Reading): boolean {
+      if (!this.getSensor(reading.sensorId)) return false;
       return this.immediateTransaction(() => {
         this.prepareTelemetrySources([reading.source]);
         const result = this.db.prepare(`INSERT INTO readings
@@ -147,6 +148,7 @@ registerDatabaseMethods({
       });
     },
   insertLegacyReadingUnchecked(reading: Reading): boolean {
+      if (!this.getSensor(reading.sensorId)) return false;
       const result = this.db.prepare(`INSERT OR IGNORE INTO readings
         (sensor_id, timestamp, temperature, humidity, battery, source, quality) VALUES (?, ?, ?, ?, ?, ?, ?)`)
         .run(reading.sensorId, reading.timestamp, reading.temperature, reading.humidity, reading.battery, reading.source, reading.quality);
@@ -163,37 +165,41 @@ registerDatabaseMethods({
       });
     },
   latestReadings(sensorIds?: string[]): Reading[] {
-      const filter = sensorIds?.length ? `WHERE s.id IN (${sensorIds.map(() => "?").join(",")})` : "";
+      const filter = sensorIds?.length ? `AND s.id IN (${sensorIds.map(() => "?").join(",")})` : "";
       const rows = this.db.prepare(`SELECT reading.sensor_id, reading.timestamp, reading.temperature,
           reading.humidity, reading.battery, reading.source, reading.quality
-        FROM sensors s JOIN readings reading ON reading.id = (
+        FROM sensors s JOIN houses AS house ON house.id = s.house_id
+        JOIN readings reading ON reading.id = (
           SELECT latest.id FROM readings latest WHERE latest.sensor_id = s.id
           ORDER BY latest.timestamp DESC, latest.id DESC LIMIT 1
         )
-        ${filter}
+        WHERE house.deleted_at IS NULL ${filter}
         ORDER BY reading.sensor_id`)
         .all(...(sensorIds ?? [])) as unknown as ReadingRow[];
       return rows.map(readingFromRow);
     },
   getLatestReading(sensorId: string): Reading | null {
+      if (!this.getSensor(sensorId)) return null;
       const row = this.db.prepare(`SELECT sensor_id, timestamp, temperature, humidity, battery, source, quality
         FROM readings WHERE sensor_id = ? ORDER BY timestamp DESC, id DESC LIMIT 1`).get(sensorId) as unknown as ReadingRow | undefined;
       return row ? readingFromRow(row) : null;
     },
   history(sensorIds: string[], from: string, to: string, limit = 20_000): Reading[] {
-      if (sensorIds.length === 0) return [];
-      const placeholders = sensorIds.map(() => "?").join(",");
+      const visibleSensorIds = sensorIds.filter((id) => Boolean(this.getSensor(id)));
+      if (visibleSensorIds.length === 0) return [];
+      const placeholders = visibleSensorIds.map(() => "?").join(",");
       const rows = this.db.prepare(`SELECT sensor_id, timestamp, temperature, humidity, battery, source, quality
         FROM (
           SELECT id, sensor_id, timestamp, temperature, humidity, battery, source, quality
           FROM readings WHERE sensor_id IN (${placeholders}) AND timestamp >= ? AND timestamp <= ?
           ORDER BY timestamp DESC, id DESC LIMIT ?
-        ) ORDER BY timestamp ASC, id ASC`).all(...sensorIds, from, to, limit) as unknown as ReadingRow[];
+        ) ORDER BY timestamp ASC, id ASC`).all(...visibleSensorIds, from, to, limit) as unknown as ReadingRow[];
       return rows.map(readingFromRow);
     },
   historyBucketed(sensorIds: string[], from: string, to: string, bucketSeconds: number, limit = 20_000): Reading[] {
-      if (sensorIds.length === 0) return [];
-      const placeholders = sensorIds.map(() => "?").join(",");
+      const visibleSensorIds = sensorIds.filter((id) => Boolean(this.getSensor(id)));
+      if (visibleSensorIds.length === 0) return [];
+      const placeholders = visibleSensorIds.map(() => "?").join(",");
       const rows = this.db.prepare(`WITH source_rows AS (
           SELECT id, sensor_id, timestamp, source,
             CAST(CAST(strftime('%s', timestamp) AS INTEGER) / ? AS INTEGER) * ? AS bucket_epoch,
@@ -217,7 +223,7 @@ registerDatabaseMethods({
           AND chronological_rows.bucket_epoch = recent_buckets.bucket_epoch AND chronological_rows.position = 1
         JOIN readings AS latest ON latest.id = chronological_rows.id
         ORDER BY recent_buckets.bucket_epoch ASC, recent_buckets.sensor_id`)
-        .all(bucketSeconds, bucketSeconds, ...sensorIds, from, to, limit) as Array<{
+        .all(bucketSeconds, bucketSeconds, ...visibleSensorIds, from, to, limit) as Array<{
           sensor_id: string;
           bucket_epoch: number;
           temperature: number;

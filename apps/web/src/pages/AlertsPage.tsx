@@ -72,6 +72,7 @@ function AlertsPageView({ state, units, onCreateRule, onUpdateRule, onAcknowledg
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [telegramSetupOpen, setTelegramSetupOpen] = useState(false);
+  const [deliverySettingsOpen, setDeliverySettingsOpen] = useState(false);
   const openAlerts = state.alerts.filter((alert) => !alert.resolvedAt).sort(compareAlertPriority);
   const actionableGroups = groupAlerts(openAlerts.filter((alert) => !alert.acknowledgedAt), state.alertRules);
   const acknowledgedGroups = groupAlerts(openAlerts.filter((alert) => alert.acknowledgedAt), state.alertRules);
@@ -94,6 +95,7 @@ function AlertsPageView({ state, units, onCreateRule, onUpdateRule, onAcknowledg
   const monitoringConfirmed = monitoringResponseComplete
     && state.houses.length > 0
     && coverageExceptions.length === 0;
+  const showOpenAlertsPanel = inventoryUnavailable || monitoringConfirmed || actionableGroups.length > 0 || acknowledgedGroups.length > 0;
   useEffect(() => {
     if (definitions.length && !definitions.some((item) => item.id === metric)) {
       const next = definitions[0]!;
@@ -126,7 +128,10 @@ function AlertsPageView({ state, units, onCreateRule, onUpdateRule, onAcknowledg
     const houseName = state.houses.find((house) => house.id === sensor.houseId)?.name;
     return houseName ? `${houseName} · ${sensor.name}` : sensor.name;
   };
-  const openTelegramSetup = () => setTelegramSetupOpen(true);
+  const openTelegramSetup = () => {
+    setDeliverySettingsOpen(true);
+    setTelegramSetupOpen(true);
+  };
 
   return (
     <>
@@ -134,17 +139,17 @@ function AlertsPageView({ state, units, onCreateRule, onUpdateRule, onAcknowledg
         <div><span className="eyebrow"><BellRing size={14} aria-hidden="true" />{t("alerts.open")}</span><h1>{t("alerts.title")}</h1><p>{t("alerts.description")}</p></div>
       </header>
       {canManageSystem && <HostSystemAlertsPanel {...(onOpenSystem ? { onOpenSystem } : {})} />}
-      <section className="panel alerts-open-panel" aria-labelledby="open-alerts-heading">
-        <div className="panel-header alerts-open-heading"><div><span className="eyebrow">{t("alerts.open")}</span><h2 id="open-alerts-heading">{t("alerts.needsAttention")}</h2></div><span className="alerts-open-count" aria-label={`${actionableGroups.length} ${t("alerts.open")}`}>{actionableGroups.length}</span></div>
+      {showOpenAlertsPanel && <section className="panel alerts-open-panel" aria-labelledby="open-alerts-heading">
+        <div className="panel-header alerts-open-heading"><div><span className="eyebrow">{t("alerts.open")}</span><h2 id="open-alerts-heading">{t(actionableGroups.length ? "alerts.needsAttention" : acknowledgedGroups.length ? "alerts.acknowledgedOpen" : "alerts.noThresholdAlerts")}</h2></div>{actionableGroups.length > 0 && <span className="alerts-open-count" aria-label={`${actionableGroups.length} ${t("alerts.open")}`}>{actionableGroups.length}</span>}</div>
         {actionableGroups.length === 0 ? inventoryUnavailable
           ? <div className="empty-state"><HelpCircle size={34} aria-hidden="true" /><strong>{t("properties.noAccessTitle")}</strong><span>{t("properties.noAccessBody")}</span></div>
-          : <div className={`empty-state${monitoringConfirmed ? " success" : ""}`}>{monitoringConfirmed ? <ShieldCheck size={34} aria-hidden="true" /> : <HelpCircle size={34} aria-hidden="true" />}<strong>{t("alerts.noThresholdAlerts")}</strong><span>{t(!monitoringConfirmed ? "alerts.noThresholdAlertsUnknown" : acknowledgedGroups.length ? "alerts.noneActionable" : "alerts.noThresholdAlertsConfirmed")}</span></div>
+          : monitoringConfirmed ? <div className="empty-state success"><ShieldCheck size={34} aria-hidden="true" /><strong>{t("alerts.noThresholdAlerts")}</strong><span>{t(acknowledgedGroups.length ? "alerts.noneActionable" : "alerts.noThresholdAlertsConfirmed")}</span></div> : null
           : <div className="event-list">{actionableGroups.map((group) => { const sensor = state.sensors.find((candidate) => candidate.id === group.primary.sensorId); const sensorHouse = state.houses.find((candidate) => candidate.id === sensor?.houseId); return <AlertRow key={group.key} alerts={group.alerts} rule={group.rule} sensor={sensor} houseName={sensorHouse?.name} timeZone={sensorHouse?.timezone} definitions={definitions} units={units} locale={locale} onAcknowledge={readOnly ? undefined : onAcknowledge} onInspect={onInspectAlert} />; })}</div>}
         {acknowledgedGroups.length > 0 && <details className="acknowledged-alerts">
           <summary><span><Check size={15} aria-hidden="true" />{t("alerts.acknowledgedOpen")}</span><small>{t("alerts.acknowledgedCount", { count: acknowledgedGroups.length })}</small><ChevronDown size={16} aria-hidden="true" /></summary>
           <div className="event-list">{acknowledgedGroups.map((group) => { const sensor = state.sensors.find((candidate) => candidate.id === group.primary.sensorId); const sensorHouse = state.houses.find((candidate) => candidate.id === sensor?.houseId); return <AlertRow key={`acknowledged:${group.key}`} alerts={group.alerts} rule={group.rule} sensor={sensor} houseName={sensorHouse?.name} timeZone={sensorHouse?.timezone} definitions={definitions} units={units} locale={locale} onAcknowledge={readOnly ? undefined : onAcknowledge} onInspect={onInspectAlert} />; })}</div>
         </details>}
-      </section>
+      </section>}
 
       {!inventoryUnavailable && (!monitoringConfirmed ? <section className="alerts-monitoring-summary unknown" aria-labelledby="alerts-monitoring-heading">
         <span aria-hidden="true"><HelpCircle size={19} /></span>
@@ -154,25 +159,33 @@ function AlertsPageView({ state, units, onCreateRule, onUpdateRule, onAcknowledg
         <p>{t("alerts.monitoringConfirmedBody")}</p>
       </details>)}
 
-      {!readOnly && onIntegrationChange && <section className="alerts-delivery-settings" aria-labelledby="alerts-delivery-settings-title">
-        <header className="alerts-delivery-settings-heading">
-          <div><span className="eyebrow"><MessageCircle size={14} aria-hidden="true" />{t("alerts.deliverySettingsEyebrow")}</span><h2 id="alerts-delivery-settings-title">{t("alerts.deliverySettingsTitle")}</h2><p>{t("alerts.deliverySettingsDescription")}</p></div>
-        </header>
-        <TelegramSetupPanel
-          integration={state.integration}
-          onIntegrationChange={onIntegrationChange}
-          open={telegramSetupOpen}
-          onOpenChange={setTelegramSetupOpen}
-          titleId="alerts-telegram-setup-title"
-        />
-      </section>}
+      {!readOnly && onIntegrationChange && <details
+        className="panel alerts-delivery-settings"
+        open={deliverySettingsOpen}
+        onToggle={(event) => setDeliverySettingsOpen(event.currentTarget.open)}
+      >
+        <summary>
+          <MessageCircle size={17} aria-hidden="true" />
+          <span><span className="eyebrow">{t("alerts.deliverySettingsEyebrow")}</span><strong id="alerts-delivery-settings-title" role="heading" aria-level={2}>{t("alerts.deliverySettingsTitle")}</strong><small>{t("alerts.deliverySettingsDescription")}</small></span>
+          <ChevronDown size={16} aria-hidden="true" />
+        </summary>
+        <div className="alerts-delivery-settings-content">
+          <TelegramSetupPanel
+            integration={state.integration}
+            onIntegrationChange={onIntegrationChange}
+            open={telegramSetupOpen}
+            onOpenChange={setTelegramSetupOpen}
+            titleId="alerts-telegram-setup-title"
+          />
+        </div>
+      </details>}
 
       {!readOnly && <AlertOrchestrationPanel />}
 
       {!readOnly && <details className="panel alerts-rule-admin" aria-labelledby="rules-heading">
         <summary><span><strong id="rules-heading">{t("alerts.rules")}</strong><small>{state.alertRules.filter((item) => item.enabled).length} {t("common.on")}</small></span><ChevronDown size={16} aria-hidden="true" /></summary>
         <div>
-          <button type="button" className="secondary-button" onClick={() => setShowForm((value) => !value)} aria-expanded={showForm} aria-controls="new-rule-builder"><Plus size={16} aria-hidden="true" />{t("alerts.newRule")}</button>
+          <button type="button" className="secondary-button" onClick={() => setShowForm((value) => !value)} aria-expanded={showForm} aria-controls={showForm ? "new-rule-builder" : undefined}><Plus size={16} aria-hidden="true" />{t("alerts.newRule")}</button>
           {showForm && <section id="new-rule-builder" className="rule-builder" aria-labelledby="new-rule-heading">
             <div className="panel-header"><div><span className="eyebrow">{t("alerts.rules")}</span><h2 id="new-rule-heading">{t("alerts.newRule")}</h2></div></div>
             <form onSubmit={submit}>

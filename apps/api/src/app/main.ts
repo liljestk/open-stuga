@@ -14,6 +14,7 @@ import { registerCloudflareSetupRoutes } from "./cloudflare-setup-routes.js";
 import { registerLocationDiscoveryRoutes } from "./location-discovery-routes.js";
 import { registerMeasurementDefinitionRoutes } from "./measurement-definition-routes.js";
 import { registerNexus433Routes } from "./nexus433-routes.js";
+import { registerBugReportRoutes } from "./bug-report-routes.js";
 import { configureApiPart10 } from "./part-10.js";
 import { configureApiPart11 } from "./part-11.js";
 import { configureApiPart12 } from "./part-12.js";
@@ -52,6 +53,7 @@ export function createApi(options: CreateApiOptions = {}): ApiRuntime {
   registerLocationDiscoveryRoutes(context7);
   registerMeasurementDefinitionRoutes(context7);
   registerNexus433Routes(context7);
+  registerBugReportRoutes(context7);
   const context10 = configureApiPart10(context7);
   const context11 = configureApiPart11(context10);
   const context12 = configureApiPart12(context11);

@@ -1,6 +1,7 @@
 import {
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
   CircleAlert,
   CloudDownload,
   ExternalLink,
@@ -22,6 +23,7 @@ import {
   type SystemUpdateStatus,
 } from "../api";
 import { formatInTimeZone, twentyFourHourInputLocale } from "../dateTime";
+import { confirmAction } from "../components/ConfirmationProvider";
 import { useI18n } from "../i18n";
 import { HostSystemPanel } from "./HostSystemPanel";
 import "./SystemUpdatesPage.css";
@@ -227,7 +229,7 @@ export function SystemUpdatesPage() {
   };
 
   const install = async () => {
-    if (!status?.latestVersion || !window.confirm(t("updates.confirm", { version: status.latestVersion }))) return;
+    if (!status?.latestVersion || !await confirmAction(t("updates.confirm", { version: status.latestVersion }), t("confirmation.install"), false)) return;
     setBusy("install");
     setError(null);
     try {
@@ -326,21 +328,32 @@ export function SystemUpdatesPage() {
 
     {error && <div className="exception-banner" role="alert"><CircleAlert size={17} aria-hidden="true" /><span>{error}</span></div>}
 
-    <section className="updates-version-grid" aria-label={t("updates.versionSummary")}>
-      <div className="panel updates-version-card">
-        <span>{t("updates.installed")}</span>
-        <strong>v{status.currentVersion}</strong>
-        <small>{t("updates.runningNow")}</small>
+    <section className={`panel updates-summary ${status.updateAvailable ? "available" : "current"}`} aria-label={t("updates.versionSummary")}>
+      <span className="updates-summary-icon" aria-hidden="true">
+        {status.updateAvailable ? <CloudDownload size={22} /> : <CheckCircle2 size={22} />}
+      </span>
+      <div className="updates-summary-copy">
+        <span className="eyebrow">{status.updateAvailable ? t("updates.available") : t("updates.upToDate")}</span>
+        <dl className="updates-version-summary">
+          <div><dt>{t("updates.installed")}</dt><dd>v{status.currentVersion}</dd></div>
+          <div><dt>{t("updates.latest")}</dt><dd>{status.latestVersion ? `v${status.latestVersion}` : "—"}</dd></div>
+          <div><dt>{t("updates.agent")}</dt><dd>{capabilityLabel}</dd></div>
+        </dl>
+        <p className="updates-agent-summary">{status.capability.runtime ? t(`updates.runtime.${status.capability.runtime}`) : t("updates.agentNeeded")}</p>
+        {!status.capability.available && <small className="updates-capability-warning">{capabilityHelp}</small>}
+        {status.checkError && <small className="field-error">{status.checkError}</small>}
       </div>
-      <div className="panel updates-version-card latest">
-        <span>{t("updates.latest")}</span>
-        <strong>{status.latestVersion ? `v${status.latestVersion}` : "—"}</strong>
-        <small>{status.updateAvailable ? t("updates.available") : t("updates.upToDate")}</small>
-      </div>
-      <div className="panel updates-version-card">
-        <span>{t("updates.agent")}</span>
-        <strong>{capabilityLabel}</strong>
-        <small>{status.capability.runtime ? t(`updates.runtime.${status.capability.runtime}`) : t("updates.agentNeeded")}</small>
+      <div className="updates-summary-actions">
+        {status.updateAvailable && <button
+          type="button"
+          className="primary-button"
+          disabled={!status.capability.available || operationActive || busy !== null}
+          onClick={() => void install()}
+        >
+          <CloudDownload size={16} aria-hidden="true" />
+          {busy === "install" ? t("updates.requesting") : t("updates.installNow")}
+        </button>}
+        {status.lastCheckedAt && <small>{t("updates.lastChecked", { date: dateTime(status.lastCheckedAt, locale) })}</small>}
       </div>
     </section>
 
@@ -419,41 +432,37 @@ export function SystemUpdatesPage() {
     </section>}
 
     <div className="updates-layout">
-      <section className="panel updates-release" aria-labelledby="latest-release-title">
-        <div className="panel-header">
-          <div>
-            <span className="eyebrow"><ShieldCheck size={14} aria-hidden="true" />{t("updates.releaseEyebrow")}</span>
-            <h2 id="latest-release-title">{status.latestRelease?.name ?? t("updates.noRelease")}</h2>
-            {status.latestRelease && <p>{t("updates.published", { date: dateTime(status.latestRelease.publishedAt, locale) })}</p>}
+      <details className="panel updates-disclosure updates-release">
+        <summary>
+          <ShieldCheck size={18} aria-hidden="true" />
+          <span className="updates-disclosure-copy">
+            <span className="eyebrow">{t("updates.releaseEyebrow")}</span>
+            <strong id="latest-release-title" role="heading" aria-level={3}>{status.latestRelease?.name ?? t("updates.noRelease")}</strong>
+            {status.latestRelease && <small>{t("updates.published", { date: dateTime(status.latestRelease.publishedAt, locale) })}</small>}
+          </span>
+          <ChevronDown className="updates-disclosure-chevron" size={18} aria-hidden="true" />
+        </summary>
+        <div className="updates-disclosure-content">
+          {status.latestRelease && <div className="updates-release-toolbar">
+            <a className="secondary-button" href={status.latestRelease.url} target="_blank" rel="noreferrer"><ExternalLink size={15} aria-hidden="true" />{t("updates.openGithub")}</a>
+          </div>}
+          <div className="release-notes" role="region" aria-labelledby="latest-release-title" tabIndex={0}>
+            {status.latestRelease?.notes || t("updates.noNotes")}
           </div>
-          {status.latestRelease && <a className="icon-button" href={status.latestRelease.url} target="_blank" rel="noreferrer" aria-label={t("updates.openGithub")}><ExternalLink size={17} /></a>}
         </div>
-        <div className="release-notes" tabIndex={0}>
-          {status.latestRelease?.notes || t("updates.noNotes")}
-        </div>
-        <div className="updates-release-actions">
-          <button
-            type="button"
-            className="primary-button"
-            disabled={!status.updateAvailable || !status.capability.available || operationActive || busy !== null}
-            onClick={() => void install()}
-          >
-            <CloudDownload size={16} aria-hidden="true" />
-            {busy === "install" ? t("updates.requesting") : t("updates.installNow")}
-          </button>
-          {!status.capability.available && <small>{capabilityHelp}</small>}
-          {status.lastCheckedAt && <small>{t("updates.lastChecked", { date: dateTime(status.lastCheckedAt, locale) })}</small>}
-          {status.checkError && <small className="field-error">{status.checkError}</small>}
-        </div>
-      </section>
+      </details>
 
-      <section className="panel updates-settings" aria-labelledby="update-settings-title">
-        <div className="panel-header">
-          <div>
-            <span className="eyebrow"><CalendarClock size={14} aria-hidden="true" />{t("updates.scheduleEyebrow")}</span>
-            <h2 id="update-settings-title">{t("updates.scheduleTitle")}</h2>
-          </div>
-        </div>
+      <details className="panel updates-disclosure updates-settings">
+        <summary>
+          <CalendarClock size={18} aria-hidden="true" />
+          <span className="updates-disclosure-copy">
+            <span className="eyebrow">{t("updates.scheduleEyebrow")}</span>
+            <strong id="update-settings-title" role="heading" aria-level={3}>{t("updates.scheduleTitle")}</strong>
+            <small>{draft.mode === "automatic" ? t("updates.automatic") : t("updates.manual")}</small>
+          </span>
+          <ChevronDown className="updates-disclosure-chevron" size={18} aria-hidden="true" />
+        </summary>
+        <div className="updates-disclosure-content">
         <div className="updates-mode" role="radiogroup" aria-label={t("updates.mode")}>
           <label><input type="radio" name="update-mode" checked={draft.mode === "manual"} onChange={() => setDraft({ ...draft, mode: "manual" })} /><span><strong>{t("updates.manual")}</strong><small>{t("updates.manualHelp")}</small></span></label>
           <label><input type="radio" name="update-mode" checked={draft.mode === "automatic"} onChange={() => setDraft({ ...draft, mode: "automatic" })} /><span><strong>{t("updates.automatic")}</strong><small>{t("updates.automaticHelp")}</small></span></label>
@@ -471,7 +480,8 @@ export function SystemUpdatesPage() {
         <label className="check-field"><input type="checkbox" checked={draft.includePrereleases} onChange={(event) => setDraft({ ...draft, includePrereleases: event.target.checked })} /><span>{t("updates.prereleases")}</span></label>
         {status.nextUpdateWindowAt && <p className="updates-next-window">{t("updates.nextWindow", { date: dateTime(status.nextUpdateWindowAt, locale) })}</p>}
         <button type="button" className="secondary-button" disabled={!settingsChanged || busy !== null} onClick={() => void save()}><Save size={15} aria-hidden="true" />{busy === "save" ? t("common.saving") : t("updates.save")}</button>
-      </section>
+        </div>
+      </details>
     </div>
   </>;
 }

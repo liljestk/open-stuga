@@ -126,7 +126,10 @@ registerDatabaseMethods({
           throw new ClimateDataValidationError(404, "EQUIPMENT_AREA_NOT_FOUND", `Area ${areaId} does not exist`);
         }
         const targetHouse = houseId ? this.getHouse(houseId) : null;
-        if (houseId && !targetHouse) {
+        const retainedHiddenHouseId = houseId === (current.houseId ?? null)
+          ? houseId
+          : null;
+        if (houseId && !targetHouse && houseId !== retainedHiddenHouseId) {
           throw new ClimateDataValidationError(404, "EQUIPMENT_HOUSE_NOT_FOUND", `House ${houseId} does not exist`);
         }
         const targetPropertyId = targetArea?.propertyId ?? targetHouse?.propertyId ?? current.propertyId;
@@ -157,7 +160,7 @@ registerDatabaseMethods({
         };
         if (patch.location === null) delete next.location;
         else if (patch.location !== undefined) next.location = structuredClone(patch.location);
-        this.validateAreaEquipment(next);
+        this.validateAreaEquipment(next, retainedHiddenHouseId);
         try {
           this.db.prepare(`UPDATE area_equipment SET property_id = ?, area_id = ?, house_id = ?, location_json = ?,
             name = ?, kind = ?, manufacturer = ?, model = ?, serial_number = ?, status = ?, notes = ?, updated_at = ?
@@ -420,7 +423,7 @@ registerDatabaseMethods({
           ...(patch.text !== undefined ? { text: this.propertyRequiredText(patch.text, "Property note", 5_000) } : {}),
           updatedAt: this.nextUpdatedAt(current.updatedAt),
         };
-        this.validatePropertyNote(next);
+        this.validatePropertyNote(next, next.houseId === current.houseId ? current.houseId : null);
         this.db.prepare(`UPDATE property_notes
           SET house_id = ?, area_id = ?, equipment_id = ?, kind = ?, text = ?, updated_at = ? WHERE id = ?`)
           .run(next.houseId, next.areaId, next.equipmentId, next.kind, next.text, next.updatedAt, id);

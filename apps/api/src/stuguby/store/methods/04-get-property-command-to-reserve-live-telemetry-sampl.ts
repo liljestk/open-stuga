@@ -184,6 +184,16 @@ registerStugubyStoreMethods({
       return Number(this[stugubyStoreState].db.prepare(`UPDATE stugby_home_commands SET status='cancelled',updated_at=?
         WHERE stugby_id=? AND status='pending'`).run(now, stugubyId).changes);
     },
+  cancelPendingHomeCommandsFor(this: StugubyStoreInternals,
+      stugubyId: string,
+      authorityNodeId: string,
+      publicationId: string,
+      now = new Date().toISOString(),
+    ): number {
+      return Number(this[stugubyStoreState].db.prepare(`UPDATE stugby_home_commands SET status='cancelled',updated_at=?
+        WHERE stugby_id=? AND authority_node_id=? AND publication_id=? AND status='pending'`)
+        .run(now, stugubyId, authorityNodeId, publicationId).changes);
+    },
   propertyFieldRevisions(this: StugubyStoreInternals, stugubyId: string, entityKind: StugubyPropertyEntityKind, entityId: string): Record<string, number> {
       const rows = this[stugubyStoreState].db.prepare(`SELECT field_name,revision FROM stugby_property_entity_fields
         WHERE stugby_id=? AND entity_kind=? AND entity_id=?`)

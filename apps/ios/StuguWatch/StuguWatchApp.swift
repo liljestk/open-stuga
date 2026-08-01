@@ -127,7 +127,8 @@ private struct StuguWatchHomeView: View {
         case "critical": "exclamationmark.octagon.fill"
         case "attention": "exclamationmark.triangle.fill"
         case "limited": "circle.dashed"
-        default: "checkmark.circle.fill"
+        case "balanced": "checkmark.circle.fill"
+        default: "circle.dashed"
         }
     }
 
@@ -136,7 +137,8 @@ private struct StuguWatchHomeView: View {
         case "critical": .red
         case "attention": .orange
         case "limited": .secondary
-        default: .green
+        case "balanced": .green
+        default: .secondary
         }
     }
 
@@ -211,12 +213,18 @@ private final class StuguWatchModel: NSObject, ObservableObject, WCSessionDelega
             createdAt: ISO8601DateFormatter().string(from: Date()),
             context: context
         )
-        actionStore.enqueue(action)
+        guard actionStore.enqueue(action) else { return }
         pendingAlertIDs.insert(alert.id)
         flushActions()
     }
 
     private func receive(_ payload: [String: Any]) {
+        if let receiptID = payload[
+            WatchCompanionPayload.actionReceiptIDKey
+        ] as? String,
+           receiptID.count <= 200 {
+            _ = actionStore.remove(id: receiptID)
+        }
         guard let data = payload[WatchCompanionPayload.snapshotDataKey] as? Data,
               let snapshot = try? JSONDecoder().decode(
                 WatchHomeSnapshot.self,
@@ -242,7 +250,6 @@ private final class StuguWatchModel: NSObject, ObservableObject, WCSessionDelega
             session.transferUserInfo([
                 WatchCompanionPayload.actionDataKey: data,
             ])
-            actionStore.remove(id: action.id)
         }
     }
 
@@ -294,27 +301,34 @@ private struct WatchSnapshotStore {
     }
 
     func save(_ snapshot: WatchHomeSnapshot) {
-        WatchStorageURL.write(snapshot, to: fileURL)
+        _ = WatchStorageURL.write(snapshot, to: fileURL)
     }
 }
 
 private struct WatchActionOutbox {
     private let fileURL = WatchStorageURL.file("watch-actions-v1.json")
 
-    func load() -> [WatchCompanionAction] {
+    func load(now: Date = Date()) -> [WatchCompanionAction] {
         guard let data = try? Data(contentsOf: fileURL) else { return [] }
-        return (try? JSONDecoder().decode([WatchCompanionAction].self, from: data))
-            ?? []
+        let actions = (try? JSONDecoder().decode(
+            [WatchCompanionAction].self,
+            from: data
+        )) ?? []
+        let retained = actions.filter { $0.isWithinDeliveryWindow(at: now) }
+        if retained.count != actions.count {
+            _ = WatchStorageURL.write(retained, to: fileURL)
+        }
+        return retained
     }
 
-    func enqueue(_ action: WatchCompanionAction) {
+    func enqueue(_ action: WatchCompanionAction) -> Bool {
         var values = load()
-        guard !values.contains(where: { $0.id == action.id }) else { return }
+        guard !values.contains(where: { $0.id == action.id }) else { return true }
         values.append(action)
-        WatchStorageURL.write(Array(values.suffix(50)), to: fileURL)
+        return WatchStorageURL.write(Array(values.suffix(50)), to: fileURL)
     }
 
-    func remove(id: String) {
+    func remove(id: String) -> Bool {
         WatchStorageURL.write(
             load().filter { $0.id != id },
             to: fileURL
@@ -334,19 +348,24 @@ private enum WatchStorageURL {
             .appendingPathComponent(name)
     }
 
-    static func write<Value: Encodable>(_ value: Value, to url: URL) {
-        try? FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        guard let data = try? JSONEncoder().encode(value) else { return }
-        try? data.write(
-            to: url,
-            options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
-        )
+    static func write<Value: Encodable>(_ value: Value, to url: URL) -> Bool {
+        guard let data = try? JSONEncoder().encode(value) else { return false }
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(
+                to: url,
+                options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+            )
+        } catch {
+            return false
+        }
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         var protectedURL = url
         try? protectedURL.setResourceValues(values)
+        return true
     }
 }

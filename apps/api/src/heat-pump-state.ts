@@ -3,6 +3,7 @@ import type { ClimateDatabase } from "./db.js";
 
 interface StateRow {
   state_json: string;
+  house_id?: string;
 }
 
 interface HistoryRow extends StateRow {
@@ -27,10 +28,12 @@ export class HeatPumpStateStore {
   constructor(private readonly database: ClimateDatabase) {}
 
   record(state: HeatPumpState): boolean {
+    if (!this.database.getHouse(state.houseId)) return false;
     return this.database.transaction(() => {
       const row = this.database.db.prepare(
-        "SELECT state_json FROM heat_pump_state_current WHERE connection_id = ?",
+        "SELECT state_json, house_id FROM heat_pump_state_current WHERE connection_id = ?",
       ).get(state.connectionId) as unknown as StateRow | undefined;
+      if (row?.house_id && row.house_id !== state.houseId) return false;
       const changed = !row || semanticState(stateFromRow(row)) !== semanticState(state);
       const encoded = JSON.stringify(state);
       this.database.db.prepare(`
@@ -70,12 +73,15 @@ export class HeatPumpStateStore {
   current(houseId?: string): HeatPumpState[] {
     const rows = (houseId
       ? this.database.db.prepare(`
-          SELECT state_json FROM heat_pump_state_current
-          WHERE house_id = ? ORDER BY observed_at DESC, connection_id
+          SELECT state.state_json FROM heat_pump_state_current AS state
+          JOIN houses AS house ON house.id = state.house_id
+          WHERE state.house_id = ? AND house.deleted_at IS NULL
+          ORDER BY state.observed_at DESC, state.connection_id
         `).all(houseId)
       : this.database.db.prepare(`
-          SELECT state_json FROM heat_pump_state_current
-          ORDER BY observed_at DESC, connection_id
+          SELECT state.state_json FROM heat_pump_state_current AS state
+          JOIN houses AS house ON house.id = state.house_id
+          WHERE house.deleted_at IS NULL ORDER BY state.observed_at DESC, state.connection_id
         `).all()) as unknown as StateRow[];
     return rows.map(stateFromRow);
   }
@@ -84,7 +90,7 @@ export class HeatPumpStateStore {
     connectionId: string,
     options: { from?: string; to?: string; limit?: number } = {},
   ): HeatPumpState[] {
-    const filters = ["connection_id = ?"];
+    const filters = ["state.connection_id = ?", "house.deleted_at IS NULL"];
     const values: Array<string | number> = [connectionId];
     if (options.from) {
       filters.push("observed_at >= ?");
@@ -97,9 +103,10 @@ export class HeatPumpStateStore {
     const limit = Math.max(1, Math.min(1_000, options.limit ?? 250));
     values.push(limit);
     const rows = this.database.db.prepare(`
-      SELECT state_json FROM heat_pump_state_history
+      SELECT state.state_json FROM heat_pump_state_history AS state
+      JOIN houses AS house ON house.id = state.house_id
       WHERE ${filters.join(" AND ")}
-      ORDER BY observed_at DESC, id DESC LIMIT ?
+      ORDER BY state.observed_at DESC, state.id DESC LIMIT ?
     `).all(...values) as unknown as StateRow[];
     return rows.map(stateFromRow);
   }

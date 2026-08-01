@@ -2,8 +2,14 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HostSystemHealth } from "@climate-twin/contracts";
 import { api, type SystemUpdateStatus } from "../api";
+import { confirmAction } from "../components/ConfirmationProvider";
 import { I18nProvider } from "../i18n";
 import { SystemUpdatesPage } from "./SystemUpdatesPage";
+
+vi.mock("../components/ConfirmationProvider", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../components/ConfirmationProvider")>();
+  return { ...actual, confirmAction: vi.fn().mockResolvedValue(true) };
+});
 
 const status: SystemUpdateStatus = {
   currentVersion: "0.5.0",
@@ -99,6 +105,7 @@ const hostHealth: HostSystemHealth = {
 };
 
 beforeEach(() => {
+  vi.mocked(confirmAction).mockReset().mockResolvedValue(true);
   vi.spyOn(api, "hostSystemHealth").mockResolvedValue(hostHealth);
 });
 afterEach(() => vi.restoreAllMocks());
@@ -111,15 +118,22 @@ describe("system updates page", () => {
     expect(await screen.findByText("Safer system updates")).toBeTruthy();
     expect(screen.getByText("v0.5.0")).toBeTruthy();
     expect(screen.getByText("v0.6.0")).toBeTruthy();
-    expect(screen.getByText(/Rollback on failed health checks/)).toBeTruthy();
     expect(
       (screen.getByRole("button", { name: "Update now" }) as HTMLButtonElement).disabled
     ).toBe(false);
     expect(screen.getByRole("heading", { name: "System", level: 1 })).toBeTruthy();
+    const hostMetricsSummary = screen.getByText("Metrics and alert thresholds").closest("summary")!;
+    expect(hostMetricsSummary.closest("details")?.open).toBe(false);
+    fireEvent.click(hostMetricsSummary);
     expect(screen.getByText("24.5%")).toBeTruthy();
     expect(screen.getByText("22.4 ms")).toBeTruthy();
-    fireEvent.click(screen.getByText("Metrics and alert thresholds"));
     expect(screen.getByRole("link", { name: "/api/v1/system/metrics" }).getAttribute("href")).toBe("/api/v1/system/metrics");
+    const releaseSummary = screen.getByText("Safer system updates").closest("summary")!;
+    const scheduleSummary = screen.getByText("When should updates install?").closest("summary")!;
+    expect(releaseSummary.closest("details")?.open).toBe(false);
+    expect(scheduleSummary.closest("details")?.open).toBe(false);
+    fireEvent.click(releaseSummary);
+    expect(screen.getByRole("region", { name: "Safer system updates" })).toHaveTextContent("Rollback on failed health checks");
   });
 
   it("presents sustained API scheduling delay as host strain", async () => {
@@ -197,6 +211,7 @@ describe("system updates page", () => {
     render(<I18nProvider><SystemUpdatesPage /></I18nProvider>);
 
     await screen.findByText("Safer system updates");
+    fireEvent.click(screen.getByText("When should updates install?").closest("summary")!);
     fireEvent.click(screen.getByRole("radio", { name: /Automatic/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Mon" }));
     fireEvent.click(screen.getByRole("button", { name: "Save update schedule" }));
@@ -253,7 +268,6 @@ describe("system updates page", () => {
 
   it("queues an ad-hoc update after explicit confirmation", async () => {
     vi.spyOn(api, "systemUpdateStatus").mockResolvedValue(status);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const install = vi.spyOn(api, "installLatestSystemUpdate").mockResolvedValue({
       ...status,
       operation: {
@@ -279,7 +293,7 @@ describe("system updates page", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Update now" }));
     await waitFor(() => expect(install).toHaveBeenCalledOnce());
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("0.6.0"));
+    expect(confirmAction).toHaveBeenCalledWith(expect.stringContaining("0.6.0"), "Install update", false);
     expect(await screen.findByText("Waiting for the update agent")).toBeTruthy();
     expect(screen.getByText("Prepare")).toBeTruthy();
     expect(screen.getByText("Live activity")).toBeTruthy();

@@ -274,24 +274,19 @@ describe("local maintenance tasks", () => {
     await request(runtime.app).get(`/api/v1/maintenance-tasks/${taskInput.id}`).expect(404);
   });
 
-  it("blocks house deletion until owned maintenance tasks are reassigned or deleted", async () => {
+  it("hides a Home without deleting Property-owned maintenance or its retained evidence", async () => {
     await request(runtime.app).post("/api/v1/maintenance-tasks").send(taskInput).expect(201);
     expect(runtime.database.listMaintenanceTaskRevisions(taskInput.id)).toHaveLength(1);
 
-    const blocked = await request(runtime.app).delete("/api/v1/houses/house-main").expect(409);
-    expect(blocked.body.error.code).toBe("HOUSE_HAS_MAINTENANCE_TASKS");
+    await request(runtime.app).delete("/api/v1/houses/house-main").expect(204);
     expect(runtime.database.getMaintenanceTask(taskInput.id)).not.toBeNull();
     expect(runtime.database.listMaintenanceTaskRevisions(taskInput.id)).toHaveLength(1);
-
-    await request(runtime.app).delete(`/api/v1/maintenance-tasks/${taskInput.id}`).expect(204);
-    await request(runtime.app).delete("/api/v1/houses/house-main").expect(204);
-
-    expect(runtime.database.getMaintenanceTask(taskInput.id)).toBeNull();
     expect(runtime.database.getObservation(observationInput.id)).toBeNull();
-    expect(runtime.database.listMaintenanceTaskRevisions(taskInput.id)).toEqual([]);
     expect(runtime.database.db.prepare(
       "SELECT COUNT(*) AS count FROM maintenance_task_observations WHERE maintenance_task_id = ?",
-    ).get(taskInput.id)).toMatchObject({ count: 0 });
+    ).get(taskInput.id)).toMatchObject({ count: 1 });
+    expect(runtime.database.db.prepare("SELECT COUNT(*) AS count FROM observations WHERE id = ?")
+      .get(observationInput.id)).toMatchObject({ count: 1 });
   });
 
   it("rejects client-owned timestamps, unknown fields, and contradictory lifecycle notes", async () => {

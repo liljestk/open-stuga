@@ -16,9 +16,25 @@ import { restoreDrill } from "./stugu-restore-drill.mjs";
 
 const operationsDirectory = resolve(process.env.BACKUP_OPERATIONS_DIRECTORY ?? "/app/runtime/backup-operations");
 const backupRoot = resolve(process.env.BACKUP_DIRECTORY ?? "/app/backups");
-const intervalHours = Math.max(1, Number(process.env.BACKUP_INTERVAL_HOURS ?? 24));
-const restoreDrillDays = Math.max(1, Number(process.env.RESTORE_DRILL_INTERVAL_DAYS ?? 30));
-const retentionCount = Math.max(2, Number(process.env.BACKUP_RETENTION_COUNT ?? 30));
+
+export function boundedSchedulerInteger(value, fallback, minimum, maximum, name) {
+  const raw = value?.trim();
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(`${name} must be a whole number from ${minimum} to ${maximum}`);
+  }
+  return parsed;
+}
+
+export function schedulerTimestampDue(value, intervalMs, now = Date.now()) {
+  const timestamp = typeof value === "string" ? Date.parse(value) : NaN;
+  return !Number.isFinite(timestamp) || timestamp > now || now - timestamp >= intervalMs;
+}
+
+const intervalHours = boundedSchedulerInteger(process.env.BACKUP_INTERVAL_HOURS, 24, 1, 8_760, "BACKUP_INTERVAL_HOURS");
+const restoreDrillDays = boundedSchedulerInteger(process.env.RESTORE_DRILL_INTERVAL_DAYS, 30, 1, 3_650, "RESTORE_DRILL_INTERVAL_DAYS");
+const retentionCount = boundedSchedulerInteger(process.env.BACKUP_RETENTION_COUNT, 30, 2, 10_000, "BACKUP_RETENTION_COUNT");
 const pollMs = 15_000;
 
 function readJson(path) {
@@ -102,8 +118,10 @@ async function work() {
   if (running) return;
   const current = status();
   const requestName = requestFiles()[0] ?? null;
-  const due = !current.latestVerifiedBackupAt
-    || Date.now() - Date.parse(current.latestVerifiedBackupAt) >= intervalHours * 3_600_000;
+  const due = schedulerTimestampDue(
+    current.latestVerifiedBackupAt,
+    intervalHours * 3_600_000,
+  );
   if (!requestName && !due) {
     atomicJson(join(operationsDirectory, "status.json"), { ...current, schedulerHealthy: true });
     return;
@@ -124,8 +142,10 @@ async function work() {
     await runVerify(output);
     const verifiedAt = new Date().toISOString();
     let latestRestoreDrillAt = current.latestRestoreDrillAt ?? null;
-    const drillDue = !latestRestoreDrillAt
-      || Date.now() - Date.parse(latestRestoreDrillAt) >= restoreDrillDays * 86_400_000;
+    const drillDue = schedulerTimestampDue(
+      latestRestoreDrillAt,
+      restoreDrillDays * 86_400_000,
+    );
     if (drillDue) {
       await restoreDrill(output);
       latestRestoreDrillAt = new Date().toISOString();

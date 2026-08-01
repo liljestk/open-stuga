@@ -352,11 +352,47 @@ export interface HouseLocation {
   /** ISO 3166-1 alpha-2 hint retained when place discovery supplied it. */
   countryCode?: string;
   /** How this suggestion was obtained; explicit user changes remain distinguishable. */
-  source?: "manual" | "place-search" | "browser-geolocation" | "home-assistant" | "map-placement";
+  source?: "manual" | "place-search" | "browser-geolocation" | "home-assistant" | "map-placement" | "property-location";
   confidence?: "high" | "medium" | "low";
   discoveredAt?: string;
   /** True once a person explicitly enters or adjusts this value. */
   userOverridden?: boolean;
+}
+
+/** True when Stugu may refresh a weather reference from its owning scope. */
+export function isAutomaticWeatherLocation(location: HouseLocation | null | undefined): boolean {
+  return location?.userOverridden !== true
+    && (location?.source === "property-location" || location?.source === "map-placement");
+}
+
+/** Copies a Property location into a Home-owned operational weather reference. */
+export function weatherLocationFromProperty(location: HouseLocation): HouseLocation {
+  return {
+    ...location,
+    source: "property-location",
+    userOverridden: false,
+  };
+}
+
+/** Copies a Home map placement into its operational weather reference. */
+export function weatherLocationFromMapPlacement(location: Pick<HouseMapPlacement, "latitude" | "longitude">): HouseLocation {
+  return {
+    latitude: location.latitude,
+    longitude: location.longitude,
+    source: "map-placement",
+    confidence: "high",
+    userOverridden: false,
+  };
+}
+
+/** Property weather is the default; a Home placement is the safe fallback. */
+export function automaticWeatherLocation(
+  propertyLocation: HouseLocation | null | undefined,
+  homePlacement: HouseMapPlacement | null | undefined,
+): HouseLocation | undefined {
+  if (propertyLocation) return weatherLocationFromProperty(propertyLocation);
+  if (homePlacement) return weatherLocationFromMapPlacement(homePlacement);
+  return undefined;
 }
 
 export interface DiscoveredLocation {

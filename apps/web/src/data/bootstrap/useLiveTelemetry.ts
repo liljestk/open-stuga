@@ -51,6 +51,7 @@ import { createDemoState, nextMockReading, snapshotToReadings, timeRangeHours, t
 import { appendLiveHistory, enabledDefinitions, legacyForecastSamples, readingSamples, upsertLatest } from "../../measurements";
 import { routeFromLocation } from "../../routing";
 import { publishHouseWeatherUpdate } from "../../useHouseWeather";
+import { deactivateAccountStorage } from "../../browserStorage";
 import { HEARTBEAT_POLL_MIN_INTERVAL_MS, LIVE_SERIES_SAMPLES, LIVE_TELEMETRY_BUFFER_LIMIT, PORTFOLIO_LOAD_CONCURRENCY, STREAM_BOOTSTRAP_WAIT_MS, advanceMockTelemetry, aggregateConnection, apiStatus, blankState, bufferLiveTelemetry, bufferSeriesValue, canonicalSeries, errorMessage, houseMutationKey, isDemoSource, isPollingCompatibilityHeartbeat, isRemoteSharedDemoTelemetry, legacySeries, loadPortfolioInBackground, mergeLegacySeries, mergeMeasurementSeries, metricForecastSamples, metricHistorySamples, optionalForecast, preserveMutatedSensorTelemetry, preserveSeriesCommittedDuringLoad, replaceFloor, replaceHouseSensors, replaceLoadedHouseTelemetry, replayBufferedLiveTelemetry, replayHouseInventory, replayHouseMutations, replayMaintenanceTaskMutation, sensorsFromSnapshots, seriesBucketSeconds, seriesLimit, seriesStateKey, settleInBackground, synchronizeSensorRoomLabels, unauthenticatedSession, withoutDemoTelemetry, withoutSensorIds } from "./support";
 import type { BootstrapStatus, BufferedHouseMutation, BufferedLiveTelemetry, BufferedSeriesTelemetry, DataMode, HistoricalSeriesWindow, HouseInventoryMutation, HouseMutationBuffer, LoadedTelemetryState, SeriesCommit, SeriesLoadState, SeriesLoadStatus, StreamConnections } from "./support";
 import type { LiveTelemetryActions, SessionLifecycleContext } from "./pipelineTypes";
@@ -59,6 +60,12 @@ export function useLiveTelemetry(
 ): SessionLifecycleContext & LiveTelemetryActions {
   const { initialHouseId, sessionLockedRef, sessionLocked, setSessionLocked, state, setStateInternal, setState, loading, setLoading, bootstrapStatus, setBootstrapStatus, bootstrapError, setBootstrapError, bootstrapAttempt, setBootstrapAttempt, dataMode, setDataMode, streamConnections, setStreamConnections, connection, pollingFallback, setPollingFallback, resourceErrors, setResourceErrors, seriesStates, setSeriesStates, scenario, setScenario, saveState, setSaveState, tpLinkDevices, setTpLinkDevices, tpLinkDevicesRef, tpLinkDevicesLoading, setTpLinkDevicesLoading, tpLinkDevicesError, setTpLinkDevicesError, tick, apiAvailable, dataModeRef, stateRef, streamConnectionsRef, hasReachedLiveConnection, hasHydratedActiveHouse, heartbeatPollAt, reconnectResyncTimer, heartbeatFallbackTimer, mutationRefreshTimer, sensorMoveQueues, sensorMoveVersions, persistedSensorPoints, activeHouseId, activeHouseLoadVersion, houseTelemetryVersions, seriesLoadVersions, seriesCommitVersions, seriesCommitSequence, tpLinkPollStatus, tpLinkRefreshVersion, pendingMeasurementSamples, measurementFlushTimer, saveStateTimer, activeTelemetryLoadBuffers, activeHouseMutationBuffers, activeSeriesTelemetryBuffers, activeInventoryMutationBuffers, activeStreamUnsubscribers, activeStreamGateReleases, sessionLifecycleEpoch, globalFieldVersions, recordResourceError, recordHouseMutation, recordInventoryMutation, applyIntegrationStatus, refreshTpLinkDevices, disconnectHomeAssistant, applyDetachedTpLinkSensors, disconnectTpLink, moveHomeAssistant, moveTpLink, loadHouseData, loadPortfolioHouseData, scheduleActiveHouseResync, updateStreamConnection, resetStreamConnections, handleHeartbeat } = context;
   const pendingLegacyReadings = useRef<Reading[]>([]);
+  const isActiveHouseSensor = useCallback((sensorId: string) => {
+      const houseId = activeHouseId.current;
+      return houseId !== null && stateRef.current.sensors.some((sensor) => (
+        sensor.id === sensorId && sensor.houseId === houseId
+      ));
+    }, []);
   const purgeSessionState = useCallback((locked: boolean) => {
       sessionLifecycleEpoch.current += 1;
       sessionLockedRef.current = locked;
@@ -145,6 +152,7 @@ export function useLiveTelemetry(
       setBootstrapAttempt((attempt) => attempt + 1);
     }, [purgeSessionState]);
   const endSession = useCallback(() => {
+      deactivateAccountStorage({ purge: true });
       purgeSessionState(true);
     }, [purgeSessionState]);
   useEffect(() => subscribeToApiAuthorizationChanges((change) => {
@@ -178,7 +186,10 @@ export function useLiveTelemetry(
         sample,
       ])).values()];
       setState((current) => {
-        const knownSensorIds = new Set(current.sensors.map((sensor) => sensor.id));
+        const currentHouseId = activeHouseId.current;
+        const knownSensorIds = new Set(current.sensors
+          .filter((sensor) => sensor.houseId === currentHouseId)
+          .map((sensor) => sensor.id));
         const acceptedReadings = readings.filter((reading) => knownSensorIds.has(reading.sensorId)
           && (current.integration.mock.mode !== "real" || !isDemoSource(reading.source))
           && !isRemoteSharedDemoTelemetry(current, reading.sensorId, reading.source));
@@ -254,7 +265,8 @@ export function useLiveTelemetry(
           : current);
       } else if (event.type === "reading" && "temperature" in event.data && "humidity" in event.data) {
         const reading = event.data;
-        if ((dataModeRef.current === "real" && isDemoSource(reading.source))
+        if (!isActiveHouseSensor(reading.sensorId)
+          || (dataModeRef.current === "real" && isDemoSource(reading.source))
           || isRemoteSharedDemoTelemetry(stateRef.current, reading.sensorId, reading.source)) return;
         for (const buffer of activeTelemetryLoadBuffers.current) {
           bufferLiveTelemetry(buffer, { type: "reading", data: reading });
@@ -286,9 +298,10 @@ export function useLiveTelemetry(
       } else if (event.type === "weather" && event.data.type === "weather.snapshot") {
         publishHouseWeatherUpdate(event.data);
       }
-    }, [applyIntegrationStatus, flushMeasurements, refreshTpLinkDevices]);
+    }, [applyIntegrationStatus, flushMeasurements, isActiveHouseSensor, refreshTpLinkDevices]);
   const handleMeasurement = useCallback((sample: MeasurementSample) => {
-      if ((dataModeRef.current === "real" && isDemoSource(sample.source))
+      if (!isActiveHouseSensor(sample.sensorId)
+        || (dataModeRef.current === "real" && isDemoSource(sample.source))
         || isRemoteSharedDemoTelemetry(stateRef.current, sample.sensorId, sample.source)) return;
       for (const buffer of activeTelemetryLoadBuffers.current) {
         bufferLiveTelemetry(buffer, { type: "measurement", data: sample });
@@ -302,7 +315,7 @@ export function useLiveTelemetry(
       if (measurementFlushTimer.current === null) {
         measurementFlushTimer.current = window.setTimeout(flushMeasurements, 16);
       }
-    }, [flushMeasurements]);
+    }, [flushMeasurements, isActiveHouseSensor]);
   const selectHouse = useCallback(async (houseId: string) => {
       activeHouseId.current = houseId;
       if (!apiAvailable.current) return;

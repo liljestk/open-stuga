@@ -34,6 +34,72 @@ describe("sensor data-gap recovery", () => {
     temporaryDirectory = null;
   });
 
+  it("applies the selected Home scope before the data-gap limit", async () => {
+    runtime = createApi({ config: config(), startBackground: false });
+    const mainHouse = runtime.database.getHouse("house-main")!;
+    const siblingHouse = runtime.database.createHouse({
+      id: "house-sibling",
+      propertyId: mainHouse.propertyId,
+      name: "Sibling Home",
+      timezone: mainHouse.timezone,
+      floors: [{
+        id: "sibling-floor",
+        name: "Ground",
+        width: 8,
+        height: 6,
+        elevation: 0,
+        walls: [],
+        rooms: [],
+      }],
+    });
+    runtime.database.createSensor({
+      id: "sensor-sibling",
+      houseId: siblingHouse.id,
+      floorId: "sibling-floor",
+      name: "Sibling sensor",
+      room: "",
+      model: "T310",
+      x: 1,
+      y: 1,
+      z: 1,
+      tags: [],
+      enabled: true,
+    });
+    for (const day of [1, 2]) {
+      const startedAt = `2026-07-0${day}T00:00:00.000Z`;
+      runtime.database.noteHistoricalSensorDataGap(
+        "sensor-01",
+        day === 1 ? "temperature" : "humidity",
+        "tp-link",
+        startedAt,
+        `2026-07-0${day}T01:00:00.000Z`,
+        `2026-07-0${day}T01:01:00.000Z`,
+      );
+    }
+    for (const day of [3, 4, 5]) {
+      runtime.database.noteHistoricalSensorDataGap(
+        "sensor-sibling",
+        "temperature",
+        "tp-link",
+        `2026-07-0${day}T00:00:00.000Z`,
+        `2026-07-0${day}T01:00:00.000Z`,
+        `2026-07-0${day}T01:01:00.000Z`,
+      );
+    }
+
+    await request(runtime.app)
+      .get("/api/v1/integrations/sensor-data-gaps?houseId=house-main&limit=2")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.gaps).toHaveLength(2);
+        expect(body.gaps.map((gap: { sensorId: string }) => gap.sensorId)).toEqual(["sensor-01", "sensor-01"]);
+        expect(body.gaps.map((gap: { startedAt: string }) => gap.startedAt)).toEqual([
+          "2026-07-02T00:00:00.000Z",
+          "2026-07-01T00:00:00.000Z",
+        ]);
+      });
+  });
+
   it("does not recover persisted integration gaps into a shared Home projection", async () => {
     runtime = createApi({ config: config(), startBackground: false });
     const from = "2026-07-01T00:00:00.000Z";

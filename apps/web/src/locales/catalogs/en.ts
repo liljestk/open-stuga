@@ -6,6 +6,7 @@ import { enPart5 } from "./en/05-automations-analytics";
 import { enPart6 } from "./en/06-analytics-developer";
 import { enPart7 } from "./en/07-developer-properties";
 import { enPart8 } from "./en/08-properties-setup";
+import { enBugReports } from "./en/bug-reports";
 
 export const en = {
   ...enPart1,
@@ -16,6 +17,7 @@ export const en = {
   ...enPart6,
   ...enPart7,
   ...enPart8,
+  ...enBugReports,
 } as const;
 
 export type TranslationKey = keyof typeof en;

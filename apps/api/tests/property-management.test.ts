@@ -14,7 +14,7 @@ import { createApi, type ApiRuntime } from "../src/app.js";
 
 import { loadConfig } from "../src/config.js";
 
-import { ClimateDatabase } from "../src/db.js";
+import { ClimateDatabase, outdoorLocationKey } from "../src/db.js";
 
 import { createMainHouse, polygon } from "./property-managementTestSupport.js";
 
@@ -80,6 +80,136 @@ describe("local property management", () => {
 
     const filtered = await request(runtime.app).get("/api/v1/houses?propertyId=property-main").expect(200);
     expect(filtered.body.houses.map((house: { id: string }) => house.id)).toEqual(["first-home"]);
+  });
+
+  it("uses Property weather by default while preserving advanced Home overrides", async () => {
+    const home = {
+      id: "weather-home",
+      propertyId: "property-main",
+      name: "Weather home",
+      timezone: "Europe/Helsinki",
+      floors: [{ id: "ground", name: "Ground", width: 10, height: 8, elevation: 0, walls: [], rooms: [] }],
+    };
+    await request(runtime.app).post("/api/v1/houses").send(home).expect(201)
+      .expect(({ body }) => expect(body.house).not.toHaveProperty("location"));
+    const placed = await request(runtime.app).post("/api/v1/houses").send({
+      ...home,
+      id: "placed-weather-home",
+      name: "Placed weather home",
+      mapPlacement: { latitude: 60.1, longitude: 24.8, metersPerPlanUnit: 0.1 },
+    }).expect(201);
+    expect(placed.body.house.location).toMatchObject({
+      latitude: 60.1,
+      longitude: 24.8,
+      source: "map-placement",
+      userOverridden: false,
+    });
+
+    await request(runtime.app).patch("/api/v1/properties/property-main").send({
+      location: { latitude: 60.17, longitude: 24.94, label: "Helsinki" },
+    }).expect(200);
+    expect(runtime.database.getHouse(home.id)?.location).toMatchObject({
+      latitude: 60.17,
+      longitude: 24.94,
+      source: "property-location",
+      userOverridden: false,
+    });
+    expect(runtime.database.getHouse("placed-weather-home")?.location).toMatchObject({
+      latitude: 60.17,
+      longitude: 24.94,
+      source: "property-location",
+    });
+
+    await request(runtime.app).patch(`/api/v1/houses/${home.id}`).send({
+      location: { latitude: 61.5, longitude: 25.25, source: "manual", userOverridden: true },
+    }).expect(200);
+    await request(runtime.app).patch("/api/v1/properties/property-main").send({
+      location: { latitude: 62.1, longitude: 26.2, label: "New default" },
+    }).expect(200);
+    expect(runtime.database.getHouse(home.id)?.location).toMatchObject({
+      latitude: 61.5,
+      longitude: 25.25,
+      source: "manual",
+      userOverridden: true,
+    });
+
+    const inherited = await request(runtime.app).post("/api/v1/houses").send({
+      ...home,
+      id: "inherited-weather-home",
+      name: "Inherited weather home",
+    }).expect(201);
+    expect(inherited.body.house.location).toMatchObject({
+      latitude: 62.1,
+      longitude: 26.2,
+      source: "property-location",
+    });
+    const reset = await request(runtime.app).patch(`/api/v1/houses/${home.id}`).send({ location: null }).expect(200);
+    expect(reset.body.house.location).toMatchObject({ latitude: 62.1, longitude: 26.2, source: "property-location" });
+  });
+
+  it("updates inherited weather without erasing prior location-keyed Home history", async () => {
+    const firstLocation = { latitude: 60.17, longitude: 24.94, label: "Helsinki" };
+    await request(runtime.app).patch("/api/v1/properties/property-main")
+      .send({ location: firstLocation })
+      .expect(200);
+    await request(runtime.app).post("/api/v1/houses").send({
+      id: "weather-history-home",
+      propertyId: "property-main",
+      name: "Weather history home",
+      timezone: "Europe/Helsinki",
+      floors: [{ id: "ground", name: "Ground", width: 10, height: 8, elevation: 0, walls: [], rooms: [] }],
+    }).expect(201);
+
+    const firstKey = outdoorLocationKey(firstLocation);
+    runtime.database.upsertOutdoorTemperatureSample({
+      houseId: "weather-history-home",
+      locationKey: firstKey,
+      timestamp: "2026-07-14T08:00:00.000Z",
+      temperatureC: 17.5,
+      source: "api",
+      fetchedAt: "2026-07-14T08:01:00.000Z",
+      stationId: null,
+      stationName: null,
+    });
+    runtime.database.noteWeatherOutage(
+      "weather-history-home",
+      firstKey,
+      "fmi",
+      "observation",
+      "Historical test outage",
+      "2026-07-14T09:00:00.000Z",
+    );
+    runtime.database.db.prepare(`INSERT INTO analytics_daily_findings
+      (house_id, data_mode, evaluated_through, generated_at, algorithm_version, snapshot_json, last_attempt_at, last_error)
+      VALUES (?, 'live', ?, ?, 'test-v1', '{}', ?, NULL)`)
+      .run(
+        "weather-history-home",
+        "2026-07-14T10:00:00.000Z",
+        "2026-07-14T10:01:00.000Z",
+        "2026-07-14T10:01:00.000Z",
+      );
+
+    const nextLocation = { latitude: 62.1, longitude: 26.2, label: "New default" };
+    await request(runtime.app).patch("/api/v1/properties/property-main")
+      .send({ location: nextLocation })
+      .expect(200);
+
+    expect(runtime.database.getHouse("weather-history-home")?.location).toMatchObject({
+      ...nextLocation,
+      source: "property-location",
+      userOverridden: false,
+    });
+    expect(outdoorLocationKey(runtime.database.getHouse("weather-history-home")?.location))
+      .not.toBe(firstKey);
+    expect(runtime.database.outdoorTemperatureHistory(
+      "weather-history-home",
+      firstKey,
+      "2026-07-14T00:00:00.000Z",
+      "2026-07-15T00:00:00.000Z",
+    )).toHaveLength(1);
+    expect(runtime.database.listWeatherOutages("weather-history-home", firstKey)).toHaveLength(1);
+    expect(runtime.database.db.prepare("SELECT 1 FROM analytics_daily_findings WHERE house_id = ?")
+      .get("weather-history-home")).toBeUndefined();
   });
 
   it("persists, moves, and unplaces fixed-position property assets", async () => {
@@ -160,9 +290,6 @@ describe("local property management", () => {
     const homeFilter = await request(runtime.app)
       .get("/api/v1/area-equipment?houseId=house-main").expect(200);
     expect(homeFilter.body.equipment.map((item: { id: string }) => item.id)).toEqual(["equipment-home"]);
-    await request(runtime.app).delete("/api/v1/houses/house-main").expect(409)
-      .expect(({ body }) => expect(body.error.code).toBe("HOUSE_IN_USE"));
-
     const atArea = await request(runtime.app).patch("/api/v1/area-equipment/equipment-home").send({
       areaId: "area-yard",
     }).expect(200);

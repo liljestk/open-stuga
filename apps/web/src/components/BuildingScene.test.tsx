@@ -442,6 +442,7 @@ describe("BuildingScene", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Open live home view" }));
+    fireEvent.click(document.querySelector(".twin-view-options > summary")!);
     fireEvent.click(await screen.findByRole("button", { name: "Edit layout" }));
     expect(onViewMode).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "3D building" }).getAttribute("aria-pressed")).toBe("true");

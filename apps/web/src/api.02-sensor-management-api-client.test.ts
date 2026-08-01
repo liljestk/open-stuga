@@ -38,6 +38,21 @@ describe("sensor management API client", () => {
     enabled: true,
   };
 
+  it("lists either the workspace sensor index or one home's sensors", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ sensors: [sensor] }),
+    } as Response);
+
+    await expect(api.sensors()).resolves.toEqual([sensor]);
+    await expect(api.sensors("house/main")).resolves.toEqual([sensor]);
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/sensors");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/sensors?houseId=house%2Fmain");
+  });
+
   it("creates and patches sensors through the canonical wrapped endpoints", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock

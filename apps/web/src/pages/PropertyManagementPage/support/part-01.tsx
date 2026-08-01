@@ -283,10 +283,10 @@ export function firstHouseFloor(name: string): HouseCreateInput["floors"][number
   };
 }
 
-export function targetLabel(note: PropertyNote, state: ClimateState): string {
+export function targetLabel(note: PropertyNote, state: ClimateState, hiddenHouseLabel?: string): string {
   if (note.equipmentId) return state.areaEquipment.find((item) => item.id === note.equipmentId)?.name ?? note.equipmentId;
   if (note.areaId) return state.propertyAreas.find((item) => item.id === note.areaId)?.name ?? note.areaId;
-  if (note.houseId) return state.houses.find((item) => item.id === note.houseId)?.name ?? note.houseId;
+  if (note.houseId) return state.houses.find((item) => item.id === note.houseId)?.name ?? hiddenHouseLabel ?? note.houseId;
   return state.properties.find((item) => item.id === note.propertyId)?.name ?? note.propertyId;
 }
 
