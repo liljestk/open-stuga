@@ -4,18 +4,31 @@ All notable Stugu releases are recorded here.
 
 ## Unreleased
 
+## 0.31.0 - 2026-08-02
+
+- Add an Owner/Admin-started, bearer-protected Streamable HTTP MCP endpoint
+  alongside the local stdio server, with the same fail-closed read-only tool
+  allowlist and explicit stop/revocation controls.
+- Let each Home schedule checksummed CSV exports to the installation NAS on a
+  daily, weekly, or monthly local-time cadence, with bounded retention and an
+  isolated storage worker.
 - Prevent temporary review databases from silently taking over the primary API
   port, and distinguish missing thermal evidence, unavailable history, and
   explicitly simulated demo estimates in the thermal comparison.
 - Keep file export and thermal comparison available from complete raw archive
   samples while optimized telemetry rollups catch up with live ingestion.
+- Improve Data & analytics export controls and the Set up provider-card layout
+  across desktop and narrow screens.
 - Generate SSH server host keys independently on each Raspberry Pi appliance's
   first boot and preserve them across A/B and application updates instead of
   allowing a cloned factory image to reuse one server identity.
 
-Upgrade impact: the first OS image adopting this change rotates an existing
-appliance's SSH host fingerprint once. Verify the new fingerprint through a
-trusted local or Raspberry Pi Connect console before updating `known_hosts`.
+Upgrade impact: startup creates the scheduled-export records and queue state;
+existing telemetry and storage configuration are preserved. Scheduled exports
+remain inactive until an Owner/Admin configures the NAS and enables a schedule.
+The first OS image adopting the SSH-key change rotates an existing appliance's
+fingerprint once. Verify it through a trusted local or Raspberry Pi Connect
+console before updating `known_hosts`.
 
 ## 0.30.0 - 2026-08-02
 
